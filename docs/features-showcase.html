@@ -1,0 +1,1020 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>APAP — Nuevo Aplicativo Web</title>
+    <style>
+        :root {
+            --primary: #1a5632;
+            --primary-light: #2d7a4a;
+            --primary-dark: #0e3d22;
+            --accent: #e8a838;
+            --accent-light: #f0c060;
+            --bg: #f5f5f0;
+            --surface: #ffffff;
+            --text: #1a1a1a;
+            --text-muted: #666;
+            --border: #ddd;
+            --radius: 12px;
+            --shadow: 0 2px 12px rgba(0,0,0,0.08);
+            --shadow-lg: 0 8px 32px rgba(0,0,0,0.12);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+        }
+
+        /* HERO */
+        .hero {
+            background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 50%, var(--primary-light) 100%);
+            color: white;
+            padding: 60px 40px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+        .hero::after {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.05'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+            pointer-events: none;
+        }
+        .hero h1 { font-size: 2.8em; font-weight: 800; margin-bottom: 8px; position: relative; }
+        .hero .subtitle { font-size: 1.2em; opacity: 0.9; position: relative; }
+        .hero .badge {
+            display: inline-block;
+            background: var(--accent);
+            color: var(--primary-dark);
+            padding: 6px 18px;
+            border-radius: 20px;
+            font-weight: 700;
+            font-size: 0.85em;
+            margin-top: 16px;
+            position: relative;
+        }
+
+        /* NAV */
+        .nav {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 0 40px;
+            display: flex;
+            gap: 0;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: var(--shadow);
+        }
+        .nav button {
+            background: none;
+            border: none;
+            padding: 16px 24px;
+            font-size: 0.95em;
+            font-weight: 600;
+            color: var(--text-muted);
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            transition: all 0.2s;
+        }
+        .nav button:hover { color: var(--primary); background: rgba(26,86,50,0.04); }
+        .nav button.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+        /* SECTIONS */
+        .section { display: none; padding: 40px; max-width: 1200px; margin: 0 auto; }
+        .section.active { display: block; }
+        .section h2 {
+            font-size: 1.8em;
+            color: var(--primary-dark);
+            margin-bottom: 24px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid var(--accent);
+        }
+
+        /* CARDS */
+        .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 24px; }
+        .card {
+            background: var(--surface);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 28px;
+            transition: transform 0.2s, box-shadow 0.2s;
+            border-left: 4px solid var(--primary);
+        }
+        .card:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
+        .card h3 { color: var(--primary); margin-bottom: 12px; font-size: 1.15em; }
+        .card p { color: var(--text-muted); font-size: 0.92em; }
+        .card .tag {
+            display: inline-block;
+            background: rgba(26,86,50,0.1);
+            color: var(--primary);
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 0.78em;
+            font-weight: 600;
+            margin-top: 12px;
+            margin-right: 4px;
+        }
+
+        /* TABLES */
+        .table-wrap { overflow-x: auto; margin: 20px 0; }
+        table { width: 100%; border-collapse: collapse; background: var(--surface); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
+        th { background: var(--primary); color: white; padding: 12px 16px; text-align: left; font-size: 0.88em; text-transform: uppercase; letter-spacing: 0.5px; }
+        td { padding: 12px 16px; border-bottom: 1px solid #eee; font-size: 0.92em; }
+        tr:last-child td { border-bottom: none; }
+        tr:hover td { background: rgba(26,86,50,0.03); }
+
+        /* STATE MACHINE */
+        .state-machine {
+            background: var(--surface);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 32px;
+            margin: 24px 0;
+        }
+        .state-machine h3 { color: var(--primary); margin-bottom: 20px; }
+        .states { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 24px; }
+        .state {
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.88em;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 2px solid transparent;
+        }
+        .state.terminal { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+        .state.active-state { background: #d1fae5; color: #065f46; border-color: #6ee7b7; }
+        .state.pending { background: #fef3c7; color: #92400e; border-color: #fcd34d; }
+        .state.normal { background: #dbeafe; color: #1e40af; border-color: #93c5fd; }
+        .state:hover { transform: scale(1.05); }
+        .state.selected { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(232,168,56,0.3); }
+
+        .transitions {
+            background: #f8faf8;
+            border-radius: 8px;
+            padding: 20px;
+            min-height: 80px;
+        }
+        .transitions h4 { color: var(--primary); margin-bottom: 12px; font-size: 0.95em; }
+        .transition-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 6px 14px;
+            margin: 4px;
+            font-size: 0.85em;
+        }
+        .transition-item .arrow { color: var(--accent); font-weight: 700; }
+
+        /* FEATURE DETAIL */
+        .feature-detail { margin: 24px 0; }
+        .feature-detail h3 { color: var(--primary); font-size: 1.3em; margin-bottom: 16px; }
+        .feature-detail h4 { color: var(--primary-light); margin: 20px 0 10px; font-size: 1.05em; }
+
+        .info-box {
+            background: linear-gradient(135deg, #f0fdf4, #dcfce7);
+            border-left: 4px solid var(--primary);
+            border-radius: 0 8px 8px 0;
+            padding: 16px 20px;
+            margin: 16px 0;
+            font-size: 0.92em;
+        }
+        .info-box strong { color: var(--primary-dark); }
+
+        .warning-box {
+            background: linear-gradient(135deg, #fffbeb, #fef3c7);
+            border-left: 4px solid var(--accent);
+            border-radius: 0 8px 8px 0;
+            padding: 16px 20px;
+            margin: 16px 0;
+            font-size: 0.92em;
+        }
+
+        /* ACCORDION */
+        .accordion { margin: 16px 0; }
+        .accordion-item { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; overflow: hidden; }
+        .accordion-header {
+            background: var(--surface);
+            padding: 14px 20px;
+            cursor: pointer;
+            font-weight: 600;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: background 0.2s;
+        }
+        .accordion-header:hover { background: #f8faf8; }
+        .accordion-header .icon { transition: transform 0.3s; font-size: 1.2em; }
+        .accordion-item.open .accordion-header .icon { transform: rotate(180deg); }
+        .accordion-body { padding: 0 20px; max-height: 0; overflow: hidden; transition: max-height 0.3s, padding 0.3s; }
+        .accordion-item.open .accordion-body { max-height: 2000px; padding: 16px 20px; }
+
+        /* TIMELINE */
+        .timeline { position: relative; padding-left: 30px; margin: 20px 0; }
+        .timeline::before {
+            content: '';
+            position: absolute;
+            left: 8px;
+            top: 0;
+            bottom: 0;
+            width: 3px;
+            background: linear-gradient(to bottom, var(--primary), var(--accent));
+            border-radius: 2px;
+        }
+        .timeline-item { position: relative; margin-bottom: 20px; padding-left: 20px; }
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: -26px;
+            top: 6px;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--primary);
+            border: 3px solid var(--accent);
+        }
+        .timeline-item .time-label { font-size: 0.8em; color: var(--text-muted); font-weight: 600; }
+        .timeline-item .time-content { font-size: 0.92em; margin-top: 4px; }
+
+        /* TECH STACK */
+        .stack-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; }
+        .stack-card {
+            background: var(--surface);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 24px;
+            text-align: center;
+        }
+        .stack-card .icon-large { font-size: 2.5em; margin-bottom: 12px; }
+        .stack-card h4 { color: var(--primary); margin-bottom: 8px; }
+        .stack-card .version { color: var(--accent); font-weight: 700; font-size: 0.85em; }
+        .stack-card p { color: var(--text-muted); font-size: 0.88em; margin-top: 8px; }
+
+        /* SEARCH DEMO */
+        .search-demo {
+            background: var(--surface);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 32px;
+            margin: 24px 0;
+        }
+        .search-bar {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        .search-bar input, .search-bar select {
+            padding: 10px 16px;
+            border: 2px solid var(--border);
+            border-radius: 8px;
+            font-size: 0.92em;
+            transition: border-color 0.2s;
+        }
+        .search-bar input:focus, .search-bar select:focus { outline: none; border-color: var(--primary); }
+        .search-bar input { flex: 1; min-width: 200px; }
+        .search-results { min-height: 100px; }
+        .result-item {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 12px 16px;
+            border: 1px solid #eee;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            transition: all 0.2s;
+        }
+        .result-item:hover { border-color: var(--primary); background: #f8fdf8; }
+        .result-avatar {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--primary), var(--primary-light));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 1.2em;
+            flex-shrink: 0;
+        }
+        .result-info { flex: 1; }
+        .result-info h4 { font-size: 0.95em; color: var(--text); }
+        .result-info p { font-size: 0.82em; color: var(--text-muted); }
+        .result-badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.78em;
+            font-weight: 600;
+        }
+        .badge-albergue { background: #dbeafe; color: #1e40af; }
+        .badge-acogida { background: #fef3c7; color: #92400e; }
+        .badge-adoptado { background: #d1fae5; color: #065f46; }
+
+        /* FOOTER */
+        .footer {
+            background: var(--primary-dark);
+            color: white;
+            text-align: center;
+            padding: 32px;
+            margin-top: 60px;
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+
+        /* RESPONSIVE */
+        @media (max-width: 768px) {
+            .hero { padding: 40px 20px; }
+            .hero h1 { font-size: 1.8em; }
+            .nav { padding: 0 16px; overflow-x: auto; }
+            .nav button { padding: 12px 16px; font-size: 0.85em; white-space: nowrap; }
+            .section { padding: 24px 16px; }
+            .card-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- HERO -->
+<div class="hero">
+    <h1>🐾 APAP — Nuevo Aplicativo Web</h1>
+    <div class="subtitle">Registro de Protectoras de Animales de Alcalá</div>
+    <div class="badge">Migración Legacy → Web · FastAPI + HTMX + InsForge</div>
+</div>
+
+<!-- NAV -->
+<div class="nav" id="nav">
+    <button class="active" onclick="showSection('overview')">Panorama</button>
+    <button onclick="showSection('features')">Funcionalidades</button>
+    <button onclick="showSection('states')">Máquinas de Estado</button>
+    <button onclick="showSection('timeline')">Línea de Tiempo</button>
+    <button onclick="showSection('search')">Búsqueda</button>
+    <button onclick="showSection('tech')">Stack Técnico</button>
+    <button onclick="showSection('migration')">Migración</button>
+</div>
+
+<!-- PANORAMA -->
+<div class="section active" id="overview">
+    <h2>Panorama del Nuevo APAP</h2>
+    <p style="font-size:1.05em; color:var(--text-muted); margin-bottom:32px;">
+        Una aplicación web moderna que reemplaza el sistema Access/VBA actual, manteniendo toda la funcionalidad de negocio 
+        pero con una arquitectura segura, escalable y mantenible.
+    </p>
+
+    <div class="card-grid">
+        <div class="card">
+            <h3>🐕 Ciclo de Vida del Animal</h3>
+            <p>Ficha central del animal con estado calculado, gestión de microchip, cronología completa de eventos y trazabilidad de ubicación.</p>
+            <span class="tag">Entidad central</span>
+            <span class="tag">Estado calculado</span>
+            <span class="tag">Timeline</span>
+        </div>
+        <div class="card">
+            <h3>🏠 Registro de Voluntarios</h3>
+            <p>Entidad de primer nivel con identificador estable. Referencias FK en todas las workflows — sin texto libre.</p>
+            <span class="tag">Nuevo requisito</span>
+            <span class="tag">FK obligatorio</span>
+        </div>
+        <div class="card">
+            <h3>📥 Entradas, Acogida y Adopción</h3>
+            <p>Flujos operativos core: entrada de animales, acogida temporal, adopción definitiva y devolución al propietario.</p>
+            <span class="tag">Workflow</span>
+            <span class="tag">Contratos</span>
+            <span class="tag">Lotes</span>
+        </div>
+        <div class="card">
+            <h3>💊 Salud y Cuidado</h3>
+            <p>Actuaciones sanitarias, terapias, recomendaciones y motor de tareas periódicas por especie y tipo de prueba.</p>
+            <span class="tag">Validación estricta</span>
+            <span class="tag">Periodicidad</span>
+        </div>
+        <div class="card">
+            <h3>📄 Documentos, Contratos e Informes</h3>
+            <p>Anexos en almacenamiento objetero, generación de contratos por plantilla, catálogo de materiales e informes trimestrales.</p>
+            <span class="tag">S3/Storage</span>
+            <span class="tag">PDF/DOCX</span>
+            <span class="tag">Informes</span>
+        </div>
+        <div class="card">
+            <h3>🔐 Acceso y Administración</h3>
+            <p>Autenticación Google OAuth + lista de permitidos. Panel de admin para gestionar usuarios autorizados.</p>
+            <span class="tag">OAuth</span>
+            <span class="tag">Allowlist</span>
+            <span class="tag">Roles</span>
+        </div>
+    </div>
+
+    <div class="info-box" style="margin-top:32px;">
+        <strong>📋 Orden de implementación:</strong> Los módulos se entregan incrementalmente. El Ciclo de Vida del Animal es la base 
+        (todo lo demás referencia animales). Después el Registro de Voluntarios, luego Entradas/Acogida/Adopción, 
+        después Salud, y finalmente Documentos/Contratos/Informes.
+    </div>
+</div>
+
+<!-- FUNCIONALIDADES -->
+<div class="section" id="features">
+    <h2>Funcionalidades Detalladas</h2>
+
+    <div class="accordion">
+        <!-- FEATURE 01 -->
+        <div class="accordion-item open">
+            <div class="accordion-header" onclick="toggleAccordion(this)">
+                <span>🐕 Feature 01 — Ciclo de Vida del Animal</span>
+                <span class="icon">▼</span>
+            </div>
+            <div class="accordion-body">
+                <div class="feature-detail">
+                    <h4>Identidad Central: Microchip</h4>
+                    <div class="table-wrap">
+                        <table>
+                            <tr><th>Concepto</th><th>Regla</th></tr>
+                            <tr><td>NCHIP</td><td>Número de microchip permanente; identificador de negocio principal en todas las features</td></tr>
+                            <tr><td>PTE* (chips provisionales)</td><td>Identificadores temporales asignados antes del registro del chip permanente</td></tr>
+                            <tr><td>Cambio de chip</td><td>Cuando un número de chip cambia, la actualización se propaga a todos los registros y archivos vinculados</td></tr>
+                            <tr><td>Unicidad del chip</td><td>Un chip mapea a un animal; el chip es la clave de unión para entrada, acogida, adopción, salud y documentos</td></tr>
+                        </table>
+                    </div>
+
+                    <h4>Estado Calculado (no editable)</h4>
+                    <div class="info-box">
+                        <strong>Regla crítica:</strong> El estado del animal (<code>Situacion</code>) se calcula dinámicamente a partir de registros activos. 
+                        <strong>Nunca</strong> se almacena como campo editable.
+                    </div>
+                    <div class="table-wrap">
+                        <table>
+                            <tr><th>Estado</th><th>Significado</th><th>Terminal</th></tr>
+                            <tr><td>Pendiente de Entrada</td><td>Entrada registrada pero no completada</td><td>No</td></tr>
+                            <tr><td>Pendiente de Nueva Situación</td><td>Situación anterior terminada; esperando siguiente acción</td><td>No</td></tr>
+                            <tr><td>Albergue</td><td>Animal en el albergue (ubicación física)</td><td>No</td></tr>
+                            <tr><td>Acogida</td><td>Animal en acogida temporal</td><td>No</td></tr>
+                            <tr><td>Adoptado</td><td>Adoptado permanentemente</td><td>No</td></tr>
+                            <tr><td>Entregado</td><td>Devuelto al propietario</td><td>Sí</td></tr>
+                            <tr><td>Fallecido / Eutanasia</td><td>Fallecido o eutanasia</td><td>Sí</td></tr>
+                            <tr><td>Incoherente</td><td>Inconsistencia de datos detectada</td><td>Sí</td></tr>
+                        </table>
+                    </div>
+
+                    <h4>Cronología de Eventos (Obligatoria)</h4>
+                    <p>Cada animal debe tener una línea de tiempo completa, cronológica y auditable de todos los eventos de su ciclo de vida.</p>
+                    <div class="table-wrap">
+                        <table>
+                            <tr><th>Tipo de Evento</th><th>Datos Requeridos</th></tr>
+                            <tr><td>Entrada / Ingreso al albergue</td><td>Fecha, origen, motivo, quién entregó el animal, estado a la llegada</td></tr>
+                            <tr><td>Colocación en acogida</td><td>Fecha inicio, casa de acogida, contexto de especie/capacidad</td></tr>
+                            <tr><td>Retorno de acogida</td><td>Fecha fin, motivo (finalización, conducta, médico, ruta de adopción)</td></tr>
+                            <tr><td>Adopción</td><td>Fecha, identidad del adoptante, referencia del contrato</td></tr>
+                            <tr><td>Devolución de adopción</td><td>Fecha, motivo, estado a la devolución</td></tr>
+                            <tr><td>Entrega al propietario</td><td>Fecha, identidad del destinatario, motivo</td></tr>
+                            <tr><td>Transferencia entre albergues</td><td>Albergue origen, albergue destino, fecha, motivo</td></tr>
+                            <tr><td>Fallecimiento</td><td>Fecha, causa (natural, eutanasia, enfermedad), estado notificación ARIAC</td></tr>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- FEATURE 02 -->
+        <div class="accordion-item">
+            <div class="accordion-header" onclick="toggleAccordion(this)">
+                <span>📥 Feature 02 — Entradas, Acogida y Adopción</span>
+                <span class="icon">▼</span>
+            </div>
+            <div class="accordion-body">
+                <div class="feature-detail">
+                    <h4>Entrada de Animales</h4>
+                    <p>Registra un animal que ingresa a la protectora. Captura origen, persona que lo entrega, contexto de entrada y documentación inicial.</p>
+                    
+                    <div class="info-box">
+                        <strong>Entradas Múltiples:</strong> Se permite registro por lotes: múltiples animales en una sesión con validación previa al commit. 
+                        Todo o nada: si un registro falla, se rechaza todo el lote.
+                    </div>
+
+                    <h4>Casas y Estancias de Acogida</h4>
+                    <div class="table-wrap">
+                        <table>
+                            <tr><th>Campo</th><th>Propósito</th></tr>
+                            <tr><td>Dirección, contacto</td><td>Cómo contactar a la casa de acogida</td></tr>
+                            <tr><td>Disponibilidad de coche</td><td>Capacidad de transporte</td></tr>
+                            <tr><td>Preferencia de especie</td><td>Qué especies acepta la casa</td></tr>
+                            <tr><td>Capacidad</td><td>Número máximo de animales que puede aceptar</td></tr>
+                        </table>
+                    </div>
+
+                    <div class="warning-box">
+                        <strong>Validación de capacidad:</strong> El sistema debe validar la capacidad en el momento de la asignación. 
+                        La capacidad se calcula como el conteo de estancias activas (sin fecha fin) para esa casa.
+                    </div>
+
+                    <h4>Adopción</h4>
+                    <p>Registra la colocación permanente de un animal con un adoptante. Captura identidad del adoptante, datos financieros, asignación de seguimiento y generación de contrato.</p>
+
+                    <div class="table-wrap">
+                        <table>
+                            <tr><th>Transición</th><th>Efecto en Estado</th><th>Efecto en Registro</th></tr>
+                            <tr><td>Acogida → Adopción</td><td>Acogida → Adoptado</td><td>Estancia de acogida recibe fecha fin; se crea registro de adopción</td></tr>
+                            <tr><td>Acogida → Retorno</td><td>Acogida → Pendiente de Nueva Situación</td><td>Estancia de acogida recibe fecha fin; sin registro de adopción</td></tr>
+                            <tr><td>Adopción → Devolución</td><td>Adoptado → Pendiente de Nueva Situación</td><td>Adopción recibe fecha de devolución; el animal re-entra al ciclo</td></tr>
+                        </table>
+                    </div>
+
+                    <h4>Tipos de Contrato</h4>
+                    <div class="table-wrap">
+                        <table>
+                            <tr><th>Tipo</th><th>Workflow</th><th>Descripción</th></tr>
+                            <tr><td>Entrada</td><td>Entrada</td><td>Contrato de entrada</td></tr>
+                            <tr><td>Acogida</td><td>Acogida</td><td>Acuerdo de acogida temporal</td></tr>
+                            <tr><td>Acogida Judicial</td><td>Acogida judicial</td><td>Acuerdo con cláusulas judiciales</td></tr>
+                            <tr><td>Adopción</td><td>Adopción</td><td>Contrato de adopción</td></tr>
+                            <tr><td>PreAdopción</td><td>Adopción</td><td>Acuerdo con cláusula de 20 días</td></tr>
+                            <tr><td>Cesión por Propietario</td><td>Entrada</td><td>Acuerdo de cesión</td></tr>
+                            <tr><td>Reserva de Adopción</td><td>Adopción</td><td>Plantilla de reserva</td></tr>
+                            <tr><td>Entrega a Propietario</td><td>Retorno</td><td>Contrato de devolución</td></tr>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- FEATURE 03 -->
+        <div class="accordion-item">
+            <div class="accordion-header" onclick="toggleAccordion(this)">
+                <span>💊 Feature 03 — Salud y Cuidado</span>
+                <span class="icon">▼</span>
+            </div>
+            <div class="accordion-body">
+                <div class="feature-detail">
+                    <h4>Actuaciones Sanitarias</h4>
+                    <div class="table-wrap">
+                        <table>
+                            <tr><th>Subtipo</th><th>Descripción</th></tr>
+                            <tr><td>Vacuna</td><td>Registro de vacunación</td></tr>
+                            <tr><td>Desparasitación</td><td>Desparasitación interna y externa</td></tr>
+                            <tr><td>Esterilización</td><td>Cirugía de esterilización</td></tr>
+                            <tr><td>Analítica común</td><td>Análisis estándar / análisis de sangre</td></tr>
+                            <tr><td>Otras anotaciones</td><td>Notas generales de salud</td></tr>
+                        </table>
+                    </div>
+
+                    <div class="warning-box">
+                        <strong>Validación de fechas estricta:</strong> La fecha de la actuación debe estar entre la fecha de nacimiento 
+                        y la fecha de defunción del animal. Se han encontrado violaciones en datos legacy — la app web debe implementar esta validación como regla de servicio.
+                    </div>
+
+                    <h4>Terapias y Recomendaciones</h4>
+                    <p>Las terapias son intervenciones de salud de nivel superior que pueden generar recomendaciones de seguimiento. El voluntario de terapia DEBE referenciar el Registro de Voluntarios (FK a <code>Volunteer.ID</code>).</p>
+
+                    <h4>Motor de Tareas Periódicas</h4>
+                    <div class="info-box">
+                        <strong>Cálculo:</strong> <code>próxima fecha = última fecha de acción + periodicidad en meses</code><br>
+                        <strong>Filtros:</strong> Solo animales vivos · Cachorros: pruebas específicas solo para perros menores de 8 meses · Por especie (CANINA / FELINA)
+                    </div>
+
+                    <h4>Lote de Actuaciones Sanitarias</h4>
+                    <p>Las actuaciones sanitarias por lotes pasan por un flujo: Borrador → Validada → Commiteada (o Rechazada). Todo o nada en la validación.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- FEATURE 04 -->
+        <div class="accordion-item">
+            <div class="accordion-header" onclick="toggleAccordion(this)">
+                <span>📄 Feature 04 — Documentos, Contratos e Informes</span>
+                <span class="icon">▼</span>
+            </div>
+            <div class="accordion-body">
+                <div class="feature-detail">
+                    <h4>Anexos</h4>
+                    <p>Almacenamiento de archivos vinculados a cualquier entidad del sistema. Los binarios se guardan en object storage (S3), la metadata en PostgreSQL.</p>
+
+                    <h4>Generación de Contratos</h4>
+                    <div class="table-wrap">
+                        <table>
+                            <tr><th>Aspecto</th><th>Regla</th></tr>
+                            <tr><td>Uno por tipo</td><td>Un contrato por tipo por entidad</td></tr>
+                            <tr><td>Por especie</td><td>Las plantillas difieren por especie (CANINA / FELINA)</td></tr>
+                            <tr><td>Por sexo</td><td>Cláusula de esterilización incluida/excluida según sexo</td></tr>
+                            <tr><td>Pre-adopción</td><td>Cláusula de decisión de 20 días</td></tr>
+                        </table>
+                    </div>
+
+                    <h4>Informes Personalizados</h4>
+                    <p>Los usuarios pueden definir, guardar y ejecutar informes SQL personalizados. La app web debe usar consultas parametrizadas, plantillas curadas o un constructor de consultas visual — <strong>nunca SQL crudo</strong>.</p>
+
+                    <h4>Informe Trimestral</h4>
+                    <div class="table-wrap">
+                        <table>
+                            <tr><th>Sección</th><th>Contenido</th><th>Fuente</th></tr>
+                            <tr><td>Censo</td><td>Población actual por especie</td><td>TbAnimales activos</td></tr>
+                            <tr><td>Movimientos</td><td>Conteo de entradas, acogidas, adopciones, retornos, fallecimientos</td><td>Múltiples tablas por rango de fechas</td></tr>
+                            <tr><td>Incidencias</td><td>Eventos notables</td><td>Entrada libre o registros vinculados</td></tr>
+                            <tr><td>Datos adicionales</td><td>Estadísticas complementarias</td><td>Diversas tablas</td></tr>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- MÁQUINAS DE ESTADO -->
+<div class="section" id="states">
+    <h2>Máquinas de Estado</h2>
+    <p style="color:var(--text-muted); margin-bottom:24px;">Haz clic en un estado para ver sus transiciones permitidas.</p>
+
+    <!-- Animal Lifecycle -->
+    <div class="state-machine">
+        <h3>🐕 Ciclo de Vida del Animal</h3>
+        <div class="states" id="animal-states">
+            <div class="state pending" data-state="pendiente-entrada" onclick="showTransitions('animal', this)">Pendiente de Entrada</div>
+            <div class="state pending" data-state="pendiente-nueva" onclick="showTransitions('animal', this)">Pend. Nueva Situación</div>
+            <div class="state normal" data-state="albergue" onclick="showTransitions('animal', this)">Albergue</div>
+            <div class="state normal" data-state="acogida" onclick="showTransitions('animal', this)">Acogida</div>
+            <div class="state normal" data-state="adoptado" onclick="showTransitions('animal', this)">Adoptado</div>
+            <div class="state terminal" data-state="entregado" onclick="showTransitions('animal', this)">Entregado</div>
+            <div class="state terminal" data-state="fallecido" onclick="showTransitions('animal', this)">Fallecido</div>
+            <div class="state terminal" data-state="eutanasia" onclick="showTransitions('animal', this)">Eutanasia</div>
+            <div class="state terminal" data-state="incoherente" onclick="showTransitions('animal', this)">Incoherente</div>
+        </div>
+        <div class="transitions" id="animal-transitions">
+            <h4>Selecciona un estado para ver sus transiciones</h4>
+        </div>
+    </div>
+
+    <!-- Foster Home -->
+    <div class="state-machine">
+        <h3>🏠 Estado de Casa de Acogida</h3>
+        <div class="states" id="foster-states">
+            <div class="state active-state" data-state="activa" onclick="showTransitions('foster', this)">Activa</div>
+            <div class="state terminal" data-state="inactiva" onclick="showTransitions('foster', this)">Inactiva</div>
+            <div class="state pending" data-state="capacidad-excedida" onclick="showTransitions('foster', this)">Capacidad Excedida</div>
+        </div>
+        <div class="transitions" id="foster-transitions">
+            <h4>Selecciona un estado para ver sus transiciones</h4>
+        </div>
+    </div>
+
+    <!-- Contract -->
+    <div class="state-machine">
+        <h3>📋 Ciclo de Vida del Contrato</h3>
+        <div class="states" id="contract-states">
+            <div class="state pending" data-state="borrador" onclick="showTransitions('contract', this)">Borrador</div>
+            <div class="state normal" data-state="pendiente-firma" onclick="showTransitions('contract', this)">Pendiente de Firma</div>
+            <div class="state active-state" data-state="firmado" onclick="showTransitions('contract', this)">Firmado</div>
+            <div class="state terminal" data-state="vencido" onclick="showTransitions('contract', this)">Vencido</div>
+            <div class="state terminal" data-state="anulado" onclick="showTransitions('contract', this)">Anulado</div>
+        </div>
+        <div class="transitions" id="contract-transitions">
+            <h4>Selecciona un estado para ver sus transiciones</h4>
+        </div>
+    </div>
+
+    <!-- Follow-Up -->
+    <div class="state-machine">
+        <h3>📋 Seguimiento Post-Adopción</h3>
+        <div class="states" id="followup-states">
+            <div class="state pending" data-state="pendiente" onclick="showTransitions('followup', this)">Pendiente</div>
+            <div class="state normal" data-state="documento-entregado" onclick="showTransitions('followup', this)">Documento Entregado</div>
+            <div class="state active-state" data-state="documento-adjunto" onclick="showTransitions('followup', this)">Documento Adjunto</div>
+            <div class="state active-state" data-state="completado" onclick="showTransitions('followup', this)">Seguimiento Completado</div>
+        </div>
+        <div class="transitions" id="followup-transitions">
+            <h4>Selecciona un estado para ver sus transiciones</h4>
+        </div>
+    </div>
+</div>
+
+<!-- LÍNEA DE TIEMPO -->
+<div class="section" id="timeline">
+    <h2>Línea de Tiempo del Animal</h2>
+    <p style="color:var(--text-muted); margin-bottom:24px;">
+        Ejemplo de la cronología completa que el sistema registra para cada animal. Cada intervalo entre eventos tiene una ubicación conocida.
+    </p>
+
+    <div class="timeline">
+        <div class="timeline-item">
+            <div class="time-label">15/01/2025 — Entrada al albergue</div>
+            <div class="time-content">
+                <strong>Rocky</strong> (NCHIP: 692000001234567) ingresa al albergue. Entregado por particular. 
+                Motivo: abandono. Estado: CANINO, macho, 3 años.
+            </div>
+        </div>
+        <div class="timeline-item">
+            <div class="time-label">20/01/2025 — Colocación en acogida</div>
+            <div class="time-content">
+                Rocky pasa a la casa de acogida de María García. Capacidad: 2 animales (1 ocupado).
+            </div>
+        </div>
+        <div class="timeline-item">
+            <div class="time-label">10/02/2025 — Retorno de acogida</div>
+            <div class="time-content">
+                Rocky retorna al albergue. Motivo: problemas de conducta con otro perro. 
+                Estado: Pendiente de Nueva Situación.
+            </div>
+        </div>
+        <div class="timeline-item">
+            <div class="time-label">01/03/2025 — Nueva acogida</div>
+            <div class="time-content">
+                Rocky pasa a la casa de acogida de Ana López. Casa diferente, mejor adaptación.
+            </div>
+        </div>
+        <div class="timeline-item">
+            <div class="time-label">15/03/2025 — Adopción</div>
+            <div class="time-content">
+                Rocky es adoptado por Carlos Ruiz. Contrato de adopción firmado. 
+                Cláusula de esterilización pendiente (>6 meses).
+            </div>
+        </div>
+        <div class="timeline-item">
+            <div class="time-label">01/04/2025 — Seguimiento</div>
+            <div class="time-content">
+                Documento de seguimiento entregado al adoptante. Pendiente de retorno.
+            </div>
+        </div>
+        <div class="timeline-item">
+            <div class="time-label">20/04/2025 — Seguimiento completado</div>
+            <div class="time-content">
+                Documento devuelto firmado. Proceso de seguimiento cerrado. Rocky está estable y adaptado.
+            </div>
+        </div>
+    </div>
+
+    <div class="info-box">
+        <strong>Regla de continuidad:</strong> Entre cada par de eventos, el sistema conoce la ubicación y el arreglo del animal. 
+        Los huecos en la línea de tiempo se marcan como defectos de calidad de datos para resolución manual.
+    </div>
+</div>
+
+<!-- BÚSQUEDA -->
+<div class="section" id="search">
+    <h2>Búsqueda Unificada</h2>
+    <p style="color:var(--text-muted); margin-bottom:24px;">
+        Demo interactivo de la funcionalidad de búsqueda. Los filtros se combinan para encontrar animales por chip, nombre, especie, sexo o estado.
+    </p>
+
+    <div class="search-demo">
+        <div class="search-bar">
+            <input type="text" id="search-input" placeholder="Buscar por chip, nombre..." oninput="filterResults()">
+            <select id="filter-species" onchange="filterResults()">
+                <option value="">Todas las especies</option>
+                <option value="canina">Canina 🐕</option>
+                <option value="felina">Felina 🐈</option>
+            </select>
+            <select id="filter-state" onchange="filterResults()">
+                <option value="">Todos los estados</option>
+                <option value="albergue">Albergue</option>
+                <option value="acogida">Acogida</option>
+                <option value="adoptado">Adoptado</option>
+            </select>
+        </div>
+        <div class="search-results" id="search-results"></div>
+    </div>
+
+    <div class="info-box">
+        <strong>Filtros disponibles:</strong> Chip (NCHIP) — coincidencia exacta o parcial · Nombre — subcadena insensible a mayúsculas · 
+        Especie — CANINA / FELINA · Sexo · Estado calculado · Rangos de fechas.
+    </div>
+</div>
+
+<!-- STACK TÉCNICO -->
+<div class="section" id="tech">
+    <h2>Stack Técnico</h2>
+    <p style="color:var(--text-muted); margin-bottom:24px;">
+        Arquitectura moderna, segura y mantenible. Cada componente cumple un rol específico.
+    </p>
+
+    <div class="stack-grid">
+        <div class="stack-card">
+            <div class="icon-large">⚡</div>
+            <h4>FastAPI</h4>
+            <div class="version">v0.136.3</div>
+            <p>Backend/BFF que sirve páginas completas y parciales HTMX. Reglas de negocio, autorización y orquestación.</p>
+        </div>
+        <div class="stack-card">
+            <div class="icon-large">🔄</div>
+            <h4>HTMX</h4>
+            <div class="version">v2.0.4</div>
+            <p>Interactividad progresiva sin SPA. Formularios, tablas, validación y transiciones sin recarga completa.</p>
+        </div>
+        <div class="stack-card">
+            <div class="icon-large">🎨</div>
+            <h4>Tailwind CSS</h4>
+            <div class="version">v4.3.1</div>
+            <p>Configuración CSS-first, motor en Rust. Compilación con CLI Node.js.</p>
+        </div>
+        <div class="stack-card">
+            <div class="icon-large">🗄️</div>
+            <h4>InsForge</h4>
+            <div class="version">PostgreSQL + Auth + Storage</div>
+            <p>Plataforma gestionada: base de datos, autenticación OAuth, almacenamiento de archivos y funciones serverless.</p>
+        </div>
+        <div class="stack-card">
+            <div class="icon-large">🚀</div>
+            <h4>Coolify</h4>
+            <div class="version">VPS</div>
+            <p>Despliegue y gestión de la aplicación en el servidor privado.</p>
+        </div>
+        <div class="stack-card">
+            <div class="icon-large">🔒</div>
+            <h4>Auth</h4>
+            <div class="version">Google OAuth + Allowlist</div>
+            <p>Autenticación vía Google OAuth (InsForge) + autorización por lista de permitidos en FastAPI.</p>
+        </div>
+    </div>
+
+    <div class="info-box" style="margin-top:32px;">
+        <strong>📋 Decisiones clave:</strong> Server-rendered HTMX (NO React/SPA) · Reglas de negocio en FastAPI, NO en el navegador · 
+        Modelo de datos rediseñado (sin deuda legacy) · Archivos binarios en object storage, NO en PostgreSQL ·
+        Chaves API de OpenRouter solo server-side.
+    </div>
+</div>
+
+<!-- MIGRACIÓN -->
+<div class="section" id="migration">
+    <h2>Plan de Migración</h2>
+
+    <div class="card-grid">
+        <div class="card" style="border-left-color: var(--accent);">
+            <h3>📊 Datos Legacy</h3>
+            <p>Fuente: <code>Registro_APAP_Alcala_181.accdb</code> (frontend) + <code>Registro_APAP_Alcala_datos_18.accdb</code> (backend). 
+            Sincronizados vía Dysflow.</p>
+            <span class="tag">Access/VBA</span>
+        </div>
+        <div class="card" style="border-left-color: var(--accent);">
+            <h3>📁 Archivos en Synology</h3>
+            <p>Carpeta <code>/Produccion/Anexos/</code> con ~600+ archivos (PDFs, JPEGs, DOCXs, MP4s). 
+            Solo lectura — se migran a InsForge Storage.</p>
+            <span class="tag">WebDAV</span>
+            <span class="tag">Solo lectura</span>
+        </div>
+        <div class="card" style="border-left-color: var(--accent);">
+            <h3>🔄 Voluntarios</h3>
+            <p>En legacy: nombres como texto libre en múltiples tablas. 
+            En la web: entidad de primer nivel con FK obligatorio. Deduplicación en migración.</p>
+            <span class="tag">Crítico</span>
+        </div>
+        <div class="card" style="border-left-color: var(--accent);">
+            <h3>📈 Estado Calculado</h3>
+            <p>En legacy: campo de texto editable. 
+            En la web: calculado dinámicamente desde registros activos. Nunca almacenable.</p>
+            <span class="tag">Rediseño</span>
+        </div>
+    </div>
+
+    <div class="warning-box" style="margin-top:24px;">
+        <strong>⚠️ Riesgos conocidos:</strong> Datos legacy con fechas inconsistentes (actuaciones antes del nacimiento o después del fallecimiento), 
+        voluntarios duplicados como texto libre, huecos en líneas de tiempo, y contratos generados vía COM (Word) que deben migrarse a generación por plantilla.
+    </div>
+
+    <h3 style="margin-top:32px; color:var(--primary);">Criterios de Aceptación</h3>
+    <div class="table-wrap">
+        <table>
+            <tr><th>Feature</th><th>Criterio</th><th>Estado</th></tr>
+            <tr><td>Ciclo de Vida</td><td>Estado calculado correctamente desde registros activos</td><td>📋 Pendiente</td></tr>
+            <tr><td>Ciclo de Vida</td><td>Línea de tiempo completa sin huecos para cada animal</td><td>📋 Pendiente</td></tr>
+            <tr><td>Voluntarios</td><td>FK obligatorio en todas las workflows; sin texto libre</td><td>📋 Pendiente</td></tr>
+            <tr><td>Entradas</td><td>Entradas múltiples con validación previa al commit</td><td>📋 Pendiente</td></tr>
+            <tr><td>Acogida</td><td>Validación de capacidad en momento de asignación</td><td>📋 Pendiente</td></tr>
+            <tr><td>Adopción</td><td>Transiciones atómicas (acogida→adopción, adopción→devolución)</td><td>📋 Pendiente</td></tr>
+            <tr><td>Salud</td><td>Validación de fechas estricta (entre nacimiento y fallecimiento)</td><td>📋 Pendiente</td></tr>
+            <tr><td>Salud</td><td>Motor de periodicidad con reglas por especie</td><td>📋 Pendiente</td></tr>
+            <tr><td>Documentos</td><td>Almacenamiento en object storage con metadata en DB</td><td>📋 Pendiente</td></tr>
+            <tr><td>Contratos</td><td>Generación por plantilla con condicionales de especie/sexo/edad</td><td>📋 Pendiente</td></tr>
+            <tr><td>Informes</td><td>Informes parametrizados (sin SQL crudo)</td><td>📋 Pendiente</td></tr>
+            <tr><td>Auth</td><td>Google OAuth + allowlist funcional</td><td>📋 Pendiente</td></tr>
+        </table>
+    </div>
+</div>
+
+<!-- FOOTER -->
+<div class="footer">
+    <p>🐾 APAP — Registro de Protectoras de Animales de Alcalá</p>
+    <p style="margin-top:8px; opacity:0.7;">Documento interactivo de funcionalidades · Junio 2026</p>
+</div>
+
+<script>
+// NAV
+function showSection(id) {
+    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+    document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+    event.target.classList.add('active');
+}
+
+// ACCORDION
+function toggleAccordion(header) {
+    const item = header.parentElement;
+    const wasOpen = item.classList.contains('open');
+    // Close all siblings
+    item.parentElement.querySelectorAll('.accordion-item').forEach(i => i.classList.remove('open'));
+    if (!wasOpen) item.classList.add('open');
+}
+
+// STATE MACHINES
+const transitions = {
+    animal: {
+        'pendiente-entrada': ['Albergue', 'Acogida', 'Adoptado', 'Fallecido'],
+        'pendiente-nueva': ['Albergue', 'Acogida', 'Adoptado', 'Fallecido'],
+        'albergue': ['Acogida', 'Adoptado', 'Fallecido'],
+        'acogida': ['Adoptado', 'Fallecido', 'Pend. Nueva Situación'],
+        'adoptado': ['Acogida', 'Fallecido', 'Pend. Nueva Situación'],
+        'entregado': ['— Terminal —'],
+        'fallecido': ['— Terminal —'],
+        'eutanasia': ['— Terminal —'],
+        'incoherente': ['— Terminal —']
+    },
+    foster: {
+        'activa': ['Inactiva', 'Capacidad Excedida'],
+        'inactiva': ['Activa'],
+        'capacidad-excedida': ['Activa', 'Inactiva']
+    },
+    contract: {
+        'borrador': ['Pendiente de Firma'],
+        'pendiente-firma': ['Firmado', 'Vencido', 'Anulado'],
+        'firmado': ['Anulado'],
+        'vencido': ['— Terminal —'],
+        'anulado': ['— Terminal —']
+    },
+    followup: {
+        'pendiente': ['Documento Entregado', 'Seguimiento Completado'],
+        'documento-entregado': ['Documento Adjunto'],
+        'documento-adjunto': ['Seguimiento Completado'],
+        'completado': ['— Terminal —']
+    }
+};
+
+function showTransitions(machine, el) {
+    // Clear selection
+    el.parentElement.querySelectorAll('.state').forEach(s => s.classList.remove('selected'));
+    el.classList.add('selected');
+    
+    const state = el.dataset.state;
+    const container = document.getElementById(machine + '-transitions');
+    const targets = transitions[machine][state];
+    
+    container.innerHTML = `<h4>Desde "${el.textContent}" →</h4>` + 
+        targets.map(t => `<span class="transition-item"><span class="arrow">→</span> ${t}</span>`).join('');
+}
+
+// SEARCH DEMO
+const sampleAnimals = [
+    { chip: '692000001234567', name: 'Rocky', species: 'canina', sex: 'Macho', state: 'adoptado', breed: 'Mestizo' },
+    { chip: '692000001234568', name: 'Luna', species: 'felina', sex: 'Hembra', state: 'acogida', breed: 'Siamés' },
+    { chip: '692000001234569', name: 'Max', species: 'canina', sex: 'Macho', state: 'albergue', breed: 'Labrador' },
+    { chip: '692000001234570', name: 'Nala', species: 'felina', sex: 'Hembra', state: 'adoptado', breed: 'Mestiza' },
+    { chip: '692000001234571', name: 'Bruno', species: 'canina', sex: 'Macho', state: 'albergue', breed: 'Pastor Alemán' },
+    { chip: '692000001234572', name: 'Mimi', species: 'felina', sex: 'Hembra', state: 'acogida', breed: 'Angora' },
+    { chip: '692000001234573', name: 'Toby', species: 'canina', sex: 'Macho', state: 'adoptado', breed: 'Beagle' },
+    { chip: '692000001234574', name: 'Cleo', species: 'felina', sex: 'Hembra', state: 'albergue', breed: 'Persa' },
+];
+
+function filterResults() {
+    const query = document.getElementById('search-input').value.toLowerCase();
+    const species = document.getElementById('filter-species').value;
+    const state = document.getElementById('filter-state').value;
+    
+    const filtered = sampleAnimals.filter(a => {
+        const matchQuery = !query || a.chip.includes(query) || a.name.toLowerCase().includes(query);
+        const matchSpecies = !species || a.species === species;
+        const matchState = !state || a.state === state;
+        return matchQuery && matchSpecies && matchState;
+    });
+    
+    const container = document.getElementById('search-results');
+    if (filtered.length === 0) {
+        container.innerHTML = '<p style="text-align:center; color:var(--text-muted); padding:20px;">No se encontraron resultados</p>';
+        return;
+    }
+    
+    container.innerHTML = filtered.map(a => {
+        const badgeClass = a.state === 'albergue' ? 'badge-albergue' : a.state === 'acogida' ? 'badge-acogida' : 'badge-adoptado';
+        const emoji = a.species === 'canina' ? '🐕' : '🐈';
+        return `
+            <div class="result-item">
+                <div class="result-avatar">${emoji}</div>
+                <div class="result-info">
+                    <h4>${a.name}</h4>
+                    <p>CHIP: ${a.chip} · ${a.breed} · ${a.sex}</p>
+                </div>
+                <span class="result-badge ${badgeClass}">${a.state.charAt(0).toUpperCase() + a.state.slice(1)}</span>
+            </div>`;
+    }).join('');
+}
+
+// Init search
+filterResults();
+
+// Init accordion - open first item
+document.querySelector('.accordion-item').classList.add('open');
+</script>
+
+</body>
+</html>
