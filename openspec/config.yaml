@@ -1,0 +1,46 @@
+schema: spec-driven
+
+context: |
+  Project: APAP (Registro de Protectoras de Animales de Alcalá)
+  Tech stack: Microsoft Access/VBA (legacy), future web migration target
+  Architecture: Frontend/backend split Access app (Registro_APAP_Alcala_181.accdb / Registro_APAP_Alcala_datos_18.accdb)
+  Testing: No automated test runner; documentation-only epic
+  Runtime: Dysflow (canonical Access automation runtime)
+  Scope: Business domain documentation for future web migration — NOT Access/admin mechanics
+
+rules:
+  proposal:
+    - Focus on business domain discovery, not implementation
+    - Separate business rules from Access-specific mechanics
+    - Prioritize documentation of workflows, validations, and reporting needs
+  specs:
+    - Use Given/When/Then for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+    - Document what the system does, not how Access implements it
+  design:
+    - N/A for documentation-only epic; use for migration architecture when needed
+  tasks:
+    - Group by feature domain (animal lifecycle, intake, health, documents)
+    - Keep tasks completable in one session
+    - Tasks are documentation writing, not code implementation
+  apply:
+    - Follow existing doc patterns in docs/discovery/
+    - tdd: false
+    - test_command: ""
+  verify:
+    test_command: ""
+    build_command: ""
+    coverage_threshold: 0
+  archive:
+    - Validate completeness of discovery docs before archiving
+
+testing:
+  has_test_runner: false
+  strict_tdd: false
+  test_framework: none
+  test_layers: []
+  coverage_tool: none
+  linter: none
+  type_checker: none
+  formatter: none
+  rationale: "Documentation-only epic — no code to test"

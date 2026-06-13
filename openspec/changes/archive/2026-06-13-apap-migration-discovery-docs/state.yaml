@@ -1,0 +1,8 @@
+change: apap-migration-discovery-docs
+created: 2026-06-13
+phase: proposal
+status: proposal-complete
+description: >
+  Documentation/discovery epic for APAP Access/VBA legacy system.
+  Business domain documentation for future web application migration.
+  Scope is business functionality only — Access/admin mechanics excluded.

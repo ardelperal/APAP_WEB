@@ -1,0 +1,34 @@
+# Access binaries and lock files
+*.accdb
+*.laccdb
+*.mdb
+*.ldb
+
+# Dysflow local state
+.dysflow/project.json
+.dysflow/runtime/
+
+# Legacy/local Access sync session metadata
+.access-vba-skill/
+
+# Generated skill-registry cache
+.atl/.skill-registry.cache.json
+
+# Local/generated data and binary asset folders
+Anexos/
+Fotos/
+Informes/
+Seguimientos/
+contratos/
+recursos/
+www/
+Plantillas/
+iconos/
+conf/
+
+# OS/editor noise
+*.tmp
+*.bak
+*.log
+Thumbs.db
+.DS_Store
