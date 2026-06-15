@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 BRANCH_PROTECTION_PATH = REPO_ROOT / ".github" / "branch-protection.md"
@@ -26,7 +25,8 @@ def test_ci_workflow_keeps_e2e_hook_disabled_until_playwright_lands() -> None:
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
 
     assert "e2e:" in workflow
-    assert "if: ${{ false }}" in workflow
+    assert "if: ${{ vars.ENABLE_E2E == 'true' }}" in workflow
+    assert "run: |" in workflow
     assert "TODO(E2E-01): enable when Playwright harness lands" in workflow
 
 

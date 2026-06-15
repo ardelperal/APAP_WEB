@@ -76,7 +76,8 @@ jobs:
     name: e2e
     runs-on: ubuntu-latest
     needs: build
-    if: ${{ false }}
+    if: ${{ vars.ENABLE_E2E == 'true' }}
     steps:
       - name: E2E placeholder
-        run: echo "TODO(E2E-01): enable when Playwright harness lands"
+        run: |
+          echo "TODO(E2E-01): enable when Playwright harness lands"
