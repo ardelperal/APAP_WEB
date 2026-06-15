@@ -1,0 +1,18 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "_comment": "TEMPLATE ONLY. Copy this file to opencode.json at the repo root and replace the placeholder values with your own InsForge credentials. The real opencode.json is gitignored (see .gitignore) so secrets never get committed.",
+  "mcp": {
+    "insforge": {
+      "type": "local",
+      "command": [
+        "npx",
+        "-y",
+        "@insforge/mcp@latest"
+      ],
+      "environment": {
+        "API_KEY": "ik_replace_me_with_your_insforge_admin_api_key",
+        "API_BASE_URL": "https://your-app-region.insforge.app"
+      }
+    }
+  }
+}
