@@ -32,3 +32,21 @@ conf/
 *.log
 Thumbs.db
 .DS_Store
+
+# Local tool caches (not source)
+.engram/
+.playwright-mcp/
+
+# Python build and test artifacts
+# Added by openspec/changes/ci-cd-foundation (task 0.5, PR 1).
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+.coverage
+
+# Tool config with secrets in plaintext (InsForge API key)
+# DO NOT commit. Use environment variables instead.
+opencode.json
