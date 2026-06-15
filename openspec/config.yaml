@@ -1,46 +1,52 @@
 schema: spec-driven
 
 context: |
-  Project: APAP (Registro de Protectoras de Animales de Alcalá)
-  Tech stack: Microsoft Access/VBA (legacy), future web migration target
-  Architecture: Frontend/backend split Access app (Registro_APAP_Alcala_181.accdb / Registro_APAP_Alcala_datos_18.accdb)
-  Testing: No automated test runner; documentation-only epic
-  Runtime: Dysflow (canonical Access automation runtime)
-  Scope: Business domain documentation for future web migration — NOT Access/admin mechanics
+  Project: APAP — Registro de Protectoras de Animales de Alcalá (web migration)
+  Backend: FastAPI 0.136.3, Jinja2 3.1.x, Pydantic 2.13.4, HTTPX 0.28.1, Uvicorn 0.49.0
+  Frontend: HTMX 2.0.4 + Tailwind CSS 4.3.1 (CSS-first, Node.js CLI)
+  BaaS: InsForge (PostgreSQL + PostgREST, Auth via Google OAuth, Storage, Functions)
+  Deployment: Coolify on project VPS
+  Auth model: Google OAuth (InsForge) + allowlist authorization in FastAPI middleware
+  Legacy: APAP_ACTUAL (Access/VBA) — reference only, not runtime target
+  Current state: No application code yet; architecture docs and business discovery complete
 
 rules:
   proposal:
-    - Focus on business domain discovery, not implementation
-    - Separate business rules from Access-specific mechanics
-    - Prioritize documentation of workflows, validations, and reporting needs
+    - Scope web app features, not Access mechanics
+    - Include migration/adaptation plan for each breaking data model change
+    - Reference business discovery docs in docs/discovery/
   specs:
     - Use Given/When/Then for scenarios
     - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
-    - Document what the system does, not how Access implements it
+    - Use professional Spanish (Spain) for all SDD artifacts
   design:
-    - N/A for documentation-only epic; use for migration architecture when needed
+    - Follow FastAPI + HTMX architecture in docs/architecture-insforge-stack.md
+    - Prefer server-rendered pages over SPA
+    - Keep business rules in FastAPI, not HTMX snippets
   tasks:
-    - Group by feature domain (animal lifecycle, intake, health, documents)
+    - Group by feature domain (animal lifecycle, intake, health, documents, volunteers)
     - Keep tasks completable in one session
-    - Tasks are documentation writing, not code implementation
+    - Each task must be independently testable
   apply:
-    - Follow existing doc patterns in docs/discovery/
-    - tdd: false
-    - test_command: ""
+    notes:
+      - Follow existing code patterns once implementation starts
+    tdd: false
+    test_command: "pytest"
+    build_command: "python -m build"
   verify:
-    test_command: ""
-    build_command: ""
-    coverage_threshold: 0
+    test_command: "pytest"
+    build_command: "python -m build"
+    coverage_threshold: 80
   archive:
-    - Validate completeness of discovery docs before archiving
+    - Validate completeness before archiving
 
 testing:
-  has_test_runner: false
-  strict_tdd: false
-  test_framework: none
-  test_layers: []
-  coverage_tool: none
-  linter: none
+  has_test_runner: true
+  strict_tdd: true
+  test_framework: pytest
+  test_layers: [unit, integration]
+  coverage_tool: pytest-cov
+  linter: ruff
   type_checker: none
   formatter: none
-  rationale: "Documentation-only epic — no code to test"
+  rationale: "Pytest/ruff/build are declared for the CI/CD foundation; install dev extras before running local verification."
