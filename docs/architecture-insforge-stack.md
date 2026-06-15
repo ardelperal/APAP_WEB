@@ -46,6 +46,12 @@ InsForge
 | Data model | Redesign allowed | - | Do not inherit legacy schema debt if a cleaner model is needed. |
 | Legacy compatibility | DAO migration/adaptation required | - | Any data-model redesign must include a migration path for the current DAOs. |
 
+## Branch and deployment policy
+
+`main` is the canonical branch for APAP_WEB. GitHub uses `main` as the default branch, and the Coolify `apap-web` application is configured to deploy from `ardelperal/APAP_WEB:main`.
+
+Until the staging/UAT transition is introduced by a future SDD change, pull requests target `main` and production deployment is prepared against `main`.
+
 ## InsForge usage rules
 
 Always fetch the relevant InsForge docs before writing integration code.
