@@ -1,0 +1,14 @@
+{
+  "name": "apap-web-tailwind",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Tailwind CSS v4 build for APAP_WEB. Compiles a single CSS bundle from app/templates into app/static/css/output.css.",
+  "scripts": {
+    "build": "tailwindcss -i ./styles/app.css -o ../app/static/css/output.css --minify",
+    "watch": "tailwindcss -i ./styles/app.css -o ../app/static/css/output.css --watch"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.0.0",
+    "tailwindcss": "^4.0.0"
+  }
+}

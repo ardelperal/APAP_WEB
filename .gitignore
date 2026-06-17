@@ -47,6 +47,15 @@ build/
 *.egg-info/
 .coverage
 
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Tailwind v4 build artifacts
+tailwindcss/node_modules/
+tailwindcss/package-lock.json
+
 # Tool config with secrets in plaintext (InsForge API key)
 # DO NOT commit. Use environment variables instead.
 opencode.json
