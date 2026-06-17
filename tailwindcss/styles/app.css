@@ -1,0 +1,13 @@
+/* APAP_WEB — Tailwind v4 entry point.
+ *
+ * CSS-first config. The compiled bundle is written to
+ * `app/static/css/output.css` and served from `/static/css/output.css`.
+ * The build is run by `make css` (dev) or by the Dockerfile (prod).
+ *
+ * `@source` tells Tailwind v4 where to scan for class names. We only
+ * scan the Jinja2 templates; static JS (de HTMX, etc.) will be added
+ * in future phases when it lands.
+ */
+@import "tailwindcss";
+
+@source "../../app/templates/**/*.html";
