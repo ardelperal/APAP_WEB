@@ -1,0 +1,55 @@
+# Files and directories excluded from the Docker build context.
+# Kept small and explicit so `docker build` stays fast and the
+# resulting images stay clean.
+
+.git/
+.github/
+.gitignore
+
+.venv/
+venv/
+env/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+*.egg
+
+.dysflow/
+.atl/
+.playwright-mcp/
+.engram/
+
+# Tailwind: only ship package.json, the build runs in the container.
+tailwindcss/node_modules/
+tailwindcss/package-lock.json
+
+# Local Access binaries and project documentation that is not needed at
+# runtime.
+*.accdb
+*.laccdb
+*.mdb
+*.ldb
+
+docs/discovery/
+docs/legacy-*.md
+docs/mockups/
+docs/setup.md
+docs/development.md
+docs/decisiones-proyecto.md
+docs/plan-completo.md
+docs/roadmap.md
+docs/features-showcase.html
+docs/canonical-logs.md
+docs/architecture-insforge-stack.md
+docs/design-tokens-apap-actual.md
+
+openspec/
+
+scripts/
+
+tests/
