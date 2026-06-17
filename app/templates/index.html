@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block title %}{{ app_name }} — inicio{% endblock %}
+
+{% block content %}
+  <header class="mb-8">
+    <h1 class="text-3xl font-bold tracking-tight">{{ app_name }}</h1>
+    <p class="mt-2 text-slate-600">Versión {{ version }}</p>
+  </header>
+
+  <section class="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+    <h2 class="text-lg font-semibold">Esqueleto de la aplicación</h2>
+    <p class="mt-2 text-slate-700">
+      Esta es la página de inicio del esqueleto de APAP_WEB. Las
+      funcionalidades de producto (animales, voluntarios, salud,
+      documentos) llegan en las Fases 3 a 7. La autenticación con
+      Google OAuth entra en la Fase 2.
+    </p>
+    <p class="mt-4 text-sm text-slate-500">
+      Health check: <a class="text-sky-700 underline" href="/healthz">/healthz</a>
+    </p>
+  </section>
+{% endblock %}
