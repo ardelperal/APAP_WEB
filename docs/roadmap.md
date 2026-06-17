@@ -2,7 +2,7 @@
 
 > Documento vivo. Punto de entrada único para saber qué hay que construir, en qué orden, qué issues lo cubren y qué documentación ya existe. Si una pregunta se responde aquí, no hay que rebuscar.
 
-**Última actualización:** 2026-06-17 (refresco tras cerrar #17 con el esqueleto de Fase 1)
+**Última actualización:** 2026-06-17 (refresco tras cerrar #16 con el flujo de auth de Fase 2)
 **Mantenedor único:** aroman (autoaprueba issues y PRs)
 **Rama objetivo actual:** `main` (pre-MVC; la transición a `staging` queda diferida a CD-03)
 **Idioma de toda la documentación, issues y PRs:** castellano (España)
@@ -13,7 +13,7 @@
 
 - **CI/CD foundation (Fase 0):** CI-01 y CI-02 están en verde en `main`. Falta CD-01 + CD-02 para activar el deploy automático (issue #1).
 - **Infraestructura:** repositorio, Coolify y backend de InsForge ya aprovisionados. Falta el runnable de la aplicación en producción.
-- **Producto (Fases 1-7):** **Fase 1 ✅ mergeada en `main` (#17, commit `d0b1ed1`)**. Fases 2-7 pendientes. El próximo frente crítico es la Fase 2 (auth, #16) que desbloquea el deploy real.
+- **Producto (Fases 1-7):** **Fase 1 ✅ mergeada en `main` (#17, commit `d0b1ed1`)**. **Fase 2 ✅ mergeada en `main` (#16, commit `1d22349`)**. Fases 3-7 pendientes. El código de auth está listo; solo falta crear la tabla real en InsForge y desplegar.
 - **Documentación de discovery:** generada y consistente. Antes de tocar el legacy, leer `docs/discovery/`.
 
 ---
@@ -78,7 +78,7 @@
 
 **Objetivo:** login real con Google OAuth vía InsForge y allowlist de correos autorizados, con panel admin para el rol `developer`.
 
-> Issue abierta: **#16**. Depende de Fase 1 (issue #17).
+> ✅ **Cerrada**. Issue **#16** mergeada en `main` como `1d22349`. Login con Google OAuth (PKCE nativo contra InsForge), tabla `authorized_users` con seed bootstrap, middleware de allowlist, panel `/admin` para developers. Falta el setup de la tabla real en InsForge + el deploy (#1) para tener URL viva.
 
 **Documentación de referencia:**
 
@@ -236,7 +236,7 @@
 | #1 | feat(cd): deploy APAP through Coolify and InsForge | `status:approved`, `priority:medium` | 🔲 |
 | #6 | feat(ux): definir la base UX/UI de APAP | `status:approved`, `priority:medium` | 🔲 |
 | #7 | feat(tasks): definir motor común de tareas manuales y automáticas | `status:approved`, `priority:medium` | 🔲 |
-| #16 | feat(auth): Google OAuth + allowlist + panel admin (Fase 2) | `enhancement`, `status:approved`, `priority:medium` | 🔲 |
+| #16 | feat(auth): Google OAuth + allowlist + panel admin (Fase 2) | `enhancement`, `status:approved`, `priority:medium` | ✅ |
 
 ---
 
