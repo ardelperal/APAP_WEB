@@ -2,7 +2,7 @@
 
 > Documento vivo. Punto de entrada único para saber qué hay que construir, en qué orden, qué issues lo cubren y qué documentación ya existe. Si una pregunta se responde aquí, no hay que rebuscar.
 
-**Última actualización:** 2026-06-17
+**Última actualización:** 2026-06-17 (refresco tras crear #16 y #17)
 **Mantenedor único:** aroman (autoaprueba issues y PRs)
 **Rama objetivo actual:** `main` (pre-MVC; la transición a `staging` queda diferida a CD-03)
 **Idioma de toda la documentación, issues y PRs:** castellano (España)
@@ -61,11 +61,11 @@
 - [`docs/setup.md`](setup.md) — setup por desarrollador y credenciales InsForge
 - [`openspec/changes/ci-cd-foundation/`](../../openspec/changes/ci-cd-foundation/) — propuesta, diseño, tareas, spec, apply-progress
 
-### Fase 1 — Esqueleto de la aplicación web
+### Fase 1 — Esqueleto de la aplicación web (#17)
 
 **Objetivo:** `app/` mínimo con FastAPI + Jinja2 + Tailwind compilando, sin reglas de negocio todavía.
 
-> Pendiente de crear issue. Bloquea todas las fases de producto.
+> Issue abierta: **#17**. Bloquea todas las fases de producto.
 
 **Decisiones pendientes:**
 
@@ -74,11 +74,11 @@
 - Endpoint de health check (necesario para CD-02).
 - Convenciones de `app/core/` (config, security, database) y de `app/modules/<dominio>/`.
 
-### Fase 2 — Autenticación y autorización
+### Fase 2 — Autenticación y autorización (#16)
 
 **Objetivo:** login real con Google OAuth vía InsForge y allowlist de correos autorizados, con panel admin para el rol `developer`.
 
-> Pendiente de crear issue. Depende de Fase 1.
+> Issue abierta: **#16**. Depende de Fase 1 (issue #17).
 
 **Documentación de referencia:**
 
@@ -236,9 +236,8 @@
 | #1 | feat(cd): deploy APAP through Coolify and InsForge | `status:approved`, `priority:medium` | 🔲 |
 | #6 | feat(ux): definir la base UX/UI de APAP | `status:approved`, `priority:medium` | 🔲 |
 | #7 | feat(tasks): definir motor común de tareas manuales y automáticas | `status:approved`, `priority:medium` | 🔲 |
-| #14 | docs(roadmap): documentar hoja de ruta viva de APAP_WEB | `documentation`, `status:approved`, `priority:medium` | 🟡 (este PR) |
-
-> Nota: la issue #14 no estaba enlazada en el cuerpo de la PR durante el descubrimiento de este roadmap. Se referencia aquí como punto de partida del propio documento.
+| #16 | feat(auth): Google OAuth + allowlist + panel admin (Fase 2) | `enhancement`, `status:approved`, `priority:medium` | 🔲 |
+| #17 | feat(app): esqueleto FastAPI + HTMX + Tailwind v4 (Fase 1) | `enhancement`, `status:approved`, `priority:medium` | 🔲 |
 
 ---
 
@@ -248,9 +247,7 @@ Estos son los títulos tentativos; se abren cuando arranca cada fase, no antes.
 
 | Fase / Área | Título tentativo | Depende de |
 |---|---|---|
-| Fase 1 | `feat(app): esqueleto FastAPI + HTMX + Tailwind v4` | — |
-| Fase 2 | `feat(auth): Google OAuth + allowlist + panel admin` | Fase 1 |
-| Fase 3 | `feat(domain): modelo limpio (animals, volunteers, authorized_users)` | Fase 1 |
+| Fase 3 | `feat(domain): modelo limpio (animals, volunteers, authorized_users)` | Fase 1 (#17) |
 | Fase 4 | `feat(animals): CRUD + timeline + estado derivado` | Fase 3 |
 | Fase 5a | `feat(intake): entradas y cesiones (asistente por pasos)` | Fases 3-4 |
 | Fase 5b | `feat(foster): casas de acogida y estancias` | Fases 3-4 |
@@ -364,11 +361,14 @@ Estos son los títulos tentativos; se abren cuando arranca cada fase, no antes.
 
 ## 9. Cómo mantener este documento
 
-Este roadmap es **vivo**. Se actualiza en el mismo PR que avanza el estado, no en PRs separados.
+**Regla base:** este roadmap se mantiene actualizado como efecto directo de cualquier acción que afecte a su contenido. No es una tarea aparte, se hace en el mismo flujo. Las decisiones, la documentación, las issues y el roadmap viven sincronizados: si algo cambia, el roadmap cambia en esa misma sesión, sin esperar a que el usuario lo pida.
 
-- **Cambio de estado** (de 🔲 a 🟡 o ✅): en el PR que cierra la issue correspondiente, actualizar la fila afectada y la fecha de "Última actualización".
-- **Apertura de nueva issue**: añadir fila a la sección "Issues abiertos" en el mismo PR donde se crea la issue, o en un PR de docs aparte si la issue ya existía.
-- **Nueva documentación**: añadir a la sección "Índice de documentación" en el mismo PR.
-- **Nueva decisión de arquitectura o proceso**: añadir a `docs/decisiones-proyecto.md`; este roadmap debe enlazarla, no duplicarla.
-- **Cierre de fase**: marcar ✅ la fila completa, mover el enlace al histórico (no borrar) y proponer la siguiente fase.
-- **Obsolescencia**: si este documento se desactualiza más de 2 semanas respecto a `main`, abrir una issue `docs(roadmap): refrescar hoja de ruta`.
+Acciones que obligan a actualizar el roadmap en la misma sesión:
+
+- **Apertura de una issue**: añadir fila a §4 "Issues abiertos", retirar de §5 "Issues pendientes de crear" (si estaba), enlazar desde la fase correspondiente en §3 y abrir una PR de docs en el mismo flujo.
+- **Cierre de una issue**: eliminar la fila de §4, reflejar el cambio en §2 "Estado actual" si toca algo visible allí y actualizar la fase correspondiente en §3.
+- **Cambio de estado de una fase** (🔲 → 🟡 → ✅): actualizar §3 y la fecha de "Última actualización".
+- **Nueva documentación**: añadir a §6 en el mismo PR.
+- **Nueva decisión de arquitectura o proceso**: añadir a `docs/decisiones-proyecto.md`; el roadmap debe enlazarla, no duplicarla.
+- **Cierre de una fase completa**: marcar ✅ la fila en §3, mantener el enlace al histórico (no borrar) y proponer la siguiente fase.
+- **Obsolescencia detectada**: si el doc se desactualiza respecto a `main`, abrir `docs(roadmap): refrescar hoja de ruta` y ejecutar el refresco en la misma sesión.
