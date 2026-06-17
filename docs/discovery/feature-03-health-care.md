@@ -2,6 +2,8 @@
 
 Tracks all health-related actions, therapy sessions, recommendations, and upcoming care tasks for animals in the system.
 
+> **Detailed Legacy Workflow:** For the complete analysis of the legacy Access/VBA health UI (all forms, business logic, data model, and navigation flows), see [`legacy-health-ui-workflow.md`](../legacy-health-ui-workflow.md).
+
 ## 3.1 Health Actions (Actuaciones Sanitarias)
 
 ### What the system does

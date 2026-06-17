@@ -1,0 +1,227 @@
+# Modelo de Voluntarios en el Sistema Legacy APAP
+
+## Resumen ejecutivo
+
+El sistema legacy Access/VBA **no tiene modelo de roles de voluntarios**. Existe una única tabla plana de lookup (`TbVoluntariosParaAutorrellenables`) con campos nombre, teléfono y email. Los "roles" de voluntario son simplemente **nombres de campo contextuales** en distintas tablas de negocio (entradas, adopciones, acogidas, terapias). Cualquier persona de la lista puede aparecer en cualquier rol sin restricción alguna.
+
+**La hipótesis del usuario se confirma con evidencia: cada voluntario puede tener todos los roles.**
+
+---
+
+## 1. Tabla de Voluntarios: `TbVoluntariosParaAutorrellenables`
+
+Esta es la ÚNICA tabla de registro de voluntarios en todo el sistema.
+
+| Campo | Tipo | Propósito |
+|-------|------|-----------|
+| `Voluntario` | Texto (clave de búsqueda) | Nombre completo del voluntario |
+| `Tel1` | Texto | Teléfono principal |
+| `Tel2` | Texto | Teléfono secundario |
+| `Email` | Texto | Dirección de email |
+
+### Características clave
+
+- **Sin ID numérico**: los voluntarios se identifican únicamente por nombre libre.
+- **Sin campo de rol/tipo**: no hay distinción entre tipos de voluntario.
+- **Sin campo de estado activo/inactivo**: no hay baja lógica.
+- **Auto-registro**: la tabla se puebla automáticamente cuando se usa un nombre en cualquier formulario de negocio.
+
+### Código fuente de referencia
+
+- **Tabla**: `Funciones Generales.bas` líneas 3084-3134 (`RegistrarVoluntarios`)
+- **Búsqueda**: `Funciones Generales.bas` líneas 3007-3083 (`RellenaDatosPersonales`)
+
+```vb
+' Patron de auto-registro (RegistrarVoluntarios)
+' Solo upserta por nombre. Sin roles, sin tipos.
+Public Function RegistrarVoluntarios(strNombre As String, ...)
+    strSQL = "SELECT TbVoluntariosParaAutorrellenables.* " & _
+             "FROM TbVoluntariosParaAutorrellenables " & _
+             "WHERE Voluntario='" & strNombre & "';"
+    ' Si no existe → AddNew con nombre, tel, email
+    ' Si existe → Edit solo si los datos nuevos no están vacíos
+End Function
+```
+
+---
+
+## 2. Campos de Voluntario por Contexto de Negocio
+
+Los "roles" del voluntario se manifiestan como nombres de campo en distintas tablas. **No hay tabla de roles ni catálogo de capacidades.**
+
+### 2.1 Entrada (TbEntradas)
+
+| Campo | Rol implícito | Obligatorio |
+|-------|---------------|-------------|
+| `VoluntarioEntrada` | Voluntario que recibe/tramita la entrada del animal | Sí |
+
+- **Formulario**: `Form_FormEntradaAlta.cls`, `Form_FormEntradaEdicion.cls`
+- **Clase**: `Entrada.cls` línea 1030
+- **Comportamiento**: El combo `ComboVoluntarioEntrada` usa la misma lista plana de `TbVoluntariosParaAutorrellenables`.
+
+### 2.2 Adopción (TbAdopcion)
+
+| Campo | Rol implícito | Obligatorio |
+|-------|---------------|-------------|
+| `VoluntarioSeguimiento` | Voluntario asignado al seguimiento post-adopción | Sí |
+| `ResponsableAdopcion` | Responsable/gestor de la adopción | Sí |
+| `TelMovilVoluntarioSeguimiento` | Móvil del voluntario de seguimiento | Sí |
+| `emailVoluntarioSeguimiento` | Email del voluntario de seguimiento | Sí |
+
+- **Formulario**: `Form_FormAdopcionAlta.cls`, `Form_FormAdopcionEdicion.cls`
+- **Clase**: `Adopcion.cls` líneas 109-112, 557-560
+- **Comportamiento**: `ComboVoluntario` usa la misma lista plana. `ResponsableAdopcion` es otro campo de texto libre (no referenciable a la tabla de voluntarios).
+
+### 2.3 Acogida Animal (TbAcogidaAnimal)
+
+Este es el contexto más rico en campos de voluntario:
+
+| Campo | Rol implícito | Obligatorio |
+|-------|---------------|-------------|
+| `VoluntarioSeguimiento1` | Voluntario principal de seguimiento de la acogida | Sí |
+| `VoluntarioSeguimiento1Tel` | Móvil del voluntario de seguimiento 1 | Sí |
+| `VoluntarioSeguimiento2` | Voluntario secundario de seguimiento | No |
+| `VoluntarioSeguimiento2Tel` | Móvil del voluntario de seguimiento 2 | No |
+| `VoluntarioCosasSanitarias` | Voluntario responsable de asuntos sanitarios | Sí |
+| `VoluntarioCosasSanitariasTel` | Móvil del voluntario sanitario | Sí |
+| `VoluntarioCosasSanitariasEmail` | Email del voluntario sanitario | Sí |
+| `VoluntarioSeguimientoEmail` | Email del voluntario de seguimiento | No |
+| `VoluntarioAcogida` | Voluntario vinculado a la acogida (¿acogedor?) | No |
+
+- **Formulario**: `Form_FormAcogidaAlta.cls`, `Form_FormAcogidaEdicion.cls`
+- **Clase**: `Acogida.cls` líneas 654-670, 824-842, 1790-1831
+- **Validación**: Los campos obligatorios se validan en `Acogida.Alta` líneas 706-725.
+- **Auto-fill**: Al seleccionar un nombre, `RellenaDatosPersonales` rellena automáticamente tel1 y email desde la tabla de lookup.
+
+### 2.4 Terapias (TbTerapias)
+
+| Campo | Rol implícito | Obligatorio |
+|-------|---------------|-------------|
+| `Voluntario` | Voluntario que realiza la terapia | Sí |
+
+- **Formulario**: `Form_FormTerapiasAlta.cls`, `Form_FormTerapiasEdicion.cls`
+- **Clase**: `Terapia.cls` líneas 364-367, 418
+- **Comportamiento**: El combo usa la misma lista plana. La misma persona puede registrar terapias para múltiples animales.
+
+---
+
+## 3. Casa de Acogida vs Voluntario: Entidades Separadas
+
+**TbAcogidaCasas** es una entidad distinta de los voluntarios:
+
+| Campo | Propósito |
+|-------|-----------|
+| `Nombre`, `Apellidos` | Identificación del acogedor |
+| `DNIAcogedor` | DNI del acogedor |
+| `Calle`, `Numero`, `Piso`, `Letra`, `CP`, `Localidad`, `Provincia` | Dirección completa |
+| `Telefono`, `email` | Contacto |
+| `Coche` | Disponibilidad de coche (Sí/No) |
+| `EspeciePreferente` | Especie preferente (Canina/Felina) |
+| `Vinculacion` | Vinculación con la protectora |
+| `FechaBaja` | Fecha de baja (activo/inactivo) |
+| `Caracteristicas` | Características del tipo de acogida |
+
+**Diferencia clave**: La casa de acogida es un **hogar** con dirección física, DNI y capacidad. Los voluntarios son **personas** que realizan tareas operativas. Un acogedor NO es necesariamente un voluntario del sistema.
+
+---
+
+## 4. Flujo de Datos: Cómo se Relacionan
+
+```
+TbVoluntariosParaAutorrellenables (lookup plana, sin roles)
+    │
+    ├──→ TbEntradas.VoluntarioEntrada
+    │
+    ├──→ TbAdopcion.VoluntarioSeguimiento
+    ├──→ TbAdopcion.ResponsableAdopcion (texto libre, no referenciable)
+    │
+    ├──→ TbAcogidaAnimal.VoluntarioSeguimiento1
+    ├──→ TbAcogidaAnimal.VoluntarioSeguimiento2
+    ├──→ TbAcogidaAnimal.VoluntarioCosasSanitarias
+    ├──→ TbAcogidaAnimal.VoluntarioAcogida
+    │
+    └──→ TbTerapias.Voluntario
+
+TbAcogidaCasas (entidad separada: hogar de acogida)
+    │
+    └──→ TbAcogidaAnimal.IDAcogidaCasa (FK)
+```
+
+---
+
+## 5. Patrón de Auto-fill (RellenaDatosPersonales)
+
+El sistema tiene un mecanismo de auto-rellenado que funciona así:
+
+1. El usuario selecciona un nombre en un combo de voluntario
+2. Se ejecuta `RellenaDatosPersonales(nombre, tel1, tel2, email)` con flags "Sí"/"No"
+3. La función busca el nombre en `TbVoluntariosParaAutorrellenables`
+4. Devuelve los datos solicitados como cadena separada por `|`
+5. El formulario rellena automáticamente los campos de teléfono/email
+
+**Importante**: Este mecanismo NO distingue roles. Si "María" aparece como voluntario de entrada, el sistema rellenará su teléfono para ese campo. Si luego aparece en una terapia, se rellenará el mismo teléfono. No hay verificación de capacidades.
+
+---
+
+## 6. Evidencia de que No hay Restricciones de Rol
+
+| Evidencia | Fuente |
+|-----------|--------|
+| La tabla `TbVoluntariosParaAutorrellenables` no tiene campo de tipo/rol | `Funciones Generales.bas` líneas 3084-3134 |
+| Todos los combos de voluntario usan la misma lista plana | `Form_FormEntradaAlta`, `Form_FormAdopcionAlta`, `Form_FormAcogidaAlta`, `Form_FormTerapiasAlta` |
+| `RegistrarVoluntarios` solo upserta nombre, teléfono y email | `Funciones Generales.bas` línea 3097 |
+| No hay `WHERE` o filtro por tipo de voluntario en ninguna query | Todos los formularios relevantes |
+| La función `RellenaDatosPersonales` no verifica capacidades | `Funciones Generales.bas` líneas 3007-3083 |
+| `ResponsableAdopcion` es texto libre, no referenciable a la tabla de voluntarios | `Adopcion.cls` línea 558 |
+
+---
+
+## 7. Implicaciones para APAP_WEB
+
+### 7.1 Lo que el modelo actual permite
+
+- Cualquier persona puede ser voluntario de entrada, seguimiento, sanitario, terapia o acogida
+- No hay control de acceso por rol
+- No hay trazabilidad de qué roles ha desempeñado una persona
+- No hay estadísticas por tipo de voluntario
+
+### 7.2 Lo que el modelo actual NO permite
+
+- Asignar solo voluntarios de salud a tareas sanitarias
+- Filtrar voluntarios de terapia por capacidades
+- Saber qué roles tiene activos un voluntario
+- Dar de baja un voluntario sin borrar sus registros históricos
+- Auditar quién hizo qué en cada etapa del ciclo de vida
+
+### 7.3 Recomendación para APAP_WEB
+
+**Modelo recomendado: Voluntario con roles/capabilidades (many-to-many)**
+
+```
+Voluntario (entidad central)
+  ├── id, nombre, email, teléfono, DNI, activo
+  │
+  └──→ VoluntarioRol (tabla pivote)
+        ├── voluntario_id (FK)
+        ├── rol_id (FK → Catálogo de Roles)
+        ├── fecha_inicio, fecha_fin (opcional)
+        └── activo
+```
+
+**Catálogo de Roles sugerido** (basado en los campos contextuales del legacy):
+
+| Rol | Campo legacy equivalente | Descripción |
+|-----|-------------------------|-------------|
+| `ENTRADA` | `VoluntarioEntrada` | Recepción de animales |
+| `SEGUIMIENTO` | `VoluntarioSeguimiento1/2` | Seguimiento post-adopción/acogida |
+| `SALUD` | `VoluntarioCosasSanitarias` | Gestión de asuntos sanitarios |
+| `TERAPIA` | `Voluntario` (en TbTerapias) | Realización de terapias |
+| `ACOGIDA` | `VoluntarioAcogida` | Gestión de casas de acogida |
+| `RESPONSABLE` | `ResponsableAdopcion` | Gestión/gestoría de adopciones |
+
+**Ventajas sobre el modelo legacy**:
+- Control de acceso por rol
+- Trazabilidad de roles por persona
+- Filtros de voluntarios por contexto
+- Estadísticas de participación por rol
+- Compatibilidad total con los datos existentes (cada campo contextual se mapea a un rol)
