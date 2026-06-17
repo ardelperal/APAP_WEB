@@ -21,11 +21,17 @@ classifiers = [
     "Topic :: Database",
 ]
 
-# Runtime dependencies are intentionally empty in PR 1.
-# FastAPI, Uvicorn, Jinja2, Pydantic, HTTPX, python-multipart and the
-# InsForge SDK land in the future web-app-skeleton PR, not here.
-# PR 1 only ships the local test surface (CI-01).
-dependencies = []
+# Runtime dependencies for the APAP_WEB application skeleton (Fase 1).
+# Pinned per docs/architecture-insforge-stack.md § Stack.
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "jinja2>=3.1",
+    "pydantic>=2.8",
+    "pydantic-settings>=2.4",
+    "python-multipart>=0.0.12",
+    "httpx>=0.27",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -36,13 +42,13 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-# PR 1 has no application package yet. The wheel is built from the
-# `tests/` package so `python -m build` produces a valid artifact.
-# The web-app-skeleton PR replaces this with the real package.
-only-include = ["tests"]
+# Fase 1 ships the `app/` package (FastAPI application) and the
+# `tests/` package (pytest suite). The wheel installs both so
+# `from app.main import app` works in production images and in tests.
+only-include = ["app", "tests"]
 
 [tool.hatch.build.targets.sdist]
-only-include = ["tests", "docs", "pyproject.toml", "README.md"]
+only-include = ["app", "tests", "docs", "pyproject.toml", "README.md", "tailwindcss"]
 
 # Pytest configuration — deprecation strictness per
 # docs/architecture-insforge-stack.md § CI/CD Quality Gate.
@@ -57,6 +63,12 @@ addopts = [
 filterwarnings = [
     "error::DeprecationWarning",
     "error::PendingDeprecationWarning",
+    # starlette.testclient todavía importa `httpx` directamente; hasta que
+    # actualicen a `httpx2` (issue upstream), la advertencia es ruido que
+    # no podemos arreglar desde el proyecto. Se ignora de forma explícita
+    # para que no se infiltre en verde como warning suelto.
+    "ignore:.*httpx.*starlette.testclient.*:UserWarning",
+    "ignore:.*starlette.testclient.*:DeprecationWarning",
 ]
 
 # Ruff configuration — fast single-binary linter, current best practice.
@@ -94,16 +106,19 @@ ignore = [
 "tests/**" = ["B011"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["apap_web"]
+known-first-party = ["app", "tests"]
 
-# Coverage configuration. Source is left empty for PR 1 because the
-# application package (`apap_web/`) does not exist yet. The web-app-
-# skeleton PR will set `source = ["apap_web"]` and turn this into the
-# real gate. The 80% threshold matches the architecture doc's floor and
-# `openspec/config.yaml` `verify.coverage_threshold`.
+# Coverage configuration. Source covers the `app/` package; `tests/`
+# is excluded by default. The 80% threshold matches the architecture
+# doc's floor and `openspec/config.yaml` `verify.coverage_threshold`.
 [tool.coverage.run]
 branch = true
-source = []
+source = ["app"]
+omit = [
+    "app/__init__.py",
+    "app/core/__init__.py",
+    "app/modules/__init__.py",
+]
 
 [tool.coverage.report]
 show_missing = true
