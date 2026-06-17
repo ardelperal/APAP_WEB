@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% block title %}Panel admin · {{ app_name }}{% endblock %}
+
+{% block content %}
+  <header class="mb-8 flex items-start justify-between gap-6">
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight">Panel admin</h1>
+      <p class="mt-2 text-slate-600">
+        Sesión iniciada como <span class="font-medium">{{ current_user.email }}</span> (rol developer).
+      </p>
+    </div>
+    <a href="/" class="text-sky-700 underline">Volver al inicio</a>
+  </header>
+
+  <section class="mb-8 rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+    <h2 class="text-lg font-semibold">Añadir usuario autorizado</h2>
+    <form method="post" action="/admin/users" class="mt-4 flex flex-wrap items-end gap-3">
+      <label class="flex flex-col text-sm">
+        <span class="mb-1 text-slate-700">Email</span>
+        <input
+          type="email"
+          name="email"
+          required
+          class="rounded border border-slate-300 px-3 py-2 text-slate-900"
+          placeholder="usuario@ejemplo.com"
+        />
+      </label>
+      <label class="flex flex-col text-sm">
+        <span class="mb-1 text-slate-700">Rol</span>
+        <select
+          name="role"
+          required
+          class="rounded border border-slate-300 px-3 py-2 text-slate-900"
+        >
+          {% for role in roles %}
+            <option value="{{ role }}">{{ role }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button
+        type="submit"
+        class="rounded bg-sky-700 px-4 py-2 text-sm font-medium text-white hover:bg-sky-800"
+      >
+        Añadir
+      </button>
+    </form>
+  </section>
+
+  <section class="rounded-lg border border-slate-200 bg-white shadow-sm">
+    <table class="w-full text-left text-sm">
+      <thead class="border-b border-slate-200 bg-slate-50 text-slate-700">
+        <tr>
+          <th class="px-4 py-2">Email</th>
+          <th class="px-4 py-2">Rol</th>
+          <th class="px-4 py-2">Activo</th>
+          <th class="px-4 py-2">Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+          <tr class="border-b border-slate-100 last:border-b-0">
+            <td class="px-4 py-2 font-mono text-slate-900">{{ u.email }}</td>
+            <td class="px-4 py-2 text-slate-700">{{ u.role }}</td>
+            <td class="px-4 py-2">
+              {% if u.is_active %}
+                <span class="text-emerald-700">sí</span>
+              {% else %}
+                <span class="text-slate-500">no</span>
+              {% endif %}
+            </td>
+            <td class="px-4 py-2">
+              {% if u.is_active %}
+                <form method="post" action="/admin/users/{{ u.id }}/deactivate">
+                  <button type="submit" class="text-rose-700 underline">Desactivar</button>
+                </form>
+              {% endif %}
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td class="px-4 py-4 text-slate-500" colspan="4">No hay usuarios autorizados todavía.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endblock %}
