@@ -38,7 +38,9 @@ tailwindcss/package-lock.json
 docs/discovery/
 docs/legacy-*.md
 docs/mockups/
-docs/setup.md
+# `docs/setup.md` is referenced by `pyproject.toml` as the package README,
+# so `pip wheel` requires it to exist in the build context. Keep it.
+# docs/setup.md
 docs/development.md
 docs/decisiones-proyecto.md
 docs/plan-completo.md
@@ -52,4 +54,6 @@ openspec/
 
 scripts/
 
-tests/
+# `tests/` is needed by the builder stage of the Dockerfile:
+# `pip wheel` includes tests in the wheel metadata, and the `COPY tests/`
+# instruction must succeed. Keep it in the build context.
