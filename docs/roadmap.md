@@ -2,7 +2,7 @@
 
 > Documento vivo. Punto de entrada único para saber qué hay que construir, en qué orden, qué issues lo cubren y qué documentación ya existe. Si una pregunta se responde aquí, no hay que rebuscar.
 
-**Última actualización:** 2026-06-17 (refresco tras crear #16 y #17)
+**Última actualización:** 2026-06-17 (refresco tras cerrar #17 con el esqueleto de Fase 1)
 **Mantenedor único:** aroman (autoaprueba issues y PRs)
 **Rama objetivo actual:** `main` (pre-MVC; la transición a `staging` queda diferida a CD-03)
 **Idioma de toda la documentación, issues y PRs:** castellano (España)
@@ -12,8 +12,8 @@
 ## 1. TL;DR
 
 - **CI/CD foundation (Fase 0):** CI-01 y CI-02 están en verde en `main`. Falta CD-01 + CD-02 para activar el deploy automático (issue #1).
-- **Infraestructura:** repositorio, Coolify y backend de InsForge ya aprovisionados. Falta el runnable de la aplicación.
-- **Producto (Fases 1-7):** todo pendiente. Los próximos frentes abiertos son #6 (UX/UI) y #7 (motor de tareas).
+- **Infraestructura:** repositorio, Coolify y backend de InsForge ya aprovisionados. Falta el runnable de la aplicación en producción.
+- **Producto (Fases 1-7):** **Fase 1 ✅ mergeada en `main` (#17, commit `d0b1ed1`)**. Fases 2-7 pendientes. El próximo frente crítico es la Fase 2 (auth, #16) que desbloquea el deploy real.
 - **Documentación de discovery:** generada y consistente. Antes de tocar el legacy, leer `docs/discovery/`.
 
 ---
@@ -30,7 +30,7 @@
 | DNS `apap.romancabanillas.com` | 🔲 | Pendiente de crear por el mantenedor antes del primer deploy real |
 | Deploy automático (CD-01 + CD-02) | 🔲 | Issue #1 abierto |
 | Backend InsForge | ✅ | Verificado, MCP configurado |
-| Esqueleto de la app FastAPI | 🔲 | Todavía no existe (siguiente bloque técnico) |
+| Esqueleto de la app FastAPI | ✅ | Mergeado en `main` como `d0b1ed1` (issue #17) |
 | Login POC InsForge | ✅ | `docs/mockups/login-simple-insforge.html` |
 | Foundation UX/UI | 🔲 | Issue #6 abierto |
 | Motor común de tareas | 🔲 | Issue #7 abierto |
@@ -65,7 +65,7 @@
 
 **Objetivo:** `app/` mínimo con FastAPI + Jinja2 + Tailwind compilando, sin reglas de negocio todavía.
 
-> Issue abierta: **#17**. Bloquea todas las fases de producto.
+> ✅ **Cerrada**. Issue **#17** mergeada en `main` como `d0b1ed1`. Desbloquea Fase 2 (#16) y Fase 3.
 
 **Decisiones pendientes:**
 
@@ -237,7 +237,6 @@
 | #6 | feat(ux): definir la base UX/UI de APAP | `status:approved`, `priority:medium` | 🔲 |
 | #7 | feat(tasks): definir motor común de tareas manuales y automáticas | `status:approved`, `priority:medium` | 🔲 |
 | #16 | feat(auth): Google OAuth + allowlist + panel admin (Fase 2) | `enhancement`, `status:approved`, `priority:medium` | 🔲 |
-| #17 | feat(app): esqueleto FastAPI + HTMX + Tailwind v4 (Fase 1) | `enhancement`, `status:approved`, `priority:medium` | 🔲 |
 
 ---
 
