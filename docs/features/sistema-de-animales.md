@@ -10,6 +10,17 @@
 > (LIFECYCLE-SERVICE-01..05, LIFECYCLE-ROUTE-01..06, LIFECYCLE-UI-01)
 > viene en ciclos siguientes. Este doc cubre lo que ya está mergeado.
 
+> **Estado de paridad con el legacy (criterio de aceptación duro):**
+> este slice **NO** ofrece aun la misma funcionalidad que el legacy.
+> El legacy permite crear, ver, editar, buscar y listar animales desde
+> el formulario `TbFichaAnimal` en el Access. Este slice solo crea la
+> tabla; la paridad se alcanza cuando aterricen LIFECYCLE-SERVICE-01..05
+> + LIFECYCLE-ROUTE-01..06 + LIFECYCLE-UI-01. La feature "LIFECYCLE-01
+> Animal Master CRUD" sera el primer feature que cumpla el criterio
+> de paridad. La seccion 2 (criterios de aceptación) explicita esto
+> para que cualquier IA o humano que lea este doc entienda exactamente
+> que falta.
+
 ## 1. Alcance
 
 Esta feature cubre la definición del schema SQL de la tabla `animales`
