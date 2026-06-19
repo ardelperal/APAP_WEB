@@ -30,9 +30,11 @@ from app.core.auth import (
     VALID_ROLES,
     add_authorized_user,
     deactivate_authorized_user,
+    ensure_schema_and_seed,
     get_user_by_email,
     list_authorized_users,
 )
+from app.core.domain import ensure_domain_schema
 from app.core.insforge import InsForgeClient
 from app.core.pkce import generate_pkce_pair
 from app.core.session import (
@@ -62,10 +64,27 @@ PUBLIC_PATHS = frozenset(
 async def lifespan(_: FastAPI):
     """Application lifespan.
 
-    Reserved for future startup/shutdown work (InsForge client warmup,
-    cache priming, etc.). Kept explicit so tests using the ASGITransport
-    ``with`` block exercise the full lifespan.
+    On startup, bootstrap the InsForge schema:
+
+    1. ``ensure_schema_and_seed`` — creates ``authorized_users`` and seeds
+       the bootstrap admin if ``APAP_INITIAL_ADMIN_EMAIL`` is set.
+    2. ``ensure_domain_schema`` — creates the domain tables
+       (``animals``, ``volunteers``, ``volunteer_roles``) in dependency
+       order.
+
+    Both steps are idempotent (``CREATE TABLE IF NOT EXISTS``), so it is
+    safe to run on every cold start. If either step raises, the lifespan
+    propagates and the app does not start (fail fast): a deploy that
+    cannot reach InsForge with the service key is better surfaced as a
+    failed deploy than as 500s on the first request.
     """
+    settings = config_module.get_settings()
+    client = InsForgeClient(settings.insforge_url, settings.insforge_service_key)
+    try:
+        ensure_schema_and_seed(client, settings)
+        ensure_domain_schema(client)
+    finally:
+        client.close()
     yield
 
 
