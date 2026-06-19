@@ -33,6 +33,8 @@ async def test_static_directory_is_mounted(client: httpx.AsyncClient) -> None:
     """The ``/static`` path is served by StaticFiles."""
     from app.main import app
 
-    routes = {route.path for route in app.routes}
+    # ``app.routes`` may include ``_IncludedRouter`` objects (when sub-routers
+    # are mounted) which don't expose ``.path``; filter them out.
+    routes = {route.path for route in app.routes if hasattr(route, "path")}
 
     assert "/static" in routes

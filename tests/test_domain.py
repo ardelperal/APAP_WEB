@@ -1,11 +1,18 @@
-"""Tests for the domain schema bootstrap (animals, volunteers, volunteer_roles).
+"""Tests for the domain schema bootstrap (animales, voluntarios, roles_voluntario).
 
 Mirrors the pattern in ``tests/test_auth.py``: real ``InsForgeClient`` with
 ``httpx.MockTransport`` so we exercise the SQL strings, params, and
-response parsing without hitting the network. The schema definitions are
-verified structurally (columns, types, constraints, FKs) by parsing the
-SQL strings, which keeps the test honest about what the code intends to
-create.
+response parsing without hitting the network. The schema definitions
+are verified structurally (columns, types, constraints, FKs) by parsing
+the SQL strings, which keeps the test honest about what the code intends
+to create.
+
+The schema is the **migration target** of the legacy Microsoft Access
+production database (issue #29). Field names use the exact legacy
+CamelCase Spanish spelling (NCHIP, NombreAnimal, FIMPLANTACIONCHIP,
+FNacimiento, FDefuncion, etc.) to keep the migration a near-1:1 column
+copy. The ``Situacion`` legacy column is intentionally absent because
+it is derived.
 """
 
 from __future__ import annotations
@@ -19,8 +26,8 @@ import pytest
 
 from app.core.domain import (
     ANIMALS_CREATE_TABLE_SQL,
-    VOLUNTEERS_CREATE_TABLE_SQL,
-    VOLUNTEER_ROLES_CREATE_TABLE_SQL,
+    ROLES_VOLUNTARIO_CREATE_TABLE_SQL,
+    VOLUNTARIOS_CREATE_TABLE_SQL,
     ensure_domain_schema,
 )
 from app.core.insforge import InsForgeClient
@@ -42,7 +49,7 @@ def _client_recording(handler) -> tuple[InsForgeClient, list[dict[str, Any]]]:
         assert request.headers.get("Authorization", "").startswith("Bearer ")
         body = json.loads(request.content.decode("utf-8")) if request.content else {}
         captured.append(body)
-        return _json_response(200, [])
+        return handler(request, body)
 
     client = InsForgeClient(
         base_url="https://example.insforge.app",
@@ -105,117 +112,173 @@ def _fk_targets(sql: str) -> list[tuple[str, str]]:
     return pairs
 
 
-# --- animals --------------------------------------------------------------
+# --- animales -------------------------------------------------------------
 
 
-def test_animals_create_table_sql_uses_if_not_exists() -> None:
-    assert "CREATE TABLE IF NOT EXISTS animals" in ANIMALS_CREATE_TABLE_SQL
+def test_animales_create_table_sql_uses_if_not_exists() -> None:
+    assert "CREATE TABLE IF NOT EXISTS animales" in ANIMALS_CREATE_TABLE_SQL
 
 
-def test_animals_create_table_sql_has_required_columns() -> None:
+def test_animales_create_table_sql_has_all_legacy_columns() -> None:
+    """Every column from TbFichaAnimal (issue #29) must be present.
+
+    Reference: Dysflow inspection of
+    C:\\00repos\\codigo\\APAP_ACTUAL\\Registro_APAP_Alcala_datos_18.accdb
+    on 2026-06-19. The 26 legacy columns are:
+    NCHIP, TraeNChip, FIMPLANTACIONCHIP, NombreAnimal, Especie, Sexo,
+    Raza, Color, Pelo, Tamanyos (legacy encoding), Caracter, FNacimiento,
+    FDefuncion, Terapia, Observaciones, Situacion (REMOVED — derived),
+    NombreFoto, Cartilla, Eutanasia, RazaPPP, Mestizo,
+    EutanasiaOtrasCausas, EutanasiaEnfermedad, UltimoEstadoAntesDeFallecido,
+    ComunicacionARIAC.
+    Plus 3 justified improvements: id, fecha_alta, updated_at, activo.
+    """
     columns = _column_names(ANIMALS_CREATE_TABLE_SQL)
     required = {
+        # System columns (improvements)
         "id",
-        "chip_number",
-        "name",
-        "species",
-        "sex",
-        "birth_date",
-        "breed",
-        "is_mestizo",
-        "is_ppp",
-        "photo_url",
-        "death_date",
-        "death_cause",
-        "ariac_notified",
-        "last_state_before_death",
-        "created_at",
+        "fecha_alta",
         "updated_at",
+        "activo",
+        # Identity (legacy 1:1)
+        "NCHIP",
+        "TraeNChip",
+        "FIMPLANTACIONCHIP",
+        "NombreAnimal",
+        # Domain (legacy 1:1, with CHECK constraints)
+        "Especie",
+        "Sexo",
+        # Physical characteristics (legacy 1:1)
+        "Raza",
+        "Color",
+        "Pelo",
+        "Tamano",
+        "Caracter",
+        # Dates (legacy 1:1)
+        "FNacimiento",
+        "FDefuncion",
+        # Health flags (legacy 1:1)
+        "Terapia",
+        "Eutanasia",
+        "RazaPPP",
+        "Mestizo",
+        "EutanasiaOtrasCausas",
+        "EutanasiaEnfermedad",
+        "ComunicacionARIAC",
+        # Documentation (legacy 1:1)
+        "Observaciones",
+        "NombreFoto",
+        "Cartilla",
+        "UltimoEstadoAntesDeFallecido",
     }
     missing = required - columns
-    assert not missing, f"animals table missing required columns: {sorted(missing)}"
+    assert not missing, f"animales table missing legacy columns: {sorted(missing)}"
 
 
-def test_animals_table_enforces_species_and_sex_domains() -> None:
+def test_animales_table_does_not_store_situacion() -> None:
+    """Situacion is derived from the event log; it is intentionally not stored."""
+    columns = _column_names(ANIMALS_CREATE_TABLE_SQL)
+    assert "Situacion" not in columns, (
+        "Situacion must be derived from the event log, not stored on animales"
+    )
+
+
+def test_animales_table_enforces_especie_and_sexo_domains() -> None:
     sql = ANIMALS_CREATE_TABLE_SQL
-    assert "species IN ('CANINA', 'FELINA')" in sql
-    assert "sex IN ('M', 'H')" in sql
+    assert "Especie IN ('CANINA', 'FELINA')" in sql
+    assert "Sexo IN ('M', 'H')" in sql
 
 
-def test_animals_chip_number_is_unique() -> None:
-    assert "chip_number TEXT UNIQUE NOT NULL" in ANIMALS_CREATE_TABLE_SQL
+def test_animales_NCHIP_is_unique() -> None:
+    assert "NCHIP TEXT UNIQUE NOT NULL" in ANIMALS_CREATE_TABLE_SQL
 
 
-# --- volunteers -----------------------------------------------------------
+# --- voluntarios ----------------------------------------------------------
 
 
-def test_volunteers_create_table_sql_uses_if_not_exists() -> None:
-    assert "CREATE TABLE IF NOT EXISTS volunteers" in VOLUNTEERS_CREATE_TABLE_SQL
+def test_voluntarios_create_table_sql_uses_if_not_exists() -> None:
+    assert "CREATE TABLE IF NOT EXISTS voluntarios" in VOLUNTARIOS_CREATE_TABLE_SQL
 
 
-def test_volunteers_create_table_sql_has_required_columns() -> None:
-    columns = _column_names(VOLUNTEERS_CREATE_TABLE_SQL)
-    required = {"id", "full_name", "email", "phone", "dni", "is_active", "created_at", "updated_at"}
+def test_voluntarios_create_table_sql_has_all_legacy_columns() -> None:
+    """Every column from TbVoluntariosParaAutorrellenables must be present.
+
+    Legacy 4 columns: Voluntario, Tel1, Tel2, Email.
+    Plus 3 justified improvements: id, DNI, fecha_alta, updated_at, activo.
+    """
+    columns = _column_names(VOLUNTARIOS_CREATE_TABLE_SQL)
+    required = {
+        "id",
+        "Voluntario",
+        "Tel1",
+        "Tel2",
+        "Email",
+        "DNI",
+        "fecha_alta",
+        "updated_at",
+        "activo",
+    }
     missing = required - columns
-    assert not missing, f"volunteers table missing required columns: {sorted(missing)}"
+    assert not missing, f"voluntarios table missing columns: {sorted(missing)}"
 
 
-def test_volunteers_email_is_unique() -> None:
-    assert "email TEXT UNIQUE" in VOLUNTEERS_CREATE_TABLE_SQL
+def test_voluntarios_email_and_DNI_are_unique() -> None:
+    assert "Email TEXT UNIQUE" in VOLUNTARIOS_CREATE_TABLE_SQL
+    assert "DNI TEXT UNIQUE" in VOLUNTARIOS_CREATE_TABLE_SQL
 
 
-# --- volunteer_roles ------------------------------------------------------
+# --- roles_voluntario -----------------------------------------------------
 
 
-def test_volunteer_roles_create_table_sql_uses_if_not_exists() -> None:
-    assert "CREATE TABLE IF NOT EXISTS volunteer_roles" in VOLUNTEER_ROLES_CREATE_TABLE_SQL
+def test_roles_voluntario_create_table_sql_uses_if_not_exists() -> None:
+    assert "CREATE TABLE IF NOT EXISTS roles_voluntario" in ROLES_VOLUNTARIO_CREATE_TABLE_SQL
 
 
-def test_volunteer_roles_references_volunteers() -> None:
-    pairs = _fk_targets(VOLUNTEER_ROLES_CREATE_TABLE_SQL)
-    assert ("volunteer_id", "volunteers") in pairs
+def test_roles_voluntario_references_voluntarios() -> None:
+    pairs = _fk_targets(ROLES_VOLUNTARIO_CREATE_TABLE_SQL)
+    assert ("voluntario_id", "voluntarios") in pairs
 
 
-def test_volunteer_roles_enforces_role_type_domain() -> None:
-    sql = VOLUNTEER_ROLES_CREATE_TABLE_SQL
-    assert "role_type IN ('intake', 'follow_up', 'foster_care', 'health')" in sql
+def test_roles_voluntario_enforces_tipo_rol_domain() -> None:
+    sql = ROLES_VOLUNTARIO_CREATE_TABLE_SQL
+    assert "tipo_rol IN ('intake', 'seguimiento', 'acogida', 'salud')" in sql
 
 
-def test_volunteer_roles_has_unique_volunteer_role_pair() -> None:
-    assert "UNIQUE (volunteer_id, role_type)" in VOLUNTEER_ROLES_CREATE_TABLE_SQL
+def test_roles_voluntario_has_unique_voluntario_rol_pair() -> None:
+    assert "UNIQUE (voluntario_id, tipo_rol)" in ROLES_VOLUNTARIO_CREATE_TABLE_SQL
 
 
 # --- ensure_domain_schema orchestration -----------------------------------
 
 
 def test_ensure_domain_schema_creates_all_three_tables() -> None:
-    client, captured = _client_recording(lambda req: _json_response(200, []))
+    client, captured = _client_recording(lambda req, body: _json_response(200, []))
 
     ensure_domain_schema(client)
     client.close()
 
     assert len(captured) == 3
     queries = [c["query"].strip() for c in captured]
-    assert any(q.startswith("CREATE TABLE IF NOT EXISTS animals") for q in queries)
-    assert any(q.startswith("CREATE TABLE IF NOT EXISTS volunteers") for q in queries)
-    assert any(q.startswith("CREATE TABLE IF NOT EXISTS volunteer_roles") for q in queries)
+    assert any(q.startswith("CREATE TABLE IF NOT EXISTS animales") for q in queries)
+    assert any(q.startswith("CREATE TABLE IF NOT EXISTS voluntarios") for q in queries)
+    assert any(q.startswith("CREATE TABLE IF NOT EXISTS roles_voluntario") for q in queries)
 
 
-def test_ensure_domain_schema_order_is_animals_then_volunteers_then_roles() -> None:
-    """Roles references volunteers, volunteers is independent, animals is independent.
+def test_ensure_domain_schema_order_is_animales_then_voluntarios_then_roles() -> None:
+    """Roles references voluntarios, voluntarios is independent, animales is independent.
 
-    Order: animals, volunteers, volunteer_roles. Anything else means a
+    Order: animales, voluntarios, roles_voluntario. Anything else means a
     foreign-key will fail on a clean database.
     """
-    client, captured = _client_recording(lambda req: _json_response(200, []))
+    client, captured = _client_recording(lambda req, body: _json_response(200, []))
 
     ensure_domain_schema(client)
     client.close()
 
     queries = [c["query"].strip() for c in captured]
-    assert queries[0].startswith("CREATE TABLE IF NOT EXISTS animals")
-    assert queries[1].startswith("CREATE TABLE IF NOT EXISTS volunteers")
-    assert queries[2].startswith("CREATE TABLE IF NOT EXISTS volunteer_roles")
+    assert queries[0].startswith("CREATE TABLE IF NOT EXISTS animales")
+    assert queries[1].startswith("CREATE TABLE IF NOT EXISTS voluntarios")
+    assert queries[2].startswith("CREATE TABLE IF NOT EXISTS roles_voluntario")
 
 
 def test_ensure_domain_schema_raises_when_create_table_fails() -> None:
