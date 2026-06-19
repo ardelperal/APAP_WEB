@@ -1,0 +1,202 @@
+"""Voluntarios routes: list, create, get, deactivate (soft).
+
+Thin layer on top of ``app.modules.voluntarios.service``. Same pattern
+as ``app.modules.animals.routes``: routes handle form parsing,
+auth guards, and HTML rendering; the service does the SQL.
+
+Auth: any active user from ``usuarios_autorizados`` (i.e. any
+authorized user) can read and create voluntarios. The admin panel
+is the only developer-only surface.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
+
+from app.core.insforge import InsForgeClient, InsForgeError
+from app.modules.voluntarios import service as voluntarios_service
+from app.modules.voluntarios.service import RolVoluntario
+
+router = APIRouter(prefix="/voluntarios", tags=["voluntarios"])
+
+_TEMPLATES_DIR = Path(__file__).parents[2] / "templates"
+_templates = Jinja2Templates(directory=_TEMPLATES_DIR)
+
+
+def _client_dep(request: Request) -> InsForgeClient:
+    from app.main import get_insforge_client
+    return get_insforge_client()
+
+
+def _current_user_optional(request: Request) -> dict | None:
+    from app.core.config import get_settings
+    from app.core.session import read_session, session_cookie_name
+
+    settings = get_settings()
+    token = request.cookies.get(session_cookie_name())
+    if not token:
+        return None
+    return read_session(token, secret=settings.session_secret)
+
+
+def require_authorized_user(
+    request: Request,
+    payload: dict | None = Depends(_current_user_optional),
+) -> dict:
+    if not payload:
+        raise HTTPException(status_code=status.HTTP_302_FOUND, headers={"location": "/login"})
+    if not payload.get("is_authorized", True):
+        raise HTTPException(status_code=status.HTTP_302_FOUND, headers={"location": "/unauthorized"})
+    return payload
+
+
+def _form_data_to_params(form: dict[str, Any]) -> dict[str, Any]:
+    def _opt(key: str) -> str | None:
+        value = form.get(key)
+        if value is None:
+            return None
+        value = str(value).strip()
+        return value or None
+
+    return {
+        "Voluntario": _opt("Voluntario"),
+        "Tel1": _opt("Tel1"),
+        "Tel2": _opt("Tel2"),
+        "Email": _opt("Email"),
+        "DNI": _opt("DNI"),
+    }
+
+
+# --- list -----------------------------------------------------------------
+
+
+@router.get("", response_class=HTMLResponse)
+def list_voluntarios_view(
+    request: Request,
+    user: dict = Depends(require_authorized_user),
+    client: InsForgeClient = Depends(_client_dep),
+):
+    """Lista de voluntarios activos, ordenados alfabeticamente."""
+    voluntarios = voluntarios_service.list_voluntarios(client)
+    return _templates.TemplateResponse(
+        request=request,
+        name="voluntarios/list.html",
+        context={"user": user, "voluntarios": voluntarios},
+    )
+
+
+# --- new (form) -----------------------------------------------------------
+
+
+@router.get("/new", response_class=HTMLResponse)
+def new_voluntario_form(
+    request: Request,
+    user: dict = Depends(require_authorized_user),
+):
+    """Formulario vacio para dar de alta un voluntario."""
+    return _templates.TemplateResponse(
+        request=request,
+        name="voluntarios/form.html",
+        context={
+            "user": user,
+            "form_data": {},
+            "error": None,
+        },
+    )
+
+
+# --- create (submit) ------------------------------------------------------
+
+
+@router.post("", response_class=HTMLResponse)
+def create_voluntario_view(
+    request: Request,
+    Voluntario: str = Form(...),
+    Tel1: str | None = Form(None),
+    Tel2: str | None = Form(None),
+    Email: str | None = Form(None),
+    DNI: str | None = Form(None),
+    user: dict = Depends(require_authorized_user),
+    client: InsForgeClient = Depends(_client_dep),
+):
+    """Procesa el submit del formulario. En exito, redirect al detalle."""
+    form_data = _form_data_to_params({
+        "Voluntario": Voluntario, "Tel1": Tel1, "Tel2": Tel2,
+        "Email": Email, "DNI": DNI,
+    })
+
+    try:
+        voluntario = voluntarios_service.create_voluntario(client, form_data)
+    except ValueError as exc:
+        return _templates.TemplateResponse(
+            request=request,
+            name="voluntarios/form.html",
+            context={"user": user, "form_data": form_data, "error": str(exc)},
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        )
+    except InsForgeError as exc:
+        if exc.status_code == 409:
+            return _templates.TemplateResponse(
+                request=request,
+                name="voluntarios/form.html",
+                context={
+                    "user": user,
+                    "form_data": form_data,
+                    "error": "Ya existe un voluntario con ese email o DNI. Compruebalo.",
+                },
+                status_code=status.HTTP_409_CONFLICT,
+            )
+        raise
+
+    return RedirectResponse(
+        url=f"/voluntarios/{voluntario.id}", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+# --- detail ---------------------------------------------------------------
+
+
+@router.get("/{voluntario_id}", response_class=HTMLResponse)
+def voluntario_detail(
+    voluntario_id: str,
+    request: Request,
+    user: dict = Depends(require_authorized_user),
+    client: InsForgeClient = Depends(_client_dep),
+):
+    """Detalle de un voluntario. 404 si no existe."""
+    voluntario = voluntarios_service.get_voluntario_by_id(client, voluntario_id)
+    if voluntario is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    roles = voluntarios_service.list_roles(client, voluntario_id)
+    return _templates.TemplateResponse(
+        request=request,
+        name="voluntarios/detail.html",
+        context={"user": user, "voluntario": voluntario, "roles": roles},
+    )
+
+
+# --- deactivate (soft) ---------------------------------------------------
+
+
+@router.post("/{voluntario_id}/deactivate", response_class=HTMLResponse)
+def deactivate_voluntario_view(
+    voluntario_id: str,
+    request: Request,
+    user: dict = Depends(require_authorized_user),
+    client: InsForgeClient = Depends(_client_dep),
+):
+    """Soft-delete: marca activo=false. Redirect a la lista."""
+    if voluntarios_service.get_voluntario_by_id(client, voluntario_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    client.execute_sql(
+        "UPDATE voluntarios SET activo = false, updated_at = now() WHERE id = $1",
+        [voluntario_id],
+    )
+    return RedirectResponse(
+        url="/voluntarios", status_code=status.HTTP_303_SEE_OTHER
+    )

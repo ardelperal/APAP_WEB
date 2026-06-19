@@ -44,6 +44,7 @@ from app.core.session import (
     write_session,
 )
 from app.modules.animals.routes import router as animals_router
+from app.modules.voluntarios.routes import router as voluntarios_router
 
 _STATIC_DIR = Path(__file__).parent / "static"
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -345,6 +346,7 @@ def create_app() -> FastAPI:
         return _redirect("/admin")
 
     application.include_router(animals_router)
+    application.include_router(voluntarios_router)
 
     return application
 

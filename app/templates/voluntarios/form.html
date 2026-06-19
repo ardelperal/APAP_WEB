@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Nuevo voluntario - APAP_WEB{% endblock %}
+{% block content %}
+<div class="max-w-2xl mx-auto px-4 py-8">
+    <h1 class="text-3xl font-bold mb-6">Nuevo voluntario</h1>
+
+    {% if error %}
+    <div class="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded mb-6">
+        {{ error }}
+    </div>
+    {% endif %}
+
+    <form method="post" action="" class="bg-white shadow rounded-lg p-6 space-y-4">
+        <div>
+            <label class="block text-sm font-medium text-gray-700">Nombre *</label>
+            <input type="text" name="Voluntario" value="{{ form_data.Voluntario or '' }}"
+                   class="mt-1 block w-full border border-gray-300 rounded px-3 py-2"
+                   required>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-700">Email</label>
+                <input type="email" name="Email" value="{{ form_data.Email or '' }}"
+                       class="mt-1 block w-full border border-gray-300 rounded px-3 py-2">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700">DNI</label>
+                <input type="text" name="DNI" value="{{ form_data.DNI or '' }}"
+                       class="mt-1 block w-full border border-gray-300 rounded px-3 py-2">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700">Telefono 1</label>
+                <input type="tel" name="Tel1" value="{{ form_data.Tel1 or '' }}"
+                       class="mt-1 block w-full border border-gray-300 rounded px-3 py-2">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700">Telefono 2</label>
+                <input type="tel" name="Tel2" value="{{ form_data.Tel2 or '' }}"
+                       class="mt-1 block w-full border border-gray-300 rounded px-3 py-2">
+            </div>
+        </div>
+
+        <div class="flex justify-end gap-3 pt-4">
+            <a href="/voluntarios" class="px-4 py-2 text-gray-700 hover:text-gray-900">Cancelar</a>
+            <button type="submit" class="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700">
+                Guardar
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}
