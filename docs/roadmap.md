@@ -100,7 +100,7 @@
 
 **Objetivo:** tablas `animals`, `volunteers`, `authorized_users` y la tabla mínima de anexos. Sin UI de producto todavía.
 
-> Pendiente de crear issue. Bloquea las Fases 4-7.
+> 🟡 En curso. `authorized_users` ✅ (issue #25). `animals`, `volunteers`, `volunteer_roles` ✅ (issue #26). Pendiente: `animal_event_log` (Fase 4 con CRUD) y `attachments` (Fase 7 con bucket de Storage). Bloquea Fases 4-7.
 
 **Documentación de referencia:**
 
