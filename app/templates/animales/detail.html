@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}{{ animal.NombreAnimal }} - APAP_WEB{% endblock %}
+{% block content %}
+<div class="max-w-4xl mx-auto px-4 py-8">
+    <div class="flex items-center justify-between mb-6">
+        <h1 class="text-3xl font-bold">{{ animal.NombreAnimal }}</h1>
+        <div class="flex gap-3">
+            <a href="/animales/{{ animal.id }}/edit"
+               class="bg-yellow-500 text-white px-4 py-2 rounded hover:bg-yellow-600">
+                Editar
+            </a>
+            <form method="post" action="/animales/{{ animal.id }}/delete" class="inline"
+                  onsubmit="return confirm('Borrar este animal?');">
+                <button type="submit" class="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700">
+                    Borrar
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <div class="bg-white shadow rounded-lg p-6 space-y-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div><strong>NCHIP:</strong> <code>{{ animal.NCHIP }}</code></div>
+            <div><strong>Nombre:</strong> {{ animal.NombreAnimal }}</div>
+            <div><strong>Especie:</strong> {{ animal.Especie.value }}</div>
+            <div><strong>Sexo:</strong> {{ animal.Sexo.value }}</div>
+            <div><strong>FNacimiento:</strong> {{ animal.FNacimiento }}</div>
+            <div><strong>FDefuncion:</strong> {{ animal.FDefuncion or "-" }}</div>
+            <div><strong>Raza:</strong> {{ animal.Raza or "-" }}</div>
+            <div><strong>Color:</strong> {{ animal.Color or "-" }}</div>
+            <div><strong>Pelo:</strong> {{ animal.Pelo or "-" }}</div>
+            <div><strong>Tamano:</strong> {{ animal.Tamano or "-" }}</div>
+            <div><strong>Caracter:</strong> {{ animal.Caracter or "-" }}</div>
+            <div><strong>TraeNChip:</strong> {{ animal.TraeNChip or "-" }}</div>
+            <div><strong>FIMPLANTACIONCHIP:</strong> {{ animal.FIMPLANTACIONCHIP or "-" }}</div>
+            <div><strong>Terapia:</strong> {{ animal.Terapia or "-" }}</div>
+            <div><strong>Eutanasia:</strong> {{ animal.Eutanasia or "-" }}</div>
+            <div><strong>Mestizo:</strong> {{ animal.Mestizo or "-" }}</div>
+            <div><strong>RazaPPP:</strong> {{ animal.RazaPPP or "-" }}</div>
+            <div><strong>Cartilla:</strong> {{ animal.Cartilla or "-" }}</div>
+            <div><strong>ComunicacionARIAC:</strong> {{ animal.ComunicacionARIAC or "-" }}</div>
+        </div>
+        <div>
+            <strong>Observaciones:</strong>
+            <p class="mt-1 text-gray-700">{{ animal.Observaciones or "(sin observaciones)" }}</p>
+        </div>
+    </div>
+
+    <div class="mt-4">
+        <a href="/animales" class="text-blue-600 hover:underline">&larr; Volver al listado</a>
+    </div>
+</div>
+{% endblock %}

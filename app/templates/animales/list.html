@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Animales - APAP_WEB{% endblock %}
+{% block content %}
+<div class="max-w-6xl mx-auto px-4 py-8">
+    <div class="flex items-center justify-between mb-6">
+        <h1 class="text-3xl font-bold">Animales</h1>
+        <a href="/animales/new" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+            + Nuevo animal
+        </a>
+    </div>
+
+    {% if animales %}
+    <div class="bg-white shadow rounded-lg overflow-hidden">
+        <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">NCHIP</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nombre</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Especie</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Sexo</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">FNacimiento</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Raza</th>
+                    <th class="px-6 py-3"></th>
+                </tr>
+            </thead>
+            <tbody class="bg-white divide-y divide-gray-200">
+                {% for animal in animales %}
+                <tr>
+                    <td class="px-6 py-4 whitespace-nowrap font-mono text-sm">{{ animal.NCHIP }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap font-semibold">{{ animal.NombreAnimal }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">{{ animal.Especie.value }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">{{ animal.Sexo.value }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">{{ animal.FNacimiento }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-gray-500">{{ animal.Raza or "-" }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-right">
+                        <a href="/animales/{{ animal.id }}" class="text-blue-600 hover:underline">Ver</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="bg-white shadow rounded-lg p-8 text-center text-gray-500">
+        <p>No hay animales registrados.</p>
+        <a href="/animales/new" class="text-blue-600 hover:underline mt-2 inline-block">
+            Dar de alta el primero
+        </a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
