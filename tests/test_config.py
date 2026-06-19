@@ -75,12 +75,12 @@ def test_settings_reads_google_oauth_config_from_env() -> None:
     with pytest.MonkeyPatch.context() as mp:
         mp.setenv("APAP_GOOGLE_CLIENT_ID", "test-client-id")
         mp.setenv("APAP_GOOGLE_CLIENT_SECRET", "test-client-secret")
-        mp.setenv("APAP_GOOGLE_REDIRECT_URI", "https://apap.romancabanillas.com/auth/callback")
+        mp.setenv("APAP_GOOGLE_REDIRECT_URI", "https://apap.romancaba.com/auth/callback")
         settings = Settings(_env_file=None)
 
     assert settings.google_client_id == "test-client-id"
     assert settings.google_client_secret == "test-client-secret"
-    assert settings.google_redirect_uri == "https://apap.romancabanillas.com/auth/callback"
+    assert settings.google_redirect_uri == "https://apap.romancaba.com/auth/callback"
 
 
 def test_settings_loads_initial_admin_email_default() -> None:

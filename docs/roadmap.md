@@ -27,7 +27,7 @@
 | GitHub Actions workflow | ✅ | `ci / lint`, `ci / test`, `ci / build` en verde en PRs y pushes a `main` |
 | Branch protection en `main` | 🔲 | Documentado en `.github/branch-protection.md`; pendiente de activar en la UI de GitHub (tarea 1.5) |
 | Proyecto Coolify + app `apap-web` | ✅ | Aprovisionado, apunta a `ardelperal/APAP_WEB:main` |
-| DNS `apap.romancabanillas.com` | 🔲 | Pendiente de crear por el mantenedor antes del primer deploy real |
+| DNS `apap.romancaba.com` | 🔲 | Pendiente de crear por el mantenedor antes del primer deploy real |
 | Deploy automático (CD-01 + CD-02) | 🔲 | Issue #1 abierto |
 | Backend InsForge | ✅ | Verificado, MCP configurado |
 | Esqueleto de la app FastAPI | ✅ | Mergeado en `main` como `d0b1ed1` (issue #17) |
