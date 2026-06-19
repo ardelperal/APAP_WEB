@@ -1,0 +1,138 @@
+# Design: CI/CD Foundation
+
+## Technical Approach
+
+Implement the delivery pipeline in three layers, each delivered as a chained PR landing on `main` while APAP-WEB is pre-MVC:
+
+1. **Local test surface (CI-01)** — ship `pyproject.toml` with `pytest` + `ruff` config, a `Makefile` entry point, and `docs/development.md`. The deprecation-as-error flag (`filterwarnings = ["error::DeprecationWarning"]`) is set in `pyproject.toml` per `docs/architecture-insforge-stack.md § CI/CD Quality Gate`.
+2. **GitHub Actions CI (CI-02)** — a single workflow file `.github/workflows/ci.yml` with three jobs (`lint`, `test`, `build`) and a clearly commented E2E job hook for the future E2E-01 ticket. Branch protection on `main` requires the workflow status check.
+3. **CD pipeline (CD-01, CD-02)** — a `deploy` job added to the same workflow (or a sibling `deploy.yml`) gated on `push: main` and `needs: [lint, test, build]`. The job fires the Coolify webhook and calls `insforge_create-deployment` in sequence.
+
+Forward planning for CD-03 and ENV-01 is captured in the spec and tasks but not implemented in this change; their checkboxes remain unchecked until Virginia adopts the MVC/MVP.
+
+## Architecture decisions
+
+| Decision | Choice | Alternative | Why |
+|----------|--------|-------------|-----|
+| **Workflow file layout** | Single `ci.yml` with `lint`/`test`/`build`/`deploy` jobs | Separate `ci.yml` + `deploy.yml` files | Single file keeps the dependency graph (`needs:`) explicit and reviewable; easier to reason about deploy gating |
+| **Test framework** | `pytest` | `unittest`, `nox` | `pytest` is FastAPI-community standard, supports the `filterwarnings` config the architecture doc requires, and is what the archived TDD policy references |
+| **Lint tool** | `ruff` | `flake8`, `pylint` | `ruff` is faster, single binary, current best practice per Context7; matches the architecture doc's preference |
+| **Branch policy during this change** | `main` is the only target | Create `staging` now | Pre-MVC; per architecture doc § Branch and deployment policy the staging transition waits for Virginia's MVC/MVP adoption |
+| **CD trigger** | Push to `main` after CI passes | Manual deploy step | Per architecture doc § CI/CD policy #4 "Continuous deployment" — automation is required, not manual |
+| **Coolify integration** | Webhook URL stored in GitHub Actions secret; workflow calls `curl` | Coolify MCP from CI runner | Webhook is the documented integration path; the Coolify MCP requires operator-only authentication and is for management, not CI triggers |
+| **InsForge integration** | ~~`insforge_create-deployment` MCP tool via CI step~~ **N/A desde 2026-06-19** | InsForge REST API direct | Reconsiderado: APAP_WEB es backend FastAPI desplegado a Coolify, no frontend SPA en InsForge. InsForge actúa solo como BaaS. La capacidad reemplazante (bootstrap de schema) se cubre en otra issue |
+| **E2E test slot in CI** | Commented job with `if: false` placeholder | Omit entirely | Keeps the file ready for E2E-01 to flip on without restructuring; documents intent in code |
+| **Spec format for new capability** | Full spec + `## Delta from ci-cd-foundation` | Pure delta spec | This is a NEW capability; archive will copy the full content to `openspec/specs/ci-cd-pipeline/spec.md` |
+
+## Data flow
+
+```text
+Developer
+   │  git push feature-branch
+   ▼
+GitHub pull request to main
+   │
+   ▼
+.github/workflows/ci.yml
+   ├── lint job      (ruff check)
+   ├── test job      (pytest -W error::DeprecationWarning)
+   ├── build job     (python -m build / docker build)
+   └── (future E2E job — TODO E2E-01)
+        │
+        ▼  all green on pull_request + push:main
+   ┌────┴────────────────────────────────┐
+   │           deploy job                │
+   │  (runs only on push:main)           │
+   │                                     │
+    │  └── curl $COOLIFY_WEBHOOK_URL      │  ──► Coolify (VPS, FastAPI/HTMX)
+   └────┬────────────────────────────────┘
+        ▼
+Production live
+```
+
+Future post-staging flow (deferred — captured in spec, not implemented):
+
+```text
+PR to staging ──► CI ──► Coolify staging ──► UAT checklist ──► Virginia OK
+   │
+   ▼  merge staging → main
+Production deploy (gated on UAT pass or override)
+```
+
+## File changes
+
+| File | Action | Description |
+|------|--------|-------------|
+| `pyproject.toml` | Create | Project metadata, pytest config with `filterwarnings = ["error::DeprecationWarning"]`, ruff config |
+| `Makefile` | Create | `make test`, `make lint`, `make build` targets wrapping the canonical commands |
+| `tests/test_smoke.py` | Create | One passing assertion so the CI test job is never vacuous |
+| `docs/development.md` | Create | Clone, install, env vars, test/lint/build commands, expected output, pre-staging branch note |
+| `.github/workflows/ci.yml` | Create | GitHub Actions workflow: lint, test, build, deploy jobs; commented E2E hook |
+| `.github/branch-protection.md` | Create | Operator-facing note: required CI check name, how to enable branch protection on `main` |
+| `.gitignore` | Modify | Add `__pycache__/`, `.pytest_cache/`, `.ruff_cache/`, `dist/`, `build/`, `*.egg-info/` |
+| `openspec/config.yaml` | Modify | `strict_tdd: true`, `test_command: "pytest"`, `build_command: "python -m build"`, `linter: ruff`, `coverage_threshold: 80` |
+| `openspec/changes/ci-cd-foundation/{proposal,design,tasks,specs/ci-cd-pipeline/spec.md}` | Create | SDD artifacts for this change |
+
+## Interfaces and contracts
+
+### Workflow contract (`.github/workflows/ci.yml`)
+
+| Job | Trigger | Steps | Required secrets |
+|-----|---------|-------|------------------|
+| `lint` | `pull_request` to main, `push` to main | Checkout → setup-python → pip install ruff → `ruff check .` | none |
+| `test` | same | Checkout → setup-python → pip install -e ".[test]" → `pytest -W error::DeprecationWarning` | none |
+| `build` | same | Checkout → setup-python → pip install build → `python -m build` | none |
+| `deploy` | `push` to main only; `needs: [lint, test, build]` | Checkout → secret-leak grep → curl `${{ secrets.COOLIFY_WEBHOOK_URL }}` | `COOLIFY_WEBHOOK_URL` |
+
+### OpenSpec config contract
+
+After CI-01 lands, `openspec/config.yaml` MUST read:
+
+```yaml
+testing:
+  has_test_runner: true
+  strict_tdd: true
+  test_framework: pytest
+  test_layers: [unit, integration]
+  coverage_tool: pytest-cov
+  linter: ruff
+  type_checker: none
+  formatter: ruff
+```
+
+## Testing strategy
+
+This change is infrastructure; it does not produce application logic. The TDD cycle (RED → GREEN → REFACTOR) does not apply to the workflow file itself, but the workflow file is verifiable through its downstream effect.
+
+| Layer | What it tests | Approach |
+|-------|---------------|----------|
+| **Smoke test** | The CI test job is non-vacuous | `tests/test_smoke.py` with one passing assertion; CI must execute it |
+| **Workflow file validity** | The YAML parses and the jobs are reachable | GitHub Actions parses the file on push; a syntax error fails the run before any job starts |
+| **Lint self-check** | The CI workflow does not contain hardcoded secrets | A simple grep in CI (`! grep -E '(http://|https://)[^$]' .github/workflows/`) catches leaked URLs |
+| **Dry-run deploy** | The `deploy` job's commands do not error in a dry-run mode | First merge to `main` after this change lands is a dry-run; success criterion is job exits zero |
+| **Downstream TDD readiness** | Future application PRs can land strict-TDD tests | The CI workflow's `pytest -W error::DeprecationWarning` config is documented and matches `docs/architecture-insforge-stack.md § Web Strict TDD Policy` |
+
+E2E coverage is intentionally absent in this change. It is added by the separate E2E-01 ticket which depends on CI-02; the workflow file leaves a clearly marked hook.
+
+## Migration and rollout
+
+No data migration. No application rollout. The change is configuration + documentation. The first deploy is a no-op smoke: the `deploy` job fires the webhook and the InsForge call, and either succeeds (Coolify redeploys a placeholder app) or fails the run (the workflow does not pass; no harm to production beyond a redundant deploy attempt).
+
+## Open questions
+
+- [ ] **Operator-controlled secrets**: confirm the operator (not the AI) will populate `COOLIFY_WEBHOOK_URL` and InsForge dashboard env vars before the CD PRs land. Documented in PR body but not enforceable by the workflow file.
+- [ ] **First deploy target**: the first `deploy` job run will hit Coolify with whatever the operator has configured. If the Coolify app is not yet pointing at this repo, the deploy fails safely (no production state change) but the workflow run is red. Acceptance: operator provisions Coolify app for `apap-web` before merging the CD PRs.
+- [ ] **E2E hook timing**: the commented E2E job is added in this change but flipped on by E2E-01. If E2E-01 lands first (shouldn't, since it depends on CI-02), the workflow file needs no change. Documented in `tasks.md` for the E2E ticket owner.
+- [ ] **Coverage threshold of 80**: aligns with the architecture doc's "80% of meaningful methods" floor. Will be tuned per-ticket in follow-up changes if specific tickets can't hit it without shallow tests.
+
+## Future work (not in this change)
+
+The following are referenced in the spec and tasks as forward planning only:
+
+- **CD-03** — Staging branch and UAT channel; trigger: Virginia MVC/MVP adoption.
+- **ENV-01** — Two Coolify environments; depends on CD-03.
+- **CD-04** — UAT-gated production promotion; depends on CD-03 + UAT-01.
+- **UAT-01..03** — Interactive UAT page, release-to-ticket traceability, Virginia feedback workflow.
+- **E2E-01..06** — Playwright E2E harness and per-domain smoke tests.
+- **E2E-M1..M4** — Mobile-viewport E2E coverage.
+- **WORKER-01..04** — Background processing infrastructure, triggered by a concrete background need.

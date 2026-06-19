@@ -54,7 +54,8 @@
 | CI-01 superficie de tests local | ✅ | — | merged | `ci-cd-foundation` Phase 0 |
 | CI-02 workflow de GitHub Actions | ✅ | — | merged | `ci-cd-foundation` Phase 1 |
 | CD-02 build y push del runnable a Coolify | ✅ | #1 | #24 (`dc98c1c`) | `ci-cd-foundation` Phase 2 |
-| CD-01 webhook automático GitHub → Coolify en `push: main` | 🔲 | #1 | — | `ci-cd-foundation` Phase 2 |
+| CD-01 webhook automático GitHub → Coolify en `push: main` | ✅ código en `225ef9c`; 🔲 dry-run real (tasks 2.6) pendiente de configurar `COOLIFY_WEBHOOK_URL` | #1 | — | `ci-cd-foundation` Phase 2 |
+| ~~CD-02 InsForge `insforge_create-deployment` step~~ | ~~🔲~~ N/A (2026-06-19) | #1 | — | — |
 | Branch protection activado en `main` | 🔲 | — | — | `ci-cd-foundation` tarea 1.5 |
 | Harness E2E (Playwright) | 🔲 | — | — | `E2E-01` (diferido a `staging`) |
 
