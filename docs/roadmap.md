@@ -32,7 +32,7 @@
 | CD-02 build y push del runnable a Coolify | ✅ | Mergeado en `main` como `dc98c1c` (PR #24) — Dockerfile corregido, build verificado |
 | CD-01 webhook automático GitHub → Coolify en `push: main` | 🔲 | Issue #1 sigue abierto; pendiente de implementar el job `deploy` en `.github/workflows/ci.yml` |
 | Backend InsForge | ✅ | Verificado, MCP configurado; `APAP_INSFORGE_URL` apuntando a `c3uc9dk6.eu-central.insforge.app` |
-| Tabla `authorized_users` en InsForge | 🔲 | Schema diseñada en Fase 2, falta crear la tabla real en el backend InsForge |
+| Tabla `authorized_users` en InsForge | ✅ | Creada y seedeada con `ardelperal@gmail.com` (developer) — issue #25; idempotente con `CREATE TABLE IF NOT EXISTS` |
 | Esqueleto de la app FastAPI | ✅ | Mergeado en `main` como `d0b1ed1` (issue #17) |
 | Login real con Google OAuth + allowlist | ✅ | Mergeado en `main` como `1d22349` (issue #16); falta crear la tabla `authorized_users` y desplegar |
 | Foundation UX/UI | 🔲 | Issue #6 abierto |
