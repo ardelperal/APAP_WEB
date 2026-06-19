@@ -21,6 +21,14 @@
 > para que cualquier IA o humano que lea este doc entienda exactamente
 > que falta.
 
+> **Progreso del feature LIFECYCLE-01 (paridad con el legacy):**
+> este slice cubre el schema. Ademas del schema, ya esta mergeado el
+> service layer (`app/modules/animals/service.py`) con `create_animal`,
+> `list_animals` y `get_animal_by_id` validados por TDD estricto
+> (12 tests en `tests/test_animals.py`, todos en verde). Pendiente:
+> routes HTTP (LIFECYCLE-ROUTE-01..06) y templates Jinja2 (LIFECYCLE-UI-01)
+> para que el usuario pueda usar la feature desde el navegador.
+
 ## 1. Alcance
 
 Esta feature cubre la definición del schema SQL de la tabla `animales`
@@ -243,8 +251,29 @@ derivada).
 
 ## 6. Plan de tests
 
-Cubierto por `tests/test_domain.py`. Total: 15 tests en esta capa,
-todos en verde.
+Cubierto por `tests/test_domain.py` (15 tests del schema) y
+`tests/test_animals.py` (12 tests del service layer). Total: 27
+tests en esta feature, todos en verde.
+
+### Service layer (12 tests)
+
+- `test_create_animal_ejecuta_insert_con_parametros_esperados` — el
+  INSERT contiene los 5 obligatorios en el orden correcto.
+- `test_create_animal_rechaza_Especie_invalida_antes_de_sql` — la
+  validacion corre ANTES de tocar la DB.
+- `test_create_animal_rechaza_Sexo_invalido_antes_de_sql`
+- `test_create_animal_rechaza_NCHIP_vacio`
+- `test_create_animal_rechaza_NombreAnimal_vacio`
+- `test_create_animal_rechaza_FNacimiento_vacio`
+- `test_create_animal_propag_InsForgeError_en_NCHIP_duplicado` — un
+  409 de InsForge (NCHIP duplicado) propaga el error tal cual.
+- `test_create_animal_acepta_todos_los_campos_opcionales` — el INSERT
+  incluye los 24 campos (5 obligatorios + 19 opcionales).
+- `test_list_animals_ejecuta_select_y_devuelve_filas` — el SELECT
+  filtra por `activo = true` y ordena por `fecha_alta DESC`.
+- `test_list_animals_devuelve_lista_vacia_sin_filas`
+- `test_get_animal_by_id_devuelve_fila_cuando_existe`
+- `test_get_animal_by_id_devuelve_None_si_no_existe`
 
 | Test | Que cubre |
 |---|---|
