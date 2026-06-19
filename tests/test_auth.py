@@ -1,4 +1,4 @@
-"""Tests for the authorized_users schema, bootstrap seed and CRUD.
+"""Tests for the usuarios_autorizados schema, bootstrap seed and CRUD.
 
 All tests use a real ``InsForgeClient`` with an ``httpx.MockTransport``
 so we exercise the SQL strings, params, and response parsing without
@@ -57,7 +57,7 @@ def _settings(**overrides) -> Settings:
     return Settings(**base)
 
 
-def test_ensure_schema_creates_authorized_users_table() -> None:
+def test_ensure_schema_creates_usuarios_autorizados_table() -> None:
     """``ensure_schema_and_seed`` runs the CREATE TABLE IF NOT EXISTS statement."""
     captured: list = []
 
@@ -71,10 +71,11 @@ def test_ensure_schema_creates_authorized_users_table() -> None:
 
     assert len(captured) == 1
     body = captured[0]
-    assert "CREATE TABLE IF NOT EXISTS authorized_users" in body["query"]
+    assert "CREATE TABLE IF NOT EXISTS usuarios_autorizados" in body["query"]
     assert "email TEXT UNIQUE NOT NULL" in body["query"]
-    assert "role TEXT NOT NULL" in body["query"]
-    assert "is_active BOOLEAN" in body["query"]
+    assert "rol TEXT NOT NULL" in body["query"]
+    assert "activo BOOLEAN" in body["query"]
+    assert "fecha_alta TIMESTAMP" in body["query"]
     assert body["params"] == []
 
 
@@ -85,8 +86,8 @@ def test_ensure_schema_seeds_initial_admin_when_configured() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         captured.append(json.loads(request.content))
         # The seed returns 1 row on first run.
-        if "INSERT INTO authorized_users" in captured[-1]["query"]:
-            return _json_response(200, [{"id": "u-1", "email": "owner@example.com"}])
+        if "INSERT INTO usuarios_autorizados" in captured[-1]["query"]:
+            return _json_response(200, [{"id": "u-1", "email": "owner@example.com", "rol": "developer"}])
         return _json_response(200, [])
 
     client = _client(handler)
@@ -96,11 +97,12 @@ def test_ensure_schema_seeds_initial_admin_when_configured() -> None:
 
     # Two SQL calls: CREATE TABLE then INSERT.
     assert len(captured) == 2
-    assert "CREATE TABLE IF NOT EXISTS authorized_users" in captured[0]["query"]
+    assert "CREATE TABLE IF NOT EXISTS usuarios_autorizados" in captured[0]["query"]
     insert = captured[1]
-    assert "INSERT INTO authorized_users" in insert["query"]
+    assert "INSERT INTO usuarios_autorizados" in insert["query"]
     assert "SELECT $1, 'developer', true" in insert["query"]
     assert "WHERE NOT EXISTS" in insert["query"]
+    assert "WHERE NOT EXISTS (\n    SELECT 1 FROM usuarios_autorizados WHERE rol = 'developer'" in insert["query"]
     assert insert["params"] == ["owner@example.com"]
 
 
@@ -118,7 +120,7 @@ def test_ensure_schema_skips_seed_when_no_initial_email() -> None:
     ensure_schema_and_seed(client, settings)
 
     assert len(captured) == 1
-    assert "INSERT INTO authorized_users" not in captured[0]["query"]
+    assert "INSERT INTO usuarios_autorizados" not in captured[0]["query"]
 
 
 def test_get_user_by_email_returns_row_when_active() -> None:
@@ -129,7 +131,7 @@ def test_get_user_by_email_returns_row_when_active() -> None:
         captured["body"] = json.loads(request.content)
         return _json_response(
             200,
-            [{"id": "u-1", "email": "a@b.com", "role": "developer", "is_active": True}],
+            [{"id": "u-1", "email": "a@b.com", "rol": "developer", "activo": True}],
         )
 
     client = _client(handler)
@@ -138,12 +140,12 @@ def test_get_user_by_email_returns_row_when_active() -> None:
 
     assert captured["body"]["params"] == ["a@b.com"]
     assert "WHERE email = $1" in captured["body"]["query"]
-    assert "AND is_active = true" in captured["body"]["query"]
+    assert "AND activo = true" in captured["body"]["query"]
     assert user == {
         "id": "u-1",
         "email": "a@b.com",
-        "role": "developer",
-        "is_active": True,
+        "rol": "developer",
+        "activo": True,
     }
 
 
@@ -166,16 +168,16 @@ def test_list_authorized_users_returns_all_rows() -> None:
                 {
                     "id": "u-2",
                     "email": "b@b.com",
-                    "role": "key_user",
-                    "is_active": True,
-                    "created_at": "2026-06-17T00:00:00Z",
+                    "rol": "key_user",
+                    "activo": True,
+                    "fecha_alta": "2026-06-17T00:00:00Z",
                 },
                 {
                     "id": "u-3",
                     "email": "c@c.com",
-                    "role": "reader",
-                    "is_active": False,
-                    "created_at": "2026-06-16T00:00:00Z",
+                    "rol": "reader",
+                    "activo": False,
+                    "fecha_alta": "2026-06-16T00:00:00Z",
                 },
             ],
         )
@@ -184,14 +186,14 @@ def test_list_authorized_users_returns_all_rows() -> None:
 
     rows = list_authorized_users(client)
 
-    assert "ORDER BY created_at DESC" in captured["body"]["query"]
+    assert "ORDER BY fecha_alta DESC" in captured["body"]["query"]
     assert len(rows) == 2
     assert rows[0]["email"] == "b@b.com"
-    assert rows[1]["is_active"] is False
+    assert rows[1]["activo"] is False
 
 
-def test_add_authorized_user_inserts_with_added_by() -> None:
-    """``add_authorized_user`` runs an INSERT with email, role and added_by."""
+def test_add_authorized_user_inserts_with_anadido_por() -> None:
+    """``add_authorized_user`` runs an INSERT with email, rol and anadido_por."""
     captured: dict = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -202,9 +204,9 @@ def test_add_authorized_user_inserts_with_added_by() -> None:
                 {
                     "id": "u-99",
                     "email": "new@example.com",
-                    "role": "key_user",
-                    "is_active": True,
-                    "created_at": "2026-06-17T00:00:00Z",
+                    "rol": "key_user",
+                    "activo": True,
+                    "fecha_alta": "2026-06-17T00:00:00Z",
                 }
             ],
         )
@@ -219,21 +221,21 @@ def test_add_authorized_user_inserts_with_added_by() -> None:
     )
 
     assert captured["body"]["params"] == ["new@example.com", "key_user", "u-1"]
-    assert "INSERT INTO authorized_users" in captured["body"]["query"]
+    assert "INSERT INTO usuarios_autorizados" in captured["body"]["query"]
     assert "VALUES ($1, $2, $3, true)" in captured["body"]["query"]
-    assert "RETURNING id, email, role, is_active, created_at" in captured["body"]["query"]
+    assert "RETURNING id, email, rol, activo, fecha_alta" in captured["body"]["query"]
     assert row["id"] == "u-99"
 
 
 def test_deactivate_authorized_user_returns_updated_row() -> None:
-    """``deactivate_authorized_user`` returns the row with is_active=False."""
+    """``deactivate_authorized_user`` returns the row with activo=False."""
     captured: dict = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
         captured["body"] = json.loads(request.content)
         return _json_response(
             200,
-            [{"id": "u-1", "email": "a@b.com", "role": "developer", "is_active": False}],
+            [{"id": "u-1", "email": "a@b.com", "rol": "developer", "activo": False}],
         )
 
     client = _client(handler)
@@ -241,9 +243,9 @@ def test_deactivate_authorized_user_returns_updated_row() -> None:
     row = deactivate_authorized_user(client, "u-1")
 
     assert captured["body"]["params"] == ["u-1"]
-    assert "SET is_active = false" in captured["body"]["query"]
+    assert "SET activo = false" in captured["body"]["query"]
     assert row is not None
-    assert row["is_active"] is False
+    assert row["activo"] is False
 
 
 def test_deactivate_authorized_user_returns_none_when_id_unknown() -> None:

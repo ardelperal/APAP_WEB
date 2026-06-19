@@ -125,7 +125,7 @@ def test_execute_sql_accepts_returning_clause_payload() -> None:
     )
 
     rows = client.execute_sql(
-        "INSERT INTO authorized_users (email, role) VALUES ($1, $2) RETURNING id, email",
+        "INSERT INTO usuarios_autorizados (email, rol) VALUES ($1, $2) RETURNING id, email",
         ["a@b.com", "developer"],
     )
 

@@ -16,18 +16,18 @@ class _FakeInsForge(InsForgeClient):
         self.add_user_response: dict = {
             "id": "u-new",
             "email": "new@example.com",
-            "role": "key_user",
-            "is_active": True,
-            "created_at": "2026-06-17T00:00:00Z",
+            "rol": "key_user",
+            "activo": True,
+            "fecha_alta": "2026-06-17T00:00:00Z",
         }
         self.deactivate_user_response: dict | None = None
 
     def execute_sql(self, query, params=None):  # type: ignore[override]
-        if "ORDER BY created_at DESC" in query:
+        if "ORDER BY fecha_alta DESC" in query:
             return list(self.list_users_response)
-        if "INSERT INTO authorized_users" in query and "VALUES" in query:
+        if "INSERT INTO usuarios_autorizados" in query and "VALUES" in query:
             return [dict(self.add_user_response)]
-        if "SET is_active = false" in query:
+        if "SET activo = false" in query:
             row = self.deactivate_user_response
             return [dict(row)] if row else []
         return []
@@ -41,10 +41,10 @@ def fake_insforge() -> _FakeInsForge:
     app.dependency_overrides.pop(get_insforge_client, None)
 
 
-def _login_as(client: httpx.AsyncClient, secret: str, *, role: str, email: str, user_id: str) -> None:
+def _login_as(client: httpx.AsyncClient, secret: str, *, rol: str, email: str, user_id: str) -> None:
     """Install a session cookie on the client so the route sees a logged-in user."""
     token = write_session(
-        {"email": email, "role": role, "user_id": user_id}, secret=secret
+        {"email": email, "rol": rol, "user_id": user_id}, secret=secret
     )
     client.cookies.set(session_cookie_name(), token)
 
@@ -61,7 +61,7 @@ async def test_admin_redirects_to_login_when_not_authed(
     assert response.headers["location"] == "/login"
 
 
-async def test_admin_redirects_to_unauthorized_when_role_not_developer(
+async def test_admin_redirects_to_unauthorized_when_rol_not_developer(
     client: httpx.AsyncClient,
 ) -> None:
     from app.core.config import get_settings
@@ -69,7 +69,7 @@ async def test_admin_redirects_to_unauthorized_when_role_not_developer(
     _login_as(
         client,
         get_settings().session_secret,
-        role="key_user",
+        rol="key_user",
         email="ana@example.com",
         user_id="u-ana",
     )
@@ -89,22 +89,22 @@ async def test_admin_renders_user_table_for_developer(
         {
             "id": "u-1",
             "email": "ana@example.com",
-            "role": "key_user",
-            "is_active": True,
-            "created_at": "2026-06-17T00:00:00Z",
+            "rol": "key_user",
+            "activo": True,
+            "fecha_alta": "2026-06-17T00:00:00Z",
         },
         {
             "id": "u-2",
             "email": "eva@example.com",
-            "role": "reader",
-            "is_active": False,
-            "created_at": "2026-06-16T00:00:00Z",
+            "rol": "reader",
+            "activo": False,
+            "fecha_alta": "2026-06-16T00:00:00Z",
         },
     ]
     _login_as(
         client,
         get_settings().session_secret,
-        role="developer",
+        rol="developer",
         email="root@example.com",
         user_id="u-root",
     )
@@ -129,7 +129,7 @@ async def test_admin_add_user_inserts_and_redirects(
     _login_as(
         client,
         get_settings().session_secret,
-        role="developer",
+        rol="developer",
         email="root@example.com",
         user_id="u-root",
     )
@@ -147,13 +147,13 @@ async def test_admin_add_user_inserts_and_redirects(
 async def test_admin_add_user_with_invalid_role_redirects_without_calling_sql(
     client: httpx.AsyncClient, fake_insforge: _FakeInsForge
 ) -> None:
-    """An invalid role short-circuits before any SQL is sent."""
+    """An invalid rol short-circuits before any SQL is sent."""
     from app.core.config import get_settings
 
     _login_as(
         client,
         get_settings().session_secret,
-        role="developer",
+        rol="developer",
         email="root@example.com",
         user_id="u-root",
     )
@@ -161,7 +161,7 @@ async def test_admin_add_user_with_invalid_role_redirects_without_calling_sql(
 
     response = await client.post(
         "/admin/users",
-        data={"email": "new@example.com", "role": "hacker"},
+        data={"email": "new@example.com", "rol": "hacker"},
         follow_redirects=False,
     )
 
@@ -177,7 +177,7 @@ async def test_admin_add_user_rejects_non_developer(
     _login_as(
         client,
         get_settings().session_secret,
-        role="key_user",
+        rol="key_user",
         email="ana@example.com",
         user_id="u-ana",
     )
@@ -203,13 +203,13 @@ async def test_admin_deactivate_user_updates_and_redirects(
     fake_insforge.deactivate_user_response = {
         "id": "u-1",
         "email": "a@b.com",
-        "role": "key_user",
-        "is_active": False,
+        "rol": "key_user",
+        "activo": False,
     }
     _login_as(
         client,
         get_settings().session_secret,
-        role="developer",
+        rol="developer",
         email="root@example.com",
         user_id="u-root",
     )
@@ -230,7 +230,7 @@ async def test_admin_deactivate_user_rejects_non_developer(
     _login_as(
         client,
         get_settings().session_secret,
-        role="key_user",
+        rol="key_user",
         email="ana@example.com",
         user_id="u-ana",
     )

@@ -31,7 +31,7 @@ def test_generate_pkce_pair_is_unpredictable() -> None:
 def test_session_round_trip_preserves_payload() -> None:
     """A payload encoded with ``write_session`` decodes back identically."""
     secret = "test-secret"
-    payload = {"email": "a@b.com", "role": "developer", "user_id": "u-1"}
+    payload = {"email": "a@b.com", "rol": "developer", "user_id": "u-1"}
 
     token = write_session(payload, secret=secret)
     decoded = read_session(token, secret=secret)

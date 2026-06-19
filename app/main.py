@@ -43,6 +43,7 @@ from app.core.session import (
     session_cookie_name,
     write_session,
 )
+from app.modules.animals.routes import router as animals_router
 
 _STATIC_DIR = Path(__file__).parent / "static"
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -66,10 +67,10 @@ async def lifespan(_: FastAPI):
 
     On startup, bootstrap the InsForge schema:
 
-    1. ``ensure_schema_and_seed`` — creates ``authorized_users`` and seeds
+    1. ``ensure_schema_and_seed`` — creates ``usuarios_autorizados`` and seeds
        the bootstrap admin if ``APAP_INITIAL_ADMIN_EMAIL`` is set.
     2. ``ensure_domain_schema`` — creates the domain tables
-       (``animals``, ``volunteers``, ``volunteer_roles``) in dependency
+       (``animales``, ``voluntarios``, ``roles_voluntario``) in dependency
        order.
 
     Both steps are idempotent (``CREATE TABLE IF NOT EXISTS``), so it is
@@ -226,7 +227,7 @@ def create_app() -> FastAPI:
 
         The ``code_verifier`` is recovered from the short-lived PKCE
         cookie. The email returned by InsForge is checked against
-        ``authorized_users``; authorized users get a signed session
+        ``usuarios_autorizados``; authorized users get a signed session
         cookie, everyone else is redirected to ``/unauthorized``.
         """
         settings = config_module.get_settings()
@@ -252,7 +253,7 @@ def create_app() -> FastAPI:
         session_token = write_session(
             {
                 "email": user["email"],
-                "role": user["role"],
+                "rol": user["rol"],
                 "user_id": user["id"],
             },
             secret=settings.session_secret,
@@ -292,7 +293,7 @@ def create_app() -> FastAPI:
         """
         if not current_user:
             return _redirect("/login")
-        if current_user.get("role") != "developer":
+        if current_user.get("rol") != "developer":
             return _redirect("/unauthorized")
         users = list_authorized_users(client)
         return templates.TemplateResponse(
@@ -313,18 +314,18 @@ def create_app() -> FastAPI:
         client: InsForgeClient = Depends(get_insforge_client),
     ) -> Response:
         """Add a new authorized user. Developer only."""
-        if not current_user or current_user.get("role") != "developer":
+        if not current_user or current_user.get("rol") != "developer":
             return _redirect("/unauthorized")
         form = await request.form()
         email = str(form.get("email", "")).strip()
-        role = str(form.get("role", "")).strip()
-        if not email or not role:
+        rol = str(form.get("rol", "")).strip()
+        if not email or not rol:
             return _redirect("/admin")
         try:
             add_authorized_user(
                 client,
                 email=email,
-                role=role,
+                role=rol,
                 added_by=current_user["user_id"],
             )
         except ValueError:
@@ -338,10 +339,12 @@ def create_app() -> FastAPI:
         client: InsForgeClient = Depends(get_insforge_client),
     ) -> Response:
         """Deactivate an authorized user. Developer only."""
-        if not current_user or current_user.get("role") != "developer":
+        if not current_user or current_user.get("rol") != "developer":
             return _redirect("/unauthorized")
         deactivate_authorized_user(client, user_id)
         return _redirect("/admin")
+
+    application.include_router(animals_router)
 
     return application
 

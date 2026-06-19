@@ -29,22 +29,22 @@ class _FakeInsForge(InsForgeClient):
         self.get_user_by_email_response: dict | None = {
             "id": "u-db",
             "email": "ardelperal@gmail.com",
-            "role": "developer",
-            "is_active": True,
+            "rol": "developer",
+            "activo": True,
         }
         self.list_users_response: list[dict] = []
         self.add_user_response: dict = {
             "id": "u-new",
             "email": "new@example.com",
-            "role": "key_user",
-            "is_active": True,
-            "created_at": "2026-06-17T00:00:00Z",
+            "rol": "key_user",
+            "activo": True,
+            "fecha_alta": "2026-06-17T00:00:00Z",
         }
         self.deactivate_user_response: dict | None = {
             "id": "u-1",
             "email": "a@b.com",
-            "role": "key_user",
-            "is_active": False,
+            "rol": "key_user",
+            "activo": False,
         }
 
     # We override the methods used by the routes; everything else is a
@@ -75,14 +75,14 @@ class _FakeInsForge(InsForgeClient):
     def execute_sql(self, query, params=None):  # type: ignore[override]
         # Dispatch on the SQL shape; each test sets the matching
         # ``*_response`` attribute on this fake.
-        if "ORDER BY created_at DESC" in query:
+        if "ORDER BY fecha_alta DESC" in query:
             return list(self.list_users_response)
-        if "INSERT INTO authorized_users" in query and "VALUES" in query:
+        if "INSERT INTO usuarios_autorizados" in query and "VALUES" in query:
             return [dict(self.add_user_response)]
-        if "SET is_active = false" in query:
+        if "SET activo = false" in query:
             row = self.deactivate_user_response
             return [dict(row)] if row else []
-        if "SELECT id, email, role, is_active" in query and "FROM authorized_users" in query:
+        if "SELECT id, email, rol, activo" in query and "FROM usuarios_autorizados" in query:
             row = self.get_user_by_email_response
             return [dict(row)] if row else []
         return []
@@ -190,7 +190,7 @@ async def test_callback_with_tampered_pkce_cookie_redirects_to_login(
 async def test_callback_with_unauthorized_email_redirects_to_unauthorized(
     client: httpx.AsyncClient, fake_insforge: _FakeInsForge
 ) -> None:
-    """If the email is not in authorized_users, the callback redirects to /unauthorized."""
+    """If the email is not in usuarios_autorizados, the callback redirects to /unauthorized."""
     fake_insforge.get_user_by_email_response = None
 
     # Simulate a valid PKCE cookie issued by the /login flow.
@@ -243,7 +243,7 @@ async def test_callback_issues_session_cookie_and_redirects_home(
     print("DEBUG decoded:", decoded)
     assert decoded == {
         "email": "ardelperal@gmail.com",
-        "role": "developer",
+        "rol": "developer",
         "user_id": "u-db",
     }
 
