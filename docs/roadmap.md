@@ -2,9 +2,9 @@
 
 > Documento vivo. Punto de entrada único para saber qué hay que construir, en qué orden, qué issues lo cubren y qué documentación ya existe. Si una pregunta se responde aquí, no hay que rebuscar.
 
-**Última actualización:** 2026-06-17 (refresco tras cerrar #16 con el flujo de auth de Fase 2)
+**Última actualización:** 2026-06-19 (refresco tras fix de dominio `apap.romancaba.com`, commit `3c32f3e`, y split de CD-01 / CD-02)
 **Mantenedor único:** aroman (autoaprueba issues y PRs)
-**Rama objetivo actual:** `main` (pre-MVC; la transición a `staging` queda diferida a CD-03)
+**Rama objetivo actual:** `main` (pre-MVC, política "todo a main hasta tener MVC"; ver §8)
 **Idioma de toda la documentación, issues y PRs:** castellano (España)
 
 ---
@@ -18,23 +18,26 @@
 
 ---
 
-## 2. Estado actual (2026-06-17)
+## 2. Estado actual (2026-06-19)
 
 | Área | Estado | Detalle |
 |---|---|---|
 | Repositorio `ardelperal/APAP_WEB` | ✅ | Creado, `main` como rama por defecto |
 | CI local (pytest + ruff + build) | ✅ | Phase 0 de `ci-cd-foundation` merged en `main` |
-| GitHub Actions workflow | ✅ | `ci / lint`, `ci / test`, `ci / build` en verde en PRs y pushes a `main` |
+| GitHub Actions workflow | ✅ | `ci / lint`, `ci / test`, `ci / build` en verde en PRs y pushes a `main` (e2e skipped por secretos faltantes) |
 | Branch protection en `main` | 🔲 | Documentado en `.github/branch-protection.md`; pendiente de activar en la UI de GitHub (tarea 1.5) |
-| Proyecto Coolify + app `apap-web` | ✅ | Aprovisionado, apunta a `ardelperal/APAP_WEB:main` |
+| Proyecto Coolify + app `apap-web` | ✅ | Aprovisionado, apunta a `ardelperal/APAP_WEB:main`, fqdn `apap.romancaba.com` |
 | DNS `apap.romancaba.com` | 🔲 | Pendiente de crear por el mantenedor antes del primer deploy real |
-| Deploy automático (CD-01 + CD-02) | 🔲 | Issue #1 abierto |
-| Backend InsForge | ✅ | Verificado, MCP configurado |
+| Fix de dominio OAuth (redirect URI) | ✅ | Commit `3c32f3e` en main; `APAP_GOOGLE_REDIRECT_URI` corregido en Coolify; redeploy OK |
+| CD-02 build y push del runnable a Coolify | ✅ | Mergeado en `main` como `dc98c1c` (PR #24) — Dockerfile corregido, build verificado |
+| CD-01 webhook automático GitHub → Coolify en `push: main` | 🔲 | Issue #1 sigue abierto; pendiente de implementar el job `deploy` en `.github/workflows/ci.yml` |
+| Backend InsForge | ✅ | Verificado, MCP configurado; `APAP_INSFORGE_URL` apuntando a `c3uc9dk6.eu-central.insforge.app` |
+| Tabla `authorized_users` en InsForge | 🔲 | Schema diseñada en Fase 2, falta crear la tabla real en el backend InsForge |
 | Esqueleto de la app FastAPI | ✅ | Mergeado en `main` como `d0b1ed1` (issue #17) |
-| Login POC InsForge | ✅ | `docs/mockups/login-simple-insforge.html` |
+| Login real con Google OAuth + allowlist | ✅ | Mergeado en `main` como `1d22349` (issue #16); falta crear la tabla `authorized_users` y desplegar |
 | Foundation UX/UI | 🔲 | Issue #6 abierto |
 | Motor común de tareas | 🔲 | Issue #7 abierto |
-| Hoja de ruta viva | 🔲 | Esta issue #14 (en cuanto se mergee la PR) |
+| Hoja de ruta viva | ✅ | Esta issue #14 (mergeada en `69b509e`) |
 
 ---
 
@@ -50,9 +53,15 @@
 |---|---|---|---|---|
 | CI-01 superficie de tests local | ✅ | — | merged | `ci-cd-foundation` Phase 0 |
 | CI-02 workflow de GitHub Actions | ✅ | — | merged | `ci-cd-foundation` Phase 1 |
-| CD-01 + CD-02 deploy a Coolify + InsForge | 🔲 | #1 | — | `ci-cd-foundation` Phase 2 |
+| CD-02 build y push del runnable a Coolify | ✅ | #1 | #24 (`dc98c1c`) | `ci-cd-foundation` Phase 2 |
+| CD-01 webhook automático GitHub → Coolify en `push: main` | 🔲 | #1 | — | `ci-cd-foundation` Phase 2 |
 | Branch protection activado en `main` | 🔲 | — | — | `ci-cd-foundation` tarea 1.5 |
 | Harness E2E (Playwright) | 🔲 | — | — | `E2E-01` (diferido a `staging`) |
+
+**Pendiente del primer deploy real (no automatizable):**
+
+- Crear el registro DNS A de `apap.romancaba.com` apuntando al servidor Coolify.
+- Verificar que el redirect URI registrado en Google Cloud Console / InsForge shared OAuth es `https://apap.romancaba.com/auth/callback` (no `romancabanillas`).
 
 **Documentación de referencia:**
 
@@ -233,10 +242,12 @@
 
 | # | Título | Labels | Estado |
 |---|---|---|---|
-| #1 | feat(cd): deploy APAP through Coolify and InsForge | `status:approved`, `priority:medium` | 🔲 |
+| #1 | feat(cd): deploy APAP through Coolify and InsForge (CD-01 pendiente; CD-02 ya mergeado en #24) | `status:approved`, `priority:medium` | 🟡 (CD-02 ✅, CD-01 🔲) |
 | #6 | feat(ux): definir la base UX/UI de APAP | `status:approved`, `priority:medium` | 🔲 |
 | #7 | feat(tasks): definir motor común de tareas manuales y automáticas | `status:approved`, `priority:medium` | 🔲 |
-| #16 | feat(auth): Google OAuth + allowlist + panel admin (Fase 2) | `enhancement`, `status:approved`, `priority:medium` | ✅ |
+| #14 | docs(roadmap): hoja de ruta viva | `status:approved` | ✅ (mergeada `69b509e`) |
+| #16 | feat(auth): Google OAuth + allowlist + panel admin (Fase 2) | `enhancement`, `status:approved`, `priority:medium` | ✅ (`1d22349`) |
+| #17 | feat(app): esqueleto FastAPI + HTMX + Tailwind (Fase 1) | `status:approved` | ✅ (`d0b1ed1`) |
 
 ---
 
@@ -346,10 +357,10 @@ Estos son los títulos tentativos; se abren cuando arranca cada fase, no antes.
 | Idioma de artefactos técnicos (código, comentarios, docstrings) | Inglés por defecto; documentación de producto en castellano |
 | Idioma de documentación | Castellano (España) para docs de producto, arquitectura y SDD |
 | Mantenedor | aroman (autoaprueba issues y PRs) |
-| Rama objetivo pre-MVC | `main` (la transición a `staging` queda diferida a CD-03) |
+| Rama objetivo pre-MVC | `main` — política "todo a main" hasta tener un MVC funcional; el hook `pre-push` se salta con `--no-verify` tras OK explícito |
 | Convención de commits | Conventional Commits |
 | Tipo de PR label | exactamente uno de `type:bug` / `type:feature` / `type:docs` / `type:refactor` / `type:chore` / `type:breaking-change` |
-| TDD | Estricto: tests antes de código (excepto docs y ops puros) |
+| TDD | Estricto: tests antes de código (excepto docs y ops puros). Cada unidad de trabajo = 1 issue → tests rojo → implementación → verde → push a main → cerrar issue |
 | Skill para frontend | `frontend-design` cargado en cualquier issue que toque UI/UX |
 | Skill para workflow VBA/Access | Solo `dysflow` MCP y `vba-access`; los demás skills de Access están excluidos |
 | Presupuesto de revisión | 400 líneas por PR; usar PRs encadenados cuando se supere |
@@ -361,6 +372,8 @@ Estos son los títulos tentativos; se abren cuando arranca cada fase, no antes.
 ## 9. Cómo mantener este documento
 
 **Regla base:** este roadmap se mantiene actualizado como efecto directo de cualquier acción que afecte a su contenido. No es una tarea aparte, se hace en el mismo flujo. Las decisiones, la documentación, las issues y el roadmap viven sincronizados: si algo cambia, el roadmap cambia en esa misma sesión, sin esperar a que el usuario lo pida.
+
+**Ritmo de trabajo pre-MVC (decidido 2026-06-19):** abrir issue → escribir el test rojo (TDD estricto) → implementación mínima que lo pone en verde → push a main → cerrar issue. Repetir "así hasta el final" del MVC.
 
 Acciones que obligan a actualizar el roadmap en la misma sesión:
 

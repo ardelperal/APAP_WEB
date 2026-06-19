@@ -51,3 +51,42 @@ def test_development_guide_documents_e2e_ci_hook() -> None:
 
     assert "TODO(E2E-01)" in guide
     assert "Playwright" in guide
+
+
+def test_ci_workflow_defines_deploy_job_with_gating() -> None:
+    """CD-01: deploy job exists, runs only on push to main, depends on lint+test+build."""
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+
+    assert "  deploy:" in workflow
+    assert "  name: deploy" in workflow
+    # needs must reference the three required jobs
+    assert "needs: [lint, test, build]" in workflow
+    # gating: only on push to main, never on PRs
+    # (two if: lines combined with AND are also acceptable, per tasks.md 2.1)
+    gating_ok = (
+        "if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.pull_request == null" in workflow
+        or (
+            "if: github.event_name == 'push' && github.ref == 'refs/heads/main'" in workflow
+            and "if: github.event.pull_request == null" in workflow
+        )
+    )
+    assert gating_ok, "deploy job must gate on push to main AND exclude pull_request events"
+
+
+def test_ci_workflow_deploy_job_calls_coolify_webhook() -> None:
+    """CD-01: deploy job hits the Coolify webhook with curl -fsS; uses secret COOLIFY_WEBHOOK_URL."""
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+
+    assert "Trigger Coolify webhook" in workflow
+    assert "curl -fsS -X POST" in workflow
+    assert "secrets.COOLIFY_WEBHOOK_URL" in workflow
+
+
+def test_ci_workflow_deploy_job_has_secret_leak_grep() -> None:
+    """CD-01: deploy job has a second secret-leak grep step, separate from the lint one."""
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+
+    # The diagnostic step name appears in the deploy job too
+    assert workflow.count("Diagnostic secret-leak scan") >= 2
+    # And the deploy-scoped variant targets the build outputs / source (not only .github/)
+    assert "grep -rE '(http://|https://|sk-|ghp_)[A-Za-z0-9]+' . --exclude-dir=.git" in workflow
