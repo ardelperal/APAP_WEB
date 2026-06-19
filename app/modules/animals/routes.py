@@ -9,6 +9,11 @@ authorized user) can read and create animals. The admin panel
 (``/admin``) is the only developer-only surface.
 ``require_authorized_user`` returns a 302 redirect to ``/login`` or
 ``/unauthorized`` for unauthenticated / unauthorised callers.
+
+Las dependencias de auth (``get_insforge_client_dep``,
+``get_current_user_optional`` y ``require_authorized_user``) viven
+en ``app.core.auth_dependencies`` para evitar el copy-paste con
+``app.modules.voluntarios.routes``.
 """
 
 from __future__ import annotations
@@ -20,6 +25,10 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from app.core.auth_dependencies import (
+    get_insforge_client_dep,
+    require_authorized_user,
+)
 from app.core.insforge import InsForgeClient, InsForgeError
 from app.modules.animals import service as animals_service
 from app.modules.animals.service import Especie, Sexo
@@ -28,40 +37,6 @@ router = APIRouter(prefix="/animales", tags=["animales"])
 
 _TEMPLATES_DIR = Path(__file__).parents[2] / "templates"
 _templates = Jinja2Templates(directory=_TEMPLATES_DIR)
-
-
-def _client_dep(request: Request) -> InsForgeClient:
-    """Per-request InsForge client (overridable in tests via dependency_overrides)."""
-    from app.main import get_insforge_client
-    return get_insforge_client()
-
-
-def _current_user_optional(request: Request) -> dict | None:
-    """Read the session cookie and return the payload, or None if not logged in.
-
-    Mirrors ``app.main.get_current_user_optional`` to avoid the
-    circular import (this module is imported by ``app.main``).
-    """
-    from app.core.config import get_settings
-    from app.core.session import read_session, session_cookie_name
-
-    settings = get_settings()
-    token = request.cookies.get(session_cookie_name())
-    if not token:
-        return None
-    return read_session(token, secret=settings.session_secret)
-
-
-def require_authorized_user(
-    request: Request,
-    payload: dict | None = Depends(_current_user_optional),
-) -> dict:
-    """FastAPI dependency: 302 to /login or /unauthorized as appropriate."""
-    if not payload:
-        raise HTTPException(status_code=status.HTTP_302_FOUND, headers={"location": "/login"})
-    if not payload.get("is_authorized", True):
-        raise HTTPException(status_code=status.HTTP_302_FOUND, headers={"location": "/unauthorized"})
-    return payload
 
 
 def _form_data_to_params(form: dict[str, Any]) -> dict[str, Any]:
@@ -113,7 +88,7 @@ def _form_data_to_params(form: dict[str, Any]) -> dict[str, Any]:
 def list_animales(
     request: Request,
     user: dict = Depends(require_authorized_user),
-    client: InsForgeClient = Depends(_client_dep),
+    client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Lista de animales activos, mas recientes primero."""
     animales = animals_service.list_animals(client)
@@ -177,7 +152,7 @@ def create_animal_view(
     UltimoEstadoAntesDeFallecido: str | None = Form(None),
     ComunicacionARIAC: str | None = Form(None),
     user: dict = Depends(require_authorized_user),
-    client: InsForgeClient = Depends(_client_dep),
+    client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Procesa el submit del formulario. En exito, redirect al detalle."""
     form_data: dict[str, Any] = _form_data_to_params({
@@ -238,7 +213,7 @@ def animal_detail(
     animal_id: str,
     request: Request,
     user: dict = Depends(require_authorized_user),
-    client: InsForgeClient = Depends(_client_dep),
+    client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Detalle de un animal. 404 si no existe."""
     animal = animals_service.get_animal_by_id(client, animal_id)
@@ -259,7 +234,7 @@ def edit_animal_form(
     animal_id: str,
     request: Request,
     user: dict = Depends(require_authorized_user),
-    client: InsForgeClient = Depends(_client_dep),
+    client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Formulario prellenado para editar un animal."""
     animal = animals_service.get_animal_by_id(client, animal_id)
@@ -310,7 +285,7 @@ def update_animal_view(
     UltimoEstadoAntesDeFallecido: str | None = Form(None),
     ComunicacionARIAC: str | None = Form(None),
     user: dict = Depends(require_authorized_user),
-    client: InsForgeClient = Depends(_client_dep),
+    client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Procesa el submit de edicion. Redirect al detalle en exito."""
     form_data = _form_data_to_params({
@@ -360,7 +335,7 @@ def delete_animal_view(
     animal_id: str,
     request: Request,
     user: dict = Depends(require_authorized_user),
-    client: InsForgeClient = Depends(_client_dep),
+    client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Soft-delete: marca activo=false. Redirect a la lista."""
     # Verificar que existe

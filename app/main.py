@@ -34,6 +34,12 @@ from app.core.auth import (
     get_user_by_email,
     list_authorized_users,
 )
+from app.core.auth_dependencies import (
+    get_current_user_optional,
+)
+from app.core.auth_dependencies import (
+    get_insforge_client_dep as get_insforge_client,
+)
 from app.core.domain import ensure_domain_schema
 from app.core.insforge import InsForgeClient
 from app.core.pkce import generate_pkce_pair
@@ -88,24 +94,6 @@ async def lifespan(_: FastAPI):
     finally:
         client.close()
     yield
-
-
-def get_insforge_client() -> InsForgeClient:
-    """FastAPI dependency: produce an InsForge REST client per request.
-
-    Tests can override this with ``app.dependency_overrides[...]``.
-    """
-    settings = config_module.get_settings()
-    return InsForgeClient(settings.insforge_url, settings.insforge_service_key)
-
-
-def get_current_user_optional(request: Request) -> dict | None:
-    """FastAPI dependency: return the current session payload, or None."""
-    settings = config_module.get_settings()
-    token = request.cookies.get(session_cookie_name())
-    if not token:
-        return None
-    return read_session(token, secret=settings.session_secret)
 
 
 def _redirect(path: str) -> RedirectResponse:
@@ -251,11 +239,18 @@ def create_app() -> FastAPI:
             response.delete_cookie("apap_pkce")
             return response
 
+        # ``is_authorized`` se escribe aqui (no se lee) y queda
+        # congelado en la cookie hasta que expire. El fix del P0 de
+        # la code review VOL-01 vive en este write: sin el flag,
+        # ``require_authorized_user`` lo lee con default True y la
+        # desactivacion de un usuario via /admin/users/{id}/deactivate
+        # no tomaba efecto hasta que la cookie expiraba (7 dias).
         session_token = write_session(
             {
                 "email": user["email"],
                 "rol": user["rol"],
                 "user_id": user["id"],
+                "is_authorized": bool(user.get("activo", False)),
             },
             secret=settings.session_secret,
         )

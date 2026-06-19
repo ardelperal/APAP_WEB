@@ -7,6 +7,11 @@ auth guards, and HTML rendering; the service does the SQL.
 Auth: any active user from ``usuarios_autorizados`` (i.e. any
 authorized user) can read and create voluntarios. The admin panel
 is the only developer-only surface.
+
+Las dependencias de auth (``get_insforge_client_dep``,
+``get_current_user_optional`` y ``require_authorized_user``) viven
+en ``app.core.auth_dependencies`` para evitar el copy-paste con
+``app.modules.animals.routes``.
 """
 
 from __future__ import annotations
@@ -18,41 +23,17 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from app.core.auth_dependencies import (
+    get_insforge_client_dep,
+    require_authorized_user,
+)
 from app.core.insforge import InsForgeClient, InsForgeError
 from app.modules.voluntarios import service as voluntarios_service
-from app.modules.voluntarios.service import RolVoluntario
 
 router = APIRouter(prefix="/voluntarios", tags=["voluntarios"])
 
 _TEMPLATES_DIR = Path(__file__).parents[2] / "templates"
 _templates = Jinja2Templates(directory=_TEMPLATES_DIR)
-
-
-def _client_dep(request: Request) -> InsForgeClient:
-    from app.main import get_insforge_client
-    return get_insforge_client()
-
-
-def _current_user_optional(request: Request) -> dict | None:
-    from app.core.config import get_settings
-    from app.core.session import read_session, session_cookie_name
-
-    settings = get_settings()
-    token = request.cookies.get(session_cookie_name())
-    if not token:
-        return None
-    return read_session(token, secret=settings.session_secret)
-
-
-def require_authorized_user(
-    request: Request,
-    payload: dict | None = Depends(_current_user_optional),
-) -> dict:
-    if not payload:
-        raise HTTPException(status_code=status.HTTP_302_FOUND, headers={"location": "/login"})
-    if not payload.get("is_authorized", True):
-        raise HTTPException(status_code=status.HTTP_302_FOUND, headers={"location": "/unauthorized"})
-    return payload
 
 
 def _form_data_to_params(form: dict[str, Any]) -> dict[str, Any]:
@@ -79,7 +60,7 @@ def _form_data_to_params(form: dict[str, Any]) -> dict[str, Any]:
 def list_voluntarios_view(
     request: Request,
     user: dict = Depends(require_authorized_user),
-    client: InsForgeClient = Depends(_client_dep),
+    client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Lista de voluntarios activos, ordenados alfabeticamente."""
     voluntarios = voluntarios_service.list_voluntarios(client)
@@ -122,7 +103,7 @@ def create_voluntario_view(
     Email: str | None = Form(None),
     DNI: str | None = Form(None),
     user: dict = Depends(require_authorized_user),
-    client: InsForgeClient = Depends(_client_dep),
+    client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Procesa el submit del formulario. En exito, redirect al detalle."""
     form_data = _form_data_to_params({
@@ -166,7 +147,7 @@ def voluntario_detail(
     voluntario_id: str,
     request: Request,
     user: dict = Depends(require_authorized_user),
-    client: InsForgeClient = Depends(_client_dep),
+    client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Detalle de un voluntario. 404 si no existe."""
     voluntario = voluntarios_service.get_voluntario_by_id(client, voluntario_id)
@@ -188,7 +169,7 @@ def deactivate_voluntario_view(
     voluntario_id: str,
     request: Request,
     user: dict = Depends(require_authorized_user),
-    client: InsForgeClient = Depends(_client_dep),
+    client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Soft-delete: marca activo=false. Redirect a la lista."""
     if voluntarios_service.get_voluntario_by_id(client, voluntario_id) is None:

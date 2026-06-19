@@ -241,10 +241,14 @@ async def test_callback_issues_session_cookie_and_redirects_home(
     assert session_cookie
     decoded = read_session(session_cookie, secret=settings.session_secret)
     print("DEBUG decoded:", decoded)
+    # ``is_authorized`` se escribe en el callback desde el campo
+    # ``activo`` del registro de usuarios_autorizados (fix P0 de la
+    # code review VOL-01). El fake expone ``activo: True``.
     assert decoded == {
         "email": "ardelperal@gmail.com",
         "rol": "developer",
         "user_id": "u-db",
+        "is_authorized": True,
     }
 
 
