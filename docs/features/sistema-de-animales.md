@@ -22,12 +22,24 @@
 > que falta.
 
 > **Progreso del feature LIFECYCLE-01 (paridad con el legacy):**
-> este slice cubre el schema. Ademas del schema, ya esta mergeado el
-> service layer (`app/modules/animals/service.py`) con `create_animal`,
-> `list_animals` y `get_animal_by_id` validados por TDD estricto
-> (12 tests en `tests/test_animals.py`, todos en verde). Pendiente:
-> routes HTTP (LIFECYCLE-ROUTE-01..06) y templates Jinja2 (LIFECYCLE-UI-01)
-> para que el usuario pueda usar la feature desde el navegador.
+> ✅ **PARIDAD ALCANZADA** (cierre de issues #31, #67, #70-#72, #75-#81
+> en commit 491bfa9). El usuario puede:
+> - **Listar** animales activos (`GET /animales`).
+> - **Ver el formulario de alta** (`GET /animales/new`).
+> - **Crear** un animal (`POST /animales`).
+> - **Ver el detalle** de un animal (`GET /animales/{id}`).
+> - **Editar** un animal (`GET /animales/{id}/edit` + `POST /animales/{id}/update`).
+> - **Borrar** un animal con soft-delete (`POST /animales/{id}/delete`).
+>
+> Esto cubre las mismas operaciones que el formulario `TbFichaAnimal`
+> del Access legacy. Las features que faltan para paridad total con el
+> legacy son las que el legacy hace y la web todavia no:
+> - **Busqueda** por campos (LIFECYCLE-05: chip, nombre, especie, etc.).
+> - **Timeline de eventos** del ciclo de vida (LIFECYCLE-02 + LIFECYCLE-03).
+> - **Estado derivado** automatico (LIFECYCLE-03) en vez de calculado
+>   a mano.
+> - **Cambio de chip** con cascade a registros vinculados (LIFECYCLE-04).
+> - **Foto del animal** subida a storage (no incluida en este slice).
 
 ## 1. Alcance
 
