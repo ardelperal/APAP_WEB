@@ -32,6 +32,11 @@ dependencies = [
     "python-multipart>=0.0.12",
     "httpx>=0.27",
     "itsdangerous>=2.2",
+    # MIGRATION-01 (LIFECYCLE-03 / migration-01): pyyaml parsea los
+    # mapeos web↔legacy en app/core/migration/mappings/*.yaml. Sin
+    # esta dep declarada, un `pip install .` limpio rompe la import
+    # del módulo. Ver design §1.2.
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]

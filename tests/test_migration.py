@@ -22,6 +22,7 @@ import sys
 from datetime import UTC, datetime
 
 import pytest
+from pydantic import ValidationError
 
 from app.core.migration import (
     FkLookupError,
@@ -29,6 +30,12 @@ from app.core.migration import (
     MappingNotFoundError,
     MigrationError,
     MigrationReport,
+)
+from app.core.migration.mappings import (
+    FkLookup,
+    TableMapping,
+    list_available_tables,
+    load_mapping,
 )
 from app.core.migration.reporting import Conflict, Diff
 
@@ -226,3 +233,147 @@ def test_migration_module_main_runs_without_error() -> None:
         f"python -m app.core.migration exited {result.returncode}\n"
         f"stdout: {result.stdout!r}\nstderr: {result.stderr!r}"
     )
+
+
+# --- TestMappings: YAML loader + 5 mappings ------------------------------
+#
+# Slice MIGRATION-01 PR 2: cover the TableMapping pydantic model,
+# the load_mapping() loader (raises MappingNotFoundError for unknown
+# tables), the list_available_tables() helper, and the 5 YAML files
+# (animal, voluntario, entrada, acogida, adopcion).
+#
+# These tests are written BEFORE the YAMLs and the loader module
+# exist (TDD red phase). They are the acceptance contract for the
+# slice: if any of them fails after the implementation, the slice is
+# not done. The tests target SPECIFIC facts of each YAML (not just
+# "is the file loadable") so they catch silent drift.
+
+
+class TestMappings:
+    """Tests for the YAML mappings loader and the 5 table mappings."""
+
+    # --- load_mapping returns the right TableMapping per table ---------
+
+    def test_load_mapping_animales(self) -> None:
+        """load_mapping('animal') returns animales ↔ TbFichaAnimal."""
+        mapping = load_mapping("animal")
+        assert isinstance(mapping, TableMapping)
+        assert mapping.web_table == "animales"
+        assert mapping.legacy_table == "TbFichaAnimal"
+
+    def test_load_mapping_voluntarios(self) -> None:
+        """load_mapping('voluntario') returns voluntarios ↔ TbVoluntariosParaAutorrellenables."""
+        mapping = load_mapping("voluntario")
+        assert isinstance(mapping, TableMapping)
+        assert mapping.web_table == "voluntarios"
+        assert mapping.legacy_table == "TbVoluntariosParaAutorrellenables"
+
+    def test_load_mapping_entradas(self) -> None:
+        """load_mapping('entrada') returns entradas ↔ TbEntradas with FK lookups."""
+        mapping = load_mapping("entrada")
+        assert isinstance(mapping, TableMapping)
+        assert mapping.web_table == "entradas"
+        assert mapping.legacy_table == "TbEntradas"
+        # entradas has FK lookups to animales + 2 voluntarios
+        assert len(mapping.fk_lookups) >= 1
+        names = {fk.name for fk in mapping.fk_lookups}
+        assert "animal" in names
+
+    def test_load_mapping_acogidas(self) -> None:
+        """load_mapping('acogida') returns acogidas ↔ TbAcogidaAnimal."""
+        mapping = load_mapping("acogida")
+        assert isinstance(mapping, TableMapping)
+        assert mapping.web_table == "acogidas"
+        assert mapping.legacy_table == "TbAcogidaAnimal"
+
+    def test_load_mapping_adopciones(self) -> None:
+        """load_mapping('adopcion') returns adopciones ↔ TbAdopcion."""
+        mapping = load_mapping("adopcion")
+        assert isinstance(mapping, TableMapping)
+        assert mapping.web_table == "adopciones"
+        assert mapping.legacy_table == "TbAdopcion"
+
+    # --- error handling for unknown tables -----------------------------
+
+    def test_load_mapping_unknown_table_raises_mapping_not_found_error(self) -> None:
+        """load_mapping('desconocida') raises MappingNotFoundError."""
+        with pytest.raises(MappingNotFoundError):
+            load_mapping("desconocida")
+
+    # --- list_available_tables -----------------------------------------
+
+    def test_list_available_tables_returns_five_tables(self) -> None:
+        """list_available_tables() returns the 5 tables in alphabetical order."""
+        tables = list_available_tables()
+        assert tables == ["acogida", "adopcion", "animal", "entrada", "voluntario"]
+
+    # --- specific YAML facts (regression guard) -----------------------
+
+    def test_animal_yaml_key_field_is_NCHIP(self) -> None:
+        """animal.yaml uses NCHIP as the natural key for matching rows."""
+        mapping = load_mapping("animal")
+        assert mapping.key_field == "NCHIP"
+        assert mapping.legacy_key == "NCHIP"
+
+    def test_entrada_yaml_has_fk_lookup_for_animal_id(self) -> None:
+        """entrada.yaml has an FK lookup named 'animal' pointing to animales.NCHIP."""
+        mapping = load_mapping("entrada")
+        animal_fk = next(
+            (fk for fk in mapping.fk_lookups if fk.name == "animal"),
+            None,
+        )
+        assert animal_fk is not None, "entrada.yaml missing fk_lookups[name='animal']"
+        assert animal_fk.lookup_table == "animales"
+        assert animal_fk.lookup_legacy_key == "NCHIP"
+        assert animal_fk.web_column == "animal_id"
+
+    def test_voluntario_yaml_fuzzy_match_enabled(self) -> None:
+        """FK lookups to voluntarios use fuzzy_match=True with threshold 85.
+
+        Voluntario names are free-text, so the FK resolver must enable
+        fuzzy matching to recover from typos / trailing whitespace. This
+        test scans all 5 mappings and asserts that any fk_lookup whose
+        ``lookup_table`` is ``voluntarios`` is configured with
+        ``fuzzy_match=True`` and ``fuzzy_threshold=85`` (the conservative
+        default documented in the design). Optional lookups must also
+        have ``optional=True`` so a missing match does not abort the run.
+        """
+        voluntary_fks: list[FkLookup] = []
+        for table in list_available_tables():
+            mapping = load_mapping(table)
+            voluntary_fks.extend(
+                fk for fk in mapping.fk_lookups if fk.lookup_table == "voluntarios"
+            )
+        # Sanity: at least one mapping references voluntarios as a lookup target.
+        assert voluntary_fks, "No fk_lookups target voluntarios across the 5 YAMLs"
+        for fk in voluntary_fks:
+            assert fk.fuzzy_match is True, (
+                f"FK lookup {fk.name!r} → voluntarios must enable fuzzy_match"
+            )
+            assert fk.fuzzy_threshold == 85, (
+                f"FK lookup {fk.name!r} → voluntarios must use threshold 85"
+            )
+            assert fk.optional is True, f"FK lookup {fk.name!r} → voluntarios must be optional"
+
+    def test_table_mapping_pydantic_validates_required_fields(self) -> None:
+        """TableMapping rejects a YAML that omits required fields.
+
+        We build a minimal malformed dict (no ``web_table``) and try to
+        validate it directly via the pydantic model. Pydantic must raise
+        ``ValidationError`` (NOT silently coerce or accept). The error
+        message must mention the missing field.
+        """
+        bad_payload = {
+            # web_table intentionally missing
+            "legacy_table": "TbAlgo",
+            "key_field": "id",
+            "legacy_key": "id",
+            "columns": [],
+            "fk_lookups": [],
+        }
+        with pytest.raises(ValidationError) as excinfo:
+            TableMapping.model_validate(bad_payload)
+        # The error must surface 'web_table' so the operator can fix it.
+        assert "web_table" in str(excinfo.value), (
+            f"ValidationError did not mention missing field 'web_table': {excinfo.value!r}"
+        )
