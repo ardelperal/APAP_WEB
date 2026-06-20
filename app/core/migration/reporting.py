@@ -135,6 +135,7 @@ class MigrationReport:
         upd = sum(1 for d in self.diffs if d.op == "UPDATE")
         dele = sum(1 for d in self.diffs if d.op == "DELETE")
         noop = sum(1 for d in self.diffs if d.op == "NOOP")
+        total = ins + upd + dele + noop
         lines.append("## Metrics")
         lines.append("")
         lines.append("| Op | Count |")
@@ -144,6 +145,7 @@ class MigrationReport:
         lines.append(f"| DELETE | {dele} |")
         lines.append(f"| NOOP | {noop} |")
         lines.append(f"| Conflict | {len(self.conflicts)} |")
+        lines.append(f"| Total | {total} |")
         lines.append("")
 
         # Conflicts table (only if any)

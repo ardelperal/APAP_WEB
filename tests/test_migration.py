@@ -15,6 +15,7 @@ because the audit trail must be tamper-evident.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import subprocess
 import sys
@@ -98,7 +99,7 @@ def test_conflict_dataclass_fields() -> None:
 def test_migration_report_is_frozen() -> None:
     """The report is immutable: any field mutation raises FrozenInstanceError."""
     report = _sample_report()
-    with pytest.raises((AttributeError, Exception)):  # FrozenInstanceError is a subclass of AttributeError
+    with pytest.raises(dataclasses.FrozenInstanceError):
         report.applied = True  # type: ignore[misc]
 
 
@@ -159,18 +160,29 @@ def test_migration_report_to_json_serializes_datetime_as_iso() -> None:
 
 
 def test_migration_report_to_markdown_contains_summary_table() -> None:
-    """to_markdown produces a markdown table that mentions the run summary."""
+    """to_markdown produces a markdown table with the exact per-op counts.
+
+    The sample report has 1 INSERT, 1 UPDATE, 0 DELETE, 0 NOOP, 1 conflict.
+    Assertions target the exact metric rows (not arbitrary digits) so the
+    test catches drift in the renderer instead of silently passing on any
+    ``2`` / ``1`` that happens to appear in the markdown.
+    """
     report = _sample_report()
     md = report.to_markdown()
     assert isinstance(md, str)
     # Header line identifies the report
-    assert "Migration Report" in md or "migration report" in md.lower()
+    assert "Migration Report" in md
     # Direction and mode are surfaced
     assert "legacy-to-web" in md
     assert "dry-run" in md
-    # Counts of diffs/conflicts appear somewhere (the operator must see them)
-    assert "2" in md or "dos" in md.lower()  # 2 diffs in sample
-    assert "1" in md or "uno" in md.lower()  # 1 conflict in sample
+    # Per-op metric rows are exact (the renderer emits ``| OP | N |``).
+    assert "| INSERT | 1 |" in md
+    assert "| UPDATE | 1 |" in md
+    assert "| DELETE | 0 |" in md
+    assert "| NOOP | 0 |" in md
+    assert "| Conflict | 1 |" in md
+    # Total row counts all diffs (PR-review P2 #3).
+    assert "| Total | 2 |" in md
 
 
 # --- TestMigrationModule public exports ----------------------------------
