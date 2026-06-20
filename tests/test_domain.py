@@ -30,7 +30,7 @@ from app.core.domain import (
     VOLUNTARIOS_CREATE_TABLE_SQL,
     ensure_domain_schema,
 )
-from app.core.insforge import InsForgeClient
+from app.core.insforge import InsForgeClient, InsForgeError
 
 
 def _json_response(status_code: int, body: Any) -> httpx.Response:
@@ -290,6 +290,6 @@ def test_ensure_domain_schema_raises_when_create_table_fails() -> None:
         service_key="ik_test",
         transport=httpx.MockTransport(handler),
     )
-    with pytest.raises(Exception):  # noqa: PT011 — InsForgeError, asserted by side effect
+    with pytest.raises(InsForgeError):
         ensure_domain_schema(client)
     client.close()

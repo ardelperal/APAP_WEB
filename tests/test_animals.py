@@ -20,14 +20,12 @@ import pytest
 
 from app.core.insforge import InsForgeClient, InsForgeError
 from app.modules.animals.service import (
-    Animal,
     Especie,
     Sexo,
     create_animal,
     get_animal_by_id,
     list_animals,
 )
-
 
 # --- helpers --------------------------------------------------------------
 

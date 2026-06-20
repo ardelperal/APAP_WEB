@@ -36,11 +36,11 @@ from app.core.auth import (
 )
 from app.core.auth_dependencies import (
     get_current_user_optional,
+    require_authorized_user,
 )
 from app.core.auth_dependencies import (
     get_insforge_client_dep as get_insforge_client,
 )
-from app.core.auth_dependencies import require_authorized_user
 from app.core.domain import ensure_domain_schema
 from app.core.insforge import InsForgeClient
 from app.core.pkce import generate_pkce_pair
