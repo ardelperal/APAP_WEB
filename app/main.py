@@ -34,6 +34,13 @@ from app.core.auth import (
     get_user_by_email,
     list_authorized_users,
 )
+from app.core.auth_dependencies import (
+    get_current_user_optional,
+)
+from app.core.auth_dependencies import (
+    get_insforge_client_dep as get_insforge_client,
+)
+from app.core.auth_dependencies import require_authorized_user
 from app.core.domain import ensure_domain_schema
 from app.core.insforge import InsForgeClient
 from app.core.pkce import generate_pkce_pair
@@ -88,24 +95,6 @@ async def lifespan(_: FastAPI):
     finally:
         client.close()
     yield
-
-
-def get_insforge_client() -> InsForgeClient:
-    """FastAPI dependency: produce an InsForge REST client per request.
-
-    Tests can override this with ``app.dependency_overrides[...]``.
-    """
-    settings = config_module.get_settings()
-    return InsForgeClient(settings.insforge_url, settings.insforge_service_key)
-
-
-def get_current_user_optional(request: Request) -> dict | None:
-    """FastAPI dependency: return the current session payload, or None."""
-    settings = config_module.get_settings()
-    token = request.cookies.get(session_cookie_name())
-    if not token:
-        return None
-    return read_session(token, secret=settings.session_secret)
 
 
 def _redirect(path: str) -> RedirectResponse:
@@ -251,11 +240,18 @@ def create_app() -> FastAPI:
             response.delete_cookie("apap_pkce")
             return response
 
+        # ``is_authorized`` se escribe aqui (no se lee) y queda
+        # congelado en la cookie hasta que expire. El fix del P0 de
+        # la code review VOL-01 vive en este write: sin el flag,
+        # ``require_authorized_user`` lo lee con default True y la
+        # desactivacion de un usuario via /admin/users/{id}/deactivate
+        # no tomaba efecto hasta que la cookie expiraba (7 dias).
         session_token = write_session(
             {
                 "email": user["email"],
                 "rol": user["rol"],
                 "user_id": user["id"],
+                "is_authorized": bool(user.get("activo", False)),
             },
             secret=settings.session_secret,
         )
@@ -283,17 +279,18 @@ def create_app() -> FastAPI:
     @application.get("/admin", response_class=HTMLResponse)
     def admin(
         request: Request,
-        current_user: dict | None = Depends(get_current_user_optional),
+        current_user: dict = Depends(require_authorized_user),
         client: InsForgeClient = Depends(get_insforge_client),
     ):
         """Developer-only user management panel.
 
-        Authorization is enforced again (not just trusted from the
-        cookie) so a stale developer record cannot keep the panel
-        accessible after the user is deactivated.
+        ``require_authorized_user`` ya redirige a ``/login`` si no hay
+        sesion y a ``/unauthorized`` si ``is_authorized=False``, asi que
+        aca solo queda chequear el rol. Eso cierra el gap P2-inherited
+        detectado en la primera revision del PR #90: un developer
+        desactivado por otro developer no podia seguir entrando con su
+        cookie vieja.
         """
-        if not current_user:
-            return _redirect("/login")
         if current_user.get("rol") != "developer":
             return _redirect("/unauthorized")
         users = list_authorized_users(client)
@@ -311,11 +308,11 @@ def create_app() -> FastAPI:
     @application.post("/admin/users")
     async def admin_add_user(
         request: Request,
-        current_user: dict | None = Depends(get_current_user_optional),
+        current_user: dict = Depends(require_authorized_user),
         client: InsForgeClient = Depends(get_insforge_client),
     ) -> Response:
         """Add a new authorized user. Developer only."""
-        if not current_user or current_user.get("rol") != "developer":
+        if current_user.get("rol") != "developer":
             return _redirect("/unauthorized")
         form = await request.form()
         email = str(form.get("email", "")).strip()
@@ -336,11 +333,11 @@ def create_app() -> FastAPI:
     @application.post("/admin/users/{user_id}/deactivate")
     def admin_deactivate_user(
         user_id: str,
-        current_user: dict | None = Depends(get_current_user_optional),
+        current_user: dict = Depends(require_authorized_user),
         client: InsForgeClient = Depends(get_insforge_client),
     ) -> Response:
         """Deactivate an authorized user. Developer only."""
-        if not current_user or current_user.get("rol") != "developer":
+        if current_user.get("rol") != "developer":
             return _redirect("/unauthorized")
         deactivate_authorized_user(client, user_id)
         return _redirect("/admin")

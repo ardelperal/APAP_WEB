@@ -41,10 +41,30 @@ def fake_insforge() -> _FakeInsForge:
     app.dependency_overrides.pop(get_insforge_client, None)
 
 
-def _login_as(client: httpx.AsyncClient, secret: str, *, rol: str, email: str, user_id: str) -> None:
-    """Install a session cookie on the client so the route sees a logged-in user."""
+def _login_as(
+    client: httpx.AsyncClient,
+    secret: str,
+    *,
+    rol: str,
+    email: str,
+    user_id: str,
+    is_authorized: bool = True,
+) -> None:
+    """Install a session cookie on the client so the route sees a logged-in user.
+
+    ``is_authorized`` defaults to ``True`` para mantener compat con los
+    tests existentes (que asumian sesion valida). Los nuevos tests de
+    regresion del gap P2-inherited pasan ``is_authorized=False`` para
+    verificar que las rutas /admin rechazan al developer desactivado.
+    """
     token = write_session(
-        {"email": email, "rol": rol, "user_id": user_id}, secret=secret
+        {
+            "email": email,
+            "rol": rol,
+            "user_id": user_id,
+            "is_authorized": is_authorized,
+        },
+        secret=secret,
     )
     client.cookies.set(session_cookie_name(), token)
 
@@ -233,6 +253,84 @@ async def test_admin_deactivate_user_rejects_non_developer(
         rol="key_user",
         email="ana@example.com",
         user_id="u-ana",
+    )
+
+    response = await client.post(
+        "/admin/users/u-1/deactivate", follow_redirects=False
+    )
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "/unauthorized"
+
+
+# --- P2-inherited: /admin debe rechazar sesiones con is_authorized=False -----
+#
+# Gap detectado en la primera revision del PR #90 (code-review-expert):
+# /admin y /admin/users/{id}/deactivate usaban get_current_user_optional
+# y solo chequeaban rol == "developer", sin pasar por require_authorized_user.
+# Resultado: un developer con cookie <7d que fue desactivado desde /admin
+# (p. ej. por otro developer) podia seguir entrando y mutando usuarios.
+#
+# Contrato: require_authorized_user redirige a /unauthorized cuando
+# is_authorized=False. Las 3 rutas siguientes deben heredar esa guarda.
+
+
+async def test_admin_redirects_to_unauthorized_when_is_authorized_false(
+    client: httpx.AsyncClient, fake_insforge: _FakeInsForge
+) -> None:
+    from app.core.config import get_settings
+
+    _login_as(
+        client,
+        get_settings().session_secret,
+        rol="developer",
+        email="root@example.com",
+        user_id="u-root",
+        is_authorized=False,
+    )
+
+    response = await client.get("/admin", follow_redirects=False)
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "/unauthorized"
+
+
+async def test_admin_add_user_redirects_when_is_authorized_false(
+    client: httpx.AsyncClient, fake_insforge: _FakeInsForge
+) -> None:
+    from app.core.config import get_settings
+
+    _login_as(
+        client,
+        get_settings().session_secret,
+        rol="developer",
+        email="root@example.com",
+        user_id="u-root",
+        is_authorized=False,
+    )
+
+    response = await client.post(
+        "/admin/users",
+        data={"email": "new@example.com", "rol": "key_user"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "/unauthorized"
+
+
+async def test_admin_deactivate_user_redirects_when_is_authorized_false(
+    client: httpx.AsyncClient, fake_insforge: _FakeInsForge
+) -> None:
+    from app.core.config import get_settings
+
+    _login_as(
+        client,
+        get_settings().session_secret,
+        rol="developer",
+        email="root@example.com",
+        user_id="u-root",
+        is_authorized=False,
     )
 
     response = await client.post(
