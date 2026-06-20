@@ -1,0 +1,70 @@
+version: "1.0"
+
+# Mapeo de la tabla web `entradas` ↔ legacy `TbEntradas` (Access).
+# Entradas = cada vez que un animal INGRESA al refugio. Es la primera
+# tabla del ciclo LIFECYCLE después del animal master record.
+# Tabla NUEVA en el web (no existía en el legacy, que la tenía como
+# tabla plana); la creamos en PR 1 con la columna legacy_id INTEGER
+# NULL para preservar el id legacy original.
+web_table: entradas
+legacy_table: TbEntradas
+key_field: id
+legacy_key: IDEntrada
+
+# Fechas legacy para detectar conflictos modified_both_sides.
+date_fields:
+  - FechaEntrada
+  - FSalida
+  - FEntregaAPropietario
+
+columns:
+  # --- Heredadas 1:1 ---
+  - { web_column: fecha_entrada, legacy_column: FechaEntrada, transform: identity, nullable: false }
+  - { web_column: fecha_salida, legacy_column: FSalida, transform: identity, nullable: true }
+  - { web_column: fecha_entrega_propietario, legacy_column: FEntregaAPropietario, transform: identity, nullable: true }
+  - { web_column: origen, legacy_column: OrigenEntrada, transform: identity, nullable: true }
+  - { web_column: motivo, legacy_column: MotivoEntrada, transform: identity, nullable: true }
+  # DonativoEntregador es Currency en Access (con formato €). El
+  # transform currency_to_numeric lo convierte a float Python para que
+  # el ORM web (Numeric) lo acepte sin warnings de tipo.
+  - { web_column: donativo_entregador, legacy_column: DonativoEntregador, transform: currency_to_numeric, nullable: true }
+  - { web_column: observaciones, legacy_column: Observaciones, transform: identity, nullable: true }
+
+  # --- FK lookups (cross-table) ---
+  # animal_id referencia a animales.id vía NCHIP. NO es fuzzy porque
+  # NCHIP es un identificador exacto (chip number).
+  - { web_column: animal_id, transform: fk_lookup, nullable: false, lookup: animal }
+  # voluntario_entrada y voluntario_salida son nombres libres → fuzzy.
+  - { web_column: voluntario_entrada_id, transform: fk_lookup, nullable: true, lookup: voluntario_entrada }
+  - { web_column: voluntario_salida_id, transform: fk_lookup, nullable: true, lookup: voluntario_salida }
+
+  # --- Web-only ---
+  - { web_column: id, transform: default_uuid, nullable: false }
+  - { web_column: fecha_alta, transform: default_now, nullable: false }
+  - { web_column: updated_at, transform: default_now, nullable: false }
+  - { web_column: activo, transform: default_true, nullable: false }
+
+fk_lookups:
+  - name: animal
+    web_column: animal_id
+    legacy_column: NChip
+    lookup_table: animales
+    lookup_legacy_key: NCHIP
+
+  - name: voluntario_entrada
+    web_column: voluntario_entrada_id
+    legacy_column: VoluntarioEntrada
+    lookup_table: voluntarios
+    lookup_legacy_key: Voluntario
+    fuzzy_match: true
+    fuzzy_threshold: 85
+    optional: true
+
+  - name: voluntario_salida
+    web_column: voluntario_salida_id
+    legacy_column: VoluntarioSalida
+    lookup_table: voluntarios
+    lookup_legacy_key: Voluntario
+    fuzzy_match: true
+    fuzzy_threshold: 85
+    optional: true

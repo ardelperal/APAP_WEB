@@ -1,0 +1,91 @@
+version: "1.0"
+
+# Mapeo de la tabla web `acogidas` ↔ legacy `TbAcogidaAnimal` (Access).
+# Acogidas = período en que un animal vive con una familia de acogida
+# temporal antes de ser devuelto al refugio o adoptado.
+# Tabla NUEVA en el web.
+web_table: acogidas
+legacy_table: TbAcogidaAnimal
+key_field: id
+legacy_key: IDAcogida
+
+# Fechas legacy para detectar conflictos modified_both_sides.
+date_fields:
+  - FFechaInicioAcogida
+  - FFinal
+
+columns:
+  # --- Heredadas 1:1 ---
+  - { web_column: fecha_inicio, legacy_column: FFechaInicioAcogida, transform: identity, nullable: false }
+  - { web_column: fecha_final, legacy_column: FFinal, transform: identity, nullable: true }
+  - { web_column: direccion, legacy_column: DireccionAcogida, transform: identity, nullable: true }
+  - { web_column: telefono, legacy_column: TelefonoAcogida, transform: identity, nullable: true }
+  - { web_column: observaciones, legacy_column: Observaciones, transform: identity, nullable: true }
+
+  # --- FK lookups (cross-table) ---
+  # 4 voluntarios diferentes (acogida + 2 seguimientos + sanitario).
+  # Todos son nombres libres → fuzzy_match=True threshold 85.
+  - { web_column: animal_id, transform: fk_lookup, nullable: false, lookup: animal }
+  - { web_column: voluntario_acogida_id, transform: fk_lookup, nullable: true, lookup: voluntario_acogida }
+  - { web_column: voluntario_seguimiento1_id, transform: fk_lookup, nullable: true, lookup: voluntario_seguimiento1 }
+  - { web_column: voluntario_seguimiento2_id, transform: fk_lookup, nullable: true, lookup: voluntario_seguimiento2 }
+  - { web_column: voluntario_sanitario_id, transform: fk_lookup, nullable: true, lookup: voluntario_sanitario }
+  # entrada_origen: opcional, referencia opcional a la entrada que
+  # originó esta acogida. NO fuzzy (es un ID legacy exacto).
+  - { web_column: entrada_origen_id, transform: fk_lookup, nullable: true, lookup: entrada_origen }
+
+  # --- Web-only ---
+  - { web_column: id, transform: default_uuid, nullable: false }
+  - { web_column: fecha_alta, transform: default_now, nullable: false }
+  - { web_column: updated_at, transform: default_now, nullable: false }
+  - { web_column: activo, transform: default_true, nullable: false }
+
+fk_lookups:
+  - name: animal
+    web_column: animal_id
+    legacy_column: Nchip
+    lookup_table: animales
+    lookup_legacy_key: NCHIP
+
+  - name: voluntario_acogida
+    web_column: voluntario_acogida_id
+    legacy_column: VoluntarioAcogida
+    lookup_table: voluntarios
+    lookup_legacy_key: Voluntario
+    fuzzy_match: true
+    fuzzy_threshold: 85
+    optional: true
+
+  - name: voluntario_seguimiento1
+    web_column: voluntario_seguimiento1_id
+    legacy_column: VoluntarioSeguimiento1
+    lookup_table: voluntarios
+    lookup_legacy_key: Voluntario
+    fuzzy_match: true
+    fuzzy_threshold: 85
+    optional: true
+
+  - name: voluntario_seguimiento2
+    web_column: voluntario_seguimiento2_id
+    legacy_column: VoluntarioSeguimiento2
+    lookup_table: voluntarios
+    lookup_legacy_key: Voluntario
+    fuzzy_match: true
+    fuzzy_threshold: 85
+    optional: true
+
+  - name: voluntario_sanitario
+    web_column: voluntario_sanitario_id
+    legacy_column: VoluntarioCosasSanitarias
+    lookup_table: voluntarios
+    lookup_legacy_key: Voluntario
+    fuzzy_match: true
+    fuzzy_threshold: 85
+    optional: true
+
+  - name: entrada_origen
+    web_column: entrada_origen_id
+    legacy_column: IDAcogidaOrigen
+    lookup_table: entradas
+    lookup_legacy_key: IDEntrada
+    optional: true

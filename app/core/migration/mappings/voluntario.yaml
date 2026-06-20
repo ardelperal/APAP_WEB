@@ -1,0 +1,32 @@
+version: "1.0"
+
+# Mapeo de la tabla web `voluntarios` ↔ legacy `TbVoluntariosParaAutorrellenables`.
+# La columna `Voluntario` es el natural key: el nombre del voluntario.
+# Es free-text, así que cualquier FK desde otras tablas hacia acá
+# (entradas, acogidas, adopciones) DEBE usar fuzzy_match=True con
+# threshold 85 (cubierto por test_voluntario_yaml_fuzzy_match_enabled).
+web_table: voluntarios
+legacy_table: TbVoluntariosParaAutorrellenables
+key_field: Voluntario
+legacy_key: Voluntario
+date_fields: []
+
+columns:
+  # --- Heredadas 1:1 ---
+  - { web_column: Voluntario, legacy_column: Voluntario, transform: identity, nullable: false }
+  - { web_column: Tel1, legacy_column: Tel1, transform: identity, nullable: true }
+  - { web_column: Tel2, legacy_column: Tel2, transform: identity, nullable: true }
+  - { web_column: Email, legacy_column: Email, transform: identity, nullable: true }
+
+  # --- Web-only ---
+  # DNI: en el legacy esta columna NO existe (los voluntarios se
+  # identifican por nombre libre). En la web queremos formalizar el
+  # DNI, por eso es web-only. legacy_column=null lo deja fuera del
+  # INSERT al legacy.
+  - { web_column: id, transform: default_uuid, nullable: false }
+  - { web_column: DNI, legacy_column: null, transform: identity, nullable: true }
+  - { web_column: fecha_alta, transform: default_now, nullable: false }
+  - { web_column: updated_at, transform: default_now, nullable: false }
+  - { web_column: activo, transform: default_true, nullable: false }
+
+fk_lookups: []
