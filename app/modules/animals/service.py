@@ -54,19 +54,19 @@ Mapeo de campos (legacy ``TbFichaAnimal`` -> dataclass):
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from enum import Enum
+from dataclasses import dataclass
+from enum import StrEnum
 from typing import Any
 
 from app.core.insforge import InsForgeClient
 
 
-class Especie(str, Enum):
+class Especie(StrEnum):
     CANINA = "CANINA"
     FELINA = "FELINA"
 
 
-class Sexo(str, Enum):
+class Sexo(StrEnum):
     M = "M"
     H = "H"
 

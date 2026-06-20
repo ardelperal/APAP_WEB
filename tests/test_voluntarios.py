@@ -19,7 +19,6 @@ import pytest
 
 from app.core.insforge import InsForgeClient, InsForgeError
 from app.modules.voluntarios.service import (
-    Voluntario,
     create_voluntario,
     get_voluntario_by_id,
     list_roles,
