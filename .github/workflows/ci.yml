@@ -86,7 +86,7 @@ jobs:
     name: deploy
     runs-on: ubuntu-latest
     needs: [lint, test, build]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.pull_request == null && !startsWith(github.event.head_commit.message, 'Merge pull request #')
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.pull_request == null
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -98,6 +98,13 @@ jobs:
         env:
           COOLIFY_WEBHOOK_URL: ${{ secrets.COOLIFY_WEBHOOK_URL }}
         run: |
+          # Skip on merge commits: a push triggered by merging a pull request
+          # is not a real "deploy this change" event. Only direct pushes count.
+          commit_msg="$(git log -1 --pretty=%B)"
+          if echo "$commit_msg" | grep -q "^Merge pull request #"; then
+            echo "Skipping deploy: this is a merge commit, not a direct push."
+            exit 0
+          fi
           if [ -z "$COOLIFY_WEBHOOK_URL" ]; then
             echo "::error::COOLIFY_WEBHOOK_URL secret is not configured. Set it in Settings → Secrets → Actions before merging to main."
             exit 1
