@@ -1,4 +1,5 @@
-"""Domain schema bootstrap: animals, voluntarios, roles_voluntario.
+"""Domain schema bootstrap: animals, voluntarios, roles_voluntario,
+entradas, acogidas, adopciones.
 
 Source of truth for the SQL that creates the domain tables in the
 InsForge backend. Mirrors the pattern in ``app.core.auth`` for
@@ -21,10 +22,13 @@ RULES (issue #29):
   contract.
 - The ``Situacion`` legacy column is INTENTIONALLY removed because it
   is derived from the event log, not stored.
-- The schema is intentionally minimal in this first slice: no triggers,
-  no extra indices beyond what the constraints imply, no related tables
+- The schema is intentionally minimal: no triggers, no extra indices
+  beyond what the constraints imply, no related tables
   (animal_event_log, attachments, etc.) — those come in later cycles
   (LIFECYCLE-SCHEMA-02, DOC-01..04).
+- ``entradas``, ``acogidas`` and ``adopciones`` form the LIFECYCLE-03
+  minimal surface needed for the bidirectional migration; their FK
+  chain mirrors the legacy workflow (intake -> foster or adoption).
 """
 
 from __future__ import annotations
@@ -94,15 +98,105 @@ CREATE TABLE IF NOT EXISTS roles_voluntario (
 )
 """
 
+# --- entradas: TbEntradas (14 cols) + mejoras justificadas ---
+#
+# LIFECYCLE-03 (migration-01). Migration target of TbEntradas from the
+# legacy Access production DB. FKs to animales and voluntarios. The
+# natural-key UNIQUE constraint on (animal_id, fecha_entrada) prevents
+# duplicate intakes for the same animal on the same day.
+
+ENTRADAS_CREATE_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS entradas (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    animal_id UUID NOT NULL REFERENCES animales(id),
+    voluntario_entrada_id UUID REFERENCES voluntarios(id),
+    voluntario_salida_id UUID REFERENCES voluntarios(id),
+    fecha_entrada DATE NOT NULL,
+    fecha_salida DATE,
+    fecha_entrega_propietario DATE,
+    origen TEXT,
+    motivo TEXT,
+    donativo_entregador NUMERIC(10,2),
+    observaciones TEXT,
+    fecha_alta TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP NOT NULL DEFAULT now(),
+    activo BOOLEAN NOT NULL DEFAULT true,
+    CONSTRAINT entradas_natural_key UNIQUE (animal_id, fecha_entrada)
+)
+"""
+
+# --- acogidas: TbAcogidaAnimal (15 cols) + mejoras justificadas ---
+#
+# LIFECYCLE-03 (migration-01). FKs to animales, voluntarios and entradas
+# (the entry that originated this foster placement).
+
+ACOGIDAS_CREATE_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS acogidas (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    animal_id UUID NOT NULL REFERENCES animales(id),
+    voluntario_acogida_id UUID REFERENCES voluntarios(id),
+    voluntario_seguimiento1_id UUID REFERENCES voluntarios(id),
+    voluntario_seguimiento2_id UUID REFERENCES voluntarios(id),
+    voluntario_sanitario_id UUID REFERENCES voluntarios(id),
+    fecha_inicio DATE NOT NULL,
+    fecha_final DATE,
+    entrada_origen_id UUID REFERENCES entradas(id),
+    direccion TEXT,
+    telefono TEXT,
+    observaciones TEXT,
+    fecha_alta TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP NOT NULL DEFAULT now(),
+    activo BOOLEAN NOT NULL DEFAULT true,
+    CONSTRAINT acogidas_natural_key UNIQUE (animal_id, fecha_inicio)
+)
+"""
+
+# --- adopciones: TbAdopcion (16 cols) + mejoras justificadas ---
+#
+# LIFECYCLE-03 (migration-01). FKs to animales, voluntarios and entradas
+# (the entry that originated this adoption). ``nombre_adoptante`` is
+# the only mandatory adoptante field because the legacy contract treats
+# it as the canonical contact name; dni/telefono/email are optional.
+
+ADOPCIONES_CREATE_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS adopciones (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    animal_id UUID NOT NULL REFERENCES animales(id),
+    voluntario_seguimiento_id UUID REFERENCES voluntarios(id),
+    fecha_adopcion DATE NOT NULL,
+    fecha_devolucion DATE,
+    donativo_preadopcion NUMERIC(10,2),
+    donativo_adopcion NUMERIC(10,2),
+    nombre_adoptante TEXT NOT NULL,
+    dni_adoptante TEXT,
+    telefono_adoptante TEXT,
+    email_adoptante TEXT,
+    entrada_origen_id UUID REFERENCES entradas(id),
+    observaciones TEXT,
+    fecha_alta TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP NOT NULL DEFAULT now(),
+    activo BOOLEAN NOT NULL DEFAULT true,
+    CONSTRAINT adopciones_natural_key UNIQUE (animal_id, fecha_adopcion)
+)
+"""
+
 
 def ensure_domain_schema(client: InsForgeClient) -> None:
     """Create the domain tables (idempotent) in dependency order.
 
-    Order matters: ``roles_voluntario`` has a foreign key to
-    ``voluntarios``, so the parent table must be created first. ``animales``
-    is independent of the other two and is created first for symmetry
-    (most-frequently-written table at the top of the migration).
+    Order respects FK dependencies:
+
+    1. ``animales`` and ``voluntarios`` are independent roots.
+    2. ``roles_voluntario`` depends on ``voluntarios``.
+    3. ``entradas`` depends on ``animales`` and ``voluntarios``.
+    4. ``acogidas`` depends on ``animales``, ``voluntarios`` and ``entradas``.
+    5. ``adopciones`` depends on ``animales``, ``voluntarios`` and ``entradas``.
+
+    Any other order means a foreign-key will fail on a clean database.
     """
     client.execute_sql(ANIMALS_CREATE_TABLE_SQL)
     client.execute_sql(VOLUNTARIOS_CREATE_TABLE_SQL)
     client.execute_sql(ROLES_VOLUNTARIO_CREATE_TABLE_SQL)
+    client.execute_sql(ENTRADAS_CREATE_TABLE_SQL)
+    client.execute_sql(ACOGIDAS_CREATE_TABLE_SQL)
+    client.execute_sql(ADOPCIONES_CREATE_TABLE_SQL)
