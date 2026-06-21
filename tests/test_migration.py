@@ -889,3 +889,24 @@ class TestCliReconcile:
         assert rc == 0, "reconcile --check-only must exit 0 on a clean repo"
         # Skeleton never writes — only reads, and even those are deferred to PR 5.
         assert captured_sql == [], f"reconcile --check-only must not write; got: {captured_sql!r}"
+
+
+# PR 2/6 moved the derivation engine, comparator, semantic events, and
+
+# reconcile-after-legacy-write tests to dedicated files:
+
+#
+
+#   - tests/test_derivation.py        (TestDerivationEngine + TestDerivationComparator)
+
+#   - tests/test_semantic_events.py   (TestSemanticEvents + TestSemanticEventsEdgeCases)
+
+#   - tests/test_reconcile.py         (TestReconcileAfterLegacyWrite)
+
+#
+
+# Keeping them out of this file preserves the work-unit discipline:
+
+# each PR adds one production module + one test module, so the diff
+
+# per commit is clean and the tests for a change travel with the change.
