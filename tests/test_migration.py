@@ -21,9 +21,11 @@ import subprocess
 import sys
 from datetime import UTC, datetime
 
+import httpx
 import pytest
 from pydantic import ValidationError
 
+from app.core.insforge import InsForgeClient
 from app.core.migration import (
     FkLookupError,
     LockActiveError,
@@ -377,3 +379,211 @@ class TestMappings:
         assert "web_table" in str(excinfo.value), (
             f"ValidationError did not mention missing field 'web_table': {excinfo.value!r}"
         )
+
+
+# --- TestLegacyReader + TestWebReader -------------------------------------
+#
+# Slice MIGRATION-01 PR 3 (T4): cover the readers that producen los
+# snapshots que el diff engine consume. ``legacy_reader`` lee el .accdb
+# en batches de 100 filas vía Dysflow (con un callable inyectable para
+# tests, sin acoplar a la MCP real); ``web_reader`` lee vía
+# ``InsForgeClient`` (mockeable con ``httpx.MockTransport``). Ambos
+# retornan ``dict[str, list[dict]]`` indexado por nombre de tabla.
+#
+# Estos tests se escriben ANTES de los módulos
+# ``legacy_reader.py``/``web_reader.py`` (TDD red phase) y son el
+# contrato de aceptación del slice: si alguno falla tras la
+# implementación, el slice no está listo.
+
+
+class TestLegacyReader:
+    """Tests para ``legacy_reader.load_legacy_snapshot_batched``."""
+
+    def test_returns_dict_with_table_names_as_keys(self) -> None:
+        """El snapshot retorna ``dict[str, list[dict]]`` con nombres legacy como keys."""
+        captured_queries: list[str] = []
+        call_count = [0]
+
+        def mock_executor(legacy_path: str, sql: str) -> list[dict]:
+            captured_queries.append(sql)
+            call_count[0] += 1
+            # Primera llamada: 1 fila. Segunda: vacío (fin del paging).
+            # El paging loop termina cuando el source retorna ``[]``,
+            # estándar de la paginación batched (design §5).
+            if call_count[0] == 1:
+                return [{"NCHIP": "value1", "NombreAnimal": "Firulais"}]
+            return []
+
+        from app.core.migration.legacy_reader import (
+            TableSpec,
+            load_legacy_snapshot,
+            set_legacy_query_executor,
+        )
+
+        set_legacy_query_executor(mock_executor)
+        try:
+            result = load_legacy_snapshot(
+                "/fake/path.accdb",
+                [TableSpec("TbFichaAnimal", ("NCHIP", "NombreAnimal"))],
+            )
+        finally:
+            set_legacy_query_executor(None)
+
+        assert "TbFichaAnimal" in result
+        assert len(result["TbFichaAnimal"]) == 1
+        assert result["TbFichaAnimal"][0]["NCHIP"] == "value1"
+        assert result["TbFichaAnimal"][0]["NombreAnimal"] == "Firulais"
+
+    def test_builds_sql_with_top_n(self) -> None:
+        """El SQL generado usa ``TOP n`` (no ``LIMIT``) porque Access no soporta ``LIMIT``."""
+        captured_queries: list[str] = []
+
+        def mock_executor(legacy_path: str, sql: str) -> list[dict]:
+            captured_queries.append(sql)
+            return []
+
+        from app.core.migration.legacy_reader import (
+            TableSpec,
+            load_legacy_snapshot,
+            set_legacy_query_executor,
+        )
+
+        set_legacy_query_executor(mock_executor)
+        try:
+            load_legacy_snapshot(
+                "/fake/path.accdb",
+                [TableSpec("TbFichaAnimal", ("NCHIP",))],
+            )
+        finally:
+            set_legacy_query_executor(None)
+
+        assert len(captured_queries) >= 1
+        assert "SELECT TOP 100" in captured_queries[0]
+        assert "FROM TbFichaAnimal" in captured_queries[0]
+        # Sanity: NO usamos LIMIT (eso es PostgreSQL/MySQL).
+        assert "LIMIT" not in captured_queries[0]
+
+    def test_legacy_query_executor_can_be_reset(self) -> None:
+        """``set_legacy_query_executor(None)`` resetea al estado inicial."""
+        from app.core.migration.legacy_reader import set_legacy_query_executor
+
+        set_legacy_query_executor(lambda p, s: [])
+        set_legacy_query_executor(None)
+        # El reset no debe levantar excepción; el siguiente call usaría
+        # el executor real (Dysflow) si lo hubiera — no testeable en CI.
+
+    def test_load_legacy_snapshot_batched_yields_tuples(self) -> None:
+        """``load_legacy_snapshot_batched`` yields ``(table_name, [rows])`` por batch."""
+        call_count = [0]
+
+        def mock_executor(legacy_path: str, sql: str) -> list[dict]:
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return [{"NCHIP": "first_batch"}]
+            # Segunda llamada retorna vacío → fin del loop de batches.
+            return []
+
+        from app.core.migration.legacy_reader import (
+            TableSpec,
+            load_legacy_snapshot_batched,
+            set_legacy_query_executor,
+        )
+
+        set_legacy_query_executor(mock_executor)
+        try:
+            batches = list(
+                load_legacy_snapshot_batched(
+                    "/fake/path.accdb",
+                    [TableSpec("TbFichaAnimal", ("NCHIP",))],
+                )
+            )
+        finally:
+            set_legacy_query_executor(None)
+
+        assert len(batches) == 1
+        table_name, rows = batches[0]
+        assert table_name == "TbFichaAnimal"
+        assert rows == [{"NCHIP": "first_batch"}]
+
+
+class TestWebReader:
+    """Tests para ``web_reader.load_web_snapshot``."""
+
+    def _make_mock_client(self, captured: list[str]) -> InsForgeClient:
+        """Construye un InsForgeClient con MockTransport que captura el SQL enviado."""
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request.content.decode())
+            return httpx.Response(
+                200,
+                json=[{"id": "uuid-1", "NCHIP": "ABC"}],
+                headers={"content-type": "application/json"},
+            )
+
+        return InsForgeClient(
+            base_url="https://example.insforge.app",
+            service_key="ik_test",
+            transport=httpx.MockTransport(handler),
+        )
+
+    def test_returns_dict_with_web_table_names_as_keys(self) -> None:
+        """El snapshot retorna ``dict[str, list[dict]]`` con nombres web como keys."""
+        captured: list[str] = []
+        client = self._make_mock_client(captured)
+
+        from app.core.migration.web_reader import WebTableSpec, load_web_snapshot
+
+        result = load_web_snapshot(
+            client,
+            [WebTableSpec("animales", ("id", "NCHIP"))],
+        )
+
+        assert "animales" in result
+        assert len(result["animales"]) == 1
+        assert result["animales"][0]["NCHIP"] == "ABC"
+        # El SQL enviado al web contiene los nombres de columnas y la tabla.
+        assert len(captured) == 1
+        assert "SELECT" in captured[0]
+        assert "FROM animales" in captured[0]
+
+    def test_builds_sql_with_where_clause_for_incremental(self) -> None:
+        """Para incremental (``since`` provisto), el SQL incluye ``WHERE updated_at >``."""
+        captured: list[str] = []
+        client = self._make_mock_client(captured)
+
+        from app.core.migration.web_reader import WebTableSpec, load_web_snapshot
+
+        since = datetime(2026, 6, 20, 10, 0)
+        load_web_snapshot(
+            client,
+            [WebTableSpec("animales", ("id",), since=since)],
+        )
+
+        assert len(captured) == 1
+        assert "WHERE updated_at >" in captured[0]
+        assert "2026-06-20T10:00:00" in captured[0]
+
+    def test_web_reader_handles_empty_table(self) -> None:
+        """Si la tabla está vacía, el resultado es un dict con lista vacía."""
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                json=[],
+                headers={"content-type": "application/json"},
+            )
+
+        client = InsForgeClient(
+            base_url="https://example.insforge.app",
+            service_key="ik_test",
+            transport=httpx.MockTransport(handler),
+        )
+
+        from app.core.migration.web_reader import WebTableSpec, load_web_snapshot
+
+        result = load_web_snapshot(
+            client,
+            [WebTableSpec("animales", ("id",))],
+        )
+
+        assert result == {"animales": []}
