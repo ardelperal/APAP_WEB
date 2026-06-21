@@ -249,6 +249,17 @@ def _translate_update_ficha(diff: Diff) -> list[LifecycleEvent]:
     in ``metadata`` so the applier (PR 4) can mass-close the active
     records timestamped at the death date without a second pass
     through the derivation engine.
+
+    ``legacy_source_id`` is intentionally ``None`` for ``DEATH_RECORDED``:
+    ``TbFichaAnimal.key_field`` (= ``NCHIP``) is a free-text string
+    in the mapping (``app/core/migration/mappings/animal.yaml``) and
+    cannot be coerced to ``int`` (real APAP chips include alphanumeric
+    forms like ``"2030A"``, ``"ES-12345"`` and numeric-looking labels
+    like ``"001"`` whose leading zero is part of the identity). The
+    chip is already on the parent FK ``animal_id`` after PR 4 resolves
+    it, so the event itself does not need to carry an int-coerced
+    NCHIP. The applier hydrates ``legacy_source_id`` from the FK
+    during the insert into ``animal_lifecycle_events``.
     """
     row = diff.legacy_row or {}
     timestamp = _read_timestamp(row, "FDefuncion")
@@ -263,7 +274,7 @@ def _translate_update_ficha(diff: Diff) -> list[LifecycleEvent]:
             event_type="DEATH_RECORDED",
             event_timestamp=timestamp,
             legacy_source_table="TbFichaAnimal",
-            legacy_source_id=_read_int(row, "NCHIP"),
+            legacy_source_id=None,
             source_entity_type="death",
             metadata=metadata or None,
         )

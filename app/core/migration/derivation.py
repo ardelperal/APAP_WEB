@@ -22,6 +22,7 @@ populate ``animal_current_state.reconciliation_status``.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
@@ -326,6 +327,15 @@ def _latest_FEntregaAPropietario(
     return max(with_date, key=lambda e: e.get("IDEntrada", 0) or 0)
 
 
+# Matches a derived "Fallecido (X)" string (single level, no nesting).
+# Group 1 captures the inner state (e.g. "Albergue", "Desconocido").
+# Used by ``_resolve_pre_death_state`` to make the helper idempotent
+# against a cached ``Situacion`` that already carries a previously
+# derived Fallecido string (regla de VBA prioridad 6 — ver
+# ``lifecycle-state-resolver-extraction.md`` §10 Challenge #1).
+_FALLECIDO_PARENTHETICAL_RE = re.compile(r"^Fallecido \((.+)\)$")
+
+
 def _resolve_pre_death_state(ficha: dict[str, Any]) -> str:
     """Compute the parenthetical for a ``Fallecido ({pre})`` state.
 
@@ -335,11 +345,18 @@ def _resolve_pre_death_state(ficha: dict[str, Any]) -> str:
       - If ``UltimoEstadoAntesDeFallecido`` is empty AND the previous
         ``Situacion`` does NOT already contain ``Fallecido``, the
         parenthetical is ``Desconocido``.
-      - If the previous ``Situacion`` already contains ``Fallecido``
-        (the death was registered twice), preserve that string to
-        avoid ``Fallecido (Fallecido (Albergue))``.
+      - If the previous ``Situacion`` already carries a single-level
+        ``Fallecido ({X})`` string (the death was registered and the
+        cache was overwritten with the derived value), parse out ``X``
+        so the caller wraps it exactly once. This is the
+        idempotence rule: re-deriving MUST NOT nest to
+        ``Fallecido (Fallecido (X))``.
       - If ``UltimoEstadoAntesDeFallecido`` is set but is NOT one of
         the four active states, fall back to ``Desconocido``.
+
+    The function is pure and idempotent: feeding it the same
+    ``Situacion`` cache that was previously emitted produces the
+    same pre-state, never a deeper nest.
     """
     pre = ficha.get("UltimoEstadoAntesDeFallecido") or ""
     situacion_anterior = ficha.get("Situacion") or ""
@@ -347,8 +364,15 @@ def _resolve_pre_death_state(ficha: dict[str, Any]) -> str:
     if pre == "" or pre is None:
         if "Fallecido" not in situacion_anterior:
             return "Desconocido"
-        # Already a Fallecido ({...}) string — preserve as-is.
-        return situacion_anterior
+        # Cached ``Situacion`` already carries a Fallecido ({X}) string
+        # from a previous apply. Parse out the inner state so the caller
+        # wraps it exactly once. If the cache is somehow not a clean
+        # ``Fallecido (...)`` shape (e.g. legacy typo), fall back to
+        # ``Desconocido`` instead of silently echoing the bad value.
+        match = _FALLECIDO_PARENTHETICAL_RE.match(situacion_anterior)
+        if match is not None:
+            return match.group(1)
+        return "Desconocido"
 
     if pre not in _VALID_PRE_DEATH_STATES:
         return "Desconocido"

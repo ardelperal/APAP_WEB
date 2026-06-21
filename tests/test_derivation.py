@@ -317,6 +317,100 @@ class TestDerivationEngine:
         assert result.kind is DerivationKind.INCOHERENTE
 
 
+# --- TestPreDeathStateIdempotence (P1 #1 regression) ----------------------
+
+
+class TestPreDeathStateIdempotence:
+    """P1 #1 regression: ``_resolve_pre_death_state`` must be idempotent.
+
+    The legacy cache ``TbFichaAnimal.Situacion`` is overwritten with the
+    derived state after the first apply. If the second apply reads that
+    cached value as ``Situacion`` AND ``UltimoEstadoAntesDeFallecido``
+    is empty (typical for the "first death registration" pass), the
+    derived state MUST NOT nest as ``"Fallecido (Fallecido (Albergue))"``.
+
+    The chosen fix parses the parenthetical out of the cached
+    ``Situacion`` so the caller wraps it exactly once. These tests
+    freeze the contract: ``derive_estado_actual_animal`` is idempotent
+    on the pre-death parenthetical even when the cache carries the
+    previous derived value.
+    """
+
+    def test_no_nesting_when_situacion_already_fallecido_known_state(self) -> None:
+        """``Situacion='Fallecido (Albergue)'`` + empty pre-state field stays single.
+
+        The cached ``Situacion`` carries a previously derived
+        ``Fallecido (Albergue)`` string. With ``UltimoEstadoAntesDeFallecido``
+        empty (the common case for the first death pass) the function
+        MUST surface ``Albergue`` so the caller wraps it once. Nesting
+        like ``Fallecido (Fallecido (Albergue))`` is a regression of
+        the VBA priority-6 idempotence rule (see
+        ``lifecycle-state-resolver-extraction.md §10`` Challenge #1).
+        """
+        from app.core.migration.derivation import derive_estado_actual_animal
+
+        result = derive_estado_actual_animal(
+            _ficha(
+                FDefuncion="2024-06-01",
+                Situacion="Fallecido (Albergue)",
+                UltimoEstadoAntesDeFallecido=None,
+            ),
+            [],
+            [],
+            [],
+        )
+        assert result.state == "Fallecido (Albergue)"
+        assert result.pre_death_state == "Albergue"
+
+    def test_no_nesting_when_situacion_already_fallecido_desconocido(self) -> None:
+        """``Situacion='Fallecido (Desconocido)'`` + empty pre-state stays single.
+
+        Mirror of the above for the ``Desconocido`` fallback: the cache
+        carries ``Fallecido (Desconocido)``; re-derivation MUST yield
+        ``Fallecido (Desconocido)`` again, never nest.
+        """
+        from app.core.migration.derivation import derive_estado_actual_animal
+
+        result = derive_estado_actual_animal(
+            _ficha(
+                FDefuncion="2024-06-01",
+                Situacion="Fallecido (Desconocido)",
+                UltimoEstadoAntesDeFallecido=None,
+            ),
+            [],
+            [],
+            [],
+        )
+        assert result.state == "Fallecido (Desconocido)"
+        assert result.pre_death_state == "Desconocido"
+
+    def test_idempotent_on_cached_situacion_without_pre_state(self) -> None:
+        """Calling twice with the second input caching the first output returns the same state.
+
+        End-to-end idempotence contract: the legacy ``Situacion`` is
+        written after the first apply with the derived value. The
+        second apply MUST read that cached value and produce the SAME
+        state — never ``Fallecido (Fallecido (Desconocido))``.
+        """
+        from app.core.migration.derivation import derive_estado_actual_animal
+
+        ficha_first = _ficha(
+            FDefuncion="2024-06-01",
+            Situacion="",
+            UltimoEstadoAntesDeFallecido=None,
+        )
+        result_first = derive_estado_actual_animal(ficha_first, [], [], [])
+
+        # Simulate the legacy cache being written with the derived state.
+        ficha_second = {**ficha_first, "Situacion": result_first.state}
+        result_second = derive_estado_actual_animal(ficha_second, [], [], [])
+
+        assert result_first.state == result_second.state
+        assert result_first.pre_death_state == result_second.pre_death_state
+        # Hard guard against the original regression: explicit no-nesting.
+        assert "(Fallecido (Fallecido" not in result_second.state
+
+
 # --- TestComparator ------------------------------------------------------
 
 

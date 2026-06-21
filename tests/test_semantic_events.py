@@ -200,6 +200,14 @@ class TestSemanticEvents:
             ),
             # 8. TbFichaAnimal UPDATE (FDefuncion NULL → date) → DEATH_RECORDED
             #    + pre_death_state in metadata.
+            #
+            #    P1 #2 fix: ``legacy_source_id`` is ``None`` for
+            #    ``DEATH_RECORDED`` because ``NCHIP`` is a free-text
+            #    string in the legacy mapping (animal.yaml key_field)
+            #    and the chip identity is already carried on the
+            #    parent FK ``animal_id`` after PR 4 resolves it. The
+            #    applier no longer needs the int-coerced NCHIP as
+            #    ``legacy_source_id``.
             (
                 "death_recorded",
                 "TbFichaAnimal",
@@ -213,7 +221,7 @@ class TestSemanticEvents:
                 ("FDefuncion",),
                 "DEATH_RECORDED",
                 "TbFichaAnimal",
-                1,
+                None,
                 "death",
                 "FDefuncion",
                 "pre_death_state",
@@ -239,7 +247,7 @@ class TestSemanticEvents:
         changed_fields: tuple[str, ...],
         expected_event_type: str,
         expected_source_table: str,
-        expected_source_id: int,
+        expected_source_id: int | None,
         expected_entity_type: str,
         expected_timestamp_key: str,
         expected_metadata_key: str | None,
@@ -468,3 +476,106 @@ class TestSemanticEventsEdgeCases:
             changed_fields=("IDVoluntario",),
         )
         assert translate_diff(diff, _mapping_for("TbVoluntariosParaAutorrellenables")) == []
+
+
+# --- TestDeathRecordedChipNotInt (P1 #2 regression) ----------------------
+
+
+class TestDeathRecordedChipNotInt:
+    """P1 #2 regression: ``DEATH_RECORDED`` must not coerce ``NCHIP`` to int.
+
+    ``TbFichaAnimal.key_field`` (= ``NCHIP``) is a free-text string in
+    ``app/core/migration/mappings/animal.yaml`` (legacy PK preserved as
+    identity transform; no int conversion). Real APAP values include
+    alphanumeric forms like ``"2030A"``, ``"ES-12345"``, and the
+    numeric-looking ``"001"`` (which is a chip label, not the integer
+    ``1`` — the leading zero is part of the identity).
+
+    The previous implementation called ``_read_int(row, "NCHIP")``
+    which raised ``ValueError`` on alphanumeric values and silently
+    truncated ``"001"`` to ``1``, losing the actual chip identity.
+
+    Fix: ``DEATH_RECORDED`` events now carry ``legacy_source_id=None``
+    because the chip identity is already on the parent FK
+    (``animal_id``) after PR 4 resolves it. The applier no longer
+    needs an int-coerced NCHIP on the event itself.
+    """
+
+    def test_alphanumeric_nchip_does_not_raise(self) -> None:
+        """``NCHIP="ABC-123"`` → translation succeeds, ``legacy_source_id=None``.
+
+        The pre-fix implementation raised
+        ``ValueError: Cannot coerce legacy 'NCHIP' value 'ABC-123' into int``.
+        """
+        from app.core.migration.reporting import Diff
+        from app.core.migration.semantic_events import translate_diff
+
+        diff = Diff(
+            op="UPDATE",
+            key="ABC-123",
+            legacy_row={
+                "NCHIP": "ABC-123",
+                "FDefuncion": datetime(2024, 8, 1, tzinfo=UTC),
+                "Situacion": "Albergue",
+                "UltimoEstadoAntesDeFallecido": "Albergue",
+            },
+            changed_fields=("FDefuncion",),
+        )
+        events = translate_diff(diff, _mapping_for("TbFichaAnimal"))
+        assert len(events) == 1
+        assert events[0].event_type == "DEATH_RECORDED"
+        assert events[0].legacy_source_id is None
+        assert events[0].metadata == {"pre_death_state": "Albergue"}
+
+    def test_alphanumeric_nchip_with_year_prefix_does_not_raise(self) -> None:
+        """``NCHIP="2030A"`` → translation succeeds (real APAP chip pattern).
+
+        Mirrors a common APAP chip pattern (year prefix + letter
+        suffix). Must NOT raise and must NOT silently truncate.
+        """
+        from app.core.migration.reporting import Diff
+        from app.core.migration.semantic_events import translate_diff
+
+        diff = Diff(
+            op="UPDATE",
+            key="2030A",
+            legacy_row={
+                "NCHIP": "2030A",
+                "FDefuncion": datetime(2024, 9, 15, tzinfo=UTC),
+                "UltimoEstadoAntesDeFallecido": "Acogida",
+            },
+            changed_fields=("FDefuncion",),
+        )
+        events = translate_diff(diff, _mapping_for("TbFichaAnimal"))
+        assert len(events) == 1
+        assert events[0].legacy_source_id is None
+        assert events[0].metadata == {"pre_death_state": "Acogida"}
+
+    def test_numeric_nchip_does_not_silently_coerce_to_int(self) -> None:
+        """``NCHIP="001"`` → translation succeeds and ``legacy_source_id`` is None.
+
+        Even when ``NCHIP`` looks numeric, ``legacy_source_id`` is
+        ``None`` under fix (b) — we deliberately do NOT surface the
+        coerced int because (1) the original string identity is lost
+        on int coercion (the leading zero), and (2) the chip identity
+        is already on the parent FK after PR 4.
+        """
+        from app.core.migration.reporting import Diff
+        from app.core.migration.semantic_events import translate_diff
+
+        diff = Diff(
+            op="UPDATE",
+            key="001",
+            legacy_row={
+                "NCHIP": "001",
+                "FDefuncion": datetime(2024, 10, 1, tzinfo=UTC),
+                "UltimoEstadoAntesDeFallecido": "Adoptado",
+            },
+            changed_fields=("FDefuncion",),
+        )
+        events = translate_diff(diff, _mapping_for("TbFichaAnimal"))
+        assert len(events) == 1
+        assert events[0].event_type == "DEATH_RECORDED"
+        # Must NOT be the silently-coerced int(1) — must be None.
+        assert events[0].legacy_source_id is None
+        assert events[0].metadata == {"pre_death_state": "Adoptado"}
