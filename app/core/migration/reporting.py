@@ -34,13 +34,43 @@ class Diff:
     ``legacy_row`` y ``web_row`` son snapshots opcionales del estado en cada
     lado (útiles para el markdown report); ``changed_fields`` lista las
     columnas que difieren (solo relevante para ``op="UPDATE"``).
+
+    **Campos extendidos en PR 4/6 (T5 — diff engine)**:
+
+    - ``table``: nombre de la tabla web (``"animales"``, ``"entradas"``…)
+      sobre la que aplica la diff. Permite al applier rutear
+      ``INSERT``/``UPDATE``/``DELETE`` sincrónicamente y al reporte
+      agrupar por tabla.
+    - ``legacy_pk``: PK legacy (``int`` o ``str``) — ``None`` para INSERTs
+      que nacen del web (inverse direction) y para NOOPs donde el PK
+      no es relevante.
+    - ``web_pk``: UUID v4 web — ``None`` para INSERTs que aún no se
+      aplicaron (la web generará el UUID al insertar) y para DELETEs
+      del legacy (no hay contraparte web).
+    - ``conflict``: ``True`` cuando AMBAS partes se modificaron desde
+      ``last_sync_at`` (regla #13475 v2 — active-passive estricto). El
+      applier NO aplica diffs con ``conflict=True`` sin resolución
+      explícita del operador (``--conflict web|legacy|abort``).
+    - ``reason``: clasificación humana del diff (ej:
+      ``"modified_both_sides"``, ``"legacy_new"``, ``"web_orphaned"``).
+      Sirve para diagnóstico y para tests parametrizados.
+
+    Los campos ``legacy_row`` / ``web_row`` / ``changed_fields`` /
+    ``key`` se preservan para backward-compat con PR 1-3 (tests del
+    skeleton). El diff engine los puebla a partir de los snapshots y
+    la spec del mapping.
     """
 
     op: Literal["INSERT", "UPDATE", "DELETE", "NOOP"]
     key: str
+    table: str = ""
+    legacy_pk: int | str | None = None
+    web_pk: str | None = None
     legacy_row: dict[str, Any] | None = None
     web_row: dict[str, Any] | None = None
     changed_fields: tuple[str, ...] = ()
+    conflict: bool = False
+    reason: str = ""
 
 
 # --- Conflict -------------------------------------------------------------
