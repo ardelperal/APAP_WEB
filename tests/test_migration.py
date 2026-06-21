@@ -1552,6 +1552,175 @@ class TestLock:
         pids = lock_mod.check_msaccess_running()
         assert sorted(pids) == [100, 300]
 
+    def test_check_msaccess_uses_module_level_psutil_attribute(self, monkeypatch) -> None:
+        """P0 regression: ``psutil`` debe estar bound a nivel módulo.
+
+        Pre-fix: el módulo importaba psutil como ``_psutil_module`` pero la
+        función buscaba ``psutil`` en el namespace (``getattr(sys.modules[
+        __name__], "psutil", None)``) — el nombre nunca existía, así que
+        ``psutil_obj`` siempre era ``None`` y la función retornaba ``[]``
+        aunque psutil estuviera instalado. Esto rompía silenciosamente el
+        pre-flight de MSACCESS (regla #13474 v2 / design §14).
+
+        Post-fix: ``psutil`` está bound a nivel módulo (``psutil =
+        _psutil_module``) por lo que ``raising=True`` en
+        ``monkeypatch.setattr`` funciona y la función usa el atributo
+        directamente sin necesidad del ``getattr`` lookup.
+        """
+        import psutil as real_psutil  # noqa: F401 — confirma que psutil está instalado
+
+        from app.core.migration import lock as lock_mod
+
+        # ``raising=True`` fuerza a pytest a exigir que ``psutil`` exista
+        # como atributo del módulo. Pre-fix: AttributeError (regression).
+        # Post-fix: el setattr funciona porque ``psutil`` está bound.
+        assert hasattr(lock_mod, "psutil"), (
+            "psutil debe estar bound a nivel módulo (P0 #1 regression)"
+        )
+        # Y debe ser el módulo real (no None).
+        assert lock_mod.psutil is real_psutil, (
+            "lock_mod.psutil debe referenciar el módulo psutil real"
+        )
+
+        # Ahora monkeypatcheamos con un fake para verificar que la
+        # función usa el atributo del módulo (no sys.modules.get('psutil')
+        # ni nada raro). Con raising=True, esto requiere que ``psutil``
+        # ya exista como atributo del módulo.
+        class _FakeProcess:
+            def __init__(self, pid: int, name: str) -> None:
+                self.pid = pid
+                self._name = name
+
+            def info(self, attrs):
+                return {"pid": self.pid, "name": self._name}
+
+        fake_psutil = type(
+            "Ps",
+            (),
+            {
+                "process_iter": staticmethod(
+                    lambda attrs: [
+                        _FakeProcess(700, "MSACCESS.EXE"),
+                        _FakeProcess(800, "notepad.exe"),
+                        _FakeProcess(900, "msaccess.exe"),  # lowercase — case-insensitive
+                    ]
+                )
+            },
+        )
+        monkeypatch.setattr(lock_mod, "psutil", fake_psutil, raising=True)
+        monkeypatch.setattr(lock_mod, "_PSUTIL_AVAILABLE", True, raising=False)
+
+        pids = lock_mod.check_msaccess_running()
+        assert sorted(pids) == [700, 900]
+
+    def test_check_msaccess_works_with_real_psutil_no_msaccess(self) -> None:
+        """P0 regression: con psutil REAL instalado, la función debe ejecutarse.
+
+        Pre-fix: ``check_msaccess_running()`` retornaba ``[]`` siempre
+        (incluso con MSACCESS abierto) porque el módulo ``psutil`` nunca
+        estaba bound al namespace. Post-fix: con psutil real, la función
+        itera procesos reales y retorna ``[]`` legítimamente cuando no hay
+        MSACCESS abierto (este test asume que ningún test runner tiene
+        Access abierto, que es el caso normal en CI/dev).
+
+        El test verifica:
+          1. La función retorna una ``list[int]`` (no ``None`` ni excepción).
+          2. La función usa el módulo psutil real (no retorna ``[]`` por un
+             bug de ``psutil_obj is None``).
+          3. No crashea con ``PermissionError`` ni ``AttributeError``.
+        """
+        from app.core.migration import lock as lock_mod
+
+        # Garantizar que psutil está bound — si no, esto falla con el bug P0 #1.
+        assert hasattr(lock_mod, "psutil"), (
+            "psutil debe estar bound a nivel módulo (P0 #1 regression)"
+        )
+
+        pids = lock_mod.check_msaccess_running()
+        assert isinstance(pids, list)
+        assert all(isinstance(p, int) for p in pids)
+        # Si MSACCESS está abierto en este entorno (poco probable en CI
+        # pero posible en dev), la lista puede no ser vacía. En cualquier
+        # caso, la función DEBE haber ejecutado process_iter, no retornado
+        # [] por el bug del lookup.
+
+    # --- concurrent acquire (P0 #2 regression) -------------------------
+
+    def test_acquire_lock_atomic_concurrent_first_acquire(self, tmp_path) -> None:
+        """P0 regression: dos ``acquire_lock`` concurrentes sobre un lock inexistente.
+
+        Contrato del docstring de ``acquire_lock``:
+          "Two concurrent acquires must result in one success, one LockActiveError".
+
+        Pre-fix: ambos hilos observaban ``not exists``, ambos escribían al
+        mismo ``.tmp`` filename, y el segundo writer se llevaba un
+        ``PermissionError: [WinError 32]`` en lugar del esperado
+        ``LockActiveError``. En Windows esto se reproduce 10/10 trials.
+
+        Post-fix: ``os.open(tmp, O_CREAT|O_EXCL|O_WRONLY)`` garantiza que
+        solo un hilo gana el slot; el otro obtiene ``FileExistsError``
+        y re-lee el lock file para evaluar staleness → ``LockActiveError``.
+
+        El test corre 10 trials para garantizar determinismo (el race
+        window es estrecho pero existe).
+        """
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+
+        from app.core.migration.lock import (
+            acquire_lock,
+            release_lock,
+        )
+
+        lock_path = tmp_path / "concurrent.lock"
+        barrier = threading.Barrier(2)
+
+        def attempt() -> str:
+            barrier.wait()
+            try:
+                info = acquire_lock(lock_path)
+            except LockActiveError:
+                return "LockActiveError"
+            except Exception as exc:  # noqa: BLE001 — capturamos para diagnóstico
+                return f"UNEXPECTED:{type(exc).__name__}:{exc}"
+            else:
+                # Devolvemos el PID del ganador para verificar.
+                return f"ACQUIRED:{info.pid}"
+
+        try:
+            for trial in range(10):
+                # Resetear el lock file antes de cada trial.
+                if lock_path.exists():
+                    lock_path.unlink()
+
+                results: list[str] = []
+                with ThreadPoolExecutor(max_workers=2) as pool:
+                    futures = [pool.submit(attempt) for _ in range(2)]
+                    for f in futures:
+                        results.append(f.result())
+
+                acquired = [r for r in results if r.startswith("ACQUIRED")]
+                lock_active = [r for r in results if r == "LockActiveError"]
+                unexpected = [r for r in results if r.startswith("UNEXPECTED")]
+
+                assert len(acquired) == 1, (
+                    f"Trial {trial}: expected exactly 1 acquire, got {len(acquired)}: {results}"
+                )
+                assert len(lock_active) == 1, (
+                    f"Trial {trial}: expected exactly 1 LockActiveError, "
+                    f"got {len(lock_active)}: {results}"
+                )
+                assert len(unexpected) == 0, (
+                    f"Trial {trial}: unexpected errors (regression of PermissionError): {unexpected}"
+                )
+
+                # Liberar antes del próximo trial para que el archivo
+                # arranque limpio.
+                release_lock(lock_path)
+        finally:
+            if lock_path.exists():
+                release_lock(lock_path)
+
     def test_check_msaccess_returns_empty_when_psutil_missing(self, monkeypatch) -> None:
         """``check_msaccess_running`` retorna ``[]`` si psutil no está disponible.
 

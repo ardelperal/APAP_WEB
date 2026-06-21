@@ -68,6 +68,16 @@ except ImportError:  # pragma: no cover — exercised only without psutil
     _psutil_module = None
     _PSUTIL_AVAILABLE = False
 
+# Bind ``psutil`` a nivel módulo (además de ``_psutil_module``) para que
+# ``check_msaccess_running`` y los tests que hacen
+# ``monkeypatch.setattr(lock_mod, "psutil", fake, raising=True)``
+# encuentren el nombre en ``sys.modules[__name__]``. Sin esto, el
+# ``getattr(sys.modules[__name__], "psutil", None)`` dentro de
+# ``check_msaccess_running`` retorna ``None`` y la función siempre
+# devuelve ``[]`` aunque psutil esté instalado (P0 #1 bug — code review
+# PR #99, fix).
+psutil = _psutil_module  # type: ignore[assignment]
+
 
 if TYPE_CHECKING:
     # Solo para anotaciones; el import real se hace lazy en
@@ -214,10 +224,52 @@ def acquire_lock(
         ttl_seconds=ttl_seconds,
     )
 
-    # Escritura atómica (write-tmp + replace) para evitar un lock
+    # Escritura atómica (claim tmp + replace) para evitar un lock
     # corrupto en disco si el proceso muere a mitad (regla #13474 v2).
+    # Usamos ``os.open(O_CREAT|O_EXCL|O_WRONLY)`` para que solo UN hilo
+    # gane el slot del archivo tmp cuando dos ``acquire_lock`` corren
+    # concurrentemente sobre un lock inexistente. Sin O_EXCL, ambos
+    # hilos ven ``not exists``, ambos hacen ``write_text`` al mismo
+    # ``.tmp`` y el segundo writer se lleva un ``PermissionError:
+    # [WinError 32]`` en Windows (P0 #2 bug — code review PR #99).
     tmp_path = lock_path.with_suffix(lock_path.suffix + ".tmp")
-    tmp_path.write_text(info.to_json(), encoding="utf-8")
+    try:
+        fd = os.open(tmp_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
+        # Otro ``acquire_lock`` concurrente ganó el slot del tmp. Re-leemos
+        # el lock file real: si ya está visible (el contender terminó su
+        # ``os.replace``), evaluamos staleness y levantamos LockActiveError
+        # según corresponda. Si NO está visible todavía (contender murió
+        # mid-write o el race window es estrecho), también levantamos
+        # LockActiveError con un mensaje claro para que el caller pueda
+        # reintentar limpiamente — nunca propagamos el PermissionError
+        # raw que era el comportamiento pre-fix.
+        existing = _read_lock_unverified(lock_path)
+        if existing is not None and not _is_lock_stale(existing):
+            raise LockActiveError(
+                f"Migration lock is active (pid={existing.pid}, "
+                f"acquired_at={existing.acquired_at.isoformat()}, "
+                f"ttl={existing.ttl_seconds}s)"
+            ) from None
+        # Lock no visible todavía (contender mid-write) o stale → el
+        # contrato del docstring es "one success, one LockActiveError",
+        # así que siempre surface LockActiveError para preservar el
+        # contrato (nunca PermissionError).
+        raise LockActiveError(
+            "Concurrent acquire is in flight; lock file not yet visible "
+            "or contender's lock is stale. Retry shortly."
+        ) from None
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(info.to_json())
+    except BaseException:
+        # Si write falló (disco lleno, proceso matado), limpia el tmp
+        # para no dejar basura que confunda el próximo acquire.
+        try:
+            os.unlink(tmp_path)
+        except FileNotFoundError:
+            pass
+        raise
     os.replace(tmp_path, lock_path)
     return info
 
