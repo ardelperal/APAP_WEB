@@ -15,11 +15,13 @@ mapeo y los tests E2E con sandbox .accdb llegan en PRs posteriores
 
 from __future__ import annotations
 
+from app.core.migration.legacy_reader import LegacyReaderError
 from app.core.migration.reporting import (
     Conflict,
     Diff,
     MigrationReport,
 )
+from app.core.migration.web_reader import WebReaderError
 
 
 class MigrationError(Exception):
@@ -46,8 +48,10 @@ __all__ = [
     "Conflict",
     "Diff",
     "FkLookupError",
+    "LegacyReaderError",
     "LockActiveError",
     "MappingNotFoundError",
     "MigrationError",
     "MigrationReport",
+    "WebReaderError",
 ]

@@ -397,14 +397,20 @@ class TestMappings:
 
 
 class TestLegacyReader:
-    """Tests para ``legacy_reader.load_legacy_snapshot_batched``."""
+    """Tests para ``legacy_reader.load_legacy_snapshot_batched``.
+
+    Cada mock del executor inyectable acepta
+    ``(legacy_path, sql, offset, limit)`` y devuelve ``list[dict]`` —
+    contrato que ``legacy_reader._execute_legacy_query`` ahora
+    establece tras el fix P1 de PR #95 (revisión de código).
+    """
 
     def test_returns_dict_with_table_names_as_keys(self) -> None:
         """El snapshot retorna ``dict[str, list[dict]]`` con nombres legacy como keys."""
         captured_queries: list[str] = []
         call_count = [0]
 
-        def mock_executor(legacy_path: str, sql: str) -> list[dict]:
+        def mock_executor(legacy_path: str, sql: str, offset: int, limit: int) -> list[dict]:
             captured_queries.append(sql)
             call_count[0] += 1
             # Primera llamada: 1 fila. Segunda: vacío (fin del paging).
@@ -438,7 +444,7 @@ class TestLegacyReader:
         """El SQL generado usa ``TOP n`` (no ``LIMIT``) porque Access no soporta ``LIMIT``."""
         captured_queries: list[str] = []
 
-        def mock_executor(legacy_path: str, sql: str) -> list[dict]:
+        def mock_executor(legacy_path: str, sql: str, offset: int, limit: int) -> list[dict]:
             captured_queries.append(sql)
             return []
 
@@ -467,7 +473,7 @@ class TestLegacyReader:
         """``set_legacy_query_executor(None)`` resetea al estado inicial."""
         from app.core.migration.legacy_reader import set_legacy_query_executor
 
-        set_legacy_query_executor(lambda p, s: [])
+        set_legacy_query_executor(lambda p, s, o, lim: [])
         set_legacy_query_executor(None)
         # El reset no debe levantar excepción; el siguiente call usaría
         # el executor real (Dysflow) si lo hubiera — no testeable en CI.
@@ -476,7 +482,7 @@ class TestLegacyReader:
         """``load_legacy_snapshot_batched`` yields ``(table_name, [rows])`` por batch."""
         call_count = [0]
 
-        def mock_executor(legacy_path: str, sql: str) -> list[dict]:
+        def mock_executor(legacy_path: str, sql: str, offset: int, limit: int) -> list[dict]:
             call_count[0] += 1
             if call_count[0] == 1:
                 return [{"NCHIP": "first_batch"}]
@@ -504,6 +510,58 @@ class TestLegacyReader:
         table_name, rows = batches[0]
         assert table_name == "TbFichaAnimal"
         assert rows == [{"NCHIP": "first_batch"}]
+
+    def test_executor_receives_offset_on_second_batch(self) -> None:
+        """El paging loop debe pasar ``offset`` creciente al executor.
+
+        Regression guard para el P1 del review de PR #95: la firma de
+        ``_build_select_sql`` aceptaba ``offset`` pero nunca lo usaba,
+        por lo que el paging loop generaba el mismo SQL en cada batch
+        y, con el executor real de Dysflow en PR 5/6, retornaría las
+        mismas filas infinitamente, colgando el CLI.
+
+        Este test verifica que el executor recibe ``offset == BATCH_SIZE``
+        en la segunda llamada — el contrato que design §5 establece
+        (``dysflow_query_execute(..., offset=offset, limit=BATCH_SIZE)``).
+        """
+        from app.core.migration.legacy_reader import (
+            BATCH_SIZE,
+            TableSpec,
+            load_legacy_snapshot,
+            set_legacy_query_executor,
+        )
+
+        captured: list[dict[str, int | str]] = []
+        call_count = [0]
+
+        def mock_executor(legacy_path: str, sql: str, offset: int, limit: int) -> list[dict]:
+            captured.append(
+                {"legacy_path": legacy_path, "sql": sql, "offset": offset, "limit": limit}
+            )
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return [{"NCHIP": "row1"}]
+            # Segunda llamada → loop termina con ``[]``.
+            return []
+
+        set_legacy_query_executor(mock_executor)
+        try:
+            load_legacy_snapshot(
+                "/fake/path.accdb",
+                [TableSpec("TbFichaAnimal", ("NCHIP",))],
+            )
+        finally:
+            set_legacy_query_executor(None)
+
+        # Dos llamadas: una fila, luego vacío.
+        assert len(captured) == 2
+        # Primera llamada: offset=0, limit=BATCH_SIZE.
+        assert captured[0]["offset"] == 0
+        assert captured[0]["limit"] == BATCH_SIZE
+        # Segunda llamada: offset avanzado por BATCH_SIZE — esto es lo
+        # que estaba ROTO (regression guard del P1).
+        assert captured[1]["offset"] == BATCH_SIZE
+        assert captured[1]["limit"] == BATCH_SIZE
 
 
 class TestWebReader:

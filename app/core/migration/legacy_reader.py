@@ -35,7 +35,7 @@ para calcular INSERTs/UPDATEs/DELETEs. El snapshot es un
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import Any
 
@@ -45,11 +45,15 @@ from app.core.migration.dysflow_client import execute_legacy_sql
 # Permite granularidad razonable para retry y encaja en memoria.
 BATCH_SIZE = 100
 
-# Tipo del executor inyectable: ``Callable[[str, str], list[dict]]``.
-# Lo declaramos como alias ``type`` para evitar el import de ``Callable``
-# (que en Python 3.11 se puede usar pero el código queda más limpio
-# con un alias con scope de módulo).
-LegacyQueryExecutor = "object"  # marcador; ver firma de set_legacy_query_executor
+# Tipo del executor inyectable: ``Callable[[str, str, int, int], list[dict]]``.
+# Recibe ``(legacy_path, sql, offset, limit)`` — el ``offset`` es la
+# clave del fix P1: thread el offset del paging loop al executor real
+# (``dysflow_query_execute(..., offset=offset, limit=BATCH_SIZE)``,
+# design §5). Sin esto, el paging retorna el mismo batch en cada
+# iteración y el CLI se cuelga (review PR #95).
+LegacyQueryExecutor = Callable[
+    [str, str, int, int], list[dict[str, Any]]
+]  # alias semántico (Callable subscriptable desde 3.9)
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,7 +96,7 @@ def load_legacy_snapshot_batched(
         while True:
             sql = _build_select_sql(spec, offset, BATCH_SIZE)
             try:
-                rows = _execute_legacy_query(legacy_path, sql)
+                rows = _execute_legacy_query(legacy_path, sql, offset, BATCH_SIZE)
             except LegacyReaderError:
                 raise
             except Exception as exc:  # noqa: BLE001 — wrap unexpected errors
@@ -132,12 +136,17 @@ def load_legacy_snapshot(
 # --- Internals inyectables para tests -------------------------------------
 
 
-# Callable ``[[str, str], list[dict]]`` inyectable. ``None`` significa
-# "usar el cliente Dysflow real" (que en este slice es un stub).
-_legacy_query_executor: Any = None
+# Callable ``[[str, str, int, int], list[dict]]`` inyectable. ``None``
+# significa "usar el cliente Dysflow real" (que en este slice es un stub).
+_legacy_query_executor: LegacyQueryExecutor | None = None
 
 
-def _execute_legacy_query(legacy_path: str, sql: str) -> list[dict[str, Any]]:
+def _execute_legacy_query(
+    legacy_path: str,
+    sql: str,
+    offset: int,
+    limit: int,
+) -> list[dict[str, Any]]:
     """Ejecuta SQL contra el .accdb vía Dysflow (con executor inyectable).
 
     Usa el callable inyectado por ``set_legacy_query_executor`` si está
@@ -145,14 +154,22 @@ def _execute_legacy_query(legacy_path: str, sql: str) -> list[dict[str, Any]]:
     ``execute_legacy_sql`` del módulo ``dysflow_client`` (en este slice
     es un stub que levanta ``NotImplementedError``; la implementación
     real con ``dysflow_query_execute`` llega en PR 5/6).
+
+    Args:
+        legacy_path: ruta absoluta al .accdb legacy.
+        sql: query Access SQL (usa ``TOP n``).
+        offset: número de filas a saltar (paginación) — clave del fix
+            P1 (review PR #95): sin pasar el offset, el executor real
+            retornaría el mismo batch en cada iteración.
+        limit: máximo de filas a retornar (``BATCH_SIZE`` típico).
     """
     if _legacy_query_executor is not None:
-        return _legacy_query_executor(legacy_path, sql)
-    return execute_legacy_sql(legacy_path, sql)
+        return _legacy_query_executor(legacy_path, sql, offset, limit)
+    return execute_legacy_sql(legacy_path, sql, offset, limit)
 
 
-def set_legacy_query_executor(executor: Any) -> None:
-    """Inyecta un callable ``(legacy_path, sql) -> list[dict]`` para tests.
+def set_legacy_query_executor(executor: LegacyQueryExecutor | None) -> None:
+    """Inyecta un callable ``(legacy_path, sql, offset, limit) -> list[dict]`` para tests.
 
     Pasar ``None`` resetea al estado por defecto (usar Dysflow real).
     Esta función existe para evitar acoplar ``legacy_reader`` al MCP
@@ -166,16 +183,22 @@ def set_legacy_query_executor(executor: Any) -> None:
 def _build_select_sql(spec: TableSpec, offset: int, limit: int) -> str:
     """Construye un ``SELECT TOP n`` compatible con Access.
 
-    Access NO soporta ``LIMIT`` ni ``OFFSET`` — usa ``TOP n`` con un
-    patrón de paginación por ``WHERE key NOT IN (SELECT TOP offset ...)``
-    cuando se necesita offset. En esta v1 emitimos solo el primer batch
-    (``offset`` queda como hook futuro); los batches subsiguientes usan
-    la misma query (el caller detecta fin cuando retorna 0 filas).
+    Access NO soporta ``LIMIT`` — usamos ``TOP n``. El ``offset`` NO se
+    embebe en el SQL (Access requiere subqueries ``WHERE key NOT IN
+    (SELECT TOP offset ...)`` para OFFSET, que depende del key column
+    — algo que el executor concreto, no este helper, conoce). El
+    ``offset`` se pasa como parámetro separado al executor
+    (``dysflow_query_execute(..., offset=offset, limit=BATCH_SIZE)``,
+    design §5), que es responsable de aplicar la paginación en el
+    dialecto correcto (Access, ODBC directo, etc.).
 
     Args:
         spec: spec de la tabla (tabla + columnas + where opcional).
-        offset: hook para paginación; en v1 siempre 0 en el primer call.
-        limit: número de filas a traer (``BATCH_SIZE`` por default).
+        offset: hook para paginación; se pasa al executor, no al SQL.
+            El caller (``load_legacy_snapshot_batched``) lo incrementa
+            en ``BATCH_SIZE`` por iteración.
+        limit: número de filas a traer (``BATCH_SIZE`` por default),
+            embebido como ``TOP n`` en el SQL.
 
     Returns:
         SQL formateado como string (sin punto y coma final).
