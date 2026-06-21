@@ -180,6 +180,76 @@ CREATE TABLE IF NOT EXISTS adopciones (
 )
 """
 
+# --- animal_lifecycle_events (LIFECYCLE-SCHEMA-02, web-only-feature-preservation PR 1) ---
+#
+# P0 BLOCKER for PR 2 (derivation engine + semantic events). Append-only
+# event log: every lifecycle transition writes one row here. The
+# derivation engine re-derives the animal's current state from this log
+# on every legacy write. Schema mirrors
+# docs/discovery/lifecycle-event-log-design.md §3.1 verbatim — column
+# names, types, FK targets and CHECK enum are the contract. Spec:
+# openspec/changes/web-only-feature-preservation/specs/.../spec.md
+# REQ-Capa Semantica de Eventos.
+
+ANIMAL_LIFECYCLE_EVENTS_CREATE_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS animal_lifecycle_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    animal_id UUID NOT NULL REFERENCES animales(id),
+    event_type VARCHAR(50) NOT NULL CHECK (event_type IN (
+        'INTAKE_STARTED', 'INTAKE_COMPLETED',
+        'FOSTER_STARTED', 'FOSTER_RETURNED', 'FOSTER_CLOSED_BY_ADOPTION',
+        'ADOPTION_STARTED', 'ADOPTION_RETURNED',
+        'OWNER_RETURNED', 'DEATH_RECORDED',
+        'STATE_CORRECTION',
+        'CHIP_CHANGED', 'INTAKE_REOPENED', 'FOSTER_REOPENED', 'ADOPTION_REOPENED'
+    )),
+    event_timestamp TIMESTAMPTZ NOT NULL,
+    caused_by_event_id UUID REFERENCES animal_lifecycle_events(id),
+    source_entity_type VARCHAR(30),
+    source_entity_id UUID,
+    legacy_source_table VARCHAR(50),
+    legacy_source_id INTEGER,
+    metadata JSONB,
+    created_by UUID NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+)
+"""
+
+# --- animal_current_state (LIFECYCLE-SCHEMA-02, web-only-feature-preservation PR 1) ---
+#
+# Materialized cache of the derived state per animal. Rebuilt from
+# ``animal_lifecycle_events`` on every legacy write; never manually
+# mutated (admin overrides go via STATE_CORRECTION events, design
+# §3.2). The PK is ``animal_id`` (1:1 with ``animales``) — there is no
+# separate surrogate id, by design. Schema per
+# docs/discovery/lifecycle-event-log-design.md §3.2.
+
+ANIMAL_CURRENT_STATE_CREATE_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS animal_current_state (
+    animal_id UUID PRIMARY KEY REFERENCES animales(id),
+    current_state VARCHAR(50) NOT NULL CHECK (current_state IN (
+        'Pendiente de Entrada',
+        'Pendiente de Nueva Situación',
+        'Albergue', 'Acogida', 'Adoptado',
+        'Entregado',
+        'Fallecido (Albergue)', 'Fallecido (Acogida)',
+        'Fallecido (Adoptado)', 'Fallecido (Entregado)',
+        'Fallecido (Desconocido)',
+        'Incoherente'
+    )),
+    active_event_id UUID REFERENCES animal_lifecycle_events(id),
+    active_intake_id UUID,
+    active_foster_id UUID,
+    active_adoption_id UUID,
+    pre_death_state VARCHAR(50),
+    state_changed_at TIMESTAMPTZ NOT NULL,
+    legacy_situacion VARCHAR(100),
+    legacy_ultimo_estado VARCHAR(50),
+    reconciliation_status VARCHAR(20) NOT NULL DEFAULT 'pending'
+        CHECK (reconciliation_status IN ('matched', 'divergent', 'migrated', 'pending'))
+)
+"""
+
 
 def ensure_domain_schema(client: InsForgeClient) -> None:
     """Create the domain tables (idempotent) in dependency order.
@@ -191,8 +261,12 @@ def ensure_domain_schema(client: InsForgeClient) -> None:
     3. ``entradas`` depends on ``animales`` and ``voluntarios``.
     4. ``acogidas`` depends on ``animales``, ``voluntarios`` and ``entradas``.
     5. ``adopciones`` depends on ``animales``, ``voluntarios`` and ``entradas``.
+    6. ``animal_lifecycle_events`` depends on ``animales`` (event log).
+    7. ``animal_current_state`` depends on ``animales`` and the event log.
 
     Any other order means a foreign-key will fail on a clean database.
+    The two new tables are PR 1 of ``web-only-feature-preservation``;
+    they are P0 BLOCKERS for PR 2 (derivation engine + semantic events).
     """
     client.execute_sql(ANIMALS_CREATE_TABLE_SQL)
     client.execute_sql(VOLUNTARIOS_CREATE_TABLE_SQL)
@@ -200,3 +274,5 @@ def ensure_domain_schema(client: InsForgeClient) -> None:
     client.execute_sql(ENTRADAS_CREATE_TABLE_SQL)
     client.execute_sql(ACOGIDAS_CREATE_TABLE_SQL)
     client.execute_sql(ADOPCIONES_CREATE_TABLE_SQL)
+    client.execute_sql(ANIMAL_LIFECYCLE_EVENTS_CREATE_TABLE_SQL)
+    client.execute_sql(ANIMAL_CURRENT_STATE_CREATE_TABLE_SQL)

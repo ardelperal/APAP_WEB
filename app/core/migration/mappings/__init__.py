@@ -45,7 +45,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.core.migration import MappingNotFoundError
 
@@ -104,6 +104,33 @@ class ColumnMapping(BaseModel):
     ] = "identity"
     nullable: bool = True
     lookup: str | None = None  # nombre del fk_lookup (transform=fk_lookup)
+    # Web-only / greenfield columns (legacy_column is None) declare a
+    # ``web_only_strategy`` so the applier and shadow-state repository
+    # know how to round-trip the value across the legacy↔web sync.
+    # PR 1 of web-only-feature-preservation adds the field; PR 3 will
+    # activate the strict ``legacy_column=null → strategy required``
+    # validator once the 5 existing YAMLs are updated to declare
+    # strategies on every web-only column (see design.md §9 and
+    # tasks.md 3.2).
+    web_only_strategy: Literal["preserve", "fixed", "derived"] | None = None
+
+    @model_validator(mode="after")
+    def _reject_invalid_strategy(self) -> ColumnMapping:
+        """Reject ``web_only_strategy`` values outside the documented enum.
+
+        Catches typos (``"preserved"``, ``"auto"``) at YAML-load time so
+        the operator never reaches the applier with a strategy the
+        derivation engine cannot interpret. The ``None`` value is
+        accepted unconditionally in PR 1; PR 3 tightens this to require
+        a strategy whenever ``legacy_column is None``.
+        """
+        valid = {"preserve", "fixed", "derived"}
+        if self.web_only_strategy is not None and self.web_only_strategy not in valid:
+            raise ValueError(
+                f"{self.web_column}: web_only_strategy={self.web_only_strategy!r} "
+                f"is not one of {sorted(valid)}"
+            )
+        return self
 
 
 class FkLookup(BaseModel):

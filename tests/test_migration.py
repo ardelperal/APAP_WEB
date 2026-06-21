@@ -34,6 +34,7 @@ from app.core.migration import (
     MigrationReport,
 )
 from app.core.migration.mappings import (
+    ColumnMapping,
     FkLookup,
     TableMapping,
     list_available_tables,
@@ -218,23 +219,25 @@ def test_migration_module_exports_reporting_dataclasses() -> None:
 
 
 def test_migration_module_main_runs_without_error() -> None:
-    """``python -m app.core.migration`` is a valid entry point.
+    """``python -m app.core.migration --help`` is a valid entry point.
 
-    The skeleton does not yet implement argparse, so the entry point
-    must either print a help message (exit 0) or print a placeholder
-    and exit 0 cleanly. We do NOT assert that ``--help`` works because
-    the full CLI lands in a later slice.
+    After PR 1 of web-only-feature-preservation, the CLI has a real
+    argparse parser with a ``reconcile`` subcommand, so invoking
+    ``python -m app.core.migration`` without a subcommand now exits
+    non-zero (argparse ``required=True``). ``--help`` exits 0 and lists
+    the available subcommands.
     """
     result = subprocess.run(
-        [sys.executable, "-m", "app.core.migration"],
+        [sys.executable, "-m", "app.core.migration", "--help"],
         capture_output=True,
         text=True,
         timeout=10,
     )
     assert result.returncode == 0, (
-        f"python -m app.core.migration exited {result.returncode}\n"
+        f"python -m app.core.migration --help exited {result.returncode}\n"
         f"stdout: {result.stdout!r}\nstderr: {result.stderr!r}"
     )
+    assert "reconcile" in result.stdout
 
 
 # --- TestMappings: YAML loader + 5 mappings ------------------------------
@@ -379,6 +382,84 @@ class TestMappings:
         assert "web_table" in str(excinfo.value), (
             f"ValidationError did not mention missing field 'web_table': {excinfo.value!r}"
         )
+
+
+# --- TestColumnMapping.web_only_strategy ---------------------------------
+#
+# PR 1 of web-only-feature-preservation: ColumnMapping grows a
+# ``web_only_strategy`` field that MUST be set whenever ``legacy_column``
+# is null (the column is web-only / greenfield). The validator aborts
+# BEFORE any I/O so a typo is caught at YAML-load time, not at apply
+# time. See spec.md REQ-Mecanismo generico declarativo via YAML and
+# design.md §9.
+
+
+class TestColumnMappingWebOnlyStrategy:
+    """Tests for ColumnMapping.web_only_strategy validation."""
+
+    def test_accepts_none_when_legacy_column_is_mapped(self) -> None:
+        """A column with legacy_column set may have web_only_strategy=None
+        (it has a legacy source, so the strategy is irrelevant)."""
+        col = ColumnMapping(
+            web_column="NCHIP",
+            legacy_column="NCHIP",
+            transform="identity",
+            nullable=False,
+        )
+        assert col.web_only_strategy is None
+
+    def test_accepts_preserve_when_legacy_column_is_null(self) -> None:
+        """A web-only column (legacy_column=None) MUST declare a strategy."""
+        col = ColumnMapping(
+            web_column="DNI",
+            legacy_column=None,
+            transform="identity",
+            nullable=True,
+            web_only_strategy="preserve",
+        )
+        assert col.web_only_strategy == "preserve"
+
+    def test_accepts_fixed_and_derived(self) -> None:
+        """All three strategies are accepted by the Literal type."""
+        for strategy in ("preserve", "fixed", "derived"):
+            col = ColumnMapping(
+                web_column="x",
+                legacy_column=None,
+                web_only_strategy=strategy,  # type: ignore[arg-type]
+            )
+            assert col.web_only_strategy == strategy
+
+    def test_rejects_invalid_strategy_value(self) -> None:
+        """A strategy outside the Literal raises ValidationError.
+
+        Catches typos (``"preserved"``, ``"auto"``, ``"magic"``) at
+        YAML-load time so the operator never reaches the applier with a
+        strategy the derivation engine cannot interpret.
+        """
+        with pytest.raises(ValidationError) as excinfo:
+            ColumnMapping(
+                web_column="x",
+                legacy_column=None,
+                web_only_strategy="magic",  # type: ignore[arg-type]
+            )
+        assert "web_only_strategy" in str(excinfo.value)
+
+    def test_none_strategy_accepted_in_pr1(self) -> None:
+        """PR 1 only rejects INVALID strategies; the strict
+        ``legacy_column=null → strategy required`` check is PR 3's job
+        (it requires the 5 YAMLs to declare a strategy on every
+        web-only column, which lands in tasks.md 3.1 / 3.4).
+
+        Until PR 3 ships those YAML updates, ``web_only_strategy=None``
+        must remain accepted so the existing mappings keep loading.
+        """
+        col = ColumnMapping(
+            web_column="id",
+            legacy_column=None,
+            transform="default_uuid",
+            nullable=False,
+        )
+        assert col.web_only_strategy is None
 
 
 # --- TestLegacyReader + TestWebReader -------------------------------------
@@ -645,3 +726,127 @@ class TestWebReader:
         )
 
         assert result == {"animales": []}
+
+
+# --- TestReconcileTypes + TestCliReconcile ---------------------------------
+#
+# PR 1 of web-only-feature-preservation: reconcile types are introduced
+# here (PR 2 fills in the semantics); the ``reconcile`` subcommand is a
+# skeleton that exposes the four flags (--interactive, --check-only,
+# --table, --since) and exits cleanly. The full behaviour lands in PR 5.
+
+
+class TestReconcileTypes:
+    """Shape-only smoke tests for the PR 1 reconcile types.
+
+    These do not exercise the semantics — those arrive with the derivation
+    engine in PR 2 and the hook integration in PR 4. PR 1 just ensures
+    the symbols exist and can be imported / instantiated.
+    """
+
+    def test_reconciliation_status_literal_values(self) -> None:
+        """ReconciliationStatus is a Literal with the 5 documented values."""
+        from app.core.migration.reconcile import ReconciliationStatus
+
+        for value in ("matched", "divergent", "needs_review", "pending", "migrated"):
+            assert ReconciliationStatus(value) == value
+
+    def test_reconciliation_outcome_holds_status_and_reasons(self) -> None:
+        """ReconciliationOutcome is a dataclass with the documented fields."""
+        from app.core.migration.reconcile import (
+            ReconciliationOutcome,
+            ReconciliationStatus,
+        )
+
+        outcome = ReconciliationOutcome(
+            table_name="voluntarios",
+            legacy_pk="123",
+            web_column="DNI",
+            status=ReconciliationStatus.NEEDS_REVIEW,
+            web_value="12345678A",
+            derived_value=None,
+            review_reasons=("web_manual_override_detected",),
+        )
+        assert outcome.table_name == "voluntarios"
+        assert outcome.status is ReconciliationStatus.NEEDS_REVIEW
+        assert outcome.review_reasons == ("web_manual_override_detected",)
+
+    def test_reconciliation_result_aggregates_outcomes(self) -> None:
+        """ReconciliationResult carries the outcomes list and a counts helper."""
+        from app.core.migration.reconcile import (
+            ReconciliationOutcome,
+            ReconciliationResult,
+            ReconciliationStatus,
+        )
+
+        outcomes = (
+            ReconciliationOutcome(
+                table_name="animales",
+                legacy_pk="a-1",
+                web_column="current_state",
+                status=ReconciliationStatus.MATCHED,
+            ),
+            ReconciliationOutcome(
+                table_name="voluntarios",
+                legacy_pk="v-1",
+                web_column="DNI",
+                status=ReconciliationStatus.NEEDS_REVIEW,
+            ),
+        )
+        result = ReconciliationResult(outcomes=outcomes)
+        assert len(result.outcomes) == 2
+
+
+class TestCliReconcile:
+    """Integration tests for the ``apap-migrate reconcile`` skeleton (PR 1).
+
+    The full subcommand semantics land in PR 5 (interactive prompts,
+    write paths, filters). PR 1 only guarantees that:
+
+    - ``--help`` exits 0 with the four documented flags listed.
+    - ``--check-only`` exits 0 and does NOT issue any writes against the
+      backend (no SQL goes through the InsForgeClient).
+    """
+
+    def test_reconcile_help_exits_zero_and_lists_flags(self) -> None:
+        """``apap-migrate reconcile --help`` exits 0 and lists all 4 flags."""
+        from app.core.migration.cli import build_parser
+
+        parser = build_parser()
+        with pytest.raises(SystemExit) as excinfo:
+            parser.parse_args(["reconcile", "--help"])
+        assert excinfo.value.code == 0
+
+    def test_reconcile_check_only_does_not_write(self) -> None:
+        """``apap-migrate reconcile --check-only`` runs without hitting the DB.
+
+        The skeleton is wired through ``main([...])``; with no shadow
+        state on a fresh repo it must exit 0 and the captured SQL list
+        must be empty (no writes against the InsForge backend).
+        """
+        from app.core.migration.cli import main as cli_main
+
+        captured_sql: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            body = request.content.decode("utf-8") if request.content else ""
+            if body:
+                captured_sql.append(body)
+            return httpx.Response(
+                200,
+                json=[],
+                headers={"content-type": "application/json"},
+            )
+
+        client = InsForgeClient(
+            base_url="https://example.insforge.app",
+            service_key="ik_test",
+            transport=httpx.MockTransport(handler),
+        )
+
+        rc = cli_main(["reconcile", "--check-only"], web_client=client)
+        client.close()
+
+        assert rc == 0, "reconcile --check-only must exit 0 on a clean repo"
+        # Skeleton never writes — only reads, and even those are deferred to PR 5.
+        assert captured_sql == [], f"reconcile --check-only must not write; got: {captured_sql!r}"

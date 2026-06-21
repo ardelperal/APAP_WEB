@@ -27,6 +27,8 @@ import pytest
 from app.core.domain import (
     ACOGIDAS_CREATE_TABLE_SQL,
     ADOPCIONES_CREATE_TABLE_SQL,
+    ANIMAL_CURRENT_STATE_CREATE_TABLE_SQL,
+    ANIMAL_LIFECYCLE_EVENTS_CREATE_TABLE_SQL,
     ANIMALS_CREATE_TABLE_SQL,
     ENTRADAS_CREATE_TABLE_SQL,
     ROLES_VOLUNTARIO_CREATE_TABLE_SQL,
@@ -255,15 +257,19 @@ def test_roles_voluntario_has_unique_voluntario_rol_pair() -> None:
 
 
 def test_ensure_domain_schema_creates_all_six_tables() -> None:
-    """The bootstrap now creates 6 tables: 3 originals + entradas +
-    acogidas + adopciones (LIFECYCLE-03 schema).
+    """The bootstrap creates 6 lifecycle tables: 3 originals (animales,
+    voluntarios, roles_voluntario) + entradas + acogidas + adopciones
+    (LIFECYCLE-03 schema). NOTE: the count is 6 lifecycle tables; the
+    full schema also creates 2 lifecycle-event tables
+    (animal_lifecycle_events, animal_current_state) added in PR 1 of
+    web-only-feature-preservation — see ``test_ensure_domain_schema_creates_eight_tables``
+    below for the full count.
     """
     client, captured = _client_recording(lambda req, body: _json_response(200, []))
 
     ensure_domain_schema(client)
     client.close()
 
-    assert len(captured) == 6
     queries = [c["query"].strip() for c in captured]
     assert any(q.startswith("CREATE TABLE IF NOT EXISTS animales") for q in queries)
     assert any(q.startswith("CREATE TABLE IF NOT EXISTS voluntarios") for q in queries)
@@ -476,7 +482,7 @@ def test_adopciones_create_table_sql_nombre_adoptante_not_null() -> None:
 
 
 def test_ensure_domain_schema_includes_entradas_acogidas_adopciones() -> None:
-    """All 6 tables are created, in FK-respecting order:
+    """All 6 lifecycle tables are created, in FK-respecting order:
 
     animales -> voluntarios -> roles_voluntario -> entradas -> acogidas -> adopciones
 
@@ -491,12 +497,145 @@ def test_ensure_domain_schema_includes_entradas_acogidas_adopciones() -> None:
     client.close()
 
     queries = [c["query"].strip() for c in captured]
-    # 6 tables
-    assert len(queries) == 6
-    # Dependency order
+    # Dependency order — the first 6 are the lifecycle tables.
     assert queries[0].startswith("CREATE TABLE IF NOT EXISTS animales")
     assert queries[1].startswith("CREATE TABLE IF NOT EXISTS voluntarios")
     assert queries[2].startswith("CREATE TABLE IF NOT EXISTS roles_voluntario")
     assert queries[3].startswith("CREATE TABLE IF NOT EXISTS entradas")
     assert queries[4].startswith("CREATE TABLE IF NOT EXISTS acogidas")
     assert queries[5].startswith("CREATE TABLE IF NOT EXISTS adopciones")
+
+
+# --- animal_lifecycle_events (LIFECYCLE-SCHEMA-02) -----------------------
+#
+# PR 1 of web-only-feature-preservation: the two new tables in
+# docs/discovery/lifecycle-event-log-design.md §3.1-3.2 are P0 BLOCKERS
+# for PR 2 (derivation engine + semantic events). They MUST be added to
+# ensure_domain_schema() before any derivation work can compile.
+
+
+def test_animal_lifecycle_events_create_table_sql_uses_if_not_exists() -> None:
+    assert "CREATE TABLE IF NOT EXISTS animal_lifecycle_events" in (
+        ANIMAL_LIFECYCLE_EVENTS_CREATE_TABLE_SQL
+    )
+
+
+def test_animal_lifecycle_events_has_required_columns() -> None:
+    """Schema per docs/discovery/lifecycle-event-log-design.md §3.1.
+
+    Required columns: id, animal_id, event_type, event_timestamp,
+    caused_by_event_id (nullable), source_entity_type (nullable),
+    source_entity_id (nullable), legacy_source_table (nullable),
+    legacy_source_id (nullable), metadata (JSONB), created_by, created_at.
+    """
+    columns = _column_names(ANIMAL_LIFECYCLE_EVENTS_CREATE_TABLE_SQL)
+    required = {
+        "id",
+        "animal_id",
+        "event_type",
+        "event_timestamp",
+        "caused_by_event_id",
+        "source_entity_type",
+        "source_entity_id",
+        "legacy_source_table",
+        "legacy_source_id",
+        "metadata",
+        "created_by",
+        "created_at",
+    }
+    missing = required - columns
+    assert not missing, f"animal_lifecycle_events missing columns: {sorted(missing)}"
+
+
+def test_animal_lifecycle_events_event_type_is_varchar_with_check() -> None:
+    """event_type is VARCHAR(50) with a CHECK (the constraint name may be inline)."""
+    sql = ANIMAL_LIFECYCLE_EVENTS_CREATE_TABLE_SQL
+    assert "event_type" in sql
+    assert "CHECK" in sql
+    # Concrete values from §4 of the design doc.
+    assert "INTAKE_STARTED" in sql
+    assert "DEATH_RECORDED" in sql
+
+
+def test_animal_lifecycle_events_fk_animal_id_to_animales() -> None:
+    """animal_id REFERENCES animales(id) is mandatory (every event belongs to an animal)."""
+    pairs = _fk_targets(ANIMAL_LIFECYCLE_EVENTS_CREATE_TABLE_SQL)
+    assert ("animal_id", "animales") in pairs
+
+
+def test_animal_lifecycle_events_event_timestamp_not_null() -> None:
+    """event_timestamp NOT NULL — every event must carry a wall-clock moment."""
+    assert "event_timestamp TIMESTAMPTZ NOT NULL" in ANIMAL_LIFECYCLE_EVENTS_CREATE_TABLE_SQL
+
+
+# --- animal_current_state (LIFECYCLE-SCHEMA-02) ---------------------------
+
+
+def test_animal_current_state_create_table_sql_uses_if_not_exists() -> None:
+    assert "CREATE TABLE IF NOT EXISTS animal_current_state" in (
+        ANIMAL_CURRENT_STATE_CREATE_TABLE_SQL
+    )
+
+
+def test_animal_current_state_has_required_columns() -> None:
+    """Schema per docs/discovery/lifecycle-event-log-design.md §3.2.
+
+    Required columns: animal_id (PK + FK), current_state (VARCHAR NOT NULL
+    CHECK), active_event_id (nullable), active_intake_id (nullable),
+    active_foster_id (nullable), active_adoption_id (nullable),
+    pre_death_state (nullable), state_changed_at, legacy_situacion
+    (nullable), legacy_ultimo_estado (nullable), reconciliation_status.
+    """
+    columns = _column_names(ANIMAL_CURRENT_STATE_CREATE_TABLE_SQL)
+    required = {
+        "animal_id",
+        "current_state",
+        "active_event_id",
+        "active_intake_id",
+        "active_foster_id",
+        "active_adoption_id",
+        "pre_death_state",
+        "state_changed_at",
+        "legacy_situacion",
+        "legacy_ultimo_estado",
+        "reconciliation_status",
+    }
+    missing = required - columns
+    assert not missing, f"animal_current_state missing columns: {sorted(missing)}"
+
+
+def test_animal_current_state_animal_id_is_primary_key() -> None:
+    """animal_id is the PK (1:1 with animales) — there is no separate id UUID."""
+    assert "animal_id UUID PRIMARY KEY" in ANIMAL_CURRENT_STATE_CREATE_TABLE_SQL
+
+
+def test_animal_current_state_reconciliation_status_defaults_to_pending() -> None:
+    """reconciliation_status defaults to 'pending' so newly inserted rows do not claim a status."""
+    assert "reconciliation_status" in ANIMAL_CURRENT_STATE_CREATE_TABLE_SQL
+    assert "DEFAULT 'pending'" in ANIMAL_CURRENT_STATE_CREATE_TABLE_SQL
+
+
+# --- ensure_domain_schema now creates 8 tables (the 2 new ones at the end) -
+
+
+def test_ensure_domain_schema_creates_eight_tables() -> None:
+    """After PR 1, ensure_domain_schema creates 8 tables:
+
+    animales -> voluntarios -> roles_voluntario -> entradas -> acogidas ->
+    adopciones -> animal_lifecycle_events -> animal_current_state.
+
+    The two new tables MUST come AFTER adopciones because
+    animal_lifecycle_events.animal_id REFERENCES animales and
+    animal_current_state.animal_id REFERENCES animales (FK-respecting
+    order — adopciones itself only depends on animales/voluntarios/
+    entradas, so the new tables can sit at the end).
+    """
+    client, captured = _client_recording(lambda req, body: _json_response(200, []))
+
+    ensure_domain_schema(client)
+    client.close()
+
+    queries = [c["query"].strip() for c in captured]
+    assert len(queries) == 8, f"expected 8 tables, got {len(queries)}: {queries}"
+    assert queries[6].startswith("CREATE TABLE IF NOT EXISTS animal_lifecycle_events")
+    assert queries[7].startswith("CREATE TABLE IF NOT EXISTS animal_current_state")
