@@ -20,6 +20,7 @@ import json
 import subprocess
 import sys
 from datetime import UTC, datetime
+from pathlib import Path
 
 import httpx
 import pytest
@@ -452,6 +453,12 @@ class TestColumnMappingWebOnlyStrategy:
 
         Until PR 3 ships those YAML updates, ``web_only_strategy=None``
         must remain accepted so the existing mappings keep loading.
+
+        Post-PR 3 the strict validator is active, but this column is
+        exempt (``transform=default_uuid`` → auto-generated PK, no
+        business value to preserve). The test continues to pass and
+        documents why: only identity-shaped columns (the ones that
+        actually carry user data) require an explicit strategy.
         """
         col = ColumnMapping(
             web_column="id",
@@ -460,6 +467,383 @@ class TestColumnMappingWebOnlyStrategy:
             nullable=False,
         )
         assert col.web_only_strategy is None
+
+
+# --- TestStrictWebOnlyStrategyValidator -----------------------------------
+#
+# PR 3 of web-only-feature-preservation activates the strict validator
+# that PR 1 deferred. Contract (documented in
+# ``app/core/migration/mappings/__init__.py`` and design.md §9):
+#
+#   "If ``legacy_column`` is ``null`` AND the column is not exempt
+#    (transform in {default_uuid, default_now, fk_lookup}), then
+#    ``web_only_strategy`` MUST be set."
+#
+# Rationale for the exemptions:
+#
+#   - ``default_uuid`` (column ``id`` PK): the web generates a UUID v4
+#     mechanically — there is no user value to preserve.
+#   - ``default_now`` (columns ``fecha_alta`` / ``updated_at``): the
+#     web stamps the current UTC time — there is no legacy data and
+#     nothing for the derivation engine to read.
+#   - ``fk_lookup`` (cross-table FKs like ``animal_id``): the value is
+#     resolved via ``sync_state.json`` (legacy_id ↔ web_uuid), not via
+#     shadow state — preserving it via web_only_strategy would be a
+#     duplicate mechanism.
+#
+# Columns with transforms ``identity``, ``currency_to_numeric``,
+# ``double_to_numeric`` AND ``legacy_column=null`` are real
+# user/business values that MUST declare a strategy (preserve / fixed /
+# derived). Columns with ``default_true`` (the soft-delete ``activo``
+# flag) also need a strategy (``fixed``) — the web owns the decision,
+# so the shadow-state repository must know not to try to reconcile it.
+#
+# These tests are RED until PR 3 activates the strict validator.
+
+
+class TestStrictWebOnlyStrategyValidator:
+    """Tests for the strict ``legacy_column=null → strategy required``
+    validator activated in PR 3.
+
+    Companion to ``TestColumnMappingWebOnlyStrategy`` (PR 1, which
+    covers the field type and the invalid-value validator). PR 3 adds
+    the rule "if the column is web-only and not exempt, it MUST
+    declare a strategy".
+    """
+
+    # --- rejects: identity-shaped web-only columns without a strategy ----
+
+    def test_identity_web_only_without_strategy_raises_validation_error(self) -> None:
+        """``transform=identity`` with ``legacy_column=null`` and no
+        strategy is rejected. This is the canonical PR 3 scenario from
+        tasks.md 3.2 and spec.md "Columna sin web_only_strategy con
+        legacy_column=null aborta".
+        """
+        with pytest.raises(ValidationError) as excinfo:
+            ColumnMapping(
+                web_column="DNI",
+                legacy_column=None,
+                transform="identity",
+                nullable=True,
+            )
+        assert "web_only_strategy" in str(excinfo.value)
+
+    def test_currency_web_only_without_strategy_raises_validation_error(self) -> None:
+        """``transform=currency_to_numeric`` with ``legacy_column=null``
+        and no strategy is rejected — same contract as identity.
+        """
+        with pytest.raises(ValidationError) as excinfo:
+            ColumnMapping(
+                web_column="donativo",
+                legacy_column=None,
+                transform="currency_to_numeric",
+                nullable=True,
+            )
+        assert "web_only_strategy" in str(excinfo.value)
+
+    def test_double_web_only_without_strategy_raises_validation_error(self) -> None:
+        """``transform=double_to_numeric`` with ``legacy_column=null``
+        and no strategy is rejected — same contract as identity.
+        """
+        with pytest.raises(ValidationError) as excinfo:
+            ColumnMapping(
+                web_column="peso_kg",
+                legacy_column=None,
+                transform="double_to_numeric",
+                nullable=True,
+            )
+        assert "web_only_strategy" in str(excinfo.value)
+
+    def test_default_true_without_strategy_raises_validation_error(self) -> None:
+        """``transform=default_true`` (``activo`` soft-delete flag) is
+        NOT exempt: the web owns the decision, so the shadow-state
+        repository needs to know it must not try to reconcile it.
+        Without a strategy, the strict validator rejects.
+        """
+        with pytest.raises(ValidationError) as excinfo:
+            ColumnMapping(
+                web_column="activo",
+                legacy_column=None,
+                transform="default_true",
+                nullable=False,
+            )
+        assert "web_only_strategy" in str(excinfo.value)
+
+    # --- accepts: identity-shaped web-only columns WITH a strategy ------
+
+    def test_identity_web_only_with_preserve_strategy_succeeds(self) -> None:
+        """Explicit ``preserve`` strategy is accepted for identity web-only."""
+        col = ColumnMapping(
+            web_column="DNI",
+            legacy_column=None,
+            transform="identity",
+            nullable=True,
+            web_only_strategy="preserve",
+        )
+        assert col.web_only_strategy == "preserve"
+
+    def test_default_true_with_fixed_strategy_succeeds(self) -> None:
+        """``activo`` with ``fixed`` strategy is accepted."""
+        col = ColumnMapping(
+            web_column="activo",
+            legacy_column=None,
+            transform="default_true",
+            nullable=False,
+            web_only_strategy="fixed",
+        )
+        assert col.web_only_strategy == "fixed"
+
+    # --- accepts: exempt transforms (no strategy needed) ----------------
+
+    def test_default_uuid_web_only_without_strategy_succeeds(self) -> None:
+        """``transform=default_uuid`` is exempt — the web generates the
+        UUID mechanically (column ``id`` PK). No business value to
+        preserve; the strict validator does not require a strategy.
+        """
+        col = ColumnMapping(
+            web_column="id",
+            legacy_column=None,
+            transform="default_uuid",
+            nullable=False,
+        )
+        assert col.web_only_strategy is None
+
+    def test_default_now_web_only_without_strategy_succeeds(self) -> None:
+        """``transform=default_now`` is exempt — web stamps ``utcnow()``
+        on INSERT/UPDATE (columns ``fecha_alta`` / ``updated_at``).
+        """
+        col = ColumnMapping(
+            web_column="fecha_alta",
+            legacy_column=None,
+            transform="default_now",
+            nullable=False,
+        )
+        assert col.web_only_strategy is None
+
+    def test_fk_lookup_web_only_without_strategy_succeeds(self) -> None:
+        """``transform=fk_lookup`` is exempt — cross-table FKs are
+        resolved via ``sync_state.json`` (legacy_id ↔ web_uuid), not
+        via shadow state. Declaring ``web_only_strategy`` here would
+        be a duplicate mechanism.
+        """
+        col = ColumnMapping(
+            web_column="animal_id",
+            legacy_column=None,
+            transform="fk_lookup",
+            nullable=False,
+            lookup="animal",
+        )
+        assert col.web_only_strategy is None
+
+    # --- legacy_column set: no strategy needed (no contract change) -----
+
+    def test_legacy_column_set_without_strategy_succeeds(self) -> None:
+        """A column with ``legacy_column`` set may omit the strategy —
+        the value comes from the legacy DB, so web-only preservation
+        does not apply.
+        """
+        col = ColumnMapping(
+            web_column="NCHIP",
+            legacy_column="NCHIP",
+            transform="identity",
+            nullable=False,
+        )
+        assert col.web_only_strategy is None
+
+    # --- exit code 4 convention -----------------------------------------
+
+    def test_exit_code_yaml_validation_error_constant_is_4(self) -> None:
+        """The exit-code convention is a public module constant
+        (``EXIT_CODE_YAML_VALIDATION_ERROR == 4``) so CLI / applier
+        code that catches ``ValidationError`` from ``load_mapping()``
+        can map it to exit code 4 without re-declaring the magic
+        number. See design.md §1.5 and spec.md REQ-Mecanismo generico.
+        """
+        from app.core.migration.mappings import (
+            EXIT_CODE_YAML_VALIDATION_ERROR,
+        )
+
+        assert EXIT_CODE_YAML_VALIDATION_ERROR == 4
+
+    def test_load_mapping_propagates_validation_error_from_strict_check(
+        self, tmp_path: Path
+    ) -> None:
+        """``load_mapping()`` must NOT swallow the ``ValidationError``
+        from the strict validator — the CLI / applier needs to see it
+        so it can convert to exit code 4 BEFORE any I/O (design §1.5).
+
+        We write a YAML with ``legacy_column: null`` + ``identity``
+        transform + no strategy, then call ``load_mapping()`` and
+        assert ``ValidationError`` bubbles up.
+        """
+        from app.core.migration.mappings import load_mapping
+
+        bad_yaml = tmp_path / "bad_mapping.yaml"
+        bad_yaml.write_text(
+            "version: '1.0'\n"
+            "web_table: bad\n"
+            "legacy_table: TbBad\n"
+            "key_field: id\n"
+            "legacy_key: id\n"
+            "columns:\n"
+            "  - { web_column: id, transform: default_uuid, nullable: false }\n"
+            # This column violates the strict validator — identity
+            # web-only without a strategy.
+            "  - { web_column: extra, legacy_column: null, transform: identity, nullable: true }\n",
+            encoding="utf-8",
+        )
+        # Monkey-patch ``MAPPINGS_DIR`` so ``load_mapping`` reads our
+        # bad YAML. We restore it after the test so the next test
+        # isn't affected.
+        from app.core.migration import mappings as mappings_module
+
+        original_dir = mappings_module.MAPPINGS_DIR
+        try:
+            # ``load_mapping`` joins ``MAPPINGS_DIR / f"{table}.yaml"``,
+            # so we put the bad YAML under a fake MAPPINGS_DIR.
+            fake_dir = tmp_path / "fake_mappings"
+            fake_dir.mkdir()
+            (fake_dir / "bad.yaml").write_bytes(bad_yaml.read_bytes())
+            mappings_module.MAPPINGS_DIR = fake_dir
+
+            with pytest.raises(ValidationError) as excinfo:
+                load_mapping("bad")
+            assert "web_only_strategy" in str(excinfo.value)
+        finally:
+            mappings_module.MAPPINGS_DIR = original_dir
+
+
+# --- TestYamlWebOnlyStrategyRegression ------------------------------------
+#
+# PR 3 closes the loop: every web-only column in the 5 existing YAMLs
+# must declare ``web_only_strategy`` so that the strict validator
+# accepts the YAMLs. These tests are the regression guard — if a YAML
+# regresses and loses its ``web_only_strategy``, these tests fail at
+# YAML-load time (before any I/O).
+
+
+class TestYamlWebOnlyStrategyRegression:
+    """Regression tests for ``web_only_strategy`` declarations in the
+    5 YAML mappings shipped by MIGRATION-01 PR 2.
+
+    Each YAML must declare a strategy on every column that requires
+    one (per the contract in ``TestStrictWebOnlyStrategyValidator``).
+    If a future edit strips the strategy, ``load_mapping()`` raises
+    ``ValidationError`` and these tests catch it.
+    """
+
+    @pytest.mark.parametrize(
+        ("table", "expected_web_table"),
+        [
+            ("animal", "animales"),
+            ("voluntario", "voluntarios"),
+            ("entrada", "entradas"),
+            ("acogida", "acogidas"),
+            ("adopcion", "adopciones"),
+        ],
+    )
+    def test_load_mapping_succeeds_for_each_yaml(self, table: str, expected_web_table: str) -> None:
+        """Each of the 5 YAMLs must load cleanly under the strict
+        validator. A failure here means a YAML lost its
+        ``web_only_strategy`` declaration; fix the YAML, not this test.
+        """
+        mapping = load_mapping(table)
+        assert isinstance(mapping, TableMapping)
+        assert mapping.web_table == expected_web_table
+
+    @pytest.mark.parametrize(
+        "table",
+        ["animal", "voluntario", "entrada", "acogida", "adopcion"],
+    )
+    def test_activo_column_declares_fixed_strategy_in_each_yaml(self, table: str) -> None:
+        """``activo`` (soft-delete flag) uses ``transform=default_true``
+        which is NOT exempt. Every YAML must declare
+        ``web_only_strategy: fixed`` so the shadow-state repository
+        knows the web owns this column and must not try to reconcile.
+        """
+        mapping = load_mapping(table)
+        activo = next(
+            (c for c in mapping.columns if c.web_column == "activo"),
+            None,
+        )
+        assert activo is not None, f"{table}.yaml missing 'activo' column"
+        assert activo.web_only_strategy == "fixed", (
+            f"{table}.yaml: 'activo' must declare web_only_strategy='fixed', "
+            f"got {activo.web_only_strategy!r}"
+        )
+
+    def test_voluntario_yaml_dni_declares_preserve_strategy(self) -> None:
+        """``voluntarios.DNI`` is the canonical web-only column
+        (no DNI in legacy). Must declare ``preserve`` so the
+        shadow-state repository persists the value across the
+        round-trip. See tasks.md 3.1 and spec.md REQ-Mecanismo
+        generico declarativo via YAML.
+        """
+        mapping = load_mapping("voluntario")
+        dni = next(
+            (c for c in mapping.columns if c.web_column == "DNI"),
+            None,
+        )
+        assert dni is not None, "voluntario.yaml missing 'DNI' column"
+        assert dni.legacy_column is None, (
+            "DNI must declare legacy_column=null (it does not exist "
+            "in the legacy TBVoluntariosParaAutorrellenables)"
+        )
+        assert dni.web_only_strategy == "preserve", (
+            f"DNI must declare web_only_strategy='preserve', got {dni.web_only_strategy!r}"
+        )
+
+    @pytest.mark.parametrize(
+        "table",
+        ["animal", "voluntario", "entrada", "acogida", "adopcion"],
+    )
+    def test_auto_generated_columns_remain_exempt(self, table: str) -> None:
+        """Regression guard for the exemption list: ``id`` /
+        ``fecha_alta`` / ``updated_at`` MUST NOT declare a strategy
+        even though they have ``legacy_column=null`` (auto-generated
+        web values, not targets of legacy→web derivation). If a future
+        edit adds a strategy to these, the strict validator still
+        accepts it (it's allowed to be set), but we want to document
+        the convention so it doesn't drift: these stay
+        ``web_only_strategy=None``.
+        """
+        mapping = load_mapping(table)
+        for column_name in ("id", "fecha_alta", "updated_at"):
+            col = next(
+                (c for c in mapping.columns if c.web_column == column_name),
+                None,
+            )
+            assert col is not None, f"{table}.yaml missing auto-generated column {column_name!r}"
+            assert col.web_only_strategy is None, (
+                f"{table}.yaml: auto-generated column {column_name!r} "
+                f"must NOT declare web_only_strategy (exempt), "
+                f"got {col.web_only_strategy!r}"
+            )
+
+    @pytest.mark.parametrize(
+        "table",
+        ["entrada", "acogida", "adopcion"],
+    )
+    def test_fk_columns_remain_exempt_in_each_yaml(self, table: str) -> None:
+        """Regression guard for the FK exemption: cross-table FK
+        columns (``animal_id``, ``voluntario_*_id``,
+        ``entrada_origen_id``, etc.) use ``transform=fk_lookup`` and
+        MUST stay ``web_only_strategy=None`` because their value is
+        resolved via ``sync_state.json``, not via shadow state.
+        """
+        mapping = load_mapping(table)
+        fk_columns = [c for c in mapping.columns if c.transform == "fk_lookup"]
+        assert fk_columns, (
+            f"{table}.yaml should have at least one fk_lookup column "
+            f"(regression guard for this test's premise)"
+        )
+        for fk_col in fk_columns:
+            assert fk_col.web_only_strategy is None, (
+                f"{table}.yaml: FK column {fk_col.web_column!r} "
+                f"(transform=fk_lookup) must NOT declare web_only_strategy "
+                f"(exempt — resolved via sync_state.json), got "
+                f"{fk_col.web_only_strategy!r}"
+            )
 
 
 # --- TestLegacyReader + TestWebReader -------------------------------------
