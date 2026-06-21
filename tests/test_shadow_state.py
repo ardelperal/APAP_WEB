@@ -162,6 +162,50 @@ def test_lookup_uses_unique_index_for_o1_path() -> None:
     assert "WHERE" in sql
 
 
+def test_lookup_returns_row_when_one_exists() -> None:
+    """The ``row-found`` branch of ``lookup()`` returns the first row from
+    the executor's result list (the unique-key contract guarantees at most
+    one row, since ``(table_name, legacy_pk, web_column)`` is UNIQUE).
+
+    Pairs with ``test_lookup_uses_unique_index_for_o1_path`` (which covers
+    the empty case) to fully exercise the two return paths of ``lookup``.
+    """
+    expected_row = {
+        "id": "row-uuid-1",
+        "table_name": "voluntarios",
+        "legacy_pk": "123",
+        "web_pk": "uuid-abc",
+        "web_column": "DNI",
+        "preserved_value": "12345678A",
+        "strategy": "preserve",
+        "reconciliation_status": "matched",
+    }
+
+    def _handler(_req: httpx.Request, _body: dict[str, Any]) -> httpx.Response:
+        return _json_response(200, [expected_row])
+
+    client, captured = _client_recording(_handler)
+    try:
+        repo = ShadowStateRepository(client)
+        row = repo.lookup(
+            table_name="voluntarios",
+            legacy_pk="123",
+            web_column="DNI",
+        )
+    finally:
+        client.close()
+
+    # Exactly one query was issued (the SELECT against the unique key).
+    assert len(captured) == 1
+    # The row the mock returned is what the repository surfaces to the caller.
+    assert row == expected_row
+    # And the key fields are individually intact (belt + suspenders).
+    assert row["table_name"] == "voluntarios"
+    assert row["legacy_pk"] == "123"
+    assert row["web_column"] == "DNI"
+    assert row["reconciliation_status"] == "matched"
+
+
 # --- ShadowStateRepository.list_needs_review (T1.3) ---------------------
 
 

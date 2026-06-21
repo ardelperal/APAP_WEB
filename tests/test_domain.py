@@ -256,7 +256,7 @@ def test_roles_voluntario_has_unique_voluntario_rol_pair() -> None:
 # --- ensure_domain_schema orchestration -----------------------------------
 
 
-def test_ensure_domain_schema_creates_all_six_tables() -> None:
+def test_ensure_domain_schema_creates_all_six_lifecycle_tables() -> None:
     """The bootstrap creates 6 lifecycle tables: 3 originals (animales,
     voluntarios, roles_voluntario) + entradas + acogidas + adopciones
     (LIFECYCLE-03 schema). NOTE: the count is 6 lifecycle tables; the

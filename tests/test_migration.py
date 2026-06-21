@@ -772,7 +772,7 @@ class TestReconcileTypes:
         assert outcome.review_reasons == ("web_manual_override_detected",)
 
     def test_reconciliation_result_aggregates_outcomes(self) -> None:
-        """ReconciliationResult carries the outcomes list and a counts helper."""
+        """ReconciliationResult carries the outcomes list and counts per status."""
         from app.core.migration.reconcile import (
             ReconciliationOutcome,
             ReconciliationResult,
@@ -795,6 +795,45 @@ class TestReconcileTypes:
         )
         result = ReconciliationResult(outcomes=outcomes)
         assert len(result.outcomes) == 2
+        # Per-status counts — the contract PR 4's applier hook relies on.
+        assert result.matched == 1
+        assert result.divergent == 0
+        assert result.needs_review == 1
+
+    def test_reconciliation_summary_from_result(self) -> None:
+        """``ReconciliationSummary.from_result`` projects a ``ReconciliationResult``
+        into the counts bundle that ``MigrationReport`` carries (PR 4 wires
+        it). This is the bridge between the per-row outcomes list and the
+        report-level summary, so it must aggregate matched/needs_review
+        without dropping or duplicating any row.
+        """
+        from app.core.migration.reconcile import (
+            ReconciliationOutcome,
+            ReconciliationResult,
+            ReconciliationStatus,
+            ReconciliationSummary,
+        )
+
+        outcomes = (
+            ReconciliationOutcome(
+                table_name="animales",
+                legacy_pk="a-1",
+                web_column="current_state",
+                status=ReconciliationStatus.MATCHED,
+            ),
+            ReconciliationOutcome(
+                table_name="voluntarios",
+                legacy_pk="v-1",
+                web_column="DNI",
+                status=ReconciliationStatus.NEEDS_REVIEW,
+            ),
+        )
+        result = ReconciliationResult(outcomes=outcomes)
+
+        summary = ReconciliationSummary.from_result(result)
+        assert summary.matched == 1
+        assert summary.divergent == 0
+        assert summary.needs_review == 1
 
 
 class TestCliReconcile:
