@@ -457,3 +457,81 @@ class TestReconcileInteractive:
             query = call.get("query", "").upper()
             assert "UPDATE" not in query, f"unknown choice must not write; got: {call!r}"
             assert "INSERT" not in query, f"unknown choice must not write; got: {call!r}"
+
+
+# --- T5.8: --table + --since ---------------------------------------------
+
+
+class TestReconcileFilters:
+    """``--table`` and ``--since`` flow into the
+    ``ShadowStateRepository.list_needs_review`` kwargs.
+    """
+
+    def test_table_and_since_passed_to_repository(self) -> None:
+        """``--table voluntarios --since 2026-06-20T00:00:00+00:00``
+        are forwarded to ``ShadowStateRepository.list_needs_review``.
+
+        The mock returns a single matching row. The assertion
+        inspects the SQL emitted by ``list_needs_review`` to confirm
+        both filters are present (the WHERE clause carries the
+        ``table_name = %s`` and ``last_legacy_snapshot_at >= %s``
+        predicates) and the params carry the values in the right
+        order.
+        """
+        row = _needs_review_row(
+            table_name="voluntarios",
+            legacy_pk="v-1",
+            web_column="DNI",
+        )
+
+        rc, captured, _stdout = _run_reconcile(
+            argv=[
+                "reconcile",
+                "--check-only",
+                "--table",
+                "voluntarios",
+                "--since",
+                "2026-06-20T00:00:00+00:00",
+            ],
+            shadow_rows=[row],
+        )
+
+        assert rc == 0
+        # Find the list_needs_review SELECT.
+        list_queries = [
+            c
+            for c in captured
+            if "web_only_feature_shadow" in c.get("query", "")
+            and "WHERE" in c.get("query", "").upper()
+            and "needs_review" in c.get("query", "")
+        ]
+        assert len(list_queries) == 1, (
+            f"expected exactly one list_needs_review SELECT; "
+            f"got {len(list_queries)}: {list_queries!r}"
+        )
+        sql = list_queries[0]["query"]
+        # WHERE carries both filter predicates.
+        assert "table_name = %s" in sql, f"--table filter missing in SQL: {sql!r}"
+        assert "last_legacy_snapshot_at >= %s" in sql, f"--since filter missing in SQL: {sql!r}"
+        # Params carry the values in the right order.
+        params = list_queries[0].get("params", [])
+        assert "voluntarios" in params, f"--table value not in params: {params!r}"
+        assert "2026-06-20T00:00:00+00:00" in params, f"--since value not in params: {params!r}"
+
+    def test_invalid_since_returns_exit_2(self) -> None:
+        """``--since not-a-date`` is rejected with exit code 2 BEFORE
+        any SQL is issued.
+
+        The CLI validates the ISO-8601 format client-side so a typo
+        surfaces as a clean exit-2 error (design.md §7) instead of
+        silently returning an empty list. The mock client is wired
+        so any captured SQL would fail the assertion below.
+        """
+        rc, captured, _stdout = _run_reconcile(
+            argv=["reconcile", "--check-only", "--since", "not-a-date"],
+            shadow_rows=[],
+        )
+
+        assert rc == 2, f"invalid --since must exit 2; got {rc}"
+        # Validation rejects before any SQL is issued.
+        assert captured == [], f"invalid --since must not issue SQL; got {captured!r}"

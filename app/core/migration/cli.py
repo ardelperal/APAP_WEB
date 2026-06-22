@@ -262,6 +262,27 @@ def _apply_accept_derived(
     )
 
 
+# --- --since validation --------------------------------------------------
+
+
+def _parse_since(value: str) -> str:
+    """Validate ``--since`` is a parseable ISO-8601 timestamp.
+
+    The SQL filter (``last_legacy_snapshot_at >= %s``) compares a
+    ``TIMESTAMPTZ`` column against the parameter, so the value is
+    forwarded as-is to the driver. We still validate it
+    client-side so a typo surfaces early as a clean argparse-style
+    error instead of silently returning an empty list.
+    """
+    try:
+        datetime.fromisoformat(value)
+    except (TypeError, ValueError) as exc:
+        raise argparse.ArgumentTypeError(
+            f"--since: invalid ISO-8601 timestamp {value!r}: {exc}"
+        ) from exc
+    return value
+
+
 # --- Public entry point --------------------------------------------------
 
 
@@ -314,11 +335,21 @@ def run_reconcile(
             return 2
         shadow_state = ShadowStateRepository(web_client)
 
-    # T5.1 --check-only: read pending rows, list to stdout, no
-    # writes. Exit 0 even with pending rows (design.md §7 — exit
-    # non-zero would block unattended monitoring). The ``--table``
-    # and ``--since`` filters are declared on the parser (PR 1)
-    # but not wired yet; they arrive in the T5.5 slice.
+    # T5.5 --since validation: argparse doesn't validate the ISO
+    # format, so we do it here to surface typos as a clean exit-2
+    # error (design.md §7) BEFORE any I/O.
+    if args.since is not None:
+        try:
+            _parse_since(args.since)
+        except argparse.ArgumentTypeError as exc:
+            sys.stderr.write(f"apap-migrate reconcile: {exc}\n")
+            return 2
+
+    # T5.5 --table and --since: forwarded to the repository. The
+    # repository handles the WHERE clause composition (filter on
+    # ``table_name`` and ``since``) and the
+    # ``reconciliation_status = 'needs_review'`` predicate. The
+    # CLI never recomputes the filter — it just forwards the kwargs.
     rows = shadow_state.list_needs_review(table_name=args.table, since=args.since)
 
     if not args.interactive:
