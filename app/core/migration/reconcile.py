@@ -790,6 +790,21 @@ def _persist_lifecycle_event(
     (which reads ``diff.web_pk`` for ``animales`` diffs and
     ``diff.web_row["animal_id"]`` for child-table diffs — the
     applier stamps the FK when it commits the child row).
+
+    Idempotence (PR 4 follow-up, P1 #2): the INSERT is guarded with
+    ``ON CONFLICT (animal_id, event_type, event_timestamp) DO NOTHING``
+    so a retry apply after a ``sync_state.save()`` post-COMMIT
+    failure does NOT create a duplicate event row. The
+    ``animal_lifecycle_events_natural_key`` UNIQUE constraint on
+    ``(animal_id, event_type, event_timestamp)`` (declared in
+    ``app/core/domain.py::ANIMAL_LIFECYCLE_EVENTS_CREATE_TABLE_SQL``)
+    is what makes the ``ON CONFLICT`` clause resolve to a no-op.
+    Without it, a retry would create a duplicate row that the animal
+    state machine would count as a second transition for the same
+    logical event — silent data corruption. The constraint + DO
+    NOTHING combo is the DB-level idempotence guard that complements
+    the application-level idempotence of the derivation engine
+    (design §8).
     """
     # Resolve animal_id. For an animales diff, web_pk is the animal's
     # own UUID. For child-table diffs, the applier stamps the FK on
@@ -818,7 +833,13 @@ def _persist_lifecycle_event(
         "source_entity_type, source_entity_id, "
         "legacy_source_table, legacy_source_id, "
         "metadata, created_by"
-        ") VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"
+        ") VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) "
+        # Idempotence guard: a retry of the same logical event (same
+        # animal + same event_type + same event_timestamp) collapses to
+        # a single row. The UNIQUE constraint on
+        # (animal_id, event_type, event_timestamp) is the matching
+        # arbiter. Spec: spec.md REQ-Capa Semantica de Eventos.
+        "ON CONFLICT (animal_id, event_type, event_timestamp) DO NOTHING"
     )
     import json
 

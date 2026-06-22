@@ -83,6 +83,23 @@ El applier de MIGRATION-01 DEBE (`MUST`) invocar un hook `post_apply_diff(direct
 
 > **P0 para design**: la firma exacta de `post_apply_diff` debe alinearse con `app/core/migration/applier.py` cuando PR 4/6 de MIGRATION-01 lo implemente. El nombre `reconcile_after_legacy_write` mencionado en la propuesta es un alias interno; la firma canónica es `post_apply_diff`.
 
+#### REQ-Hook-Data: Sentinels `_stored_state` y `_web_updated_at` que el applier DEBE poblar en cada `Diff`
+
+Para cada `Diff` con al menos una columna `web_only_strategy: derived`, el applier de MIGRATION-01 (PR 5/6) DEBE (`MUST`) poblar dos campos sentinela en el objeto `Diff` antes de invocar `post_apply_diff`:
+
+- **`diff._stored_state`** — el valor que la web actualmente tiene para esa columna al momento del write (`Any`). El derivation engine lo usa como input al comparador para clasificar la columna como `matched` / `divergent` / `needs_review`. Cuando el applier no puede leer el valor stored (columna nueva en web), DEBE (`MUST`) poblar `None` y el hook clasificará la columna como `PENDING`.
+- **`diff._web_updated_at`** — el timestamp de la última edición web sobre esa columna (`datetime | None`, UTC). El comparador lo usa en la regla Q2: si `web_updated_at >= last_legacy_snapshot_at` → la edición web es posterior al último snapshot legacy → `needs_review` (override manual). Cuando la columna nunca fue editada en web, DEBE (`MUST`) poblar `None`.
+
+Estos sentinels son **parte del contrato de `Diff`** para PR 4/6 (ver `design.md §6 — Sentinel contract`). Si el applier NO los popula, el hook los trata como `None` y clasifica la columna como `PENDING` — el operador debe resolver el caso vía CLI en PR 5/6. Esta es la política de backward-compat para versiones previas del applier que no conocían el contrato.
+
+#### Scenario: Apply sin sentinel `_stored_state` clasifica la columna como `PENDING`
+
+- **GIVEN** un `Diff` para una fila de `animales` con `current_state` marcada `web_only_strategy: derived`
+- **AND** el applier invoca `post_apply_diff` SIN poblar `diff._stored_state` (applier pre-PR-4 o error de configuración)
+- **WHEN** el hook evalúa la columna `derived`
+- **THEN** el comparador no puede comparar el derivado contra el stored y emite `status = "pending"`
+- **AND** el caso aparece en `apap-migrate reconcile --check-only` (PR 5) para resolución manual
+
 #### Scenario: Apply legacy→web re-deriva estado y persiste eventos
 
 - **GIVEN** un batch de 50 INSERTs en `TbEntradas` legacy correspondientes a intakes nuevos

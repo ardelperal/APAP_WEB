@@ -104,6 +104,21 @@ Chain strategy: stacked-to-main
 - [x] 4.10 Verificar con `pytest tests/test_migration.py -W error::DeprecationWarning` — coverage ≥80%
 - [x] 4.11 Update `openspec/changes/web-only-feature-preservation/design.md` §9 to add the `_STRATEGY_EXEMPT_TRANSFORMS` list with per-transform rationale (P2 #1 follow-up from PR 3/6 review). NOTE: design.md was missing entirely on disk; the file was CREATED in this PR with §6, §7, §8, §9 covering the gaps that spec/code reference as "see design.md §X".
 
+## PR 4 follow-up: P1 contract fixes (code review of #100)
+
+**Rama**: `feat/web-only-p4-hook` → `feat/web-only-p4-hook`
+**Est. líneas**: ~280 (docs + test + schema) | **Dep. MIGRATION-01**: Ninguna
+
+Code review of PR #100 returned REQUEST_CHANGES with 2 P1 contract issues. Both fixed in this slice as a NEW commit on top of `66f2b06`:
+
+- [x] F.1 Add `REQ-Hook-Data` sub-requirement to `openspec/changes/web-only-feature-preservation/specs/web-only-feature-preservation/spec.md` documenting the `_stored_state` and `_web_updated_at` sentinels that the applier MUST populate on each `Diff` before invoking `post_apply_diff`. Document types (`Any` for stored state, `datetime | None` for updated_at), semantics, and the `PENDING` fallback when missing. (P1 #1)
+- [x] F.2 Add "Sentinel contract" subsection to `design.md §6` explaining why these sentinels exist (derivation comparator + Q2 manual override detection), how the applier populates them from `diff.web_row`, the interaction with `Diff` (side channel via `legacy_snapshot`, not formal fields, for backward-compat), and the `PENDING` fallback when missing. (P1 #1)
+- [x] F.3 Add `UNIQUE (animal_id, event_type, event_timestamp)` constraint to `ANIMAL_LIFECYCLE_EVENTS_CREATE_TABLE_SQL` in `app/core/domain.py` to make the lifecycle-event INSERT idempotent at the DB level. Natural key: same animal + same event_type + same timestamp = same logical event. (P1 #2)
+- [x] F.4 Add `test_animal_lifecycle_events_natural_key_unique_constraint` to `tests/test_domain.py` asserting the UNIQUE constraint is present in the schema SQL. (P1 #2)
+- [x] F.5 Change `app/core/migration/reconcile.py::_persist_lifecycle_event` to use `INSERT ... ON CONFLICT (animal_id, event_type, event_timestamp) DO NOTHING` (PostgreSQL/InsForge syntax) so a retry apply after a `sync_state.save()` post-COMMIT failure does NOT create a duplicate event row. (P1 #2)
+- [x] F.6 Add `test_repeated_apply_does_not_duplicate_lifecycle_events` to `tests/test_reconcile.py::TestPostApplyDiffAtomicity`. The test mocks `web_client.execute_sql`, runs `post_apply_diff` twice with the same `TbEntradas` diff (which produces an `INTAKE_STARTED` event), asserts the INSERT is issued both times with the same SQL+params (DB-level `ON CONFLICT DO NOTHING` is the guard that suppresses the duplicate row), and asserts the SQL contains the `ON CONFLICT` clause. (P1 #2)
+- [x] F.7 Verificar con `pytest tests/ -W error::DeprecationWarning` — 338 + 2 = 340 tests pass; coverage ≥80% (84.49%); `ruff check .` clean; `ruff format --check` clean on changed files.
+
 ---
 
 ## PR 5: CLI `apap-migrate reconcile`

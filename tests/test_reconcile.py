@@ -814,6 +814,151 @@ class TestPostApplyDiffAtomicity:
         second_call = upsert_calls[1]
         assert second_call["last_legacy_snapshot_at"] == datetime(2026, 6, 22, 13, 0, tzinfo=UTC)
 
+    def test_repeated_apply_does_not_duplicate_lifecycle_events(self) -> None:
+        """(P1 #2 follow-up) Lifecycle event INSERT is idempotent: a
+        retry of the same logical apply does NOT create a duplicate
+        event row in ``animal_lifecycle_events``.
+
+        Background: the previous test (``...shadow_state_idempotent...``)
+        proved the *shadow state* upsert is idempotent. This test
+        proves the *lifecycle event* INSERT is also idempotent — a
+        retry apply after a ``sync_state.save()`` post-COMMIT failure
+        must not create a duplicate event row that the animal state
+        machine would double-count as a second transition for the
+        same logical event.
+
+        The idempotence guard is at the DB level (the production fix):
+        the ``animal_lifecycle_events`` schema declares ``UNIQUE
+        (animal_id, event_type, event_timestamp)`` and the persister
+        uses ``INSERT ... ON CONFLICT (animal_id, event_type,
+        event_timestamp) DO NOTHING``. The test asserts the wire-up
+        (SQL contains the ON CONFLICT clause) AND that the persister
+        invokes ``execute_sql`` exactly once per apply (the SQL itself
+        is idempotent at the DB level; the test asserts the hook
+        never silently swallows the call or skips the INSERT
+        entirely).
+
+        Setup:
+          - Apply #1: ``TbEntradas`` INSERT produces one
+            ``INTAKE_STARTED`` event; ``web_client.execute_sql`` is
+            called exactly once with the ON CONFLICT clause.
+          - Apply #2 (same diff, simulated post-commit failure): the
+            hook MUST issue the same INSERT — the DB-level ``ON
+            CONFLICT DO NOTHING`` is what suppresses the duplicate
+            row. In production this is the guard that makes the
+            retry safe.
+        """
+        from datetime import UTC, datetime
+
+        from app.core.migration.reconcile import post_apply_diff
+        from app.core.migration.reporting import Diff
+
+        captured_inserts: list[tuple[str, list[object]]] = []
+
+        class _FakeWebClient:
+            def execute_sql(
+                self, query: str, params: list[object] | None = None
+            ) -> list[dict[str, object]]:
+                # Only capture the lifecycle-event INSERT; ignore
+                # anything else the hook might emit. The hook emits
+                # ONLY this INSERT in this test, so capturing every
+                # call is also safe.
+                captured_inserts.append((query, list(params or [])))
+                return []
+
+        class _FakeShadow:
+            def upsert(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
+                pass
+
+            def update_reconciliation_status(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
+                pass
+
+        # ``TbEntradas`` is the right table for this test: its diff
+        # translator emits exactly one ``INTAKE_STARTED`` event per
+        # INSERT (verified in the existing
+        # ``test_legacy_to_web_persists_lifecycle_events_to_web_client``
+        # test). Using ``TbFichaAnimal`` would NOT exercise the
+        # persister path (ficha INSERTs produce no events).
+        mapping = _entrada_mapping_for_event_persistence()
+        diff = Diff(
+            op="INSERT",
+            key="1",
+            table="entradas",
+            legacy_pk=1,
+            web_pk="00000000-0000-0000-0000-000000000010",
+            legacy_row={
+                "IDEntrada": 1,
+                "NChip": "001",
+                "FEntrada": datetime(2024, 1, 1, tzinfo=UTC),
+                "FSalida": None,
+            },
+            web_row={
+                "id": "00000000-0000-0000-0000-000000000010",
+                "animal_id": "00000000-0000-0000-0000-000000000001",
+            },
+            changed_fields=("FEntrada",),
+        )
+
+        common_kwargs = {
+            "direction": "legacy-to-web",
+            "applied_diffs": [diff],
+            "table_mappings": {"entradas": mapping},
+            "shadow_state": _FakeShadow(),  # type: ignore[arg-type]
+            "sync_state": _empty_sync_state(),
+            "created_by": "00000000-0000-0000-0000-000000000999",
+        }
+
+        # Apply #1 — should issue exactly ONE INSERT.
+        post_apply_diff(
+            web_client=_FakeWebClient(),  # type: ignore[arg-type]
+            now=datetime(2026, 6, 22, 12, 0, tzinfo=UTC),
+            **common_kwargs,
+        )
+        assert len(captured_inserts) == 1, (
+            f"Apply #1 must issue exactly one INSERT (INTAKE_STARTED); "
+            f"got {len(captured_inserts)}: {captured_inserts!r}"
+        )
+        sql1, params1 = captured_inserts[0]
+        assert "INSERT INTO animal_lifecycle_events" in sql1
+        # The idempotence guard is the ON CONFLICT clause. Without it,
+        # a retry would create a duplicate row.
+        assert "ON CONFLICT (animal_id, event_type, event_timestamp) DO NOTHING" in sql1, (
+            f"Apply #1 INSERT must include the ON CONFLICT DO NOTHING "
+            f"idempotence guard; got SQL: {sql1!r}"
+        )
+        # Event payload is stable across the retry.
+        assert params1[0] == "00000000-0000-0000-0000-000000000001"  # animal_id
+        assert params1[1] == "INTAKE_STARTED"
+        assert "2024-01-01" in str(params1[2])  # event_timestamp ISO
+
+        # Apply #2 — same diff re-applied (simulating recovery apply
+        # after a sync_state.save() post-COMMIT failure). The hook
+        # MUST re-issue the INSERT (the DB-level ON CONFLICT DO NOTHING
+        # is what suppresses the duplicate row). Asserting the
+        # call-count after Apply #2 = 2 confirms the hook does not
+        # silently swallow the second call.
+        post_apply_diff(
+            web_client=_FakeWebClient(),  # type: ignore[arg-type]
+            now=datetime(2026, 6, 22, 13, 0, tzinfo=UTC),
+            **common_kwargs,
+        )
+        assert len(captured_inserts) == 2, (
+            f"Apply #2 must issue its own INSERT call (DB-level "
+            f"idempotence is the guard against duplicate rows); "
+            f"got {len(captured_inserts)}: {captured_inserts!r}"
+        )
+        sql2, params2 = captured_inserts[1]
+        # Same SQL + same params → the DB ON CONFLICT DO NOTHING will
+        # collapse both calls to a single row. The hook's job is to
+        # issue the INSERT; the DB's job is to suppress the duplicate.
+        assert sql2 == sql1, (
+            f"Apply #2 must issue the same SQL as Apply #1 (same logical "
+            f"event → same natural-key INSERT); got {sql2!r} vs {sql1!r}"
+        )
+        assert params2 == params1, (
+            f"Apply #2 must issue the same params as Apply #1; got {params2!r} vs {params1!r}"
+        )
+
 
 # --- helpers --------------------------------------------------------------
 

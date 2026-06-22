@@ -132,6 +132,65 @@ los eventos están persistidos. Si el proceso muere entre el hook y el
 `sync_state.save()`, el derivation engine es idempotente y el
 siguiente `apply` corrige en ≤2 rondas (spec REQ-Atomicidad — ver §8).
 
+### Sentinel contract (sentinels en `Diff`)
+
+El comparador de la columna `derived` (vía
+`derivation.compare_derived_to_stored`) necesita dos piezas de
+información que **no viven en el derivation engine ni en
+`diff.legacy_row`**: el valor que la web tiene en este momento y la
+fecha de la última edición web. Esos dos datos los lleva el applier
+porque es quien está a punto de escribir la fila web — el hook
+no tiene una vista estable de la DB web en ese instante.
+
+**Definición del contrato** (alineada con la spec REQ-Hook-Data):
+
+| Sentinel | Tipo | Origen | Semántica |
+|----------|------|--------|-----------|
+| `diff._stored_state` | `Any` | `diff.web_row[column]` cuando el applier lo leyó antes del write; `None` si no existe en la fila web (columna nueva) | Valor que la web sostiene en el instante previo al write del applier. El comparador lo confronta con el derivado. |
+| `diff._web_updated_at` | `datetime \| None` (UTC) | `diff.web_row["updated_at"]` cuando la tabla destino tiene columna `updated_at`; `None` en caso contrario | Timestamp de la última edición web sobre esa columna. El comparador lo usa en la regla Q2: `web_updated_at >= last_legacy_snapshot_at → NEEDS_REVIEW` (override manual). |
+
+**Cómo los popula el applier (PR 5/6)**:
+
+```python
+# En el applier de MIGRATION-01, justo antes de invocar el hook:
+diff._stored_state = (
+    diff.web_row.get(column.web_column) if diff.web_row else None
+)
+diff._web_updated_at = (
+    datetime.fromisoformat(diff.web_row["updated_at"])
+    if diff.web_row and "updated_at" in diff.web_row
+    else None
+)
+```
+
+**Interacción con `Diff`**:
+
+El dataclass `Diff` en `app/core/migration/reporting.py` (PR 4) NO
+añade estos campos como atributos formales — vienen como **side
+channel** sobre el `legacy_snapshot` que el applier pasa al hook (los
+helper `_reconcile_column` / `_build_derived_inputs` los `pop()` antes
+de invocar la derivación). Esta decisión preserva la
+backward-compat con `Diff` (MIGRATION-01 PR 4/6) sin tocar su firma
+pública — el campo canónico para el sentinels en una iteración
+futura podría ser `Diff._stored_state: Any = None` y
+`Diff._web_updated_at: datetime | None = None` (PR 5+ puede
+promoverlos a campos formales sin romper callers existentes porque
+los defaults son `None`).
+
+**Fallback cuando el sentinel falta**:
+
+Si el applier pasa `legacy_snapshot` sin `_stored_state` o
+`_web_updated_at`, el hook (`reconcile._reconcile_column:677-678`)
+los recibe como `None` y `_reconcile_derived` (vía
+`compare_derived_to_stored`) clasifica la columna como
+`ReconciliationStatus.PENDING`. El operador debe resolver el caso
+vía CLI en PR 5/6. Esta es la política explícita de backward-compat:
+un applier pre-PR-4 (que no conoce los sentinels) sigue siendo
+compatible, solo que todos los `derived` se inicializan como
+`PENDING` en lugar de `MATCHED`. Documentado en la spec
+REQ-Hook-Data + escenario "Apply sin sentinel `_stored_state`
+clasifica la columna como `PENDING`".
+
 ## §7 — CLI `apap-migrate reconcile`
 
 Subcomando del CLI `app/core/migration/__main__.py` (PR 5 llena el
