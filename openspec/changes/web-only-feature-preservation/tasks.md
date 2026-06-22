@@ -92,16 +92,17 @@ Chain strategy: stacked-to-main
 **Rama**: `feat/web-only-p3-yaml` → `feat/web-only-p4-hook`
 **Est. líneas**: ~400 | **Dep. MIGRATION-01**: **PR 4/6 y PR 6/6 mergeados primero**
 
-- [ ] 4.1 Implementar `post_apply_diff(*, direction, applied_diffs, table_mappings, web_client, shadow_state, sync_state) -> ReconciliationResult` en `app/core/migration/reconcile.py`
-- [ ] 4.2 Invocar `reconcile_after_legacy_write()` por cada fila afectada en dirección `legacy-to-web`
-- [ ] 4.3 Invocar `semantic_events.translate_diff()` por cada diff y persistir eventos en `animal_lifecycle_events`
-- [ ] 4.4 Actualizar `last_legacy_snapshot_at` en `web_only_feature_shadow` para columnas `preserve` afectadas
-- [ ] 4.5 En dirección `web-to-legacy`: no-op (preservar shadow state sin re-derivación)
-- [ ] 4.6 Extender `MigrationReport` con campo `reconciliation_summary: ReconciliationSummary`
-- [ ] 4.7 Escribir 3 tests de integración: (a) apply legacy→web re-deriva y marca `matched`; (b) divergencia sin override manual → `divergent`; (c) divergencia con override manual → `needs_review`
-- [ ] 4.8 Escribir 1 test de integración de atomicidad mixta (fallo simulado en sync_state post-COMMIT)
-- [ ] 4.9 Coordinar con autor de MIGRATION-01 PR 4/6 la firma exacta de `post_apply_diff` antes de merge
-- [ ] 4.10 Verificar con `pytest tests/test_migration.py -W error::DeprecationWarning` — coverage ≥80%
+- [x] 4.1 Implementar `post_apply_diff(*, direction, applied_diffs, table_mappings, web_client, shadow_state, sync_state) -> ReconciliationResult` en `app/core/migration/reconcile.py`
+- [x] 4.2 Invocar `reconcile_after_legacy_write()` por cada fila afectada en dirección `legacy-to-web`
+- [x] 4.3 Invocar `semantic_events.translate_diff()` por cada diff y persistir eventos en `animal_lifecycle_events`
+- [x] 4.4 Actualizar `last_legacy_snapshot_at` en `web_only_feature_shadow` para columnas `preserve` afectadas
+- [x] 4.5 En dirección `web-to-legacy`: no-op (preservar shadow state sin re-derivación)
+- [x] 4.6 Extender `MigrationReport` con campo `reconciliation_summary: ReconciliationSummary`
+- [x] 4.7 Escribir 3 tests de integración: (a) apply legacy→web re-deriva y marca `matched`; (b) divergencia sin override manual → `divergent`; (c) divergencia con override manual → `needs_review`
+- [x] 4.8 Escribir 1 test de integración de atomicidad mixta (fallo simulado en sync_state post-COMMIT)
+- [x] 4.9 Coordinar con autor de MIGRATION-01 PR 4/6 la firma exacta de `post_apply_diff` antes de merge
+- [x] 4.10 Verificar con `pytest tests/test_migration.py -W error::DeprecationWarning` — coverage ≥80%
+- [x] 4.11 Update `openspec/changes/web-only-feature-preservation/design.md` §9 to add the `_STRATEGY_EXEMPT_TRANSFORMS` list with per-transform rationale (P2 #1 follow-up from PR 3/6 review). NOTE: design.md was missing entirely on disk; the file was CREATED in this PR with §6, §7, §8, §9 covering the gaps that spec/code reference as "see design.md §X".
 
 ---
 
