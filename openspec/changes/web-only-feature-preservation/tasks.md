@@ -143,12 +143,22 @@ Code review of PR #100 returned REQUEST_CHANGES with 2 P1 contract issues. Both 
 **Rama**: `feat/web-only-p5-reconcile-cli` → `feat/web-only-p6-tests`
 **Est. líneas**: ~300 | **Dep. MIGRATION-01**: Todas las anteriores
 
-- [ ] 6.1 Escribir test de round-trip `web→legacy→web` que preserva `DNI` (estrategia `preserve`) — valor idéntico al inicial
-- [ ] 6.2 Escribir test de round-trip `legacy→web` que re-deriva `estado_actual_animal` tras cambio legacy — verifica `matched`
-- [ ] 6.3 Escribir test de override manual en web + cambio legacy → `needs_review` (Q2 path)
-- [ ] 6.4 Escribir test de perf: 10 000 animales × 5 columnas `preserve/derived/fixed` en <10s (`test_reconcile_perf.py`)
-- [ ] 6.5 Verificar que derivation engine cubre los 11 casos de `lifecycle-state-resolver-extraction.md §4`
-- [ ] 6.6 Ejecutar suite completa: `pytest tests/test_migration.py tests/test_migration_cli.py -W error::DeprecationWarning --cov=app --cov-report=term-missing` — coverage ≥80%
+- [x] 6.1 Escribir test de round-trip `web→legacy→web` que preserva `DNI` (estrategia `preserve`) — valor idéntico al inicial
+- [x] 6.2 Escribir test de round-trip `legacy→web` que re-deriva `estado_actual_animal` tras cambio legacy — verifica `matched`
+- [x] 6.3 Escribir test de override manual en web + cambio legacy → `needs_review` (Q2 path)
+- [x] 6.4 Escribir test de perf: 10 000 animales × 5 columnas `preserve/derived/fixed` en <10s (`test_reconcile_perf.py`)
+- [x] 6.5 Verificar que derivation engine cubre los 11 casos de `lifecycle-state-resolver-extraction.md §4`
+- [x] 6.6 Ejecutar suite completa: `pytest tests/test_migration.py tests/test_migration_cli.py -W error::DeprecationWarning --cov=app --cov-report=term-missing` — coverage ≥80%
+
+### Plus the PR 5 follow-ups that PR 6 should close (from PR 5 code review, P2):
+
+- [x] 6.7 Add `derived_value: Any | None` and `derived_at: datetime | None` columns to `web_only_feature_shadow` schema (in `app/core/domain.py` via `ensure_domain_schema()`)
+- [x] 6.8 Extend `ShadowStateRepository` with `update_derived_value(...)` and `update_derived_at(...)` methods
+- [x] 6.9 Extend `reconcile.py:reconcile_after_legacy_write` for `derived` strategy to populate `derived_value` and `derived_at` after the derivation engine runs
+- [x] 6.10 Update `_format_row_for_check_only` and `_format_row_for_interactive` in `cli.py` to emit `derived_value=` and `derived_at=` (per spec REQ-CLI scenario)
+- [x] 6.11 Update `_apply_accept_derived` to pre-fill the prompt with the stored `derived_value` (so the operator doesn't have to retype)
+- [x] 6.12 Acquire `lock.acquire_lock(path)` at the top of `run_reconcile` when `--interactive` is set (release on exit, also via `try/finally`)
+- [x] 6.13 Fix `_format_row_for_check_only` to use `if x is None: 'null' else: repr(x)` instead of `or 'null'` (so empty string ≠ None)
 
 ---
 

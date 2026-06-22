@@ -38,6 +38,7 @@ import re
 import sys
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import IO, Any
 
 from app.core.insforge import InsForgeClient
@@ -128,21 +129,47 @@ def build_parser() -> argparse.ArgumentParser:
 # ``preserved_value`` and ``review_reasons`` are JSON strings
 # coming from the JSONB columns; the test harness compares them
 # verbatim against the value the fake server returned.
+#
+# PR 5 follow-up fix (P2 from PR 5 code review): the original
+# ``row.get('foo') or 'null'`` pattern collapses an empty string to
+# the literal ``"null"``, which makes the operator unable to
+# distinguish a NULL column from an empty-string value. The formatters
+# below use ``_render_value`` which is NULL-aware: ``None`` → ``null``,
+# empty string → ``''`` (empty literal), anything else → ``repr(x)``.
+
+
+def _render_value(x: Any) -> str:
+    """Render a single shadow-row value for the ``key=value`` output.
+
+    Rules (PR 5 follow-up):
+
+    - ``None`` → ``"null"`` (the operator can grep the literal).
+    - Empty string → ``""`` (rendered as the empty literal, NOT
+      collapsed to ``"null"`` — the original bug).
+    - String → the string verbatim (preserves JSONB-serialised strings
+      like ``'"Adoptado"'`` and bare tokens like ``"v-1"``).
+    - Other value → ``str(x)`` (numbers, booleans).
+    """
+    if x is None:
+        return "null"
+    return str(x)
 
 
 def _format_row_for_check_only(row: dict[str, Any]) -> str:
     """One ``key=value`` line per shadow row (T5.1 / design.md §7)."""
     parts: list[str] = [
-        f"table={row.get('table_name') or 'null'}",
-        f"legacy_pk={row.get('legacy_pk') or 'null'}",
-        f"web_pk={row.get('web_pk') or 'null'}",
-        f"web_column={row.get('web_column') or 'null'}",
-        f"status={row.get('reconciliation_status') or 'null'}",
-        f"strategy={row.get('strategy') or 'null'}",
-        f"web_value={row.get('preserved_value') or 'null'}",
-        f"last_legacy_snapshot_at={row.get('last_legacy_snapshot_at') or 'null'}",
-        f"last_reconciled_at={row.get('last_reconciled_at') or 'null'}",
-        f"review_reasons={row.get('review_reasons') or '[]'}",
+        f"table={_render_value(row.get('table_name'))}",
+        f"legacy_pk={_render_value(row.get('legacy_pk'))}",
+        f"web_pk={_render_value(row.get('web_pk'))}",
+        f"web_column={_render_value(row.get('web_column'))}",
+        f"status={_render_value(row.get('reconciliation_status'))}",
+        f"strategy={_render_value(row.get('strategy'))}",
+        f"web_value={_render_value(row.get('preserved_value'))}",
+        f"derived_value={_render_value(row.get('derived_value'))}",
+        f"derived_at={_render_value(row.get('derived_at'))}",
+        f"last_legacy_snapshot_at={_render_value(row.get('last_legacy_snapshot_at'))}",
+        f"last_reconciled_at={_render_value(row.get('last_reconciled_at'))}",
+        f"review_reasons={_render_value(row.get('review_reasons'))}",
     ]
     return " ".join(parts)
 
@@ -155,13 +182,15 @@ def _format_row_for_interactive(row: dict[str, Any]) -> str:
     when populated (skip the noise for ``null`` rows).
     """
     lines: list[str] = [
-        f"  table:                   {row.get('table_name') or 'null'}",
-        f"  legacy_pk:               {row.get('legacy_pk') or 'null'}",
-        f"  web_pk:                  {row.get('web_pk') or 'null'}",
-        f"  web_column:              {row.get('web_column') or 'null'}",
-        f"  strategy:                {row.get('strategy') or 'null'}",
-        f"  web_value:               {row.get('preserved_value') or 'null'}",
-        f"  status:                  {row.get('reconciliation_status') or 'null'}",
+        f"  table:                   {_render_value(row.get('table_name'))}",
+        f"  legacy_pk:               {_render_value(row.get('legacy_pk'))}",
+        f"  web_pk:                  {_render_value(row.get('web_pk'))}",
+        f"  web_column:              {_render_value(row.get('web_column'))}",
+        f"  strategy:                {_render_value(row.get('strategy'))}",
+        f"  web_value:               {_render_value(row.get('preserved_value'))}",
+        f"  derived_value:           {_render_value(row.get('derived_value'))}",
+        f"  derived_at:              {_render_value(row.get('derived_at'))}",
+        f"  status:                  {_render_value(row.get('reconciliation_status'))}",
     ]
     if row.get("last_legacy_snapshot_at"):
         lines.append(f"  last_legacy_snapshot_at: {row['last_legacy_snapshot_at']}")
@@ -231,13 +260,13 @@ def _apply_accept_derived(
     ``UPDATE {table} SET {column} = %s WHERE id = %s`` against
     the web DB and stamps the shadow row.
 
-    PR 5 limitation: the derivation engine result is not stored
-    in the shadow row by PR 4 (the schema only tracks
-    ``preserved_value``, which is NULL for ``derived``), so the
-    CLI cannot autofill the value. The operator types it. PR 6
-    is expected to add a ``derived_value`` column to
-    ``web_only_feature_shadow`` so the CLI can autofill; for
-    PR 5 the prompt is open.
+    PR 5 follow-up: the value prompt is pre-filled with the stored
+    ``derived_value`` so the operator can press Enter to accept.
+    The prompt body carries the default in brackets (e.g.
+    ``Enter value for current_state [default: Adoptado]: ``).
+    Empty input from the operator is treated as "accept the default";
+    if no default is stored (``derived_value is None``), the operator
+    MUST type a value.
     """
     table_name = row["table_name"]
     web_column = row["web_column"]
@@ -260,6 +289,32 @@ def _apply_accept_derived(
         review_reasons=[],
         last_reconciled_at=now,
     )
+
+
+def _format_value_prompt(row: dict[str, Any]) -> str:
+    """Build the ``(b) accept derived`` value prompt with the stored
+    ``derived_value`` as the default.
+
+    PR 5 follow-up: the operator can press Enter to accept the
+    derived value (no retyping). When ``derived_value`` is missing
+    (NULL or absent), the prompt does NOT carry a default — the
+    operator MUST type a value (the caller still validates the
+    non-empty case; an empty input without a default is rejected).
+    """
+    web_column = row.get("web_column", "")
+    derived_value = row.get("derived_value")
+    if derived_value is None:
+        return f"Enter value for {web_column}: "
+    # Strip JSON quotes if the value was serialised through JSONB and
+    # came back as a quoted string (e.g. ``'"Adoptado"'`` → ``Adoptado``).
+    rendered = derived_value
+    if (
+        isinstance(derived_value, str)
+        and len(derived_value) >= 2
+        and derived_value[0] == derived_value[-1] == '"'
+    ):
+        rendered = derived_value[1:-1]
+    return f"Enter value for {web_column} [default: {rendered}]: "
 
 
 # --- --since validation --------------------------------------------------
@@ -353,11 +408,63 @@ def run_reconcile(
     rows = shadow_state.list_needs_review(table_name=args.table, since=args.since)
 
     if not args.interactive:
+        # Default mode (``--check-only`` or no flag): list rows, no
+        # writes, exit 0 (design.md §7).
         for row in rows:
             stream.write(_format_row_for_check_only(row) + "\n")
         return 0
 
     # T5.2 --interactive: walk each case with a/b/c/q prompts.
+    # PR 5 follow-up (P2): acquire the migration lock for the duration
+    # of the interactive session. Regla #13474 v2: two concurrent
+    # interactive sessions would double-resolve cases. The lock is
+    # released on exit (normal return, error, or q-quit) via
+    # try/finally — the operator can re-run safely on a stale lock.
+    from app.core.migration import LockActiveError
+    from app.core.migration import acquire_lock as _acquire_lock
+    from app.core.migration import check_lock as _check_lock
+    from app.core.migration import release_lock as _release_lock
+    from app.core.migration.lock import _is_lock_stale
+
+    lock_path = _resolve_lock_path()
+    # Best-effort: if a non-stale lock is held, fail fast with a
+    # clear error. Stale locks are auto-overwritten by
+    # ``acquire_lock`` (PID dead + TTL expiry — see lock.py).
+    existing = _check_lock(lock_path)
+    if existing is not None and not _is_lock_stale(existing):
+        # Active lock → fail fast. Stale locks are picked up by
+        # ``acquire_lock`` (it overwrites them after re-checking).
+        raise LockActiveError(
+            f"apap-migrate reconcile: another interactive session is "
+            f"running (pid={existing.pid}, acquired_at="
+            f"{existing.acquired_at.isoformat()})"
+        )
+    _acquire_lock(lock_path)
+    try:
+        return _run_reconcile_interactive(
+            rows=rows,
+            prompt=prompt,
+            stream=stream,
+            shadow_state=shadow_state,
+            web_client=web_client,
+        )
+    finally:
+        _release_lock(lock_path)
+
+
+def _run_reconcile_interactive(
+    *,
+    rows: list[dict[str, Any]],
+    prompt: _PromptReader,
+    stream: IO[str],
+    shadow_state: ShadowStateRepository,
+    web_client: InsForgeClient | None,
+) -> int:
+    """Walk each ``needs_review`` case with ``a/b/c/q`` prompts.
+
+    Extracted from :func:`run_reconcile` so the lock-acquisition /
+    lock-release try/finally wraps cleanly around the interactive loop.
+    """
     now = datetime.now(UTC)
     for row in rows:
         stream.write("===\n")
@@ -372,7 +479,31 @@ def run_reconcile(
                     "a web_client (cannot UPDATE the web table without one)\n"
                 )
                 return 5
-            new_value = prompt(f"Enter value for {row['web_column']}: ").strip()
+            # PR 5 follow-up: prompt is pre-filled with the stored
+            # ``derived_value`` so the operator can press Enter to
+            # accept. An empty input is treated as "accept the default"
+            # only when a default was offered; the ``_format_value_prompt``
+            # helper is NULL-aware (no default → operator MUST type).
+            prompt_text = _format_value_prompt(row)
+            typed = prompt(prompt_text).strip()
+            derived_default = row.get("derived_value")
+            if not typed and derived_default is not None:
+                # Press Enter on a default-prompt → accept the default.
+                # Strip JSON quotes if the default came back as a
+                # JSONB-serialised string (e.g. ``'"Adoptado"'``).
+                if (
+                    isinstance(derived_default, str)
+                    and len(derived_default) >= 2
+                    and derived_default[0] == derived_default[-1] == '"'
+                ):
+                    new_value: Any = derived_default[1:-1]
+                else:
+                    new_value = derived_default
+            else:
+                new_value = typed
+            if not new_value:
+                sys.stderr.write("apap-migrate reconcile: empty value; case kept as needs_review\n")
+                continue
             _apply_accept_derived(
                 shadow_state=shadow_state,
                 web_client=web_client,
@@ -393,6 +524,34 @@ def run_reconcile(
             sys.stderr.write(f"apap-migrate reconcile: unknown choice {choice!r}; skipping\n")
 
     return 0
+
+
+def _resolve_lock_path() -> Path:
+    """Resolve the migration lock path for the CLI.
+
+    The CLI doesn't have a direct injection seam for the lock path
+    today; we read it from the same convention the applier uses
+    (``<migration_dir>/migration.lock``) — ``migration_dir`` is the
+    directory that contains ``sync_state.json``. When the env var
+    ``APAP_MIGRATION_DIR`` is not set (dev mode without the full app
+    config), we fall back to ``./migration/migration.lock`` so the
+    test surface stays hermetic.
+    """
+    import os
+
+    from app.core.config import get_settings
+
+    # We use ``get_settings()`` so a future ``migration_dir`` field
+    # added to ``Settings`` is picked up automatically; meanwhile the
+    # env var fallback covers current callers.
+    try:
+        settings = get_settings()
+        migration_dir = getattr(settings, "migration_dir", None)
+    except Exception:  # noqa: BLE001 — settings may not be loadable in tests
+        migration_dir = None
+    if not migration_dir:
+        migration_dir = os.environ.get("APAP_MIGRATION_DIR", "./migration")
+    return Path(migration_dir) / "migration.lock"
 
 
 def main(

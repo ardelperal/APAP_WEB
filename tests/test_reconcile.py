@@ -35,6 +35,12 @@ class TestReconcileAfterLegacyWrite:
             def upsert(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
                 upsert_calls.append(kwargs)
 
+            def update_derived_value(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
+                pass
+
+            def update_derived_at(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
+                pass
+
         outcome = reconcile_after_legacy_write(
             shadow_state=_FakeShadow(),  # type: ignore[arg-type]
             table_name="voluntarios",
@@ -70,6 +76,12 @@ class TestReconcileAfterLegacyWrite:
             def update_reconciliation_status(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
                 update_calls.append(kwargs)
 
+            def update_derived_value(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
+                pass
+
+            def update_derived_at(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
+                pass
+
         outcome = reconcile_after_legacy_write(
             shadow_state=_FakeShadow(),  # type: ignore[arg-type]
             table_name="voluntarios",
@@ -99,6 +111,12 @@ class TestReconcileAfterLegacyWrite:
 
             def update_reconciliation_status(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
                 update_calls.append(kwargs)
+
+            def update_derived_value(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
+                pass
+
+            def update_derived_at(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
+                pass
 
         ficha = {
             "NCHIP": "001",
@@ -149,6 +167,12 @@ class TestReconcileAfterLegacyWrite:
 
             def update_reconciliation_status(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
                 update_calls.append(kwargs)
+
+            def update_derived_value(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
+                pass
+
+            def update_derived_at(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
+                pass
 
         ficha = {
             "NCHIP": "002",
@@ -241,6 +265,12 @@ class TestPostApplyDiffHook:
             def update_reconciliation_status(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
                 pass
 
+            def update_derived_value(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
+                pass
+
+            def update_derived_at(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
+                pass
+
         # voluntarios.DNI: web_only_strategy=preserve (per voluntario.yaml).
         mapping = _voluntario_mapping_with_dni_preserve()
         diff = Diff(
@@ -301,6 +331,12 @@ class TestPostApplyDiffHook:
                 upsert_calls.append(kwargs)
 
             def update_reconciliation_status(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
+                pass
+
+            def update_derived_value(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
+                pass
+
+            def update_derived_at(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
                 pass
 
         mapping = _animal_mapping_with_current_state_derived()
@@ -382,6 +418,12 @@ class TestPostApplyDiffHook:
             def update_reconciliation_status(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
                 pass
 
+            def update_derived_value(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
+                pass
+
+            def update_derived_at(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
+                pass
+
         mapping = _animal_mapping_with_current_state_derived()
         diff = Diff(
             op="INSERT",
@@ -461,6 +503,12 @@ class TestPostApplyDiffHook:
 
             def update_reconciliation_status(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
                 update_calls.append(kwargs)
+
+            def update_derived_value(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
+                pass
+
+            def update_derived_at(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
+                pass
 
         mapping = _animal_mapping_with_current_state_derived()
         diff = Diff(
@@ -549,6 +597,12 @@ class TestPostApplyDiffHook:
             def update_reconciliation_status(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
                 pass
 
+            def update_derived_value(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
+                pass
+
+            def update_derived_at(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
+                pass
+
         # voluntarios mapping — NO lifecycle event translates from a
         # voluntarios diff (no event types defined for that table), so
         # we use a TbEntradas diff instead.
@@ -624,6 +678,12 @@ class TestPostApplyDiffHook:
             def update_reconciliation_status(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
                 pass
 
+            def update_derived_value(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
+                pass
+
+            def update_derived_at(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
+                pass
+
         mapping = _entrada_mapping_for_event_persistence()
         diff = Diff(
             op="INSERT",
@@ -676,6 +736,12 @@ class TestPostApplyDiffHook:
                 upsert_calls.append(kwargs)
 
             def update_reconciliation_status(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
+                pass
+
+            def update_derived_value(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
+                pass
+
+            def update_derived_at(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
                 pass
 
         mapping = _voluntario_mapping_with_dni_preserve()
@@ -744,6 +810,12 @@ class TestPostApplyDiffAtomicity:
                 upsert_calls.append(kwargs)
 
             def update_reconciliation_status(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
+                pass
+
+            def update_derived_value(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
+                pass
+
+            def update_derived_at(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
                 pass
 
         mapping = _animal_mapping_with_current_state_derived()
@@ -871,6 +943,12 @@ class TestPostApplyDiffAtomicity:
                 pass
 
             def update_reconciliation_status(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
+                pass
+
+            def update_derived_value(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
+                pass
+
+            def update_derived_at(self, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
                 pass
 
         # ``TbEntradas`` is the right table for this test: its diff

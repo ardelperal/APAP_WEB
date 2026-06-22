@@ -60,6 +60,8 @@ CREATE TABLE IF NOT EXISTS web_only_feature_shadow (
         CHECK (reconciliation_status IN
                ('matched', 'divergent', 'needs_review', 'pending', 'migrated')),
     review_reasons JSONB NOT NULL DEFAULT '[]'::jsonb,
+    derived_value JSONB,
+    derived_at TIMESTAMPTZ,
     UNIQUE (table_name, legacy_pk, web_column)
 )
 """
@@ -171,6 +173,72 @@ class ShadowStateRepository:
                 status,
                 _to_jsonb(review_reasons if review_reasons is not None else []),
                 last_reconciled_at.isoformat() if last_reconciled_at else None,
+                table_name,
+                legacy_pk,
+                web_column,
+            ],
+        )
+
+    def update_derived_value(
+        self,
+        *,
+        table_name: str,
+        legacy_pk: str,
+        web_column: str,
+        derived_value: Any,
+    ) -> None:
+        """Persist the latest ``derived_value`` on a shadow row.
+
+        PR 5 follow-up (web-only-feature-preservation): the CLI's
+        ``--interactive`` ``(b) accept derived`` path pre-fills the
+        operator's prompt with the stored ``derived_value`` so the
+        operator does not have to retype the derivation result. The
+        applier hook (``reconcile._reconcile_derived``) calls this
+        after the derivation engine runs and before flipping the
+        status to ``needs_review``.
+
+        Scoped by the unique key so a typo never bleeds across rows.
+        """
+        sql = (
+            "UPDATE web_only_feature_shadow "
+            "SET derived_value = %s "
+            "WHERE table_name = %s AND legacy_pk = %s AND web_column = %s"
+        )
+        self._client.execute_sql(
+            sql,
+            [
+                _to_jsonb(derived_value),
+                table_name,
+                legacy_pk,
+                web_column,
+            ],
+        )
+
+    def update_derived_at(
+        self,
+        *,
+        table_name: str,
+        legacy_pk: str,
+        web_column: str,
+        derived_at: datetime | None,
+    ) -> None:
+        """Persist the timestamp of the latest derivation on a shadow row.
+
+        PR 5 follow-up: companion to :meth:`update_derived_value`. The
+        ``derived_at`` column lets the operator see "when did we last
+        run the derivation engine on this column" — useful for cases
+        where a legacy change happened long ago and the operator wants
+        to know how stale the derived value is.
+        """
+        sql = (
+            "UPDATE web_only_feature_shadow "
+            "SET derived_at = %s "
+            "WHERE table_name = %s AND legacy_pk = %s AND web_column = %s"
+        )
+        self._client.execute_sql(
+            sql,
+            [
+                derived_at.isoformat() if derived_at else None,
                 table_name,
                 legacy_pk,
                 web_column,

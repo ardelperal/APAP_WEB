@@ -189,6 +189,24 @@ class _ShadowStateWriter(Protocol):
         last_reconciled_at: datetime | None = None,
     ) -> None: ...
 
+    def update_derived_value(
+        self,
+        *,
+        table_name: str,
+        legacy_pk: str,
+        web_column: str,
+        derived_value: Any,
+    ) -> None: ...
+
+    def update_derived_at(
+        self,
+        *,
+        table_name: str,
+        legacy_pk: str,
+        web_column: str,
+        derived_at: datetime | None,
+    ) -> None: ...
+
 
 # --- Per-row reconciliation dispatcher (PR 2/6, T2.8) ---------------------
 #
@@ -413,6 +431,25 @@ def _reconcile_derived(
         strategy="derived",
         last_legacy_snapshot_at=last_legacy_snapshot_at,
         reconciliation_status=status.value,
+    )
+
+    # PR 5 follow-up: also persist ``derived_value`` + ``derived_at``
+    # so the CLI's ``--interactive`` ``(b) accept derived`` prompt
+    # pre-fills with the stored derivation result (the operator does
+    # not have to retype it). These writes happen on every verdict
+    # (matched / divergent / needs_review / pending) so the CLI
+    # always has the latest derivation cache to display.
+    shadow_state.update_derived_value(
+        table_name=table_name,
+        legacy_pk=legacy_pk,
+        web_column=web_column,
+        derived_value=derived.state,
+    )
+    shadow_state.update_derived_at(
+        table_name=table_name,
+        legacy_pk=legacy_pk,
+        web_column=web_column,
+        derived_at=last_legacy_snapshot_at,
     )
 
     review_reasons: tuple[str, ...] = ()
