@@ -38,7 +38,6 @@ import httpx
 from app.core.insforge import InsForgeClient
 from app.core.migration.cli import main as cli_main
 
-
 # --- helpers --------------------------------------------------------------
 
 
@@ -230,3 +229,231 @@ class TestReconcileCheckOnly:
             assert "INSERT" not in query.upper(), f"unexpected INSERT: {query!r}"
             assert "UPDATE" not in query.upper(), f"unexpected UPDATE: {query!r}"
             assert "DELETE" not in query.upper(), f"unexpected DELETE: {query!r}"
+
+
+# --- T5.7: --interactive (a/b/c/q) ---------------------------------------
+
+
+class TestReconcileInteractive:
+    """``apap-migrate reconcile --interactive`` walks each case with
+    prompts ``(a) keep web / (b) accept derived / (c) defer / (q) quit``.
+
+    Each test pre-loads the prompt queue with the operator's choices
+    and asserts the resulting write path. The test fake
+    ``web_client`` records every SQL call so the assertions can
+    distinguish shadow-state writes (``update_reconciliation_status``)
+    from web-table writes (``UPDATE {table}``).
+    """
+
+    def test_interactive_keep_web_writes_matched(self) -> None:
+        """Operator picks ``(a) keep web`` → shadow row is flipped to
+        ``matched`` and the web value is NOT modified.
+
+        One pending row for ``voluntarios.DNI`` (preserve strategy).
+        The prompt queue is ``["a"]`` — the operator picks keep.
+        Assertions:
+        - exit 0.
+        - the CLI issues ``UPDATE web_only_feature_shadow`` with
+          ``reconciliation_status = 'matched'`` (the
+          ``ShadowStateRepository.update_reconciliation_status``
+          SQL).
+        - NO ``UPDATE voluntarios`` is issued (the web value is
+          preserved verbatim; keep does not write to the web table).
+        """
+        row = _needs_review_row(
+            table_name="voluntarios",
+            legacy_pk="v-1",
+            web_pk="00000000-0000-0000-0000-000000000001",
+            web_column="DNI",
+            preserved_value="12345678A",
+            strategy="preserve",
+        )
+        prompt = _capture_prompt(["a"])
+
+        rc, captured, _stdout = _run_reconcile(
+            argv=["reconcile", "--interactive"],
+            shadow_rows=[row],
+            prompt=prompt,
+        )
+
+        assert rc == 0
+        # Find the shadow-state UPDATE that flips status to matched.
+        shadow_updates = [
+            c
+            for c in captured
+            if "UPDATE web_only_feature_shadow" in c.get("query", "")
+            and "reconciliation_status = %s" in c.get("query", "")
+        ]
+        assert len(shadow_updates) == 1, (
+            f"keep web must issue exactly one shadow-state UPDATE; "
+            f"got {len(shadow_updates)}: {shadow_updates!r}"
+        )
+        params = shadow_updates[0].get("params", [])
+        assert params[0] == "matched", f"status must be 'matched'; got {params[0]!r}"
+        assert params[3] == "voluntarios"
+        assert params[4] == "v-1"
+        assert params[5] == "DNI"
+        # No UPDATE issued against the voluntarios web table.
+        web_updates = [
+            c
+            for c in captured
+            if "UPDATE voluntarios" in c.get("query", "").upper()
+            and "web_only_feature_shadow" not in c.get("query", "")
+        ]
+        assert web_updates == [], f"keep web must NOT issue a web-table UPDATE; got {web_updates!r}"
+
+    def test_interactive_accept_derived_writes_web_value(self) -> None:
+        """Operator picks ``(b) accept derived`` → CLI prompts for the
+        value, issues ``UPDATE {web_table} SET {web_column} = ...``,
+        and flips the shadow row to ``matched``.
+
+        One pending row for ``animales.current_state`` (derived
+        strategy). The prompt queue is ``["b", "Adoptado"]`` — the
+        operator picks accept and types ``"Adoptado"`` as the new
+        value. Assertions:
+        - exit 0.
+        - the CLI issues an ``UPDATE animales SET current_state = ...``
+          with the typed value, scoped by ``id = {web_pk}``.
+        - the shadow row is flipped to ``matched`` with
+          ``last_reconciled_at`` populated.
+        """
+        row = _needs_review_row(
+            table_name="animales",
+            legacy_pk="a-1",
+            web_pk="00000000-0000-0000-0000-0000000000aa",
+            web_column="current_state",
+            preserved_value=None,  # derived → NULL in shadow row
+            strategy="derived",
+        )
+        prompt = _capture_prompt(["b", "Adoptado"])
+
+        rc, captured, _stdout = _run_reconcile(
+            argv=["reconcile", "--interactive"],
+            shadow_rows=[row],
+            prompt=prompt,
+        )
+
+        assert rc == 0
+        # Web-table UPDATE for animales.current_state. The
+        # query text is case-sensitive (the production emitter
+        # uppercases ``UPDATE``); we use ``.upper()`` on both
+        # sides so the substring check is robust to the
+        # actual casing of the SQL.
+        web_updates = [
+            c
+            for c in captured
+            if "UPDATE ANIMALES" in c.get("query", "").upper()
+            and "current_state" in c.get("query", "").lower()
+        ]
+        assert len(web_updates) == 1, (
+            f"accept derived must issue exactly one UPDATE animales; "
+            f"got {len(web_updates)}: {web_updates!r}"
+        )
+        params = web_updates[0].get("params", [])
+        # Param order: new value, then web_pk.
+        assert params[0] == "Adoptado", f"new value must be 'Adoptado'; got {params[0]!r}"
+        assert params[1] == "00000000-0000-0000-0000-0000000000aa"
+        # Shadow-state UPDATE flips status to matched.
+        shadow_updates = [
+            c
+            for c in captured
+            if "UPDATE web_only_feature_shadow" in c.get("query", "")
+            and "reconciliation_status = %s" in c.get("query", "")
+        ]
+        assert len(shadow_updates) == 1, (
+            f"accept derived must flip shadow row to matched; "
+            f"got {len(shadow_updates)}: {shadow_updates!r}"
+        )
+        assert shadow_updates[0].get("params", [])[0] == "matched"
+
+    def test_interactive_defer_leaves_status(self) -> None:
+        """Operator picks ``(c) defer`` → the case stays
+        ``needs_review``; no UPDATE is issued.
+
+        One pending row. The prompt queue is ``["c"]``. Assertions:
+        - exit 0.
+        - no ``UPDATE web_only_feature_shadow`` is issued (the
+          shadow row keeps its ``needs_review`` status).
+        - no ``UPDATE {web_table}`` is issued (defer writes nothing).
+        """
+        row = _needs_review_row(
+            table_name="voluntarios",
+            legacy_pk="v-1",
+            web_pk="00000000-0000-0000-0000-000000000001",
+            web_column="DNI",
+        )
+        prompt = _capture_prompt(["c"])
+
+        rc, captured, _stdout = _run_reconcile(
+            argv=["reconcile", "--interactive"],
+            shadow_rows=[row],
+            prompt=prompt,
+        )
+
+        assert rc == 0
+        # No UPDATE statements of any kind.
+        for call in captured:
+            query = call.get("query", "").upper()
+            assert "UPDATE" not in query, f"defer must not issue any UPDATE; got: {call!r}"
+            assert "INSERT" not in query, f"defer must not issue any INSERT; got: {call!r}"
+
+    def test_interactive_quit_exits_early(self) -> None:
+        """Operator picks ``(q) quit`` on the first case → the CLI
+        returns 0 and does NOT process the remaining rows.
+
+        Two pending rows. The prompt queue is ``["q"]``. The first
+        case is shown, the operator quits, the second case is
+        never displayed and the shadow state is untouched.
+        """
+        rows = [
+            _needs_review_row(legacy_pk="v-1", web_column="DNI", table_name="voluntarios"),
+            _needs_review_row(legacy_pk="v-2", web_column="DNI", table_name="voluntarios"),
+        ]
+        prompt = _capture_prompt(["q"])
+
+        stream = io.StringIO()
+        rc, captured, stdout = _run_reconcile(
+            argv=["reconcile", "--interactive"],
+            shadow_rows=rows,
+            prompt=prompt,
+            stream=stream,
+        )
+
+        assert rc == 0
+        # The first case header IS shown; the second never is.
+        assert stdout.count("legacy_pk:               v-1") == 1
+        assert "legacy_pk:               v-2" not in stdout
+        # No UPDATE / INSERT issued for either row.
+        for call in captured:
+            query = call.get("query", "").upper()
+            assert "UPDATE" not in query, f"quit must not write; got: {call!r}"
+            assert "INSERT" not in query, f"quit must not write; got: {call!r}"
+
+    def test_interactive_unknown_choice_is_skipped(self) -> None:
+        """Operator types an unrecognised choice (not a/b/c/q) → the
+        case is skipped with a warning; no writes are issued.
+
+        One pending row. The prompt queue is ``["x", "q"]``: the
+        first call returns ``"x"`` (unknown), the second returns
+        ``"q"`` so the loop exits cleanly. The test asserts the
+        shadow state was never touched and the warning went to
+        stderr.
+        """
+        row = _needs_review_row(
+            table_name="voluntarios",
+            legacy_pk="v-1",
+            web_column="DNI",
+        )
+        prompt = _capture_prompt(["x", "q"])
+
+        rc, captured, _stdout = _run_reconcile(
+            argv=["reconcile", "--interactive"],
+            shadow_rows=[row],
+            prompt=prompt,
+        )
+
+        assert rc == 0
+        for call in captured:
+            query = call.get("query", "").upper()
+            assert "UPDATE" not in query, f"unknown choice must not write; got: {call!r}"
+            assert "INSERT" not in query, f"unknown choice must not write; got: {call!r}"

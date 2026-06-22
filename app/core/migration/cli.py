@@ -4,13 +4,14 @@ PR 1 of ``web-only-feature-preservation`` wired the parser and the
 ``--help`` entry point. PR 5 fills in the body across three work
 units:
 
-- T5.1 (this file) ``--check-only`` (design.md §7): list
+- T5.1 (committed) ``--check-only`` (design.md §7): list
   ``needs_review`` rows from the shadow state in a pipe-friendly
   ``key=value`` format on stdout. No writes are issued. Exit 0
   even when pending rows exist (the operator must resolve them —
   non-zero would block unattended monitoring).
-- T5.2-T5.4 ``--interactive``: walk each case with prompts
-  ``(a) keep web / (b) accept derived / (c) defer / (q) quit``.
+- T5.2-T5.4 (this file) ``--interactive``: walk each case with
+  prompts ``(a) keep web / (b) accept derived / (c) defer /
+  (q) quit``.
 - T5.5 ``--table <name>`` and ``--since <ISO8601>``: forward to
   ``ShadowStateRepository.list_needs_review``.
 
@@ -33,8 +34,10 @@ The pattern mirrors ``app.core.migration.__main__``: the
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from collections.abc import Callable, Sequence
+from datetime import UTC, datetime
 from typing import IO, Any
 
 from app.core.insforge import InsForgeClient
@@ -144,6 +147,121 @@ def _format_row_for_check_only(row: dict[str, Any]) -> str:
     return " ".join(parts)
 
 
+def _format_row_for_interactive(row: dict[str, Any]) -> str:
+    """Multi-line block per shadow row for the interactive prompt.
+
+    Mirrors the ``--check-only`` field set but indented so the
+    prompt header reads naturally. Optional fields are only shown
+    when populated (skip the noise for ``null`` rows).
+    """
+    lines: list[str] = [
+        f"  table:                   {row.get('table_name') or 'null'}",
+        f"  legacy_pk:               {row.get('legacy_pk') or 'null'}",
+        f"  web_pk:                  {row.get('web_pk') or 'null'}",
+        f"  web_column:              {row.get('web_column') or 'null'}",
+        f"  strategy:                {row.get('strategy') or 'null'}",
+        f"  web_value:               {row.get('preserved_value') or 'null'}",
+        f"  status:                  {row.get('reconciliation_status') or 'null'}",
+    ]
+    if row.get("last_legacy_snapshot_at"):
+        lines.append(f"  last_legacy_snapshot_at: {row['last_legacy_snapshot_at']}")
+    if row.get("last_reconciled_at"):
+        lines.append(f"  last_reconciled_at:      {row['last_reconciled_at']}")
+    if row.get("review_reasons"):
+        lines.append(f"  review_reasons:          {row['review_reasons']}")
+    return "\n".join(lines)
+
+
+# --- Write paths ---------------------------------------------------------
+#
+# PR 5's two write paths (T5.3 keep web, T5.4 accept derived) are
+# factored into dedicated functions so the test harness can target
+# each one in isolation and the ``run_reconcile`` loop stays linear.
+# The shape of the SQL UPDATE in ``accept derived`` is fixed by the
+# spec REQ-CLI: ``UPDATE {web_table} SET {web_column} = %s WHERE
+# id = %s``. The shadow row's ``web_pk`` identifies the row; the
+# column name is interpolated (NOT a parameter) because the schema
+# of the web table is fixed at migration-time and ``ShadowStateRepository``
+# is the trusted source for the column name.
+
+# Constrain ``table_name`` and ``web_column`` interpolation to
+# SQL-safe identifiers. The shadow state is our own table so the
+# values are trusted, but the constraint guards against a future
+# bug that lets a tainted value slip into the column (e.g. a shadow
+# row created by a malformed applier pass).
+_SAFE_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _apply_keep_web(
+    *,
+    shadow_state: ShadowStateRepository,
+    row: dict[str, Any],
+    now: datetime,
+) -> None:
+    """T5.3 option (a) keep web: flip the shadow row to ``matched``.
+
+    The web value is preserved verbatim — the shadow state
+    already mirrors it, and the applier will continue to write
+    the same value on the next apply. We only stamp the
+    reconciliation status + ``last_reconciled_at`` so the row
+    leaves the ``needs_review`` list on the next ``--check-only``.
+    """
+    shadow_state.update_reconciliation_status(
+        table_name=row["table_name"],
+        legacy_pk=row["legacy_pk"],
+        web_column=row["web_column"],
+        status="matched",
+        review_reasons=[],
+        last_reconciled_at=now,
+    )
+
+
+def _apply_accept_derived(
+    *,
+    shadow_state: ShadowStateRepository,
+    web_client: InsForgeClient,
+    row: dict[str, Any],
+    new_value: Any,
+    now: datetime,
+) -> None:
+    """T5.4 option (b) accept derived: UPDATE the web row + flip the
+    shadow row to ``matched``.
+
+    The operator types the new value at the prompt; the CLI runs
+    ``UPDATE {table} SET {column} = %s WHERE id = %s`` against
+    the web DB and stamps the shadow row.
+
+    PR 5 limitation: the derivation engine result is not stored
+    in the shadow row by PR 4 (the schema only tracks
+    ``preserved_value``, which is NULL for ``derived``), so the
+    CLI cannot autofill the value. The operator types it. PR 6
+    is expected to add a ``derived_value`` column to
+    ``web_only_feature_shadow`` so the CLI can autofill; for
+    PR 5 the prompt is open.
+    """
+    table_name = row["table_name"]
+    web_column = row["web_column"]
+    web_pk = row.get("web_pk")
+    if not web_pk:
+        raise ValueError(f"accept derived: shadow row has no web_pk ({row!r}); cannot UPDATE")
+    if not _SAFE_IDENTIFIER.match(table_name):
+        raise ValueError(f"accept derived: unsafe table_name {table_name!r}")
+    if not _SAFE_IDENTIFIER.match(web_column):
+        raise ValueError(f"accept derived: unsafe web_column {web_column!r}")
+    web_client.execute_sql(
+        f"UPDATE {table_name} SET {web_column} = %s WHERE id = %s",
+        [new_value, web_pk],
+    )
+    shadow_state.update_reconciliation_status(
+        table_name=table_name,
+        legacy_pk=row["legacy_pk"],
+        web_column=web_column,
+        status="matched",
+        review_reasons=[],
+        last_reconciled_at=now,
+    )
+
+
 # --- Public entry point --------------------------------------------------
 
 
@@ -155,12 +273,12 @@ def run_reconcile(
     prompt: _PromptReader | None = None,
     stream: IO[str] | None = None,
 ) -> int:
-    """The body of ``apap-migrate reconcile`` (PR 5/6, T5.1 slice).
+    """The body of ``apap-migrate reconcile`` (PR 5/6).
 
-    Slice 1 of 3 (this commit): ``--check-only`` lists pending
-    ``needs_review`` rows without writing. The interactive / write
-    paths and the ``--table`` / ``--since`` filters land in
-    subsequent PR 5 commits (T5.2-T5.5).
+    Implements T5.1-T5.5. The default mode (no ``--interactive``)
+    behaves like ``--check-only``: list rows, no writes (design.md
+    §7 mandates exit 0 with pending rows). ``--interactive``
+    walks each case with keep/accept/defer/quit prompts.
 
     Args:
         args: the parsed argparse namespace (carries ``--interactive``,
@@ -174,15 +292,14 @@ def run_reconcile(
             ``web_client`` (production path).
         prompt: ``_PromptReader`` (callable returning a string).
             Defaults to ``input``; tests inject a list-driven fake.
-            Unused in this slice; parameter is wired in advance so
-            the interactive slice (T5.2) does not have to touch
-            the public signature.
-        stream: the text stream for non-interactive output.
-            Defaults to ``sys.stdout``; tests inject
+        stream: the text stream for non-interactive output
+            (``--check-only`` listing, ``--interactive`` case
+            headers). Defaults to ``sys.stdout``; tests inject
             ``io.StringIO``.
 
     Returns:
-        Process exit code (0 on success). Matches design.md §7.
+        Process exit code (0 on success, non-zero on usage errors
+        and I/O failures). Matches design.md §7.
     """
     if stream is None:
         stream = sys.stdout
@@ -204,8 +321,46 @@ def run_reconcile(
     # but not wired yet; they arrive in the T5.5 slice.
     rows = shadow_state.list_needs_review(table_name=args.table, since=args.since)
 
+    if not args.interactive:
+        for row in rows:
+            stream.write(_format_row_for_check_only(row) + "\n")
+        return 0
+
+    # T5.2 --interactive: walk each case with a/b/c/q prompts.
+    now = datetime.now(UTC)
     for row in rows:
-        stream.write(_format_row_for_check_only(row) + "\n")
+        stream.write("===\n")
+        stream.write(_format_row_for_interactive(row) + "\n")
+        choice = prompt("Choice (a/b/c/q): ").strip().lower()
+        if choice == "a":
+            _apply_keep_web(shadow_state=shadow_state, row=row, now=now)
+        elif choice == "b":
+            if web_client is None:
+                sys.stderr.write(
+                    "apap-migrate reconcile: --interactive option (b) requires "
+                    "a web_client (cannot UPDATE the web table without one)\n"
+                )
+                return 5
+            new_value = prompt(f"Enter value for {row['web_column']}: ").strip()
+            _apply_accept_derived(
+                shadow_state=shadow_state,
+                web_client=web_client,
+                row=row,
+                new_value=new_value,
+                now=now,
+            )
+        elif choice == "c":
+            # T5.2 defer: no-op. The case stays ``needs_review``
+            # until the next ``--check-only``/``--interactive`` run.
+            pass
+        elif choice == "q":
+            # T5.2 quit: exit early; remaining rows stay untouched.
+            return 0
+        else:
+            # Unknown choice: skip with a warning so the operator
+            # can recover on the next case.
+            sys.stderr.write(f"apap-migrate reconcile: unknown choice {choice!r}; skipping\n")
+
     return 0
 
 
