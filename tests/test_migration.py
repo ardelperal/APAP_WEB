@@ -1234,6 +1234,126 @@ class TestReconcileTypes:
         assert summary.needs_review == 1
 
 
+# --- TestMigrationReportReconciliationSummary -----------------------------
+#
+# Slice PR 4/6 of web-only-feature-preservation (T4.6): wire
+# ``ReconciliationSummary`` onto ``MigrationReport`` so the applier
+# (MIGRATION-01 PR 5/6) can attach the reconciliation verdict bundle
+# the hook returns to the immutable migration report. The summary is
+# ``None`` by default so MIGRATION-01 PR 1–3 (which don't run the hook
+# yet) keep producing valid reports. Once the applier lands and wires
+# the hook, the field becomes ``ReconciliationSummary(...)`` populated
+# from ``ReconciliationResult.from_result()``.
+#
+# Tests verify:
+#   - The field exists on ``MigrationReport`` (default ``None``).
+#   - to_json() includes the field (serialized as ``null`` when unset).
+#   - to_markdown() emits a "## Reconciliation" section when the
+#     summary is set; omits it when ``None``.
+#   - The summary is ``frozen=True`` (the report is immutable; the
+#     summary must be too — see ``reporting.py::MigrationReport``).
+
+
+class TestMigrationReportReconciliationSummary:
+    """Tests for ``MigrationReport.reconciliation_summary`` (PR 4/6 — T4.6)."""
+
+    def test_reconciliation_summary_defaults_to_none(self) -> None:
+        """A freshly-built MigrationReport has ``reconciliation_summary=None``.
+
+        Pre-PR 4 reports (MIGRATION-01 PR 1–3) keep working because the
+        field is optional. The applier (MIGRATION-01 PR 5/6) sets it
+        after running ``post_apply_diff``.
+        """
+        report = _sample_report()
+        assert hasattr(report, "reconciliation_summary"), (
+            "MigrationReport must expose a reconciliation_summary field "
+            "(T4.6 of web-only-feature-preservation PR 4/6)"
+        )
+        assert report.reconciliation_summary is None
+
+    def test_reconciliation_summary_is_set_when_applied(self) -> None:
+        """The applier can attach a populated ``ReconciliationSummary``.
+
+        Wire-up smoke test: build a report with a non-None summary and
+        assert the field carries the count bundle without mutation
+        (``MigrationReport`` is ``frozen=True``).
+        """
+        from app.core.migration.reconcile import ReconciliationSummary
+
+        summary = ReconciliationSummary(matched=10, divergent=2, needs_review=1)
+        report = dataclasses.replace(_sample_report(), reconciliation_summary=summary)
+        assert report.reconciliation_summary is summary
+        assert report.reconciliation_summary.matched == 10
+        assert report.reconciliation_summary.divergent == 2
+        assert report.reconciliation_summary.needs_review == 1
+
+    def test_reconciliation_summary_to_json_is_serializable(self) -> None:
+        """``to_json`` includes ``reconciliation_summary`` as a JSON object.
+
+        The summary dataclass is plain (no nested datetimes) so it
+        serializes via ``asdict`` without needing the ``default``
+        encoder. ``None`` must serialize as JSON ``null`` so the field
+        stays self-describing across the wire.
+        """
+        from app.core.migration.reconcile import ReconciliationSummary
+
+        report_with = dataclasses.replace(
+            _sample_report(),
+            reconciliation_summary=ReconciliationSummary(matched=10, divergent=2, needs_review=1),
+        )
+        report_without = _sample_report()
+
+        payload_with = json.loads(report_with.to_json())
+        payload_without = json.loads(report_without.to_json())
+
+        assert "reconciliation_summary" in payload_with, (
+            "to_json() must include reconciliation_summary when set"
+        )
+        assert payload_with["reconciliation_summary"] == {
+            "matched": 10,
+            "divergent": 2,
+            "needs_review": 1,
+            "errors": [],
+        }
+        # When unset, the field serializes as JSON null (self-describing
+        # rather than omitted — keeps the schema explicit).
+        assert payload_without["reconciliation_summary"] is None
+
+    def test_reconciliation_summary_to_markdown_renders_when_set(self) -> None:
+        """``to_markdown`` emits a ``## Reconciliation`` section when the
+        summary is set, with the exact count rows.
+
+        Regression guard so the operator-facing report shows the
+        reconciliation verdict bundle next to the diff metrics.
+        """
+        from app.core.migration.reconcile import ReconciliationSummary
+
+        report = dataclasses.replace(
+            _sample_report(),
+            reconciliation_summary=ReconciliationSummary(matched=10, divergent=2, needs_review=1),
+        )
+        md = report.to_markdown()
+        assert "## Reconciliation" in md, (
+            "to_markdown() must emit a Reconciliation section when the summary is set; got: " + md
+        )
+        # Per-status rows are exact (matches the metrics table style).
+        assert "| Matched | 10 |" in md
+        assert "| Divergent | 2 |" in md
+        assert "| Needs review | 1 |" in md
+
+    def test_reconciliation_summary_to_markdown_omits_when_none(self) -> None:
+        """``to_markdown`` does NOT emit a ``## Reconciliation`` section
+        when the summary is ``None`` (MIGRATION-01 PR 1–3 reports).
+
+        Backward compat: pre-PR 4 reports don't have the field; their
+        markdown output must stay free of an empty section header.
+        """
+        report = _sample_report()
+        assert report.reconciliation_summary is None
+        md = report.to_markdown()
+        assert "## Reconciliation" not in md
+
+
 class TestCliReconcile:
     """Integration tests for the ``apap-migrate reconcile`` skeleton (PR 1).
 

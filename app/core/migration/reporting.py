@@ -12,6 +12,15 @@ tamper-evident. Si el operador quiere anotar algo post-run, crea un nuevo
 Los métodos ``to_json`` y ``to_markdown`` son la única salida pública del
 reporte: el CLI los usa para pipe a ``jq`` / ``less`` o para archivar el
 reporte como evidencia de la corrida.
+
+``MigrationReport.reconciliation_summary`` (PR 4/6 of
+``web-only-feature-preservation``): el applier de MIGRATION-01 PR 5/6 lo
+popula con el ``ReconciliationSummary`` que devuelve el hook
+``post_apply_diff`` (definido en ``app.core.migration.reconcile``). El
+campo es opcional (``None`` por default) para mantener
+backward-compat con los reportes de MIGRATION-01 PR 1–3, donde el
+hook todavía no corría. Una vez que el applier wire-up se activa en
+MIGRATION-01 PR 5/6, el reporte siempre lleva el bundle poblado.
 """
 
 from __future__ import annotations
@@ -19,7 +28,14 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass
 from datetime import datetime
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
+
+if TYPE_CHECKING:
+    # Importación solo para anotaciones — evita el ciclo
+    # ``reporting`` → ``reconcile`` → ``derivation`` → ``reporting``
+    # en import-time (los tests usan imports absolutos cuando los
+    # necesitan en runtime).
+    from app.core.migration.reconcile import ReconciliationSummary
 
 # --- Diff -----------------------------------------------------------------
 
@@ -121,6 +137,11 @@ class MigrationReport:
     conflicts: tuple[Conflict, ...] = ()
     backup_path: str | None = None
     error: str | None = None
+    # PR 4/6 (web-only-feature-preservation, T4.6): the applier wires
+    # ``post_apply_diff`` (see ``app.core.migration.reconcile``) and
+    # attaches its ``ReconciliationSummary`` here. ``None`` keeps the
+    # pre-PR-4 reports valid (MIGRATION-01 PR 1–3 never run the hook).
+    reconciliation_summary: ReconciliationSummary | None = None
 
     # --- serializers ---------------------------------------------------
 
@@ -186,6 +207,22 @@ class MigrationReport:
             lines.append("|---|---|---|")
             for c in self.conflicts:
                 lines.append(f"| {c.table} | {c.key} | {c.reason} |")
+            lines.append("")
+
+        # Reconciliation summary (PR 4/6). Emitted only when the applier
+        # attached one (i.e. the ``post_apply_diff`` hook ran). When the
+        # field is ``None`` we omit the section so MIGRATION-01 PR 1–3
+        # reports stay clean (the hook didn't exist when those runs
+        # happened).
+        if self.reconciliation_summary is not None:
+            rs = self.reconciliation_summary
+            lines.append("## Reconciliation")
+            lines.append("")
+            lines.append("| Status | Count |")
+            lines.append("|---|---|")
+            lines.append(f"| Matched | {rs.matched} |")
+            lines.append(f"| Divergent | {rs.divergent} |")
+            lines.append(f"| Needs review | {rs.needs_review} |")
             lines.append("")
 
         # Footer
