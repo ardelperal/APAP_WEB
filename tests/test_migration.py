@@ -1355,14 +1355,16 @@ class TestMigrationReportReconciliationSummary:
 
 
 class TestCliReconcile:
-    """Integration tests for the ``apap-migrate reconcile`` skeleton (PR 1).
+    """Integration tests for the ``apap-migrate reconcile`` skeleton (PR 1)
+    + the read path that PR 5 added.
 
-    The full subcommand semantics land in PR 5 (interactive prompts,
-    write paths, filters). PR 1 only guarantees that:
-
-    - ``--help`` exits 0 with the four documented flags listed.
-    - ``--check-only`` exits 0 and does NOT issue any writes against the
-      backend (no SQL goes through the InsForgeClient).
+    PR 1 only guaranteed that ``--help`` lists the four documented
+    flags and that ``--check-only`` exits 0. PR 5 fills in the read
+    path (``list_needs_review`` is now a real SELECT, no longer a
+    stub) but keeps the no-write invariant for ``--check-only``
+    (the operator must explicitly pass ``--interactive`` to issue
+    ``UPDATE`` / ``INSERT`` SQL). The full interactive / write-path
+    coverage lives in ``tests/test_migration_cli.py``.
     """
 
     def test_reconcile_help_exits_zero_and_lists_flags(self) -> None:
@@ -1375,11 +1377,16 @@ class TestCliReconcile:
         assert excinfo.value.code == 0
 
     def test_reconcile_check_only_does_not_write(self) -> None:
-        """``apap-migrate reconcile --check-only`` runs without hitting the DB.
+        """``apap-migrate reconcile --check-only`` runs end-to-end and
+        never issues a write SQL (``UPDATE`` / ``INSERT`` / ``DELETE``).
 
-        The skeleton is wired through ``main([...])``; with no shadow
-        state on a fresh repo it must exit 0 and the captured SQL list
-        must be empty (no writes against the InsForge backend).
+        PR 5 added a real read path (``ShadowStateRepository.list_needs_review``
+        issues one ``SELECT`` against ``web_only_feature_shadow``), so
+        the captured SQL list is NOT empty anymore — but it is still
+        pure-SELECT. The invariant this test guards is the no-write
+        promise: ``--check-only`` is the safe default for unattended
+        monitoring / cron jobs, and the operator must opt in to
+        ``--interactive`` to mutate the database.
         """
         from app.core.migration.cli import main as cli_main
 
@@ -1405,8 +1412,14 @@ class TestCliReconcile:
         client.close()
 
         assert rc == 0, "reconcile --check-only must exit 0 on a clean repo"
-        # Skeleton never writes — only reads, and even those are deferred to PR 5.
-        assert captured_sql == [], f"reconcile --check-only must not write; got: {captured_sql!r}"
+        # PR 5 invariant: --check-only never issues a write. The
+        # SELECT against web_only_feature_shadow is the only statement
+        # the operator should see.
+        for body in captured_sql:
+            upper = body.upper()
+            assert "INSERT" not in upper, f"--check-only must not INSERT; got: {body!r}"
+            assert "UPDATE" not in upper, f"--check-only must not UPDATE; got: {body!r}"
+            assert "DELETE" not in upper, f"--check-only must not DELETE; got: {body!r}"
 
 
 # PR 2/6 moved the derivation engine, comparator, semantic events, and

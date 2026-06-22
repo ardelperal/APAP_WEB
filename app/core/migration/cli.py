@@ -1,34 +1,49 @@
-"""CLI skeleton for ``apap-migrate reconcile``.
+"""CLI for ``apap-migrate reconcile``.
 
-PR 1 of ``web-only-feature-preservation``. This module wires the
-``reconcile`` subcommand into the existing ``app.core.migration``
-package, so the operator can already validate that the chain is
-plumbed end-to-end (``--help`` lists the four documented flags,
-``--check-only`` runs against a clean repo without writing).
+PR 1 of ``web-only-feature-preservation`` wired the parser and the
+``--help`` entry point. PR 5 fills in the body across three work
+units:
 
-PR 5 will replace the placeholder body of ``run_reconcile`` with the
-interactive prompt loop and the actual read/write paths through
-``ShadowStateRepository`` and the derivation engine.
+- T5.1 (this file) ``--check-only`` (design.md §7): list
+  ``needs_review`` rows from the shadow state in a pipe-friendly
+  ``key=value`` format on stdout. No writes are issued. Exit 0
+  even when pending rows exist (the operator must resolve them —
+  non-zero would block unattended monitoring).
+- T5.2-T5.4 ``--interactive``: walk each case with prompts
+  ``(a) keep web / (b) accept derived / (c) defer / (q) quit``.
+- T5.5 ``--table <name>`` and ``--since <ISO8601>``: forward to
+  ``ShadowStateRepository.list_needs_review``.
 
-The pattern mirrors ``app.core.migration.__main__``:
+Two testability seams are injected through ``main`` /
+``run_reconcile``:
 
-- ``build_parser()`` returns an ``argparse.ArgumentParser`` so tests
-  can probe flag handling without invoking ``sys.argv``.
-- ``main(argv, web_client=None)`` is the public entry point; the
-  ``web_client`` parameter is injectable so tests can pass an
-  ``InsForgeClient`` with ``httpx.MockTransport`` instead of touching
-  the network. ``__main__.py`` calls ``main(sys.argv[1:])`` with the
-  default ``web_client`` built from the env (``DYSFLOW_*`` /
-  ``INSFORGE_*``).
+- ``prompt``: a ``Callable[[str], str]`` that the CLI uses to read
+  the operator's choice. Production binds it to ``input``; tests
+  bind it to a list-driven fake so the suite never touches stdin.
+- ``stream``: a text stream the CLI writes its non-interactive
+  output to. Production binds it to ``sys.stdout``; tests bind
+  it to an ``io.StringIO`` and assert against ``.getvalue()``.
+
+The pattern mirrors ``app.core.migration.__main__``: the
+``ShadowStateRepository`` is built from the injected
+``InsForgeClient`` when no explicit ``shadow_state`` is provided
+(production path) so the test surface stays a single object.
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from typing import IO, Any
 
 from app.core.insforge import InsForgeClient
+from app.core.migration.shadow_state import ShadowStateRepository
+
+# Type alias for the prompt reader injected into ``run_reconcile``.
+# Production: ``input`` (read from stdin). Tests: a list-driven
+# fake that returns the next canned response.
+_PromptReader = Callable[[str], str]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -51,9 +66,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     # --- reconcile --------------------------------------------------
     #
-    # PR 1: skeleton only. Lists the 4 documented flags and exits
-    # cleanly on ``--help`` and ``--check-only``. The interactive
-    # prompt + write paths are PR 5.
+    # PR 5 fills in the body (--check-only + --interactive +
+    # --table + --since). The four flags were declared in PR 1 so
+    # ``--help`` has been listing them since the skeleton landed.
 
     reconcile = sub.add_parser(
         "reconcile",
@@ -98,34 +113,99 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+# --- Formatters ----------------------------------------------------------
+#
+# One ``key=value`` line per case for ``--check-only`` (T5.1). The
+# shadow row is the single source of truth: the CLI never recomputes
+# values, only projects the fields the operator needs to make a
+# decision. The output is grep / ``jq``-friendly: a single line
+# per case with all relevant fields. ``None`` values are rendered
+# as the literal string ``"null"`` so the output is grep-safe
+# (a missing field is distinguishable from an empty string).
+# ``preserved_value`` and ``review_reasons`` are JSON strings
+# coming from the JSONB columns; the test harness compares them
+# verbatim against the value the fake server returned.
+
+
+def _format_row_for_check_only(row: dict[str, Any]) -> str:
+    """One ``key=value`` line per shadow row (T5.1 / design.md §7)."""
+    parts: list[str] = [
+        f"table={row.get('table_name') or 'null'}",
+        f"legacy_pk={row.get('legacy_pk') or 'null'}",
+        f"web_pk={row.get('web_pk') or 'null'}",
+        f"web_column={row.get('web_column') or 'null'}",
+        f"status={row.get('reconciliation_status') or 'null'}",
+        f"strategy={row.get('strategy') or 'null'}",
+        f"web_value={row.get('preserved_value') or 'null'}",
+        f"last_legacy_snapshot_at={row.get('last_legacy_snapshot_at') or 'null'}",
+        f"last_reconciled_at={row.get('last_reconciled_at') or 'null'}",
+        f"review_reasons={row.get('review_reasons') or '[]'}",
+    ]
+    return " ".join(parts)
+
+
+# --- Public entry point --------------------------------------------------
+
+
 def run_reconcile(
     args: argparse.Namespace,
     *,
     web_client: InsForgeClient | None = None,
+    shadow_state: ShadowStateRepository | None = None,
+    prompt: _PromptReader | None = None,
+    stream: IO[str] | None = None,
 ) -> int:
-    """Skeleton body for ``apap-migrate reconcile``.
+    """The body of ``apap-migrate reconcile`` (PR 5/6, T5.1 slice).
 
-    PR 1 only guarantees that:
+    Slice 1 of 3 (this commit): ``--check-only`` lists pending
+    ``needs_review`` rows without writing. The interactive / write
+    paths and the ``--table`` / ``--since`` filters land in
+    subsequent PR 5 commits (T5.2-T5.5).
 
-    - ``--help`` (handled by argparse upstream) lists all four flags.
-    - ``--check-only`` runs against a clean repo without issuing any
-      SQL through ``web_client``.
+    Args:
+        args: the parsed argparse namespace (carries ``--interactive``,
+            ``--check-only``, ``--table``, ``--since``).
+        web_client: the InsForge REST client. Used to build the
+            ``shadow_state`` when not injected, and to run the
+            ``UPDATE {table}`` in option (b). Tests inject a
+            ``httpx.MockTransport``-backed client.
+        shadow_state: the CRUD wrapper around
+            ``web_only_feature_shadow``. When ``None``, built from
+            ``web_client`` (production path).
+        prompt: ``_PromptReader`` (callable returning a string).
+            Defaults to ``input``; tests inject a list-driven fake.
+            Unused in this slice; parameter is wired in advance so
+            the interactive slice (T5.2) does not have to touch
+            the public signature.
+        stream: the text stream for non-interactive output.
+            Defaults to ``sys.stdout``; tests inject
+            ``io.StringIO``.
 
-    The real reconciliation loop — interactive prompt, write paths,
-    derivation engine invocation — lands in PR 5. When invoked with
-    neither ``--check-only`` nor ``--interactive`` (today the only
-    mode), the skeleton just prints a placeholder and exits 0 so the
-    entry point is plumbed and ready for PR 5 to fill in.
+    Returns:
+        Process exit code (0 on success). Matches design.md §7.
     """
-    # NOTE: the interactive prompt and the write paths are PR 5's
-    # responsibility. PR 1 only wires the parser and the entry point
-    # so subsequent PRs can extend ``run_reconcile`` without touching
-    # the parser or ``__main__``.
-    sys.stderr.write(
-        "apap-migrate reconcile: skeleton listo. "
-        "Interactive prompt y write paths llegan en PR 5/6 "
-        "(openspec/changes/web-only-feature-preservation/tasks.md §PR 5).\n"
-    )
+    if stream is None:
+        stream = sys.stdout
+    if prompt is None:
+        prompt = input
+    if shadow_state is None:
+        if web_client is None:
+            sys.stderr.write(
+                "apap-migrate reconcile: requires either a web_client or a "
+                "shadow_state (got both as None)\n"
+            )
+            return 2
+        shadow_state = ShadowStateRepository(web_client)
+
+    # T5.1 --check-only: read pending rows, list to stdout, no
+    # writes. Exit 0 even with pending rows (design.md §7 — exit
+    # non-zero would block unattended monitoring). The ``--table``
+    # and ``--since`` filters are declared on the parser (PR 1)
+    # but not wired yet; they arrive in the T5.5 slice.
+    rows = shadow_state.list_needs_review(table_name=args.table, since=args.since)
+
+    for row in rows:
+        stream.write(_format_row_for_check_only(row) + "\n")
     return 0
 
 
@@ -133,6 +213,9 @@ def main(
     argv: Sequence[str] | None = None,
     *,
     web_client: InsForgeClient | None = None,
+    shadow_state: ShadowStateRepository | None = None,
+    prompt: _PromptReader | None = None,
+    stream: IO[str] | None = None,
 ) -> int:
     """Entry point for ``python -m app.core.migration``.
 
@@ -147,7 +230,13 @@ def main(
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     if args.command == "reconcile":
-        return run_reconcile(args, web_client=web_client)
+        return run_reconcile(
+            args,
+            web_client=web_client,
+            shadow_state=shadow_state,
+            prompt=prompt,
+            stream=stream,
+        )
 
     # Defensive: ``required=True`` on the subparsers means argparse
     # already rejected empty invocations; this line is unreachable
@@ -156,4 +245,8 @@ def main(
     return 2  # pragma: no cover
 
 
-__all__ = ["build_parser", "main", "run_reconcile"]
+__all__ = [
+    "build_parser",
+    "main",
+    "run_reconcile",
+]
