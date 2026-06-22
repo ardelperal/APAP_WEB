@@ -211,9 +211,20 @@ CREATE TABLE IF NOT EXISTS animal_lifecycle_events (
     legacy_source_id INTEGER,
     metadata JSONB,
     created_by UUID NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT animal_lifecycle_events_natural_key UNIQUE (animal_id, event_type, event_timestamp)
 )
 """
+# Natural-key UNIQUE on (animal_id, event_type, event_timestamp) is what
+# makes the ``animal_lifecycle_events`` INSERT idempotent: a retry of
+# the same logical event (same animal + same event_type + same
+# event_timestamp) collapses to a single row. The persister uses
+# ``INSERT ... ON CONFLICT (animal_id, event_type, event_timestamp)
+# DO NOTHING`` (PostgreSQL/InsForge syntax) so a retry apply after a
+# post-COMMIT failure does NOT create a duplicate row that would
+# double-count the transition in the animal state machine. The
+# constraint + DO NOTHING combo is the DB-level idempotence guard
+# (PR 4 follow-up, P1 #2).
 
 # --- animal_current_state (LIFECYCLE-SCHEMA-02, web-only-feature-preservation PR 1) ---
 #

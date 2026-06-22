@@ -568,6 +568,32 @@ def test_animal_lifecycle_events_event_timestamp_not_null() -> None:
     assert "event_timestamp TIMESTAMPTZ NOT NULL" in ANIMAL_LIFECYCLE_EVENTS_CREATE_TABLE_SQL
 
 
+def test_animal_lifecycle_events_natural_key_unique_constraint() -> None:
+    """UNIQUE (animal_id, event_type, event_timestamp) — natural-key
+    uniqueness enables INSERT idempotence at the DB level.
+
+    Background (PR 4 follow-up, P1 #2): the lifecycle-event persister
+    (``app/core/migration/reconcile.py::_persist_lifecycle_event``)
+    uses ``INSERT ... ON CONFLICT (animal_id, event_type,
+    event_timestamp) DO NOTHING`` so a retry apply after a post-COMMIT
+    failure does NOT create a duplicate event row. The UNIQUE
+    constraint is what makes the ``ON CONFLICT`` clause resolve to a
+    no-op rather than a constraint violation that aborts the batch.
+
+    Without this constraint, a retry would create a duplicate row that
+    the animal state machine would count as a second transition for
+    the same logical event — silent data corruption. The constraint
+    + DO NOTHING combo is the DB-level idempotence guard.
+    """
+    sql = ANIMAL_LIFECYCLE_EVENTS_CREATE_TABLE_SQL
+    assert "UNIQUE (animal_id, event_type, event_timestamp)" in sql, (
+        "animal_lifecycle_events must declare UNIQUE "
+        "(animal_id, event_type, event_timestamp) for the ON CONFLICT "
+        "DO NOTHING idempotence guard in the lifecycle-event persister; "
+        f"got SQL without it: {sql!r}"
+    )
+
+
 # --- animal_current_state (LIFECYCLE-SCHEMA-02) ---------------------------
 
 
