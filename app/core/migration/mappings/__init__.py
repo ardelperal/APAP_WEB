@@ -37,6 +37,26 @@ fk_lookups:
 - **#13487** (TDD estricto): los YAMLs están cubiertos por
   ``tests/test_migration.py::TestMappings``. Si cambia un nombre de
   columna, el test correspondiente se rompe.
+
+**Strict ``web_only_strategy`` validator (PR 3 of web-only-feature-preservation)**:
+
+A ``ColumnMapping`` with ``legacy_column=null`` MUST declare a
+``web_only_strategy`` (``preserve`` / ``fixed`` / ``derived``) UNLESS
+its transform is in the exempt list:
+
+  - ``default_uuid`` (column ``id`` PK): el web genera un UUID v4
+    mecánico, sin valor de negocio a preservar.
+  - ``default_now`` (columns ``fecha_alta`` / ``updated_at``): el web
+    estampa ``utcnow()``, sin dato legacy del que derivar.
+  - ``fk_lookup`` (cross-table FKs): el valor se resuelve vía
+    ``sync_state.json`` (legacy_id ↔ web_uuid), no vía shadow-state.
+    Declarar ``web_only_strategy`` aquí sería un mecanismo duplicado.
+
+Cualquier columna con ``legacy_column=null`` y ``transform`` en
+``{identity, currency_to_numeric, double_to_numeric, default_true}``
+que omita ``web_only_strategy`` falla con ``ValidationError`` al cargar
+el YAML — el caller mapea esa excepción a ``EXIT_CODE_YAML_VALIDATION_ERROR``
+(4) ANTES de cualquier I/O (regla del design §1.5).
 """
 
 from __future__ import annotations
@@ -53,6 +73,34 @@ from app.core.migration import MappingNotFoundError
 # que funcione tanto en editable install (``pip install -e .``) como en
 # wheel instalado en producción.
 MAPPINGS_DIR = Path(__file__).parent
+
+#: Transforms whose ``legacy_column=null`` columns are EXEMPT from the
+#: strict ``web_only_strategy`` requirement. See module docstring for
+#: the rationale per transform.
+#:
+#: - ``default_uuid``: PK generada por la web (UUID v4) — sin valor legacy.
+#: - ``default_now``: timestamp web (``fecha_alta``/``updated_at``).
+#: - ``fk_lookup``: cross-table FK resuelto vía ``sync_state.json``.
+#:
+#: Adding a new transform here means "this column never carries a
+#: business value that needs preservation". Do NOT add ``default_true``
+#: (the ``activo`` soft-delete flag IS a business decision — the web
+#: owns it, so the shadow-state repository needs ``fixed``).
+_STRATEGY_EXEMPT_TRANSFORMS: frozenset[str] = frozenset(
+    {"default_uuid", "default_now", "fk_lookup"}
+)
+
+#: Exit code convention for YAML / config validation errors.
+#:
+#: The CLI / applier maps a ``ValidationError`` raised from
+#: :func:`load_mapping` to this exit code BEFORE any I/O (design §1.5
+#: table of error handling: "YAML/config error → código 4").
+#:
+#: Exposed as a module constant so callers do not redeclare the magic
+#: number. The ``apap-migrate reconcile`` subcommand and the applier
+#: both import this constant; PR 5 wires ``run_reconcile`` to use it
+#: when a YAML fails to load.
+EXIT_CODE_YAML_VALIDATION_ERROR: int = 4
 
 # --- Modelos pydantic ----------------------------------------------------
 
@@ -118,17 +166,66 @@ class ColumnMapping(BaseModel):
     def _reject_invalid_strategy(self) -> ColumnMapping:
         """Reject ``web_only_strategy`` values outside the documented enum.
 
-        Catches typos (``"preserved"``, ``"auto"``) at YAML-load time so
-        the operator never reaches the applier with a strategy the
-        derivation engine cannot interpret. The ``None`` value is
-        accepted unconditionally in PR 1; PR 3 tightens this to require
-        a strategy whenever ``legacy_column is None``.
+        Catches typos (``"preserved"``, ``"auto"``, ``"magic"``) at
+        YAML-load time so the operator never reaches the applier with a
+        strategy the derivation engine cannot interpret. The ``None``
+        value passes this check unconditionally; the strict
+        ``legacy_column=null → strategy required`` rule lives in
+        :meth:`_require_strategy_for_web_only` (declared right after
+        this method so both ``mode="after"`` validators run in order).
         """
         valid = {"preserve", "fixed", "derived"}
         if self.web_only_strategy is not None and self.web_only_strategy not in valid:
             raise ValueError(
                 f"{self.web_column}: web_only_strategy={self.web_only_strategy!r} "
                 f"is not one of {sorted(valid)}"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _require_strategy_for_web_only(self) -> ColumnMapping:
+        """Strict validator activated in PR 3: a web-only column
+        (``legacy_column is None``) MUST declare a
+        ``web_only_strategy`` UNLESS its transform is in the exempt
+        list ``_STRATEGY_EXEMPT_TRANSFORMS``.
+
+        Exempt transforms (rationale per transform in the module
+        docstring + the constant definition):
+
+          - ``default_uuid``: UUID mecánico de la PK ``id``.
+          - ``default_now``: timestamps web (``fecha_alta``/``updated_at``).
+          - ``fk_lookup``: FKs cross-table resueltos vía ``sync_state.json``.
+
+        Non-exempt transforms (``identity``, ``currency_to_numeric``,
+        ``double_to_numeric``, ``default_true``) carry business value
+        and MUST declare a strategy so the shadow-state repository and
+        the derivation engine know how to round-trip them. ``activo``
+        (``default_true``) is the canonical example: the web owns the
+        soft-delete decision, so the repository needs
+        ``web_only_strategy="fixed"`` to know it must NOT try to
+        reconcile the value with legacy.
+
+        Failure mode: the validator raises ``ValueError``, which
+        pydantic wraps in ``ValidationError``. :func:`load_mapping`
+        propagates it; the CLI / applier maps it to exit code
+        ``EXIT_CODE_YAML_VALIDATION_ERROR`` (4) BEFORE any I/O.
+
+        See tasks.md 3.2, spec.md "Columna sin web_only_strategy con
+        legacy_column=null aborta" and design.md §9.
+        """
+        if self.legacy_column is not None:
+            # Column has a legacy source — web-only preservation does
+            # not apply, so the strategy is irrelevant (and ``None``).
+            return self
+        if self.transform in _STRATEGY_EXEMPT_TRANSFORMS:
+            # Exempt: auto-generated web value or cross-table FK.
+            return self
+        if self.web_only_strategy is None:
+            raise ValueError(
+                f"{self.web_column}: web_only_strategy is required when "
+                f"legacy_column=null (transform={self.transform!r}). "
+                f"Declare one of preserve, fixed, derived. "
+                f"See design.md §9 (YAML: web_only_strategy)."
             )
         return self
 
@@ -232,6 +329,7 @@ def list_available_tables() -> list[str]:
 
 __all__ = [
     "ColumnMapping",
+    "EXIT_CODE_YAML_VALIDATION_ERROR",
     "FkLookup",
     "MAPPINGS_DIR",
     "TableMapping",

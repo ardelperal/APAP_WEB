@@ -50,9 +50,16 @@ columns:
   # la web. legacy_column=null le dice al applier: en sentido
   # web→legacy, no incluir en la query (regla #13454 v2: schema web
   # libre, no se fuerzan renames al legacy).
+  #
+  # Estrategia web_only (PR 3 / web-only-feature-preservation §3.4):
+  #   - id:           transform=default_uuid  → EXENTA (UUID mecánico)
+  #   - fecha_alta:   transform=default_now    → EXENTA (timestamp web)
+  #   - updated_at:   transform=default_now    → EXENTA (timestamp web)
+  #   - activo:       strategy=fixed            (web owns el soft-delete;
+  #                                              shadow-state NO lo reconcilia)
   - { web_column: id, transform: default_uuid, nullable: false }
   - { web_column: fecha_alta, transform: default_now, nullable: false }
   - { web_column: updated_at, transform: default_now, nullable: false }
-  - { web_column: activo, transform: default_true, nullable: false }
+  - { web_column: activo, transform: default_true, nullable: false, web_only_strategy: fixed }
 
 fk_lookups: []
