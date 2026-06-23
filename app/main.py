@@ -37,6 +37,7 @@ from app.core.auth import (
 from app.core.auth_dependencies import (
     get_current_user_optional,
     require_authorized_user,
+    return_early_if_response,
 )
 from app.core.auth_dependencies import (
     get_insforge_client_dep as get_insforge_client,
@@ -279,7 +280,7 @@ def create_app() -> FastAPI:
     @application.get("/admin", response_class=HTMLResponse)
     def admin(
         request: Request,
-        current_user: dict = Depends(require_authorized_user),
+        current_user: Response | dict = Depends(require_authorized_user),
         client: InsForgeClient = Depends(get_insforge_client),
     ):
         """Developer-only user management panel.
@@ -291,6 +292,8 @@ def create_app() -> FastAPI:
         desactivado por otro developer no podia seguir entrando con su
         cookie vieja.
         """
+        if (early := return_early_if_response(current_user)) is not None:
+            return early
         if current_user.get("rol") != "developer":
             return _redirect("/unauthorized")
         users = list_authorized_users(client)
@@ -308,10 +311,12 @@ def create_app() -> FastAPI:
     @application.post("/admin/users")
     async def admin_add_user(
         request: Request,
-        current_user: dict = Depends(require_authorized_user),
+        current_user: Response | dict = Depends(require_authorized_user),
         client: InsForgeClient = Depends(get_insforge_client),
     ) -> Response:
         """Add a new authorized user. Developer only."""
+        if (early := return_early_if_response(current_user)) is not None:
+            return early
         if current_user.get("rol") != "developer":
             return _redirect("/unauthorized")
         form = await request.form()
@@ -333,10 +338,12 @@ def create_app() -> FastAPI:
     @application.post("/admin/users/{user_id}/deactivate")
     def admin_deactivate_user(
         user_id: str,
-        current_user: dict = Depends(require_authorized_user),
+        current_user: Response | dict = Depends(require_authorized_user),
         client: InsForgeClient = Depends(get_insforge_client),
     ) -> Response:
         """Deactivate an authorized user. Developer only."""
+        if (early := return_early_if_response(current_user)) is not None:
+            return early
         if current_user.get("rol") != "developer":
             return _redirect("/unauthorized")
         deactivate_authorized_user(client, user_id)
