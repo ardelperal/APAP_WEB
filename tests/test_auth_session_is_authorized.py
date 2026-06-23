@@ -44,7 +44,7 @@ from unittest.mock import MagicMock
 
 import httpx
 import pytest
-from fastapi import HTTPException
+from fastapi.responses import RedirectResponse
 
 from app.core.insforge import InsForgeClient
 from app.core.session import session_cookie_name, write_session
@@ -146,12 +146,14 @@ async def test_callback_escribe_is_authorized_en_sesion(
 # --- require_authorized_user: contrato de la dependencia -----------------
 
 
-def _invoke_require(payload: dict[str, Any] | None) -> dict:
+def _invoke_require(payload: dict[str, Any] | None) -> RedirectResponse | dict:
     """Invoca ``require_authorized_user`` como funcion pura con el payload
     ya resuelto (sin pasar por el sistema de Depends de FastAPI).
 
-    Devuelve el payload si la dependencia lo acepta; deja propagar la
-    HTTPException si lo rechaza.
+    Devuelve el payload si la dependencia lo acepta; devuelve un
+    ``RedirectResponse`` (no raise) si lo rechaza. Esta es la regla 7
+    del code quality: los redirects no son exceptions — son control
+    flow via ``Response``, no errores HTTP.
     """
     # ``request`` no se usa cuando el payload ya viene resuelto; pasamos
     # un MagicMock solo para satisfacer la firma.
@@ -159,24 +161,26 @@ def _invoke_require(payload: dict[str, Any] | None) -> dict:
 
 
 def test_require_authorized_user_rechaza_sesion_con_is_authorized_false() -> None:
-    """Una sesion con ``is_authorized=False`` levanta HTTPException 302 a /unauthorized.
+    """Una sesion con ``is_authorized=False`` redirige a /unauthorized (302).
 
     Cubre el caso post-fix: un developer desactiva al usuario via
     /admin/users/{id}/deactivate y la siguiente peticion a una ruta
-    protegida (p.ej. /animales) ya no debe pasar.
+    protegida (p.ej. /animales) ya no debe pasar. La dep devuelve un
+    ``RedirectResponse`` (no raise) — la guarda de auth es control de
+    flujo, no un error HTTP.
     """
-    with pytest.raises(HTTPException) as exc_info:
-        _invoke_require(
-            {
-                "email": "u@example.com",
-                "rol": "key_user",
-                "user_id": "u-1",
-                "is_authorized": False,
-            }
-        )
+    result = _invoke_require(
+        {
+            "email": "u@example.com",
+            "rol": "key_user",
+            "user_id": "u-1",
+            "is_authorized": False,
+        }
+    )
 
-    assert exc_info.value.status_code == 302
-    assert exc_info.value.headers["location"] == "/unauthorized"
+    assert isinstance(result, RedirectResponse)
+    assert result.status_code == 302
+    assert result.headers["location"] == "/unauthorized"
 
 
 def test_require_authorized_user_acepta_sesion_con_is_authorized_true() -> None:
@@ -192,14 +196,14 @@ def test_require_authorized_user_acepta_sesion_con_is_authorized_true() -> None:
 
 
 def test_require_authorized_user_rechaza_sesion_ausente() -> None:
-    """Una sesion ausente (cookie sin firma o sin cookie) levanta 302 a /login.
+    """Una sesion ausente (cookie sin firma o sin cookie) redirige a /login (302).
 
     No es la guarda de ``is_authorized``: es la guarda anterior, que
     existe desde la primera version y se mantiene. La cubrimos para
     dejar claro que ``is_authorized`` no es el unico gate.
     """
-    with pytest.raises(HTTPException) as exc_info:
-        _invoke_require(None)
+    result = _invoke_require(None)
 
-    assert exc_info.value.status_code == 302
-    assert exc_info.value.headers["location"] == "/login"
+    assert isinstance(result, RedirectResponse)
+    assert result.status_code == 302
+    assert result.headers["location"] == "/login"

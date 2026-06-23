@@ -18,11 +18,17 @@ de la code review VOL-01). El default ``True`` en
 ``payload.get(\"is_authorized\", True)`` se mantiene por compatibilidad
 con sesiones emitidas antes del fix; el fix vive en escribir el flag
 en ``/auth/callback``, no en cambiar el default.
+
+Regla 7 del code quality: los redirects no son exceptions. La guarda
+devuelve un ``RedirectResponse`` en lugar de raise ``HTTPException`` —
+es control de flujo, no un error HTTP.
 """
 
 from __future__ import annotations
 
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, Request
+from fastapi.responses import RedirectResponse
+from starlette.responses import Response
 
 from app.core.config import get_settings
 from app.core.insforge import InsForgeClient
@@ -72,27 +78,55 @@ def get_current_user_optional(request: Request) -> dict | None:
     return read_session(token, secret=settings.session_secret)
 
 
+def return_early_if_response(value: object) -> Response | None:
+    """Helper regla 7: si ``value`` es un ``Response`` (redirect), lo retorna.
+
+    Los handlers que usan :func:`require_authorized_user` reciben un
+    ``Response | dict``. Si la dep devolvio un ``RedirectResponse`` (no
+    hay sesion, o ``is_authorized=False``), el handler DEBE retornar
+    ese response al cliente sin tocar la logica de negocio:
+
+    .. code-block:: python
+
+        def handler(
+            current_user: Response | dict = Depends(require_authorized_user),
+        ):
+            if (early := return_early_if_response(current_user)) is not None:
+                return early
+            # current_user es dict; logica de negocio.
+
+    Sin este check, ``current_user.get(...)`` falla con ``AttributeError``
+    porque un ``RedirectResponse`` no tiene ``.get``.
+    """
+    if isinstance(value, Response):
+        return value
+    return None
+
+
 def require_authorized_user(
     request: Request,
     payload: dict | None = Depends(get_current_user_optional),
-) -> dict:
+) -> Response | dict:
     """Dependencia de FastAPI: exige una sesion con ``is_authorized=True``.
 
     Comportamiento:
 
-    - Si no hay sesion, levanta ``HTTPException`` 302 con ``Location: /login``.
+    - Si no hay sesion, devuelve ``RedirectResponse`` 302 a ``/login``.
     - Si la sesion no tiene ``is_authorized=True`` (e.g. un developer
       desactivo al usuario via ``/admin/users/{id}/deactivate`` despues
-      de emitir la cookie), levanta ``HTTPException`` 302 con
-      ``Location: /unauthorized``.
+      de emitir la cookie), devuelve ``RedirectResponse`` 302 a
+      ``/unauthorized``.
     - Si todo OK, devuelve el payload de la sesion al handler.
+
+    Regla 7 del code quality: los redirects no son exceptions. La dep
+    devuelve un ``Response`` (no raise ``HTTPException``, que esta
+    reservada para errores HTTP reales). FastAPI entrega el
+    ``Response`` al cliente sin invocar al handler — pero el handler
+    todavia recibe el valor de retorno y DEBE chequear
+    ``isinstance(user, Response)`` antes de tratarlo como dict.
     """
     if not payload:
-        raise HTTPException(
-            status_code=status.HTTP_302_FOUND, headers={"location": "/login"}
-        )
+        return RedirectResponse(url="/login", status_code=302)
     if not payload.get("is_authorized", True):
-        raise HTTPException(
-            status_code=status.HTTP_302_FOUND, headers={"location": "/unauthorized"}
-        )
+        return RedirectResponse(url="/unauthorized", status_code=302)
     return payload

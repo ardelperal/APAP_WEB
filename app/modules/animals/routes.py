@@ -24,10 +24,12 @@ from typing import Any
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from starlette.responses import Response
 
 from app.core.auth_dependencies import (
     get_insforge_client_dep,
     require_authorized_user,
+    return_early_if_response,
 )
 from app.core.insforge import InsForgeClient, InsForgeError
 from app.modules.animals import service as animals_service
@@ -98,10 +100,12 @@ def _form_data_to_params(form: dict[str, Any]) -> dict[str, Any]:
 @router.get("", response_class=HTMLResponse)
 def list_animales(
     request: Request,
-    user: dict = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Lista de animales activos, mas recientes primero."""
+    if (early := return_early_if_response(user)) is not None:
+        return early
     animales = animals_service.list_animals(client)
     return _templates.TemplateResponse(
         request=request,
@@ -116,9 +120,11 @@ def list_animales(
 @router.get("/new", response_class=HTMLResponse)
 def new_animal_form(
     request: Request,
-    user: dict = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_authorized_user),
 ):
     """Formulario vacio para dar de alta un animal."""
+    if (early := return_early_if_response(user)) is not None:
+        return early
     return _templates.TemplateResponse(
         request=request,
         name="animales/form.html",
@@ -162,10 +168,12 @@ def create_animal_view(
     EutanasiaEnfermedad: str | None = Form(None),
     UltimoEstadoAntesDeFallecido: str | None = Form(None),
     ComunicacionARIAC: str | None = Form(None),
-    user: dict = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Procesa el submit del formulario. En exito, redirect al detalle."""
+    if (early := return_early_if_response(user)) is not None:
+        return early
     form_data: dict[str, Any] = _form_data_to_params({
         "NCHIP": NCHIP, "NombreAnimal": NombreAnimal, "Especie": Especie,
         "Sexo": Sexo, "FNacimiento": FNacimiento, "TraeNChip": TraeNChip,
@@ -223,10 +231,12 @@ def create_animal_view(
 def animal_detail(
     animal_id: str,
     request: Request,
-    user: dict = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Detalle de un animal. 404 si no existe."""
+    if (early := return_early_if_response(user)) is not None:
+        return early
     animal = animals_service.get_animal_by_id(client, animal_id)
     if animal is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
@@ -244,10 +254,12 @@ def animal_detail(
 def edit_animal_form(
     animal_id: str,
     request: Request,
-    user: dict = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Formulario prellenado para editar un animal."""
+    if (early := return_early_if_response(user)) is not None:
+        return early
     animal = animals_service.get_animal_by_id(client, animal_id)
     if animal is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
@@ -295,7 +307,7 @@ def update_animal_view(
     EutanasiaEnfermedad: str | None = Form(None),
     UltimoEstadoAntesDeFallecido: str | None = Form(None),
     ComunicacionARIAC: str | None = Form(None),
-    user: dict = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Procesa el submit de edicion. Redirect al detalle en exito.
@@ -304,6 +316,8 @@ def update_animal_view(
     ``animals_service.update_animal``; el handler queda como capa fina
     que solo traduce ``ValueError`` -> 422 y exito -> redirect 303.
     """
+    if (early := return_early_if_response(user)) is not None:
+        return early
     form_data = _form_data_to_params({
         "NCHIP": NCHIP, "NombreAnimal": NombreAnimal, "Especie": Especie,
         "Sexo": Sexo, "FNacimiento": FNacimiento, "TraeNChip": TraeNChip,
@@ -344,7 +358,7 @@ def update_animal_view(
 def delete_animal_view(
     animal_id: str,
     request: Request,
-    user: dict = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Soft-delete via ``animals_service.delete_animal``. Redirect a la lista.
@@ -354,6 +368,8 @@ def delete_animal_view(
     handler responde 404. Asi evitamos el patron anterior (SELECT
     previo + UPDATE) y cerramos el problema #1 del code review externo.
     """
+    if (early := return_early_if_response(user)) is not None:
+        return early
     if not animals_service.delete_animal(client, animal_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     return RedirectResponse(

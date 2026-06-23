@@ -22,10 +22,12 @@ from typing import Any
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from starlette.responses import Response
 
 from app.core.auth_dependencies import (
     get_insforge_client_dep,
     require_authorized_user,
+    return_early_if_response,
 )
 from app.core.insforge import InsForgeClient, InsForgeError
 from app.modules.voluntarios import service as voluntarios_service
@@ -59,10 +61,12 @@ def _form_data_to_params(form: dict[str, Any]) -> dict[str, Any]:
 @router.get("", response_class=HTMLResponse)
 def list_voluntarios_view(
     request: Request,
-    user: dict = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Lista de voluntarios activos, ordenados alfabeticamente."""
+    if (early := return_early_if_response(user)) is not None:
+        return early
     voluntarios = voluntarios_service.list_voluntarios(client)
     return _templates.TemplateResponse(
         request=request,
@@ -77,9 +81,11 @@ def list_voluntarios_view(
 @router.get("/new", response_class=HTMLResponse)
 def new_voluntario_form(
     request: Request,
-    user: dict = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_authorized_user),
 ):
     """Formulario vacio para dar de alta un voluntario."""
+    if (early := return_early_if_response(user)) is not None:
+        return early
     return _templates.TemplateResponse(
         request=request,
         name="voluntarios/form.html",
@@ -102,10 +108,12 @@ def create_voluntario_view(
     Tel2: str | None = Form(None),
     Email: str | None = Form(None),
     DNI: str | None = Form(None),
-    user: dict = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Procesa el submit del formulario. En exito, redirect al detalle."""
+    if (early := return_early_if_response(user)) is not None:
+        return early
     form_data = _form_data_to_params({
         "Voluntario": Voluntario, "Tel1": Tel1, "Tel2": Tel2,
         "Email": Email, "DNI": DNI,
@@ -146,10 +154,12 @@ def create_voluntario_view(
 def voluntario_detail(
     voluntario_id: str,
     request: Request,
-    user: dict = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Detalle de un voluntario. 404 si no existe."""
+    if (early := return_early_if_response(user)) is not None:
+        return early
     voluntario = voluntarios_service.get_voluntario_by_id(client, voluntario_id)
     if voluntario is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
@@ -168,10 +178,12 @@ def voluntario_detail(
 def deactivate_voluntario_view(
     voluntario_id: str,
     request: Request,
-    user: dict = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Soft-delete: marca activo=false. Redirect a la lista."""
+    if (early := return_early_if_response(user)) is not None:
+        return early
     if voluntarios_service.get_voluntario_by_id(client, voluntario_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     client.execute_sql(
