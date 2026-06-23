@@ -204,11 +204,14 @@ def _row_to_animal(row: dict[str, Any]) -> Animal:
     )
 
 
-def _validate_create_params(params: dict[str, Any]) -> None:
-    """Valida los campos provistos antes de cualquier SQL.
+def _validate_required_fields(params: dict[str, Any]) -> None:
+    """Valida los campos requeridos antes de cualquier SQL (compartido create/update).
 
     Levanta ``ValueError`` con mensaje accionable si algo falta o esta
-    fuera de dominio. NO toca la DB.
+    fuera de dominio. NO toca la DB. Reutilizado por ``create_animal``
+    y ``update_animal`` para mantener una unica fuente de verdad de la
+    validacion de dominio de los animales (cierra el problema #4 del
+    code review externo: validacion duplicada routes<->service).
     """
     NCHIP = (params.get("NCHIP") or "").strip()
     if not NCHIP:
@@ -259,6 +262,28 @@ WHERE id = $1
 """
 
 
+# Columnas que se actualizan en UPDATE (excluye PK id, created_at
+# fecha_alta y activo: id nunca cambia, fecha_alta es la fecha de
+# creacion y activo se maneja por separado en ``delete_animal``).
+_UPDATE_COLUMNS = _INSERT_COLUMNS
+
+_UPDATE_ANIMAL_SQL = (
+    "UPDATE animales SET "
+    + ", ".join(f"{col} = ${i+2}" for i, col in enumerate(_UPDATE_COLUMNS))
+    + ", updated_at = now() "
+    + "WHERE id = $1 "
+    + "RETURNING " + ", ".join(_SELECT_COLUMNS)
+)
+
+_DELETE_ANIMAL_SQL = """
+UPDATE animales
+SET activo = false,
+    updated_at = now()
+WHERE id = $1
+RETURNING id, activo
+"""
+
+
 def _build_insert_params(params: dict[str, Any]) -> list[Any]:
     """Construye la lista de parametros en el orden de ``_INSERT_COLUMNS``."""
     return [
@@ -289,6 +314,11 @@ def _build_insert_params(params: dict[str, Any]) -> list[Any]:
     ]
 
 
+def _build_update_params(params: dict[str, Any]) -> list[Any]:
+    """Parametros en el orden de ``_UPDATE_COLUMNS`` (id va en posicion 0)."""
+    return [params.get(col) for col in _UPDATE_COLUMNS]
+
+
 def create_animal(client: InsForgeClient, params: dict[str, Any]) -> Animal:
     """Inserta un animal. Levanta ``ValueError`` si los datos son invalidos.
 
@@ -296,7 +326,7 @@ def create_animal(client: InsForgeClient, params: dict[str, Any]) -> Animal:
     el ``InsForgeError`` resultante se propaga sin cambios para que la
     ruta lo traduzca a 409.
     """
-    _validate_create_params(params)
+    _validate_required_fields(params)
 
     rows = client.execute_sql(_INSERT_ANIMAL_SQL, _build_insert_params(params))
     return _row_to_animal(rows[0])
@@ -312,3 +342,37 @@ def get_animal_by_id(client: InsForgeClient, animal_id: str) -> Animal | None:
     """Devuelve el animal con este id (activo o inactivo), o ``None``."""
     rows = client.execute_sql(_GET_ANIMAL_BY_ID_SQL, [animal_id])
     return _row_to_animal(rows[0]) if rows else None
+
+
+def update_animal(
+    client: InsForgeClient,
+    animal_id: str,
+    params: dict[str, Any],
+) -> Animal | None:
+    """Actualiza un animal existente y devuelve la fila actualizada.
+
+    Levanta ``ValueError`` (via :func:`_validate_required_fields`) si
+    los campos requeridos son invalidos; el service NO toca la DB en
+    ese caso. Devuelve ``None`` si el id no existe (``UPDATE … RETURNING``
+    con 0 filas). La columna ``updated_at`` la setea la propia SQL con
+    ``now()`` para no depender del reloj del cliente.
+    """
+    _validate_required_fields(params)
+
+    rows = client.execute_sql(
+        _UPDATE_ANIMAL_SQL,
+        [animal_id, *_build_update_params(params)],
+    )
+    return _row_to_animal(rows[0]) if rows else None
+
+
+def delete_animal(client: InsForgeClient, animal_id: str) -> bool:
+    """Soft-delete: marca ``activo = false``. Devuelve True si la fila existio.
+
+    Implementado como ``UPDATE … RETURNING id`` para que la condicion
+    de existencia quede embebida en la propia SQL (no hay SELECT
+    previo redundante). Devuelve ``False`` si la fila no existia (0
+    filas en el RETURNING).
+    """
+    rows = client.execute_sql(_DELETE_ANIMAL_SQL, [animal_id])
+    return bool(rows)

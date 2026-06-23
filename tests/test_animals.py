@@ -6,8 +6,10 @@ animales. Lo ejercitamos con un ``InsForgeClient`` real conectado a
 
 El contrato es: ``create_animal`` valida campos antes de SQL y devuelve
 ``Animal``; ``list_animals`` devuelve activos ordenados por fecha_alta
-DESC; ``get_animal_by_id`` devuelve el animal o ``None``. NCHIP
-duplicado propaga el ``InsForgeError`` de InsForge sin cambios.
+DESC; ``get_animal_by_id`` devuelve el animal o ``None``; ``update_animal``
+hace ``UPDATE … WHERE id = $1 RETURNING …`` con la misma validacion
+que create y ``delete_animal`` hace soft-delete (``activo = false``).
+NCHIP duplicado propaga el ``InsForgeError`` de InsForge sin cambios.
 """
 
 from __future__ import annotations
@@ -23,8 +25,10 @@ from app.modules.animals.service import (
     Especie,
     Sexo,
     create_animal,
+    delete_animal,
     get_animal_by_id,
     list_animals,
+    update_animal,
 )
 
 # --- helpers --------------------------------------------------------------
@@ -350,3 +354,192 @@ def test_get_animal_by_id_devuelve_None_si_no_existe() -> None:
     client.close()
 
     assert result is None
+
+
+# --- update_animal (code-quality-fixes T3.1) ------------------------------
+#
+# El handler de update delega en ``update_animal`` con la misma
+# validacion que ``create_animal`` (reutilizando
+# ``_validate_required_fields``), ejecuta un UPDATE con RETURNING para
+# traer la fila actualizada y toca ``updated_at = now()``. El id es
+# el primer parametro del WHERE; el resto de los params siguen el orden
+# de ``_UPDATE_COLUMNS``.
+
+
+def test_update_animal_ejecuta_update_con_returning_y_devuelve_fila() -> None:
+    """``update_animal`` ejecuta UPDATE … WHERE id = $1 RETURNING … y devuelve ``Animal``."""
+    returned = {
+        "id": "abc-123",
+        "NCHIP": "985112004409871",
+        "NombreAnimal": "Luna Editada",
+        "Especie": "CANINA",
+        "Sexo": "H",
+        "FNacimiento": "2023-04-12",
+        "activo": True,
+        "updated_at": "2026-06-23T12:00:00Z",
+    }
+
+    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
+        return _json_response(200, [returned])
+
+    client, captured = _client_recording(_handler)
+    result = update_animal(client, "abc-123", _params_minimal())
+    client.close()
+
+    assert result is not None
+    assert result.id == "abc-123"
+    assert result.NombreAnimal == "Luna Editada"
+    assert result.updated_at == "2026-06-23T12:00:00Z"
+
+    assert len(captured) == 1
+    query = captured[0]["query"]
+    assert "UPDATE animales SET" in query
+    assert "updated_at = now()" in query
+    assert "WHERE id = $1" in query
+    assert "RETURNING" in query
+
+    params = captured[0]["params"]
+    assert params[0] == "abc-123", "id debe ser el primer parametro (WHERE)"
+    assert params[1] == "985112004409871", "NCHIP es el segundo parametro"
+    assert params[2] == "Luna"
+
+
+def test_update_animal_incluye_todas_las_columnas_en_el_set_clause() -> None:
+    """El SET incluye los 24 campos del form + updated_at = now()."""
+    returned = {
+        "id": "abc",
+        "NCHIP": "1",
+        "NombreAnimal": "X",
+        "Especie": "CANINA",
+        "Sexo": "M",
+        "FNacimiento": "2020-01-01",
+        "activo": True,
+    }
+
+    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
+        return _json_response(200, [returned])
+
+    client, captured = _client_recording(_handler)
+    update_animal(
+        client,
+        "abc",
+        {
+            **_params_minimal(),
+            "Raza": "Mestizo",
+            "Color": "Negro",
+            "Terapia": "Si",
+        },
+    )
+    client.close()
+
+    query = captured[0]["query"]
+    for col in (
+        "NCHIP", "NombreAnimal", "Especie", "Sexo", "FNacimiento",
+        "TraeNChip", "FIMPLANTACIONCHIP", "Raza", "Color", "Pelo", "Tamano",
+        "Caracter", "FDefuncion", "Terapia", "Observaciones", "NombreFoto",
+        "Cartilla", "Eutanasia", "RazaPPP", "Mestizo", "EutanasiaOtrasCausas",
+        "EutanasiaEnfermedad", "UltimoEstadoAntesDeFallecido", "ComunicacionARIAC",
+    ):
+        assert col in query, f"falta columna {col} en el SET"
+    # updated_at es la columna derivada (se setea con now() en SQL).
+    assert "updated_at = now()" in query
+
+
+def test_update_animal_rechaza_NCHIP_vacio_sin_tocar_sql() -> None:
+    """Misma validacion que create: NCHIP vacio levanta ValueError y no emite SQL."""
+    client, captured = _client_recording(lambda req, body: _json_response(200, []))
+
+    with pytest.raises(ValueError, match="NCHIP"):
+        update_animal(client, "abc-123", {**_params_minimal(), "NCHIP": "   "})
+    client.close()
+
+    assert captured == [], "no se debe emitir SQL si la validacion falla"
+
+
+def test_update_animal_rechaza_Especie_invalida_sin_tocar_sql() -> None:
+    client, captured = _client_recording(lambda req, body: _json_response(200, []))
+
+    with pytest.raises(ValueError, match="Especie"):
+        update_animal(client, "abc-123", {**_params_minimal(), "Especie": "REPTIL"})
+    client.close()
+
+    assert captured == []
+
+
+def test_update_animal_devuelve_None_si_el_id_no_existe() -> None:
+    """``UPDATE … RETURNING`` con 0 filas: el service devuelve ``None``."""
+
+    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
+        return _json_response(200, [])
+
+    client, captured = _client_recording(_handler)
+    result = update_animal(client, "no-such-id", _params_minimal())
+    client.close()
+
+    assert result is None
+    assert len(captured) == 1
+    assert captured[0]["params"][0] == "no-such-id"
+
+
+# --- delete_animal (code-quality-fixes T3.2) ------------------------------
+
+
+def test_delete_animal_soft_delete_con_id_existente_devuelve_True() -> None:
+    """``delete_animal`` ejecuta UPDATE … activo=false y devuelve True si la fila existio."""
+    returned = {
+        "id": "abc-123",
+        "NCHIP": "1",
+        "NombreAnimal": "Luna",
+        "Especie": "CANINA",
+        "Sexo": "H",
+        "FNacimiento": "2023-04-12",
+        "activo": False,
+    }
+
+    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
+        return _json_response(200, [returned])
+
+    client, captured = _client_recording(_handler)
+    result = delete_animal(client, "abc-123")
+    client.close()
+
+    assert result is True
+    assert len(captured) == 1
+    query = captured[0]["query"]
+    assert "UPDATE animales" in query
+    assert "SET activo = false" in query
+    assert "updated_at = now()" in query
+    assert "WHERE id = $1" in query
+    assert captured[0]["params"] == ["abc-123"]
+
+
+def test_delete_animal_devuelve_False_si_el_id_no_existe() -> None:
+    """``delete_animal`` con 0 filas afectadas devuelve False (no propaga error)."""
+
+    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
+        return _json_response(200, [])
+
+    client, captured = _client_recording(_handler)
+    result = delete_animal(client, "no-such-id")
+    client.close()
+
+    assert result is False
+    assert len(captured) == 1
+    assert captured[0]["params"] == ["no-such-id"]
+
+
+def test_delete_animal_no_emite_sql_extra_cuando_es_True() -> None:
+    """Triangulacion: el happy path emite exactamente UN UPDATE y devuelve True."""
+
+    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
+        return _json_response(200, [{"id": "abc", "activo": False}])
+
+    client, captured = _client_recording(_handler)
+    result = delete_animal(client, "abc")
+    client.close()
+
+    assert result is True
+    assert len(captured) == 1, (
+        "delete_animal debe emitir exactamente UN UPDATE; "
+        f"se emitio {len(captured)} (probable look-up previo redundante)"
+    )

@@ -31,7 +31,18 @@ from app.core.auth_dependencies import (
 )
 from app.core.insforge import InsForgeClient, InsForgeError
 from app.modules.animals import service as animals_service
-from app.modules.animals.service import Especie, Sexo
+
+# Los handlers de create/update reciben los campos ``Especie`` y
+# ``Sexo`` del form (mismo nombre que las columnas del schema y los
+# enums de dominio). Si importaramos ``Especie`` / ``Sexo`` con su
+# nombre canonico, los parametros de los handlers los shadow-ean y
+# referencias como ``[e.value for e in EspecieEnum]`` (usadas para
+# poblar el dropdown del form en el path 422) iteran sobre los
+# caracteres del string en vez de sobre los miembros del enum.
+# Por eso importamos los enums bajo alias y usamos ``EspecieEnum``
+# / ``SexoEnum`` en los bodies de los handlers.
+from app.modules.animals.service import Especie as EspecieEnum
+from app.modules.animals.service import Sexo as SexoEnum
 
 router = APIRouter(prefix="/animales", tags=["animales"])
 
@@ -115,8 +126,8 @@ def new_animal_form(
             "user": user,
             "form_data": {},
             "error": None,
-            "especies": [e.value for e in Especie],
-            "sexos": [s.value for s in Sexo],
+            "especies": [e.value for e in EspecieEnum],
+            "sexos": [s.value for s in SexoEnum],
         },
     )
 
@@ -179,10 +190,10 @@ def create_animal_view(
                 "user": user,
                 "form_data": form_data,
                 "error": str(exc),
-                "especies": [e.value for e in Especie],
-                "sexos": [s.value for s in Sexo],
+                "especies": [e.value for e in EspecieEnum],
+                "sexos": [s.value for s in SexoEnum],
             },
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
     except InsForgeError as exc:
         if exc.status_code == 409:
@@ -193,8 +204,8 @@ def create_animal_view(
                     "user": user,
                     "form_data": form_data,
                     "error": "Ya existe un animal con ese NCHIP. Compruebalo.",
-                    "especies": [e.value for e in Especie],
-                    "sexos": [s.value for s in Sexo],
+                    "especies": [e.value for e in EspecieEnum],
+                    "sexos": [s.value for s in SexoEnum],
                 },
                 status_code=status.HTTP_409_CONFLICT,
             )
@@ -247,8 +258,8 @@ def edit_animal_form(
             "user": user,
             "form_data": _animal_to_form_data(animal),
             "error": None,
-            "especies": [e.value for e in Especie],
-            "sexos": [s.value for s in Sexo],
+            "especies": [e.value for e in EspecieEnum],
+            "sexos": [s.value for s in SexoEnum],
         },
     )
 
@@ -287,7 +298,12 @@ def update_animal_view(
     user: dict = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
-    """Procesa el submit de edicion. Redirect al detalle en exito."""
+    """Procesa el submit de edicion. Redirect al detalle en exito.
+
+    Delega toda la logica de validacion + SQL en
+    ``animals_service.update_animal``; el handler queda como capa fina
+    que solo traduce ``ValueError`` -> 422 y exito -> redirect 303.
+    """
     form_data = _form_data_to_params({
         "NCHIP": NCHIP, "NombreAnimal": NombreAnimal, "Especie": Especie,
         "Sexo": Sexo, "FNacimiento": FNacimiento, "TraeNChip": TraeNChip,
@@ -301,26 +317,20 @@ def update_animal_view(
         "UltimoEstadoAntesDeFallecido": UltimoEstadoAntesDeFallecido,
         "ComunicacionARIAC": ComunicacionARIAC,
     })
-    # El update completo: ejecutamos create_animal logic (validacion)
-    # y luego un UPDATE. Aqui simplificamos: validamos, luego delegamos.
-    # TODO LIFECYCLE-SERVICE-04: usar update_animal cuando exista.
+
     try:
-        _validate_update_params(form_data)
+        animals_service.update_animal(client, animal_id, form_data)
     except ValueError as exc:
         return _templates.TemplateResponse(
             request=request,
             name="animales/form.html",
             context={
                 "user": user, "form_data": form_data, "error": str(exc),
-                "especies": [e.value for e in Especie],
-                "sexos": [s.value for s in Sexo],
+                "especies": [e.value for e in EspecieEnum],
+                "sexos": [s.value for s in SexoEnum],
             },
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
-
-    # Update full: lo hacemos en la DB con un UPDATE SET ... WHERE id=$1
-    update_sql = _build_update_sql(form_data)
-    client.execute_sql(update_sql, [animal_id] + _build_update_params(form_data))
 
     return RedirectResponse(
         url=f"/animales/{animal_id}", status_code=status.HTTP_303_SEE_OTHER
@@ -337,22 +347,21 @@ def delete_animal_view(
     user: dict = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
-    """Soft-delete: marca activo=false. Redirect a la lista."""
-    # Verificar que existe
-    if animals_service.get_animal_by_id(client, animal_id) is None:
+    """Soft-delete via ``animals_service.delete_animal``. Redirect a la lista.
+
+    El service hace un solo ``UPDATE … WHERE id = $1 RETURNING id``;
+    si la fila no existia (RETURNING vacio) devuelve ``False`` y el
+    handler responde 404. Asi evitamos el patron anterior (SELECT
+    previo + UPDATE) y cerramos el problema #1 del code review externo.
+    """
+    if not animals_service.delete_animal(client, animal_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-    client.execute_sql(
-        "UPDATE animales SET activo = false, updated_at = now() WHERE id = $1",
-        [animal_id],
-    )
     return RedirectResponse(
         url="/animales", status_code=status.HTTP_303_SEE_OTHER
     )
 
 
 # --- helpers -------------------------------------------------------------
-
-
 def _animal_to_form_data(animal) -> dict[str, Any]:
     """Convierte un Animal a dict para pre-rellenar el form."""
     return {
@@ -383,31 +392,3 @@ def _animal_to_form_data(animal) -> dict[str, Any]:
     }
 
 
-def _validate_update_params(params: dict[str, Any]) -> None:
-    """Mismas validaciones que create para update."""
-    if not (params.get("NCHIP") or "").strip():
-        raise ValueError("NCHIP es obligatorio")
-    if not (params.get("NombreAnimal") or "").strip():
-        raise ValueError("NombreAnimal es obligatorio")
-    Especie(params.get("Especie"))  # raises if invalid
-    Sexo(params.get("Sexo"))
-    if not (params.get("FNacimiento") or "").strip():
-        raise ValueError("FNacimiento es obligatorio")
-
-
-_UPDATE_COLUMNS = (
-    "NCHIP", "NombreAnimal", "Especie", "Sexo", "FNacimiento",
-    "TraeNChip", "FIMPLANTACIONCHIP", "Raza", "Color", "Pelo", "Tamano",
-    "Caracter", "FDefuncion", "Terapia", "Observaciones", "NombreFoto",
-    "Cartilla", "Eutanasia", "RazaPPP", "Mestizo", "EutanasiaOtrasCausas",
-    "EutanasiaEnfermedad", "UltimoEstadoAntesDeFallecido", "ComunicacionARIAC",
-)
-
-
-def _build_update_sql(params: dict[str, Any]) -> str:
-    set_clause = ", ".join(f"{col} = ${i+2}" for i, col in enumerate(_UPDATE_COLUMNS))
-    return f"UPDATE animales SET {set_clause}, updated_at = now() WHERE id = $1"
-
-
-def _build_update_params(params: dict[str, Any]) -> list[Any]:
-    return [params.get(col) for col in _UPDATE_COLUMNS]

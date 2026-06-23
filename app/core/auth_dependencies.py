@@ -29,18 +29,32 @@ from app.core.insforge import InsForgeClient
 from app.core.session import read_session, session_cookie_name
 
 
-def get_insforge_client_dep() -> InsForgeClient:
+def get_insforge_client_dep():
     """Dependencia de FastAPI: produce un cliente InsForge por peticion.
 
-    Lee la configuracion del state de la app y construye un cliente
-    InsForge nuevo para cada peticion. Tests pueden sobreescribirlo
-    con ``app.dependency_overrides[...]``.
+    Implementado como generador para garantizar que ``close()`` se
+    ejecuta al final de cada request, incluso si el handler levanta una
+    excepcion. ``InsForgeClient`` envuelve un ``httpx.Client``; sin
+    ``close`` explicito, las conexiones HTTP se acumulan (resource
+    leak detectado en el code review externo, problema #3).
+
+    FastAPI ejecuta el ``finally`` del generador despues de que el
+    handler retorna o propaga una excepcion, por lo que el ciclo de
+    vida del cliente queda atado al del request.
+
+    Tests pueden sobreescribirlo con ``app.dependency_overrides[...]``;
+    el override debe devolver un objeto que responda a ``close()`` con
+    la misma semantica.
 
     Usar como dependencia de FastAPI:
     ``client: InsForgeClient = Depends(get_insforge_client_dep)``.
     """
     settings = get_settings()
-    return InsForgeClient(settings.insforge_url, settings.insforge_service_key)
+    client = InsForgeClient(settings.insforge_url, settings.insforge_service_key)
+    try:
+        yield client
+    finally:
+        client.close()
 
 
 def get_current_user_optional(request: Request) -> dict | None:

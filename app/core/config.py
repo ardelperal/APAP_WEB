@@ -9,9 +9,18 @@ Google OAuth client, the bootstrap admin email, and the session secret
 used to sign cookies. Production deployments MUST override the defaults
 for ``google_client_id``, ``google_client_secret``, ``initial_admin_email``
 and ``session_secret`` via env vars or the platform secret store.
+
+``get_settings()`` is cached with ``functools.lru_cache(maxsize=1)`` so
+every call returns the same singleton — pydantic-settings re-reads env
+on each ``Settings()`` call, so caching avoids that overhead per
+request. Tests that mutate ``APAP_*`` env vars between cases must call
+``get_settings.cache_clear()`` (the conftest autouse fixture already
+does this for safety).
 """
 
 from __future__ import annotations
+
+import functools
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -62,13 +71,18 @@ class Settings(BaseSettings):
     debug: bool = False
 
 
+@functools.lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    """Return a fresh Settings instance.
+    """Return a process-cached ``Settings`` singleton.
 
     Implemented as a function (rather than a module-level singleton) so
-    that tests and request handlers can obtain a clean instance without
-    relying on cached state. Future caching can be added here without
-    touching call sites.
+    that tests and request handlers can obtain the cached instance
+    without coupling to import order. ``lru_cache(maxsize=1)`` makes
+    repeated calls return the same object; pydantic-settings re-reads
+    env + ``.env`` on each ``Settings()`` construction, so this caches
+    avoids that overhead on every request. Call
+    ``get_settings.cache_clear()`` to force a re-read (used by tests
+    that mutate ``APAP_*`` env vars).
     """
 
     return Settings()

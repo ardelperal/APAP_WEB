@@ -4,11 +4,19 @@ The Settings model is the single source of truth for runtime configuration
 loaded from environment variables (with an optional `.env` file). These
 tests pin the expected defaults and the env-var prefix so that the rest of
 the application can rely on a stable contract.
+
+``get_settings()`` is the cached accessor used everywhere in the app
+(see ``app/core/config.py``); tests that mutate ``APAP_*`` env vars and
+then call ``get_settings()`` must ``cache_clear()`` to see the new
+values, or rely on the autouse fixture in ``conftest.py`` to clear
+between tests.
 """
 
 from __future__ import annotations
 
-from app.core.config import Settings
+import pytest
+
+from app.core.config import Settings, get_settings
 
 
 def test_settings_loads_with_defaults() -> None:
@@ -107,3 +115,41 @@ def test_settings_loads_session_secret() -> None:
 
     # Non-empty so signed cookies can be issued in dev.
     assert settings.session_secret
+
+
+# --- get_settings() caching (code-quality-fixes T1) -----------------------
+#
+# ``get_settings()`` is the only sanctioned accessor for the singleton
+# Settings instance used by the app (request handlers, lifespan, the
+# dependency injection layer). Pydantic-settings re-reads env + .env
+# on every ``Settings()`` call, so without caching every request pays
+# that cost. The cache is process-wide, so tests must ``cache_clear()``
+# between cases that mutate env — see the autouse fixture in
+# ``conftest.py``.
+
+
+def test_get_settings_devuelve_la_misma_instancia_en_llamadas_repetidas() -> None:
+    """``get_settings()`` returns a cached singleton: two calls return the same object."""
+    get_settings.cache_clear()  # start from a known state
+
+    first = get_settings()
+    second = get_settings()
+
+    assert first is second, (
+        "get_settings() debe devolver la misma instancia cacheada, "
+        "no una nueva Settings() en cada llamada"
+    )
+
+
+def test_get_settings_cache_clear_permite_releer_el_entorno() -> None:
+    """``cache_clear()`` invalida el cache; la siguiente llamada relee ``APAP_*``."""
+    get_settings.cache_clear()
+    get_settings()  # warm the cache with the current env
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("APAP_INSFORGE_URL", "https://cache-clear.example.com")
+        # While cached, env changes are NOT visible (intentional).
+        assert get_settings().insforge_url != "https://cache-clear.example.com"
+        # After cache_clear, the new env value is picked up.
+        get_settings.cache_clear()
+        assert get_settings().insforge_url == "https://cache-clear.example.com"
