@@ -306,3 +306,25 @@ These rules are forward-looking. Three of them are violated by code that pre-dat
 | 4 — one source of truth | `app/core/auth.py:30` (`VALID_ROLES` hardcoded) and `app/modules/voluntarios/service.py:47` (`VALID_ROL_TYPES` hardcoded) | The `StrEnum` for roles does not exist yet. The frozenset is the only source. | When the `Rol(StrEnum)` is introduced, derive `VALID_ROLES = frozenset(r.value for r in Rol)`. Same for `TipoRol` / `VALID_ROL_TYPES`. |
 | 6 — defaults deny | `app/core/auth_dependencies.py:80` uses `payload.get("is_authorized", True)` (default permits) | **Deliberate**: sessions issued before the VOL-01 P0 fix don't carry the flag. The default `True` keeps them working. The fix lived in writing the flag in `/auth/callback` (PR #90). | Once all live sessions have expired (7-day cookie max-age) AND a migration script has invalidated pre-fix cookies, flip the default to `False`. Document the cookie-invalidation in the same PR. |
 | 7 — no `HTTPException` for redirects | `app/core/auth_dependencies.py:77-83` raises `HTTPException(302, headers={"location": ...})` for both `/login` and `/unauthorized` redirects | Pre-existing pattern; works because FastAPI's `HTTPException` honors the `Location` header and 302 status. | Replace with `Response(status_code=302, headers={"location": ...})` or change the guards to return `RedirectResponse` directly. Pure refactor; public behavior unchanged. |
+
+### 8 — No deprecated libraries, no DeprecationWarnings
+
+When adding or upgrading a Python dependency in `pyproject.toml`, **the pinned minimum must be a non-deprecated release**. "Deprecated" here means:
+
+- The upstream project has formally EOL'd the major version (e.g. psutil 6.1.x was the last with Python 2.7 support; 7.x is the current line).
+- The library emits `DeprecationWarning` on import or basic use in the targeted Python range (here `>=3.11`).
+- The library has a published successor and recommends migration.
+
+#### How to verify before pinning
+
+Use the **context7 MCP** to look up the current state of any dependency before adding it to `pyproject.toml`:
+
+1. `mcp__context7__resolve-library-id` with the library name (e.g. "psutil", "fastapi", "pydantic") — pick the most-reputed result.
+2. `mcp__context7__query-docs` with the query "latest version current release stable Python 3.11 3.12 recommended install pip" or similar.
+3. Read the "Latest version" / "Current stable" line and confirm the version you are pinning is the one upstream considers supported, not a legacy line.
+
+Pin to the **current major.minor floor**, not a legacy line. Example: when adding psutil for `app/core/migration/lock.py`, context7 confirmed 7.2.x is the current stable; we pinned `psutil>=7.0` (the current major's floor) rather than `>=5.9` (a legacy line).
+
+#### How to verify locally after pinning
+
+`pip install -e ".[dev]"` in a fresh venv must succeed **and** `python -c "import thelib"` must not emit any `DeprecationWarning`. The project's pytest suite has `-W error::DeprecationWarning`, so any library warning becomes a CI failure — that's the safety net, not a substitute for checking upstream.
