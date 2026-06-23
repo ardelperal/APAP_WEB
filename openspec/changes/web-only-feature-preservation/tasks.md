@@ -63,15 +63,15 @@ Chain strategy: stacked-to-main
 **Rama**: `feat/web-only-p1-schema` → `feat/web-only-p2-derivation`
 **Est. líneas**: ~400 | **Dep. MIGRATION-01**: Ninguna (usa tablas de PR 1)
 
-- [ ] 2.1 Implementar `derive_estado_actual_animal(tb_ficha, tb_entradas, tb_acogidas, tb_adopciones) -> DerivationResult` en `app/core/migration/derivation.py` — priority cascade de `DameSituacion()` (`lifecycle-state-resolver-extraction.md §3`)
-- [ ] 2.2 Implementar comparador post-aplicación: `matched` / `divergent` / `needs_review` según regla Q2
-- [ ] 2.3 Escribir 11 tests parametrizados para `derive_estado_actual_animal` (casos de `lifecycle-state-resolver-extraction.md §4`)
-- [ ] 2.4 Crear `app/core/migration/semantic_events.py` con función pura `translate_diff(diff: Diff, table_mapping: TableMapping) -> list[LifecycleEvent]`
-- [ ] 2.5 Mapear 8 combinaciones diff→evento (INSERT/UPDATE en TbEntradas/TbAcogidaAnimal/TbAdopcion/TbFichaAnimal → eventos de `lifecycle-event-log-design.md §4`)
-- [ ] 2.6 Escribir 8 tests unitarios para `semantic_events.py` (uno por combinación diff→evento)
-- [ ] 2.7 Escribir 4 tests unitarios para paths de reconcile (preserve / fixed / derived / needs_review)
-- [ ] 2.8 Integrar `derive_estado_actual_animal` en `reconcile_after_legacy_write()` de `reconcile.py`
-- [ ] 2.9 Verificar con `pytest tests/test_migration.py -W error::DeprecationWarning` — coverage ≥80%
+- [x] 2.1 Implementar `derive_estado_actual_animal(tb_ficha, tb_entradas, tb_acogidas, tb_adopciones) -> DerivationResult` en `app/core/migration/derivation.py` — priority cascade de `DameSituacion()` (`lifecycle-state-resolver-extraction.md §3`)
+- [x] 2.2 Implementar comparador post-aplicación: `matched` / `divergent` / `needs_review` según regla Q2
+- [x] 2.3 Escribir 11 tests parametrizados para `derive_estado_actual_animal` (casos de `lifecycle-state-resolver-extraction.md §4`)
+- [x] 2.4 Crear `app/core/migration/semantic_events.py` con función pura `translate_diff(diff: Diff, table_mapping: TableMapping) -> list[LifecycleEvent]`
+- [x] 2.5 Mapear 8 combinaciones diff→evento (INSERT/UPDATE en TbEntradas/TbAcogidaAnimal/TbAdopcion/TbFichaAnimal → eventos de `lifecycle-event-log-design.md §4`)
+- [x] 2.6 Escribir 8 tests unitarios para `semantic_events.py` (uno por combinación diff→evento)
+- [x] 2.7 Escribir 4 tests unitarios para paths de reconcile (preserve / fixed / derived / needs_review)
+- [x] 2.8 Integrar `derive_estado_actual_animal` en `reconcile_after_legacy_write()` de `reconcile.py`
+- [x] 2.9 Verificar con `pytest tests/test_migration.py -W error::DeprecationWarning` — coverage ≥80%
 
 ---
 
@@ -80,10 +80,10 @@ Chain strategy: stacked-to-main
 **Rama**: `feat/web-only-p2-derivation` → `feat/web-only-p3-yaml`
 **Est. líneas**: ~150 | **Dep. MIGRATION-01**: Ninguna
 
-- [ ] 3.1 Añadir `web_only_strategy: preserve` a columna `DNI` en `app/core/migration/mappings/voluntario.yaml`
-- [ ] 3.2 Validar que YAML sin `web_only_strategy` con `legacy_column: null` aborta con código de salida 4 (test)
-- [ ] 3.3 Validar que YAML con `web_only_strategy` inválido aborta con `ValidationError` (test)
-- [ ] 3.4 Documentar en comentario YAML la estrategia de cada columna web-only de las 5 tablas
+- [x] 3.1 Añadir `web_only_strategy: preserve` a columna `DNI` en `app/core/migration/mappings/voluntario.yaml`
+- [x] 3.2 Validar que YAML sin `web_only_strategy` con `legacy_column: null` aborta con código de salida 4 (test)
+- [x] 3.3 Validar que YAML con `web_only_strategy` inválido aborta con `ValidationError` (test)
+- [x] 3.4 Documentar en comentario YAML la estrategia de cada columna web-only de las 5 tablas
 
 ---
 
@@ -126,15 +126,15 @@ Code review of PR #100 returned REQUEST_CHANGES with 2 P1 contract issues. Both 
 **Rama**: `feat/web-only-p4-hook` → `feat/web-only-p5-reconcile-cli`
 **Est. líneas**: ~350 | **Dep. MIGRATION-01**: PR 4 (requiere `post_apply_diff`)
 
-- [ ] 5.1 Implementar `apap-migrate reconcile --check-only`: lista casos `needs_review` sin escribir — exit 0 si hay pendientes
-- [ ] 5.2 Implementar `apap-migrate reconcile --interactive`: presentar cada caso con metadatos y prompt (a) keep web / (b) accept derived / (c) defer / (q) quit
-- [ ] 5.3 Implementar opción (a) keep web: escribe `reconciled_at`, `reconciliation_status = matched`, no modifica valor web
-- [ ] 5.4 Implementar opción (b) accept derived: ejecuta UPDATE con valor derivado, `reconciliation_status = matched`
-- [ ] 5.5 Implementar `--table <name>` y `--since <ISO8601>` como filtros
-- [ ] 5.6 Escribir 1 test CLI `--check-only` sin escribir
-- [ ] 5.7 Escribir 3 tests CLI `--interactive` con mocks (keep/accept/defer)
-- [ ] 5.8 Escribir 1 test CLI `--table --since` filtros
-- [ ] 5.9 Verificar con `pytest tests/test_migration_cli.py -W error::DeprecationWarning` — coverage ≥80%
+- [x] 5.1 Implementar `apap-migrate reconcile --check-only`: lista casos `needs_review` sin escribir — exit 0 si hay pendientes
+- [x] 5.2 Implementar `apap-migrate reconcile --interactive`: presentar cada caso con metadatos y prompt (a) keep web / (b) accept derived / (c) defer / (q) quit
+- [x] 5.3 Implementar opción (a) keep web: escribe `reconciled_at`, `reconciliation_status = matched`, no modifica valor web
+- [x] 5.4 Implementar opción (b) accept derived: ejecuta UPDATE con valor derivado, `reconciliation_status = matched`
+- [x] 5.5 Implementar `--table <name>` y `--since <ISO8601>` como filtros
+- [x] 5.6 Escribir 1 test CLI `--check-only` sin escribir
+- [x] 5.7 Escribir 3 tests CLI `--interactive` con mocks (keep/accept/defer)
+- [x] 5.8 Escribir 1 test CLI `--table --since` filtros
+- [x] 5.9 Verificar con `pytest tests/test_migration_cli.py -W error::DeprecationWarning` — coverage ≥80%
 
 ---
 
