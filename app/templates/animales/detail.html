@@ -1,53 +1,58 @@
 {% extends "base.html" %}
 {% block title %}{{ animal.NombreAnimal }} - APAP_WEB{% endblock %}
 {% block content %}
-<div class="max-w-4xl mx-auto px-4 py-8">
-    <div class="flex items-center justify-between mb-6">
-        <h1 class="text-3xl font-bold">{{ animal.NombreAnimal }}</h1>
-        <div class="flex gap-3">
-            <a href="/animales/{{ animal.id }}/edit"
-               class="bg-yellow-500 text-white px-4 py-2 rounded hover:bg-yellow-600">
-                Editar
-            </a>
-            <form method="post" action="/animales/{{ animal.id }}/delete" class="inline"
-                  onsubmit="return confirm('Borrar este animal?');">
-                <button type="submit" class="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700">
-                    Borrar
-                </button>
-            </form>
-        </div>
+  <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
+    <div>
+      <h1 class="text-3xl font-bold text-primary-dark tracking-tight">{{ animal.NombreAnimal }}</h1>
+      <p class="text-text-muted text-sm mt-1">
+        NCHIP: <code class="font-mono text-text">{{ animal.NCHIP }}</code> · {{ animal.Especie.value }} · {{ animal.Sexo.value }}
+      </p>
+    </div>
+    <div class="flex gap-3">
+      <a href="/animales/{{ animal.id }}/edit"
+         class="bg-accent text-primary-dark px-4 py-2 rounded font-semibold hover:bg-accent-light transition-colors shadow-sm">
+        Editar
+      </a>
+      <form method="post" action="/animales/{{ animal.id }}/delete" class="inline"
+            onsubmit="return confirm('Borrar este animal?');">
+        <button type="submit" class="bg-rose-700 text-white px-4 py-2 rounded font-semibold hover:bg-rose-800 transition-colors shadow-sm">
+          Borrar
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <div class="bg-surface rounded-card shadow-card p-6 space-y-6">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div><span class="text-text-muted text-sm">NCHIP</span><div class="font-mono text-text">{{ animal.NCHIP }}</div></div>
+      <div><span class="text-text-muted text-sm">Nombre</span><div class="text-text">{{ animal.NombreAnimal }}</div></div>
+      <div><span class="text-text-muted text-sm">Especie</span><div class="text-text">{{ animal.Especie.value }}</div></div>
+      <div><span class="text-text-muted text-sm">Sexo</span><div class="text-text">{{ animal.Sexo.value }}</div></div>
+      <div><span class="text-text-muted text-sm">FNacimiento</span><div class="text-text">{{ animal.FNacimiento }}</div></div>
+      <div><span class="text-text-muted text-sm">FDefuncion</span><div class="text-text">{{ animal.FDefuncion or "—" }}</div></div>
+      <div><span class="text-text-muted text-sm">Raza</span><div class="text-text">{{ animal.Raza or "—" }}</div></div>
+      <div><span class="text-text-muted text-sm">Color</span><div class="text-text">{{ animal.Color or "—" }}</div></div>
+      <div><span class="text-text-muted text-sm">Pelo</span><div class="text-text">{{ animal.Pelo or "—" }}</div></div>
+      <div><span class="text-text-muted text-sm">Tamano</span><div class="text-text">{{ animal.Tamano or "—" }}</div></div>
+      <div><span class="text-text-muted text-sm">Caracter</span><div class="text-text">{{ animal.Caracter or "—" }}</div></div>
+      <div><span class="text-text-muted text-sm">TraeNChip</span><div class="text-text">{{ animal.TraeNChip or "—" }}</div></div>
+      <div><span class="text-text-muted text-sm">FIMPLANTACIONCHIP</span><div class="text-text">{{ animal.FIMPLANTACIONCHIP or "—" }}</div></div>
+      <div><span class="text-text-muted text-sm">Terapia</span><div class="text-text">{{ animal.Terapia or "—" }}</div></div>
+      <div><span class="text-text-muted text-sm">Eutanasia</span><div class="text-text">{{ animal.Eutanasia or "—" }}</div></div>
+      <div><span class="text-text-muted text-sm">Mestizo</span><div class="text-text">{{ animal.Mestizo or "—" }}</div></div>
+      <div><span class="text-text-muted text-sm">RazaPPP</span><div class="text-text">{{ animal.RazaPPP or "—" }}</div></div>
+      <div><span class="text-text-muted text-sm">Cartilla</span><div class="text-text">{{ animal.Cartilla or "—" }}</div></div>
+      <div><span class="text-text-muted text-sm">ComunicacionARIAC</span><div class="text-text">{{ animal.ComunicacionARIAC or "—" }}</div></div>
     </div>
 
-    <div class="bg-white shadow rounded-lg p-6 space-y-4">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div><strong>NCHIP:</strong> <code>{{ animal.NCHIP }}</code></div>
-            <div><strong>Nombre:</strong> {{ animal.NombreAnimal }}</div>
-            <div><strong>Especie:</strong> {{ animal.Especie.value }}</div>
-            <div><strong>Sexo:</strong> {{ animal.Sexo.value }}</div>
-            <div><strong>FNacimiento:</strong> {{ animal.FNacimiento }}</div>
-            <div><strong>FDefuncion:</strong> {{ animal.FDefuncion or "-" }}</div>
-            <div><strong>Raza:</strong> {{ animal.Raza or "-" }}</div>
-            <div><strong>Color:</strong> {{ animal.Color or "-" }}</div>
-            <div><strong>Pelo:</strong> {{ animal.Pelo or "-" }}</div>
-            <div><strong>Tamano:</strong> {{ animal.Tamano or "-" }}</div>
-            <div><strong>Caracter:</strong> {{ animal.Caracter or "-" }}</div>
-            <div><strong>TraeNChip:</strong> {{ animal.TraeNChip or "-" }}</div>
-            <div><strong>FIMPLANTACIONCHIP:</strong> {{ animal.FIMPLANTACIONCHIP or "-" }}</div>
-            <div><strong>Terapia:</strong> {{ animal.Terapia or "-" }}</div>
-            <div><strong>Eutanasia:</strong> {{ animal.Eutanasia or "-" }}</div>
-            <div><strong>Mestizo:</strong> {{ animal.Mestizo or "-" }}</div>
-            <div><strong>RazaPPP:</strong> {{ animal.RazaPPP or "-" }}</div>
-            <div><strong>Cartilla:</strong> {{ animal.Cartilla or "-" }}</div>
-            <div><strong>ComunicacionARIAC:</strong> {{ animal.ComunicacionARIAC or "-" }}</div>
-        </div>
-        <div>
-            <strong>Observaciones:</strong>
-            <p class="mt-1 text-gray-700">{{ animal.Observaciones or "(sin observaciones)" }}</p>
-        </div>
+    {# Observations card — APAP info-box style: border-left primary, light gradient. #}
+    <div class="bg-gradient-to-br from-primary/10 to-primary/5 border-l-4 border-primary rounded-card p-5">
+      <h2 class="text-primary-dark font-semibold mb-2">Observaciones</h2>
+      <p class="text-text whitespace-pre-line">{{ animal.Observaciones or "(sin observaciones)" }}</p>
     </div>
+  </div>
 
-    <div class="mt-4">
-        <a href="/animales" class="text-blue-600 hover:underline">&larr; Volver al listado</a>
-    </div>
-</div>
+  <div class="mt-4">
+    <a href="/animales" class="text-primary hover:underline text-sm">← Volver al listado</a>
+  </div>
 {% endblock %}
