@@ -94,8 +94,15 @@ jobs:
           python-version-file: pyproject.toml
           cache: pip
 
-      - name: Install development dependencies (includes playwright)
+      - name: Install development dependencies
         run: python -m pip install -e ".[dev]"
+
+      - name: Install Playwright explicitly
+        # Install playwright as its own step to avoid cache-staleness
+        # races against the dev extra (the e2e job needs playwright on
+        # the PATH; relying on a transitive pip install of `[dev]` from a
+        # possibly stale cache is fragile).
+        run: python -m pip install "playwright>=1.45"
 
       - name: Install Playwright chromium browser
         run: python -m playwright install --with-deps chromium
