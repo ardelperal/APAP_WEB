@@ -54,7 +54,11 @@ jobs:
         run: python -m pip install -e ".[dev]"
 
       - name: Run pytest with deprecations as errors
-        run: python -m pytest -W error::DeprecationWarning
+        # --ignore=tests/e2e: the e2e suite uses playwright's sync
+        # API, which collides with pytest-asyncio's auto-mode loop
+        # resolution under a single pytest run. e2e has its own
+        # dedicated job below (with playwright + chromium installed).
+        run: python -m pytest -W error::DeprecationWarning --ignore=tests/e2e
 
   build:
     name: build
