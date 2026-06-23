@@ -242,6 +242,12 @@ def _validate_required_fields(params: dict[str, Any]) -> None:
         raise ValueError("FNacimiento es obligatorio y no puede estar vacio")
 
 
+# Backwards-compat alias: ``_validate_create_params`` is referenced by
+# older test/docstring expectations; ``_validate_required_fields`` is
+# the canonical name.
+_validate_create_params = _validate_required_fields
+
+
 _INSERT_ANIMAL_SQL = f"""
 INSERT INTO animales ({", ".join(_INSERT_COLUMNS)})
 VALUES ({", ".join(f"${i+1}" for i in range(len(_INSERT_COLUMNS)))})
