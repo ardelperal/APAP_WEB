@@ -22,12 +22,35 @@ autorizados y roles"):
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Any
 
 from app.core.config import Settings
 from app.core.insforge import InsForgeClient
 
-VALID_ROLES = frozenset({"developer", "admin", "key_user", "reader"})
+
+class Rol(StrEnum):
+    """Roles válidos en ``usuarios_autorizados`` (única fuente de verdad).
+
+    Los nombres y descripciones siguen ``docs/decisiones-proyecto.md``
+    sección "Usuarios autorizados y roles":
+
+    - ``DEVELOPER`` -- acceso total, puede gestionar otros usuarios.
+    - ``ADMIN``     -- acceso de configuración.
+    - ``KEY_USER``  -- acceso estándar (default para nuevos usuarios).
+    - ``READER``    -- acceso de solo lectura.
+    """
+
+    DEVELOPER = "developer"
+    ADMIN = "admin"
+    KEY_USER = "key_user"
+    READER = "reader"
+
+
+# Derivado del enum (regla 4 del code quality: una sola fuente de verdad
+# por concepto de dominio). NO hardcodear; cualquier nuevo rol se agrega
+# a ``Rol`` y se refleja automáticamente.
+VALID_ROLES: frozenset[str] = frozenset(r.value for r in Rol)
 
 CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS usuarios_autorizados (

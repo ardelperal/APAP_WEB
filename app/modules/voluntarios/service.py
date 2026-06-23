@@ -44,14 +44,17 @@ from typing import Any
 
 from app.core.insforge import InsForgeClient
 
-VALID_ROL_TYPES = frozenset({"intake", "seguimiento", "acogida", "salud"})
-
 
 class RolVoluntario(StrEnum):
     INTAKE = "intake"
     SEGUIMIENTO = "seguimiento"
     ACOGIDA = "acogida"
     SALUD = "salud"
+
+
+# Derivado del enum (regla 4 del code quality: una sola fuente de verdad
+# por concepto de dominio). NO hardcodear.
+VALID_ROL_TYPES: frozenset[str] = frozenset(r.value for r in RolVoluntario)
 
 
 @dataclass(frozen=True, slots=True)
