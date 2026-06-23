@@ -1,51 +1,55 @@
 {% extends "base.html" %}
 {% block title %}Nuevo voluntario - APAP_WEB{% endblock %}
 {% block content %}
-<div class="max-w-2xl mx-auto px-4 py-8">
-    <h1 class="text-3xl font-bold mb-6">Nuevo voluntario</h1>
+  <div class="mb-6">
+    <h1 class="text-3xl font-bold text-primary-dark tracking-tight">Nuevo voluntario</h1>
+    <p class="text-text-muted text-sm mt-1">
+      Los campos marcados con <span class="text-rose-700">*</span> son obligatorios.
+    </p>
+  </div>
 
-    {% if error %}
-    <div class="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded mb-6">
-        {{ error }}
+  {% if error %}
+  <div class="bg-rose-50 border border-rose-200 text-rose-800 px-4 py-3 rounded-card mb-6">
+    <p class="font-semibold">No se pudo guardar el voluntario</p>
+    <p class="text-sm mt-1">{{ error }}</p>
+  </div>
+  {% endif %}
+
+  <form method="post" action="" class="bg-surface rounded-card shadow-card p-6 space-y-6">
+    <div>
+      <label class="block text-sm font-medium text-text">Nombre <span class="text-rose-700">*</span></label>
+      <input type="text" name="Voluntario" value="{{ form_data.Voluntario or '' }}"
+             class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+             required>
     </div>
-    {% endif %}
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm font-medium text-text">Email</label>
+        <input type="email" name="Email" value="{{ form_data.Email or '' }}"
+               class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-text">DNI</label>
+        <input type="text" name="DNI" value="{{ form_data.DNI or '' }}"
+               class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-text">Telefono 1</label>
+        <input type="tel" name="Tel1" value="{{ form_data.Tel1 or '' }}"
+               class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-text">Telefono 2</label>
+        <input type="tel" name="Tel2" value="{{ form_data.Tel2 or '' }}"
+               class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+      </div>
+    </div>
 
-    <form method="post" action="" class="bg-white shadow rounded-lg p-6 space-y-4">
-        <div>
-            <label class="block text-sm font-medium text-gray-700">Nombre *</label>
-            <input type="text" name="Voluntario" value="{{ form_data.Voluntario or '' }}"
-                   class="mt-1 block w-full border border-gray-300 rounded px-3 py-2"
-                   required>
-        </div>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-                <label class="block text-sm font-medium text-gray-700">Email</label>
-                <input type="email" name="Email" value="{{ form_data.Email or '' }}"
-                       class="mt-1 block w-full border border-gray-300 rounded px-3 py-2">
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700">DNI</label>
-                <input type="text" name="DNI" value="{{ form_data.DNI or '' }}"
-                       class="mt-1 block w-full border border-gray-300 rounded px-3 py-2">
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700">Telefono 1</label>
-                <input type="tel" name="Tel1" value="{{ form_data.Tel1 or '' }}"
-                       class="mt-1 block w-full border border-gray-300 rounded px-3 py-2">
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700">Telefono 2</label>
-                <input type="tel" name="Tel2" value="{{ form_data.Tel2 or '' }}"
-                       class="mt-1 block w-full border border-gray-300 rounded px-3 py-2">
-            </div>
-        </div>
-
-        <div class="flex justify-end gap-3 pt-4">
-            <a href="/voluntarios" class="px-4 py-2 text-gray-700 hover:text-gray-900">Cancelar</a>
-            <button type="submit" class="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700">
-                Guardar
-            </button>
-        </div>
-    </form>
-</div>
+    <div class="flex justify-end gap-3 pt-4 border-t border-border">
+      <a href="/voluntarios" class="px-4 py-2 text-text-muted hover:text-text">Cancelar</a>
+      <button type="submit" class="bg-primary text-white px-6 py-2 rounded font-semibold hover:bg-primary-dark transition-colors shadow-sm">
+        Guardar
+      </button>
+    </div>
+  </form>
 {% endblock %}
