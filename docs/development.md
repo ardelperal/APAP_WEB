@@ -228,7 +228,16 @@ El workflow de GitHub Actions corre los mismos comandos locales en pull requests
 | `ci / test` | `python -m pytest -W error::DeprecationWarning` | Tests unitarios/integración con deprecations promovidas a error. |
 | `ci / build` | `python -m build` | Validación de build del paquete. |
 
-El workflow también incluye un placeholder `e2e` deshabilitado con `if: ${{ false }}` y la nota `# TODO(E2E-01): enable when Playwright harness lands`. No se habilita en este slice; el harness de Playwright llega con el change E2E-01.
+El workflow también incluye un job `ci / e2e` que corre la suite Playwright (9 tests contra un Chromium headless contra `scripts/dev_server_no_lifespan.py`). El server arranca sin el bootstrap de InsForge (lifespan no-op) así que las rutas públicas (`/`, `/healthz`, `/unauthorized`, redirect a `/login`) sirven y se pueden validar sin backend real. Para correrlo en local:
+
+```bash
+python -m pip install -e ".[dev]"
+python -m playwright install --with-deps chromium
+python scripts/dev_server_no_lifespan.py &
+pytest tests/e2e/ -v
+```
+
+El job `ci / deploy` solo corre en push directo a `main` (no en PRs ni en merges), preservando el modelo staging-only del proyecto.
 
 ## Build de la imagen Docker (opcional en local)
 

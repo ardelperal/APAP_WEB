@@ -11,7 +11,11 @@ def test_ci_workflow_defines_lint_test_and_build_jobs() -> None:
 
     assert "name: ci" in workflow
     assert "pull_request:" in workflow
-    assert "branches: [main]" in workflow
+    # Both main and staging must trigger CI. main is gated (only the
+    # user promotes there) but PRs landing on main still need to be
+    # validated; staging is where every change lands first under the
+    # project's stagingOnly policy.
+    assert "branches: [main, staging]" in workflow
     assert "lint:" in workflow
     assert "test:" in workflow
     assert "build:" in workflow
@@ -21,13 +25,24 @@ def test_ci_workflow_defines_lint_test_and_build_jobs() -> None:
     assert "python -m build" in workflow
 
 
-def test_ci_workflow_keeps_e2e_hook_disabled_until_playwright_lands() -> None:
+def test_ci_workflow_runs_e2e_job_with_playwright() -> None:
+    """The e2e job runs the Playwright suite unconditionally (no gate
+    on ``vars.ENABLE_E2E``). The Playwright harness landed in PR #108
+    and the e2e job is now always on so every PR gets the visual
+    regression net.
+    """
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
 
     assert "e2e:" in workflow
-    assert "if: ${{ vars.ENABLE_E2E == 'true' }}" in workflow
-    assert "run: |" in workflow
-    assert "TODO(E2E-01): enable when Playwright harness lands" in workflow
+    # The e2e job must install + run the Playwright suite. There must
+    # be no ``vars.ENABLE_E2E`` gate (the feature flag is gone).
+    assert "vars.ENABLE_E2E" not in workflow, (
+        "e2e job should always run; the ENABLE_E2E flag has been retired"
+    )
+    assert "playwright install" in workflow
+    assert "playwright" in workflow.lower()
+    # And it must actually execute the suite.
+    assert "pytest tests/e2e/" in workflow
 
 
 def test_ci_workflow_includes_diagnostic_secret_leak_scan() -> None:
@@ -49,8 +64,12 @@ def test_branch_protection_note_lists_required_ci_checks() -> None:
 def test_development_guide_documents_e2e_ci_hook() -> None:
     guide = DEVELOPMENT_GUIDE_PATH.read_text(encoding="utf-8")
 
-    assert "TODO(E2E-01)" in guide
+    # The Playwright e2e suite landed in PR #108 and the dev guide
+    # now documents the actual runner and the local command, not a
+    # future TODO.
     assert "Playwright" in guide
+    assert "scripts/dev_server_no_lifespan.py" in guide
+    assert "playwright install" in guide
 
 
 def test_ci_workflow_defines_deploy_job_with_gating() -> None:
