@@ -129,6 +129,11 @@ jobs:
           echo "SERVER_PID=$SERVER_PID" >> "$GITHUB_ENV"
 
       - name: Run Playwright E2E suite
+        # Skip the suite entirely on branches that don't carry an
+        # e2e/ tree (e.g. backend-only PRs like #106 / #107). The
+        # e2e harness lives on feat/ui-apap-design-system and lands
+        # to staging only when that PR merges.
+        if: hashFiles('tests/e2e/**')
         run: python -m pytest tests/e2e/ -v
 
       - name: Stop dev server
