@@ -110,15 +110,35 @@ def test_healthz_returns_ok_json(page: Page, base_url: str) -> None:
 def test_unauthorized_page_renders_friendly_message(
     page: Page, base_url: str
 ) -> None:
-    """GET /unauthorized shows the friendly access-denied card."""
+    """GET /unauthorized shows the friendly access-denied card.
+
+    Pins the actual denial messaging (not just the APAP brand mark)
+    so a regression that renders a blank or generic-error card fails
+    here. The strings come from ``app/templates/unauthorized.html``.
+    """
     page.goto(f"{base_url}/unauthorized")
 
     heading = page.get_by_role("heading")
     assert heading.count() >= 1
-    # Look for the dog emoji + a Spanish "no tienes acceso" or similar.
+
     body_text = page.locator("body").inner_text()
-    assert "APAP" in body_text
-    assert "🐾" in body_text  # the brand mark should still be visible
+    # Brand mark must remain visible.
+    assert "🐾" in body_text
+    # Friendly denial copy must be visible — covers the page title and
+    # the page-level denial message.
+    denied_phrases = (
+        "Acceso no autorizado",  # <title> rendered as heading
+        "No tienes acceso",       # body of the card (capital N)
+    )
+    assert any(phrase in body_text for phrase in denied_phrases), (
+        f"/unauthorized does not render the expected denial copy. "
+        f"Expected one of {denied_phrases!r} in body, got: {body_text!r}"
+    )
+    # Back link to the landing page must exist.
+    back_link = page.get_by_role("link", name="Volver al inicio")
+    assert back_link.count() >= 1, (
+        "/unauthorized is missing the 'Volver al inicio' back link"
+    )
 
 
 def test_animales_redirects_to_login_without_session(

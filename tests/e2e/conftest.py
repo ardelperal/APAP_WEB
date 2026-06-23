@@ -1,6 +1,6 @@
 """Shared fixtures + collection rules for the Playwright-based E2E tests.
 
-The fixture ``browser_page`` opens one Chromium browser per test
+The fixture ``browser_context`` opens one Chromium browser per test
 session, creates a fresh context per test, and yields a
 ``playwright.sync_api.Page``. Tests use the page to navigate, assert
 visual properties, fill forms, etc.
@@ -33,6 +33,9 @@ def pytest_collection_modifyitems(config, items):  # noqa: ARG001
         _skip_all(items, "APAP_E2E_SKIP=1")
         return
 
+    # Bare exception by design: this is a probe at collection time —
+    # any failure (chromium missing, missing system libs, sandboxed CI)
+    # should skip the module rather than crash the whole pytest run.
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
@@ -45,9 +48,13 @@ def pytest_collection_modifyitems(config, items):  # noqa: ARG001
 
 
 def _skip_all(items, reason: str) -> None:
+    """Add a skip marker to every test item that lives under tests/e2e/."""
     skip_marker = pytest.mark.skip(reason=reason)
+    # ``item.fspath`` is a py.path.local; str() normalises the path with
+    # forward slashes so we can match a stable substring regardless of
+    # the host OS separator.
     for item in items:
-        if "tests/e2e" in str(item.fspath):
+        if "tests/e2e/" in str(item.fspath).replace("\\", "/"):
             item.add_marker(skip_marker)
 
 
