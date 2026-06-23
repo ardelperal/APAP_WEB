@@ -1,147 +1,151 @@
 {% extends "base.html" %}
 {% block title %}{{ "Editar" if form_data.NCHIP else "Nuevo" }} animal - APAP_WEB{% endblock %}
 {% block content %}
-<div class="max-w-3xl mx-auto px-4 py-8">
-    <h1 class="text-3xl font-bold mb-6">
-        {{ "Editar animal" if form_data.NCHIP else "Nuevo animal" }}
+  <div class="mb-6">
+    <h1 class="text-3xl font-bold text-primary-dark tracking-tight">
+      {{ "Editar animal" if form_data.NCHIP else "Nuevo animal" }}
     </h1>
+    <p class="text-text-muted text-sm mt-1">
+      Los campos marcados con <span class="text-rose-700">*</span> son obligatorios.
+    </p>
+  </div>
 
-    {% if error %}
-    <div class="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded mb-6">
-        {{ error }}
+  {% if error %}
+  <div class="bg-rose-50 border border-rose-200 text-rose-800 px-4 py-3 rounded-card mb-6">
+    <p class="font-semibold">No se pudo guardar el animal</p>
+    <p class="text-sm mt-1">{{ error }}</p>
+  </div>
+  {% endif %}
+
+  <form method="post" action="" class="bg-surface rounded-card shadow-card p-6 space-y-6">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm font-medium text-text">NCHIP <span class="text-rose-700">*</span></label>
+        <input type="text" name="NCHIP" value="{{ form_data.NCHIP or '' }}"
+               class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+               required>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-text">Nombre <span class="text-rose-700">*</span></label>
+        <input type="text" name="NombreAnimal" value="{{ form_data.NombreAnimal or '' }}"
+               class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+               required>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-text">Especie <span class="text-rose-700">*</span></label>
+        <select name="Especie" class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" required>
+          {% for esp in especies %}
+          <option value="{{ esp }}" {% if form_data.Especie == esp %}selected{% endif %}>{{ esp }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-text">Sexo <span class="text-rose-700">*</span></label>
+        <select name="Sexo" class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" required>
+          {% for sx in sexos %}
+          <option value="{{ sx }}" {% if form_data.Sexo == sx %}selected{% endif %}>{{ sx }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-text">FNacimiento <span class="text-rose-700">*</span></label>
+        <input type="date" name="FNacimiento" value="{{ form_data.FNacimiento or '' }}"
+               class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+               required>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-text">Raza</label>
+        <input type="text" name="Raza" value="{{ form_data.Raza or '' }}"
+               class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-text">Color</label>
+        <input type="text" name="Color" value="{{ form_data.Color or '' }}"
+               class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-text">Pelo</label>
+        <input type="text" name="Pelo" value="{{ form_data.Pelo or '' }}"
+               class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-text">Tamano</label>
+        <input type="text" name="Tamano" value="{{ form_data.Tamano or '' }}"
+               class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-text">Caracter</label>
+        <input type="text" name="Caracter" value="{{ form_data.Caracter or '' }}"
+               class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+      </div>
     </div>
-    {% endif %}
 
-    <form method="post" action="" class="bg-white shadow rounded-lg p-6 space-y-4">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-                <label class="block text-sm font-medium text-gray-700">NCHIP *</label>
-                <input type="text" name="NCHIP" value="{{ form_data.NCHIP or '' }}"
-                       class="mt-1 block w-full border border-gray-300 rounded px-3 py-2"
-                       required>
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700">Nombre *</label>
-                <input type="text" name="NombreAnimal" value="{{ form_data.NombreAnimal or '' }}"
-                       class="mt-1 block w-full border border-gray-300 rounded px-3 py-2"
-                       required>
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700">Especie *</label>
-                <select name="Especie" class="mt-1 block w-full border border-gray-300 rounded px-3 py-2" required>
-                    {% for esp in especies %}
-                    <option value="{{ esp }}" {% if form_data.Especie == esp %}selected{% endif %}>{{ esp }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700">Sexo *</label>
-                <select name="Sexo" class="mt-1 block w-full border border-gray-300 rounded px-3 py-2" required>
-                    {% for sx in sexos %}
-                    <option value="{{ sx }}" {% if form_data.Sexo == sx %}selected{% endif %}>{{ sx }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700">FNacimiento *</label>
-                <input type="date" name="FNacimiento" value="{{ form_data.FNacimiento or '' }}"
-                       class="mt-1 block w-full border border-gray-300 rounded px-3 py-2"
-                       required>
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700">Raza</label>
-                <input type="text" name="Raza" value="{{ form_data.Raza or '' }}"
-                       class="mt-1 block w-full border border-gray-300 rounded px-3 py-2">
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700">Color</label>
-                <input type="text" name="Color" value="{{ form_data.Color or '' }}"
-                       class="mt-1 block w-full border border-gray-300 rounded px-3 py-2">
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700">Pelo</label>
-                <input type="text" name="Pelo" value="{{ form_data.Pelo or '' }}"
-                       class="mt-1 block w-full border border-gray-300 rounded px-3 py-2">
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700">Tamano</label>
-                <input type="text" name="Tamano" value="{{ form_data.Tamano or '' }}"
-                       class="mt-1 block w-full border border-gray-300 rounded px-3 py-2">
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700">Caracter</label>
-                <input type="text" name="Caracter" value="{{ form_data.Caracter or '' }}"
-                       class="mt-1 block w-full border border-gray-300 rounded px-3 py-2">
-            </div>
+    <details class="border border-border rounded-card p-3 bg-bg">
+      <summary class="cursor-pointer font-semibold text-text">Campos opcionales (legacy)</summary>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+        <div>
+          <label class="block text-sm font-medium text-text">TraeNChip</label>
+          <input type="text" name="TraeNChip" value="{{ form_data.TraeNChip or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
-
-        <details class="border rounded p-3 bg-gray-50">
-            <summary class="cursor-pointer font-medium text-gray-700">Campos opcionales (legacy)</summary>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                <div>
-                    <label class="block text-sm font-medium text-gray-700">TraeNChip</label>
-                    <input type="text" name="TraeNChip" value="{{ form_data.TraeNChip or '' }}"
-                           class="mt-1 block w-full border border-gray-300 rounded px-3 py-2">
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700">FIMPLANTACIONCHIP</label>
-                    <input type="date" name="FIMPLANTACIONCHIP" value="{{ form_data.FIMPLANTACIONCHIP or '' }}"
-                           class="mt-1 block w-full border border-gray-300 rounded px-3 py-2">
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700">FDefuncion</label>
-                    <input type="date" name="FDefuncion" value="{{ form_data.FDefuncion or '' }}"
-                           class="mt-1 block w-full border border-gray-300 rounded px-3 py-2">
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700">Terapia</label>
-                    <input type="text" name="Terapia" value="{{ form_data.Terapia or '' }}"
-                           class="mt-1 block w-full border border-gray-300 rounded px-3 py-2">
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700">Eutanasia</label>
-                    <input type="text" name="Eutanasia" value="{{ form_data.Eutanasia or '' }}"
-                           class="mt-1 block w-full border border-gray-300 rounded px-3 py-2">
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700">Mestizo</label>
-                    <input type="text" name="Mestizo" value="{{ form_data.Mestizo or '' }}"
-                           class="mt-1 block w-full border border-gray-300 rounded px-3 py-2">
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700">RazaPPP</label>
-                    <input type="text" name="RazaPPP" value="{{ form_data.RazaPPP or '' }}"
-                           class="mt-1 block w-full border border-gray-300 rounded px-3 py-2">
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700">Cartilla</label>
-                    <input type="text" name="Cartilla" value="{{ form_data.Cartilla or '' }}"
-                           class="mt-1 block w-full border border-gray-300 rounded px-3 py-2">
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700">NombreFoto</label>
-                    <input type="text" name="NombreFoto" value="{{ form_data.NombreFoto or '' }}"
-                           class="mt-1 block w-full border border-gray-300 rounded px-3 py-2">
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700">ComunicacionARIAC</label>
-                    <input type="text" name="ComunicacionARIAC" value="{{ form_data.ComunicacionARIAC or '' }}"
-                           class="mt-1 block w-full border border-gray-300 rounded px-3 py-2">
-                </div>
-                <div class="md:col-span-2">
-                    <label class="block text-sm font-medium text-gray-700">Observaciones</label>
-                    <textarea name="Observaciones" rows="2"
-                              class="mt-1 block w-full border border-gray-300 rounded px-3 py-2">{{ form_data.Observaciones or '' }}</textarea>
-                </div>
-            </div>
-        </details>
-
-        <div class="flex justify-end gap-3 pt-4">
-            <a href="/animales" class="px-4 py-2 text-gray-700 hover:text-gray-900">Cancelar</a>
-            <button type="submit" class="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700">
-                Guardar
-            </button>
+        <div>
+          <label class="block text-sm font-medium text-text">FIMPLANTACIONCHIP</label>
+          <input type="date" name="FIMPLANTACIONCHIP" value="{{ form_data.FIMPLANTACIONCHIP or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
-    </form>
-</div>
+        <div>
+          <label class="block text-sm font-medium text-text">FDefuncion</label>
+          <input type="date" name="FDefuncion" value="{{ form_data.FDefuncion or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-text">Terapia</label>
+          <input type="text" name="Terapia" value="{{ form_data.Terapia or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-text">Eutanasia</label>
+          <input type="text" name="Eutanasia" value="{{ form_data.Eutanasia or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-text">Mestizo</label>
+          <input type="text" name="Mestizo" value="{{ form_data.Mestizo or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-text">RazaPPP</label>
+          <input type="text" name="RazaPPP" value="{{ form_data.RazaPPP or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-text">Cartilla</label>
+          <input type="text" name="Cartilla" value="{{ form_data.Cartilla or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-text">NombreFoto</label>
+          <input type="text" name="NombreFoto" value="{{ form_data.NombreFoto or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-text">ComunicacionARIAC</label>
+          <input type="text" name="ComunicacionARIAC" value="{{ form_data.ComunicacionARIAC or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+        </div>
+        <div class="md:col-span-2">
+          <label class="block text-sm font-medium text-text">Observaciones</label>
+          <textarea name="Observaciones" rows="2"
+                    class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">{{ form_data.Observaciones or '' }}</textarea>
+        </div>
+      </div>
+    </details>
+
+    <div class="flex justify-end gap-3 pt-4 border-t border-border">
+      <a href="/animales" class="px-4 py-2 text-text-muted hover:text-text">Cancelar</a>
+      <button type="submit" class="bg-primary text-white px-6 py-2 rounded font-semibold hover:bg-primary-dark transition-colors shadow-sm">
+        Guardar
+      </button>
+    </div>
+  </form>
 {% endblock %}

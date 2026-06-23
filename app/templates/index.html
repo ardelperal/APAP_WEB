@@ -3,36 +3,89 @@
 {% block title %}{{ app_name }} — inicio{% endblock %}
 
 {% block content %}
-  <header class="mb-8 flex items-start justify-between gap-6">
-    <div>
-      <h1 class="text-3xl font-bold tracking-tight">{{ app_name }}</h1>
-      <p class="mt-2 text-slate-600">Versión {{ version }}</p>
+  {# Welcome banner — only when the user is logged in. APAP info-box style:
+     light green gradient, primary border-left, primary-dark bold text. #}
+  {% if user %}
+    <div class="mb-8 rounded-card bg-gradient-to-br from-primary/10 to-primary/5 border-l-4 border-primary p-5 shadow-card">
+      <p class="text-primary-dark font-semibold">Hola, {{ user.email }}.</p>
+      <p class="text-text-muted text-sm mt-1">
+        Sesión iniciada con rol <span class="font-medium text-text">{{ user.role }}</span>.
+        Desde aquí puedes acceder a los módulos del aplicativo.
+      </p>
     </div>
-    {% if user %}
-      <div class="text-right text-sm">
-        <p class="font-medium text-slate-900">{{ user.email }}</p>
-        <p class="text-slate-500">Rol: {{ user.role }}</p>
-        <form method="get" action="/logout" class="mt-2">
-          <button type="submit" class="text-sky-700 underline">Cerrar sesión</button>
-        </form>
-      </div>
-    {% else %}
-      <a href="/login" class="text-sky-700 underline">Iniciar sesión</a>
-    {% endif %}
-  </header>
+  {% endif %}
 
-  <section class="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-    <h2 class="text-lg font-semibold">Esqueleto de la aplicación</h2>
-    <p class="mt-2 text-slate-700">
-      Esta es la página de inicio del esqueleto de APAP_WEB. Las
-      funcionalidades de producto (animales, voluntarios, salud,
-      documentos) llegan en las Fases 3 a 7.
-    </p>
-    <p class="mt-4 text-sm text-slate-500">
-      Health check: <a class="text-sky-700 underline" href="/healthz">/healthz</a>
-      {% if user and user.role == "developer" %}
-        · Panel admin: <a class="text-sky-700 underline" href="/admin">/admin</a>
-      {% endif %}
-    </p>
+  {# Hero strip — APAP branding, gradient primary-dark → primary → primary-light. #}
+  <section class="rounded-card overflow-hidden shadow-card mb-8">
+    <div class="bg-gradient-to-br from-primary-dark via-primary to-primary-light text-white px-8 py-10 text-center">
+      <h1 class="text-3xl font-bold tracking-tight">🐾 {{ app_name }}</h1>
+      <p class="mt-2 opacity-90">Versión {{ version }}</p>
+      <span class="inline-block mt-4 bg-accent text-primary-dark font-bold text-sm px-4 py-1.5 rounded-full">
+        Migración Legacy → Web · FastAPI + HTMX + InsForge
+      </span>
+    </div>
   </section>
+
+  {# Feature cards — six pillars from docs/features-showcase.html.
+     border-left primary, white surface, shadow-card. #}
+  <h2 class="text-xl font-semibold text-primary-dark mb-4 border-b-2 border-accent pb-2">
+    Módulos del aplicativo
+  </h2>
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    <article class="bg-surface rounded-card shadow-card border-l-4 border-primary p-6 hover:shadow-card-lg transition-shadow">
+      <h3 class="text-primary font-semibold mb-2">🐕 Ciclo de Vida del Animal</h3>
+      <p class="text-text-muted text-sm">
+        Ficha central del animal con estado calculado, gestión de microchip, cronología completa de eventos y trazabilidad de ubicación.
+      </p>
+      <a href="/animales" class="inline-block mt-3 text-primary text-sm font-semibold hover:underline">Ver animales →</a>
+    </article>
+
+    <article class="bg-surface rounded-card shadow-card border-l-4 border-primary p-6 hover:shadow-card-lg transition-shadow">
+      <h3 class="text-primary font-semibold mb-2">🏠 Registro de Voluntarios</h3>
+      <p class="text-text-muted text-sm">
+        Entidad de primer nivel con identificador estable. Referencias FK en todas las workflows — sin texto libre.
+      </p>
+      <a href="/voluntarios" class="inline-block mt-3 text-primary text-sm font-semibold hover:underline">Ver voluntarios →</a>
+    </article>
+
+    <article class="bg-surface rounded-card shadow-card border-l-4 border-primary p-6 hover:shadow-card-lg transition-shadow">
+      <h3 class="text-primary font-semibold mb-2">📥 Entradas, Acogida y Adopción</h3>
+      <p class="text-text-muted text-sm">
+        Flujos operativos core: entrada de animales, acogida temporal, adopción definitiva y devolución al propietario.
+      </p>
+      <span class="inline-block mt-3 bg-primary/10 text-primary text-xs font-semibold px-2 py-1 rounded-full">Próxima fase</span>
+    </article>
+
+    <article class="bg-surface rounded-card shadow-card border-l-4 border-primary p-6 hover:shadow-card-lg transition-shadow">
+      <h3 class="text-primary font-semibold mb-2">💊 Salud y Cuidado</h3>
+      <p class="text-text-muted text-sm">
+        Actuaciones sanitarias, terapias, recomendaciones y motor de tareas periódicas por especie y tipo de prueba.
+      </p>
+      <span class="inline-block mt-3 bg-primary/10 text-primary text-xs font-semibold px-2 py-1 rounded-full">Próxima fase</span>
+    </article>
+
+    <article class="bg-surface rounded-card shadow-card border-l-4 border-primary p-6 hover:shadow-card-lg transition-shadow">
+      <h3 class="text-primary font-semibold mb-2">📄 Documentos e Informes</h3>
+      <p class="text-text-muted text-sm">
+        Anexos en almacenamiento objetero, generación de contratos por plantilla e informes trimestrales.
+      </p>
+      <span class="inline-block mt-3 bg-primary/10 text-primary text-xs font-semibold px-2 py-1 rounded-full">Próxima fase</span>
+    </article>
+
+    <article class="bg-surface rounded-card shadow-card border-l-4 border-accent p-6 hover:shadow-card-lg transition-shadow">
+      <h3 class="text-primary font-semibold mb-2">🔐 Acceso y Administración</h3>
+      <p class="text-text-muted text-sm">
+        Autenticación Google OAuth + lista de permitidos. Panel de admin para gestionar usuarios autorizados.
+      </p>
+      <div class="mt-3 flex flex-wrap gap-2 text-xs">
+        <a href="/healthz" class="bg-primary/10 text-primary font-semibold px-2 py-1 rounded-full hover:bg-primary/20">Health check</a>
+        {% if user and user.role == "developer" %}
+          <a href="/admin" class="bg-accent/20 text-primary-dark font-semibold px-2 py-1 rounded-full hover:bg-accent/30">Panel admin</a>
+        {% endif %}
+        {% if not user %}
+          <a href="/login" class="bg-primary text-white font-semibold px-2 py-1 rounded-full hover:bg-primary-dark">Iniciar sesión</a>
+        {% endif %}
+      </div>
+    </article>
+  </div>
 {% endblock %}

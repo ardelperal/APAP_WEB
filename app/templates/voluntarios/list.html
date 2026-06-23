@@ -1,48 +1,51 @@
 {% extends "base.html" %}
 {% block title %}Voluntarios - APAP_WEB{% endblock %}
 {% block content %}
-<div class="max-w-6xl mx-auto px-4 py-8">
-    <div class="flex items-center justify-between mb-6">
-        <h1 class="text-3xl font-bold">Voluntarios</h1>
-        <a href="/voluntarios/new" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
-            + Nuevo voluntario
-        </a>
+  <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
+    <div>
+      <h1 class="text-3xl font-bold text-primary-dark tracking-tight">Voluntarios</h1>
+      <p class="text-text-muted text-sm mt-1">Listado de personas voluntarias de la protectora.</p>
     </div>
+    <a href="/voluntarios/new" class="bg-primary text-white px-4 py-2 rounded font-semibold hover:bg-primary-dark transition-colors shadow-sm">
+      + Nuevo voluntario
+    </a>
+  </div>
 
-    {% if voluntarios %}
-    <div class="bg-white shadow rounded-lg overflow-hidden">
-        <table class="min-w-full divide-y divide-gray-200">
-            <thead class="bg-gray-50">
-                <tr>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nombre</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tel1</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">DNI</th>
-                    <th class="px-6 py-3"></th>
-                </tr>
-            </thead>
-            <tbody class="bg-white divide-y divide-gray-200">
-                {% for vol in voluntarios %}
-                <tr>
-                    <td class="px-6 py-4 whitespace-nowrap font-semibold">{{ vol.Voluntario }}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-gray-500">{{ vol.Email or "-" }}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-gray-500">{{ vol.Tel1 or "-" }}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-gray-500">{{ vol.DNI or "-" }}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-right">
-                        <a href="/voluntarios/{{ vol.id }}" class="text-blue-600 hover:underline">Ver</a>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-    {% else %}
-    <div class="bg-white shadow rounded-lg p-8 text-center text-gray-500">
-        <p>No hay voluntarios registrados.</p>
-        <a href="/voluntarios/new" class="text-blue-600 hover:underline mt-2 inline-block">
-            Dar de alta el primero
-        </a>
-    </div>
-    {% endif %}
-</div>
+  {% if voluntarios %}
+  <div class="bg-surface rounded-card shadow-card overflow-hidden">
+    <table class="min-w-full text-left text-sm">
+      <thead class="bg-primary text-white">
+        <tr>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Nombre</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Email</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Tel1</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">DNI</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for vol in voluntarios %}
+        <tr class="border-b border-border last:border-b-0 hover:bg-primary/5 transition-colors">
+          <td class="px-6 py-4 whitespace-nowrap font-semibold text-text">{{ vol.Voluntario }}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-text-muted">{{ vol.Email or "—" }}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-text-muted">{{ vol.Tel1 or "—" }}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-text-muted">{{ vol.DNI or "—" }}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-right">
+            <a href="/voluntarios/{{ vol.id }}" class="text-primary font-semibold hover:underline">Ver</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="bg-gradient-to-br from-primary/10 to-primary/5 border-l-4 border-primary rounded-card shadow-card p-8 text-center">
+    <div class="text-5xl mb-3" aria-hidden="true">🐾</div>
+    <h2 class="text-primary-dark font-semibold text-lg">No hay voluntarios registrados</h2>
+    <p class="text-text-muted text-sm mt-1 mb-4">Empieza dando de alta la primera persona voluntaria.</p>
+    <a href="/voluntarios/new" class="inline-block bg-primary text-white px-4 py-2 rounded font-semibold hover:bg-primary-dark transition-colors">
+      Dar de alta el primero
+    </a>
+  </div>
+  {% endif %}
 {% endblock %}

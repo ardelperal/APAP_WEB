@@ -1,14 +1,78 @@
 <!doctype html>
+{# APAP_WEB — base template.
+
+   Global chrome: APAP sticky nav, page container, footer.
+   Templates extend this and fill {% block content %}.
+
+   Tokens consumed: bg-primary, bg-surface, bg-bg, text-primary,
+   text-text, text-text-muted, border-border, hover:bg-primary/5,
+   border-b-primary, rounded-card, shadow-card, font-sans.
+
+   Nav login/logout adapts to whatever the calling route put in
+   context. Routes that omit ``user`` show a static "Iniciar sesión"
+   link; routes that pass ``user`` show the email + a logout form.
+   We use ``is defined`` so the missing-context case is graceful —
+   the base template does not have access to FastAPI's
+   ``Depends(get_current_user_optional)`` by itself, and we cannot
+   touch ``app/main.py`` in this change.
+#}
 <html lang="es">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{% block title %}{{ app_name }}{% endblock %}</title>
+    <meta name="description" content="APAP — Registro de Protectoras de Animales de Alcalá. Migración Legacy → Web." />
+    <link rel="icon" href="data:," />
     <link rel="stylesheet" href="/static/css/output.css" />
   </head>
-  <body class="min-h-screen bg-slate-50 text-slate-900 antialiased">
-    <main class="mx-auto max-w-3xl px-6 py-12">
-      {% block content %}{% endblock %}
+  <body class="min-h-screen bg-bg text-text font-sans antialiased flex flex-col">
+    <header class="sticky top-0 z-50 bg-surface border-b border-border shadow-card">
+      <div class="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between gap-4">
+        <a href="/" class="text-primary font-bold text-lg flex items-center gap-2">
+          <span aria-hidden="true">🐾</span>
+          <span>APAP</span>
+        </a>
+        <nav class="flex items-center gap-1 text-sm" aria-label="Navegación principal">
+          <a href="/" class="px-3 py-2 rounded text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Inicio</a>
+          <a href="/animales" class="px-3 py-2 rounded text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Animales</a>
+          <a href="/voluntarios" class="px-3 py-2 rounded text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Voluntarios</a>
+          {% if user is defined and user and user.role == "developer" %}
+            <a href="/admin" class="px-3 py-2 rounded text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Admin</a>
+          {% endif %}
+        </nav>
+        <div class="text-sm">
+          {% if user is defined and user %}
+            <div class="flex items-center gap-3">
+              <div class="text-right leading-tight">
+                <p class="font-medium text-text">{{ user.email }}</p>
+                <p class="text-text-muted text-xs">Rol: {{ user.role }}</p>
+              </div>
+              <form method="get" action="/logout">
+                <button type="submit" class="px-3 py-2 rounded border border-border text-text-muted hover:text-primary hover:border-primary transition-colors">
+                  Salir
+                </button>
+              </form>
+            </div>
+          {% else %}
+            <a href="/login" class="px-3 py-2 rounded bg-primary text-white hover:bg-primary-dark transition-colors">
+              Iniciar sesión
+            </a>
+          {% endif %}
+        </div>
+      </div>
+    </header>
+
+    <main class="flex-1">
+      <div class="mx-auto max-w-6xl px-4 py-8">
+        {% block content %}{% endblock %}
+      </div>
     </main>
+
+    <footer class="bg-primary-dark text-white mt-12">
+      <div class="mx-auto max-w-6xl px-4 py-8 text-center text-sm">
+        <p class="font-semibold">🐾 APAP — Registro de Protectoras de Animales de Alcalá</p>
+        <p class="opacity-75 mt-1">Migración Legacy → Web · FastAPI + HTMX + InsForge</p>
+      </div>
+    </footer>
   </body>
 </html>

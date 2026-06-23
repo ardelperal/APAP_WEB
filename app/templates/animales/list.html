@@ -1,52 +1,55 @@
 {% extends "base.html" %}
 {% block title %}Animales - APAP_WEB{% endblock %}
 {% block content %}
-<div class="max-w-6xl mx-auto px-4 py-8">
-    <div class="flex items-center justify-between mb-6">
-        <h1 class="text-3xl font-bold">Animales</h1>
-        <a href="/animales/new" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
-            + Nuevo animal
-        </a>
+  <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
+    <div>
+      <h1 class="text-3xl font-bold text-primary-dark tracking-tight">Animales</h1>
+      <p class="text-text-muted text-sm mt-1">Listado de animales registrados en la protectora.</p>
     </div>
+    <a href="/animales/new" class="bg-primary text-white px-4 py-2 rounded font-semibold hover:bg-primary-dark transition-colors shadow-sm">
+      + Nuevo animal
+    </a>
+  </div>
 
-    {% if animales %}
-    <div class="bg-white shadow rounded-lg overflow-hidden">
-        <table class="min-w-full divide-y divide-gray-200">
-            <thead class="bg-gray-50">
-                <tr>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">NCHIP</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nombre</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Especie</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Sexo</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">FNacimiento</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Raza</th>
-                    <th class="px-6 py-3"></th>
-                </tr>
-            </thead>
-            <tbody class="bg-white divide-y divide-gray-200">
-                {% for animal in animales %}
-                <tr>
-                    <td class="px-6 py-4 whitespace-nowrap font-mono text-sm">{{ animal.NCHIP }}</td>
-                    <td class="px-6 py-4 whitespace-nowrap font-semibold">{{ animal.NombreAnimal }}</td>
-                    <td class="px-6 py-4 whitespace-nowrap">{{ animal.Especie.value }}</td>
-                    <td class="px-6 py-4 whitespace-nowrap">{{ animal.Sexo.value }}</td>
-                    <td class="px-6 py-4 whitespace-nowrap">{{ animal.FNacimiento }}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-gray-500">{{ animal.Raza or "-" }}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-right">
-                        <a href="/animales/{{ animal.id }}" class="text-blue-600 hover:underline">Ver</a>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-    {% else %}
-    <div class="bg-white shadow rounded-lg p-8 text-center text-gray-500">
-        <p>No hay animales registrados.</p>
-        <a href="/animales/new" class="text-blue-600 hover:underline mt-2 inline-block">
-            Dar de alta el primero
-        </a>
-    </div>
-    {% endif %}
-</div>
+  {% if animales %}
+  <div class="bg-surface rounded-card shadow-card overflow-hidden">
+    <table class="min-w-full text-left text-sm">
+      <thead class="bg-primary text-white">
+        <tr>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">NCHIP</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Nombre</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Especie</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Sexo</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">FNacimiento</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Raza</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for animal in animales %}
+        <tr class="border-b border-border last:border-b-0 hover:bg-primary/5 transition-colors">
+          <td class="px-6 py-4 whitespace-nowrap font-mono text-text">{{ animal.NCHIP }}</td>
+          <td class="px-6 py-4 whitespace-nowrap font-semibold text-text">{{ animal.NombreAnimal }}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-text-muted">{{ animal.Especie.value }}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-text-muted">{{ animal.Sexo.value }}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-text-muted">{{ animal.FNacimiento }}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-text-muted">{{ animal.Raza or "-" }}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-right">
+            <a href="/animales/{{ animal.id }}" class="text-primary font-semibold hover:underline">Ver</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="bg-gradient-to-br from-primary/10 to-primary/5 border-l-4 border-primary rounded-card shadow-card p-8 text-center">
+    <div class="text-5xl mb-3" aria-hidden="true">🐾</div>
+    <h2 class="text-primary-dark font-semibold text-lg">No hay animales registrados</h2>
+    <p class="text-text-muted text-sm mt-1 mb-4">Empieza dando de alta el primer animal del refugio.</p>
+    <a href="/animales/new" class="inline-block bg-primary text-white px-4 py-2 rounded font-semibold hover:bg-primary-dark transition-colors">
+      Dar de alta el primero
+    </a>
+  </div>
+  {% endif %}
 {% endblock %}

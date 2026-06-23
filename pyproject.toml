@@ -54,6 +54,9 @@ dev = [
     "pytest-asyncio>=0.24",
     "pytest-cov>=5.0",
     "ruff>=0.6",
+    # E2E: UI verification via real Chromium browser. CI installs the
+    # chromium binary separately with `playwright install chromium`.
+    "playwright>=1.45",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -74,7 +77,9 @@ only-include = ["app", "tests", "docs", "pyproject.toml", "README.md", "tailwind
 minversion = "8.0"
 testpaths = ["tests"]
 asyncio_mode = "auto"
-asyncio_default_fixture_loop_scope = "session"
+# Function scope keeps the Playwright sync API from conflicting with
+# the event loop reused across sync-vs-async tests in the same run.
+asyncio_default_fixture_loop_scope = "function"
 addopts = [
     "-ra",
     "--strict-markers",

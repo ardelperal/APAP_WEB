@@ -3,17 +3,30 @@
 {% block title %}Acceso no autorizado · {{ app_name }}{% endblock %}
 
 {% block content %}
-  <section class="rounded-lg border border-amber-300 bg-amber-50 p-6 shadow-sm">
-    <h1 class="text-2xl font-semibold text-amber-900">Acceso no autorizado</h1>
-    <p class="mt-3 text-amber-800">
-      Tu cuenta de Google no está autorizada para acceder a esta
-      aplicación. El acceso se concede manualmente a las personas de
-      la protectora. Si crees que deberías tener acceso, contacta con
-      la persona administradora de {{ app_name }}.
-    </p>
-    <p class="mt-4 text-sm text-amber-700">
-      Copy provisional de la Fase 1 (esqueleto). La versión definitiva
-      llega con la Fase 2 (autenticación).
-    </p>
-  </section>
+  {# Centered card, no list chrome. APAP palette: warning-box-like gradient
+     (amber → accent-light tones) but adapted to a "denied" scenario.
+     Rose tones are kept for the de-emphasis: this is a soft denial,
+     not an error alert. #}
+  <div class="max-w-xl mx-auto py-12 text-center">
+    <div class="bg-surface rounded-card shadow-card border-l-4 border-accent p-8">
+      <div class="text-6xl mb-4" aria-hidden="true">🐾</div>
+      <h1 class="text-2xl font-semibold text-primary-dark">No tienes acceso a esta sección</h1>
+      <p class="mt-4 text-text-muted">
+        Tu cuenta de Google no está autorizada para acceder a esta
+        aplicación. El acceso se concede manualmente a las personas de
+        la protectora. Si crees que deberías tener acceso, contacta con
+        la persona administradora de {{ app_name }}.
+      </p>
+      <p class="mt-4 text-sm text-text-muted">
+        Copy provisional de la Fase 1 (esqueleto). La versión definitiva
+        llega con la Fase 2 (autenticación).
+      </p>
+      <a
+        href="/"
+        class="inline-block mt-6 px-5 py-2.5 rounded bg-primary text-white font-semibold hover:bg-primary-dark transition-colors"
+      >
+        ← Volver al inicio
+      </a>
+    </div>
+  </div>
 {% endblock %}
