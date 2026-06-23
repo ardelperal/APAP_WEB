@@ -5,6 +5,10 @@ on:
     branches: [main, staging]
   push:
     branches: [main, staging]
+  # Allow running CI manually against any branch (e.g. to re-validate
+  # an open PR after the workflow itself was edited). Use:
+  #   gh workflow run ci.yml --ref <branch>
+  workflow_dispatch:
 
 permissions:
   contents: read
