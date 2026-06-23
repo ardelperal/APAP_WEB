@@ -135,3 +135,174 @@ Payments currently has TypeScript SDK docs only. Use the Payments API reference 
 - Storage: Upload files to buckets, store URLs in database
 - AI integrations should call OpenRouter directly with `baseURL: "https://openrouter.ai/api/v1"` and a server-side `OPENROUTER_API_KEY`
 - **EXTRA IMPORTANT**: Use Tailwind CSS 3.4 (do not upgrade to v4). Lock these dependencies in `package.json`
+
+---
+
+## Project Code Quality Rules (APAP_WEB — FastAPI + service layer + InsForge)
+
+You are implementing features in a FastAPI application with a strict layered architecture.
+Follow these rules exactly. Each rule includes the reason — understand it, don't just copy the pattern.
+
+### 1. Layer boundaries are absolute
+
+Routes handle HTTP only: form parsing, auth guards, redirects, HTML rendering.
+Services handle all data access: SQL, validation, domain logic.
+Never call `client.execute_sql(...)` from a route. If the service method doesn't exist yet, create it first — do not bypass the layer as a temporary measure.
+
+WRONG — SQL in route
+
+```python
+@router.post("/{id}/delete")
+def delete_view(id: str, client = Depends(...)):
+    client.execute_sql("UPDATE items SET activo = false WHERE id = $1", [id])
+```
+
+RIGHT — route delegates to service
+
+```python
+@router.post("/{id}/delete")
+def delete_view(id: str, client = Depends(...)):
+    service.deactivate_item(client, id)
+```
+
+### 2. Dependencies that own resources must use yield
+
+Any dependency that creates an object with a `.close()` method must use `yield` so cleanup is guaranteed — even on exceptions.
+
+WRONG — resource leaked on every request
+
+```python
+def get_client() -> InsForgeClient:
+    return InsForgeClient(url, key)
+```
+
+RIGHT — closed after every request
+
+```python
+def get_client():
+    client = InsForgeClient(url, key)
+    try:
+        yield client
+    finally:
+        client.close()
+```
+
+### 3. Configuration is parsed once, not per request
+
+`Settings()` reads environment variables. It must be called once at startup, not on every request. Always cache it.
+
+WRONG
+
+```python
+def get_client():
+    settings = get_settings()   # parses .env on every call
+    return InsForgeClient(settings.url, settings.key)
+```
+
+RIGHT
+
+```python
+@functools.lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    return Settings()
+```
+
+### 4. One source of truth per domain concept
+
+Never define the same values twice. If you have a StrEnum for a domain type, derive any sets or lists from it — don't duplicate.
+
+WRONG — same values in two places, they will diverge
+
+```python
+VALID_TYPES = frozenset({"intake", "acogida", "salud"})
+class TipoRol(StrEnum):
+    INTAKE = "intake"
+    ACOGIDA = "acogida"
+    SALUD = "salud"
+```
+
+RIGHT — one source
+
+```python
+class TipoRol(StrEnum):
+    INTAKE = "intake"
+    ACOGIDA = "acogida"
+    SALUD = "salud"
+
+VALID_TYPES = frozenset(r.value for r in TipoRol)
+```
+
+### 5. Validation lives in the service, not in routes
+
+Business rules (required fields, enum membership, domain constraints) belong in the service layer. Routes translate the service's `ValueError` into an HTTP response — they do not re-implement the rules.
+
+WRONG — validation duplicated in route
+
+```python
+def update_view(...):
+    if not form_data.get("name"):
+        return render_form(error="name required")   # duplicates service logic
+```
+
+RIGHT — service owns validation, route translates the exception
+
+```python
+def update_view(...):
+    try:
+        service.update_item(client, form_data)
+    except ValueError as exc:
+        return render_form(error=str(exc))
+```
+
+### 6. Security defaults deny, not permit
+
+When reading a flag from a session or payload, default to the most restrictive value. A missing field should be treated as the safest option.
+
+WRONG — missing flag grants access
+
+```python
+if not payload.get("is_authorized", True):
+    redirect("/unauthorized")
+```
+
+RIGHT — missing flag denies access
+
+```python
+if not payload.get("is_authorized", False):
+    redirect("/unauthorized")
+```
+
+### 7. Redirects are not exceptions
+
+Use `RedirectResponse` for control flow redirects. Reserve `HTTPException` for actual HTTP error conditions (4xx, 5xx). Mixing them confuses error tracking, middleware, and Sentry.
+
+WRONG — abusing HTTPException for redirect
+
+```python
+raise HTTPException(status_code=302, headers={"location": "/login"})
+```
+
+RIGHT
+
+```python
+return RedirectResponse(url="/login", status_code=302)
+```
+
+### Summary checklist before submitting any route or service
+
+- [ ] Does the route call `client.execute_sql(...)` directly? → Move to service.
+- [ ] Does any dependency create a closeable resource? → Use yield + finally.
+- [ ] Does the code call `get_settings()` more than once in the same request? → Cache it.
+- [ ] Is the same domain value list defined twice? → Derive one from the other.
+- [ ] Does any auth check default to `True`? → Change to `False`.
+- [ ] Does any redirect use `HTTPException`? → Use `RedirectResponse`.
+
+### Known conflicts with existing code (do not silently fix — see follow-up plan)
+
+These rules are forward-looking. Three of them are violated by code that pre-dates the rule:
+
+| Rule | Where | Reason it still exists | Follow-up |
+|---|---|---|---|
+| 4 — one source of truth | `app/core/auth.py:30` (`VALID_ROLES` hardcoded) and `app/modules/voluntarios/service.py:47` (`VALID_ROL_TYPES` hardcoded) | The `StrEnum` for roles does not exist yet. The frozenset is the only source. | When the `Rol(StrEnum)` is introduced, derive `VALID_ROLES = frozenset(r.value for r in Rol)`. Same for `TipoRol` / `VALID_ROL_TYPES`. |
+| 6 — defaults deny | `app/core/auth_dependencies.py:80` uses `payload.get("is_authorized", True)` (default permits) | **Deliberate**: sessions issued before the VOL-01 P0 fix don't carry the flag. The default `True` keeps them working. The fix lived in writing the flag in `/auth/callback` (PR #90). | Once all live sessions have expired (7-day cookie max-age) AND a migration script has invalidated pre-fix cookies, flip the default to `False`. Document the cookie-invalidation in the same PR. |
+| 7 — no `HTTPException` for redirects | `app/core/auth_dependencies.py:77-83` raises `HTTPException(302, headers={"location": ...})` for both `/login` and `/unauthorized` redirects | Pre-existing pattern; works because FastAPI's `HTTPException` honors the `Location` header and 302 status. | Replace with `Response(status_code=302, headers={"location": ...})` or change the guards to return `RedirectResponse` directly. Pure refactor; public behavior unchanged. |
