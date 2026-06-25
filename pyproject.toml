@@ -84,10 +84,22 @@ addopts = [
     "-ra",
     "--strict-markers",
     "--strict-config",
+    # Skip e2e/ by default — see markers section above for rationale.
+    "--ignore=tests/e2e/",
 ]
 filterwarnings = [
     "error::DeprecationWarning",
     "error::PendingDeprecationWarning",
+]
+# E2E tests are excluded from the default run via --ignore because:
+# 1. They require a live server at APAP_E2E_BASE_URL (default http://127.0.0.1:8000)
+# 2. Playwright's sync_playwright() initialises an event loop at import/collection
+#    time that poisons pytest-asyncio's loop for ALL tests in the same process
+#    (Runner.run() cannot be called from a running event loop).
+# CI runs them as a dedicated job. Local dev: pytest tests/e2e/ (server running).
+markers = [
+    # E2E tests — require a live server; excluded from default pytest run.
+    "e2e: end-to-end browser tests that require APAP_E2E_BASE_URL to be reachable.",
 ]
 
 # Ruff configuration — fast single-binary linter, current best practice.

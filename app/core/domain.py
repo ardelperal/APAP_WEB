@@ -98,12 +98,16 @@ CREATE TABLE IF NOT EXISTS roles_voluntario (
 )
 """
 
-# --- entradas: TbEntradas (14 cols) + mejoras justificadas ---
+# --- entradas: migration-compatible physical schema (#87) ---
 #
-# LIFECYCLE-03 (migration-01). Migration target of TbEntradas from the
-# legacy Access production DB. FKs to animales and voluntarios. The
-# natural-key UNIQUE constraint on (animal_id, fecha_entrada) prevents
-# duplicate intakes for the same animal on the same day.
+# Accepted web CRUD/service/form surface for intake entries stays minimal:
+# intake volunteer, intake date, source/motive/notes, soft-delete, and
+# timestamps. The physical table also keeps nullable salida/entrega/donativo
+# columns that entrada.yaml maps from legacy data. Those fields are migration
+# compatibility columns and remain deferred from the public CRUD contract until
+# a dedicated workflow slice exposes them. The natural-key UNIQUE constraint on
+# (animal_id, fecha_entrada) prevents duplicate intakes for the same animal on
+# the same day.
 
 ENTRADAS_CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS entradas (
@@ -116,8 +120,8 @@ CREATE TABLE IF NOT EXISTS entradas (
     fecha_entrega_propietario DATE,
     origen TEXT,
     motivo TEXT,
-    donativo_entregador NUMERIC(10,2),
     observaciones TEXT,
+    donativo_entregador NUMERIC(10,2),
     fecha_alta TIMESTAMP NOT NULL DEFAULT now(),
     updated_at TIMESTAMP NOT NULL DEFAULT now(),
     activo BOOLEAN NOT NULL DEFAULT true,

@@ -310,33 +310,29 @@ def test_ensure_domain_schema_raises_when_create_table_fails() -> None:
     client.close()
 
 
-# --- entradas (TbEntradas legacy) -----------------------------------------
+# --- entradas (migration-compatible physical schema) ----------------------
 #
-# Migration target of TbEntradas from the legacy Access production DB.
-# 14 columns: id + animal_id (FK) + 2 voluntario FKs + 3 dates + origen +
-# motivo + donativo_entregador + observaciones + 3 system columns.
-# Natural-key UNIQUE on (animal_id, fecha_entrada) prevents duplicate
-# intakes for the same animal on the same day.
+# Public CRUD scope for the intake entries slice (#87) remains minimal:
+# id + animal_id (FK) + optional intake volunteer FK + fecha_entrada +
+# origen/motivo/observaciones + soft-delete/timestamps. The physical table
+# still keeps nullable salida/entrega/donativo columns because entrada.yaml
+# maps legacy data into them until a dedicated migration-mapping change exists.
 
 
 def test_entradas_create_table_sql_uses_if_not_exists() -> None:
     assert "CREATE TABLE IF NOT EXISTS entradas" in ENTRADAS_CREATE_TABLE_SQL
 
 
-def test_entradas_create_table_sql_columns() -> None:
-    """All 14 columns required by the entradas table (LIFECYCLE-03)."""
+def test_entradas_create_table_sql_has_minimal_public_crud_columns() -> None:
+    """The #87 public CRUD contract is the minimal intake-entry surface."""
     columns = _column_names(ENTRADAS_CREATE_TABLE_SQL)
     required = {
         "id",
         "animal_id",
         "voluntario_entrada_id",
-        "voluntario_salida_id",
         "fecha_entrada",
-        "fecha_salida",
-        "fecha_entrega_propietario",
         "origen",
         "motivo",
-        "donativo_entregador",
         "observaciones",
         "fecha_alta",
         "updated_at",
@@ -344,6 +340,39 @@ def test_entradas_create_table_sql_columns() -> None:
     }
     missing = required - columns
     assert not missing, f"entradas table missing columns: {sorted(missing)}"
+
+
+def test_entradas_create_table_sql_keeps_migration_mapped_physical_columns() -> None:
+    """Mapped legacy fields remain physical columns for entrada.yaml compatibility."""
+    columns = _column_names(ENTRADAS_CREATE_TABLE_SQL)
+    mapped_deferred_columns = {
+        "voluntario_salida_id",
+        "fecha_salida",
+        "fecha_entrega_propietario",
+        "donativo_entregador",
+    }
+    missing = mapped_deferred_columns - columns
+    assert not missing, f"entradas table missing mapped columns: {sorted(missing)}"
+
+
+def test_entradas_migration_mapped_columns_are_nullable_and_deferred() -> None:
+    """Migration-only columns must not become mandatory public CRUD fields."""
+    sql = ENTRADAS_CREATE_TABLE_SQL
+    assert "voluntario_salida_id UUID REFERENCES voluntarios(id)" in sql
+    assert "fecha_salida DATE" in sql
+    assert "fecha_entrega_propietario DATE" in sql
+    assert "donativo_entregador NUMERIC(10,2)" in sql
+    for column in (
+        "voluntario_salida_id",
+        "fecha_salida",
+        "fecha_entrega_propietario",
+        "donativo_entregador",
+    ):
+        assert f"{column} " in sql
+        assert f"{column} " + "TEXT NOT NULL" not in sql
+        assert f"{column} " + "DATE NOT NULL" not in sql
+        assert f"{column} " + "UUID NOT NULL" not in sql
+        assert f"{column} " + "NUMERIC(10,2) NOT NULL" not in sql
 
 
 def test_entradas_create_table_sql_fk_animal_id_to_animales() -> None:
