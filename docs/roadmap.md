@@ -4,7 +4,7 @@
 
 **Última actualización:** 2026-06-19 (refresco tras fix de dominio `apap.romancaba.com`, commit `3c32f3e`, y split de CD-01 / CD-02)
 **Mantenedor único:** aroman (autoaprueba issues y PRs)
-**Rama objetivo actual:** `main` (pre-MVC, política "todo a main hasta tener MVC"; ver §8)
+**Rama objetivo actual:** `staging` para trabajo normal; `main` reservado para producción/promoción (ver §8)
 **Idioma de toda la documentación, issues y PRs:** castellano (España)
 
 ---
@@ -24,8 +24,8 @@
 |---|---|---|
 | Repositorio `ardelperal/APAP_WEB` | ✅ | Creado, `main` como rama por defecto |
 | CI local (pytest + ruff + build) | ✅ | Phase 0 de `ci-cd-foundation` merged en `main` |
-| GitHub Actions workflow | ✅ | `ci / lint`, `ci / test`, `ci / build` en verde en PRs y pushes a `main` (e2e skipped por secretos faltantes) |
-| Branch protection en `main` | 🔲 | Documentado en `.github/branch-protection.md`; pendiente de activar en la UI de GitHub (tarea 1.5) |
+| GitHub Actions workflow | ✅ | `ci / lint`, `ci / test`, `ci / build` en PRs y pushes a `staging` y `main`; `deploy` solo en `main` |
+| Branch protection en la rama protegida activa | 🔲 | Documentado en `.github/branch-protection.md`; pendiente de activar en la UI de GitHub (tarea 1.5) |
 | Proyecto Coolify + app `apap-web` | ✅ | Aprovisionado, apunta a `ardelperal/APAP_WEB:main`, fqdn `apap.romancaba.com` |
 | DNS `apap.romancaba.com` | 🔲 | Pendiente de crear por el mantenedor antes del primer deploy real |
 | Fix de dominio OAuth (redirect URI) | ✅ | Commit `3c32f3e` en main; `APAP_GOOGLE_REDIRECT_URI` corregido en Coolify; redeploy OK |
@@ -56,7 +56,7 @@
 | CD-02 build y push del runnable a Coolify | ✅ | #1 | #24 (`dc98c1c`) | `ci-cd-foundation` Phase 2 |
 | CD-01 webhook automático GitHub → Coolify en `push: main` | ✅ código en `225ef9c`; 🔲 dry-run real (tasks 2.6) pendiente de configurar `COOLIFY_WEBHOOK_URL` | #1 | — | `ci-cd-foundation` Phase 2 |
 | ~~CD-02 InsForge `insforge_create-deployment` step~~ | ~~🔲~~ N/A (2026-06-19) | #1 | — | — |
-| Branch protection activado en `main` | 🔲 | — | — | `ci-cd-foundation` tarea 1.5 |
+| Branch protection activado en la rama protegida activa (`staging` para trabajo normal; `main` si producción lo requiere) | 🔲 | — | — | `ci-cd-foundation` tarea 1.5 |
 | Harness E2E (Playwright) | 🔲 | — | — | `E2E-01` (diferido a `staging`) |
 
 **Pendiente del primer deploy real (no automatizable):**
@@ -358,14 +358,14 @@ Estos son los títulos tentativos; se abren cuando arranca cada fase, no antes.
 | Idioma de artefactos técnicos (código, comentarios, docstrings) | Inglés por defecto; documentación de producto en castellano |
 | Idioma de documentación | Castellano (España) para docs de producto, arquitectura y SDD |
 | Mantenedor | aroman (autoaprueba issues y PRs) |
-| Rama objetivo pre-MVC | `main` — política "todo a main" hasta tener un MVC funcional; el hook `pre-push` se salta con `--no-verify` tras OK explícito |
+| Rama objetivo actual | `staging` para trabajo normal; `main` solo para producción/promoción con OK explícito |
 | Convención de commits | Conventional Commits |
 | Tipo de PR label | exactamente uno de `type:bug` / `type:feature` / `type:docs` / `type:refactor` / `type:chore` / `type:breaking-change` |
-| TDD | Estricto: tests antes de código (excepto docs y ops puros). Cada unidad de trabajo = 1 issue → tests rojo → implementación → verde → push a main → cerrar issue |
+| TDD | Estricto: tests antes de código (excepto docs y ops puros). Cada unidad de trabajo = 1 issue → tests rojo → implementación → verde → integración en `staging` → cerrar issue |
 | Skill para frontend | `frontend-design` cargado en cualquier issue que toque UI/UX |
 | Skill para workflow VBA/Access | Solo `dysflow` MCP y `vba-access`; los demás skills de Access están excluidos |
 | Presupuesto de revisión | 400 líneas por PR; usar PRs encadenados cuando se supere |
-| Cadena de PRs | `force-chained` + `stacked-to-main` mientras estamos en pre-MVC |
+| Cadena de PRs | `force-chained`; base normal `staging`, con promoción a `main` solo para producción |
 | Trazabilidad de SDD | Cada PR enlaza la issue (`Closes #N`) y referencia el change de OpenSpec cuando aplique |
 
 ---
@@ -374,7 +374,7 @@ Estos son los títulos tentativos; se abren cuando arranca cada fase, no antes.
 
 **Regla base:** este roadmap se mantiene actualizado como efecto directo de cualquier acción que afecte a su contenido. No es una tarea aparte, se hace en el mismo flujo. Las decisiones, la documentación, las issues y el roadmap viven sincronizados: si algo cambia, el roadmap cambia en esa misma sesión, sin esperar a que el usuario lo pida.
 
-**Ritmo de trabajo pre-MVC (decidido 2026-06-19):** abrir issue → escribir el test rojo (TDD estricto) → implementación mínima que lo pone en verde → push a main → cerrar issue. Repetir "así hasta el final" del MVC.
+**Ritmo de trabajo actual:** abrir issue → escribir el test rojo (TDD estricto) → implementación mínima que lo pone en verde → integrar en `staging` → cerrar issue. La promoción a `main` queda separada para producción.
 
 Acciones que obligan a actualizar el roadmap en la misma sesión:
 

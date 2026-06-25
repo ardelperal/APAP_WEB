@@ -48,9 +48,9 @@ InsForge
 
 ## Branch and deployment policy
 
-`main` is the canonical branch for APAP_WEB. GitHub uses `main` as the default branch, and the Coolify `apap-web` application is configured to deploy from `ardelperal/APAP_WEB:main`.
+`main` remains the production branch for APAP_WEB. GitHub uses `main` as the default branch, and the Coolify `apap-web` application is configured to deploy from `ardelperal/APAP_WEB:main`.
 
-Until the staging/UAT transition is introduced by a future SDD change, pull requests target `main` and production deployment is prepared against `main`.
+Normal implementation work targets `staging`. CI runs on PRs/pushes to both `staging` and `main`; the production deploy trigger remains guarded on pushes to `main`. The full UAT-gated staging channel is still future CD-03 scope.
 
 ## InsForge usage rules
 

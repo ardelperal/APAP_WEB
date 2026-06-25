@@ -2,7 +2,7 @@
 
 > Documento en proceso de traducción al castellano. El contenido nuevo (Fase 1 — esqueleto) ya está en castellano; el contenido heredado en inglés se traducirá en una iteración posterior (issue pendiente en el roadmap).
 
-Esta guía lleva a un nuevo desarrollador desde un clone limpio hasta un test en verde en la aplicación APAP. Es la referencia canónica para los comandos locales. El workflow de CI (entregado en una PR anterior) y el job de deploy (CD-02, issue #1) llaman a los mismos comandos, así que lo que funciona localmente es lo que funciona en `main`.
+Esta guía lleva a un nuevo desarrollador desde un clone limpio hasta un test en verde en la aplicación APAP. Es la referencia canónica para los comandos locales. El workflow de CI (entregado en una PR anterior) y el job de deploy Coolify (CD-01, issue #1) llaman a los mismos comandos: el trabajo normal integra en `staging`, y producción queda guardada por `main`.
 
 Para setup del entorno por desarrollador y credenciales de InsForge MCP, ver [`docs/setup.md`](setup.md). Para las decisiones de arquitectura que dan forma a este flujo, ver [`docs/architecture-insforge-stack.md`](../docs/architecture-insforge-stack.md).
 
@@ -220,7 +220,7 @@ Una corrida en verde es la señal local de que la PR está lista para revisión.
 
 ## Workflow de CI y futuro hook E2E
 
-El workflow de GitHub Actions corre los mismos comandos locales en pull requests a `main` y en pushes a `main`:
+El workflow de GitHub Actions corre los mismos comandos locales en pull requests a `staging` o `main`, y en pushes a `staging` o `main`:
 
 | Job | Comando | Propósito |
 |---|---|---|
@@ -252,15 +252,15 @@ curl http://127.0.0.1:8000/healthz
 
 Si no tienes Docker, este paso no es necesario para desarrollar; la app funciona idéntico desde `make run`.
 
-## Nota sobre la rama pre-staging
+## Nota sobre ramas y despliegue
 
-Mientras APAP-WEB está en pre-MVC, cada PR de implementación apunta a `main` y cada merge a `main` dispara un despliegue continuo a través de Coolify (app FastAPI/HTMX) e InsForge (BFF/capa de datos). No hay rama `staging` ni puerta UAT todavía.
+APAP-WEB usa `staging` como rama normal de integración. Las PRs de implementación apuntan a `staging`; `main` queda reservado para promoción/producción y solo dispara el job `deploy` cuando hay un push a `main` después de que CI pase.
 
-La transición a `staging` + canal UAT está capturada como **CD-03** en el change `ci-cd-foundation` (`openspec/changes/ci-cd-foundation/`). La implementación de CD-03 está **diferida** hasta que la protectora adopte el MVC en producción. Hasta que ese trigger se dispare:
+La transición completa a canal UAT está capturada como **CD-03** en el change `ci-cd-foundation` (`openspec/changes/ci-cd-foundation/`). La implementación de CD-03 está **diferida** hasta que la protectora adopte el MVC en producción. Hasta que ese trigger se dispare:
 
-- Todas las PRs apuntan a `main`.
-- El job `deploy` corre en cada push a `main` después de que CI pase.
-- No hay paso de validación pre-producción; la primera red de seguridad es la verja de calidad de CI (lint, unit, integration, build) y la revisión del operador.
+- Las PRs normales apuntan a `staging`.
+- `main` conserva el trigger de producción por Coolify y requiere evidencia del operador antes de cerrar el change.
+- Todavía no hay puerta UAT implementada; la red de seguridad actual es la verja de calidad de CI (lint, unit, integration, build) y la revisión del operador.
 
 La sección `openspec/changes/ci-cd-foundation/design.md § Future work` lista cada ticket diferido a la transición a staging (CD-03, CD-04, ENV-01, UAT-01..03, E2E-01..06, E2E-M1..M4, WORKER-01..04). Cuando el trigger se dispare, esos seeds se convierten en el siguiente change de SDD.
 
