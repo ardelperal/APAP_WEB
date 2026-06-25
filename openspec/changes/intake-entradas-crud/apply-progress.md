@@ -5,7 +5,7 @@
 | Field | Value |
 |---|---|
 | Change | `intake-entradas-crud` |
-| Current slice | PR 2 / service slice #88 |
+| Current slice | PR 3 / routes/UI slice #89 |
 | Chain strategy | stacked-to-main toward `staging` |
 | Review budget | <400 changed lines for this slice |
 | Commit | `pending` |
@@ -19,6 +19,11 @@
 - [x] 2.2 GREEN: added `app/modules/entradas/__init__.py` and `app/modules/entradas/service.py` with `Entrada`, `EntradaConflictError`, SQL constants, mapping, validation, and CRUD.
 - [x] 2.3 REFACTOR: kept the public service contract to minimal intake fields; volunteer eligibility checks `activo = true` only and deliberately does not enforce `RolVoluntario.INTAKE`.
 - [x] 2.4 Verify slice: focused tests, migration-lock regression coverage, ruff, full default pytest, build, and fresh review-finding fixes passed for PR 2 promotion readiness.
+- [x] 3.1 RED: added `tests/test_entradas_routes.py` for auth redirects, service delegation, 404/409/422 translations, soft-delete routing, Spanish render signals, and no route `execute_sql` source usage.
+- [x] 3.2 GREEN: added protected `app/modules/entradas/routes.py` with list/detail/new/create/edit/update/delete handlers delegating to `entradas.service` and translating `EntradaConflictError` to HTTP 409.
+- [x] 3.3 GREEN: added `app/templates/entradas/list.html`, `detail.html`, and `form.html` with Spanish copy and only the minimal intake fields.
+- [x] 3.4 GREEN: wired the entradas router in `app/main.py` and the navigation link in `app/templates/base.html` without touching unrelated modules.
+- [x] 3.5 Verify slice: focused route tests, full pytest, ruff, and build passed; scoped local code-review checklist found no P0/P1/P2 blocker, with fresh external review still recommended before PR 3 promotion.
 
 ## TDD Cycle Evidence
 
@@ -30,6 +35,11 @@
 | 2.1 | `tests/test_entradas.py` | Unit/service | N/A (new test file) | ✅ Tests written before service module is tracked for create/list/get/update/soft-delete, required fields, active volunteer validation, and duplicate conflict | ✅ `pytest tests/test_entradas.py`: 12 passed after service implementation | ✅ Happy-path create plus null-volunteer, invalid required fields, inactive volunteer, duplicate, missing update/delete, and query-shape assertions cover distinct paths | ✅ Tests assert minimal public fields and no salida/entrega/donativo writes |
 | 2.2 | `tests/test_entradas.py` + `app/modules/entradas/service.py` | Unit/service | N/A (new service module) | ✅ Consumed 2.1 RED service contract tests | ✅ `pytest tests/test_entradas.py`: 12 passed | ✅ CRUD methods exercise insert/select/update/soft-delete plus validation and conflict branches | ✅ Service owns SQL/validation/domain error mapping; routes remain untouched |
 | 2.3 | `tests/test_entradas.py` + `app/modules/entradas/service.py` | Unit/service | ✅ `pytest tests/test_entradas.py`: 12 passed before final verification | ✅ Existing tests assert minimal public write columns and `activo = true` volunteer lookup with no `tipo_rol` check | ✅ `pytest tests/test_entradas.py`: 12 passed | ✅ Public-field exclusion and role-nonenforcement are asserted alongside valid and invalid volunteer paths | ✅ No deferred salida/entrega/donativo fields are written by create/update SQL |
+| 3.1 | `tests/test_entradas_routes.py` | Integration/route | N/A (new route test file) | ✅ `pytest tests/test_entradas_routes.py` failed as expected: 8 failures from missing `/entradas` routes/source file | ✅ `pytest tests/test_entradas_routes.py`: 10 passed after routes/templates/app wiring | ✅ Tests cover authorized list/create/update/delete, unauthenticated redirect, 404 detail/edit/update/delete, duplicate 409, validation 422, and source-level no direct SQL | ✅ Removed unused test import after ruff caught it |
+| 3.2 | `tests/test_entradas_routes.py` + `app/modules/entradas/routes.py` | Integration/route | N/A (new route module) | ✅ Consumed 3.1 route RED contract | ✅ Focused route tests passed after minimal router implementation | ✅ Distinct success/error branches prove delegation and HTTP translation behavior | ✅ Routes only parse forms, render templates, redirect, and call service functions |
+| 3.3 | `tests/test_entradas_routes.py` + `app/templates/entradas/*.html` | Template/UI | N/A (new templates) | ✅ Route tests asserted Spanish page signals before templates existed | ✅ Focused route tests passed after adding list/detail/form templates | ✅ List/detail/form expose only animal, volunteer, date, origin, motive, notes, and actions | ✅ Copy follows existing APAP Spanish-facing template style |
+| 3.4 | `tests/test_entradas_routes.py` + `app/main.py` + `app/templates/base.html` | Integration/wiring | ✅ Existing app route suite previously green in service slice | ✅ RED showed `/entradas` returned 404 before router wiring | ✅ Focused route tests passed; full `pytest` passed with 419 passed, 2 skipped | ✅ Main/router/nav edits are limited to entradas wiring |
+| 3.5 | Verification commands | Verification | ✅ Previous service slice full suite was 409 passed, 2 skipped | N/A | ✅ `pytest tests/test_entradas_routes.py` 10 passed; `pytest` 419 passed, 2 skipped; `ruff check .` passed; `python -m build` passed | ✅ Focused + full suite cover route slice plus regression surface | ✅ Scoped local review checklist found no direct SQL/auth bypass/conflict-mapping blocker; formal fresh review remains the next promotion step |
 
 ## Verification
 
@@ -52,6 +62,21 @@
 | `ruff check .` | ✅ Passed | No lint issues after SDD refresh and migration-lock doc/prototype fix. |
 | `pytest` | ✅ 409 passed, 2 skipped | Full default suite now completes; skipped tests require real `psutil`, which is not installed in the active venv. |
 | `python -m build` | ✅ Passed | Built sdist and wheel after fresh review fixes. |
+| `pytest tests/test_entradas_routes.py` (RED) | ✅ Failed as expected | 8 failures proved `/entradas` routes and source file were missing before implementation. |
+| `pytest tests/test_entradas_routes.py` (GREEN) | ✅ 10 passed | Focused route/UI tests pass after router, templates, app wiring, and nav link. |
+| `ruff check .` | ❌ Failed, then ✅ Passed | Initial failure was one unused `dataclasses.replace` import in the new route test; removing it made ruff pass. |
+| `pytest` | ✅ 419 passed, 2 skipped | Full default suite after routes/UI slice; skipped tests still require real `psutil`. |
+| `python -m build` | ✅ Passed | Built sdist and wheel after routes/UI slice. |
+| `pytest tests/test_entradas_routes.py` (review remediation) | ✅ 12 passed | Added rendered create/edit form-action contract tests; explicit form actions route submissions to `/entradas` and `/entradas/{id}/update`. |
+| `ruff check .` (review remediation) | ✅ Passed | No lint issues after form-action fix. |
+| `pytest` (review remediation) | ✅ 423 passed | Full default suite rerun by fresh review after remediation. |
+| `python -m build` (review remediation) | ✅ Passed | Built sdist and wheel after fresh review fixes. |
+
+## Fresh Review Findings Remediation
+
+- P1 fixed: `app/templates/entradas/form.html` no longer renders `action=""`; routes now pass explicit create and update targets into the shared form template.
+- P2 fixed: `tests/test_entradas_routes.py` now asserts the rendered create form posts to `/entradas` and the edit form posts to `/entradas/ent-123/update`.
+- Scope preserved: routes remain HTTP-only, no direct route SQL was added, and the UI still exposes only minimal intake fields.
 
 ## Code Review Gate Preparation
 
@@ -66,14 +91,21 @@
 - Reliability: deletes are soft (`activo=false`); volunteer eligibility checks `activo=true`; no role enforcement is added for this slice.
 - Fresh review findings addressed: task 2.4 and service-slice verification evidence refreshed after full-suite green; migration-lock docstring now matches the Windows kernel-query fallback; Win32 ctypes calls now declare explicit prototypes for 64-bit HANDLE clarity.
 - Blocking review issue found locally: none after current focused tests, full pytest, ruff, and build passed.
+- PR 3 route/UI review scope prepared: `tests/test_entradas_routes.py`, `app/modules/entradas/routes.py`, `app/templates/entradas/*.html`, `app/main.py`, `app/templates/base.html`, and SDD progress artifacts.
+- Architecture: routes are HTTP-only and delegate all SQL/validation to `entradas.service`; the new route source contains no `.execute_sql(` call.
+- Security: `/entradas` uses the shared `require_authorized_user` guard; missing sessions redirect to `/login`; no new secrets, dependencies, or dynamic SQL were introduced.
+- Reliability: duplicate service errors translate to HTTP 409, validation errors to 422, missing resources to 404, and delete remains service-owned soft delete.
+- Fresh review findings addressed: P1 broken rendered form action and P2 missing rendered form submission contract tests fixed with focused route/UI changes.
+- Blocking review issue found locally: none after focused route tests, full pytest, ruff, and build passed.
 
 ## Implementation commits
 
 | Commit | Work unit | SDD tasks | Verification | Access sync |
 |---|---|---|---|---|
-| `pending` | Schema slice #87 corrective fix | 1.1-1.3 complete | `pytest tests/test_domain.py` baseline 44 passed; RED 3 expected failures; GREEN 46 passed; final `pytest` 398 passed; `ruff check .` passed; `python -m build` passed; scoped code review passed | N/A |
-| `pending` | Service slice #88 | 2.1-2.4 complete | Prior evidence preserved: `pytest tests/test_entradas.py` 12 passed; `ruff check .` passed; `python -m build` passed; earlier full `pytest` interruption classified outside service slice. Current evidence: `pytest tests/test_entradas.py tests/test_migration.py` 137 passed, 2 skipped; `ruff check .` passed; `pytest` 409 passed, 2 skipped; `python -m build` passed; fresh review findings addressed | N/A |
+| `bb22fa1` | Schema slice #87 corrective fix | 1.1-1.3 complete | `pytest tests/test_domain.py` baseline 44 passed; RED 3 expected failures; GREEN 46 passed; final `pytest` 398 passed; `ruff check .` passed; `python -m build` passed; scoped code review passed | N/A |
+| `e7331b5` | Service slice #88 | 2.1-2.4 complete | Prior evidence preserved: `pytest tests/test_entradas.py` 12 passed; `ruff check .` passed; `python -m build` passed; earlier full `pytest` interruption classified outside service slice. Current evidence: `pytest tests/test_entradas.py tests/test_migration.py` 137 passed, 2 skipped; `ruff check .` passed; `pytest` 409 passed, 2 skipped; `python -m build` passed; fresh review findings addressed | N/A |
+| `pending` | Routes/UI slice #89 | 3.1-3.5 complete; review remediation complete | RED `pytest tests/test_entradas_routes.py` failed 8 expected failures; GREEN focused route tests 10 passed; fresh review P1/P2 findings fixed; rerun evidence: `pytest tests/test_entradas_routes.py` 12 passed; `ruff check .` passed; `pytest` 423 passed; `python -m build` passed | N/A |
 
 ## Remaining Tasks
 
-- [ ] 3.1-3.5 Routes/UI slice #89.
+- None for `intake-entradas-crud` implementation. Commit and PR 3 promotion remain pending orchestration steps.

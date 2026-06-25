@@ -52,6 +52,7 @@ from app.core.session import (
     write_session,
 )
 from app.modules.animals.routes import router as animals_router
+from app.modules.entradas.routes import router as entradas_router
 from app.modules.voluntarios.routes import router as voluntarios_router
 
 _STATIC_DIR = Path(__file__).parent / "static"
@@ -350,6 +351,7 @@ def create_app() -> FastAPI:
         return _redirect("/admin")
 
     application.include_router(animals_router)
+    application.include_router(entradas_router)
     application.include_router(voluntarios_router)
 
     return application

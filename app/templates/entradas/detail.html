@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Entrada {{ entrada.fecha_entrada }} - APAP_WEB{% endblock %}
+{% block content %}
+  <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
+    <div>
+      <h1 class="text-3xl font-bold text-primary-dark tracking-tight">Entrada del {{ entrada.fecha_entrada }}</h1>
+      <p class="text-text-muted text-sm mt-1">Animal: <code class="font-mono text-text">{{ entrada.animal_id }}</code></p>
+    </div>
+    <div class="flex gap-3">
+      <a href="/entradas/{{ entrada.id }}/edit"
+         class="bg-accent text-primary-dark px-4 py-2 rounded font-semibold hover:bg-accent-light transition-colors shadow-sm">
+        Editar
+      </a>
+      <form method="post" action="/entradas/{{ entrada.id }}/delete" class="inline"
+            onsubmit="return confirm('¿Borrar esta entrada?');">
+        <button type="submit" class="bg-rose-700 text-white px-4 py-2 rounded font-semibold hover:bg-rose-800 transition-colors shadow-sm">
+          Borrar
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <div class="bg-surface rounded-card shadow-card p-6 space-y-6">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div><span class="text-text-muted text-sm">Animal</span><div class="font-mono text-text">{{ entrada.animal_id }}</div></div>
+      <div><span class="text-text-muted text-sm">Fecha de entrada</span><div class="text-text">{{ entrada.fecha_entrada }}</div></div>
+      <div><span class="text-text-muted text-sm">Voluntario de entrada</span><div class="font-mono text-text">{{ entrada.voluntario_entrada_id or "—" }}</div></div>
+      <div><span class="text-text-muted text-sm">Origen</span><div class="text-text">{{ entrada.origen or "—" }}</div></div>
+      <div><span class="text-text-muted text-sm">Motivo</span><div class="text-text">{{ entrada.motivo or "—" }}</div></div>
+    </div>
+
+    <div class="bg-gradient-to-br from-primary/10 to-primary/5 border-l-4 border-primary rounded-card p-5">
+      <h2 class="text-primary-dark font-semibold mb-2">Observaciones</h2>
+      <p class="text-text whitespace-pre-line">{{ entrada.observaciones or "(sin observaciones)" }}</p>
+    </div>
+  </div>
+
+  <div class="mt-4">
+    <a href="/entradas" class="text-primary hover:underline text-sm">← Volver al listado</a>
+  </div>
+{% endblock %}

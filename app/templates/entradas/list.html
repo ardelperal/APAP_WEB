@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Entradas - APAP_WEB{% endblock %}
+{% block content %}
+  <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
+    <div>
+      <h1 class="text-3xl font-bold text-primary-dark tracking-tight">Entradas</h1>
+      <p class="text-text-muted text-sm mt-1">Registro mínimo de entradas de animales en la protectora.</p>
+    </div>
+    <a href="/entradas/new" class="bg-primary text-white px-4 py-2 rounded font-semibold hover:bg-primary-dark transition-colors shadow-sm">
+      + Nueva entrada
+    </a>
+  </div>
+
+  {% if entradas %}
+  <div class="bg-surface rounded-card shadow-card overflow-hidden">
+    <table class="min-w-full text-left text-sm">
+      <thead class="bg-primary text-white">
+        <tr>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Animal</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Fecha</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Voluntario</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Origen</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Motivo</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entrada in entradas %}
+        <tr class="border-b border-border last:border-b-0 hover:bg-primary/5 transition-colors">
+          <td class="px-6 py-4 whitespace-nowrap font-mono text-text">{{ entrada.animal_id }}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-text">{{ entrada.fecha_entrada }}</td>
+          <td class="px-6 py-4 whitespace-nowrap font-mono text-text-muted">{{ entrada.voluntario_entrada_id or "—" }}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-text-muted">{{ entrada.origen or "—" }}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-text-muted">{{ entrada.motivo or "—" }}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-right">
+            <a href="/entradas/{{ entrada.id }}" class="text-primary font-semibold hover:underline">Ver</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="bg-gradient-to-br from-primary/10 to-primary/5 border-l-4 border-primary rounded-card shadow-card p-8 text-center">
+    <div class="text-5xl mb-3" aria-hidden="true">🐾</div>
+    <h2 class="text-primary-dark font-semibold text-lg">No hay entradas registradas</h2>
+    <p class="text-text-muted text-sm mt-1 mb-4">Registra la primera entrada cuando llegue un animal al refugio.</p>
+    <a href="/entradas/new" class="inline-block bg-primary text-white px-4 py-2 rounded font-semibold hover:bg-primary-dark transition-colors">
+      Registrar primera entrada
+    </a>
+  </div>
+  {% endif %}
+{% endblock %}
