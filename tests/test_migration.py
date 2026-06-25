@@ -2300,6 +2300,28 @@ class TestLock:
 
         assert _is_process_alive(999_999_999) is False
 
+    def test_windows_psutil_fallback_does_not_use_os_kill(self, monkeypatch) -> None:
+        """Regression: Windows fallback must not use ``os.kill(pid, 0)``.
+
+        On Windows, signal 0 is ``CTRL_C_EVENT`` rather than a POSIX-style
+        no-op liveness probe, so calling it can interrupt the pytest process.
+        """
+        import os
+
+        if os.name != "nt":
+            pytest.skip("Windows-specific os.kill fallback regression")
+
+        from app.core.migration import lock as lock_mod
+
+        monkeypatch.setattr(lock_mod, "_PSUTIL_AVAILABLE", False, raising=False)
+
+        def fail_if_called(pid: int, signal: int) -> None:
+            raise AssertionError(f"os.kill must not probe Windows PID liveness: {pid}, {signal}")
+
+        monkeypatch.setattr(lock_mod.os, "kill", fail_if_called)
+
+        assert lock_mod._is_process_alive(999_999_999) is False
+
     def test_check_msaccess_returns_list_of_pids_when_psutil_available(self, monkeypatch) -> None:
         """``check_msaccess_running`` retorna lista de PIDs cuando psutil está disponible."""
         from app.core.migration import lock as lock_mod
@@ -2348,7 +2370,7 @@ class TestLock:
         ``monkeypatch.setattr`` funciona y la función usa el atributo
         directamente sin necesidad del ``getattr`` lookup.
         """
-        import psutil as real_psutil  # noqa: F401 — confirma que psutil está instalado
+        real_psutil = pytest.importorskip("psutil")
 
         from app.core.migration import lock as lock_mod
 
@@ -2410,6 +2432,8 @@ class TestLock:
              bug de ``psutil_obj is None``).
           3. No crashea con ``PermissionError`` ni ``AttributeError``.
         """
+        pytest.importorskip("psutil")
+
         from app.core.migration import lock as lock_mod
 
         # Garantizar que psutil está bound — si no, esto falla con el bug P0 #1.

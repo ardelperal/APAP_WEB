@@ -19,9 +19,11 @@ If the holding process died without releasing the lock (kill -9, OOM,
 crash, power loss), the file is stale. ``acquire_lock`` detects this
 two ways and overwrites the lock:
 
-1. **PID is dead**: ``psutil.pid_exists(pid)`` is ``False`` (or, if
-   ``psutil`` is not installed, ``os.kill(pid, 0)`` raises
-   ``ProcessLookupError``).
+1. **PID is dead**: ``psutil.pid_exists(pid)`` is ``False`` when
+   ``psutil`` is available. Without ``psutil``, Windows uses the kernel
+   process-query API (``OpenProcess`` + ``GetExitCodeProcess``) because
+   ``os.kill(pid, 0)`` can send ``CTRL_C_EVENT`` there; POSIX keeps the
+   standard ``os.kill(pid, 0)`` probe.
 2. **TTL expired**: ``now - acquired_at > ttl_seconds``. Default TTL
    is 30 minutes (1800s) — generous enough for a full sync (design §12
    estimates 10-15 min) but short enough that a dead run doesn't
@@ -49,8 +51,10 @@ environments where ``psutil`` isn't pulled in.
 
 from __future__ import annotations
 
+import ctypes
 import json
 import os
+from ctypes import wintypes
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -328,18 +332,20 @@ def _is_process_alive(pid: int) -> bool:
 
     Usa ``psutil.pid_exists`` si está disponible (más fiable: no
     requiere permisos, no tiene side effects). Si ``psutil`` no
-    está instalado, cae a ``os.kill(pid, 0)`` que es la API POSIX
-    estándar — en Windows requiere ``PROCESS_QUERY_INFORMATION`` o
-    similar, así que puede retornar ``False`` aunque el proceso
-    exista si no tenemos permisos. En ese caso el acquire_lock
-    puede ser más conservador de lo necesario, pero NO es
-    incorrecto (mejor bloquear de más que corrupper el estado).
+    está instalado, Windows usa ``OpenProcess`` +
+    ``GetExitCodeProcess`` para evitar ``os.kill(pid, 0)`` porque en
+    Windows señal ``0`` puede interrumpir el proceso actual. POSIX cae
+    a ``os.kill(pid, 0)`` que es la API estándar. Si no podemos verificar
+    por permisos o errores inesperados, asumimos vivo para ser
+    conservadores (mejor bloquear de más que corromper el estado).
     """
     if _PSUTIL_AVAILABLE:
         try:
             return bool(_psutil_module.pid_exists(pid))
         except Exception:  # noqa: BLE001 — psutil puede fallar en algunos OS
             return True  # fail-safe: asumir vivo si no podemos verificar
+    if os.name == "nt":
+        return _is_process_alive_windows(pid)
     # Fallback sin psutil: os.kill(pid, 0) no mata, solo verifica.
     try:
         os.kill(pid, 0)
@@ -354,6 +360,47 @@ def _is_process_alive(pid: int) -> bool:
         # etc.) → fail-safe.
         return True
     return True
+
+
+def _is_process_alive_windows(pid: int) -> bool:
+    """Windows PID liveness check used when psutil is unavailable.
+
+    ``os.kill(pid, 0)`` is a POSIX liveness probe, but on Windows signal
+    ``0`` is ``CTRL_C_EVENT``. Using it as a probe can interrupt the current
+    test run, so we use the kernel process query API instead.
+    """
+    if pid <= 0:
+        return False
+
+    process_query_limited_information = 0x1000
+    still_active = 259
+    error_access_denied = 5
+    error_invalid_parameter = 87
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
+    kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    kernel32.CloseHandle.restype = wintypes.BOOL
+
+    handle = kernel32.OpenProcess(process_query_limited_information, False, pid)
+    if not handle:
+        error = ctypes.get_last_error()
+        if error == error_invalid_parameter:
+            return False
+        if error == error_access_denied:
+            return True
+        return True
+
+    try:
+        exit_code = wintypes.DWORD()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+            return True
+        return exit_code.value == still_active
+    finally:
+        kernel32.CloseHandle(handle)
 
 
 def _read_lock_unverified(lock_path: Path) -> LockInfo | None:
