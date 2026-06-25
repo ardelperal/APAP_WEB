@@ -1,0 +1,1 @@
+"""Minimal intake entries module."""

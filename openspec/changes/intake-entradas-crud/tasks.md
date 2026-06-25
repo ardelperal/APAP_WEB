@@ -34,10 +34,10 @@ Chain strategy: stacked-to-main
 
 ## Phase 2: Service Slice (#88)
 
-- [ ] 2.1 RED: create `tests/test_entradas.py` for create/list/get/update/soft-delete, required fields, active-volunteer validation, and duplicate conflict.
-- [ ] 2.2 GREEN: create `app/modules/entradas/__init__.py` and `app/modules/entradas/service.py` with `Entrada`, `EntradaConflictError`, SQL constants, mapping, and CRUD.
-- [ ] 2.3 REFACTOR: keep public fields minimal and ensure volunteer eligibility checks `activo=true`; do not enforce `RolVoluntario.INTAKE`.
-- [ ] 2.4 Verify slice: run `pytest`, `ruff check .`, `python -m build`, then `code-review-expert` before PR 2 promotion.
+- [x] 2.1 RED: create `tests/test_entradas.py` for create/list/get/update/soft-delete, required fields, active-volunteer validation, and duplicate conflict.
+- [x] 2.2 GREEN: create `app/modules/entradas/__init__.py` and `app/modules/entradas/service.py` with `Entrada`, `EntradaConflictError`, SQL constants, mapping, and CRUD.
+- [x] 2.3 REFACTOR: keep public fields minimal and ensure volunteer eligibility checks `activo=true`; do not enforce `RolVoluntario.INTAKE`.
+- [x] 2.4 Verify slice: run `pytest`, `ruff check .`, `python -m build`, then `code-review-expert` before PR 2 promotion.
 
 ## Phase 3: Routes/UI Slice (#89)
 
@@ -52,5 +52,5 @@ Chain strategy: stacked-to-main
 | Commit | Work unit | SDD tasks | Verification | Access sync |
 |---|---|---|---|---|
 | `pending` | Schema slice #87 | 1.1-1.3 complete | `pytest` 398 passed; `ruff check .` passed; `python -m build` passed; scoped `code-review-expert` review found no P0/P1/P2 blockers; `pytest tests/e2e/ --collect-only` collected 9 explicit e2e tests despite default ignore | N/A |
-| `pending` | Service slice #88 | 2.1-2.4 | pending | N/A |
+| `pending` | Service slice #88 | 2.1-2.4 complete | Prior service evidence preserved: `pytest tests/test_entradas.py` 12 passed; `ruff check .` passed; `python -m build` passed; earlier full `pytest` interruption was reproduced outside service slice and later resolved by migration-lock follow-up. Current promotion evidence: `pytest tests/test_entradas.py tests/test_migration.py` 137 passed, 2 skipped; `ruff check .` passed; `pytest` 409 passed, 2 skipped; `python -m build` passed; fresh review findings P2/P3 addressed in SDD artifacts and `app/core/migration/lock.py` | N/A |
 | `pending` | Routes/UI slice #89 | 3.1-3.5 | pending | N/A |
