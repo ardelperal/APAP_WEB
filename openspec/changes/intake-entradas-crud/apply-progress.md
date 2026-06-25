@@ -8,7 +8,7 @@
 | Current slice | PR 3 / routes/UI slice #89 |
 | Chain strategy | stacked-to-main toward `staging` |
 | Review budget | <400 changed lines for this slice |
-| Commit | `pending` |
+| Commit | `f4d0520` |
 
 ## Completed Tasks
 
@@ -104,8 +104,8 @@
 |---|---|---|---|---|
 | `bb22fa1` | Schema slice #87 corrective fix | 1.1-1.3 complete | `pytest tests/test_domain.py` baseline 44 passed; RED 3 expected failures; GREEN 46 passed; final `pytest` 398 passed; `ruff check .` passed; `python -m build` passed; scoped code review passed | N/A |
 | `e7331b5` | Service slice #88 | 2.1-2.4 complete | Prior evidence preserved: `pytest tests/test_entradas.py` 12 passed; `ruff check .` passed; `python -m build` passed; earlier full `pytest` interruption classified outside service slice. Current evidence: `pytest tests/test_entradas.py tests/test_migration.py` 137 passed, 2 skipped; `ruff check .` passed; `pytest` 409 passed, 2 skipped; `python -m build` passed; fresh review findings addressed | N/A |
-| `pending` | Routes/UI slice #89 | 3.1-3.5 complete; review remediation complete | RED `pytest tests/test_entradas_routes.py` failed 8 expected failures; GREEN focused route tests 10 passed; fresh review P1/P2 findings fixed; rerun evidence: `pytest tests/test_entradas_routes.py` 12 passed; `ruff check .` passed; `pytest` 423 passed; `python -m build` passed | N/A |
+| `f4d0520` | Routes/UI slice #89 | 3.1-3.5 complete; review remediation complete | RED `pytest tests/test_entradas_routes.py` failed 8 expected failures; GREEN focused route tests 10 passed; fresh review P1/P2 findings fixed; rerun evidence: `pytest tests/test_entradas_routes.py` 12 passed; `ruff check .` passed; `pytest` 423 passed; `python -m build` passed | N/A |
 
 ## Remaining Tasks
 
-- None for `intake-entradas-crud` implementation. Commit and PR 3 promotion remain pending orchestration steps.
+- None for `intake-entradas-crud` implementation. Archive remains pending orchestration.
