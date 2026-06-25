@@ -8,7 +8,7 @@ context: |
   Deployment: Coolify on project VPS
   Auth model: Google OAuth (InsForge) + allowlist authorization in FastAPI middleware
   Legacy: APAP_ACTUAL (Access/VBA) — reference only, not runtime target
-  Current state: No application code yet; architecture docs and business discovery complete
+  Current state: FastAPI application code exists under app/ with pytest coverage under tests/; active SDD change intake-entradas-crud is in progress
 
 rules:
   proposal:
@@ -30,12 +30,15 @@ rules:
   apply:
     notes:
       - Follow existing code patterns once implementation starts
-    tdd: false
-    test_command: "pytest"
-    build_command: "python -m build"
+      - Use the repository virtualenv Python on Windows: C:\\00repos\\codigo\\APAP_WEB\\.venv\\Scripts\\python.exe
+    tdd: true
+    test_command: "C:\\00repos\\codigo\\APAP_WEB\\.venv\\Scripts\\python.exe -m pytest"
+    build_command: "C:\\00repos\\codigo\\APAP_WEB\\.venv\\Scripts\\python.exe -m build"
   verify:
-    test_command: "pytest"
-    build_command: "python -m build"
+    test_command: "C:\\00repos\\codigo\\APAP_WEB\\.venv\\Scripts\\python.exe -m pytest"
+    e2e_command: "C:\\00repos\\codigo\\APAP_WEB\\.venv\\Scripts\\python.exe -m pytest tests/e2e/"
+    lint_command: "C:\\00repos\\codigo\\APAP_WEB\\.venv\\Scripts\\python.exe -m ruff check ."
+    build_command: "C:\\00repos\\codigo\\APAP_WEB\\.venv\\Scripts\\python.exe -m build"
     coverage_threshold: 80
   archive:
     - Validate completeness before archiving
@@ -45,6 +48,7 @@ testing:
   strict_tdd: true
   test_framework: pytest
   test_layers: [unit, integration]
+  e2e: playwright
   coverage_tool: pytest-cov
   linter: ruff
   type_checker: none
