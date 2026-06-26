@@ -4,19 +4,20 @@ The application is built following the skeleton outlined in
 ``docs/architecture-insforge-stack.md`` and the acceptance criteria
 of issue #17 (Fase 1 — esqueleto) and #16 (Fase 2 — auth). It exposes:
 
-- ``GET /``              → landing page (public; shows user info if logged in)
+- ``GET /``              → landing page (requires login/authorization)
 - ``GET /healthz``       → JSON health probe used by Docker / Coolify (CD-02)
 - ``GET /login``         → starts the Google OAuth flow (public)
 - ``GET /auth/callback`` → exchanges the OAuth code for an InsForge JWT
                             and issues a session cookie
 - ``GET /logout``        → clears the session cookie (any user)
-- ``GET /unauthorized``  → friendly access-denied page (public)
+- ``GET /unauthorized``  → friendly access-denied page (requires a session)
 - ``GET /admin``         → developer-only user management panel
 - ``/static/...``        → compiled CSS and other static assets
 """
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -61,14 +62,18 @@ _TEMPLATES_DIR = Path(__file__).parent / "templates"
 # Public paths that the auth layer must never block.
 PUBLIC_PATHS = frozenset(
     {
-        "/",
         "/healthz",
         "/login",
         "/auth/callback",
-        "/unauthorized",
         "/logout",
     }
 )
+DISABLED_DOC_PATHS = frozenset({"/docs", "/redoc", "/openapi.json"})
+
+
+def _is_public_path(path: str) -> bool:
+    """Return whether ``path`` is intentionally reachable without a session."""
+    return path in PUBLIC_PATHS or path == "/static" or path.startswith("/static/")
 
 
 @asynccontextmanager
@@ -115,6 +120,9 @@ def create_app() -> FastAPI:
         title=settings.app_name,
         version=settings.version,
         lifespan=lifespan,
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
     )
 
     _STATIC_DIR.mkdir(parents=True, exist_ok=True)
@@ -126,6 +134,37 @@ def create_app() -> FastAPI:
     )
 
     templates = Jinja2Templates(directory=_TEMPLATES_DIR)
+
+    @application.middleware("http")
+    async def protect_user_facing_routes(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        """Authenticate user-facing routes before route/body validation.
+
+        Handler-level ``Depends(require_authorized_user)`` runs after FastAPI
+        resolves request parameters, so malformed anonymous form posts can hit
+        ``Form(...)`` validation and return 422 before the handler can redirect.
+        This middleware uses only the signed session cookie and never opens a DB
+        connection, which keeps auth-before-validation cheap and deterministic.
+        """
+        path = request.url.path
+        if _is_public_path(path) or path in DISABLED_DOC_PATHS:
+            return await call_next(request)
+
+        token = request.cookies.get(session_cookie_name())
+        payload = (
+            read_session(token, secret=settings.session_secret)
+            if token
+            else None
+        )
+        if not payload:
+            return _redirect("/login")
+        if path == "/unauthorized":
+            return await call_next(request)
+        if not payload.get("is_authorized", True):
+            return _redirect("/unauthorized")
+        return await call_next(request)
 
     @application.get("/healthz")
     def healthz() -> dict[str, str]:
@@ -140,9 +179,11 @@ def create_app() -> FastAPI:
     @application.get("/", response_class=HTMLResponse)
     def index(
         request: Request,
-        current_user: dict | None = Depends(get_current_user_optional),
+        current_user: Response | dict = Depends(require_authorized_user),
     ):
         """Landing page rendered from ``templates/index.html``."""
+        if (early := return_early_if_response(current_user)) is not None:
+            return early
         return templates.TemplateResponse(
             request=request,
             name="index.html",
@@ -154,13 +195,18 @@ def create_app() -> FastAPI:
         )
 
     @application.get("/unauthorized", response_class=HTMLResponse)
-    def unauthorized(request: Request):
+    def unauthorized(
+        request: Request,
+        current_user: dict | None = Depends(get_current_user_optional),
+    ):
         """Access-denied page rendered from ``templates/unauthorized.html``.
 
-        The current copy is provisional; the final version with
-        administrative contact information arrives with the closing
-        of the auth slice.
+        Anonymous users should not see app-facing pages other than the
+        login flow. Users with a session but without authorization can
+        see the friendly access-denied copy.
         """
+        if current_user is None:
+            return _redirect("/login")
         return templates.TemplateResponse(
             request=request,
             name="unauthorized.html",

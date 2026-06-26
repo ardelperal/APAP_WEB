@@ -1,18 +1,54 @@
-"""Tests for the public HTML routes of the skeleton.
-
-The landing page (/) and the access-denied page (/unauthorized) are
-the only HTML routes shipped in Fase 1. They must render with the
-Jinja2 base template, link the compiled CSS asset, and serve a
-document with the right ``Content-Type``.
-"""
+"""Tests for protected top-level HTML routes."""
 
 from __future__ import annotations
 
 import httpx
+import pytest
+
+from app.core.config import get_settings
+from app.core.session import session_cookie_name, write_session
+
+
+def _login_as_authorized_user(client: httpx.AsyncClient) -> None:
+    token = write_session(
+        {
+            "email": "user@example.com",
+            "rol": "key_user",
+            "user_id": "u-user",
+            "is_authorized": True,
+        },
+        secret=get_settings().session_secret,
+    )
+    client.cookies.set(session_cookie_name(), token)
+
+
+def _login_as_unauthorized_user(client: httpx.AsyncClient) -> None:
+    token = write_session(
+        {
+            "email": "inactive@example.com",
+            "rol": "key_user",
+            "user_id": "u-inactive",
+            "is_authorized": False,
+        },
+        secret=get_settings().session_secret,
+    )
+    client.cookies.set(session_cookie_name(), token)
+
+
+async def test_index_redirects_anonymous_users_to_login(
+    client: httpx.AsyncClient,
+) -> None:
+    """``GET /`` is user-facing and must require login."""
+    response = await client.get("/", follow_redirects=False)
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "/login"
 
 
 async def test_index_renders_html(client: httpx.AsyncClient) -> None:
     """``GET /`` returns an HTML page rendered from base.html + index.html."""
+    _login_as_authorized_user(client)
+
     response = await client.get("/")
 
     assert response.status_code == 200
@@ -21,6 +57,8 @@ async def test_index_renders_html(client: httpx.AsyncClient) -> None:
 
 async def test_index_links_compiled_css(client: httpx.AsyncClient) -> None:
     """The landing page links the compiled Tailwind CSS asset."""
+    _login_as_authorized_user(client)
+
     response = await client.get("/")
 
     assert "/static/css/output.css" in response.text
@@ -28,13 +66,69 @@ async def test_index_links_compiled_css(client: httpx.AsyncClient) -> None:
 
 async def test_index_mentions_app_name(client: httpx.AsyncClient) -> None:
     """The landing page shows the application name from settings."""
+    _login_as_authorized_user(client)
+
     response = await client.get("/")
 
     assert "APAP_WEB" in response.text
 
 
+async def test_unauthorized_redirects_anonymous_users_to_login(
+    client: httpx.AsyncClient,
+) -> None:
+    """The access-denied page must not leak app content to anonymous users."""
+    response = await client.get("/unauthorized", follow_redirects=False)
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "/login"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/animales",
+        "/animales/abc-123/update",
+        "/entradas",
+        "/entradas/ent-123/update",
+        "/voluntarios",
+    ],
+)
+async def test_protected_form_posts_redirect_anonymous_before_validation(
+    client: httpx.AsyncClient,
+    path: str,
+) -> None:
+    """Malformed anonymous POSTs must hit auth before FastAPI form validation."""
+    response = await client.post(path, data={}, follow_redirects=False)
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "/login"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/animales",
+        "/entradas",
+        "/voluntarios",
+    ],
+)
+async def test_protected_form_posts_redirect_unauthorized_sessions_before_validation(
+    client: httpx.AsyncClient,
+    path: str,
+) -> None:
+    """Inactive sessions should reach /unauthorized before form validation."""
+    _login_as_unauthorized_user(client)
+
+    response = await client.post(path, data={}, follow_redirects=False)
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "/unauthorized"
+
+
 async def test_unauthorized_renders_html(client: httpx.AsyncClient) -> None:
-    """``GET /unauthorized`` returns an HTML page with the access-denied copy."""
+    """Authenticated-but-inactive users can see the access-denied copy."""
+    _login_as_unauthorized_user(client)
+
     response = await client.get("/unauthorized")
 
     assert response.status_code == 200
@@ -44,6 +138,8 @@ async def test_unauthorized_renders_html(client: httpx.AsyncClient) -> None:
 
 async def test_unauthorized_links_compiled_css(client: httpx.AsyncClient) -> None:
     """The unauthorized page links the compiled Tailwind CSS asset."""
+    _login_as_unauthorized_user(client)
+
     response = await client.get("/unauthorized")
 
     assert "/static/css/output.css" in response.text

@@ -38,3 +38,18 @@ async def test_static_directory_is_mounted(client: httpx.AsyncClient) -> None:
     routes = {route.path for route in app.routes if hasattr(route, "path")}
 
     assert "/static" in routes
+
+
+async def test_static_asset_remains_public(client: httpx.AsyncClient) -> None:
+    """Login and protected pages must be able to load compiled CSS without a session."""
+    response = await client.get("/static/css/output.css")
+
+    assert response.status_code == 200
+    assert "text/css" in response.headers["content-type"]
+
+
+async def test_generated_api_docs_are_not_public(client: httpx.AsyncClient) -> None:
+    """Generated API documentation should not be a public production surface."""
+    for path in ("/docs", "/redoc", "/openapi.json"):
+        response = await client.get(path)
+        assert response.status_code == 404
