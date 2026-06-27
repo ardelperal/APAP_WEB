@@ -86,6 +86,12 @@ addopts = [
     "--strict-config",
     # Skip e2e/ by default — see markers section above for rationale.
     "--ignore=tests/e2e/",
+    # Register the critical-helpers coverage gate (PR-1B of hardening-2026-q2).
+    # The plugin reads coverage.json after pytest and fails the suite when any
+    # CRITICAL_HELPERS entry is below 100% line coverage (warning-only when
+    # CRITICAL_HELPERS is empty; first-deploy safety per design.md Slice 1).
+    "-p",
+    "scripts.pytest_plugin.coverage_gate",
 ]
 filterwarnings = [
     "error::DeprecationWarning",
@@ -127,6 +133,15 @@ extend-exclude = [
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]
+# APAP001 / APAP003 are registered as a ruff plugin in
+# scripts/ruff_plugin/apap_rules.py per tasks.md:T-1B.2, but they are
+# NOT added to ``select`` here: ruff 0.15 refuses unknown rule selectors
+# in ``select`` unless the plugin is registered via a packaged entry
+# point, which is out of scope for PR-1B. The AST linter
+# (scripts/check_rules.py Detector 1) is the authoritative Rule 1 gate.
+# Slice 6 (T-6.4) will package the plugin and add APAP003 to ``select``.
+#
+# Spec: openspec/changes/hardening-2026-q2/specs/01-dev-tooling-gate/spec.md
 ignore = [
     # Allow non-ASCII identifiers (Spanish domain: animal names, etc.).
     "E501",
@@ -142,6 +157,17 @@ ignore = [
 
 [tool.ruff.lint.isort]
 known-first-party = ["app", "tests"]
+
+
+# --- Coverage gate (PR-1B of hardening-2026-q2) ------------------------
+# Spec: openspec/changes/hardening-2026-q2/specs/01-dev-tooling-gate/spec.md
+# (REQ-3). Operators may add extra helpers via ``extra_helpers = [...]``
+# when a domain-specific helper is added that is not in the named list
+# and does not match ``_row_to_*`` regex auto-discovery.
+[tool.apap.coverage_gate]
+extra_helpers = []
+
+
 
 # Coverage configuration. Source covers the `app/` package; `tests/`
 # is excluded by default. The 80% threshold matches the architecture

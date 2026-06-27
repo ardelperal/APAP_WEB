@@ -45,16 +45,25 @@ test:
 lint:
 	$(RUFF) check .
 
-# check-rules — Slice 1 of hardening-2026-q2.
+# check-rules — Slice 1 of hardening-2026-q2 (PR-1A + PR-1B).
 # Runs the AST linter that catches the four most common AGENTS.md
 # rule violations (rules 1, 4, 6, 7). The linter is intentionally
 # ordered AFTER ``ruff check`` because ruff is a fast, style-focused
 # binary; the AST linter is slower and is the actual gate that prevents
 # the four known regressions from reaching main. Exits non-zero on any
-# violation so CI can fail fast. See:
+# violation so CI can fail fast.
+#
+# PR-1B added ``--exclude`` to silence six known false positives in the
+# infrastructure layer (linter self-reference, positive fixtures, the
+# migration-004 sandbox DDL). The script also accepts ``.check_rulesignore``
+# for repo-root-level ignore lists. See:
 #   openspec/changes/hardening-2026-q2/specs/01-dev-tooling-gate/spec.md
+#   openspec/changes/hardening-2026-q2/apply-progress-pr-1b.md
 check-rules:
-	$(PYTHON) scripts/check_rules.py app
+	$(PYTHON) scripts/check_rules.py app \
+		--exclude scripts/check_rules.py \
+		--exclude tests/_rule_helpers/fixtures \
+		--exclude tests/test_migration_004.py
 
 build:
 	$(PYTHON) -m build
