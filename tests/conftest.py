@@ -14,15 +14,25 @@ the ``get_settings`` lru_cache before every test. This keeps tests
 hermetic even when one test mutates ``APAP_*`` env vars via
 ``monkeypatch.setenv`` / ``mp.setenv`` and a later test expects the
 defaults. It costs one function call per test — negligible.
+
+The ``make_csrf_request`` helper (PR-5B2, REQ-AH-7) attaches the
+session-bound CSRF token to outgoing POSTs so existing route tests
+keep working after the ``CsrfMiddleware`` lands. Tests that exercise
+the middleware itself (cross-session attacks, missing token, etc.)
+pass an explicit ``csrf_token=`` override.
 """
 
 from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any
 
 import httpx
 import pytest
 import pytest_asyncio
 
 from app.core.config import get_settings
+from app.core.session import read_session, session_cookie_name
 from app.main import app as _app
 
 
@@ -44,3 +54,68 @@ async def client() -> httpx.AsyncClient:
     transport = httpx.ASGITransport(app=_app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as c:
         yield c
+
+
+async def make_csrf_request(
+    client: httpx.AsyncClient,
+    method: str,
+    url: str,
+    *,
+    csrf_token: str | None = None,
+    form_data: Mapping[str, Any] | None = None,
+    headers: Mapping[str, str] | None = None,
+) -> httpx.Response:
+    """Sign a CSRF-protected request on the test client.
+
+    Helper for PR-5B2 (REQ-AH-7). Reads the ``apap_session`` cookie
+    the client is currently carrying, decodes the payload via
+    ``read_session``, and attaches the session's ``csrf_token`` as the
+    ``X-CSRFToken`` header. Falls back to a ``csrf_token`` form field
+    when ``form_data`` is provided so the middleware's "form field
+    path" branch can be exercised too.
+
+    Parameters
+    ----------
+    client:
+        The httpx async client (typically the ``client`` fixture).
+    method:
+        HTTP verb (``POST``, ``PUT``, ``PATCH``, ``DELETE``).
+    url:
+        Target URL (absolute path, e.g. ``"/admin/users"``).
+    csrf_token:
+        Explicit token override. Use this for cross-session adversarial
+        tests (session A cookie + session B token). When ``None``,
+        reads the token from the client's current session cookie.
+    form_data:
+        Optional ``application/x-www-form-urlencoded`` body. When
+        provided, the helper ALSO adds the token under
+        ``csrf_token`` so form-submitted POSTs pass the middleware.
+    headers:
+        Extra headers to merge onto the outgoing request.
+    """
+    settings = get_settings()
+    merged_headers: dict[str, str] = {"X-CSRFToken": csrf_token} if csrf_token else {}
+
+    if csrf_token is None:
+        cookie = client.cookies.get(session_cookie_name())
+        if cookie:
+            payload = read_session(cookie, secret=settings.session_secret)
+            if payload is not None:
+                token = payload.get("csrf_token")
+                if isinstance(token, str) and token:
+                    merged_headers["X-CSRFToken"] = token
+
+    if headers:
+        merged_headers.update(headers)
+
+    kwargs: dict[str, Any] = {"headers": merged_headers, "follow_redirects": False}
+    if form_data is not None:
+        body = dict(form_data)
+        if csrf_token is not None:
+            body.setdefault("csrf_token", csrf_token)
+        else:
+            body.setdefault("csrf_token", merged_headers.get("X-CSRFToken", ""))
+        kwargs["data"] = body
+
+    return await getattr(client, method.lower())(url, **kwargs)
+

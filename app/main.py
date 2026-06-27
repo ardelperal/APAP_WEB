@@ -43,7 +43,7 @@ from app.core.auth_dependencies import (
 from app.core.auth_dependencies import (
     get_insforge_client_dep as get_insforge_client,
 )
-from app.core.csrf import issue_csrf_to_session
+from app.core.csrf import CsrfMiddleware, issue_csrf_to_session
 from app.core.domain import ensure_domain_schema
 from app.core.insforge import InsForgeClient
 from app.core.migration.sql_runner import apply_sql_migrations
@@ -141,6 +141,15 @@ def create_app() -> FastAPI:
         StaticFiles(directory=_STATIC_DIR),
         name="static",
     )
+
+    # CSRF defense-in-depth (PR-5B2, REQ-AH-8). Registered AFTER the
+    # static-files mount and BEFORE the auth middleware below so the
+    # token check can read the session cookie (which Starlette decodes
+    # via the cookie machinery above). Feature-flag gated for
+    # emergency rollback (``APAP_CSRF_ENABLED=false``); see
+    # ``csrf.py`` docstring for the Slice 6 logging-swap contract.
+    if settings.csrf_enabled:
+        application.add_middleware(CsrfMiddleware)
 
     templates = Jinja2Templates(directory=_TEMPLATES_DIR)
 
