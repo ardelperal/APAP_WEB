@@ -85,6 +85,25 @@ def issue_csrf_to_session(payload: dict) -> dict:
     return {**payload, "csrf_token": generate_csrf_token()}
 
 
+def csrf_token_context_processor(request: Request) -> dict[str, str]:
+    """Jinja context processor: inject ``csrf_token`` from request.state.
+
+    Used by ``app/main.py`` and by the module routes (animales,
+    entradas, voluntarios) which instantiate their own
+    ``Jinja2Templates``. Each instance passes this function to its
+    ``context_processors=`` argument so every ``TemplateResponse``
+    automatically has ``csrf_token`` available in the template
+    context.
+
+    PR-5B2 (REQ-AH-7) requires every ``<form method="post">`` to render
+    ``<input type="hidden" name="csrf_token" value="{{ csrf_token }}">``.
+    The middleware populates ``request.state.csrf_token`` for every
+    request (safe + non-safe methods alike) so this binding works
+    regardless of which middleware short-circuits.
+    """
+    return {"csrf_token": getattr(request.state, "csrf_token", "") or ""}
+
+
 def _extract_provided_token(request: Request) -> str | None:
     """Read the CSRF token from the request (header first, form fallback).
 
@@ -146,6 +165,10 @@ class CsrfMiddleware(BaseHTTPMiddleware):
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
         if request.method in SAFE_METHODS:
+            # GET/HEAD/OPTIONS still benefit from ``request.state.csrf_token``
+            # being populated so templates that render forms with
+            # ``{{ csrf_token }}`` work even on safe methods.
+            self._populate_csrf_state(request)
             return await call_next(request)
 
         settings = get_settings()
@@ -153,6 +176,7 @@ class CsrfMiddleware(BaseHTTPMiddleware):
             # Placeholder for Slice 6 swap to ``log_safe("csrf.disabled")``.
             # Event name MUST stay stable so dashboards don't break.
             self._logger.warning("csrf.disabled")
+            self._populate_csrf_state(request)
             return await call_next(request)
 
         # Read session cookie + decode payload.
@@ -163,6 +187,11 @@ class CsrfMiddleware(BaseHTTPMiddleware):
             else None
         )
         expected = payload.get("csrf_token") if payload else None
+        # Expose the token on ``request.state`` so templates can render
+        # ``<input type="hidden" name="csrf_token" value="{{ csrf_token }}>``
+        # in their context. Routes inject ``csrf_token=request.state.csrf_token``
+        # into each TemplateResponse call.
+        request.state.csrf_token = expected
 
         # Token transport: header first (cheap), then form field.
         provided = _extract_provided_token(request)
@@ -197,3 +226,31 @@ class CsrfMiddleware(BaseHTTPMiddleware):
             )
 
         return await call_next(request)
+
+    @staticmethod
+    def _populate_csrf_state(request: Request) -> None:
+        """Populate ``request.state.csrf_token`` from the session cookie.
+
+        Safe to call on every request. Returns ``""`` when there is no
+        session or the payload is missing the field (defensive default
+        so templates that render ``{{ csrf_token }}`` don't blow up on
+        unauthenticated GETs).
+        """
+        try:
+            token = request.cookies.get(session_cookie_name())
+        except Exception:
+            request.state.csrf_token = ""
+            return
+        if not token:
+            request.state.csrf_token = ""
+            return
+        try:
+            payload = read_session(
+                token, secret=get_settings().session_secret
+            )
+        except Exception:
+            request.state.csrf_token = ""
+            return
+        request.state.csrf_token = (
+            payload.get("csrf_token", "") if payload else ""
+        )

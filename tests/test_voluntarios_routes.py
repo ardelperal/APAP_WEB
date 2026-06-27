@@ -20,6 +20,7 @@ import pytest
 from app.core.insforge import InsForgeClient
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
+from tests.conftest import make_csrf_request
 
 
 class _VoluntariosRouteSpy(InsForgeClient):
@@ -91,6 +92,8 @@ def _login_as_key_user(client: httpx.AsyncClient) -> None:
             "rol": "key_user",
             "user_id": "u-ana",
             "is_authorized": True,
+            # PR-5B2: session-bound CSRF token.
+            "csrf_token": "test-csrf-token-voluntarios",
         },
         secret=get_settings().session_secret,
     )
@@ -112,8 +115,10 @@ async def test_deactivate_routes_invoca_execute_sql_una_vez(
     """
     _login_as_key_user(client)
 
-    response = await client.post(
-        "/voluntarios/v-1/deactivate", follow_redirects=False
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/voluntarios/v-1/deactivate",
     )
 
     assert response.status_code == 303
@@ -155,11 +160,15 @@ async def test_deactivate_routes_404_on_second_call(
     voluntarios_spy.rotating_rows = [[{"id": "v-1"}], []]
     _login_as_key_user(client)
 
-    first = await client.post(
-        "/voluntarios/v-1/deactivate", follow_redirects=False
+    first = await make_csrf_request(
+        client,
+        "POST",
+        "/voluntarios/v-1/deactivate",
     )
-    second = await client.post(
-        "/voluntarios/v-1/deactivate", follow_redirects=False
+    second = await make_csrf_request(
+        client,
+        "POST",
+        "/voluntarios/v-1/deactivate",
     )
 
     assert first.status_code == 303
@@ -175,8 +184,10 @@ async def test_deactivate_routes_inexistente_retorna_404(
     voluntarios_spy.deactivate_returning_rows = []
     _login_as_key_user(client)
 
-    response = await client.post(
-        "/voluntarios/no-such-id/deactivate", follow_redirects=False
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/voluntarios/no-such-id/deactivate",
     )
 
     assert response.status_code == 404
@@ -200,8 +211,10 @@ async def test_deactivate_routes_sql_es_update_con_returning_y_filtro_activo(
     """
     _login_as_key_user(client)
 
-    response = await client.post(
-        "/voluntarios/v-1/deactivate", follow_redirects=False
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/voluntarios/v-1/deactivate",
     )
     assert response.status_code == 303
 
@@ -239,8 +252,10 @@ async def test_deactivate_routes_handler_no_tiene_select_previo_para_existencia(
     transport = _httpx.ASGITransport(app=_app)
     async with _httpx.AsyncClient(transport=transport, base_url="http://testserver") as c:
         _login_as_key_user(c)
-        response = await c.post(
-            "/voluntarios/v-1/deactivate", follow_redirects=False
+        response = await make_csrf_request(
+            c,
+            "POST",
+            "/voluntarios/v-1/deactivate",
         )
 
     assert response.status_code == 303

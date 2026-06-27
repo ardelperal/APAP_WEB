@@ -32,6 +32,7 @@ import pytest
 from app.core.insforge import InsForgeClient
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
+from tests.conftest import make_csrf_request
 
 # Four XSS payloads from spec REQ-XSS-2 — chosen so each spans a
 # different attack vector (script tag / event handler / SVG / URL).
@@ -58,6 +59,8 @@ def _login_as_key_user(client: httpx.AsyncClient) -> None:
             "rol": "key_user",
             "user_id": "u-ana",
             "is_authorized": True,
+            # PR-5B2: session-bound CSRF token so CsrfMiddleware validates POSTs.
+            "csrf_token": "test-csrf-token-xss",
         },
         secret=get_settings().session_secret,
     )
@@ -281,9 +284,11 @@ async def test_animal_create_post_re_renders_form_with_xss_escaped(
     NOT the raw patterns.
     """
     _login_as_key_user(client)
-    response = await client.post(
+    response = await make_csrf_request(
+        client,
+        "POST",
         "/animales",
-        data={
+        form_data={
             "NCHIP": XSS_SCRIPT,
             "NombreAnimal": XSS_IMG,
             "Especie": "INVALIDO_PARA_FORZAR_VALUEERROR",  # forces 422 re-render
@@ -292,7 +297,6 @@ async def test_animal_create_post_re_renders_form_with_xss_escaped(
             "Raza": XSS_SVG,
             "Observaciones": XSS_URL,
         },
-        follow_redirects=False,
     )
     assert response.status_code == 422, (
         f"expected 422 re-render on invalid Especie, got {response.status_code}"

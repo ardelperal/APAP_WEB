@@ -26,6 +26,7 @@ import pytest
 from app.core.insforge import InsForgeClient
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
+from tests.conftest import make_csrf_request
 
 
 class _AnimalsRouteSpy(InsForgeClient):
@@ -106,6 +107,9 @@ def _login_as_key_user(client: httpx.AsyncClient) -> None:
             "rol": "key_user",
             "user_id": "u-ana",
             "is_authorized": True,
+            # PR-5B2: session-bound CSRF token so CsrfMiddleware validates
+            # the POSTs from this test client.
+            "csrf_token": "test-csrf-token-animals",
         },
         secret=get_settings().session_secret,
     )
@@ -122,16 +126,17 @@ async def test_update_animal_view_delega_en_service_y_redirige_303(
     """POST /animales/{id}/update con form valido -> 303 a /animales/{id}."""
     _login_as_key_user(client)
 
-    response = await client.post(
+    response = await make_csrf_request(
+        client,
+        "POST",
         "/animales/abc-123/update",
-        data={
+        form_data={
             "NCHIP": "985112004409871",
             "NombreAnimal": "Luna",
             "Especie": "CANINA",
             "Sexo": "H",
             "FNacimiento": "2023-04-12",
         },
-        follow_redirects=False,
     )
 
     assert response.status_code == 303
@@ -158,16 +163,17 @@ async def test_update_animal_view_con_NCHIP_vacio_retorna_422_sin_update(
     """
     _login_as_key_user(client)
 
-    response = await client.post(
+    response = await make_csrf_request(
+        client,
+        "POST",
         "/animales/abc-123/update",
-        data={
+        form_data={
             "NCHIP": "   ",
             "NombreAnimal": "Luna",
             "Especie": "CANINA",
             "Sexo": "H",
             "FNacimiento": "2023-04-12",
         },
-        follow_redirects=False,
     )
 
     assert response.status_code == 422
@@ -188,8 +194,10 @@ async def test_delete_animal_view_delega_en_service_y_redirige_303(
     """POST /animales/{id}/delete con id existente -> 303 a /animales."""
     _login_as_key_user(client)
 
-    response = await client.post(
-        "/animales/abc-123/delete", follow_redirects=False
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/animales/abc-123/delete",
     )
 
     assert response.status_code == 303
@@ -209,8 +217,10 @@ async def test_delete_animal_view_con_id_inexistente_retorna_404(
     animals_spy.delete_returning_rows = []   # el service ve 0 filas -> False
     _login_as_key_user(client)
 
-    response = await client.post(
-        "/animales/no-such-id/delete", follow_redirects=False
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/animales/no-such-id/delete",
     )
 
     assert response.status_code == 404
