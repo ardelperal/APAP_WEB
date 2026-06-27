@@ -68,3 +68,24 @@ def test_clear_session_cookie_params_expire_session() -> None:
     assert params["max_age"] == 0
     assert params["path"] == "/"
     assert params["httponly"] is True
+
+
+# --- PR-5B (hardening-2026-q2): SameSite=Strict (REQ-AH-5) -----------------
+#
+# ``apap_session`` and ``apap_pkce`` cookies now ship with
+# ``samesite="strict"`` to prevent cross-site form submission. Lax still
+# allows top-level POSTs to slip through; Strict is the only setting
+# that closes the gap. The CSRF middleware (REQ-AH-8) is the defense
+# for non-strict browsers.
+
+
+def test_clear_session_cookie_params_uses_samesite_strict() -> None:
+    """``clear_session_cookie_params`` ships ``samesite="strict"`` (REQ-AH-5).
+
+    This is the spec contract — logout's ``Set-Cookie: apap_session=...``
+    MUST carry ``SameSite=Strict`` so that a logged-out cookie cannot
+    be replayed by a cross-site form submission.
+    """
+    params = clear_session_cookie_params()
+
+    assert params["samesite"] == "strict"

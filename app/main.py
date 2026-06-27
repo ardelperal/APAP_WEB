@@ -43,6 +43,7 @@ from app.core.auth_dependencies import (
 from app.core.auth_dependencies import (
     get_insforge_client_dep as get_insforge_client,
 )
+from app.core.csrf import issue_csrf_to_session
 from app.core.domain import ensure_domain_schema
 from app.core.insforge import InsForgeClient
 from app.core.migration.sql_runner import apply_sql_migrations
@@ -258,7 +259,7 @@ def create_app() -> FastAPI:
             ),
             httponly=True,
             secure=True,
-            samesite="lax",
+            samesite="strict",
             max_age=600,
         )
         return response
@@ -302,13 +303,19 @@ def create_app() -> FastAPI:
         # ``require_authorized_user`` lo lee con default True y la
         # desactivacion de un usuario via /admin/users/{id}/deactivate
         # no tomaba efecto hasta que la cookie expiraba (7 dias).
+        #
+        # PR-5B (REQ-AH-6) adds ``csrf_token`` via ``issue_csrf_to_session``
+        # so the CSRF middleware (REQ-AH-8) can validate POST/PUT/PATCH/DELETE
+        # without relying solely on SameSite cookies.
         session_token = write_session(
-            {
-                "email": user["email"],
-                "rol": user["rol"],
-                "user_id": user["id"],
-                "is_authorized": bool(user.get("activo", False)),
-            },
+            issue_csrf_to_session(
+                {
+                    "email": user["email"],
+                    "rol": user["rol"],
+                    "user_id": user["id"],
+                    "is_authorized": bool(user.get("activo", False)),
+                }
+            ),
             secret=settings.session_secret,
         )
         response = _redirect("/")
@@ -317,7 +324,7 @@ def create_app() -> FastAPI:
             session_token,
             httponly=True,
             secure=True,
-            samesite="lax",
+            samesite="strict",
             max_age=60 * 60 * 24 * 7,
         )
         response.delete_cookie("apap_pkce")

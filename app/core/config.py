@@ -68,6 +68,15 @@ class Settings(BaseSettings):
     # works out of the box, but MUST be overridden in production via env.
     session_secret: str = "dev-only-change-me-in-production"
 
+    # --- CSRF defense-in-depth (PR-5B, Slice 5) ------------------------
+    # Feature flag for the CSRF middleware (``app/core/csrf.py``). When
+    # ``False``, the middleware short-circuits and emits a ``csrf.disabled``
+    # warning per request — useful for emergency rollback without a
+    # redeploy. Production MUST keep this ``True``; the only legitimate
+    # use of ``False`` is during incident response when a CSRF regression
+    # blocks legitimate form submissions.
+    csrf_enabled: bool = True
+
     debug: bool = False
 
 

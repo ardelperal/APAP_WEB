@@ -62,6 +62,11 @@ def clear_session_cookie_params() -> dict[str, Any]:
 
     Starlette's ``Response.delete_cookie`` has no ``max_age`` parameter;
     to expire a cookie you must ``set_cookie(key, value="", max_age=0)``.
+
+    ``samesite="strict"`` (PR-5B, REQ-AH-5) closes the CSRF gap that
+    ``lax`` leaves open for top-level cross-site POSTs. The CSRF
+    middleware (``app/core/csrf.py``) is the secondary defense for
+    browsers that do not honor Strict.
     """
     return {
         "key": _SESSION_COOKIE_NAME,
@@ -70,5 +75,5 @@ def clear_session_cookie_params() -> dict[str, Any]:
         "path": "/",
         "httponly": True,
         "secure": True,
-        "samesite": "lax",
+        "samesite": "strict",
     }
