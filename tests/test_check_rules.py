@@ -1,15 +1,8 @@
 """Tests for the AST-based rule linter (scripts/check_rules.py).
 
-Per Slice 1 of ``openspec/changes/hardening-2026-q2/specs/01-dev-tooling-gate/spec.md``.
-
-The parametrized suite proves each detector both directions:
-
-  - **positive**: a seeded fixture must produce a violation with the
-    expected ``rule_id``.
-  - **negative**: a clean fixture must NOT trigger any detector.
-
-Two additional CLI tests assert the exit-code contract (0 when clean,
-1 when violations exist).
+Per Slice 1 of hardening-2026-q2/specs/01-dev-tooling-gate/spec.md.
+Parametrized suite proves each detector both directions (positive +
+negative) plus the CLI exit-code contract.
 """
 
 from __future__ import annotations
@@ -32,11 +25,11 @@ FIXTURES = REPO_ROOT / "tests" / "_rule_helpers" / "fixtures"
 SCRIPT = REPO_ROOT / "scripts" / "check_rules.py"
 
 
-# --- Per-detector parametrized suite --------------------------------------
-
-
 def _rule_violations(target: Path, rule_id: str) -> list[Violation]:
     return [v for v in find_violations(target) if v.rule_id == rule_id]
+
+
+# --- per-detector parametrized suite --------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -84,16 +77,17 @@ def test_detector_does_not_flag_clean_code(
 
 
 def test_detector1_violation_references_correct_line() -> None:
-    """The Violation's line must point at the execute_sql call inside the body."""
+    """Violation's line must point at the execute_sql call inside the body."""
     fixture = FIXTURES / "detector1_positive" / "handler.py"
-    source = fixture.read_text(encoding="utf-8")
     expected_lines = {
         node.lineno
-        for node in ast.walk(ast.parse(source))
+        for node in ast.walk(ast.parse(fixture.read_text(encoding="utf-8")))
         if _is_client_execute_sql_call(node)
     }
     assert expected_lines, "fixture must seed a client.execute_sql call"
-    violations = _rule_violations(FIXTURES / "detector1_positive", "route_uses_execute_sql")
+    violations = _rule_violations(
+        FIXTURES / "detector1_positive", "route_uses_execute_sql"
+    )
     assert violations
     assert violations[0].line in expected_lines
     assert violations[0].file.name == "handler.py"
@@ -103,7 +97,6 @@ def test_detector1_violation_references_correct_line() -> None:
 
 
 def test_cli_exits_zero_when_clean() -> None:
-    """The clean fixture directory contains no violations; CLI exits 0."""
     result = subprocess.run(
         [sys.executable, str(SCRIPT), str(FIXTURES / "detector1_negative")],
         capture_output=True,
@@ -116,7 +109,6 @@ def test_cli_exits_zero_when_clean() -> None:
 
 
 def test_cli_exits_one_when_violation_present() -> None:
-    """The positive fixture directory has at least one violation; CLI exits 1."""
     result = subprocess.run(
         [sys.executable, str(SCRIPT), str(FIXTURES / "detector1_positive")],
         capture_output=True,
