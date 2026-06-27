@@ -77,6 +77,12 @@ class Settings(BaseSettings):
     # blocks legitimate form submissions.
     csrf_enabled: bool = True
 
+    # --- Structured logging (PR-6A, Slice 6) --------------------------
+    # Root log level for the JSON stdout handler installed by
+    # ``app.core.logging.configure_logging``. Unknown values fall back
+    # to ``INFO`` at runtime (the typed default is ``"INFO"``).
+    log_level: str = "INFO"
+
     debug: bool = False
 
 
