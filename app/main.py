@@ -43,7 +43,7 @@ from app.core.auth_dependencies import (
 from app.core.auth_dependencies import (
     get_insforge_client_dep as get_insforge_client,
 )
-from app.core.csrf import CsrfMiddleware, issue_csrf_to_session
+from app.core.csrf import CsrfMiddleware, csrf_token_context_processor, issue_csrf_to_session
 from app.core.domain import ensure_domain_schema
 from app.core.insforge import InsForgeClient
 from app.core.migration.sql_runner import apply_sql_migrations
@@ -151,7 +151,10 @@ def create_app() -> FastAPI:
     if settings.csrf_enabled:
         application.add_middleware(CsrfMiddleware)
 
-    templates = Jinja2Templates(directory=_TEMPLATES_DIR)
+    templates = Jinja2Templates(
+        directory=_TEMPLATES_DIR,
+        context_processors=[csrf_token_context_processor],
+    )
 
     @application.middleware("http")
     async def protect_user_facing_routes(

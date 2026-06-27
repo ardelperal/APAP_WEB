@@ -16,6 +16,8 @@
   {% endif %}
 
   <form method="post" action="" class="bg-surface rounded-card shadow-card p-6 space-y-6">
+    {# PR-5B2: CSRF defense-in-depth (REQ-AH-7). #}
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
     <div>
       <label class="block text-sm font-medium text-text">Nombre <span class="text-rose-700">*</span></label>
       <input type="text" name="Voluntario" value="{{ form_data.Voluntario or '' }}"

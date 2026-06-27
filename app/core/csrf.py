@@ -85,6 +85,25 @@ def issue_csrf_to_session(payload: dict) -> dict:
     return {**payload, "csrf_token": generate_csrf_token()}
 
 
+def csrf_token_context_processor(request: Request) -> dict[str, str]:
+    """Jinja context processor: inject ``csrf_token`` from request.state.
+
+    Used by ``app/main.py`` and by the module routes (animales,
+    entradas, voluntarios) which instantiate their own
+    ``Jinja2Templates``. Each instance passes this function to its
+    ``context_processors=`` argument so every ``TemplateResponse``
+    automatically has ``csrf_token`` available in the template
+    context.
+
+    PR-5B2 (REQ-AH-7) requires every ``<form method="post">`` to render
+    ``<input type="hidden" name="csrf_token" value="{{ csrf_token }}">``.
+    The middleware populates ``request.state.csrf_token`` for every
+    request (safe + non-safe methods alike) so this binding works
+    regardless of which middleware short-circuits.
+    """
+    return {"csrf_token": getattr(request.state, "csrf_token", "") or ""}
+
+
 def _extract_provided_token(request: Request) -> str | None:
     """Read the CSRF token from the request (header first, form fallback).
 
