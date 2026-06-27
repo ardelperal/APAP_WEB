@@ -52,11 +52,18 @@ class Rol(StrEnum):
 # a ``Rol`` y se refleja automáticamente.
 VALID_ROLES: frozenset[str] = frozenset(r.value for r in Rol)
 
+# El CHECK constraint que duplicaba los valores de ``Rol`` se eliminó
+# en PR-2 (Slice 2). La validación de rol pasa a ser 100 % a nivel de
+# aplicación vía ``add_authorized_user`` (que compara contra
+# ``VALID_ROLES`` y levanta ``ValueError``). Una nueva entrada en
+# ``Rol`` se refleja automáticamente; añadir el CHECK reintroduciría
+# la duplicación que rompe la regla 4 y requeriría una migración
+# nueva cada vez que se agregue un rol (audit engram:14516).
 CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS usuarios_autorizados (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email TEXT UNIQUE NOT NULL,
-    rol TEXT NOT NULL CHECK (rol IN ('developer', 'admin', 'key_user', 'reader')),
+    rol TEXT NOT NULL,
     anadido_por UUID,
     activo BOOLEAN NOT NULL DEFAULT true,
     fecha_alta TIMESTAMP NOT NULL DEFAULT now()
@@ -136,6 +143,13 @@ def add_authorized_user(
     added_by: str,
 ) -> dict[str, Any]:
     """Insert a new authorized user. ``role`` must be in :data:`VALID_ROLES`.
+
+    Rol validation is **application-level** (rule 4 — one source of
+    truth per domain concept). The DB has no CHECK constraint on
+    ``rol``; this helper is the sole gate. The set of accepted roles
+    is derived from :class:`Rol` (``VALID_ROLES = frozenset(r.value
+    for r in Rol)``), so adding a new enum member opens the door
+    automatically without any DDL change.
 
     Returns the inserted row.
     """
