@@ -330,3 +330,65 @@ Pin to the **current major.minor floor**, not a legacy line. Example: when addin
 #### How to verify locally after pinning
 
 `pip install -e ".[dev]"` in a fresh venv must succeed **and** `python -c "import thelib"` must not emit any `DeprecationWarning`. The project's pytest suite has `-W error::DeprecationWarning`, so any library warning becomes a CI failure — that's the safety net, not a substitute for checking upstream.
+
+### 9. `log_safe()` is the only allowed logging call in `app/`
+
+Every code path under `app/` that wants to emit a log MUST go through `log_safe(event, **fields)` from `app.core.logging`. Direct calls to `logging.getLogger(__name__).{info,warning,error,debug,critical,exception}(...)` AND `print(...)` are banned in `app/`. The redaction list (12 closed fields) automatically scrubs `email, session_token, jwt, oauth_code, pkce_verifier, csrf_token, pkce_challenge, authorization, cookie, referer, ip_address, x_forwarded_for` from log payloads.
+
+WRONG — raw logger or print
+
+```python
+logger.info(f"user {user_id} did X")
+print(f"failed: {error}")
+```
+
+RIGHT — log_safe
+
+```python
+log_safe("user.did_x", user_id=user_id, action="X")
+```
+
+Enforcement: APAP003 detector (`scripts/check_rules.py` Detector 5) bans `logger.*` chained calls in `app/`. The new `print_in_app` detector (Detector 6) bans `print(...)` in `app/`. Run via `make check-rules`. `app/core/logging.py` is the only excluded path (it owns the wrapper).
+
+### 10. CSRF defense per default
+
+Every POST/PUT/DELETE/PATCH route MUST be protected by `CsrfMiddleware` (`app/core/csrf.py`). Every form template (`templates/`) MUST render `<input type="hidden" name="csrf_token" value="{{ csrf_token }}">` in every `<form method="post">`. The middleware validates the token via either the `X-CSRFToken` header (for HTMX/fetch) or the `csrf_token` form field (for traditional form posts). Session and PKCE cookies ship with `SameSite=Strict` — `Lax` is a regression.
+
+WRONG — form without CSRF token
+
+```html
+<form method="post" action="/users">
+  <input name="email" type="email">
+  <button type="submit">Submit</button>
+</form>
+```
+
+RIGHT — form with CSRF token
+
+```html
+<form method="post" action="/users">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input name="email" type="email">
+  <button type="submit">Submit</button>
+</form>
+```
+
+Enforcement: `CsrfMiddleware` at runtime returns 403 for missing/invalid tokens. `tests/test_all_post_forms_have_csrf_input.py` (10 cases) and `tests/test_csrf_form_enumeration.py` (10 cases) catch regressions. The new `csrf_middleware_registered` and `csrf_samesite_strict` detectors (`scripts/check_rules.py` Detectors 7 and 8) catch accidental removal from the middleware chain and accidental `Lax` regressions.
+
+### 11. Coverage gate for `CRITICAL_HELPERS`
+
+Helpers in `app/` (functions matching `_row_to_*` regex + the explicit list `{_redirect, _render_form, _is_duplicate_error, _validate_create_params, _build_insert_params}`) MUST have 100% line coverage. If you add a new helper that contains testable product logic, add it to `CRITICAL_HELPERS` in the same PR.
+
+Enforcement: `scripts/pytest_plugin/coverage_gate.py` reads `coverage.json` after pytest and fails the build if any `CRITICAL_HELPERS` entry has <100% line coverage. Helper auto-discovery via `_row_to_*` regex catches new helpers that match the convention; the explicit list is for non-regex helpers.
+
+### 12. Audit doc for sensitive features
+
+If your PR touches auth, secrets, cookies, CSRF, XSS, idempotency, or PII, you MUST create or update a doc in `docs/audits/<feature>-audit-YYYY-Qn.md` with: Scope, Methodology, Findings (severity table), Verdict. Template: `docs/audits/xss-audit-2026-Q2.md`.
+
+Enforcement: PR review (the audit doc is a checklist item). `scripts/check_audit_and_runbook.py` is a developer aid that flags changes to sensitive paths (`app/core/auth*`, `app/core/csrf*`, `app/core/session*`, `app/core/logging*`, `app/core/migration/`) and suggests creating or updating an audit doc.
+
+### 13. Runbook for code requiring operator action
+
+If your PR introduces or changes a secret rotation, manual deploy step, cache invalidation, cron trigger, env-var change, or any operation the user must perform manually, you MUST create a runbook in `docs/runbooks/<thing>.md` with sections: When to trigger, Pre-deploy checklist, Deploy steps, Verification, Rollback. Reference the runbook from the PR description.
+
+Enforcement: PR review. `scripts/check_audit_and_runbook.py` flags changes to `app/core/config.py` (env-var settings) and suggests runbook creation. The check is a developer aid, not a CI gate — the operator responsibility is documented in the PR.
