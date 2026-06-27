@@ -86,6 +86,12 @@ addopts = [
     "--strict-config",
     # Skip e2e/ by default — see markers section above for rationale.
     "--ignore=tests/e2e/",
+    # Register the critical-helpers coverage gate (PR-1B of hardening-2026-q2).
+    # The plugin reads coverage.json after pytest and fails the suite when any
+    # CRITICAL_HELPERS entry is below 100% line coverage (warning-only when
+    # CRITICAL_HELPERS is empty; first-deploy safety per design.md Slice 1).
+    "-p",
+    "scripts.pytest_plugin.coverage_gate",
 ]
 filterwarnings = [
     "error::DeprecationWarning",

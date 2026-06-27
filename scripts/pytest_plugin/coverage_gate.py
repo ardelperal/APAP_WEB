@@ -1,0 +1,325 @@
+"""Critical-helpers pytest coverage gate (PR-1B of hardening-2026-q2).
+
+Enforces 100% line coverage on a named set of ``_redirect``, ``_render_form``,
+``_is_duplicate_error``, ``_validate_create_params``, ``_build_insert_params``
+helpers, plus every ``_row_to_*`` discovered in ``app/`` at runtime. Fails
+the pytest session when any tracked helper drops below 100% line coverage;
+emits a WARNING (not a fail) when ``CRITICAL_HELPERS`` is empty so a
+misconfigured deploy does not block the build.
+
+Spec: ``openspec/changes/hardening-2026-q2/specs/01-dev-tooling-gate/spec.md``
+(REQ-3).
+"""
+
+from __future__ import annotations
+
+import ast
+import json
+import re
+import tomllib
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+# --- CRITICAL_HELPERS contract -------------------------------------------
+
+# Named entries per tasks.md:T-1B.4 and spec REQ-3. Adding a helper that
+# does not match ``_row_to_*`` regex means adding one line here.
+CRITICAL_HELPERS: frozenset[str] = frozenset(
+    {
+        "_redirect",
+        "_render_form",
+        "_is_duplicate_error",
+        "_validate_create_params",
+        "_build_insert_params",
+    }
+)
+
+_ROW_TO_PATTERN = re.compile(r"^_row_to_")
+
+
+# --- Pytest plugin entry points -----------------------------------------
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    """Register ``--coverage-gate-config`` and ``--coverage-file``."""
+    parser.addoption(
+        "--coverage-gate-config",
+        action="store",
+        default=None,
+        help=(
+            "Path to a TOML file with [tool.apap.coverage_gate] (default: "
+            "pyproject.toml in the current working directory)."
+        ),
+    )
+    parser.addoption(
+        "--coverage-file",
+        action="store",
+        default=None,
+        help=(
+            "Path to coverage.json (default: ./coverage.json). The plugin "
+            "runs only when this file exists, so suites without --cov are "
+            "unaffected."
+        ),
+    )
+
+
+# --- Coverage evaluation -------------------------------------------------
+
+
+def evaluate_coverage(
+    coverage_data: dict[str, Any],
+    helpers: frozenset[str],
+) -> tuple[bool, list[tuple[str, float]]]:
+    """Return ``(passed, failures)`` where each failure is ``(name, pct)``.
+
+    Empty ``helpers`` returns ``(True, [])`` — first-deploy safety per
+    spec REQ-3 Scenario 2: misconfiguration must NOT block CI.
+
+    A helper that does not appear in ``coverage.json`` counts as 0% and
+    fails the gate.
+    """
+    if not helpers:
+        return True, []
+
+    # ``coverage.json`` v1 schema: files[path].functions[name].summary.percent_covered.
+    # The ``functions`` key uses bare function names (no module qualifier),
+    # so we collapse across files via max() in case of name collisions.
+    seen: dict[str, float] = {}
+    for _file_path, file_data in coverage_data.get("files", {}).items():
+        funcs = file_data.get("functions", {})
+        for func_name, func_data in funcs.items():
+            if func_name not in helpers:
+                continue
+            pct = float(
+                func_data.get("summary", {}).get("percent_covered", 0.0)
+            )
+            seen[func_name] = max(seen.get(func_name, 0.0), pct)
+
+    failures: list[tuple[str, float]] = [
+        (h, seen.get(h, 0.0))
+        for h in sorted(helpers)
+        if seen.get(h, 0.0) < 100.0
+    ]
+    return (not failures), failures
+
+
+# --- Helpers discovery ---------------------------------------------------
+
+
+def discover_row_to_helpers(app_root: Path) -> frozenset[str]:
+    """Walk ``app_root`` and return every function whose name matches
+    ``_row_to_*``. Regex auto-discovery so adding a new mapper is automatic
+    per tasks.md:T-1B.4 second clause."""
+    if not app_root.exists():
+        return frozenset()
+    out: set[str] = set()
+    for py in app_root.rglob("*.py"):
+        if "__pycache__" in py.parts or py.name == "__init__.py":
+            continue
+        try:
+            tree = ast.parse(py.read_text(encoding="utf-8"))
+        except (SyntaxError, UnicodeDecodeError):
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if _ROW_TO_PATTERN.match(node.name):
+                    out.add(node.name)
+    return frozenset(out)
+
+
+def gather_helpers(
+    app_root: Path,
+    extra: frozenset[str],
+) -> frozenset[str]:
+    """Return the union of CRITICAL_HELPERS + regex-discovered + extras."""
+    return CRITICAL_HELPERS | discover_row_to_helpers(app_root) | extra
+
+
+def _load_config(config_path: Path | None) -> dict[str, Any]:
+    """Load [tool.apap.coverage_gate] from a TOML file (default: pyproject.toml)."""
+    if config_path is None:
+        config_path = Path.cwd() / "pyproject.toml"
+    if not config_path.exists():
+        return {}
+    with config_path.open("rb") as fh:
+        data = tomllib.load(fh)
+    return data.get("tool", {}).get("apap", {}).get("coverage_gate", {})
+
+
+# --- Pytest terminal summary hook (prints the verdict) -------------------
+
+
+def _print_summary(
+    passed: bool,
+    failures: list[tuple[str, float]],
+    helpers: frozenset[str],
+    terminalreporter: Any,
+) -> None:
+    if not helpers:
+        terminalreporter.write_sep(
+            "=",
+            (
+                "coverage-gate WARNING: CRITICAL_HELPERS resolved to empty. "
+                "The gate is a no-op (first-deploy safety per "
+                "01-dev-tooling-gate/spec.md REQ-3 Scenario 2)."
+            ),
+            yellow=True,
+        )
+        return
+    if passed:
+        terminalreporter.write_sep(
+            "=",
+            (
+                f"coverage-gate PASS: all {len(helpers)} critical helpers "
+                "at 100% line coverage."
+            ),
+            green=True,
+        )
+        return
+    lines = [f"coverage-gate FAIL: {len(failures)} helper(s) below 100%:"]
+    for name, pct in failures:
+        lines.append(f"  - {name}: {pct:.1f}%")
+    terminalreporter.write_sep("=", "\n".join(lines), red=True)
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_terminal_summary(
+    terminalreporter: Any,
+    exitstatus: int,
+    config: pytest.Config,
+) -> None:
+    """After pytest writes coverage.json, evaluate the gate and report.
+
+    When the gate fails, ``config.exitstatus`` is set to 1 so the pytest
+    process exits non-zero. The CLI command (see ``main`` below) provides
+    a separate, scriptable entry point for CI gates.
+    """
+    coverage_file_opt = config.getoption("--coverage-file", default=None)
+    coverage_path = (
+        Path(coverage_file_opt)
+        if coverage_file_opt
+        else (Path.cwd() / "coverage.json")
+    )
+    if not coverage_path.exists():
+        return  # No --cov run; gate is no-op.
+
+    gate_cfg_path_opt = config.getoption("--coverage-gate-config", default=None)
+    gate_cfg = _load_config(
+        Path(gate_cfg_path_opt) if gate_cfg_path_opt else None
+    )
+    extra = frozenset(gate_cfg.get("extra_helpers", []))
+    helpers = gather_helpers(app_root=Path.cwd() / "app", extra=extra)
+
+    with coverage_path.open(encoding="utf-8") as fh:
+        coverage_data = json.load(fh)
+
+    passed, failures = evaluate_coverage(coverage_data, helpers)
+    _print_summary(passed, failures, helpers, terminalreporter)
+    if not passed:
+        # Mutating config.exitstatus is the documented way to fail
+        # pytest from a terminal-summary hook (see _pytest/main.py).
+        config.exitstatus = 1
+
+
+# --- CLI entry point for CI ----------------------------------------------
+
+
+def _build_parser() -> pytest.Parser:  # type: ignore[name-defined]
+    """Construct an argparse-like parser reusing pytest's machinery."""
+    import argparse
+
+    p = argparse.ArgumentParser(
+        prog="python -m scripts.pytest_plugin.coverage_gate",
+        description=(
+            "Parse coverage.json and verify CRITICAL_HELPERS are at 100% "
+            "line coverage. Exit 0 on pass, 1 on fail. Designed to run "
+            "after `pytest --cov --cov-report=json`."
+        ),
+    )
+    p.add_argument(
+        "--coverage-file",
+        default="coverage.json",
+        help="Path to coverage.json (default: ./coverage.json).",
+    )
+    p.add_argument(
+        "--config",
+        default=None,
+        help=(
+            "Path to a TOML file with [tool.apap.coverage_gate] "
+            "(default: pyproject.toml in cwd)."
+        ),
+    )
+    p.add_argument(
+        "--app-root",
+        default="app",
+        help="Path to the app/ tree for _row_to_* auto-discovery.",
+    )
+    p.add_argument(
+        "--helpers",
+        action="append",
+        default=None,
+        help=(
+            "Override the tracked helpers (repeatable). When set, the "
+            "named CRITICAL_HELPERS constant and regex auto-discovery are "
+            "skipped — only these names are tracked. Useful for "
+            "focused gate runs."
+        ),
+    )
+    return p  # type: ignore[return-value]
+
+
+def main(argv: list[str] | None = None) -> int:
+    """CLI entry point. Returns 0 on pass, 1 on fail, 2 on bad input."""
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+
+    coverage_path = Path(args.coverage_file)
+    if not coverage_path.exists():
+        print(
+            f"coverage-gate: {coverage_path} not found; "
+            "run `pytest --cov --cov-report=json` first",
+            file=__import__("sys").stderr,
+        )
+        return 2
+
+    config_path = Path(args.config) if args.config else None
+    gate_cfg = _load_config(config_path)
+    extra = frozenset(gate_cfg.get("extra_helpers", []))
+
+    if args.helpers:
+        helpers: frozenset[str] = frozenset(args.helpers)
+    else:
+        helpers = gather_helpers(
+            app_root=Path(args.app_root), extra=extra
+        )
+
+    with coverage_path.open(encoding="utf-8") as fh:
+        coverage_data = json.load(fh)
+
+    passed, failures = evaluate_coverage(coverage_data, helpers)
+    if not helpers:
+        print(
+            "coverage-gate WARNING: no helpers tracked "
+            "(first-deploy safety; gate is no-op)."
+        )
+        return 0
+    if passed:
+        names = ", ".join(sorted(helpers))
+        print(
+            f"coverage-gate PASS: {len(helpers)} helper(s) at 100% "
+            f"({names})."
+        )
+        return 0
+    print(
+        f"coverage-gate FAIL: {len(failures)} helper(s) below 100%:",
+        file=__import__("sys").stderr,
+    )
+    for name, pct in failures:
+        print(f"  - {name}: {pct:.1f}%", file=__import__("sys").stderr)
+    raise SystemExit(1)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
