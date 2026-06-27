@@ -45,6 +45,7 @@ from app.core.auth_dependencies import (
 )
 from app.core.domain import ensure_domain_schema
 from app.core.insforge import InsForgeClient
+from app.core.migration.sql_runner import apply_sql_migrations
 from app.core.pkce import generate_pkce_pair
 from app.core.session import (
     clear_session_cookie_params,
@@ -87,18 +88,25 @@ async def lifespan(_: FastAPI):
     2. ``ensure_domain_schema`` — creates the domain tables
        (``animales``, ``voluntarios``, ``roles_voluntario``) in dependency
        order.
+    3. ``apply_sql_migrations`` — applies any pending versioned SQL
+       migrations from ``app/core/migration/sql/`` (schema-plane DDL,
+       e.g. dropping a redundant CHECK constraint). Runs LAST so the
+       ``usuarios_autorizados`` table is guaranteed to exist before any
+       migration references it.
 
-    Both steps are idempotent (``CREATE TABLE IF NOT EXISTS``), so it is
-    safe to run on every cold start. If either step raises, the lifespan
-    propagates and the app does not start (fail fast): a deploy that
-    cannot reach InsForge with the service key is better surfaced as a
-    failed deploy than as 500s on the first request.
+    All three steps are idempotent (``CREATE TABLE IF NOT EXISTS``,
+    ``web_sql_migrations`` bookkeeping, ``DROP CONSTRAINT IF EXISTS``),
+    so it is safe to run on every cold start. If any step raises, the
+    lifespan propagates and the app does not start (fail fast): a
+    deploy that cannot reach InsForge with the service key is better
+    surfaced as a failed deploy than as 500s on the first request.
     """
     settings = config_module.get_settings()
     client = InsForgeClient(settings.insforge_url, settings.insforge_service_key)
     try:
         ensure_schema_and_seed(client, settings)
         ensure_domain_schema(client)
+        apply_sql_migrations(client)
     finally:
         client.close()
     yield

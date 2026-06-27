@@ -11,8 +11,10 @@ import json
 from typing import Any
 
 import httpx
+import pytest
 
 from app.core.auth import (
+    Rol,
     add_authorized_user,
     deactivate_authorized_user,
     ensure_schema_and_seed,
@@ -253,3 +255,45 @@ def test_deactivate_authorized_user_returns_none_when_id_unknown() -> None:
     client = _client(lambda request: _json_response(200, []))
 
     assert deactivate_authorized_user(client, "u-unknown") is None
+
+
+@pytest.mark.parametrize("role", [r.value for r in Rol])
+def test_add_authorized_user_accepts_all_known_roles(role: str) -> None:
+    """``add_authorized_user`` accepts every role in the ``Rol`` enum.
+
+    Pins the contract that the role set accepted by the helper is
+    derived from ``Rol`` (Rule 4 — one source of truth), so adding a
+    new member to the enum automatically opens the door to that role
+    without touching DDL. Regression guard for PR-2 (Slice 2): the DB
+    ``CHECK`` constraint that used to duplicate the enum is gone, and
+    the app is the sole validator.
+    """
+    captured: list = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(json.loads(request.content))
+        return _json_response(
+            200,
+            [
+                {
+                    "id": f"u-{role}",
+                    "email": f"{role}@example.com",
+                    "rol": role,
+                    "activo": True,
+                    "fecha_alta": "2026-06-27T00:00:00Z",
+                }
+            ],
+        )
+
+    client = _client(handler)
+
+    row = add_authorized_user(
+        client,
+        email=f"{role}@example.com",
+        role=role,
+        added_by="u-1",
+    )
+
+    assert captured, "execute_sql was not called"
+    assert captured[0]["params"][1] == role
+    assert row["rol"] == role
