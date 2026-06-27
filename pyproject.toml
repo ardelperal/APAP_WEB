@@ -135,11 +135,16 @@ extend-exclude = [
 select = ["E", "F", "W", "I", "UP", "B"]
 # APAP001 / APAP003 are registered as a ruff plugin in
 # scripts/ruff_plugin/apap_rules.py per tasks.md:T-1B.2, but they are
-# NOT added to ``select`` here: ruff 0.15 refuses unknown rule selectors
-# in ``select`` unless the plugin is registered via a packaged entry
-# point, which is out of scope for PR-1B. The AST linter
-# (scripts/check_rules.py Detector 1) is the authoritative Rule 1 gate.
-# Slice 6 (T-6.4) will package the plugin and add APAP003 to ``select``.
+# NOT added to ``select`` here. Round-2 fix PA-2 outcome (Slice 6,
+# PR-6B): ruff 0.15+ does not support Python-defined rule selectors
+# in ``select`` regardless of plugin registration (verified locally:
+# adding "APAP003" to ``select`` makes ruff fail to parse the config
+# with ``Unknown rule selector: `APAP003```). The authoritative
+# APAP001 + APAP003 lint gate is therefore Detector 1 + Detector 5
+# in ``scripts/check_rules.py`` invoked by ``make check-rules``.
+# The plugin module stays tested as a plain Python AST visitor
+# (``tests/test_ruff_apap001.py``, ``tests/test_apap003.py``) so the
+# two detectors cannot drift.
 #
 # Spec: openspec/changes/hardening-2026-q2/specs/01-dev-tooling-gate/spec.md
 ignore = [

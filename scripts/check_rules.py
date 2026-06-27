@@ -28,17 +28,22 @@ class Violation:
     message: str
 
 
-# Constants: Rule 1 verbs (GET exempt), Rule 7 redirect codes, Rule 4 marker, excluded dirs.
+# Constants: Rule 1 verbs (GET exempt), Rule 7 redirect codes, Rule 4 marker,
+# APAP003 forbidden logger methods, excluded dirs.
 _WRITE_HTTP_VERBS = frozenset({"post", "put", "patch", "delete"})
 _REDIRECT_STATUS_CODES = frozenset({301, 302, 303, 307, 308})
 _DDL_ROLE_CHECK_MARKER = "CHECK (rol IN ("
+_APAP003_FORBIDDEN_LOG_METHODS = frozenset(
+    {"info", "warning", "error", "debug", "critical", "exception"}
+)
 _EXCLUDED_PARTS = frozenset({"__pycache__", ".venv", "venv", ".git", "build", "dist"})
 
-# Default exclusion set (PR-1B). Silences six known false positives
-# verified on staging after PR-1A merged (see
+# Default exclusion set (PR-1B + PR-6B). Silences known false positives
+# verified on staging after PR-1A/PR-6A merged (see
 # openspec/changes/hardening-2026-q2/apply-progress-pr-1a.md
-# "Known limitations / follow-ups"). Each entry is a repo-root-relative
-# POSIX-style path prefix matched against ``Violation.file``.
+# "Known limitations / follow-ups" and apply-progress-pr-6a/b.md).
+# Each entry is a repo-root-relative POSIX-style path prefix matched
+# against ``Violation.file``.
 DEFAULT_EXCLUDES: frozenset[str] = frozenset(
     {
         # Detector 4 hits its own marker at lines 29 + 245.
@@ -49,6 +54,10 @@ DEFAULT_EXCLUDES: frozenset[str] = frozenset(
         # Migration-004 sandbox recreates the pre-fix CHECK clause to
         # verify the migration drops it (Detector 4 fires on the seed DDL).
         "tests/test_migration_004.py",
+        # PR-6A added app/core/logging.py — the ONLY legal caller of
+        # ``logging.getLogger(...)`` (it owns the log_safe wrapper).
+        # Detector 5 (APAP003) skips it via the same path prefix.
+        "app/core/logging.py",
     }
 )
 
@@ -129,6 +138,7 @@ def _scan_file(path: Path, repo_root: Path) -> list[Violation]:
         out.extend(_check_auth_defaults_true(path, tree))
     out.extend(_check_http_exception_redirect(path, tree))
     out.extend(_check_hardcoded_role_check_in_ddl(path, tree))
+    out.extend(_check_apap003_raw_logger_call(path, tree, repo_root))
     return out
 
 
@@ -316,6 +326,96 @@ def _check_hardcoded_role_check_in_ddl(path: Path, tree: ast.AST) -> list[Violat
                 message=(
                     "DDL hardcodes role list with 'CHECK (rol IN (...)'. "
                     "Rule 4: derive from the Rol enum (single source of truth)."
+                ),
+            )
+        )
+    return violations
+
+
+# Detector 5 (APAP003) ---------------------------------------------------
+
+
+def _is_app_path(path: Path, repo_root: Path) -> bool:
+    """True if ``path`` lives under the repo's ``app/`` directory."""
+    try:
+        relative = path.relative_to(repo_root)
+    except ValueError:
+        return False
+    return bool(relative.parts) and relative.parts[0] == "app"
+
+
+def _is_logging_wrapper_path(path: Path, repo_root: Path) -> bool:
+    """True if ``path`` is the structured-logging wrapper module.
+
+    The wrapper is the ONLY legal caller of ``logging.getLogger(...)``
+    because it owns :func:`log_safe`. Excluded from APAP003.
+    """
+    try:
+        relative = path.relative_to(repo_root)
+    except ValueError:
+        return False
+    return relative.parts == ("app", "core", "logging.py")
+
+
+def _is_logger_chain(node: ast.AST) -> bool:
+    """Match ``logger.X(...)`` and ``logging.getLogger(...).X(...)``.
+
+    Mirrors ``scripts.ruff_plugin.apap_rules._is_logger_chain`` so the
+    two detectors stay in lock-step. A bare ``logging.getLogger(name)``
+    retrieval is NOT a chain and is therefore allowed (round-2 fix SB-7).
+    """
+    if isinstance(node, ast.Name) and node.id == "logger":
+        return True
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "getLogger"
+    ):
+        return True
+    return False
+
+
+def _check_apap003_raw_logger_call(
+    path: Path, tree: ast.AST, repo_root: Path
+) -> list[Violation]:
+    """Detector 5 — APAP003.
+
+    Flags any ``logger.{info,warning,error,debug,critical,exception}(...)``
+    call in ``app/`` except ``app/core/logging.py``. Forces every
+    application module through :func:`app.core.logging.log_safe` so the
+    structured-logging contract (JSON to stdout + closed-list
+    redaction) is the only path to stdout.
+
+    Spec: ``openspec/changes/hardening-2026-q2/specs/06-structured-logging/spec.md``
+    (REQ-5, REQ-2). Tasks: T-6.3 (Slice 6).
+    Round-2 fix SB-7: bare ``logging.getLogger(...)`` retrievals are
+    allowed; only the chained method call is banned.
+    """
+    if not _is_app_path(path, repo_root):
+        return []
+    if _is_logging_wrapper_path(path, repo_root):
+        return []
+    violations: list[Violation] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not isinstance(func, ast.Attribute):
+            continue
+        if func.attr not in _APAP003_FORBIDDEN_LOG_METHODS:
+            continue
+        if not _is_logger_chain(func.value):
+            continue
+        violations.append(
+            Violation(
+                file=path,
+                line=node.lineno,
+                rule_id="apap003_raw_logger_call",
+                message=(
+                    "Raw logger.* call in app/. Use log_safe(event, **fields) "
+                    "from app.core.logging — APAP003 forbids direct logger.* "
+                    "calls (the structured-logging wrapper is the only "
+                    "allowed entry point)."
                 ),
             )
         )

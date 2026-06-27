@@ -88,16 +88,38 @@ class APAP001Visitor(ast.NodeVisitor):
         self.generic_visit(node)
 
 
-# --- APAP003: raw logger.* calls (REGISTERED but NOT active) -------------
+# --- APAP003: raw logger.* calls (ACTIVE since PR-6B, Slice 6) -----------
+
+
+# APAP003 has a single file exclusion: ``app/core/logging.py`` is the
+# ONLY legal caller of ``logging.getLogger(...)`` because it owns the
+# structured-logging wrapper (``log_safe``). Excluding the file from
+# the rule mirrors the AST linter's default-excludes policy. Suffixes
+# cover both Unix and Windows path separators.
+_APAP003_EXCLUDED_PATH_SUFFIXES: tuple[str, ...] = (
+    "app/core/logging.py",
+    "app\\core\\logging.py",
+)
 
 
 class APAP003Visitor(ast.NodeVisitor):
-    """AST visitor for APAP003 — bans raw ``logger.*`` calls.
+    """AST visitor for APAP003 — bans raw ``logger.*`` calls in ``app/``.
 
-    DEFINED here per ``tasks.md:T-1B.2`` so Slice 6 can flip it on by
-    adding ``APAP003`` to ``[tool.ruff.lint] select`` (T-6.4). NOT
-    active in PR-1B to keep CI green during the Slice 4 → Slice 5
-    transition (see ``design.md`` Slice 1, lines 145-156).
+    Active since PR-6B (Slice 6, T-6.3): wires the rule into
+    ``check_tree`` so a future ``select = ["APAP003"]`` ruff run
+    resolves against this visitor. The authoritative CI gate is
+    Detector 5 in ``scripts/check_rules.py`` (see round-2 fix PA-2);
+    this visitor stays in lock-step with Detector 5 via the shared
+    helper ``_is_logger_call``.
+
+    The ``app/core/logging.py`` exclusion is intentional: that module
+    owns the structured-logging wrapper. Every other module in
+    ``app/`` MUST go through ``log_safe``.
+
+    Round-2 fix SB-7: APAP003 does NOT ban ``logging.getLogger(...)``
+    calls that do NOT chain into ``.info/.warning/.error/.debug/
+    .critical/.exception``. The retrieval alone is fine; only the
+    chained emission is banned.
     """
 
     _FORBIDDEN_ATTRS = frozenset(
@@ -107,13 +129,19 @@ class APAP003Visitor(ast.NodeVisitor):
     def __init__(self, file: Path) -> None:
         self.file = file
         self.violations: list[APAPViolation] = []
+        self._excluded = any(
+            str(file).endswith(suffix)
+            for suffix in _APAP003_EXCLUDED_PATH_SUFFIXES
+        )
 
     def visit_Call(self, node: ast.Call) -> None:
+        if self._excluded:
+            return
         func = node.func
         if (
             isinstance(func, ast.Attribute)
             and func.attr in self._FORBIDDEN_ATTRS
-            and self._is_logger_chain(func.value)
+            and _is_logger_chain(func.value)
         ):
             self.violations.append(
                 APAPViolation(
@@ -128,18 +156,23 @@ class APAP003Visitor(ast.NodeVisitor):
             )
         self.generic_visit(node)
 
-    @staticmethod
-    def _is_logger_chain(node: ast.AST) -> bool:
-        """Match ``logger.X(...)`` and ``logging.getLogger(...).X(...)``."""
-        if isinstance(node, ast.Name) and node.id == "logger":
-            return True
-        if (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "getLogger"
-        ):
-            return True
-        return False
+
+def _is_logger_chain(node: ast.AST) -> bool:
+    """Match ``logger.X(...)`` and ``logging.getLogger(...).X(...)``.
+
+    Shared between APAP003Visitor and the AST linter's Detector 5 so
+    the two stay in lock-step. A bare ``logging.getLogger(__name__)``
+    retrieval is NOT a logger call chain and is therefore allowed.
+    """
+    if isinstance(node, ast.Name) and node.id == "logger":
+        return True
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "getLogger"
+    ):
+        return True
+    return False
 
 
 # --- Plugin registry -----------------------------------------------------
@@ -168,10 +201,18 @@ def discover_rule_classes() -> list[_RuleMeta]:
 
 
 def check_tree(tree: ast.AST, file: Path) -> list[APAPViolation]:
-    """Walk ``tree`` and return every APAP001 violation.
+    """Walk ``tree`` and return every APAP001 + APAP003 violation.
 
-    APAP003 is intentionally NOT fired here — see module docstring.
+    APAP003 was registered in PR-1B (T-1B.2) but NOT fired until
+    PR-6B (T-6.3) so CI between Slice 1 and Slice 5 does not break
+    on raw ``logger.*`` calls during the Slice 4 -> Slice 5
+    transition. The Slice 6 activation wires APAP003 here AND adds
+    Detector 5 to ``scripts/check_rules.py`` (the authoritative
+    AST linter invoked by ``make check-rules``). The two stay in
+    lock-step via ``_is_logger_chain``.
     """
-    visitor = APAP001Visitor(file)
-    visitor.visit(tree)
-    return visitor.violations
+    apap001 = APAP001Visitor(file)
+    apap001.visit(tree)
+    apap003 = APAP003Visitor(file)
+    apap003.visit(tree)
+    return apap001.violations + apap003.violations

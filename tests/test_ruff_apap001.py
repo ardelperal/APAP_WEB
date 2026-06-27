@@ -132,20 +132,23 @@ def test_apap001_violation_message_mentions_execute_sql() -> None:
 # --- APAP003 stub --------------------------------------------------------
 
 
-def test_apap003_rule_class_registered_but_not_active() -> None:
-    """APAP003 must be discoverable (so Slice 6 can flip it on) but must
-    NOT fire from check_tree in PR-1B: per ``tasks.md:T-1B.2`` the rule is
-    registered in this slice and added to ``select`` later (Slice 6,
-    T-6.4) so CI between Slice 1 and Slice 5 does not break on raw
-    ``logger.*`` calls during the transition window."""
+def test_apap003_rule_class_registered_and_active() -> None:
+    """APAP003 must be discoverable AND must fire from ``check_tree``
+    in PR-6B: Slice 6 (T-6.3) wired the visitor into the public
+    entry point and added Detector 5 to ``scripts/check_rules.py``
+    (the authoritative lint gate). The rule was registered in
+    PR-1B (T-1B.2) but NOT fired until Slice 6 closed the
+    transition window — see ``tasks.md:T-1B.2`` and
+    ``design.md`` Slice 1, lines 145-156.
+    """
     classes = discover_rule_classes()
     rule_ids = {cls.code for cls in classes}
     assert "APAP001" in rule_ids
     assert "APAP003" in rule_ids, (
-        "APAP003 class must be discoverable for Slice 6 to enable it"
+        "APAP003 class must be discoverable for the visitor to be wired"
     )
-    # APAP003 is NOT fired from check_tree yet — Slice 6 wires the AST
-    # visitor and adds the rule to ``select``.
+    # APAP003 IS active now: a sample ``logger.warning(...)`` call
+    # MUST be flagged by ``check_tree``.
     src = (
         "import logging\n"
         "logger = logging.getLogger(__name__)\n"
@@ -154,10 +157,11 @@ def test_apap003_rule_class_registered_but_not_active() -> None:
     tree = _parse(src)
     violations = check_tree(tree, REPO_ROOT / "logger.py")
     apap003 = [v for v in violations if v.rule_id == "APAP003"]
-    assert not apap003, (
-        "APAP003 must NOT fire from check_tree in PR-1B; Slice 6 owns "
-        "the wiring (T-6.3 + T-6.4)."
+    assert apap003, (
+        "APAP003 must fire from check_tree in PR-6B; Slice 6 wired the "
+        "visitor into the public entry point (T-6.3)."
     )
+    assert apap003[0].line == 3
 
 
 def test_apap_violation_dataclass_is_frozen() -> None:
