@@ -238,13 +238,22 @@ async def test_csrf_disabled_feature_flag_skips_middleware(
 # --- placeholder logging (T-5B.27) ----------------------------------------
 
 
-async def test_csrf_rejection_emits_warning_log(
+async def test_csrf_rejection_emits_csrf_rejected_log_event(
     client: httpx.AsyncClient, _bypass_insforge: None, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """A rejected POST logs a ``csrf.rejected`` warning (T-5B.27 placeholder)."""
+    """A rejected POST emits the ``csrf.rejected`` log event (Slice 6 swap).
+
+    Pre-PR-6A the middleware emitted this via
+    ``self._logger.warning("csrf.rejected", extra=...)`` (T-5B.27 placeholder).
+    PR-6A swaps that for :func:`app.core.logging.log_safe` so the JSON
+    stdout handler captures the event with PII redaction applied. The
+    event name MUST stay ``csrf.rejected`` so downstream dashboards
+    and the dedicated test (``test_csrf_rejected_log_event.py``) keep
+    matching.
+    """
     _login(client)
 
-    with caplog.at_level("WARNING", logger="app.core.csrf"):
+    with caplog.at_level("INFO", logger="app"):
         response = await client.post(
             "/animales",
             data=_animal_form_data(),
@@ -252,6 +261,8 @@ async def test_csrf_rejection_emits_warning_log(
         )
 
     assert response.status_code == 403
-    assert any("csrf.rejected" in rec.message for rec in caplog.records), (
-        f"expected a csrf.rejected warning, got: {[r.message for r in caplog.records]}"
+    events = [getattr(rec, "event", None) for rec in caplog.records]
+    assert "csrf.rejected" in events, (
+        f"expected a csrf.rejected log event, got events={events}, "
+        f"messages={[r.message for r in caplog.records]}"
     )

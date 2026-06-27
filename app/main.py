@@ -46,7 +46,7 @@ from app.core.auth_dependencies import (
 from app.core.csrf import CsrfMiddleware, csrf_token_context_processor, issue_csrf_to_session
 from app.core.domain import ensure_domain_schema
 from app.core.insforge import InsForgeClient
-from app.core.logging import configure_logging
+from app.core.logging import configure_logging, log_safe
 from app.core.migration.sql_runner import apply_sql_migrations
 from app.core.pkce import generate_pkce_pair
 from app.core.session import (
@@ -339,6 +339,13 @@ def create_app() -> FastAPI:
             ),
             secret=settings.session_secret,
         )
+        # Slice 6 sample call site (T-6.7): emit a structured
+        # ``auth.login`` event. The ``email`` kwarg is REDACTED by
+        # ``log_safe`` per the closed 12-field list — operators see
+        # the event name and ``user_id`` (non-PII), not the email.
+        # This proves the redaction filter is wired end-to-end on a
+        # real authentication flow, not just in unit tests.
+        log_safe("auth.login", email=user["email"], user_id=user["id"])
         response = _redirect("/")
         response.set_cookie(
             session_cookie_name(),
