@@ -1,11 +1,11 @@
 """AST-based rule linter for APAP_WEB AGENTS.md rules (Slice 1 of hardening-2026-q2).
 
 Detects four AGENTS.md:300-308 violations: Rule 1 (routes must not call
-client.execute_sql), Rule 4 partial (DDL must not hardcode the role list),
-Rule 6 (auth defaults must deny, not permit), Rule 7 (redirects are
-RedirectResponse, not HTTPException). Stdlib ``ast`` only; no deps.
-Spec: openspec/changes/hardening-2026-q2/specs/01-dev-tooling-gate/spec.md
+client.execute_sql), Rule 4 partial (DDL must not hardcode the role
+list), Rule 6 (auth defaults must deny, not permit), Rule 7 (redirects
+are RedirectResponse, not HTTPException). Stdlib ``ast``.
 """
+
 
 from __future__ import annotations
 
@@ -14,35 +14,24 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-# Public types ------------------------------------------------------------
-
 
 @dataclass(frozen=True)
 class Violation:
-    """A single rule violation found by the AST linter."""
-
     file: Path
     line: int
     rule_id: str
     message: str
 
 
-# Constants ----------------------------------------------------------------
-
-# Rule 1: write-verbs only (GET is exempt per spec REQ-1 scenario 2).
+# Constants: Rule 1 verbs (GET exempt), Rule 7 redirect codes, Rule 4 marker, excluded dirs.
 _WRITE_HTTP_VERBS = frozenset({"post", "put", "patch", "delete"})
-# Rule 7: HTTP status codes that mean "redirect".
 _REDIRECT_STATUS_CODES = frozenset({301, 302, 303, 307, 308})
-# Rule 4: substring marker inside string literals that hardcodes the role list.
 _DDL_ROLE_CHECK_MARKER = "CHECK (rol IN ("
 _EXCLUDED_PARTS = frozenset({"__pycache__", ".venv", "venv", ".git", "build", "dist"})
 
 
-# Orchestrator -------------------------------------------------------------
-
-
 def find_violations(repo_root: Path) -> list[Violation]:
-    """Scan ``repo_root`` and return every violation across all four detectors."""
+    """Scan ``repo_root`` for violations across all four detectors."""
     if not repo_root.exists():
         return []
     violations: list[Violation] = []
@@ -71,11 +60,10 @@ def _scan_file(path: Path, repo_root: Path) -> list[Violation]:
     return out
 
 
-# Detector 1: client.execute_sql in route handlers ----------------------
+# Detector 1 -----------------------------------------------------------------
 
 
 def _check_route_uses_execute_sql(path: Path, tree: ast.AST) -> list[Violation]:
-    """Flag ``client.execute_sql`` inside write-route handlers (GET exempt)."""
     violations: list[Violation] = []
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -92,9 +80,8 @@ def _check_route_uses_execute_sql(path: Path, tree: ast.AST) -> list[Violation]:
                     line=sub.lineno,
                     rule_id="route_uses_execute_sql",
                     message=(
-                        f"Route handler '{node.name}' (@router.{verb}) calls "
-                        "client.execute_sql directly. Move SQL into the service "
-                        "module (app/modules/.../service.py)."
+                        f"Route '{node.name}' (@router.{verb}) calls "
+                        "client.execute_sql directly. Move SQL to the service."
                     ),
                 )
             )
@@ -131,7 +118,7 @@ def _decorator_http_verb(node: ast.expr) -> str | None:
     return node.func.attr
 
 
-# Detector 2: payload.get("is_authorized", True) in core/auth*.py -----
+# Detector 2 ---------------------------------------------------------------
 
 
 def _is_auth_path(path: Path, repo_root: Path) -> bool:
@@ -149,7 +136,6 @@ def _is_auth_path(path: Path, repo_root: Path) -> bool:
 
 
 def _check_auth_defaults_true(path: Path, tree: ast.AST) -> list[Violation]:
-    """Flag ``<x>.get('is_authorized', True)`` inside core/auth*.py."""
     violations: list[Violation] = []
     for node in ast.walk(tree):
         if not _is_payload_get_is_authorized_true(node):
@@ -160,9 +146,8 @@ def _check_auth_defaults_true(path: Path, tree: ast.AST) -> list[Violation]:
                 line=node.lineno,
                 rule_id="auth_defaults_true",
                 message=(
-                    "auth module defaults is_authorized to True (default-permit). "
-                    "Rule 6 requires default-deny: "
-                    "payload.get('is_authorized', False)."
+                    "auth defaults is_authorized to True (default-permit). "
+                    "Rule 6 requires default-deny: payload.get('is_authorized', False)."
                 ),
             )
         )
@@ -185,11 +170,10 @@ def _is_payload_get_is_authorized_true(node: ast.AST) -> bool:
     )
 
 
-# Detector 3: HTTPException(status_code=302, ...) ----------------------
+# Detector 3 ---------------------------------------------------------------
 
 
 def _check_http_exception_redirect(path: Path, tree: ast.AST) -> list[Violation]:
-    """Flag ``HTTPException(status_code=<3xx-redirect>)`` (alias-aware)."""
     violations: list[Violation] = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
@@ -204,17 +188,13 @@ def _check_http_exception_redirect(path: Path, tree: ast.AST) -> list[Violation]
                 file=path,
                 line=node.lineno,
                 rule_id="http_exception_redirect",
-                message=(
-                    f"HTTPException with redirect status ({status}) violates "
-                    f"Rule 7. Use RedirectResponse(url, status_code={status})."
-                ),
+                message=f"HTTPException with redirect status ({status}) violates Rule 7. Use RedirectResponse(url, status_code={status}).",
             )
         )
     return violations
 
 
 def _name_refers_to_http_exception(name: str, tree: ast.AST) -> bool:
-    """Resolve ``from fastapi import HTTPException [as HE]`` and ``import fastapi``."""
     body = getattr(tree, "body", None)
     if not body:
         return False
@@ -246,11 +226,10 @@ def _extract_status_code_kwarg(call: ast.Call) -> int | None:
     return None
 
 
-# Detector 4: literal "CHECK (rol IN (" in string literals -------------
+# Detector 4 ---------------------------------------------------------------
 
 
 def _check_hardcoded_role_check_in_ddl(path: Path, tree: ast.AST) -> list[Violation]:
-    """Flag string literals containing ``CHECK (rol IN (``` (rule 4 duplicate)."""
     violations: list[Violation] = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
@@ -263,16 +242,15 @@ def _check_hardcoded_role_check_in_ddl(path: Path, tree: ast.AST) -> list[Violat
                 line=node.lineno,
                 rule_id="hardcoded_role_check_in_ddl",
                 message=(
-                    "DDL string hardcodes the role list with "
-                    "'CHECK (rol IN (...)'. Rule 4 requires deriving the "
-                    "set from the Rol enum (single source of truth)."
+                    "DDL hardcodes role list with 'CHECK (rol IN (...)'. "
+                    "Rule 4: derive from the Rol enum (single source of truth)."
                 ),
             )
         )
     return violations
 
 
-# CLI entry point ---------------------------------------------------------
+# CLI -----------------------------------------------------------------------
 
 
 def main(argv: list[str] | None = None) -> int:

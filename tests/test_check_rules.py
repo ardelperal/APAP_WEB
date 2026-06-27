@@ -1,8 +1,7 @@
 """Tests for the AST-based rule linter (scripts/check_rules.py).
 
 Per Slice 1 of hardening-2026-q2/specs/01-dev-tooling-gate/spec.md.
-Parametrized suite proves each detector both directions (positive +
-negative) plus the CLI exit-code contract.
+Parametrized suite proves each detector both directions plus the CLI contract.
 """
 
 from __future__ import annotations
