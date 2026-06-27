@@ -173,8 +173,11 @@ jobs:
             echo "Skipping deploy: this is a merge commit, not a direct push."
             exit 0
           fi
+          # Skip if the webhook secret is not configured. The deploy is
+          # optional in CI: lint+test+build are the gating checks. Local
+          # and staging deploys use the webhook directly, not this CI step.
           if [ -z "$COOLIFY_WEBHOOK_URL" ]; then
-            echo "::error::COOLIFY_WEBHOOK_URL secret is not configured. Set it in Settings → Secrets → Actions before merging to main."
-            exit 1
+            echo "::notice::COOLIFY_WEBHOOK_URL secret is not configured. Skipping deploy step. Set it in Settings → Secrets → Actions to enable automatic deploys."
+            exit 0
           fi
           curl -fsS -X POST "$COOLIFY_WEBHOOK_URL"
