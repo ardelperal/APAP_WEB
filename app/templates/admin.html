@@ -17,6 +17,8 @@
   <section class="mb-8 bg-surface rounded-card shadow-card border-l-4 border-primary p-6">
     <h2 class="text-lg font-semibold text-primary-dark">Añadir usuario autorizado</h2>
     <form method="post" action="/admin/users" class="mt-4 flex flex-wrap items-end gap-3">
+      {# PR-5B2: CSRF defense-in-depth (REQ-AH-7). #}
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
       <label class="flex flex-col text-sm flex-1 min-w-[200px]">
         <span class="mb-1 text-text font-medium">Email</span>
         <input
@@ -74,6 +76,8 @@
             <td class="px-4 py-3">
               {% if u.is_active %}
                 <form method="post" action="/admin/users/{{ u.id }}/deactivate">
+                  {# PR-5B2: CSRF defense-in-depth (REQ-AH-7). #}
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
                   <button type="submit" class="text-rose-700 hover:underline text-sm">Desactivar</button>
                 </form>
               {% endif %}

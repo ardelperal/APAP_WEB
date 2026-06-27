@@ -43,8 +43,11 @@ from app.core.auth_dependencies import (
 from app.core.auth_dependencies import (
     get_insforge_client_dep as get_insforge_client,
 )
+from app.core.csrf import CsrfMiddleware, csrf_token_context_processor, issue_csrf_to_session
 from app.core.domain import ensure_domain_schema
 from app.core.insforge import InsForgeClient
+from app.core.logging import configure_logging, log_safe
+from app.core.migration.sql_runner import apply_sql_migrations
 from app.core.pkce import generate_pkce_pair
 from app.core.session import (
     clear_session_cookie_params,
@@ -82,23 +85,38 @@ async def lifespan(_: FastAPI):
 
     On startup, bootstrap the InsForge schema:
 
-    1. ``ensure_schema_and_seed`` — creates ``usuarios_autorizados`` and seeds
+    1. ``configure_logging(settings)`` — installs the JSON stdout
+       handler + redaction filter so even startup errors are visible
+       in Coolify / log aggregators. MUST be the first line so the
+       bootstrap steps below are logged on failure. Slice 6 (REQ-4).
+    2. ``ensure_schema_and_seed`` — creates ``usuarios_autorizados`` and seeds
        the bootstrap admin if ``APAP_INITIAL_ADMIN_EMAIL`` is set.
-    2. ``ensure_domain_schema`` — creates the domain tables
+    3. ``ensure_domain_schema`` — creates the domain tables
        (``animales``, ``voluntarios``, ``roles_voluntario``) in dependency
        order.
+    4. ``apply_sql_migrations`` — applies any pending versioned SQL
+       migrations from ``app/core/migration/sql/`` (schema-plane DDL,
+       e.g. dropping a redundant CHECK constraint). Runs LAST so the
+       ``usuarios_autorizados`` table is guaranteed to exist before any
+       migration references it.
 
-    Both steps are idempotent (``CREATE TABLE IF NOT EXISTS``), so it is
-    safe to run on every cold start. If either step raises, the lifespan
-    propagates and the app does not start (fail fast): a deploy that
-    cannot reach InsForge with the service key is better surfaced as a
-    failed deploy than as 500s on the first request.
+    All three schema steps are idempotent (``CREATE TABLE IF NOT EXISTS``,
+    ``web_sql_migrations`` bookkeeping, ``DROP CONSTRAINT IF EXISTS``),
+    so it is safe to run on every cold start. If any step raises, the
+    lifespan propagates and the app does not start (fail fast): a
+    deploy that cannot reach InsForge with the service key is better
+    surfaced as a failed deploy than as 500s on the first request.
     """
     settings = config_module.get_settings()
+    # REQ-4 (Slice 6): configure_logging is the FIRST line so any error
+    # in the steps below is captured by the JSON stdout handler with
+    # PII redaction applied.
+    configure_logging(settings)
     client = InsForgeClient(settings.insforge_url, settings.insforge_service_key)
     try:
         ensure_schema_and_seed(client, settings)
         ensure_domain_schema(client)
+        apply_sql_migrations(client)
     finally:
         client.close()
     yield
@@ -133,7 +151,19 @@ def create_app() -> FastAPI:
         name="static",
     )
 
-    templates = Jinja2Templates(directory=_TEMPLATES_DIR)
+    # CSRF defense-in-depth (PR-5B2, REQ-AH-8). Registered AFTER the
+    # static-files mount and BEFORE the auth middleware below so the
+    # token check can read the session cookie (which Starlette decodes
+    # via the cookie machinery above). Feature-flag gated for
+    # emergency rollback (``APAP_CSRF_ENABLED=false``); see
+    # ``csrf.py`` docstring for the Slice 6 logging-swap contract.
+    if settings.csrf_enabled:
+        application.add_middleware(CsrfMiddleware)
+
+    templates = Jinja2Templates(
+        directory=_TEMPLATES_DIR,
+        context_processors=[csrf_token_context_processor],
+    )
 
     @application.middleware("http")
     async def protect_user_facing_routes(
@@ -162,7 +192,7 @@ def create_app() -> FastAPI:
             return _redirect("/login")
         if path == "/unauthorized":
             return await call_next(request)
-        if not payload.get("is_authorized", True):
+        if not payload.get("is_authorized", False):
             return _redirect("/unauthorized")
         return await call_next(request)
 
@@ -250,7 +280,7 @@ def create_app() -> FastAPI:
             ),
             httponly=True,
             secure=True,
-            samesite="lax",
+            samesite="strict",
             max_age=600,
         )
         return response
@@ -294,22 +324,35 @@ def create_app() -> FastAPI:
         # ``require_authorized_user`` lo lee con default True y la
         # desactivacion de un usuario via /admin/users/{id}/deactivate
         # no tomaba efecto hasta que la cookie expiraba (7 dias).
+        #
+        # PR-5B (REQ-AH-6) adds ``csrf_token`` via ``issue_csrf_to_session``
+        # so the CSRF middleware (REQ-AH-8) can validate POST/PUT/PATCH/DELETE
+        # without relying solely on SameSite cookies.
         session_token = write_session(
-            {
-                "email": user["email"],
-                "rol": user["rol"],
-                "user_id": user["id"],
-                "is_authorized": bool(user.get("activo", False)),
-            },
+            issue_csrf_to_session(
+                {
+                    "email": user["email"],
+                    "rol": user["rol"],
+                    "user_id": user["id"],
+                    "is_authorized": bool(user.get("activo", False)),
+                }
+            ),
             secret=settings.session_secret,
         )
+        # Slice 6 sample call site (T-6.7): emit a structured
+        # ``auth.login`` event. The ``email`` kwarg is REDACTED by
+        # ``log_safe`` per the closed 12-field list — operators see
+        # the event name and ``user_id`` (non-PII), not the email.
+        # This proves the redaction filter is wired end-to-end on a
+        # real authentication flow, not just in unit tests.
+        log_safe("auth.login", email=user["email"], user_id=user["id"])
         response = _redirect("/")
         response.set_cookie(
             session_cookie_name(),
             session_token,
             httponly=True,
             secure=True,
-            samesite="lax",
+            samesite="strict",
             max_age=60 * 60 * 24 * 7,
         )
         response.delete_cookie("apap_pkce")

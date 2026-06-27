@@ -43,6 +43,7 @@ from enum import StrEnum
 from typing import Any
 
 from app.core.insforge import InsForgeClient
+from app.core.logging import log_safe
 
 
 class RolVoluntario(StrEnum):
@@ -157,6 +158,22 @@ ORDER BY tipo_rol ASC
 """
 
 
+# Atomic deactivate: la condicion de existencia (``activo = true``)
+# se evalua DENTRO de la propia UPDATE bajo el row lock de PostgreSQL.
+# El ``RETURNING id`` devuelve 1 fila si la fila estaba activa y se
+# actualizo, o 0 filas si la fila no existe o ya estaba inactiva.
+# Asi evitamos el patron anterior (SELECT previo + UPDATE) que abria
+# una ventana TOCTOU cuando dos requests concurrentes pasaban ambas
+# la guarda de existencia (finding de auditoria engram:14518).
+# Patron paralelo: ``app/modules/animals/service.py::_DELETE_ANIMAL_SQL``.
+_DEACTIVATE_VOLUNTARIO_SQL = """
+UPDATE voluntarios
+SET activo = false, updated_at = now()
+WHERE id = $1 AND activo = true
+RETURNING id
+"""
+
+
 def _build_insert_params(params: dict[str, Any]) -> list[Any]:
     """Parametros en el orden de ``_INSERT_COLUMNS``."""
     def _opt(key: str) -> str | None:
@@ -203,3 +220,40 @@ def list_roles(client: InsForgeClient, voluntario_id: str) -> list[str]:
     """Devuelve la lista de roles asignados al voluntario, ordenados."""
     rows = client.execute_sql(_LIST_ROLES_SQL, [voluntario_id])
     return [str(row["tipo_rol"]) for row in rows]
+
+
+def deactivate_voluntario(client: InsForgeClient, voluntario_id: str) -> bool:
+    """Atomically mark the voluntario as inactive.
+
+    Returns ``True`` if the row was active and was deactivated.
+    Returns ``False`` if the row does not exist OR was already inactive.
+
+    Implements ``UPDATE ... WHERE id = $1 AND activo = true RETURNING id``
+    so the existence check is folded into the same statement under
+    PostgreSQL's row lock. Two concurrent calls produce exactly one
+    ``True`` and one ``False`` — the row lock guarantees that the
+    second transaction re-reads the row with ``activo = false`` and
+    the ``WHERE activo = true`` filter excludes it.
+
+    This closes the TOCTOU window flagged by ``engram:14518`` in
+    ``app/modules/voluntarios/routes.py`` (existence check + UPDATE
+    allowed both concurrent callers to pass the existence guard).
+    Pattern mirrors ``app/modules/animals/service.py::delete_animal``.
+
+    The caller (``deactivate_voluntario_view`` in routes) translates
+    ``False`` to ``HTTPException(404)`` so the response is
+    indistinguishable for ``not_found`` vs ``already_inactive`` —
+    matching the ``animales/delete`` handler contract.
+
+    On a successful deactivation the service emits a structured
+    ``voluntario.deactivated`` event (Slice 6, T-6.8). The event is
+    emitted only when the row was actually deactivated (``True``
+    return); idempotent re-runs (returning ``False`` because the
+    row was already inactive) stay silent so operators can tell the
+    "first successful deactivate" from a no-op re-run.
+    """
+    rows = client.execute_sql(_DEACTIVATE_VOLUNTARIO_SQL, [voluntario_id])
+    deactivated = bool(rows)
+    if deactivated:
+        log_safe("voluntario.deactivated", voluntario_id=voluntario_id)
+    return deactivated

@@ -86,6 +86,12 @@ addopts = [
     "--strict-config",
     # Skip e2e/ by default — see markers section above for rationale.
     "--ignore=tests/e2e/",
+    # Register the critical-helpers coverage gate (PR-1B of hardening-2026-q2).
+    # The plugin reads coverage.json after pytest and fails the suite when any
+    # CRITICAL_HELPERS entry is below 100% line coverage (warning-only when
+    # CRITICAL_HELPERS is empty; first-deploy safety per design.md Slice 1).
+    "-p",
+    "scripts.pytest_plugin.coverage_gate",
 ]
 filterwarnings = [
     "error::DeprecationWarning",
@@ -127,6 +133,20 @@ extend-exclude = [
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]
+# APAP001 / APAP003 are registered as a ruff plugin in
+# scripts/ruff_plugin/apap_rules.py per tasks.md:T-1B.2, but they are
+# NOT added to ``select`` here. Round-2 fix PA-2 outcome (Slice 6,
+# PR-6B): ruff 0.15+ does not support Python-defined rule selectors
+# in ``select`` regardless of plugin registration (verified locally:
+# adding "APAP003" to ``select`` makes ruff fail to parse the config
+# with ``Unknown rule selector: `APAP003```). The authoritative
+# APAP001 + APAP003 lint gate is therefore Detector 1 + Detector 5
+# in ``scripts/check_rules.py`` invoked by ``make check-rules``.
+# The plugin module stays tested as a plain Python AST visitor
+# (``tests/test_ruff_apap001.py``, ``tests/test_apap003.py``) so the
+# two detectors cannot drift.
+#
+# Spec: openspec/changes/hardening-2026-q2/specs/01-dev-tooling-gate/spec.md
 ignore = [
     # Allow non-ASCII identifiers (Spanish domain: animal names, etc.).
     "E501",
@@ -142,6 +162,17 @@ ignore = [
 
 [tool.ruff.lint.isort]
 known-first-party = ["app", "tests"]
+
+
+# --- Coverage gate (PR-1B of hardening-2026-q2) ------------------------
+# Spec: openspec/changes/hardening-2026-q2/specs/01-dev-tooling-gate/spec.md
+# (REQ-3). Operators may add extra helpers via ``extra_helpers = [...]``
+# when a domain-specific helper is added that is not in the named list
+# and does not match ``_row_to_*`` regex auto-discovery.
+[tool.apap.coverage_gate]
+extra_helpers = []
+
+
 
 # Coverage configuration. Source covers the `app/` package; `tests/`
 # is excluded by default. The 80% threshold matches the architecture

@@ -14,6 +14,7 @@ from app.core.insforge import InsForgeClient
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
 from app.modules.entradas import service as entradas_service
+from tests.conftest import make_csrf_request
 
 
 class _NoSqlRouteClient(InsForgeClient):
@@ -58,6 +59,8 @@ def _login_as_key_user(client: httpx.AsyncClient) -> None:
             "rol": "key_user",
             "user_id": "u-ana",
             "is_authorized": True,
+            # PR-5B2: session-bound CSRF token.
+            "csrf_token": "test-csrf-token-entradas",
         },
         secret=get_settings().session_secret,
     )
@@ -167,8 +170,11 @@ async def test_create_entrada_delegates_to_service_and_redirects_to_detail(
 
     monkeypatch.setattr(entradas_service, "create_entrada", fake_create)
 
-    response = await client.post(
-        "/entradas", data=_form_data(), follow_redirects=False
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/entradas",
+        form_data=_form_data(),
     )
 
     assert response.status_code == 303
@@ -189,7 +195,12 @@ async def test_create_duplicate_translates_to_409_html(
 
     monkeypatch.setattr(entradas_service, "create_entrada", fake_create)
 
-    response = await client.post("/entradas", data=_form_data())
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/entradas",
+        form_data=_form_data(),
+    )
 
     assert response.status_code == 409
     assert "No se pudo guardar la entrada" in response.text
@@ -209,10 +220,11 @@ async def test_update_validation_error_rerenders_form_with_422(
 
     monkeypatch.setattr(entradas_service, "update_entrada", fake_update)
 
-    response = await client.post(
+    response = await make_csrf_request(
+        client,
+        "POST",
         "/entradas/ent-123/update",
-        data=_form_data(animal_id="   "),
-        follow_redirects=False,
+        form_data=_form_data(animal_id="   "),
     )
 
     assert response.status_code == 422
@@ -227,7 +239,12 @@ async def test_update_missing_entry_returns_404(
     _login_as_key_user(client)
     monkeypatch.setattr(entradas_service, "update_entrada", lambda _c, _id, _p: None)
 
-    response = await client.post("/entradas/missing/update", data=_form_data())
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/entradas/missing/update",
+        form_data=_form_data(),
+    )
 
     assert response.status_code == 404
 
@@ -246,7 +263,11 @@ async def test_delete_is_soft_delete_service_delegation_and_redirect(
 
     monkeypatch.setattr(entradas_service, "delete_entrada", fake_delete)
 
-    response = await client.post("/entradas/ent-123/delete", follow_redirects=False)
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/entradas/ent-123/delete",
+    )
 
     assert response.status_code == 303
     assert response.headers["location"] == "/entradas"
@@ -260,7 +281,11 @@ async def test_delete_missing_entry_returns_404(
     _login_as_key_user(client)
     monkeypatch.setattr(entradas_service, "delete_entrada", lambda _c, _id: False)
 
-    response = await client.post("/entradas/missing/delete")
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/entradas/missing/delete",
+    )
 
     assert response.status_code == 404
 

@@ -29,13 +29,18 @@ from app.core.auth_dependencies import (
     require_authorized_user,
     return_early_if_response,
 )
+from app.core.csrf import csrf_token_context_processor
 from app.core.insforge import InsForgeClient, InsForgeError
 from app.modules.voluntarios import service as voluntarios_service
 
 router = APIRouter(prefix="/voluntarios", tags=["voluntarios"])
 
 _TEMPLATES_DIR = Path(__file__).parents[2] / "templates"
-_templates = Jinja2Templates(directory=_TEMPLATES_DIR)
+# PR-5B2 (REQ-AH-7): inject csrf_token into every template context.
+_templates = Jinja2Templates(
+    directory=_TEMPLATES_DIR,
+    context_processors=[csrf_token_context_processor],
+)
 
 
 def _form_data_to_params(form: dict[str, Any]) -> dict[str, Any]:
@@ -181,15 +186,22 @@ def deactivate_voluntario_view(
     user: Response | dict = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
-    """Soft-delete: marca activo=false. Redirect a la lista."""
+    """Soft-delete via un solo ``UPDATE ... WHERE id = $1 AND activo = true``.
+
+    El service hace la SELECT y el UPDATE en una sola sentencia con
+    ``RETURNING id``. Asi evitamos el patron anterior (SELECT previo
+    + UPDATE) que abria una ventana TOCTOU cuando dos requests
+    concurrentes pasaban la guarda de existencia (finding de auditoria
+    engram:14518). Patron paralelo: ``app/modules/animals/routes.py::
+    delete_animal_view``.
+
+    Devuelve 404 si la fila no existe o ya estaba inactiva
+    (``RETURNING id`` vacio -> ``False`` desde el service).
+    """
     if (early := return_early_if_response(user)) is not None:
         return early
-    if voluntarios_service.get_voluntario_by_id(client, voluntario_id) is None:
+    if not voluntarios_service.deactivate_voluntario(client, voluntario_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-    client.execute_sql(
-        "UPDATE voluntarios SET activo = false, updated_at = now() WHERE id = $1",
-        [voluntario_id],
-    )
     return RedirectResponse(
         url="/voluntarios", status_code=status.HTTP_303_SEE_OTHER
     )

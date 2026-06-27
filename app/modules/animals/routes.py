@@ -31,6 +31,7 @@ from app.core.auth_dependencies import (
     require_authorized_user,
     return_early_if_response,
 )
+from app.core.csrf import csrf_token_context_processor
 from app.core.insforge import InsForgeClient, InsForgeError
 from app.modules.animals import service as animals_service
 
@@ -49,7 +50,11 @@ from app.modules.animals.service import Sexo as SexoEnum
 router = APIRouter(prefix="/animales", tags=["animales"])
 
 _TEMPLATES_DIR = Path(__file__).parents[2] / "templates"
-_templates = Jinja2Templates(directory=_TEMPLATES_DIR)
+# PR-5B2 (REQ-AH-7): inject csrf_token into every template context.
+_templates = Jinja2Templates(
+    directory=_TEMPLATES_DIR,
+    context_processors=[csrf_token_context_processor],
+)
 
 
 def _form_data_to_params(form: dict[str, Any]) -> dict[str, Any]:

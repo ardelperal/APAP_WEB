@@ -14,10 +14,12 @@ Las firmas publicas son:
 
 El contrato de :func:`require_authorized_user` lo fija
 ``tests/test_auth_session_is_authorized.py`` (regression test del P0
-de la code review VOL-01). El default ``True`` en
-``payload.get(\"is_authorized\", True)`` se mantiene por compatibilidad
-con sesiones emitidas antes del fix; el fix vive en escribir el flag
-en ``/auth/callback``, no en cambiar el default.
+de la code review VOL-01) y ``tests/test_auth_dependencies.py``
+(default-flip a ``False`` de PR-3 en hardening-2026-q2). El default
+``False`` cierra la ventana de hasta 7 dias en la que una sesion
+pre-fix (sin el flag ``is_authorized``) seguia pasando; la
+remediacion operativa para esas cookies pre-fix es rotar
+``APAP_SESSION_SECRET`` segun ``docs/runbooks/cookie-rotation.md``.
 
 Regla 7 del code quality: los redirects no son exceptions. La guarda
 devuelve un ``RedirectResponse`` en lugar de raise ``HTTPException`` —
@@ -114,9 +116,17 @@ def require_authorized_user(
     - Si no hay sesion, devuelve ``RedirectResponse`` 302 a ``/login``.
     - Si la sesion no tiene ``is_authorized=True`` (e.g. un developer
       desactivo al usuario via ``/admin/users/{id}/deactivate`` despues
-      de emitir la cookie), devuelve ``RedirectResponse`` 302 a
-      ``/unauthorized``.
+      de emitir la cookie, o el cookie es pre-fix y nunca llevo el
+      flag), devuelve ``RedirectResponse`` 302 a ``/unauthorized``.
     - Si todo OK, devuelve el payload de la sesion al handler.
+
+    Regla 6 (defaults deny, not permit): el default de
+    ``payload.get("is_authorized", ...)`` es ``False`` (PR-3 de
+    hardening-2026-q2). Cierra la ventana de hasta 7 dias en la que
+    una sesion sin el flag era tratada como autorizada; la
+    remediacion operativa para cookies pre-fix en vuelo es rotar
+    ``APAP_SESSION_SECRET`` segun
+    ``docs/runbooks/cookie-rotation.md``.
 
     Regla 7 del code quality: los redirects no son exceptions. La dep
     devuelve un ``Response`` (no raise ``HTTPException``, que esta
@@ -127,6 +137,6 @@ def require_authorized_user(
     """
     if not payload:
         return RedirectResponse(url="/login", status_code=302)
-    if not payload.get("is_authorized", True):
+    if not payload.get("is_authorized", False):
         return RedirectResponse(url="/unauthorized", status_code=302)
     return payload
