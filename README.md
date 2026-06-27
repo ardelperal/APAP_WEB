@@ -47,6 +47,20 @@ docker run --rm -p 8000:8000 --env-file .env apap-web:dev
 | `APAP_SESSION_SECRET` | Symmetric key for session cookie signing. |
 | `APAP_INITIAL_ADMIN_EMAIL` | Email pre-seeded in `authorized_users` on first boot. |
 
+## Session secret rotation
+
+Rotating `APAP_SESSION_SECRET` is the only mechanism that produces an
+atomic, system-wide force-logout of every active user at once. The
+flip of `payload.get("is_authorized", ...)` to `False` (PR-3 of
+hardening-2026-q2, Rule 6 of `AGENTS.md`) closes the up-to-7-day
+window where a deactivated user kept a valid session — but it does
+NOT remediate pre-fix cookies already in flight. Those remain valid
+until their max-age expires or until the secret is rotated.
+
+For the full operator procedure — when to rotate, pre-deploy
+checklist, Coolify steps, verification criteria, and rollback — see
+[`docs/runbooks/cookie-rotation.md`](docs/runbooks/cookie-rotation.md).
+
 ## License
 
 Proprietary. (c) APAP.

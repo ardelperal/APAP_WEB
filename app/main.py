@@ -170,7 +170,7 @@ def create_app() -> FastAPI:
             return _redirect("/login")
         if path == "/unauthorized":
             return await call_next(request)
-        if not payload.get("is_authorized", True):
+        if not payload.get("is_authorized", False):
             return _redirect("/unauthorized")
         return await call_next(request)
 

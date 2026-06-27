@@ -299,13 +299,14 @@ return RedirectResponse(url="/login", status_code=302)
 
 ### Known conflicts with existing code (do not silently fix — see follow-up plan)
 
-These rules are forward-looking. Three of them are violated by code that pre-dates the rule:
+These rules are forward-looking. They are violated by code that pre-dates the rule; each row carries the follow-up plan that closes the gap.
 
 | Rule | Where | Reason it still exists | Follow-up |
 |---|---|---|---|
+<<<<<<< HEAD
 | 4 — one source of truth | ~~`app/core/auth.py:30` (`VALID_ROLES` hardcoded) and `app/modules/voluntarios/service.py:47` (`VALID_ROL_TYPES` hardcoded)~~ | ~~The `StrEnum` for roles does not exist yet. The frozenset is the only source.~~ | **DONE** — Slice 2 (PR-2). `VALID_ROLES` and `VALID_ROL_TYPES` are now derived from their `StrEnum`s; the inline `CHECK (rol IN (...))` in `CREATE_TABLE_SQL` was removed; migration `004_drop_rol_check.sql` cleans up the constraint on databases deployed before PR-2. See `openspec/changes/hardening-2026-q2/specs/02-rule-4-ddl/spec.md` and audit `engram:14516`. |
-| 6 — defaults deny | `app/core/auth_dependencies.py:80` uses `payload.get("is_authorized", True)` (default permits) | **Deliberate**: sessions issued before the VOL-01 P0 fix don't carry the flag. The default `True` keeps them working. The fix lived in writing the flag in `/auth/callback` (PR #90). | Once all live sessions have expired (7-day cookie max-age) AND a migration script has invalidated pre-fix cookies, flip the default to `False`. Document the cookie-invalidation in the same PR. |
-| 7 — no `HTTPException` for redirects | `app/core/auth_dependencies.py:77-83` raises `HTTPException(302, headers={"location": ...})` for both `/login` and `/unauthorized` redirects | Pre-existing pattern; works because FastAPI's `HTTPException` honors the `Location` header and 302 status. | Replace with `Response(status_code=302, headers={"location": ...})` or change the guards to return `RedirectResponse` directly. Pure refactor; public behavior unchanged. |
+| ~~6 — defaults deny~~ **DONE** | ~~`app/core/auth_dependencies.py:80` uses `payload.get("is_authorized", True)` (default permits)~~ — **FIXED at PR-3 of hardening-2026-q2** | Was deliberate: pre-fix cookies didn't carry the flag. The default `True` kept them working. | ~~Flip default to `False` once all live sessions have expired AND pre-fix cookies invalidated.~~ **DONE — Slice 3 PR-3 flipped both call sites (`app/main.py:165` middleware + `app/core/auth_dependencies.py:130` dependency) to `payload.get("is_authorized", False)`. For pre-fix cookies still in flight, rotate `APAP_SESSION_SECRET` per [`docs/runbooks/cookie-rotation.md`](runbooks/cookie-rotation.md). The runbook is the operator procedure for that rotation.** |
+| 7 — no `HTTPException` for redirects | `app/core/auth_dependencies.py:77-83` raises `HTTPException(302, headers={"location": ...})` for both `/login` and `/unauthorized` redirects | Pre-existing pattern; works because FastAPI's `HTTPException` honors the `Location` header and 302 status. | Replace with `Response(status_code=302, headers={"location": ...})` or change the guards to return `RedirectResponse` directly. Pure refactor; public behavior unchanged. **Slated for Slice 5 (Auth hardening) per the audit at `docs/audits/auth-dependencies-audit-2026-Q2.md`.** |
 
 ### 8 — No deprecated libraries, no DeprecationWarnings
 
