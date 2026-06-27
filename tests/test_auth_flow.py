@@ -244,12 +244,90 @@ async def test_callback_issues_session_cookie_and_redirects_home(
     # ``is_authorized`` se escribe en el callback desde el campo
     # ``activo`` del registro de usuarios_autorizados (fix P0 de la
     # code review VOL-01). El fake expone ``activo: True``.
-    assert decoded == {
-        "email": "ardelperal@gmail.com",
-        "rol": "developer",
-        "user_id": "u-db",
-        "is_authorized": True,
-    }
+    #
+    # PR-5B (REQ-AH-6) also adds ``csrf_token`` to the signed payload.
+    # The token is generated via ``secrets.token_urlsafe(32)`` so it is
+    # always >= 32 chars. We assert membership + shape instead of full
+    # equality because the token is random per request.
+    assert decoded is not None
+    assert decoded["email"] == "ardelperal@gmail.com"
+    assert decoded["rol"] == "developer"
+    assert decoded["user_id"] == "u-db"
+    assert decoded["is_authorized"] is True
+    csrf_token = decoded.get("csrf_token")
+    assert isinstance(csrf_token, str)
+    assert len(csrf_token) >= 32
+
+
+async def test_callback_apap_pkce_cookie_uses_samesite_strict(
+    client: httpx.AsyncClient,
+    fake_insforge: _FakeInsForge,
+    google_configured: None,
+) -> None:
+    """``/auth/callback`` must NOT echo ``apap_pkce`` without ``SameSite=Strict``.
+
+    Per REQ-AH-5 the PKCE cookie (issued by ``/login`` and consumed here)
+    must ship with ``SameSite=Strict`` so a cross-site form replay
+    cannot trick the browser into presenting the verifier.
+    """
+    from app.core.config import get_settings
+    from app.core.session import write_session
+
+    settings = get_settings()
+    pkce_token = write_session(
+        {"code_verifier": "verifier-strict"}, secret=settings.session_secret
+    )
+    client.cookies.set("apap_pkce", pkce_token)
+
+    response = await client.get(
+        "/auth/callback", params={"code": "google-code"}, follow_redirects=False
+    )
+
+    assert response.status_code == 302
+    # The cookie deletion response is an empty ``apap_pkce=``; we only
+    # care about the ``samesite`` directive when the cookie was issued,
+    # which happens in ``/login``. Read the Set-Cookie header from the
+    # /login response separately.
+    login_response = await client.get("/login", follow_redirects=False)
+    set_cookie_headers = login_response.headers.get_list("set-cookie")
+    pkce_cookies = [c for c in set_cookie_headers if c.startswith("apap_pkce=")]
+    assert pkce_cookies, "expected /login to set apap_pkce cookie"
+    # httpx normalizes the directive casing; check the lowercase token.
+    pkce_cookie = pkce_cookies[0]
+    assert "samesite=strict" in pkce_cookie.lower()
+
+
+async def test_callback_apap_session_cookie_uses_samesite_strict(
+    client: httpx.AsyncClient,
+    fake_insforge: _FakeInsForge,
+    google_configured: None,
+) -> None:
+    """``/auth/callback`` issues ``apap_session`` with ``SameSite=Strict``.
+
+    Per REQ-AH-5 the session cookie must ship ``SameSite=Strict`` so a
+    cross-site form replay cannot use it as an implicit auth token.
+    The CSRF middleware (REQ-AH-8) is the secondary defense for any
+    browser that does not honor Strict.
+    """
+    from app.core.config import get_settings
+    from app.core.session import write_session
+
+    settings = get_settings()
+    pkce_token = write_session(
+        {"code_verifier": "verifier-session-strict"}, secret=settings.session_secret
+    )
+    client.cookies.set("apap_pkce", pkce_token)
+
+    response = await client.get(
+        "/auth/callback", params={"code": "google-code"}, follow_redirects=False
+    )
+
+    assert response.status_code == 302
+    set_cookie_headers = response.headers.get_list("set-cookie")
+    session_cookies = [c for c in set_cookie_headers if c.startswith("apap_session=")]
+    assert session_cookies, "expected /auth/callback to set apap_session cookie"
+    session_cookie = session_cookies[0]
+    assert "samesite=strict" in session_cookie.lower()
 
 
 # --- /logout ----------------------------------------------------------------
