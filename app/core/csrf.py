@@ -19,24 +19,23 @@ The defense is layered:
    (REQ-AH-7). The middleware tries the header first (cheaper, no body
    read) and falls back to the form field on ``application/x-www-form-urlencoded``
    or ``multipart/form-data`` requests.
-5. A feature flag (``Settings.csrf_enabled``) and a logging placeholder
-   (T-5B.27) keep the middleware reversible without a redeploy:
-   ``APAP_CSRF_ENABLED=false`` short-circuits the check, and Slice 6
-   will swap the ``logging.warning`` placeholder for ``log_safe()``
-   with the same event name (``"csrf.rejected"``) so observability
-   stays neutral.
+5. A feature flag (``Settings.csrf_enabled``) keeps the middleware
+   reversible without a redeploy: ``APAP_CSRF_ENABLED=false``
+   short-circuits the check and emits a ``csrf.disabled`` event so
+   operators can tell during an incident whether the defense is live
+   or feature-flagged off.
 
-The logging placeholder is intentional: Slice 6 swaps
-``logging.getLogger(__name__).warning("csrf.rejected", extra=...)``
-for ``log_safe("csrf.rejected", ...)``. The event name MUST stay
-``csrf.rejected`` so downstream dashboards and redaction tests don't
-need to change after the swap.
+Logging (Slice 6 swap, PR-6A): every event emitted by this module
+goes through :func:`app.core.logging.log_safe` so the JSON stdout
+handler captures it with PII redaction applied. The event names
+``csrf.rejected`` and ``csrf.disabled`` are STABLE — downstream
+dashboards and redaction tests depend on them. They MUST NOT be
+renamed without a coordinated dashboard migration.
 """
 
 from __future__ import annotations
 
 import hmac
-import logging
 import secrets
 from collections.abc import Awaitable, Callable
 
@@ -45,6 +44,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from app.core.config import get_settings
+from app.core.logging import log_safe
 from app.core.session import read_session, session_cookie_name
 
 SAFE_METHODS: frozenset[str] = frozenset({"GET", "HEAD", "OPTIONS"})
@@ -155,10 +155,6 @@ class CsrfMiddleware(BaseHTTPMiddleware):
     ``/auth/callback`` so the auth layer doesn't block it either).
     """
 
-    def __init__(self, app) -> None:  # type: ignore[no-untyped-def]
-        super().__init__(app)
-        self._logger = logging.getLogger(__name__)
-
     async def dispatch(
         self,
         request: Request,
@@ -173,9 +169,11 @@ class CsrfMiddleware(BaseHTTPMiddleware):
 
         settings = get_settings()
         if not settings.csrf_enabled:
-            # Placeholder for Slice 6 swap to ``log_safe("csrf.disabled")``.
-            # Event name MUST stay stable so dashboards don't break.
-            self._logger.warning("csrf.disabled")
+            # Feature-flag short-circuit. Slice 6 contract: this emits
+            # the ``csrf.disabled`` event via ``log_safe`` so operators
+            # can tell during an incident whether the defense is live
+            # or feature-flagged off.
+            log_safe("csrf.disabled")
             self._populate_csrf_state(request)
             return await call_next(request)
 
@@ -206,19 +204,15 @@ class CsrfMiddleware(BaseHTTPMiddleware):
         if not expected or not provided or not hmac.compare_digest(
             str(expected), str(provided)
         ):
-            # Slice 6 will swap this for ``log_safe("csrf.rejected",
-            # path=..., reason=...)``. Event name MUST stay stable.
-            self._logger.warning(
+            log_safe(
                 "csrf.rejected",
-                extra={
-                    "path": request.url.path,
-                    "method": request.method,
-                    "reason": (
-                        "missing_session" if not expected
-                        else "missing_token" if not provided
-                        else "token_mismatch"
-                    ),
-                },
+                path=request.url.path,
+                method=request.method,
+                reason=(
+                    "missing_session" if not expected
+                    else "missing_token" if not provided
+                    else "token_mismatch"
+                ),
             )
             return JSONResponse(
                 {"error": "CSRF token missing or invalid"},

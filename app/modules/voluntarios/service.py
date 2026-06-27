@@ -43,6 +43,7 @@ from enum import StrEnum
 from typing import Any
 
 from app.core.insforge import InsForgeClient
+from app.core.logging import log_safe
 
 
 class RolVoluntario(StrEnum):
@@ -243,6 +244,16 @@ def deactivate_voluntario(client: InsForgeClient, voluntario_id: str) -> bool:
     ``False`` to ``HTTPException(404)`` so the response is
     indistinguishable for ``not_found`` vs ``already_inactive`` —
     matching the ``animales/delete`` handler contract.
+
+    On a successful deactivation the service emits a structured
+    ``voluntario.deactivated`` event (Slice 6, T-6.8). The event is
+    emitted only when the row was actually deactivated (``True``
+    return); idempotent re-runs (returning ``False`` because the
+    row was already inactive) stay silent so operators can tell the
+    "first successful deactivate" from a no-op re-run.
     """
     rows = client.execute_sql(_DEACTIVATE_VOLUNTARIO_SQL, [voluntario_id])
-    return bool(rows)
+    deactivated = bool(rows)
+    if deactivated:
+        log_safe("voluntario.deactivated", voluntario_id=voluntario_id)
+    return deactivated
