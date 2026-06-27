@@ -177,3 +177,58 @@ async def test_get_insforge_client_dep_cierra_el_cliente_una_vez_por_request(
         f"close() debio llamarse 2 veces tras 2 requests, "
         f"se llamo {_SpyInsForge.close_calls} veces"
     )
+
+
+# ---------------------------------------------------------------------------
+# PR-3 (hardening-2026-q2 / Slice 3): default-deny at the dependency layer.
+# Closes the P0 window from engram:14516 / engram:14518 (a deactivated user
+# kept a valid session for up to 7 days because the default was True).
+# Middleware-side twin lives in tests/test_middleware_is_authorized.py.
+# ---------------------------------------------------------------------------
+
+
+def test_require_authorized_user_default_false() -> None:
+    """El default de payload.get('is_authorized', ...) es False.
+
+    Static source check: engram:14516 identified this as one of two
+    call sites with the wrong True default. The PR-1A linter (Detector
+    2) catches the regression once it merges; this is the pre-merge
+    fallback.
+    """
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[1]
+    source = (repo_root / "app" / "core" / "auth_dependencies.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'payload.get("is_authorized", False)' in source, (
+        "app/core/auth_dependencies.py debe usar False tras PR-3 (regla 6)"
+    )
+    assert 'payload.get("is_authorized", True)' not in source
+
+
+def test_pre_fix_cookie_redirects_to_unauthorized() -> None:
+    """Cookie sin is_authorized redirige a /unauthorized (no /login).
+
+    PR-3 fix P0: pre-fix cookies have valid signature but no
+    is_authorized key. After the flip, default False treats them as
+    unauthorized. The /unauthorized vs /login distinction is what the
+    rotation runbook encodes.
+    """
+    from unittest.mock import MagicMock
+
+    from fastapi.responses import RedirectResponse
+
+    from app.core.auth_dependencies import require_authorized_user
+
+    payload = {
+        "email": "ghost@example.com",
+        "rol": "key_user",
+        "user_id": "u-ghost",
+        # No is_authorized key — simulates pre-fix cookie.
+    }
+    result = require_authorized_user(request=MagicMock(), payload=payload)
+
+    assert isinstance(result, RedirectResponse)
+    assert result.status_code == 302
+    assert result.headers["location"] == "/unauthorized"
