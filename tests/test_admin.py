@@ -8,6 +8,7 @@ import pytest
 from app.core.insforge import InsForgeClient
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
+from tests.conftest import make_csrf_request
 
 
 class _FakeInsForge(InsForgeClient):
@@ -56,6 +57,9 @@ def _login_as(
     tests existentes (que asumian sesion valida). Los nuevos tests de
     regresion del gap P2-inherited pasan ``is_authorized=False`` para
     verificar que las rutas /admin rechazan al developer desactivado.
+
+    PR-5B2: also writes a ``csrf_token`` into the session payload so
+    the CsrfMiddleware can validate POSTs from this test client.
     """
     token = write_session(
         {
@@ -63,6 +67,7 @@ def _login_as(
             "rol": rol,
             "user_id": user_id,
             "is_authorized": is_authorized,
+            "csrf_token": "test-csrf-token-admin",
         },
         secret=secret,
     )
@@ -154,10 +159,11 @@ async def test_admin_add_user_inserts_and_redirects(
         user_id="u-root",
     )
 
-    response = await client.post(
+    response = await make_csrf_request(
+        client,
+        "POST",
         "/admin/users",
-        data={"email": "new@example.com", "role": "key_user"},
-        follow_redirects=False,
+        form_data={"email": "new@example.com", "role": "key_user"},
     )
 
     assert response.status_code == 302
@@ -179,10 +185,11 @@ async def test_admin_add_user_with_invalid_role_redirects_without_calling_sql(
     )
     fake_insforge.add_user_response = {"id": "should-not-be-used"}
 
-    response = await client.post(
+    response = await make_csrf_request(
+        client,
+        "POST",
         "/admin/users",
-        data={"email": "new@example.com", "rol": "hacker"},
-        follow_redirects=False,
+        form_data={"email": "new@example.com", "rol": "hacker"},
     )
 
     assert response.status_code == 302
@@ -202,10 +209,11 @@ async def test_admin_add_user_rejects_non_developer(
         user_id="u-ana",
     )
 
-    response = await client.post(
+    response = await make_csrf_request(
+        client,
+        "POST",
         "/admin/users",
-        data={"email": "new@example.com", "role": "key_user"},
-        follow_redirects=False,
+        form_data={"email": "new@example.com", "role": "key_user"},
     )
 
     assert response.status_code == 302
@@ -234,8 +242,10 @@ async def test_admin_deactivate_user_updates_and_redirects(
         user_id="u-root",
     )
 
-    response = await client.post(
-        "/admin/users/u-1/deactivate", follow_redirects=False
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/admin/users/u-1/deactivate",
     )
 
     assert response.status_code == 302
@@ -255,8 +265,10 @@ async def test_admin_deactivate_user_rejects_non_developer(
         user_id="u-ana",
     )
 
-    response = await client.post(
-        "/admin/users/u-1/deactivate", follow_redirects=False
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/admin/users/u-1/deactivate",
     )
 
     assert response.status_code == 302
@@ -309,10 +321,11 @@ async def test_admin_add_user_redirects_when_is_authorized_false(
         is_authorized=False,
     )
 
-    response = await client.post(
+    response = await make_csrf_request(
+        client,
+        "POST",
         "/admin/users",
-        data={"email": "new@example.com", "rol": "key_user"},
-        follow_redirects=False,
+        form_data={"email": "new@example.com", "rol": "key_user"},
     )
 
     assert response.status_code == 302
@@ -333,8 +346,10 @@ async def test_admin_deactivate_user_redirects_when_is_authorized_false(
         is_authorized=False,
     )
 
-    response = await client.post(
-        "/admin/users/u-1/deactivate", follow_redirects=False
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/admin/users/u-1/deactivate",
     )
 
     assert response.status_code == 302
