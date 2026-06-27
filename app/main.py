@@ -46,6 +46,7 @@ from app.core.auth_dependencies import (
 from app.core.csrf import CsrfMiddleware, csrf_token_context_processor, issue_csrf_to_session
 from app.core.domain import ensure_domain_schema
 from app.core.insforge import InsForgeClient
+from app.core.logging import configure_logging
 from app.core.migration.sql_runner import apply_sql_migrations
 from app.core.pkce import generate_pkce_pair
 from app.core.session import (
@@ -84,18 +85,22 @@ async def lifespan(_: FastAPI):
 
     On startup, bootstrap the InsForge schema:
 
-    1. ``ensure_schema_and_seed`` — creates ``usuarios_autorizados`` and seeds
+    1. ``configure_logging(settings)`` — installs the JSON stdout
+       handler + redaction filter so even startup errors are visible
+       in Coolify / log aggregators. MUST be the first line so the
+       bootstrap steps below are logged on failure. Slice 6 (REQ-4).
+    2. ``ensure_schema_and_seed`` — creates ``usuarios_autorizados`` and seeds
        the bootstrap admin if ``APAP_INITIAL_ADMIN_EMAIL`` is set.
-    2. ``ensure_domain_schema`` — creates the domain tables
+    3. ``ensure_domain_schema`` — creates the domain tables
        (``animales``, ``voluntarios``, ``roles_voluntario``) in dependency
        order.
-    3. ``apply_sql_migrations`` — applies any pending versioned SQL
+    4. ``apply_sql_migrations`` — applies any pending versioned SQL
        migrations from ``app/core/migration/sql/`` (schema-plane DDL,
        e.g. dropping a redundant CHECK constraint). Runs LAST so the
        ``usuarios_autorizados`` table is guaranteed to exist before any
        migration references it.
 
-    All three steps are idempotent (``CREATE TABLE IF NOT EXISTS``,
+    All three schema steps are idempotent (``CREATE TABLE IF NOT EXISTS``,
     ``web_sql_migrations`` bookkeeping, ``DROP CONSTRAINT IF EXISTS``),
     so it is safe to run on every cold start. If any step raises, the
     lifespan propagates and the app does not start (fail fast): a
@@ -103,6 +108,10 @@ async def lifespan(_: FastAPI):
     surfaced as a failed deploy than as 500s on the first request.
     """
     settings = config_module.get_settings()
+    # REQ-4 (Slice 6): configure_logging is the FIRST line so any error
+    # in the steps below is captured by the JSON stdout handler with
+    # PII redaction applied.
+    configure_logging(settings)
     client = InsForgeClient(settings.insforge_url, settings.insforge_service_key)
     try:
         ensure_schema_and_seed(client, settings)
