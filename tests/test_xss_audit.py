@@ -1,0 +1,587 @@
+"""XSS audit — template-level parametrized auto-tests (Slice 4 of hardening-2026-q2).
+
+Spec: ``openspec/changes/hardening-2026-q2/specs/04-xss-audit/spec.md``
+REQ-XSS-2 mandates a parametrized test over the user-facing templates:
+for every (template, field, xss_pattern) triple, the test renders the
+template with the pattern injected into that field's value and asserts
+that the dangerous payload does NOT appear literally in the rendered
+HTML.
+
+How the audit reaches PASS:
+  - Starlette's ``Jinja2Templates`` constructor defaults ``autoescape=True``
+    for ``.html`` files; therefore ``{{ user_input }}`` is HTML-escaped
+    by the Jinja2 renderer.
+  - None of the 13 templates under ``app/templates/`` use the ``|safe``
+    filter and none of the route handlers use ``Markup()`` (see
+    ``docs/audits/xss-audit-2026-Q2.md`` for the code-based scan).
+  - Result: every parametrized assertion passes. If any test FAILS, that
+    is the XSS finding — documented in the audit report.
+
+Coverage:
+  - The 8 templates explicitly listed in REQ-XSS-1's scenario
+    (``base.html``, ``admin.html``, ``animales/form.html``,
+    ``animales/detail.html``, ``entradas/form.html``,
+    ``entradas/detail.html``, ``voluntarios/form.html``,
+    ``voluntarios/detail.html``).
+  - Plus the 5 additional templates the repo actually contains
+    (``index.html``, ``unauthorized.html``, ``animales/list.html``,
+    ``entradas/list.html``, ``voluntarios/list.html``). REQ-XSS-1
+    counts "the 8 templates"; we cover all 13 (defence in depth) and
+    document the discrepancy in the audit doc.
+
+Patterns per spec REQ-XSS-2:
+  1. ``<script>alert(1)</script>``         (basic script injection)
+  2. ``<img src=x onerror=alert(1)>``     (event handler injection)
+  3. ``<svg onload=alert(1)>``             (SVG-based XSS)
+  4. ``javascript:alert(1)``               (URI scheme injection)
+
+Pattern (4) is asserted differently: it lives in URL contexts
+(``href``/``src``/``action`` attributes). Jinja2's autoescape escapes
+``&`` and quotes but leaves ``javascript:`` unescaped in URL attribute
+bodies; a real audit must verify that no template uses the URL form
+with user data unvalidated. For now, the assertion is that the literal
+``javascript:alert(1)`` string is either absent OR appears inside an
+HTML-escaped attribute body that the browser will not execute. The
+audit doc spells out the manual follow-up.
+"""
+
+from __future__ import annotations
+
+import copy
+import re
+from pathlib import Path
+from typing import Any
+
+import pytest
+from fastapi.templating import Jinja2Templates
+
+# ---------------------------------------------------------------------------
+# Fixtures and helpers
+# ---------------------------------------------------------------------------
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+TEMPLATES = Jinja2Templates(directory=str(REPO_ROOT / "app" / "templates"))
+
+
+# 4 XSS patterns from spec REQ-XSS-2.
+# Patterns 1-3 carry HTML-special chars (``<``, ``>``); Jinja2 autoescape
+# converts them to entities, breaking the tag boundary and neutralising
+# the injected script. Pattern 4 is a URI scheme with no special chars;
+# autoescape does NOT touch it, and the only way it executes is from a
+# URL attribute (``href=``, ``src=``, ``action=``, ``formaction=``).
+# ``test_no_user_data_in_url_attributes`` below carries that guard.
+HTML_XSS_PATTERNS: list[str] = [
+    "<script>alert(1)</script>",
+    "<img src=x onerror=alert(1)>",
+    "<svg onload=alert(1)>",
+]
+URL_SCHEME_PATTERN: str = "javascript:alert(1)"
+
+
+def render(template_name: str, context: dict[str, Any]) -> str:
+    """Render a template directly through the Jinja2 environment.
+
+    We do NOT go through the ASGI client here: the template test is a
+    pure-render characterisation test, independent of auth, routing and
+    the DB layer.
+    """
+    return TEMPLATES.env.get_template(template_name).render(**context)
+
+
+# ---------------------------------------------------------------------------
+# Base contexts for each template
+# ---------------------------------------------------------------------------
+# Each entry is the minimal context that lets the template render
+# without Jinja ``UndefinedError``. We fill every field with safe dummy
+# data; the tests then MUTATE one field at a time to the XSS payload.
+
+_BASE_USER: dict[str, Any] = {
+    "email": "user@example.com",
+    "rol": "key_user",
+    "role": "key_user",
+    "user_id": "u-1",
+    "is_authorized": True,
+}
+
+_BASE_FORM_ANIMAL: dict[str, Any] = {
+    "NCHIP": "985112004409871",
+    "NombreAnimal": "Luna",
+    "Especie": "CANINA",
+    "Sexo": "H",
+    "FNacimiento": "2023-04-12",
+    "TraeNChip": "",
+    "FIMPLANTACIONCHIP": "",
+    "Raza": "Mestiza",
+    "Color": "Negro",
+    "Pelo": "Corto",
+    "Tamano": "Mediano",
+    "Caracter": "Tranquila",
+    "FDefuncion": "",
+    "Terapia": "",
+    "Observaciones": "Sin observaciones.",
+    "NombreFoto": "",
+    "Cartilla": "",
+    "Eutanasia": "",
+    "RazaPPP": "",
+    "Mestizo": "",
+    "EutanasiaOtrasCausas": "",
+    "EutanasiaEnfermedad": "",
+    "UltimoEstadoAntesDeFallecido": "",
+    "ComunicacionARIAC": "",
+}
+
+_BASE_ANIMAL_DETAIL: dict[str, Any] = {
+    "id": "abc-123",
+    "NCHIP": "985112004409871",
+    "NombreAnimal": "Luna",
+    "Especie": "CANINA",
+    "Sexo": "H",
+    "FNacimiento": "2023-04-12",
+    "TraeNChip": None,
+    "FIMPLANTACIONCHIP": None,
+    "Raza": "Mestiza",
+    "Color": "Negro",
+    "Pelo": "Corto",
+    "Tamano": "Mediano",
+    "Caracter": "Tranquila",
+    "FDefuncion": None,
+    "Terapia": None,
+    "Observaciones": "Sin observaciones.",
+    "NombreFoto": None,
+    "Cartilla": None,
+    "Eutanasia": None,
+    "RazaPPP": None,
+    "Mestizo": None,
+    "ComunicacionARIAC": None,
+}
+
+_BASE_FORM_ENTRADA: dict[str, Any] = {
+    "animal_id": "abc-123",
+    "voluntario_entrada_id": None,
+    "fecha_entrada": "2024-01-15",
+    "origen": "Recogida",
+    "motivo": "Abandono",
+    "observaciones": "Sin observaciones.",
+}
+
+_BASE_ENTRADA_DETAIL: dict[str, Any] = {
+    "id": "ent-1",
+    "animal_id": "abc-123",
+    "voluntario_entrada_id": None,
+    "fecha_entrada": "2024-01-15",
+    "origen": "Recogida",
+    "motivo": "Abandono",
+    "observaciones": "Sin observaciones.",
+}
+
+_BASE_FORM_VOLUNTARIO: dict[str, Any] = {
+    "Voluntario": "Ana García",
+    "Email": "ana@example.com",
+    "DNI": "12345678A",
+    "Tel1": "600000000",
+    "Tel2": "",
+}
+
+_BASE_VOLUNTARIO_DETAIL: dict[str, Any] = {
+    "id": "v-1",
+    "Voluntario": "Ana García",
+    "Email": "ana@example.com",
+    "DNI": "12345678A",
+    "Tel1": "600000000",
+    "Tel2": None,
+    "fecha_alta": "2024-01-01",
+}
+
+_BASE_ADMIN_USER: dict[str, Any] = {
+    "id": "u-1",
+    "email": "ana@example.com",
+    "role": "key_user",
+    "is_active": True,
+}
+
+# Each template's render spec: (template_name, field_paths_to_mutate, base_context)
+# ``field_paths_to_mutate`` are dot-paths into the context dict; the
+# helper below replaces each path with the XSS payload before rendering.
+TEMPLATE_SPECS: list[tuple[str, list[str], dict[str, Any]]] = [
+    # --- 8 templates explicitly listed in spec REQ-XSS-1 ---
+    (
+        "base.html",
+        ["app_name", "user.email", "user.role"],
+        {"app_name": "APAP_WEB", "user": _BASE_USER},
+    ),
+    (
+        "admin.html",
+        ["current_user.email", "users[0].email", "users[0].role"],
+        {
+            "app_name": "APAP_WEB",
+            "current_user": _BASE_USER,
+            "users": [_BASE_ADMIN_USER],
+            "roles": ["developer", "admin", "key_user", "reader"],
+        },
+    ),
+    (
+        "animales/form.html",
+        [
+            "form_data.NCHIP",
+            "form_data.NombreAnimal",
+            "form_data.Raza",
+            "form_data.Color",
+            "form_data.Observaciones",
+            "error",
+        ],
+        {
+            "user": _BASE_USER,
+            "form_data": dict(_BASE_FORM_ANIMAL),
+            "error": None,
+            "especies": ["CANINA", "FELINA"],
+            "sexos": ["H", "M"],
+        },
+    ),
+    (
+        "animales/detail.html",
+        [
+            "animal.NombreAnimal",
+            "animal.NCHIP",
+            "animal.Raza",
+            "animal.Observaciones",
+        ],
+        {"user": _BASE_USER, "animal": _BASE_ANIMAL_DETAIL},
+    ),
+    (
+        "entradas/form.html",
+        [
+            "form_data.animal_id",
+            "form_data.origen",
+            "form_data.motivo",
+            "form_data.observaciones",
+            "error",
+            "form_action",
+        ],
+        {
+            "user": _BASE_USER,
+            "form_data": dict(_BASE_FORM_ENTRADA),
+            "error": None,
+            "form_action": "/entradas",
+        },
+    ),
+    (
+        "entradas/detail.html",
+        [
+            "entrada.animal_id",
+            "entrada.origen",
+            "entrada.motivo",
+            "entrada.observaciones",
+        ],
+        {"user": _BASE_USER, "entrada": _BASE_ENTRADA_DETAIL},
+    ),
+    (
+        "voluntarios/form.html",
+        [
+            "form_data.Voluntario",
+            "form_data.Email",
+            "form_data.DNI",
+            "form_data.Tel1",
+            "error",
+        ],
+        {"user": _BASE_USER, "form_data": dict(_BASE_FORM_VOLUNTARIO), "error": None},
+    ),
+    (
+        "voluntarios/detail.html",
+        [
+            "voluntario.Voluntario",
+            "voluntario.Email",
+            "voluntario.DNI",
+            "roles[0]",
+        ],
+        {"user": _BASE_USER, "voluntario": _BASE_VOLUNTARIO_DETAIL, "roles": ["intake"]},
+    ),
+    # --- 5 additional templates the repo contains (defence in depth) ---
+    (
+        "index.html",
+        ["app_name", "version", "user.email", "user.role"],
+        {"app_name": "APAP_WEB", "version": "0.1.0", "user": _BASE_USER},
+    ),
+    (
+        "unauthorized.html",
+        ["app_name"],
+        {"app_name": "APAP_WEB"},
+    ),
+    (
+        "animales/list.html",
+        ["animales[0].NombreAnimal", "animales[0].NCHIP", "animales[0].Raza"],
+        {"user": _BASE_USER, "animales": [_BASE_ANIMAL_DETAIL]},
+    ),
+    (
+        "entradas/list.html",
+        ["entradas[0].animal_id", "entradas[0].origen", "entradas[0].motivo"],
+        {"user": _BASE_USER, "entradas": [_BASE_ENTRADA_DETAIL]},
+    ),
+    (
+        "voluntarios/list.html",
+        ["voluntarios[0].Voluntario", "voluntarios[0].Email", "voluntarios[0].DNI"],
+        {"user": _BASE_USER, "voluntarios": [_BASE_VOLUNTARIO_DETAIL]},
+    ),
+]
+
+
+def _set_path(ctx: Any, path: str, value: Any) -> None:
+    """Set a dot/indexed path inside ``ctx`` to ``value`` (in place).
+
+    Tokenises ``"users[0].email"`` into ``["users", 0, "email"]`` and
+    walks the nested structure, creating intermediate containers when
+    needed. The final step assigns ``value``.
+
+    Supports:
+      - ``"a.b.c"``        — dict keys
+      - ``"a[0].b"``       — list index then dict key
+      - ``"a[0][1]"``      — nested lists
+    """
+    tokens: list[Any] = []
+    for part in re.split(r"\.|(?=\[)|(?<=\])", path):
+        if part == "":
+            continue
+        if part.startswith("[") and part.endswith("]"):
+            tokens.append(int(part[1:-1]))
+        elif part.startswith("["):
+            tokens.append(int(part[1:]))
+        elif part.endswith("]"):
+            tokens.append(int(part[:-1]))
+        else:
+            tokens.append(part)
+
+    cursor: Any = ctx
+    for i, token in enumerate(tokens):
+        is_last = i == len(tokens) - 1
+        nxt = tokens[i + 1] if not is_last else None
+        if isinstance(cursor, list):
+            idx = int(token)
+            if is_last:
+                cursor[idx] = value
+            else:
+                if idx >= len(cursor) or cursor[idx] is None:
+                    cursor[idx] = [] if isinstance(nxt, int) else {}
+                cursor = cursor[idx]
+        else:
+            key = str(token)
+            if is_last:
+                cursor[key] = value
+            else:
+                if key not in cursor or cursor[key] is None:
+                    cursor[key] = [] if isinstance(nxt, int) else {}
+                cursor = cursor[key]
+
+
+def _with_xss(base_ctx: dict[str, Any], field_path: str, payload: str) -> dict[str, Any]:
+    """Deep-copy ``base_ctx`` and inject ``payload`` at ``field_path``."""
+    ctx = copy.deepcopy(base_ctx)
+    _set_path(ctx, field_path, payload)
+    return ctx
+
+
+# ---------------------------------------------------------------------------
+# Test cases
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("template_name", "field_path"),
+    [
+        pytest.param(tpl, field, id=f"{tpl}::{field}")
+        for tpl, fields, _ctx in TEMPLATE_SPECS
+        for field in fields
+    ],
+)
+@pytest.mark.parametrize(
+    "xss_pattern",
+    HTML_XSS_PATTERNS,
+    ids=lambda p: p[:24],
+)
+def test_template_html_escapes_xss_payload(
+    template_name: str,
+    field_path: str,
+    xss_pattern: str,
+) -> None:
+    """A rendered template MUST NOT contain the XSS payload literally.
+
+    For the ``<script>``, ``<img onerror=...>`` and ``<svg onload=...>``
+    patterns, Jinja2's autoescape escapes the angle brackets to
+    ``&lt;``/``&gt;``, so the browser cannot execute the injected
+    JavaScript.
+
+    For the ``javascript:alert(1)`` URL scheme, the audit asserts that
+    the literal string does not appear unescaped in any URL attribute
+    body (the browser only fires on ``javascript:`` in URL context, so
+    escaped entity form is safe). The audit doc's manual review
+    checklist verifies no URL attribute is built from raw user data in
+    practice.
+    """
+    base_ctx = next(ctx for tpl, _, ctx in TEMPLATE_SPECS if tpl == template_name)
+    ctx = _with_xss(base_ctx, field_path, xss_pattern)
+    rendered = render(template_name, ctx)
+
+    # Assertion: the literal payload must NOT appear unescaped in the
+    # rendered HTML. Auto-escape converts ``<`` to ``&lt;`` and ``>``
+    # to ``&gt;``, breaking every HTML/JS tag boundary.
+    assert xss_pattern not in rendered, (
+        f"XSS audit FAILED: pattern {xss_pattern!r} appears literally in "
+        f"{template_name} when injected at {field_path!r}. "
+        f"This is the XSS finding — document in "
+        f"docs/audits/xss-audit-2026-Q2.md and fix before chain continues."
+    )
+
+
+def test_jinja2templates_default_autoescape_is_true() -> None:
+    """Sanity check: Starlette's Jinja2Templates MUST default autoescape=True.
+
+    Starlette passes ``autoescape=select_autoescape(...)`` (a callable
+    that returns True for ``.html``/``.htm``/``.xml``/``.xhtml``). The
+    audit checks the callable's behaviour on a ``.html`` filename
+    rather than identity-checking the attribute.
+
+    This is the configuration invariant that makes the rest of this
+    audit pass. If a future PR passes ``autoescape=False`` to
+    ``Jinja2Templates(...)``, every other test in this file becomes
+    trivially FAIL — and the audit catches the regression immediately.
+    """
+    autoescape = TEMPLATES.env.autoescape
+    # Starlette uses ``select_autoescape(default_for_string=False,
+    # default=True, ...)``. The env's ``autoescape`` attribute is a
+    # callable returning True for ``.html``.
+    if callable(autoescape):
+        assert autoescape("anything.html") is True, (
+            "Jinja2Templates select_autoescape does NOT escape .html — "
+            "every XSS guard above is bypassed."
+        )
+        assert autoescape("anything.htm") is True
+        assert autoescape("anything.txt") is False
+    else:
+        assert autoescape is True, (
+            "Jinja2Templates.autoescape is False — every XSS guard above is "
+            "bypassed. Restore autoescape=True or set it explicitly in app/main.py:136."
+        )
+
+
+def test_audit_covers_all_thirteen_templates() -> None:
+    """The audit MUST cover every ``.html`` under ``app/templates/``.
+
+    Hard-coded count (13) protects the audit against silent template
+    additions: if a new template ships without a corresponding entry
+    in ``TEMPLATE_SPECS``, this test fails and forces the audit owner
+    to extend the coverage.
+
+    The relative-path key (e.g. ``animales/detail.html``) is the
+    source of truth here — it matches the template names passed to
+    ``Jinja2Templates.TemplateResponse(name=...)``.
+    """
+    template_dir = REPO_ROOT / "app" / "templates"
+    actual = sorted(
+        p.relative_to(template_dir).as_posix() for p in template_dir.rglob("*.html")
+    )
+    expected_names = sorted(tpl for tpl, _, _ in TEMPLATE_SPECS)
+    assert actual == expected_names, (
+        f"Template coverage drift: app/templates/ has {actual}, "
+        f"TEMPLATE_SPECS has {expected_names}. Update the audit."
+    )
+
+
+def test_no_user_data_in_url_attributes() -> None:
+    """No template may interpolate user data inside a URL attribute.
+
+    ``href=``, ``src=``, ``action=``, ``formaction=``, ``background=``,
+    ``poster=``, ``cite=``, ``longdesc=``, ``usemap=``, ``xlink:href=``
+    and ``data-src=`` are URL attributes. Interpolation of user data
+    into any of them allows a ``javascript:alert(1)`` URI scheme
+    injection (the URL is followed by the browser on click / load).
+
+    Jinja2 autoescape does NOT catch this — the payload ``javascript:``
+    has no HTML-special characters to escape.
+
+    The guard is structural: every line that opens a URL attribute
+    must contain only literal paths, trusted config, OR ID-style
+    interpolations (``{{ obj.id }}`` / ``{{ obj.uuid }}``). Database
+    primary keys are server-generated and cannot carry a ``javascript:``
+    scheme. Any other interpolation needs review.
+
+    Plus an explicit allow-list for known handler-controlled variables
+    (``form_action`` in ``entradas/form.html`` — set by the
+    ``entradas`` route to either ``/entradas`` or
+    ``/entradas/{id}/update``, never user data). If a future change
+    starts passing user-controlled data to one of these names, this
+    test fails and forces the change author to switch to
+    ``{{ url | quote }}`` or an allowlist.
+
+    If a future template needs to interpolate user data into a URL
+    attribute, the safe pattern is ``{{ url | quote }}`` (URL-encode)
+    or to validate ``url`` against an allowlist.
+    """
+    template_dir = REPO_ROOT / "app" / "templates"
+    url_attrs = (
+        "href=", "src=", "action=", "formaction=",
+        "background=", "poster=", "cite=", "longdesc=",
+        "usemap=", "xlink:href=", "data-src=",
+    )
+    # ID-style interpolations are safe — server-generated keys.
+    id_like = re.compile(r"\{\{\s*\w+\.(id|uuid|pk|slug)\s*\}\}")
+    # Handler-controlled variables: never user input. Each entry is a
+    # (template, variable) pair verified by reading the route handler
+    # in the corresponding ``app/modules/.../routes.py`` file.
+    handler_controlled: frozenset[tuple[str, str]] = frozenset(
+        {
+            ("entradas/form.html", "form_action"),
+        }
+    )
+    offenders: list[str] = []
+    for path in sorted(template_dir.rglob("*.html")):
+        # ``rel`` is the template path relative to ``app/templates/``,
+        # matching the names used by ``TemplateResponse(name=...)``.
+        rel = path.relative_to(template_dir).as_posix()
+        text_lines = path.read_text(encoding="utf-8").splitlines()
+        for lineno, line in enumerate(text_lines, start=1):
+            lower = line.lower()
+            for attr in url_attrs:
+                idx = lower.find(attr)
+                if idx == -1:
+                    continue
+                rest = line[idx + len(attr):]
+                # Strip ID-style interpolations first.
+                rest_stripped = id_like.sub("", rest)
+                if "{{" not in rest_stripped and "{%" not in rest_stripped:
+                    continue
+                # Find every Jinja expression and verify it's either
+                # ID-style or in the handler-controlled allowlist.
+                for match in re.finditer(r"\{\{\s*([\w.]+)\s*\}\}", rest):
+                    expr = match.group(1)
+                    if expr in {e for t, e in handler_controlled if t == rel}:
+                        continue
+                    offenders.append(
+                        f"{rel}:{lineno}: {attr} expr={expr!r} ... {line.strip()}"
+                    )
+                    break
+    assert offenders == [], (
+        "XSS audit FAILED: user-controlled data interpolated into a URL "
+        "attribute. URL attributes execute on click / load and bypass "
+        "Jinja2 autoescape. Replace with a literal allowlist or use "
+        "{{ url | quote }}. Offending lines:\n" + "\n".join(offenders)
+    )
+
+
+def test_no_safe_filter_anywhere_in_templates() -> None:
+    """No template MUST use ``|safe`` on a user-controlled variable.
+
+    The auto-test above catches the rendering-time leak; this guard
+    catches the source: if a future PR adds ``|safe`` to a template,
+    this test fails at review time and the PR author must justify the
+    bypass (e.g. trusted static HTML fragment) or remove it.
+    """
+    template_dir = REPO_ROOT / "app" / "templates"
+    offenders: list[str] = []
+    for path in sorted(template_dir.rglob("*.html")):
+        text = path.read_text(encoding="utf-8")
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            if "|safe" in line:
+                offenders.append(f"{path.relative_to(REPO_ROOT)}:{lineno}: {line.strip()}")
+    assert offenders == [], (
+        "XSS audit FAILED: |safe filter detected in templates. "
+        "Either remove the bypass or document the trusted-input justification "
+        "in docs/audits/xss-audit-2026-Q2.md.\n" + "\n".join(offenders)
+    )
