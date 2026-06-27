@@ -2,7 +2,7 @@
 
 PR-XSS of the `hardening-2026-q2` chain. Branch
 `hardening-2026-q2/slice-4-xss-audit` cut from `staging`. PR:
-[#112](https://github.com/ardelperal/APAP_WEB/pull/112) (pending open)
+[#112](https://github.com/ardelperal/APAP_WEB/pull/112) (OPEN)
 targeting `staging`.
 
 ## Summary
@@ -152,5 +152,5 @@ Persisted to Engram:
 - Audit: `docs/audits/xss-audit-2026-Q2.md`
 - Tests: `tests/test_xss_audit.py`, `tests/test_xss_audit_handlers.py`, `tests/test_xss_audit_greps.py`
 - Motivation: `engram:14518` finding 2 (CSRF defense-in-depth requires no-XSS)
-- PR: https://github.com/ardelperal/APAP_WEB/pull/112 (pending open)
+- PR: https://github.com/ardelperal/APAP_WEB/pull/112 (OPEN, 2026-06-27)
 - Successor slice: `openspec/changes/hardening-2026-q2/specs/05-auth-hardening/spec.md`
