@@ -9,46 +9,82 @@ The parametrized suite proves each detector both directions:
   - **negative**: a clean fixture must NOT trigger any detector.
 
 Two additional CLI tests assert the exit-code contract (0 when clean,
-1 when violations exist). Detectors 2/3/4 land in commit 4.
+1 when violations exist).
 """
 
 from __future__ import annotations
 
+import ast
 import subprocess
 import sys
 from pathlib import Path
 
-from scripts.check_rules import Violation, _is_client_execute_sql_call, find_violations
+import pytest
+
+from scripts.check_rules import (
+    Violation,
+    _is_client_execute_sql_call,
+    find_violations,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = REPO_ROOT / "tests" / "_rule_helpers" / "fixtures"
 SCRIPT = REPO_ROOT / "scripts" / "check_rules.py"
 
 
-# --- Detector 1 (Rule 1): client.execute_sql in route handlers -----------
+# --- Per-detector parametrized suite --------------------------------------
 
 
-def test_detector1_flags_post_route_calling_execute_sql() -> None:
-    """POST handler with client.execute_sql must be flagged."""
-    violations = find_violations(FIXTURES / "detector1_positive")
-    matching = [v for v in violations if v.rule_id == "route_uses_execute_sql"]
-    assert matching, f"Expected route_uses_execute_sql; got: {violations}"
+def _rule_violations(target: Path, rule_id: str) -> list[Violation]:
+    return [v for v in find_violations(target) if v.rule_id == rule_id]
+
+
+@pytest.mark.parametrize(
+    "fixture_subdir",
+    [
+        pytest.param("detector2_positive", id="auth_defaults_true_positive"),
+        pytest.param("detector3_positive", id="http_exception_redirect_positive"),
+        pytest.param("detector4_positive", id="hardcoded_role_check_positive"),
+    ],
+)
+def test_detector_flags_seeded_violation(fixture_subdir: str) -> None:
+    """Each positive fixture must produce a violation with its expected rule_id."""
+    rule_id_by_dir = {
+        "detector2_positive": "auth_defaults_true",
+        "detector3_positive": "http_exception_redirect",
+        "detector4_positive": "hardcoded_role_check_in_ddl",
+    }
+    rule_id = rule_id_by_dir[fixture_subdir]
+    target = FIXTURES / fixture_subdir
+    matching = _rule_violations(target, rule_id)
+    assert matching, f"Expected {rule_id} in {target}; got no matches"
     assert all(isinstance(v, Violation) for v in matching)
+    assert all(v.file.suffix == ".py" for v in matching)
 
 
-def test_detector1_does_not_flag_get_route_calling_execute_sql() -> None:
-    """GET handler with client.execute_sql is allowed (spec REQ-1 scenario 2)."""
-    violations = find_violations(FIXTURES / "detector1_negative")
-    matching = [v for v in violations if v.rule_id == "route_uses_execute_sql"]
-    assert not matching, (
-        f"GET handler must be exempt; got false positives: {matching}"
-    )
+@pytest.mark.parametrize(
+    "fixture_subdir,forbidden_rule_id",
+    [
+        pytest.param("detector1_negative", "route_uses_execute_sql", id="rule1_clean"),
+        pytest.param("detector2_negative", "auth_defaults_true", id="rule6_clean"),
+        pytest.param("detector3_negative", "http_exception_redirect", id="rule7_clean"),
+        pytest.param("detector4_negative", "hardcoded_role_check_in_ddl", id="rule4_clean"),
+    ],
+)
+def test_detector_does_not_flag_clean_code(
+    fixture_subdir: str, forbidden_rule_id: str
+) -> None:
+    """Clean fixtures must NOT trigger the corresponding detector."""
+    target = FIXTURES / fixture_subdir
+    matching = _rule_violations(target, forbidden_rule_id)
+    assert not matching, f"False positive {forbidden_rule_id} in {target}: {matching}"
+
+
+# --- Detector 1 detail: line must point at the call site, not the decorator
 
 
 def test_detector1_violation_references_correct_line() -> None:
     """The Violation's line must point at the execute_sql call inside the body."""
-    import ast
-
     fixture = FIXTURES / "detector1_positive" / "handler.py"
     source = fixture.read_text(encoding="utf-8")
     expected_lines = {
@@ -57,11 +93,10 @@ def test_detector1_violation_references_correct_line() -> None:
         if _is_client_execute_sql_call(node)
     }
     assert expected_lines, "fixture must seed a client.execute_sql call"
-    violations = find_violations(FIXTURES / "detector1_positive")
-    matching = [v for v in violations if v.rule_id == "route_uses_execute_sql"]
-    assert matching
-    assert matching[0].line in expected_lines
-    assert matching[0].file.name == "handler.py"
+    violations = _rule_violations(FIXTURES / "detector1_positive", "route_uses_execute_sql")
+    assert violations
+    assert violations[0].line in expected_lines
+    assert violations[0].file.name == "handler.py"
 
 
 # --- CLI exit-code contract ----------------------------------------------
