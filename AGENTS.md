@@ -1,140 +1,31 @@
 ---
-description: Instructions building apps with MCP
+description: Agent instructions and code-quality rules for APAP_WEB (FastAPI + HTMX + InsForge backend)
 globs: *
 alwaysApply: true
 ---
 
-# InsForge SDK Documentation - Overview
+# APAP_WEB — Agent Instructions
 
-## What is InsForge?
+APAP_WEB is a **FastAPI + HTMX + Jinja2** web application (Python `>=3.11`).
+It is a server-rendered app with a strict layered architecture: routes handle
+HTTP, services own all data access.
 
-Backend-as-a-service (BaaS) platform providing:
+## Backend: InsForge (accessed from Python)
 
-- **Database**: PostgreSQL with PostgREST API
-- **Authentication**: Email/password + OAuth (Google, GitHub)
-- **Storage**: File upload/download
-- **AI**: OpenRouter key provisioning and model catalog for direct OpenAI-compatible integrations
-- **Functions**: Serverless function deployment
-- **Realtime**: WebSocket pub/sub (database + client events)
+The data backend is **InsForge** (PostgreSQL + auth + storage). This project
+does **NOT** use the `@insforge/sdk` TypeScript SDK — there is no `package.json`
+and no Node frontend. All backend access goes through the Python client in
+`app/core/insforge.py`. Treat InsForge as a Postgres-backed BaaS reached over
+HTTP from Python.
 
-## Installation
-
-The following is a step-by-step guide to installing and using the InsForge TypeScript SDK for Web applications. If you are building other types of applications, please refer to:
-- [Swift SDK documentation](/sdks/swift/overview) for iOS, macOS, tvOS, and watchOS applications.
-- [Kotlin SDK documentation](/sdks/kotlin/overview) for Android applications.
-- [REST API documentation](/sdks/rest/overview) for direct HTTP API access.
-
-### 🚨 CRITICAL: Follow these steps in order
-
-### Step 1: Download Template
-
-Use the `download-template` MCP tool to create a new project with your backend URL and anon key pre-configured.
-
-### Step 2: Install SDK
-
-```bash
-npm install @insforge/sdk@latest
-```
-
-### Step 3: Create SDK Client
-
-You must create a client instance using `createClient()` with your base URL and anon key:
-
-```javascript
-import { createClient } from '@insforge/sdk';
-
-const client = createClient({
-  baseUrl: 'https://your-app.region.insforge.app',  // Your InsForge backend URL
-  anonKey: 'your-anon-key-here'       // Get this from backend metadata
-});
-
-```
-
-**API BASE URL**: Your API base URL is `https://your-app.region.insforge.app`.
-
-## Getting Detailed Documentation
-
-### 🚨 CRITICAL: Always Fetch Documentation Before Writing Code
-
-InsForge provides official SDKs and REST APIs, use them to interact with InsForge services from your application code.
-
-- [TypeScript SDK](/sdks/typescript/overview) - JavaScript/TypeScript
-- [Swift SDK](/sdks/swift/overview) - iOS, macOS, tvOS, and watchOS
-- [Kotlin SDK](/sdks/kotlin/overview) - Android and Kotlin Multiplatform
-- [REST API](/sdks/rest/overview) - Direct HTTP API access
-
-Before writing or editing any InsForge integration code, you **MUST** call the `fetch-docs` or `fetch-sdk-docs` MCP tool to get the latest SDK documentation. This ensures you have accurate, up-to-date implementation patterns.
-
-### Use the InsForge `fetch-docs` MCP tool to get specific SDK documentation:
-
-Available documentation types:
-
-- `"instructions"` - Essential backend setup (START HERE)
-- `"real-time"` - Real-time pub/sub (database + client events) via WebSockets
-- `"db-sdk-typescript"` - Database operations with TypeScript SDK
-- **Authentication** - Choose based on implementation:
-  - `"auth-sdk-typescript"` - TypeScript SDK methods for custom auth flows
-  - `"auth-components-react"` - Pre-built auth UI for React+Vite (single-page app)
-  - `"auth-components-react-router"` - Pre-built auth UI for React(Vite+React Router) (multi-page app)
-  - `"auth-components-nextjs"` - Pre-built auth UI for Next.js (SSR app)
-- `"storage-sdk"` - File storage operations
-- `"functions-sdk"` - Serverless functions invocation
-- `"ai-integration-sdk"` - AI integration with the provisioned OpenRouter key and OpenAI SDK
-- `"deployment"` - Deploy frontend applications via MCP tool
-- `"payments"` - Stripe Checkout, Billing Portal, webhook projections, and fulfillment patterns
-
-These docs are mostly for the TypeScript SDK. For other languages, you can also use the `fetch-sdk-docs` MCP tool to get specific documentation.
-
-### Use the InsForge `fetch-sdk-docs` MCP tool to get specific SDK documentation
-
-You can fetch SDK documentation using the `fetch-sdk-docs` MCP tool with a specific feature type and language.
-
-Available feature types:
-- `db` - Database operations
-- `storage` - File storage operations
-- `functions` - Serverless functions invocation
-- `auth` - User authentication
-- `ai` - AI integration with the provisioned OpenRouter key and OpenAI SDK
-- `realtime` - Real-time pub/sub (database + client events) via WebSockets
-- `payments` - Stripe Checkout and Billing Portal with webhook-based fulfillment
-
-Available languages:
-- `typescript` - JavaScript/TypeScript SDK
-- `swift` - Swift SDK (for iOS, macOS, tvOS, and watchOS)
-- `kotlin` - Kotlin SDK (for Android and JVM applications)
-- `rest-api` - REST API
-
-Payments currently has TypeScript SDK docs only. Use the Payments API reference for non-TypeScript clients.
-
-## When to Use SDK vs MCP Tools
-
-### Always SDK for Application Logic:
-
-- Authentication (register, login, logout, profiles)
-- Database CRUD (select, insert, update, delete)
-- Storage operations (upload, download files)
-- AI integration via the provisioned OpenRouter key with the OpenAI SDK or OpenRouter HTTP API
-- Serverless function invocation
-- Payments checkout and customer portal session creation
-
-### Use MCP Tools for Infrastructure:
-
-- Project scaffolding (`download-template`) - Download starter templates with InsForge integration
-- Backend setup and metadata (`get-backend-metadata`)
-- Database schema management (`run-raw-sql`, `get-table-schema`)
-- Storage bucket creation (`create-bucket`, `list-buckets`, `delete-bucket`)
-- Serverless function deployment (`create-function`, `update-function`, `delete-function`)
-- Frontend deployment (`create-deployment`) - Deploy frontend apps to InsForge hosting
-
-## Important Notes
-
-- For auth: use `auth-sdk` for custom UI, or framework-specific components for pre-built UI
-- SDK returns `{data, error}` structure for all operations
-- Database inserts require array format: `[{...}]`
-- Serverless functions have one endpoint and do not support nested route paths
-- Storage: Upload files to buckets, store URLs in database
-- AI integrations should call OpenRouter directly with `baseURL: "https://openrouter.ai/api/v1"` and a server-side `OPENROUTER_API_KEY`
-- **EXTRA IMPORTANT**: Use Tailwind CSS 3.4 (do not upgrade to v4). Lock these dependencies in `package.json`
+- **Application logic** (auth, CRUD, storage) → call the Python `InsForgeClient`
+  in `app/core/insforge.py`. Never reach for the TS SDK or `npm`.
+- **Infrastructure** (schema, buckets, functions, deploy) → use the InsForge MCP
+  tools: `run-raw-sql`, `get-table-schema`, `create-bucket`,
+  `create-function`, `get-backend-metadata`, etc.
+- **Docs**: when you need current InsForge API behavior, fetch it with the
+  `fetch-sdk-docs` MCP tool using language `rest-api` (or `typescript` for shape
+  reference) — do not rely on memory.
 
 ---
 
@@ -297,19 +188,7 @@ return RedirectResponse(url="/login", status_code=302)
 - [ ] Does any auth check default to `True`? → Change to `False`.
 - [ ] Does any redirect use `HTTPException`? → Use `RedirectResponse`.
 
-### Known conflicts with existing code (do not silently fix — see follow-up plan)
-
-These rules are forward-looking. They are violated by code that pre-dates the rule; each row carries the follow-up plan that closes the gap.
-
-| Rule | Where | Reason it still exists | Follow-up |
-|---|---|---|---|
-| 4 — one source of truth | ~~`app/core/auth.py:30` (`VALID_ROLES` hardcoded) and `app/modules/voluntarios/service.py:47` (`VALID_ROL_TYPES` hardcoded)~~ | ~~The `StrEnum` for roles does not exist yet. The frozenset is the only source.~~ | **DONE** — Slice 2 (PR-2). `VALID_ROLES` and `VALID_ROL_TYPES` are now derived from their `StrEnum`s; the inline `CHECK (rol IN (...))` in `CREATE_TABLE_SQL` was removed; migration `004_drop_rol_check.sql` cleans up the constraint on databases deployed before PR-2. See `openspec/changes/hardening-2026-q2/specs/02-rule-4-ddl/spec.md` and audit `engram:14516`. |
-| ~~6 — defaults deny~~ **DONE** | ~~`app/core/auth_dependencies.py:80` uses `payload.get("is_authorized", True)` (default permits)~~ — **FIXED at PR-3 of hardening-2026-q2** | Was deliberate: pre-fix cookies didn't carry the flag. The default `True` kept them working. | ~~Flip default to `False` once all live sessions have expired AND pre-fix cookies invalidated.~~ **DONE — Slice 3 PR-3 flipped both call sites (`app/main.py:165` middleware + `app/core/auth_dependencies.py:130` dependency) to `payload.get("is_authorized", False)`. For pre-fix cookies still in flight, rotate `APAP_SESSION_SECRET` per [`docs/runbooks/cookie-rotation.md`](runbooks/cookie-rotation.md). The runbook is the operator procedure for that rotation.** |
-| 7 — no `HTTPException` for redirects | ~~`app/core/auth_dependencies.py:77-83` raises `HTTPException(302, headers={"location": ...})` for both `/login` and `/unauthorized` redirects~~ — **FIXED at PR-5A of hardening-2026-q2** | The original `AGENTS.md` row was outdated: the function already used `RedirectResponse` (the row pointed at line 77-83 of a pre-fix snapshot). The Q2 audit verified the current state — both redirect branches return `RedirectResponse(url=..., status_code=302)` at `app/core/auth_dependencies.py:138-141`. No `HTTPException(status_code=302` exists in `app/`. | **DONE — Slice 5 PR-5A.** Audit at [`docs/audits/auth-dependencies-audit-2026-Q2.md`](audits/auth-dependencies-audit-2026-Q2.md) verified compliance; static source regression test at `tests/test_rule_7_compliance.py::test_uses_redirectresponse_not_http_exception_in_require_authorized_user` pins the property so future PRs that revert to `HTTPException(302)` fail CI. PR-5B (CSRF middleware) is the next slice and addresses the HIGH finding (F-1, missing CSRF defense) identified by the same audit. |
-| CSRF defense-in-depth | `Settings.csrf_enabled: bool = True` controls the new `CsrfMiddleware` (`app/core/csrf.py`). Default True; set `APAP_CSRF_ENABLED=false` for emergency rollback only (the middleware short-circuits and logs `csrf.disabled` per request). | PR-5B introduced the gate on Slice 5's audit HIGH finding (F-1, missing CSRF defense on 10 POST handlers). The middleware validates `X-CSRFToken` header AND `csrf_token` form field against the session-bound token; both `apap_session` and `apap_pkce` cookies ship with `SameSite=Strict`. | **DONE — Slice 5 PR-5B1 + PR-5B2.** All 10 POST handlers render `<input type="hidden" name="csrf_token" value="{{ csrf_token }}">`; `tests/test_csrf_middleware.py` (9 cases) pins the middleware contract; `tests/test_all_post_forms_have_csrf_input.py` (10 cases, per-handler parametrization) catches any future form added without the input; `tests/test_csrf_form_enumeration.py` (10 cases, runtime enumeration per round-2 fix REG-S-2) catches JS-submitted forms that the static audit misses. Slice 6 swapped the `csrf.rejected` / `csrf.disabled` logging placeholder for `log_safe()` in PR-6A.2; event names MUST stay stable across the swap and the dedicated test `tests/test_csrf_rejected_log_event.py` pins the contract. |
-| 9 — `log_safe()` is the only allowed logging call in `app/` | New rule (PR-6A + PR-6B, Slice 6). Every code path under `app/` that wants to emit a log MUST go through `log_safe(event, **fields)` from `app.core.logging`. Direct calls to `logging.getLogger(__name__).{info,warning,error,debug,critical,exception}(...)` are banned by the APAP003 detector (Detector 5 in `scripts/check_rules.py` + `APAP003Visitor` in `scripts/ruff_plugin/apap_rules.py`). The redaction list has 12 closed fields (round-2 fix SB-5): email, session_token, jwt, oauth_code, pkce_verifier, csrf_token, pkce_challenge, authorization, cookie, referer, ip_address, x_forwarded_for. `app/core/logging.py` is the ONLY excluded path (the wrapper itself). | The Q2 audit (`engram:14518`) found zero `logger.*` calls in `app/`, so operators had no observability into startup failures, CSRF rejections, or admin actions. The pre-PR-6A CSRF middleware emitted `csrf.rejected` via `self._logger.warning(...)` as a placeholder; PR-6A.2 swapped it for `log_safe("csrf.rejected", path=..., reason=...)`. | **DONE — Slice 6 PR-6A.1 + PR-6A.2 + PR-6B.** `app/core/logging.py` ships with `JsonFormatter`, `RedactionFilter`, `configure_logging(settings)`, `log_safe(event, **fields)`; `app/main.py` lifespan calls `configure_logging(settings)` as the FIRST line so startup errors land in stdout with PII redacted; `tests/test_logging.py` (32 cases) + `tests/test_logging_redaction_adversarial.py` (42 cases) pin the redaction contract; `tests/test_csrf_rejected_log_event.py` pins the event-name contract for downstream dashboards; `tests/test_apap003.py` (14 cases) + `tests/test_ruff_apap001.py::test_apap003_rule_class_registered_and_active` pin the APAP003 lint gate. The APAP003 detector was wired into `scripts/check_rules.py` (Detector 5, the authoritative gate) AND `scripts/ruff_plugin/apap_rules.py` (the visitor exercised by the unit tests). The ruff `select` list in `pyproject.toml` keeps APAP rules out of scope because ruff 0.15+ rejects Python-defined rule selectors — the authoritative gate is `make check-rules`. Known limitation (round-2 fix SB-7): APAP003 bans the chained `.info/.warning/.error/.debug/.critical/.exception()` call but NOT the bare `logging.getLogger(__name__)` retrieval, so plain logger retrieval stays allowed (the wrapper module itself uses it). |
-
-### 8 — No deprecated libraries, no DeprecationWarnings
+### 8. No deprecated libraries, no DeprecationWarnings
 
 When adding or upgrading a Python dependency in `pyproject.toml`, **the pinned minimum must be a non-deprecated release**. "Deprecated" here means:
 
@@ -392,3 +271,10 @@ Enforcement: PR review (the audit doc is a checklist item). `scripts/check_audit
 If your PR introduces or changes a secret rotation, manual deploy step, cache invalidation, cron trigger, env-var change, or any operation the user must perform manually, you MUST create a runbook in `docs/runbooks/<thing>.md` with sections: When to trigger, Pre-deploy checklist, Deploy steps, Verification, Rollback. Reference the runbook from the PR description.
 
 Enforcement: PR review. `scripts/check_audit_and_runbook.py` flags changes to `app/core/config.py` (env-var settings) and suggests runbook creation. The check is a developer aid, not a CI gate — the operator responsibility is documented in the PR.
+
+---
+
+> **History:** the resolved "Known conflicts with existing code" tracker (all
+> rows DONE during the `hardening-2026-q2` chain) was moved out of this file to
+> [`docs/hardening-2026-q2-rule-history.md`](docs/hardening-2026-q2-rule-history.md).
+> This file carries only the live rules.
