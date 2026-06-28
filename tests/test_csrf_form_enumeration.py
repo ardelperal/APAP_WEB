@@ -30,7 +30,12 @@ class _NoSqlSpy:
         return []
 
     def __getattr__(self, name: str) -> Any:  # type: ignore[no-untyped-def]
-        return lambda *a, **kw: None
+        # Strict mode: unmocked methods surface as test failures (see
+        # tests/test_all_post_forms_have_csrf_input.py for the rationale).
+        raise NotImplementedError(
+            f"_AnonymousSpy.{name} is not mocked. Add an explicit method "
+            f"to the spy in this test instead of relying on no-op fallback."
+        )
 
 
 def _enumerate_non_safe_routes() -> list[tuple[str, str]]:

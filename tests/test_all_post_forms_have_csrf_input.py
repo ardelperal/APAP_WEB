@@ -42,7 +42,14 @@ class _InsForgeSpy:
         return [{"id": "stub-1"}]
 
     def __getattr__(self, name: str) -> Any:  # type: ignore[no-untyped-def]
-        return lambda *a, **kw: None
+        # Strict mode: unmocked methods surface as test failures. The
+        # previous ``return lambda *a, **kw: None`` silently swallowed
+        # every call and let bugs hide (a future OAuth method or SQL
+        # call would just no-op and the test would stay green).
+        raise NotImplementedError(
+            f"_InsForgeSpy.{name} is not mocked. Add an explicit method "
+            f"to the spy in this test instead of relying on no-op fallback."
+        )
 
 
 @pytest.fixture

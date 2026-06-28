@@ -36,7 +36,12 @@ class _AnonymousSpy:
         return [{"id": "spy-1"}]
 
     def __getattr__(self, name: str) -> Any:  # type: ignore[no-untyped-def]
-        return lambda *args, **kwargs: None
+        # Strict mode: unmocked methods surface as test failures (see
+        # tests/test_all_post_forms_have_csrf_input.py for the rationale).
+        raise NotImplementedError(
+            f"_AnonymousSpy.{name} is not mocked. Add an explicit method "
+            f"to the spy in this test instead of relying on no-op fallback."
+        )
 
 
 @pytest.fixture
