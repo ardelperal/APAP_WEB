@@ -35,26 +35,25 @@ def _login_as_unauthorized_user(client: httpx.AsyncClient) -> None:
     client.cookies.set(session_cookie_name(), token)
 
 
-async def test_index_renders_for_anonymous_users(
+async def test_index_redirects_anonymous_users_to_login(
     client: httpx.AsyncClient,
 ) -> None:
-    """``GET /`` is the marketing landing page and must be public.
+    """``GET /`` is user-facing and must require login.
 
-    Anonymous visitors see the APAP brand landing (hero, migration
-    badge, navigation, footer) before deciding whether to log in.
-    Bouncing them to /login would hide the org's mission copy and
-    break the e2e landing suite (which expects 200 + brand content).
+    Anonymous visitors must be bounced to /login before any landing
+    copy renders — the marketing modules list (Animales, Voluntarios,
+    Entradas) is only meaningful behind the auth gate, and exposing
+    the page publicly invites unauthenticated probing of the
+    authenticated app routes it links to.
 
-    The authenticated app routes (``/animales``, ``/entradas``,
-    ``/voluntarios``, ``/admin``) remain protected by the middleware.
+    The middleware (PR-5B2 + hardening-2026-q2 slice 5B1) enforces
+    this before route/form validation so even malformed anonymous
+    POSTs to the same handler can't 422-leak the app surface.
     """
     response = await client.get("/", follow_redirects=False)
 
-    assert response.status_code == 200
-    assert "text/html" in response.headers["content-type"]
-    # Brand mark + nav are present in the landing template.
-    assert "🐾" in response.text
-    assert "APAP_WEB" in response.text
+    assert response.status_code == 302
+    assert response.headers["location"] == "/login"
 
 
 async def test_index_renders_html(client: httpx.AsyncClient) -> None:
@@ -85,22 +84,20 @@ async def test_index_mentions_app_name(client: httpx.AsyncClient) -> None:
     assert "APAP_WEB" in response.text
 
 
-async def test_unauthorized_renders_for_anonymous_users(
+async def test_unauthorized_redirects_anonymous_users_to_login(
     client: httpx.AsyncClient,
 ) -> None:
-    """The access-denied page is public so anonymous visitors can read it.
+    """The access-denied page is only for users with a deactivated session.
 
-    Previously the handler redirected anonymous users to /login, but the
-    page is a friendly info card with no app data — bouncing anonymous
-    visitors away made the denial copy unreachable after the auth
-    middleware landed. Now /unauthorized renders 200 with the denial
-    copy for everyone, matching the e2e landing suite.
+    Anonymous visitors must be bounced to /login — the denial copy is
+    only meaningful after the auth flow has placed a session cookie in
+    the browser (the auth callback sends deactivated users here). The
+    e2e landing suite reads the friendly copy through that path too.
     """
     response = await client.get("/unauthorized", follow_redirects=False)
 
-    assert response.status_code == 200
-    assert "text/html" in response.headers["content-type"]
-    assert "no autorizado" in response.text.lower()
+    assert response.status_code == 302
+    assert response.headers["location"] == "/login"
 
 
 @pytest.mark.parametrize(

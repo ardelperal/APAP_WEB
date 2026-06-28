@@ -70,17 +70,16 @@ _TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 # Public paths that the auth layer must never block.
 # The landing page (/) and the access-denied page (/unauthorized) are
-# intentionally public so unauthenticated visitors can learn what APAP is
-# and understand why they were redirected; the middleware only guards the
-# authenticated app routes (animals, entradas, voluntarios, admin, ...).
+# intentionally protected so the marketing surface can only be reached
+# after OAuth — the modules list links to authenticated app routes and
+# must not leak the org's structure to anonymous probers. Only the
+# technical exceptions below bypass the middleware.
 PUBLIC_PATHS = frozenset(
     {
-        "/",
         "/healthz",
         "/login",
         "/auth/callback",
         "/logout",
-        "/unauthorized",
     }
 )
 DISABLED_DOC_PATHS = frozenset({"/docs", "/redoc", "/openapi.json"})
@@ -221,15 +220,19 @@ def create_app() -> FastAPI:
     @application.get("/", response_class=HTMLResponse)
     def index(
         request: Request,
-        current_user: dict | None = Depends(get_current_user_optional),
+        current_user: Response | dict = Depends(require_authorized_user),
     ):
         """Landing page rendered from ``templates/index.html``.
 
-        Public: anonymous visitors see the marketing landing (hero,
-        migration badge, navigation, footer). Logged-in users see the
-        same page plus a personalised welcome banner. The template
-        already handles ``user`` being undefined / falsy.
+        Protected: anonymous visitors are bounced to /login by the
+        auth middleware before this handler runs (so even malformed
+        POSTs cannot 422-leak the handler signature). The
+        ``require_authorized_user`` dep is kept as a defence-in-depth
+        check so the handler's protected status is explicit at the
+        call site.
         """
+        if (early := return_early_if_response(current_user)) is not None:
+            return early
         return templates.TemplateResponse(
             request=request,
             name="index.html",
