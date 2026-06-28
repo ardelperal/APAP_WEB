@@ -224,3 +224,188 @@ def test_exchange_google_oauth_code_raises_on_failure() -> None:
         )
 
     assert exc.value.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# InsForge hosted-OAuth-proxy contract (new flow shipped 2026-06-26).
+#
+# These tests pin the response shape InsForge actually returns today:
+#     POST /api/auth/oauth/exchange?client_type=web
+#     200 {"user": {...}, "accessToken": "...", "csrfToken": "..."}
+#
+# Without this test the production OAuth bug (handler expected ?code= but
+# InsForge now sends ?insforge_code=) recurred silently — the route test
+# mocked the client, the route-level test pinned a wrong shape, and CI
+# was green while the live flow was 422-ing every visitor.
+# ---------------------------------------------------------------------------
+
+
+def test_exchange_insforge_oauth_code_posts_to_exchange_endpoint() -> None:
+    """``exchange_insforge_oauth_code`` POSTs to the hosted-proxy exchange endpoint.
+
+    Pins: the URL is ``/api/auth/oauth/exchange?client_type=web``, the
+    body carries both ``code`` (the ``insforge_code`` from the callback)
+    and ``code_verifier`` (the PKCE verifier minted at /login).
+    """
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["method"] = request.method
+        captured["url"] = str(request.url)
+        captured["body"] = json.loads(request.content)
+        return _json_response(
+            200,
+            {
+                "user": {"id": "u-1", "email": "user@example.com"},
+                "accessToken": "jwt-from-insforge",
+                "csrfToken": "csrf-abc",
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    client = InsForgeClient(
+        base_url="https://example.insforge.app",
+        service_key="ik_test",
+        transport=transport,
+    )
+
+    client.exchange_insforge_oauth_code(
+        insforge_code="insforge-code-xyz",
+        code_verifier="verifier-abc",
+    )
+
+    assert captured["method"] == "POST"
+    assert "/api/auth/oauth/exchange" in captured["url"]
+    assert "client_type=web" in captured["url"]
+    assert captured["body"]["code"] == "insforge-code-xyz"
+    assert captured["body"]["code_verifier"] == "verifier-abc"
+
+
+def test_exchange_insforge_oauth_code_returns_user_and_access_token() -> None:
+    """``exchange_insforge_oauth_code`` returns the user and the access token.
+
+    Pins the real InsForge response key (``accessToken``, NOT ``token``)
+    and the user payload shape. Any future shape change in either
+    key will fail this test — preventing the silent contract drift
+    that broke production on 2026-06-28.
+    """
+    transport = httpx.MockTransport(
+        lambda request: _json_response(
+            200,
+            {
+                "user": {"id": "u-7", "email": "ardelperal@gmail.com"},
+                "accessToken": "jwt-from-insforge",
+                "csrfToken": "csrf-abc",
+            },
+        )
+    )
+    client = InsForgeClient(
+        base_url="https://example.insforge.app",
+        service_key="ik_test",
+        transport=transport,
+    )
+
+    result = client.exchange_insforge_oauth_code(
+        insforge_code="insforge-code-xyz",
+        code_verifier="verifier-abc",
+    )
+
+    assert result.token == "jwt-from-insforge"
+    assert result.user.id == "u-7"
+    assert result.user.email == "ardelperal@gmail.com"
+
+
+def test_exchange_insforge_oauth_code_raises_on_401_invalid_credentials() -> None:
+    """``exchange_insforge_oauth_code`` raises ``InsForgeError`` on 401.
+
+    Pins the error path so the production ``/auth/callback`` handler
+    can catch ``InsForgeError`` and redirect to /login instead of
+    surfacing a 500 to the user.
+    """
+    transport = httpx.MockTransport(
+        lambda request: _json_response(
+            401,
+            {
+                "error": "INVALID_CREDENTIALS",
+                "message": "Invalid or expired insforge_code",
+                "statusCode": 401,
+            },
+        )
+    )
+    client = InsForgeClient(
+        base_url="https://example.insforge.app",
+        service_key="ik_test",
+        transport=transport,
+    )
+
+    with pytest.raises(InsForgeError) as exc:
+        client.exchange_insforge_oauth_code(
+            insforge_code="expired",
+            code_verifier="v",
+        )
+
+    assert exc.value.status_code == 401
+    assert exc.value.body["error"] == "INVALID_CREDENTIALS"
+
+
+def test_exchange_insforge_oauth_code_raises_when_response_missing_access_token() -> None:
+    """The client refuses a 200 that does NOT carry ``accessToken``.
+
+    Guards against a regression where InsForge's response envelope
+    changes (e.g. moves the JWT under a different key). The client
+    must surface a clear ``InsForgeError`` instead of silently returning
+    an empty token to the route handler — which would issue a session
+    cookie with no underlying identity.
+    """
+    transport = httpx.MockTransport(
+        lambda request: _json_response(
+            200,
+            {
+                "user": {"id": "u-1", "email": "user@example.com"},
+                # No accessToken / csrfToken — InsForge would not
+                # actually do this, but we must not crash on it.
+            },
+        )
+    )
+    client = InsForgeClient(
+        base_url="https://example.insforge.app",
+        service_key="ik_test",
+        transport=transport,
+    )
+
+    with pytest.raises(InsForgeError) as exc:
+        client.exchange_insforge_oauth_code(
+            insforge_code="insforge-code-xyz",
+            code_verifier="v",
+        )
+
+    assert exc.value.status_code == 200
+
+
+def test_exchange_insforge_oauth_code_raises_when_response_missing_email() -> None:
+    """The client refuses a 200 whose ``user`` lacks ``email``.
+
+    The route handler uses ``exchange.user.email`` as the lookup key
+    in ``usuarios_autorizados``. If InsForge ever stops returning it,
+    every visitor would be bounced to /unauthorized. Catch that here.
+    """
+    transport = httpx.MockTransport(
+        lambda request: _json_response(
+            200,
+            {
+                "user": {"id": "u-1"},  # no email
+                "accessToken": "jwt",
+            },
+        )
+    )
+    client = InsForgeClient(
+        base_url="https://example.insforge.app",
+        service_key="ik_test",
+        transport=transport,
+    )
+
+    with pytest.raises(InsForgeError):
+        client.exchange_insforge_oauth_code(
+            insforge_code="insforge-code-xyz",
+            code_verifier="v",
+        )

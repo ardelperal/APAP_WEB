@@ -4,13 +4,15 @@ The application is built following the skeleton outlined in
 ``docs/architecture-insforge-stack.md`` and the acceptance criteria
 of issue #17 (Fase 1 — esqueleto) and #16 (Fase 2 — auth). It exposes:
 
-- ``GET /``              → marketing landing page (public)
-- ``GET /healthz``       → JSON health probe used by Docker / Coolify (CD-02)
-- ``GET /login``         → starts the Google OAuth flow (public)
-- ``GET /auth/callback`` → exchanges the OAuth code for an InsForge JWT
-                             and issues a session cookie
+- ``GET /``              → marketing landing page (auth required)
+- ``GET /healthz``       → JSON health probe used by Docker / Coolify (CD-02, public)
+- ``GET /login``         → starts the InsForge-hosted Google OAuth flow (public)
+- ``GET /auth/callback`` → exchanges the ``insforge_code`` (or legacy ``code``)
+                             for an InsForge JWT and issues a session cookie
 - ``GET /logout``        → clears the session cookie (any user)
-- ``GET /unauthorized``  → friendly access-denied page (public)
+- ``GET /unauthorized``  → friendly access-denied page (auth required,
+                             including deactivated sessions so they see the
+                             friendly copy instead of being bounced to /login)
 - ``GET /admin``         → developer-only user management panel
 - ``/static/...``        → compiled CSS and other static assets
 
@@ -19,6 +21,10 @@ Authenticated app routes (``/animales``, ``/entradas``,
 middleware below, which checks the signed session cookie BEFORE
 FastAPI runs route / form validation. The middleware never opens a
 DB connection.
+
+Spec home: ``openspec/changes/auth-insforge-hosted-proxy/specs/auth-oauth/spec.md``
+for the OAuth callback contract; ``openspec/changes/ci-cd-foundation/``
+for the deploy webhook contract.
 """
 
 from __future__ import annotations
@@ -51,7 +57,7 @@ from app.core.auth_dependencies import (
 )
 from app.core.csrf import CsrfMiddleware, csrf_token_context_processor, issue_csrf_to_session
 from app.core.domain import ensure_domain_schema
-from app.core.insforge import InsForgeClient
+from app.core.insforge import InsForgeClient, InsForgeError
 from app.core.logging import configure_logging, log_safe
 from app.core.migration.sql_runner import apply_sql_migrations
 from app.core.pkce import generate_pkce_pair
@@ -305,16 +311,28 @@ def create_app() -> FastAPI:
 
     @application.get("/auth/callback")
     def callback(
-        code: str,
         request: Request,
+        insforge_code: str | None = None,
+        code: str | None = None,  # legacy direct-callback (pre-InsForge-proxy)
         client: InsForgeClient = Depends(get_insforge_client),
     ) -> Response:
         """Exchange the OAuth code for an InsForge JWT and issue a session.
 
+        InsForge's hosted OAuth proxy fronts Google and other providers
+        with a two-step flow: APAP starts the flow at ``/login`` (which
+        hits ``GET /api/auth/oauth/google`` and gets back a Google OAuth
+        URL); after consent, Google → InsForge → APAP with
+        ``?insforge_code=<temporary>``; APAP then exchanges that code
+        here via ``POST /api/auth/oauth/exchange``. The legacy
+        ``?code=<google-code>`` direct-callback parameter is also
+        accepted so existing test suites and any direct callbacks keep
+        working.
+
         The ``code_verifier`` is recovered from the short-lived PKCE
-        cookie. The email returned by InsForge is checked against
-        ``usuarios_autorizados``; authorized users get a signed session
-        cookie, everyone else is redirected to ``/unauthorized``.
+        cookie minted at ``/login``. The email returned by InsForge is
+        checked against ``usuarios_autorizados``; authorized users get
+        a signed session cookie, everyone else is redirected to
+        ``/unauthorized``.
         """
         settings = config_module.get_settings()
 
@@ -325,11 +343,23 @@ def create_app() -> FastAPI:
         if not pkce or "code_verifier" not in pkce:
             return _redirect("/login")
 
-        exchange = client.exchange_google_oauth_code(
-            code=code,
-            code_verifier=pkce["code_verifier"],
-            redirect_uri=settings.google_redirect_uri,
-        )
+        try:
+            if insforge_code:
+                exchange = client.exchange_insforge_oauth_code(
+                    insforge_code=insforge_code,
+                    code_verifier=pkce["code_verifier"],
+                )
+            elif code:
+                exchange = client.exchange_google_oauth_code(
+                    code=code,
+                    code_verifier=pkce["code_verifier"],
+                    redirect_uri=settings.google_redirect_uri,
+                )
+            else:
+                return _redirect("/login")
+        except InsForgeError:
+            return _redirect("/login")
+
         user = get_user_by_email(client, exchange.user.email)
         if not user:
             response = _redirect("/unauthorized")

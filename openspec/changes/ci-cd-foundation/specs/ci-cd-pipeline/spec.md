@@ -48,11 +48,47 @@ The system MUST gate production deployment behind successful CI and a push to `m
 - WHEN the deploy job condition is evaluated
 - THEN the deploy job is skipped
 
-#### Scenario: Missing deploy secret blocks production deploy
+#### Scenario: Missing webhook URL is a notice (not a failure)
 
 - GIVEN `COOLIFY_WEBHOOK_URL` is not configured
 - WHEN a production deploy run reaches the webhook step
+- THEN the step exits 0 with a notice that automatic deploys are disabled
+- AND the change is still merged (the operator may deploy manually)
+
+> Why not a failure: in pre-MVC staging, the webhook may not yet be configured; a hard fail would block every push to main. The notice gives the operator the signal without breaking the gate.
+
+#### Scenario: Missing webhook secret blocks production deploy
+
+- GIVEN `COOLIFY_WEBHOOK_SECRET` is not configured
+- WHEN a production deploy run reaches the webhook step
 - THEN the job fails with an explicit configuration error
+
+> Why this one is a failure: without the secret, any payload would be unsigned and Coolify v4 would reject it. Better to fail loud at CI than roll back at runtime.
+
+### Requirement: Coolify Webhook Signing Contract
+
+The deploy step MUST POST a GitHub push payload to the Coolify manual webhook with HMAC SHA-256 over the exact raw request body, and MUST set the signature and event headers Coolify expects.
+
+#### Scenario: Payload shape
+
+- GIVEN a direct push to `main` triggers the deploy job
+- WHEN the webhook step builds the request
+- THEN the JSON body MUST include `ref` (e.g. `refs/heads/main`), `after` (the full commit SHA), `repository.full_name`, and at least one entry in `commits` with a `message` field
+- AND the body MUST be the bytes signed by HMAC — no whitespace reformatting between sign and POST
+
+#### Scenario: Signature header
+
+- GIVEN the body is built
+- WHEN the step signs it with HMAC SHA-256 using `COOLIFY_WEBHOOK_SECRET`
+- THEN the request MUST include `X-Hub-Signature-256: sha256=<hex>` and `X-GitHub-Event: push`
+
+#### Scenario: Bare curl is not acceptable
+
+- GIVEN the workflow reaches the deploy step
+- WHEN the step is implemented
+- THEN the workflow MUST NOT contain `curl -fsS -X POST "$COOLIFY_WEBHOOK_URL"` (or any curl variant that POSTs without body or signature)
+
+> Why: Coolify v4's manual github webhook endpoint verifies the raw JSON body against `manual_webhook_secret_github`. An unsigned curl POST would be silently rejected once the secret is set, causing every push to fail with no diagnostic.
 
 ### Requirement: Operator Acceptance Evidence
 

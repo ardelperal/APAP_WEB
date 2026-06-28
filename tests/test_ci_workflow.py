@@ -114,6 +114,54 @@ def test_ci_workflow_deploy_job_calls_coolify_webhook() -> None:
     assert "curl -fsS -X POST \"$COOLIFY_WEBHOOK_URL\"" not in workflow
 
 
+def test_ci_workflow_missing_webhook_secret_is_a_failure() -> None:
+    """Missing COOLIFY_WEBHOOK_SECRET MUST fail the deploy step.
+
+    Pinned by spec (ci-cd-pipeline/spec.md, Scenario "Missing webhook
+    secret blocks production deploy"). Without the secret, the HMAC
+    signature would be computed over an empty key, and Coolify v4
+    would reject every payload. Loud fail at CI beats silent fail at
+    the healthcheck-driven rollback.
+    """
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+
+    # The deploy step must check the secret specifically (not just the
+    # URL) and emit a ``::error::`` annotation with a clear message,
+    # then exit 1.
+    secret_block = workflow[
+        workflow.index("COOLIFY_WEBHOOK_SECRET")
+        : workflow.index("curl", workflow.index("COOLIFY_WEBHOOK_SECRET"))
+        if "curl" in workflow[workflow.index("COOLIFY_WEBHOOK_SECRET"):]
+        else workflow.index("python -", workflow.index("COOLIFY_WEBHOOK_SECRET")) + 200
+    ]
+    assert "COOLIFY_WEBHOOK_SECRET" in secret_block
+    assert "::error::" in secret_block
+    assert "exit 1" in secret_block
+
+
+def test_ci_workflow_payload_shape_matches_coolify_expectation() -> None:
+    """The Python heredoc MUST build a payload with ref/after/repository/commits.
+
+    Pinned by spec (ci-cd-pipeline/spec.md, Requirement "Coolify Webhook
+    Signing Contract" > Scenario "Payload shape"). Coolify v4's
+    manualWebhookApplications() branch filters by ``branch`` and reads
+    ``after``; a payload missing any of these keys makes the controller
+    fall through to "Nothing to do."
+    """
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+
+    # The heredoc body should declare ref + after + repository.full_name
+    # + commits[] keys, otherwise Coolify's controller cannot route the
+    # deploy to the APAP_WEB app.
+    payload_block = workflow[
+        workflow.index("payload = {") : workflow.index("body = json.dumps")
+    ]
+    assert '"ref"' in payload_block
+    assert '"after"' in payload_block
+    assert "repository" in payload_block and "full_name" in payload_block
+    assert "commits" in payload_block
+
+
 def test_ci_workflow_deploy_job_has_secret_leak_grep() -> None:
     """CD-01: deploy job has a second secret-leak grep step, separate from the lint one."""
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
