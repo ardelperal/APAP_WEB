@@ -24,6 +24,7 @@ from __future__ import annotations
 from typing import Any
 
 import itsdangerous
+from fastapi import Request
 
 _SESSION_COOKIE_NAME = "apap_session"
 _SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7  # one week
@@ -55,6 +56,30 @@ def read_session(token: str, *, secret: str) -> dict[str, Any] | None:
     except (itsdangerous.BadSignature, itsdangerous.SignatureExpired):
         return None
     return decoded if isinstance(decoded, dict) else None
+
+
+def read_session_payload(
+    request: Request,
+    *,
+    secret: str,
+) -> dict[str, Any] | None:
+    """Read the session cookie off a request and decode the payload.
+
+    Consolidates the 4-line "read cookie + decode payload" pattern
+    that used to live in three call sites (F-3 / issue #120):
+
+    - ``app.core.auth_dependencies.get_current_user_optional``
+    - ``app.main`` (the ``protect_user_facing_routes`` middleware)
+    - ``app.core.csrf.CsrfMiddleware.dispatch``
+
+    Returns ``None`` when the cookie is missing, the signature is
+    invalid, or the payload has expired. The caller can treat the
+    user as anonymous without catching exceptions.
+    """
+    token = request.cookies.get(_SESSION_COOKIE_NAME)
+    if not token:
+        return None
+    return read_session(token, secret=secret)
 
 
 def clear_session_cookie_params() -> dict[str, Any]:

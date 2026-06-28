@@ -64,6 +64,7 @@ from app.core.pkce import generate_pkce_pair
 from app.core.session import (
     clear_session_cookie_params,
     read_session,
+    read_session_payload,
     session_cookie_name,
     write_session,
 )
@@ -199,11 +200,8 @@ def create_app() -> FastAPI:
         if _is_public_path(path) or path in DISABLED_DOC_PATHS:
             return await call_next(request)
 
-        token = request.cookies.get(session_cookie_name())
-        payload = (
-            read_session(token, secret=settings.session_secret)
-            if token
-            else None
+        payload = read_session_payload(
+            request, secret=settings.session_secret
         )
         if not payload:
             return _redirect("/login")

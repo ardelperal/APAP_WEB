@@ -28,16 +28,18 @@ es control de flujo, no un error HTTP.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 from fastapi import Depends, Request
 from fastapi.responses import RedirectResponse
 from starlette.responses import Response
 
 from app.core.config import get_settings
 from app.core.insforge import InsForgeClient
-from app.core.session import read_session, session_cookie_name
+from app.core.session import read_session_payload
 
 
-def get_insforge_client_dep():
+def get_insforge_client_dep() -> Iterator[InsForgeClient]:
     """Dependencia de FastAPI: produce un cliente InsForge por peticion.
 
     Implementado como generador para garantizar que ``close()`` se
@@ -73,14 +75,10 @@ def get_current_user_optional(request: Request) -> dict | None:
     en handlers que quieran render condicional (mostrar el nombre de
     usuario si esta logueado) pero que no requieren auth.
     """
-    settings = get_settings()
-    token = request.cookies.get(session_cookie_name())
-    if not token:
-        return None
-    return read_session(token, secret=settings.session_secret)
+    return read_session_payload(request, secret=get_settings().session_secret)
 
 
-def return_early_if_response(value: object) -> Response | None:
+def return_early_if_response(value: Response | dict) -> Response | None:
     """Helper regla 7: si ``value`` es un ``Response`` (redirect), lo retorna.
 
     Los handlers que usan :func:`require_authorized_user` reciben un

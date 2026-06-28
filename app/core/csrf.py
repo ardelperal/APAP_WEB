@@ -45,7 +45,7 @@ from starlette.responses import JSONResponse, Response
 
 from app.core.config import get_settings
 from app.core.logging import log_safe
-from app.core.session import read_session, session_cookie_name
+from app.core.session import read_session_payload
 
 SAFE_METHODS: frozenset[str] = frozenset({"GET", "HEAD", "OPTIONS"})
 
@@ -177,12 +177,9 @@ class CsrfMiddleware(BaseHTTPMiddleware):
             self._populate_csrf_state(request)
             return await call_next(request)
 
-        # Read session cookie + decode payload.
-        token = request.cookies.get(session_cookie_name())
-        payload = (
-            read_session(token, secret=settings.session_secret)
-            if token
-            else None
+        # Read session payload via the consolidated helper (F-3 / #120).
+        payload = read_session_payload(
+            request, secret=settings.session_secret
         )
         expected = payload.get("csrf_token") if payload else None
         # Expose the token on ``request.state`` so templates can render
@@ -231,18 +228,13 @@ class CsrfMiddleware(BaseHTTPMiddleware):
         unauthenticated GETs).
         """
         try:
-            token = request.cookies.get(session_cookie_name())
-        except Exception:
-            request.state.csrf_token = ""
-            return
-        if not token:
-            request.state.csrf_token = ""
-            return
-        try:
-            payload = read_session(
-                token, secret=get_settings().session_secret
+            payload = read_session_payload(
+                request, secret=get_settings().session_secret
             )
         except Exception:
+            request.state.csrf_token = ""
+            return
+        if payload is None:
             request.state.csrf_token = ""
             return
         request.state.csrf_token = (
