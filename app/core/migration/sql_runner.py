@@ -40,7 +40,7 @@ def apply_sql_migrations(client: InsForgeClient) -> list[str]:
     """
     client.execute_sql(_BOOTSTRAP_SQL)
     already_applied = {
-        row["filename"]
+        _row_filename(row)
         for row in client.execute_sql(_LIST_APPLIED_SQL)
     }
     applied: list[str] = []
@@ -52,3 +52,23 @@ def apply_sql_migrations(client: InsForgeClient) -> list[str]:
         client.execute_sql(_RECORD_SQL, [filename])
         applied.append(filename)
     return applied
+
+
+def _row_filename(row: object) -> str:
+    """Extract the filename from a row in the SELECT result.
+
+    InsForge's ``/api/database/advance/rawsql`` returns single-column
+    SELECTs in two observed shapes:
+
+    - ``[{"filename": "001_first.sql"}, ...]`` (object form, multi-column)
+    - ``["001_first.sql", ...]`` (flat form, single-column collapse)
+
+    The flat form raised ``TypeError: string indices must be integers``
+    on the first container start of a fresh database, crashing the
+    lifespan and failing the healthcheck (rollback). Accept both so
+    the runner is shape-agnostic; multi-column future responses still
+    work as long as they include the ``filename`` column.
+    """
+    if isinstance(row, dict):
+        return str(row["filename"])
+    return str(row)
