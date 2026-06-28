@@ -93,12 +93,25 @@ def test_ci_workflow_defines_deploy_job_with_gating() -> None:
 
 
 def test_ci_workflow_deploy_job_calls_coolify_webhook() -> None:
-    """CD-01: deploy job hits the Coolify webhook with curl -fsS; uses secret COOLIFY_WEBHOOK_URL."""
+    """CD-01: deploy job hits the Coolify manual github webhook.
+
+    Coolify v4 manual webhook endpoint verifies the raw JSON body against
+    X-Hub-Signature-256 using the application's manual_webhook_secret_github,
+    so the step must use both COOLIFY_WEBHOOK_URL and COOLIFY_WEBHOOK_SECRET
+    and POST a real JSON body (no bare curl).
+    """
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
 
     assert "Trigger Coolify webhook" in workflow
-    assert "curl -fsS -X POST" in workflow
     assert "secrets.COOLIFY_WEBHOOK_URL" in workflow
+    assert "secrets.COOLIFY_WEBHOOK_SECRET" in workflow
+    # Python heredoc builds and signs the payload (HMAC SHA-256).
+    assert "python - <<'PY'" in workflow
+    assert "hmac.new" in workflow
+    assert "X-Hub-Signature-256" in workflow
+    assert "X-GitHub-Event" in workflow
+    # A bare unsigned curl is no longer acceptable.
+    assert "curl -fsS -X POST \"$COOLIFY_WEBHOOK_URL\"" not in workflow
 
 
 def test_ci_workflow_deploy_job_has_secret_leak_grep() -> None:
