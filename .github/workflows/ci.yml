@@ -173,6 +173,10 @@ jobs:
         env:
           COOLIFY_WEBHOOK_URL: ${{ secrets.COOLIFY_WEBHOOK_URL }}
           COOLIFY_WEBHOOK_SECRET: ${{ secrets.COOLIFY_WEBHOOK_SECRET }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
           # Skip on merge commits: a push triggered by merging a pull request
           # is not a real "deploy this change" event. Only direct pushes count.
@@ -181,9 +185,10 @@ jobs:
             echo "Skipping deploy: this is a merge commit, not a direct push."
             exit 0
           fi
-          # Skip if the webhook secret is not configured. The deploy is
-          # optional in CI: lint+test+build are the gating checks. Local
-          # and staging deploys use the webhook directly, not this CI step.
+          # Skip if the webhook URL is not configured (deploy is optional
+          # in pre-MVC; the operator may deploy manually). Loud fail on
+          # missing webhook SECRET — without it the signature cannot be
+          # computed and Coolify would 401 the payload silently.
           if [ -z "$COOLIFY_WEBHOOK_URL" ]; then
             echo "::notice::COOLIFY_WEBHOOK_URL secret is not configured. Skipping deploy step. Set it in Settings → Secrets → Actions to enable automatic deploys."
             exit 0
@@ -193,38 +198,7 @@ jobs:
             exit 1
           fi
 
-          python - <<'PY'
-          import hashlib
-          import hmac
-          import json
-          import os
-          import subprocess
-          import urllib.request
-
-          webhook_url = os.environ["COOLIFY_WEBHOOK_URL"]
-          webhook_secret = os.environ["COOLIFY_WEBHOOK_SECRET"].encode("utf-8")
-          commit_msg = subprocess.check_output(["git", "log", "-1", "--pretty=%B"], text=True)
-          after_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-          payload = {
-              "ref": "refs/heads/main",
-              "after": after_sha,
-              "repository": {"full_name": "${{ github.repository }}"},
-              "commits": [
-                  {"message": commit_msg, "added": [], "removed": [], "modified": []}
-              ],
-          }
-          body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
-          signature = hmac.new(webhook_secret, body, hashlib.sha256).hexdigest()
-          request = urllib.request.Request(
-              webhook_url,
-              data=body,
-              method="POST",
-              headers={
-                  "Content-Type": "application/json",
-                  "X-GitHub-Event": "push",
-                  "X-Hub-Signature-256": f"sha256={signature}",
-              },
-          )
-          with urllib.request.urlopen(request, timeout=30) as response:
-              print(response.read().decode("utf-8"))
-          PY
+          # Delegate the HMAC signing + POST to a unit-tested module.
+          # Production and test paths share the same code (pinned by
+          # tests/test_coolify_webhook.py).
+          python scripts/coolify_webhook.py

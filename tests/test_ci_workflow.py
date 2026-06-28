@@ -99,17 +99,23 @@ def test_ci_workflow_deploy_job_calls_coolify_webhook() -> None:
     X-Hub-Signature-256 using the application's manual_webhook_secret_github,
     so the step must use both COOLIFY_WEBHOOK_URL and COOLIFY_WEBHOOK_SECRET
     and POST a real JSON body (no bare curl).
+
+    The signing + POST logic lives in ``scripts/coolify_webhook.py`` (so
+    the prod and test paths share the same code). The workflow just
+    sets the env vars and shells out to that module.
     """
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
 
     assert "Trigger Coolify webhook" in workflow
     assert "secrets.COOLIFY_WEBHOOK_URL" in workflow
     assert "secrets.COOLIFY_WEBHOOK_SECRET" in workflow
-    # Python heredoc builds and signs the payload (HMAC SHA-256).
-    assert "python - <<'PY'" in workflow
-    assert "hmac.new" in workflow
-    assert "X-Hub-Signature-256" in workflow
-    assert "X-GitHub-Event" in workflow
+    # The workflow MUST delegate to the unit-tested signing module,
+    # NOT inline the HMAC + urllib code in a heredoc. Pinned by
+    # tests/test_coolify_webhook.py.
+    assert "python scripts/coolify_webhook.py" in workflow
+    # The inline heredoc + urllib path is forbidden.
+    assert "python - <<'PY'" not in workflow
+    assert "urllib.request.urlopen" not in workflow
     # A bare unsigned curl is no longer acceptable.
     assert "curl -fsS -X POST \"$COOLIFY_WEBHOOK_URL\"" not in workflow
 
@@ -128,38 +134,28 @@ def test_ci_workflow_missing_webhook_secret_is_a_failure() -> None:
     # The deploy step must check the secret specifically (not just the
     # URL) and emit a ``::error::`` annotation with a clear message,
     # then exit 1.
-    secret_block = workflow[
-        workflow.index("COOLIFY_WEBHOOK_SECRET")
-        : workflow.index("curl", workflow.index("COOLIFY_WEBHOOK_SECRET"))
-        if "curl" in workflow[workflow.index("COOLIFY_WEBHOOK_SECRET"):]
-        else workflow.index("python -", workflow.index("COOLIFY_WEBHOOK_SECRET")) + 200
-    ]
-    assert "COOLIFY_WEBHOOK_SECRET" in secret_block
-    assert "::error::" in secret_block
-    assert "exit 1" in secret_block
+    assert "COOLIFY_WEBHOOK_SECRET" in workflow
+    assert "::error::COOLIFY_WEBHOOK_SECRET" in workflow
+    assert "exit 1" in workflow
 
 
 def test_ci_workflow_payload_shape_matches_coolify_expectation() -> None:
-    """The Python heredoc MUST build a payload with ref/after/repository/commits.
+    """The workflow MUST pass the keys Coolify's manualWebhookApplications reads.
 
     Pinned by spec (ci-cd-pipeline/spec.md, Requirement "Coolify Webhook
-    Signing Contract" > Scenario "Payload shape"). Coolify v4's
-    manualWebhookApplications() branch filters by ``branch`` and reads
-    ``after``; a payload missing any of these keys makes the controller
-    fall through to "Nothing to do."
+    Signing Contract" > Scenario "Payload shape"). The signing logic
+    lives in ``scripts/coolify_webhook.py::build_push_payload`` and is
+    pinned by tests/test_coolify_webhook.py::test_build_push_payload_includes_required_keys.
+    The workflow just sets the env vars that the module reads.
     """
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
 
-    # The heredoc body should declare ref + after + repository.full_name
-    # + commits[] keys, otherwise Coolify's controller cannot route the
-    # deploy to the APAP_WEB app.
-    payload_block = workflow[
-        workflow.index("payload = {") : workflow.index("body = json.dumps")
-    ]
-    assert '"ref"' in payload_block
-    assert '"after"' in payload_block
-    assert "repository" in payload_block and "full_name" in payload_block
-    assert "commits" in payload_block
+    # The workflow must forward the env vars the module needs to build
+    # the payload (ref, sha, repository, commit message).
+    assert "GITHUB_REF:" in workflow
+    assert "GITHUB_SHA:" in workflow
+    assert "GITHUB_REPOSITORY:" in workflow
+    assert "COMMIT_MESSAGE:" in workflow
 
 
 def test_ci_workflow_deploy_job_has_secret_leak_grep() -> None:
