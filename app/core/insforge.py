@@ -133,7 +133,14 @@ class InsForgeClient:
         code_verifier: str,
         redirect_uri: str,
     ) -> OAuthExchangeResult:
-        """Exchange a Google OAuth ``code`` for an InsForge JWT and user."""
+        """Exchange a Google OAuth ``code`` for an InsForge JWT and user.
+
+        Legacy direct-callback path (kept for tests that pre-date the
+        InsForge OAuth proxy rollout). New flows should call
+        ``exchange_insforge_oauth_code`` instead — InsForge now fronts
+        Google with its own hosted OAuth proxy and sends an
+        ``insforge_code`` to the app, not the raw Google ``code``.
+        """
         response = self._client.post(
             "/api/auth/oauth/google/callback",
             json={
@@ -153,6 +160,54 @@ class InsForgeClient:
         return OAuthExchangeResult(
             token=body["token"],
             user=InsForgeUser(id=str(user_payload["id"]), email=str(user_payload["email"])),
+        )
+
+    def exchange_insforge_oauth_code(
+        self,
+        insforge_code: str,
+        code_verifier: str,
+    ) -> OAuthExchangeResult:
+        """Exchange an InsForge-hosted ``insforge_code`` for an InsForge JWT + user.
+
+        InsForge's hosted OAuth proxy (api.insforge.dev/auth/v1/shared/callback)
+        fronts the underlying Google/Discord/etc. flow and, once the user
+        consents, redirects the browser to the app's callback URL with
+        ``?insforge_code=<temporary>``. The app then exchanges that code
+        here with the PKCE verifier minted at ``/login`` time.
+
+        Endpoint contract (per InsForge auth SDK docs):
+            POST /api/auth/oauth/exchange?client_type=web
+            body: {"code": insforge_code, "code_verifier": code_verifier}
+            200:  {"user": {"id", "email", ...}, "accessToken", "csrfToken"}
+            401:  INVALID_CREDENTIALS (the insforge_code expired or is wrong)
+        """
+        response = self._client.post(
+            "/api/auth/oauth/exchange",
+            params={"client_type": "web"},
+            json={
+                "code": insforge_code,
+                "code_verifier": code_verifier,
+            },
+        )
+        if not response.is_success:
+            raise InsForgeError(response.status_code, _safe_json(response))
+        body = _safe_json(response)
+        if not isinstance(body, dict) or "user" not in body:
+            raise InsForgeError(response.status_code, body)
+        user_payload = body["user"]
+        if not isinstance(user_payload, dict) or "email" not in user_payload:
+            raise InsForgeError(response.status_code, body)
+        # ``accessToken`` is the bearer JWT; ``refreshToken`` is null
+        # for web clients (InsForge stores it in an httpOnly cookie).
+        token = str(body.get("accessToken", "") or "")
+        if not token:
+            raise InsForgeError(response.status_code, body)
+        return OAuthExchangeResult(
+            token=token,
+            user=InsForgeUser(
+                id=str(user_payload["id"]),
+                email=str(user_payload["email"]),
+            ),
         )
 
 

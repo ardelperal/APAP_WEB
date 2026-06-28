@@ -72,6 +72,29 @@ class _FakeInsForge(InsForgeClient):
             ),
         )
 
+    def exchange_insforge_oauth_code(  # type: ignore[override]
+        self,
+        insforge_code: str,
+        code_verifier: str,
+    ):
+        """Mirror of the live ``POST /api/auth/oauth/exchange`` contract.
+
+        InsForge's hosted OAuth proxy now sends ``insforge_code`` (NOT
+        ``code``) to the app's callback and expects the app to exchange
+        it at ``/api/auth/oauth/exchange`` with the original PKCE
+        verifier. The fake returns the same OAuthExchangeResult shape
+        the live endpoint does.
+        """
+        from app.core.insforge import InsForgeUser, OAuthExchangeResult
+
+        return OAuthExchangeResult(
+            token=self.exchange_result["token"],
+            user=InsForgeUser(
+                id=self.exchange_result["user_id"],
+                email=self.exchange_result["email"],
+            ),
+        )
+
     def execute_sql(self, query, params=None):  # type: ignore[override]
         # Dispatch on the SQL shape; each test sets the matching
         # ``*_response`` attribute on this fake.
@@ -257,6 +280,50 @@ async def test_callback_issues_session_cookie_and_redirects_home(
     csrf_token = decoded.get("csrf_token")
     assert isinstance(csrf_token, str)
     assert len(csrf_token) >= 32
+
+
+async def test_callback_exchanges_insforge_code_for_session(
+    client: httpx.AsyncClient,
+    fake_insforge: _FakeInsForge,
+    google_configured: None,
+) -> None:
+    """InsForge's hosted OAuth proxy sends ``insforge_code`` (not ``code``)
+    to the app callback. The handler must accept the new parameter,
+    exchange it via ``POST /api/auth/oauth/exchange`` with the PKCE
+    verifier, and create a session exactly like the legacy Google code
+    flow did.
+
+    This is the contract test that pins the post-proxy callback spec.
+    Without it, the live OAuth flow returns 422 the moment InsForge
+    starts forwarding ``insforge_code`` (which already happened on
+    2026-06-28 — production broke silently because no test exercised
+    the InsForge end of the flow).
+    """
+    from app.core.config import get_settings
+    from app.core.session import read_session, session_cookie_name, write_session
+
+    settings = get_settings()
+    pkce_token = write_session(
+        {"code_verifier": "verifier-abc"}, secret=settings.session_secret
+    )
+    client.cookies.set("apap_pkce", pkce_token)
+
+    response = await client.get(
+        "/auth/callback", params={"insforge_code": "insforge-code-xyz"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302, (
+        f"insforge_code callback should succeed (302), got {response.status_code}: "
+        f"{response.text[:200]}"
+    )
+    assert response.headers["location"] == "/"
+    session_cookie = client.cookies.get(session_cookie_name())
+    assert session_cookie
+    decoded = read_session(session_cookie, secret=settings.session_secret)
+    assert decoded is not None
+    assert decoded["email"] == "ardelperal@gmail.com"
+    assert decoded["is_authorized"] is True
 
 
 async def test_callback_apap_pkce_cookie_uses_samesite_strict(
