@@ -396,6 +396,13 @@ def create_app() -> FastAPI:
         response.set_cookie(
             session_cookie_name(),
             session_token,
+            # path="/": MUST match the /logout clearing cookie's path
+            # (also "/") so the browser can match the Set-Cookie and
+            # actually delete the session. Without this, the cookie
+            # defaults to the request path (/auth/callback) and the
+            # clearing with path="/" is IGNORED by the browser —
+            # the user reported Salir does not log them out.
+            path="/",
             httponly=True,
             secure=True,
             samesite="strict",
