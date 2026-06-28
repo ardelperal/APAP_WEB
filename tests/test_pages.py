@@ -35,14 +35,26 @@ def _login_as_unauthorized_user(client: httpx.AsyncClient) -> None:
     client.cookies.set(session_cookie_name(), token)
 
 
-async def test_index_redirects_anonymous_users_to_login(
+async def test_index_renders_for_anonymous_users(
     client: httpx.AsyncClient,
 ) -> None:
-    """``GET /`` is user-facing and must require login."""
+    """``GET /`` is the marketing landing page and must be public.
+
+    Anonymous visitors see the APAP brand landing (hero, migration
+    badge, navigation, footer) before deciding whether to log in.
+    Bouncing them to /login would hide the org's mission copy and
+    break the e2e landing suite (which expects 200 + brand content).
+
+    The authenticated app routes (``/animales``, ``/entradas``,
+    ``/voluntarios``, ``/admin``) remain protected by the middleware.
+    """
     response = await client.get("/", follow_redirects=False)
 
-    assert response.status_code == 302
-    assert response.headers["location"] == "/login"
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    # Brand mark + nav are present in the landing template.
+    assert "🐾" in response.text
+    assert "APAP_WEB" in response.text
 
 
 async def test_index_renders_html(client: httpx.AsyncClient) -> None:

@@ -85,9 +85,14 @@ def _login_pre_fix(client: httpx.AsyncClient) -> None:
 async def test_middleware_default_false(
     client: httpx.AsyncClient, spy_insforge: _Spy
 ) -> None:
-    """Pre-fix cookie → 302 /unauthorized (NOT /login; cookie signature verifies)."""
+    """Pre-fix cookie → 302 /unauthorized on a protected route.
+
+    The middleware's default-deny contract is exercised against a
+    protected app route (``/animales``); the marketing landing at
+    ``/`` is intentionally public so this test cannot use it.
+    """
     _login_pre_fix(client)
-    r = await client.get("/", follow_redirects=False)
+    r = await client.get("/animales", follow_redirects=False)
     assert r.status_code == 302
     assert r.headers["location"] == "/unauthorized"
 
@@ -95,7 +100,7 @@ async def test_middleware_default_false(
 async def test_middleware_pasa_con_is_authorized_true(
     client: httpx.AsyncClient, spy_insforge: _Spy
 ) -> None:
-    """Triangulation: with is_authorized=True the middleware lets through."""
+    """Triangulation: with is_authorized=True the middleware lets through on a protected route."""
     from app.core.config import get_settings
 
     client.cookies.set(
@@ -110,5 +115,5 @@ async def test_middleware_pasa_con_is_authorized_true(
             secret=get_settings().session_secret,
         ),
     )
-    r = await client.get("/", follow_redirects=False)
+    r = await client.get("/animales", follow_redirects=False)
     assert r.headers.get("location") not in ("/unauthorized", "/login")

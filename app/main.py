@@ -4,15 +4,21 @@ The application is built following the skeleton outlined in
 ``docs/architecture-insforge-stack.md`` and the acceptance criteria
 of issue #17 (Fase 1 — esqueleto) and #16 (Fase 2 — auth). It exposes:
 
-- ``GET /``              → landing page (requires login/authorization)
+- ``GET /``              → marketing landing page (public)
 - ``GET /healthz``       → JSON health probe used by Docker / Coolify (CD-02)
 - ``GET /login``         → starts the Google OAuth flow (public)
 - ``GET /auth/callback`` → exchanges the OAuth code for an InsForge JWT
-                            and issues a session cookie
+                             and issues a session cookie
 - ``GET /logout``        → clears the session cookie (any user)
-- ``GET /unauthorized``  → friendly access-denied page (requires a session)
+- ``GET /unauthorized``  → friendly access-denied page (public)
 - ``GET /admin``         → developer-only user management panel
 - ``/static/...``        → compiled CSS and other static assets
+
+Authenticated app routes (``/animales``, ``/entradas``,
+``/voluntarios``, ``/admin``) are protected by the ``protect_user_facing_routes``
+middleware below, which checks the signed session cookie BEFORE
+FastAPI runs route / form validation. The middleware never opens a
+DB connection.
 """
 
 from __future__ import annotations
@@ -215,11 +221,15 @@ def create_app() -> FastAPI:
     @application.get("/", response_class=HTMLResponse)
     def index(
         request: Request,
-        current_user: Response | dict = Depends(require_authorized_user),
+        current_user: dict | None = Depends(get_current_user_optional),
     ):
-        """Landing page rendered from ``templates/index.html``."""
-        if (early := return_early_if_response(current_user)) is not None:
-            return early
+        """Landing page rendered from ``templates/index.html``.
+
+        Public: anonymous visitors see the marketing landing (hero,
+        migration badge, navigation, footer). Logged-in users see the
+        same page plus a personalised welcome banner. The template
+        already handles ``user`` being undefined / falsy.
+        """
         return templates.TemplateResponse(
             request=request,
             name="index.html",
