@@ -93,6 +93,15 @@ class InsForgeClient:
 
         Returns the list of result rows (empty for non-SELECT queries).
         INSERT/UPDATE/DELETE with ``RETURNING`` also return rows.
+
+        The InsForge endpoint returns a JSON envelope of the shape
+        ``{"rows": [...], "rowCount": N, "fields": [...]}``. This method
+        unpacks the ``rows`` list so call sites can do the natural
+        thing (``rows[0] if rows else None``) and not have to know
+        about the envelope. Regression caught in production on
+        2026-06-28 — the function was returning the full envelope
+        and every ``rows[0]`` call site crashed with
+        ``KeyError: 0``.
         """
         response = self._client.post(
             "/api/database/advance/rawsql",
@@ -100,7 +109,18 @@ class InsForgeClient:
         )
         if not response.is_success:
             raise InsForgeError(response.status_code, _safe_json(response))
-        return _safe_json(response)
+        body = _safe_json(response)
+        # Accept both the real InsForge envelope and a bare list
+        # (the in-process tests bypass HTTP and return the list
+        # directly).
+        if isinstance(body, dict) and "rows" in body:
+            return body["rows"]
+        if isinstance(body, list):
+            return body
+        raise InsForgeError(
+            response.status_code,
+            body,
+        )
 
     # --- Google OAuth --------------------------------------------------
 
