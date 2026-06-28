@@ -33,7 +33,7 @@ from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -445,19 +445,27 @@ def create_app() -> FastAPI:
         )
 
     @application.post("/admin/users")
-    async def admin_add_user(
-        request: Request,
+    def admin_add_user(
         current_user: Response | dict = Depends(require_authorized_user),
         client: InsForgeClient = Depends(get_insforge_client),
+        email: str = Form(""),
+        rol: str = Form(""),
     ) -> Response:
-        """Add a new authorized user. Developer only."""
+        """Add a new authorized user. Developer only.
+
+        Sync ``def`` (not ``async def``) so FastAPI runs the handler
+        in the threadpool and the sync InsForgeClient doesn't block
+        the event loop. Other admin handlers use the same style.
+        Form fields are declared as ``Form(...)`` parameters instead
+        of pulling them out of ``await request.form()`` so the
+        contract is obvious from the signature.
+        """
         if (early := return_early_if_response(current_user)) is not None:
             return early
         if current_user.get("rol") != "developer":
             return _redirect("/unauthorized")
-        form = await request.form()
-        email = str(form.get("email", "")).strip()
-        rol = str(form.get("rol", "")).strip()
+        email = email.strip()
+        rol = rol.strip()
         if not email or not rol:
             return _redirect("/admin")
         try:
