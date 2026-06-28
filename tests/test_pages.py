@@ -73,14 +73,22 @@ async def test_index_mentions_app_name(client: httpx.AsyncClient) -> None:
     assert "APAP_WEB" in response.text
 
 
-async def test_unauthorized_redirects_anonymous_users_to_login(
+async def test_unauthorized_renders_for_anonymous_users(
     client: httpx.AsyncClient,
 ) -> None:
-    """The access-denied page must not leak app content to anonymous users."""
+    """The access-denied page is public so anonymous visitors can read it.
+
+    Previously the handler redirected anonymous users to /login, but the
+    page is a friendly info card with no app data — bouncing anonymous
+    visitors away made the denial copy unreachable after the auth
+    middleware landed. Now /unauthorized renders 200 with the denial
+    copy for everyone, matching the e2e landing suite.
+    """
     response = await client.get("/unauthorized", follow_redirects=False)
 
-    assert response.status_code == 302
-    assert response.headers["location"] == "/login"
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "no autorizado" in response.text.lower()
 
 
 @pytest.mark.parametrize(

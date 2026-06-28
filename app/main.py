@@ -63,12 +63,18 @@ _STATIC_DIR = Path(__file__).parent / "static"
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 # Public paths that the auth layer must never block.
+# The landing page (/) and the access-denied page (/unauthorized) are
+# intentionally public so unauthenticated visitors can learn what APAP is
+# and understand why they were redirected; the middleware only guards the
+# authenticated app routes (animals, entradas, voluntarios, admin, ...).
 PUBLIC_PATHS = frozenset(
     {
+        "/",
         "/healthz",
         "/login",
         "/auth/callback",
         "/logout",
+        "/unauthorized",
     }
 )
 DISABLED_DOC_PATHS = frozenset({"/docs", "/redoc", "/openapi.json"})
@@ -231,12 +237,11 @@ def create_app() -> FastAPI:
     ):
         """Access-denied page rendered from ``templates/unauthorized.html``.
 
-        Anonymous users should not see app-facing pages other than the
-        login flow. Users with a session but without authorization can
-        see the friendly access-denied copy.
+        Public so anonymous visitors can read the friendly denial copy
+        after being bounced from a protected route. The template does not
+        depend on ``current_user``; the optional dependency is kept so the
+        handler signature stays stable for future personalised copy.
         """
-        if current_user is None:
-            return _redirect("/login")
         return templates.TemplateResponse(
             request=request,
             name="unauthorized.html",
