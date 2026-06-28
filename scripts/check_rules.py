@@ -139,6 +139,12 @@ def _scan_file(path: Path, repo_root: Path) -> list[Violation]:
     out.extend(_check_http_exception_redirect(path, tree))
     out.extend(_check_hardcoded_role_check_in_ddl(path, tree))
     out.extend(_check_apap003_raw_logger_call(path, tree, repo_root))
+    if _is_app_path(path, repo_root):
+        out.extend(_check_print_in_app(path, tree))
+    if _is_app_main_or_session(path, repo_root):
+        out.extend(_check_csrf_samesite_strict(path, tree))
+    if _is_app_main(path, repo_root):
+        out.extend(_check_csrf_middleware_registered(path, tree))
     return out
 
 
@@ -420,6 +426,128 @@ def _check_apap003_raw_logger_call(
             )
         )
     return violations
+
+
+# Detectors 6, 7, 8 (Rules 9, 10 — hardening-2026-q2 final) -------------------
+
+
+def _is_app_main(path: Path, repo_root: Path) -> bool:
+    """True if ``path`` is ``app/main.py`` (the FastAPI app factory)."""
+    try:
+        relative = path.relative_to(repo_root)
+    except ValueError:
+        return False
+    return relative.parts == ("app", "main.py")
+
+
+def _is_app_main_or_session(path: Path, repo_root: Path) -> bool:
+    """True if ``path`` is ``app/main.py`` or ``app/core/session.py``.
+
+    These two files are where session/PKCE cookies are set with
+    ``samesite=...``. Any regression to ``Lax`` fails Detectors 7+8.
+    """
+    try:
+        relative = path.relative_to(repo_root)
+    except ValueError:
+        return False
+    return relative.parts in {
+        ("app", "main.py"),
+        ("app", "core", "session.py"),
+    }
+
+
+# Detector 6 -----------------------------------------------------------------
+
+
+def _check_print_in_app(path: Path, tree: ast.AST) -> list[Violation]:
+    """Detector 6 — Rule 9.
+
+    ``print(...)`` in ``app/`` bypasses the structured-logging pipeline
+    and the redaction filter. Banned by Rule 9.
+    """
+    violations: list[Violation] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if not (isinstance(node.func, ast.Name) and node.func.id == "print"):
+            continue
+        violations.append(
+            Violation(
+                file=path,
+                line=node.lineno,
+                rule_id="print_in_app",
+                message=(
+                    "print() in app/ is banned by Rule 9. "
+                    "Use log_safe() from app.core.logging instead."
+                ),
+            )
+        )
+    return violations
+
+
+# Detector 7 -----------------------------------------------------------------
+
+
+def _check_csrf_middleware_registered(
+    path: Path, tree: ast.AST
+) -> list[Violation]:
+    """Detector 7 — Rule 10.
+
+    ``app/main.py`` MUST register ``CsrfMiddleware`` in the middleware
+    chain. Catches accidental removal of the gate.
+    """
+    src = path.read_text(encoding="utf-8")
+    if "CsrfMiddleware" in src:
+        return []
+    return [
+        Violation(
+            file=path,
+            line=1,
+            rule_id="csrf_middleware_registered",
+            message=(
+                "app/main.py does not register CsrfMiddleware. "
+                "Add 'app.add_middleware(CsrfMiddleware)' to create_app(). "
+                "Rule 10: CSRF defense per default."
+            ),
+        )
+    ]
+
+
+# Detector 8 -----------------------------------------------------------------
+
+
+def _check_csrf_samesite_strict(
+    path: Path, tree: ast.AST
+) -> list[Violation]:
+    """Detector 8 — Rule 10.
+
+    Session and PKCE cookies must use ``SameSite=Strict``. ``Lax`` is a
+    regression that weakens the CSRF defense-in-depth posture.
+    """
+    src = path.read_text(encoding="utf-8")
+    # Match both quote styles and avoid matching the comment in
+    # app/main.py that says "Lax is a regression" (heuristic: only flag
+    # lines that are clearly setting the attribute).
+    import re
+    bad_lines: list[int] = []
+    for lineno, line in enumerate(src.splitlines(), start=1):
+        # Catch the canonical pattern: samesite="lax" or samesite='lax'
+        # inside a set_cookie / response.set_cookie / cookie_params call.
+        if re.search(r"""samesite\s*=\s*['"]lax['"]""", line):
+            bad_lines.append(lineno)
+    if not bad_lines:
+        return []
+    return [
+        Violation(
+            file=path,
+            line=bad_lines[0],
+            rule_id="csrf_samesite_strict",
+            message=(
+                "Cookie samesite='lax' is a regression. Use samesite='strict' "
+                "for session and PKCE cookies (Rule 10)."
+            ),
+        )
+    ]
 
 
 # CLI -----------------------------------------------------------------------
