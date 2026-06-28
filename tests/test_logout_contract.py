@@ -164,10 +164,13 @@ def test_logout_clearing_cookie_attributes_match_creation(
         '`path="/"` so the browser can match it to the original '
         'cookie (which has no explicit path → defaults to "/").'
     )
-    # SameSite: must be the same on both.
-    assert main_src.count('samesite="strict"') >= 2, (
-        "app/main.py: samesite must be 'strict' on both create and clear "
-        "(otherwise the browser keeps the old cookie)"
+    # SameSite: the session cookie must stay Strict. The apap_pkce OAuth
+    # verifier cookie is intentionally Lax so the top-level callback GET can
+    # carry it back from Google/InsForge.
+    assert 'session_cookie_name(),\n            session_token' in main_src
+    assert 'samesite="strict"' in main_src, (
+        "app/main.py: the session cookie must keep samesite='strict' "
+        "while only the short-lived apap_pkce verifier may be lax"
     )
     # Secure: must be the same.
     assert main_src.count("secure=True") >= 2, (

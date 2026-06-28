@@ -302,7 +302,12 @@ def create_app() -> FastAPI:
             ),
             httponly=True,
             secure=True,
-            samesite="strict",
+            # OAuth returns to /auth/callback via a top-level cross-site GET
+            # from Google/InsForge. SameSite=Strict is not sent on that
+            # navigation, so the callback cannot read the verifier and starts
+            # a /callback -> /login loop. Lax keeps the verifier out of
+            # cross-site subrequests/forms while allowing the OAuth callback.
+            samesite="lax",
             max_age=600,
         )
         return response

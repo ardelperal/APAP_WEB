@@ -443,8 +443,11 @@ def _is_app_main(path: Path, repo_root: Path) -> bool:
 def _is_app_main_or_session(path: Path, repo_root: Path) -> bool:
     """True if ``path`` is ``app/main.py`` or ``app/core/session.py``.
 
-    These two files are where session/PKCE cookies are set with
-    ``samesite=...``. Any regression to ``Lax`` fails Detectors 7+8.
+    These two files are where session cookies are set with
+    ``samesite=...``. Any session-cookie regression to ``Lax`` fails
+    Detectors 7+8. The short-lived OAuth PKCE verifier cookie is the
+    deliberate exception: OAuth callbacks are top-level cross-site GET
+    navigations, so that cookie must be ``Lax`` rather than ``Strict``.
     """
     try:
         relative = path.relative_to(repo_root)
@@ -521,8 +524,14 @@ def _check_csrf_samesite_strict(
 ) -> list[Violation]:
     """Detector 8 — Rule 10.
 
-    Session and PKCE cookies must use ``SameSite=Strict``. ``Lax`` is a
+    Session cookies must use ``SameSite=Strict``. ``Lax`` is a
     regression that weakens the CSRF defense-in-depth posture.
+
+    The short-lived ``apap_pkce`` OAuth verifier cookie is intentionally
+    excluded: Google/InsForge returns to ``/auth/callback`` through a
+    top-level cross-site GET and browsers do not send ``Strict`` cookies
+    on that navigation. ``Lax`` is the safe OAuth-compatible setting for
+    that verifier cookie.
     """
     src = path.read_text(encoding="utf-8")
     # Match both quote styles and avoid matching the comment in
@@ -530,10 +539,14 @@ def _check_csrf_samesite_strict(
     # lines that are clearly setting the attribute).
     import re
     bad_lines: list[int] = []
-    for lineno, line in enumerate(src.splitlines(), start=1):
+    lines = src.splitlines()
+    for lineno, line in enumerate(lines, start=1):
         # Catch the canonical pattern: samesite="lax" or samesite='lax'
         # inside a set_cookie / response.set_cookie / cookie_params call.
         if re.search(r"""samesite\s*=\s*['"]lax['"]""", line):
+            context = "\n".join(lines[max(0, lineno - 12) : lineno])
+            if '"apap_pkce"' in context or "'apap_pkce'" in context:
+                continue
             bad_lines.append(lineno)
     if not bad_lines:
         return []
@@ -544,7 +557,7 @@ def _check_csrf_samesite_strict(
             rule_id="csrf_samesite_strict",
             message=(
                 "Cookie samesite='lax' is a regression. Use samesite='strict' "
-                "for session and PKCE cookies (Rule 10)."
+                "for session cookies (Rule 10)."
             ),
         )
     ]

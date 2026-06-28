@@ -326,42 +326,28 @@ async def test_callback_exchanges_insforge_code_for_session(
     assert decoded["is_authorized"] is True
 
 
-async def test_callback_apap_pkce_cookie_uses_samesite_strict(
+async def test_login_apap_pkce_cookie_uses_samesite_lax_for_oauth_callback(
     client: httpx.AsyncClient,
     fake_insforge: _FakeInsForge,
     google_configured: None,
 ) -> None:
-    """``/auth/callback`` must NOT echo ``apap_pkce`` without ``SameSite=Strict``.
+    """``/login`` must issue ``apap_pkce`` with ``SameSite=Lax``.
 
-    Per REQ-AH-5 the PKCE cookie (issued by ``/login`` and consumed here)
-    must ship with ``SameSite=Strict`` so a cross-site form replay
-    cannot trick the browser into presenting the verifier.
+    OAuth providers return to ``/auth/callback`` through a top-level
+    cross-site GET. ``SameSite=Strict`` is not sent on that navigation,
+    so the callback cannot recover the verifier and redirects to
+    ``/login`` again, producing ERR_TOO_MANY_REDIRECTS in Chrome.
+    ``Lax`` is the correct OAuth setting: it allows the callback GET
+    while still withholding the cookie from cross-site subrequests and
+    unsafe form posts.
     """
-    from app.core.config import get_settings
-    from app.core.session import write_session
-
-    settings = get_settings()
-    pkce_token = write_session(
-        {"code_verifier": "verifier-strict"}, secret=settings.session_secret
-    )
-    client.cookies.set("apap_pkce", pkce_token)
-
-    response = await client.get(
-        "/auth/callback", params={"code": "google-code"}, follow_redirects=False
-    )
-
-    assert response.status_code == 302
-    # The cookie deletion response is an empty ``apap_pkce=``; we only
-    # care about the ``samesite`` directive when the cookie was issued,
-    # which happens in ``/login``. Read the Set-Cookie header from the
-    # /login response separately.
     login_response = await client.get("/login", follow_redirects=False)
     set_cookie_headers = login_response.headers.get_list("set-cookie")
     pkce_cookies = [c for c in set_cookie_headers if c.startswith("apap_pkce=")]
     assert pkce_cookies, "expected /login to set apap_pkce cookie"
     # httpx normalizes the directive casing; check the lowercase token.
     pkce_cookie = pkce_cookies[0]
-    assert "samesite=strict" in pkce_cookie.lower()
+    assert "samesite=lax" in pkce_cookie.lower()
 
 
 async def test_callback_apap_session_cookie_uses_samesite_strict(
