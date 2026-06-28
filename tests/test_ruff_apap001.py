@@ -14,13 +14,13 @@ import ast
 from pathlib import Path
 
 import pytest
+
+from scripts.ruff_plugin import apap_rules
 from scripts.ruff_plugin.apap_rules import (
     APAPViolation,
     check_tree,
     discover_rule_classes,
 )
-
-from scripts.ruff_plugin import apap_rules
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 

@@ -11,13 +11,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
+from scripts.pytest_plugin import coverage_gate
 from scripts.pytest_plugin.coverage_gate import (
     CRITICAL_HELPERS,
     evaluate_coverage,
     gather_helpers,
 )
-
-from scripts.pytest_plugin import coverage_gate
 
 # --- CRITICAL_HELPERS contract -------------------------------------------
 
