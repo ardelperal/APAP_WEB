@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.core.migration.derivation import DerivationKind
+from migration.derivation import DerivationKind
 
 # --- helpers --------------------------------------------------------------
 
@@ -279,7 +279,7 @@ class TestDerivationEngine:
         arguments accept callables (for the ficha) and literals so
         pytest parametrize can render them in the test ID.
         """
-        from app.core.migration.derivation import derive_estado_actual_animal
+        from migration.derivation import derive_estado_actual_animal
 
         ficha_value = ficha() if callable(ficha) else ficha  # type: ignore[arg-type]
         result = derive_estado_actual_animal(ficha_value, entradas, acogidas, adopciones)
@@ -302,7 +302,7 @@ class TestDerivationEngine:
         is ``Incoherente`` regardless of ``UltimoEstadoAntesDeFallecido``.
         See ``lifecycle-state-resolver-extraction.md`` §3 P1.
         """
-        from app.core.migration.derivation import (
+        from migration.derivation import (
             DerivationKind,
             derive_estado_actual_animal,
         )
@@ -347,7 +347,7 @@ class TestPreDeathStateIdempotence:
         the VBA priority-6 idempotence rule (see
         ``lifecycle-state-resolver-extraction.md §10`` Challenge #1).
         """
-        from app.core.migration.derivation import derive_estado_actual_animal
+        from migration.derivation import derive_estado_actual_animal
 
         result = derive_estado_actual_animal(
             _ficha(
@@ -369,7 +369,7 @@ class TestPreDeathStateIdempotence:
         carries ``Fallecido (Desconocido)``; re-derivation MUST yield
         ``Fallecido (Desconocido)`` again, never nest.
         """
-        from app.core.migration.derivation import derive_estado_actual_animal
+        from migration.derivation import derive_estado_actual_animal
 
         result = derive_estado_actual_animal(
             _ficha(
@@ -392,7 +392,7 @@ class TestPreDeathStateIdempotence:
         second apply MUST read that cached value and produce the SAME
         state — never ``Fallecido (Fallecido (Desconocido))``.
         """
-        from app.core.migration.derivation import derive_estado_actual_animal
+        from migration.derivation import derive_estado_actual_animal
 
         ficha_first = _ficha(
             FDefuncion="2024-06-01",
@@ -432,8 +432,8 @@ class TestDerivationComparator:
         """Derived value equals the stored web value → MATCHED."""
         from datetime import UTC, datetime
 
-        from app.core.migration.derivation import compare_derived_to_stored
-        from app.core.migration.reconcile import ReconciliationStatus
+        from migration.derivation import compare_derived_to_stored
+        from migration.reconcile import ReconciliationStatus
 
         verdict = compare_derived_to_stored(
             derived_state="Albergue",
@@ -447,8 +447,8 @@ class TestDerivationComparator:
         """Initial state (``stored_state is None``) → PENDING."""
         from datetime import UTC, datetime
 
-        from app.core.migration.derivation import compare_derived_to_stored
-        from app.core.migration.reconcile import ReconciliationStatus
+        from migration.derivation import compare_derived_to_stored
+        from migration.reconcile import ReconciliationStatus
 
         verdict = compare_derived_to_stored(
             derived_state="Albergue",
@@ -466,8 +466,8 @@ class TestDerivationComparator:
         """
         from datetime import UTC, datetime
 
-        from app.core.migration.derivation import compare_derived_to_stored
-        from app.core.migration.reconcile import ReconciliationStatus
+        from migration.derivation import compare_derived_to_stored
+        from migration.reconcile import ReconciliationStatus
 
         verdict = compare_derived_to_stored(
             derived_state="Adoptado",
@@ -487,8 +487,8 @@ class TestDerivationComparator:
         """
         from datetime import UTC, datetime
 
-        from app.core.migration.derivation import compare_derived_to_stored
-        from app.core.migration.reconcile import ReconciliationStatus
+        from migration.derivation import compare_derived_to_stored
+        from migration.reconcile import ReconciliationStatus
 
         verdict = compare_derived_to_stored(
             derived_state="Adoptado",
@@ -507,8 +507,8 @@ class TestDerivationComparator:
         """
         from datetime import UTC, datetime
 
-        from app.core.migration.derivation import compare_derived_to_stored
-        from app.core.migration.reconcile import ReconciliationStatus
+        from migration.derivation import compare_derived_to_stored
+        from migration.reconcile import ReconciliationStatus
 
         ts = datetime(2026, 6, 21, 10, 0, tzinfo=UTC)
         verdict = compare_derived_to_stored(

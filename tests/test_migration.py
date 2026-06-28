@@ -28,21 +28,21 @@ import pytest
 from pydantic import ValidationError
 
 from app.core.insforge import InsForgeClient
-from app.core.migration import (
+from migration import (
     FkLookupError,
     LockActiveError,
     MappingNotFoundError,
     MigrationError,
     MigrationReport,
 )
-from app.core.migration.mappings import (
+from migration.mappings import (
     ColumnMapping,
     FkLookup,
     TableMapping,
     list_available_tables,
     load_mapping,
 )
-from app.core.migration.reporting import Conflict, Diff
+from migration.reporting import Conflict, Diff
 
 # --- helpers --------------------------------------------------------------
 
@@ -234,22 +234,22 @@ def test_migration_module_exports_reporting_dataclasses() -> None:
 
 
 def test_migration_module_main_runs_without_error() -> None:
-    """``python -m app.core.migration --help`` is a valid entry point.
+    """``python -m migration --help`` is a valid entry point.
 
     After PR 1 of web-only-feature-preservation, the CLI has a real
     argparse parser with a ``reconcile`` subcommand, so invoking
-    ``python -m app.core.migration`` without a subcommand now exits
+    ``python -m migration`` without a subcommand now exits
     non-zero (argparse ``required=True``). ``--help`` exits 0 and lists
     the available subcommands.
     """
     result = subprocess.run(
-        [sys.executable, "-m", "app.core.migration", "--help"],
+        [sys.executable, "-m", "migration", "--help"],
         capture_output=True,
         text=True,
         timeout=10,
     )
     assert result.returncode == 0, (
-        f"python -m app.core.migration --help exited {result.returncode}\n"
+        f"python -m migration --help exited {result.returncode}\n"
         f"stdout: {result.stdout!r}\nstderr: {result.stderr!r}"
     )
     assert "reconcile" in result.stdout
@@ -673,7 +673,7 @@ class TestStrictWebOnlyStrategyValidator:
         can map it to exit code 4 without re-declaring the magic
         number. See design.md §1.5 and spec.md REQ-Mecanismo generico.
         """
-        from app.core.migration.mappings import (
+        from migration.mappings import (
             EXIT_CODE_YAML_VALIDATION_ERROR,
         )
 
@@ -690,7 +690,7 @@ class TestStrictWebOnlyStrategyValidator:
         transform + no strategy, then call ``load_mapping()`` and
         assert ``ValidationError`` bubbles up.
         """
-        from app.core.migration.mappings import load_mapping
+        from migration.mappings import load_mapping
 
         bad_yaml = tmp_path / "bad_mapping.yaml"
         bad_yaml.write_text(
@@ -709,7 +709,7 @@ class TestStrictWebOnlyStrategyValidator:
         # Monkey-patch ``MAPPINGS_DIR`` so ``load_mapping`` reads our
         # bad YAML. We restore it after the test so the next test
         # isn't affected.
-        from app.core.migration import mappings as mappings_module
+        from migration import mappings as mappings_module
 
         original_dir = mappings_module.MAPPINGS_DIR
         try:
@@ -899,7 +899,7 @@ class TestLegacyReader:
                 return [{"NCHIP": "value1", "NombreAnimal": "Firulais"}]
             return []
 
-        from app.core.migration.legacy_reader import (
+        from migration.legacy_reader import (
             TableSpec,
             load_legacy_snapshot,
             set_legacy_query_executor,
@@ -927,7 +927,7 @@ class TestLegacyReader:
             captured_queries.append(sql)
             return []
 
-        from app.core.migration.legacy_reader import (
+        from migration.legacy_reader import (
             TableSpec,
             load_legacy_snapshot,
             set_legacy_query_executor,
@@ -950,7 +950,7 @@ class TestLegacyReader:
 
     def test_legacy_query_executor_can_be_reset(self) -> None:
         """``set_legacy_query_executor(None)`` resetea al estado inicial."""
-        from app.core.migration.legacy_reader import set_legacy_query_executor
+        from migration.legacy_reader import set_legacy_query_executor
 
         set_legacy_query_executor(lambda p, s, o, lim: [])
         set_legacy_query_executor(None)
@@ -968,7 +968,7 @@ class TestLegacyReader:
             # Segunda llamada retorna vacío → fin del loop de batches.
             return []
 
-        from app.core.migration.legacy_reader import (
+        from migration.legacy_reader import (
             TableSpec,
             load_legacy_snapshot_batched,
             set_legacy_query_executor,
@@ -1003,7 +1003,7 @@ class TestLegacyReader:
         en la segunda llamada — el contrato que design §5 establece
         (``dysflow_query_execute(..., offset=offset, limit=BATCH_SIZE)``).
         """
-        from app.core.migration.legacy_reader import (
+        from migration.legacy_reader import (
             BATCH_SIZE,
             TableSpec,
             load_legacy_snapshot,
@@ -1068,7 +1068,7 @@ class TestWebReader:
         captured: list[str] = []
         client = self._make_mock_client(captured)
 
-        from app.core.migration.web_reader import WebTableSpec, load_web_snapshot
+        from migration.web_reader import WebTableSpec, load_web_snapshot
 
         result = load_web_snapshot(
             client,
@@ -1088,7 +1088,7 @@ class TestWebReader:
         captured: list[str] = []
         client = self._make_mock_client(captured)
 
-        from app.core.migration.web_reader import WebTableSpec, load_web_snapshot
+        from migration.web_reader import WebTableSpec, load_web_snapshot
 
         since = datetime(2026, 6, 20, 10, 0)
         load_web_snapshot(
@@ -1116,7 +1116,7 @@ class TestWebReader:
             transport=httpx.MockTransport(handler),
         )
 
-        from app.core.migration.web_reader import WebTableSpec, load_web_snapshot
+        from migration.web_reader import WebTableSpec, load_web_snapshot
 
         result = load_web_snapshot(
             client,
@@ -1144,14 +1144,14 @@ class TestReconcileTypes:
 
     def test_reconciliation_status_literal_values(self) -> None:
         """ReconciliationStatus is a Literal with the 5 documented values."""
-        from app.core.migration.reconcile import ReconciliationStatus
+        from migration.reconcile import ReconciliationStatus
 
         for value in ("matched", "divergent", "needs_review", "pending", "migrated"):
             assert ReconciliationStatus(value) == value
 
     def test_reconciliation_outcome_holds_status_and_reasons(self) -> None:
         """ReconciliationOutcome is a dataclass with the documented fields."""
-        from app.core.migration.reconcile import (
+        from migration.reconcile import (
             ReconciliationOutcome,
             ReconciliationStatus,
         )
@@ -1171,7 +1171,7 @@ class TestReconcileTypes:
 
     def test_reconciliation_result_aggregates_outcomes(self) -> None:
         """ReconciliationResult carries the outcomes list and counts per status."""
-        from app.core.migration.reconcile import (
+        from migration.reconcile import (
             ReconciliationOutcome,
             ReconciliationResult,
             ReconciliationStatus,
@@ -1205,7 +1205,7 @@ class TestReconcileTypes:
         report-level summary, so it must aggregate matched/needs_review
         without dropping or duplicating any row.
         """
-        from app.core.migration.reconcile import (
+        from migration.reconcile import (
             ReconciliationOutcome,
             ReconciliationResult,
             ReconciliationStatus,
@@ -1278,7 +1278,7 @@ class TestMigrationReportReconciliationSummary:
         assert the field carries the count bundle without mutation
         (``MigrationReport`` is ``frozen=True``).
         """
-        from app.core.migration.reconcile import ReconciliationSummary
+        from migration.reconcile import ReconciliationSummary
 
         summary = ReconciliationSummary(matched=10, divergent=2, needs_review=1)
         report = dataclasses.replace(_sample_report(), reconciliation_summary=summary)
@@ -1295,7 +1295,7 @@ class TestMigrationReportReconciliationSummary:
         encoder. ``None`` must serialize as JSON ``null`` so the field
         stays self-describing across the wire.
         """
-        from app.core.migration.reconcile import ReconciliationSummary
+        from migration.reconcile import ReconciliationSummary
 
         report_with = dataclasses.replace(
             _sample_report(),
@@ -1326,7 +1326,7 @@ class TestMigrationReportReconciliationSummary:
         Regression guard so the operator-facing report shows the
         reconciliation verdict bundle next to the diff metrics.
         """
-        from app.core.migration.reconcile import ReconciliationSummary
+        from migration.reconcile import ReconciliationSummary
 
         report = dataclasses.replace(
             _sample_report(),
@@ -1369,7 +1369,7 @@ class TestCliReconcile:
 
     def test_reconcile_help_exits_zero_and_lists_flags(self) -> None:
         """``apap-migrate reconcile --help`` exits 0 and lists all 4 flags."""
-        from app.core.migration.cli import build_parser
+        from migration.cli import build_parser
 
         parser = build_parser()
         with pytest.raises(SystemExit) as excinfo:
@@ -1388,7 +1388,7 @@ class TestCliReconcile:
         monitoring / cron jobs, and the operator must opt in to
         ``--interactive`` to mutate the database.
         """
-        from app.core.migration.cli import main as cli_main
+        from migration.cli import main as cli_main
 
         captured_sql: list[str] = []
 
@@ -1464,13 +1464,13 @@ class TestCliReconcile:
 
 
 class TestSyncState:
-    """Tests para ``app.core.migration.sync_state`` (PR 4/6 — T7)."""
+    """Tests para ``migration.sync_state`` (PR 4/6 — T7)."""
 
     # --- dataclass shape -----------------------------------------------
 
     def test_sync_state_default_construction(self) -> None:
         """``SyncState()`` produce un estado vacío (tables={}, version='1.0')."""
-        from app.core.migration.sync_state import SyncState
+        from migration.sync_state import SyncState
 
         state = SyncState()
         assert state.version == "1.0"
@@ -1478,7 +1478,7 @@ class TestSyncState:
 
     def test_table_state_default_construction(self) -> None:
         """``TableState()`` produce una tabla vacía (last_sync_at=None, mapping={})."""
-        from app.core.migration.sync_state import TableState
+        from migration.sync_state import TableState
 
         ts = TableState()
         assert ts.last_sync_at is None
@@ -1486,7 +1486,7 @@ class TestSyncState:
 
     def test_table_state_is_immutable_mapping(self) -> None:
         """``TableState.legacy_to_web_id`` es un dict[str, str] editable (no frozen)."""
-        from app.core.migration.sync_state import TableState
+        from migration.sync_state import TableState
 
         ts = TableState()
         ts.legacy_to_web_id["42"] = "uuid-42"
@@ -1496,7 +1496,7 @@ class TestSyncState:
 
     def test_load_sync_state_missing_file_returns_empty(self, tmp_path) -> None:
         """load_sync_state sobre path inexistente devuelve SyncState() vacío (NO falla)."""
-        from app.core.migration.sync_state import load_sync_state
+        from migration.sync_state import load_sync_state
 
         state = load_sync_state(tmp_path / "does-not-exist.json")
         assert state.tables == {}
@@ -1504,7 +1504,7 @@ class TestSyncState:
 
     def test_load_sync_state_round_trip(self, tmp_path) -> None:
         """load → save → load preserva todos los campos del estado."""
-        from app.core.migration.sync_state import (
+        from migration.sync_state import (
             SyncState,
             TableState,
             load_sync_state,
@@ -1527,7 +1527,7 @@ class TestSyncState:
 
     def test_load_sync_state_corrupted_json_raises(self, tmp_path) -> None:
         """load_sync_state sobre JSON malformado levanta ``SyncStateError``."""
-        from app.core.migration.sync_state import SyncStateError, load_sync_state
+        from migration.sync_state import SyncStateError, load_sync_state
 
         path = tmp_path / "bad.json"
         path.write_text("{ this is not valid json", encoding="utf-8")
@@ -1543,7 +1543,7 @@ class TestSyncState:
         ``os.replace(tmp, target)``. Después del replace, NO debe quedar
         un ``.tmp`` huérfano (la atómica es la rename).
         """
-        from app.core.migration.sync_state import SyncState, save_sync_state
+        from migration.sync_state import SyncState, save_sync_state
 
         path = tmp_path / "sync_state.json"
         save_sync_state(SyncState(), path)
@@ -1552,7 +1552,7 @@ class TestSyncState:
 
     def test_save_sync_state_creates_parent_dirs(self, tmp_path) -> None:
         """save_sync_state crea el directorio padre si no existe."""
-        from app.core.migration.sync_state import SyncState, save_sync_state
+        from migration.sync_state import SyncState, save_sync_state
 
         nested = tmp_path / "a" / "b" / "sync_state.json"
         save_sync_state(SyncState(), nested)
@@ -1562,7 +1562,7 @@ class TestSyncState:
 
     def test_get_or_create_table_state_creates_on_miss(self) -> None:
         """get_or_create_table_state crea la TableState si la tabla no existe."""
-        from app.core.migration.sync_state import (
+        from migration.sync_state import (
             SyncState,
             TableState,
             get_or_create_table_state,
@@ -1580,7 +1580,7 @@ class TestSyncState:
 
     def test_record_legacy_to_web_mapping_round_trip(self) -> None:
         """record_legacy_to_web_mapping persiste el mapping (consultable luego)."""
-        from app.core.migration.sync_state import (
+        from migration.sync_state import (
             SyncState,
             lookup_legacy_pk,
             lookup_web_pk,
@@ -1595,14 +1595,14 @@ class TestSyncState:
 
     def test_lookup_web_pk_returns_none_on_miss(self) -> None:
         """lookup_web_pk retorna ``None`` cuando no hay mapping (no raise)."""
-        from app.core.migration.sync_state import SyncState, lookup_web_pk
+        from migration.sync_state import SyncState, lookup_web_pk
 
         state = SyncState()
         assert lookup_web_pk(state, "animales", 999) is None
 
     def test_lookup_legacy_pk_returns_none_on_miss(self) -> None:
         """lookup_legacy_pk retorna ``None`` cuando no hay mapping (no raise)."""
-        from app.core.migration.sync_state import SyncState, lookup_legacy_pk
+        from migration.sync_state import SyncState, lookup_legacy_pk
 
         state = SyncState()
         assert lookup_legacy_pk(state, "animales", "uuid-missing") is None
@@ -1615,7 +1615,7 @@ class TestSyncState:
         El lookup también acepta ``int`` y lo coacciona antes de
         consultar el dict (regla del design §4).
         """
-        from app.core.migration.sync_state import (
+        from migration.sync_state import (
             SyncState,
             lookup_web_pk,
             record_legacy_to_web_mapping,
@@ -1632,7 +1632,7 @@ class TestSyncState:
 
     def test_update_last_sync_at_sets_field(self) -> None:
         """update_last_sync_at popula ``last_sync_at`` de la tabla indicada."""
-        from app.core.migration.sync_state import (
+        from migration.sync_state import (
             SyncState,
             update_last_sync_at,
         )
@@ -1646,7 +1646,7 @@ class TestSyncState:
 
     def test_save_writes_canonical_json_shape(self, tmp_path) -> None:
         """save_sync_state produce JSON con la forma canónica (version, tables)."""
-        from app.core.migration.sync_state import SyncState, save_sync_state
+        from migration.sync_state import SyncState, save_sync_state
 
         path = tmp_path / "sync_state.json"
         save_sync_state(SyncState(), path)
@@ -1658,7 +1658,7 @@ class TestSyncState:
 
     def test_multi_table_state_round_trip(self, tmp_path) -> None:
         """Round-trip con múltiples tablas preserva TODAS las tablas (no overwrite)."""
-        from app.core.migration.sync_state import (
+        from migration.sync_state import (
             SyncState,
             load_sync_state,
             record_legacy_to_web_mapping,
@@ -1695,7 +1695,7 @@ class TestSyncState:
         el ``last_sync_at`` previo debe sobrevivir (de lo contrario
         perderíamos el cursor del incremental sync en cada re-run).
         """
-        from app.core.migration.sync_state import (
+        from migration.sync_state import (
             SyncState,
             get_or_create_table_state,
             update_last_sync_at,
@@ -1710,7 +1710,7 @@ class TestSyncState:
 
     def test_lookup_web_pk_coerces_string_legacy_pk(self) -> None:
         """lookup_web_pk acepta ``str`` para legacy_pk (consistente con record_)."""
-        from app.core.migration.sync_state import (
+        from migration.sync_state import (
             SyncState,
             lookup_web_pk,
             record_legacy_to_web_mapping,
@@ -1744,14 +1744,14 @@ class TestSyncState:
 
 
 class TestDiffEngine:
-    """Tests para ``app.core.migration.diff_engine`` (PR 4/6 — T5)."""
+    """Tests para ``migration.diff_engine`` (PR 4/6 — T5)."""
 
     # --- helpers -------------------------------------------------------
 
     @staticmethod
     def _animal_mapping():
         """Mapping sintético para animales (key=NCHIP)."""
-        from app.core.migration.mappings import TableMapping
+        from migration.mappings import TableMapping
 
         return TableMapping.model_validate(
             {
@@ -1768,7 +1768,7 @@ class TestDiffEngine:
     @staticmethod
     def _entrada_mapping():
         """Mapping sintético para entradas (key=IDEntrada legacy → id web)."""
-        from app.core.migration.mappings import TableMapping
+        from migration.mappings import TableMapping
 
         return TableMapping.model_validate(
             {
@@ -1786,8 +1786,8 @@ class TestDiffEngine:
 
     def test_diff_legacy_to_web_inserts_new_legacy_rows(self) -> None:
         """Filas solo en legacy → INSERT al web."""
-        from app.core.migration.diff_engine import diff_legacy_to_web
-        from app.core.migration.sync_state import SyncState
+        from migration.diff_engine import diff_legacy_to_web
+        from migration.sync_state import SyncState
 
         legacy = {"animales": [{"NCHIP": "001", "NombreAnimal": "Rex"}]}
         web: dict = {"animales": []}
@@ -1810,8 +1810,8 @@ class TestDiffEngine:
         pueda skipear si el flag no está activo. Aquí solo verificamos
         la clasificación.
         """
-        from app.core.migration.diff_engine import diff_legacy_to_web
-        from app.core.migration.sync_state import SyncState
+        from migration.diff_engine import diff_legacy_to_web
+        from migration.sync_state import SyncState
 
         legacy: dict = {"animales": []}
         web = {"animales": [{"id": "uuid-001", "NCHIP": "001"}]}
@@ -1825,8 +1825,8 @@ class TestDiffEngine:
 
     def test_diff_legacy_to_web_noop_when_identical(self) -> None:
         """Misma fila en ambos lados, sin cambios → NOOP (no UPDATE)."""
-        from app.core.migration.diff_engine import diff_legacy_to_web
-        from app.core.migration.sync_state import SyncState
+        from migration.diff_engine import diff_legacy_to_web
+        from migration.sync_state import SyncState
 
         legacy = {
             "animales": [
@@ -1857,8 +1857,8 @@ class TestDiffEngine:
 
     def test_diff_legacy_to_web_updates_when_field_changes(self) -> None:
         """Mismo NCHIP, distinto NombreAnimal → UPDATE con changed_fields."""
-        from app.core.migration.diff_engine import diff_legacy_to_web
-        from app.core.migration.sync_state import SyncState
+        from migration.diff_engine import diff_legacy_to_web
+        from migration.sync_state import SyncState
 
         legacy = {"animales": [{"NCHIP": "001", "NombreAnimal": "Rex-NEW"}]}
         web = {"animales": [{"id": "uuid-001", "NCHIP": "001", "NombreAnimal": "Rex-OLD"}]}
@@ -1881,8 +1881,8 @@ class TestDiffEngine:
         comparar ese campo siempre daría UPDATE → falsa señal de
         cambio. El diff engine debe ignorarlo por default.
         """
-        from app.core.migration.diff_engine import diff_legacy_to_web
-        from app.core.migration.sync_state import SyncState
+        from migration.diff_engine import diff_legacy_to_web
+        from migration.sync_state import SyncState
 
         legacy = {
             "animales": [
@@ -1913,8 +1913,8 @@ class TestDiffEngine:
 
     def test_diff_detects_modified_both_sides_conflict(self) -> None:
         """Si legacy.updated > last_sync_at Y web.updated > last_sync_at → conflicto."""
-        from app.core.migration.diff_engine import diff_legacy_to_web
-        from app.core.migration.sync_state import (
+        from migration.diff_engine import diff_legacy_to_web
+        from migration.sync_state import (
             SyncState,
             update_last_sync_at,
         )
@@ -1954,8 +1954,8 @@ class TestDiffEngine:
 
     def test_diff_no_conflict_when_only_one_side_changed(self) -> None:
         """Si SOLO el legacy cambió → no hay conflict (aplica UPDATE)."""
-        from app.core.migration.diff_engine import diff_legacy_to_web
-        from app.core.migration.sync_state import (
+        from migration.diff_engine import diff_legacy_to_web
+        from migration.sync_state import (
             SyncState,
             update_last_sync_at,
         )
@@ -1992,8 +1992,8 @@ class TestDiffEngine:
 
     def test_diff_entradas_matches_by_sync_state_mapping(self) -> None:
         """Para entradas (sin natural key), el match es legacy_id ↔ web_uuid via sync_state."""
-        from app.core.migration.diff_engine import diff_legacy_to_web
-        from app.core.migration.sync_state import (
+        from migration.diff_engine import diff_legacy_to_web
+        from migration.sync_state import (
             SyncState,
             record_legacy_to_web_mapping,
         )
@@ -2025,8 +2025,8 @@ class TestDiffEngine:
 
     def test_diff_entradas_insert_when_no_mapping_for_legacy_pk(self) -> None:
         """Si legacy tiene una fila sin mapping en sync_state → INSERT al web."""
-        from app.core.migration.diff_engine import diff_legacy_to_web
-        from app.core.migration.sync_state import SyncState
+        from migration.diff_engine import diff_legacy_to_web
+        from migration.sync_state import SyncState
 
         legacy = {"entradas": [{"IDEntrada": 99, "FechaEntrada": "2026-06-01"}]}
         web: dict = {"entradas": []}
@@ -2041,7 +2041,7 @@ class TestDiffEngine:
 
     def test_diff_web_to_legacy_classifies_inserts(self) -> None:
         """diff_web_to_legacy clasifica INSERTs para filas web sin contraparte legacy."""
-        from app.core.migration.diff_engine import diff_web_to_legacy
+        from migration.diff_engine import diff_web_to_legacy
 
         legacy: dict = {"animales": []}
         web = {"animales": [{"id": "uuid-1", "NCHIP": "X1"}]}
@@ -2052,7 +2052,7 @@ class TestDiffEngine:
 
     def test_diff_web_to_legacy_classifies_deletes(self) -> None:
         """diff_web_to_legacy clasifica DELETEs para filas legacy sin contraparte web."""
-        from app.core.migration.diff_engine import diff_web_to_legacy
+        from migration.diff_engine import diff_web_to_legacy
 
         legacy = {"animales": [{"NCHIP": "X1", "NombreAnimal": "Rex"}]}
         web: dict = {"animales": []}
@@ -2063,7 +2063,7 @@ class TestDiffEngine:
 
     def test_diff_web_to_legacy_noop_on_identical(self) -> None:
         """diff_web_to_legacy NOOP cuando ambos lados coinciden."""
-        from app.core.migration.diff_engine import diff_web_to_legacy
+        from migration.diff_engine import diff_web_to_legacy
 
         legacy = {"animales": [{"NCHIP": "X1", "NombreAnimal": "Rex"}]}
         web = {"animales": [{"id": "uuid-1", "NCHIP": "X1", "NombreAnimal": "Rex"}]}
@@ -2076,8 +2076,8 @@ class TestDiffEngine:
 
     def test_diff_classifies_each_row_independently(self) -> None:
         """Múltiples filas: cada una se clasifica independientemente."""
-        from app.core.migration.diff_engine import diff_legacy_to_web
-        from app.core.migration.sync_state import SyncState
+        from migration.diff_engine import diff_legacy_to_web
+        from migration.sync_state import SyncState
 
         legacy = {
             "animales": [
@@ -2107,8 +2107,8 @@ class TestDiffEngine:
 
     def test_diff_with_empty_snapshots_returns_empty(self) -> None:
         """Snapshots vacíos en ambos lados → lista vacía de diffs (sin errores)."""
-        from app.core.migration.diff_engine import diff_legacy_to_web
-        from app.core.migration.sync_state import SyncState
+        from migration.diff_engine import diff_legacy_to_web
+        from migration.sync_state import SyncState
 
         diffs = diff_legacy_to_web(
             {"animales": []},
@@ -2137,13 +2137,13 @@ class TestDiffEngine:
 
 
 class TestLock:
-    """Tests para ``app.core.migration.lock`` (PR 4/6 — T6)."""
+    """Tests para ``migration.lock`` (PR 4/6 — T6)."""
 
     # --- dataclass shape ----------------------------------------------
 
     def test_lock_info_default_construction(self) -> None:
         """LockInfo tiene pid, acquired_at, ttl_seconds (default 1800)."""
-        from app.core.migration.lock import LockInfo
+        from migration.lock import LockInfo
 
         info = LockInfo(pid=1234, acquired_at=_dt(2026, 6, 21, 0, 0, 0))
         assert info.pid == 1234
@@ -2151,7 +2151,7 @@ class TestLock:
 
     def test_lock_info_serializes_to_json(self) -> None:
         """LockInfo.to_json() produce JSON con la forma canónica (pid, acquired_at, ttl_seconds)."""
-        from app.core.migration.lock import LockInfo
+        from migration.lock import LockInfo
 
         info = LockInfo(pid=1234, acquired_at=_dt(2026, 6, 21, 0, 0, 0), ttl_seconds=900)
         raw = json.loads(info.to_json())
@@ -2163,7 +2163,7 @@ class TestLock:
 
     def test_acquire_lock_creates_file(self, tmp_path) -> None:
         """acquire_lock crea el lock file con JSON válido."""
-        from app.core.migration.lock import acquire_lock, check_lock, release_lock
+        from migration.lock import acquire_lock, check_lock, release_lock
 
         lock_path = tmp_path / "sync.lock"
         try:
@@ -2177,7 +2177,7 @@ class TestLock:
 
     def test_acquire_lock_blocks_when_active(self, tmp_path) -> None:
         """Segundo acquire_lock sobre lock activo → ``LockActiveError``."""
-        from app.core.migration.lock import acquire_lock, release_lock
+        from migration.lock import acquire_lock, release_lock
 
         lock_path = tmp_path / "sync.lock"
         try:
@@ -2189,7 +2189,7 @@ class TestLock:
 
     def test_release_lock_removes_file(self, tmp_path) -> None:
         """release_lock borra el lock file (idempotente: missing → no raise)."""
-        from app.core.migration.lock import acquire_lock, release_lock
+        from migration.lock import acquire_lock, release_lock
 
         lock_path = tmp_path / "sync.lock"
         acquire_lock(lock_path)
@@ -2203,7 +2203,7 @@ class TestLock:
 
     def test_check_lock_returns_none_when_missing(self, tmp_path) -> None:
         """check_lock retorna ``None`` si el archivo no existe."""
-        from app.core.migration.lock import check_lock
+        from migration.lock import check_lock
 
         assert check_lock(tmp_path / "missing.lock") is None
 
@@ -2216,7 +2216,7 @@ class TestLock:
         dejando el archivo en disco. Si TTL expiró o el PID está muerto,
         acquire_lock debe sobrescribirlo sin raise.
         """
-        from app.core.migration.lock import (
+        from migration.lock import (
             LockInfo,
             acquire_lock,
             check_lock,
@@ -2255,7 +2255,7 @@ class TestLock:
         y TTL de 30 minutos — naturalmente expirado sin necesidad de
         mockear ``datetime.now()``.
         """
-        from app.core.migration.lock import (
+        from migration.lock import (
             LockInfo,
             acquire_lock,
             release_lock,
@@ -2290,13 +2290,13 @@ class TestLock:
         """``_is_process_alive(os.getpid())`` retorna ``True`` (proceso actual)."""
         import os
 
-        from app.core.migration.lock import _is_process_alive
+        from migration.lock import _is_process_alive
 
         assert _is_process_alive(os.getpid()) is True
 
     def test_is_process_alive_returns_false_for_nonexistent_pid(self) -> None:
         """``_is_process_alive(999_999_999)`` retorna ``False`` (PID inventado)."""
-        from app.core.migration.lock import _is_process_alive
+        from migration.lock import _is_process_alive
 
         assert _is_process_alive(999_999_999) is False
 
@@ -2311,7 +2311,7 @@ class TestLock:
         if os.name != "nt":
             pytest.skip("Windows-specific os.kill fallback regression")
 
-        from app.core.migration import lock as lock_mod
+        from migration import lock as lock_mod
 
         monkeypatch.setattr(lock_mod, "_PSUTIL_AVAILABLE", False, raising=False)
 
@@ -2324,7 +2324,7 @@ class TestLock:
 
     def test_check_msaccess_returns_list_of_pids_when_psutil_available(self, monkeypatch) -> None:
         """``check_msaccess_running`` retorna lista de PIDs cuando psutil está disponible."""
-        from app.core.migration import lock as lock_mod
+        from migration import lock as lock_mod
 
         class _FakeProcess:
             def __init__(self, pid: int, name: str) -> None:
@@ -2372,7 +2372,7 @@ class TestLock:
         """
         real_psutil = pytest.importorskip("psutil")
 
-        from app.core.migration import lock as lock_mod
+        from migration import lock as lock_mod
 
         # ``raising=True`` fuerza a pytest a exigir que ``psutil`` exista
         # como atributo del módulo. Pre-fix: AttributeError (regression).
@@ -2434,7 +2434,7 @@ class TestLock:
         """
         pytest.importorskip("psutil")
 
-        from app.core.migration import lock as lock_mod
+        from migration import lock as lock_mod
 
         # Garantizar que psutil está bound — si no, esto falla con el bug P0 #1.
         assert hasattr(lock_mod, "psutil"), (
@@ -2472,7 +2472,7 @@ class TestLock:
         import threading
         from concurrent.futures import ThreadPoolExecutor
 
-        from app.core.migration.lock import (
+        from migration.lock import (
             acquire_lock,
             release_lock,
         )
@@ -2534,7 +2534,7 @@ class TestLock:
         continuar (con un warning loggeado). Esto evita que el módulo
         rompa en environments mínimas.
         """
-        from app.core.migration import lock as lock_mod
+        from migration import lock as lock_mod
 
         # Forzar el camino "psutil no disponible".
         monkeypatch.setattr(lock_mod, "_PSUTIL_AVAILABLE", False, raising=False)
@@ -2549,7 +2549,7 @@ class TestLock:
         Un lock corrupto se trata como ausente — el siguiente
         ``acquire_lock`` lo sobrescribe sin drama.
         """
-        from app.core.migration.lock import check_lock
+        from migration.lock import check_lock
 
         bad_path = tmp_path / "bad.lock"
         bad_path.write_text("not a valid json{", encoding="utf-8")
@@ -2557,14 +2557,14 @@ class TestLock:
 
     def test_lock_info_from_json_rejects_missing_fields(self) -> None:
         """``LockInfo.from_json`` levanta ``ValueError`` si falta ``pid``."""
-        from app.core.migration.lock import LockInfo
+        from migration.lock import LockInfo
 
         with pytest.raises(ValueError, match="pid"):
             LockInfo.from_json('{"acquired_at": "2026-06-21T00:00:00+00:00"}')
 
     def test_lock_info_from_json_rejects_non_integer_ttl(self) -> None:
         """``LockInfo.from_json`` levanta ``ValueError`` si ttl_seconds no es int."""
-        from app.core.migration.lock import LockInfo
+        from migration.lock import LockInfo
 
         with pytest.raises(ValueError, match="ttl_seconds"):
             LockInfo.from_json(

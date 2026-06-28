@@ -29,7 +29,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from app.core.migration.reconcile import ReconciliationStatus
+from migration.reconcile import ReconciliationStatus
 
 
 class DerivationKind(StrEnum):

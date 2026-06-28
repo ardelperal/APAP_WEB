@@ -25,7 +25,7 @@ Two testability seams are injected through ``main`` /
   output to. Production binds it to ``sys.stdout``; tests bind
   it to an ``io.StringIO`` and assert against ``.getvalue()``.
 
-The pattern mirrors ``app.core.migration.__main__``: the
+The pattern mirrors ``migration.__main__``: the
 ``ShadowStateRepository`` is built from the injected
 ``InsForgeClient`` when no explicit ``shadow_state`` is provided
 (production path) so the test surface stays a single object.
@@ -42,7 +42,7 @@ from pathlib import Path
 from typing import IO, Any
 
 from app.core.insforge import InsForgeClient
-from app.core.migration.shadow_state import ShadowStateRepository
+from migration.shadow_state import ShadowStateRepository
 
 # Type alias for the prompt reader injected into ``run_reconcile``.
 # Production: ``input`` (read from stdin). Tests: a list-driven
@@ -420,11 +420,11 @@ def run_reconcile(
     # interactive sessions would double-resolve cases. The lock is
     # released on exit (normal return, error, or q-quit) via
     # try/finally — the operator can re-run safely on a stale lock.
-    from app.core.migration import LockActiveError
-    from app.core.migration import acquire_lock as _acquire_lock
-    from app.core.migration import check_lock as _check_lock
-    from app.core.migration import release_lock as _release_lock
-    from app.core.migration.lock import _is_lock_stale
+    from migration import LockActiveError
+    from migration import acquire_lock as _acquire_lock
+    from migration import check_lock as _check_lock
+    from migration import release_lock as _release_lock
+    from migration.lock import _is_lock_stale
 
     lock_path = _resolve_lock_path()
     # Best-effort: if a non-stale lock is held, fail fast with a

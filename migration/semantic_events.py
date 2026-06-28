@@ -30,8 +30,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from app.core.migration.mappings import TableMapping
-from app.core.migration.reporting import Diff
+from migration.mappings import TableMapping
+from migration.reporting import Diff
 
 # --- LifecycleEvent -------------------------------------------------------
 

@@ -96,7 +96,7 @@ def _needs_review_row(
 
 def _shadow_state_mapping_with_current_state_derived():
     """Synthetic ``animales`` TableMapping with ``current_state`` as derived."""
-    from app.core.migration.mappings import ColumnMapping, TableMapping
+    from migration.mappings import ColumnMapping, TableMapping
 
     return TableMapping(
         version="1.0",
@@ -126,7 +126,7 @@ def _shadow_state_mapping_with_current_state_derived():
 
 def _voluntario_mapping_with_dni_preserve():
     """Synthetic ``voluntarios`` TableMapping with ``DNI`` as preserve."""
-    from app.core.migration.mappings import ColumnMapping, TableMapping
+    from migration.mappings import ColumnMapping, TableMapping
 
     return TableMapping(
         version="1.0",
@@ -155,7 +155,7 @@ def _voluntario_mapping_with_dni_preserve():
 
 
 def _empty_sync_state():
-    from app.core.migration.sync_state import SyncState
+    from migration.sync_state import SyncState
 
     return SyncState()
 
@@ -216,7 +216,7 @@ class TestListNeedsReviewPerf:
 
         client = _make_web_client(handler)
         try:
-            from app.core.migration.shadow_state import ShadowStateRepository
+            from migration.shadow_state import ShadowStateRepository
 
             repo = ShadowStateRepository(client)
             started = time.perf_counter()

@@ -1,8 +1,8 @@
 """Diff engine for the migration module (LIFECYCLE-03 / migration-01).
 
 This module is the **brain of the migration**: given a legacy snapshot
-(from :mod:`app.core.migration.legacy_reader`) and a web snapshot
-(from :mod:`app.core.migration.web_reader`), it classifies each row
+(from :mod:`migration.legacy_reader`) and a web snapshot
+(from :mod:`migration.web_reader`), it classifies each row
 as one of:
 
   - ``INSERT``: the row exists in the source snapshot but not in the
@@ -29,7 +29,7 @@ decision (``--conflict web|legacy|abort``).
 - **sync_state mapping** (entradas, acogidas, adopciones): the legacy
   PK is an ``INTEGER`` (``IDEntrada``) and the web PK is a ``UUID``
   (``id``). The diff engine resolves the legacy PK to the web UUID
-  via :func:`app.core.migration.sync_state.lookup_web_pk`.
+  via :func:`migration.sync_state.lookup_web_pk`.
 
 The two directions (``legacy → web`` and ``web → legacy``) are
 implemented as two separate functions because the *meaning* of
@@ -50,8 +50,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from app.core.migration.reporting import Diff
-from app.core.migration.sync_state import (
+from migration.reporting import Diff
+from migration.sync_state import (
     SyncState,
     lookup_web_pk,
 )
@@ -60,7 +60,7 @@ if TYPE_CHECKING:
     # Solo para anotaciones; el import real se hace lazy en
     # ``diff_legacy_to_web`` / ``diff_web_to_legacy`` para evitar el
     # ciclo ``__init__`` → ``diff_engine`` → ``mappings`` → ``__init__``.
-    from app.core.migration.mappings import TableMapping
+    from migration.mappings import TableMapping
 
 #: Fields that NEVER participate in the diff comparison.
 #:
@@ -86,7 +86,7 @@ class Conflict:
     ``last_sync_at``. El applier NO aplica el diff asociado sin
     decisión explícita del operador (``--conflict web|legacy|abort``).
 
-    A diferencia de :class:`app.core.migration.reporting.Conflict`
+    A diferencia de :class:`migration.reporting.Conflict`
     (que es el dataclass serializable dentro de ``MigrationReport``),
     esta clase es interna al diff engine — se usa como payload de la
     lista ``conflicts`` retornada por :func:`diff_legacy_to_web` /
@@ -120,11 +120,11 @@ def diff_legacy_to_web(
 
     Args:
         legacy_snapshot: ``{web_table: [row, ...]}`` desde
-            :func:`app.core.migration.legacy_reader.load_legacy_snapshot`.
+            :func:`migration.legacy_reader.load_legacy_snapshot`.
         web_snapshot: ``{web_table: [row, ...]}`` desde
-            :func:`app.core.migration.web_reader.load_web_snapshot`.
+            :func:`migration.web_reader.load_web_snapshot`.
         mapping: spec pydantic de la tabla (de
-            :func:`app.core.migration.mappings.load_mapping`).
+            :func:`migration.mappings.load_mapping`).
         sync_state: estado persistente (para resolver legacy→web PK
             en tablas sin natural key, y para ``last_sync_at``).
 
@@ -158,9 +158,9 @@ def diff_web_to_legacy(
 
     Args:
         web_snapshot: ``{web_table: [row, ...]}`` desde
-            :func:`app.core.migration.web_reader.load_web_snapshot`.
+            :func:`migration.web_reader.load_web_snapshot`.
         legacy_snapshot: ``{web_table: [row, ...]}`` desde
-            :func:`app.core.migration.legacy_reader.load_legacy_snapshot`.
+            :func:`migration.legacy_reader.load_legacy_snapshot`.
         mapping: spec pydantic de la tabla.
 
     Returns:

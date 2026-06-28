@@ -87,7 +87,7 @@ class ShadowStateRepository:
 
     The repository NEVER writes a status that disagrees with the
     derivation engine's output; that authority lives in
-    ``app.core.migration.derivation`` (PR 2). The CLI (PR 5) is the only
+    ``migration.derivation`` (PR 2). The CLI (PR 5) is the only
     path that flips ``needs_review`` → ``matched`` / ``divergent`` after
     operator intervention.
     """

@@ -39,7 +39,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import Any
 
-from app.core.migration.dysflow_client import execute_legacy_sql
+from migration.dysflow_client import execute_legacy_sql
 
 # Tamaño del batch (design §5): 100 filas × ~10 cols × ~50 bytes ≈ 50 KB.
 # Permite granularidad razonable para retry y encaja en memoria.

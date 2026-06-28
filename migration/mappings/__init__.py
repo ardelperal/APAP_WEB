@@ -67,7 +67,7 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, Field, model_validator
 
-from app.core.migration import MappingNotFoundError
+from migration import MappingNotFoundError
 
 # Directorio donde viven los YAMLs. Se resuelve a partir de __file__ para
 # que funcione tanto en editable install (``pip install -e .``) como en

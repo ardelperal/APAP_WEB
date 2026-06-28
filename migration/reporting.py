@@ -16,7 +16,7 @@ reporte como evidencia de la corrida.
 ``MigrationReport.reconciliation_summary`` (PR 4/6 of
 ``web-only-feature-preservation``): el applier de MIGRATION-01 PR 5/6 lo
 popula con el ``ReconciliationSummary`` que devuelve el hook
-``post_apply_diff`` (definido en ``app.core.migration.reconcile``). El
+``post_apply_diff`` (definido en ``migration.reconcile``). El
 campo es opcional (``None`` por default) para mantener
 backward-compat con los reportes de MIGRATION-01 PR 1–3, donde el
 hook todavía no corría. Una vez que el applier wire-up se activa en
@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     # ``reporting`` → ``reconcile`` → ``derivation`` → ``reporting``
     # en import-time (los tests usan imports absolutos cuando los
     # necesitan en runtime).
-    from app.core.migration.reconcile import ReconciliationSummary
+    from migration.reconcile import ReconciliationSummary
 
 # --- Diff -----------------------------------------------------------------
 
@@ -138,7 +138,7 @@ class MigrationReport:
     backup_path: str | None = None
     error: str | None = None
     # PR 4/6 (web-only-feature-preservation, T4.6): the applier wires
-    # ``post_apply_diff`` (see ``app.core.migration.reconcile``) and
+    # ``post_apply_diff`` (see ``migration.reconcile``) and
     # attaches its ``ReconciliationSummary`` here. ``None`` keeps the
     # pre-PR-4 reports valid (MIGRATION-01 PR 1–3 never run the hook).
     reconciliation_summary: ReconciliationSummary | None = None

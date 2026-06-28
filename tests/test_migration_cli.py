@@ -36,7 +36,7 @@ from typing import Any
 import httpx
 
 from app.core.insforge import InsForgeClient
-from app.core.migration.cli import main as cli_main
+from migration.cli import main as cli_main
 
 # --- helpers --------------------------------------------------------------
 

@@ -44,9 +44,9 @@ if TYPE_CHECKING:
     # ``post_apply_diff`` y ``_persist_lifecycle_event`` para evitar
     # ciclos en el import graph (``reconcile`` → ``mappings`` →
     # ``__init__`` → ``reconcile``).
-    from app.core.migration.mappings import ColumnMapping, TableMapping
-    from app.core.migration.reporting import Diff
-    from app.core.migration.semantic_events import LifecycleEvent
+    from migration.mappings import ColumnMapping, TableMapping
+    from migration.reporting import Diff
+    from migration.semantic_events import LifecycleEvent
 
 
 class ReconciliationStatus(StrEnum):
@@ -105,7 +105,7 @@ class ReconciliationResult:
 
     Returned by the applier hook (PR 4) and printed by the CLI (PR 5).
     Immutable so the audit trail stays tamper-evident (same rule as
-    ``MigrationReport`` in ``app.core.migration.reporting``).
+    ``MigrationReport`` in ``migration.reporting``).
     """
 
     outcomes: tuple[ReconciliationOutcome, ...] = ()
@@ -160,7 +160,7 @@ class _ShadowStateWriter(Protocol):
     """Minimal surface required by ``reconcile_after_legacy_write``.
 
     Matches the public methods of
-    ``app.core.migration.shadow_state.ShadowStateRepository`` that
+    ``migration.shadow_state.ShadowStateRepository`` that
     PR 2 actually calls; defined as a Protocol so tests can pass a
     ``FakeShadow`` without subclassing the real repository.
     """
@@ -399,7 +399,7 @@ def _reconcile_derived(
     # ReconciliationStatus from this module. The function is called only
     # from the applier hook (PR 4) at runtime, so the import cost is
     # negligible.
-    from app.core.migration.derivation import (
+    from migration.derivation import (
         compare_derived_to_stored,
         derive_estado_actual_animal,
     )
@@ -619,7 +619,7 @@ def post_apply_diff(
     # seguro (no hay ciclo), pero lo hacemos local para mantener el
     # patrón del módulo (derivation ya hace lo propio en
     # ``_reconcile_derived``).
-    from app.core.migration.semantic_events import translate_diff
+    from migration.semantic_events import translate_diff
 
     for diff in applied_diffs:
         if diff.op in ("NOOP", "DELETE"):

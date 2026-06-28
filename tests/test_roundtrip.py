@@ -101,7 +101,7 @@ def _needs_review_row(
 
 def _shadow_state_mapping_with_current_state_derived():
     """Synthetic ``animales`` TableMapping with ``current_state`` as derived."""
-    from app.core.migration.mappings import ColumnMapping, TableMapping
+    from migration.mappings import ColumnMapping, TableMapping
 
     return TableMapping(
         version="1.0",
@@ -131,7 +131,7 @@ def _shadow_state_mapping_with_current_state_derived():
 
 def _voluntario_mapping_with_dni_preserve():
     """Synthetic ``voluntarios`` TableMapping with ``DNI`` as preserve."""
-    from app.core.migration.mappings import ColumnMapping, TableMapping
+    from migration.mappings import ColumnMapping, TableMapping
 
     return TableMapping(
         version="1.0",
@@ -160,7 +160,7 @@ def _voluntario_mapping_with_dni_preserve():
 
 
 def _empty_sync_state():
-    from app.core.migration.sync_state import SyncState
+    from migration.sync_state import SyncState
 
     return SyncState()
 
@@ -187,8 +187,8 @@ class TestRoundTripPreservesDni:
     """
 
     def test_dni_round_trip_preserves_value_and_bumps_snapshot(self) -> None:
-        from app.core.migration.reconcile import post_apply_diff
-        from app.core.migration.reporting import Diff
+        from migration.reconcile import post_apply_diff
+        from migration.reporting import Diff
 
         upsert_calls: list[dict[str, object]] = []
 
@@ -289,8 +289,8 @@ class TestRoundTripLegacyToWebDerivesState:
         when the stored web value matches the derived value, the
         verdict is ``MATCHED``.
         """
-        from app.core.migration.reconcile import post_apply_diff
-        from app.core.migration.reporting import Diff
+        from migration.reconcile import post_apply_diff
+        from migration.reporting import Diff
 
         upsert_calls: list[dict[str, object]] = []
 
@@ -380,8 +380,8 @@ class TestManualOverrideNeedsReview:
         comparator's Q2 path picks ``NEEDS_REVIEW`` and tags the
         outcome with ``web_manual_override_detected``.
         """
-        from app.core.migration.reconcile import post_apply_diff
-        from app.core.migration.reporting import Diff
+        from migration.reconcile import post_apply_diff
+        from migration.reporting import Diff
 
         upsert_calls: list[dict[str, object]] = []
         update_calls: list[dict[str, object]] = []

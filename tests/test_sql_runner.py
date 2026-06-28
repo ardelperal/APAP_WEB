@@ -1,4 +1,4 @@
-"""Tests for ``app.core.migration.sql_runner``.
+"""Tests for ``migration.sql_runner``.
 
 The runner records applied migrations in ``web_sql_migrations`` and
 re-applies any ``*.sql`` file under ``app/core/migration/sql/`` that is

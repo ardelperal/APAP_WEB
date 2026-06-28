@@ -45,7 +45,7 @@ environments where ``psutil`` isn't pulled in.
 - ``acquire_lock(path, ttl_seconds=1800)``.
 - ``release_lock(path)``.
 - ``check_lock(path) -> LockInfo | None``.
-- ``LockActiveError`` (re-exported from ``app.core.migration``).
+- ``LockActiveError`` (re-exported from ``migration``).
 - ``check_msaccess_running() -> list[int]``.
 """
 
@@ -87,7 +87,7 @@ if TYPE_CHECKING:
     # Solo para anotaciones; el import real se hace lazy en
     # ``acquire_lock`` para evitar el ciclo
     # ``__init__`` → ``lock`` → ``__init__``.
-    from app.core.migration import LockActiveError
+    from migration import LockActiveError
 
 
 DEFAULT_TTL_SECONDS: int = 1800
@@ -197,7 +197,7 @@ def acquire_lock(
         OSError: si hay un error de I/O al escribir el lock.
     """
     # Importación lazy para romper el ciclo ``__init__`` → ``lock``.
-    from app.core.migration import LockActiveError
+    from migration import LockActiveError
 
     lock_path = Path(lock_path)
     parent = lock_path.parent

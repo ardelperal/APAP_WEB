@@ -44,10 +44,10 @@ from typing import Any
 import httpx
 
 from app.core.insforge import InsForgeClient
-from app.core.migration.cli import (
+from migration.cli import (
     _format_row_for_check_only,
 )
-from app.core.migration.cli import (
+from migration.cli import (
     main as cli_main,
 )
 
@@ -125,7 +125,7 @@ def _needs_review_row(
 
 def _shadow_state_mapping_with_current_state_derived():
     """Synthetic ``animales`` TableMapping with ``current_state`` as derived."""
-    from app.core.migration.mappings import ColumnMapping, TableMapping
+    from migration.mappings import ColumnMapping, TableMapping
 
     return TableMapping(
         version="1.0",
@@ -155,7 +155,7 @@ def _shadow_state_mapping_with_current_state_derived():
 
 def _voluntario_mapping_with_dni_preserve():
     """Synthetic ``voluntarios`` TableMapping with ``DNI`` as preserve."""
-    from app.core.migration.mappings import ColumnMapping, TableMapping
+    from migration.mappings import ColumnMapping, TableMapping
 
     return TableMapping(
         version="1.0",
@@ -184,7 +184,7 @@ def _voluntario_mapping_with_dni_preserve():
 
 
 def _empty_sync_state():
-    from app.core.migration.sync_state import SyncState
+    from migration.sync_state import SyncState
 
     return SyncState()
 
@@ -199,7 +199,7 @@ class TestShadowSchemaFollowUps:
     """
 
     def test_shadow_table_sql_has_derived_value_column(self) -> None:
-        from app.core.migration.shadow_state import SHADOW_TABLE_SQL
+        from migration.shadow_state import SHADOW_TABLE_SQL
 
         assert "derived_value" in SHADOW_TABLE_SQL, (
             "SHADOW_TABLE_SQL must declare derived_value (JSONB) so the CLI "
@@ -207,7 +207,7 @@ class TestShadowSchemaFollowUps:
         )
 
     def test_shadow_table_sql_has_derived_at_column(self) -> None:
-        from app.core.migration.shadow_state import SHADOW_TABLE_SQL
+        from migration.shadow_state import SHADOW_TABLE_SQL
 
         assert "derived_at" in SHADOW_TABLE_SQL, (
             "SHADOW_TABLE_SQL must declare derived_at (TIMESTAMPTZ) so the "
@@ -245,7 +245,7 @@ class TestShadowRepositoryFollowUps:
     def test_update_derived_value_emits_scoped_update(self) -> None:
         """``update_derived_value`` writes ``derived_value`` for the row
         identified by the unique key -- not for any other row."""
-        from app.core.migration.shadow_state import ShadowStateRepository
+        from migration.shadow_state import ShadowStateRepository
 
         client, captured = self._client_capturing()
         repo = ShadowStateRepository(client)
@@ -270,7 +270,7 @@ class TestShadowRepositoryFollowUps:
     def test_update_derived_at_emits_scoped_update(self) -> None:
         """``update_derived_at`` writes ``derived_at`` for the row
         identified by the unique key."""
-        from app.core.migration.shadow_state import ShadowStateRepository
+        from migration.shadow_state import ShadowStateRepository
 
         client, captured = self._client_capturing()
         repo = ShadowStateRepository(client)
@@ -306,7 +306,7 @@ class TestReconcileDerivedFollowUps:
         """After a MATCHED derivation, the shadow row carries
         ``derived_value`` = the derived state and ``derived_at`` = the
         snapshot timestamp."""
-        from app.core.migration.reconcile import reconcile_after_legacy_write
+        from migration.reconcile import reconcile_after_legacy_write
 
         update_derived_value_calls: list[dict[str, object]] = []
         update_derived_at_calls: list[dict[str, object]] = []
@@ -555,7 +555,7 @@ class TestCliInteractiveLock:
         to point at the tempdir.
         """
         # Patch the CLI's lock resolver to use the tempdir.
-        from app.core.migration import cli as cli_mod
+        from migration import cli as cli_mod
 
         lock_path = tmp_path / "migration.lock"
         original_resolver = cli_mod._resolve_lock_path

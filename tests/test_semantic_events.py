@@ -32,7 +32,7 @@ def _mapping_for(legacy_table: str) -> object:
     YAMLs would couple these tests to PR 3 + 5; the stub keeps PR 2
     autonomous.
     """
-    from app.core.migration.mappings import FkLookup, TableMapping
+    from migration.mappings import FkLookup, TableMapping
 
     return TableMapping(
         version="1.0",
@@ -253,8 +253,8 @@ class TestSemanticEvents:
         expected_metadata_key: str | None,
     ) -> None:
         """One parametrized test per diff→event combination (8 cases)."""
-        from app.core.migration.reporting import Diff
-        from app.core.migration.semantic_events import translate_diff
+        from migration.reporting import Diff
+        from migration.semantic_events import translate_diff
 
         diff = Diff(
             op=op,  # type: ignore[arg-type]
@@ -304,16 +304,16 @@ class TestSemanticEventsEdgeCases:
 
     def test_noop_diff_returns_empty_list(self) -> None:
         """A NOOP diff produces no event (diff engine already filtered)."""
-        from app.core.migration.reporting import Diff
-        from app.core.migration.semantic_events import translate_diff
+        from migration.reporting import Diff
+        from migration.semantic_events import translate_diff
 
         diff = Diff(op="NOOP", key="1")
         assert translate_diff(diff, _mapping_for("TbEntradas")) == []
 
     def test_delete_diff_returns_empty_list(self) -> None:
         """A DELETE diff produces no event (deletes are not lifecycle transitions)."""
-        from app.core.migration.reporting import Diff
-        from app.core.migration.semantic_events import translate_diff
+        from migration.reporting import Diff
+        from migration.semantic_events import translate_diff
 
         diff = Diff(op="DELETE", key="1", legacy_row={"IDEntrada": 1})
         assert translate_diff(diff, _mapping_for("TbEntradas")) == []
@@ -324,8 +324,8 @@ class TestSemanticEventsEdgeCases:
         Ficha registration is not a lifecycle transition; only death
         registration triggers a DEATH_RECORDED event.
         """
-        from app.core.migration.reporting import Diff
-        from app.core.migration.semantic_events import translate_diff
+        from migration.reporting import Diff
+        from migration.semantic_events import translate_diff
 
         diff = Diff(
             op="INSERT",
@@ -341,8 +341,8 @@ class TestSemanticEventsEdgeCases:
         The event timestamp MUST come from FEntrada; without it the
         translator refuses to invent one.
         """
-        from app.core.migration.reporting import Diff
-        from app.core.migration.semantic_events import translate_diff
+        from migration.reporting import Diff
+        from migration.semantic_events import translate_diff
 
         diff = Diff(
             op="INSERT",
@@ -354,8 +354,8 @@ class TestSemanticEventsEdgeCases:
 
     def test_update_acogida_without_ffinal_returns_empty(self) -> None:
         """UPDATE on TbAcogidaAnimal without FFinal transition → no event."""
-        from app.core.migration.reporting import Diff
-        from app.core.migration.semantic_events import translate_diff
+        from migration.reporting import Diff
+        from migration.semantic_events import translate_diff
 
         diff = Diff(
             op="UPDATE",
@@ -367,8 +367,8 @@ class TestSemanticEventsEdgeCases:
 
     def test_update_adopcion_without_fdevolucion_returns_empty(self) -> None:
         """UPDATE on TbAdopcion without FDevolucion transition → no event."""
-        from app.core.migration.reporting import Diff
-        from app.core.migration.semantic_events import translate_diff
+        from migration.reporting import Diff
+        from migration.semantic_events import translate_diff
 
         diff = Diff(
             op="UPDATE",
@@ -380,8 +380,8 @@ class TestSemanticEventsEdgeCases:
 
     def test_update_ficha_without_fdefuncion_returns_empty(self) -> None:
         """UPDATE on TbFichaAnimal without FDefuncion transition → no event."""
-        from app.core.migration.reporting import Diff
-        from app.core.migration.semantic_events import translate_diff
+        from migration.reporting import Diff
+        from migration.semantic_events import translate_diff
 
         diff = Diff(
             op="UPDATE",
@@ -393,8 +393,8 @@ class TestSemanticEventsEdgeCases:
 
     def test_update_entrada_without_end_dates_returns_empty(self) -> None:
         """UPDATE on TbEntradas without FSalida and without FEntregaAPropietario → no event."""
-        from app.core.migration.reporting import Diff
-        from app.core.migration.semantic_events import translate_diff
+        from migration.reporting import Diff
+        from migration.semantic_events import translate_diff
 
         diff = Diff(
             op="UPDATE",
@@ -410,8 +410,8 @@ class TestSemanticEventsEdgeCases:
         Mirrors what the Dysflow snapshot loader produces for Access
         date columns.
         """
-        from app.core.migration.reporting import Diff
-        from app.core.migration.semantic_events import translate_diff
+        from migration.reporting import Diff
+        from migration.semantic_events import translate_diff
 
         diff = Diff(
             op="INSERT",
@@ -433,8 +433,8 @@ class TestSemanticEventsEdgeCases:
         ``MigrationReport.reconciliation_errors`` so the operator can
         fix the legacy data; a silent drop would hide a real bug.
         """
-        from app.core.migration.reporting import Diff
-        from app.core.migration.semantic_events import translate_diff
+        from migration.reporting import Diff
+        from migration.semantic_events import translate_diff
 
         diff = Diff(
             op="INSERT",
@@ -447,8 +447,8 @@ class TestSemanticEventsEdgeCases:
 
     def test_insert_with_uncoerceable_int_raises_value_error(self) -> None:
         """A legacy PK that cannot be coerced to int raises ``ValueError``."""
-        from app.core.migration.reporting import Diff
-        from app.core.migration.semantic_events import translate_diff
+        from migration.reporting import Diff
+        from migration.semantic_events import translate_diff
 
         diff = Diff(
             op="INSERT",
@@ -466,8 +466,8 @@ class TestSemanticEventsEdgeCases:
         Anything else is silently dropped (the row still gets written
         via the regular applier; it just doesn't surface an event).
         """
-        from app.core.migration.reporting import Diff
-        from app.core.migration.semantic_events import translate_diff
+        from migration.reporting import Diff
+        from migration.semantic_events import translate_diff
 
         diff = Diff(
             op="INSERT",
@@ -507,8 +507,8 @@ class TestDeathRecordedChipNotInt:
         The pre-fix implementation raised
         ``ValueError: Cannot coerce legacy 'NCHIP' value 'ABC-123' into int``.
         """
-        from app.core.migration.reporting import Diff
-        from app.core.migration.semantic_events import translate_diff
+        from migration.reporting import Diff
+        from migration.semantic_events import translate_diff
 
         diff = Diff(
             op="UPDATE",
@@ -533,8 +533,8 @@ class TestDeathRecordedChipNotInt:
         Mirrors a common APAP chip pattern (year prefix + letter
         suffix). Must NOT raise and must NOT silently truncate.
         """
-        from app.core.migration.reporting import Diff
-        from app.core.migration.semantic_events import translate_diff
+        from migration.reporting import Diff
+        from migration.semantic_events import translate_diff
 
         diff = Diff(
             op="UPDATE",
@@ -560,8 +560,8 @@ class TestDeathRecordedChipNotInt:
         on int coercion (the leading zero), and (2) the chip identity
         is already on the parent FK after PR 4.
         """
-        from app.core.migration.reporting import Diff
-        from app.core.migration.semantic_events import translate_diff
+        from migration.reporting import Diff
+        from migration.semantic_events import translate_diff
 
         diff = Diff(
             op="UPDATE",

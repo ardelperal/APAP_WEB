@@ -1,4 +1,4 @@
-"""Unit tests for ``app.core.migration.shadow_state``.
+"""Unit tests for ``migration.shadow_state``.
 
 PR 1 of ``web-only-feature-preservation``: CRUD for the
 ``web_only_feature_shadow`` table. The repository is a thin wrapper
@@ -31,7 +31,7 @@ import httpx
 import pytest
 
 from app.core.insforge import InsForgeClient
-from app.core.migration.shadow_state import (
+from migration.shadow_state import (
     SHADOW_TABLE_SQL,
     ShadowStateRepository,
 )

@@ -18,7 +18,7 @@ from __future__ import annotations
 class TestReconcileAfterLegacyWrite:
     """Per-row reconciliation dispatcher tests.
 
-    The function lives in ``app.core.migration.reconcile`` (PR 1 owns
+    The function lives in ``migration.reconcile`` (PR 1 owns
     that module). It takes the legacy snapshot + the web row + the
     matching ``ColumnMapping`` and writes the right ``ReconciliationOutcome``.
     """
@@ -27,7 +27,7 @@ class TestReconcileAfterLegacyWrite:
         """``preserve`` writes the shadow row and stamps ``last_legacy_snapshot_at``."""
         from datetime import UTC, datetime
 
-        from app.core.migration.reconcile import reconcile_after_legacy_write
+        from migration.reconcile import reconcile_after_legacy_write
 
         upsert_calls: list[dict[str, object]] = []
 
@@ -64,7 +64,7 @@ class TestReconcileAfterLegacyWrite:
 
     def test_fixed_strategy_is_noop(self) -> None:
         """``fixed`` does not touch the shadow state or call the derivation engine."""
-        from app.core.migration.reconcile import reconcile_after_legacy_write
+        from migration.reconcile import reconcile_after_legacy_write
 
         upsert_calls: list[object] = []
         update_calls: list[object] = []
@@ -100,7 +100,7 @@ class TestReconcileAfterLegacyWrite:
         """``derived`` invokes the derivation engine and persists MATCHED outcome."""
         from datetime import UTC, datetime
 
-        from app.core.migration.reconcile import reconcile_after_legacy_write
+        from migration.reconcile import reconcile_after_legacy_write
 
         upsert_calls: list[dict[str, object]] = []
         update_calls: list[dict[str, object]] = []
@@ -157,7 +157,7 @@ class TestReconcileAfterLegacyWrite:
         """``derived`` + manual web override after last sync → NEEDS_REVIEW."""
         from datetime import UTC, datetime
 
-        from app.core.migration.reconcile import reconcile_after_legacy_write
+        from migration.reconcile import reconcile_after_legacy_write
 
         update_calls: list[dict[str, object]] = []
 
@@ -235,7 +235,7 @@ class TestReconcileAfterLegacyWrite:
 #     (preserve shadow state, no re-derivation).
 #
 # TDD note: tests are RED until ``post_apply_diff`` lands in
-# ``app.core.migration.reconcile`` (PR 4/6 implementation).
+# ``migration.reconcile`` (PR 4/6 implementation).
 
 
 class TestPostApplyDiffHook:
@@ -253,8 +253,8 @@ class TestPostApplyDiffHook:
         """
         from datetime import UTC, datetime
 
-        from app.core.migration.reconcile import post_apply_diff
-        from app.core.migration.reporting import Diff
+        from migration.reconcile import post_apply_diff
+        from migration.reporting import Diff
 
         upsert_calls: list[dict[str, object]] = []
 
@@ -321,8 +321,8 @@ class TestPostApplyDiffHook:
         """
         from datetime import UTC, datetime
 
-        from app.core.migration.reconcile import post_apply_diff
-        from app.core.migration.reporting import Diff
+        from migration.reconcile import post_apply_diff
+        from migration.reporting import Diff
 
         upsert_calls: list[dict[str, object]] = []
 
@@ -406,8 +406,8 @@ class TestPostApplyDiffHook:
         """
         from datetime import UTC, datetime
 
-        from app.core.migration.reconcile import post_apply_diff
-        from app.core.migration.reporting import Diff
+        from migration.reconcile import post_apply_diff
+        from migration.reporting import Diff
 
         upsert_calls: list[dict[str, object]] = []
 
@@ -491,8 +491,8 @@ class TestPostApplyDiffHook:
         """
         from datetime import UTC, datetime
 
-        from app.core.migration.reconcile import post_apply_diff
-        from app.core.migration.reporting import Diff
+        from migration.reconcile import post_apply_diff
+        from migration.reporting import Diff
 
         upsert_calls: list[dict[str, object]] = []
         update_calls: list[dict[str, object]] = []
@@ -578,8 +578,8 @@ class TestPostApplyDiffHook:
         """
         from datetime import UTC, datetime
 
-        from app.core.migration.reconcile import post_apply_diff
-        from app.core.migration.reporting import Diff
+        from migration.reconcile import post_apply_diff
+        from migration.reporting import Diff
 
         captured: list[tuple[str, list[object]]] = []
 
@@ -660,8 +660,8 @@ class TestPostApplyDiffHook:
         """
         from datetime import UTC, datetime
 
-        from app.core.migration.reconcile import post_apply_diff
-        from app.core.migration.reporting import Diff
+        from migration.reconcile import post_apply_diff
+        from migration.reporting import Diff
 
         class _FakeWebClient:
             def execute_sql(
@@ -726,8 +726,8 @@ class TestPostApplyDiffHook:
         """
         from datetime import UTC, datetime
 
-        from app.core.migration.reconcile import post_apply_diff
-        from app.core.migration.reporting import Diff
+        from migration.reconcile import post_apply_diff
+        from migration.reporting import Diff
 
         upsert_calls: list[dict[str, object]] = []
 
@@ -800,8 +800,8 @@ class TestPostApplyDiffAtomicity:
         """
         from datetime import UTC, datetime
 
-        from app.core.migration.reconcile import post_apply_diff
-        from app.core.migration.reporting import Diff
+        from migration.reconcile import post_apply_diff
+        from migration.reporting import Diff
 
         upsert_calls: list[dict[str, object]] = []
 
@@ -922,8 +922,8 @@ class TestPostApplyDiffAtomicity:
         """
         from datetime import UTC, datetime
 
-        from app.core.migration.reconcile import post_apply_diff
-        from app.core.migration.reporting import Diff
+        from migration.reconcile import post_apply_diff
+        from migration.reporting import Diff
 
         captured_inserts: list[tuple[str, list[object]]] = []
 
@@ -1043,7 +1043,7 @@ class TestPostApplyDiffAtomicity:
 
 def _empty_sync_state():
     """Return a fresh ``SyncState`` (no legacy↔web mappings)."""
-    from app.core.migration.sync_state import SyncState
+    from migration.sync_state import SyncState
 
     return SyncState()
 
@@ -1055,7 +1055,7 @@ def _voluntario_mapping_with_dni_preserve():
     The mapping is built inline because the full YAML loader is heavy;
     the hook only reads ``mapping.columns`` and ``mapping.legacy_table``.
     """
-    from app.core.migration.mappings import ColumnMapping, TableMapping
+    from migration.mappings import ColumnMapping, TableMapping
 
     return TableMapping(
         version="1.0",
@@ -1091,7 +1091,7 @@ def _animal_mapping_with_current_state_derived():
     + ``mapping.web_table``; everything else is filler for the pydantic
     model.
     """
-    from app.core.migration.mappings import ColumnMapping, TableMapping
+    from migration.mappings import ColumnMapping, TableMapping
 
     return TableMapping(
         version="1.0",
@@ -1128,7 +1128,7 @@ def _entrada_mapping_for_event_persistence():
     production). The mapping's ``legacy_table`` is
     ``TbEntradas`` so ``translate_diff`` produces ``INTAKE_STARTED``.
     """
-    from app.core.migration.mappings import ColumnMapping, TableMapping
+    from migration.mappings import ColumnMapping, TableMapping
 
     return TableMapping(
         version="1.0",
