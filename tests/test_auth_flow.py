@@ -142,17 +142,31 @@ def google_configured(monkeypatch: pytest.MonkeyPatch) -> None:
 # --- /login -----------------------------------------------------------------
 
 
-async def test_login_redirects_to_google_with_pkce(
+async def test_login_renders_apap_login_page(
+    client: httpx.AsyncClient,
+    google_configured: None,
+) -> None:
+    """``GET /login`` renders a passive page with an explicit Gmail link."""
+
+    response = await client.get("/login", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Entrar con Gmail" in response.text
+    assert 'href="/auth/google"' in response.text
+    assert "apap_pkce" not in response.cookies
+
+
+async def test_auth_google_redirects_to_google_with_pkce(
     client: httpx.AsyncClient,
     fake_insforge: _FakeInsForge,
     google_configured: None,
 ) -> None:
-    """``GET /login`` returns a 302 to the Google auth URL from InsForge."""
+    """``GET /auth/google`` returns a 302 to the Google auth URL from InsForge."""
     fake_insforge.start_google_oauth_response = (
         "https://accounts.google.com/o/oauth2/v2/auth?code_challenge=xyz&scope=openid+email+profile"
     )
 
-    response = await client.get("/login", follow_redirects=False)
+    response = await client.get("/auth/google", follow_redirects=False)
 
     assert response.status_code == 302
     assert response.headers["location"] == fake_insforge.start_google_oauth_response
@@ -341,7 +355,7 @@ async def test_login_apap_pkce_cookie_uses_samesite_lax_for_oauth_callback(
     while still withholding the cookie from cross-site subrequests and
     unsafe form posts.
     """
-    login_response = await client.get("/login", follow_redirects=False)
+    login_response = await client.get("/auth/google", follow_redirects=False)
     set_cookie_headers = login_response.headers.get_list("set-cookie")
     pkce_cookies = [c for c in set_cookie_headers if c.startswith("apap_pkce=")]
     assert pkce_cookies, "expected /login to set apap_pkce cookie"

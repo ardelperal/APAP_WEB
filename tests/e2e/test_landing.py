@@ -6,9 +6,9 @@ no-lifespan script that returns 503 from /login when Google OAuth
 env vars are missing; in that case we cannot observe the redirect
 chain end-to-end and the visual regression tests skip.
 
-In a configured environment (staging, where APAP_GOOGLE_CLIENT_ID is
-set) the preflight returns 200 and the visual regression runs
-against the real landing.
+    In a configured environment (staging, where APAP_GOOGLE_CLIENT_ID is
+    set) the login page returns 200 and the visual regression can confirm
+    the auth guard stops at the APAP login screen.
 """
 
 from __future__ import annotations
@@ -48,8 +48,7 @@ def test_landing_redirects_anonymous_users_to_login(
 
     response = page.goto(f"{base_url}/", wait_until="domcontentloaded")
     assert response is not None
-    assert response.status == 302
-    assert response.headers.get("location", "").endswith("/login")
+    assert response.status in {200, 302}
     assert page.url.endswith("/login"), (
         f"/ without session should redirect to /login, got: {page.url}"
     )

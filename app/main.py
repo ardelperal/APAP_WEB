@@ -6,7 +6,8 @@ of issue #17 (Fase 1 — esqueleto) and #16 (Fase 2 — auth). It exposes:
 
 - ``GET /``              → marketing landing page (auth required)
 - ``GET /healthz``       → JSON health probe used by Docker / Coolify (CD-02, public)
-- ``GET /login``         → starts the InsForge-hosted Google OAuth flow (public)
+- ``GET /login``         → renders the APAP login page (public)
+- ``GET /auth/google``   → starts the InsForge-hosted Google OAuth flow (public)
 - ``GET /auth/callback`` → exchanges the ``insforge_code`` (or legacy ``code``)
                              for an InsForge JWT and issues a session cookie
 - ``GET /logout``        → clears the session cookie (any user)
@@ -85,6 +86,7 @@ PUBLIC_PATHS = frozenset(
     {
         "/healthz",
         "/login",
+        "/auth/google",
         "/auth/callback",
         "/logout",
     }
@@ -269,6 +271,35 @@ def create_app() -> FastAPI:
 
     @application.get("/login")
     def login(
+        request: Request,
+    ) -> Response:
+        """Render APAP's login page.
+
+        This route is intentionally passive. Starting OAuth directly from
+        ``/login`` creates a redirect loop when ``/auth/callback`` cannot
+        complete (for example, missing/expired PKCE cookie): callback -> login
+        -> provider -> callback forever. The user must click the Gmail button,
+        which posts no data and simply navigates to ``/auth/google``.
+        """
+        settings = config_module.get_settings()
+        if not settings.google_client_id or not settings.google_client_secret:
+            return JSONResponse(
+                {
+                    "error": (
+                        "Google OAuth no está configurado: define "
+                        "APAP_GOOGLE_CLIENT_ID y APAP_GOOGLE_CLIENT_SECRET."
+                    )
+                },
+                status_code=503,
+            )
+        return templates.TemplateResponse(
+            request=request,
+            name="login.html",
+            context={"app_name": settings.app_name},
+        )
+
+    @application.get("/auth/google")
+    def start_google_login(
         client: InsForgeClient = Depends(get_insforge_client),
     ) -> Response:
         """Start the Google OAuth flow via InsForge.

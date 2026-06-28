@@ -38,10 +38,10 @@ the manual review is a defence-in-depth backstop, not a blocker.
 
 ## Scope
 
-### Templates (13 — exceeds the 8 listed in spec REQ-XSS-1)
+### Templates (14 — exceeds the 8 listed in spec REQ-XSS-1)
 
-The spec REQ-XSS-1 names 8 templates. The repo actually contains **13** under
-`app/templates/`. The audit covers all 13 (defence in depth); the 5
+The spec REQ-XSS-1 names 8 templates. The repo actually contains **14** under
+`app/templates/`. The audit covers all 14 (defence in depth); the 6
 additional templates are listed below with a note explaining why they were
 included beyond the spec list.
 
@@ -114,7 +114,7 @@ The audit combines three independent checks. A finding in any check
 promotes to the severity ladder (High/Medium/Low).
 
 1. **Auto-test (REQ-XSS-2)** — `tests/test_xss_audit.py` parametrizes
-   over 13 templates × up-to-7 user-controlled fields × 3 XSS patterns
+   over 14 templates × up-to-7 user-controlled fields × 3 XSS patterns
    (script-tag, event-handler, SVG). For each `(template, field, pattern)`
    triple, the test renders the template through the production
    `Jinja2Templates` instance with the pattern injected into that field
@@ -133,7 +133,7 @@ promotes to the severity ladder (High/Medium/Low).
    1 reflected-XSS POST + 3 AST guards = 15 tests, 15 PASS, 0 FAIL.**
 
 3. **Code-based scan (REQ-XSS-3)** — combined with the auto-test report
-   here. Performed by reading all 13 templates and all 22 route handlers
+   here. Performed by reading all 14 templates and all 22 route handlers
    (see §Code-based scan findings).
 
 4. **Manual browser review (REQ-XSS-3)** — PENDING. Operator MUST open
@@ -278,7 +278,7 @@ post-merge and append findings to the §Manual review findings table below.
 
 ### Per-template checklist
 
-For each of the 13 templates:
+For each of the 14 templates:
 
 1. **Open in browser**: render the template at its corresponding URL
    (e.g., `http://staging.apap.local/animales/new`).

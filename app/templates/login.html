@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block title %}Iniciar sesión · {{ app_name }}{% endblock %}
+
+{% block content %}
+  <section class="mx-auto max-w-3xl py-10 sm:py-16">
+    <div class="overflow-hidden rounded-card border border-border bg-surface shadow-card">
+      <div class="grid gap-0 md:grid-cols-[1.1fr_0.9fr]">
+        <div class="p-8 sm:p-10">
+          <p class="text-sm font-semibold uppercase tracking-[0.2em] text-primary">
+            Acceso privado APAP
+          </p>
+          <h1 class="mt-4 text-3xl font-bold tracking-tight text-text sm:text-4xl">
+            Entra para gestionar animales, entradas y voluntariado.
+          </h1>
+          <p class="mt-4 text-base leading-7 text-text-muted">
+            Usa tu cuenta autorizada de Gmail. Si tu cuenta todavía no tiene permiso,
+            la aplicación te mostrará un aviso antes de acceder a los módulos internos.
+          </p>
+
+          <div class="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
+            <a
+              href="/auth/google"
+              class="inline-flex items-center justify-center gap-3 rounded-card bg-primary px-5 py-3 text-sm font-semibold text-white shadow-card transition-colors hover:bg-primary-dark focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-bg"
+            >
+              <span aria-hidden="true" class="flex h-6 w-6 items-center justify-center rounded-full bg-white text-sm font-bold text-primary">G</span>
+              Entrar con Gmail
+            </a>
+            <span class="text-sm text-text-muted">
+              Sesión segura con Google OAuth.
+            </span>
+          </div>
+        </div>
+
+        <aside class="bg-gradient-to-br from-primary-dark via-primary to-primary-light p-8 text-white sm:p-10">
+          <div class="flex h-full flex-col justify-between gap-8">
+            <div>
+              <span class="inline-flex rounded-full bg-white/15 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em]">
+                🐾 APAP
+              </span>
+              <p class="mt-6 text-2xl font-semibold leading-tight">
+                Un único acceso para trabajar con los datos de la protectora.
+              </p>
+            </div>
+            <p class="text-sm leading-6 text-white/80">
+              Si el navegador vuelve a esta pantalla, pulsa de nuevo “Entrar con Gmail”.
+              No se iniciará ningún bucle automático.
+            </p>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </section>
+{% endblock %}

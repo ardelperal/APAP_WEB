@@ -11,7 +11,7 @@ How the audit reaches PASS:
   - Starlette's ``Jinja2Templates`` constructor defaults ``autoescape=True``
     for ``.html`` files; therefore ``{{ user_input }}`` is HTML-escaped
     by the Jinja2 renderer.
-  - None of the 13 templates under ``app/templates/`` use the ``|safe``
+  - None of the 14 templates under ``app/templates/`` use the ``|safe``
     filter and none of the route handlers use ``Markup()`` (see
     ``docs/audits/xss-audit-2026-Q2.md`` for the code-based scan).
   - Result: every parametrized assertion passes. If any test FAILS, that
@@ -23,10 +23,10 @@ Coverage:
     ``animales/detail.html``, ``entradas/form.html``,
     ``entradas/detail.html``, ``voluntarios/form.html``,
     ``voluntarios/detail.html``).
-  - Plus the 5 additional templates the repo actually contains
-    (``index.html``, ``unauthorized.html``, ``animales/list.html``,
-    ``entradas/list.html``, ``voluntarios/list.html``). REQ-XSS-1
-    counts "the 8 templates"; we cover all 13 (defence in depth) and
+  - Plus the 6 additional templates the repo actually contains
+    (``index.html``, ``login.html``, ``unauthorized.html``,
+    ``animales/list.html``, ``entradas/list.html``, ``voluntarios/list.html``).
+    REQ-XSS-1 counts "the 8 templates"; we cover all 14 (defence in depth) and
     document the discrepancy in the audit doc.
 
 Patterns per spec REQ-XSS-2:
@@ -295,11 +295,16 @@ TEMPLATE_SPECS: list[tuple[str, list[str], dict[str, Any]]] = [
         ],
         {"user": _BASE_USER, "voluntario": _BASE_VOLUNTARIO_DETAIL, "roles": ["intake"]},
     ),
-    # --- 5 additional templates the repo contains (defence in depth) ---
+    # --- 6 additional templates the repo contains (defence in depth) ---
     (
         "index.html",
         ["app_name", "version", "user.email", "user.role"],
         {"app_name": "APAP_WEB", "version": "0.1.0", "user": _BASE_USER},
+    ),
+    (
+        "login.html",
+        ["app_name"],
+        {"app_name": "APAP_WEB"},
     ),
     (
         "unauthorized.html",
@@ -461,10 +466,10 @@ def test_jinja2templates_default_autoescape_is_true() -> None:
         )
 
 
-def test_audit_covers_all_thirteen_templates() -> None:
+def test_audit_covers_all_fourteen_templates() -> None:
     """The audit MUST cover every ``.html`` under ``app/templates/``.
 
-    Hard-coded count (13) protects the audit against silent template
+    Hard-coded count (14) protects the audit against silent template
     additions: if a new template ships without a corresponding entry
     in ``TEMPLATE_SPECS``, this test fails and forces the audit owner
     to extend the coverage.
