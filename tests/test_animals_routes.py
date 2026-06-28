@@ -1,10 +1,11 @@
-"""Route-level tests for the animales module (TDD para refactor de T3).
+"""Route-level tests for the animales module.
 
-El service ya esta cubierto en ``test_animals.py`` con ``MockTransport``.
-Estos tests ejercen el ciclo completo request/response contra el
-router de animales, verificando que el handler delega en el service
-despues del refactor ``code-quality-fixes T3`` (mueve el SQL del
-handler al service).
+The service layer is covered in ``test_animals.py`` with
+``MockTransport``. These tests exercise the full request/response
+cycle against the animales router to verify the handler delegates
+to the service. The form-shape contract (single ``AnimalForm``
+model, not 24 individual ``Form(...)`` params) is pinned at the
+end of this file.
 
 Cobertura:
 
@@ -18,6 +19,7 @@ Cobertura:
 
 from __future__ import annotations
 
+import inspect
 from typing import Any
 
 import httpx
@@ -26,6 +28,11 @@ import pytest
 from app.core.insforge import InsForgeClient
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
+from app.modules.animals import routes as animals_routes
+from app.modules.animals.forms import (
+    ANIMAL_FORM_FIELDS,
+    ANIMAL_FORM_REQUIRED_FIELDS,
+)
 from tests.conftest import make_csrf_request
 
 
@@ -224,3 +231,131 @@ async def test_delete_animal_view_con_id_inexistente_retorna_404(
     )
 
     assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Single source of truth: the routes MUST use AnimalForm, not 24 Form() params
+# ---------------------------------------------------------------------------
+
+
+def _animal_form_params(func):
+    """Return the parameters of ``func`` whose annotation is ``AnimalForm``.
+
+    Filters out path / query / dep parameters so we count only the
+    form-shape parameters, whatever their name.
+
+    ``from __future__ import annotations`` makes all annotations lazy
+    strings, so we compare by ``str(annotation)`` against
+    ``"AnimalForm"`` (which matches both the string form and the
+    resolved class).
+    """
+    try:
+        hints = inspect.get_annotations(func)
+    except Exception:
+        hints = {}
+    sig = inspect.signature(func)
+    return [
+        p
+        for name, p in sig.parameters.items()
+        if str(hints.get(name)) == "AnimalForm"
+    ]
+
+
+def test_create_animal_view_uses_animal_form_not_24_form_params():
+    """``create_animal_view`` MUST take a single ``AnimalForm`` parameter.
+
+    The previous signature had 24 ``Form(...)`` parameters + 2 deps.
+    Adding a column meant editing two places; a typo in either was
+    silent. The new contract: one model, one place.
+    """
+    params = _animal_form_params(animals_routes.create_animal_view)
+    assert len(params) == 1, (
+        f"create_animal_view must take exactly one AnimalForm parameter, "
+        f"got {len(params)}: {[p.name for p in params]!r}"
+    )
+
+
+def test_update_animal_view_uses_animal_form_not_24_form_params():
+    """``update_animal_view`` MUST take the same ``AnimalForm`` shape."""
+    params = _animal_form_params(animals_routes.update_animal_view)
+    assert len(params) == 1, (
+        f"update_animal_view must take exactly one AnimalForm parameter, "
+        f"got {len(params)}: {[p.name for p in params]!r}"
+    )
+
+
+def test_create_and_update_forms_use_the_same_animal_form():
+    """Both routes MUST use the SAME ``AnimalForm`` model.
+
+    If the two routes use different models, a column rename would
+    silently fix one handler and break the other.
+    """
+    create_form = _animal_form_params(animals_routes.create_animal_view)[0]
+    update_form = _animal_form_params(animals_routes.update_animal_view)[0]
+    assert create_form.annotation is update_form.annotation, (
+        "create_animal_view and update_animal_view must use the same "
+        "AnimalForm model; a column rename in one but not the other "
+        "would silently break the divergent handler."
+    )
+
+
+def test_routes_no_longer_declare_individual_form_params():
+    """The 24-individual-Form(...) pattern MUST be gone.
+
+    Regression test for the dedup: if a future change re-introduces
+    ``NCHIP: str = Form(...)`` in the route signature, this test
+    catches it. The AnimalForm parameter itself is allowed (it IS
+    the new single source of truth).
+
+    Compares the annotation by ``__name__`` because
+    ``from __future__ import annotations`` makes all annotations lazy
+    strings; ``hints.get(name) is AnimalForm`` would always be False
+    because the string ``"AnimalForm"`` is not the class object.
+    """
+    for func in (
+        animals_routes.create_animal_view,
+        animals_routes.update_animal_view,
+    ):
+        try:
+            hints = inspect.get_annotations(func)
+        except Exception:
+            hints = {}
+        sig = inspect.signature(func)
+        for name, param in sig.parameters.items():
+            annotation = hints.get(name)
+            # Allow the AnimalForm model itself (the new single source
+            # of truth) and any non-annotated parameter (Request,
+            # path / dep, etc.).
+            if annotation is inspect.Parameter.empty:
+                continue
+            # ``from __future__ import annotations`` makes the
+            # annotation the string "AnimalForm"; compare by str()
+            # so both the string and the resolved class are accepted.
+            if str(annotation) == "AnimalForm":
+                continue
+            if (
+                hasattr(param.default, "__class__")
+                and param.default.__class__.__name__ == "Form"
+            ):
+                pytest.fail(
+                    f"{func.__name__}({name}: {annotation}) carries a "
+                    f"Form() default — use the AnimalForm model instead so "
+                    f"the column list lives in ONE place."
+                )
+
+
+def test_animal_form_fields_match_service_insert_columns():
+    """The form's 24 fields MUST equal the service's 24 ``_INSERT_COLUMNS``."""
+    assert len(ANIMAL_FORM_FIELDS) == 24, (
+        f"AnimalForm must have 24 fields, got {len(ANIMAL_FORM_FIELDS)}: "
+        f"{ANIMAL_FORM_FIELDS!r}"
+    )
+    assert ANIMAL_FORM_REQUIRED_FIELDS == (
+        "NCHIP",
+        "NombreAnimal",
+        "Especie",
+        "Sexo",
+        "FNacimiento",
+    ), (
+        f"AnimalForm required fields drifted; got {ANIMAL_FORM_REQUIRED_FIELDS!r}"
+    )

@@ -34,6 +34,7 @@ from app.core.auth_dependencies import (
 from app.core.csrf import csrf_token_context_processor
 from app.core.insforge import InsForgeClient, InsForgeError
 from app.modules.animals import service as animals_service
+from app.modules.animals.forms import AnimalForm
 
 # Los handlers de create/update reciben los campos ``Especie`` y
 # ``Sexo`` del form (mismo nombre que las columnas del schema y los
@@ -149,49 +150,23 @@ def new_animal_form(
 @router.post("", response_class=HTMLResponse)
 def create_animal_view(
     request: Request,
-    NCHIP: str = Form(...),
-    NombreAnimal: str = Form(...),
-    Especie: str = Form(...),
-    Sexo: str = Form(...),
-    FNacimiento: str = Form(...),
-    TraeNChip: str | None = Form(None),
-    FIMPLANTACIONCHIP: str | None = Form(None),
-    Raza: str | None = Form(None),
-    Color: str | None = Form(None),
-    Pelo: str | None = Form(None),
-    Tamano: str | None = Form(None),
-    Caracter: str | None = Form(None),
-    FDefuncion: str | None = Form(None),
-    Terapia: str | None = Form(None),
-    Observaciones: str | None = Form(None),
-    NombreFoto: str | None = Form(None),
-    Cartilla: str | None = Form(None),
-    Eutanasia: str | None = Form(None),
-    RazaPPP: str | None = Form(None),
-    Mestizo: str | None = Form(None),
-    EutanasiaOtrasCausas: str | None = Form(None),
-    EutanasiaEnfermedad: str | None = Form(None),
-    UltimoEstadoAntesDeFallecido: str | None = Form(None),
-    ComunicacionARIAC: str | None = Form(None),
+    form: AnimalForm = Form(...),  # type: ignore[assignment]
     user: Response | dict = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
-    """Procesa el submit del formulario. En exito, redirect al detalle."""
+    """Procesa el submit del formulario. En exito, redirect al detalle.
+
+    Uses ``AnimalForm`` (Pydantic v2 with ``Form()``) as the single
+    source of truth for the 24 form fields. Adding a column means
+    adding it to ``app.modules.animals.forms.AnimalForm`` (which
+    asserts the field set matches the service's ``_INSERT_COLUMNS``
+    at import time) — the two routes cannot drift.
+    """
     if (early := return_early_if_response(user)) is not None:
         return early
-    form_data: dict[str, Any] = _form_data_to_params({
-        "NCHIP": NCHIP, "NombreAnimal": NombreAnimal, "Especie": Especie,
-        "Sexo": Sexo, "FNacimiento": FNacimiento, "TraeNChip": TraeNChip,
-        "FIMPLANTACIONCHIP": FIMPLANTACIONCHIP, "Raza": Raza, "Color": Color,
-        "Pelo": Pelo, "Tamano": Tamano, "Caracter": Caracter,
-        "FDefuncion": FDefuncion, "Terapia": Terapia, "Observaciones": Observaciones,
-        "NombreFoto": NombreFoto, "Cartilla": Cartilla, "Eutanasia": Eutanasia,
-        "RazaPPP": RazaPPP, "Mestizo": Mestizo,
-        "EutanasiaOtrasCausas": EutanasiaOtrasCausas,
-        "EutanasiaEnfermedad": EutanasiaEnfermedad,
-        "UltimoEstadoAntesDeFallecido": UltimoEstadoAntesDeFallecido,
-        "ComunicacionARIAC": ComunicacionARIAC,
-    })
+    form_data: dict[str, Any] = _form_data_to_params(
+        form.model_dump(exclude_none=True)
+    )
 
     try:
         animal = animals_service.create_animal(client, form_data)
@@ -288,54 +263,19 @@ def edit_animal_form(
 def update_animal_view(
     animal_id: str,
     request: Request,
-    NCHIP: str = Form(...),
-    NombreAnimal: str = Form(...),
-    Especie: str = Form(...),
-    Sexo: str = Form(...),
-    FNacimiento: str = Form(...),
-    TraeNChip: str | None = Form(None),
-    FIMPLANTACIONCHIP: str | None = Form(None),
-    Raza: str | None = Form(None),
-    Color: str | None = Form(None),
-    Pelo: str | None = Form(None),
-    Tamano: str | None = Form(None),
-    Caracter: str | None = Form(None),
-    FDefuncion: str | None = Form(None),
-    Terapia: str | None = Form(None),
-    Observaciones: str | None = Form(None),
-    NombreFoto: str | None = Form(None),
-    Cartilla: str | None = Form(None),
-    Eutanasia: str | None = Form(None),
-    RazaPPP: str | None = Form(None),
-    Mestizo: str | None = Form(None),
-    EutanasiaOtrasCausas: str | None = Form(None),
-    EutanasiaEnfermedad: str | None = Form(None),
-    UltimoEstadoAntesDeFallecido: str | None = Form(None),
-    ComunicacionARIAC: str | None = Form(None),
+    form: AnimalForm = Form(...),  # type: ignore[assignment]
     user: Response | dict = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Procesa el submit de edicion. Redirect al detalle en exito.
 
-    Delega toda la logica de validacion + SQL en
-    ``animals_service.update_animal``; el handler queda como capa fina
-    que solo traduce ``ValueError`` -> 422 y exito -> redirect 303.
+    Same ``AnimalForm`` as ``create_animal_view`` — single source of
+    truth (see ``app/modules/animals/forms.py``). The handler stays
+    thin: it only translates ``ValueError`` -> 422 and success -> 303.
     """
     if (early := return_early_if_response(user)) is not None:
         return early
-    form_data = _form_data_to_params({
-        "NCHIP": NCHIP, "NombreAnimal": NombreAnimal, "Especie": Especie,
-        "Sexo": Sexo, "FNacimiento": FNacimiento, "TraeNChip": TraeNChip,
-        "FIMPLANTACIONCHIP": FIMPLANTACIONCHIP, "Raza": Raza, "Color": Color,
-        "Pelo": Pelo, "Tamano": Tamano, "Caracter": Caracter,
-        "FDefuncion": FDefuncion, "Terapia": Terapia, "Observaciones": Observaciones,
-        "NombreFoto": NombreFoto, "Cartilla": Cartilla, "Eutanasia": Eutanasia,
-        "RazaPPP": RazaPPP, "Mestizo": Mestizo,
-        "EutanasiaOtrasCausas": EutanasiaOtrasCausas,
-        "EutanasiaEnfermedad": EutanasiaEnfermedad,
-        "UltimoEstadoAntesDeFallecido": UltimoEstadoAntesDeFallecido,
-        "ComunicacionARIAC": ComunicacionARIAC,
-    })
+    form_data = _form_data_to_params(form.model_dump(exclude_none=True))
 
     try:
         animals_service.update_animal(client, animal_id, form_data)
