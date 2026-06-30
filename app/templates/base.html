@@ -1,5 +1,5 @@
 <!doctype html>
-{# APAP_WEB — base template.
+{# APAP — base template.
 
    Global chrome: APAP sticky nav, page container, footer.
    Templates extend this and fill {% block content %}.
@@ -11,17 +11,15 @@
    Nav login/logout adapts to whatever the calling route put in
    context. Routes that omit ``user`` show a static "Iniciar sesión"
    link; routes that pass ``user`` show the email + a logout form.
-   We use ``is defined`` so the missing-context case is graceful —
-   the base template does not have access to FastAPI's
-   ``Depends(get_current_user_optional)`` by itself, and we cannot
-   touch ``app/main.py`` in this change.
+   We use ``is defined`` so the missing-context case is graceful when
+   a route renders without user context.
 #}
 <html lang="es">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{% block title %}{{ app_name }}{% endblock %}</title>
-    <meta name="description" content="APAP — Registro de Protectoras de Animales de Alcalá. Migración Legacy → Web." />
+    <meta name="description" content="APAP Alcalá — panel operativo para la gestión diaria de animales, personas colaboradoras y documentación." />
     <link rel="icon" href="data:," />
     <link rel="stylesheet" href="/static/css/output.css" />
   </head>
@@ -71,8 +69,8 @@
 
     <footer class="bg-primary-dark text-white mt-12">
       <div class="mx-auto max-w-6xl px-4 py-8 text-center text-sm">
-        <p class="font-semibold">🐾 APAP — Registro de Protectoras de Animales de Alcalá</p>
-        <p class="opacity-75 mt-1">Migración Legacy → Web · FastAPI + HTMX + InsForge</p>
+        <p class="font-semibold">🐾 APAP Alcalá</p>
+        <p class="opacity-75 mt-1">Gestión diaria de animales, documentación y seguimientos.</p>
       </div>
     </footer>
   </body>

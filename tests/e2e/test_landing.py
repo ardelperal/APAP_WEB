@@ -54,20 +54,16 @@ def test_landing_redirects_anonymous_users_to_login(
     )
 
 
-def test_landing_applies_apap_blue_primary_color(page: Page, base_url: str) -> None:
-    """The hero gradient uses the APAP primary blue (#0A91EB).
+def test_login_applies_apap_blue_primary_color(page: Page, base_url: str) -> None:
+    """The public login page uses the APAP primary blue (#0A91EB).
 
-    Computed style on the hero card background must include the APAP
-    blue hex. A regression where someone replaces the @theme entry with
-    a Tailwind default (e.g. sky-700) flips the color and this test
-    fails.
+    The operational dashboard at / is protected, so anonymous Playwright
+    checks must validate the public auth surface instead of private home
+    content. Server-side tests cover the authenticated dashboard render.
     """
     _skip_if_oauth_not_configured(page, base_url)
-    page.goto(f"{base_url}/")
+    page.goto(f"{base_url}/login")
 
-    # The hero is a div with `bg-gradient-to-br from-primary-dark
-    # via-primary to-primary-light` — we grab the first descendant of
-    # <main> that has a non-none backgroundImage.
     hero_handle = page.evaluate_handle(
         "() => Array.from(document.querySelectorAll('main *'))"
         ".find(el => getComputedStyle(el).backgroundImage !== 'none')"
@@ -82,26 +78,18 @@ def test_landing_applies_apap_blue_primary_color(page: Page, base_url: str) -> N
     ), f"Hero background does not include an APAP blue: {bg_image!r}"
 
 
-def test_landing_badge_uses_apap_orange_accent(page: Page, base_url: str) -> None:
-    """The 'Migración Legacy → Web ...' badge uses APAP orange #EE812E."""
+def test_login_gmail_entry_is_visible(page: Page, base_url: str) -> None:
+    """The public login page exposes the explicit Gmail entry point."""
     _skip_if_oauth_not_configured(page, base_url)
-    page.goto(f"{base_url}/")
+    page.goto(f"{base_url}/login")
 
-    # The badge is the <span class="bg-accent ..."> inside the hero card.
-    # We grab it via its role = "main" so we don't pick up the footer
-    # text that also says "Migración Legacy → Web".
-    badge = page.get_by_role("main").get_by_text("Migración Legacy")
-    badge.wait_for(state="visible")
-
-    color = badge.evaluate("el => getComputedStyle(el).backgroundColor")
-    # Computed color is rgb(238, 129, 46) for #EE812E.
-    assert "rgb(238, 129, 46)" in color, (
-        f"Badge background is not APAP orange #EE812E, got: {color!r}"
-    )
+    gmail_link = page.get_by_role("link", name="Entrar con Gmail")
+    gmail_link.wait_for(state="visible")
+    assert gmail_link.get_attribute("href") == "/auth/google"
 
 
 def test_landing_navigation_links_visible(page: Page, base_url: str) -> None:
-    """The top nav exposes Inicio, Animales, Voluntarios."""
+    """After anonymous / navigation, the public header is still visible."""
     _skip_if_oauth_not_configured(page, base_url)
     page.goto(f"{base_url}/")
 
@@ -118,7 +106,7 @@ def test_landing_apap_logo_in_header(page: Page, base_url: str) -> None:
 
     logo_link = page.get_by_role("link", name="APAP")
     logo_link.first.wait_for(state="visible")
-    # The logo link points to the landing root.
+    # The logo link points to the protected operational root.
     href = logo_link.first.get_attribute("href")
     assert href in ("/", "/index.html"), f"Logo href is unexpected: {href!r}"
 

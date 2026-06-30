@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 import httpx
 import pytest
 
@@ -75,13 +78,93 @@ async def test_index_links_compiled_css(client: httpx.AsyncClient) -> None:
     assert "/static/css/output.css" in response.text
 
 
-async def test_index_mentions_app_name(client: httpx.AsyncClient) -> None:
-    """The landing page shows the application name from settings."""
+async def test_index_mentions_product_name(client: httpx.AsyncClient) -> None:
+    """The landing page shows the APAP product name."""
     _login_as_authorized_user(client)
 
     response = await client.get("/")
 
-    assert "APAP_WEB" in response.text
+    assert "APAP Alcalá" in response.text
+
+
+async def test_index_renders_operational_dashboard_cards(
+    client: httpx.AsyncClient,
+) -> None:
+    """The home page is an APAP operations dashboard, not a technical landing."""
+    _login_as_authorized_user(client)
+
+    response = await client.get("/")
+
+    assert response.status_code == 200
+    expected_labels = [
+        "Animales incoherentes",
+        "Pendientes de entrada",
+        "Pendientes de nueva situación",
+        "Pendientes de chip",
+        "Cambio de titular pendiente",
+        "Fallecidos sin RIAC",
+        "Impresos por entregar",
+        "Impresos entregados no recibidos",
+        "Seguimientos activos",
+        "Seguimientos totales",
+    ]
+    for label in expected_labels:
+        assert label in response.text
+    assert response.text.count("Pendiente de conectar") >= len(expected_labels)
+
+
+async def test_user_facing_pages_do_not_render_internal_stack_copy(
+    client: httpx.AsyncClient,
+) -> None:
+    """Rendered product pages must not expose implementation or migration copy."""
+    _login_as_authorized_user(client)
+
+    response = await client.get("/")
+
+    assert response.status_code == 200
+    forbidden = re.compile(
+        r"\b(legacy|migration|FastAPI|HTMX|InsForge|Access|stack|internal)\b|migraci[oó]n|APAP_WEB",
+        flags=re.IGNORECASE,
+    )
+    assert forbidden.search(response.text) is None
+
+
+def test_key_template_sources_do_not_include_internal_ui_copy() -> None:
+    """Source templates for current user-facing pages avoid internal product copy."""
+    root = Path(__file__).resolve().parents[1]
+    templates = [
+        root / "app" / "templates" / "base.html",
+        root / "app" / "templates" / "index.html",
+        root / "app" / "templates" / "login.html",
+        root / "app" / "templates" / "animales" / "detail.html",
+        root / "app" / "templates" / "animales" / "form.html",
+        root / "app" / "templates" / "animales" / "list.html",
+        root / "app" / "templates" / "entradas" / "detail.html",
+        root / "app" / "templates" / "entradas" / "form.html",
+        root / "app" / "templates" / "entradas" / "list.html",
+        root / "app" / "templates" / "voluntarios" / "detail.html",
+        root / "app" / "templates" / "voluntarios" / "form.html",
+        root / "app" / "templates" / "voluntarios" / "list.html",
+    ]
+    forbidden = re.compile(
+        r"\b(legacy|migration|FastAPI|HTMX|InsForge|Access|stack|internal|intern[oa]s?)\b|migraci[oó]n|APAP_WEB",
+        flags=re.IGNORECASE,
+    )
+
+    for template in templates:
+        source = template.read_text(encoding="utf-8")
+        visible_source = re.sub(r"\{#.*?#\}", "", source, flags=re.DOTALL)
+        assert forbidden.search(visible_source) is None, template
+
+
+def test_animal_form_uses_professional_optional_section_label() -> None:
+    """The animal form names optional fields with product wording."""
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "app" / "templates" / "animales" / "form.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert "Datos complementarios del animal" in source
 
 
 async def test_unauthorized_redirects_anonymous_users_to_login(

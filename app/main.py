@@ -76,6 +76,55 @@ from app.modules.voluntarios.routes import router as voluntarios_router
 _STATIC_DIR = Path(__file__).parent / "static"
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 
+_DASHBOARD_PENDING_CARDS = [
+    {
+        "label": "Animales incoherentes",
+        "description": "Revisa fichas con datos que necesitan contraste antes de continuar la gestión.",
+    },
+    {
+        "label": "Pendientes de entrada",
+        "description": "Animales que aún necesitan completar su entrada en protectora.",
+    },
+    {
+        "label": "Pendientes de nueva situación",
+        "description": "Fichas que esperan registrar el siguiente cambio de estado operativo.",
+    },
+    {
+        "label": "Pendientes de chip",
+        "description": "Animales cuya identificación debe comprobarse o completarse.",
+    },
+    {
+        "label": "Cambio de titular pendiente",
+        "description": "Casos que requieren seguimiento hasta cerrar el cambio de titularidad.",
+    },
+    {
+        "label": "Fallecidos sin RIAC",
+        "description": "Animales fallecidos con comunicación RIAC pendiente de registrar.",
+    },
+    {
+        "label": "Impresos por entregar",
+        "description": "Documentación preparada que todavía debe llegar a su destinatario.",
+    },
+    {
+        "label": "Impresos entregados no recibidos",
+        "description": "Documentos entregados que aún no constan como recibidos o adjuntados.",
+    },
+    {
+        "label": "Seguimientos activos",
+        "description": "Adopciones y casos abiertos que necesitan atención próxima.",
+    },
+    {
+        "label": "Seguimientos totales",
+        "description": "Vista de control para medir la carga completa de seguimiento.",
+    },
+]
+
+_DASHBOARD_SHORTCUTS = [
+    {"label": "Buscar animal", "href": "/animales", "description": "Consulta o actualiza una ficha."},
+    {"label": "Nueva entrada", "href": "/entradas", "description": "Registra una llegada a protectora."},
+    {"label": "Voluntarios", "href": "/voluntarios", "description": "Gestiona personas colaboradoras."},
+]
+
 # Public paths that the auth layer must never block.
 # The landing page (/) and the access-denied page (/unauthorized) are
 # intentionally protected so the marketing surface can only be reached
@@ -244,8 +293,11 @@ def create_app() -> FastAPI:
             name="index.html",
             context={
                 "app_name": settings.app_name,
+                "product_name": "APAP Alcalá",
                 "version": settings.version,
                 "user": current_user,
+                "dashboard_cards": _DASHBOARD_PENDING_CARDS,
+                "dashboard_shortcuts": _DASHBOARD_SHORTCUTS,
             },
         )
 
