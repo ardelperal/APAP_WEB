@@ -316,7 +316,7 @@ def create_app() -> FastAPI:
         return templates.TemplateResponse(
             request=request,
             name="unauthorized.html",
-            context={"app_name": settings.app_name},
+            context={"app_name": settings.app_name, "product_name": "APAP Alcalá"},
         )
 
     # --- Auth flow (Fase 2) --------------------------------------------

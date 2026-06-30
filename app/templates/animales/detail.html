@@ -5,7 +5,7 @@
     <div>
       <h1 class="text-3xl font-bold text-primary-dark tracking-tight">{{ animal.NombreAnimal }}</h1>
       <p class="text-text-muted text-sm mt-1">
-        NCHIP: <code class="font-mono text-text">{{ animal.NCHIP }}</code> · {{ animal.Especie.value }} · {{ animal.Sexo.value }}
+        Chip: <code class="font-mono text-text">{{ animal.NCHIP }}</code> · {{ animal.Especie.value }} · {{ animal.Sexo.value }}
       </p>
     </div>
     <div class="flex gap-3">
@@ -14,7 +14,7 @@
         Editar
       </a>
       <form method="post" action="/animales/{{ animal.id }}/delete" class="inline"
-            onsubmit="return confirm('Borrar este animal?');">
+            onsubmit="return confirm('¿Borrar este animal?');">
         {# PR-5B2: CSRF defense-in-depth (REQ-AH-7). #}
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
         <button type="submit" class="bg-rose-700 text-white px-4 py-2 rounded font-semibold hover:bg-rose-800 transition-colors shadow-sm">
@@ -26,25 +26,25 @@
 
   <div class="bg-surface rounded-card shadow-card p-6 space-y-6">
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <div><span class="text-text-muted text-sm">NCHIP</span><div class="font-mono text-text">{{ animal.NCHIP }}</div></div>
+      <div><span class="text-text-muted text-sm">N.º de chip</span><div class="font-mono text-text">{{ animal.NCHIP }}</div></div>
       <div><span class="text-text-muted text-sm">Nombre</span><div class="text-text">{{ animal.NombreAnimal }}</div></div>
       <div><span class="text-text-muted text-sm">Especie</span><div class="text-text">{{ animal.Especie.value }}</div></div>
       <div><span class="text-text-muted text-sm">Sexo</span><div class="text-text">{{ animal.Sexo.value }}</div></div>
-      <div><span class="text-text-muted text-sm">FNacimiento</span><div class="text-text">{{ animal.FNacimiento }}</div></div>
-      <div><span class="text-text-muted text-sm">FDefuncion</span><div class="text-text">{{ animal.FDefuncion or "—" }}</div></div>
+      <div><span class="text-text-muted text-sm">Fecha de nacimiento</span><div class="text-text">{{ animal.FNacimiento }}</div></div>
+      <div><span class="text-text-muted text-sm">Fecha de defunción</span><div class="text-text">{{ animal.FDefuncion or "—" }}</div></div>
       <div><span class="text-text-muted text-sm">Raza</span><div class="text-text">{{ animal.Raza or "—" }}</div></div>
       <div><span class="text-text-muted text-sm">Color</span><div class="text-text">{{ animal.Color or "—" }}</div></div>
       <div><span class="text-text-muted text-sm">Pelo</span><div class="text-text">{{ animal.Pelo or "—" }}</div></div>
-      <div><span class="text-text-muted text-sm">Tamano</span><div class="text-text">{{ animal.Tamano or "—" }}</div></div>
-      <div><span class="text-text-muted text-sm">Caracter</span><div class="text-text">{{ animal.Caracter or "—" }}</div></div>
-      <div><span class="text-text-muted text-sm">TraeNChip</span><div class="text-text">{{ animal.TraeNChip or "—" }}</div></div>
-      <div><span class="text-text-muted text-sm">FIMPLANTACIONCHIP</span><div class="text-text">{{ animal.FIMPLANTACIONCHIP or "—" }}</div></div>
+      <div><span class="text-text-muted text-sm">Tamaño</span><div class="text-text">{{ animal.Tamano or "—" }}</div></div>
+      <div><span class="text-text-muted text-sm">Carácter</span><div class="text-text">{{ animal.Caracter or "—" }}</div></div>
+      <div><span class="text-text-muted text-sm">¿Trae chip?</span><div class="text-text">{{ animal.TraeNChip or "—" }}</div></div>
+      <div><span class="text-text-muted text-sm">Fecha de implantación del chip</span><div class="text-text">{{ animal.FIMPLANTACIONCHIP or "—" }}</div></div>
       <div><span class="text-text-muted text-sm">Terapia</span><div class="text-text">{{ animal.Terapia or "—" }}</div></div>
       <div><span class="text-text-muted text-sm">Eutanasia</span><div class="text-text">{{ animal.Eutanasia or "—" }}</div></div>
       <div><span class="text-text-muted text-sm">Mestizo</span><div class="text-text">{{ animal.Mestizo or "—" }}</div></div>
-      <div><span class="text-text-muted text-sm">RazaPPP</span><div class="text-text">{{ animal.RazaPPP or "—" }}</div></div>
+      <div><span class="text-text-muted text-sm">Raza PPP</span><div class="text-text">{{ animal.RazaPPP or "—" }}</div></div>
       <div><span class="text-text-muted text-sm">Cartilla</span><div class="text-text">{{ animal.Cartilla or "—" }}</div></div>
-      <div><span class="text-text-muted text-sm">ComunicacionARIAC</span><div class="text-text">{{ animal.ComunicacionARIAC or "—" }}</div></div>
+      <div><span class="text-text-muted text-sm">Comunicación RIAC</span><div class="text-text">{{ animal.ComunicacionARIAC or "—" }}</div></div>
     </div>
 
     {# Observations card — APAP info-box style: border-left primary, light gradient. #}

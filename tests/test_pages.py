@@ -136,6 +136,7 @@ def test_key_template_sources_do_not_include_internal_ui_copy() -> None:
         root / "app" / "templates" / "base.html",
         root / "app" / "templates" / "index.html",
         root / "app" / "templates" / "login.html",
+        root / "app" / "templates" / "unauthorized.html",
         root / "app" / "templates" / "animales" / "detail.html",
         root / "app" / "templates" / "animales" / "form.html",
         root / "app" / "templates" / "animales" / "list.html",
@@ -147,7 +148,8 @@ def test_key_template_sources_do_not_include_internal_ui_copy() -> None:
         root / "app" / "templates" / "voluntarios" / "list.html",
     ]
     forbidden = re.compile(
-        r"\b(legacy|migration|FastAPI|HTMX|InsForge|Access|stack|internal|intern[oa]s?)\b|migraci[oó]n|APAP_WEB",
+        r"\b(legacy|migration|FastAPI|HTMX|InsForge|Access|stack|internal|intern[oa]s?)\b|"
+        r"migraci[oó]n|APAP_WEB|Copy provisional|Fase \d|esqueleto",
         flags=re.IGNORECASE,
     )
 
@@ -165,6 +167,88 @@ def test_animal_form_uses_professional_optional_section_label() -> None:
     )
 
     assert "Datos complementarios del animal" in source
+
+
+def test_animal_templates_use_human_readable_visible_labels() -> None:
+    """Animal pages show Spain-Spanish labels, not internal column names."""
+    root = Path(__file__).resolve().parents[1]
+    sources = "\n".join(
+        (
+            root / "app" / "templates" / "animales" / template
+        ).read_text(encoding="utf-8")
+        for template in ("detail.html", "form.html", "list.html")
+    )
+
+    expected_labels = [
+        "N.º de chip",
+        "Fecha de nacimiento",
+        "Fecha de defunción",
+        "Tamaño",
+        "Carácter",
+        "¿Trae chip?",
+        "Fecha de implantación del chip",
+        "Raza PPP",
+        "Foto",
+        "Comunicación RIAC",
+    ]
+    for label in expected_labels:
+        assert label in sources
+
+    bad_visible_labels = re.compile(
+        r">\s*(NCHIP|FNacimiento|FDefuncion|Tamano|Caracter|TraeNChip|"
+        r"FIMPLANTACIONCHIP|RazaPPP|NombreFoto|ComunicacionARIAC)\s*(?:<|:)",
+    )
+    assert bad_visible_labels.search(sources) is None
+
+
+def test_animal_form_preserves_internal_field_names() -> None:
+    """Visible labels can change, but posted field names stay contract-stable."""
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "app" / "templates" / "animales" / "form.html").read_text(
+        encoding="utf-8"
+    )
+
+    for field_name in [
+        "NCHIP",
+        "FNacimiento",
+        "FDefuncion",
+        "Tamano",
+        "Caracter",
+        "TraeNChip",
+        "FIMPLANTACIONCHIP",
+        "RazaPPP",
+        "NombreFoto",
+        "ComunicacionARIAC",
+    ]:
+        assert f'name="{field_name}"' in source
+
+
+def test_volunteer_templates_use_human_readable_visible_labels() -> None:
+    """Volunteer pages show Spain-Spanish labels, not raw column shorthand."""
+    root = Path(__file__).resolve().parents[1]
+    sources = "\n".join(
+        (
+            root / "app" / "templates" / "voluntarios" / template
+        ).read_text(encoding="utf-8")
+        for template in ("detail.html", "form.html", "list.html")
+    )
+
+    for label in ["Teléfono", "Teléfono 1", "Teléfono 2"]:
+        assert label in sources
+
+    bad_visible_labels = re.compile(r">\s*(Tel1|Tel2|Telefono 1|Telefono 2)\s*(?:<|:)")
+    assert bad_visible_labels.search(sources) is None
+
+
+def test_volunteer_form_preserves_internal_field_names() -> None:
+    """Volunteer POST contract keeps legacy field names while labels improve."""
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "app" / "templates" / "voluntarios" / "form.html").read_text(
+        encoding="utf-8"
+    )
+
+    for field_name in ["Tel1", "Tel2"]:
+        assert f'name="{field_name}"' in source
 
 
 async def test_unauthorized_redirects_anonymous_users_to_login(
@@ -234,6 +318,12 @@ async def test_unauthorized_renders_html(client: httpx.AsyncClient) -> None:
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
     assert "no autorizado" in response.text.lower()
+    assert "APAP Alcalá" in response.text
+    forbidden = re.compile(
+        r"APAP_WEB|Copy provisional|Fase \d|esqueleto",
+        flags=re.IGNORECASE,
+    )
+    assert forbidden.search(response.text) is None
 
 
 async def test_unauthorized_links_compiled_css(client: httpx.AsyncClient) -> None:

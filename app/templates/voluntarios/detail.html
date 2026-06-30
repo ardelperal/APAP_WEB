@@ -9,7 +9,7 @@
       </p>
     </div>
     <form method="post" action="/voluntarios/{{ voluntario.id }}/deactivate" class="inline"
-          onsubmit="return confirm('Desactivar este voluntario?');">
+          onsubmit="return confirm('¿Desactivar este voluntario?');">
       {# PR-5B2: CSRF defense-in-depth (REQ-AH-7). #}
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
       <button type="submit" class="bg-rose-700 text-white px-4 py-2 rounded font-semibold hover:bg-rose-800 transition-colors shadow-sm">
@@ -22,8 +22,8 @@
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
       <div><span class="text-text-muted text-sm">Email</span><div class="text-text">{{ voluntario.Email or "—" }}</div></div>
       <div><span class="text-text-muted text-sm">DNI</span><div class="font-mono text-text">{{ voluntario.DNI or "—" }}</div></div>
-      <div><span class="text-text-muted text-sm">Tel1</span><div class="text-text">{{ voluntario.Tel1 or "—" }}</div></div>
-      <div><span class="text-text-muted text-sm">Tel2</span><div class="text-text">{{ voluntario.Tel2 or "—" }}</div></div>
+      <div><span class="text-text-muted text-sm">Teléfono 1</span><div class="text-text">{{ voluntario.Tel1 or "—" }}</div></div>
+      <div><span class="text-text-muted text-sm">Teléfono 2</span><div class="text-text">{{ voluntario.Tel2 or "—" }}</div></div>
       <div><span class="text-text-muted text-sm">Fecha de alta</span><div class="text-text">{{ voluntario.fecha_alta or "—" }}</div></div>
     </div>
 
