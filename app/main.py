@@ -56,6 +56,7 @@ from app.core.auth_dependencies import (
 from app.core.auth_dependencies import (
     get_insforge_client_dep as get_insforge_client,
 )
+from app.core.catalogs import ensure_catalogs
 from app.core.csrf import CsrfMiddleware, csrf_token_context_processor, issue_csrf_to_session
 from app.core.domain import ensure_domain_schema
 from app.core.insforge import InsForgeClient, InsForgeError
@@ -161,20 +162,27 @@ async def lifespan(_: FastAPI):
     2. ``ensure_schema_and_seed`` — creates ``usuarios_autorizados`` and seeds
        the bootstrap admin if ``APAP_INITIAL_ADMIN_EMAIL`` is set.
     3. ``ensure_domain_schema`` — creates the domain tables
-       (``animales``, ``voluntarios``, ``roles_voluntario``) in dependency
-       order.
-    4. ``apply_sql_migrations`` — applies any pending versioned SQL
+       (``animales``, ``voluntarios``, ``roles_voluntario``, ...) in
+       dependency order.
+    4. ``ensure_catalogs`` — creates the 5 reference-data catalog
+       tables (``catalogos_origenes``, ``catalogos_motivos``,
+       ``catalogos_pruebas``, ``catalogos_periodicidad``,
+       ``catalogos_tipos_contrato``) and seeds them from the Access
+       legacy (issue #65 CATALOG-01). Idempotent: ``CREATE TABLE IF
+       NOT EXISTS`` + ``INSERT ... ON CONFLICT DO NOTHING``.
+    5. ``apply_sql_migrations`` — applies any pending versioned SQL
        migrations from ``app/core/migration/sql/`` (schema-plane DDL,
        e.g. dropping a redundant CHECK constraint). Runs LAST so the
-       ``usuarios_autorizados`` table is guaranteed to exist before any
-       migration references it.
+       earlier tables are guaranteed to exist before any migration
+       references them.
 
-    All three schema steps are idempotent (``CREATE TABLE IF NOT EXISTS``,
-    ``web_sql_migrations`` bookkeeping, ``DROP CONSTRAINT IF EXISTS``),
-    so it is safe to run on every cold start. If any step raises, the
-    lifespan propagates and the app does not start (fail fast): a
-    deploy that cannot reach InsForge with the service key is better
-    surfaced as a failed deploy than as 500s on the first request.
+    All four schema steps are idempotent (``CREATE TABLE IF NOT EXISTS``,
+    ``ON CONFLICT DO NOTHING``, ``web_sql_migrations`` bookkeeping,
+    ``DROP CONSTRAINT IF EXISTS``), so it is safe to run on every cold
+    start. If any step raises, the lifespan propagates and the app
+    does not start (fail fast): a deploy that cannot reach InsForge
+    with the service key is better surfaced as a failed deploy than
+    as 500s on the first request.
     """
     settings = config_module.get_settings()
     # REQ-4 (Slice 6): configure_logging is the FIRST line so any error
@@ -185,6 +193,7 @@ async def lifespan(_: FastAPI):
     try:
         ensure_schema_and_seed(client, settings)
         ensure_domain_schema(client)
+        ensure_catalogs(client)
         apply_sql_migrations(client)
     finally:
         client.close()
