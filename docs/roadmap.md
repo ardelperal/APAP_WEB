@@ -304,6 +304,7 @@ Estos son los títulos tentativos; se abren cuando arranca cada fase, no antes.
 - [`docs/architecture-insforge-stack.md`](architecture-insforge-stack.md) — stack base y reglas InsForge/Coolify *(pendiente de traducir al castellano)*
 - [`docs/plan-completo.md`](plan-completo.md) — plan detallado de Fases 0-7 *(borrador en `untracked`, no commiteado todavía)*
 - [`docs/development.md`](development.md) — flujo local de desarrollo *(pendiente de traducir al castellano)*
+- [`docs/proceso.md`](proceso.md) — playbook operativo por issue: premisas (P1 fidelidad al legacy, P2 resolución de dudas, P3 docs reflejan código, P4 pre-MVP single-branch) + workflow completo (pre-flight → triaje → SDD/TDD → validación → merge → cierre con trazabilidad). **Leer al iniciar cualquier issue que vaya más allá de un doc trivial.**
 - [`docs/setup.md`](setup.md) — setup por desarrollador y credenciales InsForge
 
 ### UX y visual

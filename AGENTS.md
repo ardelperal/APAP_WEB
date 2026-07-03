@@ -338,6 +338,20 @@ When the user signals MVP reached ("ya tenemos MVC", "MVP reached", "pasamos a p
 
 Enforcement: each PR merge landed under this rule MUST mention the `ci.yml` run URL that proved the gate green, in the merge commit body or the PR description. After MVP, this rule is dormant and the global `staging-acceptance-contract` is authoritative. If the gate ever drifts (e.g. someone adds an additional required CI job, or branch protection on `main` requires an extra check), this rule 15 is the source of truth to update in pre-MVP.
 
+### 16. Issue work follows `docs/proceso.md` (project-level operational playbook)
+
+The end-to-end playbook for taking a GitHub issue from "open" to "merged and closed with evidence" lives at **`docs/proceso.md`**. It encodes four non-negotiable premises (P1 fidelity to the Access/VBA legacy as a functional superset, P2 resolution of domain doubts in a fixed order with Dysflow at the bottom, P3 docs reflect code, P4 pre-MVP single-branch) plus a concrete workflow (pre-flight → triage → SDD-or-direct → TDD → local validation → merge → close-with-trazability → roadmap sync in the same stride).
+
+**Rules for the agent**:
+
+1. **Read `docs/proceso.md` at the start of every session that touches work beyond trivial docs.** The playbook covers: how to classify an issue, when to launch SDD, how to follow strict TDD, how to validate locally, how to push and close an issue with the traceability the global `github-issue-closure-traceability` rule requires, and how to keep `docs/roadmap.md` in sync. If a question is answered there, do not reinvent it.
+2. **The P1 fidelity premise is non-negotiable.** Before adding or changing a field/feature that mirrors the legacy, confirm the new code preserves the legacy's intent (workflow, validation, calculation, state transition, permission). If a gap is discovered, open a `type:bug` issue with label `gap:legacy` — do not silently ignore it. The trace chain per legacy capability is: legacy capability → its representation in the new model → its test coverage.
+3. **When in doubt about the domain**, follow the P2 ladder: discovery doc → decisiones-proyecto → legacy-* → Dysflow MCP on the Access binary. Only `vba-access` and `access-vba-tdd` skills are allowed for Access work in APAP_WEB; the rest of the Access skill set is excluded.
+4. **The playbook documents process, not new rules.** If `docs/proceso.md` and this AGENTS.md rule 16 ever disagree, AGENTS.md wins for anything in the "rules" column (logging, CSRF, CRITICAL_HELPERS, audit, runbook, codegraph, merge workflow). The playbook is authoritative for the order of operations, the SDD/TDD discipline, and the closeout traceability template.
+5. **Refresh rule.** Whenever the global workflow policy changes (new skill available, new GitHub rule, new pre-MVP operational reality), update `docs/proceso.md` in the same PR or commit. The playbook must not lag behind AGENTS.md §15.
+
+Enforcement: PR-level. If a merged PR retroactively violates P1 (drops or breaks a legacy capability without an explicit `decisiones-proyecto.md` entry), open a follow-up `bug` issue immediately. PR review should verify the closeout comment cites both a commit SHA and a test path before approval.
+
 ---
 
 > **History:** the resolved "Known conflicts with existing code" tracker (all
