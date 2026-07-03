@@ -2,7 +2,7 @@
 
 > Documento vivo. Punto de entrada único para saber qué hay que construir, en qué orden, qué issues lo cubren y qué documentación ya existe. Si una pregunta se responde aquí, no hay que rebuscar.
 
-**Última actualización:** 2026-07-03 (refresco tras fix de dominio `apap.romancaba.com`, commit `3c32f3e`, y split de CD-01 / CD-02)
+**Última actualización:** 2026-07-03 (cierre de #65 CATALOG-01 — commit `1103b2e` PR #135 — los 5 catálogos de reference data migrados desde Access legacy a InsForge con seed idempotente; sync bidireccional queda para Fase 7)
 **Mantenedor único:** aroman (autoaprueba issues y PRs)
 **Rama objetivo actual:** **pre-MVP single-branch** — todo va a `main`, una sola rama al final del ciclo (ver §8 y `AGENTS.md` §15)
 **Idioma de toda la documentación, issues y PRs:** castellano (España)
@@ -270,7 +270,6 @@
 | #62 | REPORT-03: informe trimestral PDF con charts | Reportes | 🔲 |
 | #63 | REPORT-04: sistema de notificación de pruebas pendientes | Reportes | 🔲 |
 | #64 | REPORT-05: API de contadores de dashboard en tiempo real | Reportes + home | 🔲 |
-| #65 | CATALOG-01: migración de todos los catálogos de reference data | Fase 3+ | 🔲 |
 | #66 | RBAC-01: modelo RBAC con matriz de permisos a nivel API | Auth | 🔲 |
 | #69 | LIFECYCLE-SCHEMA-03: cache materializado `estado_actual_animal` | Fase 4 | 🔲 |
 
@@ -290,6 +289,7 @@
 - #127 — home con tarjetas de pendientes
 - #128 — eliminar lenguaje interno
 - #131 — labels castellanos
+- #65 (`1103b2e` PR #135) — CATALOG-01: 5 catálogos migrados desde Access legacy (7 origenes, 21 motivos, 13 pruebas, 12 periodicidad, 8 tipos de contrato) con seed idempotente via `ON CONFLICT DO NOTHING` y verificación P1 vía Dysflow MCP. Bidireccional sigue en Fase 7.
 - (Y el commit `a528566 test(xss-audit): allowlist index.html shortcut.href` que pilló la regla 15.1 antes del merge de hoy)
 
 ---
