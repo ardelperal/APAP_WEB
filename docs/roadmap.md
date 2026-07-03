@@ -2,19 +2,21 @@
 
 > Documento vivo. Punto de entrada único para saber qué hay que construir, en qué orden, qué issues lo cubren y qué documentación ya existe. Si una pregunta se responde aquí, no hay que rebuscar.
 
-**Última actualización:** 2026-06-19 (refresco tras fix de dominio `apap.romancaba.com`, commit `3c32f3e`, y split de CD-01 / CD-02)
+**Última actualización:** 2026-07-03 (refresco tras fix de dominio `apap.romancaba.com`, commit `3c32f3e`, y split de CD-01 / CD-02)
 **Mantenedor único:** aroman (autoaprueba issues y PRs)
-**Rama objetivo actual:** `staging` para trabajo normal; `main` reservado para producción/promoción (ver §8)
+**Rama objetivo actual:** **pre-MVP single-branch** — todo va a `main`, una sola rama al final del ciclo (ver §8 y `AGENTS.md` §15)
 **Idioma de toda la documentación, issues y PRs:** castellano (España)
 
 ---
 
 ## 1. TL;DR
 
-- **CI/CD foundation (Fase 0):** CI-01 y CI-02 están en verde en `main`. Falta CD-01 + CD-02 para activar el deploy automático (issue #1).
-- **Infraestructura:** repositorio, Coolify y backend de InsForge ya aprovisionados. Falta el runnable de la aplicación en producción.
-- **Producto (Fases 1-7):** **Fase 1 ✅ mergeada en `main` (#17, commit `d0b1ed1`)**. **Fase 2 ✅ mergeada en `main` (#16, commit `1d22349`)**. Fases 3-7 pendientes. El código de auth está listo; solo falta crear la tabla real en InsForge y desplegar.
-- **Documentación de discovery:** generada y consistente. Antes de tocar el legacy, leer `docs/discovery/`.
+- **CI/CD foundation (Fase 0):** CI-01, CI-02, CD-01 y CD-02 están **todos en verde en `main`** desde el 2026-07-03. El deploy automático al push a `main` se ejecuta vía webhook firmado a Coolify (`COOLIFY_WEBHOOK_URL` + `COOLIFY_WEBHOOK_SECRET` configurados; verificado en CI run 28674612470). El primer deploy real sigue pendiente del DNS `apap.romancaba.com` (operación manual del mantenedor).
+- **Infraestructura:** repositorio, Coolify y backend de InsForge ya aprovisionados. Runnable de la aplicación en producción pendiente solo del DNS.
+- **Producto (Fases 1-7):** **Fase 1 ✅ mergeada en `main` (#17, commit `d0b1ed1`)**. **Fase 2 ✅ mergeada en `main` (#16, commit `1d22349`)**. **Fase 5a INTAKE-01 ✅ mergeada (#87/#88/#89)** con schema + service + routes; INTAKE-03 (#41) e INTAKE-04 (#42) abiertos. Fases 3-7 pendientes. El código de auth está listo; tabla `authorized_users` creada y seedeada (#25).
+- **Issues UI/copy recientes (cerradas):** #124 logout → login, #125 OAuth callback loop, #126 UI sin copy interno + campos obligatorios Access, #127 home con tarjetas, #128 eliminar lenguaje interno, #131 labels castellanos. XSS allowlist detectado y fixado en `a528566`.
+- **Documentación de discovery:** generada y consistente. Antes de tocar el legacy, leer `docs/discovery/` (ver §7). Decisiones de proyecto consolidadas en `docs/decisiones-proyecto.md` (nuevo, 2026-07-03).
+- **Proceso operativo:** el playbook end-to-end por issue está en **`docs/proceso.md`** (creado 2026-07-03, PR #132 merge `5329ec5`). Es lectura obligatoria antes de tomar cualquier issue que vaya más allá de un doc trivial.
 
 ---
 
@@ -24,17 +26,17 @@
 |---|---|---|
 | Repositorio `ardelperal/APAP_WEB` | ✅ | Creado, `main` como rama por defecto |
 | CI local (pytest + ruff + build) | ✅ | Phase 0 de `ci-cd-foundation` merged en `main` |
-| GitHub Actions workflow | ✅ | `ci / lint`, `ci / test`, `ci / build` en PRs y pushes a `staging` y `main`; `deploy` solo en `main` |
+| GitHub Actions workflow | ✅ | `ci / lint`, `ci / test`, `ci / build` en PRs y push a `main`; `deploy` en push a `main` (skip en merge commits). Pre-MVP single-branch: ya no hay push a `staging` (§8). |
 | Branch protection en la rama protegida activa | 🔲 | Documentado en `.github/branch-protection.md`; pendiente de activar en la UI de GitHub (tarea 1.5) |
 | Proyecto Coolify + app `apap-web` | ✅ | Aprovisionado, apunta a `ardelperal/APAP_WEB:main`, fqdn `apap.romancaba.com` |
 | DNS `apap.romancaba.com` | 🔲 | Pendiente de crear por el mantenedor antes del primer deploy real |
 | Fix de dominio OAuth (redirect URI) | ✅ | Commit `3c32f3e` en main; `APAP_GOOGLE_REDIRECT_URI` corregido en Coolify; redeploy OK |
 | CD-02 build y push del runnable a Coolify | ✅ | Mergeado en `main` como `dc98c1c` (PR #24) — Dockerfile corregido, build verificado |
-| CD-01 webhook automático GitHub → Coolify en `push: main` | 🔲 | Issue #1 sigue abierto; pendiente de implementar el job `deploy` en `.github/workflows/ci.yml` |
+| CD-01 webhook automático GitHub → Coolify en `push: main` | ✅ | Implementado y verificado (CI run 28674612470 el 2026-07-03). El job `deploy` ejecuta `scripts/coolify_webhook.py` con HMAC SHA-256 firmado contra `COOLIFY_WEBHOOK_URL` + `COOLIFY_WEBHOOK_SECRET`. Issue #1 puede cerrarse. |
 | Backend InsForge | ✅ | Verificado, MCP configurado; `APAP_INSFORGE_URL` apuntando a `c3uc9dk6.eu-central.insforge.app` |
 | Tabla `authorized_users` en InsForge | ✅ | Creada y seedeada con `ardelperal@gmail.com` (developer) — issue #25; idempotente con `CREATE TABLE IF NOT EXISTS` |
 | Esqueleto de la app FastAPI | ✅ | Mergeado en `main` como `d0b1ed1` (issue #17) |
-| Login real con Google OAuth + allowlist | ✅ | Mergeado en `main` como `1d22349` (issue #16); falta crear la tabla `authorized_users` y desplegar |
+| Login real con Google OAuth + allowlist | ✅ | Mergeado en `main` como `1d22349` (issue #16); tabla `authorized_users` creada y seedeada (#25). Pendiente solo el primer deploy real cuando el DNS esté resuelto. |
 | Foundation UX/UI | 🔲 | Issue #6 abierto |
 | Motor común de tareas | 🔲 | Issue #7 abierto |
 | Hoja de ruta viva | ✅ | Esta issue #14 (mergeada en `69b509e`) |
@@ -54,7 +56,7 @@
 | CI-01 superficie de tests local | ✅ | — | merged | `ci-cd-foundation` Phase 0 |
 | CI-02 workflow de GitHub Actions | ✅ | — | merged | `ci-cd-foundation` Phase 1 |
 | CD-02 build y push del runnable a Coolify | ✅ | #1 | #24 (`dc98c1c`) | `ci-cd-foundation` Phase 2 |
-| CD-01 webhook automático GitHub → Coolify en `push: main` | ✅ código en `225ef9c`; 🔲 dry-run real (tasks 2.6) pendiente de configurar `COOLIFY_WEBHOOK_URL` | #1 | — | `ci-cd-foundation` Phase 2 |
+| CD-01 webhook automático GitHub → Coolify en `push: main` | ✅ código en `225ef9c` + dry-run real verificado en CI run 28674612470 el 2026-07-03 (`COOLIFY_WEBHOOK_URL` + `COOLIFY_WEBHOOK_SECRET` configurados; skip en merge commits) | #1 | — | `ci-cd-foundation` Phase 2 |
 | ~~CD-02 InsForge `insforge_create-deployment` step~~ | ~~🔲~~ N/A (2026-06-19) | #1 | — | — |
 | Branch protection activado en la rama protegida activa (`staging` para trabajo normal; `main` si producción lo requiere) | 🔲 | — | — | `ci-cd-foundation` tarea 1.5 |
 | Harness E2E (Playwright) | 🔲 | — | — | `E2E-01` (diferido a `staging`) |
@@ -88,27 +90,25 @@
 
 **Objetivo:** login real con Google OAuth vía InsForge y allowlist de correos autorizados, con panel admin para el rol `developer`.
 
-> ✅ **Cerrada**. Issue **#16** mergeada en `main` como `1d22349`. Login con Google OAuth (PKCE nativo contra InsForge), tabla `authorized_users` con seed bootstrap, middleware de allowlist, panel `/admin` para developers. Falta el setup de la tabla real en InsForge + el deploy (#1) para tener URL viva.
+> ✅ **Cerrada**. Issue **#16** mergeada en `main` como `1d22349`. Login con Google OAuth (PKCE nativo contra InsForge), tabla `authorized_users` con seed bootstrap, middleware de allowlist, panel `/admin` para developers. Tabla real creada y seedeada (#25); deploy verificado (#1). Pendiente solo el primer deploy real cuando el DNS esté resuelto.
 
 **Documentación de referencia:**
 
 - [`docs/architecture-insforge-stack.md`](architecture-insforge-stack.md) § "Authentication and authorization"
-- [`docs/decisiones-proyecto.md`](decisiones-proyecto.md) § "Usuarios autorizados y roles"
-- [`docs/decisiones-proyecto.md`](decisiones-proyecto.md) § "Bootstrap inicial"
+- [`docs/decisiones-proyecto.md`](decisiones-proyecto.md) § D-01, D-03, D-20, D-40
 
 ### Fase 3 — Modelo de dominio limpio (Animal + Volunteer + anexos)
 
 **Objetivo:** tablas `animals`, `volunteers`, `authorized_users` y la tabla mínima de anexos. Sin UI de producto todavía.
 
-> 🟡 En curso. `authorized_users` ✅ (issue #25). `animals`, `volunteers`, `volunteer_roles` ✅ (issue #26). Pendiente: `animal_event_log` (Fase 4 con CRUD) y `attachments` (Fase 7 con bucket de Storage). Bloquea Fases 4-7.
+> 🟡 En curso. `authorized_users` ✅ (issue #25). `animals`, `volunteers`, `volunteer_roles` ✅ (issue #26). Pendiente: `animal_event_log` (Fase 4 con CRUD) y `attachments` (Fase 7 con bucket de Storage). Bloquea Fases 4-7. Refresco 2026-07-03: paridad de campos de `animals` con el Access legacy está abierta como #129 (`fix(animals): alinear campos obligatorios de ficha con Access y discovery`).
 
 **Documentación de referencia:**
 
-- [`docs/plan-completo.md`](plan-completo.md) § "Fase 1: Modelo de Dominio Limpio"
 - [`docs/architecture-insforge-stack.md`](architecture-insforge-stack.md) § "Data model policy"
 - [`docs/discovery/data-model-notes.md`](discovery/data-model-notes.md)
 - [`docs/discovery/data-model-completeness.md`](discovery/data-model-completeness.md)
-- [`docs/decisiones-proyecto.md`](decisiones-proyecto.md) § "Migración y convivencia con legacy"
+- [`docs/decisiones-proyecto.md`](decisiones-proyecto.md) § D-04 (paridad de campos), D-05 (fidelidad al legacy)
 
 ### Fase 4 — Entidad Animal (Feature 01)
 
@@ -122,23 +122,18 @@
 - [`docs/decisiones-proyecto.md`](decisiones-proyecto.md) § "Timeline del animal"
 - [`docs/decisiones-proyecto.md`](decisiones-proyecto.md) § "Ficha del animal: inspiración legacy"
 - [`docs/decisiones-proyecto.md`](decisiones-proyecto.md) § "Propuesta automática de transición"
-- [`docs/mockups/ficha-animal-timeline.html`](mockups/ficha-animal-timeline.html) — mockup de referencia
+- `docs/mockups/ficha-animal-timeline.html` — *(referencia rota: crear cuando arranque Fase 4)*
 
 ### Fase 5 — Voluntarios + Entradas + Acogidas + Adopciones (Feature 02)
 
 **Objetivo:** flujos operativos centrales con asistentes por pasos y snapshots históricos de personas.
 
-> Pendiente de crear issues (uno por sub-flujo). Depende de Fases 3-4.
+> 🟡 **En curso (Fase 5a INTAKE)**: INTAKE-01 cerrado (schema + service + routes — #87, #88, #89, mergeadas 2026-06-28). Pendiente en INTAKE: #41 `INTAKE-03 workflow de cesión por propietario` y #42 `INTAKE-04 migración de catálogos de origen y motivo`. FOSTER (4 issues) y ADOPT (3 issues) siguen 🔲.
 
 **Documentación de referencia:**
 
 - [`docs/discovery/feature-02-intake-foster-adoption.md`](discovery/feature-02-intake-foster-adoption.md)
-- [`docs/decisiones-proyecto.md`](decisiones-proyecto.md) § "Personas y apartados operativos"
-- [`docs/decisiones-proyecto.md`](decisiones-proyecto.md) § "Adoptantes"
-- [`docs/decisiones-proyecto.md`](decisiones-proyecto.md) § "Propietarios/personas que entregan animales"
-- [`docs/decisiones-proyecto.md`](decisiones-proyecto.md) § "Casas de acogida"
-- [`docs/decisiones-proyecto.md`](decisiones-proyecto.md) § "Voluntarios"
-- [`docs/decisiones-proyecto.md`](decisiones-proyecto.md) § "Formularios por pasos y edición por secciones"
+- [`docs/decisiones-proyecto.md`](decisiones-proyecto.md) § D-03 (dominio centrado en Animal), D-05 (fidelidad al legacy)
 - [`docs/legacy-volunteer-roles.md`](legacy-volunteer-roles.md)
 - [`docs/legacy-lifecycle-transition-rules.md`](legacy-lifecycle-transition-rules.md)
 
@@ -239,31 +234,85 @@
 
 ---
 
-## 4. Issues abiertos
+## 4. Issues abiertos (refresco 2026-07-03)
 
-| # | Título | Labels | Estado |
+> Lista representativa — auto-actualizable con `gh issue list --state open`. Muestra abierta, priorizada por recencia + relación con roadmap, no exhaustiva. **Las cerradas están listadas en §5-bis al final.**
+
+| # | Título | Área | Estado |
 |---|---|---|---|
-| #1 | feat(cd): deploy APAP through Coolify and InsForge (CD-01 pendiente; CD-02 ya mergeado en #24) | `status:approved`, `priority:medium` | 🟡 (CD-02 ✅, CD-01 🔲) |
-| #6 | feat(ux): definir la base UX/UI de APAP | `status:approved`, `priority:medium` | 🔲 |
-| #7 | feat(tasks): definir motor común de tareas manuales y automáticas | `status:approved`, `priority:medium` | 🔲 |
-| #14 | docs(roadmap): hoja de ruta viva | `status:approved` | ✅ (mergeada `69b509e`) |
-| #16 | feat(auth): Google OAuth + allowlist + panel admin (Fase 2) | `enhancement`, `status:approved`, `priority:medium` | ✅ (`1d22349`) |
-| #17 | feat(app): esqueleto FastAPI + HTMX + Tailwind (Fase 1) | `status:approved` | ✅ (`d0b1ed1`) |
+| #1 | feat(cd): deploy APAP through Coolify and InsForge (CD-01 + CD-02) | Fase 0 | 🟡 (puede cerrarse — deploy verificado en CI run 28674612470) |
+| #6 | feat(ux): definir la base UX/UI de APAP | Transversal UX/UI | 🔲 |
+| #7 | feat(tasks): definir motor común de tareas manuales y automáticas | Transversal tasks | 🔲 |
+| #120 | refactor(auth): extract `read_session_payload(request)` helper (F-3) | Auth | 🔲 (chico, sin dependencias, candidato a romper el hielo) |
+| #129 | fix(animals): alinear campos obligatorios de ficha con Access y discovery | Fase 3 / animal | 🔲 (gap:legacy — ver D-04) |
+| #130 | docs(product): consolidar decisiones y restaurar referencias rotas | Docs | 🔲 (este PR la cierra) |
+| #41 | INTAKE-03: workflow de cesión por propietario con contrato separado | Fase 5a | 🔲 |
+| #42 | INTAKE-04: migración de catálogos de origen y motivo | Fase 5a | 🔲 |
+| #43 | FOSTER-01: CRUD de casas de acogida con preferencia de especie y capacidad | Fase 5b | 🔲 |
+| #44 | FOSTER-02: CRUD de estancias de acogida con FK a voluntario | Fase 5b | 🔲 |
+| #45 | FOSTER-03: gate de especie + advisory de capacidad con override auditado | Fase 5b | 🔲 |
+| #46 | FOSTER-04: asignación de material a estancias de acogida | Fase 5b | 🔲 |
+| #47 | ADOPT-01: CRUD de adopciones con FK a voluntario | Fase 5c | 🔲 |
+| #48 | ADOPT-02: expiración de pre-adopción tras ventana de 20 días | Fase 5c | 🔲 |
+| #49 | ADOPT-03: state machine de seguimiento de 4 estados | Fase 5c | 🔲 |
+| #50 | HEALTH-01: CRUD de actuaciones sanitarias con validación de fechas (D-24) | Fase 6a | 🔲 |
+| #51 | HEALTH-02: API batch de actuaciones con commit transaccional | Fase 6a | 🔲 |
+| #52 | HEALTH-03: API de resumen de salud (última por tipo de prueba) | Fase 6a | 🔲 |
+| #53 | HEALTH-04: CRUD de terapias y recomendaciones | Fase 6b | 🔲 |
+| #54 | HEALTH-05: motor de periodicidad para tareas pendientes de salud | Fase 6b | 🔲 |
+| #55 | HEALTH-06: migración de catálogo de pruebas y reglas de periodicidad | Fase 6b | 🔲 |
+| #56 | DOC-01: generación de PDF de contratos desde plantillas | Fase 7b | 🔲 |
+| #57 | DOC-02: upload de contrato firmado con registro | Fase 7b | 🔲 |
+| #58 | DOC-03: anexos de archivo con linking polimórfico por entidad | Fase 7a | 🔲 |
+| #59 | DOC-04: migración de archivos legacy a object storage | Fase 7a | 🔲 |
+| #60 | REPORT-01: query builder parametrizado con plantillas curadas | Reportes | 🔲 |
+| #61 | REPORT-02: ejecución server-side con export PDF/Excel | Reportes | 🔲 |
+| #62 | REPORT-03: informe trimestral PDF con charts | Reportes | 🔲 |
+| #63 | REPORT-04: sistema de notificación de pruebas pendientes | Reportes | 🔲 |
+| #64 | REPORT-05: API de contadores de dashboard en tiempo real | Reportes + home | 🔲 |
+| #65 | CATALOG-01: migración de todos los catálogos de reference data | Fase 3+ | 🔲 |
+| #66 | RBAC-01: modelo RBAC con matriz de permisos a nivel API | Auth | 🔲 |
+| #69 | LIFECYCLE-SCHEMA-03: cache materializado `estado_actual_animal` | Fase 4 | 🔲 |
+
+**Issues cerradas relevantes (refresco 2026-07-03, con commit/título):**
+
+- #1 (`dc98c1c` PR #24 — CD-02 Dockerfile/build), `b929233` HMAC, `225ef9c` job `deploy`, `ca06a46` httpx, `b16a5dd`/`e32c573` extract/PG-deselect
+- #14 (`69b509e`) — hoja de ruta viva (este doc)
+- #16 (`1d22349`) — Fase 2 auth
+- #17 (`d0b1ed1`) — Fase 1 esqueleto
+- #25 — `authorized_users` tabla
+- #26 — `animals`/`volunteers`/`volunteer_roles` tablas
+- #87/#88/#89 — INTAKE-01 schema+service+routes (Fase 5a básica)
+- #119 (`28a0cb1`) — tighten `auth_dependencies.py` types
+- #124 — logout → login
+- #125 — OAuth callback loop
+- #126 — UI sin copy interno + campos obligatorios Access
+- #127 — home con tarjetas de pendientes
+- #128 — eliminar lenguaje interno
+- #131 — labels castellanos
+- (Y el commit `a528566 test(xss-audit): allowlist index.html shortcut.href` que pilló la regla 15.1 antes del merge de hoy)
 
 ---
 
 ## 5. Issues pendientes de crear (por fase)
 
-Estos son los títulos tentativos; se abren cuando arranca cada fase, no antes.
+> Refresco 2026-07-03: las issues de INTAKE (Fase 5a) ya están abiertas como #87-#89 + #41/#42. Las de FOSTER, ADOPT, HEALTH, DOC, REPORT, RBAC, CATALOG también están abiertas (ver §4). Lo que queda **sin abrir** está aquí abajo.
 
-| Fase / Área | Título tentativo | Depende de |
-|---|---|---|
-| Fase 3 | `feat(domain): modelo limpio (animals, volunteers, authorized_users)` | Fase 1 (#17) |
-| Fase 4 | `feat(animals): CRUD + timeline + estado derivado` | Fase 3 |
-| Fase 5a | `feat(intake): entradas y cesiones (asistente por pasos)` | Fases 3-4 |
-| Fase 5b | `feat(foster): casas de acogida y estancias` | Fases 3-4 |
-| Fase 5c | `feat(adoption): adopciones y devoluciones` | Fases 3-4 |
-| Fase 6a | `feat(health): actuaciones sanitarias y resumen` | Fases 3-4 |
+| Fase / Área | Título tentativo | Depende de | Estado |
+|---|---|---|---|
+| Fase 4 | `feat(animals): CRUD + timeline + estado derivado` (issue track por abrir) | Fase 3 | 🔲 pendiente abrir issue raíz (los #50-#55/#69 cubren pedazos) |
+| Transversal | `feat(dashboard): bandeja de pendientes + realtime` (issue track por abrir) | Fase 2 | 🔲 pendiente (los #64 cubren la API) |
+| Transversal | `feat(search): búsqueda global` | Fases 3-4 | 🔲 pendiente |
+| Transversal | `feat(canonical-logs): traza canónica del sistema` | Fase 1 | 🔲 pendiente (ref `docs/canonical-logs.md` no existe; el doc hay que crearlo cuando arranque la issue) |
+| Transversal | `feat(admin-panel): panel de control / configuración` | Fases 1-2 | 🔲 pendiente |
+| Docs | `docs(architecture): traducir architecture-insforge-stack.md al castellano` | — | 🔲 pendiente |
+| Docs | `docs(development): traducir development.md al castellano` | — | 🔲 pendiente |
+| Docs | `docs(discovery): revisar y traducir los discovery en inglés al castellano` | — | 🔲 pendiente |
+| Docs | `docs(canonical-logs): crear el doc fundacional de traza canónica` | — | 🔲 bloqueado por la issue de arriba |
+| Docs | `docs(decisiones-proyecto): crear el doc de decisiones de proyecto` | — | ✅ creado en este refresh (2026-07-03) |
+| Docs | `docs(proceso): playbook operativo por issue` | — | ✅ creado en este refresh (PR #132 merge `5329ec5`) |
+| Docs | `docs(plan-completo): crear el plan detallado de Fases 0-7` | — | 🔲 sigue como borrador en `untracked` (referencia rota histórica); evaluar si se crea o se elimina del roadmap |
+| Docs | `docs(mockups): restaurar mockups HTML referenciados` (login, dashboard, ficha animal) | — | 🔲 los mockups se referencian pero nunca se llegaron a commitear; crear cuando se necesiten |
 | Fase 6b | `feat(therapies): terapias y recomendaciones` | Fases 3-4 |
 | Fase 6c | `feat(material): inventario de material y asignaciones` | Fases 3-4 |
 | Fase 7a | `feat(attachments): anexos e historial documental` | Fases 3-6 |
@@ -297,12 +346,12 @@ Estos son los títulos tentativos; se abren cuando arranca cada fase, no antes.
 - [`docs/discovery/acceptance-checklist.md`](discovery/acceptance-checklist.md)
 - [`docs/discovery/inventory-baseline.md`](discovery/inventory-baseline.md)
 - [`docs/discovery/dysflow-notes.md`](discovery/dysflow-notes.md)
-- [`docs/decisiones-proyecto.md`](decisiones-proyecto.md) — decisiones de producto, UX, arquitectura y proceso
+- [`docs/decisiones-proyecto.md`](decisiones-proyecto.md) — registro canónico de decisiones de producto (D-01–D-07), UX (D-10–D-12), arquitectura (D-20–D-21), proceso (D-30–D-38) y UAT (D-40–D-41). Creado 2026-07-03 con el refresh de #130.
 
 ### Arquitectura, plan y desarrollo
 
 - [`docs/architecture-insforge-stack.md`](architecture-insforge-stack.md) — stack base y reglas InsForge/Coolify *(pendiente de traducir al castellano)*
-- [`docs/plan-completo.md`](plan-completo.md) — plan detallado de Fases 0-7 *(borrador en `untracked`, no commiteado todavía)*
+- [`docs/plan-completo.md`](plan-completo.md) — *(referencia rota: no commiteado)* plan detallado de Fases 0-7. Estaba en `untracked` y nunca se llegó a commitear; ver §5 para el plan de creación.
 - [`docs/development.md`](development.md) — flujo local de desarrollo *(pendiente de traducir al castellano)*
 - [`docs/proceso.md`](proceso.md) — playbook operativo por issue: premisas (P1 fidelidad al legacy, P2 resolución de dudas, P3 docs reflejan código, P4 pre-MVP single-branch) + workflow completo (pre-flight → triaje → SDD/TDD → validación → merge → cierre con trazabilidad). **Leer al iniciar cualquier issue que vaya más allá de un doc trivial.**
 - [`docs/setup.md`](setup.md) — setup por desarrollador y credenciales InsForge
@@ -310,10 +359,12 @@ Estos son los títulos tentativos; se abren cuando arranca cada fase, no antes.
 ### UX y visual
 
 - [`docs/design-tokens-apap-actual.md`](design-tokens-apap-actual.md) — tokens heredados del legacy como referencia
-- [`docs/mockups/login-simple-insforge.html`](mockups/login-simple-insforge.html) — mockup del login
-- [`docs/mockups/login-dashboard.html`](mockups/login-dashboard.html) — mockup del dashboard interno
-- [`docs/mockups/ficha-animal-timeline.html`](mockups/ficha-animal-timeline.html) — mockup de la ficha del animal
+- [`docs/mockups/login-simple-insforge.html`](mockups/login-simple-insforge.html) — *(referencia rota: nunca commiteado)* mockup del login
+- [`docs/mockups/login-dashboard.html`](mockups/login-dashboard.html) — *(referencia rota: nunca commiteado)* mockup del dashboard interno
+- [`docs/mockups/ficha-animal-timeline.html`](mockups/ficha-animal-timeline.html) — *(referencia rota: nunca commiteado)* mockup de la ficha del animal
 - [`docs/features-showcase.html`](features-showcase.html) — escaparate interactivo de features
+
+> **Nota 2026-07-03:** los tres `mockups/*.html` se referencian históricamente pero nunca se llegaron a commitear. Estaban en el plan de #6 (UX/UI foundation) y en las features iniciales; ahora son bloqueados por #6 hasta que arranque esa issue.
 
 ### Legacy — análisis detallado (no clonar UX)
 
@@ -325,7 +376,7 @@ Estos son los títulos tentativos; se abren cuando arranca cada fase, no antes.
 
 ### Trazas y diagnóstico
 
-- [`docs/canonical-logs.md`](canonical-logs.md) — formato y contrato de la traza canónica
+- [`docs/canonical-logs.md`](canonical-logs.md) — *(referencia rota: nunca commiteado)* formato y contrato de la traza canónica. Crear cuando arranque la issue `feat(canonical-logs)`.
 
 ### SDD (OpenSpec)
 
@@ -359,15 +410,16 @@ Estos son los títulos tentativos; se abren cuando arranca cada fase, no antes.
 | Idioma de artefactos técnicos (código, comentarios, docstrings) | Inglés por defecto; documentación de producto en castellano |
 | Idioma de documentación | Castellano (España) para docs de producto, arquitectura y SDD |
 | Mantenedor | aroman (autoaprueba issues y PRs) |
-| Rama objetivo actual | `staging` para trabajo normal; `main` solo para producción/promoción con OK explícito |
+| Rama objetivo actual | **pre-MVP single-branch** — todo va a `main`, una sola rama al final del ciclo. `git config gentleai.stagingOnly` está **unset** para este repo (D-38, `AGENTS.md` §15). Reversión post-MVP: re-armar el flag, recrear `staging`, deferir al global `staging-acceptance-contract` con Virginia como validadora UAT. |
 | Convención de commits | Conventional Commits |
 | Tipo de PR label | exactamente uno de `type:bug` / `type:feature` / `type:docs` / `type:refactor` / `type:chore` / `type:breaking-change` |
-| TDD | Estricto: tests antes de código (excepto docs y ops puros). Cada unidad de trabajo = 1 issue → tests rojo → implementación → verde → integración en `staging` → cerrar issue |
+| TDD | Estricto: tests antes de código (excepto docs y ops puros). Cada unidad de trabajo = 1 issue → tests rojo → implementación → verde → integración en `main` → cerrar issue con trazabilidad (SHA + test path) |
 | Skill para frontend | `frontend-design` cargado en cualquier issue que toque UI/UX |
-| Skill para workflow VBA/Access | Solo `dysflow` MCP y `vba-access`; los demás skills de Access están excluidos |
+| Skill para workflow VBA/Access | Solo `dysflow` MCP, `vba-access` y `access-vba-tdd`; los demás skills de Access están excluidos (D-31) |
 | Presupuesto de revisión | 400 líneas por PR; usar PRs encadenados cuando se supere |
-| Cadena de PRs | `force-chained`; base normal `staging`, con promoción a `main` solo para producción |
+| Cadena de PRs | `force-chained`; base normal `main` (pre-MVP); post-MVP vuelve a `staging` |
 | Trazabilidad de SDD | Cada PR enlaza la issue (`Closes #N`) y referencia el change de OpenSpec cuando aplique |
+| Fidelidad al legacy | D-05 (P1): superset funcional del Access; gap = `type:bug` con label `gap:legacy` |
 
 ---
 
@@ -375,7 +427,7 @@ Estos son los títulos tentativos; se abren cuando arranca cada fase, no antes.
 
 **Regla base:** este roadmap se mantiene actualizado como efecto directo de cualquier acción que afecte a su contenido. No es una tarea aparte, se hace en el mismo flujo. Las decisiones, la documentación, las issues y el roadmap viven sincronizados: si algo cambia, el roadmap cambia en esa misma sesión, sin esperar a que el usuario lo pida.
 
-**Ritmo de trabajo actual:** abrir issue → escribir el test rojo (TDD estricto) → implementación mínima que lo pone en verde → integrar en `staging` → cerrar issue. La promoción a `main` queda separada para producción.
+**Ritmo de trabajo actual:** abrir issue → escribir el test rojo (TDD estricto) → implementación mínima que lo pone en verde → integrar en `main` → cerrar issue con trazabilidad (SHA + test path). En pre-MVP no hay promoción separada; todo va directo a `main`. Post-MVP, la cadencia vuelve a ser staging → UAT con Virginia → main.
 
 Acciones que obligan a actualizar el roadmap en la misma sesión:
 
@@ -386,3 +438,14 @@ Acciones que obligan a actualizar el roadmap en la misma sesión:
 - **Nueva decisión de arquitectura o proceso**: añadir a `docs/decisiones-proyecto.md`; el roadmap debe enlazarla, no duplicarla.
 - **Cierre de una fase completa**: marcar ✅ la fila en §3, mantener el enlace al histórico (no borrar) y proponer la siguiente fase.
 - **Obsolescencia detectada**: si el doc se desactualiza respecto a `main`, abrir `docs(roadmap): refrescar hoja de ruta` y ejecutar el refresco en la misma sesión.
+- **Auditoría de enlaces de §6**: en cada refresh, verificar que cada `path/to/doc.md` referenciado existe realmente. Si no existe, marcar como **referencia rota** en la fila (§6 actual 2026-07-03) y/o crear el doc correspondiente en la misma PR. El checklist concreto se hace con:
+
+  ```bash
+  # Detecta referencias rotas en docs/roadmap.md
+  grep -oE '\[.*\]\(([^)]+\.(md|html|yaml))' docs/roadmap.md \
+    | sed -E 's/.*\(([^)]+)\)/\1/' \
+    | sort -u \
+    | while read p; do test -e "$p" || echo "ROTA: $p"; done
+  ```
+
+  Las referencias marcadas como **ROTA** en el refresh 2026-07-03 son: `docs/plan-completo.md`, `docs/canonical-logs.md`, `docs/mockups/login-simple-insforge.html`, `docs/mockups/login-dashboard.html`, `docs/mockups/ficha-animal-timeline.html`. Plan de remediación documentado en §5.
