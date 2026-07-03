@@ -160,13 +160,20 @@ def test_key_template_sources_do_not_include_internal_ui_copy() -> None:
 
 
 def test_animal_form_uses_professional_optional_section_label() -> None:
-    """The animal form names optional fields with product wording."""
+    """The animal form names the extra-fields section with product wording.
+
+    Tras #129 la seccion de campos adicionales incluye required fields
+    (Terapia, TraeNChip, FIMPLANTACIONCHIP, Foto/NombreFoto); por tanto
+    el nombre debe transmitir "additional" sin implicar "optional"
+    (el copy anterior "Datos complementarios" era enganoso porque esos
+    campos NO son opcionales).
+    """
     root = Path(__file__).resolve().parents[1]
     source = (root / "app" / "templates" / "animales" / "form.html").read_text(
         encoding="utf-8"
     )
 
-    assert "Datos complementarios del animal" in source
+    assert "Datos adicionales del animal" in source
 
 
 def test_animal_templates_use_human_readable_visible_labels() -> None:
