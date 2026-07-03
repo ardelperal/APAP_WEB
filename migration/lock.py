@@ -16,18 +16,18 @@ función de migración atómica). The lock file lives next to
 **Stale recovery** (the killer feature):
 
 If the holding process died without releasing the lock (kill -9, OOM,
-crash, power loss), the file is stale. ``acquire_lock`` detects this
-two ways and overwrites the lock:
+crash, power loss), the file is stale. ``acquire_lock`` auto-recovers
+only when the owner PID is verifiably dead:
 
 1. **PID is dead**: ``psutil.pid_exists(pid)`` is ``False`` when
    ``psutil`` is available. Without ``psutil``, Windows uses the kernel
    process-query API (``OpenProcess`` + ``GetExitCodeProcess``) because
    ``os.kill(pid, 0)`` can send ``CTRL_C_EVENT`` there; POSIX keeps the
    standard ``os.kill(pid, 0)`` probe.
-2. **TTL expired**: ``now - acquired_at > ttl_seconds``. Default TTL
-   is 30 minutes (1800s) — generous enough for a full sync (design §12
-   estimates 10-15 min) but short enough that a dead run doesn't
-   block the next day.
+2. **TTL is informational**: an expired TTL does not override a live PID.
+   A live migration can stall longer than TTL; overwriting its lock would
+   risk split-brain writes. Manual cleanup is required for corrupt locks
+   or for live-PID locks the operator has verified are safe to remove.
 
 **Pre-flight MSACCESS check** (design §14):
 
@@ -173,16 +173,19 @@ def acquire_lock(
 
     Algoritmo:
       1. Si el archivo existe: leerlo.
-         a. Si el lock NO está stale (PID vivo + TTL vigente) →
-            ``LockActiveError``.
-         b. Si está stale (PID muerto o TTL expirado) → sobrescribir
-            (delete + write nuevo).
+         a. Si el lock es parseable Y el PID dueño está muerto
+            → sobrescribir (delete + write nuevo).
+         b. Si el lock es parseable Y el PID dueño está vivo
+            → ``LockActiveError`` (incluso si TTL expiró).
+         c. Si el lock NO es parseable (vacío o corrupto) → ``LockActiveError``.
+            Nunca se auto-recupera un lock corrupto; un writer puede estar
+            pausado entre os.open y fdopen por tiempo arbitrario.
       2. Si el archivo NO existe: crear nuevo.
 
-    La creación del archivo es **atómica con sobrescritura segura**:
-    escribimos a ``{lock_path}.tmp`` + ``os.replace``. ``os.replace``
-    es atómico en Windows + POSIX (mismo filesystem) y sobrescribe
-    el destino sin race condition con lectores.
+    La creación del archivo es atómica: reclamamos directamente
+    ``lock_path`` con ``O_CREAT|O_EXCL``. Un segundo acquire concurrente
+    no puede crear ni sobrescribir el lock real; debe observarlo y
+    responder ``LockActiveError``.
 
     Args:
         lock_path: ruta al lock file (convencionalmente al lado de
@@ -193,7 +196,9 @@ def acquire_lock(
         ``LockInfo`` con el lock recién adquirido (útil para tests).
 
     Raises:
-        LockActiveError: si el lock existe y NO está stale.
+        LockActiveError: si el lock existe y es activo, o si el lock
+            existe y es vacío/corrupto (requiere limpieza manual si no
+            hay otro proceso escribiéndolo).
         OSError: si hay un error de I/O al escribir el lock.
     """
     # Importación lazy para romper el ciclo ``__init__`` → ``lock``.
@@ -213,13 +218,25 @@ def acquire_lock(
                 f"acquired_at={existing.acquired_at.isoformat()}, "
                 f"ttl={existing.ttl_seconds}s)"
             )
-        # Lock stale o corrupto → sobrescribir.
-        try:
-            lock_path.unlink()
-        except FileNotFoundError:
-            # Otro proceso pudo haberlo borrado entre read y unlink.
-            # Race aceptable; seguimos.
-            pass
+        # Lock corrupto o vacío: no intentamos auto-recuperar. Un writer vivo
+        # puede estar pausado entre os.open(O_CREAT|O_EXCL) y f.write()
+        # por tiempo arbitrario; unlink+acquire por otro proceso
+        # rompería el contrato (ambos retornarían success). Tratamos cualquier
+        # lock corrupto/vacío como in-flight writer activo.
+        if existing is None:
+            raise LockActiveError(
+                "Lock file exists but is empty or corrupt (unparseable). "
+                "Another process may be acquiring it. "
+                "Manually remove the lock file if no other process is running."
+            ) from None
+        # Lock es parseable pero stale: verificar staleness antes de sobrescribir.
+        if _is_lock_stale(existing):
+            try:
+                lock_path.unlink()
+            except FileNotFoundError:
+                # Otro proceso pudo haberlo borrado entre read y unlink.
+                # Race aceptable; seguimos.
+                pass
 
     # Fase 2: crear el lock nuevo.
     info = LockInfo(
@@ -228,26 +245,23 @@ def acquire_lock(
         ttl_seconds=ttl_seconds,
     )
 
-    # Escritura atómica (claim tmp + replace) para evitar un lock
-    # corrupto en disco si el proceso muere a mitad (regla #13474 v2).
-    # Usamos ``os.open(O_CREAT|O_EXCL|O_WRONLY)`` para que solo UN hilo
-    # gane el slot del archivo tmp cuando dos ``acquire_lock`` corren
-    # concurrentemente sobre un lock inexistente. Sin O_EXCL, ambos
-    # hilos ven ``not exists``, ambos hacen ``write_text`` al mismo
-    # ``.tmp`` y el segundo writer se lleva un ``PermissionError:
-    # [WinError 32]`` en Windows (P0 #2 bug — code review PR #99).
-    tmp_path = lock_path.with_suffix(lock_path.suffix + ".tmp")
+    # Reclamamos el lock REAL, no un ``.tmp``. El patrón anterior
+    # ``tmp + os.replace`` todavía permitía esta carrera:
+    #
+    #   A crea ``.tmp`` -> replace a ``lock`` -> ``.tmp`` desaparece
+    #   B crea un nuevo ``.tmp`` -> replace y también devuelve ACQUIRED
+    #
+    # Usar ``O_EXCL`` sobre ``lock_path`` garantiza el contrato público:
+    # dos acquires concurrentes sobre un lock inexistente producen un
+    # ganador y un ``LockActiveError``.
     try:
-        fd = os.open(tmp_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
     except FileExistsError:
-        # Otro ``acquire_lock`` concurrente ganó el slot del tmp. Re-leemos
-        # el lock file real: si ya está visible (el contender terminó su
-        # ``os.replace``), evaluamos staleness y levantamos LockActiveError
-        # según corresponda. Si NO está visible todavía (contender murió
-        # mid-write o el race window es estrecho), también levantamos
-        # LockActiveError con un mensaje claro para que el caller pueda
-        # reintentar limpiamente — nunca propagamos el PermissionError
-        # raw que era el comportamiento pre-fix.
+        # Otro ``acquire_lock`` concurrente ganó el lock real. Re-leemos
+        # para construir un error útil cuando sea posible. Si el ganador
+        # todavía está escribiendo y el JSON no es parseable, preservamos
+        # igualmente el contrato: el segundo caller recibe LockActiveError,
+        # nunca un error de I/O o JSON intermedio.
         existing = _read_lock_unverified(lock_path)
         if existing is not None and not _is_lock_stale(existing):
             raise LockActiveError(
@@ -255,26 +269,25 @@ def acquire_lock(
                 f"acquired_at={existing.acquired_at.isoformat()}, "
                 f"ttl={existing.ttl_seconds}s)"
             ) from None
-        # Lock no visible todavía (contender mid-write) o stale → el
-        # contrato del docstring es "one success, one LockActiveError",
-        # así que siempre surface LockActiveError para preservar el
-        # contrato (nunca PermissionError).
+        # Lock corrupto/mid-write o stale justo en la ventana de carrera:
+        # para el segundo acquire concurrente seguimos devolviendo
+        # LockActiveError. Un futuro retry podrá evaluar staleness con el
+        # archivo ya estable.
         raise LockActiveError(
-            "Concurrent acquire is in flight; lock file not yet visible "
-            "or contender's lock is stale. Retry shortly."
+            "Concurrent acquire is in flight; lock file is not stable yet. "
+            "Retry shortly."
         ) from None
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(info.to_json())
     except BaseException:
-        # Si write falló (disco lleno, proceso matado), limpia el tmp
+        # Si write falló (disco lleno, proceso matado), limpia el lock
         # para no dejar basura que confunda el próximo acquire.
         try:
-            os.unlink(tmp_path)
+            os.unlink(lock_path)
         except FileNotFoundError:
             pass
         raise
-    os.replace(tmp_path, lock_path)
     return info
 
 
@@ -316,15 +329,20 @@ def check_lock(lock_path: Path | str) -> LockInfo | None:
 def _is_lock_stale(lock: LockInfo) -> bool:
     """True si el lock debe considerarse stale y sobrescribirse.
 
-    Una de dos condiciones basta:
-      1. El PID ya no existe (``_is_process_alive(lock.pid) == False``).
-      2. El TTL expiró (``now - lock.acquired_at > lock.ttl_seconds``).
+    Un lock parseable solo se considera stale cuando el proceso dueño
+    (PID) ya no está vivo (``_is_process_alive(lock.pid) == False``).
+    Si el PID es vivo, el lock permanece activo aunque el TTL haya
+    expirado — un proceso vivo puede haber stalled por razones
+    legítimas (ej: migración larga, operador en debugging con breakpoint).
+
+    Si no podemos verificar la liveness del PID (fallback conservador
+    retorna ``True``), NO sobrescribimos: es mejor bloquear de más que
+    provocar una migración split-brain.
     """
     if not _is_process_alive(lock.pid):
         return True
-    now = datetime.now(UTC)
-    elapsed = (now - lock.acquired_at).total_seconds()
-    return elapsed > lock.ttl_seconds
+    # PID vivo — lock NO es stale aunque TTL haya expirado.
+    return False
 
 
 def _is_process_alive(pid: int) -> bool:

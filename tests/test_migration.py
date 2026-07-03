@@ -2243,17 +2243,15 @@ class TestLock:
             release_lock(lock_path)
 
     def test_acquire_lock_recovers_from_expired_ttl(self, tmp_path) -> None:
-        """acquire_lock sobrescribe un lock con TTL expirado aunque el PID siga vivo.
+        """acquire_lock sobrescribe un lock con TTL expirado y PID muerto.
 
-        Caso típico: un proceso vivo dejó un lock hace horas (ej: el
-        operador dejó una ventana con el sync corriendo, volvió al día
-        siguiente, y el PID sigue vivo pero el lock tiene horas de
-        antigüedad). El acquire_lock debe detectar el TTL expirado y
-        sobrescribir.
+        Caso típico: el proceso dueño del lock murió (kill -9, OOM, crash)
+        dejando el archivo en disco con TTL ya expirado. El stale-recovery
+        debe detectar el PID muerto y sobrescribir sin raise.
 
         Construimos un LockInfo con ``acquired_at`` 2 horas en el pasado
-        y TTL de 30 minutos — naturalmente expirado sin necesidad de
-        mockear ``datetime.now()``.
+        y TTL de 30 minutos — naturalmente expirado — con un PID dummy
+        que no está vivo (``999_999_999``).
         """
         from migration.lock import (
             LockInfo,
@@ -2262,10 +2260,7 @@ class TestLock:
         )
 
         lock_path = tmp_path / "sync.lock"
-        # Lock de hace 2 horas con TTL de 30 min → expirado.
-        # Usamos un PID muy alto (999_999_999) que probablemente no está
-        # vivo, así que el stale podría ser por PID o por TTL — lo que
-        # nos importa es que NO levante LockActiveError.
+        # Lock de hace 2 horas con TTL de 30 min → expirado + PID muerto.
         two_hours_ago = datetime.now(tz=UTC).replace(microsecond=0)
         from datetime import timedelta
 
@@ -2281,6 +2276,47 @@ class TestLock:
             acquire_lock(lock_path)
             # Si llegamos aquí sin raise, el stale-recovery funcionó.
             assert lock_path.exists()
+        finally:
+            release_lock(lock_path)
+
+    def test_acquire_lock_raises_when_pid_alive_and_ttl_expired(self, tmp_path) -> None:
+        """acquire_lock levanta LockActiveError cuando el PID está vivo y el TTL expiró.
+
+        Caso split-brain: un proceso vivo dejó un lock hace horas (ej: el
+        operador dejó una ventana con el sync corriendo, volvió al día
+        siguiente, y el PID sigue vivo pero el lock tiene horas de
+        antigüedad). NO debemos sobrescribir porque el proceso vivo podría
+        continuar la migración en cualquier momento — sobrescribir causaría
+        split-brain.
+
+        Usamos el PID del propio proceso (alive por definición) con un lock
+        de TTL expirado. ``acquire_lock`` debe levantar ``LockActiveError``.
+        """
+        import os
+
+        from migration.lock import (
+            LockInfo,
+            acquire_lock,
+            release_lock,
+        )
+
+        lock_path = tmp_path / "sync.lock"
+        # Lock de hace 2 horas con TTL de 30 min → expirado.
+        # PID es el nuestro (vivo).
+        two_hours_ago = datetime.now(tz=UTC).replace(microsecond=0)
+        from datetime import timedelta
+
+        two_hours_ago = two_hours_ago - timedelta(hours=2)
+        expired = LockInfo(
+            pid=os.getpid(),
+            acquired_at=two_hours_ago,
+            ttl_seconds=1800,
+        )
+        lock_path.write_text(expired.to_json(), encoding="utf-8")
+
+        try:
+            with pytest.raises(LockActiveError, match="pid="):
+                acquire_lock(lock_path)
         finally:
             release_lock(lock_path)
 
@@ -2546,14 +2582,81 @@ class TestLock:
         """check_lock retorna ``None`` si el lock file está corrupto (NO raise).
 
         Cobertura: paths de error de ``_read_lock_unverified`` + ``from_json``.
-        Un lock corrupto se trata como ausente — el siguiente
-        ``acquire_lock`` lo sobrescribe sin drama.
+        Un lock corrupto no se auto-recupera en ``acquire_lock``: puede
+        ser un writer pausado a mitad de escritura y requiere limpieza manual.
         """
         from migration.lock import check_lock
 
         bad_path = tmp_path / "bad.lock"
         bad_path.write_text("not a valid json{", encoding="utf-8")
         assert check_lock(bad_path) is None
+
+    def test_acquire_lock_raises_on_fresh_empty_lock(self, tmp_path) -> None:
+        """Fresh empty lock file → ``LockActiveError`` (not unlinked).
+
+        An empty lock file is always treated as an in-flight writer (never
+        auto-recovered), regardless of age. A writer can be paused between
+        os.open(O_CREAT|O_EXCL) and fdopen/write for arbitrarily long.
+        """
+        from migration.lock import acquire_lock, release_lock
+
+        lock_path = tmp_path / "fresh_empty.lock"
+        # Crear archivo vacío (simula caller A en medio de os.fdopen)
+        lock_path.touch()
+        try:
+            with pytest.raises(LockActiveError, match="empty or corrupt"):
+                acquire_lock(lock_path)
+            # El archivo sigue ahí (no fue borrado)
+            assert lock_path.exists()
+        finally:
+            release_lock(lock_path)
+
+    def test_acquire_lock_raises_on_fresh_corrupt_json_lock(self, tmp_path) -> None:
+        """Fresh corrupt JSON lock file → ``LockActiveError`` (not unlinked).
+
+        Same principle as empty lock: partial JSON written by an in-flight
+        writer is never auto-recovered. Manual cleanup required when the
+        writer process is confirmed dead.
+        """
+        from migration.lock import acquire_lock, release_lock
+
+        lock_path = tmp_path / "fresh_corrupt.lock"
+        # Partial JSON (simula writer matado entre open y write)
+        lock_path.write_text("{", encoding="utf-8")
+        try:
+            with pytest.raises(LockActiveError, match="empty or corrupt"):
+                acquire_lock(lock_path)
+            # Archivo sigue intacto
+            assert lock_path.exists()
+        finally:
+            release_lock(lock_path)
+
+    def test_acquire_lock_raises_on_old_corrupt_lock(self, tmp_path) -> None:
+        """Old corrupt lock file → ``LockActiveError`` (never auto-recovered).
+
+        A corrupt/empty lock file is NEVER auto-unlinked, regardless of age.
+        A live writer can be paused after os.open(O_CREAT|O_EXCL) and
+        before/during JSON write for longer than any grace period; another
+        process must not treat the file as garbage and acquire over it.
+        Manual cleanup is required when no other process is running.
+        """
+        from migration.lock import acquire_lock, release_lock
+
+        lock_path = tmp_path / "old_corrupt.lock"
+        lock_path.write_text("{invalid", encoding="utf-8")
+        # Mover mtime al pasado: incluso un lock corrupto viejo bloquea.
+        import os as _os
+        import time as _time
+        old_mtime = _time.time() - 10
+        _os.utime(lock_path, times=(old_mtime, old_mtime))
+
+        try:
+            with pytest.raises(LockActiveError, match="empty or corrupt"):
+                acquire_lock(lock_path)
+            # Archivo preservado — requiere limpieza manual
+            assert lock_path.exists()
+        finally:
+            release_lock(lock_path)
 
     def test_lock_info_from_json_rejects_missing_fields(self) -> None:
         """``LockInfo.from_json`` levanta ``ValueError`` si falta ``pid``."""

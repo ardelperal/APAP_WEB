@@ -428,11 +428,11 @@ def run_reconcile(
 
     lock_path = _resolve_lock_path()
     # Best-effort: if a non-stale lock is held, fail fast with a
-    # clear error. Stale locks are auto-overwritten by
-    # ``acquire_lock`` (PID dead + TTL expiry — see lock.py).
+    # clear error. Only locks whose owner PID is verifiably dead are
+    # auto-overwritten by ``acquire_lock`` (see lock.py).
     existing = _check_lock(lock_path)
     if existing is not None and not _is_lock_stale(existing):
-        # Active lock → fail fast. Stale locks are picked up by
+        # Active lock → fail fast. Dead-owner stale locks are picked up by
         # ``acquire_lock`` (it overwrites them after re-checking).
         raise LockActiveError(
             f"apap-migrate reconcile: another interactive session is "
