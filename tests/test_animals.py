@@ -21,6 +21,7 @@ import httpx
 import pytest
 
 from app.core.insforge import InsForgeClient, InsForgeError
+from app.modules.animals.forms import ANIMAL_FORM_REQUIRED_FIELDS
 from app.modules.animals.service import (
     Especie,
     Sexo,
@@ -61,13 +62,26 @@ def _client_recording(handler) -> tuple[InsForgeClient, list[dict[str, Any]]]:
 
 
 def _params_minimal() -> dict[str, Any]:
-    """Parametros validos para el happy path (solo los 5 obligatorios)."""
+    """Parametros validos para el happy path.
+
+    Tras #129 (paridad Access + discovery), son 9 obligatorios: los 5
+    originales (Access ``TbFichaAnimal.Required=True`` NCHIP/NombreAnimal/
+    Especie/Sexo/FNacimiento) + los 4 de discovery (Terapia, TraeNChip,
+    FIMPLANTACIONCHIP, NombreFoto). Ver ``ANIMAL_FORM_REQUIRED_FIELDS``
+    en ``app/modules/animals/forms.py``.
+    """
     return {
+        # Access TbFichaAnimal.Required=True
         "NCHIP": "985112004409871",
         "NombreAnimal": "Luna",
         "Especie": "CANINA",
         "Sexo": "H",
         "FNacimiento": "2023-04-12",
+        # Discovery feature-01-animal-lifecycle.md
+        "Terapia": "No",
+        "TraeNChip": "Si",
+        "FIMPLANTACIONCHIP": "2023-04-15",
+        "NombreFoto": "luna-2023.jpg",
     }
 
 
@@ -179,7 +193,13 @@ def test_create_animal_propag_InsForgeError_en_NCHIP_duplicado() -> None:
 
 
 def test_create_animal_acepta_todos_los_campos_opcionales() -> None:
-    """El INSERT incluye los 19 campos opcionales, con NULL para los no provistos."""
+    """El INSERT incluye los 9 obligatorios + 15 opcionales, con NULL
+    para los no provistos.
+
+    Tras #129, los 9 obligatorios (5 Access + 4 discovery) deben
+    proveerse siempre; los 15 restantes son opcionales y admiten
+    ``None`` (NULL).
+    """
     returned = {
         "id": "22222222-2222-2222-2222-222222222222",
         "NCHIP": "985112004409999",
@@ -211,9 +231,9 @@ def test_create_animal_acepta_todos_los_campos_opcionales() -> None:
             "Tamano": "Mediano",
             "Caracter": "Tranquilo",
             "FDefuncion": None,
-            "Terapia": None,
+            "Terapia": "No",  # #129: ahora obligatorio; antes era None
             "Observaciones": "Sin observaciones",
-            "NombreFoto": "mishi.jpg",
+            "NombreFoto": "mishi.jpg",  # #129: ahora obligatorio
             "Cartilla": "Si",
             "Eutanasia": "No",
             "RazaPPP": "No",
@@ -228,7 +248,7 @@ def test_create_animal_acepta_todos_los_campos_opcionales() -> None:
 
     assert len(captured) == 1
     query = captured[0]["query"]
-    # El INSERT debe listar los 24 campos de insercion (5 obligatorios + 19 opcionales)
+    # El INSERT debe listar los 24 campos de insercion (9 obligatorios + 15 opcionales)
     for col in (
         "NCHIP",
         "NombreAnimal",
@@ -542,4 +562,102 @@ def test_delete_animal_no_emite_sql_extra_cuando_es_True() -> None:
     assert len(captured) == 1, (
         "delete_animal debe emitir exactamente UN UPDATE; "
         f"se emitio {len(captured)} (probable look-up previo redundante)"
+    )
+
+
+# --- #129 parity: campos requeridos segun Access + discovery -----------------
+#
+# P1 del playbook (`docs/proceso.md`): la webapp es superset del legacy. Los
+# campos ``Required=True`` en Access ``TbFichaAnimal`` + los documentados
+# como "datos requeridos de ficha" en ``docs/discovery/feature-01-animal-
+# lifecycle.md`` §"Required animal data" deben ser requeridos en la web.
+#
+# Access Required (TbFichaAnimal):  NCHIP, NombreAnimal, Especie, Sexo,
+#                                    FNacimiento, Terapia
+# Discovery §"Required animal data": anhadidos TraeNChip, FImplantacionChip
+#                                    (=FIMPLANTACIONCHIP en la web) y Foto
+#                                    (=NombreFoto en la web; el legacy
+#                                    TbFichaAnimal.NombreFoto es el campo
+#                                    que guarda el nombre del archivo de
+#                                    foto del animal).
+
+
+def test_animal_form_required_fields_incluyen_los_de_access_y_discovery() -> None:
+    """P1 fidelidad al legacy: el conjunto de campos requeridos es la
+    union exacta de ``TbFichaAnimal.Required=True`` (Access) y los datos
+    requeridos de ficha definidos en discovery.
+
+    Verifica ademas que el nombre del campo web ``NombreFoto`` esta
+    declarado como requerido (es la representacion web de la foto del
+    animal del legacy; el discovery lo lista como ``Foto``).
+    """
+    expected = {
+        # Access TbFichaAnimal.Required=True
+        "NCHIP",
+        "NombreAnimal",
+        "Especie",
+        "Sexo",
+        "FNacimiento",
+        "Terapia",
+        # Discovery feature-01 §"Required animal data"
+        "TraeNChip",
+        "FIMPLANTACIONCHIP",
+        "NombreFoto",
+    }
+    assert set(ANIMAL_FORM_REQUIRED_FIELDS) == expected, (
+        f"required set drifted from Access + discovery: "
+        f"extras got={sorted(set(ANIMAL_FORM_REQUIRED_FIELDS) - expected)}, "
+        f"missing expected={sorted(expected - set(ANIMAL_FORM_REQUIRED_FIELDS))}"
+    )
+
+
+@pytest.mark.parametrize(
+    "missing_field",
+    ["Terapia", "TraeNChip", "FIMPLANTACIONCHIP", "NombreFoto"],
+)
+def test_create_animal_rechaza_campos_requeridos_de_access_o_discovery(
+    missing_field: str,
+) -> None:
+    """Issue #129: Terapia (Access) + TraeNChip/FIMPLANTACIONCHIP/NombreFoto
+    (discovery) son requeridos. Missing cada uno rechaza con ValueError y
+    sin emitir SQL (regla P1: el servicio NO toca la DB si la validacion
+    falla, ver `app/modules/animals/service.py` docstring de
+    ``_validate_required_fields``).
+    """
+    client, captured = _client_recording(lambda req, body: _json_response(200, []))
+    params = {**_params_minimal(), missing_field: ""}
+
+    with pytest.raises(ValueError, match=missing_field):
+        create_animal(client, params)
+    client.close()
+
+    assert captured == [], (
+        "no se debe emitir SQL si la validacion falla; "
+        f"se capturaron {len(captured)} queries: {captured!r}"
+    )
+
+
+@pytest.mark.parametrize(
+    "missing_field",
+    ["Terapia", "TraeNChip", "FIMPLANTACIONCHIP", "NombreFoto"],
+)
+def test_update_animal_rechaza_campos_requeridos_de_access_o_discovery(
+    missing_field: str,
+) -> None:
+    """Simetrico a ``create_animal``: ``update_animal`` reusa
+    ``_validate_required_fields`` (mismo helper para create/update
+    per `app/modules/animals/service.py` docstring), por lo que la
+    validacion cubre ambos paths. Missing un required rechaza sin
+    emitir SQL.
+    """
+    client, captured = _client_recording(lambda req, body: _json_response(200, []))
+    params = {**_params_minimal(), missing_field: ""}
+
+    with pytest.raises(ValueError, match=missing_field):
+        update_animal(client, "abc-123", params)
+    client.close()
+
+    assert captured == [], (
+        "no se debe emitir SQL si la validacion falla en update; "
+        f"se capturaron {len(captured)} queries: {captured!r}"
     )

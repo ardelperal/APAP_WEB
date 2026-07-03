@@ -83,17 +83,19 @@
     </div>
 
     <details class="border border-border rounded-card p-3 bg-bg">
-      <summary class="cursor-pointer font-semibold text-text">Datos complementarios del animal</summary>
+      <summary class="cursor-pointer font-semibold text-text">Datos adicionales del animal</summary>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
         <div>
-          <label class="block text-sm font-medium text-text">¿Trae chip?</label>
+          <label class="block text-sm font-medium text-text">¿Trae chip? <span class="text-rose-700">*</span></label>
           <input type="text" name="TraeNChip" value="{{ form_data.TraeNChip or '' }}"
-                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                 required>
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Fecha de implantación del chip</label>
+          <label class="block text-sm font-medium text-text">Fecha de implantación del chip <span class="text-rose-700">*</span></label>
           <input type="date" name="FIMPLANTACIONCHIP" value="{{ form_data.FIMPLANTACIONCHIP or '' }}"
-                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                 required>
         </div>
         <div>
           <label class="block text-sm font-medium text-text">Fecha de defunción</label>
@@ -101,9 +103,10 @@
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Terapia</label>
+          <label class="block text-sm font-medium text-text">Terapia <span class="text-rose-700">*</span></label>
           <input type="text" name="Terapia" value="{{ form_data.Terapia or '' }}"
-                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                 required>
         </div>
         <div>
           <label class="block text-sm font-medium text-text">Eutanasia</label>
@@ -126,9 +129,10 @@
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Foto</label>
+          <label class="block text-sm font-medium text-text">Foto <span class="text-rose-700">*</span></label>
           <input type="text" name="NombreFoto" value="{{ form_data.NombreFoto or '' }}"
-                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                 required>
         </div>
         <div>
           <label class="block text-sm font-medium text-text">Comunicación RIAC</label>

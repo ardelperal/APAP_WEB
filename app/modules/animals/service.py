@@ -204,6 +204,21 @@ def _row_to_animal(row: dict[str, Any]) -> Animal:
     )
 
 
+def _validate_required_string(params: dict[str, Any], field: str) -> str:
+    """Helper: campo string requerido compartido entre create/update.
+
+    Patron paralelo a ``_required_text`` en
+    ``app/modules/entradas/service.py``: devuelve el valor normalizado
+    o levanta ``ValueError`` con mensaje accionable. Usado por los
+    checks de campos string required (#129: Terapia, TraeNChip,
+    FIMPLANTACIONCHIP, NombreFoto).
+    """
+    value = str(params.get(field) or "").strip()
+    if not value:
+        raise ValueError(f"{field} es obligatorio y no puede estar vacio")
+    return value
+
+
 def _validate_required_fields(params: dict[str, Any]) -> None:
     """Valida los campos requeridos antes de cualquier SQL (compartido create/update).
 
@@ -212,6 +227,12 @@ def _validate_required_fields(params: dict[str, Any]) -> None:
     y ``update_animal`` para mantener una unica fuente de verdad de la
     validacion de dominio de los animales (cierra el problema #4 del
     code review externo: validacion duplicada routes<->service).
+
+    El conjunto de campos required es la union de Access ``TbFichaAnimal.
+    Required=True`` (D-05 fidelidad al legacy) y los datos requeridos
+    de ficha definidos en ``docs/discovery/feature-01-animal-lifecycle.
+    md`` §"Required animal data". Ver ``ANIMAL_FORM_REQUIRED_FIELDS``
+    en ``app/modules/animals/forms.py`` para la lista canonica.
     """
     NCHIP = (params.get("NCHIP") or "").strip()
     if not NCHIP:
@@ -240,6 +261,12 @@ def _validate_required_fields(params: dict[str, Any]) -> None:
     fnacimiento = (params.get("FNacimiento") or "").strip()
     if not fnacimiento:
         raise ValueError("FNacimiento es obligatorio y no puede estar vacio")
+
+    # Issue #129: los 4 required anhadidos por la paridad Access + discovery.
+    _validate_required_string(params, "Terapia")
+    _validate_required_string(params, "TraeNChip")
+    _validate_required_string(params, "FIMPLANTACIONCHIP")
+    _validate_required_string(params, "NombreFoto")
 
 
 _INSERT_ANIMAL_SQL = f"""

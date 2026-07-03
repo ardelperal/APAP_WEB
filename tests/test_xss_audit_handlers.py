@@ -289,13 +289,23 @@ async def test_animal_create_post_re_renders_form_with_xss_escaped(
         "POST",
         "/animales",
         form_data={
+            # XSS payloads en los campos string que llegan al re-render.
             "NCHIP": XSS_SCRIPT,
             "NombreAnimal": XSS_IMG,
-            "Especie": "INVALIDO_PARA_FORZAR_VALUEERROR",  # forces 422 re-render
+            # Especie invalida fuerza el 422 re-render (mismo trick que
+            # antes del #129; seguimos testeando XSS en el path de error).
+            "Especie": "INVALIDO_PARA_FORZAR_VALUEERROR",
             "Sexo": "H",
             "FNacimiento": "2023-04-12",
             "Raza": XSS_SVG,
             "Observaciones": XSS_URL,
+            # #129: los 4 nuevos required fields requieren valores validos
+            # (sino Pydantic rechaza con "Field required" ANTES del 422
+            # del handler). Valores benignos para no introducir XSS aqui.
+            "Terapia": "No",
+            "TraeNChip": "Si",
+            "FIMPLANTACIONCHIP": "2023-04-15",
+            "NombreFoto": "luna.jpg",
         },
     )
     assert response.status_code == 422, (

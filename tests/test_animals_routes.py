@@ -130,7 +130,11 @@ async def test_update_animal_view_delega_en_service_y_redirige_303(
     client: httpx.AsyncClient,
     animals_spy: _AnimalsRouteSpy,
 ) -> None:
-    """POST /animales/{id}/update con form valido -> 303 a /animales/{id}."""
+    """POST /animales/{id}/update con form valido -> 303 a /animales/{id}.
+
+    Tras #129 la validacion Pydantic requiere 9 campos; el form data
+    cubre los 9 required + 0 opcionales (caso minimo).
+    """
     _login_as_key_user(client)
 
     response = await make_csrf_request(
@@ -143,6 +147,10 @@ async def test_update_animal_view_delega_en_service_y_redirige_303(
             "Especie": "CANINA",
             "Sexo": "H",
             "FNacimiento": "2023-04-12",
+            "Terapia": "No",
+            "TraeNChip": "Si",
+            "FIMPLANTACIONCHIP": "2023-04-15",
+            "NombreFoto": "luna.jpg",
         },
     )
 
@@ -180,6 +188,10 @@ async def test_update_animal_view_con_NCHIP_vacio_retorna_422_sin_update(
             "Especie": "CANINA",
             "Sexo": "H",
             "FNacimiento": "2023-04-12",
+            "Terapia": "No",
+            "TraeNChip": "Si",
+            "FIMPLANTACIONCHIP": "2023-04-15",
+            "NombreFoto": "luna.jpg",
         },
     )
 
@@ -345,17 +357,29 @@ def test_routes_no_longer_declare_individual_form_params():
 
 
 def test_animal_form_fields_match_service_insert_columns():
-    """The form's 24 fields MUST equal the service's 24 ``_INSERT_COLUMNS``."""
+    """The form's 24 fields MUST equal the service's 24 ``_INSERT_COLUMNS``.
+
+    Ademas los 9 required fields (5 Access + 4 discovery) son la union
+    canonica declarada en ``ANIMAL_FORM_REQUIRED_FIELDS``. Si alguien
+    anade un required sin tocar el test, este falla con el set driftado.
+    """
     assert len(ANIMAL_FORM_FIELDS) == 24, (
         f"AnimalForm must have 24 fields, got {len(ANIMAL_FORM_FIELDS)}: "
         f"{ANIMAL_FORM_FIELDS!r}"
     )
     assert ANIMAL_FORM_REQUIRED_FIELDS == (
+        # Access TbFichaAnimal.Required=True
         "NCHIP",
         "NombreAnimal",
         "Especie",
         "Sexo",
         "FNacimiento",
+        "Terapia",
+        # Discovery feature-01 §"Required animal data"
+        "TraeNChip",
+        "FIMPLANTACIONCHIP",
+        "NombreFoto",
     ), (
-        f"AnimalForm required fields drifted; got {ANIMAL_FORM_REQUIRED_FIELDS!r}"
+        f"AnimalForm required fields drifted from Access + discovery; "
+        f"got {ANIMAL_FORM_REQUIRED_FIELDS!r}"
     )

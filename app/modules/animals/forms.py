@@ -14,10 +14,22 @@ column now means: add the column to ``_INSERT_COLUMNS`` in the
 service AND add the matching field here, and the test suite
 verifies the two stay in sync.
 
-The five required fields (``NCHIP``, ``NombreAnimal``, ``Especie``,
-``Sexo``, ``FNacimiento``) are the minimum for a valid animal row.
-The other 19 are optional (the form lets the operator leave them
-blank and the service stores NULL).
+Required fields are defined as ``ANIMAL_FORM_REQUIRED_FIELDS``
+below — they are the union of:
+
+- **Access ``TbFichaAnimal.Required=True``** (D-05 fidelidad al legacy):
+  ``NCHIP``, ``NombreAnimal``, ``Especie``, ``Sexo``, ``FNacimiento``,
+  ``Terapia``.
+- **``docs/discovery/feature-01-animal-lifecycle.md``** §"Required
+  animal data" (campos marcados como datos requeridos de ficha en
+  el dominio aunque el Access no los marque ``Required=True``):
+  ``TraeNChip``, ``FImplantacionChip`` (web: ``FIMPLANTACIONCHIP``),
+  ``Foto`` (web: ``NombreFoto``; el legacy ``TbFichaAnimal`` lo guarda
+  como ``NombreFoto`` que es el nombre del archivo de foto del animal).
+
+Los 19 restantes son opcionales (el form permite dejarlos en blanco
+y el service guarda NULL). El numero de required crecio de 5 a 9 en
+#129 para cerrar el gap con el legacy.
 """
 
 from __future__ import annotations
@@ -33,9 +45,10 @@ class AnimalForm(BaseModel):
     """Form payload for create / update animal.
 
     Field names match the schema columns exactly (legacy Access names
-    kept verbatim per the migration spec). Required fields are the
-    minimum for a valid row; the rest are optional and the service
-    stores NULL when absent.
+    kept verbatim per the migration spec). The 9 required fields (in
+    ``ANIMAL_FORM_REQUIRED_FIELDS`` below) are typed as plain ``str``;
+    the rest are ``str | None`` so the form lets the operator leave
+    them blank and the service stores NULL.
     """
 
     NCHIP: str
@@ -43,17 +56,17 @@ class AnimalForm(BaseModel):
     Especie: str
     Sexo: str
     FNacimiento: str
-    TraeNChip: str | None = None
-    FIMPLANTACIONCHIP: str | None = None
+    Terapia: str
+    TraeNChip: str
+    FIMPLANTACIONCHIP: str
+    NombreFoto: str
     Raza: str | None = None
     Color: str | None = None
     Pelo: str | None = None
     Tamano: str | None = None
     Caracter: str | None = None
     FDefuncion: str | None = None
-    Terapia: str | None = None
     Observaciones: str | None = None
-    NombreFoto: str | None = None
     Cartilla: str | None = None
     Eutanasia: str | None = None
     RazaPPP: str | None = None
@@ -69,13 +82,24 @@ class AnimalForm(BaseModel):
 AnimalFormPayload = Annotated[AnimalForm, "form"]
 
 # Public list of required fields (used by tests and by the form
-# template's required-attribute rendering).
+# template's required-attribute rendering). Single source of truth for
+# what the animal form and service consider mandatory — adding or
+# removing a field here forces the test suite and form template to
+# update, closing the drift surfaced in #129.
 ANIMAL_FORM_REQUIRED_FIELDS: tuple[str, ...] = (
+    # Access TbFichaAnimal.Required=True
     "NCHIP",
     "NombreAnimal",
     "Especie",
     "Sexo",
     "FNacimiento",
+    "Terapia",
+    # Discovery feature-01-animal-lifecycle.md
+    # §"Required animal data" (product-required even
+    # if not Required=True in Access)
+    "TraeNChip",
+    "FIMPLANTACIONCHIP",  # discovery: FImplantacionChip
+    "NombreFoto",  # discovery: Foto -> web NombreFoto
 )
 
 # Public list of ALL 24 form field names, derived from the Pydantic
