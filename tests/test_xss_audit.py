@@ -533,6 +533,10 @@ def test_no_user_data_in_url_attributes() -> None:
     handler_controlled: frozenset[tuple[str, str]] = frozenset(
         {
             ("entradas/form.html", "form_action"),
+            # ``shortcut.href`` comes from ``_DASHBOARD_SHORTCUTS``
+            # in ``app/main.py`` - a module-level constant (hardcoded
+            # list of internal routes). Never user input.
+            ("index.html", "shortcut.href"),
         }
     )
     offenders: list[str] = []
