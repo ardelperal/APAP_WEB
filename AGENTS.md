@@ -272,6 +272,72 @@ If your PR introduces or changes a secret rotation, manual deploy step, cache in
 
 Enforcement: PR review. `scripts/check_audit_and_runbook.py` flags changes to `app/core/config.py` (env-var settings) and suggests runbook creation. The check is a developer aid, not a CI gate — the operator responsibility is documented in the PR.
 
+### 14. CodeGraph index — persistent, auto-synced, never re-initialized
+
+This project uses **CodeGraph** (`@aroman22/codegraph-vba` CLI + MCP `codegraph_explore`) as a persistent code-intelligence index over the Python/YAML tree. The index lives in `.codegraph/` at the repo root.
+
+**Established invariants** (do not violate):
+
+1. **Already initialized.** `.codegraph/` exists, is tracked in git (the root `.gitignore` does NOT list it; the internal `.codegraph/.gitignore` keeps the SQLite DB local-only — only the `.gitignore` itself is committed). Do NOT run `codegraph init` again. Running it would wipe a healthy index. If the directory is missing after a fresh clone, ONE human must run `codegraph init .` once — never the agent.
+
+2. **Auto-sync daemon is already running.** CodeGraph v1.4+ keeps a background `node` daemon that watches the filesystem and updates the index with ~1s lag. Do not poll, do not re-index manually. Trust the freshness flag returned by `codegraph status .` (`Index is up to date` = good; anything else = sync once and re-check).
+
+3. **Read/Grep/Glob are a last resort.** Before opening any file under `app/`, `tests/`, `scripts/`, `pyproject.toml`, or any other source-controlled Python/YAML path, call `codegraph_explore` (MCP) or `codegraph explore` (shell) with the relevant symbol/file names. ONE call usually returns verbatim source grouped by file with the call path between them — that's already Read-equivalent. Only fall back to `Read`/`Grep` to confirm a detail codegraph didn't cover, or to inspect non-indexed files (configs outside the source tree, generated docs, third-party data).
+
+4. **Never gitignore `.codegraph/` at the root level.** The repo-level `.gitignore` MUST NOT list `.codegraph/` or `codegraph.db`. Doing so breaks the "persists across branches" invariant — the next clone on another machine would lose the daemon's working state and the `.codegraph/.gitignore` itself. If you need to silence a transient untracked file (e.g. a `.codegraph-vba/` cache), add a narrow rule scoped to that path only.
+
+5. **Branch checkouts.** When switching branches (`git checkout`, `git pull`, rebase, merge), the index may go stale if the diff touched indexed files. Run `codegraph sync .` ONCE after the operation completes and confirm `Index is up to date`. Do not rebuild from scratch (`codegraph index .`) unless `sync` reports irrecoverable drift — a full rebuild is several seconds for nothing.
+
+6. **Daemon liveness — verify, don't assume.** If a tool response says the daemon is "down" or stale, confirm against the OS with `Get-Process -Id <pid>` (PowerShell) or `ps -p <pid>` (POSIX). The CLI's `codegraph daemons` output is current-state at the moment of the call, not cached. To restart a dead daemon, use `codegraph init .` ONLY as a last resort after `codegraph daemons` reports no live daemon AND a fresh `codegraph sync .` fails to spawn one.
+
+7. **Trust the staleness banner.** When `codegraph_explore` returns a banner like `⚠️ Some files referenced below were edited since the last index sync…`, those specific files need re-indexing — call `codegraph sync .` once. Files NOT in the banner are fresh; do not re-read them. A second, rarer banner `⚠️ CodeGraph auto-sync is DISABLED…` means live watching stopped entirely — diagnose with `codegraph daemons` and re-sync before trusting anything.
+
+Enforcement: PR review. If a change to `.gitignore` would silently re-ignore `.codegraph/`, the reviewer MUST block the PR. If `AGENTS.md` rule 14 itself drifts from reality (e.g. someone deletes `.codegraph/`), the next session's first action must be `codegraph status .` to detect the drift before trusting any `codegraph_explore` result.
+
+8. **Session-start check + codebase growth.** At the START of every session, run `codegraph status .` once and confirm `[OK] Index is up to date` AND `codegraph daemons` reports a live daemon. If the daemon is missing, follow rule 6 before trusting any `codegraph_explore` result. The file-watcher daemon auto-syncs new/modified files inside already-watched directories with ~1s lag — this is what covers normal "the codebase grew" growth. The one case the watcher does NOT cover by itself is a brand-new top-level directory that didn't exist when the daemon started (e.g. a new `app/core/foo/` package, a fresh `tests/integration/` tree). When you create a top-level directory, run `codegraph sync .` ONCE immediately after — it teaches the watcher about the new root. Do NOT re-run `codegraph init` (that wipes the index). Do NOT re-run `codegraph index` (full rebuild) unless `sync` reports irrecoverable drift.
+
+### 15. Merge workflow — pre-MVP single-branch policy + post-MVP revert path
+
+This project is **pre-MVP**. The default rule is: **all work lands on `main`, every non-`main` branch is deleted immediately after its merge, and at the end of each merge cycle the only branch left standing is `main`.** There is no long-lived `staging` branch in pre-MVP. When the user declares MVP reached, the workflow reverts to the standard `staging` + UAT gate described in §"Post-MVP revert" below.
+
+#### 15.1 Pre-MVP gate — all must be true before merging to `main`
+
+1. **Local `pytest` is green.** `python -m pytest -W error::DeprecationWarning` with the same `addopts` from `pyproject.toml` ([tool.pytest.ini_options] block) passes locally. If `tests/test_voluntarios_concurrent.py` is part of the run, the environment must expose `APAP_E2E_BASE_URL` (per `ci.yml` and the REG-S-3 hardening) — in CI the file is `--deselect`-ed because GitHub does not provision Postgres.
+2. **`ci.yml` is green on the head of the branch being merged.** Lint (`ruff check .`), `test` (pytest with `DeprecationWarning` as error), and `build` (`python -m build`) MUST pass. `e2e` and `deploy` are optional per `.github/workflows/ci.yml`: `e2e` is skipped when `APAP_OAUTH_CLIENT_ID` is not set; `deploy` is skipped when `COOLIFY_WEBHOOK_URL` is not set. Their absence is not a merge blocker in pre-MVP.
+3. **Diff is reviewable.** A single PR diff should stay under the `review_budget_lines: 400` (orchestrator default). If a feature is larger, split into chained PRs using the `chained-pr` skill — never blow up main with a single oversized merge.
+4. **No `--force`, no history rewrite.** Merge with `--no-ff` to keep the feature commit visible; never `git push --force` to `main`; never rebase already-shipped commits.
+
+#### 15.2 Pre-MVP branch lifecycle
+
+- Work happens on short-lived feature branches off `main`. Names follow conventional commits' scope: `feat/<scope>`, `fix/<scope>`, `refactor/<scope>`, `docs/<scope>`, `ci/<scope>`, `test/<scope>`.
+- After the PR merges to `main` AND CI is green: `git branch -d <branch>` locally, then `git push origin --delete <branch>` (only if the remote allows it and no one else uses it).
+- **Never** delete `main`. **Never** create or persist a `staging` branch in pre-MVP — that contradicts the single-branch policy. If `staging` already exists from before this rule was in force, migrate its commits into `main` first, then `git branch -D staging && git push origin --delete staging`.
+- After every merge cycle, the only branch left standing is `main`. Anything else is a leak.
+
+#### 15.3 Staging-only pre-push hook — status on this repo
+
+On 2026-07-03 the user unset `git config gentleai.stagingOnly` on this repo specifically. The global pre-push hook at `~/.config/opencode/git-hooks/pre-push` still exists but is a **no-op for THIS repo** (it only acts when the per-repo flag is set to `true`). Other repos in `~/.config/opencode/git-hooks/` opt-ins are untouched — the global guardrail continues to protect them. **Do NOT re-enable the flag in pre-MVP** — that would silently re-arm the hook and contradict the pre-MVP gate.
+
+#### 15.4 Post-MVP revert — procedure when MVP is declared
+
+When the user signals MVP reached ("ya tenemos MVC", "MVP reached", "pasamos a producción", "vamos a staging", or equivalent), run this procedure IN ORDER:
+
+1. **Re-enable the staging-only hook on this repo.** `git config gentleai.stagingOnly true` — the global hook starts acting again on pushes to `main`.
+2. **Recreate `staging` if missing.** `git checkout -b staging main && git push origin staging`. From this point on, **all** subsequent work targets `staging`, not `main`.
+3. **Defer to the global staging-acceptance-contract.** The workflow becomes the standard one: code lands on `staging` → UAT run by **Virginia** (validator) using the `feature-acceptance-uat` skill (`docs/uat/uat-staging-<YYYY-MM-DD>.html`) → user reviews Virginia's sign-off → user explicitly instructs "merge to main" → agent merges. `main` is read-only until that explicit instruction lands.
+4. **Mark this rule 15 as DORMANT (post-MVP).** Edit AGENTS.md to replace §15.1–§15.3 with a one-paragraph pointer to the global `staging-acceptance-contract` rule and Virginia's name as validator. Keep §15.4 as a historical record of the pre-MVP lifecycle, but mark it "ARCHIVED".
+5. **The agent must NOT preemptively flip phases.** MVP declaration is a USER-driven event. Wait for explicit instruction; do not infer from phrases like "ya está" or "vamos cerrando" without the MVP/MVC keyword.
+
+#### 15.5 What's still NOT automatic in pre-MVP (explicit consent required)
+
+- Direct commits to `main` without a PR — still requires user OK. Always land via PR from a feature branch.
+- `--force` to any branch — full stop, regardless of CI.
+- Tagging releases / cutting `vX.Y.Z` — user OK.
+- Renaming the default branch, changing branch protection on GitHub — user OK.
+- Anything that touches `git-hooks/`, the user's global `core.hooksPath`, or any other project's `gentleai.stagingOnly` flag — user OK.
+
+Enforcement: each PR merge landed under this rule MUST mention the `ci.yml` run URL that proved the gate green, in the merge commit body or the PR description. After MVP, this rule is dormant and the global `staging-acceptance-contract` is authoritative. If the gate ever drifts (e.g. someone adds an additional required CI job, or branch protection on `main` requires an extra check), this rule 15 is the source of truth to update in pre-MVP.
+
 ---
 
 > **History:** the resolved "Known conflicts with existing code" tracker (all
