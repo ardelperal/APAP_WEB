@@ -2,7 +2,7 @@
 
 > Documento vivo. Punto de entrada único para saber qué hay que construir, en qué orden, qué issues lo cubren y qué documentación ya existe. Si una pregunta se responde aquí, no hay que rebuscar.
 
-**Última actualización:** 2026-07-03 (cierre de #65 CATALOG-01 — commit `1103b2e` PR #135 — los 5 catálogos de reference data migrados desde Access legacy a InsForge con seed idempotente; sync bidireccional queda para Fase 7)
+**Última actualización:** 2026-07-03 (cierre de #41 INTAKE-03 — commit `98e80c5` PR #136 — workflow de cesión por propietario con schema `cesiones_propietario` + service + routes + form, vinculado 1-a-1 a `entradas` por FK UNIQUE y con modelo polimórfico `contratos` para Fase 7; fidelidad P1 verificada contra `TbCesionPorPropietario` legacy, 11 records en producción)
 **Mantenedor único:** aroman (autoaprueba issues y PRs)
 **Rama objetivo actual:** **pre-MVP single-branch** — todo va a `main`, una sola rama al final del ciclo (ver §8 y `AGENTS.md` §15)
 **Idioma de toda la documentación, issues y PRs:** castellano (España)
@@ -13,7 +13,7 @@
 
 - **CI/CD foundation (Fase 0):** CI-01, CI-02, CD-01 y CD-02 están **todos en verde en `main`** desde el 2026-07-03. El deploy automático al push a `main` se ejecuta vía webhook firmado a Coolify (`COOLIFY_WEBHOOK_URL` + `COOLIFY_WEBHOOK_SECRET` configurados; verificado en CI run 28674612470). El primer deploy real sigue pendiente del DNS `apap.romancaba.com` (operación manual del mantenedor).
 - **Infraestructura:** repositorio, Coolify y backend de InsForge ya aprovisionados. Runnable de la aplicación en producción pendiente solo del DNS.
-- **Producto (Fases 1-7):** **Fase 1 ✅ mergeada en `main` (#17, commit `d0b1ed1`)**. **Fase 2 ✅ mergeada en `main` (#16, commit `1d22349`)**. **Fase 5a INTAKE-01 ✅ mergeada (#87/#88/#89)** con schema + service + routes; INTAKE-03 (#41) e INTAKE-04 (#42) abiertos. Fases 3-7 pendientes. El código de auth está listo; tabla `authorized_users` creada y seedeada (#25).
+- **Producto (Fases 1-7):** **Fase 1 ✅ mergeada en `main` (#17, commit `d0b1ed1`)**. **Fase 2 ✅ mergeada en `main` (#16, commit `1d22349`)**. **Fase 5a INTAKE-01 ✅ mergeada (#87/#88/#89)** con schema + service + routes; **INTAKE-03 ✅ mergeada (#41, PR #136, commit `98e80c5`)** con schema + service + routes + form; INTAKE-04 (#42) abierto. Fases 3-7 pendientes. El código de auth está listo; tabla `authorized_users` creada y seedeada (#25).
 - **Issues UI/copy recientes (cerradas):** #124 logout → login, #125 OAuth callback loop, #126 UI sin copy interno + campos obligatorios Access, #127 home con tarjetas, #128 eliminar lenguaje interno, #131 labels castellanos. XSS allowlist detectado y fixado en `a528566`.
 - **Documentación de discovery:** generada y consistente. Antes de tocar el legacy, leer `docs/discovery/` (ver §7). Decisiones de proyecto consolidadas en `docs/decisiones-proyecto.md` (nuevo, 2026-07-03).
 - **Proceso operativo:** el playbook end-to-end por issue está en **`docs/proceso.md`** (creado 2026-07-03, PR #132 merge `5329ec5`). Es lectura obligatoria antes de tomar cualquier issue que vaya más allá de un doc trivial.
@@ -128,7 +128,7 @@
 
 **Objetivo:** flujos operativos centrales con asistentes por pasos y snapshots históricos de personas.
 
-> 🟡 **En curso (Fase 5a INTAKE)**: INTAKE-01 cerrado (schema + service + routes — #87, #88, #89, mergeadas 2026-06-28). Pendiente en INTAKE: #41 `INTAKE-03 workflow de cesión por propietario` y #42 `INTAKE-04 migración de catálogos de origen y motivo`. FOSTER (4 issues) y ADOPT (3 issues) siguen 🔲.
+> 🟡 **En curso (Fase 5a INTAKE)**: INTAKE-01 cerrado (schema + service + routes — #87, #88, #89, mergeadas 2026-06-28). INTAKE-03 cerrado (#41, schema + service + routes + form, mergeada 2026-07-03 vía PR #136, commit `98e80c5`). Pendiente en INTAKE: #42 `INTAKE-04 migración de catálogos de origen y motivo`. FOSTER (4 issues) y ADOPT (3 issues) siguen 🔲.
 
 **Documentación de referencia:**
 
@@ -246,7 +246,7 @@
 | #120 | refactor(auth): extract `read_session_payload(request)` helper (F-3) | Auth | 🔲 (chico, sin dependencias, candidato a romper el hielo) |
 | #129 | fix(animals): alinear campos obligatorios de ficha con Access y discovery | Fase 3 / animal | 🔲 (gap:legacy — ver D-04) |
 | #130 | docs(product): consolidar decisiones y restaurar referencias rotas | Docs | 🔲 (este PR la cierra) |
-| #41 | INTAKE-03: workflow de cesión por propietario con contrato separado | Fase 5a | 🔲 |
+| #41 | INTAKE-03: workflow de cesión por propietario con contrato separado | Fase 5a | ✅ (PR #136, commit `98e80c5`, 2026-07-03) |
 | #42 | INTAKE-04: migración de catálogos de origen y motivo | Fase 5a | 🔲 |
 | #43 | FOSTER-01: CRUD de casas de acogida con preferencia de especie y capacidad | Fase 5b | 🔲 |
 | #44 | FOSTER-02: CRUD de estancias de acogida con FK a voluntario | Fase 5b | 🔲 |
