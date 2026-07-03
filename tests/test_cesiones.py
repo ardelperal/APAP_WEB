@@ -20,7 +20,6 @@ cesión carries its own type="Cesión" contract row, matching the legacy
 from __future__ import annotations
 
 import json
-import re
 from typing import Any
 
 import httpx
