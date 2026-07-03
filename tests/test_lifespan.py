@@ -36,6 +36,7 @@ async def test_lifespan_calls_ensure_schema_and_seed_on_startup(
 ) -> None:
     auth_calls: list[Any] = []
     domain_calls: list[Any] = []
+    catalogs_calls: list[Any] = []
     sql_calls: list[Any] = []
 
     def _record_auth(*args: Any, **kwargs: Any) -> None:
@@ -44,12 +45,16 @@ async def test_lifespan_calls_ensure_schema_and_seed_on_startup(
     def _record_domain(*args: Any, **kwargs: Any) -> None:
         domain_calls.append((args, kwargs))
 
+    def _record_catalogs(*args: Any, **kwargs: Any) -> None:
+        catalogs_calls.append((args, kwargs))
+
     def _record_sql(client: Any) -> list[str]:
         sql_calls.append(client)
         return []
 
     monkeypatch.setattr("app.main.ensure_schema_and_seed", _record_auth)
     monkeypatch.setattr("app.main.ensure_domain_schema", _record_domain)
+    monkeypatch.setattr("app.main.ensure_catalogs", _record_catalogs)
     monkeypatch.setattr("app.main.apply_sql_migrations", _record_sql)
 
     async with lifespan(_app):
@@ -57,6 +62,7 @@ async def test_lifespan_calls_ensure_schema_and_seed_on_startup(
 
     assert len(auth_calls) == 1, f"expected ensure_schema_and_seed called once, got {len(auth_calls)}"
     assert len(domain_calls) == 1, f"expected ensure_domain_schema called once, got {len(domain_calls)}"
+    assert len(catalogs_calls) == 1, f"expected ensure_catalogs called once, got {len(catalogs_calls)}"
     assert len(sql_calls) == 1, f"expected apply_sql_migrations called once, got {len(sql_calls)}"
 
 
@@ -72,18 +78,24 @@ async def test_lifespan_calls_domain_bootstrap_after_auth(
     def _record_domain(*args: Any, **kwargs: Any) -> None:
         order.append("domain")
 
+    def _record_catalogs(*args: Any, **kwargs: Any) -> None:
+        order.append("catalogs")
+
     def _record_sql(*args: Any, **kwargs: Any) -> list[str]:
         order.append("sql")
         return []
 
     monkeypatch.setattr("app.main.ensure_schema_and_seed", _record_auth)
     monkeypatch.setattr("app.main.ensure_domain_schema", _record_domain)
+    monkeypatch.setattr("app.main.ensure_catalogs", _record_catalogs)
     monkeypatch.setattr("app.main.apply_sql_migrations", _record_sql)
 
     async with lifespan(_app):
         pass
 
-    assert order == ["auth", "domain", "sql"], f"bootstrap order wrong: {order!r}"
+    assert order == ["auth", "domain", "catalogs", "sql"], (
+        f"bootstrap order wrong: {order!r}"
+    )
 
 
 async def test_lifespan_passes_a_real_insforge_client_to_bootstrap(
@@ -100,18 +112,22 @@ async def test_lifespan_passes_a_real_insforge_client_to_bootstrap(
     def _capture_domain(client: Any) -> None:
         seen.append(client)
 
+    def _capture_catalogs(client: Any) -> None:
+        seen.append(client)
+
     def _capture_sql(client: Any) -> list[str]:
         seen.append(client)
         return []
 
     monkeypatch.setattr("app.main.ensure_schema_and_seed", _capture_auth)
     monkeypatch.setattr("app.main.ensure_domain_schema", _capture_domain)
+    monkeypatch.setattr("app.main.ensure_catalogs", _capture_catalogs)
     monkeypatch.setattr("app.main.apply_sql_migrations", _capture_sql)
 
     async with lifespan(_app):
         pass
 
-    assert len(seen) == 3
+    assert len(seen) == 4
     assert all(isinstance(c, InsForgeClient) for c in seen), (
         f"bootstrap received non-InsForgeClient: {[type(c).__name__ for c in seen]!r}"
     )
