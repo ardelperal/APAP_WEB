@@ -62,6 +62,7 @@ def read_session_payload(
     request: Request,
     *,
     secret: str,
+    cookie_name: str = _SESSION_COOKIE_NAME,
 ) -> dict[str, Any] | None:
     """Read the session cookie off a request and decode the payload.
 
@@ -76,7 +77,7 @@ def read_session_payload(
     invalid, or the payload has expired. The caller can treat the
     user as anonymous without catching exceptions.
     """
-    token = request.cookies.get(_SESSION_COOKIE_NAME)
+    token = request.cookies.get(cookie_name)
     if not token:
         return None
     return read_session(token, secret=secret)

@@ -2,13 +2,27 @@
 
 from __future__ import annotations
 
+from starlette.requests import Request
+
 from app.core.pkce import generate_pkce_pair
 from app.core.session import (
     clear_session_cookie_params,
     read_session,
+    read_session_payload,
     session_cookie_name,
     write_session,
 )
+
+
+def _request_with_cookie(name: str, value: str) -> Request:
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "headers": [(b"cookie", f"{name}={value}".encode())],
+        }
+    )
 
 
 def test_generate_pkce_pair_returns_verifier_and_challenge() -> None:
@@ -52,6 +66,30 @@ def test_session_read_rejects_tampered_token() -> None:
     tampered = token[:-2] + "XX"
 
     assert read_session(tampered, secret="test-secret") is None
+
+
+def test_read_session_payload_reads_default_session_cookie() -> None:
+    """The helper decodes the canonical session cookie from a request."""
+    secret = "test-secret"
+    payload = {"email": "a@b.com", "is_authorized": True}
+    token = write_session(payload, secret=secret)
+    request = _request_with_cookie(session_cookie_name(), token)
+
+    assert read_session_payload(request, secret=secret) == payload
+
+
+def test_read_session_payload_accepts_custom_cookie_name() -> None:
+    """Callers can reuse the helper for alternate signed session cookies."""
+    secret = "test-secret"
+    payload = {"code_verifier": "verifier-1"}
+    token = write_session(payload, secret=secret)
+    request = _request_with_cookie("apap_pkce", token)
+
+    assert read_session_payload(
+        request,
+        secret=secret,
+        cookie_name="apap_pkce",
+    ) == payload
 
 
 def test_session_cookie_name_is_stable() -> None:
