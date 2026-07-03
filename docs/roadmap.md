@@ -2,7 +2,7 @@
 
 > Documento vivo. Punto de entrada único para saber qué hay que construir, en qué orden, qué issues lo cubren y qué documentación ya existe. Si una pregunta se responde aquí, no hay que rebuscar.
 
-**Última actualización:** 2026-07-03 (cierre de #120 — commit `4bc0df1` PR #137 — refactor de `read_session_payload` con soporte de cookie firmada por nombre explícito; validado por tests focalizados y CI verde)
+**Última actualización:** 2026-07-03 (refresco de issues cerradas #1/#42/#129/#130/#120 — `main` queda sincronizado con GitHub Issues y CI verde)
 **Mantenedor único:** aroman (autoaprueba issues y PRs)
 **Rama objetivo actual:** **pre-MVP single-branch** — todo va a `main`, una sola rama al final del ciclo (ver §8 y `AGENTS.md` §15)
 **Idioma de toda la documentación, issues y PRs:** castellano (España)
@@ -32,7 +32,7 @@
 | DNS `apap.romancaba.com` | 🔲 | Pendiente de crear por el mantenedor antes del primer deploy real |
 | Fix de dominio OAuth (redirect URI) | ✅ | Commit `3c32f3e` en main; `APAP_GOOGLE_REDIRECT_URI` corregido en Coolify; redeploy OK |
 | CD-02 build y push del runnable a Coolify | ✅ | Mergeado en `main` como `dc98c1c` (PR #24) — Dockerfile corregido, build verificado |
-| CD-01 webhook automático GitHub → Coolify en `push: main` | ✅ | Implementado y verificado (CI run 28674612470 el 2026-07-03). El job `deploy` ejecuta `scripts/coolify_webhook.py` con HMAC SHA-256 firmado contra `COOLIFY_WEBHOOK_URL` + `COOLIFY_WEBHOOK_SECRET`. Issue #1 puede cerrarse. |
+| CD-01 webhook automático GitHub → Coolify en `push: main` | ✅ | Implementado y verificado (CI run 28674612470 el 2026-07-03). El job `deploy` ejecuta `scripts/coolify_webhook.py` con HMAC SHA-256 firmado contra `COOLIFY_WEBHOOK_URL` + `COOLIFY_WEBHOOK_SECRET`. Issue #1 cerrada. |
 | Backend InsForge | ✅ | Verificado, MCP configurado; `APAP_INSFORGE_URL` apuntando a `c3uc9dk6.eu-central.insforge.app` |
 | Tabla `authorized_users` en InsForge | ✅ | Creada y seedeada con `ardelperal@gmail.com` (developer) — issue #25; idempotente con `CREATE TABLE IF NOT EXISTS` |
 | Esqueleto de la app FastAPI | ✅ | Mergeado en `main` como `d0b1ed1` (issue #17) |
@@ -101,7 +101,7 @@
 
 **Objetivo:** tablas `animals`, `volunteers`, `authorized_users` y la tabla mínima de anexos. Sin UI de producto todavía.
 
-> 🟡 En curso. `authorized_users` ✅ (issue #25). `animals`, `volunteers`, `volunteer_roles` ✅ (issue #26). Pendiente: `animal_event_log` (Fase 4 con CRUD) y `attachments` (Fase 7 con bucket de Storage). Bloquea Fases 4-7. Refresco 2026-07-03: paridad de campos de `animals` con el Access legacy está abierta como #129 (`fix(animals): alinear campos obligatorios de ficha con Access y discovery`).
+> 🟡 En curso. `authorized_users` ✅ (issue #25). `animals`, `volunteers`, `volunteer_roles` ✅ (issue #26). Pendiente: `animal_event_log` (Fase 4 con CRUD) y `attachments` (Fase 7 con bucket de Storage). Bloquea Fases 4-7. Refresco 2026-07-03: paridad de campos de `animals` con el Access legacy cerrada en #129 (`cfba764`, PR #134).
 
 **Documentación de referencia:**
 
@@ -128,7 +128,7 @@
 
 **Objetivo:** flujos operativos centrales con asistentes por pasos y snapshots históricos de personas.
 
-> 🟡 **En curso (Fase 5a INTAKE)**: INTAKE-01 cerrado (schema + service + routes — #87, #88, #89, mergeadas 2026-06-28). INTAKE-03 cerrado (#41, schema + service + routes + form, mergeada 2026-07-03 vía PR #136, commit `98e80c5`). Pendiente en INTAKE: #42 `INTAKE-04 migración de catálogos de origen y motivo`. FOSTER (4 issues) y ADOPT (3 issues) siguen 🔲.
+> 🟡 **En curso (Fase 5a INTAKE)**: INTAKE-01 cerrado (schema + service + routes — #87, #88, #89, mergeadas 2026-06-28). INTAKE-03 cerrado (#41, schema + service + routes + form, mergeada 2026-07-03 vía PR #136, commit `98e80c5`). INTAKE-04 (#42) quedó cubierto por CATALOG-01 (#65, PR #135). FOSTER (4 issues) y ADOPT (3 issues) siguen 🔲.
 
 **Documentación de referencia:**
 
@@ -240,13 +240,9 @@
 
 | # | Título | Área | Estado |
 |---|---|---|---|
-| #1 | feat(cd): deploy APAP through Coolify and InsForge (CD-01 + CD-02) | Fase 0 | 🟡 (puede cerrarse — deploy verificado en CI run 28674612470) |
 | #6 | feat(ux): definir la base UX/UI de APAP | Transversal UX/UI | 🔲 |
 | #7 | feat(tasks): definir motor común de tareas manuales y automáticas | Transversal tasks | 🔲 |
-| #129 | fix(animals): alinear campos obligatorios de ficha con Access y discovery | Fase 3 / animal | 🔲 (gap:legacy — ver D-04) |
-| #130 | docs(product): consolidar decisiones y restaurar referencias rotas | Docs | 🔲 (este PR la cierra) |
 | #41 | INTAKE-03: workflow de cesión por propietario con contrato separado | Fase 5a | ✅ (PR #136, commit `98e80c5`, 2026-07-03) |
-| #42 | INTAKE-04: migración de catálogos de origen y motivo | Fase 5a | 🔲 |
 | #43 | FOSTER-01: CRUD de casas de acogida con preferencia de especie y capacidad | Fase 5b | 🔲 |
 | #44 | FOSTER-02: CRUD de estancias de acogida con FK a voluntario | Fase 5b | 🔲 |
 | #45 | FOSTER-03: gate de especie + advisory de capacidad con override auditado | Fase 5b | 🔲 |
@@ -274,7 +270,7 @@
 
 **Issues cerradas relevantes (refresco 2026-07-03, con commit/título):**
 
-- #1 (`dc98c1c` PR #24 — CD-02 Dockerfile/build), `b929233` HMAC, `225ef9c` job `deploy`, `ca06a46` httpx, `b16a5dd`/`e32c573` extract/PG-deselect
+- #1 (`dc98c1c` PR #24 — CD-02 Dockerfile/build), `b929233` HMAC, `225ef9c` job `deploy`, `ca06a46` httpx, `b16a5dd`/`e32c573` extract/PG-deselect; deploy verificado en CI run 28674612470.
 - #14 (`69b509e`) — hoja de ruta viva (este doc)
 - #16 (`1d22349`) — Fase 2 auth
 - #17 (`d0b1ed1`) — Fase 1 esqueleto
@@ -283,12 +279,15 @@
 - #87/#88/#89 — INTAKE-01 schema+service+routes (Fase 5a básica)
 - #119 (`28a0cb1`) — tighten `auth_dependencies.py` types
 - #120 (`4bc0df1` PR #137) — refactor de `read_session_payload`: soporta lectura de cookies firmadas por nombre explícito y mantiene el comportamiento por defecto de `apap_session`.
+- #129 (`cfba764` PR #134) — alinea campos obligatorios de ficha de animal con Access y discovery; TDD en `tests/test_animals.py`.
+- #130 (`7d7a364` PR #133) — consolida `docs/decisiones-proyecto.md` y marca referencias rotas del roadmap con plan de remediación.
 - #124 — logout → login
 - #125 — OAuth callback loop
 - #126 — UI sin copy interno + campos obligatorios Access
 - #127 — home con tarjetas de pendientes
 - #128 — eliminar lenguaje interno
 - #131 — labels castellanos
+- #42 (cubierta por `1103b2e` PR #135 / #65) — origenes y motivos de entrada migrados como parte de los 5 catálogos legacy.
 - #65 (`1103b2e` PR #135) — CATALOG-01: 5 catálogos migrados desde Access legacy (7 origenes, 21 motivos, 13 pruebas, 12 periodicidad, 8 tipos de contrato) con seed idempotente via `ON CONFLICT DO NOTHING` y verificación P1 vía Dysflow MCP. Bidireccional sigue en Fase 7.
 - (Y el commit `a528566 test(xss-audit): allowlist index.html shortcut.href` que pilló la regla 15.1 antes del merge de hoy)
 
