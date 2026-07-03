@@ -30,6 +30,8 @@ from app.core.domain import (
     ANIMAL_CURRENT_STATE_CREATE_TABLE_SQL,
     ANIMAL_LIFECYCLE_EVENTS_CREATE_TABLE_SQL,
     ANIMALS_CREATE_TABLE_SQL,
+    CESIONES_PROPIETARIO_CREATE_TABLE_SQL,
+    CONTRATOS_CREATE_TABLE_SQL,
     ENTRADAS_CREATE_TABLE_SQL,
     ROLES_VOLUNTARIO_CREATE_TABLE_SQL,
     VOLUNTARIOS_CREATE_TABLE_SQL,
@@ -106,11 +108,12 @@ def _fk_targets(sql: str) -> list[tuple[str, str]]:
     """Return the list of (column, referenced_table) pairs declared via REFERENCES.
 
     Tolerates column-level constraints between the type and the
-    ``REFERENCES`` keyword (e.g. ``UUID NOT NULL REFERENCES foo(id)``).
+    ``REFERENCES`` keyword (e.g. ``UUID NOT NULL REFERENCES foo(id)``,
+    ``UUID NOT NULL UNIQUE REFERENCES foo(id)``).
     """
     pairs: list[tuple[str, str]] = []
     for m in re.finditer(
-        r"(\w+)\s+UUID(?:\s+NOT\s+NULL)?\s+REFERENCES\s+(\w+)\s*\(\s*id\s*\)",
+        r"(\w+)\s+UUID(?:\s+NOT\s+NULL)?(?:\s+UNIQUE)?\s+REFERENCES\s+(\w+)\s*\(\s*id\s*\)",
         sql,
     ):
         pairs.append((m.group(1), m.group(2)))
@@ -673,17 +676,23 @@ def test_animal_current_state_reconciliation_status_defaults_to_pending() -> Non
 # --- ensure_domain_schema now creates 8 tables (the 2 new ones at the end) -
 
 
-def test_ensure_domain_schema_creates_eight_tables() -> None:
-    """After PR 1, ensure_domain_schema creates 8 tables:
+def test_ensure_domain_schema_creates_ten_tables() -> None:
+    """After issue #41, ensure_domain_schema creates 10 tables:
 
     animales -> voluntarios -> roles_voluntario -> entradas -> acogidas ->
-    adopciones -> animal_lifecycle_events -> animal_current_state.
+    adopciones -> animal_lifecycle_events -> animal_current_state ->
+    cesiones_propietario -> contratos.
 
-    The two new tables MUST come AFTER adopciones because
-    animal_lifecycle_events.animal_id REFERENCES animales and
-    animal_current_state.animal_id REFERENCES animales (FK-respecting
-    order — adopciones itself only depends on animales/voluntarios/
-    entradas, so the new tables can sit at the end).
+    The two new tables MUST come AFTER animal_current_state because:
+    - ``cesiones_propietario.entrada_id REFERENCES entradas(id)``
+      (only needs entradas; adoptable mid-chain but safer at the end).
+    - ``contratos`` FKs to ``entradas``, ``acogidas``, ``adopciones``,
+      ``cesiones_propietario`` AND ``catalogos_tipos_contrato`` — the
+      catalog FK is satisfied because ``app.main::lifespan`` runs
+      ``ensure_catalogs`` before ``ensure_domain_schema`` (today's
+      order is seed-then-domain; if it inverts it still works because
+      ``catalogos_tipos_contrato`` is built with ``CREATE TABLE IF NOT
+      EXISTS`` and is therefore idempotent).
     """
     client, captured = _client_recording(lambda req, body: _json_response(200, []))
 
@@ -691,6 +700,220 @@ def test_ensure_domain_schema_creates_eight_tables() -> None:
     client.close()
 
     queries = [c["query"].strip() for c in captured]
-    assert len(queries) == 8, f"expected 8 tables, got {len(queries)}: {queries}"
+    assert len(queries) == 10, (
+        f"expected 10 tables, got {len(queries)}: {queries}"
+    )
+    assert queries[0].startswith("CREATE TABLE IF NOT EXISTS animales")
+    assert queries[1].startswith("CREATE TABLE IF NOT EXISTS voluntarios")
+    assert queries[2].startswith("CREATE TABLE IF NOT EXISTS roles_voluntario")
+    assert queries[3].startswith("CREATE TABLE IF NOT EXISTS entradas")
+    assert queries[4].startswith("CREATE TABLE IF NOT EXISTS acogidas")
+    assert queries[5].startswith("CREATE TABLE IF NOT EXISTS adopciones")
     assert queries[6].startswith("CREATE TABLE IF NOT EXISTS animal_lifecycle_events")
     assert queries[7].startswith("CREATE TABLE IF NOT EXISTS animal_current_state")
+    assert queries[8].startswith("CREATE TABLE IF NOT EXISTS cesiones_propietario")
+    assert queries[9].startswith("CREATE TABLE IF NOT EXISTS contratos")
+
+
+# --- cesiones_propietario (TbCesionPorPropietario legacy, issue #41) ---
+#
+# Migration target of ``TbCesionPorPropietario`` (P1 fidelity invariant
+# of docs/proceso.md §0): one row per owner-surrender event, linked 1-a-1
+# to ``entradas`` by FK UNIQUE on ``entrada_id``. 11 records in production
+# as of 2026-07-03 (verified via Dysflow, projectId=apap, backendPath=
+# Registro_APAP_Alcala_datos_18.accdb).
+#
+# The contract number (``NCONTRATOCESION`` legacy, format "CP" + 4 digits
+# like "CP0671") lives here; the ``contratos`` table (Fase 7) is the
+# separate contract-metadata surface with FK to one of the lifecycle
+# entities, plus FK to ``catalogos_tipos_contrato`` for the type.
+
+
+def test_cesiones_propietario_create_table_sql_uses_if_not_exists() -> None:
+    assert "CREATE TABLE IF NOT EXISTS cesiones_propietario" in (
+        CESIONES_PROPIETARIO_CREATE_TABLE_SQL
+    )
+
+
+def test_cesiones_propietario_has_required_columns() -> None:
+    """All columns from ``TbCesionPorPropietario`` must be present
+    (P1 fidelity). System improvements (id UUID, fecha_alta, updated_at)
+    are added on top of the 19 legacy columns.
+    """
+    columns = _column_names(CESIONES_PROPIETARIO_CREATE_TABLE_SQL)
+    required = {
+        # System improvements
+        "id",
+        "fecha_alta",
+        "updated_at",
+        # Legacy 1:1 — linkage
+        "entrada_id",
+        "numero_contrato",
+        # Legacy 1:1 — veterinary indicators (Sí/No NULL)
+        "cartilla_sanitaria",
+        "certificado_veterinario",
+        "autorizacion_recogida",
+        "fecha_vacuna_rabia",
+        "numero_colegiado",
+        "numero_colaborador",
+        # Legacy 1:1 — owner representative identity
+        "nombre_representante",
+        "dni_representante",
+        # Legacy 1:1 — owner representative address
+        "calle_representante",
+        "numero_calle_representante",
+        "piso_representante",
+        "letra_representante",
+        "localidad_representante",
+        "provincia_representante",
+        "cp_representante",
+        # Legacy 1:1 — owner representative contact
+        "telefono_representante",
+        "email_representante",
+        # Legacy 1:1 — handover timestamp
+        "hora_cesion",
+    }
+    missing = required - columns
+    assert not missing, (
+        f"cesiones_propietario table missing columns: {sorted(missing)}"
+    )
+
+
+def test_cesiones_propietario_fk_entrada_id_to_entradas() -> None:
+    """entrada_id must reference entradas(id) — every cesión is linked to one intake."""
+    pairs = _fk_targets(CESIONES_PROPIETARIO_CREATE_TABLE_SQL)
+    assert ("entrada_id", "entradas") in pairs
+
+
+def test_cesiones_propietario_unique_entrada_id_constraint() -> None:
+    """UNIQUE on entrada_id enforces 1:1 with entradas (matching the
+    legacy relationship ``TbEntradasTbCesionPorPropietario``, which is
+    FK-only, no separate ID — see docs/discovery/feature-02-intake-foster-adoption.md
+    §"Owner surrender (Cesión por Propietario)").
+    """
+    sql = CESIONES_PROPIETARIO_CREATE_TABLE_SQL
+    assert "entrada_id UUID NOT NULL UNIQUE" in sql, (
+        "cesiones_propietario.entrada_id must be NOT NULL UNIQUE; got "
+        f"SQL: {sql!r}"
+    )
+
+
+def test_cesiones_propietario_required_fields_are_not_null() -> None:
+    """``entrada_id``, ``numero_contrato`` and ``nombre_representante``
+    are NOT NULL. The first two are required in the legacy schema;
+    ``nombre_representante`` is nullable in the legacy db but is
+    required at the product level (no surrender without an owner), so
+    the web schema tightens it.
+    """
+    sql = CESIONES_PROPIETARIO_CREATE_TABLE_SQL
+    assert "entrada_id UUID NOT NULL" in sql
+    assert "numero_contrato TEXT NOT NULL" in sql
+    assert "nombre_representante TEXT NOT NULL" in sql
+
+
+def test_cesiones_propietario_veterinary_indicators_check_constraint() -> None:
+    """cartilla_sanitaria / certificado_veterinario / autorizacion_recogida
+    accept the legacy "Sí"/"No" text values (and NULL — operator can
+    leave them blank). BOOLEAN would lose the Spanish-spelled
+    affirmative ("Sí" with tilde) that the legacy data uses.
+    """
+    sql = CESIONES_PROPIETARIO_CREATE_TABLE_SQL
+    assert "cartilla_sanitaria TEXT" in sql
+    assert "certificado_veterinario TEXT" in sql
+    assert "autorizacion_recogida TEXT" in sql
+    # The legacy values appear inside the CHECK constraint.
+    assert "'Sí'" in sql
+    assert "'No'" in sql
+
+
+# --- contratos (modelo polimórfico Fase 7) --------------------------------
+#
+# Contract metadata for every workflow that generates one (entrada,
+# acogida, adopción, cesión por propietario). The legacy
+# ``TbContratosAnexos`` table was already a polymorphic target
+# (IDEntrada + IDAcogida + IDAdopcion nullable), referenced by any of
+# the lifecycle entities via FK. The web model keeps that shape and
+# ADDS the FK to ``catalogos_tipos_contrato`` (CATALOG-01) so each row
+# carries its type explicitly — the legacy used a separate
+# ``TbPlantillas`` table that was queried by human-readable template
+# name, not by FK, which made joins brittle.
+#
+# The CHECK constraint guarantees exactly one of the four entity FKs is
+# populated (a contract belongs to one workflow at a time). The
+# type_contrato_id column makes the type explicit at write time.
+
+
+def test_contratos_create_table_sql_uses_if_not_exists() -> None:
+    assert "CREATE TABLE IF NOT EXISTS contratos" in CONTRATOS_CREATE_TABLE_SQL
+
+
+def test_contratos_has_required_columns() -> None:
+    """Required columns: id + tipo_contrato_id FK + numero_contrato +
+    fecha + 4 nullable entity FKs + 3 system timestamps + activo +
+    nombre_archivo (for future PDF blob) + observaciones.
+    """
+    columns = _column_names(CONTRATOS_CREATE_TABLE_SQL)
+    required = {
+        "id",
+        "tipo_contrato_id",
+        "numero_contrato",
+        "fecha",
+        "entrada_id",
+        "acogida_id",
+        "adopcion_id",
+        "cesion_id",
+        "nombre_archivo",
+        "observaciones",
+        "fecha_alta",
+        "updated_at",
+        "activo",
+    }
+    missing = required - columns
+    assert not missing, f"contratos table missing columns: {sorted(missing)}"
+
+
+def test_contratos_fk_to_all_four_lifecycle_entities() -> None:
+    """A contrato may be linked to exactly one of: entrada, acogida,
+    adopcion, cesion_propietario. All four FK columns must exist; the
+    CHECK constraint enforces mutual exclusivity.
+    """
+    pairs = _fk_targets(CONTRATOS_CREATE_TABLE_SQL)
+    assert ("entrada_id", "entradas") in pairs
+    assert ("acogida_id", "acogidas") in pairs
+    assert ("adopcion_id", "adopciones") in pairs
+    assert ("cesion_id", "cesiones_propietario") in pairs
+
+
+def test_contratos_fk_tipo_contrato_to_catalogo() -> None:
+    """tipo_contrato_id must FK to catalogos_tipos_contrato (CATALOG-01
+    seed includes "Cesión" for owner surrender, codigo='Cesión').
+    """
+    sql = CONTRATOS_CREATE_TABLE_SQL
+    assert (
+        "tipo_contrato_id UUID NOT NULL REFERENCES catalogos_tipos_contrato(id)"
+        in sql
+    )
+
+
+def test_contratos_unique_xor_entity_check_constraint() -> None:
+    """A contrato must reference exactly ONE of the four entities — never
+    zero (orphan contract), never two (ambiguous ownership). Encode as a
+    CHECK over the sum of ``CASE WHEN ... IS NOT NULL THEN 1 ELSE 0 END``.
+    """
+    sql = CONTRATOS_CREATE_TABLE_SQL
+    assert "CONSTRAINT contratos_exactly_one_entity" in sql
+    # The check counts each populated FK as 1; sum must equal 1.
+    assert (
+        "entrada_id IS NOT NULL THEN 1 ELSE 0 END" in sql
+        or "entrada_id IS NOT NULL" in sql
+    )
+
+
+def test_contratos_required_metadata_not_null() -> None:
+    """tipo_contrato_id, numero_contrato and fecha are NOT NULL — every
+    contract has a type, an identifier and a date.
+    """
+    sql = CONTRATOS_CREATE_TABLE_SQL
+    assert "tipo_contrato_id UUID NOT NULL" in sql
+    assert "numero_contrato TEXT NOT NULL" in sql
+    assert "fecha DATE NOT NULL" in sql
