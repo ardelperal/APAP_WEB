@@ -2,7 +2,7 @@
 
 > Documento vivo. Punto de entrada único para saber qué hay que construir, en qué orden, qué issues lo cubren y qué documentación ya existe. Si una pregunta se responde aquí, no hay que rebuscar.
 
-**Última actualización:** 2026-07-03 (cierre de #41 INTAKE-03 — commit `98e80c5` PR #136 — workflow de cesión por propietario con schema `cesiones_propietario` + service + routes + form, vinculado 1-a-1 a `entradas` por FK UNIQUE y con modelo polimórfico `contratos` para Fase 7; fidelidad P1 verificada contra `TbCesionPorPropietario` legacy, 11 records en producción)
+**Última actualización:** 2026-07-03 (cierre de #120 — commit `4bc0df1` PR #137 — refactor de `read_session_payload` con soporte de cookie firmada por nombre explícito; validado por tests focalizados y CI verde)
 **Mantenedor único:** aroman (autoaprueba issues y PRs)
 **Rama objetivo actual:** **pre-MVP single-branch** — todo va a `main`, una sola rama al final del ciclo (ver §8 y `AGENTS.md` §15)
 **Idioma de toda la documentación, issues y PRs:** castellano (España)
@@ -243,7 +243,6 @@
 | #1 | feat(cd): deploy APAP through Coolify and InsForge (CD-01 + CD-02) | Fase 0 | 🟡 (puede cerrarse — deploy verificado en CI run 28674612470) |
 | #6 | feat(ux): definir la base UX/UI de APAP | Transversal UX/UI | 🔲 |
 | #7 | feat(tasks): definir motor común de tareas manuales y automáticas | Transversal tasks | 🔲 |
-| #120 | refactor(auth): extract `read_session_payload(request)` helper (F-3) | Auth | 🔲 (chico, sin dependencias, candidato a romper el hielo) |
 | #129 | fix(animals): alinear campos obligatorios de ficha con Access y discovery | Fase 3 / animal | 🔲 (gap:legacy — ver D-04) |
 | #130 | docs(product): consolidar decisiones y restaurar referencias rotas | Docs | 🔲 (este PR la cierra) |
 | #41 | INTAKE-03: workflow de cesión por propietario con contrato separado | Fase 5a | ✅ (PR #136, commit `98e80c5`, 2026-07-03) |
@@ -283,6 +282,7 @@
 - #26 — `animals`/`volunteers`/`volunteer_roles` tablas
 - #87/#88/#89 — INTAKE-01 schema+service+routes (Fase 5a básica)
 - #119 (`28a0cb1`) — tighten `auth_dependencies.py` types
+- #120 (`4bc0df1` PR #137) — refactor de `read_session_payload`: soporta lectura de cookies firmadas por nombre explícito y mantiene el comportamiento por defecto de `apap_session`.
 - #124 — logout → login
 - #125 — OAuth callback loop
 - #126 — UI sin copy interno + campos obligatorios Access
