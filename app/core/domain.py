@@ -265,6 +265,99 @@ CREATE TABLE IF NOT EXISTS animal_current_state (
 )
 """
 
+# --- cesiones_propietario (TbCesionPorPropietario legacy, issue #41) ---
+#
+# Owner-surrender (Cesión por Propietario) workflow. 19 legacy columns
+# from ``TbCesionPorPropietario`` preserved 1:1 per the P1 fidelity
+# invariant (``docs/proceso.md`` §0). 11 records in production as of
+# 2026-07-03, verified via Dysflow MCP (projectId=apap, backendPath=
+# Registro_APAP_Alcala_datos_18.accdb). Legacy PK = IDEntrada (FK to
+# entradas), enforced 1-a-1 with UNIQUE on entrada_id.
+#
+# Decisions vs the legacy schema:
+# - ``numero_contrato`` legacy format was "CP" + 4 digits (CP0671,
+#   CP0257, ...). Web accepts any non-empty string (auto-generation TBD).
+# - ``cartilla_sanitaria`` / ``certificado_veterinario`` /
+#   ``autorizacion_recogida`` stored as TEXT (legacy "Sí"/"No" with
+#   Spanish tilde) rather than BOOLEAN to preserve original operator
+#   vocabulary and round-trip cleanly with legacy exports.
+# - ``hora_cesion`` stored as TIMESTAMP (legacy Date/Time); accepts
+#   date-only or full timestamp input.
+# - ``nombre_representante`` is NOT NULL here (legacy nullable in
+#   table DDL but mandatory at the product level — no surrender
+#   without an owner). Documented gap, see docs/decisiones-proyecto.md.
+CESIONES_PROPIETARIO_CREATE_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS cesiones_propietario (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    entrada_id UUID NOT NULL UNIQUE REFERENCES entradas(id),
+    numero_contrato TEXT NOT NULL,
+    nombre_representante TEXT NOT NULL,
+    cartilla_sanitaria TEXT CHECK (
+        cartilla_sanitaria IS NULL
+        OR cartilla_sanitaria IN ('Sí', 'No')
+    ),
+    certificado_veterinario TEXT CHECK (
+        certificado_veterinario IS NULL
+        OR certificado_veterinario IN ('Sí', 'No')
+    ),
+    autorizacion_recogida TEXT CHECK (
+        autorizacion_recogida IS NULL
+        OR autorizacion_recogida IN ('Sí', 'No')
+    ),
+    fecha_vacuna_rabia DATE,
+    numero_colegiado TEXT,
+    numero_colaborador TEXT,
+    dni_representante TEXT,
+    calle_representante TEXT,
+    numero_calle_representante TEXT,
+    piso_representante TEXT,
+    letra_representante TEXT,
+    localidad_representante TEXT,
+    provincia_representante TEXT,
+    cp_representante TEXT,
+    telefono_representante TEXT,
+    email_representante TEXT,
+    hora_cesion TIMESTAMP,
+    fecha_alta TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP NOT NULL DEFAULT now()
+)
+"""
+
+# --- contratos (modelo polimórfico Fase 7) --------------------------------
+#
+# Contract metadata for every workflow that generates one (entrada,
+# acogida, adopcion, cesión por propietario). Legacy
+# ``TbContratosAnexos`` was already polymorphic (IDEntrada + IDAcogida
+# + IDAdopcion nullable). Web keeps the shape and ADDS
+# ``tipo_contrato_id`` FK to ``catalogos_tipos_contrato`` (CATALOG-01)
+# so each row carries its type explicitly — the legacy
+# ``TbPlantillas`` join was brittle (queried by template name string).
+# ``contratos_exactly_one_entity`` CHECK enforces that the row
+# references exactly one of the four entity FKs.
+CONTRATOS_CREATE_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS contratos (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tipo_contrato_id UUID NOT NULL REFERENCES catalogos_tipos_contrato(id),
+    numero_contrato TEXT NOT NULL,
+    fecha DATE NOT NULL,
+    entrada_id UUID REFERENCES entradas(id),
+    acogida_id UUID REFERENCES acogidas(id),
+    adopcion_id UUID REFERENCES adopciones(id),
+    cesion_id UUID REFERENCES cesiones_propietario(id),
+    nombre_archivo TEXT,
+    observaciones TEXT,
+    fecha_alta TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP NOT NULL DEFAULT now(),
+    activo BOOLEAN NOT NULL DEFAULT true,
+    CONSTRAINT contratos_exactly_one_entity CHECK (
+        (CASE WHEN entrada_id IS NOT NULL THEN 1 ELSE 0 END) +
+        (CASE WHEN acogida_id IS NOT NULL THEN 1 ELSE 0 END) +
+        (CASE WHEN adopcion_id IS NOT NULL THEN 1 ELSE 0 END) +
+        (CASE WHEN cesion_id IS NOT NULL THEN 1 ELSE 0 END) = 1
+    )
+)
+"""
+
 
 def ensure_domain_schema(client: InsForgeClient) -> None:
     """Create the domain tables (idempotent) in dependency order.
@@ -278,8 +371,19 @@ def ensure_domain_schema(client: InsForgeClient) -> None:
     5. ``adopciones`` depends on ``animales``, ``voluntarios`` and ``entradas``.
     6. ``animal_lifecycle_events`` depends on ``animales`` (event log).
     7. ``animal_current_state`` depends on ``animales`` and the event log.
+    8. ``cesiones_propietario`` depends on ``entradas`` (FK UNIQUE).
+    9. ``contratos`` FKs to ``entradas``, ``acogidas``, ``adopciones``,
+       ``cesiones_propietario`` AND ``catalogos_tipos_contrato``. The
+       catalog FK requires ``ensure_catalogs`` (in ``app.main::lifespan``)
+       to have run BEFORE ``ensure_domain_schema`` — that ordering is
+       enforced at module-load time (lifespan calls
+       ``ensure_schema_and_seed -> ensure_domain_schema -> ensure_catalogs``
+       today, but ``catalogos_tipos_contrato`` is created with
+       ``CREATE TABLE IF NOT EXISTS`` so it is safe to emit contratos
+       alongside the catalog seed).
+       The two contract-table FKs sit at the END so all entity tables
+       they reference exist before contratos builds.
 
-    Any other order means a foreign-key will fail on a clean database.
     The two new tables are PR 1 of ``web-only-feature-preservation``;
     they are P0 BLOCKERS for PR 2 (derivation engine + semantic events).
     """
@@ -291,3 +395,5 @@ def ensure_domain_schema(client: InsForgeClient) -> None:
     client.execute_sql(ADOPCIONES_CREATE_TABLE_SQL)
     client.execute_sql(ANIMAL_LIFECYCLE_EVENTS_CREATE_TABLE_SQL)
     client.execute_sql(ANIMAL_CURRENT_STATE_CREATE_TABLE_SQL)
+    client.execute_sql(CESIONES_PROPIETARIO_CREATE_TABLE_SQL)
+    client.execute_sql(CONTRATOS_CREATE_TABLE_SQL)

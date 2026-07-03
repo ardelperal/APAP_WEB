@@ -182,6 +182,35 @@ _BASE_FORM_VOLUNTARIO: dict[str, Any] = {
     "Tel2": "",
 }
 
+# Minimal context for the cesion por propietario form. Every operator-
+# entered text field is rendered into an attribute via Jinja2 ``value=``
+# (no autoescape bypass; the XSS test mutates each path and verifies the
+# payload gets HTML-entity-escaped). The veterinary Sí/No selects use
+# selected=``, which is also attribute-escaped.
+_BASE_FORM_CESION: dict[str, Any] = {
+    "entrada_id": "ent-abc",
+    "numero_contrato": "CP0672",
+    "nombre_representante": "Maria Lopez Garcia",
+    "dni_representante": "12345678Z",
+    "fecha_cesion": "2026-07-03",
+    "calle_representante": "Calle Mayor",
+    "numero_calle_representante": "1",
+    "piso_representante": "2",
+    "letra_representante": "A",
+    "localidad_representante": "Alcala de Henares",
+    "provincia_representante": "Madrid",
+    "cp_representante": "28801",
+    "telefono_representante": "600000000",
+    "email_representante": "maria@example.com",
+    "cartilla_sanitaria": "Sí",
+    "certificado_veterinario": "Sí",
+    "autorizacion_recogida": "Sí",
+    "fecha_vacuna_rabia": "2026-05-15",
+    "numero_colegiado": "9999",
+    "numero_colaborador": "5555",
+    "hora_cesion": "2026-07-03T11:30",
+}
+
 _BASE_VOLUNTARIO_DETAIL: dict[str, Any] = {
     "id": "v-1",
     "Voluntario": "Ana García",
@@ -295,7 +324,25 @@ TEMPLATE_SPECS: list[tuple[str, list[str], dict[str, Any]]] = [
         ],
         {"user": _BASE_USER, "voluntario": _BASE_VOLUNTARIO_DETAIL, "roles": ["intake"]},
     ),
-    # --- 6 additional templates the repo contains (defence in depth) ---
+    (
+        "cesiones/form.html",
+        [
+            "form_data.entrada_id",
+            "form_data.numero_contrato",
+            "form_data.nombre_representante",
+            "form_data.dni_representante",
+            "form_data.calle_representante",
+            "form_data.email_representante",
+            "form_data.cartilla_sanitaria",
+            "form_data.numero_colegiado",
+            "error",
+        ],
+        {
+            "user": _BASE_USER,
+            "form_data": dict(_BASE_FORM_CESION),
+            "error": None,
+        },
+    ),
     (
         "index.html",
         ["app_name", "version", "user.email", "user.role"],
