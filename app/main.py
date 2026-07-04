@@ -70,6 +70,7 @@ from app.core.session import (
     session_cookie_name,
     write_session,
 )
+from app.modules.acogidas.routes import router as acogidas_router
 from app.modules.animals.routes import router as animals_router
 from app.modules.cesiones.routes import router as cesiones_router
 from app.modules.entradas.batch_routes import router as entradas_batch_router
@@ -604,6 +605,11 @@ def create_app() -> FastAPI:
     application.include_router(entradas_router)
     application.include_router(entradas_batch_router)
     application.include_router(foster_router)
+    # FOSTER-02 (#44) — estancias de acogida, mounted AFTER
+    # foster_router because logically they belong to the foster slice
+    # and the FK from ``acogidas`` -> ``casas_acogida`` requires the
+    # foster module to be already loaded.
+    application.include_router(acogidas_router)
     application.include_router(cesiones_router)
     application.include_router(voluntarios_router)
 

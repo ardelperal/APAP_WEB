@@ -25,6 +25,7 @@ import httpx
 import pytest
 
 from app.core.domain import (
+    ACOGIDAS_ADD_CASA_FK_SQL,
     ACOGIDAS_CREATE_TABLE_SQL,
     ADOPCIONES_CREATE_TABLE_SQL,
     ANIMAL_CURRENT_STATE_CREATE_TABLE_SQL,
@@ -452,6 +453,86 @@ def test_acogidas_create_table_sql_fk_entrada_origen_id_to_entradas() -> None:
     assert ("entrada_origen_id", "entradas") in pairs
 
 
+# --- acogidas.casa_acogida_id FK (FOSTER-02, #44) -------------------------
+#
+# The FK from ``acogidas.casa_acogida_id`` to ``casas_acogida(id)`` was
+# added in FOSTER-02 via an explicit ALTER TABLE migration (D-EST-05)
+# rather than by editing the original CREATE TABLE — keeps the diff
+# between FOSTER-01 and FOSTER-02 explicit and lets the original
+# CREATE TABLE stay frozen.
+#
+# The migration is idempotent (``ADD COLUMN IF NOT EXISTS``) and is
+# emitted by ``ensure_domain_schema`` AFTER the CREATE TABLE for
+# ``acogidas`` (and AFTER ``casas_acogida`` so the referenced table
+# exists). The tests below pin the contract.
+
+
+def test_acogidas_add_casa_fk_sql_alter_table_is_idempotent() -> None:
+    """The migration uses ``ADD COLUMN IF NOT EXISTS`` so re-runs are no-ops."""
+    sql = ACOGIDAS_ADD_CASA_FK_SQL
+    assert "ALTER TABLE acogidas" in sql
+    assert "ADD COLUMN IF NOT EXISTS" in sql
+    assert "casa_acogida_id UUID REFERENCES casas_acogida(id)" in sql
+
+
+def test_acogidas_add_casa_fk_sql_does_not_modify_original_create_table() -> None:
+    """The CREATE TABLE for ``acogidas`` does NOT include casa_acogida_id.
+
+    Adding the column to the CREATE TABLE would have been the simpler
+    path (D-EST-05 chose ALTER TABLE instead). The test pins the
+    contract: the original CREATE TABLE remains frozen so any reader
+    parsing it (e.g., the schema docs) sees only the legacy fields.
+    """
+    columns = _column_names(ACOGIDAS_CREATE_TABLE_SQL)
+    assert "casa_acogida_id" not in columns
+
+
+def test_ensure_domain_schema_emits_casa_fk_migration_after_acogidas_create() -> None:
+    """``ensure_domain_schema`` runs the ALTER TABLE after creating ``acogidas``.
+
+    The migration order matters: ``casas_acogida`` must exist before
+    the ALTER TABLE references it (Postgres would reject the FK
+    otherwise). The ALTER TABLE itself must run AFTER the CREATE TABLE
+    for ``acogidas`` — same DB-statement ordering constraint.
+    """
+    client, captured = _client_recording(lambda req, body: _json_response(200, []))
+
+    ensure_domain_schema(client)
+    client.close()
+
+    queries = [c["query"].strip() for c in captured]
+    # 12 CREATE TABLE statements + 1 ALTER TABLE for the casa FK.
+    create_queries = [
+        q for q in queries if q.startswith("CREATE TABLE IF NOT EXISTS")
+    ]
+    alter_queries = [q for q in queries if q.startswith("ALTER TABLE")]
+    assert len(create_queries) == 12, (
+        f"expected 12 CREATE TABLEs, got {len(create_queries)}: {create_queries}"
+    )
+    assert len(alter_queries) == 1, (
+        f"expected 1 ALTER TABLE (FOSTER-02 casa FK), got {len(alter_queries)}: {alter_queries}"
+    )
+    # The ALTER TABLE must come AFTER the CREATE TABLE for ``acogidas``
+    # and AFTER the CREATE TABLE for ``casas_acogida``.
+    create_acogidas_idx = next(
+        i for i, q in enumerate(create_queries)
+        if q.startswith("CREATE TABLE IF NOT EXISTS acogidas")
+    )
+    create_casas_acogida_idx = next(
+        i for i, q in enumerate(create_queries)
+        if q.startswith("CREATE TABLE IF NOT EXISTS casas_acogida")
+    )
+    alter_idx = next(
+        i for i, q in enumerate(queries) if q.startswith("ALTER TABLE")
+    )
+    assert alter_idx > create_acogidas_idx, (
+        "ALTER TABLE acogidas ADD COLUMN must run AFTER CREATE TABLE acogidas"
+    )
+    assert alter_idx > create_casas_acogida_idx, (
+        "ALTER TABLE must run AFTER CREATE TABLE casas_acogida (FK target must exist)"
+    )
+
+
 # --- adopciones (TbAdopcion legacy) ---------------------------------------
 #
 # Migration target of TbAdopcion. 16 columns: id + animal_id FK +
@@ -534,7 +615,9 @@ def test_ensure_domain_schema_includes_entradas_acogidas_adopciones() -> None:
     # because it is logically tied to the intake flow, and
     # ``casas_acogida`` (FOSTER-01) sits BEFORE ``acogidas`` so
     # FOSTER-02 can add an FK from ``acogidas.casa_acogida_id`` to
-    # ``casas_acogida.id`` via ALTER TABLE without reordering.
+    # ``casas_acogida.id`` via ALTER TABLE without reordering. FOSTER-02
+    # then emits an ALTER TABLE right after the CREATE TABLE for
+    # ``acogidas`` to install that FK.
     assert queries[0].startswith("CREATE TABLE IF NOT EXISTS animales")
     assert queries[1].startswith("CREATE TABLE IF NOT EXISTS voluntarios")
     assert queries[2].startswith("CREATE TABLE IF NOT EXISTS roles_voluntario")
@@ -542,7 +625,11 @@ def test_ensure_domain_schema_includes_entradas_acogidas_adopciones() -> None:
     assert queries[4].startswith("CREATE TABLE IF NOT EXISTS entradas_batch_staging")
     assert queries[5].startswith("CREATE TABLE IF NOT EXISTS casas_acogida")
     assert queries[6].startswith("CREATE TABLE IF NOT EXISTS acogidas")
-    assert queries[7].startswith("CREATE TABLE IF NOT EXISTS adopciones")
+    # FOSTER-02: ALTER TABLE immediately after the CREATE TABLE for
+    # ``acogidas`` to install the FK to ``casas_acogida``. The next
+    # statement is still the CREATE TABLE for ``adopciones``.
+    assert queries[7].startswith("ALTER TABLE acogidas")
+    assert queries[8].startswith("CREATE TABLE IF NOT EXISTS adopciones")
 
 
 # --- animal_lifecycle_events (LIFECYCLE-SCHEMA-02) -----------------------
@@ -683,21 +770,26 @@ def test_animal_current_state_reconciliation_status_defaults_to_pending() -> Non
 # --- ensure_domain_schema now creates 8 tables (the 2 new ones at the end) -
 
 
-def test_ensure_domain_schema_creates_twelve_tables() -> None:
-    """After issues #41, #40, and #43, ensure_domain_schema creates 12 tables:
+def test_ensure_domain_schema_creates_twelve_tables_plus_one_alter() -> None:
+    """After issues #41, #40, #43, and #44, ensure_domain_schema emits
+    12 CREATE TABLE statements + 1 ALTER TABLE migration:
 
     animales -> voluntarios -> roles_voluntario -> entradas -> entradas_batch_staging
-    -> casas_acogida -> acogidas -> adopciones -> animal_lifecycle_events ->
-    animal_current_state -> cesiones_propietario -> contratos.
+    -> casas_acogida -> acogidas -> [ALTER TABLE acogidas ADD COLUMN casa_acogida_id]
+    -> adopciones -> animal_lifecycle_events -> animal_current_state
+    -> cesiones_propietario -> contratos.
+
+    Total statements: 13 (12 CREATE TABLE + 1 ALTER TABLE).
 
     ``entradas_batch_staging`` (#40, INTAKE-02) sits right after
     ``entradas`` because it is logically tied to the intake flow; it has
     no FK to ``entradas`` (the staging rows ARE the source of future
     ``entradas`` rows), so this ordering is purely a documentation
     choice. ``casas_acogida`` (#43, FOSTER-01) is positioned BEFORE
-    ``acogidas`` so FOSTER-02 can add the FK
+    ``acogidas`` so FOSTER-02 (#44) can add the FK
     ``acogidas.casa_acogida_id REFERENCES casas_acogida(id)`` via ALTER
-    TABLE without reordering.
+    TABLE without reordering. The ALTER TABLE itself runs IMMEDIATELY
+    AFTER the CREATE TABLE for ``acogidas`` so the FK target exists.
     """
     client, captured = _client_recording(lambda req, body: _json_response(200, []))
 
@@ -705,9 +797,12 @@ def test_ensure_domain_schema_creates_twelve_tables() -> None:
     client.close()
 
     queries = [c["query"].strip() for c in captured]
-    assert len(queries) == 12, (
-        f"expected 12 tables, got {len(queries)}: {queries}"
+    assert len(queries) == 13, (
+        f"expected 13 statements (12 CREATE TABLE + 1 ALTER TABLE), "
+        f"got {len(queries)}: {queries}"
     )
+    create_queries = [q for q in queries if q.startswith("CREATE TABLE")]
+    assert len(create_queries) == 12
     assert queries[0].startswith("CREATE TABLE IF NOT EXISTS animales")
     assert queries[1].startswith("CREATE TABLE IF NOT EXISTS voluntarios")
     assert queries[2].startswith("CREATE TABLE IF NOT EXISTS roles_voluntario")
@@ -715,11 +810,13 @@ def test_ensure_domain_schema_creates_twelve_tables() -> None:
     assert queries[4].startswith("CREATE TABLE IF NOT EXISTS entradas_batch_staging")
     assert queries[5].startswith("CREATE TABLE IF NOT EXISTS casas_acogida")
     assert queries[6].startswith("CREATE TABLE IF NOT EXISTS acogidas")
-    assert queries[7].startswith("CREATE TABLE IF NOT EXISTS adopciones")
-    assert queries[8].startswith("CREATE TABLE IF NOT EXISTS animal_lifecycle_events")
-    assert queries[9].startswith("CREATE TABLE IF NOT EXISTS animal_current_state")
-    assert queries[10].startswith("CREATE TABLE IF NOT EXISTS cesiones_propietario")
-    assert queries[11].startswith("CREATE TABLE IF NOT EXISTS contratos")
+    # FOSTER-02 ALTER TABLE between ``acogidas`` (idx 6) and ``adopciones`` (idx 8).
+    assert queries[7].startswith("ALTER TABLE acogidas")
+    assert queries[8].startswith("CREATE TABLE IF NOT EXISTS adopciones")
+    assert queries[9].startswith("CREATE TABLE IF NOT EXISTS animal_lifecycle_events")
+    assert queries[10].startswith("CREATE TABLE IF NOT EXISTS animal_current_state")
+    assert queries[11].startswith("CREATE TABLE IF NOT EXISTS cesiones_propietario")
+    assert queries[12].startswith("CREATE TABLE IF NOT EXISTS contratos")
 
 
 # --- cesiones_propietario (TbCesionPorPropietario legacy, issue #41) ---

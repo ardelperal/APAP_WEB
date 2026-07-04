@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% block title %}Estancia de acogida - APAP{% endblock %}
+{% block content %}
+  <div class="flex items-start justify-between mb-6 flex-wrap gap-3">
+    <div>
+      <h1 class="text-3xl font-bold text-primary-dark tracking-tight">Estancia de acogida</h1>
+      <p class="text-text-muted text-sm mt-1">
+        Animal: <code class="font-mono text-text">{{ acogida.animal_id }}</code>
+        · Inicio: <span class="font-semibold">{{ acogida.fecha_inicio }}</span>
+        {% if not active %}
+          · <span class="text-rose-700 font-semibold">Cerrada</span>
+        {% else %}
+          · <span class="text-green-700 font-semibold">Activa</span>
+        {% endif %}
+      </p>
+    </div>
+    <div class="flex gap-2">
+      <a href="/acogidas" class="px-4 py-2 text-text-muted hover:text-text">← Volver</a>
+      <a href="/acogidas/{{ acogida.id }}/edit" class="bg-primary text-white px-4 py-2 rounded font-semibold hover:bg-primary-dark transition-colors shadow-sm">
+        Editar
+      </a>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <div class="bg-surface rounded-card shadow-card p-6 space-y-3">
+      <h2 class="text-lg font-semibold text-text">Vinculación</h2>
+      <dl class="space-y-2 text-sm">
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Animal</dt>
+          <dd class="font-mono text-text">{{ acogida.animal_id }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Casa de acogida</dt>
+          <dd class="font-mono text-text">{{ acogida.casa_acogida_id or "—" }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Entrada de origen</dt>
+          <dd class="font-mono text-text">{{ acogida.entrada_origen_id or "—" }}</dd>
+        </div>
+      </dl>
+    </div>
+
+    <div class="bg-surface rounded-card shadow-card p-6 space-y-3">
+      <h2 class="text-lg font-semibold text-text">Periodo</h2>
+      <dl class="space-y-2 text-sm">
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Fecha de inicio</dt>
+          <dd class="text-text">{{ acogida.fecha_inicio }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Fecha de cierre</dt>
+          <dd class="text-text">
+            {% if acogida.fecha_final %}
+              {{ acogida.fecha_final }}
+            {% else %}
+              <span class="text-primary font-semibold">Abierta</span>
+            {% endif %}
+          </dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Duración</dt>
+          <dd class="text-text">
+            {% if duracion is none %}
+              <span class="text-primary font-semibold">Abierta, sin duración cerrada</span>
+            {% elif duracion == 0 %}
+              <span>Mismo día de inicio y cierre</span>
+            {% elif duracion == 1 %}
+              <span>1 día</span>
+            {% else %}
+              <span>{{ duracion }} días</span>
+            {% endif %}
+          </dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Estado</dt>
+          <dd class="text-text">
+            {% if active %}
+              <span class="text-green-700 font-semibold">Activa</span>
+            {% elif not acogida.activo %}
+              <span class="text-rose-700 font-semibold">Inactiva (dada de baja)</span>
+            {% else %}
+              <span class="text-text-muted">Cerrada</span>
+            {% endif %}
+          </dd>
+        </div>
+      </dl>
+    </div>
+
+    <div class="bg-surface rounded-card shadow-card p-6 space-y-3 md:col-span-2">
+      <h2 class="text-lg font-semibold text-text">Voluntarios</h2>
+      <dl class="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Acogida</dt>
+          <dd class="font-mono text-text">{{ acogida.voluntario_acogida_id or "—" }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Seguimiento 1</dt>
+          <dd class="font-mono text-text">{{ acogida.voluntario_seguimiento1_id or "—" }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Seguimiento 2</dt>
+          <dd class="font-mono text-text">{{ acogida.voluntario_seguimiento2_id or "—" }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Sanitario</dt>
+          <dd class="font-mono text-text">{{ acogida.voluntario_sanitario_id or "—" }}</dd>
+        </div>
+      </dl>
+    </div>
+
+    {% if acogida.direccion or acogida.telefono or acogida.observaciones %}
+    <div class="bg-surface rounded-card shadow-card p-6 space-y-3 md:col-span-2">
+      {% if acogida.direccion %}
+      <div>
+        <h3 class="text-sm font-semibold text-text-muted">Dirección</h3>
+        <p class="text-text mt-1 whitespace-pre-line">{{ acogida.direccion }}</p>
+      </div>
+      {% endif %}
+      {% if acogida.telefono %}
+      <div>
+        <h3 class="text-sm font-semibold text-text-muted">Teléfono de contacto</h3>
+        <p class="text-text font-mono mt-1">{{ acogida.telefono }}</p>
+      </div>
+      {% endif %}
+      {% if acogida.observaciones %}
+      <div>
+        <h3 class="text-sm font-semibold text-text-muted">Observaciones</h3>
+        <p class="text-text mt-1 whitespace-pre-line">{{ acogida.observaciones }}</p>
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="mt-8 pt-6 border-t border-border">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div class="flex flex-wrap gap-3">
+        {% if active %}
+        <form method="post" action="/acogidas/{{ acogida.id }}/close"
+              onsubmit="return confirm('¿Cerrar esta estancia? Se registrará hoy como fecha de cierre.');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <button type="submit" class="px-4 py-2 text-primary border border-primary rounded font-semibold hover:bg-primary/5 transition-colors">
+            Cerrar estancia
+          </button>
+        </form>
+        {% endif %}
+        <form method="post" action="/acogidas/{{ acogida.id }}/delete"
+              onsubmit="return confirm('¿Dar de baja esta estancia de acogida? El registro se conserva en el histórico.');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <button type="submit" class="px-4 py-2 text-rose-700 hover:text-rose-900 font-semibold">
+            Dar de baja
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+{% endblock %}

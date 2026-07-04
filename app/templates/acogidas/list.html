@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Estancias de acogida - APAP{% endblock %}
+{% block content %}
+  <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
+    <div>
+      <h1 class="text-3xl font-bold text-primary-dark tracking-tight">Estancias de acogida</h1>
+      <p class="text-text-muted text-sm mt-1">
+        Registro de estancias de animales en casas de acogida.
+        {% if activas_solo %}
+          Mostrando solo estancias activas (sin fecha de cierre).
+        {% endif %}
+      </p>
+    </div>
+    <a href="/acogidas/new" class="bg-primary text-white px-4 py-2 rounded font-semibold hover:bg-primary-dark transition-colors shadow-sm">
+      + Nueva estancia
+    </a>
+  </div>
+
+  <form method="get" action="/acogidas" class="mb-4 flex items-center gap-2">
+    <label for="activas_solo" class="text-sm text-text-muted">Filtrar:</label>
+    <select name="activas_solo" id="activas_solo"
+            class="border border-border rounded px-2 py-1 bg-surface text-text">
+      <option value="">Todas (activas y cerradas)</option>
+      <option value="1" {% if activas_solo %}selected{% endif %}>Solo activas</option>
+    </select>
+    <button type="submit" class="px-3 py-1 rounded border border-border text-text-muted hover:text-primary hover:border-primary transition-colors">
+      Aplicar
+    </button>
+    {% if activas_solo %}
+      <a href="/acogidas" class="px-3 py-1 text-rose-700 hover:text-rose-900 text-sm">Quitar filtro</a>
+    {% endif %}
+  </form>
+
+  {% if acogidas %}
+  <div class="bg-surface rounded-card shadow-card overflow-hidden">
+    <table class="min-w-full text-left text-sm">
+      <thead class="bg-primary text-white">
+        <tr>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Animal</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Casa</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Inicio</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Cierre</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Estado</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for acogida in acogidas %}
+        <tr class="border-b border-border last:border-b-0 hover:bg-primary/5 transition-colors">
+          <td class="px-6 py-4 whitespace-nowrap font-mono text-text">{{ acogida.animal_id }}</td>
+          <td class="px-6 py-4 whitespace-nowrap font-mono text-text-muted">{{ acogida.casa_acogida_id or "—" }}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-text">{{ acogida.fecha_inicio }}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-text">
+            {% if acogida.fecha_final %}
+              {{ acogida.fecha_final }}
+            {% else %}
+              <span class="text-primary font-semibold">Abierta</span>
+            {% endif %}
+          </td>
+          <td class="px-6 py-4 whitespace-nowrap text-text-muted">
+            {% if acogida.activo %}
+              <span class="text-green-700 font-semibold">Activa</span>
+            {% else %}
+              <span class="text-rose-700">Inactiva</span>
+            {% endif %}
+          </td>
+          <td class="px-6 py-4 whitespace-nowrap text-right">
+            <a href="/acogidas/{{ acogida.id }}" class="text-primary font-semibold hover:underline">Ver</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="bg-gradient-to-br from-primary/10 to-primary/5 border-l-4 border-primary rounded-card shadow-card p-8 text-center">
+    <div class="text-5xl mb-3" aria-hidden="true">🏡</div>
+    <h2 class="text-primary-dark font-semibold text-lg">No hay estancias registradas</h2>
+    <p class="text-text-muted text-sm mt-1 mb-4">
+      {% if activas_solo %}
+        Ninguna estancia activa en este momento.
+      {% else %}
+        Registra la primera estancia cuando un animal pase a una casa de acogida.
+      {% endif %}
+    </p>
+    <a href="/acogidas/new" class="inline-block bg-primary text-white px-4 py-2 rounded font-semibold hover:bg-primary-dark transition-colors">
+      Registrar primera estancia
+    </a>
+  </div>
+  {% endif %}
+{% endblock %}

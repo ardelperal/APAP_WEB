@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}{{ "Editar" if form_data.fecha_inicio else "Nueva" }} estancia de acogida - APAP{% endblock %}
+{% block content %}
+  <div class="mb-6">
+    <h1 class="text-3xl font-bold text-primary-dark tracking-tight">
+      {{ "Editar estancia de acogida" if form_data.fecha_inicio else "Nueva estancia de acogida" }}
+    </h1>
+    <p class="text-text-muted text-sm mt-1">
+      Los campos marcados con <span class="text-rose-700">*</span> son obligatorios.
+    </p>
+  </div>
+
+  {% if error %}
+  <div class="bg-rose-50 border border-rose-200 text-rose-800 px-4 py-3 rounded-card mb-6">
+    <p class="font-semibold">No se pudo guardar la estancia de acogida</p>
+    <p class="text-sm mt-1">{{ error }}</p>
+  </div>
+  {% endif %}
+
+  <form method="post" action="{{ form_action }}" class="bg-surface rounded-card shadow-card p-6 space-y-6">
+    {# PR-5B2: CSRF defense-in-depth (REQ-AH-7). #}
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+
+    <fieldset class="space-y-4">
+      <legend class="text-sm font-semibold text-text-muted">Vinculación</legend>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-medium text-text">Animal <span class="text-rose-700">*</span></label>
+          <input type="text" name="animal_id" value="{{ form_data.animal_id or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 font-mono"
+                 required>
+          <p class="text-xs text-text-muted mt-1">Identificador del animal (UUID).</p>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-text">Casa de acogida</label>
+          <input type="text" name="casa_acogida_id" value="{{ form_data.casa_acogida_id or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 font-mono">
+          <p class="text-xs text-text-muted mt-1">Opcional. Debe ser una casa activa (UUID).</p>
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset class="space-y-4">
+      <legend class="text-sm font-semibold text-text-muted">Fechas</legend>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-medium text-text">Fecha de inicio <span class="text-rose-700">*</span></label>
+          <input type="date" name="fecha_inicio" value="{{ form_data.fecha_inicio or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                 required>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-text">Fecha de cierre</label>
+          <input type="date" name="fecha_final" value="{{ form_data.fecha_final or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+          <p class="text-xs text-text-muted mt-1">Si la estancia ya ha terminado. Déjalo vacío para una estancia abierta.</p>
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset class="space-y-4">
+      <legend class="text-sm font-semibold text-text-muted">Voluntarios</legend>
+      <p class="text-xs text-text-muted">Todos opcionales. Si se indica, debe ser un voluntario activo (UUID).</p>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-medium text-text">Voluntario de acogida</label>
+          <input type="text" name="voluntario_acogida_id" value="{{ form_data.voluntario_acogida_id or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 font-mono">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-text">Voluntario de seguimiento 1</label>
+          <input type="text" name="voluntario_seguimiento1_id" value="{{ form_data.voluntario_seguimiento1_id or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 font-mono">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-text">Voluntario de seguimiento 2</label>
+          <input type="text" name="voluntario_seguimiento2_id" value="{{ form_data.voluntario_seguimiento2_id or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 font-mono">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-text">Voluntario sanitario</label>
+          <input type="text" name="voluntario_sanitario_id" value="{{ form_data.voluntario_sanitario_id or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 font-mono">
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset class="space-y-4">
+      <legend class="text-sm font-semibold text-text-muted">Datos adicionales</legend>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-medium text-text">Entrada de origen</label>
+          <input type="text" name="entrada_origen_id" value="{{ form_data.entrada_origen_id or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 font-mono">
+          <p class="text-xs text-text-muted mt-1">Opcional. UUID de la entrada que originó esta estancia.</p>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-text">Teléfono de contacto</label>
+          <input type="text" name="telefono" value="{{ form_data.telefono or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+        </div>
+        <div class="md:col-span-2">
+          <label class="block text-sm font-medium text-text">Dirección</label>
+          <input type="text" name="direccion" value="{{ form_data.direccion or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+          <p class="text-xs text-text-muted mt-1">Dirección denormalizada del legacy (se conserva por fidelidad histórica).</p>
+        </div>
+        <div class="md:col-span-2">
+          <label class="block text-sm font-medium text-text">Observaciones</label>
+          <textarea name="observaciones" rows="3"
+                    class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">{{ form_data.observaciones or '' }}</textarea>
+        </div>
+      </div>
+    </fieldset>
+
+    <div class="flex justify-end gap-3 pt-4 border-t border-border">
+      <a href="/acogidas" class="px-4 py-2 text-text-muted hover:text-text">Cancelar</a>
+      <button type="submit" class="bg-primary text-white px-6 py-2 rounded font-semibold hover:bg-primary-dark transition-colors shadow-sm">
+        Guardar
+      </button>
+    </div>
+  </form>
+{% endblock %}

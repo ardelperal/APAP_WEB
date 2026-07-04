@@ -487,6 +487,107 @@ TEMPLATE_SPECS: list[tuple[str, list[str], dict[str, Any]]] = [
         },
     ),
     (
+        "acogidas/list.html",
+        [
+            "acogidas[0].animal_id",
+            "acogidas[0].casa_acogida_id",
+            "acogidas[0].fecha_inicio",
+            "acogidas[0].fecha_final",
+            "acogidas[0].activo",
+        ],
+        {
+            "user": _BASE_USER,
+            "acogidas": [
+                {
+                    "id": "22222222-2222-2222-2222-222222222222",
+                    "animal_id": "11111111-1111-1111-1111-111111111111",
+                    "casa_acogida_id": "33333333-3333-3333-3333-333333333333",
+                    "fecha_inicio": "2026-07-04",
+                    "fecha_final": None,
+                    "activo": True,
+                }
+            ],
+            "activas_solo": False,
+        },
+    ),
+    (
+        "acogidas/form.html",
+        [
+            "form_data.animal_id",
+            "form_data.casa_acogida_id",
+            "form_data.voluntario_acogida_id",
+            "form_data.voluntario_seguimiento1_id",
+            "form_data.voluntario_seguimiento2_id",
+            "form_data.voluntario_sanitario_id",
+            "form_data.fecha_inicio",
+            "form_data.fecha_final",
+            "form_data.entrada_origen_id",
+            "form_data.direccion",
+            "form_data.telefono",
+            "form_data.observaciones",
+            "error",
+        ],
+        {
+            "user": _BASE_USER,
+            "form_data": {
+                "animal_id": "",
+                "casa_acogida_id": "",
+                "voluntario_acogida_id": "",
+                "voluntario_seguimiento1_id": "",
+                "voluntario_seguimiento2_id": "",
+                "voluntario_sanitario_id": "",
+                "fecha_inicio": "",
+                "fecha_final": "",
+                "entrada_origen_id": "",
+                "direccion": "",
+                "telefono": "",
+                "observaciones": "",
+            },
+            "error": None,
+        },
+    ),
+    (
+        "acogidas/detail.html",
+        [
+            "acogida.animal_id",
+            "acogida.casa_acogida_id",
+            "acogida.voluntario_acogida_id",
+            "acogida.voluntario_seguimiento1_id",
+            "acogida.voluntario_seguimiento2_id",
+            "acogida.voluntario_sanitario_id",
+            "acogida.fecha_inicio",
+            "acogida.fecha_final",
+            "acogida.entrada_origen_id",
+            "acogida.direccion",
+            "acogida.telefono",
+            "acogida.observaciones",
+        ],
+        {
+            "user": _BASE_USER,
+            "acogida": {
+                "id": "22222222-2222-2222-2222-222222222222",
+                "animal_id": "11111111-1111-1111-1111-111111111111",
+                "casa_acogida_id": "33333333-3333-3333-3333-333333333333",
+                "voluntario_acogida_id": "vol-acog",
+                "voluntario_seguimiento1_id": "vol-seg1",
+                "voluntario_seguimiento2_id": None,
+                "voluntario_sanitario_id": "vol-san",
+                "fecha_inicio": "2026-07-04",
+                "fecha_final": None,
+                "entrada_origen_id": None,
+                "direccion": "Calle Mayor 12, Alcalá de Henares",
+                "telefono": "600123456",
+                "observaciones": "Animal tranquilo, sin medicación",
+                "fecha_alta": "2026-07-04T10:00:00Z",
+                "fecha_baja": None,
+                "updated_at": "2026-07-04T10:00:00Z",
+                "activo": True,
+            },
+            "duracion": None,
+            "active": True,
+        },
+    ),
+    (
         "entradas/batch_new.html",
         [
             "rows[0].animal_id",
@@ -763,6 +864,10 @@ def test_no_user_data_in_url_attributes() -> None:
             # by the foster route to either ``/casas-acogida`` (new)
             # or ``/casas-acogida/{id}/update`` (edit), never user data.
             ("casas_acogida/form.html", "form_action"),
+            # ``form_action`` in ``acogidas/form.html`` is set by the
+            # acolhidas route to either ``/acogidas`` (new) or
+            # ``/acogidas/{id}/update`` (edit), never user data.
+            ("acogidas/form.html", "form_action"),
             # ``shortcut.href`` comes from ``_DASHBOARD_SHORTCUTS``
             # in ``app/main.py`` - a module-level constant (hardcoded
             # list of internal routes). Never user input.

@@ -208,6 +208,25 @@ CREATE TABLE IF NOT EXISTS acogidas (
 )
 """
 
+# FOSTER-02 (#44) — añade la FK estructurada desde ``acogidas`` hacia la
+# entidad ``casas_acogida`` creada por FOSTER-01 (#43). La columna es
+# opcional (NULL permitida) para preservar la retro-compatibilidad con
+# estancias históricas que no tienen casa asignada (D-EST-01). El patrón
+# ``ADD COLUMN IF NOT EXISTS`` es idempotente: re-ejecutar
+# ``ensure_domain_schema`` no falla ni duplica la columna.
+#
+# Justificación de usar ALTER TABLE en lugar de añadir la columna al
+# ``ACOGIDAS_CREATE_TABLE_SQL`` directamente (D-EST-05): el diff entre
+# FOSTER-01 y FOSTER-02 muestra el cambio explícitamente; el
+# ``CREATE TABLE`` permanece congelado (tests existentes en
+# ``tests/test_domain.py`` no necesitan actualizarse); futuras columnas
+# a ``acogidas`` (FOSTER-03+) replican este patrón sin alterar el
+# ``CREATE TABLE`` original.
+ACOGIDAS_ADD_CASA_FK_SQL = """
+ALTER TABLE acogidas
+ADD COLUMN IF NOT EXISTS casa_acogida_id UUID REFERENCES casas_acogida(id)
+"""
+
 # --- adopciones: TbAdopcion (16 cols) + mejoras justificadas ---
 #
 # LIFECYCLE-03 (migration-01). FKs to animales, voluntarios and entradas
@@ -475,6 +494,11 @@ def ensure_domain_schema(client: InsForgeClient) -> None:
     client.execute_sql(ENTRADAS_BATCH_STAGING_CREATE_TABLE_SQL)
     client.execute_sql(CASAS_ACOGIDA_CREATE_TABLE_SQL)
     client.execute_sql(ACOGIDAS_CREATE_TABLE_SQL)
+    # FOSTER-02 (#44) — añade la FK estructurada desde ``acogidas`` hacia
+    # ``casas_acogida``. Idempotente (``ADD COLUMN IF NOT EXISTS``) y
+    # emitido DESPUÉS del CREATE TABLE de acogidas para garantizar que
+    # la tabla referenciada (``casas_acogida``) ya existe en la base.
+    client.execute_sql(ACOGIDAS_ADD_CASA_FK_SQL)
     client.execute_sql(ADOPCIONES_CREATE_TABLE_SQL)
     client.execute_sql(ANIMAL_LIFECYCLE_EVENTS_CREATE_TABLE_SQL)
     client.execute_sql(ANIMAL_CURRENT_STATE_CREATE_TABLE_SQL)
