@@ -47,6 +47,8 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any, Final
 
+from app.core.logging import log_safe
+
 
 class AcogidaConflictError(ValueError):
     """Raised when a natural-key conflict occurs on a unique column.
@@ -394,6 +396,7 @@ def create_acogida(
     write_params = _build_write_params(params)
     rows = client.execute_sql(_INSERT_ACOGIDA_SQL, write_params)
     acogida = _row_to_acogida(rows[0])
+    log_safe("foster.acogida.created", acogida_id=acogida.id)
     return acogida
 
 
@@ -439,7 +442,9 @@ def update_acogida(
     )
     if not rows:
         return None
-    return _row_to_acogida(rows[0])
+    updated = _row_to_acogida(rows[0])
+    log_safe("foster.acogida.updated", acogida_id=updated.id)
+    return updated
 
 
 def close_acogida(
@@ -453,7 +458,11 @@ def close_acogida(
     None when no row matches the id.
     """
     rows = client.execute_sql(_CLOSE_ACOGIDA_SQL, [acogida_id])
-    return _row_to_acogida(rows[0]) if rows else None
+    if not rows:
+        return None
+    closed = _row_to_acogida(rows[0])
+    log_safe("foster.acogida.closed", acogida_id=closed.id)
+    return closed
 
 
 def delete_acogida(
@@ -471,7 +480,10 @@ def delete_acogida(
     calls produce exactly one ``True`` and one ``False``.
     """
     rows = client.execute_sql(_DELETE_ACOGIDA_SQL, [acogida_id])
-    return bool(rows)
+    deleted = bool(rows)
+    if deleted:
+        log_safe("foster.acogida.deleted", acogida_id=acogida_id)
+    return deleted
 
 
 # --- pure helpers (no DB) ------------------------------------------------
