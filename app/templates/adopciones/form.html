@@ -1,0 +1,127 @@
+{% extends base_template %}
+{% block title %}{{ "Editar" if form_data.nombre_adoptante else "Nueva" }} adopción - APAP{% endblock %}
+{% block content %}
+  <div class="mb-6">
+    <h1 class="text-3xl font-bold text-primary-dark tracking-tight">
+      {{ "Editar adopción" if form_data.nombre_adoptante else "Nueva adopción" }}
+    </h1>
+    <p class="text-text-muted text-sm mt-1">
+      Los campos marcados con <span class="text-rose-700">*</span> son obligatorios.
+    </p>
+  </div>
+
+  {% if error %}
+  <div class="bg-rose-50 border border-rose-200 text-rose-800 px-4 py-3 rounded-card mb-6">
+    <p class="font-semibold">No se pudo guardar la adopción</p>
+    <p class="text-sm mt-1">{{ error }}</p>
+  </div>
+  {% endif %}
+
+  <form method="post" action="{{ form_action }}" class="bg-surface rounded-card shadow-card p-6 space-y-6">
+    {# PR-5B2: CSRF defense-in-depth (REQ-AH-7). #}
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+
+    <fieldset class="space-y-4">
+      <legend class="text-sm font-semibold text-text-muted">Datos del adoptante</legend>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-medium text-text">Nombre del adoptante <span class="text-rose-700">*</span></label>
+          <input type="text" name="nombre_adoptante" value="{{ form_data.nombre_adoptante or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                 required>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-text">DNI del adoptante</label>
+          <input type="text" name="dni_adoptante" value="{{ form_data.dni_adoptante or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-text">Teléfono</label>
+          <input type="text" name="telefono_adoptante" value="{{ form_data.telefono_adoptante or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-text">Email</label>
+          <input type="email" name="email_adoptante" value="{{ form_data.email_adoptante or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset class="space-y-4">
+      <legend class="text-sm font-semibold text-text-muted">Datos de la adopción</legend>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-medium text-text">ID del animal <span class="text-rose-700">*</span></label>
+          <input type="text" name="animal_id" value="{{ form_data.animal_id or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text font-mono focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                 placeholder="UUID del animal"
+                 required>
+          <p class="mt-1 text-xs text-text-muted">Debe corresponder a un animal activo en la protectora.</p>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-text">Tipo de adopción</label>
+          <select name="tipo_adopcion"
+                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+            <option value="regular" {% if form_data.tipo_adopcion == "regular" or not form_data.tipo_adopcion %}selected{% endif %}>Regular</option>
+            <option value="preadopcion" {% if form_data.tipo_adopcion == "preadopcion" %}selected{% endif %}>Pre-adopción</option>
+            <option value="judicial" {% if form_data.tipo_adopcion == "judicial" %}selected{% endif %}>Judicial</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-text">Fecha de adopción <span class="text-rose-700">*</span></label>
+          <input type="date" name="fecha_adopcion" value="{{ form_data.fecha_adopcion or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                 required>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-text">Fecha de devolución</label>
+          <input type="date" name="fecha_devolucion" value="{{ form_data.fecha_devolucion or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+          <p class="mt-1 text-xs text-text-muted">Déjala en blanco si la adopción sigue vigente.</p>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-text">Donativo pre-adopción (€)</label>
+          <input type="number" name="donativo_preadopcion" step="0.01" min="0" value="{{ form_data.donativo_preadopcion or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-text">Donativo adopción (€)</label>
+          <input type="number" name="donativo_adopcion" step="0.01" min="0" value="{{ form_data.donativo_adopcion or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset class="space-y-4">
+      <legend class="text-sm font-semibold text-text-muted">Seguimiento y origen</legend>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-medium text-text">Voluntario de seguimiento</label>
+          <input type="text" name="voluntario_seguimiento_id" value="{{ form_data.voluntario_seguimiento_id or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text font-mono focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                 placeholder="UUID del voluntario (opcional)">
+          <p class="mt-1 text-xs text-text-muted">Debe corresponder a un voluntario activo. Opcional.</p>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-text">ID de entrada de origen</label>
+          <input type="text" name="entrada_origen_id" value="{{ form_data.entrada_origen_id or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text font-mono focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                 placeholder="UUID de la entrada (opcional)">
+        </div>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-text">Observaciones</label>
+        <textarea name="observaciones" rows="3"
+                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">{{ form_data.observaciones or '' }}</textarea>
+      </div>
+    </fieldset>
+
+    <div class="flex justify-end gap-3 pt-4 border-t border-border">
+      <a href="/adopciones" class="px-4 py-2 text-text-muted hover:text-text">Cancelar</a>
+      <button type="submit" class="bg-primary text-white px-6 py-2 rounded font-semibold hover:bg-primary-dark transition-colors shadow-sm">
+        Guardar
+      </button>
+    </div>
+  </form>
+{% endblock %}

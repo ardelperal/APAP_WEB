@@ -73,6 +73,7 @@ from app.core.session import (
     write_session,
 )
 from app.modules.acogidas.routes import router as acogidas_router
+from app.modules.adopciones.routes import router as adopciones_router
 from app.modules.animals.routes import router as animals_router
 from app.modules.cesiones.routes import router as cesiones_router
 from app.modules.entradas.batch_routes import router as entradas_batch_router
@@ -636,6 +637,14 @@ def create_app() -> FastAPI:
     application.include_router(acogidas_router)
     application.include_router(cesiones_router)
     application.include_router(voluntarios_router)
+    # ADOPT-01 (#47) — CRUD de adopciones; mounted last so its
+    # ``/{adopcion_id}`` dynamic path does not shadow the more specific
+    # ``/{adopcion_id}/edit`` / ``/{adopcion_id}/update`` /
+    # ``/{adopcion_id}/delete`` siblings (FastAPI matches in declaration
+    # order, and those are declared AFTER ``/{adopcion_id}`` in routes.py
+    # anyway, but the ordering here matches the FOSTER-02 / FOSTER-03
+    # convention: stable insertion point at the end of the chain).
+    application.include_router(adopciones_router)
 
     return application
 

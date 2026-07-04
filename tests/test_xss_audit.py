@@ -727,6 +727,120 @@ TEMPLATE_SPECS: list[tuple[str, list[str], dict[str, Any]]] = [
             "error": None,
         },
     ),
+    # --- ADOPT-01 (#47) — adopciones CRUD (3 templates) ---
+    (
+        "adopciones/list.html",
+        [
+            "adopciones[0].nombre_adoptante",
+            "adopciones[0].dni_adoptante",
+            "adopciones[0].fecha_adopcion",
+            "adopciones[0].tipo_adopcion",
+            "adopciones[0].activo",
+            "adopciones[0].fecha_devolucion",
+            "adoptante",
+        ],
+        {
+            "user": _BASE_USER,
+            "adopciones": [
+                {
+                    "id": "11111111-1111-1111-1111-111111111111",
+                    "animal_id": "animal-1",
+                    "voluntario_seguimiento_id": "vol-1",
+                    "fecha_adopcion": "2026-07-04",
+                    "fecha_devolucion": None,
+                    "donativo_preadopcion": None,
+                    "donativo_adopcion": None,
+                    "nombre_adoptante": "María García López",
+                    "dni_adoptante": "12345678A",
+                    "telefono_adoptante": "600123456",
+                    "email_adoptante": "maria@example.com",
+                    "entrada_origen_id": None,
+                    "observaciones": "Adopción responsable",
+                    "tipo_adopcion": "regular",
+                    "activo": True,
+                }
+            ],
+            "adoptante": "",
+        },
+    ),
+    (
+        "adopciones/form.html",
+        [
+            "form_data.nombre_adoptante",
+            "form_data.dni_adoptante",
+            "form_data.telefono_adoptante",
+            "form_data.email_adoptante",
+            "form_data.animal_id",
+            "form_data.voluntario_seguimiento_id",
+            "form_data.entrada_origen_id",
+            "form_data.fecha_adopcion",
+            "form_data.fecha_devolucion",
+            "form_data.donativo_preadopcion",
+            "form_data.donativo_adopcion",
+            "form_data.observaciones",
+            "form_data.tipo_adopcion",
+            "error",
+            "form_action",
+        ],
+        {
+            "user": _BASE_USER,
+            "form_data": {
+                "animal_id": "",
+                "voluntario_seguimiento_id": "",
+                "fecha_adopcion": "",
+                "fecha_devolucion": "",
+                "donativo_preadopcion": "",
+                "donativo_adopcion": "",
+                "nombre_adoptante": "",
+                "dni_adoptante": "",
+                "telefono_adoptante": "",
+                "email_adoptante": "",
+                "entrada_origen_id": "",
+                "observaciones": "",
+                "tipo_adopcion": "regular",
+            },
+            "error": None,
+            "form_action": "/adopciones",
+        },
+    ),
+    (
+        "adopciones/detail.html",
+        [
+            "adopcion.animal_id",
+            "adopcion.voluntario_seguimiento_id",
+            "adopcion.entrada_origen_id",
+            "adopcion.fecha_adopcion",
+            "adopcion.fecha_devolucion",
+            "adopcion.nombre_adoptante",
+            "adopcion.dni_adoptante",
+            "adopcion.telefono_adoptante",
+            "adopcion.email_adoptante",
+            "adopcion.donativo_preadopcion",
+            "adopcion.donativo_adopcion",
+            "adopcion.observaciones",
+            "adopcion.tipo_adopcion",
+        ],
+        {
+            "user": _BASE_USER,
+            "adopcion": {
+                "id": "11111111-1111-1111-1111-111111111111",
+                "animal_id": "animal-1",
+                "voluntario_seguimiento_id": "vol-1",
+                "fecha_adopcion": "2026-07-04",
+                "fecha_devolucion": None,
+                "donativo_preadopcion": None,
+                "donativo_adopcion": None,
+                "nombre_adoptante": "María García López",
+                "dni_adoptante": "12345678A",
+                "telefono_adoptante": "600123456",
+                "email_adoptante": "maria@example.com",
+                "entrada_origen_id": None,
+                "observaciones": "Adopción responsable",
+                "tipo_adopcion": "regular",
+                "activo": True,
+            },
+        },
+    ),
 ]
 
 
@@ -950,6 +1064,11 @@ def test_no_user_data_in_url_attributes() -> None:
             # acolhidas route to either ``/acogidas`` (new) or
             # ``/acogidas/{id}/update`` (edit), never user data.
             ("acogidas/form.html", "form_action"),
+            # ``form_action`` in ``adopciones/form.html`` is set by
+            # the adopciones route to either ``/adopciones`` (new) or
+            # ``/adopciones/{id}/update`` (edit), never user data.
+            # ADOPT-01 (#47).
+            ("adopciones/form.html", "form_action"),
             # ``shortcut.href`` comes from ``_DASHBOARD_SHORTCUTS``
             # in ``app/main.py`` - a module-level constant (hardcoded
             # list of internal routes). Never user input.

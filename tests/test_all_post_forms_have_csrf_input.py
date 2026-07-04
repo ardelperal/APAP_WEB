@@ -24,6 +24,7 @@ import pytest
 from app.core.config import get_settings
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
+from app.modules.adopciones import service as adopciones_service
 from app.modules.animals import service as animals_service
 from app.modules.animals.service import Especie as EspecieEnum
 from app.modules.animals.service import Sexo as SexoEnum
@@ -69,6 +70,9 @@ def spy_insforge(monkeypatch: pytest.MonkeyPatch) -> _InsForgeSpy:
     )
     monkeypatch.setattr(
         "app.modules.voluntarios.routes.get_insforge_client_dep", lambda: spy
+    )
+    monkeypatch.setattr(
+        "app.modules.adopciones.routes.get_insforge_client_dep", lambda: spy
     )
 
     # Stub the services so they return plausible objects without
@@ -180,6 +184,26 @@ def spy_insforge(monkeypatch: pytest.MonkeyPatch) -> _InsForgeSpy:
         lambda _c, _id: ["paseador"],
         raising=False,
     )
+    monkeypatch.setattr(
+        adopciones_service, "get_adopcion_by_id",
+        lambda _c, _id: adopciones_service.Adopcion(
+            id="adop-1",
+            animal_id="abc-123",
+            voluntario_seguimiento_id=None,
+            fecha_adopcion="2026-07-04",
+            fecha_devolucion=None,
+            donativo_preadopcion=None,
+            donativo_adopcion=None,
+            nombre_adoptante="María García López",
+            dni_adoptante=None,
+            telefono_adoptante=None,
+            email_adoptante=None,
+            entrada_origen_id=None,
+            observaciones=None,
+            tipo_adopcion="regular",
+        ),
+        raising=False,
+    )
 
     yield spy
     app.dependency_overrides.pop(get_insforge_client, None)
@@ -235,6 +259,10 @@ _FORM_ROUTES: list[tuple[str, str]] = [
     ("/entradas/ent-1", "delete-entrada form (action=/entradas/{id}/delete)"),
     ("/voluntarios/new", "create-voluntario form (action=/voluntarios)"),
     ("/voluntarios/v-1", "deactivate-voluntario form (action=/voluntarios/{id}/deactivate)"),
+    # ADOPT-01 (#47) — adopciones CRUD adds 3 more POST forms.
+    ("/adopciones/new", "create-adopcion form (action=/adopciones)"),
+    ("/adopciones/adop-1/edit", "update-adopcion form (action=/adopciones/{id}/update)"),
+    ("/adopciones/adop-1", "delete-adopcion form (action=/adopciones/{id}/delete)"),
 ]
 
 

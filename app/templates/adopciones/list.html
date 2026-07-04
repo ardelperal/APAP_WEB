@@ -1,0 +1,100 @@
+{% extends base_template %}
+{% block title %}Adopciones - APAP{% endblock %}
+{% block content %}
+  <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
+    <div>
+      <h1 class="text-3xl font-bold text-primary-dark tracking-tight">Adopciones</h1>
+      <p class="text-text-muted text-sm mt-1">
+        Registro de adopciones con datos del adoptante, voluntario de seguimiento y estado de la adopción.
+        {% if adoptante %}
+          Filtrando por adoptante: <span class="font-semibold">{{ adoptante }}</span>.
+        {% endif %}
+      </p>
+    </div>
+    <a href="/adopciones/new" class="bg-primary text-white px-4 py-2 rounded font-semibold hover:bg-primary-dark transition-colors shadow-sm">
+      + Nueva adopción
+    </a>
+  </div>
+
+  <form method="get" action="/adopciones" class="mb-4 flex items-center gap-2">
+    <label for="adoptante" class="text-sm text-text-muted">Buscar por nombre del adoptante:</label>
+    <input type="text" name="adoptante" id="adoptante" value="{{ adoptante }}"
+           placeholder="Ej. María, García, López…"
+           class="border border-border rounded px-2 py-1 bg-surface text-text" />
+    <button type="submit" class="px-3 py-1 rounded border border-border text-text-muted hover:text-primary hover:border-primary transition-colors">
+      Buscar
+    </button>
+    {% if adoptante %}
+      <a href="/adopciones" class="px-3 py-1 text-rose-700 hover:text-rose-900 text-sm">Quitar filtro</a>
+    {% endif %}
+  </form>
+
+  {% if adopciones %}
+  <div class="bg-surface rounded-card shadow-card overflow-hidden">
+    <table class="min-w-full text-left text-sm">
+      <thead class="bg-primary text-white">
+        <tr>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Adoptante</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Fecha de adopción</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Tipo</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Estado</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for adopcion in adopciones %}
+        <tr class="border-b border-border last:border-b-0 hover:bg-primary/5 transition-colors">
+          <td class="px-6 py-4 text-text">
+            <span class="font-semibold">{{ adopcion.nombre_adoptante }}</span>
+            {% if adopcion.dni_adoptante %}
+              <span class="block text-xs text-text-muted font-mono mt-1">{{ adopcion.dni_adoptante }}</span>
+            {% endif %}
+          </td>
+          <td class="px-6 py-4 text-text-muted font-mono">{{ adopcion.fecha_adopcion }}</td>
+          <td class="px-6 py-4 text-text-muted">
+            {% if adopcion.tipo_adopcion == "regular" %}
+              Regular
+            {% elif adopcion.tipo_adopcion == "preadopcion" %}
+              Pre-adopción
+            {% elif adopcion.tipo_adopcion == "judicial" %}
+              Judicial
+            {% else %}
+              {{ adopcion.tipo_adopcion }}
+            {% endif %}
+          </td>
+          <td class="px-6 py-4">
+            {% if adopcion.is_active %}
+              <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700">
+                Vigente
+              </span>
+            {% else %}
+              <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700">
+                Devuelta
+              </span>
+            {% endif %}
+          </td>
+          <td class="px-6 py-4 whitespace-nowrap text-right">
+            <a href="/adopciones/{{ adopcion.id }}" class="text-primary font-semibold hover:underline">Ver</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="bg-gradient-to-br from-primary/10 to-primary/5 border-l-4 border-primary rounded-card shadow-card p-8 text-center">
+    <div class="text-5xl mb-3" aria-hidden="true">🏡</div>
+    <h2 class="text-primary-dark font-semibold text-lg">No hay adopciones registradas</h2>
+    <p class="text-text-muted text-sm mt-1 mb-4">
+      {% if adoptante %}
+        Ninguna adopción coincide con la búsqueda <span class="font-semibold">{{ adoptante }}</span>.
+      {% else %}
+        Registra la primera adopción para empezar a hacer seguimiento de los animales dados en adopción.
+      {% endif %}
+    </p>
+    <a href="/adopciones/new" class="inline-block bg-primary text-white px-4 py-2 rounded font-semibold hover:bg-primary-dark transition-colors">
+      Registrar primera adopción
+    </a>
+  </div>
+  {% endif %}
+{% endblock %}

@@ -1,0 +1,143 @@
+{% extends base_template %}
+{% block title %}{{ adopcion.nombre_adoptante }} - Adopción - APAP{% endblock %}
+{% block content %}
+  <div class="flex items-start justify-between mb-6 flex-wrap gap-3">
+    <div>
+      <h1 class="text-3xl font-bold text-primary-dark tracking-tight">{{ adopcion.nombre_adoptante }}</h1>
+      <p class="text-text-muted text-sm mt-1">
+        Adopción registrada el <span class="font-mono">{{ adopcion.fecha_adopcion }}</span>
+        · Tipo:
+        {% if adopcion.tipo_adopcion == "regular" %}
+          Regular
+        {% elif adopcion.tipo_adopcion == "preadopcion" %}
+          Pre-adopción
+        {% elif adopcion.tipo_adopcion == "judicial" %}
+          Judicial
+        {% else %}
+          {{ adopcion.tipo_adopcion }}
+        {% endif %}
+        {% if adopcion.is_active %}
+          · <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700">Vigente</span>
+        {% else %}
+          · <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700">Devuelta el {{ adopcion.fecha_devolucion }}</span>
+        {% endif %}
+      </p>
+    </div>
+    <div class="flex gap-2">
+      <a href="/adopciones" class="px-4 py-2 text-text-muted hover:text-text">← Volver</a>
+      <a href="/adopciones/{{ adopcion.id }}/edit" class="bg-surface border border-border text-text px-4 py-2 rounded font-semibold hover:bg-border/30 transition-colors shadow-sm">
+        Editar
+      </a>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <div class="bg-surface rounded-card shadow-card p-6 space-y-3">
+      <h2 class="text-lg font-semibold text-text">Datos del adoptante</h2>
+      <dl class="space-y-2 text-sm">
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Nombre</dt>
+          <dd class="text-text font-semibold">{{ adopcion.nombre_adoptante }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-text-muted">DNI</dt>
+          <dd class="text-text font-mono">{{ adopcion.dni_adoptante or "—" }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Teléfono</dt>
+          <dd class="text-text font-mono">{{ adopcion.telefono_adoptante or "—" }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Email</dt>
+          <dd class="text-text font-mono">{{ adopcion.email_adoptante or "—" }}</dd>
+        </div>
+      </dl>
+    </div>
+
+    <div class="bg-surface rounded-card shadow-card p-6 space-y-3">
+      <h2 class="text-lg font-semibold text-text">Datos de la adopción</h2>
+      <dl class="space-y-2 text-sm">
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Animal</dt>
+          <dd class="text-text font-mono text-xs">{{ adopcion.animal_id }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Tipo</dt>
+          <dd class="text-text">
+            {% if adopcion.tipo_adopcion == "regular" %}
+              Regular
+            {% elif adopcion.tipo_adopcion == "preadopcion" %}
+              Pre-adopción
+            {% elif adopcion.tipo_adopcion == "judicial" %}
+              Judicial
+            {% else %}
+              {{ adopcion.tipo_adopcion }}
+            {% endif %}
+          </dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Fecha de adopción</dt>
+          <dd class="text-text font-mono">{{ adopcion.fecha_adopcion }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Fecha de devolución</dt>
+          <dd class="text-text font-mono">{{ adopcion.fecha_devolucion or "—" }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Donativo pre-adopción</dt>
+          <dd class="text-text font-mono">
+            {% if adopcion.donativo_preadopcion is not none and adopcion.donativo_preadopcion is number %}
+              {{ "%.2f €"|format(adopcion.donativo_preadopcion) }}
+            {% elif adopcion.donativo_preadopcion %}
+              {{ adopcion.donativo_preadopcion }}
+            {% else %}
+              —
+            {% endif %}
+          </dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Donativo adopción</dt>
+          <dd class="text-text font-mono">
+            {% if adopcion.donativo_adopcion is not none and adopcion.donativo_adopcion is number %}
+              {{ "%.2f €"|format(adopcion.donativo_adopcion) }}
+            {% elif adopcion.donativo_adopcion %}
+              {{ adopcion.donativo_adopcion }}
+            {% else %}
+              —
+            {% endif %}
+          </dd>
+        </div>
+      </dl>
+    </div>
+
+    <div class="bg-surface rounded-card shadow-card p-6 space-y-3 md:col-span-2">
+      <h2 class="text-lg font-semibold text-text">Seguimiento</h2>
+      <dl class="space-y-2 text-sm">
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Voluntario de seguimiento</dt>
+          <dd class="text-text font-mono text-xs">{{ adopcion.voluntario_seguimiento_id or "—" }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Entrada de origen</dt>
+          <dd class="text-text font-mono text-xs">{{ adopcion.entrada_origen_id or "—" }}</dd>
+        </div>
+      </dl>
+    </div>
+
+    {% if adopcion.observaciones %}
+    <div class="bg-surface rounded-card shadow-card p-6 space-y-3 md:col-span-2">
+      <h2 class="text-lg font-semibold text-text">Observaciones</h2>
+      <p class="text-text whitespace-pre-line">{{ adopcion.observaciones }}</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="mt-8 pt-6 border-t border-border">
+    <form method="post" action="/adopciones/{{ adopcion.id }}/delete" onsubmit="return confirm('¿Dar de baja esta adopción? El registro se conserva en el histórico.');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <button type="submit" class="px-4 py-2 text-rose-700 hover:text-rose-900 font-semibold">
+        Dar de baja esta adopción
+      </button>
+    </form>
+  </div>
+{% endblock %}
