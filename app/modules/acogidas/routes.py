@@ -33,6 +33,7 @@ from fastapi.templating import Jinja2Templates
 from app.core.auth_dependencies import (
     get_insforge_client_dep,
     require_authorized_user,
+    require_writer_user,
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
@@ -172,7 +173,7 @@ def create_acogida_view(
     direccion: str | None = Form(None),
     telefono: str | None = Form(None),
     observaciones: str | None = Form(None),
-    user: Any = Depends(require_authorized_user),
+    user: Any = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Create a new estancia; redirect to detail on success, re-render form on validation error."""
@@ -284,7 +285,7 @@ def update_acogida_view(
     direccion: str | None = Form(None),
     telefono: str | None = Form(None),
     observaciones: str | None = Form(None),
-    user: Any = Depends(require_authorized_user),
+    user: Any = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Apply form edits; redirect to detail on success, re-render on validation error."""
@@ -331,7 +332,7 @@ def update_acogida_view(
 def close_acogida_view(
     acogida_id: str,
     request: Request,
-    user: Any = Depends(require_authorized_user),
+    user: Any = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Close the stay: ``fecha_final = current_date``, ``activo`` stays true.
@@ -356,7 +357,7 @@ def close_acogida_view(
 def delete_acogida_view(
     acogida_id: str,
     request: Request,
-    user: Any = Depends(require_authorized_user),
+    user: Any = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Soft-delete the stay: ``activo = false`` + ``fecha_baja = now()``.

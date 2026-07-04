@@ -32,13 +32,18 @@ class _NoSqlRouteClient(InsForgeClient):
         import httpx as _httpx
 
         self._client = _httpx.Client(base_url="https://spy.example")
+        # Issue #144: rol returned by the per-request authorization
+        # revalidation SELECT. Defaults to ``key_user``; the reader
+        # rejection test sets this to ``reader`` so ``require_writer_user``
+        # produces 403 BEFORE any handler SQL.
+        self.auth_reval_rol: str = "key_user"
 
     def execute_sql(self, query: str, params: Any = None):  # type: ignore[override]
         # Issue #143: require_authorized_user revalidates authorization per
         # request via the get_user_by_email service; that SELECT flows
         # through this client and is allowed. Any OTHER direct SQL from a
         # route handler still violates the "cero SQL en routes" contract.
-        _reval = auth_reval_rows(query, params)
+        _reval = auth_reval_rows(query, params, rol=self.auth_reval_rol)
         if _reval is not None:
             return _reval
         raise AssertionError(f"routes must not execute SQL directly: {query!r}")
@@ -83,6 +88,27 @@ def _login_as_key_user(client: httpx.AsyncClient) -> None:
             "user_id": "u-ana",
             "is_authorized": True,
             # PR-5B2: session-bound CSRF token.
+            "csrf_token": "test-csrf-token-cesiones",
+        },
+        secret=get_settings().session_secret,
+    )
+    client.cookies.set(session_cookie_name(), token)
+
+
+def _login_as_reader(client: httpx.AsyncClient) -> None:
+    """Install a reader session; writer dep MUST reject with 403 (issue #144).
+
+    The route client must have ``auth_reval_rol = "reader"`` BEFORE this
+    helper runs so the per-request revalidation SELECT returns the same
+    rol the cookie carries (otherwise require_authorized_user's cache
+    could surface a stale rol from a previous test).
+    """
+    token = write_session(
+        {
+            "email": "rocio@example.com",
+            "rol": "reader",
+            "user_id": "u-rocio",
+            "is_authorized": True,
             "csrf_token": "test-csrf-token-cesiones",
         },
         secret=get_settings().session_secret,
@@ -363,3 +389,38 @@ def test_cesiones_route_source_contains_no_direct_execute_sql() -> None:
         "this file is missing"
     )
     assert ".execute_sql(" not in route_source.read_text(encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Issue #144: a ``reader`` rol MUST be rejected by the cesiones write route
+# with 403 BEFORE the handler runs. The route has only one POST surface
+# (``/cesiones``) so a single test pins the contract; the no-SQL spy
+# doubles as the assertion that nothing in the handler short-circuits
+# past the writer dep.
+# ---------------------------------------------------------------------------
+
+
+async def test_create_cesion_rejects_reader_with_403(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+) -> None:
+    """Reader cannot POST a new cesion (issue #144).
+
+    The no-SQL spy (``_NoSqlRouteClient``) raises AssertionError on
+    every non-revalidation query — a silent pass through the writer
+    dep would crash the test loud and clear via the spy, in addition
+    to the explicit 403 check.
+    """
+    route_client.auth_reval_rol = "reader"
+    _login_as_reader(client)
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/cesiones",
+        form_data=_form_data(),
+    )
+
+    assert response.status_code == 403, (
+        f"reader POST /cesiones MUST be 403; got {response.status_code}"
+    )

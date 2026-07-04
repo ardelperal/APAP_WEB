@@ -27,6 +27,7 @@ from starlette.responses import Response
 from app.core.auth_dependencies import (
     get_insforge_client_dep,
     require_authorized_user,
+    require_writer_user,
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
@@ -113,7 +114,7 @@ def create_voluntario_view(
     Tel2: str | None = Form(None),
     Email: str | None = Form(None),
     DNI: str | None = Form(None),
-    user: Response | dict = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Procesa el submit del formulario. En exito, redirect al detalle."""
@@ -183,7 +184,7 @@ def voluntario_detail(
 def deactivate_voluntario_view(
     voluntario_id: str,
     request: Request,
-    user: Response | dict = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Soft-delete via un solo ``UPDATE ... WHERE id = $1 AND activo = true``.

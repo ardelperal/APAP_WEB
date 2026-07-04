@@ -44,6 +44,11 @@ class _VoluntariosRouteSpy(InsForgeClient):
         self._client = _httpx.Client(base_url="https://spy.example")
         self.captured_queries: list[str] = []
         self.captured_params: list[Any] = []
+        # Issue #144: rol returned by the per-request authorization
+        # revalidation SELECT. Defaults to ``key_user``; the reader
+        # rejection tests set this to ``reader`` so the writer dep can
+        # produce a 403 BEFORE the handler runs.
+        self.auth_reval_rol: str = "key_user"
         # Default: primer deactivate tiene exito (devuelve una fila).
         # Los tests mutan esta lista para simular el caso "ya estaba
         # inactiva" (lista vacia) o "no existe" (lista vacia).
@@ -62,7 +67,7 @@ class _VoluntariosRouteSpy(InsForgeClient):
         # Issue #143: the per-request authorization revalidation SELECT
         # (via get_user_by_email) is answered here and NOT recorded in
         # captured_queries/params, so the domain-SQL assertions stay unchanged.
-        _reval = auth_reval_rows(query, params)
+        _reval = auth_reval_rows(query, params, rol=self.auth_reval_rol)
         if _reval is not None:
             return _reval
         self.captured_queries.append(query)
@@ -272,4 +277,90 @@ async def test_deactivate_routes_handler_no_tiene_select_previo_para_existencia(
     assert select_queries == [], (
         "el deactivate handler no debe emitir SELECT previo; "
         f"queries capturadas: {voluntarios_spy.captured_queries!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Issue #144: a ``reader`` rol MUST be rejected by write routes with 403.
+# ``voluntarios`` was the module the user explicitly named in the bug
+# description; before #144 a reader could POST a new voluntario or
+# deactivate an existing one with the same effective permissions as a
+# key_user. After #144 the writer dep short-circuits with 403 BEFORE
+# the handler runs, so no SQL is emitted.
+# ---------------------------------------------------------------------------
+
+
+def _login_as_reader(client: httpx.AsyncClient) -> None:
+    """Install a reader session cookie; reader MUST be 403 on writes.
+
+    The spy must have ``auth_reval_rol = "reader"`` BEFORE calling this
+    helper so the per-request auth revalidation SELECT returns the same
+    rol the cookie carries.
+    """
+    from app.core.config import get_settings
+
+    token = write_session(
+        {
+            "email": "rocio@example.com",
+            "rol": "reader",
+            "user_id": "u-rocio",
+            "is_authorized": True,
+            "csrf_token": "test-csrf-token-voluntarios",
+        },
+        secret=get_settings().session_secret,
+    )
+    client.cookies.set(session_cookie_name(), token)
+
+
+async def test_create_voluntario_rejects_reader_with_403(
+    client: httpx.AsyncClient,
+    voluntarios_spy: _VoluntariosRouteSpy,
+) -> None:
+    """Reader cannot POST a new voluntario (issue #144)."""
+    voluntarios_spy.auth_reval_rol = "reader"
+    _login_as_reader(client)
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/voluntarios",
+        form_data={"Voluntario": "Rocio"},
+    )
+
+    assert response.status_code == 403, (
+        f"reader POST /voluntarios MUST be 403; got {response.status_code}"
+    )
+    # No INSERT must reach the DB.
+    assert not any(
+        "INSERT INTO voluntarios" in q for q in voluntarios_spy.captured_queries
+    ), (
+        "reader POST must not emit any voluntario INSERT; "
+        f"queries: {voluntarios_spy.captured_queries!r}"
+    )
+
+
+async def test_deactivate_voluntario_rejects_reader_with_403(
+    client: httpx.AsyncClient,
+    voluntarios_spy: _VoluntariosRouteSpy,
+) -> None:
+    """Reader cannot deactivate an existing voluntario (issue #144)."""
+    voluntarios_spy.auth_reval_rol = "reader"
+    _login_as_reader(client)
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/voluntarios/v-1/deactivate",
+    )
+
+    assert response.status_code == 403, (
+        f"reader POST /voluntarios/{'{'}id{'}'}/deactivate MUST be 403; "
+        f"got {response.status_code}"
+    )
+    # No UPDATE must reach the DB.
+    assert not any(
+        "UPDATE voluntarios" in q for q in voluntarios_spy.captured_queries
+    ), (
+        "reader POST must not emit any voluntario UPDATE; "
+        f"queries: {voluntarios_spy.captured_queries!r}"
     )

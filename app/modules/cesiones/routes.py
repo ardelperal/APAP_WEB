@@ -42,6 +42,7 @@ from starlette.responses import Response
 from app.core.auth_dependencies import (
     get_insforge_client_dep,
     require_authorized_user,
+    require_writer_user,
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
@@ -172,7 +173,7 @@ async def create_cesion_view(
     numero_colegiado: str | None = Form(None),
     numero_colaborador: str | None = Form(None),
     hora_cesion: str | None = Form(None),
-    user: Response | dict = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Process the cesión form. On success, redirect to the parent
