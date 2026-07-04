@@ -352,6 +352,112 @@ The end-to-end playbook for taking a GitHub issue from "open" to "merged and clo
 
 Enforcement: PR-level. If a merged PR retroactively violates P1 (drops or breaks a legacy capability without an explicit `decisiones-proyecto.md` entry), open a follow-up `bug` issue immediately. PR review should verify the closeout comment cites both a commit SHA and a test path before approval.
 
+### 17. Orchestrator discipline — coordinate, delegate, and review before merge
+
+The agent that owns this file in the "orchestrator" role is **not** a writer of code or operational docs. Its job is to (1) talk to the user, (2) gather context, (3) delegate every non-trivial write to a subagent, and (4) run the review lenses before any slice lands on `main`. Subagents do the actual work; the orchestrator owns the contract that the work meets the project's quality bar. This rule exists because every time the orchestrator wrote inline, it duplicated logic a subagent should own, skipped a review lens, or silently edited an operational doc that should have gone through the feature-branch + PR flow in §15.5.
+
+#### 17.1 The orchestrator coordinates, subagents write
+
+The orchestrator MUST NOT do any of the following inline:
+
+- Write code under `app/`, `tests/`, or `scripts/` (routes, services, schemas, helpers, tests, fixtures).
+- Author SQL or migration scripts under `app/core/migration/`.
+- Edit templates under `templates/` or static assets under `static/`.
+- Edit operational docs that govern agent or operator behavior: `AGENTS.md`, `docs/proceso.md`, `docs/roadmap.md`, `docs/audits/*`, `docs/runbooks/*`, `docs/uat/*`.
+- Author GitHub issues or PR descriptions for work the orchestrator did NOT execute (a subagent did).
+
+The orchestrator's allowed inline actions are limited to: short clarifying questions, short code snippets to illustrate intent in a delegation prompt, and small corrections that do not justify spawning a subagent (a typo fix in a doc string, a one-line config tweak already covered by an existing rule). When in doubt: spawn a subagent.
+
+WRONG — orchestrator writes a helper inline
+
+```python
+# orchestrator scratch session, "just a quick patch"
+def _row_to_voluntario(row):
+    return Voluntario(id=row["id"], nombre=row["nombre"])
+```
+
+RIGHT — orchestrator delegates
+
+```
+task(subagent="sdd-apply", branch="feat/issue-130-voluntario-row-helper",
+     instructions="…implement _row_to_voluntario per TDD, follow §1, §11…")
+```
+
+Every delegation prompt to a subagent MUST include:
+
+1. The relevant AGENTS.md rule numbers the subagent must follow (e.g. §1, §11, §14).
+2. An explicit instruction to use `codegraph-vba` (MCP `codegraph_explore` + CLI `codegraph`) FIRST before any `Read`/`Grep`/`Glob`, per §14.
+3. A concrete "Definition of Done": what files must exist, what tests must pass, what evidence the subagent must return (commit SHA, branch name, PR URL when applicable).
+4. The applicable review lenses from §17.2 — the subagent must self-review with `code-review-expert` before reporting "done"; `judgment-day` runs only when the orchestrator launches it.
+
+#### 17.2 Review lenses — anchored to the skill registry
+
+Before any subagent-driven slice lands on `main`, the orchestrator launches the applicable review lens(es) from the skill registry. The skill registry at `.atl/skill-registry.md` is the **ground truth** for which lenses exist. Do NOT invent lens names that are not in the registry. If a future lens is needed, install it via the registry first, then update this section in a follow-up PR.
+
+**Mandatory every slice:** `code-review-expert` — a single senior lens that covers SOLID, security, and maintainability. The orchestrator launches this lens on the diff the subagent produced (the branch vs `main`) and reads the findings before approving the merge.
+
+**Mandatory when the diff is high-stakes:** `judgment-day` — adversarial dual review with `jd-judge-a` and `jd-judge-b`. The orchestrator launches this lens IN ADDITION to `code-review-expert` when the diff touches any of the following:
+
+- Authentication, authorization, permission checks, role/role-flag logic.
+- Secrets handling, cookie flags, CSRF, session lifecycle, PKCE/OAuth, JWT.
+- PII handling, data exposure, audit-log emission, log redaction.
+- Security gates (gatekeepers, capacity advisories, override mechanisms, bypass flags, manual admin switches).
+- Migration scripts, raw SQL writes, fixtures that touch real-shaped data.
+
+A non-exhaustive map of files that automatically trigger `judgment-day` (when modified, not merely read): `app/core/auth*`, `app/core/csrf*`, `app/core/session*`, `app/core/logging*`, `app/core/migration/`, `app/core/insforge.py` when used for writes, any `scripts/seed*` or `scripts/backfill*`, `scripts/check_rules.py`, `scripts/pytest_plugin/coverage_gate.py`. The orchestrator MUST run `judgment-day` if the diff hits any of these paths even if the change looks cosmetic.
+
+WRONG — orchestrator merges a CSRF fix without `judgment-day`
+
+```
+# subagent: "added X-CSRFToken header check, all tests green"
+# orchestrator: "looks small, merging"
+```
+
+RIGHT — orchestrator launches both lenses
+
+```
+review-code-expert --diff main...feat/issue-122-csrf-header-check
+judgment-day --diff main...feat/issue-122-csrf-header-check \
+  --triggers app/core/csrf.py
+```
+
+The orchestrator reads both reports, decides which findings are blocking vs informational, and returns a verdict to the user with the commit SHA + PR URL + summarized findings. Findings marked BLOCKER must be addressed before the merge; CRITICAL findings must be addressed or explicitly waived by the user; WARNING and SUGGESTION are tracked but do not block.
+
+#### 17.3 Changes to AGENTS.md and other operational docs go through the feature-branch + PR flow
+
+Operational docs are part of the project's contract — they govern how every agent (orchestrator, subagent, future session) behaves. Editing them inline is the same kind of bypass as writing a route handler in `main` without a PR. The orchestrator MUST treat any change to `AGENTS.md`, `docs/proceso.md`, `docs/roadmap.md`, `docs/audits/*`, `docs/runbooks/*`, `docs/uat/*` exactly like a code change under §15.5.
+
+Concretely, the orchestrator delegates the change to a subagent (typically via `task` with `sdd-apply` or the applicable skill), and the subagent follows this flow:
+
+1. **Branch from `main`.** Branch name follows §15.2: `docs/<scope>` (e.g. `docs/agents-rule-17-orchestrator-discipline`).
+2. **Edit on the branch.** Single, focused commit. Conventional commit in English (e.g. `docs(agents): add rule 17 orchestrator discipline`).
+3. **Verify locally before push.** Run `git diff main...HEAD -- <file>` and read the full diff. Run a focused `grep` for typos, broken cross-references, and any internal mention that references an item the change was supposed to add or remove.
+4. **Push + open PR.** PR title in English, conventional-commit style. PR body: free-form summary of the change + a link or reference to the conversation that requested it. Use `Refs`/`Closes` only when an issue exists.
+5. **CI must be green.** For a docs-only PR this is mostly `ruff` and any lightweight check; the gate is "green", not "trivial".
+6. **Return, do not merge.** The orchestrator (and the subagent that drove the work) returns the commit SHA on the branch + the PR URL + a summarized diff to the user. **The orchestrator does NOT merge.** The user reviews and merges, per §15.5.
+
+WRONG — orchestrator edits AGENTS.md inline in the chat
+
+```
+edit(AGENTS.md)   # orchestrator session, "just adding rule 17"
+```
+
+RIGHT — orchestrator delegates to a subagent
+
+```
+task(subagent="sdd-apply",
+     branch="docs/agents-rule-17-orchestrator-discipline",
+     instructions="…add §17 to AGENTS.md per user spec. Anchored to
+                   code-review-expert (mandatory each slice) and
+                   judgment-day (mandatory for high-stakes). §17.3
+                   explicitly forbids orchestrator inline edits.
+                   Follow §15.5 flow. Do NOT merge.")
+```
+
+The orchestrator MAY write the proposed §17 text in the delegation prompt itself (as a reference snippet), but the file write, commit, push, and PR open MUST happen on the subagent's side. The orchestrator does not own those operations.
+
+Enforcement: a violation of §17.1 (orchestrator writes inline) is a discipline failure and the work MUST be reverted and re-done via a subagent on a branch. A violation of §17.2 (skipping a mandatory lens on a high-stakes diff) is a merge blocker — the merge cannot proceed without the lens sign-off. A violation of §17.3 (orchestrator edits `AGENTS.md` or another operational doc inline) is the same as a §15.5 violation: the change must be reverted and re-landed through the proper flow, and the orchestrator must acknowledge the slip before continuing.
+
 ---
 
 > **History:** the resolved "Known conflicts with existing code" tracker (all
