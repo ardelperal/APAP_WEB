@@ -80,6 +80,7 @@ from app.modules.entradas.batch_routes import router as entradas_batch_router
 from app.modules.entradas.routes import router as entradas_router
 from app.modules.foster.assignment_routes import router as foster_assignment_router
 from app.modules.foster.routes import router as foster_router
+from app.modules.sanidad.routes import router as sanidad_router
 from app.modules.voluntarios.routes import router as voluntarios_router
 
 _STATIC_DIR = Path(__file__).parent / "static"
@@ -645,6 +646,10 @@ def create_app() -> FastAPI:
     # anyway, but the ordering here matches the FOSTER-02 / FOSTER-03
     # convention: stable insertion point at the end of the chain).
     application.include_router(adopciones_router)
+    # HEALTH-01 (#50) — CRUD de actuaciones sanitarias (D-24 fecha
+    # validation). Mounted after adopciones for stable insertion order
+    # alongside the other domain routers.
+    application.include_router(sanidad_router)
 
     return application
 

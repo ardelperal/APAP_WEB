@@ -1,0 +1,75 @@
+{% extends base_template %}
+{% block title %}Actuaciones sanitarias - APAP{% endblock %}
+{% block content %}
+  <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
+    <div>
+      <h1 class="text-3xl font-bold text-primary-dark tracking-tight">Actuaciones sanitarias</h1>
+      <p class="text-text-muted text-sm mt-1">
+        Historial clínico por animal: vacunas, desparasitaciones, analíticas, esterilizaciones.
+        {% if animal_id %}
+          Filtrando por animal: <span class="font-mono">{{ animal_id }}</span>.
+        {% endif %}
+      </p>
+    </div>
+    <a href="/sanidad/new" class="bg-primary text-white px-4 py-2 rounded font-semibold hover:bg-primary-dark transition-colors shadow-sm">
+      + Nueva actuación
+    </a>
+  </div>
+
+  <form method="get" action="/sanidad" class="mb-4 flex items-center gap-2 flex-wrap">
+    <label for="animal_id" class="text-sm text-text-muted">Filtrar por animal (UUID):</label>
+    <input type="text" name="animal_id" id="animal_id" value="{{ animal_id }}"
+           placeholder="UUID del animal"
+           class="border border-border rounded px-2 py-1 bg-surface text-text font-mono" />
+    <button type="submit" class="px-3 py-1 rounded border border-border text-text-muted hover:text-primary hover:border-primary transition-colors">
+      Filtrar
+    </button>
+    {% if animal_id %}
+      <a href="/sanidad" class="px-3 py-1 text-rose-700 hover:text-rose-900 text-sm">Quitar filtro</a>
+    {% endif %}
+  </form>
+
+  {% if actuaciones %}
+  <div class="bg-surface rounded-card shadow-card overflow-hidden">
+    <table class="min-w-full text-left text-sm">
+      <thead class="bg-primary text-white">
+        <tr>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Animal</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Fecha</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Veterinario</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Material</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for actuacion in actuaciones %}
+        <tr class="border-b border-border last:border-b-0 hover:bg-primary/5 transition-colors">
+          <td class="px-6 py-4 text-text-muted font-mono text-xs">{{ actuacion.animal_id }}</td>
+          <td class="px-6 py-4 text-text font-mono">{{ actuacion.fecha }}</td>
+          <td class="px-6 py-4 text-text-muted">{{ actuacion.veterinario or "—" }}</td>
+          <td class="px-6 py-4 text-text-muted">{{ actuacion.material_utilizado or "—" }}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-right">
+            <a href="/sanidad/{{ actuacion.id }}" class="text-primary font-semibold hover:underline">Ver</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="bg-gradient-to-br from-primary/10 to-primary/5 border-l-4 border-primary rounded-card shadow-card p-8 text-center">
+    <div class="text-5xl mb-3" aria-hidden="true">💉</div>
+    <h2 class="text-primary-dark font-semibold text-lg">No hay actuaciones registradas</h2>
+    <p class="text-text-muted text-sm mt-1 mb-4">
+      {% if animal_id %}
+        Ninguna actuación sanitaria coincide con este animal.
+      {% else %}
+        Registra la primera actuación para empezar el historial clínico.
+      {% endif %}
+    </p>
+    <a href="/sanidad/new" class="inline-block bg-primary text-white px-4 py-2 rounded font-semibold hover:bg-primary-dark transition-colors">
+      Registrar primera actuación
+    </a>
+  </div>
+  {% endif %}
+{% endblock %}

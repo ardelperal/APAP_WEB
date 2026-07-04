@@ -84,6 +84,28 @@ Detalle completo en `AGENTS.md` §14 y `docs/proceso.md` §1.
 
 **Origen:** establecido 2026-07-03.
 
+### D-24. Regla de validación de fechas en actuaciones sanitarias
+
+La `fecha` de una `actuacion_sanitaria` debe cumplir simultáneamente:
+
+1. **Formato ISO `YYYY-MM-DD`** parseable como `date`.
+2. **`fecha <= CURRENT_DATE`** del servidor (no se permiten fechas futuras).
+3. **Si el animal referenciado tiene `fecha_alta IS NOT NULL`, `fecha >= animales.fecha_alta`** (no se permiten fechas anteriores al alta del animal en el sistema).
+
+Si el animal tiene `fecha_alta IS NULL` (animales legacy importados sin metadato), la cota inferior de la regla 3 se omite — solo se aplican las reglas 1 y 2.
+
+**Implementación en dos capas** (`app/modules/sanidad/service.py`):
+
+- **Validación pura (sin DB)** en `_validate_fecha_d24(fecha)` corre ANTES del INSERT/UPDATE: parsea la fecha, rechaza futuro y malformado con mensaje castellano (reglas 1+2).
+- **Validación atómica con CTE** en `_INSERT_ACTUACION_SANITARIA_SQL` y `_UPDATE_ACTUACION_SANITARIA_SQL`: el `checked_animal` filtra `WHERE id = $1 AND activo = true AND (fecha_alta IS NULL OR fecha_alta::date <= $3::date)`. PostgreSQL evalúa el check FK + fecha_alta bajo el mismo snapshot, cerrando la ventana TOCTOU entre el SELECT y el write (regla 3).
+- **Disambiguation** en `_raise_validation_error` re-ejecuta la query con `SELECT id, activo, fecha_alta FROM animales WHERE id = $1` cuando la CTE devuelve 0 filas, para emitir el mensaje específico ("fecha es anterior al alta del animal (YYYY-MM-DD)" vs "animal inactivo" vs "voluntario inactivo" vs "tipo de prueba inexistente").
+
+**Por qué no más restrictivo** (p. ej. no anterior a `animales.FNacimiento`): el refugio a veces registra vacunas administradas antes del alta del animal (p. ej., camadas con cachorros ya vacunados por el particular). El `fecha_alta` es el límite inferior porque refleja cuándo APAP tiene constancia del animal, no cuándo nació.
+
+**Origen:** issue #50 (HEALTH-01, Fase 6a). Regla referenciada en `docs/roadmap.md` §3 desde la planificación inicial pero sin definición operativa hasta este slice. Implementación verificada por 5 átomos TDD específicos en `tests/test_sanidad.py` (reglas 1+2 puras + regla 3 atómica + exención NULL).
+
+---
+
 ---
 
 ## §4. Proceso y entrega

@@ -841,6 +841,102 @@ TEMPLATE_SPECS: list[tuple[str, list[str], dict[str, Any]]] = [
             },
         },
     ),
+    # --- HEALTH-01 (#50) — sanidad CRUD (3 templates) ---
+    (
+        "sanidad/list.html",
+        [
+            "actuaciones[0].animal_id",
+            "actuaciones[0].fecha",
+            "actuaciones[0].veterinario",
+            "actuaciones[0].material_utilizado",
+            "actuaciones[0].id",
+            "animal_id",
+        ],
+        {
+            "user": _BASE_USER,
+            "actuaciones": [
+                {
+                    "id": "11111111-1111-1111-1111-111111111111",
+                    "animal_id": "animal-1",
+                    "fecha": "2026-07-04",
+                    "veterinario": "Dra. Pérez",
+                    "material_utilizado": "Nobivac Rabia",
+                }
+            ],
+            "animal_id": "",
+        },
+    ),
+    (
+        "sanidad/form.html",
+        [
+            "form_data.animal_id",
+            "form_data.voluntario_id",
+            "form_data.fecha",
+            "form_data.tipo_actuacion_id",
+            "form_data.veterinario",
+            "form_data.observaciones",
+            "form_data.material_utilizado",
+            "catalogos_pruebas[0].id",
+            "catalogos_pruebas[0].nombre",
+            "catalogos_pruebas[0].especie",
+            "error",
+            "form_action",
+        ],
+        {
+            "user": _BASE_USER,
+            "form_data": {
+                "animal_id": "",
+                "voluntario_id": "",
+                "fecha": "",
+                "tipo_actuacion_id": "",
+                "veterinario": "",
+                "observaciones": "",
+                "material_utilizado": "",
+            },
+            "catalogos_pruebas": [
+                {
+                    "id": "11111111-1111-1111-1111-111111111111",
+                    "nombre": "Rabia",
+                    "especie": "ambos",
+                }
+            ],
+            "error": None,
+            "form_action": "/sanidad",
+        },
+    ),
+    (
+        "sanidad/detail.html",
+        [
+            "actuacion.animal_id",
+            "actuacion.fecha",
+            "actuacion.veterinario",
+            "actuacion.material_utilizado",
+            "actuacion.voluntario_id",
+            "actuacion.observaciones",
+            "actuacion.activo",
+            "actuacion.id",
+            "tipo_actuacion.nombre",
+            "tipo_actuacion.especie",
+        ],
+        {
+            "user": _BASE_USER,
+            "actuacion": {
+                "id": "11111111-1111-1111-1111-111111111111",
+                "animal_id": "animal-1",
+                "fecha": "2026-07-04",
+                "veterinario": "Dra. Pérez",
+                "observaciones": "Vacuna anual",
+                "voluntario_id": None,
+                "material_utilizado": "Nobivac Rabia",
+                "activo": True,
+            },
+            "tipo_actuacion": {
+                "id": "22222222-2222-2222-2222-222222222222",
+                "nombre": "Rabia",
+                "especie": "ambos",
+            },
+        },
+    ),
 ]
 
 
@@ -1069,6 +1165,11 @@ def test_no_user_data_in_url_attributes() -> None:
             # ``/adopciones/{id}/update`` (edit), never user data.
             # ADOPT-01 (#47).
             ("adopciones/form.html", "form_action"),
+            # ``form_action`` in ``sanidad/form.html`` is set by the
+            # sanidad route to either ``/sanidad`` (new) or
+            # ``/sanidad/{id}/update`` (edit), never user data.
+            # HEALTH-01 (#50).
+            ("sanidad/form.html", "form_action"),
             # ``shortcut.href`` comes from ``_DASHBOARD_SHORTCUTS``
             # in ``app/main.py`` - a module-level constant (hardcoded
             # list of internal routes). Never user input.
