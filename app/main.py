@@ -72,6 +72,7 @@ from app.core.session import (
 )
 from app.modules.animals.routes import router as animals_router
 from app.modules.cesiones.routes import router as cesiones_router
+from app.modules.entradas.batch_routes import router as entradas_batch_router
 from app.modules.entradas.routes import router as entradas_router
 from app.modules.voluntarios.routes import router as voluntarios_router
 
@@ -600,6 +601,7 @@ def create_app() -> FastAPI:
 
     application.include_router(animals_router)
     application.include_router(entradas_router)
+    application.include_router(entradas_batch_router)
     application.include_router(cesiones_router)
     application.include_router(voluntarios_router)
 

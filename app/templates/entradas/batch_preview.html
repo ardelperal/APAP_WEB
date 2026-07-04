@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Previsualización del lote - APAP{% endblock %}
+{% block content %}
+  <div class="mb-6">
+    <h1 class="text-3xl font-bold text-primary-dark tracking-tight">Previsualización del lote</h1>
+    <p class="text-text-muted text-sm mt-1">
+      Lote <span class="font-mono">{{ batch.batch_id }}</span> con {{ batch.records|length }} entradas.
+      Revisa el estado de cada fila antes de confirmar.
+    </p>
+  </div>
+
+  {% if error %}
+  <div class="bg-rose-50 border border-rose-200 text-rose-800 px-4 py-3 rounded-card mb-6">
+    <p class="font-semibold">No se pudo confirmar el lote</p>
+    <p class="text-sm mt-1">{{ error }}</p>
+  </div>
+  {% endif %}
+
+  <div class="bg-surface rounded-card shadow-card overflow-hidden mb-6">
+    <table class="min-w-full text-left text-sm">
+      <thead class="bg-primary text-white">
+        <tr>
+          <th class="px-4 py-3 font-semibold uppercase text-xs tracking-wide">#</th>
+          <th class="px-4 py-3 font-semibold uppercase text-xs tracking-wide">Animal</th>
+          <th class="px-4 py-3 font-semibold uppercase text-xs tracking-wide">Fecha</th>
+          <th class="px-4 py-3 font-semibold uppercase text-xs tracking-wide">Origen</th>
+          <th class="px-4 py-3 font-semibold uppercase text-xs tracking-wide">Motivo</th>
+          <th class="px-4 py-3 font-semibold uppercase text-xs tracking-wide">Estado</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for record in batch.records %}
+        <tr class="border-b border-border last:border-b-0">
+          <td class="px-4 py-3 font-mono text-text-muted">{{ record.sequence }}</td>
+          <td class="px-4 py-3 font-mono text-text">{{ record.params.animal_id or "—" }}</td>
+          <td class="px-4 py-3 text-text">{{ record.params.fecha_entrada or "—" }}</td>
+          <td class="px-4 py-3 text-text-muted">{{ record.params.origen or "—" }}</td>
+          <td class="px-4 py-3 text-text-muted">{{ record.params.motivo or "—" }}</td>
+          <td class="px-4 py-3">
+            {% if record.status == "valid" %}
+              <span class="inline-block px-2 py-1 rounded bg-emerald-100 text-emerald-800 text-xs font-semibold">Válida</span>
+            {% else %}
+              <span class="inline-block px-2 py-1 rounded bg-rose-100 text-rose-800 text-xs font-semibold"
+                    title="{{ record.error or '' }}">
+                Inválida: {{ record.error or "—" }}
+              </span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="flex justify-between items-center gap-3">
+    <form method="post" action="/entradas/batch/{{ batch.batch_id }}/cancel">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <button type="submit" class="px-4 py-2 text-rose-700 hover:text-rose-900 font-semibold">
+        Cancelar lote
+      </button>
+    </form>
+
+    <form method="post" action="/entradas/batch/{{ batch.batch_id }}/commit">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <button type="submit"
+              class="bg-primary text-white px-6 py-2 rounded font-semibold hover:bg-primary-dark transition-colors shadow-sm">
+        Confirmar lote
+      </button>
+    </form>
+  </div>
+{% endblock %}

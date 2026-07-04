@@ -323,6 +323,34 @@ CREATE TABLE IF NOT EXISTS cesiones_propietario (
 )
 """
 
+# --- entradas_batch_staging: INTAKE-02 (Entradas Múltiples, legacy
+# ``TbEntradasMultiplesAuxIniciales``) ------------------------------------
+#
+# Staging table for batch intake entries (issue #40). Persists each
+# record between the staging request and the commit, mirroring the
+# legacy "aux inicial" pre-commit pattern so the operator can preview
+# and cancel without committing. ``sequence`` preserves the operator's
+# input order; ``batch_id`` groups rows from one staging request.
+# Atomic commit copies the rows to ``entradas`` via a single CTE
+# statement (see ``app/modules/entradas/batch_service.py::commit_batch``);
+# the copy and the staging cleanup happen in the same statement so a
+# failure during the copy leaves staging intact for diagnosis.
+
+ENTRADAS_BATCH_STAGING_CREATE_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS entradas_batch_staging (
+    batch_id UUID NOT NULL,
+    sequence INTEGER NOT NULL,
+    animal_id UUID NOT NULL,
+    voluntario_entrada_id UUID,
+    fecha_entrada DATE NOT NULL,
+    origen TEXT,
+    motivo TEXT,
+    observaciones TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    PRIMARY KEY (batch_id, sequence)
+)
+"""
+
 # --- contratos (modelo polimórfico Fase 7) --------------------------------
 #
 # Contract metadata for every workflow that generates one (entrada,
@@ -391,6 +419,7 @@ def ensure_domain_schema(client: InsForgeClient) -> None:
     client.execute_sql(VOLUNTARIOS_CREATE_TABLE_SQL)
     client.execute_sql(ROLES_VOLUNTARIO_CREATE_TABLE_SQL)
     client.execute_sql(ENTRADAS_CREATE_TABLE_SQL)
+    client.execute_sql(ENTRADAS_BATCH_STAGING_CREATE_TABLE_SQL)
     client.execute_sql(ACOGIDAS_CREATE_TABLE_SQL)
     client.execute_sql(ADOPCIONES_CREATE_TABLE_SQL)
     client.execute_sql(ANIMAL_LIFECYCLE_EVENTS_CREATE_TABLE_SQL)

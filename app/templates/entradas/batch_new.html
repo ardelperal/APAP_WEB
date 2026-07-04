@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Entradas en lote - APAP{% endblock %}
+{% block content %}
+  <div class="mb-6">
+    <h1 class="text-3xl font-bold text-primary-dark tracking-tight">Entradas en lote</h1>
+    <p class="text-text-muted text-sm mt-1">
+      Registra varias entradas en una sola sesión. Cada fila es una entrada; pulsa
+      "Previsualizar" para validar antes de confirmar el lote.
+    </p>
+  </div>
+
+  {% if error %}
+  <div class="bg-rose-50 border border-rose-200 text-rose-800 px-4 py-3 rounded-card mb-6">
+    <p class="font-semibold">No se pudo previsualizar el lote</p>
+    <p class="text-sm mt-1">{{ error }}</p>
+  </div>
+  {% endif %}
+
+  <form method="post" action="/entradas/batch" class="bg-surface rounded-card shadow-card p-6 space-y-6">
+    {# PR-5B2: CSRF defense-in-depth (REQ-AH-7). #}
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+
+    <div class="space-y-4">
+      {% for row in rows %}
+      <fieldset class="border border-border rounded-card p-4 space-y-3">
+        <legend class="text-sm font-semibold text-text-muted px-2">Entrada {{ loop.index }}</legend>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-medium text-text-muted">Animal (UUID) <span class="text-rose-700">*</span></label>
+            <input type="text" name="animal_id"
+                   value="{{ row.animal_id or '' }}"
+                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                   required>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-text-muted">Fecha de entrada <span class="text-rose-700">*</span></label>
+            <input type="date" name="fecha_entrada"
+                   value="{{ row.fecha_entrada or '' }}"
+                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                   required>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-text-muted">Voluntario de entrada</label>
+            <input type="text" name="voluntario_entrada_id"
+                   value="{{ row.voluntario_entrada_id or '' }}"
+                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-text-muted">Origen</label>
+            <input type="text" name="origen"
+                   value="{{ row.origen or '' }}"
+                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-text-muted">Motivo</label>
+            <input type="text" name="motivo"
+                   value="{{ row.motivo or '' }}"
+                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+          </div>
+          <div class="md:col-span-2">
+            <label class="block text-xs font-medium text-text-muted">Observaciones</label>
+            <textarea name="observaciones" rows="2"
+                      class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">{{ row.observaciones or '' }}</textarea>
+          </div>
+        </div>
+      </fieldset>
+      {% endfor %}
+    </div>
+
+    <p class="text-xs text-text-muted">
+      Deja una fila vacía para descartarla. Las filas con campos obligatorios
+      vacíos se mostrarán como error en la previsualización.
+    </p>
+
+    <div class="flex justify-end gap-3 pt-4 border-t border-border">
+      <a href="/entradas" class="px-4 py-2 text-text-muted hover:text-text">Cancelar</a>
+      <button type="submit" class="bg-primary text-white px-6 py-2 rounded font-semibold hover:bg-primary-dark transition-colors shadow-sm">
+        Previsualizar lote
+      </button>
+    </div>
+  </form>
+{% endblock %}
