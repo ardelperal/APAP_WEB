@@ -103,6 +103,11 @@ _SELECT_COLUMNS: tuple[str, ...] = (
 )
 
 
+_UPDATE_RETURNING_COLUMNS: tuple[str, ...] = tuple(
+    f"target_actuacion.{column}" for column in _SELECT_COLUMNS
+)
+
+
 # --- FK validation queries (defense in depth over the DB FK constraints) ---
 # These run inside the CTE (see _INSERT_ACTUACION_SANITARIA_SQL /
 # _UPDATE_ACTUACION_SANITARIA_SQL below) so PostgreSQL evaluates them
@@ -214,15 +219,15 @@ checked_tipo AS (
     SELECT id FROM catalogos_pruebas WHERE id = $5
 ),
 updated AS (
-    UPDATE actuacion_sanitaria SET
+    UPDATE actuacion_sanitaria AS target_actuacion SET
 {", ".join(f"{col} = ${i + 2}" for i, col in enumerate(_WRITE_COLUMNS))},
 updated_at = now()
     FROM checked_animal
-    WHERE actuacion_sanitaria.id = $1
+    WHERE target_actuacion.id = $1
       AND (checked_animal.fecha_alta IS NULL OR checked_animal.fecha_alta::date <= $4::date)
       AND ($3::text IS NULL OR EXISTS (SELECT 1 FROM checked_voluntario))
       AND ($5::text IS NULL OR EXISTS (SELECT 1 FROM checked_tipo))
-    RETURNING {", ".join(_SELECT_COLUMNS)}
+    RETURNING {", ".join(_UPDATE_RETURNING_COLUMNS)}
 )
 SELECT {", ".join(_SELECT_COLUMNS)} FROM updated
 """

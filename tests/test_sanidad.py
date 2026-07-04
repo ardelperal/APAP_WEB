@@ -17,6 +17,7 @@ targeted disambiguation SELECTs which the handler also answers.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable
 from datetime import date, timedelta
 from typing import Any
@@ -192,6 +193,19 @@ def test_update_actuacion_happy_path() -> None:
     assert "material_utilizado = $8" in query
     assert "FROM checked_animal" in query
     assert "checked_animal.fecha_alta" in query
+
+
+def test_update_sql_qualifies_returning_columns_to_avoid_ambiguous_id() -> None:
+    """UPDATE has a FROM source with id, so RETURNING must qualify target columns."""
+    query = sanidad_service._UPDATE_ACTUACION_SANITARIA_SQL
+    returning = re.search(r"RETURNING (?P<columns>.+?)\n\)", query, re.DOTALL)
+
+    assert returning is not None
+    returning_columns = returning.group("columns")
+    assert "FROM checked_animal" in query
+    assert "SELECT id, fecha_alta FROM animales" in query
+    assert "target_actuacion.id" in returning_columns
+    assert re.search(r"(?<!\.)\bid\b", returning_columns) is None
 
 
 # --- 2. Required-field validation ----------------------------------------
