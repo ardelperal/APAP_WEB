@@ -20,7 +20,7 @@ import pytest
 from app.core.insforge import InsForgeClient
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
-from tests.conftest import make_csrf_request
+from tests.conftest import auth_reval_rows, make_csrf_request
 
 
 class _VoluntariosRouteSpy(InsForgeClient):
@@ -59,6 +59,12 @@ class _VoluntariosRouteSpy(InsForgeClient):
         self.rotating_rows: list[list[dict[str, Any]]] | None = None
 
     def execute_sql(self, query: str, params: Any = None):  # type: ignore[override]
+        # Issue #143: the per-request authorization revalidation SELECT
+        # (via get_user_by_email) is answered here and NOT recorded in
+        # captured_queries/params, so the domain-SQL assertions stay unchanged.
+        _reval = auth_reval_rows(query, params)
+        if _reval is not None:
+            return _reval
         self.captured_queries.append(query)
         self.captured_params.append(params)
         # Solo nos interesa la sentencia del deactivate (la unica

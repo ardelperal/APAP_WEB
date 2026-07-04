@@ -32,7 +32,7 @@ import pytest
 from app.core.insforge import InsForgeClient
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
-from tests.conftest import make_csrf_request
+from tests.conftest import auth_reval_rows, make_csrf_request
 
 # Four XSS payloads from spec REQ-XSS-2 — chosen so each spans a
 # different attack vector (script tag / event handler / SVG / URL).
@@ -137,6 +137,9 @@ class _XssInsForge(InsForgeClient):
         ]
 
     def execute_sql(self, query, params=None):  # type: ignore[override]
+        _reval = auth_reval_rows(query if isinstance(query, str) else "", params)
+        if _reval is not None:
+            return _reval
         sql = query if isinstance(query, str) else ""
         s = sql.lower()
         # Word-boundary detection: ``updated_at`` must NOT count as

@@ -1,9 +1,20 @@
 """Signed cookie session helpers.
 
 APAP_WEB uses signed cookies (via ``itsdangerous``) for the session
-instead of a server-side store. The cookie carries just the user
-identity; per-request authorization is enforced by the auth
-middleware by looking up the email in the ``authorized_users`` table.
+instead of a server-side store. The cookie signs the user's IDENTITY
+(email, user_id) and is stable for the 7-day cookie lifetime.
+
+AUTHORIZATION is NOT trusted from the cookie: ``is_authorized`` and
+``rol`` are re-validated against the ``usuarios_autorizados`` table on
+every request in ``app.core.auth_dependencies.require_authorized_user``,
+with a short in-process TTL cache (``Settings.auth_cache_ttl_seconds``,
+default 300s) to bound query load (issue #143). This lets a developer
+revoke access — e.g. via ``/admin/users/{id}/deactivate`` — and have it
+take effect within the TTL (default 5 minutes), instead of waiting for
+the cookie to expire (up to 7 days). The signed cookie remains the
+first, DB-free gate in the auth middleware (``payload.get("is_authorized",
+False)``, default-deny); the DB revalidation is an additional hardening
+layer, not a replacement for it.
 
 We use :class:`itsdangerous.URLSafeTimedSerializer` rather than the
 lower-level :class:`TimestampSigner` because the URL-safe serializer

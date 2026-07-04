@@ -10,6 +10,32 @@ import pytest
 
 from app.core.config import get_settings
 from app.core.session import session_cookie_name, write_session
+from app.main import app, get_insforge_client
+from tests.conftest import auth_reval_rows
+
+
+class _RevalOnlySpy:
+    """Answers only the issue #143 per-request authorization SELECT.
+
+    ``GET /`` (index) depends on ``require_authorized_user``, which now
+    revalidates authorization against the DB. These page tests do not stub
+    InsForge, so without this the authorized-user cases would open a real
+    client and fail with a connection error. Any non-auth SQL returns [].
+    """
+
+    def execute_sql(self, query, params=None):  # type: ignore[no-untyped-def]
+        rows = auth_reval_rows(query if isinstance(query, str) else "", params)
+        return rows if rows is not None else []
+
+    def close(self) -> None:
+        return None
+
+
+@pytest.fixture(autouse=True)
+def _stub_insforge_for_reval() -> None:
+    app.dependency_overrides[get_insforge_client] = lambda: _RevalOnlySpy()
+    yield
+    app.dependency_overrides.pop(get_insforge_client, None)
 
 
 def _login_as_authorized_user(client: httpx.AsyncClient) -> None:

@@ -21,6 +21,11 @@ class _AnonymousSpy:
     """InsForge stand-in that lets the request reach the route handler."""
 
     def execute_sql(self, query: str, params: Any = None):  # type: ignore[no-untyped-def]
+        from tests.conftest import auth_reval_rows
+
+        _reval = auth_reval_rows(query, params)
+        if _reval is not None:
+            return _reval
         if "RETURNING" in query or "INSERT" in query:
             return [
                 {

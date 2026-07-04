@@ -154,10 +154,24 @@ def _invoke_require(payload: dict[str, Any] | None) -> RedirectResponse | dict:
     ``RedirectResponse`` (no raise) si lo rechaza. Esta es la regla 7
     del code quality: los redirects no son exceptions — son control
     flow via ``Response``, no errores HTTP.
+
+    Issue #143: la dep ahora recibe un ``InsForgeClient`` y revalida la
+    autorizacion contra la DB. Se le pasa un fake que devuelve al usuario
+    ACTIVO con el mismo ``rol`` del payload, de modo que el veredicto lo
+    decida ``is_authorized`` (el contrato que este archivo fija) y no un
+    cambio de rol o una desactivacion inyectada por el fake.
     """
     # ``request`` no se usa cuando el payload ya viene resuelto; pasamos
     # un MagicMock solo para satisfacer la firma.
-    return require_authorized_user(request=MagicMock(), payload=payload)
+    fake = _FakeInsForge()
+    if payload is not None:
+        fake.get_user_by_email_response = {
+            "id": "u-db",
+            "email": payload.get("email", "u@example.com"),
+            "rol": payload.get("rol", "key_user"),
+            "activo": True,
+        }
+    return require_authorized_user(request=MagicMock(), payload=payload, client=fake)
 
 
 def test_require_authorized_user_rechaza_sesion_con_is_authorized_false() -> None:

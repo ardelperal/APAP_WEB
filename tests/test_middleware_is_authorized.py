@@ -55,6 +55,11 @@ class _Spy(InsForgeClient):
         self._client = None
 
     def execute_sql(self, query, params=None):  # type: ignore[override]
+        from tests.conftest import auth_reval_rows
+
+        _reval = auth_reval_rows(query if isinstance(query, str) else "", params)
+        if _reval is not None:
+            return _reval
         return []
 
     def close(self) -> None:  # type: ignore[override]

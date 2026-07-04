@@ -36,6 +36,38 @@ from app.core.session import read_session, session_cookie_name
 from app.main import app as _app
 
 
+def auth_reval_rows(
+    query: str, params: object = None, *, rol: str = "key_user"
+) -> list[dict[str, Any]] | None:
+    """Issue #143 seam for route-test InsForge spies.
+
+    ``require_authorized_user`` now SELECTs the caller from
+    ``usuarios_autorizados`` on EVERY request (the cookie signs identity;
+    the DB is the source of truth for authorization). Route spies that
+    returned ``[]`` — or a rowless stub — for unknown SQL would therefore
+    make every authenticated request 302 to ``/unauthorized`` (or raise
+    ``KeyError`` on the missing ``rol``).
+
+    Spies call this as the FIRST line of ``execute_sql`` so they answer the
+    revalidation query with an active-user row, then fall through to their
+    own domain SQL. Returning here (before any ``captured_queries.append``)
+    keeps the revalidation SELECT out of the domain-SQL assertions.
+
+    Returns the row list for the auth query, or ``None`` when ``query`` is
+    not the revalidation SELECT so the spy handles it. ``rol`` matches the
+    test's login helper (default ``key_user``; admin/developer tests pass
+    ``rol="developer"``).
+    """
+    if "usuarios_autorizados" in query and "email = $1" in query:
+        email = (
+            params[0]
+            if isinstance(params, (list, tuple)) and params
+            else "reval@example.com"
+        )
+        return [{"id": "u-reval", "email": email, "rol": rol, "activo": True}]
+    return None
+
+
 @pytest.fixture(autouse=True)
 def _clear_settings_cache() -> None:
     """Reset ``get_settings()`` lru_cache before every test.

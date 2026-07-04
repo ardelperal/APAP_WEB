@@ -33,7 +33,7 @@ from app.modules.animals.forms import (
     ANIMAL_FORM_FIELDS,
     ANIMAL_FORM_REQUIRED_FIELDS,
 )
-from tests.conftest import make_csrf_request
+from tests.conftest import auth_reval_rows, make_csrf_request
 
 
 class _AnimalsRouteSpy(InsForgeClient):
@@ -86,6 +86,12 @@ class _AnimalsRouteSpy(InsForgeClient):
         ]
 
     def execute_sql(self, query: str, params: Any = None):  # type: ignore[override]
+        # Issue #143: the per-request authorization revalidation SELECT
+        # (via get_user_by_email) is answered here and NOT recorded in
+        # captured_queries, so the domain-SQL assertions stay unchanged.
+        _reval = auth_reval_rows(query, params)
+        if _reval is not None:
+            return _reval
         self.captured_queries.append(query)
         if "SET activo = false" in query:
             return list(self.delete_returning_rows)

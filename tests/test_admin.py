@@ -22,8 +22,19 @@ class _FakeInsForge(InsForgeClient):
             "fecha_alta": "2026-06-17T00:00:00Z",
         }
         self.deactivate_user_response: dict | None = None
+        # Issue #143: rol returned by the per-request authorization
+        # revalidation SELECT. Defaults to "developer" (most /admin tests
+        # log in as developer); the non-developer rejection tests set this
+        # to "key_user" so require_authorized_user's role-refresh reflects
+        # the same rol the test's cookie carries.
+        self.auth_rol: str = "developer"
 
     def execute_sql(self, query, params=None):  # type: ignore[override]
+        from tests.conftest import auth_reval_rows
+
+        _reval = auth_reval_rows(query, params, rol=self.auth_rol)
+        if _reval is not None:
+            return _reval
         if "ORDER BY fecha_alta DESC" in query:
             return list(self.list_users_response)
         if "INSERT INTO usuarios_autorizados" in query and "VALUES" in query:
@@ -87,10 +98,11 @@ async def test_admin_redirects_to_login_when_not_authed(
 
 
 async def test_admin_redirects_to_unauthorized_when_rol_not_developer(
-    client: httpx.AsyncClient,
+    client: httpx.AsyncClient, fake_insforge: _FakeInsForge
 ) -> None:
     from app.core.config import get_settings
 
+    fake_insforge.auth_rol = "key_user"  # issue #143: DB revalidation says key_user
     _login_as(
         client,
         get_settings().session_secret,
@@ -201,6 +213,7 @@ async def test_admin_add_user_rejects_non_developer(
 ) -> None:
     from app.core.config import get_settings
 
+    fake_insforge.auth_rol = "key_user"  # issue #143: DB revalidation says key_user
     _login_as(
         client,
         get_settings().session_secret,
@@ -253,10 +266,11 @@ async def test_admin_deactivate_user_updates_and_redirects(
 
 
 async def test_admin_deactivate_user_rejects_non_developer(
-    client: httpx.AsyncClient,
+    client: httpx.AsyncClient, fake_insforge: _FakeInsForge
 ) -> None:
     from app.core.config import get_settings
 
+    fake_insforge.auth_rol = "key_user"  # issue #143: DB revalidation says key_user
     _login_as(
         client,
         get_settings().session_secret,

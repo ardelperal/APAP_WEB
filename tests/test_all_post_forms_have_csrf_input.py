@@ -39,6 +39,11 @@ class _InsForgeSpy:
         # We don't actually need SQL here because the services are
         # monkey-patched in the fixture. This stub exists only to
         # satisfy InsForgeClient's interface.
+        from tests.conftest import auth_reval_rows
+
+        _reval = auth_reval_rows(query, params, rol="developer")
+        if _reval is not None:
+            return _reval
         return [{"id": "stub-1"}]
 
     def __getattr__(self, name: str) -> Any:  # type: ignore[no-untyped-def]

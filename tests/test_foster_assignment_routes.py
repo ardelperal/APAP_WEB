@@ -40,7 +40,7 @@ from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
 from app.modules.foster import assignment as assignment_service
 from app.modules.foster import service as foster_service
-from tests.conftest import make_csrf_request
+from tests.conftest import auth_reval_rows, make_csrf_request
 
 
 class _NoSqlRouteClient(InsForgeClient):
@@ -58,6 +58,13 @@ class _NoSqlRouteClient(InsForgeClient):
         self._client = _httpx.Client(base_url="https://spy.example")
 
     def execute_sql(self, query: str, params: Any = None):  # type: ignore[override]
+        # Issue #143: require_authorized_user revalidates authorization per
+        # request via the get_user_by_email service; that SELECT flows
+        # through this client and is allowed. Any OTHER direct SQL from a
+        # route handler still violates the "cero SQL en routes" contract.
+        _reval = auth_reval_rows(query, params)
+        if _reval is not None:
+            return _reval
         raise AssertionError(f"routes must not execute SQL directly: {query!r}")
 
 

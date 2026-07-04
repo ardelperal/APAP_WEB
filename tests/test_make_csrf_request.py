@@ -9,13 +9,16 @@ import pytest
 
 from app.core.config import get_settings
 from app.core.session import session_cookie_name, write_session
-from tests.conftest import make_csrf_request
+from tests.conftest import auth_reval_rows, make_csrf_request
 
 
 class _PassThroughSpy:
     """InsForge stand-in that returns plausible data so the handler completes."""
 
     def execute_sql(self, query: str, params: Any = None):  # type: ignore[no-untyped-def]
+        _reval = auth_reval_rows(query, params)
+        if _reval is not None:
+            return _reval
         if "RETURNING" in query or "INSERT INTO animales" in query:
             return [
                 {
