@@ -29,6 +29,7 @@ from starlette.responses import Response
 from app.core.auth_dependencies import (
     get_insforge_client_dep,
     require_authorized_user,
+    require_writer_user,
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
@@ -151,7 +152,7 @@ def new_animal_form(
 def create_animal_view(
     request: Request,
     form: AnimalForm = Form(...),  # type: ignore[assignment]
-    user: Response | dict = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Procesa el submit del formulario. En exito, redirect al detalle.
@@ -264,7 +265,7 @@ def update_animal_view(
     animal_id: str,
     request: Request,
     form: AnimalForm = Form(...),  # type: ignore[assignment]
-    user: Response | dict = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Procesa el submit de edicion. Redirect al detalle en exito.
@@ -303,7 +304,7 @@ def update_animal_view(
 def delete_animal_view(
     animal_id: str,
     request: Request,
-    user: Response | dict = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Soft-delete via ``animals_service.delete_animal``. Redirect a la lista.

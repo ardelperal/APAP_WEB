@@ -55,6 +55,12 @@ class _AnimalsRouteSpy(InsForgeClient):
 
         self._client = _httpx.Client(base_url="https://spy.example")
         self.captured_queries: list[str] = []
+        # Issue #144: rol returned by the per-request authorization
+        # revalidation SELECT. Defaults to ``key_user`` (matches the
+        # common test login). Tests that exercise the reader path
+        # mutate this to ``reader`` so ``require_authorized_user`` picks
+        # it up and ``require_writer_user`` can reject the POST.
+        self.auth_reval_rol: str = "key_user"
         # By default, ``get_animal_by_id`` (lookup pre-delete) returns a
         # row. Tests can override this to simulate 404.
         self.get_animal_by_id_rows: list[dict[str, Any]] = [
@@ -89,7 +95,7 @@ class _AnimalsRouteSpy(InsForgeClient):
         # Issue #143: the per-request authorization revalidation SELECT
         # (via get_user_by_email) is answered here and NOT recorded in
         # captured_queries, so the domain-SQL assertions stay unchanged.
-        _reval = auth_reval_rows(query, params)
+        _reval = auth_reval_rows(query, params, rol=self.auth_reval_rol)
         if _reval is not None:
             return _reval
         self.captured_queries.append(query)
@@ -122,6 +128,30 @@ def _login_as_key_user(client: httpx.AsyncClient) -> None:
             "is_authorized": True,
             # PR-5B2: session-bound CSRF token so CsrfMiddleware validates
             # the POSTs from this test client.
+            "csrf_token": "test-csrf-token-animals",
+        },
+        secret=get_settings().session_secret,
+    )
+    client.cookies.set(session_cookie_name(), token)
+
+
+def _login_as_reader(client: httpx.AsyncClient) -> None:
+    """Install a reader session cookie; reader MUST be 403 on writes (issue #144).
+
+    The revalidation SELECT in ``require_authorized_user`` returns the rol
+    the cookie carries. To keep both in sync the spy also needs to answer
+    ``auth_reval_rows`` with ``rol='reader'``; tests that exercise the
+    reader path mutate ``animals_spy.auth_reval_rol`` to ``"reader"``
+    before calling this helper.
+    """
+    from app.core.config import get_settings
+
+    token = write_session(
+        {
+            "email": "rocio@example.com",
+            "rol": "reader",
+            "user_id": "u-rocio",
+            "is_authorized": True,
             "csrf_token": "test-csrf-token-animals",
         },
         secret=get_settings().session_secret,
@@ -388,4 +418,88 @@ def test_animal_form_fields_match_service_insert_columns():
     ), (
         f"AnimalForm required fields drifted from Access + discovery; "
         f"got {ANIMAL_FORM_REQUIRED_FIELDS!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Issue #144: a ``reader`` rol MUST be rejected by write routes with 403.
+# These tests pin the route-level contract for the 3 animales write
+# surfaces (POST create / update / delete) without touching the GET
+# routes. The shared ``animals_spy`` answers the per-request auth
+# revalidation SELECT with ``rol=self.auth_reval_rol`` so a single
+# spy can serve both the key_user happy paths and the reader 403 paths.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "method,path,form_data",
+    [
+        (
+            "POST",
+            "/animales",
+            {
+                "NCHIP": "985112004409871",
+                "NombreAnimal": "Luna",
+                "Especie": "CANINA",
+                "Sexo": "H",
+                "FNacimiento": "2023-04-12",
+                "Terapia": "No",
+                "TraeNChip": "Si",
+                "FIMPLANTACIONCHIP": "2023-04-15",
+                "NombreFoto": "luna.jpg",
+            },
+        ),
+        (
+            "POST",
+            "/animales/abc-123/update",
+            {
+                "NCHIP": "985112004409871",
+                "NombreAnimal": "Luna",
+                "Especie": "CANINA",
+                "Sexo": "H",
+                "FNacimiento": "2023-04-12",
+                "Terapia": "No",
+                "TraeNChip": "Si",
+                "FIMPLANTACIONCHIP": "2023-04-15",
+                "NombreFoto": "luna.jpg",
+            },
+        ),
+        ("POST", "/animales/abc-123/delete", None),
+    ],
+    ids=["create", "update", "delete"],
+)
+async def test_write_route_rejects_reader_with_403(
+    client: httpx.AsyncClient,
+    animals_spy: _AnimalsRouteSpy,
+    method: str,
+    path: str,
+    form_data: dict[str, str] | None,
+) -> None:
+    """Reader rol is forbidden on every animales write route (issue #144).
+
+    Before #144, a reader could POST/PUT/DELETE on animales because no
+    route enforced the rol. The fix layers ``require_writer_user`` over
+    ``require_authorized_user``; the reader is rejected with 403 BEFORE
+    the handler runs, so no SQL is emitted and no template is rendered.
+    """
+    animals_spy.auth_reval_rol = "reader"
+    _login_as_reader(client)
+
+    response = await make_csrf_request(
+        client, method, path, form_data=form_data
+    )
+
+    assert response.status_code == 403, (
+        f"reader rol MUST be rejected on write routes; got {response.status_code} "
+        f"on {method} {path}"
+    )
+    # The 403 short-circuits BEFORE any domain SQL — the spy must NOT
+    # have captured any animal write SQL.
+    write_queries = [
+        q
+        for q in animals_spy.captured_queries
+        if "UPDATE animales" in q or "INSERT INTO animales" in q
+    ]
+    assert not write_queries, (
+        f"reader POST MUST NOT emit animal SQL; got: {write_queries!r}"
     )
