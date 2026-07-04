@@ -133,6 +133,31 @@ def _login_as_reader(client: httpx.AsyncClient) -> None:
     client.cookies.set(session_cookie_name(), token)
 
 
+def _bypass_species_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+    """FOSTER-03 (#45): skip the new species gate in legacy-happy tests.
+
+    FOSTER-03 closes the species gate bypass on POST/PATCH ``/acogidas``
+    by routing every create/update through
+    :func:`foster_assignment_service.evaluate_assignment` when the form
+    carries a ``casa_acogida_id``. Existing tests that exercise the
+    happy/sad paths of ``acogidas_service.create_acogida`` /
+    ``update_acogida`` (the CRUD service itself) DO NOT care about the
+    gate — they just want to confirm the route delegates and translates
+    errors correctly. This helper monkeypatches ``evaluate_assignment``
+    to a benign "admit" verdict so those tests keep passing without
+    rewriting their assertions or fixtures.
+    """
+    from app.modules.foster import assignment as foster_assignment_service
+
+    monkeypatch.setattr(
+        foster_assignment_service,
+        "evaluate_assignment",
+        lambda _c, _animal_id, _casa_id: foster_assignment_service.AssignmentDecision(
+            decision="admit", reason=None, warnings=()
+        ),
+    )
+
+
 def _acogida() -> acogidas_service.Acogida:
     """Canonical Acogida fixture for assertions."""
     return acogidas_service.Acogida(
@@ -294,6 +319,9 @@ async def test_create_acogida_valid_records_redirects_to_detail(
     _login_as_key_user(client)
     estancia = _acogida()
     calls: list[tuple[InsForgeClient, dict[str, Any]]] = []
+    # FOSTER-03 (#45): skip the species gate; this test exercises the
+    # CRUD service path, not the gate itself.
+    _bypass_species_gate(monkeypatch)
 
     def fake_create(
         service_client: InsForgeClient, params: dict[str, Any]
@@ -334,6 +362,9 @@ async def test_create_acogida_sad_validation_rerenders_form_with_422(
     without retyping (mirror of the foster and entradas patterns).
     """
     _login_as_key_user(client)
+    # FOSTER-03 (#45): skip the species gate; this test exercises the
+    # CRUD service's ValueError path, not the gate.
+    _bypass_species_gate(monkeypatch)
 
     def fake_create(
         service_client: InsForgeClient, params: dict[str, Any]
@@ -464,6 +495,9 @@ async def test_update_acogida_valid_records_redirects_to_detail(
     _login_as_key_user(client)
     estancia = _acogida()
     calls: list[tuple[InsForgeClient, str, dict[str, Any]]] = []
+    # FOSTER-03 (#45): skip the species gate; this test exercises the
+    # CRUD service path, not the gate itself.
+    _bypass_species_gate(monkeypatch)
 
     def fake_update(
         service_client: InsForgeClient,
@@ -500,6 +534,9 @@ async def test_update_acogida_returns_404_when_id_missing(
 ) -> None:
     """``update_acogida`` returning ``None`` -> 404."""
     _login_as_key_user(client)
+    # FOSTER-03 (#45): skip the species gate so the test path reaches
+    # the update service with the 404 sentinel intact.
+    _bypass_species_gate(monkeypatch)
     monkeypatch.setattr(
         acogidas_service, "update_acogida", lambda _c, _id, _p: None
     )
@@ -688,4 +725,162 @@ async def test_acogidas_write_routes_reject_reader_with_403(
     assert "Permisos insuficientes" in response.text, (
         f"reader 403 response MUST carry 'Permisos insuficientes'; "
         f"got body: {response.text!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# FOSTER-03 (#45): close the species gate bypass on POST/PATCH ``/acogidas``.
+# Pre-#45, only ``/casas-acogida/{id}/asignar`` consulted the gate; a
+# direct POST to ``/acogidas`` with a felino animal + canina-only casa
+# slipped through. These three atoms pin the new behavior.
+# ---------------------------------------------------------------------------
+
+
+async def test_create_acogida_rejects_species_mismatch_when_casa_acogida_id_provided(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """create with mismatching species → 422 + reason, no service INSERT.
+
+    Patches :func:`foster_assignment_service.evaluate_assignment` to a
+    ``block`` verdict and ``acogidas_service.create_acogida` with a
+    sentinel that records every call. If the gate ever short-circuits,
+    the service INSERT runs and the test fails loud.
+    """
+    from app.modules.foster import assignment as foster_assignment_service
+
+    _login_as_key_user(client)
+    monkeypatch.setattr(
+        foster_assignment_service,
+        "evaluate_assignment",
+        lambda _c, _aid, _cid: foster_assignment_service.AssignmentDecision(
+            decision="block",
+            reason="la casa solo admite CANINA, no FELINA",
+            warnings=(),
+        ),
+    )
+
+    inserted: list[Any] = []
+    monkeypatch.setattr(
+        acogidas_service,
+        "create_acogida",
+        lambda *a, **kw: inserted.append((a, kw))
+        or _acogida(),  # unreachable when gate works
+    )
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/acogidas",
+        form_data=_form_data(),
+        csrf_token="test-csrf-token-acogidas",
+    )
+
+    assert response.status_code == 422
+    assert "CANINA" in response.text
+    assert "FELINA" in response.text
+    assert inserted == [], (
+        "species gate MUST short-circuit BEFORE create_acogida runs; "
+        f"captured: {inserted!r}"
+    )
+
+
+async def test_create_acogida_allows_legacy_no_casa_acogida_id(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """create without casa_acogida_id skips the gate (FOSTER-02 compat).
+
+    Legacy FOSTER-02 estancias without a casa MUST keep working:
+    ``_enforce_species_gate`` returns ``None`` when ``casa_acogida_id``
+    is falsy, so the create flow proceeds straight to the service. The
+    test patches :func:`evaluate_assignment` with a sentinel that would
+    block; if it ever runs, the test fails loud.
+    """
+    from app.modules.foster import assignment as foster_assignment_service
+
+    _login_as_key_user(client)
+    monkeypatch.setattr(
+        foster_assignment_service,
+        "evaluate_assignment",
+        lambda *a, **kw: (_ for _ in ()).throw(
+            AssertionError(
+                "gate MUST NOT run when casa_acogida_id is empty (legacy compat)"
+            )
+        ),
+    )
+
+    estancia = _acogida()
+    calls: list[Any] = []
+
+    def fake_create(_c, _p):
+        calls.append(_p)
+        return estancia
+
+    monkeypatch.setattr(acogidas_service, "create_acogida", fake_create)
+
+    form = _form_data()
+    form["casa_acogida_id"] = ""  # legacy compat path
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/acogidas",
+        form_data=form,
+        csrf_token="test-csrf-token-acogidas",
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/acogidas/acog-123"
+    assert len(calls) == 1
+    assert calls[0]["casa_acogida_id"] is None
+
+
+async def test_update_acogida_rejects_species_mismatch_when_casa_acogida_id_provided(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """update with mismatching species → 422 + reason, no service UPDATE.
+
+    The update path mirrors create: gate runs first, returns 422 on
+    ``block`` verdict, the service ``update_acogida`` sentinel records
+    any call. If the gate short-circuits, the test fails loud.
+    """
+    from app.modules.foster import assignment as foster_assignment_service
+
+    _login_as_key_user(client)
+    monkeypatch.setattr(
+        foster_assignment_service,
+        "evaluate_assignment",
+        lambda _c, _aid, _cid: foster_assignment_service.AssignmentDecision(
+            decision="block",
+            reason="la casa solo admite CANINA, no FELINA",
+            warnings=(),
+        ),
+    )
+
+    updated: list[Any] = []
+    monkeypatch.setattr(
+        acogidas_service,
+        "update_acogida",
+        lambda *a, **kw: updated.append((a, kw))
+        or _acogida(),  # unreachable when gate works
+    )
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/acogidas/acog-123/update",
+        form_data=_form_data(),
+        csrf_token="test-csrf-token-acogidas",
+    )
+
+    assert response.status_code == 422
+    assert "CANINA" in response.text
+    assert "FELINA" in response.text
+    assert updated == [], (
+        "species gate MUST short-circuit BEFORE update_acogida runs; "
+        f"captured: {updated!r}"
     )

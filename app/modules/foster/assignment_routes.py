@@ -39,6 +39,7 @@ from starlette.responses import Response
 from app.core.auth_dependencies import (
     get_insforge_client_dep,
     require_authorized_user,
+    require_developer_user,
     require_writer_user,
     return_early_if_response,
 )
@@ -242,14 +243,23 @@ def asignar_submit(
 def overrides_list(
     casa_id: str,
     request: Request,
-    user: Any = Depends(require_authorized_user),
+    user: Any = Depends(require_developer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Render the historical list of capacity overrides for one casa.
 
     Sorted ``created_at DESC`` (most recent first) — see
-    ``assignment_service.list_overrides_for_casa``. Empty list renders
+    :func:`assignment_service.list_overrides_for_casa`. Empty list renders
     a friendly "sin overrides registrados" message; no error.
+
+    FOSTER-03 (#45) P1 risk-review fix: this endpoint is restricted to
+    ``rol == "developer"`` via :func:`require_developer_user`. The
+    ``motivo`` column of ``foster_capacity_overrides`` is free text from
+    the operator and may carry PII (descriptions of the operator's
+    context). Authorized users with rol ``key_user``/``reader``/etc. see
+    a 403 instead of the historial — they can still trigger overrides
+    via ``/asignar`` (the operator-only flow stays accessible to
+    writers). The audit LISTING is the developer-only piece.
     """
     if (early := return_early_if_response(user)) is not None:
         return early

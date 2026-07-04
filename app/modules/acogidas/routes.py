@@ -39,6 +39,7 @@ from app.core.auth_dependencies import (
 from app.core.csrf import csrf_token_context_processor
 from app.core.insforge import InsForgeClient
 from app.modules.acogidas import service as acogidas_service
+from app.modules.foster import assignment as foster_assignment_service
 
 router = APIRouter(prefix="/acogidas", tags=["foster"])
 
@@ -71,6 +72,46 @@ def _opt(value: str | None) -> str | None:
         return None
     stripped = str(value).strip()
     return stripped or None
+
+
+def _enforce_species_gate(
+    client: InsForgeClient,
+    animal_id: str,
+    casa_acogida_id: str | None,
+) -> str | None:
+    """Run the FOSTER-03 species gate before persisting a stay.
+
+    Returns the gate's rejection reason (a Spanish message ready for the
+    form's ``error`` banner) when the species mismatch would block the
+    assignment; ``None`` when the form is compatible (admit /
+    admit_with_warning) OR when the form doesn't carry a
+    ``casa_acogida_id`` (legacy compat — FOSTER-02 allowed estancias
+    without a casa and that path is preserved).
+
+    FOSTER-03 (#45) close bypass P0: previously the species gate only
+    fired from ``/casas-acogida/{id}/asignar`` (the FOSTER-03 evaluate
+    form). The legacy FOSTER-02 POST /acogidas accepted any
+    ``casa_acogida_id`` without consulting the gate, so an operator
+    could create a felino+canina-only estancia with one curl. This
+    helper closes the bypass from the route layer without touching
+    ``acogidas.service.create_acogida`` (D-GC-05: gate stays as an
+    orthogonal module — service owns no SQL gate, route enforces).
+
+    The helper delegates to
+    :func:`app.modules.foster.assignment.evaluate_assignment`, which
+    raises ``ValueError`` for missing/inactive animal or casa. Those
+    errors are NOT translated here — they propagate so the calling
+    route's ``try/except ValueError`` renders them as 422 (consistent
+    with how the FOSTER-03 evaluate form already handles them).
+    """
+    if not casa_acogida_id:
+        return None  # legacy compat — estancia without casa skips the gate
+    decision = foster_assignment_service.evaluate_assignment(
+        client, animal_id, casa_acogida_id
+    )
+    if decision.decision == "block":
+        return decision.reason
+    return None
 
 
 def _form_data_to_params(form: dict[str, Any]) -> dict[str, Any]:
@@ -195,6 +236,26 @@ def create_acogida_view(
             "observaciones": observaciones,
         }
     )
+    # FOSTER-03 (#45) close bypass P0: the species gate must run before
+    # the INSERT. The helper returns the rejection reason (Spanish
+    # message) when the gate would block the assignment; we render the
+    # same form with 422. Capacity-warning outcomes (admit_with_warning)
+    # pass through — the operator confirmed the override at /asignar
+    # (FOSTER-03 explicit flow), and the stay record itself does not
+    # require a motivo (only the audit log of the override does, and
+    # that was already recorded in /asignar before the redirect).
+    gate_error = _enforce_species_gate(
+        client, animal_id, form_data.get("casa_acogida_id")
+    )
+    if gate_error:
+        return _render_form(
+            request,
+            user,
+            form_data,
+            gate_error,
+            "/acogidas",
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+        )
     try:
         acogida = acogidas_service.create_acogida(client, form_data)
     except ValueError as exc:
@@ -307,6 +368,25 @@ def update_acogida_view(
             "observaciones": observaciones,
         }
     )
+    # FOSTER-03 (#45) close bypass P0: same gate as in create_acogida_view.
+    # We always gate the NEW (incoming) form values. If the operator
+    # moves a stay from casa X to casa Y, gate (animal_id, Y). If they
+    # keep the same casa, the gate evaluates the same combo as create
+    # did when the stay was first opened — cheap one-shot SQL re-check
+    # in exchange for not having to load the existing row to compare
+    # (avoids a SELECT-then-UPDATE TOCTOU pattern).
+    gate_error = _enforce_species_gate(
+        client, animal_id, form_data.get("casa_acogida_id")
+    )
+    if gate_error:
+        return _render_form(
+            request,
+            user,
+            form_data,
+            gate_error,
+            f"/acogidas/{acogida_id}/update",
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+        )
     try:
         acogida = acogidas_service.update_acogida(client, acogida_id, form_data)
     except ValueError as exc:

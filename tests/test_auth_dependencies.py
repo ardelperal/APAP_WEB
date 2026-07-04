@@ -657,3 +657,71 @@ def test_settings_writer_rols_is_derived_from_rol_enum() -> None:
     assert settings.writer_rols == expected
     # The reader rol is the only one NOT in writer_rols (by definition).
     assert Rol.READER.value not in settings.writer_rols
+
+
+# ---------------------------------------------------------------------------
+# FOSTER-03 (#45): ``require_developer_user`` enforces rol == "developer"
+# at the route boundary for the foster overrides audit log endpoints.
+#
+# Composition contract (mirrors :func:`require_writer_user`):
+#   - Builds on :func:`require_authorized_user` so the per-request
+#     revalidation (#143) is reused, NOT re-implemented.
+#   - Allowed rol (``developer``) → returns the payload untouched.
+#   - Any other rol → 403 (different concept from /unauthorized, which
+#     means "sesion invalida"; the dep propagates the upstream redirect
+#     unchanged so the handler never reaches this code path).
+# ---------------------------------------------------------------------------
+
+
+def test_require_developer_user_developer_passes_and_others_get_403() -> None:
+    """FOSTER-03 (#45): the developer dep is a thin allow-list on rol.
+
+    Covers four rols in one go:
+
+    - ``developer`` is the ONLY rol allowed by this dep (regla 4: source
+      of truth is :class:`app.core.auth.Rol.DEVELOPER`).
+    - ``admin``, ``key_user`` and ``reader`` all hit 403. ``key_user`` in
+      particular is allowed by :func:`require_writer_user` (writes stay
+      accessible) but NOT here — the overrides audit log is sensitive.
+    - A missing ``rol`` is also rejected (regla 6: default-deny).
+    """
+    from fastapi import HTTPException
+
+    from app.core.auth_dependencies import require_developer_user  # noqa: PLC0415
+
+    # developer -> payload returned unchanged
+    payload = _authorized_payload(rol="developer")
+    assert require_developer_user(payload) is payload
+
+    # every other rol -> 403
+    for other in ("admin", "key_user", "reader"):
+        with pytest.raises(HTTPException) as exc_info:
+            require_developer_user(_authorized_payload(rol=other))
+        assert exc_info.value.status_code == 403
+        assert "developer" in str(exc_info.value.detail).lower()
+
+    # missing rol -> 403 (regla 6 default-deny)
+    with pytest.raises(HTTPException) as exc_info:
+        require_developer_user(
+            {"email": "u@e.com", "user_id": "u-1", "is_authorized": True}
+        )
+    assert exc_info.value.status_code == 403
+
+
+def test_require_developer_user_propagates_unauthorized_redirect() -> None:
+    """FOSTER-03 (#45): the developer dep must NOT raise when the upstream
+    :func:`require_authorized_user` already returned a redirect.
+
+    The composition mirrors :func:`require_writer_user`: a no-session /
+    deactivated user should keep seeing ``/login`` or ``/unauthorized``,
+    never a 403 (which would conflate "wrong rol" with "invalid session").
+    """
+    from fastapi.responses import RedirectResponse
+
+    from app.core.auth_dependencies import require_developer_user  # noqa: PLC0415
+
+    redirect = RedirectResponse(url="/login", status_code=302)
+    assert require_developer_user(redirect) is redirect
+
+    redirect_unauth = RedirectResponse(url="/unauthorized", status_code=302)
+    assert require_developer_user(redirect_unauth) is redirect_unauth

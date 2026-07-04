@@ -28,6 +28,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from app.core.auth import Rol
 from app.core.auth_dependencies import (
     get_insforge_client_dep,
     require_authorized_user,
@@ -261,16 +262,26 @@ def casa_acogida_detail(
     estancias_activas = foster_assignment_service.count_active_estancias_for_casa(
         client, casa_id
     )
-    overrides = foster_assignment_service.list_overrides_for_casa(client, casa_id)
+    # FOSTER-03 (#45) P1 risk-review fix: the override historial carries
+    # ``motivo`` (free text from the operator, potential PII). Only inject
+    # it into the template context when the current user is a developer.
+    # For non-developers, the template's ``{% if user.rol == "developer" %}``
+    # block is skipped automatically (Python falsy -> Jinja skip), and the
+    # underlying SQL query never runs because we short-circuit before
+    # calling ``list_overrides_for_casa``. The template guard is defense
+    # in depth (the source-of-truth guard is here, in the route).
+    context: dict[str, Any] = {
+        "user": user,
+        "casa": casa,
+        "estancias_activas": estancias_activas,
+    }
+    if isinstance(user, dict) and user.get("rol") == Rol.DEVELOPER.value:
+        overrides = foster_assignment_service.list_overrides_for_casa(client, casa_id)
+        context["overrides"] = overrides[:10]
     return _templates.TemplateResponse(
         request=request,
         name="casas_acogida/detail.html",
-        context={
-            "user": user,
-            "casa": casa,
-            "estancias_activas": estancias_activas,
-            "overrides": overrides[:10],
-        },
+        context=context,
     )
 
 

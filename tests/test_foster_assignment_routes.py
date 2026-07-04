@@ -119,6 +119,27 @@ def _login_as_reader(client: httpx.AsyncClient) -> None:
     client.cookies.set(session_cookie_name(), token)
 
 
+def _login_as_developer(client: httpx.AsyncClient) -> None:
+    """FOSTER-03 (#45): developer session for the overrides-dev-only paths.
+
+    The route client's ``auth_reval_rol`` MUST be flipped to ``"developer"``
+    BEFORE this helper runs so the per-request revalidation SELECT echoes
+    the cookie's rol (otherwise :func:`require_authorized_user`'s cache
+    could surface a stale rol from a previous test).
+    """
+    token = write_session(
+        {
+            "email": "dev@example.com",
+            "rol": "developer",
+            "user_id": "u-dev",
+            "is_authorized": True,
+            "csrf_token": "test-csrf-token-foster-assignment",
+        },
+        secret=get_settings().session_secret,
+    )
+    client.cookies.set(session_cookie_name(), token)
+
+
 def _casa() -> foster_service.CasaAcogida:
     return foster_service.CasaAcogida(
         id="casa-123",
@@ -523,8 +544,16 @@ async def test_get_overrides_renderiza_tabla_con_overrides(
     route_client: _NoSqlRouteClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """GET overrides con 2 overrides -> tabla con 2 filas."""
-    _login_as_key_user(client)
+    """GET overrides con 2 overrides -> tabla con 2 filas.
+
+    FOSTER-03 (#45): overrides_list ahora exige ``rol == "developer"``
+    (la columna ``motivo`` es texto libre del operador y puede llevar
+    PII). El login se hace via :func:`_login_as_developer` y la spy
+    refleja ``auth_reval_rol = "developer"`` antes del login para que
+    el SELECT de revalidacion por request (#143) coincida con la cookie.
+    """
+    route_client.auth_reval_rol = "developer"
+    _login_as_developer(client)
     monkeypatch.setattr(
         foster_service, "get_casa_acogida_by_id", lambda _c, _id: _casa()
     )
@@ -556,7 +585,13 @@ async def test_get_overrides_sin_overrides_muestra_mensaje_vacio(
     route_client: _NoSqlRouteClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _login_as_key_user(client)
+    """FOSTER-03 (#45): developer-only listing.
+
+    Mismo cambio que en test 12: developer-only. Ver la docstring
+    de :func:`_login_as_developer` para el contrato del cookie + rol.
+    """
+    route_client.auth_reval_rol = "developer"
+    _login_as_developer(client)
     monkeypatch.setattr(
         foster_service, "get_casa_acogida_by_id", lambda _c, _id: _casa()
     )
@@ -672,3 +707,77 @@ async def test_asignar_submit_rejects_reader_with_403(
         f"reader 403 response MUST carry 'Permisos insuficientes'; "
         f"got body: {response.text!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# FOSTER-03 (#45): ``GET /casas-acogida/{id}/overrides`` is developer-only.
+# The ``motivo`` column is free text from the operator and may carry PII;
+# the audit log is restricted to ``rol == "developer"`` via
+# :func:`require_developer_user`. Key_user (the typical operator) still
+# triggers overrides via ``/asignar`` — only the audit listing is locked.
+# ---------------------------------------------------------------------------
+
+
+async def test_overrides_list_requires_developer_role(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Key_user (and admin) hitting ``/overrides`` MUST be 403.
+
+    Uses ``_login_as_key_user`` so the cookie + revalidation rol line up.
+    The override SQL lookup is patched to a sentinel that records every
+    call — if the route ever short-circuits past the developer dep, the
+    sentinel leaks into the response body and the test fails loud.
+    """
+    leaked: list[Any] = []
+    monkeypatch.setattr(
+        foster_service, "get_casa_acogida_by_id", lambda _c, _id: _casa()
+    )
+    monkeypatch.setattr(
+        assignment_service,
+        "list_overrides_for_casa",
+        lambda _c, _cid: leaked.append(_cid) or ["SHOULD-NOT-LEAK"],
+    )
+
+    _login_as_key_user(client)
+
+    response = await client.get("/casas-acogida/casa-123/overrides")
+
+    assert response.status_code == 403, (
+        f"key_user GET /overrides MUST be 403; got {response.status_code}"
+    )
+    assert leaked == [], (
+        f"key_user MUST NOT trigger list_overrides_for_casa; calls: {leaked!r}"
+    )
+    assert "SHOULD-NOT-LEAK" not in response.text
+
+
+async def test_overrides_list_allows_developer_role(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Developer hitting ``/overrides`` MUST see the audit log rows.
+
+    Flips ``auth_reval_rol = "developer"`` BEFORE
+    :func:`_login_as_developer` so the per-request revalidation SELECT
+    echoes the cookie's rol. Patches the override lookup with one row
+    carrying a sentinel motivo so the assertion can pin the
+    developer-only render.
+    """
+    route_client.auth_reval_rol = "developer"
+    _login_as_developer(client)
+    monkeypatch.setattr(
+        foster_service, "get_casa_acogida_by_id", lambda _c, _id: _casa()
+    )
+    monkeypatch.setattr(
+        assignment_service,
+        "list_overrides_for_casa",
+        lambda _c, _cid: [_override_row(motivo="dev-only PII marker")],
+    )
+
+    response = await client.get("/casas-acogida/casa-123/overrides")
+
+    assert response.status_code == 200
+    assert "dev-only PII marker" in response.text

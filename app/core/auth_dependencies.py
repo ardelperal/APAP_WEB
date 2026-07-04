@@ -13,6 +13,10 @@ Las firmas publicas son:
 - :func:`require_authorized_user` -- guarda que exige ``is_authorized``.
 - :func:`require_writer_user` -- guarda que ademas exige rol de escritura
   (issue #144); rechaza con 403 a los lectores.
+- :func:`require_developer_user` -- guarda que ademas exige
+  ``rol == "developer"`` (FOSTER-03 #45); rechaza con 403 a cualquier
+  otro rol. Usada por endpoints que exponen PII o historial de auditoria
+  (audit log ``foster_capacity_overrides.motivo``).
 
 El contrato de :func:`require_authorized_user` lo fija
 ``tests/test_auth_session_is_authorized.py`` (regression test del P0
@@ -25,7 +29,10 @@ remediacion operativa para esas cookies pre-fix es rotar
 
 Regla 7 del code quality: los redirects no son exceptions. La guarda
 devuelve un ``RedirectResponse`` en lugar de raise ``HTTPException`` —
-es control de flujo, no un error HTTP.
+es control de flujo, no un error HTTP. Excepcion deliberada:
+:func:`require_developer_user` devuelve 403 (raise HTTPException) cuando
+hay sesion valida pero el rol no es developer — son ROLES DIFERENTES,
+no un estado de sesion invalido.
 """
 
 from __future__ import annotations
@@ -36,6 +43,7 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from starlette.responses import Response
 
+from app.core.auth import Rol
 from app.core.auth_cache import get_cached_auth, set_cached_auth
 from app.core.config import get_settings
 from app.core.insforge import InsForgeClient
@@ -225,3 +233,55 @@ def require_writer_user(
             detail="Permisos insuficientes para escribir.",
         )
     return user
+
+
+def require_developer_user(
+    payload: Response | dict = Depends(require_authorized_user),
+) -> Response | dict:
+    """Dependencia de FastAPI: exige sesion con ``is_authorized=True`` Y ``rol == "developer"``.
+
+    Compone sobre :func:`require_authorized_user` (issue #143): esa dep
+    ya revalida ``is_authorized`` + ``rol`` contra la DB en cada request
+    y devuelve ``RedirectResponse`` a ``/login`` (sesion ausente) o
+    ``/unauthorized`` (sesion inactiva). :func:`require_developer_user`
+    anade una segunda puerta: si el rol del usuario NO es
+    :attr:`Rol.DEVELOPER`, levanta ``HTTPException(403)``.
+
+    FOSTER-03 (#45) P1 risk-review fix: el audit log
+    ``foster_capacity_overrides`` lleva campos con potencial PII
+    (``motivo`` libre del operador). Solo developers deben ver el
+    historial via ``GET /casas-acogida/{id}/overrides`` y la seccion
+    "Historico de overrides" en ``detail.html``. Los operadores siguen
+    pudiendo disparar overrides via ``POST /asignar`` (el flujo
+    FOSTER-03 explicito) — solo el audit listing esta bloqueado.
+
+    Regla 6 (default-deny): si el payload no trae ``rol`` (caso
+    anomalo, no esperado por el flujo de :func:`require_authorized_user`
+    pero contemplado para futuras cookies), ``None != Rol.DEVELOPER.value``
+    y la dep rechaza con 403.
+
+    Regla 7 (redirects no son exceptions): si :func:`require_authorized_user`
+    devolvio un ``RedirectResponse`` (sesion ausente o inactiva),
+    :func:`return_early_if_response` lo propaga sin tocar logica de
+    autorizacion. El handler que use esta dep debe llamar
+    ``return_early_if_response(user)`` igual que con
+    :func:`require_authorized_user`.
+
+    Regla 4 del code quality: el valor ``"developer"`` viene de
+    :class:`app.core.auth.Rol.DEVELOPER` (unica fuente de verdad).
+
+    403 vs redirect a ``/unauthorized``: elegimos 403 (HTTP estandar
+    para "Forbidden" — la sesion es valida pero el rol no alcanza)
+    en lugar de un redirect, porque ``/unauthorized`` significa "sesion
+    no autorizada" (otro contexto: cookie pre-fix o usuario desactivado).
+    Mezclar ambos mensajes confundiria a operadores y a Sentry.
+    """
+    if (early := return_early_if_response(payload)) is not None:
+        return early
+    user_rol = payload.get("rol") if isinstance(payload, dict) else None
+    if user_rol != Rol.DEVELOPER.value:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="requiere rol developer",
+        )
+    return payload

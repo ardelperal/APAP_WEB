@@ -137,6 +137,28 @@ def _login_as_reader(client: httpx.AsyncClient) -> None:
     client.cookies.set(session_cookie_name(), token)
 
 
+def _login_as_developer(client: httpx.AsyncClient) -> None:
+    """FOSTER-03 (#45): developer session for the overrides-dev-only paths.
+
+    Same pattern as :func:`_login_as_key_user` but with ``rol="developer"``.
+    The route client's ``auth_reval_rol`` MUST be flipped to ``"developer"``
+    BEFORE this helper runs so the per-request revalidation SELECT echoes
+    the cookie's rol (otherwise :func:`require_authorized_user`'s cache
+    could surface a stale rol from a previous test).
+    """
+    token = write_session(
+        {
+            "email": "dev@example.com",
+            "rol": "developer",
+            "user_id": "u-dev",
+            "is_authorized": True,
+            "csrf_token": "test-csrf-token-foster",
+        },
+        secret=get_settings().session_secret,
+    )
+    client.cookies.set(session_cookie_name(), token)
+
+
 def _casa() -> foster_service.CasaAcogida:
     """Canonical CasaAcogida fixture for assertions."""
     return foster_service.CasaAcogida(
@@ -732,4 +754,111 @@ async def test_foster_write_routes_reject_reader_with_403(
         f"reader 403 response MUST carry 'Permisos insuficientes'; "
         f"got body: {response.text!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# FOSTER-03 (#45): the detail view must NOT inject ``overrides`` into the
+# template context unless the user is a developer. The ``motivo`` column
+# is free text from the operator (potential PII). Defense in depth: the
+# template's ``{% if user.rol == "developer" %}`` block ALSO guards the
+# section, so even a forgotten context injection would not leak. These
+# two tests pin the context-level guard; the template guard has its own
+# review/inspection pipeline.
+# ---------------------------------------------------------------------------
+
+
+async def test_casa_acogida_detail_hides_overrides_for_non_developer(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Non-developer detail render must NOT include the override section.
+
+    The test patches :func:`assignment_service.list_overrides_for_casa`
+    with a sentinel that records every call. If the route ever calls it
+    for a non-developer, the call count goes up AND the sentinel string
+    leaks into the response body — both fail loud.
+    """
+    from app.modules.foster import assignment as assignment_service
+
+    _login_as_key_user(client)
+    casa = _casa()
+    monkeypatch.setattr(
+        foster_service, "get_casa_acogida_by_id", lambda _c, _id: casa
+    )
+    monkeypatch.setattr(
+        assignment_service,
+        "count_active_estancias_for_casa",
+        lambda _c, _id: 0,
+    )
+
+    leaked: list[Any] = []
+    monkeypatch.setattr(
+        assignment_service,
+        "list_overrides_for_casa",
+        lambda _c, _id: leaked.append(_id) or ["SHOULD-NOT-LEAK"],
+    )
+
+    response = await client.get("/casas-acogida/casa-123")
+
+    assert response.status_code == 200
+    assert leaked == [], (
+        "non-developer must NOT trigger list_overrides_for_casa; "
+        f"calls captured: {leaked!r}"
+    )
+    # Defense in depth: the sentinel MUST NOT appear in the body.
+    assert "SHOULD-NOT-LEAK" not in response.text
+    # The "Histórico de overrides" header is gated by
+    # {% if user.rol == "developer" %} in detail.html — for a key_user
+    # it should not render at all.
+    assert "Histórico de overrides" not in response.text
+
+
+async def test_casa_acogida_detail_shows_overrides_for_developer(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Developer detail render MUST include the override section + rows.
+
+    Flips ``auth_reval_rol = "developer"`` BEFORE :func:`_login_as_developer`
+    so the per-request revalidation SELECT echoes the cookie's rol.
+    Patches the override lookup with a one-row fixture that carries the
+    sentinel motivo, then asserts the override row appears in the body
+    and the section header is visible.
+    """
+    from app.modules.foster import assignment as assignment_service
+
+    route_client.auth_reval_rol = "developer"
+    _login_as_developer(client)
+    casa = _casa()
+    monkeypatch.setattr(
+        foster_service, "get_casa_acogida_by_id", lambda _c, _id: casa
+    )
+    monkeypatch.setattr(
+        assignment_service,
+        "count_active_estancias_for_casa",
+        lambda _c, _id: 0,
+    )
+    monkeypatch.setattr(
+        assignment_service,
+        "list_overrides_for_casa",
+        lambda _c, _id: [
+            assignment_service.FosterCapacityOverride(
+                id="ov-1",
+                casa_acogida_id="casa-123",
+                animal_id="animal-1",
+                operador_user_id="u-dev",
+                motivo="caso urgente PII marker",
+                created_at="2026-07-04T11:00:00Z",
+            )
+        ],
+    )
+
+    response = await client.get("/casas-acogida/casa-123")
+
+    assert response.status_code == 200
+    body = response.text
+    assert "Histórico de overrides" in body
+    assert "caso urgente PII marker" in body
 

@@ -89,6 +89,7 @@
     {% endif %}
   </div>
 
+  {% if user.rol == "developer" %}
   <div class="mt-8 pt-6 border-t border-border">
     <div class="flex items-center justify-between mb-3">
       <h2 class="text-lg font-semibold text-text">Histórico de overrides</h2>
@@ -125,6 +126,7 @@
     <p class="text-text-muted text-sm">Sin overrides registrados para esta casa.</p>
     {% endif %}
   </div>
+  {% endif %}
 
   <div class="mt-8 pt-6 border-t border-border">
     <form method="post" action="/casas-acogida/{{ casa.id }}/delete" onsubmit="return confirm('¿Dar de baja esta casa de acogida? Las estancias pasadas se conservan.');">
