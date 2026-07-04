@@ -3,16 +3,21 @@
 The ``adopciones.service`` module owns:
 - create / list / get / update / soft-delete of ``adopciones``
 - validation: required fields (animal_id, fecha_adopcion, nombre_adoptante)
-- FK checks: animal activo, voluntario_seguimiento_id activo per VOL-05
-- search by nombre_adoptante (ILIKE case-insensitive, D-ADOPT-04)
+- FK checks: animal activo, voluntario_seguimiento_id activo per VOL-05,
+  entrada_origen_id exists (optional)
+- search by nombre_adoptante (ILIKE case-insensitive with wildcard
+  escaping, D-ADOPT-04)
 - ``is_active`` derived from fecha_devolucion (D-ADOPT-05)
 
 Mirror of the ``tests/test_entradas.py`` and ``tests/test_foster.py``
 patterns: real InsForgeClient + httpx.MockTransport for SQL shape
-assertion. The FK validation tests piggyback on the same handler
-infrastructure: a SELECT to ``animales`` or ``voluntarios`` is mocked
-to return either an active row (success) or nothing (validation
-failure).
+assertion.
+
+CRITICAL-1 (review 2026-07-04): create / update run validation + write
+in a single CTE statement. The mock handler here answers those CTE
+queries with a single round-trip; on a 0-row CTE the service runs
+targeted disambiguation SELECTs which the handler also answers (so the
+failure paths are still end-to-end observable).
 """
 
 from __future__ import annotations
@@ -102,30 +107,89 @@ def _validation_handler(
     *,
     animal_exists: bool = True,
     voluntario_exists: bool = True,
+    entrada_exists: bool = True,
     insert_row: dict[str, Any] | None = None,
     update_row: dict[str, Any] | None = None,
 ):
-    """Build a handler that answers FK lookups + INSERT/UPDATE for adopciones.
+    """Build a handler that answers the CTE-shaped create / update SQL.
 
-    The FK SELECTs are matched by their FROM clause (``animales`` /
-    ``voluntarios``); the adopciones INSERT/UPDATE match on their own
-    ``INSERT INTO adopciones`` / ``UPDATE adopciones SET`` prefix.
+    The CTE bundles FK checks + INSERT / UPDATE in one statement, so the
+    handler answers ONE round-trip on the happy path. On the failure
+    paths (CTE returns 0 rows because an FK check failed), the service
+    runs targeted disambiguation SELECTs which the same handler also
+    answers, so the failure paths stay end-to-end observable.
+
+    Placeholder layout:
+      INSERT CTE  $1..$13 (animal, vol, fecha_adopc, fecha_dev,
+                            donativo_pre, donativo_adopc, nombre, dni,
+                            tel, email, entrada, observaciones,
+                            tipo_adopc)
+      UPDATE CTE  $1 id, $2..$14 same as INSERT but shifted by one
+
+    ``fail_on`` is detected from the params at query time: if the
+    optional FK was provided (non-None) and the corresponding flag is
+    False, the CTE returns 0 rows to simulate the failure.
     """
 
     def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
         query = body["query"]
+        params = body["params"]
+
+        # CREATE CTE: WITH checked_animal AS ... INSERT INTO adopciones ...
+        if (
+            "INSERT INTO adopciones" in query
+            and "WITH checked_animal" in query
+        ):
+            if not animal_exists:
+                return _json_response(200, [])
+            # voluntario_seguimiento_id is $2; non-empty string means the
+            # operator set it.
+            if params[1] and not voluntario_exists:
+                return _json_response(200, [])
+            # entrada_origen_id is $11; non-empty string means set.
+            if params[10] and not entrada_exists:
+                return _json_response(200, [])
+            return _json_response(200, [insert_row or _row()])
+
+        # UPDATE CTE: WITH checked_animal AS ... UPDATE adopciones SET ...
+        if (
+            "UPDATE adopciones SET" in query
+            and "WITH checked_animal" in query
+        ):
+            if not animal_exists:
+                return _json_response(200, [])
+            if params[2] and not voluntario_exists:
+                return _json_response(200, [])
+            if params[11] and not entrada_exists:
+                return _json_response(200, [])
+            # If the id is the test sentinel "missing", the UPDATE returns
+            # 0 rows (no row matched id="missing"); otherwise return the
+            # configured update_row (or the default _row()).
+            if params[0] == "missing":
+                return _json_response(200, [])
+            return _json_response(200, [update_row or _row()])
+
+        # Disambiguation SELECTs (after a 0-row CTE). The service runs
+        # these to identify WHICH FK failed for a clean error message.
         if "FROM animales" in query:
             return _json_response(
-                200, [{"id": body["params"][0]}] if animal_exists else []
+                200, [{"id": params[0]}] if animal_exists else []
             )
         if "FROM voluntarios" in query:
             return _json_response(
-                200, [{"id": body["params"][0]}] if voluntario_exists else []
+                200, [{"id": params[0]}] if voluntario_exists else []
             )
-        if "INSERT INTO adopciones" in query:
-            return _json_response(200, [insert_row or _row()])
-        if "UPDATE adopciones SET" in query:
-            return _json_response(200, [update_row or _row()])
+        if "FROM entradas" in query:
+            return _json_response(
+                200, [{"id": params[0]}] if entrada_exists else []
+            )
+
+        # get_adopcion_by_id (update path's 404 disambiguation)
+        if "FROM adopciones" in query and "WHERE id = $1" in query:
+            return _json_response(
+                200, [update_row or _row()] if params[0] != "missing" else []
+            )
+
         raise AssertionError(f"Unexpected SQL: {query!r}")
 
     return _handler
@@ -135,6 +199,13 @@ def _validation_handler(
 
 
 def test_create_adopcion_inserts_with_all_columns() -> None:
+    """Single CTE round-trip: FK checks + INSERT under one snapshot.
+
+    CRITICAL-1 review 2026-07-04: the old design issued separate
+    animales + voluntarios SELECTs and then the INSERT. The CTE design
+    folds all three into one statement, so the test now sees exactly
+    one captured SQL with the INSERT keywords inside it.
+    """
     client, captured = _client_recording(_validation_handler())
 
     result = adopciones_service.create_adopcion(client, _params_minimal())
@@ -148,29 +219,39 @@ def test_create_adopcion_inserts_with_all_columns() -> None:
     assert result.activo is True
     assert result.is_active is True  # fecha_devolucion is None → vigente
 
-    # 1 FK check (animales) + 1 FK check (voluntarios) + 1 INSERT = 3
-    assert len(captured) == 3
-    assert any("FROM animales" in c["query"] for c in captured)
-    assert any("FROM voluntarios" in c["query"] for c in captured)
-    insert = next(c for c in captured if "INSERT INTO adopciones" in c["query"])
-    assert "tipo_adopcion" in insert["query"]
+    # 1 CTE = 1 SQL roundtrip.
+    assert len(captured) == 1
+    cte = captured[0]
+    assert "INSERT INTO adopciones" in cte["query"]
+    # All three FK-check CTEs share one WITH clause (PostgreSQL syntax
+    # only requires WITH before the first one).
+    assert "checked_animal" in cte["query"]
+    assert "checked_voluntario" in cte["query"]
+    assert "checked_entrada" in cte["query"]
     # The first INSERT param is animal_id (per _WRITE_COLUMNS order).
-    assert insert["params"][0] == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    assert cte["params"][0] == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
     # nombre_adoptante is the 7th param per _WRITE_COLUMNS order.
-    assert insert["params"][6] == "María García López"
+    assert cte["params"][6] == "María García López"
+    # tipo_adopcion is the 13th param.
+    assert cte["params"][12] == "regular"
 
 
 def test_create_adopcion_with_null_voluntario_skips_voluntario_fk_check() -> None:
-    """When ``voluntario_seguimiento_id`` is None, the voluntarios SELECT is skipped."""
+    """When ``voluntario_seguimiento_id`` is None, the CTE's vol-check
+    is bypassed (``($2::text IS NULL OR EXISTS ...)``).
+
+    The CTE still runs (one round-trip); the INSERT succeeds because the
+    optional vol/entry checks short-circuit on NULL.
+    """
     params = {**_params_minimal(), "voluntario_seguimiento_id": None}
     client, captured = _client_recording(_validation_handler())
 
     adopciones_service.create_adopcion(client, params)
     client.close()
 
-    # 1 animales SELECT + 1 INSERT = 2 calls (no voluntarios SELECT).
-    assert len(captured) == 2
-    assert not any("FROM voluntarios" in c["query"] for c in captured)
+    # 1 CTE = 1 SQL roundtrip; the CTE returns the row, no disambiguation.
+    assert len(captured) == 1
+    assert "INSERT INTO adopciones" in captured[0]["query"]
 
 
 def test_create_adopcion_with_donativos_numeric_coerces_to_float() -> None:
@@ -189,10 +270,11 @@ def test_create_adopcion_with_donativos_numeric_coerces_to_float() -> None:
 
     assert result.donativo_preadopcion == 50.0
     assert result.donativo_adopcion == 150.5
-    insert = next(c for c in captured if "INSERT INTO adopciones" in c["query"])
+    assert len(captured) == 1
+    cte = captured[0]
     # donativo_preadopcion is the 5th param (per _WRITE_COLUMNS order).
-    assert insert["params"][4] == 50.0
-    assert insert["params"][5] == 150.5
+    assert cte["params"][4] == 50.0
+    assert cte["params"][5] == 150.5
 
 
 def test_create_adopcion_default_tipo_adopcion_is_regular() -> None:
@@ -204,9 +286,9 @@ def test_create_adopcion_default_tipo_adopcion_is_regular() -> None:
     client.close()
 
     assert result.tipo_adopcion == "regular"
-    insert = next(c for c in captured if "INSERT INTO adopciones" in c["query"])
+    assert len(captured) == 1
     # tipo_adopcion is the 13th param.
-    assert insert["params"][12] == "regular"
+    assert captured[0]["params"][12] == "regular"
 
 
 # --- create: required-field validation ------------------------------------
@@ -237,30 +319,36 @@ def test_create_adopcion_rejects_empty_required_field_before_sql(
     assert captured == []
 
 
-# --- create: FK validation (VOL-05, D-ADOPT-02) ----------------------------
+# --- create: FK validation (VOL-05, D-ADOPT-02 + entrada) -----------------
 
 
 def test_create_adopcion_rejects_inactive_animal() -> None:
-    """animal_id that exists but activo=false → ValueError, no INSERT."""
+    """animal_id that exists but activo=false → CTE returns 0 rows.
+
+    The CTE returns 0 (animal FK fails), then the service runs the
+    animales disambiguation SELECT which also returns 0, then raises
+    ``ValueError("animal_id does not reference an active animal")``.
+    """
     client, captured = _client_recording(_validation_handler(animal_exists=False))
 
     with pytest.raises(ValueError, match="animal_id"):
         adopciones_service.create_adopcion(client, _params_minimal())
     client.close()
 
-    # Only the animales SELECT ran; no INSERT, no voluntario SELECT (the
-    # active check short-circuits because the validation order is
-    # animales → voluntarios → INSERT).
-    assert any("FROM animales" in c["query"] for c in captured)
-    assert not any("INSERT INTO adopciones" in c["query"] for c in captured)
+    # 1 CTE + 1 disambiguation animales SELECT = 2 calls; the disambig
+    # for vol/entry never runs (animal check short-circuits).
+    assert len(captured) == 2
+    assert "INSERT INTO adopciones" in captured[0]["query"]
+    assert "FROM animales" in captured[1]["query"]
+    assert "FROM voluntarios" not in captured[1]["query"]
 
 
 def test_create_adopcion_rejects_inactive_voluntario_per_vol_05() -> None:
-    """VOL-05: voluntario_seguimiento_id with activo=false must be rejected.
+    """VOL-05: animal check passes, voluntario check fails -> ValueError.
 
-    The animales check passes (the animal is active), but the voluntario
-    SELECT returns no rows → ValueError matching ``voluntario_seguimiento_id``
-    and no INSERT is emitted.
+    The CTE runs and returns 0 (vol FK fails). The service then runs
+    the animales disambig (passes) + voluntarios disambig (fails) and
+    raises.
     """
     client, captured = _client_recording(
         _validation_handler(voluntario_exists=False)
@@ -270,10 +358,75 @@ def test_create_adopcion_rejects_inactive_voluntario_per_vol_05() -> None:
         adopciones_service.create_adopcion(client, _params_minimal())
     client.close()
 
-    # animales check ran, voluntario check ran, no INSERT.
-    assert any("FROM animales" in c["query"] for c in captured)
-    assert any("FROM voluntarios" in c["query"] for c in captured)
-    assert not any("INSERT INTO adopciones" in c["query"] for c in captured)
+    # 1 CTE + 2 disambiguation SELECTs (animales, voluntarios).
+    assert len(captured) == 3
+    assert "INSERT INTO adopciones" in captured[0]["query"]
+    assert "FROM animales" in captured[1]["query"]
+    assert "FROM voluntarios" in captured[2]["query"]
+
+
+def test_create_adopcion_rejects_missing_entrada_origen() -> None:
+    """P1 (risk review 2026-07-04): missing entrada_origen_id -> 422.
+
+    Prior to the helper, a bad UUID slipped past the service and
+    surfaced as an InsForge FK violation (500). Now the CTE returns 0
+    rows, the disambiguation SELECTs run, and the service raises a
+    clean ``ValueError`` with the bad id in the message.
+    """
+    params = {**_params_minimal(), "entrada_origen_id": "cccccccc-cccc-cccc-cccc-cccccccccccc"}
+    client, captured = _client_recording(_validation_handler(entrada_exists=False))
+
+    with pytest.raises(ValueError, match="entrada_origen_id"):
+        adopciones_service.create_adopcion(client, params)
+    client.close()
+
+    # 1 CTE + 3 disambiguation SELECTs (animal pass, vol pass, entrada fail).
+    assert len(captured) == 4
+    assert "INSERT INTO adopciones" in captured[0]["query"]
+    assert "FROM animales" in captured[1]["query"]
+    assert "FROM voluntarios" in captured[2]["query"]
+    assert "FROM entradas" in captured[3]["query"]
+
+
+def test_create_adopcion_accepts_soft_deleted_entrada() -> None:
+    """A soft-deleted entrada (existente, activo=false) still resolves.
+
+    Mirrors the ``acogidas`` pattern: we only check existence, not
+    ``activo``. The CTE's ``checked_entrada`` returns the row, the
+    INSERT proceeds, no 422.
+    """
+    params = {**_params_minimal(), "entrada_origen_id": "cccccccc-cccc-cccc-cccc-cccccccccccc"}
+    client, captured = _client_recording(_validation_handler(entrada_exists=True))
+
+    adopciones_service.create_adopcion(client, params)
+    client.close()
+
+    # 1 CTE; no disambiguation because the CTE succeeded.
+    assert len(captured) == 1
+
+
+def test_create_adopcion_with_soft_deleted_animal_returns_422() -> None:
+    """CRITICAL-1 (review 2026-07-04): TOCTOU-safe CTE.
+
+    If the animal is deactivated between the form load and the submit,
+    the CTE returns 0 rows (animal FK check fails) and the service
+    raises ``ValueError``. The previous design had the SELECT + INSERT
+    in separate statements; here they're one CTE so there is no
+    window for the animal to slip from activo=true to activo=false
+    between the check and the write.
+    """
+    client, captured = _client_recording(_validation_handler(animal_exists=False))
+
+    with pytest.raises(ValueError, match="animal_id"):
+        adopciones_service.create_adopcion(client, _params_minimal())
+    client.close()
+
+    # CTE returned 0, disambiguation animales SELECT also returned 0,
+    # service raised. 2 round-trips, no INSERT actually happened.
+    assert len(captured) == 2
+    insert_calls = [c for c in captured if "INSERT INTO adopciones" in c["query"]]
+    assert len(insert_calls) == 1  # the CTE tried once, returned 0 rows
+    # The handler didn't return any INSERT data — disambiguation took over.
 
 
 # --- create: numeric validation -------------------------------------------
@@ -302,6 +455,34 @@ def test_create_adopcion_rejects_boolean_donativo() -> None:
     assert captured == []
 
 
+# --- create: conflict (UNIQUE (animal_id, fecha_adopcion)) -----------------
+
+
+def test_create_adopcion_translates_409_to_adopcion_conflict_error() -> None:
+    """P1-1 (readability review): AdopcionConflictError on UNIQUE clash.
+
+    An InsForge 409 envelope with the natural-key substring in the
+    body is translated into ``AdopcionConflictError`` (a
+    ``ValueError`` subclass) so the route can render a 409 form
+    instead of a generic 422.
+    """
+
+    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
+        if "INSERT INTO adopciones" in body["query"]:
+            return _json_response(
+                409,
+                {"error": "duplicate key value violates unique constraint "
+                 "adopciones_natural_key"},
+            )
+        raise AssertionError(f"Unexpected SQL: {body['query']}")
+
+    client, _ = _client_recording(_handler)
+
+    with pytest.raises(adopciones_service.AdopcionConflictError):
+        adopciones_service.create_adopcion(client, _params_minimal())
+    client.close()
+
+
 # --- list -----------------------------------------------------------------
 
 
@@ -322,6 +503,8 @@ def test_list_adopciones_returns_active_rows_ordered_by_fecha_alta() -> None:
     assert "FROM adopciones" in query
     assert "WHERE activo = true" in query
     assert "ORDER BY fecha_alta DESC" in query
+    # CRITICAL-2 (review 2026-07-04): hard LIMIT 100 cap.
+    assert "LIMIT 100" in query
 
 
 # --- get by id ------------------------------------------------------------
@@ -347,6 +530,12 @@ def test_get_adopcion_by_id_returns_row_or_none() -> None:
 
 
 def test_update_adopcion_validates_and_updates_minimal_fields() -> None:
+    """Single CTE round-trip on update: FK checks + UPDATE.
+
+    CRITICAL-1: the CTE design issues one UPDATE statement with the FK
+    checks inlined as CTEs (rather than separate SELECTs). The test
+    asserts exactly one captured SQL.
+    """
     client, captured = _client_recording(
         _validation_handler(update_row=_row({"nombre_adoptante": "María Editada"}))
     )
@@ -360,28 +549,33 @@ def test_update_adopcion_validates_and_updates_minimal_fields() -> None:
 
     assert result is not None
     assert result.nombre_adoptante == "María Editada"
-    update_call = next(c for c in captured if "UPDATE adopciones SET" in c["query"])
-    assert "updated_at = now()" in update_call["query"]
-    assert update_call["params"][0] == "11111111-1111-1111-1111-111111111111"
+    assert len(captured) == 1
+    cte = captured[0]
+    assert "UPDATE adopciones SET" in cte["query"]
+    assert "WITH checked_animal" in cte["query"]
+    assert "updated_at = now()" in cte["query"]
+    # First param is the adopcion_id.
+    assert cte["params"][0] == "11111111-1111-1111-1111-111111111111"
+    # FK placeholders shifted by one in the UPDATE CTE.
+    assert cte["params"][1] == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"  # animal
+    assert cte["params"][2] == "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"  # vol
 
 
 def test_update_adopcion_returns_none_when_id_missing() -> None:
-    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
-        if "FROM animales" in body["query"]:
-            return _json_response(200, [{"id": body["params"][0]}])
-        if "FROM voluntarios" in body["query"]:
-            return _json_response(200, [{"id": body["params"][0]}])
-        if "UPDATE adopciones SET" in body["query"]:
-            return _json_response(200, [])
-        raise AssertionError(f"Unexpected SQL: {body['query']}")
+    """Update returns ``None`` (not ValueError) when the id does not exist.
 
-    client, _captured = _client_recording(_handler)
-    result = adopciones_service.update_adopcion(
-        client, "missing", _params_minimal()
-    )
+    The CTE returns 0 (id not found); the service runs the
+    ``get_adopcion_by_id`` disambiguation; that also returns 0; the
+    service returns ``None``.
+    """
+    client, captured = _client_recording(_validation_handler())
+
+    result = adopciones_service.update_adopcion(client, "missing", _params_minimal())
     client.close()
 
     assert result is None
+    # 1 CTE (0 rows) + 1 disambiguation get_adopcion_by_id (0 rows).
+    assert len(captured) == 2
 
 
 def test_update_adopcion_revalidates_voluntario_activo() -> None:
@@ -398,7 +592,38 @@ def test_update_adopcion_revalidates_voluntario_activo() -> None:
         )
     client.close()
 
-    assert not any("UPDATE adopciones SET" in c["query"] for c in captured)
+    # 1 CTE + 3 disambiguation SELECTs (animal pass, vol fail, get-by-id pass).
+    assert len(captured) == 4
+    assert "UPDATE adopciones SET" in captured[0]["query"]
+
+
+def test_update_adopcion_translates_409_to_adopcion_conflict_error() -> None:
+    """P2-1 (risk review 2026-07-04): UNIQUE clash on update -> 409.
+
+    Previously only ``create_adopcion`` translated the 409 to
+    ``AdopcionConflictError``. Now ``update_adopcion`` does the same so
+    editing a row to clash with another adoption renders as a friendly
+    409 form, not a 500.
+    """
+
+    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
+        if "UPDATE adopciones SET" in body["query"]:
+            return _json_response(
+                409,
+                {"error": "duplicate key value violates unique constraint "
+                 "adopciones_natural_key"},
+            )
+        raise AssertionError(f"Unexpected SQL: {body['query']}")
+
+    client, _ = _client_recording(_handler)
+
+    with pytest.raises(adopciones_service.AdopcionConflictError):
+        adopciones_service.update_adopcion(
+            client,
+            "11111111-1111-1111-1111-111111111111",
+            _params_minimal(),
+        )
+    client.close()
 
 
 # --- soft delete ---------------------------------------------------------
@@ -447,6 +672,8 @@ def test_search_adopciones_by_adoptante_uses_ilike() -> None:
     query = captured[0]["query"]
     assert "ILIKE" in query
     assert "nombre_adoptante ILIKE" in query
+    assert "ESCAPE '\\'" in query
+    assert "LIMIT 100" in query
     assert captured[0]["params"] == ["garcia"]
 
 
@@ -472,6 +699,58 @@ def test_search_adopciones_by_adoptante_trims_whitespace() -> None:
     client.close()
 
     assert captured[0]["params"] == ["Maria"]
+
+
+def test_search_by_adoptante_escapes_wildcards() -> None:
+    """CRITICAL-2 + P2-2 (risk review 2026-07-04): literal `%` and `_`
+    do not act as wildcards after escaping.
+
+    A malicious or accidental `?adoptante=%` (which would normally match
+    every row) must instead match only literal `%` characters. We
+    assert that the bound param is the escaped form (``\\%`` not `%``).
+    """
+    client, captured = _client_recording(
+        lambda req, body: _json_response(200, [])
+    )
+
+    adopciones_service.search_adopciones_by_adoptante(client, "%")
+    client.close()
+
+    # ``%`` → ``\%`` so the literal % in the input does NOT become a
+    # wildcard. The SQL uses ``ESCAPE '\\'`` to honor the backslash.
+    assert captured[0]["params"] == ["\\%"]
+
+
+def test_search_by_adoptante_escapes_underscore_and_backslash() -> None:
+    """Same protection for ``_`` (single-char wildcard) and ``\\``."""
+    client, captured = _client_recording(
+        lambda req, body: _json_response(200, [])
+    )
+
+    adopciones_service.search_adopciones_by_adoptante(client, "_a\\b")
+    client.close()
+
+    # Order matters: backslash FIRST so the new ``\\`` introduced for
+    # ``%`` / ``_`` are not themselves escaped on a second pass.
+    # Input "_a\b" becomes: "_" → "\_", "a" → "a", "\" → "\\",
+    # "b" → "b" → final "\\\_a\\\\b".
+    assert captured[0]["params"] == ["\\_a\\\\b"]
+
+
+def test_search_by_adoptante_returns_max_limit_results() -> None:
+    """Hard ``LIMIT 100`` cap on the search SQL.
+
+    Mirrors ``test_list_adopciones_returns_active_rows_ordered_by_fecha_alta``
+    for the list endpoint — both bounded by the same constant.
+    """
+    client, captured = _client_recording(
+        lambda req, body: _json_response(200, [])
+    )
+
+    adopciones_service.search_adopciones_by_adoptante(client, "garcia")
+    client.close()
+
+    assert "LIMIT 100" in captured[0]["query"]
 
 
 # --- is_active derived (D-ADOPT-05) ---------------------------------------
@@ -529,3 +808,48 @@ def test_row_to_adopcion_coerces_donativos_to_float() -> None:
 
     assert adopcion.donativo_preadopcion == 50.0
     assert adopcion.donativo_adopcion == 150.5
+
+
+# --- actor_user_id audit (P2-3) --------------------------------------------
+
+
+def test_create_adopcion_includes_actor_user_id_in_log_safe() -> None:
+    """P2-3 (risk review 2026-07-04): audit logs carry ``actor_user_id``.
+
+    The ``adopciones.created`` event MUST include ``actor_user_id``
+    so audit pipelines can attribute the change.
+    """
+    import logging
+
+    captured_logs: list[logging.LogRecord] = []
+
+    class _CapturingHandler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            captured_logs.append(record)
+
+    logger = logging.getLogger("app")
+    # The default level for a named logger is WARNING; lower it to INFO so
+    # the INFO records emitted by ``log_safe`` reach our handler. The
+    # level is restored in the ``finally`` so this test never leaks
+    # state into siblings.
+    saved_level = logger.level
+    logger.setLevel(logging.INFO)
+    handler = _CapturingHandler(level=logging.INFO)
+    logger.addHandler(handler)
+    try:
+        client, _ = _client_recording(_validation_handler())
+        adopciones_service.create_adopcion(
+            client, _params_minimal(), actor_user_id="u-ana"
+        )
+        client.close()
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(saved_level)
+
+    created_records = [
+        r
+        for r in captured_logs
+        if getattr(r, "event", None) == "adopciones.created"
+    ]
+    assert len(created_records) == 1
+    assert created_records[0].actor_user_id == "u-ana"

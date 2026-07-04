@@ -15,14 +15,24 @@ Endpoints (mounted at ``/adopciones`` by ``app/main.py``):
 - ``GET  /adopciones/new``                      empty form.
 - ``POST /adopciones``                          create; redirect to
                                                   detail on success.
+                                                  **Requires writer
+                                                  rol** (issue #144).
 - ``GET  /adopciones/{id}``                     detail view.
 - ``GET  /adopciones/{id}/edit``                edit form prefilled.
 - ``POST /adopciones/{id}/update``              update.
+                                                  **Requires writer
+                                                  rol** (issue #144).
 - ``POST /adopciones/{id}/delete``              soft-delete.
+                                                  **Requires writer
+                                                  rol** (issue #144).
 
-Auth: all 7 endpoints use ``require_authorized_user`` (covers
-key_user / admin / developer per #144 — the adopciones CRUD is open
-to any authorized operator, not just writers).
+Auth model (issue #144): GET endpoints use ``require_authorized_user``
+(read access stays open to any authorized operator). Write endpoints
+(POST create / POST update / POST delete) use
+``require_writer_user`` which composes on ``require_authorized_user``
+and rejects the ``reader`` rol with 403 BEFORE the handler runs. This
+closes the P1-3 (risk review 2026-07-04) authz gap where a reader
+could previously POST / DELETE adopciones.
 """
 
 from __future__ import annotations
@@ -37,10 +47,11 @@ from fastapi.templating import Jinja2Templates
 from app.core.auth_dependencies import (
     get_insforge_client_dep,
     require_authorized_user,
+    require_writer_user,
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
-from app.core.insforge import InsForgeClient
+from app.core.insforge import InsForgeClient, InsForgeError
 from app.core.middleware import base_template_context_processor
 from app.modules.adopciones import service as adopciones_service
 
@@ -75,30 +86,34 @@ _FORM_FIELDS = (
 
 
 def _opt(value: str | None) -> str | None:
+    """Strip a string or convert empty to ``None`` for optional fields.
+
+    Mirrors ``entradas/routes.py::_opt`` and ``cesiones/routes.py::_opt``.
+    Lets the operator leave optional fields blank in the form (e.g.
+    ``dni_adoptante``) and have the service write NULL to the DB
+    rather than an empty string.
+    """
     if value is None:
         return None
     stripped = str(value).strip()
     return stripped or None
 
 
-def _opt_numeric(value: str | None) -> str | None:
-    """Return the raw form value for a donativo field; service does the coerce.
-
-    We pass strings through to the service unchanged so the service's
-    ``_optional_numeric`` raises a clean ``ValueError`` on bad input
-    instead of the route crashing on a hand-rolled ``int()`` /
-    ``float()``.
-    """
-    return _opt(value)
-
-
 def _form_data_to_params(form: dict[str, Any]) -> dict[str, Any]:
-    params: dict[str, Any] = {key: _opt(form.get(key)) for key in _FORM_FIELDS}
-    # donativos: keep raw string so the service's numeric coercion runs
-    # in one place. Empty string stays empty (service treats as None).
-    params["donativo_preadopcion"] = _opt_numeric(form.get("donativo_preadopcion"))
-    params["donativo_adopcion"] = _opt_numeric(form.get("donativo_adopcion"))
-    return params
+    """Translate the raw form dict into the service's ``params`` schema.
+
+    ``donativo_*`` are kept as strings here on purpose: the service's
+    ``_optional_numeric`` raises a clean ``ValueError`` on bad input
+    (the route would otherwise crash on a hand-rolled ``int()`` /
+    ``float()``). Empty strings stay empty so the service treats them
+    as ``None``.
+
+    P1-2 (readability review 2026-07-04): the previous
+    ``_opt_numeric`` wrapper was a redundant ``return _opt(value)``.
+    Removed; the comprehension below applies ``_opt`` to every form
+    field including ``donativo_preadopcion`` / ``donativo_adopcion``.
+    """
+    return {key: _opt(form.get(key)) for key in _FORM_FIELDS}
 
 
 def _adopcion_to_form_data(
@@ -127,6 +142,20 @@ def _adopcion_to_form_data(
         "observaciones": adopcion.observaciones or "",
         "tipo_adopcion": adopcion.tipo_adopcion,
     }
+
+
+def _actor_user_id(user: Any) -> str | None:
+    """Extract ``user_id`` from the auth payload for audit logging.
+
+    ``user`` is the value returned by ``require_authorized_user`` (a
+    dict-like). When the upstream dep returned a ``RedirectResponse``
+    (no session, deactivated, etc.) we have already returned early via
+    ``return_early_if_response``, so this only sees a dict.
+    """
+    if isinstance(user, dict):
+        uid = user.get("user_id")
+        return str(uid) if uid is not None else None
+    return None
 
 
 def _render_form(
@@ -213,10 +242,28 @@ def create_adopcion_view(
     entrada_origen_id: str | None = Form(None),
     observaciones: str | None = Form(None),
     tipo_adopcion: str | None = Form(None),
-    user: Any = Depends(require_authorized_user),
+    user: Any = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
-    """Create an adopción; redirect to detail on success."""
+    """Create an adopción; redirect to detail on success.
+
+    P1-3 (risk review 2026-07-04): write endpoint, requires
+    ``require_writer_user`` so a ``reader`` rol is rejected with 403
+    BEFORE the handler runs (issue #144).
+
+    P1-2 (risk review 2026-07-04): the try/except wraps both
+    ``ValueError`` (FK / required-field / numeric coercion errors) AND
+    ``InsForgeError`` (CHECK constraint violation on ``tipo_adopcion``
+    surfacing as 4xx, malformed date on ``fecha_adopcion`` /
+    ``fecha_devolucion`` surfacing as 4xx). Any of these now renders as
+    a 422 with the operator's form input preserved, instead of leaking
+    as a 500.
+
+    P1-1 (readability review 2026-07-04): ``AdopcionConflictError`` (a
+    ``ValueError`` subclass) is caught SEPARATELY so the natural-key
+    UNIQUE violation renders as 409 with a Spanish-friendly message,
+    not as a generic 422. Mirrors the entradas / cesiones pattern.
+    """
     if (early := return_early_if_response(user)) is not None:
         return early
     form_data = _form_data_to_params(
@@ -237,13 +284,27 @@ def create_adopcion_view(
         }
     )
     try:
-        adopcion = adopciones_service.create_adopcion(client, form_data)
-    except ValueError as exc:
+        adopcion = adopciones_service.create_adopcion(
+            client,
+            form_data,
+            actor_user_id=_actor_user_id(user),
+        )
+    except adopciones_service.AdopcionConflictError:
         return _render_form(
             request,
             user,
             form_data,
-            str(exc),
+            "Ya existe una adopción para ese animal y fecha. "
+            "Edita la existente o elimínala antes de crear otra.",
+            "/adopciones",
+            status.HTTP_409_CONFLICT,
+        )
+    except (ValueError, InsForgeError) as exc:
+        return _render_form(
+            request,
+            user,
+            form_data,
+            f"No se pudo guardar la adopción: {exc}",
             "/adopciones",
             status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
@@ -320,10 +381,22 @@ def update_adopcion_view(
     entrada_origen_id: str | None = Form(None),
     observaciones: str | None = Form(None),
     tipo_adopcion: str | None = Form(None),
-    user: Any = Depends(require_authorized_user),
+    user: Any = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
-    """Update an existing adopción; redirect to detail on success."""
+    """Update an existing adopción; redirect to detail on success.
+
+    P1-3 (risk review 2026-07-04): write endpoint, requires
+    ``require_writer_user``. P1-2: catches both ``ValueError`` and
+    ``InsForgeError`` for a clean 422 with the operator's form input
+    preserved. P1-1: ``AdopcionConflictError`` is caught separately to
+    render the natural-key UNIQUE violation as 409.
+
+    P2-1 (risk review 2026-07-04): previously only ``create_adopcion``
+    translated the UNIQUE violation; now ``update_adopcion`` does the
+    same so an operator editing a row to clash with an existing
+    adoption gets a friendly 409 instead of a 500.
+    """
     if (early := return_early_if_response(user)) is not None:
         return early
     form_data = _form_data_to_params(
@@ -344,13 +417,28 @@ def update_adopcion_view(
         }
     )
     try:
-        adopcion = adopciones_service.update_adopcion(client, adopcion_id, form_data)
-    except ValueError as exc:
+        adopcion = adopciones_service.update_adopcion(
+            client,
+            adopcion_id,
+            form_data,
+            actor_user_id=_actor_user_id(user),
+        )
+    except adopciones_service.AdopcionConflictError:
         return _render_form(
             request,
             user,
             form_data,
-            str(exc),
+            "Ya existe una adopción para ese animal y fecha. "
+            "Edita la existente o elimínala antes de crear otra.",
+            f"/adopciones/{adopcion_id}/update",
+            status.HTTP_409_CONFLICT,
+        )
+    except (ValueError, InsForgeError) as exc:
+        return _render_form(
+            request,
+            user,
+            form_data,
+            f"No se pudo guardar la adopción: {exc}",
             f"/adopciones/{adopcion_id}/update",
             status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
@@ -368,13 +456,21 @@ def update_adopcion_view(
 def delete_adopcion_view(
     adopcion_id: str,
     request: Request,
-    user: Any = Depends(require_authorized_user),
+    user: Any = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
-    """Soft-delete via ``adopciones_service.delete_adopcion``; redirect to list."""
+    """Soft-delete via ``adopciones_service.delete_adopcion``; redirect to list.
+
+    P1-3 (risk review 2026-07-04): write endpoint, requires
+    ``require_writer_user`` so a ``reader`` rol is rejected with 403.
+    """
     if (early := return_early_if_response(user)) is not None:
         return early
-    if not adopciones_service.delete_adopcion(client, adopcion_id):
+    if not adopciones_service.delete_adopcion(
+        client,
+        adopcion_id,
+        actor_user_id=_actor_user_id(user),
+    ):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     return RedirectResponse(
         url="/adopciones", status_code=status.HTTP_303_SEE_OTHER

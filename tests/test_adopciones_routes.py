@@ -6,9 +6,13 @@ template glue. The fixture ``_NoSqlRouteClient`` enforces the
 AGENTS.md layer-boundary rule (no ``client.execute_sql`` in routes).
 All data access goes through ``app.modules.adopciones.service``.
 
-Auth model (per #144): all 7 endpoints use ``require_authorized_user``,
-so key_user / admin / developer can write. Reader is rejected by the
-middleware-level auth guard (issue #143) before the handler runs.
+Auth model (issue #144): GET endpoints use ``require_authorized_user``;
+write endpoints (POST create / update / delete) use
+``require_writer_user`` which composes on
+``require_authorized_user`` and rejects the ``reader`` rol with 403
+BEFORE the handler runs. See
+``test_adopciones_write_routes_reject_reader_with_403`` for the
+parametrized regression test.
 """
 
 from __future__ import annotations
@@ -20,7 +24,7 @@ import pytest
 
 from app.core.auth_dependencies import get_insforge_client_dep
 from app.core.config import get_settings
-from app.core.insforge import InsForgeClient
+from app.core.insforge import InsForgeClient, InsForgeError
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
 from app.modules.adopciones import service as adopciones_service
@@ -79,6 +83,27 @@ def _login_as_key_user(client: httpx.AsyncClient) -> None:
             "email": "ana@example.com",
             "rol": "key_user",
             "user_id": "u-ana",
+            "is_authorized": True,
+            "csrf_token": "test-csrf-token-adopciones",
+        },
+        secret=get_settings().session_secret,
+    )
+    client.cookies.set(session_cookie_name(), token)
+
+
+def _login_as_reader(client: httpx.AsyncClient) -> None:
+    """Install a reader session cookie; reader MUST be 403 on writes.
+
+    Issue #144 regression test for adopciones. The revalidation SELECT
+    in ``require_authorized_user`` returns the rol the cookie carries;
+    the route_client spy must echo the same rol so
+    ``require_writer_user`` evaluates against the writer-rols set.
+    """
+    token = write_session(
+        {
+            "email": "rocio@example.com",
+            "rol": "reader",
+            "user_id": "u-rocio",
             "is_authorized": True,
             "csrf_token": "test-csrf-token-adopciones",
         },
@@ -247,12 +272,15 @@ async def test_create_adopcion_valid_records_redirects_to_detail(
     """Valid create form -> service returns the adopción -> 303 to detail."""
     _login_as_key_user(client)
     adopcion = _adopcion()
-    calls: list[tuple[InsForgeClient, dict[str, Any]]] = []
+    calls: list[tuple[InsForgeClient, dict[str, Any], str | None]] = []
 
     def fake_create(
-        service_client: InsForgeClient, params: dict[str, Any]
+        service_client: InsForgeClient,
+        params: dict[str, Any],
+        *,
+        actor_user_id: str | None = None,
     ) -> adopciones_service.Adopcion:
-        calls.append((service_client, params))
+        calls.append((service_client, params, actor_user_id))
         return adopcion
 
     monkeypatch.setattr(adopciones_service, "create_adopcion", fake_create)
@@ -273,6 +301,9 @@ async def test_create_adopcion_valid_records_redirects_to_detail(
     assert calls[0][0] is route_client
     assert calls[0][1]["nombre_adoptante"] == "María García López"
     assert calls[0][1]["tipo_adopcion"] == "regular"
+    # P2-3 (risk review 2026-07-04): actor_user_id flows from the auth
+    # payload to the audit log via the kwarg.
+    assert calls[0][2] == "u-ana"
 
 
 # --- 6. POST /adopciones (create, sad path) ------------------------------
@@ -291,7 +322,10 @@ async def test_create_adopcion_sad_validation_rerenders_form_with_422(
     _login_as_key_user(client)
 
     def fake_create(
-        service_client: InsForgeClient, params: dict[str, Any]
+        service_client: InsForgeClient,
+        params: dict[str, Any],
+        *,
+        actor_user_id: str | None = None,
     ) -> adopciones_service.Adopcion:
         raise ValueError(
             "voluntario_seguimiento_id must reference an active volunteer"
@@ -315,6 +349,139 @@ async def test_create_adopcion_sad_validation_rerenders_form_with_422(
     )
     # Operator input is preserved (their nombre still in the body).
     assert 'value="María García López"' in body
+
+
+async def test_create_adopcion_translates_duplicate_to_409(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """P1-1 (readability review 2026-07-04): UNIQUE clash -> 409 form.
+
+    The service raises ``AdopcionConflictError`` (a ``ValueError``
+    subclass) when InsForge returns 409 on the natural-key. The route
+    catches the subclass BEFORE the generic ``ValueError`` so the
+    operator sees a 409 with the Spanish conflict message, not a
+    generic 422.
+    """
+    _login_as_key_user(client)
+
+    def fake_create(
+        service_client: InsForgeClient,
+        params: dict[str, Any],
+        *,
+        actor_user_id: str | None = None,
+    ) -> adopciones_service.Adopcion:
+        raise adopciones_service.AdopcionConflictError(
+            "adopcion duplicada para animal_id y fecha_adopcion"
+        )
+
+    monkeypatch.setattr(adopciones_service, "create_adopcion", fake_create)
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/adopciones",
+        form_data=_form_data(),
+        csrf_token="test-csrf-token-adopciones",
+    )
+
+    assert response.status_code == 409
+    body = response.text
+    assert "Ya existe una adopción para ese animal y fecha" in body
+    # Operator input is preserved.
+    assert 'value="María García López"' in body
+
+
+async def test_create_adopcion_translates_insforge_error_to_422(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """P1-2 (risk review 2026-07-04): non-409 ``InsForgeError`` -> 422.
+
+    Previously only ``ValueError`` was caught; a CHECK constraint
+    violation on ``tipo_adopcion`` or a malformed date on
+    ``fecha_adopcion`` raised ``InsForgeError`` (a ``RuntimeError``,
+    NOT a ``ValueError``) and bubbled out as a 500. The route now
+    also catches ``InsForgeError`` so those paths render as a clean
+    422 with the operator's input preserved.
+    """
+    _login_as_key_user(client)
+
+    def fake_create(
+        service_client: InsForgeClient,
+        params: dict[str, Any],
+        *,
+        actor_user_id: str | None = None,
+    ) -> adopciones_service.Adopcion:
+        raise InsForgeError(
+            status_code=400,
+            body={
+                "error": "violates check constraint",
+                "constraint": "adopciones_tipo_adopcion_check",
+            },
+        )
+
+    monkeypatch.setattr(adopciones_service, "create_adopcion", fake_create)
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/adopciones",
+        form_data=_form_data(),
+        csrf_token="test-csrf-token-adopciones",
+    )
+
+    assert response.status_code == 422
+    body = response.text
+    assert "No se pudo guardar la adopción" in body
+    # The raw InsForge message is included so the operator can act on it.
+    assert "violates check constraint" in body
+    # Operator input is preserved.
+    assert 'value="María García López"' in body
+
+
+async def test_create_adopcion_with_bad_fecha_returns_422(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """P1-2 (risk review 2026-07-04): malformed date -> 422, not 500.
+
+    The service lets ``_optional_date`` pass the raw string through
+    (validation lives in the DB). A malformed ``fecha_adopcion`` (e.g.
+    ``"ayer"``) raises ``InsForgeError`` when the DB rejects the value.
+    The route catches ``InsForgeError`` and renders a 422.
+    """
+    _login_as_key_user(client)
+
+    def fake_create(
+        service_client: InsForgeClient,
+        params: dict[str, Any],
+        *,
+        actor_user_id: str | None = None,
+    ) -> adopciones_service.Adopcion:
+        raise InsForgeError(
+            status_code=400,
+            body={
+                "error": "invalid input syntax for type date: 'ayer'",
+            },
+        )
+
+    monkeypatch.setattr(adopciones_service, "create_adopcion", fake_create)
+
+    bad_form = {**_form_data(), "fecha_adopcion": "ayer"}
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/adopciones",
+        form_data=bad_form,
+        csrf_token="test-csrf-token-adopciones",
+    )
+
+    assert response.status_code == 422
+    assert "invalid input syntax for type date" in response.text
 
 
 # --- 7. GET /adopciones/{id} (detail, missing) ---------------------------
@@ -404,14 +571,16 @@ async def test_update_adopcion_valid_records_redirects_to_detail(
     """Valid update -> service returns the adopción -> 303 to detail page."""
     _login_as_key_user(client)
     adopcion = _adopcion()
-    calls: list[tuple[InsForgeClient, str, dict[str, Any]]] = []
+    calls: list[tuple[InsForgeClient, str, dict[str, Any], str | None]] = []
 
     def fake_update(
         service_client: InsForgeClient,
         adopcion_id: str,
         params: dict[str, Any],
+        *,
+        actor_user_id: str | None = None,
     ) -> adopciones_service.Adopcion | None:
-        calls.append((service_client, adopcion_id, params))
+        calls.append((service_client, adopcion_id, params, actor_user_id))
         return adopcion
 
     monkeypatch.setattr(adopciones_service, "update_adopcion", fake_update)
@@ -428,6 +597,7 @@ async def test_update_adopcion_valid_records_redirects_to_detail(
     assert response.headers["location"] == "/adopciones/adop-123"
     assert len(calls) == 1
     assert calls[0][1] == "adop-123"
+    assert calls[0][3] == "u-ana"
 
 
 async def test_update_adopcion_returns_404_when_row_missing(
@@ -438,7 +608,9 @@ async def test_update_adopcion_returns_404_when_row_missing(
     """Update returns 404 when the service returns ``None`` (id missing)."""
     _login_as_key_user(client)
     monkeypatch.setattr(
-        adopciones_service, "update_adopcion", lambda _c, _id, _p: None
+        adopciones_service,
+        "update_adopcion",
+        lambda _c, _id, _p, *, actor_user_id=None: None,
     )
 
     response = await make_csrf_request(
@@ -452,6 +624,46 @@ async def test_update_adopcion_returns_404_when_row_missing(
     assert response.status_code == 404
 
 
+async def test_update_adopcion_translates_duplicate_to_409(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """P2-1 (risk review 2026-07-04): UNIQUE clash on update -> 409.
+
+    Mirrors the create path: ``AdopcionConflictError`` is caught
+    separately so editing a row to clash with an existing adoption
+    renders a 409, not a 500.
+    """
+    _login_as_key_user(client)
+
+    def fake_update(
+        service_client: InsForgeClient,
+        adopcion_id: str,
+        params: dict[str, Any],
+        *,
+        actor_user_id: str | None = None,
+    ) -> adopciones_service.Adopcion | None:
+        raise adopciones_service.AdopcionConflictError(
+            "adopcion duplicada para animal_id y fecha_adopcion"
+        )
+
+    monkeypatch.setattr(adopciones_service, "update_adopcion", fake_update)
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/adopciones/adop-123/update",
+        form_data=_form_data(),
+        csrf_token="test-csrf-token-adopciones",
+    )
+
+    assert response.status_code == 409
+    body = response.text
+    assert "Ya existe una adopción para ese animal y fecha" in body
+    assert 'value="María García López"' in body
+
+
 # --- 11. POST /adopciones/{id}/delete (delete, happy path) --------------
 
 
@@ -462,12 +674,15 @@ async def test_delete_adopcion_redirects_to_list(
 ) -> None:
     """Soft-delete redirects to /adopciones when the service returns True."""
     _login_as_key_user(client)
-    calls: list[tuple[InsForgeClient, str]] = []
+    calls: list[tuple[InsForgeClient, str, str | None]] = []
 
     def fake_delete(
-        service_client: InsForgeClient, adopcion_id: str
+        service_client: InsForgeClient,
+        adopcion_id: str,
+        *,
+        actor_user_id: str | None = None,
     ) -> bool:
-        calls.append((service_client, adopcion_id))
+        calls.append((service_client, adopcion_id, actor_user_id))
         return True
 
     monkeypatch.setattr(adopciones_service, "delete_adopcion", fake_delete)
@@ -481,7 +696,7 @@ async def test_delete_adopcion_redirects_to_list(
 
     assert response.status_code == 303
     assert response.headers["location"] == "/adopciones"
-    assert calls == [(route_client, "adop-123")]
+    assert calls == [(route_client, "adop-123", "u-ana")]
 
 
 async def test_delete_adopcion_returns_404_when_row_missing(
@@ -492,7 +707,9 @@ async def test_delete_adopcion_returns_404_when_row_missing(
     """Delete returns 404 when the service returns False (id missing)."""
     _login_as_key_user(client)
     monkeypatch.setattr(
-        adopciones_service, "delete_adopcion", lambda _c, _id: False
+        adopciones_service,
+        "delete_adopcion",
+        lambda _c, _id, *, actor_user_id=None: False,
     )
 
     response = await make_csrf_request(
@@ -505,7 +722,65 @@ async def test_delete_adopcion_returns_404_when_row_missing(
     assert response.status_code == 404
 
 
-# --- 12. Defense in depth: no client.execute_sql in routes source -------
+# --- 12. P1-3 (risk review): reader rol is rejected on writes ------------
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "form_data"),
+    [
+        ("POST", "/adopciones", _form_data()),
+        ("POST", "/adopciones/adop-123/update", _form_data()),
+        ("POST", "/adopciones/adop-123/delete", None),
+    ],
+)
+async def test_adopciones_write_routes_reject_reader_with_403(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+    method: str,
+    path: str,
+    form_data: dict[str, str] | None,
+) -> None:
+    """Reader rol is forbidden on every adopciones write route (issue #144).
+
+    Before the P1-3 fix, a reader could POST / DELETE adopciones
+    because the routes used ``require_authorized_user`` (no rol gate).
+    The fix layers ``require_writer_user`` over
+    ``require_authorized_user``; the reader is rejected with 403
+    BEFORE the handler runs, so no SQL is emitted and no template is
+    rendered. GET routes (list / detail / edit / new) remain open to
+    readers — only writes are gated.
+    """
+    route_client.auth_reval_rol = "reader"
+    _login_as_reader(client)
+
+    # Patch every service entry point the routes might call. None of
+    # them should fire because ``require_writer_user`` short-circuits
+    # at the dep level; if any of these would be invoked, the test
+    # fails loudly via AssertionError in the patched function.
+    def _never_called(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError(
+            f"reader POST MUST NOT reach the service; got {args=} {kwargs=}"
+        )
+
+    monkeypatch.setattr(adopciones_service, "create_adopcion", _never_called)
+    monkeypatch.setattr(adopciones_service, "update_adopcion", _never_called)
+    monkeypatch.setattr(adopciones_service, "delete_adopcion", _never_called)
+
+    response = await make_csrf_request(
+        client, method, path, form_data=form_data
+    )
+
+    assert response.status_code == 403, (
+        f"reader rol MUST be rejected on write routes; got {response.status_code} "
+        f"on {method} {path}"
+    )
+    # Audit log: the rejection goes through ``log_safe("auth.denied",
+    # reason="writer_required", user_id=...)``; we do not assert that
+    # here because the auth-denied audit lives in a different module.
+
+
+# --- 13. Defense in depth: no client.execute_sql in routes source -------
 
 
 def test_routes_source_has_no_client_execute_sql() -> None:
