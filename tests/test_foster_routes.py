@@ -70,13 +70,18 @@ class _NoSqlRouteClient(InsForgeClient):
         import httpx as _httpx
 
         self._client = _httpx.Client(base_url="https://spy.example")
+        # Issue #144: rol returned by the per-request authorization
+        # revalidation SELECT. Defaults to ``key_user``; reader
+        # rejection tests set this to ``reader`` so
+        # ``require_writer_user`` produces 403 BEFORE any handler SQL.
+        self.auth_reval_rol: str = "key_user"
 
     def execute_sql(self, query: str, params: Any = None):  # type: ignore[override]
         # Issue #143: require_authorized_user revalidates authorization per
         # request via the get_user_by_email service; that SELECT flows
         # through this client and is allowed. Any OTHER direct SQL from a
         # route handler still violates the "cero SQL en routes" contract.
-        _reval = auth_reval_rows(query, params)
+        _reval = auth_reval_rows(query, params, rol=self.auth_reval_rol)
         if _reval is not None:
             return _reval
         raise AssertionError(f"routes must not execute SQL directly: {query!r}")
@@ -103,6 +108,27 @@ def _login_as_key_user(client: httpx.AsyncClient) -> None:
             "email": "ana@example.com",
             "rol": "key_user",
             "user_id": "u-ana",
+            "is_authorized": True,
+            "csrf_token": "test-csrf-token-foster",
+        },
+        secret=get_settings().session_secret,
+    )
+    client.cookies.set(session_cookie_name(), token)
+
+
+def _login_as_reader(client: httpx.AsyncClient) -> None:
+    """Install a reader session; writer dep MUST reject with 403 (issue #144).
+
+    The route client must have ``auth_reval_rol = "reader"`` BEFORE this
+    helper runs so the per-request revalidation SELECT returns the same
+    rol the cookie carries (otherwise ``require_authorized_user``'s cache
+    could surface a stale rol from a previous test).
+    """
+    token = write_session(
+        {
+            "email": "rocio@example.com",
+            "rol": "reader",
+            "user_id": "u-rocio",
             "is_authorized": True,
             "csrf_token": "test-csrf-token-foster",
         },
@@ -657,4 +683,53 @@ def test_foster_route_source_contains_no_direct_execute_sql() -> None:
 
     assert route_source.exists()
     assert ".execute_sql(" not in route_source.read_text(encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Issue #144: a ``reader`` rol MUST be rejected by the 3 casas-acogida
+# write routes (create_casa_acogida / update_casa_acogida /
+# delete_casa_acogida) with 403 BEFORE the handler runs.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "method,path,form_data",
+    [
+        ("POST", "/casas-acogida", _form_data()),
+        ("POST", "/casas-acogida/casa-123/update", _form_data()),
+        ("POST", "/casas-acogida/casa-123/delete", None),
+    ],
+    ids=["create_casa_acogida", "update_casa_acogida", "delete_casa_acogida"],
+)
+async def test_foster_write_routes_reject_reader_with_403(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    method: str,
+    path: str,
+    form_data: dict[str, str] | None,
+) -> None:
+    """Reader cannot POST on any casas-acogida write route (issue #144).
+
+    The no-SQL spy (``_NoSqlRouteClient``) raises AssertionError on
+    every non-revalidation query — a silent pass through the writer
+    dep would crash the test loud and clear via the spy, in addition
+    to the explicit 403 check.
+    """
+    route_client.auth_reval_rol = "reader"
+    _login_as_reader(client)
+
+    response = await make_csrf_request(
+        client, method, path, form_data=form_data
+    )
+
+    assert response.status_code == 403, (
+        f"reader {method} {path} MUST be 403; got {response.status_code}"
+    )
+    # Defense in depth: ensure the JSON error carries the writer
+    # rejection message — if a future refactor swaps the dep and the
+    # message drifts, the test catches it.
+    assert "Permisos insuficientes" in response.text, (
+        f"reader 403 response MUST carry 'Permisos insuficientes'; "
+        f"got body: {response.text!r}"
+    )
 
