@@ -27,6 +27,7 @@ import pytest
 from app.core.domain import (
     ACOGIDAS_ADD_CASA_FK_SQL,
     ACOGIDAS_CREATE_TABLE_SQL,
+    ACTUACION_SANITARIA_CREATE_TABLE_SQL,
     ADOPCIONES_CREATE_TABLE_SQL,
     ANIMAL_CURRENT_STATE_CREATE_TABLE_SQL,
     ANIMAL_LIFECYCLE_EVENTS_CREATE_TABLE_SQL,
@@ -502,16 +503,20 @@ def test_ensure_domain_schema_emits_casa_fk_migration_after_acogidas_create() ->
     client.close()
 
     queries = [c["query"].strip() for c in captured]
-    # 13 CREATE TABLE statements (12 lifecycle + foster_capacity_overrides)
-    # + 1 ALTER TABLE for the casa FK. FOSTER-03 (#45) added
-    # ``foster_capacity_overrides``; ordering still puts it after the
-    # ALTER TABLE so the FOSTER slice is contiguous.
+    # 14 CREATE TABLE statements (12 lifecycle + foster_capacity_overrides +
+    # actuacion_sanitaria for HEALTH-01 #50) + 1 ALTER TABLE for the casa FK.
+    # FOSTER-03 (#45) added ``foster_capacity_overrides``; ordering still
+    # puts it after the ALTER TABLE so the FOSTER slice is contiguous.
+    # HEALTH-01 (#50) appended ``actuacion_sanitaria`` at the very end of
+    # ``ensure_domain_schema`` so the FKs to ``animales`` /
+    # ``catalogos_pruebas`` / ``voluntarios`` are satisfied on subsequent
+    # boots (catalog tables exist by then).
     create_queries = [
         q for q in queries if q.startswith("CREATE TABLE IF NOT EXISTS")
     ]
     alter_queries = [q for q in queries if q.startswith("ALTER TABLE")]
-    assert len(create_queries) == 13, (
-        f"expected 13 CREATE TABLEs, got {len(create_queries)}: {create_queries}"
+    assert len(create_queries) == 14, (
+        f"expected 14 CREATE TABLEs, got {len(create_queries)}: {create_queries}"
     )
     assert len(alter_queries) == 1, (
         f"expected 1 ALTER TABLE (FOSTER-02 casa FK), got {len(alter_queries)}: {alter_queries}"
@@ -891,12 +896,12 @@ def test_ensure_domain_schema_creates_twelve_tables_plus_one_alter() -> None:
     client.close()
 
     queries = [c["query"].strip() for c in captured]
-    assert len(queries) == 14, (
-        f"expected 14 statements (13 CREATE TABLE + 1 ALTER TABLE), "
+    assert len(queries) == 15, (
+        f"expected 15 statements (14 CREATE TABLE + 1 ALTER TABLE), "
         f"got {len(queries)}: {queries}"
     )
     create_queries = [q for q in queries if q.startswith("CREATE TABLE")]
-    assert len(create_queries) == 13
+    assert len(create_queries) == 14
     assert queries[0].startswith("CREATE TABLE IF NOT EXISTS animales")
     assert queries[1].startswith("CREATE TABLE IF NOT EXISTS voluntarios")
     assert queries[2].startswith("CREATE TABLE IF NOT EXISTS roles_voluntario")
@@ -1116,3 +1121,94 @@ def test_contratos_required_metadata_not_null() -> None:
     assert "tipo_contrato_id UUID NOT NULL" in sql
     assert "numero_contrato TEXT NOT NULL" in sql
     assert "fecha DATE NOT NULL" in sql
+
+
+# --- actuacion_sanitaria (HEALTH-01 #50) ----------------------------------
+#
+# Tabla nueva: historial clinico por animal con la regla D-24 validada
+# en la capa de service (no en el schema — el schema solo declara las
+# columnas y las FKs).
+
+
+def test_actuacion_sanitaria_create_table_sql_uses_if_not_exists() -> None:
+    """Idempotent creation: re-running the lifespan is safe."""
+    assert "CREATE TABLE IF NOT EXISTS actuacion_sanitaria" in (
+        ACTUACION_SANITARIA_CREATE_TABLE_SQL
+    )
+
+
+def test_actuacion_sanitaria_create_table_sql_columns() -> None:
+    """All 13 columns required by the actuacion_sanitaria table (HEALTH-01).
+
+    10 domain columns (id, animal_id, fecha, tipo_actuacion_id, veterinario,
+    observaciones, voluntario_id, material_utilizado, fecha_alta,
+    updated_at) + activo + the 3 audit columns. The FKs are checked
+    separately.
+    """
+    columns = _column_names(ACTUACION_SANITARIA_CREATE_TABLE_SQL)
+    required = {
+        "id",
+        "animal_id",
+        "fecha",
+        "tipo_actuacion_id",
+        "veterinario",
+        "observaciones",
+        "voluntario_id",
+        "material_utilizado",
+        "fecha_alta",
+        "updated_at",
+        "activo",
+    }
+    missing = required - columns
+    assert not missing, (
+        f"actuacion_sanitaria table missing columns: {sorted(missing)}"
+    )
+
+
+def test_actuacion_sanitaria_create_table_sql_required_columns_not_null() -> None:
+    """animal_id and fecha are the only NOT NULL columns besides the PK.
+
+    The legacy contract treats these as the only mandatory fields on a
+    clinical event — everything else (tipo_actuacion_id, voluntario_id,
+    etc.) is operator-optional.
+    """
+    sql = ACTUACION_SANITARIA_CREATE_TABLE_SQL
+    assert "animal_id UUID NOT NULL" in sql
+    assert "fecha DATE NOT NULL" in sql
+
+
+def test_actuacion_sanitaria_create_table_sql_fk_animal_id_to_animales() -> None:
+    """animal_id FK to animales (NOT NULL)."""
+    pairs = _fk_targets(ACTUACION_SANITARIA_CREATE_TABLE_SQL)
+    assert ("animal_id", "animales") in pairs
+
+
+def test_actuacion_sanitaria_create_table_sql_fk_tipo_actuacion_id_to_catalogos_pruebas() -> None:
+    """tipo_actuacion_id FK to catalogos_pruebas (D-HEALTH-01, CATALOG-01 #65)."""
+    pairs = _fk_targets(ACTUACION_SANITARIA_CREATE_TABLE_SQL)
+    assert ("tipo_actuacion_id", "catalogos_pruebas") in pairs
+
+
+def test_actuacion_sanitaria_create_table_sql_fk_voluntario_id_to_voluntarios() -> None:
+    """voluntario_id FK to voluntarios (per VOL-05)."""
+    pairs = _fk_targets(ACTUACION_SANITARIA_CREATE_TABLE_SQL)
+    assert ("voluntario_id", "voluntarios") in pairs
+
+
+def test_ensure_domain_schema_emits_actuacion_sanitaria_after_contratos() -> None:
+    """actuacion_sanitaria is the LAST emit in ensure_domain_schema.
+
+    Placement after ``contratos`` is required because the FKs to
+    ``animales``, ``voluntarios``, and ``catalogos_pruebas`` must be
+    satisfiable. The lifespan creates catalog tables before domain tables,
+    so the FK to ``catalogos_pruebas`` is valid even on a fresh backend.
+    """
+    client, captured = _client_recording(lambda req, body: _json_response(200, []))
+
+    ensure_domain_schema(client)
+    client.close()
+
+    queries = [c["query"].strip() for c in captured]
+    assert queries[-1].startswith("CREATE TABLE IF NOT EXISTS actuacion_sanitaria"), (
+        f"actuacion_sanitaria must be the LAST emit; got: {queries[-1][:80]!r}"
+    )

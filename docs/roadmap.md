@@ -251,7 +251,7 @@
 | #47 | ADOPT-01: CRUD de adopciones con FK a voluntario | Fase 5c | 🔲 |
 | #48 | ADOPT-02: expiración de pre-adopción tras ventana de 20 días | Fase 5c | 🔲 |
 | #49 | ADOPT-03: state machine de seguimiento de 4 estados | Fase 5c | 🔲 |
-| #50 | HEALTH-01: CRUD de actuaciones sanitarias con validación de fechas (D-24) | Fase 6a | 🔲 |
+| #50 | HEALTH-01: CRUD de actuaciones sanitarias con validación de fechas (D-24) | Fase 6a | ✅ (commit `0589076`, 2026-07-04) |
 | #51 | HEALTH-02: API batch de actuaciones con commit transaccional | Fase 6a | 🔲 |
 | #52 | HEALTH-03: API de resumen de salud (última por tipo de prueba) | Fase 6a | 🔲 |
 | #53 | HEALTH-04: CRUD de terapias y recomendaciones | Fase 6b | 🔲 |
@@ -271,6 +271,7 @@
 
 **Issues cerradas relevantes (refresco 2026-07-04, con commit/título):**
 
+- #50 (`0589076`) — HEALTH-01: CRUD de `actuacion_sanitaria` con validación de fecha D-24 (regla formalizada en `docs/decisiones-proyecto.md` §3 D-24: ISO formato + no futura + no anterior a `animales.fecha_alta` con exención NULL legacy). Tabla nueva `actuacion_sanitaria` (11 columnas, FKs a `animales`/`voluntarios`/`catalogos_pruebas` per CATALOG-01) cableada en `ensure_domain_schema`. CTE atómico para validación FK + D-24 regla 3 con disambiguation específica ("fecha es anterior al alta del animal (YYYY-MM-DD)" vs "animal inactivo" vs "voluntario inactivo" vs "tipo de prueba inexistente"). 25 atoms service en `tests/test_sanidad.py` + 14 atoms routes en `tests/test_sanidad_routes.py` + 7 atoms schema en `tests/test_domain.py` + 40 atoms template coverage en `tests/test_xss_audit.py`.
 - #44 (`b7f197f`) — FOSTER-02: estancias de acogida con FK a `casas_acogida` (FOSTER-01, FK estructurada vía `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`) y a `voluntarios` activos (active check per VOL-05); helpers `compute_duracion` (días entre fechas) e `is_active` (`activo AND fecha_final IS NULL`); `close_acogida` (evento de ciclo de vida: `fecha_final = current_date`) separado de `delete_acogida` (soft-delete real: `activo = false`, `fecha_baja = now()`); 8 endpoints con CSRF + auth; 38 atoms service en `tests/test_acogidas.py` + 23 atoms routes en `tests/test_acogidas_routes.py` (8 parametrizados en auth guard + 15 individuales) + 3 nuevos tests en `tests/test_domain.py` pinneando la migración ALTER TABLE.
 - #43 (`25e749e`) — FOSTER-01: casas de acogida con capacidad y preferencia de especie (legacy `TbAcogidaCasas` 1:1 + 2 mejoras justificadas: `id` UUID y `capacidad INTEGER > 0`); soft-delete atómico via `UPDATE ... WHERE id = $1 AND activo = true RETURNING id`. 30 atoms service en `tests/test_foster.py` + 21 atoms routes en `tests/test_foster_routes.py` (7 parametrizados en el auth guard + 14 individuales).
 - #40 (`c7b69ec`) — INTAKE-02: entradas en lote con staging y commit atómico (Entradas Múltiples / legacy `TbEntradasMultiplesAuxIniciales`); CTE atómico `INSERT FROM staging + DELETE staging` en una sola sentencia PostgreSQL.

@@ -66,10 +66,10 @@ async def test_lifespan_calls_ensure_schema_and_seed_on_startup(
     assert len(sql_calls) == 1, f"expected apply_sql_migrations called once, got {len(sql_calls)}"
 
 
-async def test_lifespan_calls_domain_bootstrap_after_auth(
+async def test_lifespan_calls_catalog_bootstrap_before_domain(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The auth bootstrap must finish before the domain bootstrap starts."""
+    """Catalog tables must exist before domain FKs reference them."""
     order: list[str] = []
 
     def _record_auth(*args: Any, **kwargs: Any) -> None:
@@ -93,7 +93,7 @@ async def test_lifespan_calls_domain_bootstrap_after_auth(
     async with lifespan(_app):
         pass
 
-    assert order == ["auth", "domain", "catalogs", "sql"], (
+    assert order == ["auth", "catalogs", "domain", "sql"], (
         f"bootstrap order wrong: {order!r}"
     )
 

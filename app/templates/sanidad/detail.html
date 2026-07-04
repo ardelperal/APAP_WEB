@@ -1,0 +1,103 @@
+{% extends base_template %}
+{% block title %}Actuación del {{ actuacion.fecha }} - APAP{% endblock %}
+{% block content %}
+  <div class="flex items-start justify-between mb-6 flex-wrap gap-3">
+    <div>
+      <h1 class="text-3xl font-bold text-primary-dark tracking-tight">
+        Actuación del <span class="font-mono">{{ actuacion.fecha }}</span>
+      </h1>
+      <p class="text-text-muted text-sm mt-1">
+        {% if tipo_actuacion %}
+          Tipo: <span class="font-semibold">{{ tipo_actuacion.nombre }}</span>
+        {% else %}
+          Sin clasificar
+        {% endif %}
+        {% if actuacion.veterinario %}
+          · Veterinario: <span class="font-semibold">{{ actuacion.veterinario }}</span>
+        {% endif %}
+        {% if actuacion.activo %}
+          · <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700">Activa</span>
+        {% else %}
+          · <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700">Inactiva</span>
+        {% endif %}
+      </p>
+    </div>
+    <div class="flex gap-2">
+      <a href="/sanidad" class="px-4 py-2 text-text-muted hover:text-text">← Volver</a>
+      <a href="/sanidad/{{ actuacion.id }}/edit" class="bg-surface border border-border text-text px-4 py-2 rounded font-semibold hover:bg-border/30 transition-colors shadow-sm">
+        Editar
+      </a>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <div class="bg-surface rounded-card shadow-card p-6 space-y-3">
+      <h2 class="text-lg font-semibold text-text">Datos del acto</h2>
+      <dl class="space-y-2 text-sm">
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Animal</dt>
+          <dd class="text-text font-mono text-xs">{{ actuacion.animal_id }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Fecha</dt>
+          <dd class="text-text font-mono">{{ actuacion.fecha }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Tipo</dt>
+          <dd class="text-text">
+            {% if tipo_actuacion %}
+              {{ tipo_actuacion.nombre }}
+              {% if tipo_actuacion.especie and tipo_actuacion.especie != "ambos" %}
+                <span class="text-xs text-text-muted ml-1">({{ tipo_actuacion.especie|capitalize }})</span>
+              {% endif %}
+            {% else %}
+              Sin clasificar
+            {% endif %}
+          </dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Veterinario</dt>
+          <dd class="text-text">{{ actuacion.veterinario or "—" }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Material utilizado</dt>
+          <dd class="text-text">{{ actuacion.material_utilizado or "—" }}</dd>
+        </div>
+      </dl>
+    </div>
+
+    <div class="bg-surface rounded-card shadow-card p-6 space-y-3">
+      <h2 class="text-lg font-semibold text-text">Responsable y auditoría</h2>
+      <dl class="space-y-2 text-sm">
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Voluntario responsable</dt>
+          <dd class="text-text font-mono text-xs">{{ actuacion.voluntario_id or "—" }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Fecha de alta</dt>
+          <dd class="text-text font-mono">{{ actuacion.fecha_alta or "—" }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Última actualización</dt>
+          <dd class="text-text font-mono">{{ actuacion.updated_at or "—" }}</dd>
+        </div>
+      </dl>
+    </div>
+
+    {% if actuacion.observaciones %}
+    <div class="bg-surface rounded-card shadow-card p-6 space-y-3 md:col-span-2">
+      <h2 class="text-lg font-semibold text-text">Observaciones</h2>
+      <p class="text-text whitespace-pre-line">{{ actuacion.observaciones }}</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="mt-8 pt-6 border-t border-border">
+    <form method="post" action="/sanidad/{{ actuacion.id }}/delete" onsubmit="return confirm('¿Dar de baja esta actuación? El registro se conserva en el histórico.');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <button type="submit" class="px-4 py-2 text-rose-700 hover:text-rose-900 font-semibold">
+        Dar de baja esta actuación
+      </button>
+    </form>
+  </div>
+{% endblock %}

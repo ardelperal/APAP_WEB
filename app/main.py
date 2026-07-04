@@ -80,6 +80,7 @@ from app.modules.entradas.batch_routes import router as entradas_batch_router
 from app.modules.entradas.routes import router as entradas_router
 from app.modules.foster.assignment_routes import router as foster_assignment_router
 from app.modules.foster.routes import router as foster_router
+from app.modules.sanidad.routes import router as sanidad_router
 from app.modules.voluntarios.routes import router as voluntarios_router
 
 _STATIC_DIR = Path(__file__).parent / "static"
@@ -169,15 +170,16 @@ async def lifespan(_: FastAPI):
        bootstrap steps below are logged on failure. Slice 6 (REQ-4).
     2. ``ensure_schema_and_seed`` — creates ``usuarios_autorizados`` and seeds
        the bootstrap admin if ``APAP_INITIAL_ADMIN_EMAIL`` is set.
-    3. ``ensure_domain_schema`` — creates the domain tables
-       (``animales``, ``voluntarios``, ``roles_voluntario``, ...) in
-       dependency order.
-    4. ``ensure_catalogs`` — creates the 5 reference-data catalog
+    3. ``ensure_catalogs`` — creates the 5 reference-data catalog
        tables (``catalogos_origenes``, ``catalogos_motivos``,
        ``catalogos_pruebas``, ``catalogos_periodicidad``,
        ``catalogos_tipos_contrato``) and seeds them from the Access
        legacy (issue #65 CATALOG-01). Idempotent: ``CREATE TABLE IF
        NOT EXISTS`` + ``INSERT ... ON CONFLICT DO NOTHING``.
+    4. ``ensure_domain_schema`` — creates the domain tables
+       (``animales``, ``voluntarios``, ``roles_voluntario``, ...) in
+       dependency order. This runs after catalogs because ``contratos``
+       and ``actuacion_sanitaria`` declare catalog FKs.
     5. ``apply_sql_migrations`` — applies any pending versioned SQL
        migrations from ``app/core/migration/sql/`` (schema-plane DDL,
        e.g. dropping a redundant CHECK constraint). Runs LAST so the
@@ -200,8 +202,8 @@ async def lifespan(_: FastAPI):
     client = InsForgeClient(settings.insforge_url, settings.insforge_service_key)
     try:
         ensure_schema_and_seed(client, settings)
-        ensure_domain_schema(client)
         ensure_catalogs(client)
+        ensure_domain_schema(client)
         apply_sql_migrations(client)
     finally:
         client.close()
@@ -645,9 +647,12 @@ def create_app() -> FastAPI:
     # anyway, but the ordering here matches the FOSTER-02 / FOSTER-03
     # convention: stable insertion point at the end of the chain).
     application.include_router(adopciones_router)
+    # HEALTH-01 (#50) — CRUD de actuaciones sanitarias (D-24 fecha
+    # validation). Mounted after adopciones for stable insertion order
+    # alongside the other domain routers.
+    application.include_router(sanidad_router)
 
     return application
 
 
 app = create_app()
-
