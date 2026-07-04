@@ -34,6 +34,7 @@ from app.core.auth_dependencies import (
 )
 from app.core.csrf import csrf_token_context_processor
 from app.core.insforge import InsForgeClient, InsForgeError
+from app.core.middleware import base_template_context_processor
 from app.modules.animals import service as animals_service
 from app.modules.animals.forms import AnimalForm
 
@@ -55,7 +56,7 @@ _TEMPLATES_DIR = Path(__file__).parents[2] / "templates"
 # PR-5B2 (REQ-AH-7): inject csrf_token into every template context.
 _templates = Jinja2Templates(
     directory=_TEMPLATES_DIR,
-    context_processors=[csrf_token_context_processor],
+    context_processors=[csrf_token_context_processor, base_template_context_processor],
 )
 
 
