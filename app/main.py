@@ -62,7 +62,7 @@ from app.core.csrf import CsrfMiddleware, csrf_token_context_processor, issue_cs
 from app.core.domain import ensure_domain_schema
 from app.core.insforge import InsForgeClient, InsForgeError
 from app.core.logging import configure_logging, log_safe
-from app.core.middleware import UADetectionMiddleware
+from app.core.middleware import UADetectionMiddleware, base_template_context_processor
 from app.core.migration.sql_runner import apply_sql_migrations
 from app.core.pkce import generate_pkce_pair
 from app.core.session import (
@@ -247,7 +247,10 @@ def create_app() -> FastAPI:
 
     templates = Jinja2Templates(
         directory=_TEMPLATES_DIR,
-        context_processors=[csrf_token_context_processor],
+        context_processors=[
+            csrf_token_context_processor,
+            base_template_context_processor,
+        ],
     )
 
     @application.middleware("http")

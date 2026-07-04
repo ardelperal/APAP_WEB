@@ -1,0 +1,60 @@
+<!doctype html>
+{# APAP — base template para mobile (UA-based template selection, slice B).
+
+   Plantilla paralela a ``base.html`` (desktop) que mantiene la
+   misma identidad visual (mismo color primary, mismo logo,
+   mismas labels en espanol) pero con layout optimizado para
+   telefonos:
+
+   - Sin grid horizontal: una sola columna, todo apilado.
+   - Botones full-width y touch-friendly (altura >= 44px).
+   - Sin animaciones pesadas; el ``scroll-behavior`` smooth y
+     transitions cortas siguen siendo aceptables.
+   - Tipografia ligeramente mayor para legibilidad en pantallas
+     pequenas.
+   - Header simplificado: logo + acceso directo al menu, sin
+     burger disclosure (el menu completo vive en una pagina
+     dedicada).
+
+   IMPORTANTE: este template NO extiende ``base.html`` ni usa
+   Jinja blocks que el template desktop no tenga. Es una
+   plantilla paralela — el refactor a un solo base con blocks
+   compartidos queda para slice C. Aqui la duplication es
+   intencional y pequena (~50 lineas) para mantener el blast
+   radius de slice B minimo.
+
+   Tokens consumidos: bg-primary, bg-surface, bg-bg, text-primary,
+   text-text, text-text-muted, border-border, font-sans.
+   Mismas convenciones que ``base.html`` para que el compiled
+   Tailwind los reconozca.
+#}
+<html lang="es" class="h-full">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>{% block title %}APAP Alcalá{% endblock %}</title>
+    <meta name="description" content="APAP Alcalá — panel operativo para la gestión diaria de animales, personas colaboradoras y documentación." />
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/static/css/output.css" />
+  </head>
+  <body class="min-h-screen flex flex-col bg-bg text-text font-sans antialiased">
+    <header class="sticky top-0 z-50 bg-surface border-b border-border shadow-card">
+      <div class="px-4 py-3 flex items-center justify-between">
+        <a href="/" class="text-primary font-bold text-lg flex items-center gap-2">
+          <span aria-hidden="true">🐾</span>
+          <span>APAP</span>
+        </a>
+        <a href="/casas-acogida" class="text-sm text-text-muted">Menú</a>
+      </div>
+    </header>
+
+    <main class="flex-1 px-4 py-6">
+      {% block content %}{% endblock %}
+    </main>
+
+    <footer class="bg-primary-dark text-white mt-12 py-6 text-center text-sm">
+      <p class="font-semibold">🐾 APAP Alcalá</p>
+      <p class="opacity-80 mt-1 text-xs">Gestión diaria de animales, documentación y seguimientos.</p>
+    </footer>
+  </body>
+</html>

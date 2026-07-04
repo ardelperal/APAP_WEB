@@ -84,8 +84,16 @@ def render(template_name: str, context: dict[str, Any]) -> str:
     We do NOT go through the ASGI client here: the template test is a
     pure-render characterisation test, independent of auth, routing and
     the DB layer.
+
+    ``base_template`` is injected as a default so templates that use
+    ``{% extends base_template %}`` (slice B of the UA-based templates
+    work, engram obs #15705) can be rendered without going through the
+    production context-processor chain. The default mirrors the helper's
+    default-deny posture (``app.core.middleware._select_base_template``
+    returns ``"base.html"`` when ``request.state.is_mobile`` is missing).
     """
-    return TEMPLATES.env.get_template(template_name).render(**context)
+    merged: dict[str, Any] = {"base_template": "base.html", **context}
+    return TEMPLATES.env.get_template(template_name).render(**merged)
 
 
 # ---------------------------------------------------------------------------
@@ -235,6 +243,16 @@ TEMPLATE_SPECS: list[tuple[str, list[str], dict[str, Any]]] = [
     # --- 8 templates explicitly listed in spec REQ-XSS-1 ---
     (
         "base.html",
+        ["app_name", "user.email", "user.role"],
+        {"app_name": "APAP_WEB", "user": _BASE_USER},
+    ),
+    (
+        # Slice B of the UA-based templates work (engram obs #15705):
+        # ``base_mobile.html`` is the parallel mobile template selected
+        # when ``request.state.is_mobile`` is True. Same context shape as
+        # ``base.html`` because the page templates extend whichever the
+        # context processor returns. Audit it with the same fields.
+        "base_mobile.html",
         ["app_name", "user.email", "user.role"],
         {"app_name": "APAP_WEB", "user": _BASE_USER},
     ),
