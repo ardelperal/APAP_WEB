@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}{{ casa.nombre }} {{ casa.apellidos }} - APAP{% endblock %}
+{% block content %}
+  <div class="flex items-start justify-between mb-6 flex-wrap gap-3">
+    <div>
+      <h1 class="text-3xl font-bold text-primary-dark tracking-tight">{{ casa.nombre }} {{ casa.apellidos }}</h1>
+      <p class="text-text-muted text-sm mt-1">
+        Casa de acogida
+        {% if casa.especie_preferente %}
+          · Especie preferente: <span class="font-semibold">{{ casa.especie_preferente }}</span>
+        {% else %}
+          · Acepta cualquier especie
+        {% endif %}
+        · Capacidad: <span class="font-semibold">{{ casa.capacidad }}</span>
+      </p>
+    </div>
+    <div class="flex gap-2">
+      <a href="/casas-acogida" class="px-4 py-2 text-text-muted hover:text-text">← Volver</a>
+      <a href="/casas-acogida/{{ casa.id }}/edit" class="bg-primary text-white px-4 py-2 rounded font-semibold hover:bg-primary-dark transition-colors shadow-sm">
+        Editar
+      </a>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <div class="bg-surface rounded-card shadow-card p-6 space-y-3">
+      <h2 class="text-lg font-semibold text-text">Datos del acogedor</h2>
+      <dl class="space-y-2 text-sm">
+        <div class="flex justify-between">
+          <dt class="text-text-muted">DNI</dt>
+          <dd class="text-text font-mono">{{ casa.dni_acogedor or "—" }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Vinculación</dt>
+          <dd class="text-text">{{ casa.vinculacion or "—" }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Coche</dt>
+          <dd class="text-text">{{ casa.coche }}</dd>
+        </div>
+      </dl>
+    </div>
+
+    <div class="bg-surface rounded-card shadow-card p-6 space-y-3">
+      <h2 class="text-lg font-semibold text-text">Contacto</h2>
+      <dl class="space-y-2 text-sm">
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Teléfono</dt>
+          <dd class="text-text font-mono">{{ casa.telefono }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Teléfono 2</dt>
+          <dd class="text-text font-mono">{{ casa.telefono2 or "—" }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Email</dt>
+          <dd class="text-text font-mono">{{ casa.email or "—" }}</dd>
+        </div>
+      </dl>
+    </div>
+
+    <div class="bg-surface rounded-card shadow-card p-6 space-y-3 md:col-span-2">
+      <h2 class="text-lg font-semibold text-text">Dirección</h2>
+      <p class="text-text">
+        {{ casa.calle }}{% if casa.numero %}, {{ casa.numero }}{% endif %}{% if casa.piso %}, {{ casa.piso }}º{% endif %}{% if casa.letra %} {{ casa.letra }}{% endif %}<br>
+        {% if casa.cp %}{{ casa.cp }} {% endif %}{{ casa.localidad or "" }}{% if casa.provincia %} ({{ casa.provincia }}){% endif %}
+      </p>
+    </div>
+
+    {% if casa.caracteristicas or casa.observaciones %}
+    <div class="bg-surface rounded-card shadow-card p-6 space-y-3 md:col-span-2">
+      {% if casa.caracteristicas %}
+      <div>
+        <h3 class="text-sm font-semibold text-text-muted">Características</h3>
+        <p class="text-text mt-1 whitespace-pre-line">{{ casa.caracteristicas }}</p>
+      </div>
+      {% endif %}
+      {% if casa.observaciones %}
+      <div>
+        <h3 class="text-sm font-semibold text-text-muted">Observaciones</h3>
+        <p class="text-text mt-1 whitespace-pre-line">{{ casa.observaciones }}</p>
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="mt-8 pt-6 border-t border-border">
+    <form method="post" action="/casas-acogida/{{ casa.id }}/delete" onsubmit="return confirm('¿Dar de baja esta casa de acogida? Las estancias pasadas se conservan.');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <button type="submit" class="px-4 py-2 text-rose-700 hover:text-rose-900 font-semibold">
+        Dar de baja esta casa
+      </button>
+    </form>
+  </div>
+{% endblock %}

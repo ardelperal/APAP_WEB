@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Casas de acogida - APAP{% endblock %}
+{% block content %}
+  <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
+    <div>
+      <h1 class="text-3xl font-bold text-primary-dark tracking-tight">Casas de acogida</h1>
+      <p class="text-text-muted text-sm mt-1">
+        Registro de casas de acogida con preferencia de especie y capacidad máxima.
+        {% if especie %}
+          Filtrando por especie preferente: <span class="font-semibold">{{ especie }}</span>.
+        {% endif %}
+      </p>
+    </div>
+    <a href="/casas-acogida/new" class="bg-primary text-white px-4 py-2 rounded font-semibold hover:bg-primary-dark transition-colors shadow-sm">
+      + Nueva casa de acogida
+    </a>
+  </div>
+
+  <form method="get" action="/casas-acogida" class="mb-4 flex items-center gap-2">
+    <label for="especie" class="text-sm text-text-muted">Filtrar por especie:</label>
+    <select name="especie" id="especie"
+            class="border border-border rounded px-2 py-1 bg-surface text-text">
+      <option value="">Todas</option>
+      <option value="CANINA" {% if especie == "CANINA" %}selected{% endif %}>CANINA</option>
+      <option value="FELINA" {% if especie == "FELINA" %}selected{% endif %}>FELINA</option>
+    </select>
+    <button type="submit" class="px-3 py-1 rounded border border-border text-text-muted hover:text-primary hover:border-primary transition-colors">
+      Aplicar
+    </button>
+    {% if especie %}
+      <a href="/casas-acogida" class="px-3 py-1 text-rose-700 hover:text-rose-900 text-sm">Quitar filtro</a>
+    {% endif %}
+  </form>
+
+  {% if casas %}
+  <div class="bg-surface rounded-card shadow-card overflow-hidden">
+    <table class="min-w-full text-left text-sm">
+      <thead class="bg-primary text-white">
+        <tr>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Casa</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Localidad</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Especie</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Capacidad</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Coche</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for casa in casas %}
+        <tr class="border-b border-border last:border-b-0 hover:bg-primary/5 transition-colors">
+          <td class="px-6 py-4 text-text">
+            <span class="font-semibold">{{ casa.nombre }} {{ casa.apellidos }}</span>
+          </td>
+          <td class="px-6 py-4 text-text-muted">{{ casa.localidad or "—" }}</td>
+          <td class="px-6 py-4 text-text-muted">
+            {{ casa.especie_preferente or "Cualquiera" }}
+          </td>
+          <td class="px-6 py-4 font-mono text-text">{{ casa.capacidad }}</td>
+          <td class="px-6 py-4 text-text-muted">{{ casa.coche }}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-right">
+            <a href="/casas-acogida/{{ casa.id }}" class="text-primary font-semibold hover:underline">Ver</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="bg-gradient-to-br from-primary/10 to-primary/5 border-l-4 border-primary rounded-card shadow-card p-8 text-center">
+    <div class="text-5xl mb-3" aria-hidden="true">🏠</div>
+    <h2 class="text-primary-dark font-semibold text-lg">No hay casas de acogida registradas</h2>
+    <p class="text-text-muted text-sm mt-1 mb-4">
+      {% if especie %}
+        Ninguna casa coincide con el filtro de especie <span class="font-semibold">{{ especie }}</span>.
+      {% else %}
+        Da de alta la primera casa para empezar a asignar estancias.
+      {% endif %}
+    </p>
+    <a href="/casas-acogida/new" class="inline-block bg-primary text-white px-4 py-2 rounded font-semibold hover:bg-primary-dark transition-colors">
+      Registrar primera casa
+    </a>
+  </div>
+  {% endif %}
+{% endblock %}

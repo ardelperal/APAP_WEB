@@ -1,0 +1,630 @@
+"""Route-layer tests for FOSTER-01 casas de acogida.
+
+Mirror of ``tests/test_entradas_routes.py`` and
+``tests/test_entradas_batch_routes.py``: routes are pure HTTP / auth /
+template glue. The fixture ``_NoSqlRouteClient`` enforces the
+AGENTS.md layer-boundary rule (no ``client.execute_sql`` in routes).
+All data access goes through ``app.modules.foster.service``.
+
+Coverage (15 atoms):
+
+1. Auth guard on every endpoint (parametrized over the 7 endpoints).
+2. ``GET /casas-acogida`` delegates to ``foster_service.list_casas_acogida``
+   and renders the Spanish copy from ``casas_acogida/list.html``.
+3. ``GET /casas-acogida?especie=FELINA`` passes the filter through to the
+   service.
+4. ``GET /casas-acogida/new`` renders the empty form with a CSRF token
+   and ``form_action="/casas-acogida"``.
+5. ``POST /casas-acogida`` with valid records redirects to the detail
+   page (303).
+6. ``POST /casas-acogida`` with a service validation error re-renders
+   the form with 422 and preserves operator input.
+7. ``GET /casas-acogida/{id}`` returns 404 when the row is missing.
+8. ``GET /casas-acogida/{id}`` renders the detail view with the casa's
+   data.
+9. ``GET /casas-acogida/{id}/edit`` renders the form prefilled, with
+   ``form_action="/casas-acogida/{id}/update"`` and a CSRF token.
+10. ``POST /casas-acogida/{id}/update`` with valid records redirects to
+    the detail page.
+11. ``POST /casas-acogida/{id}/update`` with a validation error
+    re-renders the form with 422.
+12. ``POST /casas-acogida/{id}/update`` returns 404 when the row is
+    missing.
+13. ``POST /casas-acogida/{id}/delete`` soft-deletes and redirects to
+    the list (303) when the service returns True.
+14. ``POST /casas-acogida/{id}/delete`` returns 404 when the service
+    returns False (row missing or already inactive).
+15. Route source contains no ``client.execute_sql`` call (defense in
+    depth alongside the runtime ``_NoSqlRouteClient`` spy).
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import httpx
+import pytest
+
+from app.core.auth_dependencies import get_insforge_client_dep
+from app.core.config import get_settings
+from app.core.insforge import InsForgeClient
+from app.core.session import session_cookie_name, write_session
+from app.main import app, get_insforge_client
+from app.modules.foster import service as foster_service
+from tests.conftest import make_csrf_request
+
+
+class _NoSqlRouteClient(InsForgeClient):
+    """Client spy that fails if a route executes SQL directly.
+
+    Mirrors the same pattern used in
+    ``tests/test_entradas_routes.py`` and
+    ``tests/test_entradas_batch_routes.py``: routes own no SQL, they
+    delegate to the service. If a route ever calls
+    ``client.execute_sql``, the spy raises AssertionError and the
+    failing test names the offending query.
+    """
+
+    def __init__(self) -> None:  # type: ignore[override]
+        import httpx as _httpx
+
+        self._client = _httpx.Client(base_url="https://spy.example")
+
+    def execute_sql(self, query: str, params: Any = None):  # type: ignore[override]
+        raise AssertionError(f"routes must not execute SQL directly: {query!r}")
+
+
+@pytest.fixture
+def route_client() -> _NoSqlRouteClient:
+    spy = _NoSqlRouteClient()
+    app.dependency_overrides[get_insforge_client] = lambda: spy
+    app.dependency_overrides[get_insforge_client_dep] = lambda: spy
+    yield spy
+    app.dependency_overrides.pop(get_insforge_client, None)
+    app.dependency_overrides.pop(get_insforge_client_dep, None)
+
+
+def _login_as_key_user(client: httpx.AsyncClient) -> None:
+    """Mint a session cookie with a known CSRF token bound to it.
+
+    The CSRF token here is what ``make_csrf_request`` echoes back via
+    the ``X-CSRFToken`` header so the middleware passes the request.
+    """
+    token = write_session(
+        {
+            "email": "ana@example.com",
+            "rol": "key_user",
+            "user_id": "u-ana",
+            "is_authorized": True,
+            "csrf_token": "test-csrf-token-foster",
+        },
+        secret=get_settings().session_secret,
+    )
+    client.cookies.set(session_cookie_name(), token)
+
+
+def _casa() -> foster_service.CasaAcogida:
+    """Canonical CasaAcogida fixture for assertions."""
+    return foster_service.CasaAcogida(
+        id="casa-123",
+        nombre="María",
+        apellidos="García",
+        dni_acogedor="12345678A",
+        calle="Calle Mayor",
+        numero="12",
+        piso="3",
+        letra="A",
+        localidad="Alcalá de Henares",
+        provincia="Madrid",
+        cp="28801",
+        telefono="600123456",
+        telefono2=None,
+        email="maria@example.com",
+        vinculacion="Socia",
+        caracteristicas="Piso con patio",
+        coche="Sí",
+        especie_preferente="CANINA",
+        observaciones=None,
+        capacidad=3,
+    )
+
+
+def _form_data() -> dict[str, str]:
+    """Canonical form payload for create/update POSTs.
+
+    All string values so they survive httpx form-encoded transport.
+    Note ``capacidad`` is a string here: ``_form_data_to_params``
+    in the route converts it to int; sending "3" exercises the real
+    form path rather than a Python-bypass.
+    """
+    return {
+        "nombre": "María",
+        "apellidos": "García",
+        "dni_acogedor": "12345678A",
+        "calle": "Calle Mayor",
+        "numero": "12",
+        "piso": "3",
+        "letra": "A",
+        "localidad": "Alcalá de Henares",
+        "provincia": "Madrid",
+        "cp": "28801",
+        "telefono": "600123456",
+        "telefono2": "",
+        "email": "maria@example.com",
+        "vinculacion": "Socia",
+        "caracteristicas": "Piso con patio",
+        "coche": "Sí",
+        "especie_preferente": "CANINA",
+        "observaciones": "",
+        "capacidad": "3",
+    }
+
+
+# --- 1. Auth guards -------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "method,path",
+    [
+        ("GET", "/casas-acogida"),
+        ("GET", "/casas-acogida/new"),
+        ("POST", "/casas-acogida"),
+        ("GET", "/casas-acogida/casa-123"),
+        ("GET", "/casas-acogida/casa-123/edit"),
+        ("POST", "/casas-acogida/casa-123/update"),
+        ("POST", "/casas-acogida/casa-123/delete"),
+    ],
+)
+async def test_foster_routes_require_authorized_user(
+    client: httpx.AsyncClient, method: str, path: str
+) -> None:
+    """Every foster endpoint requires a session; anonymous -> /login."""
+    response = await client.request(method, path, follow_redirects=False)
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "/login"
+
+
+# --- 2. GET /casas-acogida (list, happy path) -----------------------------
+
+
+async def test_list_casas_acogida_delegates_to_service_and_renders_spanish_copy(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """List endpoint delegates to the service and renders Spanish copy.
+
+    Verifies three properties at once:
+
+    - The route calls ``foster_service.list_casas_acogida(client)``
+      exactly once, passing the dependency-injected client.
+    - The list HTML renders the casa's primary fields (the Spanish
+      copy ``María García``, ``CANINA``, ``3``).
+    - The CSRF filter form (``<form method="get" action="/casas-acogida"``)
+      is in the body so operators can apply the especie filter.
+    """
+    _login_as_key_user(client)
+    calls: list[InsForgeClient] = []
+    casa = _casa()
+
+    def fake_list(
+        service_client: InsForgeClient, especie: str | None = None
+    ) -> list[foster_service.CasaAcogida]:
+        calls.append(service_client)
+        return [casa]
+
+    monkeypatch.setattr(foster_service, "list_casas_acogida", fake_list)
+
+    response = await client.get("/casas-acogida")
+
+    assert response.status_code == 200
+    assert calls == [route_client]
+    body = response.text
+    assert "Casas de acogida" in body
+    assert "María García" in body
+    assert "CANINA" in body
+    # capacidad renders in the row.
+    assert "3</td>" in body or ">3<" in body
+    # The list view exposes the filter form for the especie query param.
+    assert '<form method="get" action="/casas-acogida"' in body
+
+
+# --- 3. GET /casas-acogida?especie=FELINA (filter passthrough) -----------
+
+
+async def test_list_casas_acogida_with_especie_query_param(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The ``?especie=`` query param reaches the service unchanged."""
+    _login_as_key_user(client)
+    calls: list[tuple[InsForgeClient, str | None]] = []
+
+    def fake_list(
+        service_client: InsForgeClient, especie: str | None = None
+    ) -> list[foster_service.CasaAcogida]:
+        calls.append((service_client, especie))
+        return []
+
+    monkeypatch.setattr(foster_service, "list_casas_acogida", fake_list)
+
+    response = await client.get("/casas-acogida", params={"especie": "FELINA"})
+
+    assert response.status_code == 200
+    assert calls == [(route_client, "FELINA")]
+    assert "Filtrando por especie preferente" in response.text
+
+
+# --- 4. GET /casas-acogida/new (empty form) ------------------------------
+
+
+async def test_new_casa_acogida_form_renders_with_csrf(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+) -> None:
+    """The ``/new`` form is rendered with a hidden CSRF input and the
+    correct ``action="/casas-acogida"`` (create endpoint, not update)."""
+    _login_as_key_user(client)
+
+    response = await client.get("/casas-acogida/new")
+
+    assert response.status_code == 200
+    body = response.text
+    assert "Nueva casa de acogida" in body
+    # PR-5B2: CSRF token field present (REQ-AH-7).
+    assert 'name="csrf_token"' in body
+    # Create endpoint, not the update endpoint.
+    assert '<form method="post" action="/casas-acogida"' in body
+    # The required-field asterisks signal which fields are mandatory.
+    assert "Nombre" in body
+    assert "Capacidad" in body
+
+
+# --- 5. POST /casas-acogida (create, happy path) --------------------------
+
+
+async def test_create_casa_acogida_valid_records_redirects_to_detail(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Valid create form -> service returns the casa -> 303 to detail."""
+    _login_as_key_user(client)
+    casa = _casa()
+    calls: list[tuple[InsForgeClient, dict[str, Any]]] = []
+
+    def fake_create(
+        service_client: InsForgeClient, params: dict[str, Any]
+    ) -> foster_service.CasaAcogida:
+        calls.append((service_client, params))
+        return casa
+
+    monkeypatch.setattr(foster_service, "create_casa_acogida", fake_create)
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/casas-acogida",
+        form_data=_form_data(),
+        csrf_token="test-csrf-token-foster",
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/casas-acogida/casa-123"
+    # The service received the dependency-injected client and the
+    # operator's form payload (after _form_data_to_params int coercion).
+    assert len(calls) == 1
+    assert calls[0][0] is route_client
+    assert calls[0][1]["nombre"] == "María"
+    assert calls[0][1]["capacidad"] == 3  # _form_data_to_params coerced "3"
+
+
+# --- 6. POST /casas-acogida (create, sad path) ----------------------------
+
+
+async def test_create_casa_acogida_sad_validation_rerenders_form_with_422(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Service raises ``ValueError`` -> route re-renders the form with 422.
+
+    Operator input is preserved so they can fix the failing field
+    without retyping (mirror of the entradas and entradas_batch
+    patterns).
+    """
+    _login_as_key_user(client)
+
+    def fake_create(
+        service_client: InsForgeClient, params: dict[str, Any]
+    ) -> foster_service.CasaAcogida:
+        raise ValueError("capacidad debe ser un entero positivo (>= 1)")
+
+    monkeypatch.setattr(foster_service, "create_casa_acogida", fake_create)
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/casas-acogida",
+        form_data=_form_data(),
+        csrf_token="test-csrf-token-foster",
+    )
+
+    assert response.status_code == 422
+    body = response.text
+    assert "No se pudo guardar la casa de acogida" in body
+    assert "capacidad debe ser un entero positivo" in body
+    # Operator input is preserved (their nombre still in the body).
+    assert 'value="María"' in body
+
+
+# --- 7. GET /casas-acogida/{id} (detail, missing) ------------------------
+
+
+async def test_casa_acogida_detail_returns_404_when_id_missing(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Detail returns 404 when ``get_casa_acogida_by_id`` returns None."""
+    _login_as_key_user(client)
+    monkeypatch.setattr(
+        foster_service, "get_casa_acogida_by_id", lambda _c, _id: None
+    )
+
+    response = await client.get("/casas-acogida/missing-id")
+
+    assert response.status_code == 404
+
+
+# --- 8. GET /casas-acogida/{id} (detail, happy path) ---------------------
+
+
+async def test_casa_acogida_detail_renders_data(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Detail renders the casa's data plus the delete form with CSRF."""
+    _login_as_key_user(client)
+    casa = _casa()
+    monkeypatch.setattr(
+        foster_service, "get_casa_acogida_by_id", lambda _c, _id: casa
+    )
+
+    response = await client.get("/casas-acogida/casa-123")
+
+    assert response.status_code == 200
+    body = response.text
+    assert "María García" in body
+    assert "Calle Mayor" in body
+    # Coche with tilde preserved through the render (P1 fidelity).
+    assert "Sí" in body
+    # Delete form is rendered with CSRF token.
+    assert '<form method="post" action="/casas-acogida/casa-123/delete"' in body
+    assert 'name="csrf_token"' in body
+    # Edit link present.
+    assert '/casas-acogida/casa-123/edit' in body
+
+
+# --- 9. GET /casas-acogida/{id}/edit (edit form) -------------------------
+
+
+async def test_edit_casa_acogida_form_renders_with_csrf_and_action(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Edit form prefills from the casa and posts to ``/update``.
+
+    The form action is context-dependent: ``/casas-acogida/{id}/update``
+    for edit, ``/casas-acogida`` for new. Verifies the edit path picks
+    the right one so the form round-trips correctly.
+    """
+    _login_as_key_user(client)
+    casa = _casa()
+    monkeypatch.setattr(
+        foster_service, "get_casa_acogida_by_id", lambda _c, _id: casa
+    )
+
+    response = await client.get("/casas-acogida/casa-123/edit")
+
+    assert response.status_code == 200
+    body = response.text
+    assert "Editar casa de acogida" in body
+    # The CSRF defense-in-depth token field.
+    assert 'name="csrf_token"' in body
+    # Edit action, not the create action.
+    assert '<form method="post" action="/casas-acogida/casa-123/update"' in body
+    # Prefilled values from the casa.
+    assert 'value="María"' in body
+    assert 'value="García"' in body
+    assert 'value="Calle Mayor"' in body
+    # coche "Sí" selected in the option list.
+    assert '<option value="Sí" selected' in body
+
+
+# --- 10. POST /casas-acogida/{id}/update (update, happy path) ------------
+
+
+async def test_update_casa_acogida_valid_records_redirects_to_detail(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Valid update -> service returns the casa -> 303 to detail page."""
+    _login_as_key_user(client)
+    casa = _casa()
+    calls: list[tuple[InsForgeClient, str, dict[str, Any]]] = []
+
+    def fake_update(
+        service_client: InsForgeClient,
+        casa_id: str,
+        params: dict[str, Any],
+    ) -> foster_service.CasaAcogida | None:
+        calls.append((service_client, casa_id, params))
+        return casa
+
+    monkeypatch.setattr(foster_service, "update_casa_acogida", fake_update)
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/casas-acogida/casa-123/update",
+        form_data=_form_data(),
+        csrf_token="test-csrf-token-foster",
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/casas-acogida/casa-123"
+    assert len(calls) == 1
+    assert calls[0][0] is route_client
+    assert calls[0][1] == "casa-123"
+    assert calls[0][2]["nombre"] == "María"
+
+
+# --- 11. POST /casas-acogida/{id}/update (update, sad path) --------------
+
+
+async def test_update_casa_acogida_sad_validation_rerenders_form_with_422(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Service raises ValueError on update -> form re-renders with 422.
+
+    Mirrors the create sad-path: operator input is preserved and the
+    error message is surfaced in the same banner so they can fix
+    without retyping.
+    """
+    _login_as_key_user(client)
+
+    def fake_update(
+        service_client: InsForgeClient,
+        casa_id: str,
+        params: dict[str, Any],
+    ) -> foster_service.CasaAcogida | None:
+        raise ValueError("coche debe ser 'Sí' o 'No' (con tilde en la primera opcion)")
+
+    monkeypatch.setattr(foster_service, "update_casa_acogida", fake_update)
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/casas-acogida/casa-123/update",
+        form_data=_form_data(),
+        csrf_token="test-csrf-token-foster",
+    )
+
+    assert response.status_code == 422
+    body = response.text
+    assert "No se pudo guardar la casa de acogida" in body
+    assert "coche debe ser" in body
+    # Edit action preserved (not the create action).
+    assert '<form method="post" action="/casas-acogida/casa-123/update"' in body
+
+
+# --- 12. POST /casas-acogida/{id}/update (404 when missing) --------------
+
+
+async def test_update_casa_acogida_returns_404_when_id_missing(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``update_casa_acogida`` returning ``None`` -> 404."""
+    _login_as_key_user(client)
+    monkeypatch.setattr(
+        foster_service, "update_casa_acogida", lambda _c, _id, _p: None
+    )
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/casas-acogida/missing/update",
+        form_data=_form_data(),
+        csrf_token="test-csrf-token-foster",
+    )
+
+    assert response.status_code == 404
+
+
+# --- 13. POST /casas-acogida/{id}/delete (happy path) --------------------
+
+
+async def test_delete_casa_acogida_redirects_to_list_when_successful(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Soft-delete succeeds -> 303 redirect to the list page."""
+    _login_as_key_user(client)
+    calls: list[tuple[InsForgeClient, str]] = []
+
+    def fake_delete(service_client: InsForgeClient, casa_id: str) -> bool:
+        calls.append((service_client, casa_id))
+        return True
+
+    monkeypatch.setattr(foster_service, "delete_casa_acogida", fake_delete)
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/casas-acogida/casa-123/delete",
+        csrf_token="test-csrf-token-foster",
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/casas-acogida"
+    assert calls == [(route_client, "casa-123")]
+
+
+# --- 14. POST /casas-acogida/{id}/delete (404 when missing) --------------
+
+
+async def test_delete_casa_acogida_returns_404_when_id_missing(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``delete_casa_acogida`` returns False -> 404 (no redirect).
+
+    ``False`` covers both "row does not exist" and "row was already
+    inactive" — the service folds both into a single sentinel. The
+    route maps that to 404 (not 500, not 303) so the operator sees a
+    clear "row not found" page.
+    """
+    _login_as_key_user(client)
+    monkeypatch.setattr(
+        foster_service, "delete_casa_acogida", lambda _c, _id: False
+    )
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/casas-acogida/missing/delete",
+        csrf_token="test-csrf-token-foster",
+    )
+
+    assert response.status_code == 404
+
+
+# --- 15. Defense in depth: route source has no ``.execute_sql`` ---------
+
+
+def test_foster_route_source_contains_no_direct_execute_sql() -> None:
+    """Static check: ``app/modules/foster/routes.py`` has no SQL.
+
+    Defense in depth alongside the runtime ``_NoSqlRouteClient`` spy.
+    If a future refactor accidentally re-introduces ``client.execute_sql``
+    in the route module (the AGENTS.md §1 layer-boundary violation),
+    this test fails before the runtime spy can catch it.
+    """
+    route_source = Path("app/modules/foster/routes.py")
+
+    assert route_source.exists()
+    assert ".execute_sql(" not in route_source.read_text(encoding="utf-8")
+

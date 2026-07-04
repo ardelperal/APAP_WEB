@@ -134,6 +134,59 @@ CREATE TABLE IF NOT EXISTS entradas (
 # LIFECYCLE-03 (migration-01). FKs to animales, voluntarios and entradas
 # (the entry that originated this foster placement).
 
+# --- casas_acogida: TbAcogidaCasas (19 cols legacy) + 2 mejoras justificadas
+# (FOSTER-01, #43) ------------------------------------------------------------
+#
+# Casa de Acogida is a separate entity from the foster stay (``acogidas``
+# below). Legacy keeps ``TbAcogidaCasas`` and ``TbAcogidaAnimal`` as
+# distinct tables so a single house can host multiple stays over time.
+# The new application mirrors that split.
+#
+# Justified improvements vs legacy (P1 fidelity D-FOSTER-02):
+# - ``id`` UUID PK (legacy uses ``IDAcogidaCasa`` INT) — stable, portable FK
+#   target. FOSTER-02 will add ``acogidas.casa_acogida_id REFERENCES
+#   casas_acogida(id)``.
+# - ``capacidad`` INTEGER NOT NULL CHECK (capacidad > 0) — legacy has no
+#   capacity column. Discovery 2.2 documents it as a rule; without it
+#   FOSTER-03 (gate de capacidad) cannot be implemented.
+#
+# P1 fidelity: 19 legacy columns preserved 1:1, including the Spanish
+# tilde in ``coche = 'Sí' / 'No'`` (mirrors ``cesiones_propietario`` CHECK
+# pattern). ``activo`` + ``fecha_baja`` soft-delete (project-wide
+# convention).
+
+CASAS_ACOGIDA_CREATE_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS casas_acogida (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    nombre TEXT NOT NULL,
+    apellidos TEXT NOT NULL,
+    dni_acogedor TEXT,
+    calle TEXT NOT NULL,
+    numero TEXT,
+    piso TEXT,
+    letra TEXT,
+    localidad TEXT,
+    provincia TEXT,
+    cp TEXT,
+    telefono TEXT NOT NULL,
+    telefono2 TEXT,
+    email TEXT,
+    vinculacion TEXT,
+    caracteristicas TEXT,
+    coche TEXT NOT NULL CHECK (coche IN ('Sí', 'No')),
+    especie_preferente TEXT CHECK (
+        especie_preferente IS NULL
+        OR especie_preferente IN ('CANINA', 'FELINA')
+    ),
+    observaciones TEXT,
+    capacidad INTEGER NOT NULL CHECK (capacidad > 0),
+    fecha_alta TIMESTAMP NOT NULL DEFAULT now(),
+    fecha_baja TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT now(),
+    activo BOOLEAN NOT NULL DEFAULT true
+)
+"""
+
 ACOGIDAS_CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS acogidas (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -420,6 +473,7 @@ def ensure_domain_schema(client: InsForgeClient) -> None:
     client.execute_sql(ROLES_VOLUNTARIO_CREATE_TABLE_SQL)
     client.execute_sql(ENTRADAS_CREATE_TABLE_SQL)
     client.execute_sql(ENTRADAS_BATCH_STAGING_CREATE_TABLE_SQL)
+    client.execute_sql(CASAS_ACOGIDA_CREATE_TABLE_SQL)
     client.execute_sql(ACOGIDAS_CREATE_TABLE_SQL)
     client.execute_sql(ADOPCIONES_CREATE_TABLE_SQL)
     client.execute_sql(ANIMAL_LIFECYCLE_EVENTS_CREATE_TABLE_SQL)

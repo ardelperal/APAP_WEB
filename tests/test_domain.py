@@ -529,16 +529,20 @@ def test_ensure_domain_schema_includes_entradas_acogidas_adopciones() -> None:
     client.close()
 
     queries = [c["query"].strip() for c in captured]
-    # Dependency order — the first 6 are the lifecycle tables; the
+    # Dependency order — the first 7 are the lifecycle tables; the
     # INTAKE-02 staging table is interleaved right after ``entradas``
-    # because it is logically tied to the intake flow.
+    # because it is logically tied to the intake flow, and
+    # ``casas_acogida`` (FOSTER-01) sits BEFORE ``acogidas`` so
+    # FOSTER-02 can add an FK from ``acogidas.casa_acogida_id`` to
+    # ``casas_acogida.id`` via ALTER TABLE without reordering.
     assert queries[0].startswith("CREATE TABLE IF NOT EXISTS animales")
     assert queries[1].startswith("CREATE TABLE IF NOT EXISTS voluntarios")
     assert queries[2].startswith("CREATE TABLE IF NOT EXISTS roles_voluntario")
     assert queries[3].startswith("CREATE TABLE IF NOT EXISTS entradas")
     assert queries[4].startswith("CREATE TABLE IF NOT EXISTS entradas_batch_staging")
-    assert queries[5].startswith("CREATE TABLE IF NOT EXISTS acogidas")
-    assert queries[6].startswith("CREATE TABLE IF NOT EXISTS adopciones")
+    assert queries[5].startswith("CREATE TABLE IF NOT EXISTS casas_acogida")
+    assert queries[6].startswith("CREATE TABLE IF NOT EXISTS acogidas")
+    assert queries[7].startswith("CREATE TABLE IF NOT EXISTS adopciones")
 
 
 # --- animal_lifecycle_events (LIFECYCLE-SCHEMA-02) -----------------------
@@ -679,21 +683,21 @@ def test_animal_current_state_reconciliation_status_defaults_to_pending() -> Non
 # --- ensure_domain_schema now creates 8 tables (the 2 new ones at the end) -
 
 
-def test_ensure_domain_schema_creates_eleven_tables() -> None:
-    """After issues #41 and #40, ensure_domain_schema creates 11 tables:
+def test_ensure_domain_schema_creates_twelve_tables() -> None:
+    """After issues #41, #40, and #43, ensure_domain_schema creates 12 tables:
 
     animales -> voluntarios -> roles_voluntario -> entradas -> entradas_batch_staging
-    -> acogidas -> adopciones -> animal_lifecycle_events -> animal_current_state ->
-    cesiones_propietario -> contratos.
+    -> casas_acogida -> acogidas -> adopciones -> animal_lifecycle_events ->
+    animal_current_state -> cesiones_propietario -> contratos.
 
     ``entradas_batch_staging`` (#40, INTAKE-02) sits right after
     ``entradas`` because it is logically tied to the intake flow; it has
     no FK to ``entradas`` (the staging rows ARE the source of future
     ``entradas`` rows), so this ordering is purely a documentation
-    choice. The remaining ordering (after ``adopciones``) preserves the
-    LIFECYCLE-SCHEMA-02 invariant that lifecycle-event/state tables come
-    AFTER all entity tables so every FK target exists when the CTE
-    statements run.
+    choice. ``casas_acogida`` (#43, FOSTER-01) is positioned BEFORE
+    ``acogidas`` so FOSTER-02 can add the FK
+    ``acogidas.casa_acogida_id REFERENCES casas_acogida(id)`` via ALTER
+    TABLE without reordering.
     """
     client, captured = _client_recording(lambda req, body: _json_response(200, []))
 
@@ -701,20 +705,21 @@ def test_ensure_domain_schema_creates_eleven_tables() -> None:
     client.close()
 
     queries = [c["query"].strip() for c in captured]
-    assert len(queries) == 11, (
-        f"expected 11 tables, got {len(queries)}: {queries}"
+    assert len(queries) == 12, (
+        f"expected 12 tables, got {len(queries)}: {queries}"
     )
     assert queries[0].startswith("CREATE TABLE IF NOT EXISTS animales")
     assert queries[1].startswith("CREATE TABLE IF NOT EXISTS voluntarios")
     assert queries[2].startswith("CREATE TABLE IF NOT EXISTS roles_voluntario")
     assert queries[3].startswith("CREATE TABLE IF NOT EXISTS entradas")
     assert queries[4].startswith("CREATE TABLE IF NOT EXISTS entradas_batch_staging")
-    assert queries[5].startswith("CREATE TABLE IF NOT EXISTS acogidas")
-    assert queries[6].startswith("CREATE TABLE IF NOT EXISTS adopciones")
-    assert queries[7].startswith("CREATE TABLE IF NOT EXISTS animal_lifecycle_events")
-    assert queries[8].startswith("CREATE TABLE IF NOT EXISTS animal_current_state")
-    assert queries[9].startswith("CREATE TABLE IF NOT EXISTS cesiones_propietario")
-    assert queries[10].startswith("CREATE TABLE IF NOT EXISTS contratos")
+    assert queries[5].startswith("CREATE TABLE IF NOT EXISTS casas_acogida")
+    assert queries[6].startswith("CREATE TABLE IF NOT EXISTS acogidas")
+    assert queries[7].startswith("CREATE TABLE IF NOT EXISTS adopciones")
+    assert queries[8].startswith("CREATE TABLE IF NOT EXISTS animal_lifecycle_events")
+    assert queries[9].startswith("CREATE TABLE IF NOT EXISTS animal_current_state")
+    assert queries[10].startswith("CREATE TABLE IF NOT EXISTS cesiones_propietario")
+    assert queries[11].startswith("CREATE TABLE IF NOT EXISTS contratos")
 
 
 # --- cesiones_propietario (TbCesionPorPropietario legacy, issue #41) ---
