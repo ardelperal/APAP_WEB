@@ -45,6 +45,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any
 
+from app.core.catalogs import list_catalogos_pruebas as _list_catalogos_pruebas
 from app.core.insforge import InsForgeClient
 from app.core.logging import log_safe
 
@@ -214,10 +215,10 @@ checked_tipo AS (
 ),
 updated AS (
     UPDATE actuacion_sanitaria SET
-{", ".join(f"{col} = ${i + 4}" for i, col in enumerate(_WRITE_COLUMNS))},
+{", ".join(f"{col} = ${i + 2}" for i, col in enumerate(_WRITE_COLUMNS))},
 updated_at = now()
-    WHERE id = $1
-      AND EXISTS (SELECT 1 FROM checked_animal)
+    FROM checked_animal
+    WHERE actuacion_sanitaria.id = $1
       AND (checked_animal.fecha_alta IS NULL OR checked_animal.fecha_alta::date <= $4::date)
       AND ($3::text IS NULL OR EXISTS (SELECT 1 FROM checked_voluntario))
       AND ($5::text IS NULL OR EXISTS (SELECT 1 FROM checked_tipo))
@@ -465,6 +466,16 @@ def list_actuaciones_sanitarias(
         return search_actuaciones_by_animal(client, animal_id)
     rows = client.execute_sql(_LIST_ACTUACIONES_SANITARIAS_SQL)
     return [_row_to_actuacion_sanitaria(row) for row in rows]
+
+
+def list_catalogos_pruebas(client: InsForgeClient) -> list[dict[str, Any]]:
+    """Return active health-test catalog rows for sanidad forms.
+
+    Routes must not import SQL-backed catalog helpers directly. Keeping this
+    wrapper in the sanidad service preserves the route/service boundary while
+    still reusing the canonical catalog query implementation.
+    """
+    return _list_catalogos_pruebas(client)
 
 
 def get_actuacion_sanitaria_by_id(

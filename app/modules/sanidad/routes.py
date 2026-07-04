@@ -47,9 +47,9 @@ from app.core.auth_dependencies import (
     require_writer_user,
     return_early_if_response,
 )
-from app.core.catalogs import list_catalogos_pruebas
 from app.core.csrf import csrf_token_context_processor
 from app.core.insforge import InsForgeClient, InsForgeError
+from app.core.logging import log_safe
 from app.core.middleware import base_template_context_processor
 from app.modules.sanidad import service as sanidad_service
 
@@ -154,6 +154,59 @@ def _render_form(
     )
 
 
+def _load_catalogos_pruebas_for_form(
+    client: InsForgeClient,
+    *,
+    context: str,
+    actuacion_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Load catalog rows for a form without making error recovery fragile."""
+    try:
+        return sanidad_service.list_catalogos_pruebas(client)
+    except InsForgeError as exc:
+        log_safe(
+            "sanidad.catalogos_pruebas.load_failed",
+            context=context,
+            actuacion_id=actuacion_id,
+            status_code=exc.status_code,
+        )
+        return []
+
+
+def _render_backend_error(
+    request: Request,
+    user: Any,
+    client: InsForgeClient,
+    form_data: dict[str, Any],
+    form_action: str,
+    exc: InsForgeError,
+    *,
+    context: str,
+    actuacion_id: str | None = None,
+):
+    """Render a sanidad form after a backend failure without retry loops."""
+    log_safe(
+        "sanidad.backend_error",
+        context=context,
+        actuacion_id=actuacion_id,
+        status_code=exc.status_code,
+    )
+    catalogos = _load_catalogos_pruebas_for_form(
+        client,
+        context=f"{context}.recovery",
+        actuacion_id=actuacion_id,
+    )
+    return _render_form(
+        request,
+        user,
+        form_data,
+        "No se pudo contactar con el backend. Inténtalo de nuevo en unos minutos.",
+        form_action,
+        catalogos,
+        status.HTTP_503_SERVICE_UNAVAILABLE,
+    )
+
+
 # --- list -----------------------------------------------------------------
 
 
@@ -204,7 +257,7 @@ def new_actuacion_form(
     """Empty form for a new actuacion, with the catalogos_pruebas dropdown."""
     if (early := return_early_if_response(user)) is not None:
         return early
-    catalogos = list_catalogos_pruebas(client)
+    catalogos = _load_catalogos_pruebas_for_form(client, context="new")
     return _render_form(
         request,
         user,
@@ -258,8 +311,10 @@ def create_actuacion_view(
             form_data,
             actor_user_id=_actor_user_id(user),
         )
-    except (ValueError, InsForgeError) as exc:
-        catalogos = list_catalogos_pruebas(client)
+    except ValueError as exc:
+        catalogos = _load_catalogos_pruebas_for_form(
+            client, context="create.validation"
+        )
         return _render_form(
             request,
             user,
@@ -268,6 +323,16 @@ def create_actuacion_view(
             "/sanidad",
             catalogos,
             status.HTTP_422_UNPROCESSABLE_CONTENT,
+        )
+    except InsForgeError as exc:
+        return _render_backend_error(
+            request,
+            user,
+            client,
+            form_data,
+            "/sanidad",
+            exc,
+            context="create",
         )
     return RedirectResponse(
         url=f"/sanidad/{actuacion.id}", status_code=status.HTTP_303_SEE_OTHER
@@ -296,7 +361,9 @@ def actuacion_detail(
     # We pull the full list once and index by id; ~13 rows keeps this
     # cheap. If a future slice adds many more catalog rows, a targeted
     # SELECT by id is the next step.
-    catalogos = list_catalogos_pruebas(client)
+    catalogos = _load_catalogos_pruebas_for_form(
+        client, context="detail", actuacion_id=actuacion_id
+    )
     catalogo_by_id = {str(row["id"]): row for row in catalogos}
     tipo_actuacion = (
         catalogo_by_id.get(actuacion.tipo_actuacion_id)
@@ -332,7 +399,9 @@ def edit_actuacion_form(
     )
     if actuacion is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-    catalogos = list_catalogos_pruebas(client)
+    catalogos = _load_catalogos_pruebas_for_form(
+        client, context="edit", actuacion_id=actuacion_id
+    )
     return _render_form(
         request,
         user,
@@ -387,8 +456,10 @@ def update_actuacion_view(
             form_data,
             actor_user_id=_actor_user_id(user),
         )
-    except (ValueError, InsForgeError) as exc:
-        catalogos = list_catalogos_pruebas(client)
+    except ValueError as exc:
+        catalogos = _load_catalogos_pruebas_for_form(
+            client, context="update.validation", actuacion_id=actuacion_id
+        )
         return _render_form(
             request,
             user,
@@ -397,6 +468,17 @@ def update_actuacion_view(
             f"/sanidad/{actuacion_id}/update",
             catalogos,
             status.HTTP_422_UNPROCESSABLE_CONTENT,
+        )
+    except InsForgeError as exc:
+        return _render_backend_error(
+            request,
+            user,
+            client,
+            form_data,
+            f"/sanidad/{actuacion_id}/update",
+            exc,
+            context="update",
+            actuacion_id=actuacion_id,
         )
     if actuacion is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
@@ -423,11 +505,23 @@ def delete_actuacion_view(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
-    if not sanidad_service.delete_actuacion_sanitaria(
-        client,
-        actuacion_id,
-        actor_user_id=_actor_user_id(user),
-    ):
+    try:
+        deleted = sanidad_service.delete_actuacion_sanitaria(
+            client,
+            actuacion_id,
+            actor_user_id=_actor_user_id(user),
+        )
+    except InsForgeError as exc:
+        log_safe(
+            "sanidad.delete.backend_error",
+            actuacion_id=actuacion_id,
+            status_code=exc.status_code,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="No se pudo contactar con el backend.",
+        ) from exc
+    if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     return RedirectResponse(
         url="/sanidad", status_code=status.HTTP_303_SEE_OTHER

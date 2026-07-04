@@ -22,7 +22,7 @@ import pytest
 
 from app.core.auth_dependencies import get_insforge_client_dep
 from app.core.config import get_settings
-from app.core.insforge import InsForgeClient
+from app.core.insforge import InsForgeClient, InsForgeError
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
 from app.modules.sanidad import service as sanidad_service
@@ -208,7 +208,7 @@ async def test_new_actuacion_form_renders_with_csrf(
         ]
 
     monkeypatch.setattr(
-        "app.modules.sanidad.routes.list_catalogos_pruebas", _catalogos
+        sanidad_service, "list_catalogos_pruebas", _catalogos
     )
 
     response = await client.get("/sanidad/new")
@@ -240,7 +240,7 @@ async def test_edit_actuacion_form_renders_with_csrf(
         return []
 
     monkeypatch.setattr(
-        "app.modules.sanidad.routes.list_catalogos_pruebas", _catalogos
+        sanidad_service, "list_catalogos_pruebas", _catalogos
     )
 
     response = await client.get("/sanidad/actu-123/edit")
@@ -272,7 +272,7 @@ async def test_create_actuacion_with_future_fecha_returns_422(
         return []
 
     monkeypatch.setattr(
-        "app.modules.sanidad.routes.list_catalogos_pruebas", _catalogos
+        sanidad_service, "list_catalogos_pruebas", _catalogos
     )
 
     future = (date.today() + timedelta(days=365)).isoformat()
@@ -302,7 +302,7 @@ async def test_create_actuacion_with_malformed_fecha_returns_422(
         return []
 
     monkeypatch.setattr(
-        "app.modules.sanidad.routes.list_catalogos_pruebas", _catalogos
+        sanidad_service, "list_catalogos_pruebas", _catalogos
     )
 
     response = await make_csrf_request(
@@ -338,7 +338,7 @@ async def test_create_actuacion_success_redirects_to_detail(
         sanidad_service, "create_actuacion_sanitaria", _create
     )
     monkeypatch.setattr(
-        "app.modules.sanidad.routes.list_catalogos_pruebas", _catalogos
+        sanidad_service, "list_catalogos_pruebas", _catalogos
     )
 
     response = await make_csrf_request(
@@ -476,7 +476,8 @@ async def test_no_sql_executed_directly_from_routes(
         lambda _c, _id: _actuacion(),
     )
     monkeypatch.setattr(
-        "app.modules.sanidad.routes.list_catalogos_pruebas",
+        sanidad_service,
+        "list_catalogos_pruebas",
         lambda _c: [],
     )
 
@@ -492,3 +493,83 @@ async def test_no_sql_executed_directly_from_routes(
     ):
         response = await client.get(path)
         assert response.status_code == 200, f"{path} returned {response.status_code}"
+
+
+async def test_create_validation_error_survives_catalog_recovery_failure(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ValueError remains 422 even if catalog reload fails during recovery."""
+    _login_as_key_user(client)
+
+    def _create(*args: Any, **kwargs: Any) -> Any:
+        raise ValueError("fecha no puede ser futura")
+
+    def _catalogos(_client: Any) -> list[dict[str, Any]]:
+        raise InsForgeError(503, {"error": "catalog unavailable"})
+
+    monkeypatch.setattr(
+        sanidad_service, "create_actuacion_sanitaria", _create
+    )
+    monkeypatch.setattr(sanidad_service, "list_catalogos_pruebas", _catalogos)
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/sanidad",
+        form_data={"animal_id": "animal-1", "fecha": "2030-01-01"},
+    )
+
+    assert response.status_code == 422
+    assert "fecha no puede ser futura" in response.text
+
+
+async def test_create_backend_error_returns_503_not_422(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """InsForgeError is logged and surfaced as backend outage, not validation."""
+    _login_as_key_user(client)
+
+    def _create(*args: Any, **kwargs: Any) -> Any:
+        raise InsForgeError(503, {"error": "backend unavailable"})
+
+    monkeypatch.setattr(
+        sanidad_service, "create_actuacion_sanitaria", _create
+    )
+    monkeypatch.setattr(sanidad_service, "list_catalogos_pruebas", lambda _c: [])
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/sanidad",
+        form_data={"animal_id": "animal-1", "fecha": "2026-07-04"},
+    )
+
+    assert response.status_code == 503
+    assert "No se pudo contactar con el backend" in response.text
+
+
+async def test_delete_backend_error_returns_503(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Delete handles InsForgeError instead of leaking an unhandled 500."""
+    _login_as_key_user(client)
+
+    def _delete(*args: Any, **kwargs: Any) -> bool:
+        raise InsForgeError(503, {"error": "backend unavailable"})
+
+    monkeypatch.setattr(
+        sanidad_service, "delete_actuacion_sanitaria", _delete
+    )
+
+    response = await make_csrf_request(
+        client, "POST", "/sanidad/actu-123/delete"
+    )
+
+    assert response.status_code == 503
+    assert "No se pudo contactar con el backend" in response.text

@@ -1200,10 +1200,8 @@ def test_ensure_domain_schema_emits_actuacion_sanitaria_after_contratos() -> Non
 
     Placement after ``contratos`` is required because the FKs to
     ``animales``, ``voluntarios``, and ``catalogos_pruebas`` must be
-    satisfiable. The catalog tables are seeded by ``ensure_catalogs``
-    which runs after ``ensure_domain_schema`` in the lifespan, but
-    ``CREATE TABLE IF NOT EXISTS`` makes the FK constraint deferred
-    until the catalog tables exist on subsequent boots.
+    satisfiable. The lifespan creates catalog tables before domain tables,
+    so the FK to ``catalogos_pruebas`` is valid even on a fresh backend.
     """
     client, captured = _client_recording(lambda req, body: _json_response(200, []))
 

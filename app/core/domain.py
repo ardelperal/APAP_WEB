@@ -511,10 +511,12 @@ CREATE TABLE IF NOT EXISTS contratos (
 #   enforced en CTE per VOL-05).
 #
 # El ``tipo_actuacion_id`` referencia ``catalogos_pruebas`` (issue #65
-# CATALOG-01). El orden de creacion en ``ensure_domain_schema`` coloca la
-# tabla AL FINAL, despues de ``contratos``, porque las tres tablas re-
-# ferenciadas (``animales``, ``catalogos_pruebas`` via catalog seed,
-# ``voluntarios``) ya estan creadas por entonces. La regla D-24
+# CATALOG-01). El lifespan ejecuta ``ensure_catalogs`` ANTES de
+# ``ensure_domain_schema`` para que las tablas de catalogo existan en un
+# backend limpio antes de crear las FKs de dominio. Dentro de
+# ``ensure_domain_schema`` esta tabla sigue al final, despues de
+# ``contratos``, porque ``animales`` y ``voluntarios`` ya existen por
+# entonces. La regla D-24
 # (validacion de fechas) NO se enforce en el schema — vive en la capa de
 # service (``app/modules/sanidad/service.py::_validate_fecha_d24`` +
 # CTE ``_INSERT_ACTUACION_SANITARIA_SQL``).
@@ -551,23 +553,14 @@ def ensure_domain_schema(client: InsForgeClient) -> None:
     9. ``contratos`` FKs to ``entradas``, ``acogidas``, ``adopciones``,
        ``cesiones_propietario`` AND ``catalogos_tipos_contrato``. The
        catalog FK requires ``ensure_catalogs`` (in ``app.main::lifespan``)
-       to have run BEFORE ``ensure_domain_schema`` — that ordering is
-       enforced at module-load time (lifespan calls
-       ``ensure_schema_and_seed -> ensure_domain_schema -> ensure_catalogs``
-       today, but ``catalogos_tipos_contrato`` is created with
-       ``CREATE TABLE IF NOT EXISTS`` so it is safe to emit contratos
-       alongside the catalog seed).
+       to have run BEFORE ``ensure_domain_schema``.
        The two contract-table FKs sit at the END so all entity tables
        they reference exist before contratos builds.
     10. ``actuacion_sanitaria`` (HEALTH-01 #50) FKs to ``animales``,
         ``catalogos_pruebas`` (CATALOG-01 #65) and ``voluntarios``. Placed
-        LAST because ``catalogos_pruebas`` is seeded by ``ensure_catalogs``
-        which runs AFTER ``ensure_domain_schema`` per the current lifespan
-        ordering — the FK is satisfied on subsequent boots (when the catalog
-        tables already exist) and the CREATE TABLE IF NOT EXISTS makes the
-        emit safe on first boot even if the catalog creation order is fixed
-        later. See ``app/modules/sanidad/service.py`` for the D-24 date
-        validation rule.
+        LAST because the domain tables it references are roots and the
+        catalog tables are already created by the lifespan. See
+        ``app/modules/sanidad/service.py`` for the D-24 date validation rule.
 
     The two new tables are PR 1 of ``web-only-feature-preservation``;
     they are P0 BLOCKERS for PR 2 (derivation engine + semantic events).
@@ -596,8 +589,7 @@ def ensure_domain_schema(client: InsForgeClient) -> None:
     client.execute_sql(CESIONES_PROPIETARIO_CREATE_TABLE_SQL)
     client.execute_sql(CONTRATOS_CREATE_TABLE_SQL)
     # HEALTH-01 (#50) — historial clinico por animal. Ver bloque de doc
-    # arriba; emite DESPUES de contratos porque todas las tablas referen-
-    # ciadas (``animales``, ``catalogos_pruebas``, ``voluntarios``) ya
-    # estan creadas por entonces. ``CREATE TABLE IF NOT EXISTS`` lo hace
-    # idempotente entre reinicios.
+    # arriba; emite DESPUES de contratos porque las tablas de dominio que
+    # referencia ya estan creadas y el lifespan ya creo los catalogos.
+    # ``CREATE TABLE IF NOT EXISTS`` lo hace idempotente entre reinicios.
     client.execute_sql(ACTUACION_SANITARIA_CREATE_TABLE_SQL)

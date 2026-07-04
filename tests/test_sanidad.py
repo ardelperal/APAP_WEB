@@ -185,6 +185,13 @@ def test_update_actuacion_happy_path() -> None:
     assert params[0] == "11111111-1111-1111-1111-111111111111"  # id
     assert params[1] == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"  # animal_id
     assert params[3] == "2026-07-04"  # fecha (shifted by 1 vs INSERT)
+    query = captured[0]["query"]
+    assert "animal_id = $2" in query
+    assert "voluntario_id = $3" in query
+    assert "fecha = $4" in query
+    assert "material_utilizado = $8" in query
+    assert "FROM checked_animal" in query
+    assert "checked_animal.fecha_alta" in query
 
 
 # --- 2. Required-field validation ----------------------------------------
@@ -454,6 +461,38 @@ def test_update_raises_validation_error_when_animal_inactive() -> None:
         sanidad_service.update_actuacion_sanitaria(
             client, "existing-id", _params_minimal()
         )
+
+
+def test_update_rejects_fecha_before_animal_fecha_alta() -> None:
+    """Update preserves D-24 regla 3 through the executable CTE shape."""
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    client, captured = _client_recording(
+        _handler_cascading(
+            # 1st: CTE UPDATE — 0 rows (fecha_alta filter rejects)
+            [],
+            # 2nd: get_actuacion_sanitaria_by_id — id exists
+            [_row()],
+            # 3rd: animal disambiguation — exists, active, fecha_alta > fecha
+            [
+                {
+                    "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                    "activo": True,
+                    "fecha_alta": "2030-01-01T00:00:00Z",
+                }
+            ],
+        )
+    )
+
+    with pytest.raises(ValueError, match="fecha es anterior al alta del animal"):
+        sanidad_service.update_actuacion_sanitaria(
+            client,
+            "existing-id",
+            {**_params_minimal(), "fecha": yesterday},
+        )
+
+    update_query = captured[0]["query"]
+    assert "FROM checked_animal" in update_query
+    assert "checked_animal.fecha_alta::date <= $4::date" in update_query
 
 
 # --- 8. List + filter (D-HEALTH-04) ----------------------------------------
