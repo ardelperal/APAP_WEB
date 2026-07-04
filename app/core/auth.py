@@ -25,6 +25,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any
 
+from app.core.auth_cache import invalidate_auth
 from app.core.config import Settings
 from app.core.insforge import InsForgeClient
 
@@ -156,6 +157,9 @@ def add_authorized_user(
     if role not in VALID_ROLES:
         raise ValueError(f"invalid role: {role!r}; must be one of {sorted(VALID_ROLES)}")
     rows = client.execute_sql(ADD_USER_SQL, [email, role, added_by])
+    # Issue #143: a prior deactivate may have cached a deny for this email;
+    # re-adding must take effect on the next request, not after the TTL.
+    invalidate_auth(email)
     return rows[0]
 
 
@@ -163,6 +167,17 @@ def deactivate_authorized_user(
     client: InsForgeClient,
     user_id: str,
 ) -> dict[str, Any] | None:
-    """Mark the user as inactive. Returns the row, or None if not found."""
+    """Mark the user as inactive. Returns the row, or None if not found.
+
+    Issue #143: the per-request authorization cache is invalidated for the
+    deactivated email (taken from the ``RETURNING`` row) so the revocation
+    takes effect on the user's next request rather than after the cache
+    TTL. Deactivation is keyed by ``id``, but the cache is keyed by
+    ``email``; the ``RETURNING email`` bridges the two without a second
+    query.
+    """
     rows = client.execute_sql(DEACTIVATE_USER_SQL, [user_id])
-    return rows[0] if rows else None
+    if not rows:
+        return None
+    invalidate_auth(rows[0]["email"])
+    return rows[0]

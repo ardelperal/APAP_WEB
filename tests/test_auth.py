@@ -13,6 +13,7 @@ from typing import Any
 import httpx
 import pytest
 
+from app.core import auth_cache
 from app.core.auth import (
     Rol,
     add_authorized_user,
@@ -297,3 +298,65 @@ def test_add_authorized_user_accepts_all_known_roles(role: str) -> None:
     assert captured, "execute_sql was not called"
     assert captured[0]["params"][1] == role
     assert row["rol"] == role
+
+
+# --- per-request auth cache invalidation (issue #143) ---------------------
+#
+# ``require_authorized_user`` caches authorization verdicts per email. When
+# a user is added or deactivated the cached verdict is now stale, so the
+# CRUD helpers MUST invalidate the affected email; otherwise a deactivate
+# would not take effect until the TTL lapsed (the very bug #143 closes).
+
+
+def test_add_authorized_user_invalidates_cache() -> None:
+    """Adding a user drops any stale cached verdict for that email."""
+    auth_cache.invalidate_all()
+    auth_cache.set_cached_auth("new@example.com", is_authorized=False, rol=None)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _json_response(
+            200,
+            [
+                {
+                    "id": "u-99",
+                    "email": "new@example.com",
+                    "rol": "key_user",
+                    "activo": True,
+                    "fecha_alta": "2026-06-17T00:00:00Z",
+                }
+            ],
+        )
+
+    add_authorized_user(
+        _client(handler), email="new@example.com", role="key_user", added_by="u-1"
+    )
+
+    assert auth_cache.get_cached_auth("new@example.com", ttl_seconds=300) is None
+
+
+def test_deactivate_authorized_user_invalidates_cache() -> None:
+    """Deactivating a user drops the cached (stale, still-authorized) verdict.
+
+    The email to invalidate is taken from the ``RETURNING`` row, so the
+    helper does not need to be told the email separately.
+    """
+    auth_cache.invalidate_all()
+    auth_cache.set_cached_auth("a@b.com", is_authorized=True, rol="developer")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _json_response(
+            200,
+            [{"id": "u-1", "email": "a@b.com", "rol": "developer", "activo": False}],
+        )
+
+    deactivate_authorized_user(_client(handler), "u-1")
+
+    assert auth_cache.get_cached_auth("a@b.com", ttl_seconds=300) is None
+
+
+def test_deactivate_authorized_user_unknown_id_does_not_touch_cache() -> None:
+    """A no-op deactivate (unknown id) must not raise trying to read a row."""
+    auth_cache.invalidate_all()
+    client = _client(lambda request: _json_response(200, []))
+
+    assert deactivate_authorized_user(client, "u-unknown") is None
