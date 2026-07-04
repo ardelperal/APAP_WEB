@@ -144,3 +144,105 @@ def test_cache_is_thread_safe_under_concurrent_writes() -> None:
         t.join()
 
     assert not errors, f"thread-safety violation: {errors!r}"
+
+
+# ---------------------------------------------------------------------------
+# Issue #145: race condition write-after-invalidate (CAS-style generation
+# counter). The window is bounded by HTTP round-trip + TTL; the generation
+# guard makes the post-invalidate generation unreachable to any reader that
+# captured the pre-invalidate generation, and stamps every entry with the
+# generation it was written under so an audit can see stale data.
+# ---------------------------------------------------------------------------
+
+
+def test_cached_auth_entry_carries_current_generation() -> None:
+    """``CachedEntry.generation`` records the generation the entry was written under.
+
+    Issue #145 — every entry MUST carry its generation so an audit can detect
+    a verdict that pre-dates an invalidation. Without this field, the cache
+    is opaque about freshness; with it, the cache becomes a documented seam.
+    """
+    starting_gen = auth_cache._current_generation("u@e.com")
+
+    auth_cache.set_cached_auth("u@e.com", is_authorized=True, rol="key_user")
+
+    entry = auth_cache.get_cached_auth("u@e.com", ttl_seconds=300)
+
+    assert entry is not None
+    # The entry's stored generation must equal the email's current generation
+    # at write time — not zero (after invalidation), not a fresh generation,
+    # but the one that was live when the caller called ``set_cached_auth``.
+    assert entry.generation == starting_gen == auth_cache._current_generation("u@e.com")
+
+
+def test_get_cached_auth_returns_none_after_invalidate_due_to_generation_bump() -> None:
+    """``invalidate_auth`` bumps the email's generation, so the next read sees a miss.
+
+    Issue #145 — the write-after-invalidate race window. After T2's
+    invalidation, the email's generation moves forward and the
+    pre-invalidate entry is unreachable to any subsequent read. A later
+    ``set_cached_auth`` writes under the NEW generation (visible in the
+    entry's ``generation`` field); reads that follow the invalidation see
+    only entries written AFTER it.
+
+    Per-email scoping: invalidating ``u@e.com`` MUST NOT touch a sibling
+    email's cached verdict — that's the regression guard for the existing
+    ``test_invalidate_auth_removes_entry`` contract, pinned here so the
+    CAS-style fix doesn't accidentally make every deactivate a global
+    cache bust.
+    """
+    auth_cache.set_cached_auth("u@e.com", is_authorized=True, rol="key_user")
+    auth_cache.set_cached_auth("sibling@e.com", is_authorized=True, rol="admin")
+    pre_invalidate_gen = auth_cache._current_generation("u@e.com")
+    assert auth_cache.get_cached_auth("u@e.com", ttl_seconds=300) is not None
+
+    auth_cache.invalidate_auth("u@e.com")
+
+    # The deactivated email's generation MUST have moved; otherwise the
+    # bump is a silent no-op and the race stays open.
+    assert auth_cache._current_generation("u@e.com") > pre_invalidate_gen
+
+    # Direct check: get returns None for the invalidated email.
+    assert auth_cache.get_cached_auth("u@e.com", ttl_seconds=300) is None
+
+    # Regression guard: the sibling email's verdict is unaffected.
+    sibling = auth_cache.get_cached_auth("sibling@e.com", ttl_seconds=300)
+    assert sibling is not None
+    assert sibling.rol == "admin"
+    assert auth_cache._current_generation("sibling@e.com") == 0
+
+    # And: a subsequent set for the invalidated email writes under the
+    # post-invalidate generation, becoming visible to the next read.
+    auth_cache.set_cached_auth("u@e.com", is_authorized=True, rol="key_user")
+    entry = auth_cache.get_cached_auth("u@e.com", ttl_seconds=300)
+    assert entry is not None
+    assert entry.generation == auth_cache._current_generation("u@e.com") > pre_invalidate_gen
+
+
+def test_invalidate_all_bumps_generation_and_obsoletes_every_entry() -> None:
+    """``invalidate_all`` invalidates every email; all reads are misses.
+
+    Issue #145 — admin reset tooling relies on this: after
+    ``invalidate_all()``, every cached email must miss the cache, forcing
+    the next request through the DB rather than serving a verdict written
+    under a previous generation. After the clear, every email is back at
+    generation 0 (the per-email tracking dict is wiped), so a subsequent
+    ``set_cached_auth`` writes under the fresh generation and is visible
+    to the next ``get``.
+    """
+    auth_cache.set_cached_auth("a@e.com", is_authorized=True, rol="key_user")
+    auth_cache.set_cached_auth("b@e.com", is_authorized=False, rol=None)
+    assert auth_cache._current_generation("a@e.com") == 0
+    assert auth_cache._current_generation("b@e.com") == 0
+
+    auth_cache.invalidate_all()
+
+    assert auth_cache.get_cached_auth("a@e.com", ttl_seconds=300) is None
+    assert auth_cache.get_cached_auth("b@e.com", ttl_seconds=300) is None
+
+    # Subsequent sets start fresh at generation 0 and are immediately
+    # visible — the cache is a clean slate, not a tombstone.
+    auth_cache.set_cached_auth("a@e.com", is_authorized=True, rol="key_user")
+    entry = auth_cache.get_cached_auth("a@e.com", ttl_seconds=300)
+    assert entry is not None
+    assert entry.generation == 0

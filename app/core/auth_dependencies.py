@@ -17,6 +17,10 @@ Las firmas publicas son:
   ``rol == "developer"`` (FOSTER-03 #45); rechaza con 403 a cualquier
   otro rol. Usada por endpoints que exponen PII o historial de auditoria
   (audit log ``foster_capacity_overrides.motivo``).
+- :func:`require_developer_user_redirect` -- variante de
+  :func:`require_developer_user` que redirige a ``/unauthorized`` (302) en
+  lugar de raise 403. Usada por las rutas ``/admin`` historicas para
+  preservar el comportamiento de redirect pre-#146.
 
 El contrato de :func:`require_authorized_user` lo fija
 ``tests/test_auth_session_is_authorized.py`` (regression test del P0
@@ -32,7 +36,15 @@ devuelve un ``RedirectResponse`` en lugar de raise ``HTTPException`` —
 es control de flujo, no un error HTTP. Excepcion deliberada:
 :func:`require_developer_user` devuelve 403 (raise HTTPException) cuando
 hay sesion valida pero el rol no es developer — son ROLES DIFERENTES,
-no un estado de sesion invalido.
+no un estado de sesion invalido. ``require_developer_user_redirect``
+es la variante que respeta el contrato de redirect para callers que
+historicamente redirigian en lugar de elevar.
+
+Issue #146 — toda denegacion emite un evento ``log_safe("auth.denied",
+...)`` con un ``reason`` enum (no_session / cookie_no_flag / no_email /
+db_reval_miss / writer_required / developer_required) y ``user_id``
+(non-PII). Los PII (email, etc.) quedan en la lista cerrada de 12
+campos que ``log_safe`` redacta — el codigo pasa solo ``user_id``.
 """
 
 from __future__ import annotations
@@ -47,6 +59,7 @@ from app.core.auth import Rol
 from app.core.auth_cache import get_cached_auth, set_cached_auth
 from app.core.config import get_settings
 from app.core.insforge import InsForgeClient
+from app.core.logging import log_safe
 from app.core.session import read_session_payload
 
 
@@ -157,13 +170,28 @@ def require_authorized_user(
     la dep ni en el handler.
     """
     if not payload:
+        log_safe(
+            "auth.denied",
+            reason="no_session",
+            user_id=None,
+        )
         return RedirectResponse(url="/login", status_code=302)
     if not payload.get("is_authorized", False):
+        log_safe(
+            "auth.denied",
+            reason="cookie_no_flag",
+            user_id=payload.get("user_id") if isinstance(payload, dict) else None,
+        )
         return RedirectResponse(url="/unauthorized", status_code=302)
 
     email = payload.get("email")
     if not isinstance(email, str) or not email:
         # Cookie firma identidad; sin email no hay a quien revalidar.
+        log_safe(
+            "auth.denied",
+            reason="no_email",
+            user_id=payload.get("user_id") if isinstance(payload, dict) else None,
+        )
         return RedirectResponse(url="/unauthorized", status_code=302)
 
     ttl = get_settings().auth_cache_ttl_seconds
@@ -177,12 +205,22 @@ def require_authorized_user(
         fresh = get_user_by_email(client, email)
         if fresh is None:
             set_cached_auth(email, is_authorized=False, rol=None)
+            log_safe(
+                "auth.denied",
+                reason="db_reval_miss",
+                user_id=payload.get("user_id") if isinstance(payload, dict) else None,
+            )
             return RedirectResponse(url="/unauthorized", status_code=302)
         set_cached_auth(email, is_authorized=True, rol=fresh["rol"])
         payload["rol"] = fresh["rol"]
         return payload
 
     if not cached.is_authorized:
+        log_safe(
+            "auth.denied",
+            reason="db_reval_miss",
+            user_id=payload.get("user_id") if isinstance(payload, dict) else None,
+        )
         return RedirectResponse(url="/unauthorized", status_code=302)
     payload["rol"] = cached.rol
     return payload
@@ -228,6 +266,15 @@ def require_writer_user(
         return early
     user_rol = user.get("rol") if isinstance(user, dict) else None
     if user_rol not in get_settings().writer_rols:
+        # Issue #146: audit trail. The reason enum distinguishes a
+        # missing-rol rejection from a deactivated-session redirect that
+        # the upstream dep propagated — operators grep auth.denied by
+        # reason to spot a non-writer trying to mutate domain state.
+        log_safe(
+            "auth.denied",
+            reason="writer_required",
+            user_id=user.get("user_id") if isinstance(user, dict) else None,
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Permisos insuficientes para escribir.",
@@ -280,8 +327,60 @@ def require_developer_user(
         return early
     user_rol = payload.get("rol") if isinstance(payload, dict) else None
     if user_rol != Rol.DEVELOPER.value:
+        # Issue #146: audit trail. ``developer_required`` is the
+        # non-redirect variant of the denegation signal — the redirect
+        # variant emits the same event under ``require_developer_user_redirect``.
+        log_safe(
+            "auth.denied",
+            reason="developer_required",
+            user_id=payload.get("user_id") if isinstance(payload, dict) else None,
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="requiere rol developer",
         )
+    return payload
+
+
+def require_developer_user_redirect(
+    payload: Response | dict = Depends(require_authorized_user),
+) -> Response | dict:
+    """Variante de :func:`require_developer_user` que redirige en lugar de raise 403.
+
+    Issue #146 — las tres rutas admin (``/admin``, ``/admin/users``,
+    ``/admin/users/{id}/deactivate``) dependian de
+    :func:`require_authorized_user` y luego hacian inline
+    ``current_user.get("rol") != "developer"`` para devolver un redirect
+    a ``/unauthorized``. Esa duplicacion divergia del resto del modelo
+    de auth y dejaba el audit trail fuera del path. Esta dep:
+
+    - Compone sobre :func:`require_authorized_user` (revalidacion por
+      request + cache TTL del issue #143).
+    - Devuelve el payload intacto si el rol es :attr:`Rol.DEVELOPER`.
+    - Devuelve ``RedirectResponse("/unauthorized", 302)`` para cualquier
+      otro rol — preservando el comportamiento historico de las rutas
+      admin para no introducir un 403 donde antes habia un redirect.
+    - Propaga sin tocar el redirect que ``require_authorized_user``
+      pudo haber devuelto (misma composicion que
+      :func:`require_writer_user` y :func:`require_developer_user`).
+
+    Regla 4 (source of truth): el valor ``"developer"`` viene de
+    :class:`app.core.auth.Rol.DEVELOPER`. NO se hardcodea el literal
+    aqui. Regla 6 (default-deny): si el payload no trae ``rol``, se
+    redirige (no se asume el developer).
+
+    Cuándo usar :func:`require_developer_user` vs esta variante:
+
+    - :func:`require_developer_user` → raise 403, recomendado para
+      callers NUEVOS que prefieren el estandar HTTP "Forbidden" cuando
+      hay sesion valida pero rol insuficiente.
+    - :func:`require_developer_user_redirect` → redirect a
+      ``/unauthorized``, recomendado para preservar el comportamiento
+      pre-#146 en callers que ya redirigian (panel admin historico).
+    """
+    if (early := return_early_if_response(payload)) is not None:
+        return early
+    user_rol = payload.get("rol") if isinstance(payload, dict) else None
+    if user_rol != Rol.DEVELOPER.value:
+        return RedirectResponse(url="/unauthorized", status_code=302)
     return payload

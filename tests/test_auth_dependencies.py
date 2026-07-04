@@ -725,3 +725,159 @@ def test_require_developer_user_propagates_unauthorized_redirect() -> None:
 
     redirect_unauth = RedirectResponse(url="/unauthorized", status_code=302)
     assert require_developer_user(redirect_unauth) is redirect_unauth
+
+
+# ---------------------------------------------------------------------------
+# Issue #146: extract require_developer_user_redirect + audit log of denials
+#
+# The three admin routes (``/admin``, ``/admin/users``,
+# ``/admin/users/{id}/deactivate``) used to inline a rol check against the
+# string ``"developer"`` after depending on ``require_authorized_user``.
+# That duplicated the developer dep's logic, risked drift, and bypassed
+# the audit trail. This slice replaces the inline check with
+# ``require_developer_user_redirect`` (redirect variant) and emits a
+# ``log_safe("auth.denied", ...)`` event from each auth dep on rejection.
+# ---------------------------------------------------------------------------
+
+
+def test_require_developer_user_redirect_developer_passes_and_others_get_302() -> None:
+    """``require_developer_user_redirect`` allows ``developer``, redirects everyone else.
+
+    Issue #146 — mirrors :func:`require_developer_user` but instead of
+    raising 403, returns a 302 to ``/unauthorized`` so the three admin
+    routes (``/admin``, ``/admin/users``, ``/admin/users/{id}/deactivate``)
+    keep their pre-#146 redirect contract. ``admin``, ``key_user``,
+    ``reader`` and a missing ``rol`` all land on /unauthorized.
+    """
+    from fastapi.responses import RedirectResponse
+
+    from app.core.auth_dependencies import (  # noqa: PLC0415
+        require_developer_user_redirect,
+    )
+
+    # developer -> payload returned unchanged
+    payload = _authorized_payload(rol="developer")
+    assert require_developer_user_redirect(payload) is payload
+
+    # every other rol -> 302 /unauthorized
+    for other in ("admin", "key_user", "reader"):
+        result = require_developer_user_redirect(_authorized_payload(rol=other))
+        assert isinstance(result, RedirectResponse), (
+            f"non-developer rol {other!r} must produce a RedirectResponse, "
+            f"got: {result!r}"
+        )
+        assert result.status_code == 302
+        assert result.headers["location"] == "/unauthorized"
+
+    # missing rol -> redirect too (regla 6 default-deny)
+    result = require_developer_user_redirect(
+        {"email": "u@e.com", "user_id": "u-1", "is_authorized": True}
+    )
+    assert isinstance(result, RedirectResponse)
+    assert result.headers["location"] == "/unauthorized"
+
+
+def test_require_authorized_user_logs_auth_denied_for_db_reval_miss(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When DB revalidation misses, ``require_authorized_user`` MUST emit ``auth.denied``.
+
+    Issue #146 — every denial path emits a structured ``log_safe`` event
+    so operators can audit which users were bounced when, without log
+    scraping. The closed 12-field redaction list already covers email,
+    so we pass ``user_id`` (non-PII) and a ``reason`` enum.
+    """
+    from app.core.auth_dependencies import require_authorized_user
+
+    captured: list[tuple[str, dict[str, object]]] = []
+
+    def _capture(event: str, **fields: object) -> None:
+        captured.append((event, fields))
+
+    monkeypatch.setattr("app.core.auth_dependencies.log_safe", _capture)
+
+    # No active row in the DB → dep returns /unauthorized + memoizes the deny.
+    spy = _RevalSpy([])
+    result = require_authorized_user(
+        request=_make_request(), payload=_authorized_payload(), client=spy
+    )
+
+    assert isinstance(result, _Response)
+    assert result.headers["location"] == "/unauthorized"
+
+    db_miss_events = [
+        (event, fields)
+        for event, fields in captured
+        if event == "auth.denied" and fields.get("reason") == "db_reval_miss"
+    ]
+    assert db_miss_events, (
+        f"expected at least one auth.denied event with reason=db_reval_miss, "
+        f"got: {captured!r}"
+    )
+    # The user_id from the payload is propagated for traceability.
+    fields = db_miss_events[0][1]
+    assert fields.get("user_id") == "u-1"
+    # No PII leaks via the log path.
+    assert "email" not in fields
+
+
+def test_require_writer_user_logs_auth_denied_when_role_insufficient(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``require_writer_user`` MUST emit ``auth.denied`` with reason=writer_required."""
+    from fastapi import HTTPException
+
+    from app.core.auth_dependencies import require_writer_user
+
+    captured: list[tuple[str, dict[str, object]]] = []
+
+    def _capture(event: str, **fields: object) -> None:
+        captured.append((event, fields))
+
+    monkeypatch.setattr("app.core.auth_dependencies.log_safe", _capture)
+
+    with pytest.raises(HTTPException) as exc_info:
+        require_writer_user(user=_authorized_payload(rol="reader"))
+
+    assert exc_info.value.status_code == 403
+
+    denial_events = [
+        (event, fields)
+        for event, fields in captured
+        if event == "auth.denied" and fields.get("reason") == "writer_required"
+    ]
+    assert denial_events, (
+        f"expected auth.denied with reason=writer_required, got: {captured!r}"
+    )
+    assert denial_events[0][1].get("user_id") == "u-1"
+
+
+def test_require_developer_user_logs_auth_denied_when_role_insufficient(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``require_developer_user`` MUST emit ``auth.denied`` with reason=developer_required."""
+    from fastapi import HTTPException
+
+    from app.core.auth_dependencies import require_developer_user
+
+    captured: list[tuple[str, dict[str, object]]] = []
+
+    def _capture(event: str, **fields: object) -> None:
+        captured.append((event, fields))
+
+    monkeypatch.setattr("app.core.auth_dependencies.log_safe", _capture)
+
+    with pytest.raises(HTTPException) as exc_info:
+        require_developer_user(_authorized_payload(rol="key_user"))
+
+    assert exc_info.value.status_code == 403
+
+    denial_events = [
+        (event, fields)
+        for event, fields in captured
+        if event == "auth.denied" and fields.get("reason") == "developer_required"
+    ]
+    assert denial_events, (
+        f"expected auth.denied with reason=developer_required, got: {captured!r}"
+    )
+    assert denial_events[0][1].get("user_id") == "u-1"

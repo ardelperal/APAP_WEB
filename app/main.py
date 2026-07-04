@@ -51,6 +51,7 @@ from app.core.auth import (
 from app.core.auth_dependencies import (
     get_current_user_optional,
     require_authorized_user,
+    require_developer_user_redirect,
     return_early_if_response,
 )
 from app.core.auth_dependencies import (
@@ -525,22 +526,21 @@ def create_app() -> FastAPI:
     @application.get("/admin", response_class=HTMLResponse)
     def admin(
         request: Request,
-        current_user: Response | dict = Depends(require_authorized_user),
+        current_user: Response | dict = Depends(require_developer_user_redirect),
         client: InsForgeClient = Depends(get_insforge_client),
     ):
         """Developer-only user management panel.
 
-        ``require_authorized_user`` ya redirige a ``/login`` si no hay
-        sesion y a ``/unauthorized`` si ``is_authorized=False``, asi que
-        aca solo queda chequear el rol. Eso cierra el gap P2-inherited
-        detectado en la primera revision del PR #90: un developer
-        desactivado por otro developer no podia seguir entrando con su
-        cookie vieja.
+        ``require_developer_user_redirect`` (issue #146) ya redirige a
+        ``/login`` si no hay sesion, a ``/unauthorized`` si la sesion
+        expiro o el rol es insuficiente (cualquier rol distinto de
+        ``developer``), y emite ``log_safe("auth.denied", ...)`` en cada
+        denegacion para audit trail. Antes de #146 este handler repetia
+        inline ``current_user.get("rol") != "developer"`` — duplicacion
+        eliminada al consolidar la comprobacion del rol en la dep.
         """
         if (early := return_early_if_response(current_user)) is not None:
             return early
-        if current_user.get("rol") != "developer":
-            return _redirect("/unauthorized")
         users = list_authorized_users(client)
         return templates.TemplateResponse(
             request=request,
@@ -555,7 +555,7 @@ def create_app() -> FastAPI:
 
     @application.post("/admin/users")
     def admin_add_user(
-        current_user: Response | dict = Depends(require_authorized_user),
+        current_user: Response | dict = Depends(require_developer_user_redirect),
         client: InsForgeClient = Depends(get_insforge_client),
         email: str = Form(""),
         rol: str = Form(""),
@@ -568,11 +568,12 @@ def create_app() -> FastAPI:
         Form fields are declared as ``Form(...)`` parameters instead
         of pulling them out of ``await request.form()`` so the
         contract is obvious from the signature.
+
+        Issue #146 — la dep inyectada aplica el check de developer (rol
+        insuficiente → redirect ``/unauthorized`` + ``log_safe``).
         """
         if (early := return_early_if_response(current_user)) is not None:
             return early
-        if current_user.get("rol") != "developer":
-            return _redirect("/unauthorized")
         email = email.strip()
         rol = rol.strip()
         if not email or not rol:
@@ -591,14 +592,16 @@ def create_app() -> FastAPI:
     @application.post("/admin/users/{user_id}/deactivate")
     def admin_deactivate_user(
         user_id: str,
-        current_user: Response | dict = Depends(require_authorized_user),
+        current_user: Response | dict = Depends(require_developer_user_redirect),
         client: InsForgeClient = Depends(get_insforge_client),
     ) -> Response:
-        """Deactivate an authorized user. Developer only."""
+        """Deactivate an authorized user. Developer only.
+
+        Issue #146 — la dep inyectada aplica el check de developer (rol
+        insuficiente → redirect ``/unauthorized`` + ``log_safe``).
+        """
         if (early := return_early_if_response(current_user)) is not None:
             return early
-        if current_user.get("rol") != "developer":
-            return _redirect("/unauthorized")
         deactivate_authorized_user(client, user_id)
         return _redirect("/admin")
 
