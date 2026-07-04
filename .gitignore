@@ -36,6 +36,7 @@ Thumbs.db
 # Local tool caches (not source)
 .engram/
 .playwright-mcp/
+.codegraph-vba/
 
 # Python build and test artifacts
 # Added by openspec/changes/ci-cd-foundation (task 0.5, PR 1).
