@@ -31,6 +31,7 @@ from fastapi.templating import Jinja2Templates
 from app.core.auth_dependencies import (
     get_insforge_client_dep,
     require_authorized_user,
+    require_writer_user,
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
@@ -193,7 +194,7 @@ def create_casa_acogida_view(
     especie_preferente: str | None = Form(None),
     observaciones: str | None = Form(None),
     capacidad: str = Form(...),
-    user: Any = Depends(require_authorized_user),
+    user: Any = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     if (early := return_early_if_response(user)) is not None:
@@ -323,7 +324,7 @@ def update_casa_acogida_view(
     especie_preferente: str | None = Form(None),
     observaciones: str | None = Form(None),
     capacidad: str = Form(...),
-    user: Any = Depends(require_authorized_user),
+    user: Any = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     if (early := return_early_if_response(user)) is not None:
@@ -376,7 +377,7 @@ def update_casa_acogida_view(
 def delete_casa_acogida_view(
     casa_id: str,
     request: Request,
-    user: Any = Depends(require_authorized_user),
+    user: Any = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     if (early := return_early_if_response(user)) is not None:

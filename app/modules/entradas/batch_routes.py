@@ -31,6 +31,7 @@ from fastapi.templating import Jinja2Templates
 from app.core.auth_dependencies import (
     get_insforge_client_dep,
     require_authorized_user,
+    require_writer_user,
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
@@ -128,7 +129,7 @@ def stage_batch_view(
     origen: list[str] = Form([]),
     motivo: list[str] = Form([]),
     observaciones: list[str] = Form([]),
-    user: dict | object = Depends(require_authorized_user),
+    user: dict | object = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     if (early := return_early_if_response(user)) is not None:
@@ -225,7 +226,7 @@ def batch_preview(
 def commit_batch_view(
     batch_id: str,
     request: Request,
-    user: dict | object = Depends(require_authorized_user),
+    user: dict | object = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     if (early := return_early_if_response(user)) is not None:
@@ -269,7 +270,7 @@ def commit_batch_view(
 def cancel_batch_view(
     batch_id: str,
     request: Request,
-    user: dict | object = Depends(require_authorized_user),
+    user: dict | object = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     if (early := return_early_if_response(user)) is not None:

@@ -13,6 +13,7 @@ from starlette.responses import Response
 from app.core.auth_dependencies import (
     get_insforge_client_dep,
     require_authorized_user,
+    require_writer_user,
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
@@ -114,7 +115,7 @@ def create_entrada_view(
     origen: str | None = Form(None),
     motivo: str | None = Form(None),
     observaciones: str | None = Form(None),
-    user: Response | dict = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     if (early := return_early_if_response(user)) is not None:
@@ -204,7 +205,7 @@ def update_entrada_view(
     origen: str | None = Form(None),
     motivo: str | None = Form(None),
     observaciones: str | None = Form(None),
-    user: Response | dict = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     if (early := return_early_if_response(user)) is not None:
@@ -249,7 +250,7 @@ def update_entrada_view(
 @router.post("/{entrada_id}/delete", response_class=HTMLResponse)
 def delete_entrada_view(
     entrada_id: str,
-    user: Response | dict = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     if (early := return_early_if_response(user)) is not None:

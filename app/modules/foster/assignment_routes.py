@@ -39,6 +39,7 @@ from starlette.responses import Response
 from app.core.auth_dependencies import (
     get_insforge_client_dep,
     require_authorized_user,
+    require_writer_user,
     return_early_if_response,
 )
 from app.core.config import get_settings
@@ -141,7 +142,7 @@ def asignar_submit(
     request: Request,
     animal_id: str = Form(...),
     motivo: str = Form(""),
-    user: Any = Depends(require_authorized_user),
+    user: Any = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Execute the gate and route the operator based on the decision.
