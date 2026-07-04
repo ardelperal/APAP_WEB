@@ -34,6 +34,7 @@ from fastapi import Depends, Request
 from fastapi.responses import RedirectResponse
 from starlette.responses import Response
 
+from app.core.auth_cache import get_cached_auth, set_cached_auth
 from app.core.config import get_settings
 from app.core.insforge import InsForgeClient
 from app.core.session import read_session_payload
@@ -106,35 +107,72 @@ def return_early_if_response(value: Response | dict) -> Response | None:
 def require_authorized_user(
     request: Request,
     payload: dict | None = Depends(get_current_user_optional),
+    client: InsForgeClient = Depends(get_insforge_client_dep),
 ) -> Response | dict:
-    """Dependencia de FastAPI: exige una sesion con ``is_authorized=True``.
+    """Dependencia de FastAPI: exige una sesion autorizada, revalidada por request.
+
+    La cookie firma la IDENTIDAD (email/user_id), estable durante 7 dias.
+    La AUTORIZACION (``is_authorized`` + ``rol``) NO es de confianza desde
+    la cookie: se re-valida contra ``usuarios_autorizados`` en CADA request
+    (issue #143), con una cache TTL en proceso
+    (``Settings.auth_cache_ttl_seconds``, default 300s) para acotar el coste
+    a ~una query por usuario cada 5 minutos. Esto hace que la desactivacion
+    de un usuario via ``/admin/users/{id}/deactivate`` tome efecto en menos
+    del TTL, en vez de esperar a que expire la cookie (hasta 7 dias).
 
     Comportamiento:
 
     - Si no hay sesion, devuelve ``RedirectResponse`` 302 a ``/login``.
-    - Si la sesion no tiene ``is_authorized=True`` (e.g. un developer
-      desactivo al usuario via ``/admin/users/{id}/deactivate`` despues
-      de emitir la cookie, o el cookie es pre-fix y nunca llevo el
-      flag), devuelve ``RedirectResponse`` 302 a ``/unauthorized``.
-    - Si todo OK, devuelve el payload de la sesion al handler.
+    - Si la cookie no lleva ``is_authorized=True`` (cookie pre-fix, o
+      firmada antes del flag), devuelve 302 a ``/unauthorized`` sin tocar
+      la DB — el default-deny de la regla 6 se conserva como primera puerta.
+    - Si la cookie afirma estar autorizada, se consulta la cache y, si es
+      un miss, la DB: si el usuario ya no esta activo (sin fila en
+      ``usuarios_autorizados`` con ``activo=true``) devuelve 302 a
+      ``/unauthorized`` y memoiza el deny; si sigue activo devuelve el
+      payload con el ``rol`` refrescado desde la DB (asi un cambio de rol
+      mid-session se recoge en el siguiente request).
 
-    Regla 6 (defaults deny, not permit): el default de
-    ``payload.get("is_authorized", ...)`` es ``False`` (PR-3 de
-    hardening-2026-q2). Cierra la ventana de hasta 7 dias en la que
-    una sesion sin el flag era tratada como autorizada; la
-    remediacion operativa para cookies pre-fix en vuelo es rotar
-    ``APAP_SESSION_SECRET`` segun
-    ``docs/runbooks/cookie-rotation.md``.
+    Regla 6 (defaults deny): el default de ``payload.get("is_authorized",
+    ...)`` sigue siendo ``False``. La revalidacion por DB es un endurecimiento
+    ADICIONAL, no un reemplazo de esa primera puerta.
 
-    Regla 7 del code quality: los redirects no son exceptions. La dep
-    devuelve un ``Response`` (no raise ``HTTPException``, que esta
-    reservada para errores HTTP reales). FastAPI entrega el
-    ``Response`` al cliente sin invocar al handler — pero el handler
-    todavia recibe el valor de retorno y DEBE chequear
-    ``isinstance(user, Response)`` antes de tratarlo como dict.
+    Regla 7 (redirects no son exceptions): la dep devuelve un ``Response``
+    (no raise ``HTTPException``); el handler DEBE chequear
+    ``isinstance(user, Response)`` (via ``return_early_if_response``) antes
+    de tratarlo como dict.
+
+    Regla 1 (cero SQL en routes): la revalidacion consulta la DB a traves
+    de ``app.core.auth.get_user_by_email`` (el service), nunca SQL crudo en
+    la dep ni en el handler.
     """
     if not payload:
         return RedirectResponse(url="/login", status_code=302)
     if not payload.get("is_authorized", False):
         return RedirectResponse(url="/unauthorized", status_code=302)
+
+    email = payload.get("email")
+    if not isinstance(email, str) or not email:
+        # Cookie firma identidad; sin email no hay a quien revalidar.
+        return RedirectResponse(url="/unauthorized", status_code=302)
+
+    ttl = get_settings().auth_cache_ttl_seconds
+    cached = get_cached_auth(email, ttl)
+    if cached is None:
+        # Import local para evitar un ciclo de import a nivel de modulo
+        # (app.core.auth importa app.core.auth_cache, que no depende de
+        # esta dep; el service se resuelve perezosamente aqui).
+        from app.core.auth import get_user_by_email
+
+        fresh = get_user_by_email(client, email)
+        if fresh is None:
+            set_cached_auth(email, is_authorized=False, rol=None)
+            return RedirectResponse(url="/unauthorized", status_code=302)
+        set_cached_auth(email, is_authorized=True, rol=fresh["rol"])
+        payload["rol"] = fresh["rol"]
+        return payload
+
+    if not cached.is_authorized:
+        return RedirectResponse(url="/unauthorized", status_code=302)
+    payload["rol"] = cached.rol
     return payload

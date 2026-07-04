@@ -68,6 +68,16 @@ class Settings(BaseSettings):
     # works out of the box, but MUST be overridden in production via env.
     session_secret: str = "dev-only-change-me-in-production"
 
+    # --- Per-request authorization revalidation (issue #143) -----------
+    # TTL (seconds) for the in-process authorization cache backing
+    # ``require_authorized_user``. The cookie signs the identity; the DB
+    # (``usuarios_autorizados``) is the source of truth for authorization
+    # and is re-validated per request, cached for this many seconds to
+    # bound query load. Default 300s (5 min) balances freshness against
+    # one SELECT per user per request. Set to 0 to disable the cache for
+    # immediate (<1s) revocation at the cost of a query on every request.
+    auth_cache_ttl_seconds: int = 300
+
     # --- CSRF defense-in-depth (PR-5B, Slice 5) ------------------------
     # Feature flag for the CSRF middleware (``app/core/csrf.py``). When
     # ``False``, the middleware short-circuits and emits a ``csrf.disabled``

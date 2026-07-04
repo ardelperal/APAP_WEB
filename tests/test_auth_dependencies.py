@@ -27,11 +27,15 @@ from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest as _pytest
 from fastapi import Request
+from starlette.responses import Response as _Response
 
+from app.core import auth_cache as _auth_cache
 from app.core.auth_dependencies import (
     get_current_user_optional,
     get_insforge_client_dep,
+    require_authorized_user,
     return_early_if_response,
 )
 from app.core.config import get_settings
@@ -349,6 +353,13 @@ async def test_middleware_pasa_con_is_authorized_true(
             # The /animales route calls a couple of SELECTs; return
             # empty rows so the handler renders the empty-state page
             # without InsForge.
+            from tests.conftest import auth_reval_rows
+
+            query = args[0] if args else ""
+            params = args[1] if len(args) > 1 else None
+            _reval = auth_reval_rows(query if isinstance(query, str) else "", params)
+            if _reval is not None:
+                return _reval
             return []
 
         def __getattr__(self, name: str) -> object:
@@ -372,3 +383,126 @@ async def test_middleware_pasa_con_is_authorized_true(
         assert r.headers.get("location") not in ("/unauthorized", "/login")
     finally:
         app.dependency_overrides.pop(get_insforge_client, None)
+
+
+# ---------------------------------------------------------------------------
+# Issue #143: require_authorized_user re-validates authorization per request
+# ---------------------------------------------------------------------------
+#
+# The signed cookie carries IDENTITY (stable). AUTHORIZATION is re-validated
+# against ``usuarios_autorizados`` on every request, memoized for a short
+# TTL. These unit tests call the dependency directly (bypassing FastAPI DI)
+# so the cache-hit / cache-miss / revocation / role-refresh branches are
+# pinned without a full ASGI round-trip.
+
+
+@_pytest.fixture(autouse=True)
+def _clear_auth_cache() -> None:
+    _auth_cache.invalidate_all()
+    yield
+    _auth_cache.invalidate_all()
+
+
+class _RevalSpy:
+    """InsForge stand-in whose ``execute_sql`` returns a fixed user row set
+    and records how many times it was queried (to prove cache hits)."""
+
+    def __init__(self, rows: list[dict] | None) -> None:
+        self._rows = rows if rows is not None else []
+        self.query_count = 0
+
+    def execute_sql(self, query, params=None):  # type: ignore[no-untyped-def]
+        self.query_count += 1
+        return [dict(r) for r in self._rows]
+
+    def close(self) -> None:
+        return None
+
+
+def _authorized_payload(email: str = "u@e.com", rol: str = "key_user") -> dict:
+    return {"email": email, "rol": rol, "user_id": "u-1", "is_authorized": True}
+
+
+def test_require_authorized_user_redirects_to_login_when_no_session() -> None:
+    """No payload → 302 /login (never touches the DB)."""
+    spy = _RevalSpy([])
+    result = require_authorized_user(request=_make_request(), payload=None, client=spy)
+    assert isinstance(result, _Response)
+    assert result.status_code == 302
+    assert result.headers["location"] == "/login"
+    assert spy.query_count == 0
+
+
+def test_require_authorized_user_redirects_when_cookie_not_authorized() -> None:
+    """is_authorized=False in the cookie → 302 /unauthorized, no DB query."""
+    spy = _RevalSpy([])
+    payload = {"email": "u@e.com", "rol": "key_user", "is_authorized": False}
+    result = require_authorized_user(request=_make_request(), payload=payload, client=spy)
+    assert isinstance(result, _Response)
+    assert result.headers["location"] == "/unauthorized"
+    assert spy.query_count == 0
+
+
+def test_require_authorized_user_queries_db_on_first_request() -> None:
+    """Cache miss → one DB query; returns the payload for an active user."""
+    spy = _RevalSpy([{"id": "u-1", "email": "u@e.com", "rol": "key_user", "activo": True}])
+    result = require_authorized_user(
+        request=_make_request(), payload=_authorized_payload(), client=spy
+    )
+    assert not isinstance(result, _Response)
+    assert result["email"] == "u@e.com"
+    assert spy.query_count == 1
+
+
+def test_require_authorized_user_uses_cache_on_second_request() -> None:
+    """Second request within TTL is a cache hit → still exactly one DB query."""
+    spy = _RevalSpy([{"id": "u-1", "email": "u@e.com", "rol": "key_user", "activo": True}])
+    require_authorized_user(request=_make_request(), payload=_authorized_payload(), client=spy)
+    require_authorized_user(request=_make_request(), payload=_authorized_payload(), client=spy)
+    assert spy.query_count == 1
+
+
+def test_require_authorized_user_redirects_when_user_deactivated_mid_session() -> None:
+    """Active cookie but DB says inactive (no row) → 302 /unauthorized.
+
+    This is the core of #143: the cookie still says ``is_authorized=True``
+    (frozen for 7 days) but the DB is now the source of truth and returns
+    no active row, so the request is revoked on the spot.
+    """
+    spy = _RevalSpy([])  # usuarios_autorizados filters activo=true → empty
+    result = require_authorized_user(
+        request=_make_request(), payload=_authorized_payload(), client=spy
+    )
+    assert isinstance(result, _Response)
+    assert result.headers["location"] == "/unauthorized"
+    assert spy.query_count == 1
+
+
+def test_require_authorized_user_picks_up_role_change_mid_session() -> None:
+    """A role change in the DB is reflected in the returned payload rol.
+
+    The cookie was minted with ``key_user``; the DB now says ``admin``.
+    The next request must see ``admin`` (the cookie is not the truth).
+    """
+    spy = _RevalSpy([{"id": "u-1", "email": "u@e.com", "rol": "admin", "activo": True}])
+    result = require_authorized_user(
+        request=_make_request(),
+        payload=_authorized_payload(rol="key_user"),
+        client=spy,
+    )
+    assert not isinstance(result, _Response)
+    assert result["rol"] == "admin"
+
+
+def test_require_authorized_user_reauthorizes_after_invalidation() -> None:
+    """After ``invalidate_auth`` the next request re-queries the DB.
+
+    Proves the invalidation seam add/deactivate rely on: a cleared entry
+    forces a fresh lookup rather than serving the stale cached verdict.
+    """
+    spy = _RevalSpy([{"id": "u-1", "email": "u@e.com", "rol": "key_user", "activo": True}])
+    require_authorized_user(request=_make_request(), payload=_authorized_payload(), client=spy)
+    assert spy.query_count == 1
+    _auth_cache.invalidate_auth("u@e.com")
+    require_authorized_user(request=_make_request(), payload=_authorized_payload(), client=spy)
+    assert spy.query_count == 2
