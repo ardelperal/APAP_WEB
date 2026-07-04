@@ -62,6 +62,7 @@ from app.core.csrf import CsrfMiddleware, csrf_token_context_processor, issue_cs
 from app.core.domain import ensure_domain_schema
 from app.core.insforge import InsForgeClient, InsForgeError
 from app.core.logging import configure_logging, log_safe
+from app.core.middleware import UADetectionMiddleware
 from app.core.migration.sql_runner import apply_sql_migrations
 from app.core.pkce import generate_pkce_pair
 from app.core.session import (
@@ -276,6 +277,16 @@ def create_app() -> FastAPI:
         if not payload.get("is_authorized", False):
             return _redirect("/unauthorized")
         return await call_next(request)
+
+    # UA-based device detection (slice A of UA-based templates, obs #15705).
+    # Placed AFTER the auth middleware so that, in Starlette's stack
+    # (``add_middleware`` inserts at position 0 → last call is outermost),
+    # ``UADetectionMiddleware`` runs FIRST on every request — before the
+    # auth redirect can short-circuit, before CsrfMiddleware handles the
+    # token, and before any route handler reads ``request.state.is_mobile``.
+    # The middleware is purely additive (never short-circuits, never logs);
+    # the per-request cost is one regex match in ``app.core.ua.is_mobile``.
+    application.add_middleware(UADetectionMiddleware)
 
     @application.get("/healthz")
     def healthz() -> dict[str, str]:
