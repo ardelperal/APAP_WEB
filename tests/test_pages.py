@@ -366,3 +366,62 @@ async def test_unauthorized_links_compiled_css(client: httpx.AsyncClient) -> Non
     response = await client.get("/unauthorized")
 
     assert "/static/css/output.css" in response.text
+
+
+# --- base.html mobile-collapse contract (issue #147) ---------------------
+
+
+async def test_base_template_collapses_mobile_nav_with_burger(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #147 — base.html must collapse the primary nav on mobile.
+
+    Regression: at 375px the inline nav extends past the viewport and produces
+    horizontal page scroll. Fix: hide the nav below md (``hidden md:flex``)
+    and surface a burger button (``<details id="nav-burger">``) that opens the
+    mobile menu via the native HTML disclosure element — no JS required.
+
+    This HTTP-level test pins the structural contract: the rendered HTML must
+    contain the burger landmark and the primary nav must be collapsed by
+    default, with the desktop breakpoint reopening it. The Playwright
+    sentinels in ``tests/e2e/test_nav_layout.py`` verify the visual outcome.
+    """
+    # ``/login`` returns 503 when Google OAuth is not configured (the default
+    # in the test env). Stub both client_id/secret so the route renders the
+    # ``login.html`` template — which ``extends base.html`` and therefore
+    # exercises the same header chrome as the protected routes. The autouse
+    # ``_clear_settings_cache`` fixture clears the lru_cache before every
+    # test so ``get_settings()`` reads the new env vars on the next request.
+    monkeypatch.setenv("APAP_GOOGLE_CLIENT_ID", "test-client-id")
+    monkeypatch.setenv("APAP_GOOGLE_CLIENT_SECRET", "test-client-secret")
+
+    response = await client.get("/login")
+
+    assert response.status_code == 200, response.text
+
+    # Burger landmark: the disclosure element with id="nav-burger". On mobile
+    # (< md) this is the only nav trigger; the menu expands when the user
+    # taps it because <details>/<summary> is a native HTML disclosure widget.
+    assert 'id="nav-burger"' in response.text, (
+        "burger landmark not found in base.html — mobile menu cannot collapse"
+    )
+
+    # Primary desktop nav must be hidden by default and visible at md+. The
+    # regex targets the desktop landmark uniquely by its aria-label so we
+    # don't accidentally match the mobile menu (which lives inside <details>
+    # and uses a different layout direction).
+    nav_match = re.search(
+        r'<nav[^>]*aria-label="Navegaci\u00f3n principal"[^>]*>',
+        response.text,
+    )
+    assert nav_match is not None, (
+        "primary desktop nav (aria-label='Navegación principal') not found"
+    )
+    nav_tag = nav_match.group(0)
+    assert "hidden" in nav_tag, (
+        f"primary nav must collapse on mobile (need 'hidden'); got: {nav_tag}"
+    )
+    assert "md:flex" in nav_tag, (
+        f"primary nav must reopen at md+ (need 'md:flex'); got: {nav_tag}"
+    )
