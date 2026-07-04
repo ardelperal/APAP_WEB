@@ -12,11 +12,15 @@
           · Acepta cualquier especie
         {% endif %}
         · Capacidad: <span class="font-semibold">{{ casa.capacidad }}</span>
+        · Estancias activas: <span class="font-semibold">{{ estancias_activas }}</span>
       </p>
     </div>
     <div class="flex gap-2">
       <a href="/casas-acogida" class="px-4 py-2 text-text-muted hover:text-text">← Volver</a>
-      <a href="/casas-acogida/{{ casa.id }}/edit" class="bg-primary text-white px-4 py-2 rounded font-semibold hover:bg-primary-dark transition-colors shadow-sm">
+      <a href="/casas-acogida/{{ casa.id }}/asignar" class="bg-primary text-white px-4 py-2 rounded font-semibold hover:bg-primary-dark transition-colors shadow-sm">
+        Asignar animal
+      </a>
+      <a href="/casas-acogida/{{ casa.id }}/edit" class="bg-surface border border-border text-text px-4 py-2 rounded font-semibold hover:bg-border/30 transition-colors shadow-sm">
         Editar
       </a>
     </div>
@@ -82,6 +86,43 @@
       </div>
       {% endif %}
     </div>
+    {% endif %}
+  </div>
+
+  <div class="mt-8 pt-6 border-t border-border">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-lg font-semibold text-text">Histórico de overrides</h2>
+      {% if overrides %}
+      <a href="/casas-acogida/{{ casa.id }}/overrides" class="text-sm text-primary hover:text-primary-dark">
+        Ver todos ({{ overrides|length }}{% if overrides|length >= 10 %}+{% endif %})
+      </a>
+      {% endif %}
+    </div>
+    {% if overrides %}
+    <div class="bg-surface rounded-card shadow-card p-4">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-left text-text-muted border-b border-border">
+            <th class="py-2 pr-4 font-semibold">Fecha</th>
+            <th class="py-2 pr-4 font-semibold">Animal</th>
+            <th class="py-2 pr-4 font-semibold">Motivo</th>
+            <th class="py-2 pr-4 font-semibold">Operador</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for override in overrides %}
+          <tr class="border-b border-border last:border-b-0">
+            <td class="py-2 pr-4 font-mono text-xs">{{ override.created_at }}</td>
+            <td class="py-2 pr-4 font-mono text-xs">{{ override.animal_id }}</td>
+            <td class="py-2 pr-4 whitespace-pre-line">{{ override.motivo }}</td>
+            <td class="py-2 pr-4 font-mono text-xs">{{ override.operador_user_id }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="text-text-muted text-sm">Sin overrides registrados para esta casa.</p>
     {% endif %}
   </div>
 

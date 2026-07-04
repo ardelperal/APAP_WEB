@@ -484,6 +484,65 @@ TEMPLATE_SPECS: list[tuple[str, list[str], dict[str, Any]]] = [
                 "updated_at": "2026-07-04T10:00:00Z",
                 "activo": True,
             },
+            "estancias_activas": 0,
+            "overrides": [],
+        },
+    ),
+    (
+        "casas_acogida/asignar.html",
+        [
+            "casa.nombre",
+            "casa.apellidos",
+            "casa.especie_preferente",
+            "casa.capacidad",
+            "form_data.animal_id",
+            "form_data.motivo",
+            "warning",
+            "error",
+        ],
+        {
+            "user": _BASE_USER,
+            "casa": {
+                "id": "11111111-1111-1111-1111-111111111111",
+                "nombre": "María",
+                "apellidos": "García",
+                "especie_preferente": "CANINA",
+                "capacidad": 3,
+            },
+            "form_data": {"animal_id": "", "motivo": ""},
+            "warning": None,
+            "error": None,
+        },
+    ),
+    (
+        "casas_acogida/overrides.html",
+        [
+            "overrides[0].motivo",
+            "overrides[0].animal_id",
+            "overrides[0].operador_user_id",
+            "overrides[0].created_at",
+            "casa.nombre",
+            "casa.apellidos",
+            "casa.capacidad",
+        ],
+        {
+            "user": _BASE_USER,
+            "casa": {
+                "id": "11111111-1111-1111-1111-111111111111",
+                "nombre": "María",
+                "apellidos": "García",
+                "capacidad": 3,
+            },
+            "overrides": [
+                {
+                    "id": "99999999-9999-9999-9999-999999999999",
+                    "casa_acogida_id": "11111111-1111-1111-1111-111111111111",
+                    "animal_id": "11111111-1111-1111-1111-111111111111",
+                    "operador_user_id": "u-ana",
+                    "motivo": "caso urgente",
+                    "created_at": "2026-07-04T11:00:00Z",
+                }
+            ],
         },
     ),
     (
@@ -864,6 +923,11 @@ def test_no_user_data_in_url_attributes() -> None:
             # by the foster route to either ``/casas-acogida`` (new)
             # or ``/casas-acogida/{id}/update`` (edit), never user data.
             ("casas_acogida/form.html", "form_action"),
+            # ``form_action`` in ``casas_acogida/asignar.html`` is set
+            # by the foster assignment route to
+            # ``/casas-acogida/{casa_id}/asignar`` (server-generated from
+            # the path parameter), never user data. FOSTER-03 (#45).
+            ("casas_acogida/asignar.html", "form_action"),
             # ``form_action`` in ``acogidas/form.html`` is set by the
             # acolhidas route to either ``/acogidas`` (new) or
             # ``/acogidas/{id}/update`` (edit), never user data.

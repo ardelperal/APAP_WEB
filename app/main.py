@@ -75,6 +75,7 @@ from app.modules.animals.routes import router as animals_router
 from app.modules.cesiones.routes import router as cesiones_router
 from app.modules.entradas.batch_routes import router as entradas_batch_router
 from app.modules.entradas.routes import router as entradas_router
+from app.modules.foster.assignment_routes import router as foster_assignment_router
 from app.modules.foster.routes import router as foster_router
 from app.modules.voluntarios.routes import router as voluntarios_router
 
@@ -605,6 +606,12 @@ def create_app() -> FastAPI:
     application.include_router(entradas_router)
     application.include_router(entradas_batch_router)
     application.include_router(foster_router)
+    # FOSTER-03 (#45) — assignment gate sub-router (asignar/overrides).
+    # Mounted AFTER ``foster_router`` so its more specific paths
+    # (``/{casa_id}/asignar``, ``/{casa_id}/overrides``) take precedence
+    # over ``foster_router``'s dynamic ``/{casa_id}`` for those exact
+    # paths.
+    application.include_router(foster_assignment_router)
     # FOSTER-02 (#44) — estancias de acogida, mounted AFTER
     # foster_router because logically they belong to the foster slice
     # and the FK from ``acogidas`` -> ``casas_acogida`` requires the

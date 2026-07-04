@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Overrides de capacidad - {{ casa.nombre }} - APAP{% endblock %}
+{% block content %}
+  <div class="flex items-start justify-between mb-6 flex-wrap gap-3">
+    <div>
+      <h1 class="text-3xl font-bold text-primary-dark tracking-tight">Overrides de capacidad</h1>
+      <p class="text-text-muted text-sm mt-1">
+        Casa: <span class="font-semibold">{{ casa.nombre }} {{ casa.apellidos }}</span>
+        · Capacidad: <span class="font-semibold">{{ casa.capacidad }}</span>
+      </p>
+    </div>
+    <div class="flex gap-2">
+      <a href="/casas-acogida/{{ casa.id }}" class="px-4 py-2 text-text-muted hover:text-text">← Volver</a>
+    </div>
+  </div>
+
+  <div class="bg-surface rounded-card shadow-card p-6">
+    {% if overrides %}
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="text-left text-text-muted border-b border-border">
+          <th class="py-2 pr-4 font-semibold">Fecha</th>
+          <th class="py-2 pr-4 font-semibold">Animal</th>
+          <th class="py-2 pr-4 font-semibold">Motivo</th>
+          <th class="py-2 pr-4 font-semibold">Operador</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for override in overrides %}
+        <tr class="border-b border-border last:border-b-0">
+          <td class="py-2 pr-4 font-mono text-xs">{{ override.created_at }}</td>
+          <td class="py-2 pr-4 font-mono text-xs">{{ override.animal_id }}</td>
+          <td class="py-2 pr-4 whitespace-pre-line">{{ override.motivo }}</td>
+          <td class="py-2 pr-4 font-mono text-xs">{{ override.operador_user_id }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="text-text-muted text-sm">Sin overrides registrados para esta casa.</p>
+    {% endif %}
+  </div>
+{% endblock %}

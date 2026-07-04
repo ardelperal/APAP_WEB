@@ -34,6 +34,7 @@ from app.core.domain import (
     CESIONES_PROPIETARIO_CREATE_TABLE_SQL,
     CONTRATOS_CREATE_TABLE_SQL,
     ENTRADAS_CREATE_TABLE_SQL,
+    FOSTER_CAPACITY_OVERRIDES_CREATE_TABLE_SQL,
     ROLES_VOLUNTARIO_CREATE_TABLE_SQL,
     VOLUNTARIOS_CREATE_TABLE_SQL,
     ensure_domain_schema,
@@ -501,13 +502,16 @@ def test_ensure_domain_schema_emits_casa_fk_migration_after_acogidas_create() ->
     client.close()
 
     queries = [c["query"].strip() for c in captured]
-    # 12 CREATE TABLE statements + 1 ALTER TABLE for the casa FK.
+    # 13 CREATE TABLE statements (12 lifecycle + foster_capacity_overrides)
+    # + 1 ALTER TABLE for the casa FK. FOSTER-03 (#45) added
+    # ``foster_capacity_overrides``; ordering still puts it after the
+    # ALTER TABLE so the FOSTER slice is contiguous.
     create_queries = [
         q for q in queries if q.startswith("CREATE TABLE IF NOT EXISTS")
     ]
     alter_queries = [q for q in queries if q.startswith("ALTER TABLE")]
-    assert len(create_queries) == 12, (
-        f"expected 12 CREATE TABLEs, got {len(create_queries)}: {create_queries}"
+    assert len(create_queries) == 13, (
+        f"expected 13 CREATE TABLEs, got {len(create_queries)}: {create_queries}"
     )
     assert len(alter_queries) == 1, (
         f"expected 1 ALTER TABLE (FOSTER-02 casa FK), got {len(alter_queries)}: {alter_queries}"
@@ -530,6 +534,88 @@ def test_ensure_domain_schema_emits_casa_fk_migration_after_acogidas_create() ->
     )
     assert alter_idx > create_casas_acogida_idx, (
         "ALTER TABLE must run AFTER CREATE TABLE casas_acogida (FK target must exist)"
+    )
+
+
+# --- foster_capacity_overrides (FOSTER-03, #45) ---------------------------
+#
+# Audit log para los overrides de capacidad. 6 columnas: id PK + FKs a
+# casas_acogida y animales + operador_user_id (UUID libre, integridad a
+# nivel de aplicación) + motivo TEXT NOT NULL + created_at. Se posiciona
+# DESPUÉS del ALTER TABLE de ``acogidas`` para mantener el orden
+# lógico del slice foster.
+
+
+def test_foster_capacity_overrides_create_table_sql_uses_if_not_exists() -> None:
+    assert "CREATE TABLE IF NOT EXISTS foster_capacity_overrides" in (
+        FOSTER_CAPACITY_OVERRIDES_CREATE_TABLE_SQL
+    )
+
+
+def test_foster_capacity_overrides_create_table_sql_columns() -> None:
+    columns = _column_names(FOSTER_CAPACITY_OVERRIDES_CREATE_TABLE_SQL)
+    expected = {
+        "id",
+        "casa_acogida_id",
+        "animal_id",
+        "operador_user_id",
+        "motivo",
+        "created_at",
+    }
+    assert columns == expected, (
+        f"foster_capacity_overrides columns mismatch: extra={columns - expected}, "
+        f"missing={expected - columns}"
+    )
+
+
+def test_foster_capacity_overrides_create_table_sql_fks() -> None:
+    pairs = _fk_targets(FOSTER_CAPACITY_OVERRIDES_CREATE_TABLE_SQL)
+    assert ("casa_acogida_id", "casas_acogida") in pairs, (
+        "foster_capacity_overrides must FK casa_acogida_id -> casas_acogida(id)"
+    )
+    assert ("animal_id", "animales") in pairs, (
+        "foster_capacity_overrides must FK animal_id -> animales(id)"
+    )
+
+
+def test_foster_capacity_overrides_create_table_sql_motivo_not_null() -> None:
+    """motivo TEXT NOT NULL: belt-and-braces contra un INSERT crudo vacío.
+
+    La validación de non-empty vive en ``record_override`` (servicio) +
+    en el form check; el NOT NULL es el seguro de vida por si un INSERT
+    directo intenta meter un motivo vacío.
+    """
+    sql = FOSTER_CAPACITY_OVERRIDES_CREATE_TABLE_SQL
+    assert re.search(r"motivo\s+TEXT\s+NOT\s+NULL", sql), (
+        f"motivo must be TEXT NOT NULL in foster_capacity_overrides; got: {sql}"
+    )
+
+
+def test_ensure_domain_schema_emits_foster_capacity_overrides_after_casa_fk_alter() -> None:
+    """FOSTER-03 (#45): foster_capacity_overrides runs AFTER the FOSTER-02 ALTER.
+
+    Both ``casas_acogida`` and ``animales`` exist before this CREATE
+    TABLE (the former is at idx 5, the latter at idx 0), so the FKs
+    declared in ``foster_capacity_overrides`` resolve. The table is
+    positioned AFTER the FOSTER-02 ALTER TABLE (idx 7) to keep the
+    foster slice contiguous in the lifespan bootstrap.
+    """
+    client, captured = _client_recording(lambda req, body: _json_response(200, []))
+
+    ensure_domain_schema(client)
+    client.close()
+
+    queries = [c["query"].strip() for c in captured]
+    create_fco_idx = next(
+        i for i, q in enumerate(queries)
+        if q.startswith("CREATE TABLE IF NOT EXISTS foster_capacity_overrides")
+    )
+    alter_idx = next(
+        i for i, q in enumerate(queries) if q.startswith("ALTER TABLE")
+    )
+    assert create_fco_idx > alter_idx, (
+        "CREATE TABLE foster_capacity_overrides must run AFTER the "
+        "ALTER TABLE acogidas to keep the foster slice contiguous"
     )
 
 
@@ -602,7 +688,9 @@ def test_ensure_domain_schema_includes_entradas_acogidas_adopciones() -> None:
     entries depend on animales+voluntarios; acogidas depend on
     animales+voluntarios+entradas; adopciones depend on
     animales+voluntarios+entradas. Any other order means FK will fail on
-    a clean database.
+    a clean database. FOSTER-03 (#45) adds ``foster_capacity_overrides``
+    right after the ALTER TABLE for ``acogidas`` but is otherwise
+    orthogonal to this 6-table ordering assertion.
     """
     client, captured = _client_recording(lambda req, body: _json_response(200, []))
 
@@ -626,10 +714,12 @@ def test_ensure_domain_schema_includes_entradas_acogidas_adopciones() -> None:
     assert queries[5].startswith("CREATE TABLE IF NOT EXISTS casas_acogida")
     assert queries[6].startswith("CREATE TABLE IF NOT EXISTS acogidas")
     # FOSTER-02: ALTER TABLE immediately after the CREATE TABLE for
-    # ``acogidas`` to install the FK to ``casas_acogida``. The next
-    # statement is still the CREATE TABLE for ``adopciones``.
+    # ``acogidas`` to install the FK to ``casas_acogida``. FOSTER-03
+    # (#45) emits ``foster_capacity_overrides`` right after that ALTER,
+    # keeping the foster slice contiguous. ``adopciones`` follows.
     assert queries[7].startswith("ALTER TABLE acogidas")
-    assert queries[8].startswith("CREATE TABLE IF NOT EXISTS adopciones")
+    assert queries[8].startswith("CREATE TABLE IF NOT EXISTS foster_capacity_overrides")
+    assert queries[9].startswith("CREATE TABLE IF NOT EXISTS adopciones")
 
 
 # --- animal_lifecycle_events (LIFECYCLE-SCHEMA-02) -----------------------
@@ -771,15 +861,15 @@ def test_animal_current_state_reconciliation_status_defaults_to_pending() -> Non
 
 
 def test_ensure_domain_schema_creates_twelve_tables_plus_one_alter() -> None:
-    """After issues #41, #40, #43, and #44, ensure_domain_schema emits
-    12 CREATE TABLE statements + 1 ALTER TABLE migration:
+    """After issues #41, #40, #43, #44, and #45, ensure_domain_schema emits
+    13 CREATE TABLE statements + 1 ALTER TABLE migration:
 
     animales -> voluntarios -> roles_voluntario -> entradas -> entradas_batch_staging
     -> casas_acogida -> acogidas -> [ALTER TABLE acogidas ADD COLUMN casa_acogida_id]
-    -> adopciones -> animal_lifecycle_events -> animal_current_state
-    -> cesiones_propietario -> contratos.
+    -> foster_capacity_overrides -> adopciones -> animal_lifecycle_events
+    -> animal_current_state -> cesiones_propietario -> contratos.
 
-    Total statements: 13 (12 CREATE TABLE + 1 ALTER TABLE).
+    Total statements: 14 (13 CREATE TABLE + 1 ALTER TABLE).
 
     ``entradas_batch_staging`` (#40, INTAKE-02) sits right after
     ``entradas`` because it is logically tied to the intake flow; it has
@@ -790,6 +880,10 @@ def test_ensure_domain_schema_creates_twelve_tables_plus_one_alter() -> None:
     ``acogidas.casa_acogida_id REFERENCES casas_acogida(id)`` via ALTER
     TABLE without reordering. The ALTER TABLE itself runs IMMEDIATELY
     AFTER the CREATE TABLE for ``acogidas`` so the FK target exists.
+    ``foster_capacity_overrides`` (#45, FOSTER-03) is positioned right
+    AFTER the ALTER TABLE — its FKs target ``casas_acogida`` and
+    ``animales`` (both already created) so no extra ordering constraint
+    applies beyond "after the foster slice".
     """
     client, captured = _client_recording(lambda req, body: _json_response(200, []))
 
@@ -797,12 +891,12 @@ def test_ensure_domain_schema_creates_twelve_tables_plus_one_alter() -> None:
     client.close()
 
     queries = [c["query"].strip() for c in captured]
-    assert len(queries) == 13, (
-        f"expected 13 statements (12 CREATE TABLE + 1 ALTER TABLE), "
+    assert len(queries) == 14, (
+        f"expected 14 statements (13 CREATE TABLE + 1 ALTER TABLE), "
         f"got {len(queries)}: {queries}"
     )
     create_queries = [q for q in queries if q.startswith("CREATE TABLE")]
-    assert len(create_queries) == 12
+    assert len(create_queries) == 13
     assert queries[0].startswith("CREATE TABLE IF NOT EXISTS animales")
     assert queries[1].startswith("CREATE TABLE IF NOT EXISTS voluntarios")
     assert queries[2].startswith("CREATE TABLE IF NOT EXISTS roles_voluntario")
@@ -810,13 +904,14 @@ def test_ensure_domain_schema_creates_twelve_tables_plus_one_alter() -> None:
     assert queries[4].startswith("CREATE TABLE IF NOT EXISTS entradas_batch_staging")
     assert queries[5].startswith("CREATE TABLE IF NOT EXISTS casas_acogida")
     assert queries[6].startswith("CREATE TABLE IF NOT EXISTS acogidas")
-    # FOSTER-02 ALTER TABLE between ``acogidas`` (idx 6) and ``adopciones`` (idx 8).
+    # FOSTER-02 ALTER TABLE between ``acogidas`` (idx 6) and ``foster_capacity_overrides`` (idx 8).
     assert queries[7].startswith("ALTER TABLE acogidas")
-    assert queries[8].startswith("CREATE TABLE IF NOT EXISTS adopciones")
-    assert queries[9].startswith("CREATE TABLE IF NOT EXISTS animal_lifecycle_events")
-    assert queries[10].startswith("CREATE TABLE IF NOT EXISTS animal_current_state")
-    assert queries[11].startswith("CREATE TABLE IF NOT EXISTS cesiones_propietario")
-    assert queries[12].startswith("CREATE TABLE IF NOT EXISTS contratos")
+    assert queries[8].startswith("CREATE TABLE IF NOT EXISTS foster_capacity_overrides")
+    assert queries[9].startswith("CREATE TABLE IF NOT EXISTS adopciones")
+    assert queries[10].startswith("CREATE TABLE IF NOT EXISTS animal_lifecycle_events")
+    assert queries[11].startswith("CREATE TABLE IF NOT EXISTS animal_current_state")
+    assert queries[12].startswith("CREATE TABLE IF NOT EXISTS cesiones_propietario")
+    assert queries[13].startswith("CREATE TABLE IF NOT EXISTS contratos")
 
 
 # --- cesiones_propietario (TbCesionPorPropietario legacy, issue #41) ---

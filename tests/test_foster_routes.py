@@ -388,11 +388,30 @@ async def test_casa_acogida_detail_renders_data(
     route_client: _NoSqlRouteClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Detail renders the casa's data plus the delete form with CSRF."""
+    """Detail renders the casa's data plus the delete form with CSRF.
+
+    FOSTER-03 (#45): the detail view now also looks up the active
+    stay count and the top 10 capacity overrides via the assignment
+    service. Both helpers are monkeypatched to fixed values so the
+    SQL-spy ``_NoSqlRouteClient`` stays clean (the route still
+    delegates to the service, never to ``execute_sql`` directly).
+    """
+    from app.modules.foster import assignment as assignment_service
+
     _login_as_key_user(client)
     casa = _casa()
     monkeypatch.setattr(
         foster_service, "get_casa_acogida_by_id", lambda _c, _id: casa
+    )
+    monkeypatch.setattr(
+        assignment_service,
+        "count_active_estancias_for_casa",
+        lambda _c, _id: 0,
+    )
+    monkeypatch.setattr(
+        assignment_service,
+        "list_overrides_for_casa",
+        lambda _c, _id: [],
     )
 
     response = await client.get("/casas-acogida/casa-123")
@@ -408,6 +427,10 @@ async def test_casa_acogida_detail_renders_data(
     assert 'name="csrf_token"' in body
     # Edit link present.
     assert '/casas-acogida/casa-123/edit' in body
+    # FOSTER-03: assign link present.
+    assert '/casas-acogida/casa-123/asignar' in body
+    # FOSTER-03: estancias activas badge visible.
+    assert "Estancias activas" in body
 
 
 # --- 9. GET /casas-acogida/{id}/edit (edit form) -------------------------

@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Asignar animal a {{ casa.nombre }} - APAP{% endblock %}
+{% block content %}
+  <div class="flex items-start justify-between mb-6 flex-wrap gap-3">
+    <div>
+      <h1 class="text-3xl font-bold text-primary-dark tracking-tight">Asignar animal a {{ casa.nombre }} {{ casa.apellidos }}</h1>
+      <p class="text-text-muted text-sm mt-1">
+        Casa de acogida
+        {% if casa.especie_preferente %}
+          · Especie preferente: <span class="font-semibold">{{ casa.especie_preferente }}</span>
+        {% else %}
+          · Acepta cualquier especie
+        {% endif %}
+        · Capacidad: <span class="font-semibold">{{ casa.capacidad }}</span>
+      </p>
+    </div>
+    <div class="flex gap-2">
+      <a href="/casas-acogida/{{ casa.id }}" class="px-4 py-2 text-text-muted hover:text-text">← Volver</a>
+    </div>
+  </div>
+
+  {% if error %}
+  <div class="bg-rose-50 border border-rose-300 text-rose-900 rounded-card px-4 py-3 mb-6" role="alert">
+    <p class="font-semibold">No se puede asignar</p>
+    <p class="text-sm mt-1">{{ error }}</p>
+  </div>
+  {% endif %}
+
+  {% if warning %}
+  <div class="bg-amber-50 border border-amber-300 text-amber-900 rounded-card px-4 py-3 mb-6" role="alert">
+    <p class="font-semibold">Capacidad excedida</p>
+    <p class="text-sm mt-1">{{ warning }}</p>
+    <p class="text-sm mt-2">
+      Para continuar por encima de la capacidad, escribe un motivo en el formulario. Quedará registrado como override auditado.
+    </p>
+  </div>
+  {% endif %}
+
+  <div class="bg-surface rounded-card shadow-card p-6 max-w-2xl">
+    <form method="post" action="/casas-acogida/{{ casa.id }}/asignar">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+
+      <div class="mb-4">
+        <label for="animal_id" class="block text-sm font-semibold text-text mb-1">
+          Identificador del animal (UUID)
+        </label>
+        <input
+          id="animal_id"
+          name="animal_id"
+          type="text"
+          required
+          value="{{ form_data.animal_id or '' }}"
+          placeholder="11111111-1111-1111-1111-111111111111"
+          class="w-full px-3 py-2 border border-border rounded font-mono text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+        />
+        <p class="text-xs text-text-muted mt-1">
+          Pega el UUID del animal que quieres evaluar para esta casa.
+        </p>
+      </div>
+
+      {% if warning %}
+      <div class="mb-4">
+        <label for="motivo" class="block text-sm font-semibold text-text mb-1">
+          Motivo del override <span class="text-rose-700">*</span>
+        </label>
+        <textarea
+          id="motivo"
+          name="motivo"
+          required
+          rows="3"
+          placeholder="ej. caso urgente, emergencia temporal, ..."
+          class="w-full px-3 py-2 border border-border rounded text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+        >{{ form_data.motivo or '' }}</textarea>
+        <p class="text-xs text-text-muted mt-1">
+          Obligatorio. Queda registrado en el audit log con tu usuario y timestamp.
+        </p>
+      </div>
+      {% endif %}
+
+      <div class="flex justify-end gap-2">
+        <a href="/casas-acogida/{{ casa.id }}" class="px-4 py-2 text-text-muted hover:text-text">
+          Cancelar
+        </a>
+        <button type="submit" class="bg-primary text-white px-4 py-2 rounded font-semibold hover:bg-primary-dark transition-colors shadow-sm">
+          Evaluar
+        </button>
+      </div>
+    </form>
+  </div>
+{% endblock %}

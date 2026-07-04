@@ -35,6 +35,7 @@ from app.core.auth_dependencies import (
 )
 from app.core.csrf import csrf_token_context_processor
 from app.core.insforge import InsForgeClient
+from app.modules.foster import assignment as foster_assignment_service
 from app.modules.foster import service as foster_service
 
 router = APIRouter(prefix="/casas-acogida", tags=["foster"])
@@ -251,10 +252,24 @@ def casa_acogida_detail(
     casa = foster_service.get_casa_acogida_by_id(client, casa_id)
     if casa is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    # FOSTER-03 (#45): the detail view shows two more pieces of state:
+    # the count of active stays (used for the "Estancias activas" badge
+    # in the header) and the most recent capacity overrides (top 10).
+    # Both are looked up via the assignment service so the route stays
+    # SQL-free — the service owns the queries.
+    estancias_activas = foster_assignment_service.count_active_estancias_for_casa(
+        client, casa_id
+    )
+    overrides = foster_assignment_service.list_overrides_for_casa(client, casa_id)
     return _templates.TemplateResponse(
         request=request,
         name="casas_acogida/detail.html",
-        context={"user": user, "casa": casa},
+        context={
+            "user": user,
+            "casa": casa,
+            "estancias_activas": estancias_activas,
+            "overrides": overrides[:10],
+        },
     )
 
 

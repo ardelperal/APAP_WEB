@@ -227,6 +227,42 @@ ALTER TABLE acogidas
 ADD COLUMN IF NOT EXISTS casa_acogida_id UUID REFERENCES casas_acogida(id)
 """
 
+# --- foster_capacity_overrides: FOSTER-03 (#45) -----------------------------
+#
+# Audit log para los overrides de capacidad que el operador registra cuando
+# acepta asignar un animal a una casa que ya excede ``capacidad`` (con su
+# especie preferida). Una fila por override; nunca se borra. El gate de
+# especie (D-GC-01, FOSTER-03) NO genera override — es hard block sin
+# anulación. Solo el capacity advisory produce filas aquí.
+#
+# Decisión D-GC-01: tabla propia (no reusar ``animal_lifecycle_events``).
+# Justificación en ``openspec/changes/foster-gate-capacidad/proposal.md``
+# §D-GC-01 — la query "dame todos los overrides de esta casa" es indexable
+# trivialmente con un BTREE en ``casa_acogida_id``, y mezclar eventos del
+# animal con auditoría de capacidad introduce ambigüedad en la deducción
+# futura del state machine (PR 2 de ``web-only-feature-preservation``).
+#
+# ``operador_user_id`` referencia ``usuarios_autorizados(id)`` pero NO
+# declaramos la FK porque esa tabla la crea ``ensure_schema_and_seed``
+# ANTES de ``ensure_domain_schema``; para evitar un ordenamiento frágil
+# adicional, lo dejamos como UUID libre. La integridad referencial se
+# garantiza a nivel de aplicación: el handler extrae ``user_id`` de la
+# sesión y nunca acepta input del usuario en ese campo.
+#
+# ``motivo`` es TEXT NOT NULL — la validación de non-empty vive en el
+# service (``record_override``); el constraint es el cinturón de
+# seguridad por si un INSERT crudo intenta meter una fila vacía.
+FOSTER_CAPACITY_OVERRIDES_CREATE_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS foster_capacity_overrides (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    casa_acogida_id UUID NOT NULL REFERENCES casas_acogida(id),
+    animal_id UUID NOT NULL REFERENCES animales(id),
+    operador_user_id UUID NOT NULL,
+    motivo TEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT now()
+)
+"""
+
 # --- adopciones: TbAdopcion (16 cols) + mejoras justificadas ---
 #
 # LIFECYCLE-03 (migration-01). FKs to animales, voluntarios and entradas
@@ -499,6 +535,12 @@ def ensure_domain_schema(client: InsForgeClient) -> None:
     # emitido DESPUÉS del CREATE TABLE de acogidas para garantizar que
     # la tabla referenciada (``casas_acogida``) ya existe en la base.
     client.execute_sql(ACOGIDAS_ADD_CASA_FK_SQL)
+    # FOSTER-03 (#45) — audit log para los overrides de capacidad. La
+    # tabla referencia ``casas_acogida`` y ``animales``, ambas ya
+    # creadas; emisión DESPUÉS del ALTER de ``acogidas`` mantiene el
+    # orden lógico del slice foster. Idempotente vía
+    # ``CREATE TABLE IF NOT EXISTS``.
+    client.execute_sql(FOSTER_CAPACITY_OVERRIDES_CREATE_TABLE_SQL)
     client.execute_sql(ADOPCIONES_CREATE_TABLE_SQL)
     client.execute_sql(ANIMAL_LIFECYCLE_EVENTS_CREATE_TABLE_SQL)
     client.execute_sql(ANIMAL_CURRENT_STATE_CREATE_TABLE_SQL)
