@@ -2,7 +2,7 @@
 
 > Documento vivo. Punto de entrada único para saber qué hay que construir, en qué orden, qué issues lo cubren y qué documentación ya existe. Si una pregunta se responde aquí, no hay que rebuscar.
 
-**Última actualización:** 2026-07-03 (refresco de issues cerradas #1/#42/#129/#130/#120 — `main` queda sincronizado con GitHub Issues y CI verde)
+**Última actualización:** 2026-07-04 (refresco: cierre #40 INTAKE-02 con commit `c7b69ec` + test path; `main` queda sincronizado con GitHub Issues y CI verde)
 **Mantenedor único:** aroman (autoaprueba issues y PRs)
 **Rama objetivo actual:** **pre-MVP single-branch** — todo va a `main`, una sola rama al final del ciclo (ver §8 y `AGENTS.md` §15)
 **Idioma de toda la documentación, issues y PRs:** castellano (España)
@@ -13,7 +13,7 @@
 
 - **CI/CD foundation (Fase 0):** CI-01, CI-02, CD-01 y CD-02 están **todos en verde en `main`** desde el 2026-07-03. El deploy automático al push a `main` se ejecuta vía webhook firmado a Coolify (`COOLIFY_WEBHOOK_URL` + `COOLIFY_WEBHOOK_SECRET` configurados; verificado en CI run 28674612470). El primer deploy real sigue pendiente del DNS `apap.romancaba.com` (operación manual del mantenedor).
 - **Infraestructura:** repositorio, Coolify y backend de InsForge ya aprovisionados. Runnable de la aplicación en producción pendiente solo del DNS.
-- **Producto (Fases 1-7):** **Fase 1 ✅ mergeada en `main` (#17, commit `d0b1ed1`)**. **Fase 2 ✅ mergeada en `main` (#16, commit `1d22349`)**. **Fase 5a INTAKE-01 ✅ mergeada (#87/#88/#89)** con schema + service + routes; **INTAKE-03 ✅ mergeada (#41, PR #136, commit `98e80c5`)** con schema + service + routes + form; INTAKE-04 (#42) abierto. Fases 3-7 pendientes. El código de auth está listo; tabla `authorized_users` creada y seedeada (#25).
+- **Producto (Fases 1-7):** **Fase 1 ✅ mergeada en `main` (#17, commit `d0b1ed1`)**. **Fase 2 ✅ mergeada en `main` (#16, commit `1d22349`)**. **Fase 5a INTAKE-01 ✅ mergeada (#87/#88/#89)** con schema + service + routes; **INTAKE-02 ✅ mergeada (#40, commit `c7b69ec`)** con staging pre-commit y CTE atómico (legacy `TbEntradasMultiplesAuxIniciales`); **INTAKE-03 ✅ mergeada (#41, PR #136, commit `98e80c5`)** con schema + service + routes + form; INTAKE-04 (#42) abierto. Fases 3-7 pendientes. El código de auth está listo; tabla `authorized_users` creada y seedeada (#25).
 - **Issues UI/copy recientes (cerradas):** #124 logout → login, #125 OAuth callback loop, #126 UI sin copy interno + campos obligatorios Access, #127 home con tarjetas, #128 eliminar lenguaje interno, #131 labels castellanos. XSS allowlist detectado y fixado en `a528566`.
 - **Documentación de discovery:** generada y consistente. Antes de tocar el legacy, leer `docs/discovery/` (ver §7). Decisiones de proyecto consolidadas en `docs/decisiones-proyecto.md` (nuevo, 2026-07-03).
 - **Proceso operativo:** el playbook end-to-end por issue está en **`docs/proceso.md`** (creado 2026-07-03, PR #132 merge `5329ec5`). Es lectura obligatoria antes de tomar cualquier issue que vaya más allá de un doc trivial.
@@ -242,6 +242,7 @@
 |---|---|---|---|
 | #6 | feat(ux): definir la base UX/UI de APAP | Transversal UX/UI | 🔲 |
 | #7 | feat(tasks): definir motor común de tareas manuales y automáticas | Transversal tasks | 🔲 |
+| #40 | INTAKE-02: API batch de entradas con commit transaccional | Fase 5a | ✅ (commit `c7b69ec`, 2026-07-04) |
 | #41 | INTAKE-03: workflow de cesión por propietario con contrato separado | Fase 5a | ✅ (PR #136, commit `98e80c5`, 2026-07-03) |
 | #43 | FOSTER-01: CRUD de casas de acogida con preferencia de especie y capacidad | Fase 5b | 🔲 |
 | #44 | FOSTER-02: CRUD de estancias de acogida con FK a voluntario | Fase 5b | 🔲 |
@@ -268,8 +269,9 @@
 | #66 | RBAC-01: modelo RBAC con matriz de permisos a nivel API | Auth | 🔲 |
 | #69 | LIFECYCLE-SCHEMA-03: cache materializado `estado_actual_animal` | Fase 4 | 🔲 |
 
-**Issues cerradas relevantes (refresco 2026-07-03, con commit/título):**
+**Issues cerradas relevantes (refresco 2026-07-04, con commit/título):**
 
+- #40 (`c7b69ec`) — INTAKE-02: entradas en lote con staging y commit atómico (Entradas Múltiples / legacy `TbEntradasMultiplesAuxIniciales`); CTE atómico `INSERT FROM staging + DELETE staging` en una sola sentencia PostgreSQL.
 - #1 (`dc98c1c` PR #24 — CD-02 Dockerfile/build), `b929233` HMAC, `225ef9c` job `deploy`, `ca06a46` httpx, `b16a5dd`/`e32c573` extract/PG-deselect; deploy verificado en CI run 28674612470.
 - #14 (`69b509e`) — hoja de ruta viva (este doc)
 - #16 (`1d22349`) — Fase 2 auth
