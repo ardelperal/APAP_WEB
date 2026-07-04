@@ -27,6 +27,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 import pytest as _pytest
 from fastapi import Request
 from starlette.responses import Response as _Response
@@ -506,3 +507,153 @@ def test_require_authorized_user_reauthorizes_after_invalidation() -> None:
     _auth_cache.invalidate_auth("u@e.com")
     require_authorized_user(request=_make_request(), payload=_authorized_payload(), client=spy)
     assert spy.query_count == 2
+
+
+# ---------------------------------------------------------------------------
+# Issue #144: require_writer_user enforces write-role at the route boundary
+# ---------------------------------------------------------------------------
+#
+# ``require_authorized_user`` only checks ``is_authorized``; a user with
+# the ``reader`` rol passes it and could hit POST/PUT/PATCH/DELETE handlers
+# unchallenged. ``require_writer_user`` composes on top and rejects readers
+# with 403. These tests pin the contract: allowed roles pass through, the
+# ``reader`` role is rejected, default-deny holds when the rol field is
+# missing or unknown, and an upstream redirect (no session / deactivated)
+# is propagated unchanged.
+
+
+@pytest.mark.parametrize(
+    "rol",
+    ["developer", "admin", "key_user"],
+    ids=["developer", "admin", "key_user"],
+)
+def test_require_writer_user_allows_writer_roles(rol: str) -> None:
+    """Roles in :attr:`Settings.writer_rols` pass through with the payload intact.
+
+    The dep is a thin composition on ``require_authorized_user`` — the
+    contract is "I return what the upstream dep returned" so the handler
+    keeps reading the same dict shape (rol, email, user_id, ...).
+    """
+    from app.core.auth_dependencies import require_writer_user  # noqa: PLC0415
+
+    payload = _authorized_payload(rol=rol)
+    result = require_writer_user(user=payload)
+
+    assert not isinstance(result, _Response)
+    assert result is payload
+    assert result["rol"] == rol
+
+
+def test_require_writer_user_rejects_reader() -> None:
+    """A ``reader`` rol MUST be rejected with 403 (issue #144, the core gap).
+
+    Before this dep, a reader could POST/PUT/PATCH/DELETE on every
+    domain module because no route enforced the rol. The reader is
+    explicit read-only by domain definition.
+    """
+    from fastapi import HTTPException
+
+    from app.core.auth_dependencies import require_writer_user  # noqa: PLC0415
+
+    payload = _authorized_payload(rol="reader")
+
+    with pytest.raises(HTTPException) as exc_info:
+        require_writer_user(user=payload)
+
+    assert exc_info.value.status_code == 403
+    # The detail message is user-facing; keep it actionable in castellano.
+    assert "Permisos" in str(exc_info.value.detail)
+
+
+def test_require_writer_user_rejects_missing_rol_default_deny() -> None:
+    """A payload with no ``rol`` field MUST be rejected (regla 6: default-deny).
+
+    Belt-and-braces: ``require_authorized_user`` always sets ``rol`` on
+    the returned payload (either from the DB row or the cache), so this
+    case is reachable only via a stale code path. The dep must still
+    reject rather than trust a missing field.
+    """
+    from fastapi import HTTPException
+
+    from app.core.auth_dependencies import require_writer_user  # noqa: PLC0415
+
+    payload = {"email": "u@e.com", "user_id": "u-1", "is_authorized": True}
+    assert "rol" not in payload  # sanity
+
+    with pytest.raises(HTTPException) as exc_info:
+        require_writer_user(user=payload)
+
+    assert exc_info.value.status_code == 403
+
+
+def test_require_writer_user_rejects_unknown_rol_default_deny() -> None:
+    """An unknown rol string MUST be rejected (regla 6 + regla 4: source of truth).
+
+    The set of accepted roles is :attr:`Settings.writer_rols`, derived
+    from :class:`app.core.auth.Rol`. Anything outside the enum MUST be
+    denied even if it looks plausible.
+    """
+    from fastapi import HTTPException
+
+    from app.core.auth_dependencies import require_writer_user  # noqa: PLC0415
+
+    with pytest.raises(HTTPException) as exc_info:
+        require_writer_user(user=_authorized_payload(rol="superuser"))
+
+    assert exc_info.value.status_code == 403
+
+
+def test_require_writer_user_propagates_unauthorized_redirect() -> None:
+    """When ``require_authorized_user`` returns a redirect, ``require_writer_user``
+    MUST propagate it unchanged — the handler still has to bail out via
+    ``return_early_if_response``.
+
+    Composition contract: the writer dep never raises when the upstream
+    dep returned a redirect, because the upstream dep already made the
+    final verdict ("sesion no autorizada" -> /login or /unauthorized).
+    """
+    from fastapi.responses import RedirectResponse
+
+    from app.core.auth_dependencies import require_writer_user  # noqa: PLC0415
+
+    redirect = RedirectResponse(url="/login", status_code=302)
+    result = require_writer_user(user=redirect)
+
+    assert isinstance(result, _Response)
+    assert result is redirect
+    assert result.headers["location"] == "/login"
+
+
+def test_require_writer_user_propagates_unauthorized_redirect_when_deactivated() -> None:
+    """When ``require_authorized_user`` returns /unauthorized (deactivated user),
+    ``require_writer_user`` MUST propagate it unchanged and NOT short-circuit
+    to 403 — /unauthorized is the user-friendly path for that case.
+    """
+    from fastapi.responses import RedirectResponse
+
+    from app.core.auth_dependencies import require_writer_user  # noqa: PLC0415
+
+    redirect = RedirectResponse(url="/unauthorized", status_code=302)
+    result = require_writer_user(user=redirect)
+
+    assert isinstance(result, _Response)
+    assert result is redirect
+    assert result.headers["location"] == "/unauthorized"
+
+
+def test_settings_writer_rols_is_derived_from_rol_enum() -> None:
+    """``Settings.writer_rols`` MUST be derived from :class:`Rol` (regla 4).
+
+    Single source of truth: adding a new rol to ``Rol`` (e.g. ``AUDITOR``)
+    that should also be allowed to write only needs that one change in
+    ``Rol`` + this property, NOT a hand-maintained string list anywhere
+    else in the codebase.
+    """
+    from app.core.auth import Rol
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    expected = frozenset({Rol.DEVELOPER.value, Rol.ADMIN.value, Rol.KEY_USER.value})
+    assert settings.writer_rols == expected
+    # The reader rol is the only one NOT in writer_rols (by definition).
+    assert Rol.READER.value not in settings.writer_rols

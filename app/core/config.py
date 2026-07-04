@@ -95,6 +95,23 @@ class Settings(BaseSettings):
 
     debug: bool = False
 
+    # --- RBAC: roles allowed to write (issue #144) --------------------
+    # ``writer_rols`` is the set of roles that ``require_writer_user``
+    # allows through to write routes (POST/PUT/PATCH/DELETE). The
+    # ``reader`` role is intentionally excluded: a reader is read-only
+    # by definition, and the per-route dep raises 403 otherwise. The
+    # source of truth is :class:`app.core.auth.Rol` (regla 4 — one
+    # source per domain concept); the import is deferred inside the
+    # property because ``app.core.auth`` already imports ``Settings``,
+    # so a top-level ``from app.core.auth import Rol`` would close a
+    # module-load cycle.
+    @property
+    def writer_rols(self) -> frozenset[str]:
+        """Roles allowed to write (POST/PUT/PATCH/DELETE) — issue #144."""
+        from app.core.auth import Rol  # noqa: PLC0415 (lazy: breaks cycle)
+
+        return frozenset({Rol.DEVELOPER.value, Rol.ADMIN.value, Rol.KEY_USER.value})
+
 
 @functools.lru_cache(maxsize=1)
 def get_settings() -> Settings:

@@ -11,6 +11,8 @@ Las firmas publicas son:
 - :func:`get_insforge_client_dep`  -- cliente InsForge por peticion.
 - :func:`get_current_user_optional` -- payload de sesion o ``None``.
 - :func:`require_authorized_user` -- guarda que exige ``is_authorized``.
+- :func:`require_writer_user` -- guarda que ademas exige rol de escritura
+  (issue #144); rechaza con 403 a los lectores.
 
 El contrato de :func:`require_authorized_user` lo fija
 ``tests/test_auth_session_is_authorized.py`` (regression test del P0
@@ -30,7 +32,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
-from fastapi import Depends, Request
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from starlette.responses import Response
 
@@ -176,3 +178,50 @@ def require_authorized_user(
         return RedirectResponse(url="/unauthorized", status_code=302)
     payload["rol"] = cached.rol
     return payload
+
+
+def require_writer_user(
+    user: Response | dict = Depends(require_authorized_user),
+) -> Response | dict:
+    """Dependencia de FastAPI: rechaza usuarios con rol ``reader``; permite el resto de escritores.
+
+    Compone sobre :func:`require_authorized_user` (issue #143): esa dep
+    ya revalida ``is_authorized`` + ``rol`` contra la DB en cada request
+    y devuelve ``RedirectResponse`` a ``/login`` (sesion ausente) o
+    ``/unauthorized`` (sesion inactiva). :func:`require_writer_user` anade
+    una segunda puerta: si el rol del usuario NO esta en
+    :attr:`Settings.writer_rols`, levanta ``HTTPException(403)`` con
+    ``detail="Permisos insuficientes para escribir."``.
+
+    Aplicada a las write routes (POST/PUT/PATCH/DELETE) de los modulos
+    de dominio (animales, acogidas, cesiones, entradas, foster,
+    voluntarios). Las rutas GET quedan con :func:`require_authorized_user`
+    (lectura sigue permitida a cualquier usuario activo).
+
+    Regla 6 (default-deny): si el payload no trae ``rol`` (caso
+    anomalo, no esperado por el flujo de :func:`require_authorized_user`
+    pero contemplado para futuras cookies), ``None not in writer_rols``
+    y la dep rechaza con 403.
+
+    Regla 7 (redirects no son exceptions): si :func:`require_authorized_user`
+    devolvio un ``RedirectResponse`` (sesion ausente o inactiva),
+    :func:`return_early_if_response` lo propaga sin tocar logica de
+    autorizacion. El handler que use esta dep debe llamar
+    ``return_early_if_response(user)`` igual que con
+    :func:`require_authorized_user`.
+
+    403 vs redirect a ``/unauthorized``: elegimos 403 (HTTP estandar
+    para "Forbidden" — la sesion es valida pero el rol no alcanza)
+    en lugar de un redirect, porque ``/unauthorized`` significa "sesion
+    no autorizada" (otro contexto: cookie pre-fix o usuario desactivado).
+    Mezclar ambos mensajes confundiria a operadores y a Sentry.
+    """
+    if (early := return_early_if_response(user)) is not None:
+        return early
+    user_rol = user.get("rol") if isinstance(user, dict) else None
+    if user_rol not in get_settings().writer_rols:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Permisos insuficientes para escribir.",
+        )
+    return user
