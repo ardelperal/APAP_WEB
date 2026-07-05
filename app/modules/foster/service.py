@@ -34,17 +34,6 @@ from typing import Any, Final
 from app.core.insforge import InsForgeClient
 from app.core.logging import log_safe
 
-
-class CasaAcogidaConflictError(ValueError):
-    """Raised when a natural-key conflict occurs on a unique column.
-
-    Currently unused at the service level (no UNIQUE constraint on the
-    public CRUD surface — legacy ``TbAcogidaCasas`` had no natural key
-    either), but kept for future parity and explicit signal to
-    routes.
-    """
-
-
 VALID_COCHE_VALUES: Final[frozenset[str]] = frozenset({"Sí", "No"})
 VALID_ESPECIE_VALUES: Final[frozenset[str]] = frozenset({"CANINA", "FELINA"})
 
@@ -214,7 +203,7 @@ def _row_to_casa_acogida(row: dict[str, Any]) -> CasaAcogida:
 def _required_text(params: dict[str, Any], field_name: str) -> str:
     value = str(params.get(field_name) or "").strip()
     if not value:
-        raise ValueError(f"{field_name} es obligatorio y no puede estar vacio")
+        raise ValueError(f"{field_name} es obligatorio y no puede estar vacío")
     return value
 
 
@@ -229,7 +218,7 @@ def _optional_text(params: dict[str, Any], field_name: str) -> str | None:
 def _validate_coche(value: Any) -> str:
     if not isinstance(value, str) or value not in VALID_COCHE_VALUES:
         raise ValueError(
-            "coche debe ser 'Sí' o 'No' (con tilde en la primera opcion)"
+            "coche debe ser 'Sí' o 'No' (con tilde en la primera opción)"
         )
     return value
 
