@@ -42,6 +42,9 @@ from pathlib import Path
 from typing import IO, Any
 
 from app.core.insforge import InsForgeClient
+from migration.apply import ApplyResult, apply_legacy_to_web
+from migration.legacy_reader import LegacyReaderError
+from migration.mappings import list_available_tables, load_mapping
 from migration.shadow_state import ShadowStateRepository
 
 # Type alias for the prompt reader injected into ``run_reconcile``.
@@ -112,6 +115,50 @@ def build_parser() -> argparse.ArgumentParser:
             "Filter to divergences first seen at-or-after this ISO-8601 "
             "timestamp (e.g. '2026-06-20T00:00:00+00:00')."
         ),
+    )
+
+    available_tables = list_available_tables()
+
+    apply_cmd = sub.add_parser(
+        "apply",
+        help="Apply legacy Access rows into the web database.",
+        description=(
+            "Apply one or more legacy table mappings into the web database. "
+            "Use --check-only for a dry-run that computes the plan without writes."
+        ),
+    )
+    apply_cmd.add_argument(
+        "--table",
+        choices=available_tables,
+        default=None,
+        help="Restrict apply to one mapping (default: all mappings).",
+    )
+    apply_cmd.add_argument(
+        "--legacy-path",
+        required=True,
+        help="Absolute path to the legacy Access .accdb backend.",
+    )
+    apply_cmd.add_argument(
+        "--since",
+        default=None,
+        help="ISO-8601 cursor for the apply plan.",
+    )
+    apply_cmd.add_argument(
+        "--check-only",
+        dest="check_only",
+        action="store_true",
+        help="Dry-run: report planned writes without mutating the web DB.",
+    )
+
+    status = sub.add_parser(
+        "status",
+        help="Show per-table web row counts for migration mappings.",
+    )
+    status.add_argument(
+        "--table",
+        choices=available_tables,
+        default=None,
+        help="Restrict status to one mapping (default: all mappings).",
     )
 
     return parser
@@ -554,6 +601,77 @@ def _resolve_lock_path() -> Path:
     return Path(migration_dir) / "migration.lock"
 
 
+def run_apply(
+    args: argparse.Namespace,
+    *,
+    web_client: InsForgeClient | None = None,
+    stream: IO[str] | None = None,
+) -> int:
+    """Body of ``apap-migrate apply``."""
+    if stream is None:
+        stream = sys.stdout
+    if web_client is None:
+        sys.stderr.write("apap-migrate apply: requires a web_client in this runtime\n")
+        return 2
+
+    since: datetime | None = None
+    if args.since is not None:
+        try:
+            since = datetime.fromisoformat(args.since)
+        except (TypeError, ValueError) as exc:
+            stream.write(f"apap-migrate apply: invalid ISO-8601 timestamp {args.since!r}: {exc}\n")
+            return 2
+
+    tables = [args.table] if args.table else list_available_tables()
+    results: list[ApplyResult] = []
+    try:
+        for table in tables:
+            results.append(
+                apply_legacy_to_web(
+                    web_client,
+                    table,
+                    legacy_path=args.legacy_path,
+                    since=since,
+                    dry_run=bool(args.check_only),
+                )
+            )
+    except LegacyReaderError as exc:
+        stream.write(f"apap-migrate apply: legacy read failed: {exc}\n")
+        return 5
+
+    for result in results:
+        action = "would insert" if args.check_only else "inserted"
+        stream.write(
+            f"table={result.table_name} {action}={result.applied} "
+            f"skipped={result.skipped} errors={len(result.errors)}\n"
+        )
+        for error in result.errors:
+            stream.write(f"  error={error}\n")
+    return 0 if not any(r.errors for r in results) else 1
+
+
+def run_status(
+    args: argparse.Namespace,
+    *,
+    web_client: InsForgeClient | None = None,
+    stream: IO[str] | None = None,
+) -> int:
+    """Body of ``apap-migrate status`` (read-only web counts)."""
+    if stream is None:
+        stream = sys.stdout
+    if web_client is None:
+        sys.stderr.write("apap-migrate status: requires a web_client in this runtime\n")
+        return 2
+
+    tables = [args.table] if args.table else list_available_tables()
+    for table in tables:
+        mapping = load_mapping(table)
+        rows = web_client.execute_sql(f"SELECT COUNT(*) FROM {mapping.web_table}")
+        count = rows[0].get("count", 0) if rows else 0
+        stream.write(f"table={table} web_table={mapping.web_table} web_count={count}\n")
+    return 0
+
+
 def main(
     argv: Sequence[str] | None = None,
     *,
@@ -574,14 +692,33 @@ def main(
     parser = build_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)
 
-    if args.command == "reconcile":
-        return run_reconcile(
-            args,
-            web_client=web_client,
-            shadow_state=shadow_state,
-            prompt=prompt,
-            stream=stream,
+    owned_web_client: InsForgeClient | None = None
+    if web_client is None:
+        from app.core.config import get_settings
+
+        settings = get_settings()
+        owned_web_client = InsForgeClient(
+            settings.insforge_url,
+            settings.insforge_service_key,
         )
+        web_client = owned_web_client
+
+    try:
+        if args.command == "reconcile":
+            return run_reconcile(
+                args,
+                web_client=web_client,
+                shadow_state=shadow_state,
+                prompt=prompt,
+                stream=stream,
+            )
+        if args.command == "apply":
+            return run_apply(args, web_client=web_client, stream=stream)
+        if args.command == "status":
+            return run_status(args, web_client=web_client, stream=stream)
+    finally:
+        if owned_web_client is not None:
+            owned_web_client.close()
 
     # Defensive: ``required=True`` on the subparsers means argparse
     # already rejected empty invocations; this line is unreachable
@@ -593,5 +730,7 @@ def main(
 __all__ = [
     "build_parser",
     "main",
+    "run_apply",
     "run_reconcile",
+    "run_status",
 ]
