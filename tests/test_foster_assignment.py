@@ -528,11 +528,19 @@ def test_evaluate_assignment_block_reason_includes_both_especies() -> None:
 # --- 17. record_override: happy path --------------------------------------
 
 
-def test_record_override_happy_inserts_and_returns_dataclass() -> None:
-    """Override con motivo válido -> INSERT + retorna FosterCapacityOverride."""
+def test_record_override_happy_inserts_and_returns_override_uuid() -> None:
+    """Override con motivo válido -> INSERT + retorna el UUID del override (str).
+
+    Issue #142: ``record_override`` ahora devuelve el UUID como ``str`` en
+    lugar del dataclass ``FosterCapacityOverride`` para que el route
+    handler pueda encadenarlo directo en la URL de redirect
+    (``/acogidas/new?...&override_id=<uuid>``). El dataclass sigue siendo
+    el tipo de retorno de ``list_overrides_for_casa``; este cambio solo
+    afecta el contrato de ``record_override``.
+    """
     client, captured = _client_recording(_make_handler())
 
-    override = assignment_service.record_override(
+    override_id = assignment_service.record_override(
         client,
         casa_id=CASA_ID,
         animal_id=ANIMAL_ID,
@@ -541,16 +549,63 @@ def test_record_override_happy_inserts_and_returns_dataclass() -> None:
     )
     client.close()
 
-    assert isinstance(override, assignment_service.FosterCapacityOverride)
-    assert override.id == "99999999-9999-9999-9999-999999999999"
-    assert override.casa_acogida_id == CASA_ID
-    assert override.animal_id == ANIMAL_ID
-    assert override.operador_user_id == "op-1"
-    assert override.motivo == "emergencia"
-    assert override.created_at == "2026-07-04T11:00:00Z"
+    assert isinstance(override_id, str)
+    assert override_id == "99999999-9999-9999-9999-999999999999"
 
     insert = next(c for c in captured if "INSERT INTO foster_capacity_overrides" in c["query"])
     assert insert["params"] == [CASA_ID, ANIMAL_ID, "op-1", "emergencia"]
+
+
+def test_record_override_returned_id_matches_inserted_row_uuid() -> None:
+    """Issue #142: el UUID retornado DEBE ser el mismo que el row.id insertado.
+
+    La ruta ``POST /casas-acogida/{id}/asignar`` lo encadena en la URL
+    de redirect (``override_id=<uuid>``) y luego ``create_acogida`` lo
+    recibe como form field para vincular el override con la estancia.
+    Si la cadena se rompe (UUID retornado != UUID persistido), el UPDATE
+    de link en ``create_acogida`` falla en silencio y el override queda
+    huérfano. Este test fija el contrato en el límite.
+    """
+    import re as _re
+    captured_uuid: list[str] = []
+
+    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
+        if "INSERT INTO foster_capacity_overrides" in body["query"]:
+            row_uuid = "77777777-7777-7777-7777-777777777777"
+            captured_uuid.append(row_uuid)
+            return _json_response(
+                200,
+                [
+                    {
+                        "id": row_uuid,
+                        "casa_acogida_id": body["params"][0],
+                        "animal_id": body["params"][1],
+                        "operador_user_id": body["params"][2],
+                        "motivo": body["params"][3],
+                        "created_at": "2026-07-04T11:00:00Z",
+                    }
+                ],
+            )
+        raise AssertionError(f"unexpected SQL: {body['query']!r}")
+
+    client, _ = _client_recording(_handler)
+
+    override_id = assignment_service.record_override(
+        client,
+        casa_id=CASA_ID,
+        animal_id=ANIMAL_ID,
+        operador_user_id="op-1",
+        motivo="emergencia",
+    )
+    client.close()
+
+    assert override_id == captured_uuid[0]
+    assert len(override_id) > 0  # non-empty UUID string
+    # Sanity: must look UUID-shaped (8-4-4-4-12 hex)
+    assert _re.match(
+        r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        override_id,
+    ), f"override_id must be UUID-shaped; got {override_id!r}"
 
 
 # --- 18. record_override: motivo vacío raise -----------------------------
