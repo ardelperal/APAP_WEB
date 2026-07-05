@@ -96,6 +96,27 @@ def _login_as_key_user(client: httpx.AsyncClient) -> None:
     client.cookies.set(session_cookie_name(), token)
 
 
+def _login_as_reader(client: httpx.AsyncClient) -> None:
+    """Mint a reader session cookie (CSRF-bound).
+
+    ``reader`` is NOT in :attr:`Settings.writer_rols` (issue #144), so
+    writer-gated affordances must NOT be rendered. Caller MUST flip
+    ``route_client.auth_reval_rol = "reader"`` BEFORE this helper so
+    the per-request revalidation SELECT echoes the cookie's rol.
+    """
+    token = write_session(
+        {
+            "email": "rocio@example.com",
+            "rol": "reader",
+            "user_id": "u-rocio",
+            "is_authorized": True,
+            "csrf_token": "test-csrf-token-acogidas-detail",
+        },
+        secret=get_settings().session_secret,
+    )
+    client.cookies.set(session_cookie_name(), token)
+
+
 def _acogida() -> acogidas_service.Acogida:
     """Canonical Acogida fixture for assertions."""
     return acogidas_service.Acogida(
@@ -160,4 +181,61 @@ async def test_acogidas_detail_renders_assigned_materials_section(
     assert 'href="/acogidas/acog-123/materiales"' in body
     # The existing detail fields are still rendered (regression check):
     # the section addition MUST NOT clobber the canonical stay data.
+    assert "Voluntarios" in body
+
+
+# --- 2. CRITICAL-3 regression (jd-judge-a, PR #171) ----------------------
+
+
+async def test_acogidas_detail_hides_materiales_card_from_reader(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reader MUST NOT see the writer-only 'Materiales asignados' card.
+
+    CRITICAL-3 (jd-judge-a, PR #171): the per-stay detail page
+    surfaces a 'Materiales asignados' link to the junction view
+    (``/acogidas/{id}/materiales``). That link is a writer-only
+    affordance — the junction view itself is reachable by any
+    authorized user, but the writer-gated surface on the detail page
+    must NOT advertise a management action to a reader.
+
+    Mirrors the RBAC pattern used by every other writer-gated section
+    in the project (``materiales/list.html``,
+    ``materiales/detail.html``, the per-stay materiales list itself):
+    the link is wrapped in ``{% if user and user.rol in ("developer",
+    "admin", "key_user") %} ... {% endif %}`` so the card disappears
+    for readers.
+
+    The flipped ``route_client.auth_reval_rol = "reader"`` mirrors the
+    pattern in ``tests/test_materiales_routes.py`` —
+    ``require_authorized_user`` re-validates against the authoritative
+    store on every request, so the cookie's rol and the per-request
+    SELECT must agree.
+    """
+    route_client.auth_reval_rol = "reader"
+    _login_as_reader(client)
+    estancia = _acogida()
+    monkeypatch.setattr(
+        acogidas_service,
+        "get_acogida_by_id",
+        lambda _c, _id: estancia,
+    )
+
+    response = await client.get("/acogidas/acog-123")
+
+    assert response.status_code == 200
+    body = response.text
+    # Reader MUST NOT see the writer-only card.
+    assert "Materiales asignados" not in body, (
+        "reader MUST NOT see the writer-only 'Materiales asignados' "
+        "card on the stay detail page; wrap the section in the same "
+        "{% if user and user.rol in (...) %} guard used by every "
+        "other writer-gated affordance in the project."
+    )
+    # Belt and braces: the CTA href into the per-stay junction view
+    # also disappears with the card.
+    assert 'href="/acogidas/acog-123/materiales"' not in body
+    # Regression check: the canonical stay data is still rendered.
     assert "Voluntarios" in body

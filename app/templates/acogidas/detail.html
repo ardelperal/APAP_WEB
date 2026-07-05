@@ -109,6 +109,7 @@
       </dl>
     </div>
 
+    {% if user and user.rol in ("developer", "admin", "key_user") %}
     <div class="bg-surface rounded-card shadow-card p-6 space-y-3 md:col-span-2">
       <h2 class="text-lg font-semibold text-text">Materiales asignados</h2>
       <p class="text-text-muted text-sm">
@@ -120,6 +121,7 @@
         Ver materiales asignados
       </a>
     </div>
+    {% endif %}
 
     {% if acogida.direccion or acogida.telefono or acogida.observaciones %}
     <div class="bg-surface rounded-card shadow-card p-6 space-y-3 md:col-span-2">
