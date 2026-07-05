@@ -68,7 +68,21 @@ def _params_minimal() -> dict[str, Any]:
     }
 
 
-def _row(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
+def _row(
+    overrides: dict[str, Any] | None = None,
+    *,
+    fecha: str | None = None,
+) -> dict[str, Any]:
+    """Build a mock ``actuacion_sanitaria`` row for tests.
+
+    Backward compatible: callers may pass an ``overrides`` dict
+    (the historical API) OR use the ``fecha`` keyword shortcut.
+    The keyword shortcut lets date-coupling tests inject the
+    fecha they want the mock to echo back, decoupling the test
+    from the calendar (issue: CI broke 2026-07-05 UTC because
+    the hardcoded default ``fecha: '2026-07-04'`` no longer
+    matched ``date.today()`` once midnight passed).
+    """
     row: dict[str, Any] = {
         "id": "11111111-1111-1111-1111-111111111111",
         "animal_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
@@ -82,6 +96,8 @@ def _row(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
         "updated_at": "2026-07-04T10:00:00Z",
         "activo": True,
     }
+    if fecha is not None:
+        row["fecha"] = fecha
     if overrides:
         row.update(overrides)
     return row
@@ -343,9 +359,14 @@ def test_create_rejects_future_fecha() -> None:
 
 def test_create_accepts_today_fecha() -> None:
     """fecha == today is accepted (sanity, no future rejection)."""
-    client, _ = _client_recording(_handler_returns_rows([_row()]))
-
     today = date.today().isoformat()
+    # Inject the test fecha into the mock so the round-trip holds
+    # independently of the calendar (issue: CI broke 2026-07-05 UTC
+    # when the mock's hardcoded fecha no longer matched today).
+    client, _ = _client_recording(
+        _handler_returns_rows([_row(fecha=today)])
+    )
+
     actuacion = sanidad_service.create_actuacion_sanitaria(
         client, {**_params_minimal(), "fecha": today}
     )
@@ -402,7 +423,13 @@ def test_create_accepts_fecha_before_null_fecha_alta() -> None:
 def test_create_accepts_fecha_equal_animal_fecha_alta() -> None:
     """Boundary: fecha == animal.fecha_alta is accepted (D-24 regla 3 uses <=)."""
     today_str = date.today().isoformat()
-    client, _ = _client_recording(_handler_returns_rows([_row()]))
+    # Inject the test fecha into the mock so the round-trip holds
+    # independently of the calendar (same regression as
+    # test_create_accepts_today_fecha; this is the D-24 regla 3
+    # boundary case).
+    client, _ = _client_recording(
+        _handler_returns_rows([_row(fecha=today_str)])
+    )
 
     actuacion = sanidad_service.create_actuacion_sanitaria(
         client, {**_params_minimal(), "fecha": today_str}
