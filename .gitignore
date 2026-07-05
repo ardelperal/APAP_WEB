@@ -60,3 +60,8 @@ tailwindcss/package-lock.json
 # Tool config with secrets in plaintext (InsForge API key)
 # DO NOT commit. Use environment variables instead.
 opencode.json
+
+# External artifacts accidentally placed in the project root by other systems.
+# Not project source — keep them local.
+.openclaw/
+SOUL.md
