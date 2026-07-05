@@ -937,6 +937,85 @@ TEMPLATE_SPECS: list[tuple[str, list[str], dict[str, Any]]] = [
             },
         },
     ),
+    (
+        # FOSTER-04 (#46) PR B — catalog CRUD templates. The detail
+        # shows the material's natural-key trio + audit fields; the
+        # form owns the 4 catalog fields plus a handler-controlled
+        # ``form_action`` (allow-listed at handler_controlled below);
+        # the list shows the active rows in table form.
+        "materiales/list.html",
+        [
+            "materiales[0].id",
+            "materiales[0].material",
+            "materiales[0].tamano",
+            "materiales[0].color",
+            "materiales[0].activo",
+            "materiales[0].fecha_alta",
+        ],
+        {
+            "user": _BASE_USER,
+            "materiales": [
+                {
+                    "id": "11111111-1111-1111-1111-111111111111",
+                    "material": "Cama",
+                    "tamano": "Grande",
+                    "color": "Azul",
+                    "activo": True,
+                    "fecha_alta": "2026-07-05T10:00:00Z",
+                }
+            ],
+        },
+    ),
+    (
+        "materiales/form.html",
+        [
+            "form_data.material",
+            "form_data.tamano",
+            "form_data.color",
+            "form_data.observaciones",
+            "error",
+            "form_action",
+        ],
+        {
+            "user": _BASE_USER,
+            "form_data": {
+                "material": "Cama",
+                "tamano": "Grande",
+                "color": "Azul",
+                "observaciones": "",
+            },
+            "error": None,
+            "form_action": "/materiales",
+        },
+    ),
+    (
+        "materiales/detail.html",
+        [
+            "material.id",
+            "material.material",
+            "material.tamano",
+            "material.color",
+            "material.activo",
+            "material.fecha_alta",
+            "material.updated_at",
+            "material.fecha_baja",
+            "material.observaciones",
+        ],
+        {
+            "user": _BASE_USER,
+            "material": {
+                "id": "11111111-1111-1111-1111-111111111111",
+                "material": "Cama",
+                "tamano": "Grande",
+                "color": "Azul",
+                "activo": True,
+                "fecha_alta": "2026-07-05T10:00:00Z",
+                "fecha_baja": None,
+                "updated_at": "2026-07-05T10:00:00Z",
+                "observaciones": "Para el gato nuevo",
+            },
+        },
+    ),
 ]
 
 
@@ -1170,6 +1249,11 @@ def test_no_user_data_in_url_attributes() -> None:
             # ``/sanidad/{id}/update`` (edit), never user data.
             # HEALTH-01 (#50).
             ("sanidad/form.html", "form_action"),
+            # ``form_action`` in ``materiales/form.html`` is set by
+            # the materiales catalog route to either ``/materiales``
+            # (new) or ``/materiales/{id}/edit`` (edit), never user
+            # data. FOSTER-04 (#46) PR B.
+            ("materiales/form.html", "form_action"),
             # ``shortcut.href`` comes from ``_DASHBOARD_SHORTCUTS``
             # in ``app/main.py`` - a module-level constant (hardcoded
             # list of internal routes). Never user input.
