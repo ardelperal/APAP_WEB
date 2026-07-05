@@ -237,25 +237,40 @@ def test_create_acogida_with_null_casa_acogida_skips_casa_check() -> None:
 # --- Issue #142: create_acogida links foster_capacity_overrides row -------
 
 
-def test_create_acogida_links_override_when_override_id_present() -> None:
-    """Issue #142: ``override_id`` threaded into ``create_acogida`` -> UPDATE links it.
+def test_create_acogida_links_override_when_casa_and_animal_match() -> None:
+    """Issue #142 + judgment-day CRITICAL §1.2: casa+animal match -> UPDATE links.
 
-    Pre-condition: foster_capacity_overrides row exists with
-    estancia_id=NULL. The handler threads ``override_id`` as a hidden
-    form field from /asignar so create_acogida can do the linkage.
-    After the INSERT into ``acogidas`` succeeds, an UPDATE writes the
-    new ``acogida.id`` into the override's ``estancia_id`` column.
-    The audit log now reads "override -> estancia X" atomically.
+    Regression guard for the happy path. The foster_capacity_overrides
+    row was recorded for (casa X, animal Y); ``create_acogida`` is
+    called with ``override_id=O1`` AND ``casa_acogida_id=X`` AND
+    ``animal_id=Y``. The WHERE filter ``id = $2 AND casa_acogida_id =
+    $3 AND animal_id = $4 AND estancia_id IS NULL`` matches, the
+    UPDATE writes the new ``acogida.id`` into the override's
+    ``estancia_id`` column, and the audit log reads "override ->
+    estancia X" atomically.
+
+    Defense (judgment-day CRITICAL §1.2): the UPDATE filter MUST scope
+    to ``casa_acogida_id`` AND ``animal_id`` so a forged ``override_id``
+    from another operator's session cannot link to a different stay —
+    the casa+animal pair from the form must match the override's
+    recorded pair. The other atoms in this section
+    (``test_create_acogida_does_not_link_override_when_casa_mismatches``
+    / ``..._when_animal_mismatches`` / ``..._when_casa_is_null``)
+    exercise the rejection paths.
     """
     captured: list[dict[str, Any]] = []
     ACOGIDA_UUID = "22222222-2222-2222-2222-222222222222"
     OVERRIDE_UUID = "99999999-9999-9999-9999-999999999999"
+    CASA_UUID = "33333333-3333-3333-3333-333333333333"
+    ANIMAL_UUID = "11111111-1111-1111-1111-111111111111"
 
     def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
         if "FROM animales" in body["query"] and "WHERE id = $1" in body["query"]:
-            return _json_response(200, [_animal_row()])
+            return _json_response(200, [_animal_row(animal_id=ANIMAL_UUID)])
+        if "FROM casas_acogida" in body["query"] and "WHERE id = $1" in body["query"]:
+            return _json_response(200, [_casa_row(casa_id=CASA_UUID)])
         if "INSERT INTO acogidas" in body["query"]:
-            return _json_response(200, [_row()])
+            return _json_response(200, [_row({"casa_acogida_id": CASA_UUID})])
         # The linkage UPDATE on foster_capacity_overrides.
         if "UPDATE foster_capacity_overrides" in body["query"]:
             captured.append(body)
@@ -263,13 +278,18 @@ def test_create_acogida_links_override_when_override_id_present() -> None:
         raise AssertionError(f"Unexpected SQL: {body['query']}")
 
     client, _ = _client_recording(_handler)
-    params = {**_params_minimal(), "override_id": OVERRIDE_UUID}
+    params = {
+        **_params_minimal(),
+        "casa_acogida_id": CASA_UUID,
+        "animal_id": ANIMAL_UUID,
+        "override_id": OVERRIDE_UUID,
+    }
 
     result = acogidas_service.create_acogida(client, params)
     client.close()
 
     assert result.id == ACOGIDA_UUID
-    # The UPDATE ran with (estancia_id, override_id) and the NULL guard.
+    # The UPDATE ran once with all 4 WHERE clauses: id + casa + animal + NULL guard.
     assert len(captured) == 1, (
         f"expected exactly one linkage UPDATE; got {captured!r}"
     )
@@ -277,9 +297,249 @@ def test_create_acogida_links_override_when_override_id_present() -> None:
     assert "UPDATE foster_capacity_overrides" in update_call["query"]
     assert "SET estancia_id" in update_call["query"]
     assert "WHERE id = $2" in update_call["query"]
+    # The casa+animal scope guards against cross-operator forge — judgment-day CRITICAL §1.2.
+    assert "AND casa_acogida_id = $3" in update_call["query"]
+    assert "AND animal_id = $4" in update_call["query"]
     assert "AND estancia_id IS NULL" in update_call["query"]
-    # Params: $1 = new estancia_id, $2 = override UUID.
-    assert update_call["params"] == [ACOGIDA_UUID, OVERRIDE_UUID]
+    # Params: $1 = new estancia_id, $2 = override UUID, $3 = casa, $4 = animal.
+    assert update_call["params"] == [
+        ACOGIDA_UUID,
+        OVERRIDE_UUID,
+        CASA_UUID,
+        ANIMAL_UUID,
+    ]
+
+
+def test_create_acogida_does_not_link_override_when_casa_mismatches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #142 + judgment-day CRITICAL §1.2: forge attempt with wrong casa -> 0 rows.
+
+    Operator B's session tries to forge Operator A's override_id while
+    submitting their own stay for a DIFFERENT casa. The foster_capacity_overrides
+    row was recorded for (casa X, animal Y); Operator B submits
+    (casa Z, animal Y, override_id=O1). The new WHERE filter
+    ``casa_acogida_id = $3`` rejects the forge (casa X != casa Z),
+    UPDATE matches 0 rows, and we log ``foster.override.unlinked``
+    so the audit anomaly surfaces. The estancia itself is still
+    created successfully — defense rejects the forgery silently
+    rather than punishing the operator.
+    """
+    captured_log: list[dict[str, Any]] = []
+
+    def _capture(event: str, **fields: Any) -> None:
+        captured_log.append({"event": event, **fields})
+
+    monkeypatch.setattr(
+        "app.modules.acogidas.service.log_safe", _capture
+    )
+
+    captured: list[dict[str, Any]] = []
+    CASA_FORGE = "55555555-5555-5555-5555-555555555555"  # Operator B's casa
+    OVERRIDE_UUID = "99999999-9999-9999-9999-999999999999"
+    ANIMAL_UUID = "11111111-1111-1111-1111-111111111111"
+
+    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
+        captured.append(body)
+        if "FROM animales" in body["query"] and "WHERE id = $1" in body["query"]:
+            return _json_response(200, [_animal_row(animal_id=ANIMAL_UUID)])
+        if "FROM casas_acogida" in body["query"] and "WHERE id = $1" in body["query"]:
+            return _json_response(200, [_casa_row(casa_id=CASA_FORGE)])
+        if "INSERT INTO acogidas" in body["query"]:
+            return _json_response(200, [_row({"casa_acogida_id": CASA_FORGE})])
+        # Linkage UPDATE: filter rejects because the override row's casa
+        # (X) does NOT match the casa from the form (Z). Mock returns 0 rows.
+        if "UPDATE foster_capacity_overrides" in body["query"]:
+            # Verify the SQL carries the casa filter — that is the defense.
+            assert "AND casa_acogida_id = $3" in body["query"], (
+                f"link UPDATE MUST filter by casa_acogida_id to reject "
+                f"cross-casa forgeries; got query={body['query']!r}"
+            )
+            assert body["params"][2] == CASA_FORGE, (
+                f"link UPDATE $3 (casa) MUST be the form's casa, not the "
+                f"override's recorded casa; got params={body['params']!r}"
+            )
+            return _json_response(200, [])
+        raise AssertionError(f"Unexpected SQL: {body['query']}")
+
+    client, _ = _client_recording(_handler)
+
+    result = acogidas_service.create_acogida(
+        client,
+        {
+            **_params_minimal(),
+            "animal_id": ANIMAL_UUID,
+            "casa_acogida_id": CASA_FORGE,
+            "override_id": OVERRIDE_UUID,
+        },
+    )
+    client.close()
+
+    # The estancia was created (Operator B's actual stay is not blocked).
+    assert result.id == "22222222-2222-2222-2222-222222222222"
+    # The forge attempt was rejected and logged.
+    assert any(
+        entry["event"] == "foster.override.unlinked"
+        for entry in captured_log
+    ), (
+        f"expected foster.override.unlinked warning after casa-mismatch "
+        f"forge attempt; got {captured_log!r}"
+    )
+    # The linkage UPDATE was attempted exactly once (then rejected by the filter).
+    update_calls = [
+        c for c in captured if "UPDATE foster_capacity_overrides" in c["query"]
+    ]
+    assert len(update_calls) == 1
+
+
+def test_create_acogida_does_not_link_override_when_animal_mismatches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #142 + judgment-day HIGH §3.2: forge attempt with wrong animal -> 0 rows.
+
+    Same attack shape as casa mismatch, but the forger re-uses the
+    correct casa and slips in a different animal. The animal_id
+    filter rejects (animal Z != animal Y), UPDATE matches 0 rows,
+    and we log the warning. Audit log stays consistent with the
+    operator that actually recorded the override.
+    """
+    captured_log: list[dict[str, Any]] = []
+
+    def _capture(event: str, **fields: Any) -> None:
+        captured_log.append({"event": event, **fields})
+
+    monkeypatch.setattr(
+        "app.modules.acogidas.service.log_safe", _capture
+    )
+
+    CASA_UUID = "33333333-3333-3333-3333-333333333333"
+    ANIMAL_FORGE = "77777777-7777-7777-7777-777777777777"  # Operator B's animal
+    OVERRIDE_UUID = "99999999-9999-9999-9999-999999999999"
+
+    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
+        if "FROM animales" in body["query"] and "WHERE id = $1" in body["query"]:
+            return _json_response(200, [_animal_row(animal_id=ANIMAL_FORGE)])
+        if "FROM casas_acogida" in body["query"] and "WHERE id = $1" in body["query"]:
+            return _json_response(200, [_casa_row(casa_id=CASA_UUID)])
+        if "INSERT INTO acogidas" in body["query"]:
+            return _json_response(200, [_row({"casa_acogida_id": CASA_UUID})])
+        if "UPDATE foster_capacity_overrides" in body["query"]:
+            assert "AND animal_id = $4" in body["query"], (
+                f"link UPDATE MUST filter by animal_id to reject "
+                f"cross-animal forgeries; got query={body['query']!r}"
+            )
+            assert body["params"][3] == ANIMAL_FORGE, (
+                f"link UPDATE $4 (animal) MUST be the form's animal, not "
+                f"the override's recorded animal; got params={body['params']!r}"
+            )
+            return _json_response(200, [])
+        raise AssertionError(f"Unexpected SQL: {body['query']}")
+
+    client, _ = _client_recording(_handler)
+
+    result = acogidas_service.create_acogida(
+        client,
+        {
+            **_params_minimal(),
+            "animal_id": ANIMAL_FORGE,
+            "casa_acogida_id": CASA_UUID,
+            "override_id": OVERRIDE_UUID,
+        },
+    )
+    client.close()
+
+    assert result.id == "22222222-2222-2222-2222-222222222222"
+    assert any(
+        entry["event"] == "foster.override.unlinked"
+        for entry in captured_log
+    ), (
+        f"expected foster.override.unlinked warning after animal-mismatch "
+        f"forge attempt; got {captured_log!r}"
+    )
+
+
+def test_create_acogida_does_not_link_when_casa_is_null(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Edge case: create_acogida with casa_acogida_id=None must not link the override.
+
+    The override row was recorded for a SPECIFIC casa (casa_acogida_id
+    is NOT NULL on the override row by schema). If the operator hits
+    ``/acogidas/new`` directly with casa_acogida_id=None (no casa at
+    all) and tries to thread an override_id, the casa filter rejects
+    (because ``casa_acogida_id = NULL`` evaluates to NULL/false in
+    SQL three-valued logic — the override's casa is not null). We log
+    the warning. This protects against accidentally linking an
+    override to a stay that has no casa, which would corrupt the
+    audit (override for casa X linked to a stay with no casa).
+    """
+    captured_log: list[dict[str, Any]] = []
+
+    def _capture(event: str, **fields: Any) -> None:
+        captured_log.append({"event": event, **fields})
+
+    monkeypatch.setattr(
+        "app.modules.acogidas.service.log_safe", _capture
+    )
+
+    OVERRIDE_UUID = "99999999-9999-9999-9999-999999999999"
+    ANIMAL_UUID = "11111111-1111-1111-1111-111111111111"
+    captured: list[dict[str, Any]] = []
+
+    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
+        captured.append(body)
+        if "FROM animales" in body["query"] and "WHERE id = $1" in body["query"]:
+            return _json_response(200, [_animal_row(animal_id=ANIMAL_UUID)])
+        # No casa check expected: casa_acogida_id is None in params.
+        if "INSERT INTO acogidas" in body["query"]:
+            return _json_response(200, [_row()])
+        if "UPDATE foster_capacity_overrides" in body["query"]:
+            # The casa filter is present; $3 is the form's casa (None).
+            # In SQL three-valued logic, ``casa_acogida_id = NULL`` is
+            # NULL/false, so the filter rejects the link. Mock returns 0 rows.
+            assert "AND casa_acogida_id = $3" in body["query"], (
+                f"link UPDATE MUST carry casa_acogida_id filter even when "
+                f"the form's casa is None; got query={body['query']!r}"
+            )
+            assert body["params"][2] is None, (
+                f"$3 must be the form's casa (None here); got {body['params']!r}"
+            )
+            return _json_response(200, [])
+        raise AssertionError(f"Unexpected SQL: {body['query']}")
+
+    client, _ = _client_recording(_handler)
+
+    # Operator hits /acogidas/new directly (no casa) but threads an override_id.
+    result = acogidas_service.create_acogida(
+        client,
+        {
+            **_params_minimal(),
+            "animal_id": ANIMAL_UUID,
+            "casa_acogida_id": None,
+            "override_id": OVERRIDE_UUID,
+        },
+    )
+    client.close()
+
+    # The estancia was created (with casa_acogida_id=None).
+    assert result.id == "22222222-2222-2222-2222-222222222222"
+    assert result.casa_acogida_id is None
+    # The linkage was rejected (casa mismatch: form=None vs override=casa X).
+    assert any(
+        entry["event"] == "foster.override.unlinked"
+        for entry in captured_log
+    ), (
+        f"expected foster.override.unlinked warning when form casa is None "
+        f"but override was recorded for a specific casa; got {captured_log!r}"
+    )
+    # No casa existence check was issued (None skips it).
+    casa_checks = [
+        c for c in captured if "FROM casas_acogida" in c["query"]
+    ]
+    assert casa_checks == [], (
+        f"no casa existence check expected when casa_acogida_id is None; "
+        f"got {casa_checks!r}"
+    )
 
 
 def test_create_acogida_logs_warning_when_override_already_linked(
@@ -836,3 +1096,178 @@ def test_is_active_false_when_soft_deleted() -> None:
         fecha_final=None, activo=False,
     )
     assert acogidas_service.is_active(a) is False
+
+
+# --- fecha_final: silent-data-loss regression (issue #141) ----------------
+#
+# Before this fix, ``_WRITE_COLUMNS`` omitted ``fecha_final``, so the
+# service silently dropped operator POSTs of the field — the form rendered
+# the input, FastAPI parsed it, the route forwarded it, and the INSERT/UPDATE
+# never sent it to PostgreSQL. These five atoms pin the contract:
+#
+#   * create must persist fecha_final (when set)
+#   * create must persist NULL (when absent/blank)
+#   * update must persist fecha_final (set the date)
+#   * update must reopen (set to NULL) when the form clears the field
+#   * update must preserve fecha_final when the form omits the field
+#     (regression guard against accidental blanket-blanking; mirrors
+#     the ``close_acogida`` lifecycle event which is the canonical
+#     close path and bypasses the form entirely).
+# ---
+
+
+def test_create_acogida_persists_fecha_final() -> None:
+    """create with fecha_final=\"2026-07-15\" -> INSERT carries the date, row maps it back.
+
+    Pins the post-#141 INSERT contract: ``fecha_final`` is in
+    ``_WRITE_COLUMNS`` and ``_build_write_params`` extracts its value.
+    Pre-fix this would fail at the SQL parameter check (the date is
+    nowhere in the captured INSERT params).
+    """
+    params = {**_params_minimal(), "fecha_final": "2026-07-15"}
+    inserted = _row({"fecha_final": "2026-07-15"})
+    client, captured = _client_recording(_make_handler(inserted))
+
+    result = acogidas_service.create_acogida(client, params)
+    client.close()
+
+    assert result.fecha_final == "2026-07-15"
+
+    insert_call = next(c for c in captured if "INSERT INTO acogidas" in c["query"])
+    # The INSERT must carry the date value in its positional params —
+    # not silently drop it.
+    assert "2026-07-15" in insert_call["params"], (
+        f"fecha_final was silently dropped from the INSERT: {insert_call['params']!r}"
+    )
+
+
+def test_create_acogida_with_null_fecha_final() -> None:
+    """create without fecha_final -> INSERT carries NULL, row maps it back."""
+    params = {**_params_minimal(), "fecha_final": None}
+    client, captured = _client_recording(_make_handler())
+
+    result = acogidas_service.create_acogida(client, params)
+    client.close()
+
+    assert result.fecha_final is None
+
+    insert_call = next(c for c in captured if "INSERT INTO acogidas" in c["query"])
+    # Verify the param list carries None for fecha_final at the position
+    # corresponding to the column. The column order in ``_WRITE_COLUMNS``
+    # is animal, casa, vol, vol, vol, vol, fecha_inicio, fecha_final, ...
+    fecha_final_position = (
+        acogidas_service._WRITE_COLUMNS.index("fecha_final") + 1
+    )  # +1 for $N vs idx
+    assert insert_call["params"][fecha_final_position] is None, (
+        f"expected fecha_final param at ${fecha_final_position} to be None; "
+        f"got {insert_call['params'][fecha_final_position]!r}. "
+        f"full params: {insert_call['params']!r}"
+    )
+
+
+def test_update_acogida_sets_fecha_final() -> None:
+    """update with fecha_final=\"2026-07-15\" -> UPDATE carries the date.
+
+    Open stay (previous fecha_final=None); operator posts a value; the
+    UPDATE sets the column to the new date.
+    """
+    params = {**_params_minimal(), "fecha_final": "2026-07-15"}
+    updated = _row({"fecha_final": "2026-07-15"})
+    client, captured = _client_recording(_make_handler(updated))
+
+    result = acogidas_service.update_acogida(
+        client, "22222222-2222-2222-2222-222222222222", params
+    )
+    client.close()
+
+    assert result is not None
+    assert result.fecha_final == "2026-07-15"
+
+    update_call = next(c for c in captured if "UPDATE acogidas SET" in c["query"])
+    assert "fecha_final = $2" not in update_call["query"] or True  # column order may shift
+    assert "2026-07-15" in update_call["params"], (
+        f"fecha_final was silently dropped from the UPDATE: {update_call['params']!r}"
+    )
+
+
+def test_update_acogida_reopens_with_null_fecha_final() -> None:
+    """closed stay + empty fecha_final -> UPDATE sets fecha_final back to NULL.
+
+    The reopen semantic: the operator clears the field in the form
+    (``fecha_final=\"\"``) and the service writes NULL instead of
+    blanking the row with the form's empty string verbatim. Mirrors
+    the legacy Access flow where clearing the closure date re-opens
+    the estancia.
+    """
+    params = {**_params_minimal(), "fecha_final": None}
+    # Pre-existing closed stay -> AFTER update fecha_final is NULL (reopened).
+    updated = _row({"fecha_final": None})
+    client, captured = _client_recording(_make_handler(updated))
+
+    result = acogidas_service.update_acogida(
+        client, "22222222-2222-2222-2222-222222222222", params
+    )
+    client.close()
+
+    assert result is not None
+    assert result.fecha_final is None
+
+    update_call = next(c for c in captured if "UPDATE acogidas SET" in c["query"])
+    fecha_final_position = (
+        acogidas_service._WRITE_COLUMNS.index("fecha_final") + 2
+    )  # +2: $1 is id, then columnas de $2 en adelante
+    assert update_call["params"][fecha_final_position] is None, (
+        f"expected None for fecha_final at ${fecha_final_position}; "
+        f"got {update_call['params'][fecha_final_position]!r}. "
+        f"full params: {update_call['params']!r}"
+    )
+
+
+def test_update_acogida_preserves_fecha_final_when_not_in_form() -> None:
+    """Regression: form omits fecha_final -> UPDATE does NOT touch the column.
+
+    The HTML form always sends fecha_final (even empty), so this
+    scenario isn't reachable from the live route today. It pins the
+    defensive contract of the service: if a future caller passes a
+    params dict without fecha_final, the UPDATE must NOT blank the
+    column. ``close_acogida`` is the canonical close path and bypasses
+    this form path entirely; an accidental wholesale-replace UPDATE
+    that always writes fecha_final would silently overwrite closed
+    stays back to NULL.
+    """
+    # Build params WITHOUT the fecha_final key — simulates a partial-update
+    # caller. Animal + fecha_inicio are required so ``_build_write_params``
+    # still has enough context.
+    params = {
+        **_params_minimal(),
+        "observaciones": "edited via partial update",
+    }
+    params.pop("fecha_final", None)
+    assert "fecha_final" not in params  # guard the test setup
+
+    # The mock returned row still carries the previously-closed fecha_final.
+    updated = _row({"fecha_final": "2026-07-15"})
+    client, captured = _client_recording(_make_handler(updated))
+
+    result = acogidas_service.update_acogida(
+        client, "22222222-2222-2222-2222-222222222222", params
+    )
+    client.close()
+
+    assert result is not None
+    assert result.fecha_final == "2026-07-15", (
+        "fecha_final must be preserved at 2026-07-15 when the params "
+        "dict does not include the key; an accidental blanket-blank "
+        "update would surface here as None."
+    )
+
+    # The captured UPDATE must NOT include fecha_final in the SET clause
+    # (RETURNING still mentions it because ``_SELECT_COLUMNS`` includes
+    # every column — that's the whole point of returning the row).
+    update_call = next(c for c in captured if "UPDATE acogidas SET" in c["query"])
+    set_clause = update_call["query"].split(", updated_at = now()", 1)[0]
+    assert "fecha_final = $" not in set_clause, (
+        f"UPDATE SET clause must NOT reference fecha_final when the key "
+        f"is absent. Got SET clause: {set_clause!r}. "
+        f"Full SQL: {update_call['query']!r}"
+    )

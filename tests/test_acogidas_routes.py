@@ -40,6 +40,8 @@ Coverage (15 atoms):
 
 from __future__ import annotations
 
+import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -883,4 +885,240 @@ async def test_update_acogida_rejects_species_mismatch_when_casa_acogida_id_prov
     assert updated == [], (
         "species gate MUST short-circuit BEFORE update_acogida runs; "
         f"captured: {updated!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Issue #141: P0 silent-data-loss on ``fecha_final``. The form rendered
+# the field, FastAPI parsed it, and the route forwarded it — but the
+# service silently dropped it (column was not in ``_WRITE_COLUMNS``).
+#
+# The two atoms below go POST -> route -> REAL service
+# (``create_acogida`` / ``update_acogida``), not a monkeypatched
+# service. A real ``InsForgeClient`` backed by ``httpx.MockTransport``
+# is injected via ``app.dependency_overrides``; the captured SQL is
+# the proof that fecha_final reaches the INSERT/UPDATE placeholders.
+# ---------------------------------------------------------------------------
+
+
+def _json_response(status_code: int, body: Any) -> httpx.Response:
+    return httpx.Response(
+        status_code=status_code,
+        content=json.dumps(body).encode("utf-8"),
+        headers={"content-type": "application/json"},
+    )
+
+
+def _feed_handler(
+    insert_row: dict[str, Any] | None = None,
+    update_row: dict[str, Any] | None = None,
+) -> Callable[[httpx.Request], httpx.Response]:
+    """Build an httpx mock handler that lets create/update through.
+
+    Mirrors ``tests/test_acogidas.py::_make_handler`` — except here
+    we feed real InsForge envelopes (route also calls
+    ``auth_reval_rows`` via the per-request revalidation, which we
+    route through ``auth_reval_rows`` from conftest).
+    """
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode("utf-8")) if request.content else {}
+        # Per-request auth revalidation: SELECT from usuarios_autorizados
+        if "FROM usuarios_autorizados" in body["query"]:
+            return _json_response(
+                200,
+                [
+                    {
+                        "email": "ana@example.com",
+                        "rol": "key_user",
+                        "is_authorized": True,
+                        "activo": True,
+                    }
+                ],
+            )
+        # Generic FK existence check: SELECT id, activo FROM <table>.
+        # Covers animales / casas_acogida / voluntarios (all active by
+        # construction; this test only exercises the fecha_final path).
+        if body["query"].lstrip().startswith("SELECT id, activo FROM"):
+            return _json_response(
+                200,
+                [{"id": body["params"][0], "activo": True}],
+            )
+        # The actual INSERT into acogidas.
+        if "INSERT INTO acogidas" in body["query"]:
+            return _json_response(200, [insert_row or _acogida_row()])
+        # The actual UPDATE on acogidas (dynamic SET clause post-fix).
+        if "UPDATE acogidas SET" in body["query"]:
+            return _json_response(200, [update_row or _acogida_row()])
+        raise AssertionError(f"Unexpected SQL: {body['query']!r}")
+
+    return _handler
+
+
+def _acogida_row() -> dict[str, Any]:
+    """Canonical returned row for the mock — matches Acogida dataclass."""
+    return {
+        "id": "acog-123",
+        "animal_id": "11111111-1111-1111-1111-111111111111",
+        "casa_acogida_id": "33333333-3333-3333-3333-333333333333",
+        "voluntario_acogida_id": "vol-acog",
+        "voluntario_seguimiento1_id": "vol-seg1",
+        "voluntario_seguimiento2_id": None,
+        "voluntario_sanitario_id": "vol-san",
+        "fecha_inicio": "2026-07-04",
+        "fecha_final": None,
+        "entrada_origen_id": None,
+        "direccion": "Calle Mayor 12, Alcalá de Henares",
+        "telefono": "600123456",
+        "observaciones": "Animal tranquilo, sin medicación",
+        "fecha_alta": "2026-07-04T10:00:00Z",
+        "fecha_baja": None,
+        "updated_at": "2026-07-04T10:00:00Z",
+        "activo": True,
+    }
+
+
+def _install_feed_client(
+    captured: list[dict[str, Any]],
+    insert_row: dict[str, Any] | None = None,
+    update_row: dict[str, Any] | None = None,
+) -> InsForgeClient:
+    """Inject an httpx.MockTransport-backed real InsForgeClient.
+
+    Returns the client so callers can ``.close()`` after the test.
+    The dependency override lets the real service code path run
+    against the mock transport — no monkeypatching of the service
+    itself, which is what makes this a true end-to-end atom.
+    """
+
+    def _recording(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode("utf-8")) if request.content else {}
+        captured.append(body)
+        return _feed_handler(insert_row=insert_row, update_row=update_row)(request)
+
+    client = InsForgeClient(
+        base_url="https://example.insforge.app",
+        service_key="ik_test",
+        transport=httpx.MockTransport(_recording),
+    )
+    app.dependency_overrides[get_insforge_client] = lambda: client
+    app.dependency_overrides[get_insforge_client_dep] = lambda: client
+    return client
+
+
+async def test_post_create_with_fecha_final_persists(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """POST /acogidas with fecha_final reaches the service's INSERT.
+
+    End-to-end: form -> route -> real create_acogida -> INSERT INTO
+    acogidas. The captured INSERT params MUST carry the date; before
+    the fix the column was absent from ``_WRITE_COLUMNS`` so the
+    param was never built.
+    """
+    _login_as_key_user(client)
+    # Bypass the FOSTER-03 species gate; this test is about fecha_final
+    # persistence, not gate semantics.
+    _bypass_species_gate(monkeypatch)
+    captured: list[dict[str, Any]] = []
+    feed_client = _install_feed_client(
+        captured,
+        insert_row=_acogida_row(),
+    )
+
+    form = _form_data()
+    form["fecha_final"] = "2026-07-15"
+
+    try:
+        response = await make_csrf_request(
+            client,
+            "POST",
+            "/acogidas",
+            form_data=form,
+            csrf_token="test-csrf-token-acogidas",
+        )
+
+        assert response.status_code == 303
+        assert response.headers["location"] == "/acogidas/acog-123"
+    finally:
+        feed_client.close()
+        app.dependency_overrides.pop(get_insforge_client, None)
+        app.dependency_overrides.pop(get_insforge_client_dep, None)
+
+    insert_call = next(c for c in captured if "INSERT INTO acogidas" in c["query"])
+    # fecha_final MUST reach the INSERT params list verbatim.
+    assert "2026-07-15" in insert_call["params"], (
+        f"fecha_final was silently dropped on route -> service -> SQL "
+        f"chain. captured INSERT params: {insert_call['params']!r}"
+    )
+
+
+async def test_post_update_reopens_when_fecha_final_empty(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """POST /acogidas/{id}/update with fecha_final=\"\" -> UPDATE sets NULL.
+
+    End-to-end reopen. The HTML date input clears to ``""`` when the
+    operator deletes the value; the route normalizes that to ``None``
+    and the service writes NULL to fecha_final (closing-state ->
+    open).
+    """
+    _login_as_key_user(client)
+    _bypass_species_gate(monkeypatch)
+    captured: list[dict[str, Any]] = []
+    # Row returned by the mock has fecha_final=None (the reopen outcome).
+    reopened_row = _acogida_row()
+    reopened_row["fecha_final"] = None
+    feed_client = _install_feed_client(
+        captured, update_row=reopened_row
+    )
+
+    form = _form_data()
+    form["fecha_final"] = ""  # operator clears the closure date
+
+    try:
+        response = await make_csrf_request(
+            client,
+            "POST",
+            "/acogidas/acog-123/update",
+            form_data=form,
+            csrf_token="test-csrf-token-acogidas",
+        )
+
+        assert response.status_code == 303
+        assert response.headers["location"] == "/acogidas/acog-123"
+    finally:
+        feed_client.close()
+        app.dependency_overrides.pop(get_insforge_client, None)
+        app.dependency_overrides.pop(get_insforge_client_dep, None)
+
+    update_call = next(c for c in captured if "UPDATE acogidas SET" in c["query"])
+    # The UPDATE must include fecha_final in its SET clause (because
+    # the form sent an empty value) and must pass None (NOT the empty
+    # string, which PostgreSQL would reject on a ``date`` column).
+    assert "fecha_final" in update_call["query"], (
+        f"UPDATE must include fecha_final when the form sends an empty "
+        f"value (reopen). Got SQL: {update_call['query']!r}"
+    )
+    # Position the fecha_final param in the UPDATE parameter list. After
+    # the fix fecha_final is one of the SET columns, whose position
+    # depends on which columns are present in the params. We use the
+    # service's _WRITE_COLUMNS (project's source of truth) to compute
+    # the positional index, then add 2 because $1 is the id.
+    assert "fecha_final" in acogidas_service._WRITE_COLUMNS, (
+        f"service._WRITE_COLUMNS must include 'fecha_final' so the "
+        f"UPDATE can persist reopen semantics. Got: "
+        f"{acogidas_service._WRITE_COLUMNS!r}"
+    )
+    fecha_final_position = (
+        acogidas_service._WRITE_COLUMNS.index("fecha_final") + 2
+    )
+    assert update_call["params"][fecha_final_position] is None, (
+        f"route must send None (not the empty string) for fecha_final "
+        f"when the operator clears the field. "
+        f"Param at position {fecha_final_position}: "
+        f"{update_call['params'][fecha_final_position]!r}. "
+        f"Full params: {update_call['params']!r}"
     )
