@@ -152,10 +152,23 @@ def _render_per_stay_list(
     inactive materials with 422 anyway, so the dropdown only shows
     ``activos_solo=True`` rows).
 
+    CRITICAL-1 (jd-judge-a, PR #171): the per-stay table needs to
+    render the material's natural-key trio (material / tamano /
+    color), NOT the FK UUID ``row.material_id``. We pre-build a
+    ``material_lookup`` dict keyed by ``Material.id`` so the template
+    can resolve each junction row's FK in O(1) without a second
+    SELECT per row. The lookup is only used to enrich the rendering;
+    the writer-only dropdown keeps iterating the original ``catalog``
+    list (the dropdown already renders the same trio via ``mat.material
+    — mat.tamano — mat.color``).
+
     On a 409 (duplicate active assignment) or a 422 (inactive
     material / closed estancia), the form-data is preserved by
     re-rendering through this helper.
     """
+    material_lookup: dict[str, materiales_service.Material] = {
+        m.id: m for m in catalog
+    }
     return _templates.TemplateResponse(
         request=request,
         name="acogidas/materiales.html",
@@ -164,6 +177,7 @@ def _render_per_stay_list(
             "estancia_id": estancia_id,
             "assigned": assigned,
             "catalog": catalog,
+            "material_lookup": material_lookup,
             "error": error,
         },
         status_code=status_code,

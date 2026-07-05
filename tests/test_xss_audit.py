@@ -1024,6 +1024,14 @@ TEMPLATE_SPECS: list[tuple[str, list[str], dict[str, Any]]] = [
         # every operator-influenced text field (notes, error message,
         # the catalog material labels) and asserts the literal
         # payload does not leak into the rendered HTML.
+        #
+        # CRITICAL-1 (jd-judge-a, PR #171): the template now resolves
+        # each row's material FK through ``material_lookup`` (a dict
+        # keyed by ``Material.id``) so the cells render the catalog's
+        # natural-key trio (material / tamano / color) instead of the
+        # FK UUID. The audit base context mirrors the route handler
+        # in ``app/modules/materiales/acogida_routes.py`` and ships a
+        # matching ``material_lookup`` dict.
         "acogidas/materiales.html",
         [
             "assigned[0].id",
@@ -1061,6 +1069,15 @@ TEMPLATE_SPECS: list[tuple[str, list[str], dict[str, Any]]] = [
                     "activo": True,
                 }
             ],
+            "material_lookup": {
+                "33333333-3333-3333-3333-333333333333": {
+                    "id": "33333333-3333-3333-3333-333333333333",
+                    "material": "Cama",
+                    "tamano": "Grande",
+                    "color": "Azul",
+                    "activo": True,
+                }
+            },
             "error": None,
         },
     ),

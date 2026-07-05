@@ -40,8 +40,15 @@
         {% for row in assigned %}
         <tr class="border-t border-border">
           <td class="px-6 py-3 font-mono text-text">{{ row.id }}</td>
-          <td class="px-6 py-3 text-text">{{ row.material_id }}</td>
-          <td class="px-6 py-3 text-text">{{ row.estancia_id }}</td>
+          {# CRITICAL-1 (jd-judge-a, PR #171): resolve the material FK
+             through the route-built lookup so the cells render the
+             catalog's natural-key trio (material / tamano / color),
+             not the FK UUID. Falls back to the raw FK if the catalog
+             has drifted (e.g. a soft-deleted material still assigned
+             historically) so the operator sees a readable signal. #}
+          <td class="px-6 py-3 text-text">{{ material_lookup[row.material_id].material if material_lookup.get(row.material_id) else row.material_id }}</td>
+          <td class="px-6 py-3 text-text">{{ material_lookup[row.material_id].tamano if material_lookup.get(row.material_id) else row.material_id }}</td>
+          <td class="px-6 py-3 text-text">{{ material_lookup[row.material_id].color if material_lookup.get(row.material_id) else row.material_id }}</td>
           <td class="px-6 py-3 text-text">{{ row.cantidad }}</td>
           <td class="px-6 py-3 text-text">{{ row.notas or "—" }}</td>
           <td class="px-6 py-3 text-text font-mono">{{ row.fecha_alta or "—" }}</td>

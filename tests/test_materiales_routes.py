@@ -53,6 +53,7 @@ Junction (PR C):
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -809,6 +810,47 @@ async def test_get_acogidas_materiales_lists_per_estancia(
     assert catalog_calls == [(route_client, True)]
     body = response.text
     assert "Materiales asignados" in body
+    # CRITICAL-1 regression (jd-judge-a, PR #171): the per-stay list MUST
+    # render the material's natural-key trio (material / tamano / color),
+    # NOT the FK UUID (``row.material_id``) that the cells currently
+    # show. The route enriches the context with a ``material_lookup``
+    # dict keyed by ``material_id``; the template resolves each row's
+    # FK to its human-readable name.
+    #
+    # The scope is restricted to ``<td>`` bodies so the catalog dropdown
+    # (``<option value="mat-123">Cama — Grande — Azul</option>``) does
+    # NOT satisfy this assertion — before the fix the dropdown is the
+    # only place ``Cama``/``Grande``/``Azul`` appear, and the assigned
+    # row's cells render FK UUIDs (``junc-123``, ``mat-123``,
+    # ``acog-123``). The structural assertion below fails with the
+    # current template and passes only when the route builds a
+    # material_lookup and the template resolves row.material_id
+    # through it.
+    td_bodies = re.findall(r"<td[^>]*>([^<]*)</td>", body)
+    assert any("Cama" in cell for cell in td_bodies), (
+        "per-stay table MUST render the catalog material name 'Cama' "
+        f"inside a <td>; got td_bodies={td_bodies!r}. The dropdown "
+        "<option> bodies do not count — the assigned row's cells must "
+        "show the catalog name, not the FK UUID."
+    )
+    assert any("Grande" in cell for cell in td_bodies), (
+        "per-stay table MUST render the catalog tamano 'Grande' in a "
+        f"<td>; got td_bodies={td_bodies!r}"
+    )
+    assert any("Azul" in cell for cell in td_bodies), (
+        "per-stay table MUST render the catalog color 'Azul' in a "
+        f"<td>; got td_bodies={td_bodies!r}"
+    )
+    # The FK UUID must NOT appear inside any assigned-row <td> body.
+    # (It may still appear in dropdown option values, hidden form
+    # fields, or delete-form actions — those are NOT <td> bodies.)
+    for cell in td_bodies:
+        assert "mat-123" not in cell, (
+            "per-stay table <td> still contains the FK UUID 'mat-123' "
+            f"instead of the catalog name: <td>{cell}</td>. Build "
+            "material_lookup from the catalog and resolve "
+            "row.material_id through it in the template."
+        )
     # The writer-only assign form must include the CSRF token and a
     # ``material_id`` dropdown. The dropdown contents are mocked here;
     # we only assert the structural shape.
