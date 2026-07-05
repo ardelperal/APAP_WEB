@@ -604,3 +604,45 @@ def test_row_to_actuacion_sanitaria_coerces_string_uuid_fields() -> None:
     assert actuacion.id == "11111111-1111-1111-1111-111111111111"
     assert actuacion.voluntario_id == "33333333-3333-3333-3333-333333333333"
     assert actuacion.tipo_actuacion_id == "44444444-4444-4444-4444-444444444444"
+
+
+# --- 10. Mock helpers: fecha override (date-coupling regression) ---------
+#
+# CI broke on 2026-07-05 UTC because ``test_create_accepts_today_fecha`` and
+# ``test_create_accepts_fecha_equal_animal_fecha_alta`` used ``date.today()``
+# while the mock row hardcoded ``fecha: '2026-07-04'``. The two only happened
+# to match on 2026-07-04 UTC. The fix is to make ``_row()`` parameterizable
+# on ``fecha`` so date-coupling tests can inject the date they want to
+# round-trip, instead of trusting the calendar. This test pins the contract
+# so a future refactor cannot silently re-couple the helper to wall-clock.
+#
+# The test date "2020-01-01" is chosen because it is:
+#  - In the past (D-24 regla 2 accepts it; "2099-12-31" would not).
+#  - Far from any plausible UTC today (so it cannot accidentally match).
+#  - Already used by test_create_accepts_fecha_before_null_fecha_alta,
+#    so the convention is consistent across the file.
+
+
+def test_sanidad_mock_helpers_let_caller_override_fecha() -> None:
+    """_row() must accept a fecha override so date-coupling tests do not break
+    when CI runs past UTC midnight.
+
+    The contract: a caller can pass ``fecha="YYYY-MM-DD"`` and the mock row
+    will echo it back. ``create_actuacion_sanitaria`` returns a row built
+    from the mock, so the service-side fecha == caller fecha == mock fecha.
+    """
+    row = _row(fecha="2020-01-01")
+    assert row["fecha"] == "2020-01-01"
+
+    # Full create round-trip: the service must echo the input fecha, which
+    # only holds when the mock and the input agree. This is the regression
+    # the helper exists to prevent.
+    client, _ = _client_recording(
+        _handler_returns_rows([_row(fecha="2020-01-01")])
+    )
+
+    actuacion = sanidad_service.create_actuacion_sanitaria(
+        client, {**_params_minimal(), "fecha": "2020-01-01"}
+    )
+
+    assert actuacion.fecha == "2020-01-01"
