@@ -455,12 +455,20 @@ def _build_update_sql_and_params(
 # ``foster_capacity_overrides.estancia_id``. The ``AND estancia_id IS
 # NULL`` guard prevents linking twice (a duplicate ``create_acogida``
 # with the same ``override_id`` is treated as a no-op so the original
-# link wins). Empty ``override_id`` (from a missing form field that
-# serializes as ``""``) is treated the same as absent ÔÇö no UPDATE.
+# link wins). The ``AND casa_acogida_id = $3 AND animal_id = $4``
+# guards (judgment-day CRITICAL §1.2 + HIGH §3.2 follow-up to PR
+# #155) scope the link to the override's recorded casa+animal ÔÇö a
+# forged ``override_id`` from another operator's session cannot link
+# to a different stay because the form's casa+animal pair will not
+# match the override row. Empty ``override_id`` (from a missing form
+# field that serializes as ``""``) is treated the same as absent ÔÇö
+# no UPDATE.
 _LINK_OVERRIDE_SQL: Final[str] = """
 UPDATE foster_capacity_overrides
 SET estancia_id = $1
 WHERE id = $2
+  AND casa_acogida_id = $3
+  AND animal_id = $4
   AND estancia_id IS NULL
 """
 
@@ -473,10 +481,18 @@ def create_acogida(
     nullable). When present and non-empty, after the INSERT succeeds
     we UPDATE ``foster_capacity_overrides.estancia_id`` for that
     override row to the new ``acogida.id``. The UPDATE is a no-op
-    (0 rows) when the override is already linked or the UUID is
-    unknown ÔÇö in that case we emit a ``foster.override.unlinked``
-    warning instead of raising so the operator's estancia creation
-    still succeeds.
+    (0 rows) when the override is already linked, the UUID is
+    unknown, or the casa+animal pair from the form does not match
+    the override's recorded pair (defense against cross-operator
+    ``override_id`` forgery ÔÇö judgment-day CRITICAL §1.2 + HIGH
+    §3.2 follow-up to PR #155). In any of those "no link" cases we
+    emit a ``foster.override.unlinked`` warning instead of raising
+    so the operator's estancia creation still succeeds.
+
+    The UPDATE filter includes ``casa_acogida_id`` and ``animal_id``
+    so a forged ``override_id`` from another operator's session
+    cannot link to a different stay ÔÇö the casa+animal pair from the
+    form must match the override's recorded pair.
     """
     # Validation runs BEFORE the INSERT so we never write a row with
     # broken FKs. The required-text helpers raise ValueError before any
@@ -493,18 +509,38 @@ def create_acogida(
     # estancia, when ``override_id`` is present and non-empty.
     override_id_raw = params.get("override_id")
     if isinstance(override_id_raw, str) and override_id_raw.strip():
+        # Defense (judgment-day CRITICAL §1.2 / HIGH §3.2 follow-up):
+        # scope the link UPDATE to casa+animal so a forged
+        # ``override_id`` from another operator's session cannot
+        # point at this estancia. Reuse the already-validated casa
+        # and animal from ``params``; ``_validate_references`` raised
+        # above if either was invalid. ``link_casa_id`` may be None
+        # for stays with no casa ÔÇö in SQL three-valued logic
+        # ``casa_acogida_id = NULL`` is NULL/false, so the filter
+        # rejects the link (the override was recorded for a SPECIFIC
+        # casa, NOT NULL by schema).
+        link_casa_id = _optional_uuid(params, "casa_acogida_id")
+        link_animal_id = _required_text(params, "animal_id")
         link_rows = client.execute_sql(
-            _LINK_OVERRIDE_SQL, [acogida.id, override_id_raw.strip()]
+            _LINK_OVERRIDE_SQL,
+            [
+                acogida.id,
+                override_id_raw.strip(),
+                link_casa_id,
+                link_animal_id,
+            ],
         )
         if not link_rows:
-            # 0 rows updated: the override row is already linked, or
-            # the UUID does not exist. Log a warning and do NOT raise
-            # ÔÇö the estancia itself was created successfully and
+            # 0 rows updated: the override row is already linked, the
+            # UUID does not exist, or the casa/animal pair from the
+            # form does NOT match the override's recorded pair
+            # (forgery attempt). Log a warning and do NOT raise ÔÇö
+            # the estancia itself was created successfully and
             # audit-log anomalies must not punish the operator.
             log_safe(
                 "foster.override.unlinked",
                 override_id=override_id_raw,
-                motivo="override row missing or already linked",
+                motivo="override row missing, already linked, or casa/animal mismatch",
             )
 
     return acogida
