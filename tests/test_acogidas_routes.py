@@ -391,6 +391,67 @@ async def test_create_acogida_sad_validation_rerenders_form_with_422(
     assert 'value="11111111-1111-1111-1111-111111111111"' in body
 
 
+# --- Issue #139 P1 #4: TOCTOU FK violation translates to 422 (not 500) -----
+
+
+async def test_create_acogida_route_translates_fk_violation_to_422(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Service raises ``InsForgeError`` on concurrent FK violation -> 422.
+
+    ``_validate_references`` runs SELECTs before the INSERT; a
+    concurrent deactivate between the SELECT and the INSERT can still
+    produce a PostgreSQL FK violation (PostgREST 400 with a
+    ``"violates foreign key constraint"`` body). The service raises
+    ``InsForgeError``; the route must translate it to 422 with the
+    operator's form input preserved, NOT a 500.
+
+    Mirrors the adopciones pattern: routes catch ``InsForgeError`` to
+    surface 4xx-style backend failures as actionable 422s.
+    """
+    from app.core.insforge import InsForgeError
+
+    _login_as_key_user(client)
+    _bypass_species_gate(monkeypatch)
+
+    def fake_create(
+        service_client: InsForgeClient, params: dict[str, Any]
+    ) -> acogidas_service.Acogida:
+        # Simulate a PostgreSQL FK violation arriving via PostgREST.
+        raise InsForgeError(
+            status_code=400,
+            body={
+                "code": "23503",
+                "message": "insert or update on table 'acogidas' "
+                "violates foreign key constraint "
+                "'acogidas_animal_id_fkey'",
+            },
+        )
+
+    monkeypatch.setattr(acogidas_service, "create_acogida", fake_create)
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/acogidas",
+        form_data=_form_data(),
+        csrf_token="test-csrf-token-acogidas",
+    )
+
+    assert response.status_code == 422, (
+        f"FK violation MUST translate to 422 (not 500); got "
+        f"{response.status_code}; body: {response.text!r}"
+    )
+    body = response.text
+    # Spanish-friendly action message + entity label.
+    assert "No se pudo guardar la estancia de acogida" in body
+    assert "referencia extranjera" in body or "foreign key" in body.lower()
+    # Operator input preserved.
+    assert 'value="11111111-1111-1111-1111-111111111111"' in body
+
+
 # --- 7. GET /acogidas/{id} (detail, missing) -----------------------------
 
 
