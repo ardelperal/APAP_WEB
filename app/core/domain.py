@@ -553,6 +553,65 @@ CREATE TABLE IF NOT EXISTS actuacion_sanitaria (
 """
 
 
+# FOSTER-04 (#46, PR A of 3 chained) — materiales catalog. 9 columns:
+# id + material + tamano + color + observaciones (legacy free-text, P1
+# fidelity to ``TbMaterial`` per ``data-model-completeness.md`` §4) +
+# activo + 3 system timestamps (fecha_alta / updated_at / fecha_baja).
+# Legacy natural-key ``(material, tamano, color)`` is DB-enforced via
+# UNIQUE — replicate the legacy rule (Q1 in spec #15894).
+#
+# NOTE: ``materiales.tamano`` stays TEXT in this slice (no FK to
+# ``catalogos_tamaños`` yet). The FK migration is deferred to Fase 6c
+# under D-MAT-01 in ``docs/decisiones-proyecto.md``.
+MATERIALES_CREATE_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS materiales (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    material TEXT NOT NULL,
+    tamano TEXT NOT NULL,
+    color TEXT NOT NULL,
+    observaciones TEXT,
+    activo BOOLEAN NOT NULL DEFAULT true,
+    fecha_alta TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP NOT NULL DEFAULT now(),
+    fecha_baja TIMESTAMP,
+    UNIQUE (material, tamano, color)
+)
+"""
+
+
+# FOSTER-04 (#46, PR A) — junction that ties a material to a foster stay
+# (estancia de acogida). Mirrors the legacy DB-enforced FK
+# ``TbAcogidaAnimalMaterial.IDAcogida → TbAcogidaAnimal.IDAcogida`` (see
+# data-model-completeness.md §4 "Foster stay → Materials").
+#
+# ``cantidad`` is INTEGER NOT NULL DEFAULT 1 CHECK (cantidad > 0)
+# (Q4 — discrete items like transportines/mantas/pienso/medicación).
+# The partial unique index ``(estancia_id, material_id) WHERE activo = true``
+# prevents duplicate active assignments of the same material to the same
+# stay while keeping history alive for soft-deleted rows.
+ESTANCIA_MATERIALES_CREATE_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS estancia_materiales (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    estancia_id UUID NOT NULL REFERENCES acogidas(id),
+    material_id UUID NOT NULL REFERENCES materiales(id),
+    cantidad INTEGER NOT NULL DEFAULT 1 CHECK (cantidad > 0),
+    notas TEXT,
+    fecha_alta TIMESTAMP NOT NULL DEFAULT now(),
+    activo BOOLEAN NOT NULL DEFAULT true
+)
+"""
+
+
+# Partial unique index for the junction. Issued AFTER the CREATE TABLE
+# above so PostgreSQL accepts the index definition. ``IF NOT EXISTS``
+# keeps the bootstrap replay-safe.
+ESTANCIA_MATERIALES_ACTIVE_UNIQUE_INDEX_SQL = """
+CREATE UNIQUE INDEX IF NOT EXISTS estancia_materiales_active_unique
+ON estancia_materiales (estancia_id, material_id)
+WHERE activo = true
+"""
+
+
 def ensure_domain_schema(client: InsForgeClient) -> None:
     """Create the domain tables (idempotent) in dependency order.
 
@@ -616,3 +675,16 @@ def ensure_domain_schema(client: InsForgeClient) -> None:
     # referencia ya estan creadas y el lifespan ya creo los catalogos.
     # ``CREATE TABLE IF NOT EXISTS`` lo hace idempotente entre reinicios.
     client.execute_sql(ACTUACION_SANITARIA_CREATE_TABLE_SQL)
+    # FOSTER-04 (#46, PR A of 3 chained) — materiales catalog +
+    # estancia_materiales junction. Emitted AFTER ``actuacion_sanitaria``
+    # so that the junction's two FK targets (``acogidas`` and
+    # ``materiales``) already exist when the FK constraints are evaluated
+    # on a fresh backend. Both CREATE TABLEs use ``IF NOT EXISTS`` and
+    # the partial unique index also uses ``IF NOT EXISTS`` so the
+    # bootstrap is replay-safe across cold starts. See
+    # ``docs/proceso.md`` P1 (fidelidad al legacy ``TbMaterial``) and the
+    # spec at engram obs #15894 for the full P1 contract (UNIQUE
+    # (material, tamano, color) for legacy natural-key enforcement).
+    client.execute_sql(MATERIALES_CREATE_TABLE_SQL)
+    client.execute_sql(ESTANCIA_MATERIALES_CREATE_TABLE_SQL)
+    client.execute_sql(ESTANCIA_MATERIALES_ACTIVE_UNIQUE_INDEX_SQL)

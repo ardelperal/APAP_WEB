@@ -961,11 +961,12 @@ def test_ensure_domain_schema_creates_twelve_tables_plus_one_alter() -> None:
     client.close()
 
     queries = [c["query"].strip() for c in captured]
-    # FOSTER-04 (#46): 18 statements total (16 CREATE TABLE + 2 ALTER TABLE)
-    # after materiales + estancia_materiales were appended at the end.
-    assert len(queries) == 18, (
-        f"expected 18 statements (16 CREATE TABLE + 2 ALTER TABLE), "
-        f"got {len(queries)}: {queries}"
+    # FOSTER-04 (#46): 19 statements total (16 CREATE TABLE + 2 ALTER TABLE
+    # + 1 CREATE UNIQUE INDEX) after materiales + estancia_materiales +
+    # their partial unique index were appended at the end.
+    assert len(queries) == 19, (
+        f"expected 19 statements (16 CREATE TABLE + 2 ALTER TABLE + "
+        f"1 CREATE INDEX), got {len(queries)}: {queries}"
     )
     create_queries = [q for q in queries if q.startswith("CREATE TABLE")]
     assert len(create_queries) == 16
@@ -991,6 +992,10 @@ def test_ensure_domain_schema_creates_twelve_tables_plus_one_alter() -> None:
     # so that the junction's FKs to ``acogidas`` and ``materiales`` resolve.
     assert queries[16].startswith("CREATE TABLE IF NOT EXISTS materiales")
     assert queries[17].startswith("CREATE TABLE IF NOT EXISTS estancia_materiales")
+    # Partial unique index emitted right after the junction CREATE TABLE.
+    assert queries[18].startswith(
+        "CREATE UNIQUE INDEX IF NOT EXISTS estancia_materiales_active_unique"
+    )
 
 
 # --- cesiones_propietario (TbCesionPorPropietario legacy, issue #41) ---
@@ -1292,18 +1297,21 @@ def test_ensure_domain_schema_emits_actuacion_sanitaria_after_contratos() -> Non
         i for i, q in enumerate(queries)
         if q.startswith("CREATE TABLE IF NOT EXISTS actuacion_sanitaria")
     )
-    # FOSTER-04 (#46): the two new tables land at the end so the
-    # ``estancia_materiales`` junction FKs to ``acogidas`` and
-    # ``materiales`` resolve.
-    assert actuacion_idx < len(queries) - 2, (
+    # FOSTER-04 (#46): the two new tables + their partial unique index
+    # land at the end so the ``estancia_materiales`` junction FKs to
+    # ``acogidas`` and ``materiales`` resolve.
+    assert actuacion_idx < len(queries) - 3, (
         f"actuacion_sanitaria must come BEFORE the FOSTER-04 tail "
-        f"(materiales + estancia_materiales); got position {actuacion_idx} "
-        f"of {len(queries)}: {queries[actuacion_idx:][:80]!r}"
+        f"(materiales + estancia_materiales + unique index); got position "
+        f"{actuacion_idx} of {len(queries)}: {queries[actuacion_idx:][:80]!r}"
     )
-    # Last emit is the junction (so all FK targets — materiales + acogidas
-    # — already exist at the time it runs).
-    assert queries[-1].startswith("CREATE TABLE IF NOT EXISTS estancia_materiales"), (
-        f"estancia_materiales must be the LAST emit; got: {queries[-1][:80]!r}"
+    # Last emit is the partial unique index (so the junction exists when
+    # the index is created on a fresh backend).
+    assert queries[-1].startswith(
+        "CREATE UNIQUE INDEX IF NOT EXISTS estancia_materiales_active_unique"
+    ), (
+        f"estancia_materiales_active_unique index must be the LAST emit; "
+        f"got: {queries[-1][:80]!r}"
     )
 
 
@@ -1411,16 +1419,25 @@ def test_ensure_domain_schema_creates_estancia_materiales_table() -> None:
         f"got SQL: {create!r}"
     )
     # Partial unique index prevents duplicate active assignments.
-    assert (
-        "CREATE UNIQUE INDEX IF NOT EXISTS estancia_materiales_active_unique"
-        in create
-    ), (
-        f"estancia_materiales MUST have partial unique index on "
-        f"(estancia_id, material_id) WHERE activo = true; got SQL: {create!r}"
+    # Emitted as a SEPARATE ``CREATE UNIQUE INDEX IF NOT EXISTS`` statement
+    # after the CREATE TABLE so PostgreSQL accepts the index definition
+    # on a fresh backend.
+    index_creates = [
+        q for q in queries
+        if q.startswith("CREATE UNIQUE INDEX IF NOT EXISTS estancia_materiales_active_unique")
+    ]
+    assert len(index_creates) == 1, (
+        f"ensure_domain_schema MUST emit exactly one partial unique index "
+        f"for estancia_materiales; got {len(index_creates)}: {index_creates!r}"
     )
-    assert "WHERE activo = true" in create, (
+    index_sql = index_creates[0]
+    assert "ON estancia_materiales (estancia_id, material_id)" in index_sql, (
+        f"estancia_materiales partial unique index MUST be on "
+        f"(estancia_id, material_id); got SQL: {index_sql!r}"
+    )
+    assert "WHERE activo = true" in index_sql, (
         f"estancia_materiales partial unique index MUST be WHERE activo = true; "
-        f"got SQL: {create!r}"
+        f"got SQL: {index_sql!r}"
     )
 
 
