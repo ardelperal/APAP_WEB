@@ -1190,6 +1190,52 @@ def test_template_html_escapes_xss_payload(
     )
 
 
+def test_xss_audit_error_field_is_escaped() -> None:
+    """CRITICAL-2 (jd-judge-a, PR #171): ``error`` MUST be HTML-escaped.
+
+    The per-stay junction view (``acogidas/materiales.html``) renders
+    the ``error`` field inside ``<div role="alert">...</div>`` when
+    the assign flow raises ``ValueError`` or
+    ``MaterialConflictError``. The error string is operator-visible
+    copy (Spanish actionable messages from the route layer), so today
+    it does not carry user-influenced text — but the template MUST
+    HTML-escape it anyway so a future change that surfaces a form
+    value, a sanitization path that doesn't strip angle brackets, or
+    a regression that drops Jinja2 autoescape cannot turn the alert
+    into an XSS payload.
+
+    The fix on the template side is ``{{ error | e }}`` (defense in
+    depth: the ``|e`` filter is explicit, idempotent with autoescape,
+    and survives any future ``Jinja2Templates(autoescape=False)``
+    drift).
+
+    This atom is a focused regression test for the ``error`` field
+    specifically — the parametrized ``test_template_html_escapes_xss_payload``
+    above also covers this case, but a dedicated atom makes the
+    reviewer-facing evidence explicit and gives the failing-PR a
+    named hook to point at.
+    """
+    base_ctx = next(
+        ctx for tpl, _, ctx in TEMPLATE_SPECS if tpl == "acogidas/materiales.html"
+    )
+    ctx = _with_xss(base_ctx, "error", "<script>alert(1)</script>")
+    rendered = render("acogidas/materiales.html", ctx)
+
+    # The literal payload MUST NOT appear unescaped. Jinja2 autoescape
+    # converts ``<`` to ``&lt;`` and ``>`` to ``&gt;``; the ``|e``
+    # filter does the same explicitly.
+    assert "<script>alert(1)</script>" not in rendered, (
+        "XSS audit FAILED: the 'error' field on acogidas/materiales.html "
+        "rendered the literal <script> payload. The template MUST apply "
+        "either Jinja2 autoescape (already on for .html) or the explicit "
+        "'| e' filter to '{{ error }}' so the angle brackets become "
+        "&lt;script&gt;. CRITICAL-2 (jd-judge-a, PR #171)."
+    )
+    # The escaped entity form MUST be present so the operator sees the
+    # actionable message instead of an empty alert.
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in rendered
+
+
 def test_jinja2templates_default_autoescape_is_true() -> None:
     """Sanity check: Starlette's Jinja2Templates MUST default autoescape=True.
 

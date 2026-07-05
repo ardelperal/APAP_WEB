@@ -16,7 +16,17 @@
 
   {% if error %}
   <div role="alert" class="mb-4 rounded-card border border-rose-300 bg-rose-50 text-rose-900 px-4 py-3 text-sm">
-    {{ error }}
+    {# CRITICAL-2 (jd-judge-a, PR #171): apply the explicit ``| e`` filter
+       for defense in depth. Jinja2 autoescape already escapes angle
+       brackets on ``.html`` templates, but ``| e`` is the
+       intent-revealing form and survives any future
+       ``Jinja2Templates(autoescape=False)`` drift. The ``error`` value
+       originates in the route layer as Spanish actionable copy, so
+       today it carries no user-influenced text — the explicit filter
+       is a hardening measure, not a current-bug fix. The XSS audit's
+       dedicated atom ``test_xss_audit_error_field_is_escaped`` is the
+       regression guard. #}
+    {{ error | e }}
   </div>
   {% endif %}
 
