@@ -518,8 +518,8 @@ def test_ensure_domain_schema_emits_casa_fk_migration_after_acogidas_create() ->
     assert len(create_queries) == 14, (
         f"expected 14 CREATE TABLEs, got {len(create_queries)}: {create_queries}"
     )
-    assert len(alter_queries) == 1, (
-        f"expected 1 ALTER TABLE (FOSTER-02 casa FK), got {len(alter_queries)}: {alter_queries}"
+    assert len(alter_queries) == 2, (
+        f"expected 2 ALTER TABLEs (FOSTER-02 casa FK + issue #142 estancia FK), got {len(alter_queries)}: {alter_queries}"
     )
     # The ALTER TABLE must come AFTER the CREATE TABLE for ``acogidas``
     # and AFTER the CREATE TABLE for ``casas_acogida``.
@@ -957,8 +957,8 @@ def test_ensure_domain_schema_creates_twelve_tables_plus_one_alter() -> None:
     client.close()
 
     queries = [c["query"].strip() for c in captured]
-    assert len(queries) == 15, (
-        f"expected 15 statements (14 CREATE TABLE + 1 ALTER TABLE), "
+    assert len(queries) == 16, (
+        f"expected 16 statements (14 CREATE TABLE + 2 ALTER TABLE), "
         f"got {len(queries)}: {queries}"
     )
     create_queries = [q for q in queries if q.startswith("CREATE TABLE")]
@@ -973,11 +973,13 @@ def test_ensure_domain_schema_creates_twelve_tables_plus_one_alter() -> None:
     # FOSTER-02 ALTER TABLE between ``acogidas`` (idx 6) and ``foster_capacity_overrides`` (idx 8).
     assert queries[7].startswith("ALTER TABLE acogidas")
     assert queries[8].startswith("CREATE TABLE IF NOT EXISTS foster_capacity_overrides")
-    assert queries[9].startswith("CREATE TABLE IF NOT EXISTS adopciones")
-    assert queries[10].startswith("CREATE TABLE IF NOT EXISTS animal_lifecycle_events")
-    assert queries[11].startswith("CREATE TABLE IF NOT EXISTS animal_current_state")
-    assert queries[12].startswith("CREATE TABLE IF NOT EXISTS cesiones_propietario")
-    assert queries[13].startswith("CREATE TABLE IF NOT EXISTS contratos")
+    # Issue #142: 2nd ALTER TABLE for estancia_id shifts every subsequent index by +1.
+    assert queries[9].startswith("ALTER TABLE foster_capacity_overrides")
+    assert queries[10].startswith("CREATE TABLE IF NOT EXISTS adopciones")
+    assert queries[11].startswith("CREATE TABLE IF NOT EXISTS animal_lifecycle_events")
+    assert queries[12].startswith("CREATE TABLE IF NOT EXISTS animal_current_state")
+    assert queries[13].startswith("CREATE TABLE IF NOT EXISTS cesiones_propietario")
+    assert queries[14].startswith("CREATE TABLE IF NOT EXISTS contratos")
 
 
 # --- cesiones_propietario (TbCesionPorPropietario legacy, issue #41) ---
