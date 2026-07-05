@@ -785,7 +785,9 @@ def test_ensure_domain_schema_includes_entradas_acogidas_adopciones() -> None:
     # keeping the foster slice contiguous. ``adopciones`` follows.
     assert queries[7].startswith("ALTER TABLE acogidas")
     assert queries[8].startswith("CREATE TABLE IF NOT EXISTS foster_capacity_overrides")
-    assert queries[9].startswith("CREATE TABLE IF NOT EXISTS adopciones")
+    # Issue #142: 2nd ALTER TABLE for estancia_id between foster_capacity_overrides and adopciones.
+    assert queries[9].startswith("ALTER TABLE foster_capacity_overrides")
+    assert queries[10].startswith("CREATE TABLE IF NOT EXISTS adopciones")
 
 
 # --- animal_lifecycle_events (LIFECYCLE-SCHEMA-02) -----------------------
