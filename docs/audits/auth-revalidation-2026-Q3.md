@@ -59,4 +59,58 @@ Añadir `client: InsForgeClient = Depends(get_insforge_client_dep)` a `require_a
 
 ## Verdict
 
-**PASS**. La revocación de acceso es ahora operativa en ≤ 5 minutos (TTL configurable; 0 = inmediato). Superset del comportamiento anterior (P1 de fidelidad, `docs/proceso.md §0`): todas las rutas autenticadas siguen funcionando, pero la revocación ya no espera hasta 7 días.
+**PASS**. La revocación de acceso es ahora operativa en ≤ 5 minutos (TTL configurable; 0 = inmediato). Superset del comportamiento anterior (P1 de fidelidad, `docs/proceso.md §0`): todas las rutas autenticadas siguen funcionan, pero la revocación ya no espera hasta 7 días.
+
+---
+
+## Issue-closure trail (PR de cierre, 2026-07-05)
+
+El fix estructural está en `main` desde los commits `860f593`, `380c627`, `f4fa7ef`, `aea9e22`. Esta sección cierra el issue #143 con:
+
+1. Cobertura explícita de los **escenarios nombrados** en el cuerpo del issue (los 5 tests nuevos en `tests/test_auth_dependencies.py`).
+2. Limpieza del **comentario en línea** que aún describía el modelo pre-#143 (`app/main.py:486-492`).
+3. Trazabilidad SDD (§regla de commits del proyecto) y enlace al PR.
+
+### Implementation commits
+
+| Commit | Work unit | SDD tasks | Tests | Audit / access sync |
+|---|---|---|---|---|
+| `0ff01db` | feat(auth-cache): add TTL cache primitive | introducir `auth_cache` (núcleo del fix) | `tests/test_auth_cache.py` (10 atoms) | creada junto al fix |
+| `860f593` | feat(auth): revalidate authorization per request via TTL cache | #143 núcleo: `require_authorized_user` revalida cada request | `tests/test_auth_dependencies.py` (7 atoms nuevos: cache miss, cache hit, revocation, role refresh) | revalidación real implementada |
+| `380c627` | feat(auth): invalidate auth cache on user add/deactivate | #143 invalidación explícita (cierra la ventana del TTL para el flujo admin) | `tests/test_auth.py` (3 atoms: add, deactivate, unknown id) | invalidación atada al alta/baja |
+| `f4fa7ef` | chore(auth): session.py docstring + audit doc + test fixture migrations | #143 docstring corregida (regla 10) + este audit doc + helper `auth_reval_rows` | 16 route-test spies migrados a invocar `auth_reval_rows` como primera línea | `docs/audits/auth-revalidation-2026-Q3.md` creado |
+| `aea9e22` | fix(auth): close write-after-invalidate race + extract admin dep + audit denials (#145, #146) | endurecimiento post-#143: race CAS-style por email en el cache (#145) + `require_developer_user_redirect` + `log_safe("auth.denied", reason=...)` en las 3 deps (#146) | `tests/test_auth_cache.py` (+3 race atoms), `tests/test_auth_dependencies.py` (+3 audit log atoms) | audit trail completo |
+| `8cc15e2` | test(auth): pin #143 user-visible scenarios by name + audit doc closure | cierra #143 con los 5 scenarios nombrados + limpieza de comentario inline | `tests/test_auth_dependencies.py` (+5 atoms: deactivation, role revocation, audit emission, docstring AST guard, regression guard) | este audit doc ampliado |
+
+### Cobertura nueva por escenario del cuerpo del issue
+
+| Escenario del issue | Test nuevo | Estado |
+|---|---|---|
+| "desactivar un usuario vía POST /admin/users/{id}/deactivate no tiene efecto hasta que su cookie expire" | `test_deactivation_takes_effect_on_next_request` | ✅ green contra la implementación actual |
+| "Expected: denegado en la siguiente request" | `test_role_revocation_takes_effect_on_next_request` | ✅ green — la siguiente request ve el rol refrescado |
+| Audit trail (regla 9, 12-field redaction) | `test_log_safe_emitted_on_deactivation_denial` | ✅ green — `auth.denied / reason=db_reval_miss` con `user_id`, sin `email` |
+| Docstring de `session.py` (regla 10) | `test_session_docstring_no_longer_lies` | ✅ green — guard AST que falla si vuelve el texto mentiroso |
+| Happy path (regresión) | `test_no_regression_for_active_users` | ✅ green — usuario activo sigue pasando |
+
+### Review lenses (auto-revisión `code-review-expert`)
+
+Lanzado en este PR contra `main...test/issue-143-closure-2026-Q3`. Resumen:
+
+- **BLOCKER**: 0
+- **CRITICAL**: 0
+- **WARNING**: 1 — la rama de trabajo (`test/issue-143-closure-2026-Q3`) no coincide con el nombre solicitado en el prompt original (`fix/auth-per-request-validation-2026-Q3`); el nombre original fue reclamado por otro proceso en el mismo repo durante la sesión. Sin impacto en el código; lo trato como nota informativa, no bloqueante (ver "Notas operativas" abajo).
+- **SUGGESTION**: 0
+
+Verdict del review-lens: **APPROVED**.
+
+### Pruebas locales
+
+- `pytest tests/test_auth_dependencies.py tests/test_auth_cache.py tests/test_auth.py` → **68 passed** (5 nuevos + 63 existentes).
+- `pytest -W error::DeprecationWarning` → **1858 passed, 3 skipped, 5 deselected** (los deselected y 2 fallos en `test_foster_assignment.py` y `test_sanidad.py::test_create_accepts_today_*` son **pre-existentes**, no causados por este PR — verificadas restaurando `tests/test_domain.py` + `tests/test_foster_assignment.py` a main y reproduciendo el mismo fallo).
+- `ruff check .` → **All checks passed!**.
+- `scripts/check_rules.py app` → **0 violations** en este PR (las 4 que reporta son de fixtures de detector + `tests/test_migration_004.py`, pre-existentes).
+
+### Notas operativas
+
+- La rama `test/issue-143-closure-2026-Q3` diverge del nombre `fix/auth-per-request-validation-2026-Q3` solicitado en el prompt original por motivos operativos (la rama original fue simultáneamente reclamada por otro agente en el mismo repo durante esta sesión; `git push` contra el mismo nombre hubiera fallado o pisado trabajo ajeno). El código y el contenido del PR son los mismos que habrían aterrizado en la rama solicitada.
+- El fix estructural #143 estaba en `main` antes de empezar este PR (commits arriba). Lo que añado es **cobertura explícita + cierre trazable del issue**, no el fix en sí.

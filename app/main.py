@@ -484,12 +484,17 @@ def create_app() -> FastAPI:
             response.delete_cookie("apap_pkce")
             return response
 
-        # ``is_authorized`` se escribe aqui (no se lee) y queda
-        # congelado en la cookie hasta que expire. El fix del P0 de
-        # la code review VOL-01 vive en este write: sin el flag,
-        # ``require_authorized_user`` lo lee con default True y la
-        # desactivacion de un usuario via /admin/users/{id}/deactivate
-        # no tomaba efecto hasta que la cookie expiraba (7 dias).
+        # The signed cookie carries identity + advisory role (stable
+        # for 7 days). ``is_authorized`` is NOT the source of truth
+        # anymore — ``require_authorized_user`` (#143) re-validates
+        # against ``usuarios_autorizados`` on every request via a
+        # TTL cache (``Settings.auth_cache_ttl_seconds``, default
+        # 300s), so an admin deactivation via
+        # ``/admin/users/{id}/deactivate`` takes effect within the TTL
+        # instead of waiting for the cookie to expire. The P0 VOL-01
+        # fix this comment replaced is preserved as the first gate
+        # (``is_authorized`` defaults to False — default-deny),
+        # not as the final answer.
         #
         # PR-5B (REQ-AH-6) adds ``csrf_token`` via ``issue_csrf_to_session``
         # so the CSRF middleware (REQ-AH-8) can validate POST/PUT/PATCH/DELETE
