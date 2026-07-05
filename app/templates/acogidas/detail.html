@@ -109,6 +109,18 @@
       </dl>
     </div>
 
+    <div class="bg-surface rounded-card shadow-card p-6 space-y-3 md:col-span-2">
+      <h2 class="text-lg font-semibold text-text">Materiales asignados</h2>
+      <p class="text-text-muted text-sm">
+        Los materiales asignados a esta estancia se gestionan en su vista dedicada
+        (listado completo + alta + baja desde un único formulario).
+      </p>
+      <a href="/acogidas/{{ acogida.id }}/materiales"
+         class="inline-block bg-primary text-white px-4 py-2 rounded font-semibold hover:bg-primary-dark transition-colors shadow-sm">
+        Ver materiales asignados
+      </a>
+    </div>
+
     {% if acogida.direccion or acogida.telefono or acogida.observaciones %}
     <div class="bg-surface rounded-card shadow-card p-6 space-y-3 md:col-span-2">
       {% if acogida.direccion %}

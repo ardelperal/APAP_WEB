@@ -1016,6 +1016,54 @@ TEMPLATE_SPECS: list[tuple[str, list[str], dict[str, Any]]] = [
             },
         },
     ),
+    (
+        # FOSTER-04 (#46) PR C — per-estancia junction view
+        # (``/acogidas/{id}/materiales``). Same render shape as the
+        # catalog detail: a list of junction rows + a writer-only
+        # assign form + the catalog dropdown. The XSS audit mutates
+        # every operator-influenced text field (notes, error message,
+        # the catalog material labels) and asserts the literal
+        # payload does not leak into the rendered HTML.
+        "acogidas/materiales.html",
+        [
+            "assigned[0].id",
+            "assigned[0].estancia_id",
+            "assigned[0].material_id",
+            "assigned[0].cantidad",
+            "assigned[0].notas",
+            "assigned[0].fecha_alta",
+            "catalog[0].id",
+            "catalog[0].material",
+            "catalog[0].tamano",
+            "catalog[0].color",
+            "error",
+        ],
+        {
+            "user": _BASE_USER,
+            "estancia_id": "11111111-1111-1111-1111-111111111111",
+            "assigned": [
+                {
+                    "id": "22222222-2222-2222-2222-222222222222",
+                    "estancia_id": "11111111-1111-1111-1111-111111111111",
+                    "material_id": "33333333-3333-3333-3333-333333333333",
+                    "cantidad": 2,
+                    "activo": True,
+                    "notas": "Para camada nueva",
+                    "fecha_alta": "2026-07-05T10:00:00Z",
+                }
+            ],
+            "catalog": [
+                {
+                    "id": "33333333-3333-3333-3333-333333333333",
+                    "material": "Cama",
+                    "tamano": "Grande",
+                    "color": "Azul",
+                    "activo": True,
+                }
+            ],
+            "error": None,
+        },
+    ),
 ]
 
 
@@ -1254,6 +1302,24 @@ def test_no_user_data_in_url_attributes() -> None:
             # (new) or ``/materiales/{id}/edit`` (edit), never user
             # data. FOSTER-04 (#46) PR B.
             ("materiales/form.html", "form_action"),
+            # ``estancia_id`` in ``acogidas/materiales.html`` is the
+            # FastAPI path parameter ``/acogidas/{estancia_id}/...``
+            # — server-extracted from the URL by the router (never
+            # user-controlled body data). The handler passes it as a
+            # bare string into the template context and it is
+            # interpolated into ``href``/``action`` URL attributes
+            # below. FOSTER-04 (#46) PR C.
+            ("acogidas/materiales.html", "estancia_id"),
+            # ``row.id`` in ``acogidas/materiales.html`` is the
+            # ``estancia_materiales.id`` UUID PK — server-generated
+            # by the DB default (PR A schema #166). The ``for row in
+            # assigned`` loop name is local to the template. The
+            # ``id_like`` regex above only strips the bare
+            # ``{{ row.id }}`` literal when it stands alone on the
+            # line; the per-expression re-check below catches it
+            # again on a multi-interpolation URL attribute, hence
+            # this entry. FOSTER-04 (#46) PR C.
+            ("acogidas/materiales.html", "row.id"),
             # ``shortcut.href`` comes from ``_DASHBOARD_SHORTCUTS``
             # in ``app/main.py`` - a module-level constant (hardcoded
             # list of internal routes). Never user input.

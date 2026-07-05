@@ -1,0 +1,109 @@
+{% extends base_template %}
+{% block title %}Materiales asignados a la estancia - APAP{% endblock %}
+{% block content %}
+  <div class="flex items-start justify-between mb-6 flex-wrap gap-3">
+    <div>
+      <h1 class="text-3xl font-bold text-primary-dark tracking-tight">Materiales asignados</h1>
+      <p class="text-text-muted text-sm mt-1">
+        Estancia: <code class="font-mono text-text">{{ estancia_id }}</code>
+        · Solo se muestran asignaciones activas; el histórico se conserva en la base de datos.
+      </p>
+    </div>
+    <div class="flex gap-2">
+      <a href="/acogidas/{{ estancia_id }}" class="px-4 py-2 text-text-muted hover:text-text">← Volver a la estancia</a>
+    </div>
+  </div>
+
+  {% if error %}
+  <div role="alert" class="mb-4 rounded-card border border-rose-300 bg-rose-50 text-rose-900 px-4 py-3 text-sm">
+    {{ error }}
+  </div>
+  {% endif %}
+
+  {% if assigned %}
+  <div class="bg-surface rounded-card shadow-card overflow-hidden mb-6">
+    <table class="min-w-full text-left text-sm">
+      <thead class="bg-primary text-white">
+        <tr>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Material</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Tamaño</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Color</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Cantidad</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Notas</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Fecha de alta</th>
+          {% if user and user.rol in ("developer", "admin", "key_user") %}
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Acciones</th>
+          {% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in assigned %}
+        <tr class="border-t border-border">
+          <td class="px-6 py-3 font-mono text-text">{{ row.id }}</td>
+          <td class="px-6 py-3 text-text">{{ row.material_id }}</td>
+          <td class="px-6 py-3 text-text">{{ row.estancia_id }}</td>
+          <td class="px-6 py-3 text-text">{{ row.cantidad }}</td>
+          <td class="px-6 py-3 text-text">{{ row.notas or "—" }}</td>
+          <td class="px-6 py-3 text-text font-mono">{{ row.fecha_alta or "—" }}</td>
+          {% if user and user.rol in ("developer", "admin", "key_user") %}
+          <td class="px-6 py-3">
+            <form method="post" action="/acogidas/{{ estancia_id }}/materiales/{{ row.id }}/delete"
+                  onsubmit="return confirm('¿Quitar este material asignado a la estancia? Queda en el histórico.');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+              <button type="submit" class="text-rose-700 hover:text-rose-900 font-semibold">Quitar</button>
+            </form>
+          </td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="bg-surface rounded-card shadow-card p-6 text-center text-text-muted mb-6">
+    <p class="text-sm">
+      Esta estancia todavía no tiene materiales asignados.
+      Usa el formulario de abajo para registrar la primera asignación.
+    </p>
+  </div>
+  {% endif %}
+
+  {% if user and user.rol in ("developer", "admin", "key_user") %}
+  <div class="bg-surface rounded-card shadow-card p-6 space-y-3">
+    <h2 class="text-lg font-semibold text-text">Asignar material</h2>
+    <form method="post" action="/acogidas/{{ estancia_id }}/materiales" class="space-y-3">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div>
+          <label for="material_id" class="block text-sm font-semibold text-text-muted">Material</label>
+          <select id="material_id" name="material_id" required
+                  class="mt-1 w-full border border-border rounded px-2 py-1 bg-surface text-text">
+            {% if catalog %}
+              {% for mat in catalog %}
+              <option value="{{ mat.id }}">{{ mat.material }} — {{ mat.tamano }} — {{ mat.color }}</option>
+              {% endfor %}
+            {% else %}
+              <option value="" disabled selected>No hay materiales activos en el catálogo</option>
+            {% endif %}
+          </select>
+        </div>
+        <div>
+          <label for="cantidad" class="block text-sm font-semibold text-text-muted">Cantidad</label>
+          <input id="cantidad" name="cantidad" type="number" min="1" step="1" value="1" required
+                 class="mt-1 w-full border border-border rounded px-2 py-1 bg-surface text-text font-mono" />
+        </div>
+        <div>
+          <label for="notas" class="block text-sm font-semibold text-text-muted">Notas (opcional)</label>
+          <input id="notas" name="notas" type="text"
+                 class="mt-1 w-full border border-border rounded px-2 py-1 bg-surface text-text" />
+        </div>
+      </div>
+      <div class="flex justify-end">
+        <button type="submit" class="bg-primary text-white px-4 py-2 rounded font-semibold hover:bg-primary-dark transition-colors shadow-sm">
+          Asignar
+        </button>
+      </div>
+    </form>
+  </div>
+  {% endif %}
+{% endblock %}

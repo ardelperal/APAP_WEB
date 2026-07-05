@@ -38,13 +38,12 @@ import httpx
 import pytest
 
 from app.core.auth_dependencies import get_insforge_client_dep
+from app.core.config import get_settings
 from app.core.insforge import InsForgeClient
 from app.core.session import session_cookie_name, write_session
-from app.core.config import get_settings
 from app.main import app, get_insforge_client
 from app.modules.acogidas import service as acogidas_service
 from tests.conftest import auth_reval_rows
-
 
 # --- helpers --------------------------------------------------------------
 

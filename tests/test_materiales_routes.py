@@ -761,35 +761,52 @@ async def test_get_acogidas_materiales_lists_per_estancia(
     - The route calls ``materiales_service.list_materials_for_estancia``,
       passing the dependency-injected client, ``estancia_id``, and the
       ``activos_solo=True`` default.
+    - The route also calls ``materiales_service.list_materials`` to
+      populate the writer-only assign form dropdown (the spy sees
+      this as a direct route SQL otherwise).
     - The list HTML renders the assigned material row (the
       ``Cama | Grande | Azul`` line) in Spanish copy.
-    - CSRF token + writer-only assign form are emitted (defense in depth
-      alongside the writer dep at POST time).
+    - CSRF token + writer-only assign form are emitted (defense in
+      depth alongside the writer dep at POST time).
     """
     _login_as_key_user(client)
-    calls: list[
+    list_calls: list[
         tuple[InsForgeClient, str, bool]
     ] = []
+    catalog_calls: list[
+        tuple[InsForgeClient, bool]
+    ] = []
     junction = _estancia_material()
+    catalog_material = _material()
 
     def fake_list_for_estancia(
         service_client: InsForgeClient,
         estancia_id: str,
         activos_solo: bool = True,
     ) -> list[materiales_service.EstanciaMaterial]:
-        calls.append((service_client, estancia_id, activos_solo))
+        list_calls.append((service_client, estancia_id, activos_solo))
         return [junction]
+
+    def fake_list_materials(
+        service_client: InsForgeClient, activos_solo: bool = True
+    ) -> list[materiales_service.Material]:
+        catalog_calls.append((service_client, activos_solo))
+        return [catalog_material]
 
     monkeypatch.setattr(
         materiales_service,
         "list_materials_for_estancia",
         fake_list_for_estancia,
     )
+    monkeypatch.setattr(
+        materiales_service, "list_materials", fake_list_materials
+    )
 
     response = await client.get("/acogidas/acog-123/materiales")
 
     assert response.status_code == 200
-    assert calls == [(route_client, "acog-123", True)]
+    assert list_calls == [(route_client, "acog-123", True)]
+    assert catalog_calls == [(route_client, True)]
     body = response.text
     assert "Materiales asignados" in body
     # The writer-only assign form must include the CSRF token and a
@@ -896,8 +913,31 @@ async def test_post_acogidas_materiales_assign_returns_409_on_duplicate(
             "ese material ya esta asignado a esta estancia"
         )
 
+    def fake_list_materials(
+        service_client: InsForgeClient, activos_solo: bool = True
+    ) -> list[materiales_service.Material]:
+        return []
+
+    def fake_list_for_estancia(
+        service_client: InsForgeClient,
+        estancia_id: str,
+        activos_solo: bool = True,
+    ) -> list[materiales_service.EstanciaMaterial]:
+        return []
+
     monkeypatch.setattr(
         materiales_service, "assign_material_to_estancia", fake_assign
+    )
+    # The 409 path re-renders the per-stay list, which fetches both
+    # the assigned list and the catalog dropdown. Stub both so the
+    # spy never sees a real SELECT.
+    monkeypatch.setattr(
+        materiales_service, "list_materials", fake_list_materials
+    )
+    monkeypatch.setattr(
+        materiales_service,
+        "list_materials_for_estancia",
+        fake_list_for_estancia,
     )
 
     response = await make_csrf_request(
@@ -915,6 +955,199 @@ async def test_post_acogidas_materiales_assign_returns_409_on_duplicate(
     assert response.status_code == 409
     body = response.text
     assert "ya esta asignado" in body
+
+
+async def test_post_acogidas_materiales_assign_cantidad_zero_returns_422(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sad edge: ``cantidad=0`` fails the DB CHECK constraint gate.
+
+    The route converts an empty / non-positive ``cantidad`` form
+    field to ``ValueError("cantidad debe ser un entero positivo
+    (>= 1)")`` via ``_cantidad_or_default`` BEFORE invoking the
+    service. The 422 response re-renders the per-stay list with the
+    operator input preserved.
+    """
+    _login_as_key_user(client)
+
+    def fake_list_materials(
+        service_client: InsForgeClient, activos_solo: bool = True
+    ) -> list[materiales_service.Material]:
+        return []
+
+    def fake_list_for_estancia(
+        service_client: InsForgeClient,
+        estancia_id: str,
+        activos_solo: bool = True,
+    ) -> list[materiales_service.EstanciaMaterial]:
+        return []
+
+    # Sentinel: ``assign_material_to_estancia`` MUST NOT be invoked —
+    # the cantidad validation short-circuits before the service call.
+    def _assign_must_not_run(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError(
+            "cantidad=0 must short-circuit at _cantidad_or_default, "
+            "not reach assign_material_to_estancia"
+        )
+
+    monkeypatch.setattr(
+        materiales_service,
+        "assign_material_to_estancia",
+        _assign_must_not_run,
+    )
+    monkeypatch.setattr(
+        materiales_service, "list_materials", fake_list_materials
+    )
+    monkeypatch.setattr(
+        materiales_service,
+        "list_materials_for_estancia",
+        fake_list_for_estancia,
+    )
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/acogidas/acog-123/materiales",
+        form_data={
+            "material_id": "mat-123",
+            "cantidad": "0",
+            "notas": "",
+        },
+        csrf_token="test-csrf-token-materiales",
+    )
+
+    assert response.status_code == 422
+    body = response.text
+    assert "cantidad debe ser un entero positivo" in body
+
+
+async def test_post_acogidas_materiales_assign_cantidad_invalid_returns_422(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sad edge: ``cantidad`` is not an integer at all.
+
+    An operator who deletes the value and types a letter (e.g. ``"abc"``)
+    gets a clear Spanish 422 from the route's ``_cantidad_or_default``
+    helper instead of an opaque PostgreSQL constraint violation.
+    """
+    _login_as_key_user(client)
+
+    def fake_list_materials(
+        service_client: InsForgeClient, activos_solo: bool = True
+    ) -> list[materiales_service.Material]:
+        return []
+
+    def fake_list_for_estancia(
+        service_client: InsForgeClient,
+        estancia_id: str,
+        activos_solo: bool = True,
+    ) -> list[materiales_service.EstanciaMaterial]:
+        return []
+
+    def _assign_must_not_run(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError(
+            "cantidad=abc must short-circuit at _cantidad_or_default"
+        )
+
+    monkeypatch.setattr(
+        materiales_service,
+        "assign_material_to_estancia",
+        _assign_must_not_run,
+    )
+    monkeypatch.setattr(
+        materiales_service, "list_materials", fake_list_materials
+    )
+    monkeypatch.setattr(
+        materiales_service,
+        "list_materials_for_estancia",
+        fake_list_for_estancia,
+    )
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/acogidas/acog-123/materiales",
+        form_data={
+            "material_id": "mat-123",
+            "cantidad": "abc",
+            "notas": "",
+        },
+        csrf_token="test-csrf-token-materiales",
+    )
+
+    assert response.status_code == 422
+    assert "cantidad debe ser un entero positivo" in response.text
+
+
+async def test_post_acogidas_materiales_assign_value_error_returns_422(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Service-level ValueError -> 422 (closed stay / inactive material).
+
+    Spec #15894 Scenarios 8 + Q5: the service's
+    ``assign_material_to_estancia`` validates the estancia is open
+    / active AND the material is active BEFORE the INSERT. A failed
+    validation raises ``ValueError``; the route layer surfaces it
+    as 422 with the Spanish actionable message, then re-renders the
+    per-stay list so the operator can pick a different material.
+    """
+    _login_as_key_user(client)
+
+    def fake_assign(
+        service_client: InsForgeClient,
+        estancia_id: str,
+        material_id: str,
+        cantidad: int = 1,
+        notas: str | None = None,
+    ) -> materiales_service.EstanciaMaterial:
+        raise ValueError(
+            "material_id debe apuntar a un material activo (inactivo)"
+        )
+
+    def fake_list_materials(
+        service_client: InsForgeClient, activos_solo: bool = True
+    ) -> list[materiales_service.Material]:
+        return []
+
+    def fake_list_for_estancia(
+        service_client: InsForgeClient,
+        estancia_id: str,
+        activos_solo: bool = True,
+    ) -> list[materiales_service.EstanciaMaterial]:
+        return []
+
+    monkeypatch.setattr(
+        materiales_service, "assign_material_to_estancia", fake_assign
+    )
+    monkeypatch.setattr(
+        materiales_service, "list_materials", fake_list_materials
+    )
+    monkeypatch.setattr(
+        materiales_service,
+        "list_materials_for_estancia",
+        fake_list_for_estancia,
+    )
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/acogidas/acog-123/materiales",
+        form_data={
+            "material_id": "mat-inactive",
+            "cantidad": "1",
+            "notas": "",
+        },
+        csrf_token="test-csrf-token-materiales",
+    )
+
+    assert response.status_code == 422
+    assert "material activo" in response.text
 
 
 # --- 17. POST /acogidas/{id}/materiales/{mid}/delete ----------------------
