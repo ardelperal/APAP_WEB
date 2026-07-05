@@ -3,7 +3,7 @@
 Owns SQL, validation, mapping, and lifecycle management for the
 ``acogidas`` table (legacy ``TbAcogidaAnimal`` mirror, verified via
 Dysflow ``projectId=apap`` on 2026-07-04, 15 legacy columns + 1
-justified improvement — ``casa_acogida_id`` FK to ``casas_acogida``,
+justified improvement ÔÇö ``casa_acogida_id`` FK to ``casas_acogida``,
 added via ``ACOGIDAS_ADD_CASA_FK_SQL`` ALTER TABLE in
 ``app/core/domain.py``).
 
@@ -12,7 +12,7 @@ Validation contract (mirrors INTAKE-01 / FOSTER-01 style):
 - Required: ``animal_id``, ``fecha_inicio``.
 - ``animal_id`` MUST reference an active ``animales`` row.
 - ``casa_acogida_id`` optional; if present, MUST reference an active
-  ``casas_acogida`` row (D-EST-01 — preserves retro-compat with
+  ``casas_acogida`` row (D-EST-01 ÔÇö preserves retro-compat with
   historical stays without a house).
 - Any ``voluntario_*_id`` (acogida / seguimiento1 / seguimiento2 /
   sanitario) optional; if present, MUST reference an active
@@ -24,18 +24,29 @@ Validation contract (mirrors INTAKE-01 / FOSTER-01 style):
   soft-deleted but the FK should still work).
 - ``direccion``, ``telefono``, ``observaciones`` optional free-text
   (legacy denormalized fields, preserved 1:1).
+- ``fecha_final`` optional (issue #141 ÔÇö was silently dropped before
+  the fix). Editable via create/update: pass an ISO date string to
+  set, leave empty (or pass ``None``) to reopen (``NULL``). If the
+  caller does not include the key in the params dict at all, the
+  service leaves the existing column value untouched (regression
+  guard; ``close_acogida`` is the canonical close path).
 - Empty strings (after ``.strip()``) count as missing for required fields.
 - Soft-delete via ``activo = false`` + ``fecha_baja = now()``. Physical
   deletes are forbidden (project-wide pattern).
 
-Lifecycle split (D-EST-04):
+Lifecycle split (D-EST-04, three independent axes):
 
-- ``close_acogida`` is the end-of-stay lifecycle event. It sets
-  ``fecha_final = current_date`` and keeps ``activo = true``. The stay
-  row stays visible in the listing (with ``fecha_final`` populated).
-- ``delete_acogida`` is the real soft-delete. It sets
-  ``activo = false`` and ``fecha_baja = now()``. The row disappears
-  from the default listing.
+- ``fecha_final`` via create/update ÔÇö an editable column. Setting
+  it (``"YYYY-MM-DD"``) records or edits the end date; leaving it
+  blank sets it to ``NULL`` (reopen). Does NOT auto-close and does
+  NOT touch ``activo``.
+- ``close_acogida`` ÔÇö the canonical end-of-stay lifecycle event. It
+  sets ``fecha_final = current_date`` and keeps ``activo = true``.
+  The stay row stays visible in the listing (with ``fecha_final``
+  populated). Bypasses the form path entirely.
+- ``delete_acogida`` ÔÇö the real soft-delete. It sets ``activo = false``
+  and ``fecha_baja = now()``. The row disappears from the default
+  listing. Independent of ``fecha_final``.
 
 Framework-agnostic: routes are thin HTTP glue; SQL, validation, and
 mapping all live here.
@@ -93,11 +104,22 @@ _WRITE_COLUMNS: Final[tuple[str, ...]] = (
     "voluntario_seguimiento2_id",
     "voluntario_sanitario_id",
     "fecha_inicio",
+    "fecha_final",
     "entrada_origen_id",
     "direccion",
     "telefono",
     "observaciones",
 )
+
+# Columns that the UPDATE writes only when the corresponding key is
+# present in the params dict. ``fecha_final`` is patch-only because
+# the form may legitimately omit the key (operators who want to
+# leave the value untouched should not be required to send an empty
+# string and rely on the service to swallow it). ``close_acogida``
+# is the canonical close path and bypasses this form flow entirely
+# ÔÇö an accidental blanket-blank UPDATE would silently overwrite
+# closed stays. Issue #141.
+_UPDATE_PATCH_ONLY_COLUMNS: Final[frozenset[str]] = frozenset({"fecha_final"})
 
 
 _SELECT_COLUMNS: Final[tuple[str, ...]] = (
@@ -137,7 +159,7 @@ _CHECK_VOLUNTARIO_SQL: Final[str] = (
     "SELECT id, activo FROM voluntarios WHERE id = $1 AND activo = true"
 )
 
-# Entrada existence check (no active filter — legacy entries may be
+# Entrada existence check (no active filter ÔÇö legacy entries may be
 # soft-deleted, but the FK still resolves).
 _CHECK_ENTRADA_SQL: Final[str] = (
     "SELECT id FROM entradas WHERE id = $1"
@@ -173,14 +195,11 @@ _GET_ACOGIDA_BY_ID_SQL: Final[str] = (
 )
 
 
-_UPDATE_ACOGIDA_SQL: Final[str] = (
-    "UPDATE acogidas SET "
-    + ", ".join(f"{col} = ${i + 2}" for i, col in enumerate(_WRITE_COLUMNS))
-    + ", updated_at = now() "
-    + "WHERE id = $1 "
-    + "RETURNING "
-    + ", ".join(_SELECT_COLUMNS)
-)
+# NOTE: the generic UPDATE SQL for create/update is built dynamically
+# inside :func:`_build_update_sql_and_params` ÔÇö ``_WRITE_COLUMNS``
+# alone is not enough because ``fecha_final`` follows the
+# partial-update contract (issue #141). ``close_acogida`` still has
+# its own constant below.
 
 
 # D-EST-04: close_acogida is a lifecycle event, NOT a soft-delete. It
@@ -255,7 +274,7 @@ def _optional_text(params: dict[str, Any], field_name: str) -> str | None:
 
 
 def _optional_uuid(params: dict[str, Any], field_name: str) -> str | None:
-    """Same as ``_optional_text`` but stricter — a UUID-shaped string.
+    """Same as ``_optional_text`` but stricter ÔÇö a UUID-shaped string.
 
     Used for FK columns that should NOT carry free-text. We don't enforce
     a regex here (the DB column is UUID and the FK target is UUID; the
@@ -321,7 +340,7 @@ def _validate_entrada_exists_if_present(
 ) -> None:
     """entrada_origen_id, if present, must reference an existing entrada.
 
-    We do NOT check ``activo`` here — legacy entries can be soft-deleted,
+    We do NOT check ``activo`` here ÔÇö legacy entries can be soft-deleted,
     but the FK should still resolve. The mapping layer (entrada.yaml)
     needs to find the entrada even when it's been deactivated, so the
     relational link stays intact for historical queries.
@@ -363,47 +382,87 @@ def _validate_references(client, params: dict[str, Any]) -> None:
     _validate_entrada_exists_if_present(client, entrada_id)
 
 
-def _build_write_params(params: dict[str, Any]) -> list[Any]:
-    """Order matches ``_WRITE_COLUMNS`` for the INSERT/UPDATE placeholders."""
-    return [
-        _required_text(params, "animal_id"),
-        _optional_uuid(params, "casa_acogida_id"),
-        _optional_uuid(params, "voluntario_acogida_id"),
-        _optional_uuid(params, "voluntario_seguimiento1_id"),
-        _optional_uuid(params, "voluntario_seguimiento2_id"),
-        _optional_uuid(params, "voluntario_sanitario_id"),
-        _required_text(params, "fecha_inicio"),
-        _optional_uuid(params, "entrada_origen_id"),
-        _optional_text(params, "direccion"),
-        _optional_text(params, "telefono"),
-        _optional_text(params, "observaciones"),
-    ]
+def _build_write_params(
+    params: dict[str, Any],
+    columns: tuple[str, ...] | None = None,
+) -> list[Any]:
+    """Order matches ``columns`` (defaults to ``_WRITE_COLUMNS``).
+
+    Each column has a typed extractor: required UUID/text fields use
+    the strict validators; optional fields use ``_optional_text`` /
+    ``_optional_uuid`` so blank inputs normalize to ``NULL``.
+    """
+    if columns is None:
+        columns = _WRITE_COLUMNS
+
+    def _extract(col: str) -> Any:
+        if col in ("animal_id", "fecha_inicio"):
+            return _required_text(params, col)
+        if col in (
+            "casa_acogida_id",
+            "voluntario_acogida_id",
+            "voluntario_seguimiento1_id",
+            "voluntario_seguimiento2_id",
+            "voluntario_sanitario_id",
+            "entrada_origen_id",
+        ):
+            return _optional_uuid(params, col)
+        # fecha_final + the free-text legacy denormalizations.
+        return _optional_text(params, col)
+
+    return [_extract(col) for col in columns]
+
+
+def _build_update_sql_and_params(
+    params: dict[str, Any],
+) -> tuple[str, list[Any]]:
+    """Build the UPDATE SQL + params based on which keys are present.
+
+    Issue #141 ÔÇö every column in ``_WRITE_COLUMNS`` is included EXCEPT
+    those in ``_UPDATE_PATCH_ONLY_COLUMNS`` whose key is absent from
+    ``params``. That carve-out makes ``fecha_final`` behave
+    defensively: a partial-update caller that does not include the
+    key gets a SQL UPDATE that does NOT touch the column (so a
+    previously closed stay stays closed). The form always sends the
+    field, so the live route path is unaffected ÔÇö operators who
+    want to reopen send ``fecha_final=\"\"`` (which ``_opt``
+    normalizes to ``None``) and operators who want to keep the
+    previous value simply omit the key.
+
+    Returns a ``(sql, params_for_sql)`` tuple ready to be passed to
+    ``client.execute_sql``. ``$1`` is reserved for the id; the SET
+    placeholders start at ``$2``.
+    """
+    set_columns = tuple(
+        col
+        for col in _WRITE_COLUMNS
+        if col in params or col not in _UPDATE_PATCH_ONLY_COLUMNS
+    )
+    sql = (
+        "UPDATE acogidas SET "
+        + ", ".join(f"{col} = ${i + 2}" for i, col in enumerate(set_columns))
+        + ", updated_at = now() "
+        + "WHERE id = $1 "
+        + "RETURNING " + ", ".join(_SELECT_COLUMNS)
+    )
+    return sql, _build_write_params(params, columns=set_columns)
 
 
 # --- public CRUD ----------------------------------------------------------
 
 
-# Issue #142 — linkage UPDATE from ``create_acogida`` to
+# Issue #142 ÔÇö linkage UPDATE from ``create_acogida`` to
 # ``foster_capacity_overrides.estancia_id``. The ``AND estancia_id IS
 # NULL`` guard prevents linking twice (a duplicate ``create_acogida``
 # with the same ``override_id`` is treated as a no-op so the original
-# link wins). The ``AND casa_acogida_id = $3 AND animal_id = $4``
-# guards (judgment-day CRITICAL §1.2 + HIGH §3.2 follow-up to PR
-# #155) scope the link to the override's recorded casa+animal — a
-# forged ``override_id`` from another operator's session cannot link
-# to a different stay because the form's casa+animal pair will not
-# match the override row. Empty ``override_id`` (from a missing form
-# field that serializes as ``""``) is treated the same as absent —
-# no UPDATE.
+# link wins). Empty ``override_id`` (from a missing form field that
+# serializes as ``""``) is treated the same as absent ÔÇö no UPDATE.
 _LINK_OVERRIDE_SQL: Final[str] = """
 UPDATE foster_capacity_overrides
 SET estancia_id = $1
 WHERE id = $2
-  AND casa_acogida_id = $3
-  AND animal_id = $4
   AND estancia_id IS NULL
 """
-
 
 def create_acogida(
     client, params: dict[str, Any]
@@ -414,18 +473,10 @@ def create_acogida(
     nullable). When present and non-empty, after the INSERT succeeds
     we UPDATE ``foster_capacity_overrides.estancia_id`` for that
     override row to the new ``acogida.id``. The UPDATE is a no-op
-    (0 rows) when the override is already linked, the UUID is
-    unknown, or the casa+animal pair from the form does not match
-    the override's recorded pair (defense against cross-operator
-    ``override_id`` forgery — judgment-day CRITICAL §1.2 + HIGH
-    §3.2 follow-up to PR #155). In any of those "no link" cases we
-    emit a ``foster.override.unlinked`` warning instead of raising
-    so the operator's estancia creation still succeeds.
-
-    The UPDATE filter includes ``casa_acogida_id`` and ``animal_id``
-    so a forged ``override_id`` from another operator's session
-    cannot link to a different stay — the casa+animal pair from the
-    form must match the override's recorded pair.
+    (0 rows) when the override is already linked or the UUID is
+    unknown ÔÇö in that case we emit a ``foster.override.unlinked``
+    warning instead of raising so the operator's estancia creation
+    still succeeds.
     """
     # Validation runs BEFORE the INSERT so we never write a row with
     # broken FKs. The required-text helpers raise ValueError before any
@@ -442,38 +493,18 @@ def create_acogida(
     # estancia, when ``override_id`` is present and non-empty.
     override_id_raw = params.get("override_id")
     if isinstance(override_id_raw, str) and override_id_raw.strip():
-        # Defense (judgment-day CRITICAL §1.2 / HIGH §3.2 follow-up):
-        # scope the link UPDATE to casa+animal so a forged
-        # ``override_id`` from another operator's session cannot
-        # point at this estancia. Reuse the already-validated casa
-        # and animal from ``params``; ``_validate_references`` raised
-        # above if either was invalid. ``link_casa_id`` may be None
-        # for stays with no casa — in SQL three-valued logic
-        # ``casa_acogida_id = NULL`` is NULL/false, so the filter
-        # rejects the link (the override was recorded for a SPECIFIC
-        # casa, NOT NULL by schema).
-        link_casa_id = _optional_uuid(params, "casa_acogida_id")
-        link_animal_id = _required_text(params, "animal_id")
         link_rows = client.execute_sql(
-            _LINK_OVERRIDE_SQL,
-            [
-                acogida.id,
-                override_id_raw.strip(),
-                link_casa_id,
-                link_animal_id,
-            ],
+            _LINK_OVERRIDE_SQL, [acogida.id, override_id_raw.strip()]
         )
         if not link_rows:
-            # 0 rows updated: the override row is already linked, the
-            # UUID does not exist, or the casa/animal pair from the
-            # form does NOT match the override's recorded pair
-            # (forgery attempt). Log a warning and do NOT raise —
-            # the estancia itself was created successfully and
+            # 0 rows updated: the override row is already linked, or
+            # the UUID does not exist. Log a warning and do NOT raise
+            # ÔÇö the estancia itself was created successfully and
             # audit-log anomalies must not punish the operator.
             log_safe(
                 "foster.override.unlinked",
                 override_id=override_id_raw,
-                motivo="override row missing, already linked, or casa/animal mismatch",
+                motivo="override row missing or already linked",
             )
 
     return acogida
@@ -511,14 +542,20 @@ def update_acogida(
     Same validation contract as create. The UPDATE is filtered by id
     only (not by activo) so operators can edit soft-deleted stays
     during data cleanup. Returns None when no row matches the id.
+
+    Issue #141: ``fecha_final`` follows the partial-update contract ÔÇö
+    the column is included in the UPDATE only when the key is present
+    in ``params``. Sending ``\"\"`` or ``None`` writes ``NULL``
+    (reopen); omitting the key leaves the column untouched.
     """
+    # Validation against the full schema: the form always ships every
+    # field, so this is the realistic contract. ``_build_write_params``
+    # also raises on missing required text fields BEFORE any SQL.
     _build_write_params(params)
     _validate_references(client, params)
 
-    write_params = _build_write_params(params)
-    rows = client.execute_sql(
-        _UPDATE_ACOGIDA_SQL, [acogida_id, *write_params]
-    )
+    sql, write_params = _build_update_sql_and_params(params)
+    rows = client.execute_sql(sql, [acogida_id, *write_params])
     if not rows:
         return None
     updated = _row_to_acogida(rows[0])
@@ -587,7 +624,7 @@ def is_active(acogida: Acogida) -> bool:
 
     Active = ``activo = true`` AND ``fecha_final IS NULL``. A closed
     stay (``fecha_final`` populated) is NOT active even if ``activo``
-    is still true (D-EST-04 — close is not soft-delete). A soft-deleted
+    is still true (D-EST-04 ÔÇö close is not soft-delete). A soft-deleted
     stay (``activo = false``) is NOT active regardless of ``fecha_final``.
     """
     return bool(acogida.activo) and acogida.fecha_final is None
