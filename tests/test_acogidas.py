@@ -865,6 +865,80 @@ def test_create_acogida_rejects_nonexistent_voluntario(field: str) -> None:
     assert not any("INSERT INTO acogidas" in c["query"] for c in captured)
 
 
+# --- entrada_origen_id FK validation (issue #139, P1 #1) -------------------
+#
+# ``_validate_entrada_exists_if_present`` (service.py:338-354) is the
+# orphan-FK guard for ``entrada_origen_id``. It runs unconditionally on
+# every ``create_acogida`` call. Pre-#139 it had NO coverage. These two
+# atoms pin the contract:
+#
+#   * non-existent entrada UUID -> ValueError, no INSERT runs
+#   * soft-deleted entrada (activo=false) is ACCEPTED — legacy entries
+#     can be deactivated while the FK must still resolve, so the
+#     relational link stays intact for historical queries.
+# ---
+
+
+def test_create_acogida_rejects_nonexistent_entrada() -> None:
+    """entrada SELECT returns empty -> ValueError before INSERT."""
+    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
+        if "FROM animales" in body["query"]:
+            return _json_response(200, [_animal_row()])
+        if "FROM entradas" in body["query"]:
+            return _json_response(200, [])  # entrada not found
+        raise AssertionError(f"Unexpected SQL: {body['query']}")
+
+    client, captured = _client_recording(_handler)
+
+    with pytest.raises(ValueError, match="entrada_origen_id"):
+        acogidas_service.create_acogida(
+            client,
+            {**_params_minimal(), "entrada_origen_id": "entrada-missing"},
+        )
+    client.close()
+
+    # Entrada check ran, INSERT never happened.
+    assert any("FROM entradas" in c["query"] for c in captured)
+    assert not any("INSERT INTO acogidas" in c["query"] for c in captured)
+
+
+def test_create_acogida_accepts_soft_deleted_entrada() -> None:
+    """Legacy entradas can be soft-deleted but the FK must still resolve.
+
+    ``_CHECK_ENTRADA_SQL`` does NOT filter by ``activo`` precisely so
+    legacy entries remain addressable when their stay record is later
+    edited (e.g. date correction). The service MUST accept the row
+    regardless of ``activo``.
+    """
+    captured: list[dict[str, Any]] = []
+
+    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
+        captured.append(body)
+        if "FROM animales" in body["query"]:
+            return _json_response(200, [_animal_row()])
+        if "FROM entradas" in body["query"]:
+            # Soft-deleted entrada: row exists, activo=false.
+            return _json_response(
+                200, [{"id": body["params"][0], "activo": False}]
+            )
+        if "INSERT INTO acogidas" in body["query"]:
+            return _json_response(200, [_row()])
+        raise AssertionError(f"Unexpected SQL: {body['query']}")
+
+    client, _ = _client_recording(_handler)
+
+    result = acogidas_service.create_acogida(
+        client,
+        {**_params_minimal(), "entrada_origen_id": "entrada-legacy"},
+    )
+    client.close()
+
+    # No ValueError raised; INSERT ran successfully.
+    assert result.id == "22222222-2222-2222-2222-222222222222"
+    insert_calls = [c for c in captured if "INSERT INTO acogidas" in c["query"]]
+    assert len(insert_calls) == 1
+
+
 # --- list -----------------------------------------------------------------
 
 
@@ -1002,11 +1076,74 @@ def test_close_acogida_returns_none_when_id_missing() -> None:
     assert result is None
 
 
+def test_close_acogida_works_on_soft_deleted_stay() -> None:
+    """Issue #139 P1 #5: closing a soft-deleted stay is allowed.
+
+    Contract (D-EST-04 + data-cleanup workflow): ``close_acogida`` is
+    intentionally NOT filtered by ``activo = true``. Operators may need
+    to back-fill ``fecha_final`` on a stay that was already
+    soft-deleted (e.g. audit found the stay was closed but the closure
+    date was never recorded). The function MUST succeed regardless of
+    ``activo`` and MUST NOT carry ``AND activo = true`` in the SQL.
+
+    Defense for the data-cleanup workflow:
+      * ``activo`` stays whatever the DB had it at (true on close-of-open,
+        false on close-of-already-deleted).
+      * ``fecha_final`` is set to ``CURRENT_DATE``.
+      * Operators who want to close ONLY active stays must filter at the
+        application layer (``list_acogidas(activas_solo=True)`` then
+        pick).
+    """
+    captured: list[dict[str, Any]] = []
+
+    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
+        captured.append(body)
+        if "UPDATE acogidas" in body["query"] and "fecha_final" in body["query"]:
+            # Mock the post-close row: activo stays false (it was soft-deleted
+            # before the close), fecha_final gets stamped.
+            return _json_response(
+                200,
+                [_row({"activo": False, "fecha_final": str(date.today())})],
+            )
+        raise AssertionError(f"Unexpected SQL: {body['query']}")
+
+    client, _ = _client_recording(_handler)
+
+    result = acogidas_service.close_acogida(client, "a-1")
+    client.close()
+
+    # The close succeeded even though the stay was soft-deleted.
+    assert result is not None
+    assert result.fecha_final == str(date.today())
+    assert result.activo is False  # stays as it was
+
+    # The SQL MUST NOT filter by activo — that would block the cleanup path.
+    update_call = captured[0]
+    assert "UPDATE acogidas" in update_call["query"]
+    assert "AND activo = true" not in update_call["query"], (
+        f"close_acogida MUST NOT carry ``AND activo = true`` — that would "
+        f"block the data-cleanup path where a soft-deleted stay needs "
+        f"fecha_final back-filled; got query={update_call['query']!r}"
+    )
+
+
 # --- delete (soft-delete real) --------------------------------------------
 
 
 def test_delete_acogida_soft_deletes() -> None:
-    """delete_acogida sets activo=false + fecha_baja=now()."""
+    """delete_acogida sets activo=false + fecha_baja=now() ATOMICALLY.
+
+    Issue #139 P1 #3: the SQL MUST carry ``WHERE id = $1 AND activo =
+    true`` AND ``RETURNING id`` — without those two clauses the
+    atomicity pattern collapses silently:
+
+      * ``AND activo = true`` folds the existence check into the same
+        statement under PostgreSQL's row lock, so two concurrent
+        callers produce exactly one ``True`` and one ``False``.
+      * ``RETURNING id`` is how the service turns a 0-row UPDATE into
+        ``False`` (row missing or already inactive) without a follow-up
+        SELECT.
+    """
     client, captured = _client_recording(
         lambda req, body: _json_response(200, [{"id": "a-1", "activo": False}])
     )
@@ -1019,6 +1156,16 @@ def test_delete_acogida_soft_deletes() -> None:
     assert "UPDATE acogidas" in query
     assert "SET activo = false" in query
     assert "fecha_baja = now()" in query
+    # Atomicity pins (issue #139 P1 #3):
+    assert "AND activo = true" in query, (
+        f"soft-delete MUST filter by ``AND activo = true`` for atomic "
+        f"existence check; got query={query!r}"
+    )
+    assert "RETURNING id" in query, (
+        f"soft-delete MUST ``RETURNING id`` so the service can detect "
+        f"already-deleted rows without a follow-up SELECT; got "
+        f"query={query!r}"
+    )
     assert "DELETE FROM" not in query
 
 
@@ -1067,6 +1214,59 @@ def test_compute_duracion_returns_zero_when_same_day() -> None:
         fecha_final="2026-01-01",
     )
     assert acogidas_service.compute_duracion(a) == 0
+
+
+# --- compute_duracion edge cases (issue #139, P1 #2) -----------------------
+#
+# Contract pinned by these atoms:
+#
+#   * fecha_final < fecha_inicio -> ValueError. Per legacy semantic,
+#     a stay cannot end before it begins — this is a data-entry error
+#     (operator typed the dates the wrong way around). Returning a
+#     negative number would silently corrupt the operator-facing
+#     duration display, so we raise loudly instead. The form layer
+#     surfaces this as a 422 with the operator's input preserved.
+#   * non-ISO fecha_inicio -> ValueError. ``date.fromisoformat``
+#     raises ``ValueError`` on malformed input; we let it propagate
+#     (no silent swallow, no `None` fallback).
+#   * non-ISO fecha_final -> ValueError. Same contract.
+# ---
+
+
+def test_compute_duracion_raises_when_fecha_final_before_fecha_inicio() -> None:
+    """Stay that ends before it starts is a data-entry error -> ValueError."""
+    a = acogidas_service.Acogida(
+        id="a-1",
+        animal_id="anim-1",
+        fecha_inicio="2026-07-10",
+        fecha_final="2026-07-05",
+    )
+    with pytest.raises(ValueError):
+        acogidas_service.compute_duracion(a)
+
+
+def test_compute_duracion_raises_when_fecha_inicio_not_iso() -> None:
+    """Malformed fecha_inicio -> ValueError (no silent fallback to None)."""
+    a = acogidas_service.Acogida(
+        id="a-1",
+        animal_id="anim-1",
+        fecha_inicio="not-a-date",
+        fecha_final="2026-07-15",
+    )
+    with pytest.raises(ValueError):
+        acogidas_service.compute_duracion(a)
+
+
+def test_compute_duracion_raises_when_fecha_final_not_iso() -> None:
+    """Malformed fecha_final -> ValueError (no silent fallback to None)."""
+    a = acogidas_service.Acogida(
+        id="a-1",
+        animal_id="anim-1",
+        fecha_inicio="2026-07-04",
+        fecha_final="also-not-a-date",
+    )
+    with pytest.raises(ValueError):
+        acogidas_service.compute_duracion(a)
 
 
 # --- helpers: is_active ---------------------------------------------------
