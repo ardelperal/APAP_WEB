@@ -24,18 +24,29 @@ Validation contract (mirrors INTAKE-01 / FOSTER-01 style):
   soft-deleted but the FK should still work).
 - ``direccion``, ``telefono``, ``observaciones`` optional free-text
   (legacy denormalized fields, preserved 1:1).
+- ``fecha_final`` optional (issue #141 — was silently dropped before
+  the fix). Editable via create/update: pass an ISO date string to
+  set, leave empty (or pass ``None``) to reopen (``NULL``). If the
+  caller does not include the key in the params dict at all, the
+  service leaves the existing column value untouched (regression
+  guard; ``close_acogida`` is the canonical close path).
 - Empty strings (after ``.strip()``) count as missing for required fields.
 - Soft-delete via ``activo = false`` + ``fecha_baja = now()``. Physical
   deletes are forbidden (project-wide pattern).
 
-Lifecycle split (D-EST-04):
+Lifecycle split (D-EST-04, three independent axes):
 
-- ``close_acogida`` is the end-of-stay lifecycle event. It sets
-  ``fecha_final = current_date`` and keeps ``activo = true``. The stay
-  row stays visible in the listing (with ``fecha_final`` populated).
-- ``delete_acogida`` is the real soft-delete. It sets
-  ``activo = false`` and ``fecha_baja = now()``. The row disappears
-  from the default listing.
+- ``fecha_final`` via create/update — an editable column. Setting
+  it (``"YYYY-MM-DD"``) records or edits the end date; leaving it
+  blank sets it to ``NULL`` (reopen). Does NOT auto-close and does
+  NOT touch ``activo``.
+- ``close_acogida`` — the canonical end-of-stay lifecycle event. It
+  sets ``fecha_final = current_date`` and keeps ``activo = true``.
+  The stay row stays visible in the listing (with ``fecha_final``
+  populated). Bypasses the form path entirely.
+- ``delete_acogida`` — the real soft-delete. It sets ``activo = false``
+  and ``fecha_baja = now()``. The row disappears from the default
+  listing. Independent of ``fecha_final``.
 
 Framework-agnostic: routes are thin HTTP glue; SQL, validation, and
 mapping all live here.
@@ -93,11 +104,22 @@ _WRITE_COLUMNS: Final[tuple[str, ...]] = (
     "voluntario_seguimiento2_id",
     "voluntario_sanitario_id",
     "fecha_inicio",
+    "fecha_final",
     "entrada_origen_id",
     "direccion",
     "telefono",
     "observaciones",
 )
+
+# Columns that the UPDATE writes only when the corresponding key is
+# present in the params dict. ``fecha_final`` is patch-only because
+# the form may legitimately omit the key (operators who want to
+# leave the value untouched should not be required to send an empty
+# string and rely on the service to swallow it). ``close_acogida``
+# is the canonical close path and bypasses this form flow entirely
+# — an accidental blanket-blank UPDATE would silently overwrite
+# closed stays. Issue #141.
+_UPDATE_PATCH_ONLY_COLUMNS: Final[frozenset[str]] = frozenset({"fecha_final"})
 
 
 _SELECT_COLUMNS: Final[tuple[str, ...]] = (
@@ -173,14 +195,11 @@ _GET_ACOGIDA_BY_ID_SQL: Final[str] = (
 )
 
 
-_UPDATE_ACOGIDA_SQL: Final[str] = (
-    "UPDATE acogidas SET "
-    + ", ".join(f"{col} = ${i + 2}" for i, col in enumerate(_WRITE_COLUMNS))
-    + ", updated_at = now() "
-    + "WHERE id = $1 "
-    + "RETURNING "
-    + ", ".join(_SELECT_COLUMNS)
-)
+# NOTE: the generic UPDATE SQL for create/update is built dynamically
+# inside :func:`_build_update_sql_and_params` — ``_WRITE_COLUMNS``
+# alone is not enough because ``fecha_final`` follows the
+# partial-update contract (issue #141). ``close_acogida`` still has
+# its own constant below.
 
 
 # D-EST-04: close_acogida is a lifecycle event, NOT a soft-delete. It
@@ -363,21 +382,70 @@ def _validate_references(client, params: dict[str, Any]) -> None:
     _validate_entrada_exists_if_present(client, entrada_id)
 
 
-def _build_write_params(params: dict[str, Any]) -> list[Any]:
-    """Order matches ``_WRITE_COLUMNS`` for the INSERT/UPDATE placeholders."""
-    return [
-        _required_text(params, "animal_id"),
-        _optional_uuid(params, "casa_acogida_id"),
-        _optional_uuid(params, "voluntario_acogida_id"),
-        _optional_uuid(params, "voluntario_seguimiento1_id"),
-        _optional_uuid(params, "voluntario_seguimiento2_id"),
-        _optional_uuid(params, "voluntario_sanitario_id"),
-        _required_text(params, "fecha_inicio"),
-        _optional_uuid(params, "entrada_origen_id"),
-        _optional_text(params, "direccion"),
-        _optional_text(params, "telefono"),
-        _optional_text(params, "observaciones"),
-    ]
+def _build_write_params(
+    params: dict[str, Any],
+    columns: tuple[str, ...] | None = None,
+) -> list[Any]:
+    """Order matches ``columns`` (defaults to ``_WRITE_COLUMNS``).
+
+    Each column has a typed extractor: required UUID/text fields use
+    the strict validators; optional fields use ``_optional_text`` /
+    ``_optional_uuid`` so blank inputs normalize to ``NULL``.
+    """
+    if columns is None:
+        columns = _WRITE_COLUMNS
+
+    def _extract(col: str) -> Any:
+        if col in ("animal_id", "fecha_inicio"):
+            return _required_text(params, col)
+        if col in (
+            "casa_acogida_id",
+            "voluntario_acogida_id",
+            "voluntario_seguimiento1_id",
+            "voluntario_seguimiento2_id",
+            "voluntario_sanitario_id",
+            "entrada_origen_id",
+        ):
+            return _optional_uuid(params, col)
+        # fecha_final + the free-text legacy denormalizations.
+        return _optional_text(params, col)
+
+    return [_extract(col) for col in columns]
+
+
+def _build_update_sql_and_params(
+    params: dict[str, Any],
+) -> tuple[str, list[Any]]:
+    """Build the UPDATE SQL + params based on which keys are present.
+
+    Issue #141 — every column in ``_WRITE_COLUMNS`` is included EXCEPT
+    those in ``_UPDATE_PATCH_ONLY_COLUMNS`` whose key is absent from
+    ``params``. That carve-out makes ``fecha_final`` behave
+    defensively: a partial-update caller that does not include the
+    key gets a SQL UPDATE that does NOT touch the column (so a
+    previously closed stay stays closed). The form always sends the
+    field, so the live route path is unaffected — operators who
+    want to reopen send ``fecha_final=\"\"`` (which ``_opt``
+    normalizes to ``None``) and operators who want to keep the
+    previous value simply omit the key.
+
+    Returns a ``(sql, params_for_sql)`` tuple ready to be passed to
+    ``client.execute_sql``. ``$1`` is reserved for the id; the SET
+    placeholders start at ``$2``.
+    """
+    set_columns = tuple(
+        col
+        for col in _WRITE_COLUMNS
+        if col in params or col not in _UPDATE_PATCH_ONLY_COLUMNS
+    )
+    sql = (
+        "UPDATE acogidas SET "
+        + ", ".join(f"{col} = ${i + 2}" for i, col in enumerate(set_columns))
+        + ", updated_at = now() "
+        + "WHERE id = $1 "
+        + "RETURNING " + ", ".join(_SELECT_COLUMNS)
+    )
+    return sql, _build_write_params(params, columns=set_columns)
 
 
 # --- public CRUD ----------------------------------------------------------
@@ -432,14 +500,20 @@ def update_acogida(
     Same validation contract as create. The UPDATE is filtered by id
     only (not by activo) so operators can edit soft-deleted stays
     during data cleanup. Returns None when no row matches the id.
+
+    Issue #141: ``fecha_final`` follows the partial-update contract —
+    the column is included in the UPDATE only when the key is present
+    in ``params``. Sending ``\"\"`` or ``None`` writes ``NULL``
+    (reopen); omitting the key leaves the column untouched.
     """
+    # Validation against the full schema: the form always ships every
+    # field, so this is the realistic contract. ``_build_write_params``
+    # also raises on missing required text fields BEFORE any SQL.
     _build_write_params(params)
     _validate_references(client, params)
 
-    write_params = _build_write_params(params)
-    rows = client.execute_sql(
-        _UPDATE_ACOGIDA_SQL, [acogida_id, *write_params]
-    )
+    sql, write_params = _build_update_sql_and_params(params)
+    rows = client.execute_sql(sql, [acogida_id, *write_params])
     if not rows:
         return None
     updated = _row_to_acogida(rows[0])

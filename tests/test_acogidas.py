@@ -794,10 +794,13 @@ def test_update_acogida_preserves_fecha_final_when_not_in_form() -> None:
         "update would surface here as None."
     )
 
-    # The captured UPDATE must NOT include fecha_final in either the SQL
-    # SET clause or the param list (because the key wasn't present).
+    # The captured UPDATE must NOT include fecha_final in the SET clause
+    # (RETURNING still mentions it because ``_SELECT_COLUMNS`` includes
+    # every column — that's the whole point of returning the row).
     update_call = next(c for c in captured if "UPDATE acogidas SET" in c["query"])
-    assert "fecha_final" not in update_call["query"], (
-        f"UPDATE SQL must NOT reference fecha_final when the key is absent; "
-        f"got: {update_call['query']!r}"
+    set_clause = update_call["query"].split(", updated_at = now()", 1)[0]
+    assert "fecha_final = $" not in set_clause, (
+        f"UPDATE SET clause must NOT reference fecha_final when the key "
+        f"is absent. Got SET clause: {set_clause!r}. "
+        f"Full SQL: {update_call['query']!r}"
     )
