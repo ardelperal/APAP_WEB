@@ -624,6 +624,67 @@ def test_ensure_domain_schema_emits_foster_capacity_overrides_after_casa_fk_alte
     )
 
 
+# --- Issue #142: estancia_id FK on foster_capacity_overrides --------------
+
+
+def test_foster_capacity_overrides_add_estancia_fk_sql_uses_if_not_exists() -> None:
+    """Issue #142: ALTER is idempotent so the bootstrap is replay-safe."""
+    from app.core.domain import FOSTER_CAPACITY_OVERRIDES_ADD_ESTANCIA_FK_SQL
+
+    assert "ALTER TABLE foster_capacity_overrides" in FOSTER_CAPACITY_OVERRIDES_ADD_ESTANCIA_FK_SQL
+    assert "ADD COLUMN IF NOT EXISTS" in FOSTER_CAPACITY_OVERRIDES_ADD_ESTANCIA_FK_SQL
+    assert "estancia_id" in FOSTER_CAPACITY_OVERRIDES_ADD_ESTANCIA_FK_SQL
+    assert "REFERENCES acogidas(id)" in FOSTER_CAPACITY_OVERRIDES_ADD_ESTANCIA_FK_SQL
+
+
+def test_ensure_domain_schema_adds_estancia_id_to_foster_capacity_overrides() -> None:
+    """Issue #142: ``ensure_domain_schema`` emits the new ALTER.
+
+    Order requirement: the ALTER must run AFTER
+    ``ACOGIDAS_CREATE_TABLE_SQL`` (so ``acogidas(id)`` is a valid FK
+    target) and AFTER ``FOSTER_CAPACITY_OVERRIDES_CREATE_TABLE_SQL`` (so
+    the table the ALTER targets exists). The test pins both edges so a
+    future refactor that swaps the emit order fails loud.
+    """
+    client, captured = _client_recording(lambda req, body: _json_response(200, []))
+
+    ensure_domain_schema(client)
+    client.close()
+
+    queries = [c["query"].strip() for c in captured]
+
+    alter_estancia_idx = next(
+        (
+            i for i, q in enumerate(queries)
+            if q.startswith("ALTER TABLE foster_capacity_overrides")
+            and "estancia_id" in q
+        ),
+        None,
+    )
+    assert alter_estancia_idx is not None, (
+        f"ensure_domain_schema MUST emit ALTER TABLE foster_capacity_overrides "
+        f"ADD estancia_id (issue #142); got: {queries!r}"
+    )
+
+    create_acogidas_idx = next(
+        i for i, q in enumerate(queries)
+        if q.startswith("CREATE TABLE IF NOT EXISTS acogidas")
+    )
+    create_fco_idx = next(
+        i for i, q in enumerate(queries)
+        if q.startswith("CREATE TABLE IF NOT EXISTS foster_capacity_overrides")
+    )
+
+    assert alter_estancia_idx > create_acogidas_idx, (
+        "ALTER TABLE foster_capacity_overrides ADD estancia_id must run AFTER "
+        "CREATE TABLE acogidas so the FK target exists"
+    )
+    assert alter_estancia_idx > create_fco_idx, (
+        "ALTER TABLE foster_capacity_overrides ADD estancia_id must run AFTER "
+        "CREATE TABLE foster_capacity_overrides so the table exists"
+    )
+
+
 # --- adopciones (TbAdopcion legacy) ---------------------------------------
 #
 # Migration target of TbAdopcion. 16 columns: id + animal_id FK +

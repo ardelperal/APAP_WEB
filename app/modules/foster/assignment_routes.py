@@ -157,7 +157,11 @@ def asignar_submit(
       so the operator can complete the estancia create (FOSTER-02 flow).
     - ``admit_with_warning`` + non-empty motivo: record the override
       via ``record_override`` (insert + ``log_safe``), then 303 to
-      ``/acogidas/new?animal_id=X&casa_acogida_id=Y``.
+      ``/acogidas/new?animal_id=X&casa_acogida_id=Y&override_id=<uuid>``.
+      The ``override_id`` query param closes the audit-log atomicity
+      gap (issue #142): without it, an operator who cancels the create
+      leaves an orphan row in ``foster_capacity_overrides`` with no
+      matching ``acogidas`` row.
     - ``admit_with_warning`` + empty motivo: re-render the form with
       status 422 and the warning visible; the operator must provide a
       motivo to confirm.
@@ -218,13 +222,18 @@ def asignar_submit(
         )
 
     # Motivo non-empty: record override, then redirect.
+    # Issue #142 (D-GC-05): el override_id se encadena en el redirect
+    # URL para que ``create_acogida`` pueda enlazar el row de
+    # ``foster_capacity_overrides`` con la estancia resultante. Sin
+    # este parámetro, el row queda huérfano si el operador cancela el
+    # create o usa un ``animal_id`` distinto en el segundo form.
     operador = _operator_user_id(request)
     if not operador:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="sesion sin user_id",
         )
-    assignment_service.record_override(
+    override_id = assignment_service.record_override(
         client,
         casa_id=casa_id,
         animal_id=animal_id,
@@ -232,7 +241,11 @@ def asignar_submit(
         motivo=motivo_clean,
     )
     return RedirectResponse(
-        url=f"/acogidas/new?animal_id={animal_id}&casa_acogida_id={casa_id}",
+        url=(
+            f"/acogidas/new?animal_id={animal_id}"
+            f"&casa_acogida_id={casa_id}"
+            f"&override_id={override_id}"
+        ),
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
