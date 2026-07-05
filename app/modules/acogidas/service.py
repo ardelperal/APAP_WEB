@@ -68,8 +68,8 @@ class AcogidaConflictError(ValueError):
     public CRUD surface beyond the legacy natural-key on
     ``(animal_id, fecha_inicio)`` which PostgreSQL would surface as a
     raw ``InsForgeError``), but kept for future parity and explicit
-    signal to routes (mirror of ``CasaAcogidaConflictError`` in
-    FOSTER-01).
+    signal to routes (mirror of the *ConflictError(ValueError) family
+    across entradas/acogidas/adopciones/cesiones/sanidad).
     """
 
 
