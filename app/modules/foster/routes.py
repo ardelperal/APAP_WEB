@@ -40,6 +40,10 @@ from app.core.insforge import InsForgeClient
 from app.core.middleware import base_template_context_processor
 from app.modules.foster import assignment as foster_assignment_service
 from app.modules.foster import service as foster_service
+from app.modules.foster.forms import (
+    CASA_ACOGIDA_FORM_FIELDS,
+    CasaAcogidaForm,
+)
 
 router = APIRouter(prefix="/casas-acogida", tags=["foster"])
 
@@ -51,26 +55,16 @@ _templates = Jinja2Templates(
 )
 
 
-_FORM_FIELDS = (
-    "nombre",
-    "apellidos",
-    "dni_acogedor",
-    "calle",
-    "numero",
-    "piso",
-    "letra",
-    "localidad",
-    "provincia",
-    "cp",
-    "telefono",
-    "telefono2",
-    "email",
-    "vinculacion",
-    "caracteristicas",
-    "coche",
-    "especie_preferente",
-    "observaciones",
+_FORM_FIELDS_STR: tuple[str, ...] = tuple(
+    name for name in CASA_ACOGIDA_FORM_FIELDS if name != "capacidad"
 )
+# ``capacidad`` is parsed as ``int`` by the Pydantic ``CasaAcogidaForm``
+# (Form(...) with int type coerces form-encoded strings). The previous
+# silent try/except on ``int(capacidad_raw)`` (#140 W2) is gone — bad
+# input now surfaces as a FastAPI 422 from Pydantic at parse time
+# instead of being silently passed through and re-rejected by the
+# service with the same Spanish message (which is what the silent
+# except did, just with two failure modes).
 
 
 def _opt(value: str | None) -> str | None:
@@ -81,15 +75,18 @@ def _opt(value: str | None) -> str | None:
 
 
 def _form_data_to_params(form: dict[str, Any]) -> dict[str, Any]:
-    params: dict[str, Any] = {key: _opt(form.get(key)) for key in _FORM_FIELDS}
-    capacidad_raw = form.get("capacidad")
-    if capacidad_raw is None or str(capacidad_raw).strip() == "":
-        params["capacidad"] = None
-    else:
-        try:
-            params["capacidad"] = int(str(capacidad_raw).strip())
-        except ValueError:
-            params["capacidad"] = capacidad_raw  # service will reject
+    """Map a CasaAcogidaForm dump to the dict shape service expects.
+
+    String fields are trimmed; empty strings become ``None`` so the
+    service stores NULL. ``capacidad`` arrives as ``int`` from
+    Pydantic and passes through unchanged — its bounds check lives in
+    the service ``_validate_capacidad`` so the friendly Spanish error
+    message stays in one place.
+    """
+    params: dict[str, Any] = {
+        key: _opt(form.get(key)) for key in _FORM_FIELDS_STR
+    }
+    params["capacidad"] = form.get("capacidad")
     return params
 
 
@@ -177,52 +174,22 @@ def new_casa_acogida_form(
 @router.post("", response_class=HTMLResponse)
 def create_casa_acogida_view(
     request: Request,
-    nombre: str = Form(...),
-    apellidos: str = Form(...),
-    dni_acogedor: str | None = Form(None),
-    calle: str = Form(...),
-    numero: str | None = Form(None),
-    piso: str | None = Form(None),
-    letra: str | None = Form(None),
-    localidad: str | None = Form(None),
-    provincia: str | None = Form(None),
-    cp: str | None = Form(None),
-    telefono: str = Form(...),
-    telefono2: str | None = Form(None),
-    email: str | None = Form(None),
-    vinculacion: str | None = Form(None),
-    caracteristicas: str | None = Form(None),
-    coche: str = Form(...),
-    especie_preferente: str | None = Form(None),
-    observaciones: str | None = Form(None),
-    capacidad: str = Form(...),
+    form: CasaAcogidaForm = Form(...),  # type: ignore[assignment]
     user: Any = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
+    """Procesa el submit del formulario. En exito, redirect al detalle.
+
+    Uses ``CasaAcogidaForm`` (Pydantic v2 with ``Form()``) as the
+    single source of truth for the 19 form fields. Adding a column
+    means adding it to ``app.modules.foster.forms.CasaAcogidaForm``
+    (which asserts the field set is a subset of the service's
+    ``_WRITE_COLUMNS`` at import time) — the two routes cannot drift.
+    """
     if (early := return_early_if_response(user)) is not None:
         return early
-    form_data = _form_data_to_params(
-        {
-            "nombre": nombre,
-            "apellidos": apellidos,
-            "dni_acogedor": dni_acogedor,
-            "calle": calle,
-            "numero": numero,
-            "piso": piso,
-            "letra": letra,
-            "localidad": localidad,
-            "provincia": provincia,
-            "cp": cp,
-            "telefono": telefono,
-            "telefono2": telefono2,
-            "email": email,
-            "vinculacion": vinculacion,
-            "caracteristicas": caracteristicas,
-            "coche": coche,
-            "especie_preferente": especie_preferente,
-            "observaciones": observaciones,
-            "capacidad": capacidad,
-        }
+    form_data: dict[str, Any] = _form_data_to_params(
+        form.model_dump(exclude_none=True)
     )
     try:
         casa = foster_service.create_casa_acogida(client, form_data)
@@ -317,52 +284,19 @@ def edit_casa_acogida_form(
 def update_casa_acogida_view(
     casa_id: str,
     request: Request,
-    nombre: str = Form(...),
-    apellidos: str = Form(...),
-    dni_acogedor: str | None = Form(None),
-    calle: str = Form(...),
-    numero: str | None = Form(None),
-    piso: str | None = Form(None),
-    letra: str | None = Form(None),
-    localidad: str | None = Form(None),
-    provincia: str | None = Form(None),
-    cp: str | None = Form(None),
-    telefono: str = Form(...),
-    telefono2: str | None = Form(None),
-    email: str | None = Form(None),
-    vinculacion: str | None = Form(None),
-    caracteristicas: str | None = Form(None),
-    coche: str = Form(...),
-    especie_preferente: str | None = Form(None),
-    observaciones: str | None = Form(None),
-    capacidad: str = Form(...),
+    form: CasaAcogidaForm = Form(...),  # type: ignore[assignment]
     user: Any = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
+    """Procesa el submit del formulario de edicion. En exito, redirect al detalle.
+
+    Same Pydantic form as ``create_casa_acogida_view`` — single source
+    of truth in ``app.modules.foster.forms.CasaAcogidaForm``.
+    """
     if (early := return_early_if_response(user)) is not None:
         return early
-    form_data = _form_data_to_params(
-        {
-            "nombre": nombre,
-            "apellidos": apellidos,
-            "dni_acogedor": dni_acogedor,
-            "calle": calle,
-            "numero": numero,
-            "piso": piso,
-            "letra": letra,
-            "localidad": localidad,
-            "provincia": provincia,
-            "cp": cp,
-            "telefono": telefono,
-            "telefono2": telefono2,
-            "email": email,
-            "vinculacion": vinculacion,
-            "caracteristicas": caracteristicas,
-            "coche": coche,
-            "especie_preferente": especie_preferente,
-            "observaciones": observaciones,
-            "capacidad": capacidad,
-        }
+    form_data: dict[str, Any] = _form_data_to_params(
+        form.model_dump(exclude_none=True)
     )
     try:
         casa = foster_service.update_casa_acogida(client, casa_id, form_data)
