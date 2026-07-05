@@ -458,6 +458,65 @@ The orchestrator MAY write the proposed §17 text in the delegation prompt itsel
 
 Enforcement: a violation of §17.1 (orchestrator writes inline) is a discipline failure and the work MUST be reverted and re-done via a subagent on a branch. A violation of §17.2 (skipping a mandatory lens on a high-stakes diff) is a merge blocker — the merge cannot proceed without the lens sign-off. A violation of §17.3 (orchestrator edits `AGENTS.md` or another operational doc inline) is the same as a §15.5 violation: the change must be reverted and re-landed through the proper flow, and the orchestrator must acknowledge the slip before continuing.
 
+### 18. Web ↔ Legacy mutual exclusion + mandatory sync (project-level)
+
+APAP_WEB runs as a **web app OR a legacy Access/VBA app, never both at the same time**. The two modes share the domain model (animales, voluntarios, entradas, acogidas, adopciones, sanidad, etc.) but the runtime backend differs:
+
+| Mode | Backend | Code path |
+|---|---|---|
+| **Web** | InsForge (PostgREST-compatible PostgreSQL BaaS) | `app/core/insforge.py` → InsForgeClient |
+| **Legacy** | Access `.accdb` linked tables (legacy schema `Tb*`) | `app.core` delegates to a legacy adapter that reads via DAO or Dysflow |
+
+**Mode selection** is a runtime configuration (env-flag or `Settings.mode`). When `mode = "web"`, the app talks to InsForge exclusively. When `mode = "legacy"`, it talks to the Access backend exclusively. The two are NEVER both running against the same dataset in the same session.
+
+### 18.1 Mandatory sync function (HARD)
+
+**Both modes write to their respective backends independently**. There is no shared live state. To move data between them, the project ships a **MANDATORY bidirectional sync function** (per user directive 2026-07-05):
+
+- Lives in `migration/` package (engine + CLI).
+- Direction is configurable: `legacy → web`, `web → legacy`, or `bidirectional` with last-write-wins / merge-by-natural-key.
+- The sync MUST be **idempotent**: re-running with no changes produces no diff. Implementation uses `web_only_feature_shadow` table (or equivalent) to track divergence between the two backends and only writes the rows that actually differ.
+- The sync MUST be **auditable**: every row written is logged via `log_safe("sync.applied", table, pk, direction, source_hash, target_hash)`.
+- The sync MUST be **safe under concurrent mutation**: the engine holds an advisory lock (file-based or DB-level) so two operators don't run conflicting syncs simultaneously.
+
+### 18.2 CLI surface (already exists)
+
+The sync CLI is `python -m migration reconcile` (see `migration/cli.py`):
+
+```bash
+# Read-only: enumerate divergences without writing
+python -m migration reconcile --check-only
+
+# Walk divergences interactively
+python -m migration reconcile --interactive
+
+# Filter to one table
+python -m migration reconcile --table voluntarios
+
+# Filter by divergence timestamp
+python -m migration reconcile --since 2026-06-20T00:00:00+00:00
+```
+
+The CLI ships `apap-migrate reconcile <flags>` as the entry point.
+
+### 18.3 Failure modes (HARD REJECT)
+
+- ❌ Code paths that read BOTH backends in the same request. Pick one per request.
+- ❌ Code paths that write to one mode while reading the other. Pick one per request.
+- ❌ Configuration that lets both backends be live simultaneously (env-flag gate at startup, fail-fast if both are reachable).
+- ❌ Sync runs that don't idempotency-check before applying. Use the diff engine.
+- ❌ Sync runs without `log_safe` audit. Every row written is logged.
+
+### 18.4 Enforcement
+
+The mode-toggle and sync-function are enforced at three layers:
+
+1. **Settings** (`app/core/config.py`) reads `APAP_MODE` env (`web` | `legacy`). Startup fails fast if both `APAP_INSFORGE_URL` and `APAP_LEGACY_ACCDB_PATH` are reachable.
+2. **`InsForgeClient`** is the only object allowed to talk to InsForge. **`LegacyAdapter`** is the only object allowed to talk to the Access backend. Service code imports ONE, never both.
+3. **`migration/`** is the only package allowed to read BOTH backends. Route + service code MUST NOT import `migration/`.
+
+Enforcement: PR review + `tests/test_mode_isolation.py` (atomic test that confirms a single request reads from exactly one backend).
+
 ---
 
 > **History:** the resolved "Known conflicts with existing code" tracker (all
