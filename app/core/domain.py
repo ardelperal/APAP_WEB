@@ -685,6 +685,11 @@ def ensure_domain_schema(client: InsForgeClient) -> None:
     # ``docs/proceso.md`` P1 (fidelidad al legacy ``TbMaterial``) and the
     # spec at engram obs #15894 for the full P1 contract (UNIQUE
     # (material, tamano, color) for legacy natural-key enforcement).
+    # NOTE: if the partial unique index already contains duplicate active
+    # (estancia_id, material_id) rows from a prior buggy import, the
+    # CREATE UNIQUE INDEX will fail and the entire ensure_domain_schema
+    # call will fail. See docs/runbooks/FOSTER-04-materiales.md for the
+    # deduplication procedure (BLOCKER per jd-judge-b on PR #166).
     client.execute_sql(MATERIALES_CREATE_TABLE_SQL)
     client.execute_sql(ESTANCIA_MATERIALES_CREATE_TABLE_SQL)
     client.execute_sql(ESTANCIA_MATERIALES_ACTIVE_UNIQUE_INDEX_SQL)

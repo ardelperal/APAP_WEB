@@ -390,6 +390,69 @@ def test_deactivate_material_returns_false_when_id_missing() -> None:
     assert len(captured) == 1
 
 
+def test_deactivate_material_returns_false_when_already_inactive() -> None:
+    """Refs jd-judge-a WARNING #2 on PR #166: explicitly distinguish
+    "id doesn't exist" from "id exists but activo=false". The current
+    UPDATE only matches `activo = true`, so an already-inactive row
+    returns no rows. The cascade SQL is NOT emitted (it was contingent
+    on the catalog UPDATE having a positive RETURNING count).
+    """
+    client, captured = _client_recording(
+        lambda req, body: _json_response(200, [])
+    )
+    result = materiales_service.deactivate_material(
+        client, "already-inactive-uuid"
+    )
+    client.close()
+
+    assert result is False
+    # Only the catalog UPDATE was emitted; the cascade was NOT
+    # because the catalog UPDATE returned 0 rows (already inactive).
+    assert len(captured) == 1
+    assert "_CASCADE" not in captured[0]["query"]
+
+
+def test_assign_material_to_estancia_concurrent_race_returns_conflict() -> None:
+    """Refs jd-judge-b CRITICAL #1 on PR #166: two concurrent operators
+    racing to assign the same material to the same estancia produce a
+    PostgreSQL 23505 unique violation, which the service translates to
+    MaterialConflictError. This atom simulates the race end-to-end by
+    having the mocked InsForge return 409 with the canonical conflict
+    body on the junction INSERT.
+    """
+    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
+        # FK checks for estancia + material (each SELECT returns a row).
+        if "FROM acogidas" in body["query"]:
+            return _json_response(200, [_estancia_row()])
+        if "FROM materiales" in body["query"]:
+            return _json_response(200, [_material_row()])
+        # The junction INSERT collides with the partial unique index.
+        if "INSERT INTO estancia_materiales" in body["query"]:
+            return _json_response(
+                409,
+                {
+                    "code": "23505",
+                    "message": 'duplicate key value violates unique constraint "estancia_materiales_active_unique"',
+                },
+            )
+        return _json_response(200, [])
+
+    client, _captured = _client_recording(_handler)
+    with pytest.raises(materiales_service.MaterialConflictError) as exc_info:
+        materiales_service.assign_material_to_estancia(
+            client,
+            estancia_id="22222222-2222-2222-2222-222222222222",
+            material_id="11111111-1111-1111-1111-111111111111",
+            cantidad=1,
+        )
+    client.close()
+
+    assert isinstance(exc_info.value, materiales_service.MaterialConflictError)
+    # The service's translated message names the offending resource
+    # in Spanish; we only assert the type, not the literal string.
+    assert str(exc_info.value)
+
+
 # --- junction: assign -----------------------------------------------------
 
 
