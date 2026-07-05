@@ -1,0 +1,70 @@
+{% extends base_template %}
+{% block title %}Catálogo de materiales - APAP{% endblock %}
+{% block content %}
+  <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
+    <div>
+      <h1 class="text-3xl font-bold text-primary-dark tracking-tight">Catálogo de materiales</h1>
+      <p class="text-text-muted text-sm mt-1">
+        Materiales físicos entregados a las casas de acogida (transportines, mantas, pienso, medicación).
+        Los activos se muestran primero. La baja lógica se gestiona desde el detalle de cada material.
+      </p>
+    </div>
+    {%- if user and user.rol in ("developer", "admin", "key_user") %}
+      <a href="/materiales/new" class="bg-primary text-white px-4 py-2 rounded font-semibold hover:bg-primary-dark transition-colors shadow-sm">
+        + Nuevo material
+      </a>
+    {%- endif %}
+  </div>
+
+  {% if materiales %}
+  <div class="bg-surface rounded-card shadow-card overflow-hidden">
+    <table class="min-w-full text-left text-sm">
+      <thead class="bg-primary text-white">
+        <tr>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">ID</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Material</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Tamaño</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Color</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Estado</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Alta</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for material in materiales %}
+        <tr class="border-b border-border last:border-b-0 hover:bg-primary/5 transition-colors">
+          <td class="px-6 py-4 text-text-muted font-mono text-xs">{{ material.id }}</td>
+          <td class="px-6 py-4 text-text font-semibold">{{ material.material }}</td>
+          <td class="px-6 py-4 text-text">{{ material.tamano }}</td>
+          <td class="px-6 py-4 text-text">{{ material.color }}</td>
+          <td class="px-6 py-4">
+            {% if material.activo %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700">Activo</span>
+            {% else %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700">Inactivo</span>
+            {% endif %}
+          </td>
+          <td class="px-6 py-4 text-text-muted font-mono">{{ material.fecha_alta or "—" }}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-right">
+            <a href="/materiales/{{ material.id }}" class="text-primary font-semibold hover:underline">Ver</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="bg-gradient-to-br from-primary/10 to-primary/5 border-l-4 border-primary rounded-card shadow-card p-8 text-center">
+    <div class="text-5xl mb-3" aria-hidden="true">&#128230;</div>
+    <h2 class="text-primary-dark font-semibold text-lg">No hay materiales en el catálogo</h2>
+    <p class="text-text-muted text-sm mt-1 mb-4">
+      Da de alta el primer material del catálogo para empezar a asignar elementos a las casas de acogida.
+    </p>
+    {% if user and user.rol in ("developer", "admin", "key_user") %}
+      <a href="/materiales/new" class="inline-block bg-primary text-white px-4 py-2 rounded font-semibold hover:bg-primary-dark transition-colors">
+        Registrar primer material
+      </a>
+    {% endif %}
+  </div>
+  {% endif %}
+{% endblock %}

@@ -1,0 +1,105 @@
+{% extends base_template %}
+{% block title %}Material {{ material.material }} - APAP{% endblock %}
+{% block content %}
+  <div class="flex items-start justify-between mb-6 flex-wrap gap-3">
+    <div>
+      <h1 class="text-3xl font-bold text-primary-dark tracking-tight">
+        {{ material.material }}
+      </h1>
+      <p class="text-text-muted text-sm mt-1">
+        Identificador:
+        <span class="font-mono">{{ material.id }}</span>
+        {% if material.activo %}
+          · <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700">Activo</span>
+        {% else %}
+          · <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700">Inactivo</span>
+        {% endif %}
+      </p>
+    </div>
+    <div class="flex gap-2">
+      <a href="/materiales" class="px-4 py-2 text-text-muted hover:text-text">← Volver</a>
+      {% if user and user.rol in ("developer", "admin", "key_user") %}
+        <a href="/materiales/{{ material.id }}/edit" class="bg-surface border border-border text-text px-4 py-2 rounded font-semibold hover:bg-border/30 transition-colors shadow-sm">
+          Editar
+        </a>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <div class="bg-surface rounded-card shadow-card p-6 space-y-3">
+      <h2 class="text-lg font-semibold text-text">Identificación</h2>
+      <dl class="space-y-2 text-sm">
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Material</dt>
+          <dd class="text-text font-semibold">{{ material.material }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Tamaño</dt>
+          <dd class="text-text">{{ material.tamano }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Color</dt>
+          <dd class="text-text">{{ material.color }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Estado</dt>
+          <dd class="text-text">
+            {% if material.activo %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700">Activo</span>
+            {% else %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700">Inactivo</span>
+            {% endif %}
+          </dd>
+        </div>
+      </dl>
+    </div>
+
+    <div class="bg-surface rounded-card shadow-card p-6 space-y-3">
+      <h2 class="text-lg font-semibold text-text">Auditoría</h2>
+      <dl class="space-y-2 text-sm">
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Fecha de alta</dt>
+          <dd class="text-text font-mono">{{ material.fecha_alta or "—" }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Última actualización</dt>
+          <dd class="text-text font-mono">{{ material.updated_at or "—" }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-text-muted">Fecha de baja</dt>
+          <dd class="text-text font-mono">{{ material.fecha_baja or "—" }}</dd>
+        </div>
+      </dl>
+    </div>
+
+    {% if material.observaciones %}
+    <div class="bg-surface rounded-card shadow-card p-6 space-y-3 md:col-span-2">
+      <h2 class="text-lg font-semibold text-text">Observaciones</h2>
+      <p class="text-text whitespace-pre-line">{{ material.observaciones }}</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="mt-8 pt-6 border-t border-border">
+    <h2 class="text-lg font-semibold text-text mb-3">Estancias donde está asignado</h2>
+    <div class="bg-surface rounded-card shadow-card p-6 text-center text-text-muted">
+      <p class="text-sm">
+        Listado de estancias con este material asignado.
+        La gestión de asignaciones llega en la fase siguiente del slice.
+      </p>
+    </div>
+  </div>
+
+  {% if user and user.rol in ("developer", "admin", "key_user") %}
+  <div class="mt-8 pt-6 border-t border-border">
+    <form method="post" action="/materiales/{{ material.id }}/deactivate"
+          onsubmit="return confirm('¿Dar de baja este material? Queda en el histórico y sus asignaciones se desasignan en cascada.');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <button type="submit" class="px-4 py-2 text-rose-700 hover:text-rose-900 font-semibold">
+        Dar de baja este material
+      </button>
+    </form>
+  </div>
+  {% endif %}
+{% endblock %}

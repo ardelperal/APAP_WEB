@@ -1,0 +1,73 @@
+{% extends base_template %}
+{% block title %}{{ "Editar" if form_data.material else "Nuevo" }} material - APAP{% endblock %}
+{% block content %}
+  <div class="mb-6">
+    <h1 class="text-3xl font-bold text-primary-dark tracking-tight">
+      {{ "Editar material" if form_data.material else "Nuevo material" }}
+    </h1>
+    <p class="text-text-muted text-sm mt-1">
+      Los campos marcados con <span class="text-rose-700">*</span> son obligatorios.
+      La unicidad se comprueba por la tripleta
+      <span class="font-mono">(material, tamano, color)</span>; no puedes tener dos
+      materiales idénticos en el catálogo (regla legacy de TbMaterial).
+    </p>
+  </div>
+
+  {% if error %}
+  <div class="bg-rose-50 border border-rose-200 text-rose-800 px-4 py-3 rounded-card mb-6">
+    <p class="font-semibold">No se pudo guardar el material</p>
+    <p class="text-sm mt-1">{{ error }}</p>
+  </div>
+  {% endif %}
+
+  <form method="post" action="{{ form_action }}" class="bg-surface rounded-card shadow-card p-6 space-y-6">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+
+    <fieldset class="space-y-4">
+      <legend class="text-sm font-semibold text-text-muted">Identificación del material</legend>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div>
+          <label class="block text-sm font-medium text-text">Material <span class="text-rose-700">*</span></label>
+          <input type="text" name="material" value="{{ form_data.material or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                 placeholder="Cama, transportin, manta..."
+                 required>
+          <p class="mt-1 text-xs text-text-muted">Nombre del tipo de material (legacy <span class="font-mono">TbMaterial.Material</span>).</p>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-text">Tamaño <span class="text-rose-700">*</span></label>
+          <input type="text" name="tamano" value="{{ form_data.tamano or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                 placeholder="Grande, Mediano, Pequeño..."
+                 required>
+          <p class="mt-1 text-xs text-text-muted">Texto libre en este slice; la FK al catálogo de tamaños llega en Fase 6c (D-MAT-01).</p>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-text">Color <span class="text-rose-700">*</span></label>
+          <input type="text" name="color" value="{{ form_data.color or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                 placeholder="Azul, verde, beis..."
+                 required>
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset class="space-y-4">
+      <legend class="text-sm font-semibold text-text-muted">Detalle libre</legend>
+      <div>
+        <label class="block text-sm font-medium text-text">Observaciones</label>
+        <textarea name="observaciones" rows="3"
+                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  placeholder="Notas internas sobre el material...">{{ form_data.observaciones or '' }}</textarea>
+        <p class="mt-1 text-xs text-text-muted">Campo legacy <span class="font-mono">TbMaterial.Observaciones</span>. Opcional.</p>
+      </div>
+    </fieldset>
+
+    <div class="flex justify-end gap-3 pt-4 border-t border-border">
+      <a href="/materiales" class="px-4 py-2 text-text-muted hover:text-text">Cancelar</a>
+      <button type="submit" class="bg-primary text-white px-6 py-2 rounded font-semibold hover:bg-primary-dark transition-colors shadow-sm">
+        {% if form_data.material %}Guardar{% else %}Crear{% endif %}
+      </button>
+    </div>
+  </form>
+{% endblock %}
