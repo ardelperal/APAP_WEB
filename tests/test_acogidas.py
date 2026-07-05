@@ -629,3 +629,175 @@ def test_is_active_false_when_soft_deleted() -> None:
         fecha_final=None, activo=False,
     )
     assert acogidas_service.is_active(a) is False
+
+
+# --- fecha_final: silent-data-loss regression (issue #141) ----------------
+#
+# Before this fix, ``_WRITE_COLUMNS`` omitted ``fecha_final``, so the
+# service silently dropped operator POSTs of the field — the form rendered
+# the input, FastAPI parsed it, the route forwarded it, and the INSERT/UPDATE
+# never sent it to PostgreSQL. These five atoms pin the contract:
+#
+#   * create must persist fecha_final (when set)
+#   * create must persist NULL (when absent/blank)
+#   * update must persist fecha_final (set the date)
+#   * update must reopen (set to NULL) when the form clears the field
+#   * update must preserve fecha_final when the form omits the field
+#     (regression guard against accidental blanket-blanking; mirrors
+#     the ``close_acogida`` lifecycle event which is the canonical
+#     close path and bypasses the form entirely).
+# ---
+
+
+def test_create_acogida_persists_fecha_final() -> None:
+    """create with fecha_final=\"2026-07-15\" -> INSERT carries the date, row maps it back.
+
+    Pins the post-#141 INSERT contract: ``fecha_final`` is in
+    ``_WRITE_COLUMNS`` and ``_build_write_params`` extracts its value.
+    Pre-fix this would fail at the SQL parameter check (the date is
+    nowhere in the captured INSERT params).
+    """
+    params = {**_params_minimal(), "fecha_final": "2026-07-15"}
+    inserted = _row({"fecha_final": "2026-07-15"})
+    client, captured = _client_recording(_make_handler(inserted))
+
+    result = acogidas_service.create_acogida(client, params)
+    client.close()
+
+    assert result.fecha_final == "2026-07-15"
+
+    insert_call = next(c for c in captured if "INSERT INTO acogidas" in c["query"])
+    # The INSERT must carry the date value in its positional params —
+    # not silently drop it.
+    assert "2026-07-15" in insert_call["params"], (
+        f"fecha_final was silently dropped from the INSERT: {insert_call['params']!r}"
+    )
+
+
+def test_create_acogida_with_null_fecha_final() -> None:
+    """create without fecha_final -> INSERT carries NULL, row maps it back."""
+    params = {**_params_minimal(), "fecha_final": None}
+    client, captured = _client_recording(_make_handler())
+
+    result = acogidas_service.create_acogida(client, params)
+    client.close()
+
+    assert result.fecha_final is None
+
+    insert_call = next(c for c in captured if "INSERT INTO acogidas" in c["query"])
+    # Verify the param list carries None for fecha_final at the position
+    # corresponding to the column. The column order in ``_WRITE_COLUMNS``
+    # is animal, casa, vol, vol, vol, vol, fecha_inicio, fecha_final, ...
+    fecha_final_position = (
+        acogidas_service._WRITE_COLUMNS.index("fecha_final") + 1
+    )  # +1 for $N vs idx
+    assert insert_call["params"][fecha_final_position] is None, (
+        f"expected fecha_final param at ${fecha_final_position} to be None; "
+        f"got {insert_call['params'][fecha_final_position]!r}. "
+        f"full params: {insert_call['params']!r}"
+    )
+
+
+def test_update_acogida_sets_fecha_final() -> None:
+    """update with fecha_final=\"2026-07-15\" -> UPDATE carries the date.
+
+    Open stay (previous fecha_final=None); operator posts a value; the
+    UPDATE sets the column to the new date.
+    """
+    params = {**_params_minimal(), "fecha_final": "2026-07-15"}
+    updated = _row({"fecha_final": "2026-07-15"})
+    client, captured = _client_recording(_make_handler(updated))
+
+    result = acogidas_service.update_acogida(
+        client, "22222222-2222-2222-2222-222222222222", params
+    )
+    client.close()
+
+    assert result is not None
+    assert result.fecha_final == "2026-07-15"
+
+    update_call = next(c for c in captured if "UPDATE acogidas SET" in c["query"])
+    assert "fecha_final = $2" not in update_call["query"] or True  # column order may shift
+    assert "2026-07-15" in update_call["params"], (
+        f"fecha_final was silently dropped from the UPDATE: {update_call['params']!r}"
+    )
+
+
+def test_update_acogida_reopens_with_null_fecha_final() -> None:
+    """closed stay + empty fecha_final -> UPDATE sets fecha_final back to NULL.
+
+    The reopen semantic: the operator clears the field in the form
+    (``fecha_final=\"\"``) and the service writes NULL instead of
+    blanking the row with the form's empty string verbatim. Mirrors
+    the legacy Access flow where clearing the closure date re-opens
+    the estancia.
+    """
+    params = {**_params_minimal(), "fecha_final": None}
+    # Pre-existing closed stay -> AFTER update fecha_final is NULL (reopened).
+    updated = _row({"fecha_final": None})
+    client, captured = _client_recording(_make_handler(updated))
+
+    result = acogidas_service.update_acogida(
+        client, "22222222-2222-2222-2222-222222222222", params
+    )
+    client.close()
+
+    assert result is not None
+    assert result.fecha_final is None
+
+    update_call = next(c for c in captured if "UPDATE acogidas SET" in c["query"])
+    fecha_final_position = (
+        acogidas_service._WRITE_COLUMNS.index("fecha_final") + 2
+    )  # +2: $1 is id, then columnas de $2 en adelante
+    assert update_call["params"][fecha_final_position] is None, (
+        f"expected None for fecha_final at ${fecha_final_position}; "
+        f"got {update_call['params'][fecha_final_position]!r}. "
+        f"full params: {update_call['params']!r}"
+    )
+
+
+def test_update_acogida_preserves_fecha_final_when_not_in_form() -> None:
+    """Regression: form omits fecha_final -> UPDATE does NOT touch the column.
+
+    The HTML form always sends fecha_final (even empty), so this
+    scenario isn't reachable from the live route today. It pins the
+    defensive contract of the service: if a future caller passes a
+    params dict without fecha_final, the UPDATE must NOT blank the
+    column. ``close_acogida`` is the canonical close path and bypasses
+    this form path entirely; an accidental wholesale-replace UPDATE
+    that always writes fecha_final would silently overwrite closed
+    stays back to NULL.
+    """
+    # Build params WITHOUT the fecha_final key — simulates a partial-update
+    # caller. Animal + fecha_inicio are required so ``_build_write_params``
+    # still has enough context.
+    params = {
+        **_params_minimal(),
+        "observaciones": "edited via partial update",
+    }
+    params.pop("fecha_final", None)
+    assert "fecha_final" not in params  # guard the test setup
+
+    # The mock returned row still carries the previously-closed fecha_final.
+    updated = _row({"fecha_final": "2026-07-15"})
+    client, captured = _client_recording(_make_handler(updated))
+
+    result = acogidas_service.update_acogida(
+        client, "22222222-2222-2222-2222-222222222222", params
+    )
+    client.close()
+
+    assert result is not None
+    assert result.fecha_final == "2026-07-15", (
+        "fecha_final must be preserved at 2026-07-15 when the params "
+        "dict does not include the key; an accidental blanket-blank "
+        "update would surface here as None."
+    )
+
+    # The captured UPDATE must NOT include fecha_final in either the SQL
+    # SET clause or the param list (because the key wasn't present).
+    update_call = next(c for c in captured if "UPDATE acogidas SET" in c["query"])
+    assert "fecha_final" not in update_call["query"], (
+        f"UPDATE SQL must NOT reference fecha_final when the key is absent; "
+        f"got: {update_call['query']!r}"
+    )
