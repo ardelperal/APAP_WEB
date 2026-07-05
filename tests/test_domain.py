@@ -515,8 +515,10 @@ def test_ensure_domain_schema_emits_casa_fk_migration_after_acogidas_create() ->
         q for q in queries if q.startswith("CREATE TABLE IF NOT EXISTS")
     ]
     alter_queries = [q for q in queries if q.startswith("ALTER TABLE")]
-    assert len(create_queries) == 14, (
-        f"expected 14 CREATE TABLEs, got {len(create_queries)}: {create_queries}"
+    # FOSTER-04 (#46): 16 CREATE TABLEs after materiales + estancia_materiales
+    # (FOSTER-01..03 + ACTUACION_SANITARIA + 2 new foster-04 tables).
+    assert len(create_queries) == 16, (
+        f"expected 16 CREATE TABLEs, got {len(create_queries)}: {create_queries}"
     )
     assert len(alter_queries) == 2, (
         f"expected 2 ALTER TABLEs (FOSTER-02 casa FK + issue #142 estancia FK), got {len(alter_queries)}: {alter_queries}"
@@ -959,12 +961,14 @@ def test_ensure_domain_schema_creates_twelve_tables_plus_one_alter() -> None:
     client.close()
 
     queries = [c["query"].strip() for c in captured]
-    assert len(queries) == 16, (
-        f"expected 16 statements (14 CREATE TABLE + 2 ALTER TABLE), "
+    # FOSTER-04 (#46): 18 statements total (16 CREATE TABLE + 2 ALTER TABLE)
+    # after materiales + estancia_materiales were appended at the end.
+    assert len(queries) == 18, (
+        f"expected 18 statements (16 CREATE TABLE + 2 ALTER TABLE), "
         f"got {len(queries)}: {queries}"
     )
     create_queries = [q for q in queries if q.startswith("CREATE TABLE")]
-    assert len(create_queries) == 14
+    assert len(create_queries) == 16
     assert queries[0].startswith("CREATE TABLE IF NOT EXISTS animales")
     assert queries[1].startswith("CREATE TABLE IF NOT EXISTS voluntarios")
     assert queries[2].startswith("CREATE TABLE IF NOT EXISTS roles_voluntario")
@@ -982,6 +986,11 @@ def test_ensure_domain_schema_creates_twelve_tables_plus_one_alter() -> None:
     assert queries[12].startswith("CREATE TABLE IF NOT EXISTS animal_current_state")
     assert queries[13].startswith("CREATE TABLE IF NOT EXISTS cesiones_propietario")
     assert queries[14].startswith("CREATE TABLE IF NOT EXISTS contratos")
+    assert queries[15].startswith("CREATE TABLE IF NOT EXISTS actuacion_sanitaria")
+    # FOSTER-04 (#46): materiales + estancia_materiales land at the very end
+    # so that the junction's FKs to ``acogidas`` and ``materiales`` resolve.
+    assert queries[16].startswith("CREATE TABLE IF NOT EXISTS materiales")
+    assert queries[17].startswith("CREATE TABLE IF NOT EXISTS estancia_materiales")
 
 
 # --- cesiones_propietario (TbCesionPorPropietario legacy, issue #41) ---
@@ -1261,12 +1270,17 @@ def test_actuacion_sanitaria_create_table_sql_fk_voluntario_id_to_voluntarios() 
 
 
 def test_ensure_domain_schema_emits_actuacion_sanitaria_after_contratos() -> None:
-    """actuacion_sanitaria is the LAST emit in ensure_domain_schema.
+    """actuacion_sanitaria is emitted immediately after contratos (last
+    pre-FOSTER-04 table).
 
     Placement after ``contratos`` is required because the FKs to
     ``animales``, ``voluntarios``, and ``catalogos_pruebas`` must be
     satisfiable. The lifespan creates catalog tables before domain tables,
     so the FK to ``catalogos_pruebas`` is valid even on a fresh backend.
+
+    FOSTER-04 (#46) appends ``materiales`` + ``estancia_materiales``
+    AFTER ``actuacion_sanitaria`` so that the junction's FKs to
+    ``acogidas`` and ``materiales`` resolve on a fresh backend.
     """
     client, captured = _client_recording(lambda req, body: _json_response(200, []))
 
@@ -1274,6 +1288,170 @@ def test_ensure_domain_schema_emits_actuacion_sanitaria_after_contratos() -> Non
     client.close()
 
     queries = [c["query"].strip() for c in captured]
-    assert queries[-1].startswith("CREATE TABLE IF NOT EXISTS actuacion_sanitaria"), (
-        f"actuacion_sanitaria must be the LAST emit; got: {queries[-1][:80]!r}"
+    actuacion_idx = next(
+        i for i, q in enumerate(queries)
+        if q.startswith("CREATE TABLE IF NOT EXISTS actuacion_sanitaria")
+    )
+    # FOSTER-04 (#46): the two new tables land at the end so the
+    # ``estancia_materiales`` junction FKs to ``acogidas`` and
+    # ``materiales`` resolve.
+    assert actuacion_idx < len(queries) - 2, (
+        f"actuacion_sanitaria must come BEFORE the FOSTER-04 tail "
+        f"(materiales + estancia_materiales); got position {actuacion_idx} "
+        f"of {len(queries)}: {queries[actuacion_idx:][:80]!r}"
+    )
+    # Last emit is the junction (so all FK targets — materiales + acogidas
+    # — already exist at the time it runs).
+    assert queries[-1].startswith("CREATE TABLE IF NOT EXISTS estancia_materiales"), (
+        f"estancia_materiales must be the LAST emit; got: {queries[-1][:80]!r}"
+    )
+
+
+# --- materiales (FOSTER-04, #46) ------------------------------------------
+#
+# Catalog of physical materials delivered to foster stays (transportines,
+# mantas, pienso, medicación). Legacy mirror: ``TbMaterial`` (P1 fidelity
+# invariant). 9 columns: id + material + tamano + color (the natural key
+# trio with DB-enforced UNIQUE) + observaciones (legacy free-text) +
+# 3 system timestamps + activo + fecha_baja (soft-delete marker).
+# See ``docs/discovery/feature-04-documents-contracts-reports.md`` §4.3
+# and ``data-model-completeness.md`` §4.
+
+
+def test_ensure_domain_schema_creates_materiales_table() -> None:
+    """The bootstrap emits a ``CREATE TABLE IF NOT EXISTS materiales``.
+
+    FOSTER-04 (#46) appends this after ``actuacion_sanitaria`` so the
+    junction's FK to ``materiales(id)`` resolves on a fresh backend.
+    The test records the actual SQL strings (via MockTransport) so it
+    proves the bootstrap is wired correctly without depending on a
+    separate SQL constant import.
+    """
+    client, captured = _client_recording(lambda req, body: _json_response(200, []))
+
+    ensure_domain_schema(client)
+    client.close()
+
+    queries = [c["query"].strip() for c in captured]
+    materiales_creates = [
+        q for q in queries
+        if q.startswith("CREATE TABLE IF NOT EXISTS materiales")
+    ]
+    assert len(materiales_creates) == 1, (
+        f"ensure_domain_schema MUST emit exactly one CREATE TABLE for "
+        f"materiales; got {len(materiales_creates)}: {materiales_creates!r}"
+    )
+    create = materiales_creates[0]
+    # 9 columns per spec — id + material + tamano + color + observaciones +
+    # activo + fecha_alta + updated_at + fecha_baja (legacy soft-delete marker).
+    columns = _column_names(create)
+    required = {
+        "id",
+        "material",
+        "tamano",
+        "color",
+        "observaciones",
+        "activo",
+        "fecha_alta",
+        "updated_at",
+        "fecha_baja",
+    }
+    missing = required - columns
+    assert not missing, (
+        f"materiales table missing columns: {sorted(missing)}"
+    )
+    # Legacy natural-key invariant: ``(material, tamano, color)`` UNIQUE.
+    assert "UNIQUE (material, tamano, color)" in create, (
+        f"materiales MUST enforce UNIQUE (material, tamano, color) for P1 "
+        f"fidelity to legacy ``TbMaterial``; got SQL: {create!r}"
+    )
+
+
+def test_ensure_domain_schema_creates_estancia_materiales_table() -> None:
+    """The bootstrap emits ``CREATE TABLE IF NOT EXISTS estancia_materiales``
+    with FKs to ``acogidas`` + ``materiales`` and the partial unique index.
+
+    The junction lands AFTER ``materiales`` so both FK targets exist when
+    the FK constraint is evaluated. The partial unique index
+    ``(estancia_id, material_id) WHERE activo = true`` prevents duplicate
+    active assignments of the same material to the same stay.
+    """
+    client, captured = _client_recording(lambda req, body: _json_response(200, []))
+
+    ensure_domain_schema(client)
+    client.close()
+
+    queries = [c["query"].strip() for c in captured]
+    junction_creates = [
+        q for q in queries
+        if q.startswith("CREATE TABLE IF NOT EXISTS estancia_materiales")
+    ]
+    assert len(junction_creates) == 1, (
+        f"ensure_domain_schema MUST emit exactly one CREATE TABLE for "
+        f"estancia_materiales; got {len(junction_creates)}: {junction_creates!r}"
+    )
+    create = junction_creates[0]
+    # FKs to ``acogidas`` + ``materiales``.
+    pairs = _fk_targets(create)
+    assert ("estancia_id", "acogidas") in pairs, (
+        f"estancia_materiales.estancia_id MUST FK to acogidas(id); "
+        f"got FKs: {pairs!r}"
+    )
+    assert ("material_id", "materiales") in pairs, (
+        f"estancia_materiales.material_id MUST FK to materiales(id); "
+        f"got FKs: {pairs!r}"
+    )
+    # CHECK constraint enforces cantidad > 0.
+    assert re.search(r"cantidad\s+INTEGER\s+NOT\s+NULL\s+DEFAULT\s+1", create), (
+        f"estancia_materiales.cantidad must be INTEGER NOT NULL DEFAULT 1; "
+        f"got SQL: {create!r}"
+    )
+    assert re.search(r"CHECK\s*\(\s*cantidad\s*>\s*0\s*\)", create), (
+        f"estancia_materiales.cantidad must have CHECK (cantidad > 0); "
+        f"got SQL: {create!r}"
+    )
+    # Partial unique index prevents duplicate active assignments.
+    assert (
+        "CREATE UNIQUE INDEX IF NOT EXISTS estancia_materiales_active_unique"
+        in create
+    ), (
+        f"estancia_materiales MUST have partial unique index on "
+        f"(estancia_id, material_id) WHERE activo = true; got SQL: {create!r}"
+    )
+    assert "WHERE activo = true" in create, (
+        f"estancia_materiales partial unique index MUST be WHERE activo = true; "
+        f"got SQL: {create!r}"
+    )
+
+
+def test_ensure_domain_schema_idempotent_for_materiales() -> None:
+    """Calling ``ensure_domain_schema`` twice does not error.
+
+    Both new tables use ``CREATE TABLE IF NOT EXISTS`` and the partial
+    unique index uses ``CREATE UNIQUE INDEX IF NOT EXISTS`` so the
+    bootstrap is replay-safe across cold starts (lifespan runs every
+    process boot). The test runs ``ensure_domain_schema`` twice on the
+    same client and asserts no InsForgeError is raised AND the second
+    call re-emits the same statement set (so a re-run on a live DB is
+    a no-op rather than a re-create).
+    """
+    client, captured = _client_recording(lambda req, body: _json_response(200, []))
+
+    # First call — creates everything.
+    ensure_domain_schema(client)
+    first_call_count = len(captured)
+
+    # Second call — should be a no-op (every statement is ``IF NOT EXISTS``).
+    ensure_domain_schema(client)
+    second_call_count = len(captured) - first_call_count
+    client.close()
+
+    # The second call must re-emit the SAME number of statements the
+    # first call emitted (every statement uses ``IF NOT EXISTS`` so the
+    # re-run is a no-op against the live DB, but the bootstrap still
+    # emits the statements so the lifespan stays replay-safe).
+    assert second_call_count == first_call_count, (
+        f"second ensure_domain_schema call should emit the same number of "
+        f"statements as the first (idempotent replay): first={first_call_count}, "
+        f"second={second_call_count}"
     )
