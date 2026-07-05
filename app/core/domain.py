@@ -263,6 +263,22 @@ CREATE TABLE IF NOT EXISTS foster_capacity_overrides (
 )
 """
 
+# Issue #142 — añade la FK opcional hacia ``acogidas`` para que cada
+# override pueda enlazarse con la estancia que justificó. La columna es
+# NULLable: el INSERT inicial la deja en NULL (el operador puede
+# cancelar el create de la estancia y la auditoría queda honesta
+# porque se puede consultar el residuo via
+# ``SELECT * FROM foster_capacity_overrides WHERE estancia_id IS NULL``).
+# ``create_acogida`` (``app/modules/acogidas/service.py``) emite el
+# UPDATE que enlaza el row una vez la estancia es creada; el
+# ``AND estancia_id IS NULL`` del WHERE protege contra un link duplicado.
+# Idempotente (``ADD COLUMN IF NOT EXISTS``) para que el bootstrap se
+# pueda re-aplicar sin crash.
+FOSTER_CAPACITY_OVERRIDES_ADD_ESTANCIA_FK_SQL = """
+ALTER TABLE foster_capacity_overrides
+ADD COLUMN IF NOT EXISTS estancia_id UUID NULL REFERENCES acogidas(id)
+"""
+
 # --- adopciones: TbAdopcion (16 cols) + mejoras justificadas ---
 #
 # LIFECYCLE-03 (migration-01). FKs to animales, voluntarios and entradas
@@ -583,6 +599,13 @@ def ensure_domain_schema(client: InsForgeClient) -> None:
     # orden lógico del slice foster. Idempotente vía
     # ``CREATE TABLE IF NOT EXISTS``.
     client.execute_sql(FOSTER_CAPACITY_OVERRIDES_CREATE_TABLE_SQL)
+    # Issue #142 — añade la FK opcional ``estancia_id`` al audit log.
+    # Emisión DESPUÉS del CREATE de ``foster_capacity_overrides`` (para
+    # que la tabla target exista) y DESPUÉS del CREATE de ``acogidas``
+    # (para que el FK target exista). Idempotente vía ``ADD COLUMN IF
+    # NOT EXISTS``; ver el docstring del SQL constant para el contrato
+    # completo del fix y la query de auditoría de huérfanos.
+    client.execute_sql(FOSTER_CAPACITY_OVERRIDES_ADD_ESTANCIA_FK_SQL)
     client.execute_sql(ADOPCIONES_CREATE_TABLE_SQL)
     client.execute_sql(ANIMAL_LIFECYCLE_EVENTS_CREATE_TABLE_SQL)
     client.execute_sql(ANIMAL_CURRENT_STATE_CREATE_TABLE_SQL)

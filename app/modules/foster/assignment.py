@@ -81,6 +81,10 @@ class FosterCapacityOverride:
     ``motivo`` es texto libre validado non-empty en
     :func:`record_override`. El ``operador_user_id`` viene de la
     sesion (no de un form field); ver D-GC-02.
+
+    Issue #142: ``estancia_id`` enlaza el override con la estancia
+    (``acogidas.id``) que justificó el override; ``None`` mientras el
+    operador no completa el create de la estancia o si el link falla.
     """
 
     id: str
@@ -89,6 +93,7 @@ class FosterCapacityOverride:
     operador_user_id: str
     motivo: str
     created_at: str
+    estancia_id: str | None = None
 
 
 # --- SQL constants ---------------------------------------------------------
@@ -129,12 +134,14 @@ _INSERT_OVERRIDE_SQL: Final[str] = """
 INSERT INTO foster_capacity_overrides
     (casa_acogida_id, animal_id, operador_user_id, motivo)
 VALUES ($1, $2, $3, $4)
-RETURNING id, casa_acogida_id, animal_id, operador_user_id, motivo, created_at
+RETURNING id, casa_acogida_id, animal_id, operador_user_id, motivo,
+          created_at, estancia_id
 """
 
 
 _LIST_OVERRIDES_FOR_CASA_SQL: Final[str] = """
-SELECT id, casa_acogida_id, animal_id, operador_user_id, motivo, created_at
+SELECT id, casa_acogida_id, animal_id, operador_user_id, motivo, created_at,
+       estancia_id
 FROM foster_capacity_overrides
 WHERE casa_acogida_id = $1
 ORDER BY created_at DESC
@@ -152,6 +159,7 @@ def _row_to_override(row: dict[str, Any]) -> FosterCapacityOverride:
         operador_user_id=str(row["operador_user_id"]),
         motivo=str(row["motivo"]),
         created_at=str(row["created_at"]) if row.get("created_at") else "",
+        estancia_id=str(row["estancia_id"]) if row.get("estancia_id") else None,
     )
 
 
@@ -231,7 +239,7 @@ def record_override(
     animal_id: str,
     operador_user_id: str,
     motivo: str,
-) -> FosterCapacityOverride:
+) -> str:
     """Graba un override de capacidad en ``foster_capacity_overrides``.
 
     Validación (REQ-GC-6): ``motivo`` debe ser non-empty tras
@@ -244,6 +252,14 @@ def record_override(
     handler lo extrae via ``read_session_payload`` y nunca acepta
     input del form en ese campo.
 
+    Issue #142: retorna el UUID del override como ``str`` (NO el
+    dataclass ``FosterCapacityOverride``) para que el route handler
+    pueda encadenarlo directo en la URL de redirect
+    (``/acogidas/new?...&override_id=<uuid>``) sin tener que hacer
+    ``.id``. ``_row_to_override`` sigue disponible para los callers
+    que necesitan la fila completa (``list_overrides_for_casa`` lo
+    usa internamente para mapear el dataclass desde ``SELECT``).
+
     Tras el INSERT, emite ``log_safe("foster.capacity_override.recorded",
     casa_acogida_id=..., animal_id=..., operador=...)``. El ``motivo``
     NO se loguea: es texto libre del operador y puede llevar PII
@@ -251,6 +267,9 @@ def record_override(
 
     Raises:
         ValueError: si ``motivo`` es vacío o solo whitespace.
+
+    Returns:
+        El UUID del row insertado (``str``).
     """
     motivo_clean = (motivo or "").strip()
     if not motivo_clean:
@@ -260,14 +279,14 @@ def record_override(
         _INSERT_OVERRIDE_SQL,
         [casa_id, animal_id, operador_user_id, motivo_clean],
     )
-    override = _row_to_override(rows[0])
+    override_id = str(rows[0]["id"])
     log_safe(
         "foster.capacity_override.recorded",
         casa_acogida_id=casa_id,
         animal_id=animal_id,
         operador=operador_user_id,
     )
-    return override
+    return override_id
 
 
 def list_overrides_for_casa(

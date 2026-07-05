@@ -383,10 +383,34 @@ def _build_write_params(params: dict[str, Any]) -> list[Any]:
 # --- public CRUD ----------------------------------------------------------
 
 
+# Issue #142 — linkage UPDATE from ``create_acogida`` to
+# ``foster_capacity_overrides.estancia_id``. The ``AND estancia_id IS
+# NULL`` guard prevents linking twice (a duplicate ``create_acogida``
+# with the same ``override_id`` is treated as a no-op so the original
+# link wins). Empty ``override_id`` (from a missing form field that
+# serializes as ``""``) is treated the same as absent — no UPDATE.
+_LINK_OVERRIDE_SQL: Final[str] = """
+UPDATE foster_capacity_overrides
+SET estancia_id = $1
+WHERE id = $2
+  AND estancia_id IS NULL
+"""
+
+
 def create_acogida(
     client, params: dict[str, Any]
 ) -> Acogida:
-    """Insert a new estancia de acogida and return the persisted row."""
+    """Insert a new estancia de acogida and return the persisted row.
+
+    Issue #142: ``params`` may carry an ``override_id`` key (str,
+    nullable). When present and non-empty, after the INSERT succeeds
+    we UPDATE ``foster_capacity_overrides.estancia_id`` for that
+    override row to the new ``acogida.id``. The UPDATE is a no-op
+    (0 rows) when the override is already linked or the UUID is
+    unknown — in that case we emit a ``foster.override.unlinked``
+    warning instead of raising so the operator's estancia creation
+    still succeeds.
+    """
     # Validation runs BEFORE the INSERT so we never write a row with
     # broken FKs. The required-text helpers raise ValueError before any
     # SQL if fecha_inicio or animal_id is empty.
@@ -397,6 +421,25 @@ def create_acogida(
     rows = client.execute_sql(_INSERT_ACOGIDA_SQL, write_params)
     acogida = _row_to_acogida(rows[0])
     log_safe("foster.acogida.created", acogida_id=acogida.id)
+
+    # Issue #142: link the foster_capacity_overrides row to the new
+    # estancia, when ``override_id`` is present and non-empty.
+    override_id_raw = params.get("override_id")
+    if isinstance(override_id_raw, str) and override_id_raw.strip():
+        link_rows = client.execute_sql(
+            _LINK_OVERRIDE_SQL, [acogida.id, override_id_raw.strip()]
+        )
+        if not link_rows:
+            # 0 rows updated: the override row is already linked, or
+            # the UUID does not exist. Log a warning and do NOT raise
+            # — the estancia itself was created successfully and
+            # audit-log anomalies must not punish the operator.
+            log_safe(
+                "foster.override.unlinked",
+                override_id=override_id_raw,
+                motivo="override row missing or already linked",
+            )
+
     return acogida
 
 

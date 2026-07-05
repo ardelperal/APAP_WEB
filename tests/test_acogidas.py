@@ -234,6 +234,213 @@ def test_create_acogida_with_null_casa_acogida_skips_casa_check() -> None:
     assert casa_checks == []
 
 
+# --- Issue #142: create_acogida links foster_capacity_overrides row -------
+
+
+def test_create_acogida_links_override_when_override_id_present() -> None:
+    """Issue #142: ``override_id`` threaded into ``create_acogida`` -> UPDATE links it.
+
+    Pre-condition: foster_capacity_overrides row exists with
+    estancia_id=NULL. The handler threads ``override_id`` as a hidden
+    form field from /asignar so create_acogida can do the linkage.
+    After the INSERT into ``acogidas`` succeeds, an UPDATE writes the
+    new ``acogida.id`` into the override's ``estancia_id`` column.
+    The audit log now reads "override -> estancia X" atomically.
+    """
+    captured: list[dict[str, Any]] = []
+    ACOGIDA_UUID = "22222222-2222-2222-2222-222222222222"
+    OVERRIDE_UUID = "99999999-9999-9999-9999-999999999999"
+
+    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
+        if "FROM animales" in body["query"] and "WHERE id = $1" in body["query"]:
+            return _json_response(200, [_animal_row()])
+        if "INSERT INTO acogidas" in body["query"]:
+            return _json_response(200, [_row()])
+        # The linkage UPDATE on foster_capacity_overrides.
+        if "UPDATE foster_capacity_overrides" in body["query"]:
+            captured.append(body)
+            return _json_response(200, [{"id": OVERRIDE_UUID, "estancia_id": ACOGIDA_UUID}])
+        raise AssertionError(f"Unexpected SQL: {body['query']}")
+
+    client, _ = _client_recording(_handler)
+    params = {**_params_minimal(), "override_id": OVERRIDE_UUID}
+
+    result = acogidas_service.create_acogida(client, params)
+    client.close()
+
+    assert result.id == ACOGIDA_UUID
+    # The UPDATE ran with (estancia_id, override_id) and the NULL guard.
+    assert len(captured) == 1, (
+        f"expected exactly one linkage UPDATE; got {captured!r}"
+    )
+    update_call = captured[0]
+    assert "UPDATE foster_capacity_overrides" in update_call["query"]
+    assert "SET estancia_id" in update_call["query"]
+    assert "WHERE id = $2" in update_call["query"]
+    assert "AND estancia_id IS NULL" in update_call["query"]
+    # Params: $1 = new estancia_id, $2 = override UUID.
+    assert update_call["params"] == [ACOGIDA_UUID, OVERRIDE_UUID]
+
+
+def test_create_acogida_logs_warning_when_override_already_linked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #142: override row already linked -> log warning, do not fail.
+
+    If the row's estancia_id is already populated (e.g. previous create
+    succeeded, or duplicate thread), the UPDATE matches 0 rows. We log
+    ``foster.override.unlinked`` and DO NOT raise: the estancia itself
+    was created, do not punish the operator for an audit-log anomaly.
+    """
+    captured_log: list[dict[str, Any]] = []
+
+    def _capture(event: str, **fields: Any) -> None:
+        captured_log.append({"event": event, **fields})
+
+    monkeypatch.setattr(
+        "app.modules.acogidas.service.log_safe", _capture
+    )
+
+    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
+        if "FROM animales" in body["query"] and "WHERE id = $1" in body["query"]:
+            return _json_response(200, [_animal_row()])
+        if "INSERT INTO acogidas" in body["query"]:
+            return _json_response(200, [_row()])
+        if "UPDATE foster_capacity_overrides" in body["query"]:
+            # 0 rows: WHERE id=X AND estancia_id IS NULL fails because
+            # the row is already linked.
+            return _json_response(200, [])
+        raise AssertionError(f"Unexpected SQL: {body['query']}")
+
+    client, _ = _client_recording(_handler)
+
+    result = acogidas_service.create_acogida(
+        client, {**_params_minimal(), "override_id": "already-linked-uuid"}
+    )
+    client.close()
+
+    # The estancia was created successfully.
+    assert result.id == "22222222-2222-2222-2222-222222222222"
+    # A warning was emitted to flag the audit anomaly.
+    assert any(
+        entry["event"] == "foster.override.unlinked"
+        for entry in captured_log
+    ), (
+        f"expected foster.override.unlinked warning; got {captured_log!r}"
+    )
+    warning = next(
+        e for e in captured_log if e["event"] == "foster.override.unlinked"
+    )
+    assert "motivo" in warning
+    assert "override_id" in warning
+
+
+def test_create_acogida_logs_warning_when_override_id_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #142: override_id that doesn't exist -> log warning, do not fail.
+
+    An operator could craft a request with a garbage override_id (or a
+    previous run's stale UUID). The UPDATE matches 0 rows because the
+    UUID is not in foster_capacity_overrides. Same behavior as the
+    already-linked case: warn, do not raise.
+    """
+    captured_log: list[dict[str, Any]] = []
+
+    def _capture(event: str, **fields: Any) -> None:
+        captured_log.append({"event": event, **fields})
+
+    monkeypatch.setattr(
+        "app.modules.acogidas.service.log_safe", _capture
+    )
+
+    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
+        if "FROM animales" in body["query"] and "WHERE id = $1" in body["query"]:
+            return _json_response(200, [_animal_row()])
+        if "INSERT INTO acogidas" in body["query"]:
+            return _json_response(200, [_row()])
+        if "UPDATE foster_capacity_overrides" in body["query"]:
+            return _json_response(200, [])
+        raise AssertionError(f"Unexpected SQL: {body['query']}")
+
+    client, _ = _client_recording(_handler)
+
+    result = acogidas_service.create_acogida(
+        client, {**_params_minimal(), "override_id": "ghost-uuid"}
+    )
+    client.close()
+
+    assert result.id == "22222222-2222-2222-2222-222222222222"
+    assert any(
+        entry["event"] == "foster.override.unlinked"
+        for entry in captured_log
+    )
+
+
+def test_create_acogida_without_override_id_doesnt_touch_foster_capacity_overrides() -> None:
+    """Issue #142 regression: absent ``override_id`` -> no UPDATE against fco.
+
+    When the operator hits ``/acogidas/new`` directly (not via
+    /asignar override), no override exists. ``create_acogida`` MUST NOT
+    emit any UPDATE against ``foster_capacity_overrides`` in that case —
+    defense against accidentally widening the surface.
+    """
+    captured: list[dict[str, Any]] = []
+
+    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
+        captured.append(body)
+        if "FROM animales" in body["query"] and "WHERE id = $1" in body["query"]:
+            return _json_response(200, [_animal_row()])
+        if "INSERT INTO acogidas" in body["query"]:
+            return _json_response(200, [_row()])
+        raise AssertionError(f"Unexpected SQL: {body['query']}")
+
+    client, _ = _client_recording(_handler)
+
+    acogidas_service.create_acogida(client, _params_minimal())
+    client.close()
+
+    fco_writes = [
+        c for c in captured
+        if "foster_capacity_overrides" in c["query"]
+    ]
+    assert fco_writes == [], (
+        f"create_acogida MUST NOT touch foster_capacity_overrides when "
+        f"override_id absent; got: {fco_writes!r}"
+    )
+
+
+def test_create_acogida_with_empty_override_id_skips_link() -> None:
+    """Issue #142: ``override_id=''`` (empty string from missing form field)
+    is treated the same as absent — no UPDATE against foster_capacity_overrides.
+
+    Defense against the route handler accidentally rendering
+    ``<input type="hidden" name="override_id" value="">`` when no
+    override exists and the form serializes the empty string instead
+    of omitting the field.
+    """
+    captured: list[dict[str, Any]] = []
+
+    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
+        captured.append(body)
+        if "FROM animales" in body["query"] and "WHERE id = $1" in body["query"]:
+            return _json_response(200, [_animal_row()])
+        if "INSERT INTO acogidas" in body["query"]:
+            return _json_response(200, [_row()])
+        raise AssertionError(f"Unexpected SQL: {body['query']}")
+
+    client, _ = _client_recording(_handler)
+
+    acogidas_service.create_acogida(client, {**_params_minimal(), "override_id": ""})
+    client.close()
+
+    fco_writes = [
+        c for c in captured
+        if "foster_capacity_overrides" in c["query"]
+    ]
+    assert fco_writes == []
+
+
 # --- create: required-field validation ------------------------------------
 
 

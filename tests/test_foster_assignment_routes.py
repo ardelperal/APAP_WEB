@@ -323,7 +323,14 @@ async def test_post_asignar_admit_with_warning_con_motivo_graba_override_y_redir
     route_client: _NoSqlRouteClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """decision=admit_with_warning + motivo non-empty -> INSERT override + 303."""
+    """decision=admit_with_warning + motivo non-empty -> INSERT override + 303.
+
+    Issue #142: el redirect URL DEBE incluir ``override_id=<uuid>`` para
+    que ``create_acogida`` pueda enlazar el override con la estancia
+    resultante. Sin ese parámetro, el row de ``foster_capacity_overrides``
+    queda huérfano (el operador puede cancelar el create y la auditoría
+    queda mintiendo). El test pinea el contrato del redirect.
+    """
     _login_as_key_user(client)
     monkeypatch.setattr(
         foster_service, "get_casa_acogida_by_id", lambda _c, _id: _casa()
@@ -339,9 +346,12 @@ async def test_post_asignar_admit_with_warning_con_motivo_graba_override_y_redir
     )
     recorded: list[dict[str, Any]] = []
 
+    # Issue #142: record_override ahora devuelve el UUID como str.
+    OVERRIDE_UUID = "99999999-9999-9999-9999-999999999999"
+
     def _record_override(
         _c, *, casa_id, animal_id, operador_user_id, motivo
-    ) -> assignment_service.FosterCapacityOverride:
+    ) -> str:
         recorded.append(
             {
                 "casa_id": casa_id,
@@ -350,7 +360,7 @@ async def test_post_asignar_admit_with_warning_con_motivo_graba_override_y_redir
                 "motivo": motivo,
             }
         )
-        return _override_row(motivo=motivo)
+        return OVERRIDE_UUID
 
     monkeypatch.setattr(
         assignment_service, "record_override", _record_override
@@ -367,13 +377,59 @@ async def test_post_asignar_admit_with_warning_con_motivo_graba_override_y_redir
     )
 
     assert response.status_code == 303
-    assert response.headers["location"].startswith("/acogidas/new?")
+    location = response.headers["location"]
+    assert location.startswith("/acogidas/new?")
+    assert "animal_id=11111111-1111-1111-1111-111111111111" in location
+    assert "casa_acogida_id=casa-123" in location
+    # Issue #142: override_id MUST be present for the estancia-create
+    # side to link the override row to the new estancia.
+    assert f"override_id={OVERRIDE_UUID}" in location, (
+        f"redirect MUST thread override_id for atomicity; got {location!r}"
+    )
     assert len(recorded) == 1
     entry = recorded[0]
     assert entry["casa_id"] == "casa-123"
     assert entry["animal_id"] == "11111111-1111-1111-1111-111111111111"
     assert entry["operador_user_id"] == "u-ana"  # from session
     assert entry["motivo"] == "caso urgente"
+
+
+async def test_post_asignar_admit_redirect_does_not_include_override_id(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """decision=admit (no warning) -> 303 sin ``override_id`` (no override recorded).
+
+    Regresión del cambio: cuando el gate pasa sin warning no hay override
+    que enlazar, así que el redirect NO lleva ``override_id``. Esto
+    garantiza que ``create_acogida`` no intente un UPDATE fantasma sobre
+    un row inexistente.
+    """
+    _login_as_key_user(client)
+    monkeypatch.setattr(
+        foster_service, "get_casa_acogida_by_id", lambda _c, _id: _casa()
+    )
+    monkeypatch.setattr(
+        assignment_service,
+        "evaluate_assignment",
+        lambda _c, _aid, _cid: assignment_service.AssignmentDecision(
+            decision="admit", reason=None, warnings=()
+        ),
+    )
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/casas-acogida/casa-123/asignar",
+        form_data={"animal_id": "11111111-1111-1111-1111-111111111111"},
+    )
+
+    assert response.status_code == 303
+    location = response.headers["location"]
+    assert "override_id=" not in location, (
+        f"admit (no warning) MUST NOT include override_id; got {location!r}"
+    )
 
 
 # --- 7. POST admit_with_warning sin motivo -> 422 + warning visible -----

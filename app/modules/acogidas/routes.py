@@ -215,10 +215,20 @@ def create_acogida_view(
     direccion: str | None = Form(None),
     telefono: str | None = Form(None),
     observaciones: str | None = Form(None),
+    override_id: str | None = Form(None),
     user: Any = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
-    """Create a new estancia; redirect to detail on success, re-render form on validation error."""
+    """Create a new estancia; redirect to detail on success, re-render form on validation error.
+
+    Issue #142: ``override_id`` is the (optional) hidden form field
+    threaded from ``POST /casas-acogida/{id}/asignar`` when the gate
+    returns ``admit_with_warning`` and the operator confirmed the
+    override. ``create_acogida`` uses it to UPDATE the
+    ``foster_capacity_overrides.estancia_id`` column so the audit
+    log row is no longer orphaned. An empty string is treated the
+    same as absent.
+    """
     if (early := return_early_if_response(user)) is not None:
         return early
     form_data = _form_data_to_params(
@@ -237,6 +247,10 @@ def create_acogida_view(
             "observaciones": observaciones,
         }
     )
+    # Issue #142: thread override_id through to the service so it can
+    # link the foster_capacity_overrides row.
+    if override_id is not None and override_id.strip():
+        form_data["override_id"] = override_id.strip()
     # FOSTER-03 (#45) close bypass P0: the species gate must run before
     # the INSERT. The helper returns the rejection reason (Spanish
     # message) when the gate would block the assignment; we render the

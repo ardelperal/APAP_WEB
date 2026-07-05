@@ -20,6 +20,10 @@
   <form method="post" action="{{ form_action }}" class="bg-surface rounded-card shadow-card p-6 space-y-6">
     {# PR-5B2: CSRF defense-in-depth (REQ-AH-7). #}
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    {# Issue #142: hidden override_id from /asignar when the operator confirmed an override. #}
+    {% if form_data.override_id %}
+    <input type="hidden" name="override_id" value="{{ form_data.override_id }}" />
+    {% endif %}
 
     <fieldset class="space-y-4">
       <legend class="text-sm font-semibold text-text-muted">Vinculación</legend>
