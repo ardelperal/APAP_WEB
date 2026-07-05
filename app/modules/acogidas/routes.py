@@ -37,7 +37,7 @@ from app.core.auth_dependencies import (
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
-from app.core.insforge import InsForgeClient
+from app.core.insforge import InsForgeClient, InsForgeError
 from app.core.middleware import base_template_context_processor
 from app.modules.acogidas import service as acogidas_service
 from app.modules.foster import assignment as foster_assignment_service
@@ -273,6 +273,23 @@ def create_acogida_view(
         )
     try:
         acogida = acogidas_service.create_acogida(client, form_data)
+    except InsForgeError as exc:
+        # Issue #139 P1 #4 (TOCTOU mitigation): _validate_references runs
+        # SELECTs before the INSERT; a concurrent deactivate between the
+        # SELECT and the INSERT can still produce a PostgreSQL FK
+        # violation (PostgREST 23503 / "violates foreign key
+        # constraint"). The service raises ``InsForgeError`` on a 4xx
+        # response; we translate it to a 422 with the operator's form
+        # input preserved, so the failure surfaces as an actionable
+        # form error instead of a 500.
+        return _render_form(
+            request,
+            user,
+            form_data,
+            _format_persisted_error(exc, "estancia de acogida"),
+            "/acogidas",
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+        )
     except ValueError as exc:
         return _render_form(
             request,
@@ -404,6 +421,18 @@ def update_acogida_view(
         )
     try:
         acogida = acogidas_service.update_acogida(client, acogida_id, form_data)
+    except InsForgeError as exc:
+        # Issue #139 P1 #4 (TOCTOU mitigation): see create_acogida_view.
+        # UPDATE path can also hit a concurrent FK violation between
+        # ``_validate_references`` and the UPDATE.
+        return _render_form(
+            request,
+            user,
+            form_data,
+            _format_persisted_error(exc, "estancia de acogida"),
+            f"/acogidas/{acogida_id}/update",
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+        )
     except ValueError as exc:
         return _render_form(
             request,
@@ -467,3 +496,28 @@ def delete_acogida_view(
     return RedirectResponse(
         url="/acogidas", status_code=status.HTTP_303_SEE_OTHER
     )
+
+
+# --- error formatting helpers ---------------------------------------------
+
+
+def _format_persisted_error(exc: InsForgeError, entity_label: str) -> str:
+    """Turn an ``InsForgeError`` into a Spanish-friendly 422 message.
+
+    Issue #139 P1 #4 (TOCTOU mitigation): the service catches a 4xx
+    ``InsForgeError`` and propagates it as-is. The route translates the
+    opaque InsForge body into an operator-facing message. PostgreSQL FK
+    violations arrive as PostgREST 400 with a body that mentions the
+    constraint name (e.g. ``acogidas_animal_id_fkey``); for any other
+    shape we fall back to the raw body so the operator can still
+    diagnose.
+    """
+    body_text = str(exc.body).lower() if exc.body is not None else ""
+    if "foreign key" in body_text or "violates" in body_text:
+        return (
+            f"No se pudo guardar la {entity_label}: una referencia "
+            f"extranjera (animal, casa, voluntario o entrada) dejó de "
+            f"ser válida entre la validación y el guardado. Revisa los "
+            f"identificadores e inténtalo de nuevo."
+        )
+    return f"No se pudo guardar la {entity_label}: {exc}"
