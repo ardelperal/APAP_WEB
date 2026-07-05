@@ -6,7 +6,7 @@ template glue. The fixture ``_NoSqlRouteClient`` enforces the
 AGENTS.md layer-boundary rule (no ``client.execute_sql`` in routes).
 All data access goes through ``app.modules.foster.service``.
 
-Coverage (15 atoms):
+Coverage (16 atoms):
 
 1. Auth guard on every endpoint (parametrized over the 7 endpoints).
 2. ``GET /casas-acogida`` delegates to ``foster_service.list_casas_acogida``
@@ -23,7 +23,7 @@ Coverage (15 atoms):
 8. ``GET /casas-acogida/{id}`` renders the detail view with the casa's
    data.
 9. ``GET /casas-acogida/{id}/edit`` renders the form prefilled, with
-   ``form_action="/casas-acogida/{id}/update"`` and a CSRF token.
+    ``form_action="/casas-acogida/{id}/update"`` and a CSRF token.
 10. ``POST /casas-acogida/{id}/update`` with valid records redirects to
     the detail page.
 11. ``POST /casas-acogida/{id}/update`` with a validation error
@@ -36,6 +36,11 @@ Coverage (15 atoms):
     returns False (row missing or already inactive).
 15. Route source contains no ``client.execute_sql`` call (defense in
     depth alongside the runtime ``_NoSqlRouteClient`` spy).
+16. ``POST /casas-acogida`` with ``capacidad=""`` yields Pydantic's
+    standard JSON 422 (Refs #140 W2 follow-up to PR #162): the empty
+    string is rejected at parse time, the service is never reached,
+    and the response is JSON with ``detail[].loc == ["body",
+    "capacidad"]`` — NOT the service-level HTML re-render.
 """
 
 from __future__ import annotations
@@ -414,6 +419,110 @@ async def test_create_casa_acogida_sad_validation_rerenders_form_with_422(
     assert "capacidad debe ser un entero positivo" in body
     # Operator input is preserved (their nombre still in the body).
     assert 'value="María"' in body
+
+
+# ---------------------------------------------------------------------------
+# Refs #140 W2 follow-up (PR #162 retro review): empty ``capacidad`` must
+# yield Pydantic's standard JSON 422, NOT the service-level Spanish render
+# exercised above. The W2 subagent moved ``capacidad`` validation from a
+# silent ``try/except int(...)`` in the route to Pydantic's int coercion at
+# parse time. This atom pins the new contract.
+# ---------------------------------------------------------------------------
+
+
+async def test_post_casa_acogida_with_empty_capacidad_returns_pydantic_422(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Refs #140 W2 follow-up: empty ``capacidad`` -> Pydantic JSON 422.
+
+    Regression guard for the W2 behavior change landed in PR #162
+    (commit eb76e19). Before that PR, ``create_casa_acogida_view``
+    parsed ``capacidad`` via a silent ``try/except int(capacidad_raw)``
+    in the route: on ``ValueError`` the empty string was passed
+    through to the service, which then re-raised a Spanish
+    ``ValueError(...)`` and the route re-rendered the form with
+    HTTP 422 + the operator's input preserved.
+
+    After PR #162, ``CasaAcogidaForm.capacidad`` is typed as ``int``
+    (Pydantic v2 ``BaseModel`` + ``Form(...)``), so FastAPI's
+    ``RequestValidationError`` path catches the empty string at parse
+    time and returns the standard JSON 422 with ``detail[].loc`` ==
+    ``["body", "capacidad"]`` and a ``type: int_parsing`` marker. The
+    service is never reached.
+
+    This atom pins the new contract: status 422 from the ROUTE (not
+    from the service), JSON body carrying ``capacidad`` and the
+    integer-parsing message. If a future refactor re-introduces the
+    silent try/except or relaxes ``capacidad`` back to ``str``, the
+    service mock raises AssertionError AND the JSON shape check fails
+    loudly.
+
+    Note on transport: httpx 0.28+ preserves empty-string form
+    values in the URL-encoded body (``capacidad=``), so
+    ``form_data={"capacidad": ""}`` does reach the handler. The
+    parser-side field-required path is therefore NOT exercised by
+    this test - the field IS present, just empty; Pydantic rejects
+    the empty string at int coercion. A separate regression test
+    for an OMITTED ``capacidad`` is intentionally absent because
+    that path was never part of the W2 bug.
+    """
+    _login_as_key_user(client)
+
+    # Sentinel: the service MUST NOT be reached when Pydantic catches
+    # the empty string at parse time. If anything short-circuits the
+    # parse-error path (a future relax of ``capacidad`` back to
+    # ``str``, a missing form-definition, etc.), the AssertionError
+    # names the regression loud and clear.
+    def _create_must_not_be_called(
+        service_client: InsForgeClient, params: dict[str, Any]
+    ) -> foster_service.CasaAcogida:
+        raise AssertionError(
+            "Pydantic parse should reject empty 'capacidad' BEFORE "
+            f"the service is called; got params={params!r}"
+        )
+
+    monkeypatch.setattr(
+        foster_service, "create_casa_acogida", _create_must_not_be_called
+    )
+
+    payload = _form_data()
+    payload["capacidad"] = ""  # empty string (NOT omitted) - the W2 case
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/casas-acogida",
+        form_data=payload,
+        csrf_token="test-csrf-token-foster",
+    )
+
+    # FastAPI's RequestValidationError -> HTTP 422.
+    assert response.status_code == 422, (
+        f"empty capacidad MUST trigger Pydantic 422 (refs #140 W2); "
+        f"got status={response.status_code} body={response.text!r}"
+    )
+    # JSON body, NOT the Spanish HTML re-render the service-level
+    # path would produce. Pinning the content-type protects against a
+    # future change that wraps the parse error in an HTML page.
+    content_type = response.headers.get("content-type", "")
+    assert "application/json" in content_type, (
+        f"Pydantic 422 MUST come back as JSON; got content-type={content_type!r}"
+    )
+    body = response.text
+    # Pydantic v2 standard ``detail`` array - the failing field name
+    # appears as ``"body","capacidad"`` in ``loc``. Lowercased so the
+    # assertion survives JSON-quote or field-name case variations.
+    assert "capacidad" in body, (
+        f"422 body MUST name 'capacidad' as the failing field; got: {body!r}"
+    )
+    # Pydantic v2 standard messages for ``int`` parse failures carry
+    # one of: ``"Input should be a valid integer"``, ``"int_parsing"``,
+    # or a localized variant. Match on the stable substrings.
+    assert (
+        "integer" in body.lower() or "int_parsing" in body.lower()
+    ), f"422 body MUST mention integer parsing; got: {body!r}"
 
 
 # --- 7. GET /casas-acogida/{id} (detail, missing) ------------------------
