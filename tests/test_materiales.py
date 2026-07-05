@@ -26,9 +26,8 @@ from typing import Any
 import httpx
 import pytest
 
-from app.core.insforge import InsForgeClient, InsForgeError
+from app.core.insforge import InsForgeClient
 from app.modules.materiales import service as materiales_service
-
 
 # --- helpers --------------------------------------------------------------
 
@@ -214,19 +213,14 @@ def test_create_material_unique_constraint_raises_conflict() -> None:
     to HTTP 409. This is the race-condition path (two writers submitting
     the same triple simultaneously) — Scenario 2 in spec #15894.
     """
-    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
-        return _json_response(
+    client, _captured = _client_recording(
+        lambda req, body: _json_response(
             409,
             {
                 "code": "23505",
                 "message": 'duplicate key value violates unique constraint "materiales_material_tamano_color_key"',
             },
         )
-
-    client = InsForgeClient(
-        base_url="https://example.insforge.app",
-        service_key="ik_test",
-        transport=httpx.MockTransport(_handler),
     )
 
     with pytest.raises(materiales_service.MaterialConflictError, match="combinaci"):
@@ -354,9 +348,11 @@ def test_deactivate_material_soft_deletes_and_cascades_junction() -> None:
     showing up in any estancia's material list.
     """
     def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
-        if "UPDATE materiales SET activo = false" in body["query"]:
+        # Multi-line SQL — substring matches must avoid the
+        # ``UPDATE materiales``/``SET`` newline boundary.
+        if "UPDATE materiales" in body["query"] and "activo = false" in body["query"]:
             return _json_response(200, [{"id": body["params"][0]}])
-        if "UPDATE estancia_materiales SET activo = false" in body["query"]:
+        if "UPDATE estancia_materiales" in body["query"] and "activo = false" in body["query"]:
             return _json_response(200, [{"id": "junction-1"}, {"id": "junction-2"}])
         raise AssertionError(f"Unexpected SQL: {body['query']}")
 
@@ -369,9 +365,13 @@ def test_deactivate_material_soft_deletes_and_cascades_junction() -> None:
     assert result is True
     assert len(captured) == 2
     catalog_call, cascade_call = captured
-    assert "UPDATE materiales SET activo = false" in catalog_call["query"]
+    # Catalog UPDATE — soft-delete the material row.
+    assert "UPDATE materiales" in catalog_call["query"]
+    assert "activo = false" in catalog_call["query"]
     assert "fecha_baja = now()" in catalog_call["query"]
-    assert "UPDATE estancia_materiales SET activo = false" in cascade_call["query"]
+    # Junction cascade UPDATE — soft-delete every active junction for this material.
+    assert "UPDATE estancia_materiales" in cascade_call["query"]
+    assert "activo = false" in cascade_call["query"]
     # The cascade targets the same material_id.
     assert cascade_call["params"][0] == "11111111-1111-1111-1111-111111111111"
 
@@ -401,18 +401,22 @@ def test_assign_material_to_estancia_happy_path() -> None:
     """
     def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
         # FK checks for estancia + material (each SELECT returns a row).
-        if (
-            "FROM acogidas WHERE id = $1" in body["query"]
-            and "activo = true" in body["query"]
-        ):
+        # The service does the activo + fecha_final check in Python so
+        # the SQL is just an existence query.
+        if "FROM acogidas" in body["query"]:
             return _json_response(200, [_estancia_row()])
-        if (
-            "FROM materiales WHERE id = $1" in body["query"]
-            and "activo = true" in body["query"]
-        ):
+        if "FROM materiales" in body["query"]:
             return _json_response(200, [_material_row()])
         if "INSERT INTO estancia_materiales" in body["query"]:
-            return _json_response(200, [_junction_row()])
+            # Return the junction row with the cantidad + notas echoed
+            # back from the INSERT params so the dataclass assertions
+            # match the actual request.
+            return _json_response(
+                200,
+                [_junction_row(
+                    {"cantidad": body["params"][2], "notas": body["params"][3]}
+                )],
+            )
         raise AssertionError(f"Unexpected SQL: {body['query']}")
 
     client, captured = _client_recording(_handler)
@@ -445,16 +449,25 @@ def test_assign_material_to_estancia_happy_path() -> None:
 def test_assign_material_to_estancia_rejects_inactive_material() -> None:
     """If the material is activo=false (soft-deleted), raise ValueError
     BEFORE the INSERT. Scenario 8 in spec #15894.
+
+    The estancia FK check runs FIRST in ``assign_material_to_estancia``,
+    so this test mocks both the estancia check (returns a healthy row)
+    AND the material check (returns an inactive row). The validator
+    chain stops at the material step with ValueError before the INSERT.
     """
     def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
-        if "FROM materiales WHERE id = $1" in body["query"]:
+        if "FROM acogidas" in body["query"]:
+            # Estancia is healthy — pass the FK check.
+            return _json_response(200, [_estancia_row()])
+        if "FROM materiales" in body["query"]:
+            # Material is soft-deleted — must reject.
             return _json_response(
                 200, [_material_row({"activo": False})]
             )
         raise AssertionError(f"Unexpected SQL: {body['query']}")
 
     client, captured = _client_recording(_handler)
-    with pytest.raises(ValueError, match="material est"):
+    with pytest.raises(ValueError, match=r"material.*activo.*inactivo"):
         materiales_service.assign_material_to_estancia(
             client,
             estancia_id="22222222-2222-2222-2222-222222222222",
@@ -462,8 +475,9 @@ def test_assign_material_to_estancia_rejects_inactive_material() -> None:
         )
     client.close()
 
-    # Only the material FK check ran; no INSERT, no junction row.
-    assert len(captured) == 1
+    # Two SQL calls: estancia FK check (passed) + material FK check (rejected).
+    # No INSERT runs.
+    assert len(captured) == 2
 
 
 def test_assign_material_to_estancia_rejects_closed_or_soft_deleted_estancia() -> None:
@@ -472,7 +486,7 @@ def test_assign_material_to_estancia_rejects_closed_or_soft_deleted_estancia() -
     #15894 + data-model-completeness.md §4 invariant.
     """
     def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
-        if "FROM acogidas WHERE id = $1" in body["query"]:
+        if "FROM acogidas" in body["query"]:
             # Simulate a closed (fecha_final populated) AND soft-deleted
             # estancia — either condition must reject.
             return _json_response(200, [])
@@ -539,7 +553,10 @@ def test_remove_material_from_estancia_soft_deletes() -> None:
 
     assert result is True
     query = captured[0]["query"]
-    assert "UPDATE estancia_materiales SET activo = false" in query
+    # Multi-line SQL — substring avoids the
+    # ``UPDATE estancia_materiales``/``SET`` newline boundary.
+    assert "UPDATE estancia_materiales" in query
+    assert "activo = false" in query
     assert "WHERE id = $1" in query
     assert "activo = true" in query
     assert "DELETE FROM" not in query
@@ -572,9 +589,9 @@ def test_cascade_deactivate_by_material_soft_deletes_all_assignments() -> None:
     targeting the catalog id.
     """
     def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
-        if "UPDATE materiales SET activo = false" in body["query"]:
+        if "UPDATE materiales" in body["query"] and "activo = false" in body["query"]:
             return _json_response(200, [{"id": body["params"][0]}])
-        if "UPDATE estancia_materiales SET activo = false" in body["query"]:
+        if "UPDATE estancia_materiales" in body["query"] and "activo = false" in body["query"]:
             # Return 3 affected junction rows — proves the WHERE filter
             # catches multiple assignments (same material, different
             # estancias).
