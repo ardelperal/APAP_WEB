@@ -608,6 +608,16 @@ def close_acogida(
     shelter or moves to adoption), NOT a soft-delete. The row stays
     visible in ``list_acogidas`` with ``fecha_final`` populated. Returns
     None when no row matches the id.
+
+    Intentionally NOT filtered by ``activo = true`` to support
+    data-cleanup workflows where a closed-then-soft-deleted stay needs
+    to be re-opened via date correction. Operators who want to close
+    only active stays must use ``_DELETE_ACOGIDA_SQL`` semantics
+    separately (``list_acogidas(activas_solo=True)`` first, then
+    close).
+
+    Issue #139 P1 #5: this contract is pinned by
+    ``test_close_acogida_works_on_soft_deleted_stay``.
     """
     rows = client.execute_sql(_CLOSE_ACOGIDA_SQL, [acogida_id])
     if not rows:
@@ -647,11 +657,30 @@ def compute_duracion(acogida: Acogida) -> int | None:
     Returns ``None`` when the stay is still open (``fecha_final IS NULL``).
     Returns ``0`` when both dates fall on the same day. Both inputs are
     ISO-8601 date strings (``YYYY-MM-DD``).
+
+    Raises ``ValueError`` when:
+
+      * ``fecha_final`` is earlier than ``fecha_inicio``. Per the
+        legacy semantic, a stay cannot end before it begins — this is
+        a data-entry error (operator typed the dates in the wrong
+        order). Returning a negative number would silently corrupt the
+        operator-facing duration display, so we raise loudly instead.
+        The form layer surfaces this as a 422 with the operator's
+        input preserved.
+      * ``fecha_inicio`` or ``fecha_final`` is not a valid ISO-8601
+        date string. ``date.fromisoformat`` raises ``ValueError`` on
+        malformed input; we let it propagate (no silent swallow, no
+        ``None`` fallback).
     """
     if not acogida.fecha_final:
         return None
     inicio = date.fromisoformat(acogida.fecha_inicio)
     fin = date.fromisoformat(acogida.fecha_final)
+    if fin < inicio:
+        raise ValueError(
+            f"fecha_final ({fin}) debe ser >= fecha_inicio ({inicio}) "
+            f"para estancia {acogida.id}"
+        )
     return (fin - inicio).days
 
 
