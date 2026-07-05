@@ -453,3 +453,4 @@ Acciones que obligan a actualizar el roadmap en la misma sesión:
   ```
 
   Las referencias marcadas como **ROTA** en el refresh 2026-07-03 son: `docs/plan-completo.md`, `docs/canonical-logs.md`, `docs/mockups/login-simple-insforge.html`, `docs/mockups/login-dashboard.html`, `docs/mockups/ficha-animal-timeline.html`. Plan de remediación documentado en §5.
+
