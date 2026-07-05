@@ -80,6 +80,9 @@ from app.modules.entradas.batch_routes import router as entradas_batch_router
 from app.modules.entradas.routes import router as entradas_router
 from app.modules.foster.assignment_routes import router as foster_assignment_router
 from app.modules.foster.routes import router as foster_router
+from app.modules.materiales.acogida_routes import (
+    router as materiales_acogida_router,
+)
 from app.modules.materiales.routes import router as materiales_router
 from app.modules.sanidad.routes import router as sanidad_router
 from app.modules.voluntarios.routes import router as voluntarios_router
@@ -664,6 +667,14 @@ def create_app() -> FastAPI:
     # in PR C — kept distinct so the two routers can mount under
     # different prefixes (``/materiales`` and ``/acogidas``).
     application.include_router(materiales_router)
+    # FOSTER-04 (#46) PR C — per-estancia junction routes. Mounted
+    # AFTER the catalog router so the catalog's
+    # ``{material_id}``-shaped paths come first (the junction
+    # router declares absolute paths under ``/acogidas/...`` and a
+    # catch-all is not at risk here, but the order matches the
+    # Q3-from-PR-A-router-split decision and the foster_router +
+    # foster_assignment_router precedent).
+    application.include_router(materiales_acogida_router)
 
     return application
 

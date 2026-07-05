@@ -1016,6 +1016,71 @@ TEMPLATE_SPECS: list[tuple[str, list[str], dict[str, Any]]] = [
             },
         },
     ),
+    (
+        # FOSTER-04 (#46) PR C — per-estancia junction view
+        # (``/acogidas/{id}/materiales``). Same render shape as the
+        # catalog detail: a list of junction rows + a writer-only
+        # assign form + the catalog dropdown. The XSS audit mutates
+        # every operator-influenced text field (notes, error message,
+        # the catalog material labels) and asserts the literal
+        # payload does not leak into the rendered HTML.
+        #
+        # CRITICAL-1 (jd-judge-a, PR #171): the template now resolves
+        # each row's material FK through ``material_lookup`` (a dict
+        # keyed by ``Material.id``) so the cells render the catalog's
+        # natural-key trio (material / tamano / color) instead of the
+        # FK UUID. The audit base context mirrors the route handler
+        # in ``app/modules/materiales/acogida_routes.py`` and ships a
+        # matching ``material_lookup`` dict.
+        "acogidas/materiales.html",
+        [
+            "assigned[0].id",
+            "assigned[0].estancia_id",
+            "assigned[0].material_id",
+            "assigned[0].cantidad",
+            "assigned[0].notas",
+            "assigned[0].fecha_alta",
+            "catalog[0].id",
+            "catalog[0].material",
+            "catalog[0].tamano",
+            "catalog[0].color",
+            "error",
+        ],
+        {
+            "user": _BASE_USER,
+            "estancia_id": "11111111-1111-1111-1111-111111111111",
+            "assigned": [
+                {
+                    "id": "22222222-2222-2222-2222-222222222222",
+                    "estancia_id": "11111111-1111-1111-1111-111111111111",
+                    "material_id": "33333333-3333-3333-3333-333333333333",
+                    "cantidad": 2,
+                    "activo": True,
+                    "notas": "Para camada nueva",
+                    "fecha_alta": "2026-07-05T10:00:00Z",
+                }
+            ],
+            "catalog": [
+                {
+                    "id": "33333333-3333-3333-3333-333333333333",
+                    "material": "Cama",
+                    "tamano": "Grande",
+                    "color": "Azul",
+                    "activo": True,
+                }
+            ],
+            "material_lookup": {
+                "33333333-3333-3333-3333-333333333333": {
+                    "id": "33333333-3333-3333-3333-333333333333",
+                    "material": "Cama",
+                    "tamano": "Grande",
+                    "color": "Azul",
+                    "activo": True,
+                }
+            },
+            "error": None,
+        },
+    ),
 ]
 
 
@@ -1123,6 +1188,52 @@ def test_template_html_escapes_xss_payload(
         f"This is the XSS finding — document in "
         f"docs/audits/xss-audit-2026-Q2.md and fix before chain continues."
     )
+
+
+def test_xss_audit_error_field_is_escaped() -> None:
+    """CRITICAL-2 (jd-judge-a, PR #171): ``error`` MUST be HTML-escaped.
+
+    The per-stay junction view (``acogidas/materiales.html``) renders
+    the ``error`` field inside ``<div role="alert">...</div>`` when
+    the assign flow raises ``ValueError`` or
+    ``MaterialConflictError``. The error string is operator-visible
+    copy (Spanish actionable messages from the route layer), so today
+    it does not carry user-influenced text — but the template MUST
+    HTML-escape it anyway so a future change that surfaces a form
+    value, a sanitization path that doesn't strip angle brackets, or
+    a regression that drops Jinja2 autoescape cannot turn the alert
+    into an XSS payload.
+
+    The fix on the template side is ``{{ error | e }}`` (defense in
+    depth: the ``|e`` filter is explicit, idempotent with autoescape,
+    and survives any future ``Jinja2Templates(autoescape=False)``
+    drift).
+
+    This atom is a focused regression test for the ``error`` field
+    specifically — the parametrized ``test_template_html_escapes_xss_payload``
+    above also covers this case, but a dedicated atom makes the
+    reviewer-facing evidence explicit and gives the failing-PR a
+    named hook to point at.
+    """
+    base_ctx = next(
+        ctx for tpl, _, ctx in TEMPLATE_SPECS if tpl == "acogidas/materiales.html"
+    )
+    ctx = _with_xss(base_ctx, "error", "<script>alert(1)</script>")
+    rendered = render("acogidas/materiales.html", ctx)
+
+    # The literal payload MUST NOT appear unescaped. Jinja2 autoescape
+    # converts ``<`` to ``&lt;`` and ``>`` to ``&gt;``; the ``|e``
+    # filter does the same explicitly.
+    assert "<script>alert(1)</script>" not in rendered, (
+        "XSS audit FAILED: the 'error' field on acogidas/materiales.html "
+        "rendered the literal <script> payload. The template MUST apply "
+        "either Jinja2 autoescape (already on for .html) or the explicit "
+        "'| e' filter to '{{ error }}' so the angle brackets become "
+        "&lt;script&gt;. CRITICAL-2 (jd-judge-a, PR #171)."
+    )
+    # The escaped entity form MUST be present so the operator sees the
+    # actionable message instead of an empty alert.
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in rendered
 
 
 def test_jinja2templates_default_autoescape_is_true() -> None:
@@ -1254,6 +1365,24 @@ def test_no_user_data_in_url_attributes() -> None:
             # (new) or ``/materiales/{id}/edit`` (edit), never user
             # data. FOSTER-04 (#46) PR B.
             ("materiales/form.html", "form_action"),
+            # ``estancia_id`` in ``acogidas/materiales.html`` is the
+            # FastAPI path parameter ``/acogidas/{estancia_id}/...``
+            # — server-extracted from the URL by the router (never
+            # user-controlled body data). The handler passes it as a
+            # bare string into the template context and it is
+            # interpolated into ``href``/``action`` URL attributes
+            # below. FOSTER-04 (#46) PR C.
+            ("acogidas/materiales.html", "estancia_id"),
+            # ``row.id`` in ``acogidas/materiales.html`` is the
+            # ``estancia_materiales.id`` UUID PK — server-generated
+            # by the DB default (PR A schema #166). The ``for row in
+            # assigned`` loop name is local to the template. The
+            # ``id_like`` regex above only strips the bare
+            # ``{{ row.id }}`` literal when it stands alone on the
+            # line; the per-expression re-check below catches it
+            # again on a multi-interpolation URL attribute, hence
+            # this entry. FOSTER-04 (#46) PR C.
+            ("acogidas/materiales.html", "row.id"),
             # ``shortcut.href`` comes from ``_DASHBOARD_SHORTCUTS``
             # in ``app/main.py`` - a module-level constant (hardcoded
             # list of internal routes). Never user input.
