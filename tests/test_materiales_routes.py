@@ -7,7 +7,7 @@ template glue. The fixture ``_NoSqlRouteClient`` enforces AGENTS.md §1
 (no ``client.execute_sql`` in routes). All data access delegates to
 ``app.modules.materiales.service``.
 
-Coverage (12 atoms):
+Coverage (14 atoms):
 
 1. Auth guard on every endpoint (parametrized over the 7 catalog
    endpoints).
