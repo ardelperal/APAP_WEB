@@ -881,3 +881,248 @@ def test_require_developer_user_logs_auth_denied_when_role_insufficient(
         f"expected auth.denied with reason=developer_required, got: {captured!r}"
     )
     assert denial_events[0][1].get("user_id") == "u-1"
+
+
+# ---------------------------------------------------------------------------
+# Issue #143 — issue-closure scenario coverage
+#
+# The unit tests above pin the dep machinery (cache hit/miss, deny
+# paths, log emission). The five tests below pin the USER-VISIBLE
+# SCENARIOS from issue #143 by name, so a future regression cannot
+# silently break the "deactivation takes effect on the next request"
+# promise without a failing test that grep ``#143`` finds. They use
+# the same ``_RevalSpy`` and helper patterns the unit tests use
+# (no real InsForge, no real OAuth, no real lifespan).
+# ---------------------------------------------------------------------------
+
+
+def test_deactivation_takes_effect_on_next_request() -> None:
+    """Issue #143 scenario, framed by name: an admin deactivates a user;
+    the user's *next* request — still using the same valid signed cookie
+    — must be denied, not allowed.
+
+    Before #143 the cookie was the only source of truth: an admin who
+    deactivated a user via ``/admin/users/{id}/deactivate`` had to wait
+    up to 7 days for the cookie to expire. After #143 the next request
+    hits the DB and the deactivation lands immediately (within the TTL).
+
+    The cookie here is fresh and valid (``is_authorized=True``, valid
+    signature, valid timestamp); the DB spy returns no active row for
+    the user's email — exactly what ``get_user_by_email`` does after
+    the admin's ``UPDATE usuarios_autorizados SET activo = false``.
+    """
+    # Pre-fix regression safety net: the cookie is still valid (the dep
+    # MUST NOT trust the cookie — the DB is the source of truth).
+    payload = _authorized_payload(email="victim@example.com")
+    spy = _RevalSpy([])  # SELECT ... WHERE email = $1 AND activo = true → 0 rows
+
+    result = require_authorized_user(
+        request=_make_request(), payload=payload, client=spy
+    )
+
+    assert isinstance(result, _Response), (
+        f"deactivated user must be redirected, got: {result!r}"
+    )
+    assert result.status_code == 302
+    assert result.headers["location"] == "/unauthorized", (
+        "deactivated user must hit /unauthorized (the DB revalidation "
+        "miss signal), NOT /login (which means 'no session at all')"
+    )
+    assert spy.query_count == 1, (
+        "the dep MUST re-validate against the DB on every request; "
+        "the cookie is not the truth"
+    )
+
+
+def test_role_revocation_takes_effect_on_next_request() -> None:
+    """Issue #143 scenario, framed by name: an admin revokes a user's role;
+    the user's *next* request — still using the cookie with the old role
+    — must see the new role in the returned payload (or be denied if
+    the role no longer authorizes the dep).
+
+    For ``require_authorized_user`` the role refresh on the returned
+    payload is the contract: callers that depend on ``current_user["rol"]``
+    (e.g. the admin routes deciding whether to show /admin links) must
+    see the post-revocation role without a re-login. Without #143 the
+    cookie's frozen ``rol`` lingers for 7 days.
+    """
+    cookie_payload = _authorized_payload(email="victim@example.com", rol="key_user")
+    spy = _RevalSpy(
+        [{"id": "u-1", "email": "victim@example.com", "rol": "reader", "activo": True}]
+    )
+
+    result = require_authorized_user(
+        request=_make_request(), payload=cookie_payload, client=spy
+    )
+
+    assert not isinstance(result, _Response), (
+        f"reader is still an authorized user (revoked role = demoted, "
+        f"not deactivated). Expected dict payload, got redirect: {result!r}"
+    )
+    assert result["rol"] == "reader", (
+        f"require_authorized_user MUST refresh rol from the DB on every "
+        f"request — cookie rol was 'key_user', DB says 'reader' (the "
+        f"admin's revocation). The handler must see the latest value: "
+        f"got {result.get('rol')!r}"
+    )
+    # Identity is preserved from the cookie (cookie signs identity,
+    # DB signs authorization).
+    assert result["email"] == "victim@example.com"
+    assert result["user_id"] == "u-1"
+
+
+def test_log_safe_emitted_on_deactivation_denial(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #143 scenario, framed by name: a deactivated user hitting
+    a protected route MUST produce an ``auth.denied`` audit-trail
+    event with ``reason="db_reval_miss"`` so operators can grep for
+    deactivation denials in the log without scraping access logs.
+
+    The ``user_id`` from the cookie is included for traceability, but
+    no PII (``email``) leaks — the 12-field redaction list already
+    covers it. See AGENTS.md rule 9 and the closed-list in
+    ``app/core/logging.py``.
+    """
+    from app.core.auth_dependencies import require_authorized_user
+
+    captured: list[tuple[str, dict[str, object]]] = []
+
+    def _capture(event: str, **fields: object) -> None:
+        captured.append((event, fields))
+
+    monkeypatch.setattr("app.core.auth_dependencies.log_safe", _capture)
+
+    # DB has no active row for the user (deactivation took effect).
+    spy = _RevalSpy([])
+    result = require_authorized_user(
+        request=_make_request(),
+        payload=_authorized_payload(email="victim@example.com"),
+        client=spy,
+    )
+
+    assert isinstance(result, _Response)
+    assert result.headers["location"] == "/unauthorized"
+
+    denial_events = [
+        (event, fields)
+        for event, fields in captured
+        if event == "auth.denied"
+    ]
+    assert denial_events, (
+        f"deactivation denial MUST emit auth.denied (issue #146 "
+        f"audit trail contract); got: {captured!r}"
+    )
+    # The deactivation-specific reason is db_reval_miss (the DB row is
+    # gone), not writer_required / developer_required / cookie_no_flag /
+    # no_session / no_email. operators grep by reason to distinguish
+    # the deactivation signal from other deny signals.
+    db_miss = [
+        fields for _event, fields in denial_events
+        if fields.get("reason") == "db_reval_miss"
+    ]
+    assert db_miss, (
+        f"deactivation denial MUST have reason=db_reval_miss; "
+        f"got: {denial_events!r}"
+    )
+    fields = db_miss[0]
+    assert fields.get("user_id") == "u-1", (
+        "user_id is the operator-facing identifier — cookie-supplied, "
+        "non-PII; must be present on the event for traceability"
+    )
+    # PII (email) MUST NOT leak through the audit log even though the
+    # cookie carries it.
+    assert "email" not in fields, (
+        "email is on the closed 12-field redaction list and MUST NOT "
+        "be passed to log_safe (rule 9 + REDACTED_FIELDS in "
+        "app/core/logging.py)"
+    )
+
+
+def test_session_docstring_no_longer_lies() -> None:
+    """Issue #143 scenario: ``app/core/session.py`` MUST NOT advertise
+    behavior the code does not have. The pre-#143 docstring claimed:
+
+        ``per-request authorization is enforced by the auth middleware
+        by looking up the email in the authorized_users table``
+
+    That sentence was a lie — the middleware never opened a DB
+    connection. Now (post-#143) the cookie signs **identity** and the
+    dep (``require_authorized_user``) re-validates authorization.
+
+    This test parses ``app/core/session.py`` with ``ast``, reads the
+    module docstring, and asserts the lying text is absent. It is a
+    regression guard for the docstring fix: rule 10 of the
+    web-security-quality-baseline forbids security docstrings that
+    describe what the code does *not* do.
+    """
+    import ast
+    from pathlib import Path
+
+    session_path = Path(__file__).resolve().parents[1] / "app" / "core" / "session.py"
+    tree = ast.parse(session_path.read_text(encoding="utf-8"))
+    module_docstring = ast.get_docstring(tree)
+
+    assert module_docstring is not None, (
+        "app/core/session.py MUST have a module docstring — the cookie "
+        "session model is the front door of the auth layer and a "
+        "missing docstring would be a regression to a harder-to-debug "
+        "state than a wrong one"
+    )
+
+    lying_text = (
+        "per-request authorization is enforced by the auth middleware "
+        "by looking up the email in the authorized_users table"
+    )
+    assert lying_text not in module_docstring, (
+        f"app/core/session.py docstring still contains the lying claim "
+        f"\"{lying_text}\" — that text described the pre-#143 (now-fixed) "
+        f"middleware behavior the code never actually had. Rule 10 of the "
+        f"web-security-quality-baseline requires security docstrings to "
+        f"describe what the code DOES, not what it doesn't. The current "
+        f"docstring already explains the post-#143 model (cookie = "
+        f"identity, dep = per-request DB revalidation with TTL cache); "
+        f"the old claim must not come back.\n"
+        f"current docstring:\n{module_docstring}"
+    )
+
+    # Also pin the positive contract: the docstring must mention the
+    # refactored authorization model so a sloppy future edit that
+    # removes the lying text but accidentally drops the accurate
+    # explanation still fails.
+    assert "re-validated" in module_docstring or "re-validate" in module_docstring, (
+        "post-#143 session.py docstring MUST explain that authorization "
+        "is re-validated per request (the security-critical contract)."
+    )
+
+
+def test_no_regression_for_active_users() -> None:
+    """Issue #143 scenario, regression guard: an active user with a
+    valid cookie MUST still get through after the fix — the per-request
+    revalidation must not turn the door into a wall for the legitimate
+    happy path. ``require_authorized_user`` must return the dict payload
+    with the DB-refreshed ``rol`` and the cookie's ``email`` /
+    ``user_id`` preserved.
+    """
+    spy = _RevalSpy(
+        [{"id": "u-1", "email": "u@e.com", "rol": "key_user", "activo": True}]
+    )
+
+    result = require_authorized_user(
+        request=_make_request(), payload=_authorized_payload(), client=spy
+    )
+
+    assert not isinstance(result, _Response), (
+        f"active user with valid cookie MUST be allowed through; got "
+        f"redirect: {result!r}"
+    )
+    # The dep is a transparent wrapper — the payload that comes out
+    # MUST carry the cookie's identity AND the DB's rol.
+    assert result["email"] == "u@e.com"
+    assert result["user_id"] == "u-1"
+    assert result["rol"] == "key_user"
+    assert spy.query_count == 1, (
+        "first request from this email MUST consult the DB (cache was "
+        "cleared by the autouse fixture); without that, the dep could "
+        "short-circuit on a stale cache miss and skip re-validation"
+    )
