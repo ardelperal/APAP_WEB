@@ -65,7 +65,7 @@ The roadmap (Fases 3–7) is fully laid out in [`docs/roadmap.md`](docs/roadmap.
 
 - **Volunteers**: VOL-02..05 — `roles_voluntario` junction table with role validation, fuzzy dedup pipeline, name/DNI FK migration, active validation gate (#35–#38).
 - **Foster**: FOSTER-04 material assignment to stays; follow-up to move `record_override` inside the `create_acogida` transaction so the audit row and the create commit atomically (#46, #142).
-- **Adoptions**: ADOPT-02 20-day pre-adoption expiry, ADOPT-03 4-state follow-up state machine (#48, #49).
+- **Adoptions**: ADOPT-03 4-state follow-up state machine (#49). ADOPT-02 (#48) cancelled for invalid legacy provenance — see `openspec/changes/correct-preadoption-legacy-provenance/`.
 - **Health**: HEALTH-02..06 — batch import, summary API (`ActuacionSanitaria` roll-up per test type), therapies CRUD, periodicity engine, prueba-catalog migration (#51–#55).
 - **Animal lifecycle**: state resolver mirroring `DameSituacion()`, schema for the append-only `estado_actual_animal` cache, search API, chip-change cascade (#29, #30, #33, #69).
 - **Documents & reports**: DOC-01..04 contract-PDF generation, signed-upload registration, polymorphic attachments, legacy-to-object-storage migration; REPORT-01..05 parameterized query builder, server-side execution with PDF/Excel export, quarterly report, notification engine, live dashboard counters (#56–#64).
