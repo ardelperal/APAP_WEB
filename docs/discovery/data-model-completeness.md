@@ -270,8 +270,9 @@ For each significant constraint in the data model, this table specifies whether 
 | Foster home capacity | Application-only (legacy); **open question** for web | Service layer + optional DB check constraint |
 | Date range (health action within animal lifespan) | Application-only (form validation) | Service layer validation |
 | Puppy-test eligibility (dogs under 8 months) | Application-only (form logic) | Service layer validation |
-| Pre-adoption expiry (20-day window) | Application-only (date calculation) | Service layer + scheduled job |
 | Contract species/sex/age conditionals | Application-only (template logic) | Document generation service |
+
+> Pre-adoption has no runtime expiry — activity is `FDevolucion IS NULL` (`Adopcion.cls` L2047-2054). The 20-day clause is foster-contract text (`Plantilla.cls` L381-391).
 | Batch all-or-nothing commit | Application-only (transaction logic) | Service layer transaction |
 | Volunteer FK-only references | Application + DB FK constraint | DB FK constraint + service-layer validation: reject any volunteer assignment where Volunteer.ID does not exist or is inactive |
 | Volunteer no physical delete | Application-only (soft-delete pattern) | Service layer: deactivate (set inactive) instead of DELETE; block DELETE on referenced volunteers |
