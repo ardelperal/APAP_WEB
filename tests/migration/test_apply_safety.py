@@ -593,3 +593,236 @@ class TestPartialApplyEvidence:
         assert result.applied == 0
         assert "read_partial" not in events["events"]
         assert "acquire_lock" not in events["events"]
+
+
+# --------------------------------------------------------------------------
+# MSACCESS preflight fail-closed (PR3 verification remediation)
+# --------------------------------------------------------------------------
+
+
+class TestMsaccessPreflightFailClosed:
+    """The MSACCESS preflight MUST NOT silently fail open.
+
+    Per user directive 2026-07-11 (PR3 verification remediation):
+    when ``psutil`` is missing or ``process_iter`` raises during a
+    REAL apply, the apply must fail closed with a typed
+    ``MsAccessPreflightUnavailableError`` (CLI exit 5, reason
+    ``msaccess_preflight_unavailable``). A categorical ``log_safe``
+    event is emitted with the reason — no PIDs, no error strings.
+    Dry-run remains read-only and may skip the preflight.
+
+    Hard Rules honoured:
+
+    - Rule 1 (fixture gate): every test owns its FakeInsForge,
+      tmp_path, and monkeypatched seams.
+    - Rule 2 (DI): the preflight seam is monkeypatched; no real
+      psutil import / process scan.
+    - Rule 4 (no humo): assertions pin concrete exception types,
+      exit codes, log event names, and log field values.
+    - Rule 8 (no production mutation): no real Access / InsForge /
+      psutil invocations.
+    """
+
+    def test_apply_fails_closed_when_psutil_missing(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """``psutil`` missing → ``MsAccessPreflightUnavailableError`` with reason ``psutil_missing``.
+
+        A real apply must NEVER proceed when the preflight cannot run.
+        The previous PR3 implementation returned ``[]`` (fail-open),
+        which silently claimed "no MSACCESS live" while the check was
+        unable to run. The remediation raises a typed exception
+        mapped to CLI exit 5.
+        """
+        from migration import MsAccessPreflightUnavailableError
+
+        def raise_unavailable() -> list[int]:
+            raise MsAccessPreflightUnavailableError(
+                reason=MsAccessPreflightUnavailableError.REASON_PSUTIL_MISSING
+            )
+
+        monkeypatch.setattr(
+            "migration.apply.check_msaccess_running", raise_unavailable
+        )
+
+        with pytest.raises(MsAccessPreflightUnavailableError) as excinfo:
+            apply_legacy_to_web(
+                FakeInsForge(),
+                "animal",
+                legacy_path="/dummy/legacy.accdb",
+                lock_path=tmp_path / "migration.lock",
+            )
+        assert excinfo.value.reason == (
+            MsAccessPreflightUnavailableError.REASON_PSUTIL_MISSING
+        )
+
+    def test_apply_fails_closed_when_process_iteration_errors(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """``process_iter`` raises → ``MsAccessPreflightUnavailableError`` with reason ``process_iteration_failed``.
+
+        The previous PR3 implementation caught iteration errors and
+        returned the partial PIDs (fail-open). The remediation
+        raises a typed exception mapped to CLI exit 5.
+        """
+        from migration import MsAccessPreflightUnavailableError
+
+        def raise_unavailable() -> list[int]:
+            raise MsAccessPreflightUnavailableError(
+                reason=(
+                    MsAccessPreflightUnavailableError.REASON_PROCESS_ITERATION_FAILED
+                )
+            )
+
+        monkeypatch.setattr(
+            "migration.apply.check_msaccess_running", raise_unavailable
+        )
+
+        with pytest.raises(MsAccessPreflightUnavailableError) as excinfo:
+            apply_legacy_to_web(
+                FakeInsForge(),
+                "animal",
+                legacy_path="/dummy/legacy.accdb",
+                lock_path=tmp_path / "migration.lock",
+            )
+        assert excinfo.value.reason == (
+            MsAccessPreflightUnavailableError.REASON_PROCESS_ITERATION_FAILED
+        )
+
+    def test_apply_logs_categorical_event_when_preflight_unavailable(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """A ``log_safe`` event is emitted with categorical reason — no PIDs, no error strings.
+
+        The apply catches ``MsAccessPreflightUnavailableError``,
+        emits ``log_safe("apply.preflight_unavailable", reason=...)``
+        for audit, and re-raises. The log event MUST carry only the
+        categorical reason — no PIDs, no psutil error messages, no
+        path data (per AGENTS.md §18 privacy default-deny).
+        """
+        from migration import MsAccessPreflightUnavailableError
+
+        captured: list[tuple[str, dict[str, Any]]] = []
+
+        def fake_log_safe(event: str, **fields: Any) -> None:
+            captured.append((event, fields))
+
+        def raise_unavailable() -> list[int]:
+            raise MsAccessPreflightUnavailableError(
+                reason=MsAccessPreflightUnavailableError.REASON_PSUTIL_MISSING
+            )
+
+        monkeypatch.setattr(
+            "migration.apply.check_msaccess_running", raise_unavailable
+        )
+        monkeypatch.setattr("migration.apply.logging_mod.log_safe", fake_log_safe)
+
+        from migration import MsAccessPreflightUnavailableError as _exc
+
+        with pytest.raises(_exc):
+            apply_legacy_to_web(
+                FakeInsForge(),
+                "animal",
+                legacy_path="/dummy/legacy.accdb",
+                lock_path=tmp_path / "migration.lock",
+            )
+
+        # Exactly one log event emitted with the categorical name.
+        assert len(captured) == 1, (
+            f"expected exactly one log_safe event; got {len(captured)}: {captured!r}"
+        )
+        event_name, fields = captured[0]
+        assert event_name == "apply.preflight_unavailable"
+        assert fields == {"reason": "psutil_missing"}, (
+            f"log fields must be exactly {{'reason': 'psutil_missing'}}; got {fields!r}"
+        )
+
+    def test_apply_dry_run_does_not_consult_preflight(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """``--check-only`` (dry-run) bypasses the MSACCESS preflight entirely.
+
+        Per design §6 matrix: ``--check-only skips``. A preflight
+        failure (psutil missing) MUST NOT prevent the operator from
+        running a read-only compare.
+        """
+        events = _events_recorder()
+
+        def raise_unavailable() -> list[int]:
+            events["events"].append("preflight_called")
+            raise RuntimeError("should not be called on dry-run")
+
+        monkeypatch.setattr(
+            "migration.apply.check_msaccess_running", raise_unavailable
+        )
+        _patch_apply_seams(monkeypatch, events=events, executor_behavior="empty")
+
+        result = apply_legacy_to_web(
+            FakeInsForge(),
+            "animal",
+            legacy_path="/dummy/legacy.accdb",
+            dry_run=True,
+            lock_path=tmp_path / "migration.lock",
+        )
+
+        assert result.applied == 0
+        assert result.errors == []
+        # The preflight seam was never invoked.
+        assert "preflight_called" not in events["events"]
+
+    def test_preflight_failure_does_not_acquire_lock_or_read_legacy(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """A preflight failure short-circuits BEFORE lock acquisition and reads.
+
+        Belt-and-braces: the apply pipeline aborts on preflight
+        failure BEFORE the bootstrap, lock, snapshot, or legacy
+        executor. The bootstrap is also skipped (the preflight
+        runs AFTER bootstrap but BEFORE lock in PR3 ordering).
+        """
+        from migration import MsAccessPreflightUnavailableError
+
+        events = _events_recorder()
+
+        # Apply patch first so the seam set is in place, then OVERRIDE
+        # the check_msaccess_running seam with the raising fake.
+        # Order matters: _patch_apply_seams monkeypatches
+        # ``check_msaccess_running`` to its own no-op fake; the
+        # explicit ``setattr`` below replaces it.
+        _patch_apply_seams(monkeypatch, events=events, executor_behavior="empty")
+
+        def raise_unavailable() -> list[int]:
+            events["events"].append("preflight_called")
+            raise MsAccessPreflightUnavailableError(
+                reason=MsAccessPreflightUnavailableError.REASON_PSUTIL_MISSING
+            )
+
+        monkeypatch.setattr(
+            "migration.apply.check_msaccess_running", raise_unavailable
+        )
+
+        with pytest.raises(MsAccessPreflightUnavailableError):
+            apply_legacy_to_web(
+                FakeInsForge(),
+                "animal",
+                legacy_path="/dummy/legacy.accdb",
+                lock_path=tmp_path / "migration.lock",
+            )
+
+        e = events["events"]
+        assert "preflight_called" in e
+        assert "acquire_lock" not in e
+        assert "release_lock" not in e
+        assert "executor" not in e
+        # Snapshot was not written (preflight aborted first).
+        assert "write_snapshot" not in e

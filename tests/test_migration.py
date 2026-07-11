@@ -2562,19 +2562,37 @@ class TestLock:
             if lock_path.exists():
                 release_lock(lock_path)
 
-    def test_check_msaccess_returns_empty_when_psutil_missing(self, monkeypatch) -> None:
-        """``check_msaccess_running`` retorna ``[]`` si psutil no está disponible.
+    def test_check_msaccess_raises_unavailable_when_psutil_missing(
+        self, monkeypatch
+    ) -> None:
+        """``check_msaccess_running`` raises ``MsAccessPreflightUnavailableError`` when psutil is missing.
 
-        ``psutil`` es dependencia soft (design §1.2 + §14): si no está
-        instalada, el pre-flight es no-op y la migración puede
-        continuar (con un warning loggeado). Esto evita que el módulo
-        rompa en environments mínimas.
+        PR3 verification remediation (per user directive 2026-07-11):
+        the pre-flight MUST fail closed. Returning ``[]`` on missing
+        ``psutil`` would silently claim "no MSACCESS live" while the
+        check was unable to actually run — a misleading fail-open
+        that could let an apply proceed against a held ``.accdb``.
+
+        Now the function raises ``MsAccessPreflightUnavailableError``
+        with reason ``psutil_missing``; the apply layer catches it,
+        emits ``log_safe("apply.preflight_unavailable", reason=<cat>)``,
+        and re-raises; the CLI converts it to exit 5 with reason
+        ``msaccess_preflight_unavailable``.
         """
-        from migration import lock as lock_mod
+        from migration import (
+            MsAccessPreflightUnavailableError,
+        )
+        from migration import (
+            lock as lock_mod,
+        )
 
         # Forzar el camino "psutil no disponible".
         monkeypatch.setattr(lock_mod, "_PSUTIL_AVAILABLE", False, raising=False)
-        assert lock_mod.check_msaccess_running() == []
+        with pytest.raises(MsAccessPreflightUnavailableError) as excinfo:
+            lock_mod.check_msaccess_running()
+        assert excinfo.value.reason == (
+            MsAccessPreflightUnavailableError.REASON_PSUTIL_MISSING
+        )
 
     # --- Edge cases para cobertura de paths de error -------------------
 

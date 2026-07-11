@@ -1,13 +1,14 @@
 ## SDD Apply Progress: live-data-migration-sandbox
 
 **Branch**: `feat/live-migration-apply-safety` (from `origin/main` @ PR #182 merge `a8eb112`)
-**Work units**: PR3 / M1 core apply safety — three work-unit commits:
+**Work units**: PR3 / M1 core apply safety — three work-unit commits + one verification remediation commit:
 1. `525a461` — `feat(migration): lock_snapshot source identity + atomic write + drift detection (M1)`
 2. `6c54931` — `feat(migration): apply pre-flight MSACCESS + lock-then-snapshot ordering + partial-apply evidence (M1)`
 3. `8aa4ff4` — `feat(migration): MigrationReport counts/source_hashes/collisions (PR3/M1 backward-compat)`
+4. `[remediation]` — `fix(migration): PR3 verification remediation — CLI exit-code contract + MSACCESS fail-closed + spec alignment (M1)` (single conventional commit, on the same branch)
 **Mode**: Strict TDD (orchestrator-confirmed; orchestrator/user pre-authorized `size:exception`)
 **Delivery**: stacked-to-main with maintainer-approved `size:exception`; target `main` via PR; apply phase does NOT push/open PR/merge (user authorized auto-merge later)
-**Status**: PR1, PR2, PR2-verify, and PR3 complete; PR4+ untouched
+**Status**: PR1, PR2, PR2-verify, PR3, and PR3 verification remediation complete; PR4+ untouched
 
 ### Cumulative task state (across batches)
 
@@ -29,7 +30,12 @@
 - [x] PR3 3.2 GREEN — `migration/lock_snapshot.py` (Snapshot dataclass + atomic write + drift detection + partial-apply evidence); `migration/apply.py` re-ordered per design D8 (bootstrap → partial-apply entry guard → MSACCESS pre-flight → lock → snapshot write → read+apply loop) with new exception types `MsAccessRunningError` (CLI exit 5), `SourceDriftError` (CLI exit 6), `PartialApplyInterruptedError` (CLI exit 7); `migration/reporting.py` extended `MigrationReport` with `counts` / `source_hashes` / `collisions` via `field(default_factory=dict)` so pre-PR3 callers stay valid; `ApplyResult` UNCHANGED per design D11
 - [x] PR3 3.3 VERIFICATION — focused + migration + full local pytest + ruff + check-rules + build all green (real backend mutation not run by design)
 - [x] PR3 Rollback — revert the three PR3 commits to drop the snapshot module, the apply-safety wiring, and the new MigrationReport fields; pre-PR3 reports stay valid because of the default-factory pattern
+- [x] PR3 verification remediation RED — typed CLI exit-code contract (one closed-vocabulary reason per exception); MSACCESS fail-closed (`MsAccessPreflightUnavailableError`); no traceback / no raw PII / no raw paths in operator stream; `MIGRATION_RUNBOOK_REF` constant; legacy `test_check_msaccess_returns_empty_when_psutil_missing` updated to assert the new fail-closed contract.
+- [x] PR3 verification remediation GREEN — `migration.cli.run_apply` handlers for the 6 typed exceptions + `MIGRATION_RUNBOOK_REF` + `_format_apply_error` helper; `migration.lock.check_msaccess_running` raises `MsAccessPreflightUnavailableError` on psutil-missing / iteration-error; `migration.apply.apply_legacy_to_web` catches + emits `log_safe("apply.preflight_unavailable", reason=<cat>)` + re-raises; `migration.apply.MsAccessRunningError` docstring updated to point to the new preflight-unavailable contract.
+- [x] PR3 verification remediation verification — focused (5 fail-closed + 44 CLI = 49 atoms) + migration + full local pytest + ruff + check-rules + build all green. Real InsForge / psutil / Access mutation NOT run by design.
+- [x] PR3 verification remediation rollback — revert the remediation commit; the underlying PR3 commits (`8aa4ff4`, `6c54931`, `525a461`) remain valid because the new test atoms are GREEN only with the new production code. The legacy `tests/test_migration.py::TestLock::test_check_msaccess_returns_empty_when_psutil_missing` reverts to its pre-remediation `assert lock_mod.check_msaccess_running() == []` assertion.
 - [ ] PR4 4.x ... PR7 7.x — UNTOUCHED (per orchestrator/user instruction)
+- [ ] 9.1 Automatic partial-apply resume — deferred to follow-up PR before M2 fallback-ready; see `tasks.md` 9.1. PR3 deliberately does NOT implement auto-resume.
 
 ### TDD Cycle Evidence
 
@@ -123,6 +129,99 @@
 - No stash, restore, reset --hard, amend, rebase, force, push, PR open, merge, or GitHub issue/comment performed.
 - Apply phase did NOT touch `.github/workflows/ci.yml`, `docs/roadmap.md`, `docs/audits/`, or `docs/runbooks/` (per user directive: those are out of PR3 scope and PR3 only ships code + tests + the SDD tasks/apply-progress artifacts).
 
+### PR3 verification remediation — RED / GREEN evidence (2026-07-11)
+
+Per user directive, the PR3 verification surfaced three gaps: (1) the
+CLI exception handlers had no deterministic operator contract, (2)
+the MSACCESS pre-flight was silently fail-open when psutil was
+missing, and (3) the spec did not pin the source-drift fail-closed
+behavior, the no-auto-resume contract, or the stale-lock PID-dead
+recovery. All three are remediated in a single conventional commit
+on the same `feat/live-migration-apply-safety` branch.
+
+| Phase | Command | Result |
+|---|---|---|
+| RED (CLI exit-code atoms) | `pytest tests/migration/test_cli_apply_safety.py -v` | 1 collection error: `ImportError: cannot import name 'MsAccessPreflightUnavailableError' from 'migration'` |
+| RED (fail-closed atoms) | `pytest tests/migration/test_apply_safety.py::TestMsaccessPreflightFailClosed -v` | 4 passed, 1 failed: `test_preflight_failure_does_not_acquire_lock_or_read_legacy` failed because `_patch_apply_seams` set `check_msaccess_running` to its own no-op fake AFTER the test's monkeypatch (test fixed by reordering) |
+| RED (legacy test) | `pytest tests/test_migration.py::TestLock::test_check_msaccess_returns_empty_when_psutil_missing -v` | Failed: pre-remediation assertion `lock_mod.check_msaccess_running() == []` no longer holds after fail-closed fix |
+| GREEN (fail-closed) | `pytest tests/migration/test_apply_safety.py::TestMsaccessPreflightFailClosed -v` | 5 passed in 0.25s |
+| GREEN (CLI exit-code) | `pytest tests/migration/test_cli_apply_safety.py -v` | 44 passed in 0.26s |
+| Migration + test_migration | `pytest tests/migration tests/test_migration.py -q` | 290 passed in 2.29s (241 baseline + 5 fail-closed + 44 CLI atoms) |
+| Full local gate | `pytest -W error::DeprecationWarning --deselect tests/test_voluntarios_concurrent.py -q` | 2222 passed, 1 skipped (psycopg missing), 2 deselected |
+| Ruff | `ruff check .` | All checks passed |
+| Project rule gate | `python scripts/check_rules.py app --exclude …` | exit 0, no output |
+| Build | `python -m build --wheel` | `apap_web-0.1.0-py3-none-any.whl` built |
+
+#### Work Unit Evidence (PR3 verification remediation)
+
+| Evidence | Required value |
+|---|---|
+| Focused test command + exact result | `pytest tests/migration/test_apply_safety.py::TestMsaccessPreflightFailClosed tests/migration/test_cli_apply_safety.py -q` → `49 passed in 0.51s` (split: 5 fail-closed + 44 CLI) |
+| Runtime harness | `pytest tests/migration tests/test_migration.py -q` → `290 passed in 2.29s`; exercises `apply_legacy_to_web` + `migration.cli.run_apply` end-to-end through `FakeInsForge` + monkeypatched seams (no real InsForge / psutil / Access touched). |
+| Rollback boundary | Revert the remediation commit. The underlying PR3 commits (`8aa4ff4`, `6c54931`, `525a461`) remain valid because the new atoms are GREEN only with the new production code. The legacy `tests/test_migration.py::TestLock::test_check_msaccess_returns_empty_when_psutil_missing` reverts to the pre-remediation `assert lock_mod.check_msaccess_running() == []` shape. |
+
+#### CLI categorical contract (post-remediation)
+
+Every typed exception from `apap-migrate apply` produces ONE line:
+
+    apap-migrate apply: status=error reason=<cat> exit=<N> runbook=<ref>
+
+Closed vocabulary:
+
+| Exception                              | Exit | reason                              |
+|----------------------------------------|------|-------------------------------------|
+| `MsAccessPreflightUnavailableError`    | 5    | `msaccess_preflight_unavailable`     |
+| `MsAccessRunningError`                 | 5    | `msaccess_running`                   |
+| `LegacyReaderError`                    | 5    | `legacy_read_failed`                 |
+| `InsForgeError` (bootstrap path)       | 5    | `infra_bootstrap_failed`            |
+| `SourceDriftError`                     | 6    | `source_drift`                       |
+| `PartialApplyInterruptedError`         | 7    | `partial_apply_interrupted`          |
+
+`runbook=<ref>` is the stable constant
+`MIGRATION_RUNBOOK_REF = "docs/runbooks/live-migration-apply.md"`.
+The apply runbook file is scheduled for authoring in a follow-up
+PR; the path is the contract the CLI surfaces today so the
+operator's docs lookup is deterministic.
+
+#### Spec alignment (artifact updates, in this commit)
+
+- `design.md`: added D17 (drift fail-closed + no auto-resume), D18
+  (MSACCESS fail-closed + `psutil` operator prerequisite), D19
+  (stale-lock PID-dead recovery contract, implementation untouched).
+  Added "Apply exit-code contract" subsection under §8 with the
+  closed-vocabulary table above.
+- `tasks.md`: marked PR3 3.4 (remediation), 3.5 (remediation tests)
+  complete; added 9.1 (automatic partial-apply resume deferred to
+  follow-up PR before M2 fallback-ready).
+- `apply-progress.md`: cumulative evidence through PR3 verification
+  remediation (this section).
+- `Engram`: topic `sdd/live-data-migration-sandbox/apply-progress`
+  updated (separate save after commit).
+
+#### Deviations / scope discipline
+
+- The remediation does NOT push, open a PR, or merge (per user
+  directive).
+- The remediation does NOT modify `migration/apply.py`'s public
+  contract beyond the preflight catch+log+re-raise (no new params).
+- The remediation does NOT change `lock_snapshot.py`'s atomic
+  write / drift detection contracts.
+- The remediation does NOT change `check_msaccess_running()`'s
+  no-arg signature (D9 invariant preserved).
+- The remediation does NOT change `MigrationReport`'s default
+  factories (D11 invariant preserved).
+- The remediation does NOT introduce a new `--accept-drift` flag
+  (deferred to a follow-up PR).
+- The remediation does NOT introduce automatic partial-apply
+  resume (deferred to follow-up PR before M2 fallback-ready).
+- The remediation does NOT change the PR2 stale-lock recovery
+  behavior (D19 documents the existing safe behavior).
+
 ### Next batch
 
-PR1, PR2, PR2-verify, and PR3 complete. PR4+ untouched. Next recommended phase: `sdd-verify` for PR3 (which can run a single-validator ``--ci-only`` pass against the PR3 surfaces once the verify-fallback-ready CLI lands in PR7), then continue with PR4 only when explicitly assigned.
+PR1, PR2, PR2-verify, PR3, and PR3 verification remediation complete.
+PR4+ untouched. Next recommended phase: `sdd-verify` for the
+remediated PR3 surfaces; once PR4 lands the apply runbook
+(`docs/runbooks/live-migration-apply.md`), the runbook reference
+constant `MIGRATION_RUNBOOK_REF` resolves to an authored file.
+Continue with PR4 only when explicitly assigned.

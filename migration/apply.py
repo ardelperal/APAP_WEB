@@ -69,6 +69,7 @@ from app.core import logging as logging_mod
 from app.core.insforge import InsForgeError
 from migration import (
     MigrationError,
+    MsAccessPreflightUnavailableError,
     acquire_lock,
     check_msaccess_running,
     release_lock,
@@ -124,13 +125,22 @@ class ApplyResult:
 class MsAccessRunningError(MigrationError):
     """``MSACCESS.EXE`` is running; refuse to apply to avoid lock contention.
 
-    The MSACCESS pre-flight (``check_msaccess_running``) is a no-arg,
-    best-effort probe that returns ``[]`` when ``psutil`` is missing.
-    A non-empty list means at least one live Access frontend is
-    holding the ``.accdb`` open; an apply against the same file would
-    hang on the pyodbc ``Connection.timeout=30`` and surface as a
-    misleading ``LegacyReaderError``. The CLI converts this exception
-    to exit code 5 plus a runbook URL.
+    The MSACCESS pre-flight (``check_msaccess_running``) is a no-arg
+    probe that returns the list of PIDs whose process name matches
+    ``MSACCESS.EXE`` (case-insensitive). A non-empty list means at
+    least one live Access frontend is holding the ``.accdb`` open;
+    an apply against the same file would hang on the pyodbc
+    ``Connection.timeout=30`` and surface as a misleading
+    ``LegacyReaderError``. The CLI converts this exception to exit
+    code 5 (reason ``msaccess_running``).
+
+    When ``psutil`` is missing or ``process_iter`` raises mid-iteration,
+    ``check_msaccess_running`` raises ``MsAccessPreflightUnavailableError``
+    instead — see that class for the fail-closed contract. The apply
+    pipeline does NOT catch iteration errors and attempt recovery
+    (PR3 verification remediation, per user directive 2026-07-11):
+    better to abort than to claim "no MSACCESS live" when the check
+    was unable to actually look.
     """
 
     def __init__(self, *, pids: list[int], detail: str) -> None:
@@ -432,8 +442,26 @@ def apply_legacy_to_web(
             )
 
     # --- MSACCESS pre-flight (no-arg, before lock) -------------------
+    # Fail-closed contract (PR3 verification remediation, per user
+    # directive 2026-07-11): when the preflight cannot run
+    # (``psutil`` missing or iteration errors) we MUST NOT silently
+    # claim "no MSACCESS live". We log a categorical event with the
+    # reason and re-raise so the CLI surfaces exit 5 with reason
+    # ``msaccess_preflight_unavailable``. Dry-run (``--check-only``)
+    # bypasses this branch entirely — preflight is read-only's
+    # concern.
     if not dry_run:
-        msaccess_pids = check_msaccess_running()
+        try:
+            msaccess_pids = check_msaccess_running()
+        except MsAccessPreflightUnavailableError as preflight_exc:
+            # Categorical log: no PIDs, no error strings, only the
+            # reason. The apply layer owns the audit log; the CLI
+            # owns the operator-facing categorical stream.
+            logging_mod.log_safe(
+                "apply.preflight_unavailable",
+                reason=preflight_exc.reason,
+            )
+            raise
         if msaccess_pids:
             raise MsAccessRunningError(
                 pids=msaccess_pids,
