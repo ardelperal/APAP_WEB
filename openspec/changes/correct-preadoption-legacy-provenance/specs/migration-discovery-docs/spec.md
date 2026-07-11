@@ -4,14 +4,15 @@
 
 ### Requirement: Source-Proven Legacy Lifecycle Claims
 
-APAP_WEB documentation MUST cite exact legacy source evidence for every parity claim and MUST distinguish contract wording from executable lifecycle behavior. It SHALL state that the 20-day decision clause belongs to foster-contract generation (`APAP_ACTUAL/src/classes/Plantilla.cls`, `RellenarContratoAcogida`, lines 381–391), not pre-adoption expiry. It SHALL document pre-adoption as active until definitive adoption or explicit return, with activity determined by `FDevolucion IS NULL` (`Adopcion.cls`, `AnimalConAdopcionesActivas`, lines 1991–2054), and SHALL accurately cite the pre-adoption contract's one-month post-sterilization signing clause.
+APAP_WEB documentation MUST cite exact legacy source evidence for every parity claim and MUST distinguish contract wording from executable lifecycle behavior. It SHALL state that the 20-day decision clause belongs to foster-contract generation (`APAP_ACTUAL/src/classes/Plantilla.cls`, `RellenarContratoAcogida`, lines 381–391), not pre-adoption expiry. It SHALL document pre-adoption as active until definitive adoption or explicit return, with activity determined by `FDevolucion IS NULL` (`Adopcion.cls`, `AnimalConAdopcionesActivas`, lines 1991–2054), and SHALL accurately cite the pre-adoption contract's sex-conditional sterilization text (template text only — the runtime registry `Entorno.cls` L793 selects the same `CONTRATO DE ADOPCIÓN_V02.docx` for both Adopción and PreAdopción; `RellenarContratoPreAdopcion` `Plantilla.cls` L620-689 contains no one-month or other automatic timer).
 
 #### Scenario: Correct provenance is documented
 
 - GIVEN adoption and contract lifecycle documentation
 - WHEN a reviewer follows each legacy-parity citation
-- THEN the 20-day clause resolves to foster-contract text and the one-month clause to pre-adoption contract text
+- THEN the 20-day clause resolves to foster-contract text and the pre-adoption clause to sex-conditional sterilization text inside the runtime-selected template
 - AND executable lifecycle claims resolve to active-record logic rather than contract prose
+- AND no claim asserts a runtime timer, worker/cron, or automatic expiry for pre-adoption
 
 #### Scenario: Active pre-adoption remains active
 

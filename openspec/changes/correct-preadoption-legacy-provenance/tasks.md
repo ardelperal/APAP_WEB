@@ -4,8 +4,10 @@
 
 7 tasks. All are docs-only corrections to remove the false claim that pre-adoptions expire
 automatically after 20 days (a foster-care clause at `Plantilla.cls` L381-391 misattributed to
-pre-adoption). One PR from `docs/correct-preadoption-legacy-provenance` → `main`. Estimated
-total changed lines: ~130. No product code, no migrations, no tests touched. ADOPT-01 invariants
+pre-adoption). One PR from `docs/correct-preadoption-legacy-provenance` → `main` was forecast.
+The reconciliation audit found a raw branch diff of 1,382 additions and 540 deletions because
+Task 1 normalized line endings and the SDD planning artifacts add 698 lines. No product code,
+no migrations, no tests touched. ADOPT-01 invariants
 in `tests/test_adopciones*` and `tests/test_domain.py` are explicitly out of scope and untouched.
 
 ---
@@ -14,21 +16,23 @@ in `tests/test_adopciones*` and `tests/test_domain.py` are explicitly out of sco
 
 | Field | Value |
 |-------|-------|
-| Total estimated changed lines | ~130 (docs: ~8 files × avg 5 lines changed = ~40 del/add; CANCELLATION.md new ~120 lines) |
-| 400-line budget risk | **Low** — all edits are 1-5 line surgical changes; new file is a single template |
-| Chained PRs recommended | **No** — single PR fits well under budget |
-| Suggested split | Single PR, one branch |
-| Delivery strategy | `single-pr` (pre-MVP §15, diff < 400 lines) |
+| Original estimate | ~130 lines |
+| Audited raw branch diff | 1,382 additions / 540 deletions |
+| 400-line budget risk | **High in raw review diff** — semantic product-doc edits are surgical, but Task 1 contains line-ending normalization and three SDD planning artifacts add 698 lines |
+| Chained PRs recommended | **Review decision required** — the original single-PR forecast no longer matches the actual diff |
+| Suggested split | Pending mandatory review; do not open the PR until the raw-diff inflation is resolved or explicitly accepted |
+| Delivery strategy | Originally `single-pr`; reconciliation routes to review before PR creation |
 | Chain strategy | `stacked-to-main` |
 
-**Decision needed before apply:** No. Diff is well under 400 lines; `single-pr` is the correct
-strategy. No exception needed.
+**Reconciliation note:** The pre-apply decision was based on the ~130-line estimate. The actual
+raw diff exceeds the budget, so review must resolve the line-ending/planning-artifact inflation
+before PR creation. This pass does not rewrite commits or choose a size exception.
 
 ```
-Decision needed before apply: No
-Chained PRs recommended: No
+Decision needed before PR creation: Yes (review actual raw diff)
+Chained PRs recommended: Pending review
 Chain strategy: stacked-to-main
-400-line budget risk: Low
+400-line budget risk: High in raw diff
 ```
 
 ---
@@ -36,6 +40,8 @@ Chain strategy: stacked-to-main
 ## Task Inventory
 
 ### Task 1: `docs(discovery): correct pre-adoption lifecycle — remove invented Vencido state`
+
+**Status:** [x] Complete in `6f86112` (semantic diff verified with end-of-line noise ignored).
 
 **Files:**
 - `docs/discovery/state-machines.md`
@@ -71,6 +77,8 @@ rg -i -n 'pre-adoption expiry|pre-adopción expira' docs/discovery/
 
 ### Task 2: `docs(discovery): correct pre-adoption contract clause — 20-day → one-month post-sterilization`
 
+**Status:** [x] Complete in `d3043b2`.
+
 **Files:**
 - `docs/discovery/feature-04-documents-contracts-reports.md`
 
@@ -96,6 +104,8 @@ rg -i -n 'preadopción' docs/discovery/feature-04-documents-contracts-reports.md
 ---
 
 ### Task 3: `docs(roadmap): cancel ADOPT-02 from roadmap — invalid legacy provenance`
+
+**Status:** [x] Complete in `fe3ce54`.
 
 **Files:**
 - `docs/roadmap.md`
@@ -126,6 +136,8 @@ rg -i -n '20.días|20 days' docs/roadmap.md
 
 ### Task 4: `docs(showcase): remove Vencido state and 20-day pre-adoption claims from contract lifecycle`
 
+**Status:** [x] Complete in `63ea18e`.
+
 **Files:**
 - `docs/features-showcase.html`
 
@@ -154,6 +166,9 @@ rg -i -n '20.días|20 days' docs/features-showcase.html
 ---
 
 ### Task 5: `docs(correct-preadoption): add cancellation record and proposal banner`
+
+**Status:** [x] Complete in `1cb67f8`. Review remains pending; the cancellation record's
+issue-comment row describes the intended final state and is not evidence that the comment was posted.
 
 **Files:**
 - `openspec/changes/correct-preadoption-legacy-provenance/CANCELLATION.md` (create)
@@ -184,23 +199,27 @@ rg -i 'CANCELLATION SCOPE' openspec/changes/correct-preadoption-legacy-provenanc
 
 ### Task 6: `docs(correct-preadoption): post cancellation comment to GitHub issue #48`
 
-**Files:** None (gh issue comment only)
+**Status:** [ ] Pending PR URL. The body-only payload is ready at
+`openspec/changes/correct-preadoption-legacy-provenance/.comment-for-issue-48.md` with a
+stable HTML comment marker `<!-- cancellation-marker:adopt-02 -->`. The apply phase does
+NOT post to GitHub. The orchestrator runs the idempotent post only after the PR URL exists
+and a single pre-post `gh issue view 48 --json comments` search confirms the marker is not
+already present.
+
+**Files:** None (gh issue comment only — body file already on disk)
 
 **Edits:**
-- Post the cancellation comment template (design.md §4.3) to GitHub issue #48 via:
-  `gh issue comment 48 --body-file <(cat <<'EOF'
-  Issue #48 cancelled for invalid legacy provenance.
-  [... full template from design.md §4.3 ...]
-  EOF
-  )`
-  (The apply phase constructs the exact body from the §4.3 template.)
+- Idempotent post: `gh issue view 48 --json comments --jq '.comments[].body' | rg -F '<!-- cancellation-marker:adopt-02 -->'`
+  and stop if a hit is found (already posted).
+- Otherwise: `gh issue comment 48 --body-file openspec/changes/correct-preadoption-legacy-provenance/.comment-for-issue-48.md`.
+- After posting, capture the comment URL/id for the closeout follow-up reply at PR-merge time.
 
 **Commit:** `docs(correct-preadoption): post cancellation comment to GitHub issue #48`
 
 **Verification:**
 ```bash
-gh issue view 48 --json comments --jq '.comments[-1].body'
-# Expected: body contains "cancelled for invalid legacy provenance" and "correct-preadoption-legacy-provenance"
+gh issue view 48 --json comments --jq '.comments[-1].body' | rg -F '<!-- cancellation-marker:adopt-02 -->'
+# Expected: 1 match (the marker is the first line of the posted body).
 ```
 
 **Risk:** Medium. Touches GitHub issue traceability (AGENTS.md §17.2 high-stakes mapping: issue comment on #48).
@@ -211,19 +230,32 @@ gh issue view 48 --json comments --jq '.comments[-1].body'
 
 ### Task 7: `docs(correct-preadoption): update Engram observations — ADOPT-02 cancelled; record external-work stub`
 
+**Status:** [x] Complete (reconciliation evidence, performed in the same apply pass as
+Tasks 1–5, NOT after the PR opens or merges). The five cancellation observations plus the
+cumulative apply-progress observation were upserted in Engram by the previous apply pass
+and remain the canonical record.
+
 **Files:** Engram only (no source files edited)
 
-**Edits — mem_save for each topic_key:**
+**Edits — performed in Engram (observation IDs):**
 
-| topic_key | type | content |
-|---|---|---|
-| `sdd/adopt-02-expiry/proposal` | `decision` | `superseded by correct-preadoption-legacy-provenance; provenance invalid (20-day foster ≠ pre-adoption expiry). Legacy: Plantilla.cls RellenarContratoAcogida L381-391.` |
-| `sdd/adopt-02-expiry/spec` | `decision` | `superseded; no automatic pre-adoption expiry in legacy. Activity is FDevolucion IS NULL (Adopcion.cls L2047-2054).` |
-| `sdd/adopt-02-expiry/design` | `architecture` | `superseded by correct-preadoption-legacy-provenance; no timer, no worker, no scheduled job required.` |
-| `sdd/adopt-02-expiry/tasks` | `decision` | `cancelled without execution; tasks.md never produced.` |
-| `sdd/adopt-02-expiry/apply-progress` | `discovery` | `audit found invalid work in commits 2ea1765/be43c14/40ce83f + stash@{0}; not on origin/main (071aaeb); cancellation in CANCELLATION.md.` |
+| topic_key | type | Engram ID | What was saved |
+|---|---|---|---|
+| `sdd/adopt-02-expiry/proposal` | `decision` | #16694 | `superseded by correct-preadoption-legacy-provenance; provenance invalid (20-day foster ≠ pre-adoption expiry). Legacy: APAP_ACTUAL/src/classes/Plantilla.cls RellenarContratoAcogida L381-391.` |
+| `sdd/adopt-02-expiry/spec` | `decision` | #16695 | `superseded; no automatic pre-adoption expiry exists in legacy. Activity is derived from FDevolucion IS NULL (Adopcion.cls L2047-2054).` |
+| `sdd/adopt-02-expiry/design` | `architecture` | #16696 | `superseded by correct-preadoption-legacy-provenance; design not adopted; no timer, no worker, no scheduled job was ever required.` |
+| `sdd/adopt-02-expiry/tasks` | `decision` | #16697 | `cancelled without execution; tasks.md never produced.` |
+| `sdd/adopt-02-expiry/apply-progress` | `discovery` | #16698 | `audit found invalid work in commits 2ea1765/be43c14/40ce83f on feat/adopt-02-expiry + stash@{0}; not present on origin/main (071aaeb); cancellation marker in CANCELLATION.md.` |
+| `sdd/correct-preadoption-legacy-provenance/apply-progress` | `architecture` | #16699 | Cumulative apply trace for this change (7 commits, 8 docs files, 4 Engram topics superseded, etc.). |
+| `sdd/correct-preadoption-legacy-provenance/session-summary` | `session_summary` | #16706 | Session summary for the apply pass. |
+| `sdd/correct-preadoption-legacy-provenance/resume-point` | `decision` | #16712 | Resume point for the next session. |
 
-**Also record external-work follow-up draft (in tasks.md §6, not as a file commit):**
+**Note:** Engram is persistent and CANNOT be transactionally reverted. The observations
+above stay as historical evidence even if this cancellation is later re-opened.
+Compensation is by re-save (upsert with `superseded by` note), not by delete. See
+`CANCELLATION.md` "Rollback and Engram compensation/reconciliation".
+
+**External-work follow-up draft (recorded in Engram observation #16699, NOT a file commit):**
 ```
 APAP_ACTUAL external-work draft:
 Title: Correct pre-adoption 20-day expiry false claim in APAP_ACTUAL docs
@@ -235,11 +267,17 @@ Note: Funciones Generales.bas requires no corrections (grep returned no false cl
 ```
 
 **Commit:** `docs(correct-preadoption): update Engram observations — ADOPT-02 cancelled`
+(landed in `d08ee0c`)
 
 **Verification:**
 ```bash
-# After mem_save calls, verify each observation:
-gh run list --workflow=... # N/A for Engram — verify via mem_get_observation on each ID returned
+# Re-confirm each observation exists and is reachable:
+mem_get_observation(id: 16694)  # proposal
+mem_get_observation(id: 16695)  # spec
+mem_get_observation(id: 16696)  # design
+mem_get_observation(id: 16697)  # tasks
+mem_get_observation(id: 16698)  # adopt-02-expiry apply-progress
+mem_get_observation(id: 16699)  # correct-preadoption apply-progress
 ```
 
 **Risk:** Low. Memory updates only; no source files.
@@ -257,8 +295,8 @@ gh run list --workflow=... # N/A for Engram — verify via mem_get_observation o
 | 3 | Roadmap + README | 1 | Removes ADOPT-02 references; needs discovery correction as justification |
 | 4 | Features showcase HTML | 1 | Removes Vencido state; same lifecycle model as state-machines |
 | 5 | OpenSpec artifacts (CANCELLATION.md + proposal banner) | 1–4 | Must cite the exact corrections made in tasks 1–4 |
-| 6 | GitHub issue #48 comment | 5 | Must reference the CANCELLATION.md artifact |
-| 7 | Engram observations + external-work stub | 6 | Last; closes all traceability loops |
+| 7 | Engram observations + external-work stub | 1–5 (NOT Task 6) | Engram is a non-blocking reconciliation record. The 5 cancellation observations and the apply-progress observation were saved in the same apply pass as Tasks 1–5; Task 7 is not gated on the GitHub issue comment (Task 6). |
+| 6 | GitHub issue #48 comment | 5 + PR URL | Orchestrator side-effect after PR opens. Body file is ready; the comment is idempotent via a stable HTML marker. |
 
 **First task to apply:** Task 1 (discovery docs — largest blast radius).
 **Last task to apply:** Task 7 (Engram + external-work stub).
@@ -267,9 +305,10 @@ gh run list --workflow=... # N/A for Engram — verify via mem_get_observation o
 
 ## Commit Strategy
 
-**Single PR.** Diff is ~130 lines (well under 400-line budget). All 7 tasks land in one PR
-from `docs/correct-preadoption-legacy-provenance` → `main`. Pre-MVP single-branch policy
-(AGENTS.md §15) applies.
+**Originally forecast as a single PR.** The reconciliation audit found the raw diff exceeds the
+400-line budget. Mandatory review must first decide whether to remove line-ending noise and/or
+separate planning artifacts; this pass does not rewrite the existing commits. The target remains
+`main` under the pre-MVP policy (AGENTS.md §15).
 
 Commits (in apply order):
 1. `docs(discovery): correct pre-adoption lifecycle — remove invented Vencido state`
@@ -306,22 +345,22 @@ dependency order above is the recommended sequence).
 
 ## Definition of Done — whole change
 
-- [ ] All 7 tasks applied, each commit pushed to `docs/correct-preadoption-legacy-provenance`
-- [ ] Single PR opened against `main`; PR body cites `correct-preadoption-legacy-provenance/design.md`
-      and this `tasks.md`
-- [ ] All ripgrep acceptance commands in design.md §5 return expected counts:
+- [x] All 7 tasks applied; 7 commits on `docs/correct-preadoption-legacy-provenance`; corrective closeout commit added on top (see `apply-progress.md` for the merged evidence).
+- [ ] Single PR opened against `main`; PR body cites `correct-preadoption-legacy-provenance/design.md` and this `tasks.md`. **Budget disposition: BLOCKED on user disposition** (semantic diff > 400 lines; no user-approved `size:exception` found in Engram). See `apply-progress.md` "Risks and deviations" #3.
+- [x] All ripgrep acceptance commands in design.md §5 return expected counts (see `apply-progress.md` "Work Unit Evidence" for the corrected closeout scenarios):
       - `rg -i '\bVencido\b' docs/` → 0 in normative scope
-      - `rg -i '20 días|20 days' docs/` → 0 in normative scope
-      - `rg -i 'expiración|expirar|expira' docs/` → 0 in normative scope
+      - `rg -i '20 días|20 days' docs/` → 1 match, the `docs/roadmap.md` CANCELLED row (non-operative)
+      - `rg -i 'expiración|expirar|expira' docs/` → 1 match, the same CANCELLED row
       - `rg -i 'pre-adoption expiry|pre-adopción expira' docs/` → 0
       - `rg -i '\b(cron|worker|timer|scheduled job)\b' docs/` → only unrelated hits
       - `rg -i 'notificación de venc' docs/` → 0
       - `rg -i '\bVencido\b|vencido' docs/features-showcase.html` → 0
-      - `rg -i 'pre.?adop|preadop' docs/features-showcase.html` → only corrected text
-- [ ] `python -m pytest tests/test_adopciones.py tests/test_adopciones_routes.py tests/test_domain.py::test_adopciones_create_table_sql_columns -v` is green (no tests touched; assert 0 changed)
-- [ ] `ruff check .` is green
-- [ ] `gh issue comment 48 --body "Issue #48 cancelled for invalid legacy provenance..."` posted with link to PR (template per design.md §4.3)
-- [ ] Engram observations updated for all 5 `sdd/adopt-02-expiry/*` topic keys (cancellation note + link to this change)
-- [ ] External-work follow-up issue draft recorded in §6 (ready to be opened against `APAP_ACTUAL` later)
-- [ ] No `stash@{0}` popped. No cherry-pick of invalid local-main commits (`2ea1765`, `be43c14`, `40ce83f`). No `APAP_ACTUAL` edits.
-- [ ] `judgment-day` review completed on Tasks 5 and 6 before PR merge
+      - `rg -i 'pre.?adop|preadop' docs/features-showcase.html` → only corrected text (the 2 corrected rows in L537 and L605)
+- [x] `python -m pytest tests/test_adopciones.py tests/test_adopciones_routes.py tests/test_domain.py::test_adopciones_create_table_sql_columns -v` is green (66 passed in 1.01s; no tests touched)
+- [x] `ruff check .` is green (exit 0)
+- [ ] `gh issue comment 48 --body-file openspec/changes/correct-preadoption-legacy-provenance/.comment-for-issue-48.md` posted (idempotent via stable HTML marker `<!-- cancellation-marker:adopt-02 -->`). PENDING PR URL.
+- [x] Engram observations updated for all 5 `sdd/adopt-02-expiry/*` topic keys (cancellation note + link to this change). Engram IDs: #16694 (proposal), #16695 (spec), #16696 (design), #16697 (tasks), #16698 (adopt-02-expiry apply-progress), #16699 (correct-preadoption apply-progress), #16706 (session summary), #16712 (resume point).
+- [x] External-work follow-up issue draft recorded in Engram #16699 (ready to be opened against `APAP_ACTUAL` later)
+- [x] No `stash@{0}` popped. No cherry-pick of invalid local-main commits (`2ea1765`, `be43c14`, `40ce83f`). No `APAP_ACTUAL` edits.
+- [ ] `code-review-expert` review completed on the corrected branch (orchestrator post-merge)
+- [ ] `judgment-day` review completed on Tasks 5 and 6 (and the corrective closeout) before PR merge

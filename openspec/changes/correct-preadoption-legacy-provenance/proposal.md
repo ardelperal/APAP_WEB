@@ -9,7 +9,7 @@
 
 ## Intent
 
-Correct the false legacy-parity claim that pre-adoptions expire automatically after 20 days. The 20-day clause belongs to foster care (`Plantilla.RellenarContratoAcogida`); pre-adoption remains active until definitive adoption or explicit return, with a separate one-month post-sterilization signing clause. Any expiry automation is a new product decision requiring explicit approval.
+Correct the false legacy-parity claim that pre-adoptions expire automatically after 20 days. The 20-day clause belongs to foster care (`Plantilla.RellenarContratoAcogida`); pre-adoption remains active until definitive adoption or explicit return, with the runtime registry selecting the same `CONTRATO DE ADOPCIÓN_V02.docx` (`Entorno.cls` L793) for both Adopción and PreAdopción, and `RellenarContratoPreAdopcion` (`Plantilla.cls` L620-689) producing a sex-conditional sterilization text — no runtime timer, no automatic expiry. Any expiry automation is a new product decision requiring explicit approval.
 
 ## Scope
 

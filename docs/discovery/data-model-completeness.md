@@ -271,12 +271,12 @@ For each significant constraint in the data model, this table specifies whether 
 | Date range (health action within animal lifespan) | Application-only (form validation) | Service layer validation |
 | Puppy-test eligibility (dogs under 8 months) | Application-only (form logic) | Service layer validation |
 | Contract species/sex/age conditionals | Application-only (template logic) | Document generation service |
-
-> Pre-adoption has no runtime expiry — activity is `FDevolucion IS NULL` (`Adopcion.cls` L2047-2054). The 20-day clause is foster-contract text (`Plantilla.cls` L381-391).
 | Batch all-or-nothing commit | Application-only (transaction logic) | Service layer transaction |
 | Volunteer FK-only references | Application + DB FK constraint | DB FK constraint + service-layer validation: reject any volunteer assignment where Volunteer.ID does not exist or is inactive |
 | Volunteer no physical delete | Application-only (soft-delete pattern) | Service layer: deactivate (set inactive) instead of DELETE; block DELETE on referenced volunteers |
 | Volunteer historical preservation | Application-only | Service layer + DB FK ON DELETE RESTRICT: deactivating a volunteer never cascades to or removes historical records |
+
+> Pre-adoption has no runtime expiry — activity is `FDevolucion IS NULL` (`Adopcion.cls` L2047-2054). The 20-day clause is foster-contract text (`Plantilla.cls` L381-391). The runtime registry (`Entorno.cls` L793) selects the same `CONTRATO DE ADOPCIÓN_V02.docx` for both Adopción and PreAdopción; `RellenarContratoPreAdopcion` (`Plantilla.cls` L620-689) contains no one-month or other automatic timer.
 
 ### Configuration / legacy-only constraints
 

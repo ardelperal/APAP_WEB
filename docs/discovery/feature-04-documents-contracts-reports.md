@@ -50,7 +50,7 @@ Generates and manages legal documents for various workflows. Templates are speci
 | Acogida | Foster | Foster care agreement |
 | Acogida Judicial | Foster | Judicial foster care agreement |
 | Adopción | Adoption | Adoption contract |
-| PreAdopción | Adoption | Pre-adoption agreement (one-month post-sterilization signing clause) |
+| PreAdopción | Adoption | Pre-adoption agreement; runtime registry selects `CONTRATO DE ADOPCIÓN_V02.docx` (shared with Adopción, `Entorno.cls` L793); filled by `RellenarContratoPreAdopcion` (`Plantilla.cls` L620-689) — no runtime timer |
 | Cesión por Propietario | Intake | Owner surrender/handoff agreement |
 | Reserva de Adopción | Adoption | Adoption reservation |
 | Entrega a Propietario | Return | Return to owner contract |
@@ -71,7 +71,7 @@ Generates and manages legal documents for various workflows. Templates are speci
 | One per type | One contract per type per entity |
 | Species-specific | Templates differ by species (CANINA / FELINA) |
 | Sex-dependent | Sterilization clause included/excluded based on animal's sex |
-| Pre-adoption | One-month post-sterilization signing clause (contract text, not runtime) |
+| Pre-adoption | Sex-conditional sterilization text (template text only; `RellenarContratoPreAdopcion` L620-689 fills the contract; no runtime timer in src) |
 
 ### Contract conditional clauses by type
 
@@ -81,12 +81,12 @@ Generates and manages legal documents for various workflows. Templates are speci
 | Acogida | Species-specific template | — | — | — |
 | Acogida Judicial | Species-specific template | — | — | Judicial oversight clauses |
 | Adopción | Species-specific template | Sterilization clause if animal > 6 months | — | — |
-| PreAdopción | Species-specific template | — | One-month post-sterilization signing clause | — |
+| PreAdopción | Species-specific template | — | Sex-conditional sterilization text (template text only; `RellenarContratoPreAdopcion` L620-689) | — |
 | Cesión por Propietario | Species-specific template | — | — | Surrender terms |
 | Reserva de Adopción | Species-specific template | — | — | Reservation window |
 | Entrega a Propietario | Species-specific template | — | — | Return conditions |
 
-> The 20-day decision clause belongs to foster contracts (`Plantilla.cls`, `RellenarContratoAcogida`, L381-391), not pre-adoption.
+> The 20-day decision clause belongs to foster contracts (`Plantilla.cls`, `RellenarContratoAcogida`, L381-391), not pre-adoption. The runtime registry (`Entorno.cls` L793) selects the same `CONTRATO DE ADOPCIÓN_V02.docx` for both Adopción and PreAdopción; `RellenarContratoPreAdopcion` (`Plantilla.cls` L620-689) contains no one-month or other automatic timer.
 
 #### Evidence Source
 
