@@ -67,7 +67,7 @@ etl = [
     # release; requires-python >=3.9 covers our Python 3.11 floor).
     # Without it, ``migration.dysflow_client.execute_legacy_sql`` raises
     # ``LegacyReaderError`` so the CLI exits 5 with a clear install hint
-    # in the runbook (docs/runbooks/migrate-live-data.md).
+    # in the runbook (docs/runbooks/live-migration-apply.md).
     "pyodbc>=5.3",
 ]
 

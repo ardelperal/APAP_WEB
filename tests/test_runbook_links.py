@@ -1,11 +1,11 @@
 """Repository-level test: every operator-facing migration runbook reference resolves.
 
 Per PR3 verification remediation C-3 (2026-07-11), this test
-captures the contract that every CLI / legacy reader reference to
-``docs/runbooks/<file>.md`` points to a file that actually exists on
-disk. The contract is enforced at test-time so a drift between code
-and documentation surfaces as a failed test instead of a dead link
-in a production error message.
+captures the contract that every CLI / legacy reader / ``pyproject.toml``
+reference to ``docs/runbooks/<file>.md`` points to a file that
+actually exists on disk. The contract is enforced at test-time so a
+drift between code / config and documentation surfaces as a failed
+test instead of a dead link in a production error message.
 
 Scope:
 
@@ -18,6 +18,12 @@ Scope:
   for closing Access manually and troubleshooting the executor.
   These are operator-facing because they appear in
   ``NotImplementedError`` messages at runtime.
+- ``pyproject.toml`` — the dependency comment for ``pyodbc`` names
+  the runbook the operator consults when the executor raises
+  ``LegacyReaderError`` ("Without it, the CLI exits 5 with a
+  clear install hint in the runbook …"). A stale reference
+  here surfaces as a dead link in the comment that the operator
+  follows after a real install failure.
 
 Hard Rules honoured (web-tdd-philosophy):
 
@@ -206,4 +212,93 @@ class TestRunbookReferenceConsistency:
             )
             assert ref.endswith(".md"), (
                 f"operator runbook reference {ref!r} must be Markdown"
+            )
+
+
+# --------------------------------------------------------------------------
+# pyproject.toml
+# --------------------------------------------------------------------------
+
+
+PYPROJECT_TOML = REPO_ROOT / "pyproject.toml"
+
+
+def _discover_pyproject_runbook_refs() -> list[str]:
+    """Return the sorted, deduplicated runbook paths named in ``pyproject.toml``.
+
+    Scans every line of the file for the ``docs/runbooks/<name>.md``
+    pattern. The repository's own runbook regex is reused so the
+    capture set stays in lock-step with the other test classes.
+    """
+    src = PYPROJECT_TOML.read_text(encoding="utf-8")
+    return sorted(set(_RUNBOOK_REF_RE.findall(src)))
+
+
+class TestPyprojectRunbookReferences:
+    """Every runbook path in ``pyproject.toml`` resolves to an authored file.
+
+    The ``pyodbc`` dependency comment in ``pyproject.toml`` names the
+    runbook the operator consults after a real install failure
+    ("Without it, the CLI exits 5 with a clear install hint in the
+    runbook …"). A stale reference here is a dead link surfaced in
+    the comment that follows an install error, not a CI test, so the
+    contract is captured here.
+    """
+
+    def test_pyproject_documents_at_least_one_runbook(self) -> None:
+        refs = _discover_pyproject_runbook_refs()
+        assert refs, (
+            "expected at least one docs/runbooks/... reference in "
+            "pyproject.toml (the pyodbc install-hint comment names "
+            "the operator runbook)"
+        )
+
+    def test_pyproject_runbook_refs_resolve(self) -> None:
+        refs = _discover_pyproject_runbook_refs()
+        for ref in refs:
+            resolved = _resolve_runbook(ref)
+            assert resolved.exists(), (
+                f"pyproject.toml runbook reference {ref!r} does not "
+                f"resolve to an existing file: {resolved}"
+            )
+            assert resolved.is_file(), (
+                f"pyproject.toml runbook reference {ref!r} is not a "
+                f"regular file: {resolved}"
+            )
+
+    def test_pyproject_runbook_refs_have_agents_section_13(self) -> None:
+        """Every runbook referenced from ``pyproject.toml`` has the AGENTS §13 contract.
+
+        A reference surfaced to the operator (via the pyodbc
+        install-hint comment) MUST satisfy the same AGENTS §13
+        contract as the CLI constant + dysflow_client references.
+        Otherwise the operator lands on a stub file and the
+        install flow breaks.
+        """
+        refs = _discover_pyproject_runbook_refs()
+        for ref in refs:
+            resolved = _resolve_runbook(ref)
+            text = resolved.read_text(encoding="utf-8")
+            missing = _missing_required_headings(text)
+            assert not missing, (
+                f"pyproject.toml runbook {ref!r} is missing required "
+                f"AGENTS §13 headings: {missing!r}"
+            )
+
+    def test_pyproject_and_cli_reference_same_canonical_runbook(self) -> None:
+        """``pyproject.toml`` and the CLI constant point to the SAME runbook.
+
+        The pyodbc install-hint comment and the CLI error output
+        both point the operator at the same operator runbook. If
+        they diverge, the operator follows a comment, lands on
+        a different runbook, and loses the canonical pre-flight /
+        rollback / escalation chain.
+        """
+        refs = _discover_pyproject_runbook_refs()
+        cli_ref = cli_mod.MIGRATION_RUNBOOK_REF
+        for ref in refs:
+            assert ref == cli_ref, (
+                f"pyproject.toml reference {ref!r} disagrees with "
+                f"the CLI constant {cli_ref!r}; both must point to the "
+                f"same canonical operator runbook"
             )
