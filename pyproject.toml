@@ -62,6 +62,13 @@ etl = [
     # native process-query API. >=7.0 (current; 6.1.x was the last with
     # Python 2.7 support, which we don't need — requires-python is ">=3.11").
     "psutil>=7.0",
+    # pyodbc is the primary executor for legacy .accdb reads (M0 of
+    # live-data-migration-sandbox). >=5.3 (current stable per PyPI 2026
+    # release; requires-python >=3.9 covers our Python 3.11 floor).
+    # Without it, ``migration.dysflow_client.execute_legacy_sql`` raises
+    # ``LegacyReaderError`` so the CLI exits 5 with a clear install hint
+    # in the runbook (docs/runbooks/migrate-live-data.md).
+    "pyodbc>=5.3",
 ]
 
 [tool.hatch.build.targets.wheel]
