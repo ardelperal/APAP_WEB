@@ -119,7 +119,7 @@ def _resolve_access_driver(pyodbc_mod: Any) -> str:
 
     Raises :class:`LegacyReaderError` when the driver is not present
     so the CLI can map it to exit code 5 with a clear install hint
-    (see runbook ``docs/runbooks/migrate-live-data.md``).
+    (see runbook ``docs/runbooks/live-migration-apply.md``).
     """
     from migration.legacy_reader import LegacyReaderError
 
@@ -131,7 +131,7 @@ def _resolve_access_driver(pyodbc_mod: Any) -> str:
         f"Microsoft Access Driver is not installed; pyodbc reports "
         f"{len(drivers)} drivers: {drivers!r}. Install the Microsoft "
         "Access Database Engine (redistributable) on the operator box; "
-        "see docs/runbooks/migrate-live-data.md."
+        "see docs/runbooks/live-migration-apply.md."
     )
 
 
@@ -199,7 +199,7 @@ def execute_legacy_sql(
         raise LegacyReaderError(
             f"Cannot connect to legacy .accdb at {path}: {exc}. "
             "Close any open Microsoft Access windows and retry; "
-            "see docs/runbooks/migrate-live-data.md."
+            "see docs/runbooks/live-migration-apply.md."
         ) from exc
 
     # --- execute + fetch --------------------------------------------
