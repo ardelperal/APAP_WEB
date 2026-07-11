@@ -41,10 +41,10 @@ Chain strategy: stacked-to-main
 
 ### PR2: ShadowStateRepository + Bucket Infrastructure (M0)
 
-- [ ] 2.1 **RED**: `tests/migration/test_shadow_state.py` — write failing tests for `ShadowStateRepository.ensure_table()`: table created with correct DDL, idempotent replay. Also `tests/migration/test_bucket_invariant.py`: `test_private_bucket_invariant` (isPublic=false), `test_public_bucket_aborts` (exit 5), `test_missing_bucket_auto_create`. Run; confirm red.
-- [ ] 2.2 **GREEN**: Wire `ShadowStateRepository.ensure_table()` call into `apply.py` bootstrap (before lock). Create `InsForgeClient.ensure_bucket()` and `get_bucket()` in `app/core/insforge.py` using Context7 candidate surface (`POST /api/storage/buckets`, `GET /api/storage/buckets/{bucket}`). Wire `ensure_bucket("apap-photos", is_public=False)` into `apply_legacy_to_web` pre-flight before lock. Add MCP stub in CLI for `apap-migrate ensure-bucket`. Confirm green.
-- [ ] 2.3 **VERIFICATION**: `pytest tests/migration/test_shadow_state.py tests/migration/test_bucket_invariant.py -v` — all green. Commit: `feat(migration): ShadowStateRepository bootstrap + private bucket ensure (M0)`.
-- [ ] Rollback: `DROP TABLE web_only_feature_shadow`; bucket deletion via MCP.
+- [x] 2.1 **RED**: `tests/migration/test_shadow_state.py` — write failing tests for `ShadowStateRepository.ensure_table()`: table created with correct DDL, idempotent replay. Also `tests/migration/test_bucket_invariant.py`: `test_private_bucket_invariant` (isPublic=false), `test_public_bucket_aborts` (exit 5), `test_missing_bucket_auto_create`. Run; confirm red.
+- [x] 2.2 **GREEN**: Wire `ShadowStateRepository.ensure_table()` call into `apply.py` bootstrap (before lock). Create `InsForgeClient.ensure_bucket()` and `get_bucket()` in `app/core/insforge.py` using Context7 candidate surface (`POST /api/storage/buckets`, `GET /api/storage/buckets/{bucket}`). Wire `ensure_bucket("apap-photos", is_public=False)` into `apply_legacy_to_web` pre-flight before lock. Add MCP stub in CLI for `apap-migrate ensure-bucket`. Confirm green.
+- [x] 2.3 **VERIFICATION**: `pytest tests/migration/test_shadow_state.py tests/migration/test_bucket_invariant.py -v` — all green. Commit: `feat(migration): ShadowStateRepository bootstrap + private bucket ensure (M0)`.
+- [x] Rollback: `DROP TABLE web_only_feature_shadow`; bucket deletion via MCP.
 
 ## Phase 2: M1 — Forward Apply + Photos + PII (PR3 + PR4a + PR4b + PR5)
 

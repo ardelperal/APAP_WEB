@@ -15,6 +15,7 @@ so tests can use ``httpx.MockTransport`` without hitting the network.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -121,6 +122,64 @@ class InsForgeClient:
             response.status_code,
             body,
         )
+
+    # --- Storage buckets ------------------------------------------------
+
+    def get_bucket(self, bucket_name: str) -> dict[str, Any] | None:
+        """Return bucket metadata from the storage admin surface.
+
+        Uses the documented bucket-list endpoint instead of upload or
+        download APIs. A bucket whose visibility is not reported is still
+        returned with ``isPublic=None`` so callers can fail closed.
+        """
+        safe_bucket = _validate_bucket_name(bucket_name)
+        response = self._client.get("/api/storage/buckets")
+        if not response.is_success:
+            raise InsForgeError(response.status_code, _safe_json(response))
+        body = _safe_json(response)
+        for item in _extract_bucket_items(body):
+            name = _bucket_name_from_item(item)
+            if name == safe_bucket:
+                return {
+                    "bucketName": safe_bucket,
+                    "isPublic": _bucket_visibility_from_item(item),
+                }
+        return None
+
+    def ensure_bucket(self, bucket_name: str, *, is_public: bool = False) -> dict[str, Any]:
+        """Ensure a storage bucket exists and fail closed unless it is private.
+
+        APAP migration bootstrap only supports private buckets. Passing
+        ``is_public=True`` is rejected before any HTTP call so a caller
+        cannot accidentally create a public photo bucket.
+        """
+        safe_bucket = _validate_bucket_name(bucket_name)
+        if is_public:
+            raise ValueError("APAP migration buckets must be private (is_public=False)")
+
+        existing = self.get_bucket(safe_bucket)
+        if existing is not None:
+            _require_private_bucket(safe_bucket, existing)
+            return existing
+
+        response = self._client.post(
+            "/api/storage/buckets",
+            json={"bucketName": safe_bucket, "isPublic": False},
+        )
+        if response.status_code != 409 and not response.is_success:
+            raise InsForgeError(response.status_code, _safe_json(response))
+
+        bucket = self.get_bucket(safe_bucket)
+        if bucket is None:
+            raise InsForgeError(
+                500,
+                {
+                    "error": "bucket_readback_missing",
+                    "message": f"Bucket {safe_bucket!r} was not visible after create",
+                },
+            )
+        _require_private_bucket(safe_bucket, bucket)
+        return bucket
 
     # --- Google OAuth --------------------------------------------------
 
@@ -229,6 +288,77 @@ class InsForgeClient:
                 email=str(user_payload["email"]),
             ),
         )
+
+
+_SAFE_BUCKET_NAME = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _validate_bucket_name(bucket_name: str) -> str:
+    """Return a safe bucket name or raise before any HTTP call."""
+    if not _SAFE_BUCKET_NAME.match(bucket_name):
+        raise ValueError(
+            f"unsafe bucket name {bucket_name!r}; must match {_SAFE_BUCKET_NAME.pattern}"
+        )
+    return bucket_name
+
+
+def _extract_bucket_items(body: Any) -> list[Any]:
+    """Normalize InsForge bucket list response shapes."""
+    if isinstance(body, dict):
+        buckets = body.get("buckets", body.get("data", []))
+    else:
+        buckets = body
+    if isinstance(buckets, dict):
+        return list(buckets.values())
+    if isinstance(buckets, list):
+        return buckets
+    return []
+
+
+def _bucket_name_from_item(item: Any) -> str | None:
+    """Extract the bucket name from documented and MCP-shaped items."""
+    if isinstance(item, str):
+        return item
+    if not isinstance(item, dict):
+        return None
+    for key in ("bucketName", "name", "bucket", "id"):
+        value = item.get(key)
+        if isinstance(value, str):
+            return value
+    return None
+
+
+def _bucket_visibility_from_item(item: Any) -> bool | None:
+    """Extract bucket visibility, or ``None`` when the API omits it."""
+    if not isinstance(item, dict):
+        return None
+    for key in ("isPublic", "is_public", "public"):
+        value = item.get(key)
+        if isinstance(value, bool):
+            return value
+    return None
+
+
+def _require_private_bucket(bucket_name: str, bucket: dict[str, Any]) -> None:
+    """Fail closed unless bucket read-back proves ``isPublic`` is False."""
+    visibility = bucket.get("isPublic")
+    if visibility is False:
+        return
+    if visibility is True:
+        raise InsForgeError(
+            409,
+            {
+                "error": "bucket_public_violation",
+                "message": f"Bucket {bucket_name!r} exists but is public; recreate it private",
+            },
+        )
+    raise InsForgeError(
+        502,
+        {
+            "error": "bucket_visibility_unknown",
+            "message": f"Bucket {bucket_name!r} visibility could not be verified",
+        },
+    )
 
 
 def _safe_json(response: httpx.Response) -> Any:
