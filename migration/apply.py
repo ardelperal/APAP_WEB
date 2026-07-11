@@ -3,7 +3,7 @@
 This module is the engine behind ``python -m migration apply``: the
 bidirectional sync that AGENTS.md §18 declares MANDATORY between the
 Access/VBA legacy backend and the new web app. It reads legacy rows via
-``migration.legacy_reader`` (Dysflow) and writes them into the matching
+``migration.legacy_reader`` (the injected legacy executor seam) and writes them into the matching
 InsForge domain table (``animales``, ``voluntarios``, ``entradas``,
 ``acogidas``, ``adopciones``, ...) per the YAML column map.
 
@@ -51,13 +51,13 @@ from migration import (
     acquire_lock,
     release_lock,
 )
+from migration.bootstrap import bootstrap_m0_infrastructure
 from migration.legacy_reader import (
     TableSpec,
     load_legacy_snapshot_batched,
 )
 from migration.mappings import load_mapping
 from migration.shadow_state import (
-    SHADOW_NEEDS_REVIEW_INDEX_SQL,
     SHADOW_TABLE_SQL,
     ShadowStateRepository,
 )
@@ -100,6 +100,10 @@ class _InsForgeLike(Protocol):
         params: list[Any] | None = None,
     ) -> list[dict[str, Any]]: ...
 
+    def get_bucket(self, bucket_name: str) -> dict[str, Any] | None: ...
+
+    def ensure_bucket(self, bucket_name: str, *, is_public: bool = False) -> dict[str, Any]: ...
+
 
 # --- Schema bootstrap ----------------------------------------------------
 
@@ -113,17 +117,16 @@ BOOTSTRAP_SHADOW_TABLE_SQL = SHADOW_TABLE_SQL
 def _bootstrap_shadow_state(client: _InsForgeLike) -> None:
     """Ensure ``web_only_feature_shadow`` exists.
 
-    Idempotent: the ``CREATE TABLE IF NOT EXISTS`` is a SQL-level
-    no-op on replay. We don't track bootstrap state in code — the
-    InsForge backend owns the contract.
+    Idempotent: the repository emits ``CREATE ... IF NOT EXISTS`` DDL
+    and lets InsForge/Postgres own replay safety. We don't track
+    bootstrap state in code — the backend owns the contract.
 
     Called by ``apply_legacy_to_web`` BEFORE the lock acquisition
     (Hard Rule 8: a missed bootstrap must not lock the operator out)
     AND by ``run_reconcile`` (so the bootstrap-on-first-run contract
     holds for both subcommands).
     """
-    client.execute_sql(BOOTSTRAP_SHADOW_TABLE_SQL)
-    client.execute_sql(SHADOW_NEEDS_REVIEW_INDEX_SQL)
+    ShadowStateRepository(client).ensure_table()
 
 
 # --- Safety helpers ------------------------------------------------------
@@ -210,8 +213,8 @@ def apply_legacy_to_web(
     Pipeline (per batch of ``batch_size`` rows):
 
     1. Read a batch via ``legacy_reader.load_legacy_snapshot_batched``
-       (Dysflow executor, injected via ``set_legacy_query_executor``
-       in tests; the real Dysflow MCP wires it in production).
+       (legacy executor seam, injected via ``set_legacy_query_executor``
+       in tests; the real runtime driver is ``migration.dysflow_client``).
     2. Map every legacy row to its web-column shape via the YAML.
     3. For each mapped row:
        a. Compute the ``source_hash`` (SHA-256 of the canonical JSON).
@@ -259,11 +262,11 @@ def apply_legacy_to_web(
     mapping = load_mapping(safe)
     web_table = _safe_table(mapping.web_table)
 
-    # Bootstrap the shadow table BEFORE the lock: a missed bootstrap
+    # Bootstrap M0 infrastructure BEFORE the lock: a missed bootstrap
     # must not lock the operator out, and the lock would just bounce
     # the next caller anyway. Dry-run skips bootstrap too (no writes).
     if not dry_run:
-        _bootstrap_shadow_state(client)
+        bootstrap_m0_infrastructure(client)
 
     errors: list[str] = []
     applied = 0

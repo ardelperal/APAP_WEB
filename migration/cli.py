@@ -41,8 +41,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import IO, Any
 
-from app.core.insforge import InsForgeClient
+from app.core.insforge import InsForgeClient, InsForgeError
 from migration.apply import ApplyResult, apply_legacy_to_web
+from migration.bootstrap import APAP_PHOTOS_BUCKET, check_private_bucket, ensure_private_bucket
 from migration.legacy_reader import LegacyReaderError
 from migration.mappings import list_available_tables, load_mapping
 from migration.shadow_state import ShadowStateRepository
@@ -159,6 +160,28 @@ def build_parser() -> argparse.ArgumentParser:
         choices=available_tables,
         default=None,
         help="Restrict status to one mapping (default: all mappings).",
+    )
+
+    ensure_bucket = sub.add_parser(
+        "ensure-bucket",
+        help="Ensure the private photo bucket exists for M0 bootstrap.",
+        description=(
+            "Prepare the apap-photos bucket infrastructure. By default this "
+            "creates a missing bucket as private and reads it back. Use "
+            "--check-only for a read-only operator checkpoint."
+        ),
+    )
+    ensure_bucket.add_argument(
+        "bucket_name",
+        nargs="?",
+        default=APAP_PHOTOS_BUCKET,
+        help=f"Bucket to check or create (default: {APAP_PHOTOS_BUCKET}).",
+    )
+    ensure_bucket.add_argument(
+        "--check-only",
+        dest="check_only",
+        action="store_true",
+        help="Read bucket state without creating a missing bucket.",
     )
 
     return parser
@@ -638,6 +661,14 @@ def run_apply(
     except LegacyReaderError as exc:
         stream.write(f"apap-migrate apply: legacy read failed: {exc}\n")
         return 5
+    except InsForgeError as exc:
+        body = exc.body if isinstance(exc.body, dict) else {"error": str(exc.body)}
+        reason = body.get("error", "insforge_error")
+        stream.write(
+            f"apap-migrate apply: infrastructure bootstrap failed: "
+            f"reason={reason} message={body.get('message', exc)}\n"
+        )
+        return 5
 
     for result in results:
         action = "would insert" if args.check_only else "inserted"
@@ -669,6 +700,44 @@ def run_status(
         rows = web_client.execute_sql(f"SELECT COUNT(*) FROM {mapping.web_table}")
         count = rows[0].get("count", 0) if rows else 0
         stream.write(f"table={table} web_table={mapping.web_table} web_count={count}\n")
+    return 0
+
+
+def run_ensure_bucket(
+    args: argparse.Namespace,
+    *,
+    web_client: InsForgeClient | None = None,
+    stream: IO[str] | None = None,
+) -> int:
+    """Body of ``apap-migrate ensure-bucket``."""
+    if stream is None:
+        stream = sys.stdout
+    if web_client is None:
+        sys.stderr.write("apap-migrate ensure-bucket: requires a web_client in this runtime\n")
+        return 2
+
+    try:
+        if args.check_only:
+            result = check_private_bucket(web_client, args.bucket_name)
+        else:
+            result = ensure_private_bucket(web_client, args.bucket_name)
+    except InsForgeError as exc:
+        body = exc.body if isinstance(exc.body, dict) else {"error": str(exc.body)}
+        reason = body.get("error", "insforge_error")
+        stream.write(
+            f"bucket={args.bucket_name} status=error reason={reason} "
+            f"exit=5 message={body.get('message', exc)}\n"
+        )
+        return 5
+    except ValueError as exc:
+        stream.write(f"bucket={args.bucket_name} status=error exit=2 message={exc}\n")
+        return 2
+
+    visibility = "true" if result.is_public else "false"
+    stream.write(
+        f"bucket={result.bucket_name} status={result.status} "
+        f"isPublic={visibility}\n"
+    )
     return 0
 
 
@@ -716,6 +785,8 @@ def main(
             return run_apply(args, web_client=web_client, stream=stream)
         if args.command == "status":
             return run_status(args, web_client=web_client, stream=stream)
+        if args.command == "ensure-bucket":
+            return run_ensure_bucket(args, web_client=web_client, stream=stream)
     finally:
         if owned_web_client is not None:
             owned_web_client.close()
@@ -731,6 +802,7 @@ __all__ = [
     "build_parser",
     "main",
     "run_apply",
+    "run_ensure_bucket",
     "run_reconcile",
     "run_status",
 ]

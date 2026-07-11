@@ -40,6 +40,7 @@ from typing import Any
 
 import pytest
 
+from app.core.insforge import InsForgeError
 from migration import legacy_reader
 from migration.apply import (
     _SAFE_TABLE_NAME,
@@ -79,6 +80,7 @@ class FakeInsForge:
         # work without modification.
         self.queries: list[tuple[str, list[Any] | None]] = []
         self.tables: dict[str, list[dict[str, Any]]] = {}
+        self.buckets: dict[str, dict[str, Any]] = {}
 
     # --- public helpers used by tests --------------------------------
     def seed(self, table: str, rows: list[dict[str, Any]]) -> None:
@@ -88,6 +90,30 @@ class FakeInsForge:
     def all_rows(self, table: str) -> list[dict[str, Any]]:
         """Return a copy of every row currently in ``table``."""
         return [dict(r) for r in self.tables.get(table, [])]
+
+    def get_bucket(self, bucket_name: str) -> dict[str, Any] | None:
+        """Return a copy of bucket metadata, or ``None`` on miss."""
+        bucket = self.buckets.get(bucket_name)
+        return dict(bucket) if bucket is not None else None
+
+    def ensure_bucket(self, bucket_name: str, *, is_public: bool = False) -> dict[str, Any]:
+        """Create a missing bucket as private; fail closed on public state."""
+        if is_public:
+            raise ValueError("FakeInsForge only supports private buckets")
+        existing = self.buckets.get(bucket_name)
+        if existing is not None:
+            if existing.get("isPublic") is not False:
+                raise InsForgeError(
+                    409,
+                    {
+                        "error": "bucket_public_violation",
+                        "message": f"Bucket {bucket_name!r} exists but is public",
+                    },
+                )
+            return dict(existing)
+        bucket = {"bucketName": bucket_name, "isPublic": False}
+        self.buckets[bucket_name] = bucket
+        return dict(bucket)
 
     # --- duck-typed InsForgeClient surface ----------------------------
     def execute_sql(
