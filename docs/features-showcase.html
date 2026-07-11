@@ -534,7 +534,7 @@
                             <tr><td>Acogida</td><td>Acogida</td><td>Acuerdo de acogida temporal</td></tr>
                             <tr><td>Acogida Judicial</td><td>Acogida judicial</td><td>Acuerdo con cláusulas judiciales</td></tr>
                             <tr><td>Adopción</td><td>Adopción</td><td>Contrato de adopción</td></tr>
-                            <tr><td>PreAdopción</td><td>Adopción</td><td>Acuerdo con cláusula de 20 días</td></tr>
+                            <tr><td>PreAdopción</td><td>Adopción</td><td>Plantilla de pre-adopción; el registro de runtime (`Entorno.cls` L793) selecciona `CONTRATO DE ADOPCIÓN_V02.docx` (compartida con Adopción); `RellenarContratoPreAdopcion` (`Plantilla.cls` L620-689) no contiene temporizador de runtime</td></tr>
                             <tr><td>Cesión por Propietario</td><td>Entrada</td><td>Acuerdo de cesión</td></tr>
                             <tr><td>Reserva de Adopción</td><td>Adopción</td><td>Plantilla de reserva</td></tr>
                             <tr><td>Entrega a Propietario</td><td>Retorno</td><td>Contrato de devolución</td></tr>
@@ -602,7 +602,7 @@
                             <tr><td>Uno por tipo</td><td>Un contrato por tipo por entidad</td></tr>
                             <tr><td>Por especie</td><td>Las plantillas difieren por especie (CANINA / FELINA)</td></tr>
                             <tr><td>Por sexo</td><td>Cláusula de esterilización incluida/excluida según sexo</td></tr>
-                            <tr><td>Pre-adopción</td><td>Cláusula de decisión de 20 días</td></tr>
+                            <tr><td>Pre-adopción</td><td>Texto de esterilización según sexo (solo texto de plantilla; `RellenarContratoPreAdopcion` L620-689 rellena el contrato; sin temporizador de runtime)</td></tr>
                         </table>
                     </div>
 
@@ -669,7 +669,6 @@
             <div class="state pending" data-state="borrador" onclick="showTransitions('contract', this)">Borrador</div>
             <div class="state normal" data-state="pendiente-firma" onclick="showTransitions('contract', this)">Pendiente de Firma</div>
             <div class="state active-state" data-state="firmado" onclick="showTransitions('contract', this)">Firmado</div>
-            <div class="state terminal" data-state="vencido" onclick="showTransitions('contract', this)">Vencido</div>
             <div class="state terminal" data-state="anulado" onclick="showTransitions('contract', this)">Anulado</div>
         </div>
         <div class="transitions" id="contract-transitions">
@@ -938,9 +937,8 @@ const transitions = {
     },
     contract: {
         'borrador': ['Pendiente de Firma'],
-        'pendiente-firma': ['Firmado', 'Vencido', 'Anulado'],
+        'pendiente-firma': ['Firmado', 'Anulado'],
         'firmado': ['Anulado'],
-        'vencido': ['— Terminal —'],
         'anulado': ['— Terminal —']
     },
     followup: {

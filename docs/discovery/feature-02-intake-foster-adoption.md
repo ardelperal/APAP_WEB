@@ -196,7 +196,7 @@ These rules are **mandatory** for all intake, foster, and adoption workflows in 
 | Foster | Acogida | Foster care agreement template |
 | Judicial foster | Acogida Judicial | Judicial foster template (additional court language) |
 | Adoption | Adopción | Adoption contract template |
-| Pre-adoption | PreAdopción | 20-day decision clause template |
+| Pre-adoption | PreAdopción | `CONTRATO DE ADOPCIÓN_V02.docx` (shared template with Adopción per `Entorno.cls` L793 registry); filled by `RellenarContratoPreAdopcion` (`Plantilla.cls` L620-689) with sex-conditional sterilization text and donor data — no runtime timer |
 | Owner surrender | Cesión por Propietario | Surrender agreement template |
 | Adoption reservation | Reserva de Adopción | Reservation template |
 | Return to owner | Entrega a Propietario | Return contract template |

@@ -108,7 +108,7 @@ Tracks the operational status and capacity of each registered foster home.
 
 ## 3. Contract Lifecycle State Machine
 
-Contracts are generated per workflow event (intake, foster, adoption, surrender) and follow a lifecycle from draft to signed or expired.
+Contracts are generated per workflow event (intake, foster, adoption, surrender) and follow a lifecycle from draft to signed (no automatic expiry).
 
 ### States
 
@@ -117,7 +117,6 @@ Contracts are generated per workflow event (intake, foster, adoption, surrender)
 | Borrador | Template selected and document generated; not yet saved |
 | Pendiente de Firma | Document saved; awaiting signature from parties |
 | Firmado | Contract signed and registered in `TbContratosAnexos` |
-| Vencido | Contract has expired (e.g., pre-adoption 20-day window lapsed) |
 | Anulado | Contract voided or cancelled |
 
 ### Transition rules
@@ -126,10 +125,8 @@ Contracts are generated per workflow event (intake, foster, adoption, surrender)
 |------|---------------------|---------------|
 | Borrador | Pendiente de Firma | Document saved to system |
 | Pendiente de Firma | Firmado | All parties sign; registration in `TbContratosAnexos` |
-| Pendiente de Firma | Vencido | Signature deadline lapsed (pre-adoption: 20 days) |
 | Pendiente de Firma | Anulado | Parties withdraw; admin cancels |
 | Firmado | Anulado | Contract voided (rare; legal/admin action) |
-| Vencido | — | Terminal; new contract may be generated if needed |
 | Anulado | — | Terminal; new contract may be generated if needed |
 
 ### Contract types and their lifecycle specifics
@@ -140,7 +137,7 @@ Contracts are generated per workflow event (intake, foster, adoption, surrender)
 | Acogida | Foster | Foster parent + association rep | Tied to foster stay duration |
 | Acogida Judicial | Judicial foster | Court-appointed + association rep | Tied to judicial order |
 | Adopción | Adoption | Adopter + association rep | None (permanent) |
-| PreAdopción | Pre-adoption | Adopter + association rep | 20-day decision window |
+| PreAdopción | Pre-adoption | Adopter + association rep | None (manual close via definitive adoption or return through FDevolucion) |
 | Cesión por Propietario | Owner surrender | Surrendering owner + association rep | None |
 | Reserva de Adopción | Adoption reservation | Adopter + association rep | Reservation window |
 | Entrega a Propietario | Return to owner | Owner + association rep | None |
