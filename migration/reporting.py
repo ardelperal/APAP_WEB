@@ -26,7 +26,7 @@ MIGRATION-01 PR 5/6, el reporte siempre lleva el bundle poblado.
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -124,6 +124,24 @@ class MigrationReport:
     ninguno (``applied=False`` siempre que ``dry_run=True``);
     ``backup_path`` solo se popula en corridas web→legacy que efectivamente
     crearon un backup pre-flight.
+
+    PR3/M1 extensions (design D11) — backward-compatible default
+    factories; pre-PR3 reports stay valid:
+
+    - ``counts``: per-table row counts, shaped as
+      ``{table_name: {"count_legacy": N, "count_web": M}}``.
+    - ``source_hashes``: per-table SHA-256 hex strings of the legacy
+      source at apply time (``{table_name: "<sha256 hex>"}``). The
+      ``.accdb`` and photos-directory hashes live in the
+      ``migration.lock_snapshot.json`` file; this field tracks the
+      per-table fingerprint for fast operator review without opening
+      the snapshot file.
+    - ``collisions``: per-table counters — counts only, no values.
+      Typical keys: ``dni_collisions``, ``row_divergences``. The
+      operator-facing detail (which PKs collided) lives in
+      ``web_only_feature_shadow`` and the ``conflicts`` list, NOT
+      here. This invariant keeps the JSON serialization free of
+      raw PII and PK strings.
     """
 
     direction: Literal["legacy-to-web", "web-to-legacy", "both"]
@@ -142,6 +160,11 @@ class MigrationReport:
     # attaches its ``ReconciliationSummary`` here. ``None`` keeps the
     # pre-PR-4 reports valid (MIGRATION-01 PR 1–3 never run the hook).
     reconciliation_summary: ReconciliationSummary | None = None
+    # PR3/M1 source-identity fields (design D11). Default factories
+    # preserve backward-compat for every pre-PR3 caller.
+    counts: dict[str, dict[str, int]] = field(default_factory=dict)
+    source_hashes: dict[str, str] = field(default_factory=dict)
+    collisions: dict[str, dict[str, int]] = field(default_factory=dict)
 
     # --- serializers ---------------------------------------------------
 
@@ -170,6 +193,10 @@ class MigrationReport:
         - Bloque de métricas (totales de INSERTs/UPDATEs/DELETEs/NOOPs +
           conflicts).
         - Tabla de conflicts (si hay).
+        - Sección ``## Source Identity`` (PR3/M1) si alguno de los
+          campos ``counts`` / ``source_hashes`` / ``collisions`` está
+          poblado. Vacío por default para preservar el shape de los
+          reportes pre-PR3.
         - Footer con timestamps y duración.
         """
         lines: list[str] = []
@@ -224,6 +251,43 @@ class MigrationReport:
             lines.append(f"| Divergent | {rs.divergent} |")
             lines.append(f"| Needs review | {rs.needs_review} |")
             lines.append("")
+
+        # Source identity (PR3/M1). Emitted only when at least one of
+        # the three source-identity fields has content. Keeps the
+        # pre-PR3 markdown shape unchanged for callers that don't set
+        # the new fields (backward-compat).
+        if self.counts or self.source_hashes or self.collisions:
+            lines.append("## Source Identity")
+            lines.append("")
+            if self.counts:
+                lines.append("### Counts")
+                lines.append("")
+                lines.append("| Table | count_legacy | count_web |")
+                lines.append("|---|---|---|")
+                for table_name, c in self.counts.items():
+                    lines.append(
+                        f"| {table_name} | "
+                        f"{c.get('count_legacy', '')} | "
+                        f"{c.get('count_web', '')} |"
+                    )
+                lines.append("")
+            if self.source_hashes:
+                lines.append("### Source hashes")
+                lines.append("")
+                lines.append("| Table | sha256 |")
+                lines.append("|---|---|")
+                for table_name, sha in self.source_hashes.items():
+                    lines.append(f"| {table_name} | `{sha}` |")
+                lines.append("")
+            if self.collisions:
+                lines.append("### Collisions")
+                lines.append("")
+                lines.append("| Table | key | count |")
+                lines.append("|---|---|---|")
+                for table_name, c in self.collisions.items():
+                    for key, value in c.items():
+                        lines.append(f"| {table_name} | {key} | {value} |")
+                lines.append("")
 
         # Footer
         lines.append("## Timing")
