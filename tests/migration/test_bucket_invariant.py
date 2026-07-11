@@ -86,6 +86,47 @@ def test_public_bucket_aborts_fail_closed() -> None:
     assert APAP_PHOTOS in excinfo.value.body["message"]
 
 
+def test_bucket_visibility_missing_or_null_fails_closed() -> None:
+    """Missing or null ``isPublic`` is treated as fail-closed.
+
+    The deployed InsForge bucket-list may omit the visibility field.
+    PR2 treats that as ``bucket_visibility_unknown`` (502) rather than
+    silently accepting the bucket as private — privacy default-deny.
+    """
+    scenarios: tuple[tuple[str, list[dict[str, Any]]], ...] = (
+        (
+            "isPublic-absent",
+            [{"bucketName": APAP_PHOTOS}],
+        ),
+        (
+            "isPublic-null",
+            [{"bucketName": APAP_PHOTOS, "isPublic": None}],
+        ),
+    )
+
+    def _make_handler(buckets: list[dict[str, Any]]):
+        def handler(request: httpx.Request) -> httpx.Response:
+            assert request.method == "GET"
+            return _json_response(200, {"buckets": list(buckets)})
+        return handler
+
+    for label, buckets in scenarios:
+        client = InsForgeClient(
+            base_url="https://example.insforge.app",
+            service_key="ik_test",
+            transport=httpx.MockTransport(_make_handler(buckets)),
+        )
+        try:
+            with pytest.raises(InsForgeError) as excinfo:
+                client.ensure_bucket(APAP_PHOTOS, is_public=False)
+        finally:
+            client.close()
+
+        assert excinfo.value.status_code == 502, label
+        assert excinfo.value.body["error"] == "bucket_visibility_unknown", label
+        assert APAP_PHOTOS in excinfo.value.body["message"], label
+
+
 def test_missing_bucket_auto_create_is_private_and_idempotent() -> None:
     """Missing bucket is created private once, then replay is a no-op."""
     buckets: list[dict[str, Any]] = []
@@ -199,6 +240,70 @@ def test_cli_ensure_bucket_rejects_unsafe_bucket_name() -> None:
 
     assert rc == 2
     assert "unsafe bucket name" in stream.getvalue()
+
+
+def test_apply_bootstrap_failure_does_not_acquire_lock_or_read_legacy(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    """Bootstrap failure must short-circuit BEFORE lock acquisition and reads.
+
+    A public, missing, or unknown-visibility bucket must not leave the
+    migration lock held and must not invoke the legacy executor. The
+    apply preflight is the only step that runs.
+    """
+    events: list[str] = []
+
+    class FailingBucketFake(FakeInsForge):
+        def get_bucket(self, bucket_name: str) -> dict[str, Any] | None:
+            events.append("get_bucket")
+            return {"bucketName": bucket_name, "isPublic": True}
+
+        def ensure_bucket(self, bucket_name: str, *, is_public: bool = False) -> dict[str, Any]:
+            events.append("ensure_bucket")
+            raise InsForgeError(
+                409,
+                {
+                    "error": "bucket_public_violation",
+                    "message": f"Bucket {bucket_name!r} exists but is public",
+                },
+            )
+
+    def fake_acquire_lock(_path) -> None:
+        events.append("acquire_lock")
+
+    def fake_release_lock(_path) -> None:
+        events.append("release_lock")
+
+    def fake_executor(_path: str, _sql: str, _offset: int, _limit: int) -> list[dict[str, Any]]:
+        events.append("read_legacy")
+        return []
+
+    monkeypatch.setattr("migration.apply.acquire_lock", fake_acquire_lock)
+    monkeypatch.setattr("migration.apply.release_lock", fake_release_lock)
+    legacy_reader.set_legacy_query_executor(fake_executor)
+    try:
+        with pytest.raises(InsForgeError) as excinfo:
+            apply_legacy_to_web(
+                FailingBucketFake(),
+                "animal",
+                legacy_path="/dummy/legacy.accdb",
+                lock_path=tmp_path / "migration.lock",
+            )
+    finally:
+        legacy_reader.set_legacy_query_executor(None)
+
+    assert excinfo.value.status_code == 409
+    assert excinfo.value.body["error"] == "bucket_public_violation"
+    # Bootstrap reached the bucket read-back…
+    assert "get_bucket" in events
+    # …but the lock was never acquired or released…
+    assert "acquire_lock" not in events
+    assert "release_lock" not in events
+    # …and the legacy executor was never invoked.
+    assert "read_legacy" not in events
+    # Belt-and-braces: no lock file appeared on disk.
+    assert (tmp_path / "migration.lock").exists() is False
 
 
 def test_apply_ensures_private_bucket_before_lock(
