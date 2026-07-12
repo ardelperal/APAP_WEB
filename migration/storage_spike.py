@@ -22,6 +22,9 @@ MUTATION_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 READ_ONLY_METHODS = frozenset({"GET", "HEAD"})
 DEFAULT_DISCOVERY_PATH = Path("docs/discovery/storage-contract-2026-Q3.md")
 DEFAULT_ENDPOINT_PATH = "/api/storage/downloadStrategy"
+PINNED_DOWNLOAD_STRATEGY_ENDPOINT = (
+    "/api/storage/buckets/apap-photos/download-strategy/objects/{key}"
+)
 
 _SCHEMA = "apap.storage-contract-probe/v1"
 _PASS = "PASS"
@@ -223,6 +226,70 @@ def missing_credentials_result(storage_path: str) -> StorageProbeResult:
     )
 
 
+def build_pinned_operator_evidence_result() -> StorageProbeResult:
+    """Build deterministic redacted evidence from the reversible operator probe."""
+    return _result(
+        {
+            "schema": _SCHEMA,
+            "probe": "storage_contract_operator_sentinel",
+            "status": "supported",
+            "pr4b_gate": _PASS,
+            "canonical_endpoint": PINNED_DOWNLOAD_STRATEGY_ENDPOINT,
+            "storage_path": "<redacted-path>",
+            "strategy_status_code": 200,
+            "strategy_without_auth_status_code": 401,
+            "strategy_headers": [],
+            "strategy_body_shape": {
+                "expiresAt": "str",
+                "method": "str",
+                "url": "url",
+            },
+            "strategy_without_auth_body_shape": {
+                "error": "str",
+                "message": "str",
+                "nextActions": "list",
+                "statusCode": "int",
+            },
+            "required_auth_header": "Authorization: Bearer <service_key>",
+            "download_method": "presigned",
+            "returned_url": "<redacted-url>",
+            "returned_url_auth": "self-authenticating",
+            "returned_url_exposure": "server-stream-only",
+            "object_head": {
+                "with_auth_status": 200,
+                "without_auth_status": 200,
+            },
+            "upload_contract": {
+                "protocol": "s3-compatible",
+                "strategy_fields_present": True,
+                "confirm_required": True,
+                "transfer_method_rule": "POST when fields present; PUT when fields absent",
+                "confirm_status_code": 201,
+                "steps": [
+                    "request_upload_strategy",
+                    "transfer_object",
+                    "confirm_upload",
+                ],
+            },
+            "bucket": {
+                "bucket_name": "apap-photos",
+                "is_public": False,
+            },
+            "cleanup": {
+                "sentinel_delete_status_code": 200,
+                "post_list_object_count": 0,
+                "post_list_total": 0,
+                "success": True,
+                "leftovers": False,
+            },
+            "decision_reason": (
+                "Reversible operator sentinel proved strategy auth, presigned download, "
+                "three-step S3 upload confirmation, and cleanup."
+            ),
+        }
+    )
+
+
 def write_discovery_document(result: StorageProbeResult, output_path: str | Path) -> None:
     """Write the redacted discovery artifact consumed by PR4b."""
     path = Path(output_path)
@@ -245,22 +312,49 @@ def write_discovery_document(result: StorageProbeResult, output_path: str | Path
             "\n- Live probe did not run: missing "
             "APAP_INSFORGE_URL/APAP_INSFORGE_SERVICE_KEY"
         )
+    presigned_note = ""
+    if evidence.get("returned_url_exposure") == "server-stream-only":
+        presigned_note = (
+            "\n- Returned presigned URL: self-authenticating; `server-stream-only`; "
+            "MUST NOT be exposed to browser/client."
+        )
+    operator_note = ""
+    if evidence.get("upload_contract"):
+        operator_note = (
+            "\n- Operator-supplied reversible sentinel evidence: "
+            "S3-compatible three-step upload; `confirmRequired=true`; "
+            "confirm status 201; cleanup restored object_count=0 and total=0."
+        )
+    strategy_request_note = (
+        "- Strategy request: GET with `expiresIn=3600` and service-key bearer auth."
+    )
+    returned_request_note = (
+        "- Returned URL request: HEAD without auth, then HEAD with service-key bearer auth."
+    )
+    if evidence.get("probe") == "storage_contract_operator_sentinel":
+        strategy_request_note = (
+            "- Strategy verification: authenticated GET 200; unauthenticated GET 401."
+        )
+        returned_request_note = (
+            "- Returned presigned URL verification: HEAD 200 with and without bearer."
+        )
     content = f"""# Storage Contract Discovery — 2026 Q3
 
 ## Scope
 
-PR4a empirically probes the deployed InsForge storage read contract needed by PR4b.
-The spike is read-only by construction: it may call GET/HEAD only and refuses
-POST, PUT, PATCH, and DELETE before any network transport receives a request.
-It never creates buckets, uploads objects, deletes objects, logs service keys,
-logs credentialed URLs, or captures object bytes.
+PR4a records the deployed InsForge storage contract needed by PR4b.
+Agent-side probe remains GET/HEAD-only and refuses POST, PUT, PATCH, and DELETE
+before any network transport receives a request. Operator-supplied reversible
+sentinel evidence is persisted only as redacted status/shape categories.
+The artifact never records service keys, credentialed URLs, raw body values,
+or object bytes.
 
 ## Methodology
 
 - Candidate endpoint probed: `{evidence['canonical_endpoint']}`.
 - Candidate object path: `<redacted-path>`.
-- Strategy request: GET with `expiresIn=3600` and service-key bearer auth.
-- Returned URL request: HEAD without auth, then HEAD with service-key bearer auth.
+{strategy_request_note}
+{returned_request_note}
 - Recorded evidence is a redacted shape: status codes, header names, body field
   types, endpoint path, auth-header behavior, and deterministic evidence hash.
 
@@ -278,7 +372,7 @@ Evidence hash: `{result.evidence_hash}`
 - PR4b gate: {verdict}
 {endpoint_decision}
 {auth_decision}
-- Decision reason: {evidence['decision_reason']}{live_note}
+- Decision reason: {evidence['decision_reason']}{live_note}{operator_note}{presigned_note}
 """
     path.write_text(content, encoding="utf-8")
 

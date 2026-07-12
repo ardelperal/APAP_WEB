@@ -1,11 +1,11 @@
 ## SDD Apply Progress: live-data-migration-sandbox
 
 **Branch**: `feat/live-migration-storage-contract-spike` (from `origin/main` @ PR #186 merge `73bfff4`)
-**Work units**: cumulative PR1 / PR2 / PR2-verify / PR3 / PR3 verification remediation / PR3 runbook closure + current PR4a read-only storage contract spike.
-**Commits**: `f8cbc9a` — `feat(migration): add read-only storage contract spike`; `6154d5d` — `fix(migration): keep blocked storage endpoint unpinned`.
+**Work units**: cumulative PR1 / PR2 / PR2-verify / PR3 / PR3 verification remediation / PR3 runbook closure + PR4a storage contract spike and operator evidence pin.
+**Commits**: `f8cbc9a`, `6154d5d`, `2c065f4`, `62ecbe7`, `09cb6ab`, `797682e`; current PASS contract-pin commit SHA persisted to Engram after commit.
 **Mode**: Strict TDD (orchestrator-confirmed; global maintainer-approved `size:exception`)
 **Delivery**: stacked-to-main with maintainer-approved `size:exception`; target `main` via PR; apply phase does NOT push/open PR/merge (user will auto-merge later)
-**Status**: PR1, PR2, PR2-verify, PR3, PR3 verification remediation, PR3 runbook closure, and PR4a complete; PR4b+ untouched. PR4b is **BLOCKED** until the live InsForge storage contract is proven with credentials and the discovery doc verdict changes to PASS.
+**Status**: PR1, PR2, PR2-verify, PR3, PR3 verification remediation, PR3 runbook closure, and PR4a complete; PR4b+ untouched. PR4a discovery verdict and PR4b start gate are **PASS** from redacted reversible operator evidence. No PR4b production code is included in this branch.
 
 ### Cumulative task state (across batches)
 
@@ -287,7 +287,48 @@ operator's docs lookup is deterministic.
 - Project rule gate: `scripts/check_rules.py app` → exit 0, no output.
 - Build: `apap_web-0.1.0-py3-none-any.whl` built.
 
+### PR4a Operator Sentinel Contract Pin — PASS (2026-07-12)
+
+**Scope**: Persist redacted operator evidence and tests only. No PR4b production storage client, photo migration, routes, Access/password code, or live mutation by this agent.
+
+#### Proven redacted contract
+
+- Private bucket: `apap-photos`, `isPublic=false`.
+- Canonical download strategy endpoint: `GET /api/storage/buckets/apap-photos/download-strategy/objects/{key}`.
+- Authenticated strategy status/shape: `200`, keys `[expiresAt, method, url]`.
+- Unauthenticated strategy status/shape: `401`, keys `[error, message, nextActions, statusCode]`.
+- Strategy auth: `Authorization: Bearer <service_key>` required.
+- Download method: `presigned`; returned URL is self-authenticating (`HEAD 200` with and without bearer), `server-stream-only`, and MUST NOT be exposed to browser/client.
+- S3-compatible upload: strategy → transfer (`POST` when strategy fields are present; `PUT` when absent) → confirm when `confirmRequired=true`; confirm status `201`.
+- Reversibility/cleanup: sentinel delete `200`; post-list `object_count=0`, `total=0`; cleanup success; no leftovers.
+- Evidence contains no secrets, raw URLs, body values, object key, or object bytes.
+- Deterministic evidence hash: `62f025e2df0d4fe92e61baa7cf001f34cb3eccdf525564d9ca13bc636bfdac07`.
+- Discovery verdict / PR4b start gate: **PASS**.
+
+#### Strict TDD Cycle Evidence
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|---|
+| PR4a pinned operator contract | `tests/migration/test_storage_contract_evidence.py` | Unit / evidence contract | Existing `test_photo_storage.py` 12 atoms green | Import error: missing `PINNED_DOWNLOAD_STRATEGY_ENDPOINT` / evidence builder | `4 passed in 0.32s` after minimal deterministic redacted builder + doc renderer | Doc narrative RED `1 failed, 3 passed`; factual-scope RED rejected unproven `expiresIn=3600`; final GREEN `4 passed in 0.30s` | Evidence stays data-only; no PR4b client/route implementation |
+
+#### Work Unit Evidence
+
+| Evidence | Required value |
+|---|---|
+| Focused test command and exact result | `python -m pytest tests/migration/test_storage_contract_evidence.py -q` → final `4 passed in 0.30s`; existing storage probe atoms remain in the focused gate |
+| Runtime harness command/scenario and exact result | Operator-supplied reversible sentinel receipt: strategy `200/401`, presigned HEAD `200/200`, confirm `201`, delete `200`, post-list `0/0`, cleanup success/no leftovers. Agent replay N/A: replay would mutate storage and is prohibited in this apply batch. |
+| Rollback boundary | Revert the PASS contract-pin commit to remove the pinned evidence builder/test and restore the preceding BLOCKED discovery/tasks/progress state. No infrastructure rollback: operator already deleted the sentinel and verified `0/0`; agent performed no mutation. |
+
+#### Verification — PASS Contract Pin
+
+- Focused storage contract gate: `16 passed in 0.36s` (`test_storage_contract_evidence.py` + existing `test_photo_storage.py`).
+- Migration suite: `175 passed in 1.85s`.
+- Full local gate: `2250 passed, 1 skipped, 2 deselected in 23.59s`; coverage gate PASS all 17 helpers at 100%.
+- Ruff scoped and full: All checks passed.
+- Project rule gate: `scripts/check_rules.py app` → exit 0, no output.
+- Build: `apap_web-0.1.0-py3-none-any.whl` built.
+
 ### Next batch
 
-PR1, PR2, PR2-verify, PR3, PR3 verification remediation, PR3 runbook closure, and PR4a code/test continuation complete.
-PR4b+ untouched. PR4b remains BLOCKED: live candidate endpoint returned the same 404 with and without bearer auth, so neither canonical endpoint nor required auth header is proven. The next PR4a operator action must identify a documented/deployed read-only endpoint that yields a distinguishable auth contract (authenticated object-level 404 or 2xx vs unauthenticated 401/403); do not start PR4b before the discovery verdict is PASS.
+PR1, PR2, PR2-verify, PR3, PR3 verification remediation, PR3 runbook closure, and PR4a complete.
+PR4a discovery verdict and PR4b start gate are PASS. PR4b remains unimplemented and must consume the pinned contract exactly: bearer only on strategy endpoint; self-authenticating presigned URL kept server-side; three-step S3 upload with conditional POST/PUT and mandatory confirm when requested; private bucket invariant preserved.
