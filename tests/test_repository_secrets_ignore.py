@@ -130,31 +130,30 @@ def test_root_gitignore_has_narrow_secure_env_block_at_project_root() -> None:
 
 
 def test_env_file_is_untracked_and_not_staged() -> None:
-    """``.env`` is ignored by ``.gitignore`` so it never shows up in status."""
-    result = _git("status", "--porcelain", "--ignored")
-    assert result.returncode == 0, result.stderr
-    ignored_lines = [
-        line for line in result.stdout.splitlines() if line.strip().endswith(".env")
-    ]
-    assert ignored_lines, "Expected .env to be reported as ignored"
-    for line in ignored_lines:
-        assert line.startswith("!! "), (
-            f".env must be marked ignored (!! prefix); got: {line!r}"
-        )
+    """``.env`` is ignored by ``.gitignore`` so a leaked file cannot stage.
+
+    Uses ``git check-ignore --no-index`` so the assertion holds whether
+    or not an operator has actually created ``.env`` locally — without
+    that primitive, fresh CI checkouts (no ``.env`` on disk) would fail
+    the ``git status --ignored`` shape assertion even though the
+    gitignore rule is correct.
+    """
+    assert _check_ignored(".env"), (
+        "Root .env must be ignored so a leaked credential file cannot stage"
+    )
 
 
 def test_coverage_artifacts_remain_untracked() -> None:
-    """coverage.json and coverage_full.json are ignored by .gitignore."""
-    result = _git("status", "--porcelain", "--ignored")
-    assert result.returncode == 0, result.stderr
-    lines = result.stdout.splitlines()
+    """coverage.json and coverage_full.json are ignored by .gitignore.
+
+    Same ``git check-ignore --no-index`` shape as
+    ``test_env_file_is_untracked_and_not_staged`` so the assertion holds
+    in fresh CI checkouts that have not generated coverage artifacts.
+    """
     for name in ("coverage.json", "coverage_full.json"):
-        matched = [line for line in lines if line.strip().endswith(name)]
-        assert matched, f"{name} should be reported as ignored"
-        for line in matched:
-            assert line.startswith("!! "), (
-                f"{name} must be marked ignored (!! prefix); got: {line!r}"
-            )
+        assert _check_ignored(name), (
+            f"{name} must be ignored so it cannot stage or pollute status"
+        )
 
 
 def test_no_secret_history_in_git_log_for_env() -> None:
