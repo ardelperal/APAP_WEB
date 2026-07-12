@@ -296,6 +296,196 @@ to roll back. Fix the underlying issue:
 After fixing the issue, re-run the apply. The lock + snapshot
 files are released / overwritten cleanly.
 
+## PR4b — Photo storage + authenticated foto display
+
+PR4b layers the private-photo-display surface on top of the apply
+pipeline. The apply moves `animales.nombrefoto` from the legacy file
+name to the canonical object key returned by the upload strategy;
+the new `GET /animales/{animal_id}/foto` route streams bytes from
+the private `apap-photos` bucket via server-side credentials.
+
+### When to trigger (PR4b)
+
+Use this section when any of the following surfaces:
+
+- The `apap-photos` bucket is missing OR has `isPublic=true`; the
+  apply pre-flight aborts with `infra_bootstrap_failed` (exit 5)
+  and the message points to `bucket_public_violation` or
+  `bucket_visibility_unknown`.
+- A photo migration pass finishes with `MigrationReport.warnings`
+  carrying `photo.file_missing`, `photo.bytes_corrupt`,
+  `photo.unsupported_ext`, or `photo.dir_unreachable`. The pass
+  does NOT abort — sentinel `__missing__` rows are written — but
+  the operator wants to inspect the affected rows.
+- `GET /animales/{animal_id}/foto` (UUID) returns 200 with bytes
+  that look broken, or returns 200 with the placeholder PNG for a
+  row that the operator knows has a real photo.
+- The `delete_object` 404-idempotent contract is in doubt: the
+  operator deleted an object manually and wants to verify the
+  next `apap-migrate status --photos` reports `orphan_count=0`
+  for that key.
+
+### Pre-deploy checklist (PR4b)
+
+In addition to the global §"Pre-deploy checklist" above, every PR4b
+operator MUST verify:
+
+- [ ] **`apap-photos` bucket exists and is private** — verified by
+      `python -m migration ensure-bucket apap-photos --check-only`
+      returning `is_public=false`. A public bucket MUST be recreated
+      private before retrying any photo operation.
+- [ ] **Storage contract spike is PASS** — confirmed by
+      `docs/discovery/storage-contract-2026-Q3.md` carrying
+      `Verdict: PASS` and `PR4b gate: PASS`. The pinned canonical
+      endpoints + auth headers in that artifact MUST match the
+      `app/core/insforge.py` upload/download/delete methods.
+- [ ] **Live InsForge reachable** — `python -c "import httpx; httpx.get(settings.insforge_url + '/api/storage/buckets', headers={'Authorization': f'Bearer {settings.insforge_service_key}'})"`
+      returns 2xx. Network reachability is a precondition for any
+      photo migration or display.
+- [ ] **`APAP_INSFORGE_URL` + `APAP_INSFORGE_SERVICE_KEY`** are
+      loaded by `app.core.config.get_settings` from the operator's
+      environment. The CLIs (`apap-migrate`, `python -m migration
+      storage_spike`) call `get_settings.cache_clear()` + reload so
+      the env takes precedence over any stale `.env`.
+- [ ] **Photos directory is stable** — no concurrent edits to the
+      `URLDirectorioDocumentacion` for the duration of the apply.
+      Drift detection (exit 6) aborts on any change.
+- [ ] **Audit verdict is PASS** — `docs/audits/pii-live-migration-2026-Q3.md`
+      carries `Verdict: PASS`. M1 acceptance is blocked without it.
+
+### Deploy steps (PR4b)
+
+The PR4b flow is a forward migration that runs ON TOP of the standard
+`apap-migrate apply`. The apply emits `apap-photos` objects as a side
+effect of the `animal` table pass (when `animal.yaml` carries the
+storage block and the `migration/photo_migration.py` pass runs). The
+recommended flow:
+
+1. **Dry-run the photo pass** — confirm counts before touching
+   storage:
+
+       apap-migrate apply --table animal \
+           --legacy-path $APAP_LEGACY_ACCDB \
+           --check-only
+
+   `--check-only` does NOT write the snapshot, does NOT lock, and
+   does NOT emit `apap-photos` objects. It only counts legacy rows
+   and emits the `would insert=N` line for review.
+
+2. **Real apply** — runs the forward pipeline. The photo pass runs
+   as part of the `animal` table write; per-row photos are uploaded
+   via `InsForgeClient.upload_object` (three-step S3-compatible flow:
+   strategy → transfer → optional confirm). Duplicate bytes are
+   skipped because the client proposes `filename=<sha256>.<ext>` and
+   the server dedups on the key.
+
+       apap-migrate apply --table animal \
+           --legacy-path $APAP_LEGACY_ACCDB
+
+   The CLI exits 0 on success, 5/6/7 on categorical failures (see
+   the global §"Verification" exit-code table).
+
+3. **Verify** — confirm bucket invariants and display behavior
+   BEFORE running another apply:
+
+       apap-migrate status --photos
+       apap-migrate verify-storage --check-bytes     # NOT in CI; operator spot-check
+       curl -b "$APAP_SESSION_COOKIE" \
+           https://app.example/animales/<uuid>/foto -o /tmp/foto.bin
+
+   `status --photos` reports `unique_objects=N`, `row_references=N`,
+   `orphan_count=K`. Orphans are objects in the bucket that no
+   `animales.nombrefoto` references; `--cleanup-orphans` removes
+   them idempotently.
+
+### Verification (PR4b)
+
+#### Bucket invariants
+
+| Check                                         | How to verify                                  | Pass criterion                                   |
+|-----------------------------------------------|------------------------------------------------|--------------------------------------------------|
+| `apap-photos` is private                      | `apap-migrate ensure-bucket apap-photos --check-only` | `is_public=false`                                |
+| Bucket object count matches row references    | `apap-migrate status --photos`                  | `orphan_count=0`                                 |
+| No presigned URL leaks via `GET /foto`        | Inspect response headers with `curl -I`         | No `Location`/`X-Trace-Id`/Set-Cookie/etc. leaks |
+| No PII in `log_safe` payloads                 | `pytest tests/test_log_safe_redaction.py`       | 13 atoms green                                   |
+
+#### Display failures
+
+| Symptom                                                  | Likely cause                                                 | Operator action                                                              |
+|----------------------------------------------------------|--------------------------------------------------------------|------------------------------------------------------------------------------|
+| `GET /animales/{id}/foto` returns 200 placeholder PNG    | Sentinel / missing `NombreFoto` / storage 404                | Inspect `animales.nombrefoto` for the row; verify object exists in bucket.   |
+| `GET /animales/{id}/foto` returns 302 `/login`           | No session cookie                                            | Expected. Auth middleware redirect; the handler never sees anonymous calls.  |
+| `GET /animales/{id}/foto` returns 404                    | Animal UUID not found in `animales`                          | Inspect the UUID; this is expected for soft-deleted rows (`activo=false`).   |
+| `GET /animales/{id}/foto` returns 200 with empty bytes   | Storage transport exhausted before bytes arrived              | Re-run after `apap-migrate verify-storage --check-bytes`.                    |
+| `apap-migrate status --photos` reports unexpected orphans | A previous apply ran with a different photo set              | Run `apap-migrate status --photos --cleanup-orphans` (idempotent).           |
+
+### Files written by PR4b
+
+| Path                                                           | Lifecycle                                                                                  |
+|----------------------------------------------------------------|--------------------------------------------------------------------------------------------|
+| `apap-photos` (InsForge bucket)                                | Created by M0 bootstrap; carries the photo objects. NEVER auto-deleted by the apply.        |
+| `animales.nombrefoto` (web column)                             | Set per row by the photo pass; stores the **returned** key (server may rename).            |
+| `migration_report.json` → `warnings`                           | Array of `photo.<reason>` entries (sentinel rows from missing/corrupt/unsupported photos). |
+| `migration_report.json` → `counts.apap_photos`                 | `{count_legacy: N, count_web: N}` (objects vs rows referencing them).                       |
+| `migration_report.json` → `source_hashes.apap-photos`          | SHA-256 of the photos manifest, drift-detected on the next apply.                          |
+
+### What PR4b does NOT do
+
+- **NO** presigned URL is ever returned to the browser/client. The
+  route streams bytes via `httpx.Client.stream` with bearer auth;
+  the client sees only the response body.
+- **NO** public bucket configuration. The bootstrap invariant
+  (`is_public=false`) is enforced pre-network and at every apply
+  run.
+- **NO** auto-cleanup of orphans in CI. `--cleanup-orphans` is an
+  explicit operator command, never an automatic step.
+- **NO** server-side re-hash of uploaded bytes. The
+  `apap-migrate verify-storage --check-bytes` command is operator-
+  initiated spot-check; it is NOT in CI.
+- **NO** PII in logs. The `log_safe` redaction list now has 15
+  entries (`email`, `tel1`, `tel2`, `dni` added by PR4b); every
+  atom in `tests/test_log_safe_redaction.py` RED-first proves
+  the contract.
+
+### Rollback (PR4b)
+
+The PR4b rollback is layered on top of the global §"Rollback"
+above. The non-destructive order of preference:
+
+1. **Disable display first** — flip `app_settings.FOTO_ROUTE_ENABLED=false`
+   (feature flag, NOT shipped in PR4b) so `GET /animales/{id}/foto`
+   returns 404 instead of bytes. This is the safest in-production
+   rollback: the bucket is untouched, the rows are untouched, and
+   users see no broken images.
+2. **Verify the bucket is backed up** — run
+   `apap-migrate status --photos > photos_before_rollback.json`
+   BEFORE any destructive step. The operator MUST have a snapshot
+   of `photos_before_rollback.json` (or an external copy of the
+   bucket) before deleting anything.
+3. **Mark rows as sentinel** — if the issue is corrupt display
+   rather than missing storage, run
+   `apap-migrate reconcile --interactive --table animales`
+   and choose `mark sentinel` per row. The route then serves the
+   placeholder without storage I/O.
+4. **Delete bucket** (last resort, NEVER without backup) —
+   `delete-bucket apap-photos` via the InsForge MCP. After bucket
+   deletion, `GET /animales/{id}/foto` continues to return 200
+   placeholder PNG (the route catches the storage 404 and falls
+   back). The `animales.nombrefoto` rows retain the SHA-256 key but
+   `404` on the next apply's status check; the operator resolves
+   via `apap-migrate reconcile --interactive`.
+
+The rollback is NEVER destructive of:
+
+- The legacy `.accdb` (read-only contract).
+- The InsForge domain tables (`animales`, `voluntarios`, `entradas`).
+- The `web_only_feature_shadow` table (audit/divergence history).
+- The `migration.lock_snapshot.json` (re-applies overwrite this).
+
+`TRUNCATE web_only_feature_shadow` and `DROP TABLE web_only_feature_shadow`
+are explicitly NOT recommended — they destroy divergence history and
+round-trip evidence.
+
 ### Escalation
 
 If the runbook does NOT resolve the issue:

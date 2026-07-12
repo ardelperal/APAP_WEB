@@ -22,9 +22,8 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
-from starlette.responses import Response
 
 from app.core.auth_dependencies import (
     get_insforge_client_dep,
@@ -34,7 +33,9 @@ from app.core.auth_dependencies import (
 )
 from app.core.csrf import csrf_token_context_processor
 from app.core.insforge import InsForgeClient, InsForgeError
+from app.core.logging import log_safe
 from app.core.middleware import base_template_context_processor
+from app.modules.animals import photo_service
 from app.modules.animals import service as animals_service
 from app.modules.animals.forms import AnimalForm
 
@@ -57,6 +58,19 @@ _TEMPLATES_DIR = Path(__file__).parents[2] / "templates"
 _templates = Jinja2Templates(
     directory=_TEMPLATES_DIR,
     context_processors=[csrf_token_context_processor, base_template_context_processor],
+)
+
+
+# PR4b placeholder photo (1x1 transparent PNG, 67 bytes). Served when the
+# animal has no ``NombreFoto``, when the row carries the migration sentinel
+# ``__missing__``, or when the storage stream fails closed. The bytes are
+# inlined so the route does NOT touch disk on the placeholder path.
+_PLACEHOLDER_PHOTO_PNG: bytes = (
+    b"\x89PNG\r\n\x1a\n"
+    b"\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
+    b"\x00\x00\x00\rIDATx\x9cc\xf8\xff\xff?\x00\x05\xfe\x02"
+    b"\xfeA\xc0\xc1\x00\x00\x00\x00IEND\xaeB`\x82"
 )
 
 
@@ -321,6 +335,115 @@ def delete_animal_view(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     return RedirectResponse(
         url="/animales", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+# --- foto (authenticated stream) -----------------------------------------
+
+
+@router.get("/{animal_id}/foto")
+def animal_foto(
+    animal_id: str,
+    user: Response | dict = Depends(require_authorized_user),
+    client: InsForgeClient = Depends(get_insforge_client_dep),
+):
+    """Stream the private photo bytes for ``animal_id``.
+
+    Contract (per ``live-migration-private-photo-storage`` spec):
+
+    - No session → middleware redirects to ``/login`` BEFORE this handler
+      runs; the handler NEVER sees an anonymous request.
+    - ``animal_id`` is the ``animales.id`` UUID primary key. NCHIP is the
+      natural-key lookup column, never the route identifier.
+    - The storage surface is the private ``apap-photos`` bucket. The
+      presigned URL returned by InsForge is server-stream-only and MUST
+      NOT be exposed to the browser/client (AGENTS.md §18, privacy
+      default-deny).
+    - Sentinel ``__missing__`` and ``None``/empty ``NombreFoto`` short-circuit
+      to a 1x1 placeholder PNG WITHOUT any InsForge I/O.
+    - Any **storage-stream** failure (network drop, auth, 404, 5xx,
+      timeout, mid-iteration read timeout) fails closed to the same
+      placeholder — never 5xx to the browser. ``photo_service`` wraps
+      iteration so mid-stream errors surface as ``PhotoStreamError`` on
+      the first failing ``next()``; the route's eager first-byte check
+      below catches them BEFORE the response is built.
+    - PR4b 4R WARN-3: unexpected exceptions on the animales SELECT
+      (``animals_service.get_animal_by_id``) also fail closed to the
+      placeholder, for consistency with the storage-stream fail-closed
+      pattern. The error is logged via ``log_safe`` so the operator
+      still sees it in the audit stream. A genuinely missing animal
+      (the service returns ``None``) STILL surfaces as 404 because the
+      absence is a domain signal, not a transport failure.
+
+    The handler delegates the stream decision to
+    :mod:`app.modules.animals.photo_service` (single responsibility, no
+    SQL knowledge) and translates the typed outcome into an HTTP response.
+    """
+    if (early := return_early_if_response(user)) is not None:
+        return early
+
+    # PR4b 4R WARN-3: wrap unexpected exceptions on the animales SELECT
+    # so they fail closed to the placeholder (consistent with the
+    # storage-stream fail-closed contract). The error is still recorded
+    # via ``log_safe`` so the operator is not blind to a backend failure.
+    try:
+        animal = animals_service.get_animal_by_id(client, animal_id)
+    except Exception as exc:  # noqa: BLE001 — fail-closed for SQL too
+        log_safe(
+            "animal_foto.sql_lookup_failed",
+            reason=type(exc).__name__,
+        )
+        return Response(
+            content=_PLACEHOLDER_PHOTO_PNG,
+            media_type="image/png",
+        )
+    if animal is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+
+    if photo_service.is_missing_nombrefoto(animal.NombreFoto):
+        # No storage I/O: serve the inlined placeholder bytes.
+        return Response(
+            content=_PLACEHOLDER_PHOTO_PNG,
+            media_type="image/png",
+        )
+
+    # ``stream_animal_photo`` is a generator; calling it returns a
+    # generator object without executing the body. The route consumes
+    # the full iterator into memory so ANY mid-stream error
+    # (``httpx.RemoteProtocolError``, ``httpx.ReadTimeout``, per-chunk
+    # 5xx surfaced from the underlying transport, etc.) is caught by
+    # the ``except PhotoStreamError`` branch and translated to the
+    # placeholder. This trades the spec's "no full file in memory"
+    # property for placeholder reliability — the streaming alternative
+    # (FastAPI ``StreamingResponse``) cannot retroactively replace a
+    # partial body once the response status has been committed.
+    #
+    # Photos in the project are KB-to-low-MB JPEGs; the memory cost
+    # is bounded by the photo size limit (10 MiB per the spec).
+    try:
+        byte_iter = photo_service.stream_animal_photo(
+            client, nombrefoto=animal.NombreFoto
+        )
+        chunks = list(byte_iter)
+    except photo_service.PhotoStreamError:
+        # Fail closed: any storage-side failure (eager OR mid-iteration)
+        # becomes the placeholder, never a 5xx.
+        return Response(
+            content=_PLACEHOLDER_PHOTO_PNG,
+            media_type="image/png",
+        )
+
+    if not chunks:
+        # Empty stream: the storage returned a 200 with no body. Treat
+        # as missing — placeholder, no 5xx.
+        return Response(
+            content=_PLACEHOLDER_PHOTO_PNG,
+            media_type="image/png",
+        )
+
+    return Response(
+        content=b"".join(chunks),
+        media_type=photo_service.content_type_for_key(animal.NombreFoto),
     )
 
 

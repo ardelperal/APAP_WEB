@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
 
@@ -180,6 +181,260 @@ class InsForgeClient:
             )
         _require_private_bucket(safe_bucket, bucket)
         return bucket
+
+    # --- Storage objects -----------------------------------------------
+
+    def upload_object(
+        self,
+        bucket: str,
+        key: str,
+        body: bytes,
+        *,
+        content_type: str,
+    ) -> dict[str, Any]:
+        """Upload bytes to ``bucket`` under ``key`` via the three-step S3-compatible flow.
+
+        The contract (pinned in
+        ``docs/discovery/storage-contract-2026-Q3.md`` by operator sentinel
+        evidence) is:
+
+        1. ``POST /api/storage/buckets/{bucket}/upload-strategy`` with body
+           ``{filename, contentType, size}`` → strategy response carrying
+           ``{method, uploadUrl, fields, key, confirmRequired, confirmUrl,
+           expiresAt}``.
+        2. **Transfer**: when the strategy returned ``fields``, the body is
+           sent as ``multipart/form-data`` to ``uploadUrl`` via POST (S3
+           variant); when ``fields`` is absent, the body is sent as raw
+           bytes via PUT (Local variant).
+        3. **Confirm**: when ``confirmRequired=True``, the upload is
+           finalised with a POST to ``confirmUrl``.
+
+        The bucket name is validated against ``_SAFE_BUCKET_NAME`` BEFORE
+        any HTTP call. ``upload_object`` raises ``ValueError`` for an
+        unsafe bucket name and ``InsForgeError`` for any non-2xx step.
+
+        The client proposes ``filename=key`` (caller may pre-derive the key
+        as ``<sha256>.<ext>``); the server may rename on collision and
+        returns the canonical key in the strategy response, which is then
+        re-surfaced via the confirm response. The caller reads the
+        canonical key from the returned dict.
+
+        PR4b 4R WARN-4: the three steps are extracted into named helpers
+        (``_request_upload_strategy``, ``_transfer_upload``, and
+        ``_confirm_upload``) so the orchestration in ``upload_object``
+        reads top-to-bottom as "validate → strategy → transfer → confirm".
+        The behaviour is unchanged; the 28 ``test_insforge_storage_methods``
+        atoms pin the wire contract.
+        """
+        safe_bucket = _validate_bucket_name(bucket)
+        size = len(body)
+
+        # Step 1 — request upload strategy.
+        strategy_body = self._request_upload_strategy(
+            safe_bucket, key=key, content_type=content_type, size=size
+        )
+
+        # Step 2 — transfer the bytes (POST when fields present, PUT when absent).
+        self._transfer_upload(
+            strategy_body=strategy_body,
+            key=key,
+            body=body,
+            content_type=content_type,
+        )
+
+        # Step 3 — confirm when required; otherwise echo the strategy's canonical key.
+        confirm_required = bool(strategy_body.get("confirmRequired", False))
+        if confirm_required:
+            confirm_body = self._confirm_upload(strategy_body=strategy_body)
+            if isinstance(confirm_body, dict):
+                return confirm_body
+            return {"key": key}
+
+        # No confirm required — echo the strategy's canonical key.
+        canonical_key = (
+            strategy_body.get("key")
+            if isinstance(strategy_body.get("key"), str)
+            else key
+        )
+        return {"key": canonical_key}
+
+    def _request_upload_strategy(
+        self,
+        safe_bucket: str,
+        *,
+        key: str,
+        content_type: str,
+        size: int,
+    ) -> dict[str, Any]:
+        """Step 1 — request the upload strategy from InsForge.
+
+        Returns the parsed strategy body (a ``dict``). Raises
+        ``InsForgeError`` on a non-2xx response, on a non-dict body, or
+        on a body missing the required ``uploadUrl`` field. The bucket
+        name has already been validated by ``_validate_bucket_name``.
+        """
+        strategy = self._client.post(
+            f"/api/storage/buckets/{safe_bucket}/upload-strategy",
+            json={
+                "filename": key,
+                "contentType": content_type,
+                "size": size,
+            },
+        )
+        if not strategy.is_success:
+            raise InsForgeError(strategy.status_code, _safe_json(strategy))
+        strategy_body = _safe_json(strategy)
+        if not isinstance(strategy_body, dict):
+            raise InsForgeError(strategy.status_code, strategy_body)
+        upload_url = strategy_body.get("uploadUrl")
+        if not isinstance(upload_url, str) or not upload_url:
+            raise InsForgeError(
+                strategy.status_code,
+                {"error": "upload_strategy_missing_url", "received": strategy_body},
+            )
+        return strategy_body
+
+    def _transfer_upload(
+        self,
+        *,
+        strategy_body: dict[str, Any],
+        key: str,
+        body: bytes,
+        content_type: str,
+    ) -> None:
+        """Step 2 — transfer the bytes to the strategy's ``uploadUrl``.
+
+        When the strategy returned ``fields``, the body is sent as
+        ``multipart/form-data`` via POST (S3 variant); when ``fields`` is
+        absent, the body is sent as raw bytes via PUT (Local variant).
+        Raises ``InsForgeError`` on a non-2xx response or on an invalid
+        ``fields`` shape. The caller does not need the response body;
+        only the status matters.
+        """
+        upload_url = strategy_body["uploadUrl"]
+        fields = strategy_body.get("fields")
+        if fields:
+            if not isinstance(fields, dict):
+                raise InsForgeError(
+                    500,
+                    {"error": "upload_strategy_invalid_fields", "received": fields},
+                )
+            transfer = self._client.post(
+                upload_url,
+                data={**fields, "file": (key, body, content_type)},
+            )
+        else:
+            transfer = self._client.put(
+                upload_url,
+                content=body,
+                headers={"Content-Type": content_type},
+            )
+        if not transfer.is_success:
+            raise InsForgeError(transfer.status_code, _safe_json(transfer))
+
+    def _confirm_upload(self, *, strategy_body: dict[str, Any]) -> Any:
+        """Step 3 — POST to the strategy's ``confirmUrl`` to finalise the upload.
+
+        Returns the parsed confirm body (a ``dict`` when the server
+        returns JSON; ``None`` for an empty body). Raises
+        ``InsForgeError`` when ``confirmUrl`` is absent or on a non-2xx
+        response.
+        """
+        confirm_url = strategy_body.get("confirmUrl")
+        if not isinstance(confirm_url, str) or not confirm_url:
+            raise InsForgeError(
+                500,
+                {
+                    "error": "upload_strategy_missing_confirm_url",
+                    "received": strategy_body,
+                },
+            )
+        confirm = self._client.post(confirm_url)
+        if not confirm.is_success:
+            raise InsForgeError(confirm.status_code, _safe_json(confirm))
+        return _safe_json(confirm)
+
+    def download_object_stream(
+        self,
+        bucket: str,
+        key: str,
+    ) -> Iterator[bytes]:
+        """Stream the bytes of ``bucket/key`` via the two-step download flow.
+
+        The contract (pinned by operator sentinel evidence):
+
+        1. ``GET /api/storage/buckets/{bucket}/download-strategy/objects/{key}``
+           with bearer auth → ``{expiresAt, method, url}``.
+        2. ``GET <url>`` with bearer auth, streamed via
+           ``httpx.Client.stream`` with a per-chunk
+           ``httpx.Timeout(connect=5, read=10, write=5, pool=5)``. The
+           ``read=10`` timeout is the safety net that catches a stalled
+           stream — without it, a server that returns 200 headers but
+           never sends body bytes would hang the route handler
+           indefinitely. The presigned URL is self-authenticating but
+           the server-side credential is still required per the
+           operator contract; both must be sent.
+
+        The returned URL MUST NOT be exposed to the browser/client. The
+        caller is expected to wrap this generator in a FastAPI
+        ``StreamingResponse`` (or consume it eagerly; the route layer
+        currently does the latter for placeholder reliability — see
+        ``app/modules/animals/routes.py::animal_foto``).
+
+        Network timeouts surface as ``httpx.TimeoutException`` (with
+        ``httpx.ReadTimeout`` for stalled streams); non-2xx strategy
+        responses raise ``InsForgeError``.
+        """
+        safe_bucket = _validate_bucket_name(bucket)
+
+        strategy = self._client.get(
+            f"/api/storage/buckets/{safe_bucket}/download-strategy/objects/{key}",
+        )
+        if not strategy.is_success:
+            raise InsForgeError(strategy.status_code, _safe_json(strategy))
+        strategy_body = _safe_json(strategy)
+        if not isinstance(strategy_body, dict) or not isinstance(strategy_body.get("url"), str):
+            raise InsForgeError(strategy.status_code, strategy_body)
+        download_url = strategy_body["url"]
+
+        # PR4b 4R WARN-1: per-chunk Timeout so a stalled stream cannot
+        # hang the route handler. The ``read=10`` budget is per chunk
+        # fetch; ``connect=5`` covers the TCP/TLS handshake on the
+        # streamed GET; ``write=5`` and ``pool=5`` are symmetric.
+        stream_timeout = httpx.Timeout(
+            connect=5.0, read=10.0, write=5.0, pool=5.0
+        )
+
+        with self._client.stream(
+            "GET", download_url, timeout=stream_timeout
+        ) as response:
+            if not response.is_success:
+                # Drain the body so the connection is reusable, then raise.
+                try:
+                    for _ in response.iter_bytes():
+                        pass
+                finally:
+                    response.close()
+                raise InsForgeError(response.status_code, _safe_json(response))
+            yield from response.iter_bytes()
+
+    def delete_object(self, bucket: str, key: str) -> None:
+        """Delete the object at ``bucket/key``. Idempotent on 404.
+
+        The contract: a single DELETE to
+        ``/api/storage/buckets/{bucket}/objects/{key}``. A 404 response
+        (object already absent) is treated as success so the operator
+        can re-run cleanup without crashing. Any other non-2xx raises
+        ``InsForgeError``.
+        """
+        safe_bucket = _validate_bucket_name(bucket)
+        response = self._client.delete(
+            f"/api/storage/buckets/{safe_bucket}/objects/{key}",
+        )
+        if response.status_code == 404:
+            return
+        if not response.is_success:
+            raise InsForgeError(response.status_code, _safe_json(response))
 
     # --- Google OAuth --------------------------------------------------
 

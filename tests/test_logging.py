@@ -314,12 +314,14 @@ def test_redaction_filter_normalizes_dashes_and_case() -> None:
     assert captured_records[0].__dict__["X-Forwarded-For"] == "[REDACTED]"
 
 
-def test_redacted_fields_constant_has_twelve_entries() -> None:
-    """Round-2 fix SB-5: the closed list MUST contain all 12 fields.
+def test_redacted_fields_constant_has_fifteen_entries() -> None:
+    """Round-2 fix SB-5 + PR4b extension: the closed list MUST contain all 15 fields.
 
     A regression here (someone deletes a field to silence a test)
     breaks the security contract. The constant is referenced by both
     ``log_safe`` and ``RedactionFilter`` so a drift is caught here.
+    PR4b adds the three PII columns the M1 forward migration brings into
+    the web (``dni``, ``tel1``, ``tel2``) on top of the original 12.
     """
     expected = frozenset(
         {
@@ -335,6 +337,9 @@ def test_redacted_fields_constant_has_twelve_entries() -> None:
             "referer",
             "ip_address",
             "x_forwarded_for",
+            "dni",
+            "tel1",
+            "tel2",
         }
     )
     assert REDACTED_FIELDS == expected, (
