@@ -208,6 +208,16 @@ def write_discovery_document(result: StorageProbeResult, output_path: str | Path
     path.parent.mkdir(parents=True, exist_ok=True)
     evidence = result.to_machine_dict()
     verdict = evidence["pr4b_gate"]
+    endpoint_decision = (
+        f"- Canonical endpoint: `{evidence['canonical_endpoint']}`"
+        if verdict == _PASS
+        else "- Pinned canonical endpoint: `unknown`"
+    )
+    auth_decision = (
+        f"- Required auth header: `{evidence['required_auth_header']}`"
+        if verdict == _PASS
+        else "- Required auth header: `unknown`"
+    )
     live_note = ""
     if evidence["status"] == "missing_credentials":
         live_note = (
@@ -245,8 +255,8 @@ Evidence hash: `{result.evidence_hash}`
 
 - Verdict: {verdict}
 - PR4b gate: {verdict}
-- Canonical endpoint: `{evidence['canonical_endpoint']}`
-- Required auth header: `{evidence['required_auth_header']}`
+{endpoint_decision}
+{auth_decision}
 - Decision reason: {evidence['decision_reason']}{live_note}
 """
     path.write_text(content, encoding="utf-8")

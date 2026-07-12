@@ -47,7 +47,7 @@ Evidence hash: `8d0f87f79699483014a194d3b787953e1f0fe3353890479d4e41022bd52c559b
 
 - Verdict: BLOCKED
 - PR4b gate: BLOCKED
-- Canonical endpoint: `/api/storage/downloadStrategy`
+- Pinned canonical endpoint: `unknown`
 - Required auth header: `unknown`
 - Decision reason: Live probe did not run: missing APAP_INSFORGE_URL/APAP_INSFORGE_SERVICE_KEY
 - Live probe did not run: missing APAP_INSFORGE_URL/APAP_INSFORGE_SERVICE_KEY
