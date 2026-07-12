@@ -211,61 +211,62 @@ def test_strategy_endpoint_authenticated_404_pins_endpoint_and_auth_header() -> 
     ]
 
 
-def test_cli_loads_credentials_from_settings_env_file_without_echoing_secrets(
+def test_cli_loads_credentials_from_settings_loader_without_echoing_secrets(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The operator CLI uses the existing Settings/.env loader, not raw env only."""
-    fake_secret = "ik_from_temp_env_file_should_not_echo"
+    """The operator CLI delegates credential loading to the existing Settings path."""
     doc_path = tmp_path / "storage-contract-2026-Q3.md"
-    (tmp_path / ".env").write_text(
-        "APAP_INSFORGE_URL=https://example.insforge.app\n"
-        f"APAP_INSFORGE_SERVICE_KEY={fake_secret}\n",
-        encoding="utf-8",
-    )
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("APAP_INSFORGE_URL", raising=False)
-    monkeypatch.delenv("APAP_INSFORGE_SERVICE_KEY", raising=False)
+    load_events: list[str] = []
 
-    from app.core.config import get_settings
+    class SettingsLoader:
+        def cache_clear(self) -> None:
+            load_events.append("cache_clear")
 
-    get_settings.cache_clear()
+        def __call__(self) -> Any:
+            load_events.append("load")
+
+            class LoadedSettings:
+                insforge_url = "https://example.insforge.app"
+                insforge_service_key = SERVICE_KEY
+
+            return LoadedSettings()
+
+    monkeypatch.setattr("app.core.config.get_settings", SettingsLoader())
     calls: list[tuple[str, str, str | None]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         calls.append((request.method, request.url.path, request.headers.get("Authorization")))
         assert request.method == "GET"
         assert request.url.path == "/api/storage/downloadStrategy"
-        if request.headers.get("Authorization") == f"Bearer {fake_secret}":
+        if request.headers.get("Authorization") == f"Bearer {SERVICE_KEY}":
             return _json_response(404, {"error": "object not found", "path": SAFE_SENTINEL_PATH})
         return _json_response(401, {"error": "missing bearer"})
 
-    try:
-        stream = io.StringIO()
-        rc = main(
-            [
-                "--probe",
-                "download_strategy",
-                "--path",
-                SAFE_SENTINEL_PATH,
-                "--output",
-                str(doc_path),
-            ],
-            stream=stream,
-            transport=httpx.MockTransport(handler),
-        )
-    finally:
-        get_settings.cache_clear()
+    stream = io.StringIO()
+    rc = main(
+        [
+            "--probe",
+            "download_strategy",
+            "--path",
+            SAFE_SENTINEL_PATH,
+            "--output",
+            str(doc_path),
+        ],
+        stream=stream,
+        transport=httpx.MockTransport(handler),
+    )
 
     output = stream.getvalue()
     text = doc_path.read_text(encoding="utf-8")
     payload = json.loads(output)
     assert rc == 0
+    assert load_events == ["cache_clear", "load"]
     assert payload["status"] == "object_not_found"
     assert payload["pr4b_gate"] == "PASS"
     assert payload["required_auth_header"] == "Authorization: Bearer <service_key>"
-    assert fake_secret not in output
-    assert fake_secret not in text
+    assert SERVICE_KEY not in output
+    assert SERVICE_KEY not in text
     assert RETURNED_URL not in output
     assert RETURNED_URL not in text
     assert {method for method, _, _ in calls} == {"GET"}
