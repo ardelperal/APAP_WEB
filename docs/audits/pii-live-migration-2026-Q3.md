@@ -105,11 +105,16 @@ the post-state with a concrete value (not absence-of-error).
    `PhotoStreamError` always becomes the placeholder PNG — never a 5xx.
    The service-level wrapping is pinned by
    `tests/test_animals_foto_route.py::TestFotoServiceMidStreamWrapping`.
-   **Scope caveat (PR4b 4R remediation):** the fail-closed contract
-   here is for the **storage-stream** path only. SQL failures on the
-   `animales` lookup (`animals_service.get_animal_by_id`) are NOT
-   covered by this contract; they surface as 500 and are explicitly
-   out of scope for the M1 photo display milestone.
+   **PR4b 4R WARN-3:** unexpected exceptions on the animales SELECT
+   (`animals_service.get_animal_by_id`) ALSO fail closed to the
+   placeholder, for consistency with the storage-stream contract.
+   `tests/test_animals_foto_route.py::TestFotoRouteSqlLookupFailClosed`
+   pins both `InsForgeError` (transport-flavoured) and a non-InsForge
+   `RuntimeError` (invariant-violation-flavoured). The error is
+   recorded via `log_safe("animal_foto.sql_lookup_failed", reason=...)`
+   so the operator still sees it in the audit stream. A genuinely
+   missing animal (the service returns `None`) STILL surfaces as 404
+   because the absence is a domain signal, not a transport failure.
 5. **Idempotent upload** —
    `tests/migration/test_insforge_storage_methods.py::test_upload_object_reuses_existing_key_via_client_derived_filename`
    asserts the same bytes uploaded twice carry the same client-side

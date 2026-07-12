@@ -87,11 +87,25 @@ class _FakeAnimalesFotoClient(InsForgeClient):
         self.queries: list[tuple[str, list[Any] | None]] = []
         self.auth_reval_rol: str = "key_user"
         self.closed = False
+        # PR4b 4R WARN-3: inject a SQL failure on the animales lookup to
+        # exercise the placeholder-on-SQL-error path. When set, the fake
+        # raises this exception from ``execute_sql`` for queries whose
+        # lowercased SQL contains ``from animales`` + ``where id``.
+        self.animales_lookup_raises: BaseException | None = None
 
     # --- duck-typed InsForgeClient surface ----------------------------
     def execute_sql(self, query: str, params: list[Any] | None = None) -> list[dict[str, Any]]:
         self.queries.append((query, params))
         sql = query.lower()
+        # PR4b 4R WARN-3: the animales-lookup path can be injected with a
+        # SQL failure so the route's try/except can prove the placeholder
+        # translation. Auth-reval still answers before this branch fires.
+        if (
+            self.animales_lookup_raises is not None
+            and "from animales" in sql
+            and "where id" in sql
+        ):
+            raise self.animales_lookup_raises
         # Auth-reval SELECT — answer with an active row so
         # ``require_authorized_user`` accepts the session.
         if "from usuarios_autorizados" in sql and "email = $1" in sql:
@@ -486,6 +500,68 @@ class TestFotoRouteMidStreamFailClosed:
 
         response = await client.get(
             "/animales/anim-r4-4/foto", follow_redirects=False
+        )
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "image/png"
+        assert response.content == PLACEHOLDER_PNG
+
+
+class TestFotoRouteSqlLookupFailClosed:
+    """PR4b 4R WARN-3: SQL failure on the animales lookup fails closed to the placeholder.
+
+    The route wraps ``animals_service.get_animal_by_id`` so an unexpected
+    ``InsForgeError`` / network drop / SQL syntax error on the animales
+    SELECT becomes the placeholder PNG rather than a 5xx. The animal is
+    still ``None`` (no row visible to the route) so this is consistent
+    with the missing-animal semantics from the operator's perspective —
+    they see the placeholder, never a stack-trace leak. The error is
+    still observable in the audit log via ``log_safe`` so the operator
+    is not blind to a backend failure.
+    """
+
+    async def test_foto_route_placeholder_on_animales_sql_lookup_error(
+        self,
+        client: httpx.AsyncClient,
+        fake_client: _FakeAnimalesFotoClient,
+    ) -> None:
+        """``InsForgeError`` on the animales SELECT → placeholder (no 5xx leak)."""
+        from app.core.insforge import InsForgeError
+
+        _login_as_key_user(client)
+        fake_client.animales_lookup_raises = InsForgeError(
+            500, {"error": "animales_lookup_failed"}
+        )
+        _seed_animal(fake_client, "anim-r4-w3", nombrefoto="abc.jpg")
+
+        response = await client.get(
+            "/animales/anim-r4-w3/foto", follow_redirects=False
+        )
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "image/png"
+        assert response.content == PLACEHOLDER_PNG
+
+    async def test_foto_route_placeholder_on_animales_sql_unexpected_exception(
+        self,
+        client: httpx.AsyncClient,
+        fake_client: _FakeAnimalesFotoClient,
+    ) -> None:
+        """A non-InsForge exception on the animales SELECT → placeholder.
+
+        Belt-and-braces: the wrap catches ``Exception`` (not just
+        ``InsForgeError``) so a ``KeyError`` from a column rename or a
+        ``RuntimeError`` from a service-layer invariant violation also
+        fails closed. The audit doc records the precise scope claim.
+        """
+        _login_as_key_user(client)
+        fake_client.animales_lookup_raises = RuntimeError(
+            "unexpected animales-lookup invariant breach"
+        )
+        _seed_animal(fake_client, "anim-r4-w3b", nombrefoto="abc.jpg")
+
+        response = await client.get(
+            "/animales/anim-r4-w3b/foto", follow_redirects=False
         )
 
         assert response.status_code == 200

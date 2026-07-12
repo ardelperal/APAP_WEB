@@ -33,6 +33,7 @@ from app.core.auth_dependencies import (
 )
 from app.core.csrf import csrf_token_context_processor
 from app.core.insforge import InsForgeClient, InsForgeError
+from app.core.logging import log_safe
 from app.core.middleware import base_template_context_processor
 from app.modules.animals import photo_service
 from app.modules.animals import service as animals_service
@@ -365,11 +366,14 @@ def animal_foto(
       placeholder — never 5xx to the browser. ``photo_service`` wraps
       iteration so mid-stream errors surface as ``PhotoStreamError`` on
       the first failing ``next()``; the route's eager first-byte check
-      below catches them BEFORE ``StreamingResponse`` commits the
-      response status. SQL lookup failures (animal row SELECT) are NOT
-      covered by this fail-closed contract — they surface as 500; see
-      ``docs/audits/pii-live-migration-2026-Q3.md`` for the precise
-      scope claim.
+      below catches them BEFORE the response is built.
+    - PR4b 4R WARN-3: unexpected exceptions on the animales SELECT
+      (``animals_service.get_animal_by_id``) also fail closed to the
+      placeholder, for consistency with the storage-stream fail-closed
+      pattern. The error is logged via ``log_safe`` so the operator
+      still sees it in the audit stream. A genuinely missing animal
+      (the service returns ``None``) STILL surfaces as 404 because the
+      absence is a domain signal, not a transport failure.
 
     The handler delegates the stream decision to
     :mod:`app.modules.animals.photo_service` (single responsibility, no
@@ -378,7 +382,21 @@ def animal_foto(
     if (early := return_early_if_response(user)) is not None:
         return early
 
-    animal = animals_service.get_animal_by_id(client, animal_id)
+    # PR4b 4R WARN-3: wrap unexpected exceptions on the animales SELECT
+    # so they fail closed to the placeholder (consistent with the
+    # storage-stream fail-closed contract). The error is still recorded
+    # via ``log_safe`` so the operator is not blind to a backend failure.
+    try:
+        animal = animals_service.get_animal_by_id(client, animal_id)
+    except Exception as exc:  # noqa: BLE001 — fail-closed for SQL too
+        log_safe(
+            "animal_foto.sql_lookup_failed",
+            reason=type(exc).__name__,
+        )
+        return Response(
+            content=_PLACEHOLDER_PHOTO_PNG,
+            media_type="image/png",
+        )
     if animal is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
 
