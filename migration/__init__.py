@@ -82,6 +82,38 @@ class FkLookupError(MigrationError):
     """Levantada cuando no se puede resolver un FK durante el mapeo."""
 
 
+class MsAccessPreflightUnavailableError(MigrationError):
+    """The MSACCESS pre-flight could not be performed (fail-closed).
+
+    Raised by ``check_msaccess_running`` when ``psutil`` is missing
+    on the operator box OR when ``psutil.process_iter`` raises during
+    iteration (permission denied, transient OS error, etc.).
+
+    The apply pipeline MUST fail closed when the preflight cannot
+    run — better to abort than to claim "no MSACCESS live" while the
+    check was unable to actually look. The CLI converts this
+    exception to exit 5 with reason ``msaccess_preflight_unavailable``.
+
+    Categorical reasons (no PII, no process/error data):
+
+    - ``REASON_PSUTIL_MISSING`` — ``import psutil`` failed at module load.
+    - ``REASON_PROCESS_ITERATION_FAILED`` — ``psutil.process_iter``
+      raised mid-iteration. The apply MUST NOT catch this and
+      attempt recovery — fail closed, let the operator diagnose
+      via the runbook.
+
+    Dry-run (``--check-only``) bypasses the preflight entirely; this
+    exception never fires on the dry-run path.
+    """
+
+    REASON_PSUTIL_MISSING = "psutil_missing"
+    REASON_PROCESS_ITERATION_FAILED = "process_iteration_failed"
+
+    def __init__(self, *, reason: str) -> None:
+        super().__init__(f"msaccess preflight unavailable: {reason}")
+        self.reason = reason
+
+
 __all__ = [
     "DEFAULT_TTL_SECONDS",
     "Conflict",
@@ -94,6 +126,7 @@ __all__ = [
     "MappingNotFoundError",
     "MigrationError",
     "MigrationReport",
+    "MsAccessPreflightUnavailableError",
     "SyncState",
     "SyncStateError",
     "TableState",

@@ -441,24 +441,42 @@ def _read_lock_unverified(lock_path: Path) -> LockInfo | None:
 def check_msaccess_running() -> list[int]:
     """Retorna la lista de PIDs cuyo nombre de proceso es ``MSACCESS.EXE``.
 
-    Si ``psutil`` no está disponible (dependencia soft, design §1.2),
-    retorna ``[]`` — el pre-flight es no-op y la migración puede
-    continuar. El CLI loggea un warning en ese caso para que el
-    operador cierre Access manualmente.
+    Raises:
+        MsAccessPreflightUnavailableError: when ``psutil`` is missing
+            or ``process_iter`` raises during iteration. The apply
+            pipeline fails closed (PR3 verification remediation, per
+            user directive 2026-07-11): better to abort than to claim
+            "no MSACCESS live" while the check was unable to actually
+            look. The CLI converts this exception to exit 5 with
+            reason ``msaccess_preflight_unavailable``. The apply
+            layer emits ``log_safe("apply.preflight_unavailable",
+            reason=<cat>)`` for audit; the log event carries ONLY the
+            categorical reason — no PIDs, no error strings.
 
     El matching es case-insensitive (``MSACCESS.EXE`` vs
     ``msaccess.exe`` vs ``MSAccess.exe``) porque el nombre exacto
     depende del OS y la convención.
     """
+    # Lazy import to break the ``__init__`` ↔ ``lock`` cycle. The
+    # exception type lives in ``migration.__init__`` so the public
+    # surface (``from migration import MsAccessPreflightUnavailableError``)
+    # is stable; the body of this function imports it on first call.
     # Búsqueda dinámica del módulo ``psutil`` para que tests que
     # hacen ``monkeypatch.setattr(lock_mod, "psutil", fake)`` surtan
     # efecto sin re-importar.
     import sys
 
+    from migration import MsAccessPreflightUnavailableError
+
     psutil_obj = getattr(sys.modules[__name__], "psutil", None)
     available = getattr(sys.modules[__name__], "_PSUTIL_AVAILABLE", False)
     if not available or psutil_obj is None:
-        return []
+        # Fail closed: do NOT silently claim "no MSACCESS live" when
+        # the check was unable to run. ``psutil`` is a hard
+        # requirement on operator boxes (the runbook documents this).
+        raise MsAccessPreflightUnavailableError(
+            reason=MsAccessPreflightUnavailableError.REASON_PSUTIL_MISSING
+        )
     pids: list[int] = []
     try:
         attrs = ["pid", "name"]
@@ -483,9 +501,19 @@ def check_msaccess_running() -> list[int]:
                 pid = info_dict.get("pid")
                 if isinstance(pid, int):
                     pids.append(pid)
-    except Exception:  # noqa: BLE001 — psutil.iter puede fallar por permisos
-        return pids
-    return pids
+    except MsAccessPreflightUnavailableError:
+        # Re-raise the typed exception unchanged (defensive: in case a
+        # future refactor wraps the iteration loop).
+        raise
+    except Exception as exc:  # noqa: BLE001 — psutil.iter puede fallar por permisos
+        # Fail closed: a transient psutil / OS error during iteration
+        # is the same risk class as ``psutil`` being missing. Better
+        # to abort than to claim "no MSACCESS live".
+        raise MsAccessPreflightUnavailableError(
+            reason=(
+                MsAccessPreflightUnavailableError.REASON_PROCESS_ITERATION_FAILED
+            )
+        ) from exc
     return pids
 
 
