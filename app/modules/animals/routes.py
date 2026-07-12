@@ -22,9 +22,8 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.templating import Jinja2Templates
-from starlette.responses import Response
 
 from app.core.auth_dependencies import (
     get_insforge_client_dep,
@@ -35,6 +34,7 @@ from app.core.auth_dependencies import (
 from app.core.csrf import csrf_token_context_processor
 from app.core.insforge import InsForgeClient, InsForgeError
 from app.core.middleware import base_template_context_processor
+from app.modules.animals import photo_service
 from app.modules.animals import service as animals_service
 from app.modules.animals.forms import AnimalForm
 
@@ -57,6 +57,19 @@ _TEMPLATES_DIR = Path(__file__).parents[2] / "templates"
 _templates = Jinja2Templates(
     directory=_TEMPLATES_DIR,
     context_processors=[csrf_token_context_processor, base_template_context_processor],
+)
+
+
+# PR4b placeholder photo (1x1 transparent PNG, 67 bytes). Served when the
+# animal has no ``NombreFoto``, when the row carries the migration sentinel
+# ``__missing__``, or when the storage stream fails closed. The bytes are
+# inlined so the route does NOT touch disk on the placeholder path.
+_PLACEHOLDER_PHOTO_PNG: bytes = (
+    b"\x89PNG\r\n\x1a\n"
+    b"\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
+    b"\x00\x00\x00\rIDATx\x9cc\xf8\xff\xff?\x00\x05\xfe\x02"
+    b"\xfeA\xc0\xc1\x00\x00\x00\x00IEND\xaeB`\x82"
 )
 
 
@@ -321,6 +334,68 @@ def delete_animal_view(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     return RedirectResponse(
         url="/animales", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+# --- foto (authenticated stream) -----------------------------------------
+
+
+@router.get("/{animal_id}/foto")
+def animal_foto(
+    animal_id: str,
+    user: Response | dict = Depends(require_authorized_user),
+    client: InsForgeClient = Depends(get_insforge_client_dep),
+):
+    """Stream the private photo bytes for ``animal_id``.
+
+    Contract (per ``live-migration-private-photo-storage`` spec):
+
+    - No session → middleware redirects to ``/login`` BEFORE this handler
+      runs; the handler NEVER sees an anonymous request.
+    - ``animal_id`` is the ``animales.id`` UUID primary key. NCHIP is the
+      natural-key lookup column, never the route identifier.
+    - The storage surface is the private ``apap-photos`` bucket. The
+      presigned URL returned by InsForge is server-stream-only and MUST
+      NOT be exposed to the browser/client (AGENTS.md §18, privacy
+      default-deny).
+    - Sentinel ``__missing__`` and ``None``/empty ``NombreFoto`` short-circuit
+      to a 1x1 placeholder PNG WITHOUT any InsForge I/O.
+    - Any storage failure (network, auth, 404, 5xx, timeout) fails closed
+      to the same placeholder — never 5xx to the browser.
+
+    The handler delegates the stream decision to
+    :mod:`app.modules.animals.photo_service` (single responsibility, no
+    SQL knowledge) and translates the typed outcome into an HTTP response.
+    """
+    if (early := return_early_if_response(user)) is not None:
+        return early
+
+    animal = animals_service.get_animal_by_id(client, animal_id)
+    if animal is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+
+    if photo_service.is_missing_nombrefoto(animal.NombreFoto):
+        # No storage I/O: serve the inlined placeholder bytes.
+        return Response(
+            content=_PLACEHOLDER_PHOTO_PNG,
+            media_type="image/png",
+        )
+
+    try:
+        byte_iter = photo_service.stream_animal_photo(
+            client, nombrefoto=animal.NombreFoto
+        )
+    except photo_service.PhotoStreamError:
+        # Fail closed: any storage-side failure becomes a placeholder,
+        # never a 5xx that could leak upstream error detail.
+        return Response(
+            content=_PLACEHOLDER_PHOTO_PNG,
+            media_type="image/png",
+        )
+
+    return StreamingResponse(
+        byte_iter,
+        media_type=photo_service.content_type_for_key(animal.NombreFoto),
     )
 
 
