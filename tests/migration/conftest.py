@@ -42,6 +42,7 @@ import pytest
 
 from app.core.insforge import InsForgeError
 from migration import legacy_reader
+from migration import lock as _migration_lock
 from migration.apply import (
     _SAFE_TABLE_NAME,
     BOOTSTRAP_SHADOW_TABLE_SQL,
@@ -343,6 +344,50 @@ def _reset_legacy_executor(
     legacy_reader.set_legacy_query_executor(None)
     yield
     legacy_reader.set_legacy_query_executor(None)
+
+
+@pytest.fixture(autouse=True)
+def _default_msaccess_preflight(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Iterator[None]:
+    """Default the MSACCESS pre-flight to "no live Access window".
+
+    PR3 introduced a fail-closed contract on
+    ``migration.lock.check_msaccess_running`` — when ``psutil`` is
+    missing or ``process_iter`` raises mid-iteration, the call raises
+    ``MsAccessPreflightUnavailableError`` instead of silently claiming
+    "no MSACCESS live". That change is correct for production, but the
+    CI runner does not install ``psutil`` (it's only an operator-side
+    prerequisite, documented in ``docs/runbooks/live-migration-apply.md``
+    and enforced by ``migration.lock`` itself). Without this autouse,
+    every pre-PR3 atom under ``tests/migration/`` that calls
+    ``apply_legacy_to_web`` would now raise the pre-flight-unavailable
+    exception in CI regardless of the atom's intent.
+
+    Tests that want to exercise the pre-flight failure or the
+    pre-flight success path override this autouse with their own
+    ``monkeypatch.setattr("migration.apply.check_msaccess_running", ...)``
+    inside the test body; the later ``setattr`` wins against
+    ``monkeypatch``'s stack (which restores in reverse order on
+    teardown). The PR3 ``TestMsaccessPreflightFailClosed`` and
+    ``TestMsaccessPreflight`` classes in ``test_apply_safety.py`` use
+    exactly that pattern via the ``_patch_apply_seams`` helper, so the
+    fail-closed contract continues to be pinned by the explicit
+    override.
+    """
+    monkeypatch.setattr(
+        "migration.apply.check_msaccess_running",
+        lambda: [],
+    )
+    # Mark ``_PSUTIL_AVAILABLE = True`` so the seam inside
+    # ``migration.lock.check_msaccess_running`` (when an explicit test
+    # overrides the autouse return-value) does not surface the
+    # ``MsAccessPreflightUnavailableError`` code path. The
+    # ``TestMsaccessPreflightFailClosed`` class flips this flag back
+    # to ``False`` (or raises via a fake ``psutil``) to exercise the
+    # failure shape — see that class for the override.
+    monkeypatch.setattr(_migration_lock, "_PSUTIL_AVAILABLE", True)
+    yield
 
 
 __all__ = [
