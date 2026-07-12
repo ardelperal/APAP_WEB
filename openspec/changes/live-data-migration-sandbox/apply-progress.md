@@ -328,6 +328,34 @@ operator's docs lookup is deterministic.
 - Project rule gate: `scripts/check_rules.py app` → exit 0, no output.
 - Build: `apap_web-0.1.0-py3-none-any.whl` built.
 
+### W1 Secret-Leak Remediation (2026-07-12)
+
+**Scope**: narrow-scope W1 fix only. New `tests/test_repository_secrets_ignore.py` pins the root `.gitignore` surface for `/.env`, `/coverage.json`, `/coverage_full.json` and verifies the working tree never stages the secret or coverage artifacts. `.codegraph/` remains tracked; `.env.example` (if it exists) remains trackable. No `.env` contents inspected, printed, or logged.
+
+#### Strict TDD Cycle Evidence
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|---|
+| W1 root gitignore surface | `tests/test_repository_secrets_ignore.py` | Repository security | None (new atoms) | 5 failed / 3 passed / 1 skipped on missing `/.env`/`/coverage.json`/`.codegraph` rules | 8 passed / 1 skipped after narrow gitignore block | Doc narrative RED `1 failed, 3 passed`; atom contract narrowed for rooted paths | Documentation refresh |
+| Tasks 4.3 endpoint contrast | `openspec/changes/live-data-migration-sandbox/tasks.md` | Docs | Existing PASS evidence | Operator-pinned canonical endpoint absent | Added contrast note clarifying agent `/api/storage/downloadStrategy` remains BLOCKED | n/a | n/a |
+
+#### Work Unit Evidence
+
+| Evidence | Required value |
+|---|---|
+| Focused test command and exact result | `python -m pytest tests/test_repository_secrets_ignore.py -q` → `8 passed, 1 skipped in 0.97s`; coverage gate PASS all 17 helpers at 100% |
+| Runtime harness command/scenario and exact result | `git check-ignore --no-index --verbose .env coverage.json coverage_full.json` → all three report project-root rule matches; subpath probes (`app/.env`, `app/coverage.json`) return rc 1 (not ignored); `git status --porcelain --ignored` shows `!! .env`, `!! coverage.json`, `!! coverage_full.json`. No `.env` contents read. |
+| Rollback boundary | Revert the W1 commit to remove the four-line `.gitignore` block and the test module. Pre-existing `env/`, `.engram/`, and `.codegraph-vba/` rules outside the W1 narrow scope are untouched. |
+
+#### Verification — W1
+
+- Migration suite: `175 passed in 2.44s`.
+- Full local gate: `2258 passed, 2 skipped, 2 deselected in 28.25s`; coverage gate PASS all 17 helpers at 100%.
+- Ruff scoped and full: All checks passed.
+- Project rule gate: `scripts/check_rules.py app` → exit 0, no output.
+- Build: `apap_web-0.1.0-py3-none-any.whl` built.
+- `.env`, `coverage.json`, `coverage_full.json` confirmed never staged or logged; `git ls-files --stage` returns empty for all three.
+
 ### Next batch
 
 PR1, PR2, PR2-verify, PR3, PR3 verification remediation, PR3 runbook closure, and PR4a complete.

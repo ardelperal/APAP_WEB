@@ -48,6 +48,14 @@ build/
 *.egg-info/
 .coverage
 
+# Local-only operator secrets and local coverage snapshots.
+# W1 secret-leak remediation (PR4a follow-up). Narrow scope: project root
+# only; no recursive or double-star patterns. The ``.codegraph`` index and
+# ``.env.example`` template (if added) remain tracked.
+/.env
+/coverage.json
+/coverage_full.json
+
 # Virtual environment
 .venv/
 venv/
