@@ -111,6 +111,45 @@ def test_download_strategy_supported_shape_pins_endpoint_and_auth_header() -> No
     ]
 
 
+def test_returned_url_authenticated_404_pins_endpoint_and_auth_header() -> None:
+    """A protected returned-URL 404 still proves endpoint routing and auth."""
+    calls: list[tuple[str, str, str | None]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append((request.method, request.url.path, request.headers.get("Authorization")))
+        if request.method == "GET" and request.url.path == "/api/storage/downloadStrategy":
+            return _json_response(
+                200,
+                {
+                    "method": "GET",
+                    "url": RETURNED_URL,
+                    "expiresAt": "2026-07-12T00:00:00Z",
+                },
+            )
+        if request.method == "HEAD" and request.url.path == "/private/sentinel.jpg":
+            if request.headers.get("Authorization") == f"Bearer {SERVICE_KEY}":
+                return httpx.Response(404)
+            return _json_response(401, {"error": "missing bearer"})
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    result = probe_download_strategy(_config(), transport=httpx.MockTransport(handler))
+
+    evidence = result.to_machine_dict()
+    assert evidence["status"] == "object_not_found"
+    assert evidence["pr4b_gate"] == "PASS"
+    assert evidence["canonical_endpoint"] == "/api/storage/downloadStrategy"
+    assert evidence["required_auth_header"] == "Authorization: Bearer <service_key>"
+    assert evidence["object_head"] == {
+        "with_auth_status": 404,
+        "without_auth_status": 401,
+    }
+    assert calls == [
+        ("GET", "/api/storage/downloadStrategy", f"Bearer {SERVICE_KEY}"),
+        ("HEAD", "/private/sentinel.jpg", None),
+        ("HEAD", "/private/sentinel.jpg", f"Bearer {SERVICE_KEY}"),
+    ]
+
+
 @pytest.mark.parametrize(
     ("status_code", "expected_status"),
     [(401, "auth_failed"), (403, "forbidden")],
@@ -138,6 +177,99 @@ def test_download_strategy_auth_failures_are_categorical_and_block_pr4b(
     assert evidence["strategy_body_shape"] == {"message": "str"}
     assert "ik_live_secret_for_tests" not in json.dumps(evidence, sort_keys=True)
     assert calls == ["GET"]
+
+
+def test_strategy_endpoint_authenticated_404_pins_endpoint_and_auth_header() -> None:
+    """A protected strategy-level 404 proves endpoint routing and auth."""
+    calls: list[tuple[str, str, str | None]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append((request.method, request.url.path, request.headers.get("Authorization")))
+        assert request.method == "GET"
+        assert request.url.path == "/api/storage/downloadStrategy"
+        if request.headers.get("Authorization") == f"Bearer {SERVICE_KEY}":
+            return _json_response(404, {"error": "object not found", "path": SAFE_SENTINEL_PATH})
+        return _json_response(401, {"error": "missing bearer"})
+
+    result = probe_download_strategy(_config(), transport=httpx.MockTransport(handler))
+
+    evidence = result.to_machine_dict()
+    assert evidence["status"] == "object_not_found"
+    assert evidence["pr4b_gate"] == "PASS"
+    assert evidence["canonical_endpoint"] == "/api/storage/downloadStrategy"
+    assert evidence["required_auth_header"] == "Authorization: Bearer <service_key>"
+    assert evidence["strategy_status_code"] == 404
+    assert evidence["strategy_without_auth_status_code"] == 401
+    assert evidence["object_head"] == {
+        "with_auth_status": None,
+        "without_auth_status": None,
+    }
+    assert SAFE_SENTINEL_PATH not in json.dumps(evidence, sort_keys=True)
+    assert calls == [
+        ("GET", "/api/storage/downloadStrategy", f"Bearer {SERVICE_KEY}"),
+        ("GET", "/api/storage/downloadStrategy", None),
+    ]
+
+
+def test_cli_loads_credentials_from_settings_env_file_without_echoing_secrets(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The operator CLI uses the existing Settings/.env loader, not raw env only."""
+    fake_secret = "ik_from_temp_env_file_should_not_echo"
+    doc_path = tmp_path / "storage-contract-2026-Q3.md"
+    (tmp_path / ".env").write_text(
+        "APAP_INSFORGE_URL=https://example.insforge.app\n"
+        f"APAP_INSFORGE_SERVICE_KEY={fake_secret}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("APAP_INSFORGE_URL", raising=False)
+    monkeypatch.delenv("APAP_INSFORGE_SERVICE_KEY", raising=False)
+
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+    calls: list[tuple[str, str, str | None]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append((request.method, request.url.path, request.headers.get("Authorization")))
+        assert request.method == "GET"
+        assert request.url.path == "/api/storage/downloadStrategy"
+        if request.headers.get("Authorization") == f"Bearer {fake_secret}":
+            return _json_response(404, {"error": "object not found", "path": SAFE_SENTINEL_PATH})
+        return _json_response(401, {"error": "missing bearer"})
+
+    try:
+        stream = io.StringIO()
+        rc = main(
+            [
+                "--probe",
+                "download_strategy",
+                "--path",
+                SAFE_SENTINEL_PATH,
+                "--output",
+                str(doc_path),
+            ],
+            stream=stream,
+            transport=httpx.MockTransport(handler),
+        )
+    finally:
+        get_settings.cache_clear()
+
+    output = stream.getvalue()
+    text = doc_path.read_text(encoding="utf-8")
+    payload = json.loads(output)
+    assert rc == 0
+    assert payload["status"] == "object_not_found"
+    assert payload["pr4b_gate"] == "PASS"
+    assert payload["required_auth_header"] == "Authorization: Bearer <service_key>"
+    assert fake_secret not in output
+    assert fake_secret not in text
+    assert RETURNED_URL not in output
+    assert RETURNED_URL not in text
+    assert {method for method, _, _ in calls} == {"GET"}
+    assert {method for method, _, _ in calls}.isdisjoint(MUTATION_METHODS)
 
 
 def test_download_strategy_404_blocks_when_endpoint_or_sentinel_is_unproven() -> None:

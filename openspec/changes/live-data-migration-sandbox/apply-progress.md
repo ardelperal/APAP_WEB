@@ -249,7 +249,45 @@ operator's docs lookup is deterministic.
 - The remediation does NOT change the PR2 stale-lock recovery
   behavior (D19 documents the existing safe behavior).
 
+### PR4a Live-Probe Continuation (project `.env`, 2026-07-12)
+
+**Scope**: PR4a only. No Access/password code, no PR4b media/storage methods or routes, no bucket/object mutation.
+
+#### Redacted live evidence
+
+- `apap-photos` precondition was operator/MCP-attested: exists, `isPublic=false`, object count `0`.
+- Existing `app.core.config.Settings` loaded non-empty InsForge URL/service-key values from the untracked project `.env`; values were never printed, returned, hashed, logged, or staged.
+- Synthetic nonexistent sentinel path was redacted in evidence.
+- Authenticated strategy GET: `404`.
+- Unauthenticated strategy GET: `404`.
+- Returned URL: absent; HEAD comparison not executed.
+- Evidence hash: `b363ee26beb599c73db053cf121e99425ca4c419a6f3c390b1c1c787f6391bea`.
+- Verdict / PR4b gate: **BLOCKED**. Equal auth/unauth `404` does not prove endpoint routing or bearer protection, so canonical endpoint and required header remain `unknown`.
+- Network methods observed by the probe path: GET only. No POST/PUT/PATCH/DELETE/upload/object mutation.
+
+#### TDD Cycle Evidence (continuation)
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|---|
+| PR4a secure config + 404 proof | `tests/migration/test_photo_storage.py` | Unit + CLI harness | Existing 9 atoms green before continuation | `2 failed, 9 passed`: Settings/.env path returned blocked and authenticated strategy 404 stayed generic `not_found` | `11 passed` after minimal Settings loader + strategy auth/unauth comparison | Added returned-URL HEAD 404 case: `1 failed, 11 passed`; generalized safe proof; final `12 passed in 0.25s` | Kept injected `env={}` seam; no PR4b method/route changes |
+
+#### Work Unit Evidence (continuation)
+
+| Evidence | Required value |
+|---|---|
+| Focused test command and exact result | `C:\\00repos\\codigo\\APAP_WEB\\.venv\\Scripts\\python.exe -m pytest tests/migration/test_photo_storage.py -q` → final `12 passed in 0.25s`; coverage gate PASS all 17 helpers at 100% |
+| Runtime harness command/scenario and exact result | `python -m migration.storage_spike --probe download_strategy --path <redacted> --output docs/discovery/storage-contract-2026-Q3.md --timeout 20` using Settings/.env → authenticated `404`, unauthenticated `404`, status `not_found`, evidence hash `b363ee26beb599c73db053cf121e99425ca4c419a6f3c390b1c1c787f6391bea`, exit 3 expected BLOCKED; GET only, no HEAD URL available, no mutation |
+| Rollback boundary | Revert the continuation commit to restore raw-environment-only CLI loading and remove the two 404-proof/Settings test atoms plus the continuation evidence updates. The prior PR4a BLOCKED implementation remains. No InsForge rollback exists because the live probe was read-only. |
+
+#### Verification (continuation)
+
+- Migration suite: `171 passed in 1.53s`.
+- Full local gate: `2246 passed, 1 skipped, 2 deselected in 23.46s`; coverage gate PASS all 17 helpers at 100%.
+- Ruff scoped and full: All checks passed.
+- Project rule gate: `scripts/check_rules.py app` → exit 0, no output.
+- Build: `apap_web-0.1.0-py3-none-any.whl` built.
+
 ### Next batch
 
-PR1, PR2, PR2-verify, PR3, PR3 verification remediation, PR3 runbook closure, and PR4a complete.
-PR4b+ untouched. Next recommended phase: re-run the PR4a live probe with `APAP_INSFORGE_URL` and `APAP_INSFORGE_SERVICE_KEY` in an operator environment containing a safe existing sentinel object; only after `docs/discovery/storage-contract-2026-Q3.md` reaches `Verdict: PASS` may PR4b begin.
+PR1, PR2, PR2-verify, PR3, PR3 verification remediation, PR3 runbook closure, and PR4a code/test continuation complete.
+PR4b+ untouched. PR4b remains BLOCKED: live candidate endpoint returned the same 404 with and without bearer auth, so neither canonical endpoint nor required auth header is proven. The next PR4a operator action must identify a documented/deployed read-only endpoint that yields a distinguishable auth contract (authenticated object-level 404 or 2xx vs unauthenticated 401/403); do not start PR4b before the discovery verdict is PASS.

@@ -139,13 +139,34 @@ def probe_download_strategy(
 
     body = _safe_json(response)
     status = _status_from_code(response.status_code)
+    strategy_without_auth_status = None
+    if status == "not_found":
+        strategy_without_auth_status = _probe_strategy_without_auth(config, transport=transport)
     payload = _base_payload(config) | {
         "status": status,
         "pr4b_gate": _BLOCKED,
         "strategy_status_code": response.status_code,
+        "strategy_without_auth_status_code": strategy_without_auth_status,
         "strategy_headers": _header_shape(response.headers),
         "strategy_body_shape": _body_shape(body),
     }
+
+    if status == "not_found" and _status_from_optional_code(strategy_without_auth_status) in {
+        "auth_failed",
+        "forbidden",
+    }:
+        return _result(
+            payload
+            | {
+                "status": "object_not_found",
+                "pr4b_gate": _PASS,
+                "required_auth_header": "Authorization: Bearer <service_key>",
+                "decision_reason": (
+                    "Download strategy endpoint and bearer auth are proven; "
+                    "synthetic sentinel object does not exist."
+                ),
+            }
+        )
 
     if not response.is_success:
         return _result(payload | {"decision_reason": _blocked_reason(status)})
@@ -281,10 +302,18 @@ def main(
     parser.add_argument("--timeout", type=float, default=10.0)
     args = parser.parse_args(argv)
 
-    env_map = os.environ if env is None else env
+    if env is None:
+        from app.core.config import get_settings
+
+        get_settings.cache_clear()
+        settings = get_settings()
+        base_url = settings.insforge_url
+        service_key = settings.insforge_service_key
+    else:
+        env_map = env
+        base_url = env_map.get("APAP_INSFORGE_URL")
+        service_key = env_map.get("APAP_INSFORGE_SERVICE_KEY")
     out = sys.stdout if stream is None else stream
-    base_url = env_map.get("APAP_INSFORGE_URL")
-    service_key = env_map.get("APAP_INSFORGE_SERVICE_KEY")
 
     if not base_url or not service_key:
         result = missing_credentials_result(args.storage_path)
@@ -303,6 +332,27 @@ def main(
     write_discovery_document(result, args.output)
     out.write(json.dumps(result.to_machine_dict(), sort_keys=True) + "\n")
     return 0 if result.pr4b_gate == _PASS else 3
+
+
+def _probe_strategy_without_auth(
+    config: StorageProbeConfig,
+    *,
+    transport: httpx.BaseTransport | None,
+) -> int | None:
+    try:
+        with ReadOnlyProbeHttpClient(
+            base_url=config.base_url,
+            transport=transport,
+            timeout=config.timeout,
+            include_auth=False,
+        ) as client:
+            return client.request(
+                "GET",
+                config.endpoint_path,
+                params={"path": config.storage_path, "expiresIn": str(config.expires_in)},
+            ).status_code
+    except (httpx.HTTPError, MutationRefusedError):
+        return None
 
 
 def _probe_returned_url_head(
@@ -352,12 +402,21 @@ def _resolve_auth_behavior(object_head: dict[str, int | None]) -> dict[str, str]
     with_auth_status = _status_from_optional_code(with_auth)
     without_auth_status = _status_from_optional_code(without_auth)
 
-    if with_auth_status == "supported" and without_auth_status in {"auth_failed", "forbidden"}:
+    if with_auth_status in {"supported", "not_found"} and without_auth_status in {
+        "auth_failed",
+        "forbidden",
+    }:
+        status = "object_not_found" if with_auth_status == "not_found" else "supported"
+        reason = (
+            "Returned URL requires service-key bearer auth; synthetic sentinel object does not exist."
+            if status == "object_not_found"
+            else "Returned URL requires service-key bearer auth."
+        )
         return {
-            "status": "supported",
+            "status": status,
             "pr4b_gate": _PASS,
             "required_auth_header": "Authorization: Bearer <service_key>",
-            "decision_reason": "Returned URL requires service-key bearer auth.",
+            "decision_reason": reason,
         }
     if without_auth_status == "supported":
         return {
@@ -398,6 +457,7 @@ def _base_payload(config: StorageProbeConfig) -> dict[str, Any]:
         "canonical_endpoint": config.endpoint_path,
         "storage_path": "<redacted-path>",
         "strategy_status_code": None,
+        "strategy_without_auth_status_code": None,
         "strategy_headers": [],
         "strategy_body_shape": {},
         "returned_url": None,
@@ -453,6 +513,7 @@ def _blocked_reason(status: str) -> str:
         "auth_failed": "Storage probe received 401; auth contract is not pinned.",
         "forbidden": "Storage probe received 403; authorization is not pinned.",
         "not_found": "Storage probe received 404; endpoint or sentinel path is unproven.",
+        "object_not_found": "Endpoint and auth are proven; synthetic sentinel object does not exist.",
         "method_not_allowed": "Storage probe received 405; safe method contract is unproven.",
         "timeout": "Storage probe timed out; PR4b must not assume the contract.",
         "network_error": "Storage probe hit a network error; PR4b must not assume the contract.",
