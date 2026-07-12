@@ -453,6 +453,84 @@ class TestDownloadObjectStream:
         collected = b"".join(stream)
         assert collected == b"".join(chunks)
 
+    def test_download_object_stream_passes_per_chunk_timeout_to_stream_call(
+        self,
+    ) -> None:
+        """PR4b 4R WARN-1: the stream call MUST carry a per-chunk Timeout.
+
+        The documented contract (per PR4b 4R WARN-1) is
+        ``httpx.Timeout(connect=5, read=10, write=5, pool=5)``. The
+        ``read`` timeout is the safety net that catches a stalled
+        stream — without it, a server that opens the TCP/TLS handshake,
+        returns 200 OK headers, then never sends body bytes would hang
+        the route handler indefinitely. The MockTransport handler below
+        captures the timeout from ``request.extensions`` (the
+        httpx-internal slot the client passes per-call config through).
+        """
+        captured: dict[str, Any] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["timeout"] = request.extensions.get("timeout")
+            if request.method == "GET" and request.url.path.endswith(
+                f"/{BUCKET}/download-strategy/objects/{KEY}"
+            ):
+                return _json_response(200, _download_strategy_body())
+            return _json_response(
+                200,
+                headers={"content-type": "image/jpeg"},
+                content=b"\x89PNG\r\n\x1a\n",
+            )
+
+        b"".join(_client(handler).download_object_stream(BUCKET, KEY))
+
+        timeout = captured["timeout"]
+        assert timeout is not None, (
+            "stream call did not pass a Timeout — stalled streams would hang"
+        )
+        # PR4b 4R WARN-1 contract: connect=5, read=10, write=5, pool=5.
+        # httpx stores the per-call timeout in ``request.extensions`` as
+        # a dict (the four Timeout fields, keyed by name).
+        assert timeout["connect"] == 5.0
+        assert timeout["read"] == 10.0
+        assert timeout["write"] == 5.0
+        assert timeout["pool"] == 5.0
+
+    def test_download_object_stream_stalled_stream_surfaces_timeout(self) -> None:
+        """PR4b 4R WARN-1: a stalled stream MUST surface as ``httpx.TimeoutException``.
+
+        A stalled stream is one where the server returns 200 headers but
+        the body never arrives. With the per-chunk ``read=10`` timeout,
+        httpx aborts and raises ``httpx.ReadTimeout`` (a subclass of
+        ``httpx.TimeoutException``) on the first chunk fetch that
+        exceeds the budget. ``photo_service.stream_animal_photo`` then
+        wraps it as ``PhotoStreamError`` so the route layer can
+        translate to the placeholder PNG. The atom pins the transport
+        contract — without the per-chunk timeout, the handler would
+        hang indefinitely and the route would never respond.
+        """
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.method == "GET" and request.url.path.endswith(
+                f"/{BUCKET}/download-strategy/objects/{KEY}"
+            ):
+                return _json_response(
+                    200,
+                    _download_strategy_body(
+                        url="https://example.insforge.app/private/stalled"
+                    ),
+                )
+            if request.method == "GET" and request.url.path.endswith(
+                "/private/stalled"
+            ):
+                # Simulate a stalled stream: the body fetch never
+                # completes within the per-chunk read timeout. MockTransport
+                # surfaces the ReadTimeout as a transport-level error.
+                raise httpx.ReadTimeout("simulated stalled stream body fetch")
+            raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+        with pytest.raises(httpx.TimeoutException):
+            b"".join(_client(handler).download_object_stream(BUCKET, KEY))
+
 
 # =============================================================================
 # delete_object

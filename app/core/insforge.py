@@ -298,16 +298,24 @@ class InsForgeClient:
         1. ``GET /api/storage/buckets/{bucket}/download-strategy/objects/{key}``
            with bearer auth → ``{expiresAt, method, url}``.
         2. ``GET <url>`` with bearer auth, streamed via
-           ``httpx.Client.stream``. The presigned URL is self-authenticating
-           but the server-side credential is still required per the
+           ``httpx.Client.stream`` with a per-chunk
+           ``httpx.Timeout(connect=5, read=10, write=5, pool=5)``. The
+           ``read=10`` timeout is the safety net that catches a stalled
+           stream — without it, a server that returns 200 headers but
+           never sends body bytes would hang the route handler
+           indefinitely. The presigned URL is self-authenticating but
+           the server-side credential is still required per the
            operator contract; both must be sent.
 
         The returned URL MUST NOT be exposed to the browser/client. The
         caller is expected to wrap this generator in a FastAPI
-        ``StreamingResponse``.
+        ``StreamingResponse`` (or consume it eagerly; the route layer
+        currently does the latter for placeholder reliability — see
+        ``app/modules/animals/routes.py::animal_foto``).
 
-        Network timeouts surface as ``httpx.TimeoutException``; non-2xx
-        strategy responses raise ``InsForgeError``.
+        Network timeouts surface as ``httpx.TimeoutException`` (with
+        ``httpx.ReadTimeout`` for stalled streams); non-2xx strategy
+        responses raise ``InsForgeError``.
         """
         safe_bucket = _validate_bucket_name(bucket)
 
@@ -321,7 +329,17 @@ class InsForgeClient:
             raise InsForgeError(strategy.status_code, strategy_body)
         download_url = strategy_body["url"]
 
-        with self._client.stream("GET", download_url) as response:
+        # PR4b 4R WARN-1: per-chunk Timeout so a stalled stream cannot
+        # hang the route handler. The ``read=10`` budget is per chunk
+        # fetch; ``connect=5`` covers the TCP/TLS handshake on the
+        # streamed GET; ``write=5`` and ``pool=5`` are symmetric.
+        stream_timeout = httpx.Timeout(
+            connect=5.0, read=10.0, write=5.0, pool=5.0
+        )
+
+        with self._client.stream(
+            "GET", download_url, timeout=stream_timeout
+        ) as response:
             if not response.is_success:
                 # Drain the body so the connection is reusable, then raise.
                 try:
