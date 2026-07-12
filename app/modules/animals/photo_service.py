@@ -21,7 +21,11 @@ Three-path behavior:
 
 - Happy: a real ``NombreFoto`` and a working storage → byte iterator.
 - Sad (storage failure): any error from ``download_object_stream``
-  → ``PhotoStreamError`` so the route can render the placeholder.
+  EAGERLY or mid-iteration → ``PhotoStreamError`` so the route can
+  render the placeholder. Mid-iteration errors are caught inside
+  the generator itself, BEFORE the route's ``StreamingResponse``
+  starts streaming — the route pre-advances the generator with
+  ``next(byte_iter)`` to surface them.
 - Edge (missing/sentinel): no storage call at all, raise
   ``PhotoStreamError`` immediately.
 
@@ -40,15 +44,30 @@ from typing import Any, Protocol  # noqa: F401 — Protocol used in _StorageLike
 PHOTO_BUCKET = "apap-photos"
 SENTINEL_KEY = "__missing__"
 
+# Map a storage-key file extension to its HTTP ``Content-Type``. Lifted
+# to module level so the lookup table is one source of truth and the
+# helper is a single dispatch. New MIME types are added here; tests in
+# ``tests/test_animals_foto_route.py`` pin the dispatch contract.
+_EXT_TO_MIME: dict[str, str] = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+}
+
 
 class PhotoStreamError(RuntimeError):
     """Raised when the photo stream cannot be produced.
 
-    Covers the three failure modes the route must translate to a
-    placeholder PNG: sentinel/missing key, storage transport failure,
-    and InsForge-shaped errors raised by the storage client. The
-    service intentionally uses one error type so the route can
-    surface a single, stable fail-closed contract.
+    Covers the four failure modes the route must translate to a
+    placeholder PNG: sentinel/missing key, storage transport failure
+    raised EAGERLY by ``download_object_stream`` (e.g. strategy 401,
+    streamed GET 5xx, network timeout on the request), the same kind
+    of failure raised MID-ITERATION (after the streamed GET returned
+    200 headers but the body chunks raise), and any other
+    InsForge-shaped error. The service intentionally uses one error
+    type so the route can surface a single, stable fail-closed contract.
     """
 
 
@@ -88,16 +107,32 @@ def stream_animal_photo(
     Behaviour matrix:
 
     - ``nombrefoto`` is missing / sentinel → raise ``PhotoStreamError``
-      BEFORE any storage call (no I/O cost).
-    - Storage transport raises (``httpx.TimeoutException``,
-      ``InsForgeError``, ``RuntimeError``, ...) → raise
+      BEFORE any storage call (no I/O cost). This branch is EAGER.
+    - ``storage_client.download_object_stream`` raises eagerly (network
+      timeout, 401 / 404 / 5xx from the strategy call, streamed GET
+      returning 5xx before any body byte, etc.) → wrap as
       ``PhotoStreamError`` carrying the original exception as
-      ``__cause__`` so the operator can still trace it.
-    - Storage returns an iterator → yield the bytes verbatim.
+      ``__cause__`` so the operator can still trace it. This branch
+      is EAGER (the route's outer ``try / next(byte_iter)`` raises).
+    - The streamed GET returned 200 headers but iteration over the
+      body chunks raises (network drop, ``httpx.RemoteProtocolError``,
+      per-chunk ``httpx.ReadTimeout``, mid-stream 5xx surfaced from
+      the underlying transport, etc.) → wrap as ``PhotoStreamError``
+      on the failing ``next()`` call. The route's outer ``try /
+      next(byte_iter)`` catches it BEFORE
+      ``StreamingResponse`` starts streaming.
+    - The storage returns an iterator → yield the bytes verbatim.
 
     The iterator contract: the caller drains it via
     ``StreamingResponse``. The service does NOT close the underlying
     HTTP stream — the storage client owns the connection lifecycle.
+
+    Caller discipline: pre-advance the generator with ``next(gen)``
+    to surface any first-byte failure (PhotoStreamError or
+    ``StopIteration``) BEFORE handing the rest to a streaming
+    response, so a mid-stream transport error becomes a placeholder
+    PNG instead of a partial response with the HTTP status already
+    committed.
     """
     if is_missing_nombrefoto(nombrefoto):
         raise PhotoStreamError(
@@ -105,7 +140,7 @@ def stream_animal_photo(
         )
 
     try:
-        return storage_client.download_object_stream(PHOTO_BUCKET, nombrefoto)
+        byte_iter = storage_client.download_object_stream(PHOTO_BUCKET, nombrefoto)
     except PhotoStreamError:
         # Re-raise without wrapping so the route's exception handling
         # sees the typed error directly.
@@ -113,6 +148,19 @@ def stream_animal_photo(
     except Exception as exc:  # noqa: BLE001 — the route needs a single typed surface
         raise PhotoStreamError(
             f"photo stream failed for {nombrefoto!r}"
+        ) from exc
+
+    # Iterate lazily; wrap mid-stream errors as PhotoStreamError so the
+    # route's outer ``try / next(byte_iter)`` catches them on the FIRST
+    # failing iteration. ``StreamingResponse`` never sees the raw
+    # exception because the failure surfaces before headers are sent.
+    try:
+        yield from byte_iter
+    except PhotoStreamError:
+        raise
+    except Exception as exc:  # noqa: BLE001 — single typed surface for the route
+        raise PhotoStreamError(
+            f"photo stream interrupted mid-iteration for {nombrefoto!r}"
         ) from exc
 
 
@@ -127,14 +175,9 @@ def content_type_for_key(nombrefoto: str | None) -> str:
     if not nombrefoto:
         return "image/png"
     lower = nombrefoto.lower()
-    if lower.endswith((".jpg", ".jpeg")):
-        return "image/jpeg"
-    if lower.endswith(".png"):
-        return "image/png"
-    if lower.endswith(".webp"):
-        return "image/webp"
-    if lower.endswith(".gif"):
-        return "image/gif"
+    for ext, mime in _EXT_TO_MIME.items():
+        if lower.endswith(ext):
+            return mime
     return "application/octet-stream"
 
 

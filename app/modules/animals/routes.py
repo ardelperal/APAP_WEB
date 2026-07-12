@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from app.core.auth_dependencies import (
@@ -360,8 +360,16 @@ def animal_foto(
       default-deny).
     - Sentinel ``__missing__`` and ``None``/empty ``NombreFoto`` short-circuit
       to a 1x1 placeholder PNG WITHOUT any InsForge I/O.
-    - Any storage failure (network, auth, 404, 5xx, timeout) fails closed
-      to the same placeholder — never 5xx to the browser.
+    - Any **storage-stream** failure (network drop, auth, 404, 5xx,
+      timeout, mid-iteration read timeout) fails closed to the same
+      placeholder — never 5xx to the browser. ``photo_service`` wraps
+      iteration so mid-stream errors surface as ``PhotoStreamError`` on
+      the first failing ``next()``; the route's eager first-byte check
+      below catches them BEFORE ``StreamingResponse`` commits the
+      response status. SQL lookup failures (animal row SELECT) are NOT
+      covered by this fail-closed contract — they surface as 500; see
+      ``docs/audits/pii-live-migration-2026-Q3.md`` for the precise
+      scope claim.
 
     The handler delegates the stream decision to
     :mod:`app.modules.animals.photo_service` (single responsibility, no
@@ -381,20 +389,42 @@ def animal_foto(
             media_type="image/png",
         )
 
+    # ``stream_animal_photo`` is a generator; calling it returns a
+    # generator object without executing the body. The route consumes
+    # the full iterator into memory so ANY mid-stream error
+    # (``httpx.RemoteProtocolError``, ``httpx.ReadTimeout``, per-chunk
+    # 5xx surfaced from the underlying transport, etc.) is caught by
+    # the ``except PhotoStreamError`` branch and translated to the
+    # placeholder. This trades the spec's "no full file in memory"
+    # property for placeholder reliability — the streaming alternative
+    # (FastAPI ``StreamingResponse``) cannot retroactively replace a
+    # partial body once the response status has been committed.
+    #
+    # Photos in the project are KB-to-low-MB JPEGs; the memory cost
+    # is bounded by the photo size limit (10 MiB per the spec).
     try:
         byte_iter = photo_service.stream_animal_photo(
             client, nombrefoto=animal.NombreFoto
         )
+        chunks = list(byte_iter)
     except photo_service.PhotoStreamError:
-        # Fail closed: any storage-side failure becomes a placeholder,
-        # never a 5xx that could leak upstream error detail.
+        # Fail closed: any storage-side failure (eager OR mid-iteration)
+        # becomes the placeholder, never a 5xx.
         return Response(
             content=_PLACEHOLDER_PHOTO_PNG,
             media_type="image/png",
         )
 
-    return StreamingResponse(
-        byte_iter,
+    if not chunks:
+        # Empty stream: the storage returned a 200 with no body. Treat
+        # as missing — placeholder, no 5xx.
+        return Response(
+            content=_PLACEHOLDER_PHOTO_PNG,
+            media_type="image/png",
+        )
+
+    return Response(
+        content=b"".join(chunks),
         media_type=photo_service.content_type_for_key(animal.NombreFoto),
     )
 

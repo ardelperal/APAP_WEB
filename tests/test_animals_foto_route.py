@@ -35,6 +35,7 @@ from app.core.config import get_settings
 from app.core.insforge import InsForgeClient
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
+from app.modules.animals import photo_service
 
 # --- 1x1 transparent PNG (67 bytes). Served as the placeholder. ----------
 PLACEHOLDER_PNG = (
@@ -60,7 +61,10 @@ class _FakeAnimalesFotoClient(InsForgeClient):
     - ``execute_sql`` returns the seeded animal row on lookup, otherwise
       an empty list (the animals service returns ``None``).
     - ``download_object_stream(bucket, key)`` returns a pre-loaded byte
-      iterator or raises a pre-loaded exception.
+      iterator or raises a pre-loaded exception. The iterator is consumed
+      lazily so mid-stream failure injection (via
+      ``download_mid_stream_failure`` / ``download_mid_stream_fail_after_n``)
+      triggers between chunks instead of after the whole list.
 
     The auth-revalidation SELECT is also served (the per-request
     authorization revalidation runs against the same client; the
@@ -74,6 +78,12 @@ class _FakeAnimalesFotoClient(InsForgeClient):
         self.download_calls: list[tuple[str, str]] = []
         self.download_response: Iterator[bytes] | None = iter([b"\x89PNG\r\n" + b"X" * 100])
         self.download_raises: BaseException | None = None
+        # Mid-stream failure injection: when set, the fake generator raises
+        # ``download_mid_stream_failure`` once ``download_mid_stream_fail_after_n``
+        # chunks have been yielded. Used by the PR4b 4R remediation atoms
+        # to exercise the mid-stream → placeholder path.
+        self.download_mid_stream_failure: BaseException | None = None
+        self.download_mid_stream_fail_after_n: int = 0
         self.queries: list[tuple[str, list[Any] | None]] = []
         self.auth_reval_rol: str = "key_user"
         self.closed = False
@@ -98,7 +108,21 @@ class _FakeAnimalesFotoClient(InsForgeClient):
             raise self.download_raises
         if self.download_response is None:
             raise RuntimeError("no download response pre-loaded")
-        return iter(list(self.download_response))
+        # Yield chunks one at a time so mid-stream errors surface in the
+        # consumer (rather than after the whole list is materialised).
+        # ``list(...)`` snapshots the source iterator because the underlying
+        # ``download_response`` is consumed on first yield.
+        chunks = list(self.download_response)
+        if self.download_mid_stream_failure is not None:
+            yield_failure = self.download_mid_stream_failure
+            fail_at = self.download_mid_stream_fail_after_n
+            for i, chunk in enumerate(chunks):
+                if i >= fail_at:
+                    raise yield_failure
+                yield chunk
+            return
+        for chunk in chunks:
+            yield chunk
 
     def close(self) -> None:  # type: ignore[override]
         self.closed = True
@@ -353,3 +377,200 @@ class TestFotoRouteAuthorizationInvariant:
         assert response.headers["location"] == "/login"
         assert fake_client.queries == []
         assert fake_client.download_calls == []
+
+
+# =============================================================================
+# PR4b 4R remediation — mid-stream error → placeholder (fail-closed)
+# =============================================================================
+
+
+class TestFotoRouteMidStreamFailClosed:
+    """Stream errors mid-iteration MUST become the placeholder, never a 5xx.
+
+    The PR4b 4R remediation wraps iteration inside ``stream_animal_photo``
+    so that mid-stream transport failures (5xx surfaced from
+    ``download_object_stream`` after the strategy 200 + streamed-GET 200,
+    ``httpx.RemoteProtocolError`` mid-iteration, ``httpx.TimeoutException``
+    per-chunk, ``httpx.ReadTimeout`` on a stalled stream) are translated
+    to ``PhotoStreamError``. The route advances the generator once to
+    surface the error BEFORE ``StreamingResponse`` starts streaming; an
+    error caught there becomes the placeholder PNG.
+    """
+
+    async def test_foto_route_placeholder_when_streamed_get_5xx_on_first_chunk(
+        self,
+        client: httpx.AsyncClient,
+        fake_client: _FakeAnimalesFotoClient,
+    ) -> None:
+        """Streamed-GET 5xx (caught eagerly by ``download_object_stream``) → placeholder."""
+        from app.core.insforge import InsForgeError
+
+        _login_as_key_user(client)
+        fake_client.download_raises = InsForgeError(
+            503, {"error": "streamed_get_unavailable"}
+        )
+        _seed_animal(fake_client, "anim-r4-1", nombrefoto="abc.jpg")
+
+        response = await client.get(
+            "/animales/anim-r4-1/foto", follow_redirects=False
+        )
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "image/png"
+        assert response.content == PLACEHOLDER_PNG
+
+    async def test_foto_route_placeholder_when_stream_mid_iteration_network_error(
+        self,
+        client: httpx.AsyncClient,
+        fake_client: _FakeAnimalesFotoClient,
+    ) -> None:
+        """Stream succeeds for headers + first chunk; mid-iteration network drop → placeholder."""
+        _login_as_key_user(client)
+        fake_client.download_response = iter([b"\x89PNG\r\n\x1a\n", b"PART2-", b"PART3"])
+        fake_client.download_mid_stream_failure = httpx.RemoteProtocolError(
+            "connection reset mid-stream"
+        )
+        fake_client.download_mid_stream_fail_after_n = 1  # fail on the 2nd chunk
+        _seed_animal(fake_client, "anim-r4-2", nombrefoto="abc.jpg")
+
+        response = await client.get(
+            "/animales/anim-r4-2/foto", follow_redirects=False
+        )
+
+        # Fail closed: placeholder, no 5xx leak.
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "image/png"
+        assert response.content == PLACEHOLDER_PNG
+
+    async def test_foto_route_placeholder_when_stream_fails_on_first_iteration(
+        self,
+        client: httpx.AsyncClient,
+        fake_client: _FakeAnimalesFotoClient,
+    ) -> None:
+        """Streamed GET succeeds for headers but fails on the very first chunk fetch.
+
+        The contract: the route's eager first-byte check (``next(byte_iter)``)
+        catches the ``PhotoStreamError`` raised by ``stream_animal_photo``
+        BEFORE ``StreamingResponse`` starts streaming. The placeholder is
+        returned (not a 5xx, not a partial response).
+        """
+        _login_as_key_user(client)
+        fake_client.download_response = iter([b"PART1-", b"PART2"])
+        fake_client.download_mid_stream_failure = httpx.RemoteProtocolError(
+            "stream broken right after headers"
+        )
+        fake_client.download_mid_stream_fail_after_n = 0  # fail BEFORE the first chunk
+        _seed_animal(fake_client, "anim-r4-3", nombrefoto="abc.jpg")
+
+        response = await client.get(
+            "/animales/anim-r4-3/foto", follow_redirects=False
+        )
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "image/png"
+        assert response.content == PLACEHOLDER_PNG
+
+    async def test_foto_route_placeholder_on_per_chunk_timeout(
+        self,
+        client: httpx.AsyncClient,
+        fake_client: _FakeAnimalesFotoClient,
+    ) -> None:
+        """Per-chunk read timeout (stalled stream) → placeholder (never a 5xx)."""
+        _login_as_key_user(client)
+        fake_client.download_response = iter([b"PART1-", b"PART2"])
+        fake_client.download_mid_stream_failure = httpx.ReadTimeout(
+            "read timed out mid-stream"
+        )
+        fake_client.download_mid_stream_fail_after_n = 1
+        _seed_animal(fake_client, "anim-r4-4", nombrefoto="abc.jpg")
+
+        response = await client.get(
+            "/animales/anim-r4-4/foto", follow_redirects=False
+        )
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "image/png"
+        assert response.content == PLACEHOLDER_PNG
+
+
+class TestFotoServiceMidStreamWrapping:
+    """``stream_animal_photo`` wraps mid-stream errors as ``PhotoStreamError``.
+
+    These atoms pin the service-level contract: callers (the route layer
+    and any future caller) get a single typed surface so the placeholder
+    translation has a stable hook. Without this wrapping, mid-stream
+    ``httpx.RemoteProtocolError`` / ``httpx.TimeoutException`` /
+    ``httpx.ReadTimeout`` would propagate verbatim and force every
+    consumer to catch the full httpx exception tree.
+    """
+
+    def test_stream_animal_photo_wraps_mid_stream_5xx_as_photo_stream_error(
+        self,
+    ) -> None:
+        """Streamed GET returns 5xx eagerly → wrapped as ``PhotoStreamError``."""
+        from app.core.insforge import InsForgeError
+
+        class _FiveXxStream:
+            def download_object_stream(self, bucket, key):
+                raise InsForgeError(503, {"error": "streamed_get_5xx"})
+
+        with pytest.raises(photo_service.PhotoStreamError) as exc:
+            for _ in photo_service.stream_animal_photo(
+                _FiveXxStream(), nombrefoto="abc.jpg"
+            ):
+                pass
+        assert isinstance(exc.value.__cause__, InsForgeError)
+        assert exc.value.__cause__.status_code == 503
+
+    def test_stream_animal_photo_wraps_mid_stream_network_error_as_photo_stream_error(
+        self,
+    ) -> None:
+        """Mid-iteration ``httpx.RemoteProtocolError`` → wrapped as ``PhotoStreamError``."""
+
+        def _fail_after(chunks, fail_after_n, exc):
+            for i, chunk in enumerate(chunks):
+                if i >= fail_after_n:
+                    raise exc
+                yield chunk
+
+        class _MidStreamFail:
+            def download_object_stream(self, bucket, key):
+                return _fail_after(
+                    [b"PART1-", b"PART2-", b"PART3"],
+                    fail_after_n=2,
+                    exc=httpx.RemoteProtocolError("connection reset"),
+                )
+
+        gen = photo_service.stream_animal_photo(_MidStreamFail(), nombrefoto="abc.jpg")
+        # First two chunks are yielded OK.
+        assert next(gen) == b"PART1-"
+        assert next(gen) == b"PART2-"
+        # The third iteration raises, wrapped as PhotoStreamError.
+        with pytest.raises(photo_service.PhotoStreamError) as exc:
+            next(gen)
+        assert isinstance(exc.value.__cause__, httpx.RemoteProtocolError)
+
+    def test_stream_animal_photo_wraps_mid_stream_read_timeout_as_photo_stream_error(
+        self,
+    ) -> None:
+        """Mid-iteration ``httpx.ReadTimeout`` → wrapped as ``PhotoStreamError``."""
+
+        def _fail_after(chunks, fail_after_n, exc):
+            for i, chunk in enumerate(chunks):
+                if i >= fail_after_n:
+                    raise exc
+                yield chunk
+
+        class _StalledStream:
+            def download_object_stream(self, bucket, key):
+                return _fail_after(
+                    [b"PART1-", b"PART2-"],
+                    fail_after_n=1,
+                    exc=httpx.ReadTimeout("stalled"),
+                )
+
+        gen = photo_service.stream_animal_photo(_StalledStream(), nombrefoto="abc.jpg")
+        assert next(gen) == b"PART1-"
+        with pytest.raises(photo_service.PhotoStreamError) as exc:
+            next(gen)
+        assert isinstance(exc.value.__cause__, httpx.ReadTimeout)

@@ -67,17 +67,17 @@ Comparison is case-insensitive and treats `-` and `_` as equivalent.
 
 ## Methodology
 
-Five invariants are pinned by automated atoms. Each atom is a fixture
+Six invariants are pinned by automated atoms. Each atom is a fixture
 that pre-loads the relevant fake, exercises the contract, and asserts
 the post-state with a concrete value (not absence-of-error).
 
 1. **Redaction list shape** — `tests/test_logging.py` +
-   `tests/test_log_safe_redaction.py` (13 atoms). The list has
-   exactly 15 entries; every new PII field (`dni`, `tel1`, `tel2`)
-   is present; mixed-case variants (`DNI`, `Tel1`, `TEL2`) are
-   redacted; descriptive names that merely CONTAIN a redacted
-   substring (`dni_lookup_table`, `telefono_secundario`) pass
-   through unchanged.
+   `tests/test_log_safe_redaction.py` (15 atoms after parametrization
+   expansion). The list has exactly 15 entries; every new PII field
+   (`dni`, `tel1`, `tel2`) is present; mixed-case variants
+   (`DNI`, `Tel1`, `TEL2`) are redacted; descriptive names that merely
+   CONTAIN a redacted substring (`dni_lookup_table`,
+   `telefono_secundario`) pass through unchanged.
 2. **Authorization invariant** —
    `tests/test_animals_foto_route.py::TestFotoRouteAuthorizationInvariant`
    pins that an anonymous request redirects to `/login` BEFORE
@@ -87,17 +87,38 @@ the post-state with a concrete value (not absence-of-error).
    pins that no header or body of the response ever contains the
    storage URL or any presigned token, even when the storage
    surface raised with that URL in its error body.
-4. **Fail-closed on every error category** —
+4. **Fail-closed on every storage-stream error category** —
    `tests/migration/test_insforge_storage_methods.py` parameterises
    401, 403, 404, 405, 500 on the upload strategy; `download_object_stream`
    raises `InsForgeError` on 401/404/5xx and `httpx.TimeoutException` on
-   network timeout. `tests/test_animals_foto_route.py::TestFotoRouteAuthAndRouting::test_foto_storage_failure_returns_placeholder`
-   asserts the route translates every storage failure to the placeholder
-   PNG — never a 5xx.
+   network timeout. The route layer's
+   `tests/test_animals_foto_route.py::TestFotoRouteMidStreamFailClosed`
+   covers four placeholder emission paths: streamed-GET 5xx
+   (`test_foto_route_placeholder_when_streamed_get_5xx_on_first_chunk`),
+   mid-iteration network drop
+   (`test_foto_route_placeholder_when_stream_mid_iteration_network_error`),
+   streamed-GET succeeds for headers but fails on first-iteration
+   (`test_foto_route_placeholder_when_stream_fails_on_first_iteration`),
+   and per-chunk read timeout
+   (`test_foto_route_placeholder_on_per_chunk_timeout`). The route
+   consumes the storage generator eagerly so a mid-stream
+   `PhotoStreamError` always becomes the placeholder PNG — never a 5xx.
+   The service-level wrapping is pinned by
+   `tests/test_animals_foto_route.py::TestFotoServiceMidStreamWrapping`.
+   **Scope caveat (PR4b 4R remediation):** the fail-closed contract
+   here is for the **storage-stream** path only. SQL failures on the
+   `animales` lookup (`animals_service.get_animal_by_id`) are NOT
+   covered by this contract; they surface as 500 and are explicitly
+   out of scope for the M1 photo display milestone.
 5. **Idempotent upload** —
    `tests/migration/test_insforge_storage_methods.py::test_upload_object_reuses_existing_key_via_client_derived_filename`
    asserts the same bytes uploaded twice carry the same client-side
    filename so server-side dedup can fire.
+6. **No raw `logger.*` / `print(...)` in `app/core/insforge.py`** —
+   `tests/migration/test_insforge_storage_methods.py::test_storage_methods_never_log_secrets_urls_or_paths`
+   uses the AST detector from `scripts/check_rules.py` (the same
+   detector that runs in CI) to pin the absence of forbidden logging
+   patterns in the production storage surface.
 
 In addition, the operator runbook
 `docs/runbooks/live-migration-apply.md` carries the canonical
