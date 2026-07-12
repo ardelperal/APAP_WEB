@@ -2,6 +2,7 @@
 
 **Branch**: `feat/live-migration-storage-contract-spike` (from `origin/main` @ PR #186 merge `73bfff4`)
 **Work units**: cumulative PR1 / PR2 / PR2-verify / PR3 / PR3 verification remediation / PR3 runbook closure + current PR4a read-only storage contract spike.
+**Commits**: `f8cbc9a` — `feat(migration): add read-only storage contract spike`; `6154d5d` — `fix(migration): keep blocked storage endpoint unpinned`.
 **Mode**: Strict TDD (orchestrator-confirmed; global maintainer-approved `size:exception`)
 **Delivery**: stacked-to-main with maintainer-approved `size:exception`; target `main` via PR; apply phase does NOT push/open PR/merge (user will auto-merge later)
 **Status**: PR1, PR2, PR2-verify, PR3, PR3 verification remediation, PR3 runbook closure, and PR4a complete; PR4b+ untouched. PR4b is **BLOCKED** until the live InsForge storage contract is proven with credentials and the discovery doc verdict changes to PASS.
@@ -77,6 +78,8 @@
 - **RED**: `C:\\00repos\\codigo\\APAP_WEB\\.venv\\Scripts\\python.exe -m pytest tests/migration/test_photo_storage.py -q` → 1 collection error (`ModuleNotFoundError: No module named 'migration.storage_spike'`).
 - **GREEN focused**: `C:\\00repos\\codigo\\APAP_WEB\\.venv\\Scripts\\python.exe -m pytest tests/migration/test_photo_storage.py -q` → 9 passed in 0.30s.
 - **Runtime/operator harness**: `C:\\00repos\\codigo\\APAP_WEB\\.venv\\Scripts\\python.exe -m migration.storage_spike --probe download_strategy --path apap-photos/0123456789abcdef.jpg --output docs/discovery/storage-contract-2026-Q3.md` → status `missing_credentials`, evidence hash `8d0f87f79699483014a194d3b787953e1f0fe3353890479d4e41022bd52c559b`, PR4b gate `BLOCKED`; no live network probe because credentials/env were absent.
+- **Post-fix focused regression**: `C:\\00repos\\codigo\\APAP_WEB\\.venv\\Scripts\\python.exe -m pytest tests/migration/test_photo_storage.py -q` → 9 passed in 0.28s after `fix(migration): keep blocked storage endpoint unpinned`.
+- **Post-fix ruff**: `C:\\00repos\\codigo\\APAP_WEB\\.venv\\Scripts\\python.exe -m ruff check migration/storage_spike.py tests/migration/test_photo_storage.py` → All checks passed.
 - **Migration suite**: `C:\\00repos\\codigo\\APAP_WEB\\.venv\\Scripts\\python.exe -m pytest tests/migration -q` → 168 passed in 1.86s.
 - **Full local gate**: `C:\\00repos\\codigo\\APAP_WEB\\.venv\\Scripts\\python.exe -m pytest -W error::DeprecationWarning --deselect tests/test_voluntarios_concurrent.py -q` → 2243 passed, 1 skipped (`psycopg` missing), 2 deselected in 22.05s; coverage gate PASS: all 17 helpers at 100%.
 - **Ruff**: `C:\\00repos\\codigo\\APAP_WEB\\.venv\\Scripts\\python.exe -m ruff check .` → All checks passed.
