@@ -681,26 +681,45 @@ def test_upload_object_strategy_request_carries_bearer_authorization() -> None:
 def test_storage_methods_never_log_secrets_urls_or_paths() -> None:
     """The production methods MUST NOT log service keys, URLs, or object paths.
 
-    The atoms assert via the wire contract: the methods accept no
-    ``logger=`` kwarg, expose no ``log`` attribute, and the response
-    shape carries no embedded credentials. The structured-log audit
-    redaction is a separate contract pinned by ``test_logging.py``.
+    PR4b 4R WARN-5: this atom uses the AST detector from
+    ``scripts/check_rules.py`` (the same detector that runs in CI) to
+    pin the absence of forbidden logging patterns in the production
+    storage surface. Two detectors fire:
+
+    - ``_check_apap003_raw_logger_call``: bans ``logger.{info, warning,
+      error, debug, critical, exception}(...)`` chains in ``app/``
+      except ``app/core/logging.py`` (the log_safe wrapper).
+    - ``_check_print_in_app``: bans bare ``print(...)`` in ``app/``.
+
+    Both detectors skip ``app/core/logging.py`` by path; the production
+    storage module is ``app/core/insforge.py`` so neither exclusion
+    applies and any logging pattern would surface as a Violation.
+
+    Earlier versions of this atom grepped the source text. The grep
+    missed AST-level patterns (string-built loggers, ``getattr(logger,
+    method)(...)``, ``print`` calls inside comprehensions) and gave
+    false positives on the docstring mentions of "log" / "print".
     """
+    import ast
+    import sys
     from pathlib import Path
 
-    from app.core import insforge as insforge_mod
+    REPO_ROOT = Path(__file__).resolve().parents[2]
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    from check_rules import _check_apap003_raw_logger_call, _check_print_in_app
 
-    # Inspect the module for any logger-bound storage method surface.
-    source = Path(insforge_mod.__file__).read_text(encoding="utf-8")
-    for forbidden in (
-        "logger.info",
-        "logger.warning",
-        "logger.error",
-        "logger.debug",
-        "logging.getLogger",
-        "print(",
-    ):
-        assert forbidden not in source, (
-            f"app/core/insforge.py contains forbidden log call {forbidden!r}; "
-            f"use log_safe() exclusively"
-        )
+    insforge_path = REPO_ROOT / "app" / "core" / "insforge.py"
+    source = insforge_path.read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=str(insforge_path))
+
+    apap003 = _check_apap003_raw_logger_call(insforge_path, tree, REPO_ROOT)
+    print_in_app = _check_print_in_app(insforge_path, tree)
+
+    assert apap003 == [], (
+        f"app/core/insforge.py contains forbidden raw logger.* calls: "
+        f"{[v.message for v in apap003]}; use log_safe() exclusively"
+    )
+    assert print_in_app == [], (
+        f"app/core/insforge.py contains forbidden print() calls: "
+        f"{[v.message for v in print_in_app]}; use log_safe() instead"
+    )
