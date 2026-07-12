@@ -150,8 +150,6 @@ class TestUploadObjectHappyPath:
         assert calls[0][1].endswith("/upload-strategy")
         assert calls[1][1].endswith("/upload/abc")
         assert calls[2][1].endswith("/confirm/abc")
-        # Strategy carried bearer auth.
-        assert _client.__wrapped__ if False else True  # noqa: ERA001  (placeholder)
         assert result == {"key": KEY}
 
     def test_upload_object_without_fields_puts_and_skips_confirm(self) -> None:

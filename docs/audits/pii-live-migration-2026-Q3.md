@@ -142,7 +142,8 @@ with the AGENTS.md §13 headings (`## When to trigger`,
 | P2       | Sentinel placeholder is a static 1x1 transparent PNG; users see no "broken image" hint.   | `app/modules/animals/routes.py::_PLACEHOLDER_PHOTO_PNG`; `app/modules/animals/photo_service.py::SENTINEL_KEY`. UX improvement, not a security defect. | Acknowledged (out of PR4b scope) |
 | P2       | `delete_object` 404 returns `None` (idempotent) — if the operator logs the return value they see no signal of "already absent". | `tests/migration/test_insforge_storage_methods.py::test_delete_object_404_is_idempotent_noop`. No PII or secret leakage; only operator UX. | Acknowledged (out of PR4b scope) |
 | P3       | `content_type_for_key` falls back to `application/octet-stream` for unknown extensions; browsers will download instead of inline. | `app/modules/animals/photo_service.py::content_type_for_key`. Defensive default, no security impact. | Acknowledged |
-| P3       | Audit doc rendered in castellano de España for project consistency; technical artifacts default to English. | `docs/audits/pii-live-migration-2026-Q3.md` (this file).                                           | By design  |
+| P3       | `voluntarios.dni` is web-only shadow (verified via Dysflow `get_schema` 2026-07-11: zero DNI column in `TbVoluntariosParaAutorrellenables`). Forward legacy apply MUST leave `dni=NULL`; collisions only arise from manual web entry (UNIQUE constraint) or reverse-path (no legacy column to receive). | `migration/mappings/voluntario.yaml` (`DNI: legacy_column: null`); `tests/test_log_safe_redaction.py::test_log_safe_redacts_each_new_pii_field_value[dni]`; the `dni` row in the Scope table above. | By design — preserves P1 fidelity to the verified legacy schema |
+| P3       | Audit doc rendered in English per artifact default; the project's preferred register for operator docs is castellano de España. The default (English) was chosen because the artifact-language rule (technical artifacts default to English unless the project explicitly requests another language) takes precedence over the operator-doc preference for this audit. | `docs/audits/pii-live-migration-2026-Q3.md` (this file). | Acknowledged — operator may request a castellano render in a follow-up |
 
 ## Verdict
 
@@ -150,19 +151,23 @@ with the AGENTS.md §13 headings (`## When to trigger`,
 The M1 milestone gate accepts the PII contract on the basis of:
 
 - The closed redaction list (15 entries) is verified end-to-end by
-  parametrized atoms in `tests/test_log_safe_redaction.py` (13 atoms
-  RED-first → GREEN with the implementation commit).
+  parametrized atoms in `tests/test_log_safe_redaction.py` (**15
+  atoms** after parametrization: 1 list-shape invariant + 3
+  per-field-presence + 3 per-field-redaction + 6 mixed-case variants +
+  1 record-message non-leak + 1 descriptive-name passthrough).
 - The `GET /animales/{animal_id}/foto` route is verified by
-  `tests/test_animals_foto_route.py` (9 atoms: auth redirect,
-  happy streaming, sentinel placeholder, null placeholder, storage
-  fail-closed, no-presigned-URL leak, isolated service, anonymous
-  pre-storage invariant).
+  `tests/test_animals_foto_route.py` (**18 atoms** across 5 classes:
+  `TestFotoRouteAuthAndRouting` 6, `TestFotoRouteDoesNotLeakPresignedUrl`
+  1, `TestFotoRouteIsolatedService` 1, `TestFotoRouteAuthorizationInvariant`
+  1, `TestFotoRouteMidStreamFailClosed` 4, `TestFotoRouteSqlLookupFailClosed`
+  2, `TestFotoServiceMidStreamWrapping` 3).
 - The production storage methods on `InsForgeClient` are verified by
-  `tests/migration/test_insforge_storage_methods.py` (28 atoms:
-  happy/sad/edge for upload_object, download_object_stream,
-  delete_object; fail-closed on 401/403/404/405/500/timeout/network;
-  unsafe-bucket pre-network; idempotent re-upload; bearer auth on
-  every strategy/transfer/download/confirm step).
+  `tests/migration/test_insforge_storage_methods.py` (**30 atoms**:
+  happy/sad/edge for upload_object (4 + 6 parametrized fail-closed +
+  transfer/confirm/network), download_object_stream (7 + 2 per-chunk
+  timeout), delete_object (3); unsafe-bucket pre-network × 3;
+  idempotent re-upload; bearer auth on the strategy request; AST
+  detector pins the absence of forbidden logging patterns).
 - The migration operator path is documented in
   `docs/runbooks/live-migration-apply.md` with the AGENTS.md §13
   headings and the `MIGRATION_RUNBOOK_REF` constant surfaces this
@@ -172,22 +177,29 @@ The M1 milestone gate accepts the PII contract on the basis of:
 
 ### Acceptance evidence index
 
-| Invariant                                       | Atom file                                           | Atoms |
-|-------------------------------------------------|-----------------------------------------------------|-------|
-| REDACTED_FIELDS has exactly 15 entries          | `tests/test_log_safe_redaction.py`                  | 1     |
-| Each new PII field is in the closed list        | `tests/test_log_safe_redaction.py`                  | 3     |
-| `log_safe` redacts each new field value         | `tests/test_log_safe_redaction.py`                  | 3     |
-| Mixed-case variants are redacted                | `tests/test_log_safe_redaction.py`                  | 6     |
-| PII never leaks via the formatted message       | `tests/test_log_safe_redaction.py`                  | 1     |
-| Descriptive names pass through unchanged        | `tests/test_log_safe_redaction.py`                  | 1     |
-| Storage methods happy/sad/edge                  | `tests/migration/test_insforge_storage_methods.py`  | 28    |
-| Auth gate redirects anonymous to `/login`      | `tests/test_animals_foto_route.py`                  | 2     |
-| Route streams bytes for real keys              | `tests/test_animals_foto_route.py`                  | 1     |
-| Sentinel + null → placeholder, no I/O          | `tests/test_animals_foto_route.py`                  | 2     |
-| Storage error → placeholder (fail-closed)      | `tests/test_animals_foto_route.py`                  | 1     |
-| No presigned URL leak                          | `tests/test_animals_foto_route.py`                  | 1     |
-| Service isolation (no photo/bucket SQL)         | `tests/test_animals_foto_route.py`                  | 1     |
-| Runbook references resolve to authored files    | `tests/test_runbook_links.py`                       | 12    |
+| Invariant                                              | Atom file                                            | Atoms |
+|--------------------------------------------------------|------------------------------------------------------|-------|
+| REDACTED_FIELDS has exactly 15 entries                 | `tests/test_log_safe_redaction.py`                   | 1     |
+| Each new PII field is in the closed list               | `tests/test_log_safe_redaction.py`                   | 3     |
+| `log_safe` redacts each new field value                | `tests/test_log_safe_redaction.py`                   | 3     |
+| Mixed-case variants are redacted                       | `tests/test_log_safe_redaction.py`                   | 6     |
+| PII never leaks via the formatted message              | `tests/test_log_safe_redaction.py`                   | 1     |
+| Descriptive names pass through unchanged               | `tests/test_log_safe_redaction.py`                   | 1     |
+| Storage methods happy/sad/edge                         | `tests/migration/test_insforge_storage_methods.py`   | 30    |
+| Per-chunk read timeout pins ``connect=5/read=10/...``  | `tests/migration/test_insforge_storage_methods.py`   | 1     |
+| Stalled stream surfaces `httpx.TimeoutException`       | `tests/migration/test_insforge_storage_methods.py`   | 1     |
+| Auth gate redirects anonymous to `/login`             | `tests/test_animals_foto_route.py`                   | 2     |
+| Animal-not-found returns 404                          | `tests/test_animals_foto_route.py`                   | 1     |
+| Route streams bytes for real keys                     | `tests/test_animals_foto_route.py`                   | 1     |
+| Sentinel + null → placeholder, no I/O                 | `tests/test_animals_foto_route.py`                   | 2     |
+| Storage error → placeholder (fail-closed)             | `tests/test_animals_foto_route.py`                   | 1     |
+| Mid-stream error → placeholder (CRIT-1, 4R)            | `tests/test_animals_foto_route.py`                   | 4     |
+| SQL lookup error → placeholder (WARN-3, 4R)            | `tests/test_animals_foto_route.py`                   | 2     |
+| `stream_animal_photo` wraps mid-stream errors         | `tests/test_animals_foto_route.py`                   | 3     |
+| No presigned URL leak                                 | `tests/test_animals_foto_route.py`                   | 1     |
+| Service isolation (no photo/bucket SQL)                | `tests/test_animals_foto_route.py`                   | 1     |
+| Audit doc structure (Scope / Methodology / ...)        | `tests/test_pii_audit_doc.py`                        | 7     |
+| Runbook references resolve to authored files           | `tests/test_runbook_links.py`                        | 12    |
 
 ### Operator acknowledgement
 
