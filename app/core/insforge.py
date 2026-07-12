@@ -218,11 +218,61 @@ class InsForgeClient:
         returns the canonical key in the strategy response, which is then
         re-surfaced via the confirm response. The caller reads the
         canonical key from the returned dict.
+
+        PR4b 4R WARN-4: the three steps are extracted into named helpers
+        (``_request_upload_strategy``, ``_transfer_upload``, and
+        ``_confirm_upload``) so the orchestration in ``upload_object``
+        reads top-to-bottom as "validate → strategy → transfer → confirm".
+        The behaviour is unchanged; the 28 ``test_insforge_storage_methods``
+        atoms pin the wire contract.
         """
         safe_bucket = _validate_bucket_name(bucket)
         size = len(body)
 
         # Step 1 — request upload strategy.
+        strategy_body = self._request_upload_strategy(
+            safe_bucket, key=key, content_type=content_type, size=size
+        )
+
+        # Step 2 — transfer the bytes (POST when fields present, PUT when absent).
+        self._transfer_upload(
+            strategy_body=strategy_body,
+            key=key,
+            body=body,
+            content_type=content_type,
+        )
+
+        # Step 3 — confirm when required; otherwise echo the strategy's canonical key.
+        confirm_required = bool(strategy_body.get("confirmRequired", False))
+        if confirm_required:
+            confirm_body = self._confirm_upload(strategy_body=strategy_body)
+            if isinstance(confirm_body, dict):
+                return confirm_body
+            return {"key": key}
+
+        # No confirm required — echo the strategy's canonical key.
+        canonical_key = (
+            strategy_body.get("key")
+            if isinstance(strategy_body.get("key"), str)
+            else key
+        )
+        return {"key": canonical_key}
+
+    def _request_upload_strategy(
+        self,
+        safe_bucket: str,
+        *,
+        key: str,
+        content_type: str,
+        size: int,
+    ) -> dict[str, Any]:
+        """Step 1 — request the upload strategy from InsForge.
+
+        Returns the parsed strategy body (a ``dict``). Raises
+        ``InsForgeError`` on a non-2xx response, on a non-dict body, or
+        on a body missing the required ``uploadUrl`` field. The bucket
+        name has already been validated by ``_validate_bucket_name``.
+        """
         strategy = self._client.post(
             f"/api/storage/buckets/{safe_bucket}/upload-strategy",
             json={
@@ -236,22 +286,37 @@ class InsForgeClient:
         strategy_body = _safe_json(strategy)
         if not isinstance(strategy_body, dict):
             raise InsForgeError(strategy.status_code, strategy_body)
-
         upload_url = strategy_body.get("uploadUrl")
-        fields = strategy_body.get("fields")
-        confirm_required = bool(strategy_body.get("confirmRequired", False))
-        confirm_url = strategy_body.get("confirmUrl")
         if not isinstance(upload_url, str) or not upload_url:
             raise InsForgeError(
                 strategy.status_code,
                 {"error": "upload_strategy_missing_url", "received": strategy_body},
             )
+        return strategy_body
 
-        # Step 2 — transfer the bytes (POST when fields present, PUT when absent).
+    def _transfer_upload(
+        self,
+        *,
+        strategy_body: dict[str, Any],
+        key: str,
+        body: bytes,
+        content_type: str,
+    ) -> None:
+        """Step 2 — transfer the bytes to the strategy's ``uploadUrl``.
+
+        When the strategy returned ``fields``, the body is sent as
+        ``multipart/form-data`` via POST (S3 variant); when ``fields`` is
+        absent, the body is sent as raw bytes via PUT (Local variant).
+        Raises ``InsForgeError`` on a non-2xx response or on an invalid
+        ``fields`` shape. The caller does not need the response body;
+        only the status matters.
+        """
+        upload_url = strategy_body["uploadUrl"]
+        fields = strategy_body.get("fields")
         if fields:
             if not isinstance(fields, dict):
                 raise InsForgeError(
-                    strategy.status_code,
+                    500,
                     {"error": "upload_strategy_invalid_fields", "received": fields},
                 )
             transfer = self._client.post(
@@ -267,24 +332,27 @@ class InsForgeClient:
         if not transfer.is_success:
             raise InsForgeError(transfer.status_code, _safe_json(transfer))
 
-        # Step 3 — confirm when required.
-        if confirm_required:
-            if not isinstance(confirm_url, str) or not confirm_url:
-                raise InsForgeError(
-                    strategy.status_code,
-                    {"error": "upload_strategy_missing_confirm_url", "received": strategy_body},
-                )
-            confirm = self._client.post(confirm_url)
-            if not confirm.is_success:
-                raise InsForgeError(confirm.status_code, _safe_json(confirm))
-            confirm_body = _safe_json(confirm)
-            if isinstance(confirm_body, dict):
-                return confirm_body
-            return {"key": key}
+    def _confirm_upload(self, *, strategy_body: dict[str, Any]) -> Any:
+        """Step 3 — POST to the strategy's ``confirmUrl`` to finalise the upload.
 
-        # No confirm required — echo the strategy's canonical key.
-        canonical_key = strategy_body.get("key") if isinstance(strategy_body.get("key"), str) else key
-        return {"key": canonical_key}
+        Returns the parsed confirm body (a ``dict`` when the server
+        returns JSON; ``None`` for an empty body). Raises
+        ``InsForgeError`` when ``confirmUrl`` is absent or on a non-2xx
+        response.
+        """
+        confirm_url = strategy_body.get("confirmUrl")
+        if not isinstance(confirm_url, str) or not confirm_url:
+            raise InsForgeError(
+                500,
+                {
+                    "error": "upload_strategy_missing_confirm_url",
+                    "received": strategy_body,
+                },
+            )
+        confirm = self._client.post(confirm_url)
+        if not confirm.is_success:
+            raise InsForgeError(confirm.status_code, _safe_json(confirm))
+        return _safe_json(confirm)
 
     def download_object_stream(
         self,
