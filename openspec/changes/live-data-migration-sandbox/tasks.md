@@ -66,14 +66,12 @@ Chain strategy: stacked-to-main
   - `tests/test_migration.py::TestLock::test_check_msaccess_raises_unavailable_when_psutil_missing` — UPDATED: the legacy test that documented fail-open is now updated to assert the fail-closed contract (`MsAccessPreflightUnavailableError` with reason `psutil_missing`).
 - [ ] 9.1 **AUTOMATIC PARTIAL-APPLY RESUME** (deferred to follow-up PR before M2 fallback-ready): a `apap-migrate apply --resume-from-partial` operator command that consumes `migration.partial_apply.json`, validates the source snapshot is still current, and continues from `progress_applied`. PR3 deliberately does NOT implement this — the operator must review and remove the file by hand. The follow-up PR is scheduled alongside the apply runbook (PR4 follow-up).
 
-### PR4a: Storage Contract Spike (M1 gate — no code changes)
+### PR4a: Storage Contract Spike (M1 gate — read-only only)
 
-### PR4a: Storage Contract Spike (M1 gate — no code changes)
-
-- [ ] 4.1 **SPIKE**: Create `migration/storage_spike.py` CLI command: `python -m migration.storage_spike --probe download_strategy --path apap-photos/<sha256>.jpg`. It reads `APAP_INSFORGE_URL` + `APAP_INSFORGE_SERVICE_KEY`, makes a live read-only `GET /api/storage/downloadStrategy?path=...&expiresIn=3600` call against the deployed instance, records response status, headers, and body shape in `docs/discovery/storage-contract-2026-Q3.md`. Tests: `tests/migration/test_photo_storage.py::test_storage_spike_records_path` (verifies spike ran and doc exists).
-- [ ] 4.2 **SPIKE**: Also probe `POST /api/storage/buckets/apap-photos/upload-strategy` with a small synthetic body `{filename:"test.jpg", contentType:"image/jpeg", size:10}` — record the response shape (method, uploadUrl, fields, key, confirmRequired, confirmUrl, expiresAt).
-- [ ] 4.3 **SPIKE**: Probe 401 (bad key) and 404 (bad path) to confirm error contract. Tests `test_spike_fails_closed_on_401`, `test_spike_fails_closed_on_404` assert these mark PR4 red until canonical shape recorded.
-- [ ] Commit: `feat(migration): storage contract spike — live InsForge probe (PR4a gate)`.
+- [x] 4.1 **RED/GREEN**: Create `migration/storage_spike.py` CLI command: `python -m migration.storage_spike --probe download_strategy --path apap-photos/<sha256>.jpg`. It reads `APAP_INSFORGE_URL` + `APAP_INSFORGE_SERVICE_KEY` when present, makes only safe read-only requests (`GET /api/storage/downloadStrategy?path=...&expiresIn=3600`, then `HEAD` on the returned URL when a 2xx strategy response exposes one), refuses POST/PUT/PATCH/DELETE before transport, and records redacted response status/header/body-shape evidence in `docs/discovery/storage-contract-2026-Q3.md`. Tests: `tests/migration/test_photo_storage.py` covers 2xx supported shape, 401/403, 404, 405/refusal, redaction, deterministic evidence hash, repeated read-only probes, timeout/network fail-closed, and missing credentials.
+- [x] 4.2 **USER OVERRIDE / MUTATION GATE**: The earlier draft task that proposed probing `POST /api/storage/buckets/apap-photos/upload-strategy` is explicitly superseded for PR4a. PR4a sends **no POST/PUT/PATCH/DELETE**, creates no bucket, uploads no object, and does not read object bytes. Upload-strategy shape remains a PR4b MockTransport/fixture concern until a separate explicit operator mutation gate exists.
+- [x] 4.3 **VERIFICATION**: Live operator probe attempted only when credentials/env exist. In this apply run `APAP_INSFORGE_URL` / `APAP_INSFORGE_SERVICE_KEY` were absent, so the CLI wrote a redacted `docs/discovery/storage-contract-2026-Q3.md` with `Verdict: BLOCKED`, status `missing_credentials`, evidence hash `8d0f87f79699483014a194d3b787953e1f0fe3353890479d4e41022bd52c559b`, and PR4b gate `BLOCKED`. Focused/migration/full tests, ruff, check-rules, and build passed.
+- [x] Commit: `feat(migration): storage contract spike — live InsForge probe (PR4a gate)`.
 
 ### PR4b: Storage Implementation + Photo Route + Audit + Runbook (M1)
 

@@ -1,14 +1,10 @@
 ## SDD Apply Progress: live-data-migration-sandbox
 
-**Branch**: `feat/live-migration-apply-safety` (from `origin/main` @ PR #182 merge `a8eb112`)
-**Work units**: PR3 / M1 core apply safety — three work-unit commits + one verification remediation commit:
-1. `525a461` — `feat(migration): lock_snapshot source identity + atomic write + drift detection (M1)`
-2. `6c54931` — `feat(migration): apply pre-flight MSACCESS + lock-then-snapshot ordering + partial-apply evidence (M1)`
-3. `8aa4ff4` — `feat(migration): MigrationReport counts/source_hashes/collisions (PR3/M1 backward-compat)`
-4. `[remediation]` — `fix(migration): PR3 verification remediation — CLI exit-code contract + MSACCESS fail-closed + spec alignment (M1)` (single conventional commit, on the same branch)
-**Mode**: Strict TDD (orchestrator-confirmed; orchestrator/user pre-authorized `size:exception`)
-**Delivery**: stacked-to-main with maintainer-approved `size:exception`; target `main` via PR; apply phase does NOT push/open PR/merge (user authorized auto-merge later)
-**Status**: PR1, PR2, PR2-verify, PR3, and PR3 verification remediation complete; PR4+ untouched
+**Branch**: `feat/live-migration-storage-contract-spike` (from `origin/main` @ PR #186 merge `73bfff4`)
+**Work units**: cumulative PR1 / PR2 / PR2-verify / PR3 / PR3 verification remediation / PR3 runbook closure + current PR4a read-only storage contract spike.
+**Mode**: Strict TDD (orchestrator-confirmed; global maintainer-approved `size:exception`)
+**Delivery**: stacked-to-main with maintainer-approved `size:exception`; target `main` via PR; apply phase does NOT push/open PR/merge (user will auto-merge later)
+**Status**: PR1, PR2, PR2-verify, PR3, PR3 verification remediation, PR3 runbook closure, and PR4a complete; PR4b+ untouched. PR4b is **BLOCKED** until the live InsForge storage contract is proven with credentials and the discovery doc verdict changes to PASS.
 
 ### Cumulative task state (across batches)
 
@@ -36,7 +32,10 @@
 - [x] PR3 C-3 dead runbook blocker resolved — repository-level test `tests/test_runbook_links.py` (8 atoms) RED-first captures that every operator-facing migration runbook reference (CLI `MIGRATION_RUNBOOK_REF` + every path named in `migration/dysflow_client.py`) resolves to an authored `docs/runbooks/<name>.md` file with all five AGENTS §13 sections (`## When to trigger`, `## Pre-deploy checklist`, `## Deploy steps`, `## Verification`, `## Rollback`). Authored `docs/runbooks/live-migration-apply.md` with the full closed vocabulary (exits 5/6/7 + all six categorical reasons + psutil prerequisite + check-only + private infra + snapshot/partial files + no auto-resume + no destructive removal + no raw PII/path logging + rollback + escalation). Consolidated the 3 dead `migrate-live-data.md` references in `migration/dysflow_client.py` to the new canonical runbook. Fixed tasks.md drift (`apply.preflight_unlimited` → `apply.preflight_unavailable`). `scripts/check_audit_and_runbook.py` top-level `migration/` detection left as a follow-up (no focused test exists; mechanical change would be a single line in `SENSITIVE_AUDIT_PATHS` but the user's scope-discipline directive says "log follow-up, do not expand" without a RED-first test).
 - [x] PR3 final runbook warning closed — `tests/test_runbook_links.py` extended with `TestPyprojectRunbookReferences` (4 atoms, RED-first) that scans `pyproject.toml` for `docs/runbooks/*.md` references and requires each to resolve + carry the AGENTS §13 headings + match the CLI constant. Replaced the stale `docs/runbooks/migrate-live-data.md` reference in `pyproject.toml` (the `pyodbc` install-hint comment) with the canonical `docs/runbooks/live-migration-apply.md`. Updated the PR4b future task spec in `tasks.md` (the only remaining tracked PR3 artifact referencing the stale runbook) to point to the canonical runbook + note that PR4b-specific storage + foto sections will be added on top. Did NOT change `apply-progress.md` historical evidence bullet (past-tense record of the C-3 consolidation work, not a future reference) or any untracked SDD artifacts (proposal / design / specs) per user scope-discipline directive.
 - [x] PR3 verification remediation rollback — revert the remediation commit; the underlying PR3 commits (`8aa4ff4`, `6c54931`, `525a461`) remain valid because the new test atoms are GREEN only with the new production code. The legacy `tests/test_migration.py::TestLock::test_check_msaccess_returns_empty_when_psutil_missing` reverts to its pre-remediation `assert lock_mod.check_msaccess_running() == []` assertion.
-- [ ] PR4 4.x ... PR7 7.x — UNTOUCHED (per orchestrator/user instruction)
+- [x] PR4a 4.1 RED/GREEN — `tests/migration/test_photo_storage.py` (9 atoms) written first against missing `migration.storage_spike`, then `migration/storage_spike.py` added as a read-only CLI/test seam. Covers 2xx supported shape; 401/403 auth failures; 404 endpoint/sentinel mismatch; 405 and local mutation refusal; redaction; deterministic evidence hash; repeated probes with no writes; timeout/network fail-closed; missing credentials with no network.
+- [x] PR4a 4.2 USER OVERRIDE / MUTATION GATE — the prior draft task to probe `POST /api/storage/buckets/apap-photos/upload-strategy` is superseded for PR4a. This batch sends no POST/PUT/PATCH/DELETE, creates no bucket, uploads no object, and reads no object bytes. Upload-strategy behavior is deferred to PR4b MockTransport/fixture tests unless a separate explicit operator mutation gate is created.
+- [x] PR4a 4.3 VERIFICATION — live credentials were absent, so the operator probe did not contact InsForge and wrote `docs/discovery/storage-contract-2026-Q3.md` with status `missing_credentials`, evidence hash `8d0f87f79699483014a194d3b787953e1f0fe3353890479d4e41022bd52c559b`, `Verdict: BLOCKED`, and PR4b gate `BLOCKED`. Focused/migration/full pytest, ruff, check-rules, and build passed.
+- [ ] PR4b 4.4–4.6 ... PR7 7.x — UNTOUCHED (per orchestrator/user instruction)
 - [ ] 9.1 Automatic partial-apply resume — deferred to follow-up PR before M2 fallback-ready; see `tasks.md` 9.1. PR3 deliberately does NOT implement auto-resume.
 
 ### TDD Cycle Evidence
@@ -55,6 +54,7 @@
 | PR3 3.2 (WU-2) | `tests/migration/test_apply_safety.py` | Unit | ✅ `python -m pytest tests/migration/test_apply_safety.py -q` failed RED on `AttributeError: module 'migration.apply' has no attribute 'check_msaccess_running'` | ✅ 12 collection errors | ✅ `python -m pytest tests/migration/test_apply_safety.py -q` → 12 passed in 0.23s | ✅ happy (no MSACCESS → apply runs) / sad (MSACCESS live → exit-5 abort, drift detected → exit-6 abort, partial-apply exists → exit-7 abort) / edge (dry-run bypasses all pre-flight, SIGINT-before-snapshot leaves no trace, SIGINT-after-snapshot writes partial evidence, empty source still writes snapshot) | ✅ no refactor required |
 | PR3 3.3 (WU-3) | `tests/migration/test_reporting.py` | Unit | ✅ `python -m pytest tests/migration/test_reporting.py -q` failed RED on `TypeError: MigrationReport.__init__() got an unexpected keyword argument 'collisions'` | ✅ 6 failures + 3 ApplyResult passes | ✅ `python -m pytest tests/migration/test_reporting.py -q` → 9 passed in 0.18s | ✅ happy (default empty dicts, explicit kwargs, JSON roundtrip) / sad (non-serializable values raise TypeError) / edge (no PII/path leakage in any JSON string value, ApplyResult shape pinned) | ✅ `to_markdown` extended with a `## Source Identity` section that ONLY emits when at least one of the three new fields has content (backward-compat verified by the existing `test_migration_report_to_markdown_contains_summary_table` and `test_reconciliation_summary_to_markdown_omits_when_none` atoms) |
 | PR3 verification | full local gate + ruff + check-rules + build | mixed | ✅ focused + migration + full pytest green before full gate | n/a — verification task | ✅ `python -m pytest -W error::DeprecationWarning --deselect tests/test_voluntarios_concurrent.py` → 2173 passed, 1 skipped (psycopg missing), 2 deselected | ✅ migration + test_migration suite 241 passed | ✅ ruff clean / check-rules silent / build green / coverage gate 17 helpers at 100% |
+| PR4a 4.1–4.3 | `tests/migration/test_photo_storage.py` | Unit + CLI harness | N/A (new module/test/doc) | ✅ `python -m pytest tests/migration/test_photo_storage.py -q` → 1 collection error (`ModuleNotFoundError: No module named 'migration.storage_spike'`) | ✅ `python -m pytest tests/migration/test_photo_storage.py -q` → 9 passed in 0.30s | ✅ happy 2xx + bearer HEAD, sad 401/403, 404, 405/refusal, timeout/network, missing credentials, repeated read-only idempotence | ✅ read-only wrapper + deterministic result/document writer; no media/storage PR4b methods/routes added |
 
 ### Work Unit Evidence
 
@@ -63,6 +63,25 @@
 | Focused test command and exact result | `python -m pytest tests/migration/test_lock_snapshot.py tests/migration/test_apply_safety.py tests/migration/test_reporting.py -q` → `63 passed in 0.83s` (post-PR3); split: `test_lock_snapshot.py -q` → 42 passed, `test_apply_safety.py -q` → 12 passed, `test_reporting.py -q` → 9 passed |
 | Runtime harness command/scenario and exact result | `python -m pytest tests/migration -q` → `101 passed in 1.05s`; exercises `apply_legacy_to_web` end-to-end through `FakeInsForge` + injected executor + monkeypatched seams (no real psutil / InsForge / Access touched). Real InsForge mutation: **not run** by design; operator checkpoint documented in `docs/runbooks/live-migration-m0-bootstrap.md` (PR2 runbook remains the operator entry point until PR4 publishes the per-table runbook). |
 | Rollback boundary | Revert the three PR3 commits (`8aa4ff4`, `6c54931`, `525a461`) in reverse chronological order to drop the `MigrationReport` extensions, the apply-safety wiring (MSACCESS pre-flight / snapshot write / partial-apply evidence), and the `migration.lock_snapshot` module. The pre-PR3 `MigrationReport` constructor signature stays valid because the new fields use `field(default_factory=dict)` and are added at the end of the dataclass. |
+
+#### Work Unit Evidence (PR4a)
+
+| Evidence | Required value |
+|---|---|
+| Focused test command and exact result | `C:\\00repos\\codigo\\APAP_WEB\\.venv\\Scripts\\python.exe -m pytest tests/migration/test_photo_storage.py -q` → RED first: 1 collection error (`ModuleNotFoundError: No module named 'migration.storage_spike'`); GREEN after implementation: `9 passed in 0.30s` |
+| Runtime harness command/scenario and exact result | `C:\\00repos\\codigo\\APAP_WEB\\.venv\\Scripts\\python.exe -m migration.storage_spike --probe download_strategy --path apap-photos/0123456789abcdef.jpg --output docs/discovery/storage-contract-2026-Q3.md` with missing `APAP_INSFORGE_URL` / `APAP_INSFORGE_SERVICE_KEY` → process returned 3 (captured as expected blocked operator status), wrote redacted discovery doc, made 0 network calls by construction. Live probe did **not** run; PR4b remains BLOCKED. |
+| Rollback boundary | Revert the PR4a commit to remove `migration/storage_spike.py`, `tests/migration/test_photo_storage.py`, `docs/discovery/storage-contract-2026-Q3.md`, and the PR4a-only updates to `openspec/changes/live-data-migration-sandbox/tasks.md` and `apply-progress.md`. No InsForge bucket/object/data rollback exists because PR4a performed no mutation. |
+
+### PR4a Verification Summary
+
+- **RED**: `C:\\00repos\\codigo\\APAP_WEB\\.venv\\Scripts\\python.exe -m pytest tests/migration/test_photo_storage.py -q` → 1 collection error (`ModuleNotFoundError: No module named 'migration.storage_spike'`).
+- **GREEN focused**: `C:\\00repos\\codigo\\APAP_WEB\\.venv\\Scripts\\python.exe -m pytest tests/migration/test_photo_storage.py -q` → 9 passed in 0.30s.
+- **Runtime/operator harness**: `C:\\00repos\\codigo\\APAP_WEB\\.venv\\Scripts\\python.exe -m migration.storage_spike --probe download_strategy --path apap-photos/0123456789abcdef.jpg --output docs/discovery/storage-contract-2026-Q3.md` → status `missing_credentials`, evidence hash `8d0f87f79699483014a194d3b787953e1f0fe3353890479d4e41022bd52c559b`, PR4b gate `BLOCKED`; no live network probe because credentials/env were absent.
+- **Migration suite**: `C:\\00repos\\codigo\\APAP_WEB\\.venv\\Scripts\\python.exe -m pytest tests/migration -q` → 168 passed in 1.86s.
+- **Full local gate**: `C:\\00repos\\codigo\\APAP_WEB\\.venv\\Scripts\\python.exe -m pytest -W error::DeprecationWarning --deselect tests/test_voluntarios_concurrent.py -q` → 2243 passed, 1 skipped (`psycopg` missing), 2 deselected in 22.05s; coverage gate PASS: all 17 helpers at 100%.
+- **Ruff**: `C:\\00repos\\codigo\\APAP_WEB\\.venv\\Scripts\\python.exe -m ruff check .` → All checks passed.
+- **Project rule gate**: `C:\\00repos\\codigo\\APAP_WEB\\.venv\\Scripts\\python.exe scripts/check_rules.py app` → exit 0, no output.
+- **Build**: `C:\\00repos\\codigo\\APAP_WEB\\.venv\\Scripts\\python.exe -m build --wheel` → `apap_web-0.1.0-py3-none-any.whl` built.
 
 ### Verification Summary (PR3)
 
@@ -82,7 +101,9 @@
 
 ### Infrastructure Mutation Status
 
-- No real InsForge bucket/table mutation was performed during apply or PR2-verify.
+- No real InsForge bucket/table/object mutation was performed during apply, PR2-verify, PR3, or PR4a.
+- PR4a live probe did not contact InsForge because credentials/env were absent; the CLI returned the expected blocked operator status and wrote redacted local evidence only.
+- PR4a tests use `httpx.MockTransport` only; no real storage URL, object bytes, bucket creation, upload, delete, or update path is exercised.
 - InsForge docs were read via `fetch-sdk-docs(storage, rest-api)` to verify the current bucket management surface.
 - Tests use `httpx.MockTransport` or in-memory `FakeInsForge` only.
 - Operator work-unit checkpoint is documented in `docs/runbooks/live-migration-m0-bootstrap.md` and remains outside ordinary tests.
@@ -104,11 +125,16 @@
 | `tests/migration/test_bucket_invariant.py` | Added (PR2) + Remediation (PR2-verify) | RED/GREEN atoms for private bucket invariant, public abort, missing create, idempotency, CLI harness, pre-lock order. PR2-verify added `test_bucket_visibility_missing_or_null_fails_closed` (absent + null scenarios) and `test_apply_bootstrap_failure_does_not_acquire_lock_or_read_legacy` (lock-file absence + read-absence). |
 | `tests/migration/test_reporting.py` | Added (PR3 WU-3) | 9 atoms across `TestDefaultFactories`, `TestJsonSerialization`, `TestApplyResultUnchanged`. Backward-compat defaults, JSON serialization round-trip + no PII/path leakage, `ApplyResult` shape pinned to four fields. |
 | `docs/runbooks/live-migration-m0-bootstrap.md` | Modified (PR2) + Remediation (PR2-verify) | Operator runbook for the PR2 infra checkpoint, verification, and rollback. PR2-verify rewrote the Rollback section: non-destructive disable preferred; `DROP TABLE` marked destructive of divergence/audit history; `delete-bucket` marked destructive of uploaded photos; verified backup/export and empty/no-data proof required; `TRUNCATE` explicitly NOT recommended. |
-| `openspec/changes/live-data-migration-sandbox/tasks.md` | Modified (PR2 + PR3) | PR2: marked PR2 tasks complete. PR3: marked PR3 3.1/3.2/3.3/Rollback complete. PR4+ untouched. |
-| `openspec/changes/live-data-migration-sandbox/apply-progress.md` | Added (PR2) + Updated (PR2-verify) + Updated (PR3) | Cumulative PR1+PR2+PR2-verify+PR3 apply progress with TDD/work-unit evidence for every batch. |
+| `migration/storage_spike.py` | Added (PR4a) | Read-only storage contract probe CLI/test seam. Sends only GET/HEAD, refuses POST/PUT/PATCH/DELETE before transport, redacts service keys/URLs/object paths, distinguishes 2xx/401/403/404/405/network/timeout, and writes deterministic machine-readable evidence. |
+| `tests/migration/test_photo_storage.py` | Added (PR4a) | 9 strict-TDD atoms for supported shape, auth failures, 404, 405/refusal, redaction, deterministic evidence, repeated no-write probes, timeout fail-closed, and missing-credentials no-network CLI path. |
+| `docs/discovery/storage-contract-2026-Q3.md` | Added (PR4a) | Redacted discovery artifact. Current verdict is BLOCKED because live credentials were absent; PR4b must not start until a live operator probe pins the deployed endpoint/header with verdict PASS. |
+| `openspec/changes/live-data-migration-sandbox/tasks.md` | Modified (PR2 + PR3 + PR4a) | PR2: marked PR2 tasks complete. PR3: marked PR3 3.1/3.2/3.3/Rollback complete. PR4a: marked storage contract spike complete and recorded the no-mutation override for the former POST upload-strategy spike task. PR4b+ untouched. |
+| `openspec/changes/live-data-migration-sandbox/apply-progress.md` | Added (PR2) + Updated (PR2-verify) + Updated (PR3) + Updated (PR4a) | Cumulative PR1+PR2+PR2-verify+PR3+PR4a apply progress with TDD/work-unit evidence for every batch. |
 
 ### Deviations from design/tasks
 
+- PR4a user override supersedes the earlier tasks.md line that proposed a live `POST /api/storage/buckets/apap-photos/upload-strategy` probe. This apply batch is read-only by construction: no POST/PUT/PATCH/DELETE, no bucket create/delete/update, no upload, no object-byte fetch. Upload-strategy behavior remains a PR4b MockTransport/fixture concern unless the operator creates a separate explicit mutation gate.
+- PR4a live operator probe did not run because `APAP_INSFORGE_URL` / `APAP_INSFORGE_SERVICE_KEY` were absent. The discovery doc is intentionally `Verdict: BLOCKED` rather than pretending Context7/docs are enough proof. PR4b must not start until credentials exist and the live probe records `PASS` evidence.
 - The task text referenced a candidate `GET /api/storage/buckets/{bucket}` shape. Current InsForge REST docs fetched during PR2 document `GET /api/storage/buckets` for bucket listing plus `POST /api/storage/buckets` for create. PR2 therefore uses the verified list/create admin surface and fails closed when visibility cannot be verified. This stays inside PR2's bucket-management scope and does **not** implement PR4 upload/download media methods.
 - No live InsForge mutation was executed during apply, PR2-verify, or PR3, per the code-vs-real-infrastructure separation requested by the user.
 - The new `test_apply_bootstrap_failure_does_not_acquire_lock_or_read_legacy` test was originally written with an `assert "ensure_bucket" in events` expectation. The production code short-circuits on the public-bucket check (which fires before `ensure_bucket` is called) so the assertion was removed. The test still exercises the contract that the apply preflight fails before lock acquisition and legacy reads.
@@ -121,6 +147,7 @@
 
 ### Issues found
 
+- PR4b material blocker: the deployed InsForge storage download-strategy contract is **not proven** in this environment because live credentials were unavailable. Current discovery verdict is `BLOCKED`; required auth header remains `unknown` and response shape comes only from MockTransport tests, not live evidence.
 - `python -m pytest -W error::DeprecationWarning` still collects `tests/test_voluntarios_concurrent.py`, whose first atom hard-fails without `APAP_E2E_BASE_URL`. This is pre-existing and documented in `docs/proceso.md` as requiring deselect/no shared backend for local runs.
 - InsForge bucket-list REST docs may return bucket names without visibility in some deployments. PR2 code deliberately fails closed (`bucket_visibility_unknown`) and tells the operator to verify via the InsForge infrastructure tool rather than assuming private state. The PR2-verify atom `test_bucket_visibility_missing_or_null_fails_closed` pins the fail-closed contract for both `isPublic`-absent and `isPublic`-null shapes.
 - PR3 does not change the existing `LockActiveError` path; the new apply-safety exceptions (`MsAccessRunningError`, `SourceDriftError`, `PartialApplyInterruptedError`) are sibling exception types in the `MigrationError` hierarchy. The CLI conversion to exit codes 5 / 6 / 7 lands in a follow-up PR alongside the operator runbook (PR3 strict scope is the apply pipeline; the CLI surface for the new exceptions is a thin one-liner each).
@@ -129,7 +156,7 @@
 
 - Untracked `.atl/*` receipts (7 files), `coverage.json`, `coverage_full.json`, `openspec/changes/adopt-03-seguimiento-state-machine/`, `openspec/changes/live-data-migration-sandbox/design.md`, `exploration.md`, `proposal.md`, `specs/` preserved in working tree; not staged, not committed.
 - No stash, restore, reset --hard, amend, rebase, force, push, PR open, merge, or GitHub issue/comment performed.
-- Apply phase did NOT touch `.github/workflows/ci.yml`, `docs/roadmap.md`, `docs/audits/`, or `docs/runbooks/` (per user directive: those are out of PR3 scope and PR3 only ships code + tests + the SDD tasks/apply-progress artifacts).
+- Apply phase did NOT touch `.github/workflows/ci.yml`, `docs/roadmap.md`, `docs/audits/`, `docs/runbooks/`, `app/core/insforge.py`, `app/modules/animals/routes.py`, `migration/photo_migration.py`, or `migration/mappings/animal.yaml` (per PR4a-only directive: no PR4b media/storage methods/routes).
 
 ### PR3 verification remediation — RED / GREEN evidence (2026-07-11)
 
@@ -221,9 +248,5 @@ operator's docs lookup is deterministic.
 
 ### Next batch
 
-PR1, PR2, PR2-verify, PR3, and PR3 verification remediation complete.
-PR4+ untouched. Next recommended phase: `sdd-verify` for the
-remediated PR3 surfaces; once PR4 lands the apply runbook
-(`docs/runbooks/live-migration-apply.md`), the runbook reference
-constant `MIGRATION_RUNBOOK_REF` resolves to an authored file.
-Continue with PR4 only when explicitly assigned.
+PR1, PR2, PR2-verify, PR3, PR3 verification remediation, PR3 runbook closure, and PR4a complete.
+PR4b+ untouched. Next recommended phase: re-run the PR4a live probe with `APAP_INSFORGE_URL` and `APAP_INSFORGE_SERVICE_KEY` in an operator environment containing a safe existing sentinel object; only after `docs/discovery/storage-contract-2026-Q3.md` reaches `Verdict: PASS` may PR4b begin.
