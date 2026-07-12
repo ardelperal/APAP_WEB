@@ -37,7 +37,11 @@ from typing import Any
 # 12 fields per round-2 fix SB-5: csrf_token, pkce_challenge, referer,
 # ip_address, x_forwarded_for added on top of the original 7 from
 # spec.md (email, session_token, jwt, oauth_code, pkce_verifier,
-# authorization, cookie).
+# authorization, cookie). dni, tel1, tel2 added by PR4b to cover the
+# PII columns the M1 forward migration brings into the web (DNI is
+# web-only shadow; Tel1/Tel2 migrate from legacy `TbVoluntariosParaAutorrellenables`).
+# Total: 15 closed-list entries. Adding a new PII column means adding
+# one line here AND pinning it in ``tests/test_log_safe_redaction.py``.
 REDACTED_FIELDS: frozenset[str] = frozenset(
     {
         "email",
@@ -52,6 +56,9 @@ REDACTED_FIELDS: frozenset[str] = frozenset(
         "referer",
         "ip_address",
         "x_forwarded_for",
+        "dni",
+        "tel1",
+        "tel2",
     }
 )
 """Closed list of field names whose values MUST be replaced with ``"[REDACTED]"``.
