@@ -42,6 +42,7 @@ from pathlib import Path
 from typing import IO, Any
 
 from app.core.insforge import InsForgeClient, InsForgeError
+from app.core.logging import REDACTED_FIELDS, _normalize_key
 from migration import MsAccessPreflightUnavailableError
 from migration.apply import (
     ApplyResult,
@@ -272,7 +273,6 @@ def build_parser() -> argparse.ArgumentParser:
 # raw DNI / email / phone. Mirrors the closed-list redaction that
 # ``log_safe`` performs; the CLI is a second surface that needs the
 # same protection (per spec REQ-PII-Audit + PR5 scope).
-from app.core.logging import REDACTED_FIELDS, _normalize_key
 
 
 def _is_pii_web_column(column: str | None) -> bool:
