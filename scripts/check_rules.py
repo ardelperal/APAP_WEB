@@ -15,6 +15,7 @@ sandbox DDL) can be silenced without disabling the gate.
 from __future__ import annotations
 
 import ast
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,6 +29,37 @@ class Violation:
     message: str
 
 
+@dataclass(frozen=True)
+class PiiRouteGap:
+    """A WARNING-level surface drift between app/ routes and the
+    ``PII_ROUTES_PARAMETRIZE`` tuple in ``tests/test_public_paths.py``.
+
+    Emitted (NOT as a Violation, because warnings do not block CI) by
+    :func:`find_pii_route_gaps` when a PII-shaped route in ``app/``
+    is NOT covered by any parametrize entry, or when a parametrize
+    entry has no matching route in ``app/``.
+
+    Detector scope (PR5): routes under the three PII prefixes the
+    PR5 spec mandates (``/voluntarios``, ``/animales``, ``/entradas``).
+    The other PII-shaped modules the spec mentions (``/acogidas``,
+    ``/adopciones``, ``/actuaciones`` — actually mounted at
+    ``/sanidad`` in this codebase) are out of scope for THIS
+    detector because their canonical list routes are not yet in
+    ``PII_ROUTES_PARAMETRIZE``; a follow-up PR will add them and
+    extend the detector. The detector is intentionally permissive
+    (prefix-match: a parametrize entry ``/voluntarios/abc-123``
+    covers routes like ``/voluntarios/new``, ``/voluntarios/{id}``,
+    ``/voluntarios/{id}/deactivate``) so the existing PR5 routes
+    pass without flags.
+    """
+
+    route_path: str
+    file: Path | None
+    line: int
+    rule_id: str = "pii_route_coverage"
+    message: str = ""
+
+
 # Constants: Rule 1 verbs (GET exempt), Rule 7 redirect codes, Rule 4 marker,
 # APAP003 forbidden logger methods, excluded dirs.
 _WRITE_HTTP_VERBS = frozenset({"post", "put", "patch", "delete"})
@@ -37,6 +69,32 @@ _APAP003_FORBIDDEN_LOG_METHODS = frozenset(
     {"info", "warning", "error", "debug", "critical", "exception"}
 )
 _EXCLUDED_PARTS = frozenset({"__pycache__", ".venv", "venv", ".git", "build", "dist"})
+
+# PR5 detector: prefixes the spec mandates as PII-shaped routes the
+# closed-list audit covers. Routes starting with one of these are
+# checked against ``PII_ROUTES_PARAMETRIZE``.
+#
+# The detector scope (PR5) is intentionally bounded to the three
+# prefixes the PR5 ``PII_ROUTES_PARAMETRIZE`` tuple covers:
+# ``/voluntarios``, ``/animales``, ``/entradas``. The spec mentions
+# additional prefixes (``/acogidas``, ``/adopciones``,
+# ``/actuaciones`` — actually mounted at ``/sanidad`` in this
+# codebase) as PII-shaped but their canonical list routes are NOT
+# in ``PII_ROUTES_PARAMETRIZE``. A follow-up PR will add parametrize
+# entries for those modules AND extend the detector scope. Until
+# then, restricting to the 3 covered prefixes keeps the gate silent
+# on existing routes.
+_PII_PREFIXES: tuple[str, ...] = (
+    "/voluntarios",
+    "/animales",
+    "/entradas",
+)
+# Parametrize placeholder conventions: the test file uses ``abc-123``
+# in ``/voluntarios/abc-123`` etc. as the canonical literal that
+# represents "any single path segment". The route decorators use
+# ``{param_name}`` (FastAPI path-parameter syntax). The detector
+# treats both as single-segment wildcards so a parametrize entry
+# covers any route under the same prefix tree.
 
 # Default exclusion set (PR-1B + PR-6B). Silences known false positives
 # verified on staging after PR-1A/PR-6A merged (see
@@ -84,6 +142,279 @@ def find_violations(
     if excludes:
         return [v for v in violations if not _is_excluded(v.file, repo_root, excludes)]
     return violations
+
+
+# Detector 9 (PR5) ----------------------------------------------------------
+#
+# ``pii_route_coverage`` — informational drift detector for the PR5
+# ``PII_ROUTES_PARAMETRIZE`` tuple in ``tests/test_public_paths.py``.
+# Emits WARNING-level :class:`PiiRouteGap` records (NOT
+# :class:`Violation`) so the gate does not block CI but surfaces
+# drift for the next operator pass. The matching is permissive
+# (parametrize regex is a prefix of route regex with single-segment
+# wildcards for both conventions) so the existing PR5 routes pass
+# without flags.
+#
+# Scope (PR5): routes whose full URL starts with one of the three
+# PR5-mandated PII prefixes (``/voluntarios``, ``/animales``,
+# ``/entradas``). The other PII-shaped modules the spec mentions
+# (``/acogidas``, ``/adopciones``, ``/actuaciones``) are deliberately
+# out of scope for THIS detector — their canonical list routes are
+# not yet in ``PII_ROUTES_PARAMETRIZE``. A follow-up PR will add them
+# (and re-verify the existing code paths).
+
+_PII_ROUTES_PARAMETRIZE_PATH = Path("tests/test_public_paths.py")
+
+
+def _read_pii_routes_parametrize(repo_root: Path) -> tuple[str, ...] | None:
+    """Parse ``PII_ROUTES_PARAMETRIZE`` from
+    ``tests/test_public_paths.py`` via AST.
+
+    Returns the tuple of parametrize entries, or ``None`` if the
+    symbol is missing / unparseable. The detector bails (returns
+    empty gap list) in that case so a transient parsing failure
+    does not flood the operator output.
+
+    Handles both bare ``PII_ROUTES_PARAMETRIZE = (...)`` (ast.Assign)
+    and annotated ``PII_ROUTES_PARAMETRIZE: tuple[str, ...] = (...)``
+    (ast.AnnAssign) declarations — the test file uses the latter.
+    """
+    full = repo_root / _PII_ROUTES_PARAMETRIZE_PATH
+    if not full.exists():
+        return None
+    try:
+        tree = ast.parse(full.read_text(encoding="utf-8"), filename=str(full))
+    except (SyntaxError, UnicodeDecodeError):
+        return None
+    for node in ast.walk(tree):
+        targets: list[ast.expr]
+        value: ast.expr | None
+        if isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+            value = node.value
+        elif isinstance(node, ast.Assign):
+            targets = list(node.targets)
+            value = node.value
+        else:
+            continue
+        if not any(
+            isinstance(t, ast.Name) and t.id == "PII_ROUTES_PARAMETRIZE"
+            for t in targets
+        ):
+            continue
+        if not isinstance(value, ast.Tuple):
+            continue
+        out: list[str] = []
+        for elt in value.elts:
+            if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                out.append(elt.value)
+        return tuple(out)
+    return None
+
+
+def _parametrize_entry_to_regex(entry: str) -> re.Pattern[str]:
+    """Convert a parametrize entry to a single-segment wildcard regex.
+
+    The PR5 convention uses ``abc-123`` as the literal placeholder
+    for "any single path segment" (mirrors the FastAPI single-segment
+    parameter convention). The detector rewrites ONLY the canonical
+    ``abc-123`` placeholder as ``[^/]+``; other path-segment literals
+    (``voluntarios``, ``animales``, ``entradas``, ...) match verbatim.
+
+    The regex matches in two shapes:
+
+    - ``^P$`` (exact match: the route URL equals the entry).
+    - ``^P(/.*)?$`` (prefix match: the route URL starts with the
+      entry AND optionally has additional ``/``-separated segments).
+
+    The prefix match covers the common case where a parametrize
+    entry for the LIST route (``/voluntarios``) covers the detail
+    / form / edit routes (``/voluntarios/{id}``,
+    ``/voluntarios/{id}/edit``, etc.).
+    """
+    # Substitute the canonical ``abc-123`` placeholder with a
+    # single-segment wildcard. Other literals match verbatim
+    # because ``abc-123`` is the only canonical placeholder in
+    # the PR5 convention; module names like ``voluntarios`` /
+    # ``animales`` / ``entradas`` stay literal. ``abc-123`` itself
+    # is alphanumeric + dash, so it has no regex metacharacters
+    # to escape; other literals in the entries are similarly safe.
+    body = entry.replace("abc-123", "[^/]+")
+    return re.compile(f"^{body}(/.*)?$")
+
+
+def _route_decorator_path(node: ast.expr) -> str | None:
+    """Extract the path string from a ``@router.METHOD(path, ...)``
+    decorator. Returns ``None`` for non-HTTP decorators.
+    """
+    if not isinstance(node, ast.Call):
+        return None
+    func = node.func
+    if not isinstance(func, ast.Attribute):
+        return None
+    if func.attr not in {"get", "post", "put", "patch", "delete", "head", "options"}:
+        return None
+    if not isinstance(func.value, ast.Name):
+        return None
+    if func.value.id not in {"router", "application"}:
+        return None
+    if not node.args:
+        return None
+    first = node.args[0]
+    if isinstance(first, ast.Constant) and isinstance(first.value, str):
+        return first.value
+    return None
+
+
+def _api_router_prefix(tree: ast.AST) -> str:
+    """Return the ``prefix=`` kwarg of the module-level ``router =
+    APIRouter(...)`` assignment, or ``""`` if there is no prefix.
+
+    The detector uses the prefix to construct the full URL of each
+    route decorator: ``router_prefix + decorator_path``. FastAPI
+    mounts the router at the prefix in ``app/main.py``.
+    """
+    for node in getattr(tree, "body", []):
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(
+            isinstance(t, ast.Name) and t.id == "router" for t in node.targets
+        ):
+            continue
+        if not isinstance(node.value, ast.Call):
+            continue
+        call = node.value
+        func = call.func
+        # Match ``APIRouter(...)`` — either ``APIRouter`` (imported
+        # directly) or ``fastapi.APIRouter`` (qualified import).
+        if isinstance(func, ast.Attribute) and func.attr == "APIRouter":
+            pass
+        elif isinstance(func, ast.Name) and func.id == "APIRouter":
+            pass
+        else:
+            continue
+        for kw in call.keywords:
+            if kw.arg == "prefix" and isinstance(kw.value, ast.Constant):
+                if isinstance(kw.value.value, str):
+                    return kw.value.value
+        return ""
+    return ""
+
+
+def _iter_app_route_files(repo_root: Path) -> list[Path]:
+    """Yield every Python file under ``app/`` for the route-coverage
+    detector. Skips ``__pycache__`` and the same excluded parts as
+    the rest of the script.
+    """
+    app_dir = repo_root / "app"
+    if not app_dir.exists():
+        return []
+    return sorted(
+        p for p in app_dir.rglob("*.py") if not (set(p.parts) & _EXCLUDED_PARTS)
+    )
+
+
+def _collect_actual_routes(repo_root: Path) -> list[tuple[str, Path, int]]:
+    """Walk every ``app/**/*.py`` and return the list of
+    ``(full_url, file, line)`` for every ``@router.METHOD(...)``
+    decorator found.
+
+    The full URL is the concatenation of the module-level
+    ``APIRouter(prefix=...)`` and the decorator path. Routes whose
+    decorator path starts with ``/`` (absolute path) are emitted
+    verbatim (the APIRouter prefix is ignored, matching FastAPI's
+    documented behavior).
+    """
+    routes: list[tuple[str, Path, int]] = []
+    for path in _iter_app_route_files(repo_root):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except (SyntaxError, UnicodeDecodeError):
+            continue
+        prefix = _api_router_prefix(tree)
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for decorator in node.decorator_list:
+                p = _route_decorator_path(decorator)
+                if p is None:
+                    continue
+                if p.startswith("/"):
+                    full = p
+                else:
+                    full = prefix + p
+                routes.append((full, path, decorator.lineno))
+    return routes
+
+
+def find_pii_route_gaps(repo_root: Path) -> list[PiiRouteGap]:
+    """Return the list of :class:`PiiRouteGap` warnings for the
+    PR5 ``pii_route_coverage`` detector.
+
+    Detection logic:
+
+    1. For every UNIQUE route in ``app/`` whose full URL starts with
+       one of the three PR5-mandated PII prefixes (``/voluntarios``,
+       ``/animales``, ``/entradas``), check whether the URL is covered
+       by any entry in :data:`tests/test_public_paths.py::PII_ROUTES_PARAMETRIZE`.
+       The URL is unique because the same path can have multiple
+       decorators (GET, POST, DELETE) at the same URL — only one
+       coverage check is needed per unique path.
+    2. Coverage: the parametrize entry (with literal ``abc-123``
+       segments rewritten as single-segment wildcards) equals the
+       route URL (with ``{X}`` rewritten as single-segment wildcards)
+       OR the parametrize regex is a strict prefix of the route
+       regex. The strict-prefix case covers the common shape where
+       a parametrize entry for the LIST route (``/voluntarios``)
+       also covers the detail / form / edit routes
+       (``/voluntarios/{id}``, ``/voluntarios/new``, etc.).
+
+    Gaps are emitted (with the originating route file + line) for
+    any uncovered route. The detector deliberately does NOT block
+    CI — gaps are informational and surface drift for the next
+    operator pass.
+
+    Returns an empty list when ``PII_ROUTES_PARAMETRIZE`` cannot be
+    parsed (transient parsing failure) so a missing file does not
+    fail the rule gate.
+    """
+    parametrize_entries = _read_pii_routes_parametrize(repo_root)
+    if parametrize_entries is None:
+        return []
+
+    parametrize_regexes = [
+        _parametrize_entry_to_regex(entry) for entry in parametrize_entries
+    ]
+    actual_routes = _collect_actual_routes(repo_root)
+
+    gaps: list[PiiRouteGap] = []
+    seen_gap_paths: set[str] = set()
+    for full_url, file, line in actual_routes:
+        if not any(full_url.startswith(p) for p in _PII_PREFIXES):
+            continue
+        covered = any(
+            pre.fullmatch(full_url) or pre.match(full_url + "/")
+            for pre in parametrize_regexes
+        )
+        if covered:
+            continue
+        if full_url in seen_gap_paths:
+            continue
+        seen_gap_paths.add(full_url)
+        gaps.append(
+            PiiRouteGap(
+                route_path=full_url,
+                file=file,
+                line=line,
+                message=(
+                    f"PII-shaped route {full_url!r} is not covered by any "
+                    f"PII_ROUTES_PARAMETRIZE entry. Add the path (or a "
+                    f"matching pattern) to "
+                    f"tests/test_public_paths.py::PII_ROUTES_PARAMETRIZE."
+                ),
+            )
+        )
+    return gaps
 
 
 def _is_excluded(file: Path, repo_root: Path, excludes: frozenset[str]) -> bool:
@@ -643,6 +974,39 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
+    # PR5 informational detector: ``pii_route_coverage`` emits WARNINGs
+    # that surface drift between ``app/`` routes and the
+    # ``PII_ROUTES_PARAMETRIZE`` tuple. Warnings are printed to stdout
+    # and never block the gate; they exist so the next operator pass
+    # notices a new PII-shaped route that wasn't added to the
+    # parametrize list. The detector reads the parametrize tuple from
+    # the REPO ROOT (not the scanned path) because ``PII_ROUTES_PARAMETRIZE``
+    # lives at ``<repo_root>/tests/test_public_paths.py``. The app/ scan
+    # covers the route side of the comparison.
+    pii_gaps: list[PiiRouteGap] = []
+    repo_root = Path.cwd()
+    if paths:
+        # Use the first scanned path's parent if it looks like the repo
+        # root (so ``scripts/check_rules.py .`` still works). For
+        # ``scripts/check_rules.py app`` the repo root is the cwd.
+        first_path = paths[0].resolve()
+        if (first_path / "tests/test_public_paths.py").exists():
+            repo_root = first_path
+    pii_gaps.extend(find_pii_route_gaps(repo_root))
+    if pii_gaps:
+        for gap in sorted(pii_gaps, key=lambda x: x.route_path):
+            location = (
+                f"{gap.file}:{gap.line}" if gap.file else "(no source)"
+            )
+            print(
+                f"WARNING ({gap.rule_id}): {gap.route_path} [{location}] \u2014 "
+                f"{gap.message}"
+            )
+        print(
+            f"\n{len(pii_gaps)} pii_route_coverage warning(s); "
+            f"informational, does NOT block CI.",
+            file=sys.stdout,
+        )
     return 0
 
 
