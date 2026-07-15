@@ -65,7 +65,8 @@ class _ShadowStateWriter(Protocol):
 
     - ``upsert`` writes the shadow row with the canonical metadata
       (preserved_value=None, strategy="preserve",
-      reconciliation_status="needs_review").
+      reconciliation_status="needs_review", ``origin_direction``
+      stamped from the caller's ``direction``).
     - ``update_reconciliation_status`` stamps the categorical
       ``review_reasons`` (a separate write because the closed
       ``upsert`` signature does not carry ``review_reasons``).
@@ -85,6 +86,7 @@ class _ShadowStateWriter(Protocol):
         strategy: str,
         last_legacy_snapshot_at: datetime | None = None,
         reconciliation_status: str = "pending",
+        origin_direction: str = "legacy-to-web",
     ) -> None: ...
 
     def update_reconciliation_status(
@@ -119,10 +121,17 @@ def record_dni_collision(
     - ``direction="web-only"`` — operator manually INSERTed a second
       web ``voluntarios`` row with the same DNI; the UNIQUE
       constraint rejected it. Caller is the applier / web UI that
-      caught the rejection.
+      caught the rejection. The shadow row is stamped with
+      ``origin_direction="web-only"`` so the operator can distinguish
+      it from forward/reverse-path collisions via
+      ``--filter-direction web-only`` (the closed vocabulary
+      accepts the three scopes).
     - ``direction="web-to-legacy"`` — the reverse applier (PR6)
       tried to push a web DNI back to legacy; legacy has no
       column to receive it. Caller is the PR6 reverse pipeline.
+      The shadow row is stamped with
+      ``origin_direction="web-to-legacy"`` (matches the closed
+      ``MigrationReport.collisions`` vocabulary).
 
     Both scopes produce the same shadow-row shape (the spec's
     "first INSERT wins" rule). The function is intentionally narrow:
@@ -148,10 +157,10 @@ def record_dni_collision(
             columns (e.g. ``email`` if a UNIQUE constraint is
             added) reuse the same routing.
         direction: collision scope — ``"web-only"`` or
-            ``"web-to-legacy"``. Stored in ``last_legacy_snapshot_at``
-            for the reverse direction; both scopes share the same
-            shadow-row shape so the operator triage surface is
-            uniform.
+            ``"web-to-legacy"``. Persisted on the shadow row
+            verbatim as ``origin_direction`` (the CHECK constraint
+            in ``SHADOW_TABLE_SQL`` enforces the closed three-value
+            vocabulary at the column level).
         now: UTC timestamp stamped on the shadow row
             (``last_legacy_snapshot_at`` and
             ``last_reconciled_at``). Defaults to
@@ -168,6 +177,10 @@ def record_dni_collision(
         used for any other ``needs_review`` case.
     """
     snapshot_at = now if now is not None else datetime.now(UTC)
+    # ``origin_direction`` is stamped with the caller's ``direction``
+    # value verbatim — the CHECK constraint on the column enforces
+    # the closed three-value vocabulary
+    # (``legacy-to-web`` / ``web-to-legacy`` / ``web-only``).
     shadow_state.upsert(
         table_name=table_name,
         legacy_pk=legacy_pk,
@@ -177,6 +190,7 @@ def record_dni_collision(
         strategy="preserve",
         last_legacy_snapshot_at=snapshot_at,
         reconciliation_status="needs_review",
+        origin_direction=direction,
     )
     # The closed ``upsert`` signature does not carry
     # ``review_reasons``; a follow-up write stamps the categorical

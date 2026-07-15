@@ -42,7 +42,7 @@ from pathlib import Path
 from typing import IO, Any
 
 from app.core.insforge import InsForgeClient, InsForgeError
-from app.core.logging import REDACTED_FIELDS, _normalize_key
+from app.core.logging import REDACTED_FIELDS, normalize_key
 from migration import MsAccessPreflightUnavailableError
 from migration.apply import (
     ApplyResult,
@@ -285,7 +285,7 @@ def _is_pii_web_column(column: str | None) -> bool:
     """
     if not column:
         return False
-    return _normalize_key(column) in REDACTED_FIELDS
+    return normalize_key(column) in REDACTED_FIELDS
 
 
 def _mask_pii_value(column: str | None, raw: Any) -> Any:
@@ -298,6 +298,56 @@ def _mask_pii_value(column: str | None, raw: Any) -> Any:
     if _is_pii_web_column(column):
         return "[REDACTED]"
     return raw
+
+
+# PR5 follow-up: ``legacy_pk`` and ``web_pk`` may carry raw PII (a
+# DNI typed as the natural key, an email, a phone number). The
+# formatter does not have a column context for the value (it's a
+# PK, not a web column), so the column-based mask is not enough.
+# The value-based mask below applies three closed regex patterns:
+# DNI (8 digits + letter), email (RFC-lite), phone (E.164 / local
+# Spanish). UUIDs, NCHIPs, and other natural keys do NOT match
+# any of the patterns and pass through unchanged. The patterns
+# are deliberately conservative — false negatives on weird PII
+# formats are acceptable as long as the common shapes are caught.
+_PII_VALUE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"^\d{8}[A-Z]$"),                       # Spanish DNI shape
+    re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$"),          # email (RFC-lite)
+    re.compile(r"^\+?\d[\d\s\-\(\)]{6,}$"),            # phone (E.164 or local)
+)
+
+
+def _looks_like_pii(value: object) -> bool:
+    """Return ``True`` when ``value`` matches a PII regex.
+
+    Used by the CLI formatters to mask ``legacy_pk`` / ``web_pk``
+    (which carry no ``web_column`` context) when the value matches
+    a DNI / email / phone shape. UUIDs, NCHIPs, and other natural
+    keys do NOT match any pattern and pass through unchanged.
+
+    Conservative: returns ``False`` for any non-string value or any
+    string that doesn't match the closed regex set. The match is
+    anchor-to-anchor (``^...$``) so a substring of a UUID cannot
+    accidentally match the DNI shape.
+    """
+    if not isinstance(value, str):
+        return False
+    return any(pattern.match(value) for pattern in _PII_VALUE_PATTERNS)
+
+
+def _render_pk(value: Any) -> str:
+    """Render a shadow-row PK for the CLI formatters.
+
+    PR5 follow-up: when the PK matches a PII regex (DNI, email,
+    phone), the value is masked to ``[REDACTED]`` so the operator
+    stdout never carries a raw DNI/email/phone in the PK columns.
+    UUIDs and NCHIPs do NOT match any pattern and pass through
+    unchanged. Non-string values (None, numbers, dicts) fall
+    through to the standard NULL-aware ``_render_value`` path.
+    """
+    if _looks_like_pii(value):
+        return "[REDACTED]"
+    return _render_value(value)
 
 
 def _render_value(x: Any) -> str:
@@ -320,26 +370,33 @@ def _render_value(x: Any) -> str:
 def _format_row_for_check_only(row: dict[str, Any]) -> str:
     """One ``key=value`` line per shadow row (T5.1 / design.md §7).
 
-    PR5: ``preserved_value`` is masked to ``"[REDACTED]"`` when
-    ``web_column`` is in the closed PII list (the same closed list
-    that ``log_safe`` uses). The mask is per-row so non-PII columns
-    (state machines, natural keys) keep their verbatim rendering
-    for the operator decision surface. The row also carries
-    ``origin_direction`` (PR5 spec) — every listed case is stamped
-    so the operator dashboard can route by migration direction.
+    PR5: ``preserved_value`` AND ``derived_value`` are masked to
+    ``"[REDACTED]"`` when ``web_column`` is in the closed PII list
+    (the same closed list that ``log_safe`` uses). The mask is
+    per-row so non-PII columns (state machines, natural keys) keep
+    their verbatim rendering for the operator decision surface. The
+    row also carries ``origin_direction`` (PR5 spec) — every listed
+    case is stamped so the operator dashboard can route by
+    migration direction.
+
+    PR5 follow-up: ``legacy_pk`` and ``web_pk`` are masked via
+    :func:`_render_pk` (which matches the PII regexes) so a DNI
+    typed as the natural key never reaches operator stdout as raw.
+    UUIDs and NCHIPs do not match any pattern and pass through.
     """
     web_column = row.get("web_column")
     masked_preserved = _mask_pii_value(web_column, row.get("preserved_value"))
+    masked_derived = _mask_pii_value(web_column, row.get("derived_value"))
     parts: list[str] = [
         f"table={_render_value(row.get('table_name'))}",
-        f"legacy_pk={_render_value(row.get('legacy_pk'))}",
-        f"web_pk={_render_value(row.get('web_pk'))}",
+        f"legacy_pk={_render_pk(row.get('legacy_pk'))}",
+        f"web_pk={_render_pk(row.get('web_pk'))}",
         f"web_column={_render_value(web_column)}",
         f"origin_direction={_render_value(row.get('origin_direction'))}",
         f"status={_render_value(row.get('reconciliation_status'))}",
         f"strategy={_render_value(row.get('strategy'))}",
         f"web_value={_render_value(masked_preserved)}",
-        f"derived_value={_render_value(row.get('derived_value'))}",
+        f"derived_value={_render_value(masked_derived)}",
         f"derived_at={_render_value(row.get('derived_at'))}",
         f"last_legacy_snapshot_at={_render_value(row.get('last_legacy_snapshot_at'))}",
         f"last_reconciled_at={_render_value(row.get('last_reconciled_at'))}",
@@ -355,28 +412,33 @@ def _format_row_for_interactive(row: dict[str, Any]) -> str:
     prompt header reads naturally. Optional fields are only shown
     when populated (skip the noise for ``null`` rows).
 
-    PR5: ``preserved_value`` is masked to ``"[REDACTED]"`` when
-    ``web_column`` is in the closed PII list (mirrors
-    ``_format_row_for_check_only``). The interactive flow does NOT
-    bypass the redaction — the operator still sees the column name,
-    the status, and the categorical review reasons; they only lose
-    the raw PII bytes. Resolution prompts that need the raw value
-    (e.g. ``(b) accept derived``) go through ``_format_value_prompt``
-    which renders the ``derived_value`` (NOT the preserved PII).
-    PR5 also stamps ``origin_direction`` so the operator can see
-    which migration direction produced the row.
+    PR5: ``preserved_value`` AND ``derived_value`` are masked to
+    ``"[REDACTED]"`` when ``web_column`` is in the closed PII list
+    (mirrors ``_format_row_for_check_only``). The interactive flow
+    does NOT bypass the redaction — the operator still sees the
+    column name, the status, and the categorical review reasons;
+    they only lose the raw PII bytes. Resolution prompts that need
+    the raw value (e.g. ``(b) accept derived``) go through
+    ``_format_value_prompt`` which renders the ``derived_value``
+    (NOT the preserved PII). PR5 also stamps ``origin_direction``
+    so the operator can see which migration direction produced the
+    row.
+
+    PR5 follow-up: ``legacy_pk`` and ``web_pk`` are masked via
+    :func:`_render_pk` (same mask as ``_format_row_for_check_only``).
     """
     web_column = row.get("web_column")
     masked_preserved = _mask_pii_value(web_column, row.get("preserved_value"))
+    masked_derived = _mask_pii_value(web_column, row.get("derived_value"))
     lines: list[str] = [
         f"  table:                   {_render_value(row.get('table_name'))}",
-        f"  legacy_pk:               {_render_value(row.get('legacy_pk'))}",
-        f"  web_pk:                  {_render_value(row.get('web_pk'))}",
+        f"  legacy_pk:               {_render_pk(row.get('legacy_pk'))}",
+        f"  web_pk:                  {_render_pk(row.get('web_pk'))}",
         f"  web_column:              {_render_value(web_column)}",
         f"  origin_direction:        {_render_value(row.get('origin_direction'))}",
         f"  strategy:                {_render_value(row.get('strategy'))}",
         f"  web_value:               {_render_value(masked_preserved)}",
-        f"  derived_value:           {_render_value(row.get('derived_value'))}",
+        f"  derived_value:           {_render_value(masked_derived)}",
         f"  derived_at:              {_render_value(row.get('derived_at'))}",
         f"  status:                  {_render_value(row.get('reconciliation_status'))}",
     ]

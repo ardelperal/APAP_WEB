@@ -62,6 +62,8 @@ CREATE TABLE IF NOT EXISTS web_only_feature_shadow (
     review_reasons JSONB NOT NULL DEFAULT '[]'::jsonb,
     derived_value JSONB,
     derived_at TIMESTAMPTZ,
+    origin_direction TEXT NOT NULL DEFAULT 'legacy-to-web'
+        CHECK (origin_direction IN ('legacy-to-web', 'web-to-legacy', 'web-only')),
     UNIQUE (table_name, legacy_pk, web_column)
 )
 """
@@ -108,6 +110,7 @@ class ShadowStateRepository:
         strategy: str,
         last_legacy_snapshot_at: datetime | None = None,
         reconciliation_status: str = "pending",
+        origin_direction: str = "legacy-to-web",
     ) -> None:
         """Insert-or-merge a shadow row keyed by ``(table, pk, column)``.
 
@@ -116,18 +119,30 @@ class ShadowStateRepository:
         raising on duplicate. The UNIQUE composite index is the merge
         target; do NOT change ``ON CONFLICT`` columns without bumping
         the index definition in ``SHADOW_TABLE_SQL``.
+
+        ``origin_direction`` stamps the producer direction (PR5):
+        ``"legacy-to-web"`` is the forward applier's default; the
+        ``migration.dni_collision.record_dni_collision`` helper passes
+        the per-call ``direction`` here so the operator can filter
+        ``needs_review`` rows by where they originated. The CHECK
+        constraint in ``SHADOW_TABLE_SQL`` enforces the closed
+        vocabulary at the column level (forward, reverse, or
+        web-only — the latter is for manual collisions captured
+        outside the migration pipeline).
         """
         sql = (
             "INSERT INTO web_only_feature_shadow ("
             "table_name, legacy_pk, web_pk, web_column, preserved_value,"
-            " strategy, last_legacy_snapshot_at, reconciliation_status"
-            ") VALUES (%s, %s, %s, %s, %s, %s, %s, %s) "
+            " strategy, last_legacy_snapshot_at, reconciliation_status,"
+            " origin_direction"
+            ") VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) "
             "ON CONFLICT (table_name, legacy_pk, web_column) DO UPDATE SET "
             "web_pk = EXCLUDED.web_pk, "
             "preserved_value = EXCLUDED.preserved_value, "
             "strategy = EXCLUDED.strategy, "
             "last_legacy_snapshot_at = EXCLUDED.last_legacy_snapshot_at, "
-            "reconciliation_status = EXCLUDED.reconciliation_status"
+            "reconciliation_status = EXCLUDED.reconciliation_status, "
+            "origin_direction = EXCLUDED.origin_direction"
         )
         self._client.execute_sql(
             sql,
@@ -140,6 +155,7 @@ class ShadowStateRepository:
                 strategy,
                 last_legacy_snapshot_at.isoformat() if last_legacy_snapshot_at else None,
                 reconciliation_status,
+                origin_direction,
             ],
         )
 

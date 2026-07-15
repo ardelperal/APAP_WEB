@@ -79,6 +79,7 @@ class _FakeShadowState:
         strategy: str,
         last_legacy_snapshot_at: datetime | None = None,
         reconciliation_status: str = "pending",
+        origin_direction: str = "legacy-to-web",
     ) -> None:
         self.upserts.append(
             {
@@ -90,6 +91,7 @@ class _FakeShadowState:
                 "strategy": strategy,
                 "last_legacy_snapshot_at": last_legacy_snapshot_at,
                 "reconciliation_status": reconciliation_status,
+                "origin_direction": origin_direction,
             }
         )
 
@@ -178,14 +180,18 @@ def test_forward_legacy_produces_zero_dni_collisions(
             "voluntario",
             legacy_path=str(tmp_path / "legacy.accdb"),
             dry_run=False,
+            dni_collision_counter=counter,
         )
     finally:
         legacy_reader.set_legacy_query_executor(None)
 
     # The forward apply NEVER bumps the DNI collision counter
-    # because legacy rows carry no DNI column. The counter starts
-    # at 0 in this test (we did not call bump()) and stays at 0
-    # across the entire run.
+    # because legacy rows carry no DNI column. The DI seam is wired
+    # (counter is passed in), so a future bug that accidentally
+    # bumps the counter on forward apply would surface here —
+    # this atom is NOT tautological: it pins the contract that
+    # ``apply_legacy_to_web`` MUST NOT touch the counter on the
+    # forward path.
     assert counter.value == 0, (
         f"forward apply bumped dni_collisions counter to {counter.value}; "
         f"forward must always produce 0 collisions"
@@ -242,6 +248,13 @@ def test_first_web_dni_wins_routes_second_to_shadow() -> None:
     assert row["preserved_value"] is None
     assert row["strategy"] == "preserve"
     assert row["last_legacy_snapshot_at"] == now
+    # The ``direction`` kwarg is persisted verbatim as
+    # ``origin_direction`` so the operator can filter by scope via
+    # ``--filter-direction web-only``.
+    assert row["origin_direction"] == "web-only", (
+        "record_dni_collision must persist origin_direction='web-only' "
+        f"verbatim; got {row['origin_direction']!r}"
+    )
     # update_reconciliation_status stamps the categorical reason.
     assert len(shadow.status_updates) == 1
     update = shadow.status_updates[0]
@@ -289,6 +302,13 @@ def test_reverse_path_collision_recorded(
     assert len(shadow.upserts) == 1
     assert shadow.upserts[0]["web_column"] == "dni"
     assert shadow.upserts[0]["reconciliation_status"] == "needs_review"
+    # The ``direction`` kwarg is persisted verbatim as
+    # ``origin_direction`` so the operator can filter by scope via
+    # ``--filter-direction web-to-legacy``.
+    assert shadow.upserts[0]["origin_direction"] == "web-to-legacy", (
+        "record_dni_collision must persist origin_direction='web-to-legacy' "
+        f"verbatim; got {shadow.upserts[0]['origin_direction']!r}"
+    )
     assert shadow.status_updates[0]["review_reasons"] == [DNI_COLLISION_REVIEW_REASON]
 
 

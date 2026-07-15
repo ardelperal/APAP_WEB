@@ -64,16 +64,23 @@ REDACTED_FIELDS: frozenset[str] = frozenset(
 """Closed list of field names whose values MUST be replaced with ``"[REDACTED]"``.
 
 Comparison is case-insensitive and treats ``-`` and ``_`` as equivalent
-(see :func:`_normalize_key`). The list is intentionally CLOSED:
+(see :func:`normalize_key`). The list is intentionally CLOSED:
 adding a name is a deliberate code-review change.
 """
 
 
-def _normalize_key(key: str) -> str:
+def normalize_key(key: str) -> str:
     """Normalize a field name for redaction list matching.
 
     Lower-cases and replaces ``-`` with ``_`` so a kwarg named
     ``Session-Token`` matches ``session_token`` in the closed list.
+
+    Public API (no leading underscore) since PR5 — ``migration.cli``
+    imports this helper to apply the same closed-list comparison
+    against ``web_column`` for the operator-facing CLI masking. The
+    semantics are stable (case-insensitive, ``-``/``_`` equivalent);
+    a future change to the normalisation rule is a contract change
+    that requires updating every cross-module caller.
     """
     return key.replace("-", "_").lower()
 
@@ -127,14 +134,14 @@ class RedactionFilter(logging.Filter):
     still protects stdout.
 
     Comparison is case-insensitive and treats ``-`` and ``_`` as
-    equivalent (see :func:`_normalize_key`).
+    equivalent (see :func:`normalize_key`).
     """
 
     REDACTED_FIELDS = REDACTED_FIELDS
 
     @staticmethod
     def _normalize(key: str) -> str:
-        return _normalize_key(key)
+        return normalize_key(key)
 
     def filter(self, record: logging.LogRecord) -> bool:
         for key in list(record.__dict__.keys()):
@@ -195,7 +202,7 @@ def log_safe(event: str, **fields: Any) -> None:
     """
     record_fields: dict[str, Any] = {"event": event}
     for key, value in fields.items():
-        if _normalize_key(key) in REDACTED_FIELDS:
+        if normalize_key(key) in REDACTED_FIELDS:
             record_fields[key] = "[REDACTED]"
         else:
             record_fields[key] = value
