@@ -326,8 +326,12 @@ def test_cli_reconcile_check_only_output_has_no_raw_pii(
                 # is the operator-facing audit stream and MUST NOT
                 # render these raw.
                 "preserved_value": raw_dni,
-                "derived_value": None,
-                "derived_at": None,
+                # The derived value is also stamped on the shadow row;
+                # PR5 ensures the formatter masks it under the same
+                # closed-list contract. Seed a raw DNI here to verify
+                # the mask fires for ``derived_value`` too.
+                "derived_value": raw_dni,
+                "derived_at": "2026-07-11T10:00:00+00:00",
                 "last_legacy_snapshot_at": "2026-07-11T10:00:00+00:00",
                 "last_reconciled_at": None,
                 "review_reasons": ["dni_collision"],
@@ -369,6 +373,17 @@ def test_cli_reconcile_check_only_output_has_no_raw_pii(
     assert raw_tel2 not in rendered, (
         f"reconcile --check_only stdout leaked the tel2 {raw_tel2!r}:\n{rendered}"
     )
+    # PR5 follow-up: ``derived_value`` is masked under the same
+    # closed-list contract as ``preserved_value``. The atom pins
+    # both surfaces emit ``[REDACTED]`` rather than the raw PII.
+    assert "[REDACTED]" in rendered, (
+        f"reconcile --check-only stdout did not render the redaction "
+        f"marker for derived_value:\n{rendered}"
+    )
+    assert "derived_value=[REDACTED]" in rendered, (
+        f"reconcile --check-only stdout did not mask derived_value; "
+        f"expected derived_value=[REDACTED], got:\n{rendered}"
+    )
     # The status field IS present (operator decision surface).
     assert "needs_review" in rendered
     # The categorical review reason IS present (operator triage aid).
@@ -378,21 +393,31 @@ def test_cli_reconcile_check_only_output_has_no_raw_pii(
 # --- additional invariant atoms (log_safe list shape) --------------------
 
 
-def test_redaction_list_covers_all_pii_columns() -> None:
-    """Every PII column name is in the closed ``REDACTED_FIELDS`` set.
+@pytest.mark.parametrize("column", sorted(REDACTED_FIELDS))
+def test_redaction_list_covers_all_pii_columns(column: str) -> None:
+    """Every entry in the closed ``REDACTED_FIELDS`` set is a
+    recognised PII column (mirrors the 15-entry parametrized
+    coverage from ``tests/test_log_safe_redaction.py``).
 
     Spec scenario: ``Redaction list covers all PII``. The list is
-    closed by design (app/core/logging.py). This atom pins the
-    invariant for the 4 PII columns the M1 migration touches:
-    ``email``, ``tel1``, ``tel2`` (legacy-mapped) and ``dni``
-    (web-only shadow). A regression that removes any entry fails
-    the atom — the operator dashboard would then log raw PII.
+    closed by design (``app/core/logging.py``). This atom is the
+    migration-scope mirror of the existing parametrized coverage:
+    it iterates over the FULL 15-entry closed list
+    (not just the 4 columns the M1 migration touches) so a
+    regression that removes ANY entry fails the atom — the
+    operator dashboard would then log raw PII for that entry.
+
+    The migration-scope columns are ``email``, ``tel1``, ``tel2``
+    (legacy-mapped from ``TbVoluntariosParaAutorrellenables``) and
+    ``dni`` (web-only shadow). The remaining 11 entries (csrf_token,
+    pkce_challenge, referer, ip_address, x_forwarded_for, plus the
+    6 auth/secret fields) are pinned here too so the migration
+    tooling never accidentally relaxes the closed list.
     """
-    for column in ("email", "tel1", "tel2", "dni"):
-        assert column in REDACTED_FIELDS, (
-            f"PII column {column!r} missing from REDACTED_FIELDS; "
-            f"closed list: {sorted(REDACTED_FIELDS)!r}"
-        )
+    assert column in REDACTED_FIELDS, (
+        f"PII column {column!r} missing from REDACTED_FIELDS; "
+        f"closed list: {sorted(REDACTED_FIELDS)!r}"
+    )
 
 
 def test_synthetic_log_payload_with_each_pii_value_emits_redacted_payload(
