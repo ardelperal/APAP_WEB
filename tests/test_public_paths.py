@@ -34,7 +34,6 @@ import pytest
 
 from app.main import PUBLIC_PATHS, _is_public_path
 
-
 # Verified canonical set per spec (``live-migration-pii-controls/spec.md``
 # + ``app/main.py:148``). CodeGraph + Read on 2026-07-11 confirmed
 # the on-disk surface.

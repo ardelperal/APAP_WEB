@@ -46,7 +46,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any, Literal, Protocol
 
-
 # Categorical reason tag stashed on ``web_only_feature_shadow.review_reasons``.
 # Kept short + searchable so the operator can grep the migration
 # reports and the ``needs_review`` listing. Mirrors the

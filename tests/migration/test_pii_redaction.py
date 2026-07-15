@@ -37,7 +37,6 @@ absence-of-error (web-tdd-philosophy Hard Rule 4 — no humo).
 from __future__ import annotations
 
 import io
-import json
 import logging
 import re
 from datetime import UTC, datetime
@@ -48,7 +47,6 @@ import pytest
 from app.core.logging import REDACTED_FIELDS, log_safe
 from migration.cli import run_reconcile
 from migration.reporting import MigrationReport
-
 
 # --- fixtures -------------------------------------------------------------
 
@@ -187,12 +185,12 @@ def test_shadow_preserved_value_masked_in_logs(
     assert caplog.records
     record = caplog.records[0]
     # The sibling ``dni`` kwarg is masked by the closed list.
-    assert getattr(record, "dni") == "[REDACTED]"
+    assert record.dni == "[REDACTED]"
     # The opaque ``preserved_value`` rides along verbatim because the
     # closed list matches on field NAME, not value. The spec accepts
     # this as long as the audit caller ALSO emits the canonical
     # dimension as a sibling — which this atom's contract enforces.
-    pv = getattr(record, "preserved_value")
+    pv = record.preserved_value
     assert isinstance(pv, dict)
     assert pv["dni"] == raw_dni  # opaque blob — rides verbatim
     assert pv["snapshot_at"] == "2026-07-11T10:00:00Z"
@@ -474,6 +472,6 @@ def test_collision_marker_in_log_payload(
         )
     record = caplog.records[0]
     # The DNI is masked (closed list).
-    assert getattr(record, "dni") == "[REDACTED]"
+    assert record.dni == "[REDACTED]"
     # The categorical reason is intact (closed list is name-based).
-    assert getattr(record, "review_reasons") == ["dni_collision"]
+    assert record.review_reasons == ["dni_collision"]

@@ -40,7 +40,6 @@ from typing import Any
 
 import pytest
 
-from migration import apply as apply_mod
 from migration import legacy_reader
 from migration.apply import apply_legacy_to_web
 from migration.cli import build_parser, run_reconcile
@@ -49,7 +48,6 @@ from migration.dni_collision import (
     DniCollisionCounter,
     record_dni_collision,
 )
-
 
 # --- helpers --------------------------------------------------------------
 
