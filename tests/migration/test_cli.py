@@ -265,3 +265,190 @@ def test_cli_main_builds_and_closes_client_when_not_injected(
     assert "web_count=1" in stream.getvalue()
     assert len(built) == 1
     assert built[0].closed is True
+
+
+# --- 6. reconcile --filter-direction (PR5) ------------------------------
+
+
+class _ShadowForDirectionFilter:
+    """Fake shadow state whose listing carries an ``origin_direction``
+    per row. Lets the filter-direction atoms exercise the narrowing
+    path without touching a real ``ShadowStateRepository``.
+    """
+
+    def __init__(self, rows: list[dict[str, object]]) -> None:
+        self._rows = list(rows)
+        self.last_kwargs: dict[str, object] | None = None
+
+    def list_needs_review(
+        self,
+        *,
+        table_name: str | None = None,
+        since: str | None = None,
+        origin_direction: str | None = None,
+    ) -> list[dict[str, object]]:
+        self.last_kwargs = {
+            "table_name": table_name,
+            "since": since,
+            "origin_direction": origin_direction,
+        }
+        rows = list(self._rows)
+        if origin_direction is not None:
+            rows = [r for r in rows if r.get("origin_direction") == origin_direction]
+        return rows
+
+    def update_reconciliation_status(self, **kwargs: object) -> None:  # pragma: no cover
+        return None
+
+
+def test_cli_reconcile_default_lists_both_directions() -> None:
+    """Without ``--filter-direction``, the CLI passes ``None`` to the
+    shadow state read (the "both" semantic) and emits every row.
+
+    Spec scenario: PR5 WU-4 "default lists both". The CLI default is
+    backward-compatible with PR4 callers — they see the same
+    combined listing they always did.
+    """
+    shadow = _ShadowForDirectionFilter(
+        rows=[
+            {
+                "table_name": "voluntarios",
+                "legacy_pk": "alice",
+                "web_pk": "web-alice",
+                "web_column": "dni",
+                "origin_direction": "legacy-to-web",
+                "reconciliation_status": "needs_review",
+                "strategy": "preserve",
+                "preserved_value": "[REDACTED]",
+                "derived_value": None,
+                "derived_at": None,
+                "last_legacy_snapshot_at": "2026-07-11T10:00:00+00:00",
+                "last_reconciled_at": None,
+                "review_reasons": ["dni_collision"],
+            },
+            {
+                "table_name": "voluntarios",
+                "legacy_pk": "carol",
+                "web_pk": "web-carol",
+                "web_column": "dni",
+                "origin_direction": "web-to-legacy",
+                "reconciliation_status": "needs_review",
+                "strategy": "preserve",
+                "preserved_value": "[REDACTED]",
+                "derived_value": None,
+                "derived_at": None,
+                "last_legacy_snapshot_at": "2026-07-11T11:00:00+00:00",
+                "last_reconciled_at": None,
+                "review_reasons": ["dni_collision"],
+            },
+        ]
+    )
+
+    stream = io.StringIO()
+    rc = main(["reconcile"], web_client=FakeInsForge(), shadow_state=shadow, stream=stream)  # type: ignore[arg-type]
+    assert rc == 0
+    # The shadow state read was called WITHOUT an origin_direction
+    # filter (None → "both" semantics).
+    assert shadow.last_kwargs is not None
+    assert shadow.last_kwargs["origin_direction"] is None
+    # Both rows are listed.
+    output = stream.getvalue()
+    assert output.count("legacy_pk=alice") == 1
+    assert output.count("legacy_pk=carol") == 1
+    # Each line carries the origin_direction stamp.
+    assert "origin_direction=legacy-to-web" in output
+    assert "origin_direction=web-to-legacy" in output
+
+
+def test_cli_reconcile_filter_direction_legacy_to_web_narrows_to_forward_only() -> None:
+    """``--filter-direction legacy-to-web`` narrows the listing to
+    forward-direction rows only.
+
+    Spec scenario: PR5 WU-4 "--filter-direction legacy-to-web narrows
+    to forward only". In PR5 the forward path is the only producer
+    of needs_review rows, so the narrowing returns all rows; the
+    atom pins the CLI filter wiring so a future bug that drops the
+    flag surfaces immediately.
+    """
+    shadow = _ShadowForDirectionFilter(
+        rows=[
+            {
+                "table_name": "voluntarios",
+                "legacy_pk": "alice",
+                "web_pk": "web-alice",
+                "web_column": "dni",
+                "origin_direction": "legacy-to-web",
+                "reconciliation_status": "needs_review",
+                "strategy": "preserve",
+                "preserved_value": "[REDACTED]",
+                "derived_value": None,
+                "derived_at": None,
+                "last_legacy_snapshot_at": "2026-07-11T10:00:00+00:00",
+                "last_reconciled_at": None,
+                "review_reasons": ["dni_collision"],
+            },
+        ]
+    )
+
+    stream = io.StringIO()
+    rc = main(
+        ["reconcile", "--filter-direction", "legacy-to-web"],
+        web_client=FakeInsForge(),
+        shadow_state=shadow,  # type: ignore[arg-type]
+        stream=stream,
+    )
+    assert rc == 0
+    # The CLI forwarded the filter to the shadow state read.
+    assert shadow.last_kwargs is not None
+    assert shadow.last_kwargs["origin_direction"] == "legacy-to-web"
+    # The forward row IS listed.
+    output = stream.getvalue()
+    assert "legacy_pk=alice" in output
+    assert "origin_direction=legacy-to-web" in output
+
+
+def test_cli_reconcile_filter_direction_web_to_legacy_returns_empty_in_pr5() -> None:
+    """``--filter-direction web-to-legacy`` returns an empty listing
+    in PR5 because the reverse applier (PR6) does not exist yet.
+
+    Spec scenario: PR5 WU-4 "--filter-direction web-to-legacy narrows
+    to reverse only". The atom pins the CLI surface so the operator
+    gets a clean empty listing instead of an error, and the filter
+    plumbing is exercised end-to-end.
+    """
+    shadow = _ShadowForDirectionFilter(
+        rows=[
+            {
+                "table_name": "voluntarios",
+                "legacy_pk": "alice",
+                "web_pk": "web-alice",
+                "web_column": "dni",
+                "origin_direction": "legacy-to-web",
+                "reconciliation_status": "needs_review",
+                "strategy": "preserve",
+                "preserved_value": "[REDACTED]",
+                "derived_value": None,
+                "derived_at": None,
+                "last_legacy_snapshot_at": "2026-07-11T10:00:00+00:00",
+                "last_reconciled_at": None,
+                "review_reasons": ["dni_collision"],
+            },
+        ]
+    )
+
+    stream = io.StringIO()
+    rc = main(
+        ["reconcile", "--filter-direction", "web-to-legacy"],
+        web_client=FakeInsForge(),
+        shadow_state=shadow,  # type: ignore[arg-type]
+        stream=stream,
+    )
+    # Exit 0 — empty listing is not an error condition (matches the
+    # PR4 --check-only exit-0 contract).
+    assert rc == 0
+    # The CLI forwarded the filter to the shadow state read.
+    assert shadow.last_kwargs is not None
+    assert shadow.last_kwargs["origin_direction"] == "web-to-legacy"
+    # No forward rows in the listing (the only row is filtered out).
+    output = stream.getvalue()
+    assert "legacy_pk=alice" not in output

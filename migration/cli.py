@@ -159,6 +159,21 @@ def build_parser() -> argparse.ArgumentParser:
             "timestamp (e.g. '2026-06-20T00:00:00+00:00')."
         ),
     )
+    reconcile.add_argument(
+        "--filter-direction",
+        dest="filter_direction",
+        choices=("legacy-to-web", "web-to-legacy", "both"),
+        default="both",
+        help=(
+            "Narrow the listing to one migration direction. Defaults to "
+            "'both' so PR4 and earlier callers see the same combined "
+            "listing. PR5 ships the flag with forward (legacy-to-web) "
+            "filtering live; the reverse (web-to-legacy) filter is wired "
+            "but the underlying shadow rows are populated by the PR6 "
+            "reverse applier — until then '--filter-direction "
+            "web-to-legacy' returns an empty list."
+        ),
+    )
 
     available_tables = list_available_tables()
 
@@ -309,7 +324,9 @@ def _format_row_for_check_only(row: dict[str, Any]) -> str:
     ``web_column`` is in the closed PII list (the same closed list
     that ``log_safe`` uses). The mask is per-row so non-PII columns
     (state machines, natural keys) keep their verbatim rendering
-    for the operator decision surface.
+    for the operator decision surface. The row also carries
+    ``origin_direction`` (PR5 spec) — every listed case is stamped
+    so the operator dashboard can route by migration direction.
     """
     web_column = row.get("web_column")
     masked_preserved = _mask_pii_value(web_column, row.get("preserved_value"))
@@ -318,6 +335,7 @@ def _format_row_for_check_only(row: dict[str, Any]) -> str:
         f"legacy_pk={_render_value(row.get('legacy_pk'))}",
         f"web_pk={_render_value(row.get('web_pk'))}",
         f"web_column={_render_value(web_column)}",
+        f"origin_direction={_render_value(row.get('origin_direction'))}",
         f"status={_render_value(row.get('reconciliation_status'))}",
         f"strategy={_render_value(row.get('strategy'))}",
         f"web_value={_render_value(masked_preserved)}",
@@ -345,6 +363,8 @@ def _format_row_for_interactive(row: dict[str, Any]) -> str:
     the raw PII bytes. Resolution prompts that need the raw value
     (e.g. ``(b) accept derived``) go through ``_format_value_prompt``
     which renders the ``derived_value`` (NOT the preserved PII).
+    PR5 also stamps ``origin_direction`` so the operator can see
+    which migration direction produced the row.
     """
     web_column = row.get("web_column")
     masked_preserved = _mask_pii_value(web_column, row.get("preserved_value"))
@@ -353,6 +373,7 @@ def _format_row_for_interactive(row: dict[str, Any]) -> str:
         f"  legacy_pk:               {_render_value(row.get('legacy_pk'))}",
         f"  web_pk:                  {_render_value(row.get('web_pk'))}",
         f"  web_column:              {_render_value(web_column)}",
+        f"  origin_direction:        {_render_value(row.get('origin_direction'))}",
         f"  strategy:                {_render_value(row.get('strategy'))}",
         f"  web_value:               {_render_value(masked_preserved)}",
         f"  derived_value:           {_render_value(row.get('derived_value'))}",
@@ -572,7 +593,22 @@ def run_reconcile(
     # ``table_name`` and ``since``) and the
     # ``reconciliation_status = 'needs_review'`` predicate. The
     # CLI never recomputes the filter — it just forwards the kwargs.
-    rows = shadow_state.list_needs_review(table_name=args.table, since=args.since)
+    # PR5 adds ``origin_direction``: the closed vocabulary is
+    # ``legacy-to-web`` / ``web-to-legacy`` / ``both``. ``both``
+    # disables the filter (PR4-equivalent listing); the other two
+    # narrow to one direction. The repository stamps
+    # ``origin_direction="legacy-to-web"`` on every row until the
+    # PR6 reverse applier starts producing its own rows.
+    origin_filter: str | None
+    if args.filter_direction == "both":
+        origin_filter = None
+    else:
+        origin_filter = args.filter_direction
+    rows = shadow_state.list_needs_review(
+        table_name=args.table,
+        since=args.since,
+        origin_direction=origin_filter,
+    )
 
     if not args.interactive:
         # Default mode (``--check-only`` or no flag): list rows, no

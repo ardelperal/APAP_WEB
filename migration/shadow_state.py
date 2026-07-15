@@ -296,6 +296,7 @@ class ShadowStateRepository:
         *,
         table_name: str | None = None,
         since: str | None = None,
+        origin_direction: str | None = None,
     ) -> list[dict[str, Any]]:
         """Return shadow rows with ``reconciliation_status='needs_review'``.
 
@@ -304,6 +305,16 @@ class ShadowStateRepository:
         timestamp string parsed client-side and compared against
         ``last_legacy_snapshot_at`` so the operator can scope to "new
         divergences in the last run".
+
+        ``origin_direction`` is the PR5 filter: ``"legacy-to-web"`` or
+        ``"web-to-legacy"``. ``None`` (the default) returns rows from
+        BOTH directions. PR5 stamps every row with an
+        ``origin_direction`` field (default ``"legacy-to-web"`` since
+        the forward path is the only producer until PR6); the CLI
+        applies the filter on the stamped field so the flag is
+        decoupled from the underlying SQL column. PR6 will start
+        stamping ``"web-to-legacy"`` on the rows it produces — the
+        CLI filter already understands that value.
         """
         clauses = ["reconciliation_status = 'needs_review'"]
         params: list[Any] = []
@@ -323,7 +334,19 @@ class ShadowStateRepository:
             f"WHERE {where} "
             "ORDER BY last_legacy_snapshot_at ASC NULLS LAST"
         )
-        return list(self._client.execute_sql(sql, params))
+        rows = list(self._client.execute_sql(sql, params))
+        # Stamp ``origin_direction`` on every row so the CLI filter
+        # has a uniform surface. PR5: the forward applier is the only
+        # producer of needs_review rows; the shadow row itself does
+        # not carry an ``origin_direction`` column yet (that lands in
+        # PR6 when reverse-path rows start arriving). The default
+        # "legacy-to-web" keeps the PR5 listing complete; the CLI
+        # filter narrows by the stamped value.
+        for row in rows:
+            row.setdefault("origin_direction", "legacy-to-web")
+        if origin_direction is not None:
+            rows = [r for r in rows if r.get("origin_direction") == origin_direction]
+        return rows
 
     # --- DDL helpers ----------------------------------------------------
 

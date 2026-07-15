@@ -299,6 +299,7 @@ def test_cli_reconcile_check_only_output_has_no_raw_pii(
             *,
             table_name: str | None = None,
             since: str | None = None,
+            origin_direction: str | None = None,
         ) -> list[dict[str, Any]]:
             return self._rows
 
@@ -335,7 +336,17 @@ def test_cli_reconcile_check_only_output_has_no_raw_pii(
             },
         ]
     )
-    args = type("A", (), {"interactive": False, "check_only": True, "table": None, "since": None})()
+    args = type(
+        "A",
+        (),
+        {
+            "interactive": False,
+            "check_only": True,
+            "table": None,
+            "since": None,
+            "filter_direction": "both",
+        },
+    )()
     stream = io.StringIO()
     rc = run_reconcile(
         args,
