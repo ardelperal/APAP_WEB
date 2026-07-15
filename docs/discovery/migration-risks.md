@@ -2,6 +2,43 @@
 
 Business-relevant risks identified during discovery of the legacy Access/VBA system. These affect feature design, data integrity, or security in the future web application.
 
+## Source snapshot identity
+
+PR3 of `live-data-migration-sandbox` locks the source-identity contract for the forward applier so a re-apply detects drift between runs.
+
+- **`migration.lock_snapshot.json`** is the durable record. Schema v1; written **AFTER the advisory lock is acquired, BEFORE the first `execute_legacy_sql` call** (per design §1 D8 / Correction J). SIGINT before the snapshot leaves no trace; SIGINT after writes the snapshot + `migration.partial_apply.json`.
+- **Fingerprints**: SHA-256 hex of the `.accdb` bytes (`accdb_sha256`) and SHA-256 hex of the photos-directory manifest (`photos_dir_sha256` + `photos_file_count` + `photos_total_bytes`). Empty sources produce the SHA-256 of zero bytes (`EMPTY_SHA256`) deterministically so a fresh empty source matches a previous empty-source snapshot.
+- **Drift detection**: on the next apply, `detect_drift` compares the prospective snapshot against the on-disk one. Drift aborts the apply (`SourceDriftError`, CLI exit 6, reason `source_drift`) — no informational proceed, no auto-accept. The previous snapshot is preserved on disk so the operator can diff manually.
+- **Per-table hashes**: `MigrationReport.source_hashes` carries the per-table SHA-256 hex of the canonical JSON of the legacy batch (`{table_name: "<sha256 hex>"}`). Operator can review counts + hashes without opening the snapshot file.
+
+The snapshot file is **NOT** a backup; it is a fingerprint. A re-apply does NOT mutate the legacy source. The apply path is single-threaded per `migration.lock` so concurrent runs do not race on the snapshot file.
+
+## Collision policy (corrected)
+
+The PR3 `MigrationReport` extended `MigrationReport.collisions` (`migration/reporting.py:167`) as `dict[str, dict[str, int]]` — per-table counters, **counts only, no values**. The operator-facing detail (which PKs collided) lives in `web_only_feature_shadow` and the `conflicts` list, NEVER inside the report (per spec REQ-PII-Audit invariant).
+
+**PII columns in scope for collision policy** (verified via Dysflow `get_schema` on 2026-07-11):
+
+| Column | Source (legacy) | Web column | web_only_strategy | Forward path | Collision surface |
+|--------|------------------|------------|-------------------|--------------|-------------------|
+| `email` | `TbVoluntariosParaAutorrellenables.Email` | `voluntarios.email` | mapped 1:1 | forward + reverse | forward only (legacy carries Email) |
+| `tel1` | `TbVoluntariosParaAutorrellenables.Tel1` | `voluntarios.tel1` | mapped 1:1 | forward + reverse | forward only (legacy carries Tel1) |
+| `tel2` | `TbVoluntariosParaAutorrellenables.Tel2` | `voluntarios.tel2` | mapped 1:1 | forward + reverse | forward only (legacy carries Tel2) |
+| `dni`  | (NO legacy column — `TbVoluntariosParaAutorrellenables` returns exactly four columns: `Voluntario, Tel1, Tel2, Email`, all `type=10 text size=255`) | `voluntarios.dni` | `preserve` (web-only shadow; round-trip) | NEVER forward-migrated; preserved on web-side; reverse-path collision is recorded as `needs_review` | web-only manual INSERT (UNIQUE constraint on `voluntarios_dni_key`) + reverse-path (no legacy column to receive) |
+
+**Why no `DNI` column in legacy.** `TbVoluntariosParaAutorrellenables` returns exactly four columns (`Voluntario, Tel1, Tel2, Email`). Any future claim that DNI exists in this legacy table MUST be re-verified via the same Dysflow `get_schema` tool — anecdotal evidence from old VB6 forms or operator memory is not a substitute. The current `migration/mappings/voluntario.yaml` already encodes this reality (`DNI` has `legacy_column: null`, `web_only_strategy: preserve`).
+
+**Forward path produces zero DNI collisions** by construction: legacy rows carry no DNI column, so the forward applier never writes `voluntarios.dni`. Counters in `MigrationReport.collisions["voluntarios"]["dni_collisions"]` stay at 0 across the entire forward run.
+
+**Collision scopes (PR5):**
+
+1. **Web-only manual collisions** — an operator manually INSERTs two web `voluntarios` rows with the same DNI. The second INSERT fails on `voluntarios_dni_key`. The applier (or web UI) catches the rejection and routes the rejected row to `web_only_feature_shadow` with `reconciliation_status="needs_review"` and `review_reasons=["dni_collision"]`. The first INSERT wins; subsequent collisions do NOT overwrite.
+2. **Reverse-path collisions** — the reverse applier (PR6) tries to push a web `DNI` back to legacy. Legacy has no column to receive it. The shadow table records the row with the same routing. The counter increments by 1 per collision.
+
+In both scopes the first INSERT wins; subsequent collisions MUST NOT overwrite and MUST route to `web_only_feature_shadow`. Counts (never values) appear in `MigrationReport.collisions["voluntarios"]["dni_collisions"]`. The operator resolves via `apap-migrate reconcile --interactive` (option `a` keeps the web value, `b` accepts the derived value, `c` defers, `q` quits). The collision-routing helper lives at `migration/dni_collision.py::record_dni_collision` and is consumed by both the forward applier and the PR6 reverse applier.
+
+The closed redaction list at `app/core/logging.py::REDACTED_FIELDS` (15 entries after PR4b: `email, session_token, jwt, oauth_code, pkce_verifier, csrf_token, pkce_challenge, authorization, cookie, referer, ip_address, x_forwarded_for, dni, tel1, tel2`) protects every `log_safe` payload — including the `sync.applied` per-row audit event and the `MigrationReport.to_json()` archive. The CLI reconcile listing masks `preserved_value` to `[REDACTED]` when the row's `web_column` is in the closed list. The audit verdict at `docs/audits/pii-live-migration-2026-Q3.md` is the M1 milestone gate.
+
 ## Data integrity risks
 
 | Risk | Impact | Mitigation |
