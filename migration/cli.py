@@ -248,6 +248,41 @@ def build_parser() -> argparse.ArgumentParser:
 # distinguish a NULL column from an empty-string value. The formatters
 # below use ``_render_value`` which is NULL-aware: ``None`` → ``null``,
 # empty string → ``''`` (empty literal), anything else → ``repr(x)``.
+#
+# PR5 PII contract: ``preserved_value`` carries raw PII (the value the
+# applier would re-write to the web column). When the shadow row's
+# ``web_column`` is one of the PII columns (the closed list at
+# ``app.core.logging.REDACTED_FIELDS``), the formatter masks the
+# value to ``"[REDACTED]"`` so the operator stdout never carries a
+# raw DNI / email / phone. Mirrors the closed-list redaction that
+# ``log_safe`` performs; the CLI is a second surface that needs the
+# same protection (per spec REQ-PII-Audit + PR5 scope).
+from app.core.logging import REDACTED_FIELDS, _normalize_key
+
+
+def _is_pii_web_column(column: str | None) -> bool:
+    """Return ``True`` when ``column`` names a PII web column.
+
+    Mirrors the closed-list comparison in :func:`log_safe` (case
+    insensitive, ``_``/``-`` normalised) so the CLI mask is consistent
+    with the ``log_safe`` mask across the rest of the operator
+    surface.
+    """
+    if not column:
+        return False
+    return _normalize_key(column) in REDACTED_FIELDS
+
+
+def _mask_pii_value(column: str | None, raw: Any) -> Any:
+    """Return ``"[REDACTED]"`` when ``column`` is PII, else ``raw``.
+
+    Used by the CLI formatters to keep the operator-facing stdout
+    free of raw PII while preserving the NULL-aware rendering for
+    non-PII columns (state machines, natural keys, etc.).
+    """
+    if _is_pii_web_column(column):
+        return "[REDACTED]"
+    return raw
 
 
 def _render_value(x: Any) -> str:
@@ -268,15 +303,24 @@ def _render_value(x: Any) -> str:
 
 
 def _format_row_for_check_only(row: dict[str, Any]) -> str:
-    """One ``key=value`` line per shadow row (T5.1 / design.md §7)."""
+    """One ``key=value`` line per shadow row (T5.1 / design.md §7).
+
+    PR5: ``preserved_value`` is masked to ``"[REDACTED]"`` when
+    ``web_column`` is in the closed PII list (the same closed list
+    that ``log_safe`` uses). The mask is per-row so non-PII columns
+    (state machines, natural keys) keep their verbatim rendering
+    for the operator decision surface.
+    """
+    web_column = row.get("web_column")
+    masked_preserved = _mask_pii_value(web_column, row.get("preserved_value"))
     parts: list[str] = [
         f"table={_render_value(row.get('table_name'))}",
         f"legacy_pk={_render_value(row.get('legacy_pk'))}",
         f"web_pk={_render_value(row.get('web_pk'))}",
-        f"web_column={_render_value(row.get('web_column'))}",
+        f"web_column={_render_value(web_column)}",
         f"status={_render_value(row.get('reconciliation_status'))}",
         f"strategy={_render_value(row.get('strategy'))}",
-        f"web_value={_render_value(row.get('preserved_value'))}",
+        f"web_value={_render_value(masked_preserved)}",
         f"derived_value={_render_value(row.get('derived_value'))}",
         f"derived_at={_render_value(row.get('derived_at'))}",
         f"last_legacy_snapshot_at={_render_value(row.get('last_legacy_snapshot_at'))}",
@@ -292,14 +336,25 @@ def _format_row_for_interactive(row: dict[str, Any]) -> str:
     Mirrors the ``--check-only`` field set but indented so the
     prompt header reads naturally. Optional fields are only shown
     when populated (skip the noise for ``null`` rows).
+
+    PR5: ``preserved_value`` is masked to ``"[REDACTED]"`` when
+    ``web_column`` is in the closed PII list (mirrors
+    ``_format_row_for_check_only``). The interactive flow does NOT
+    bypass the redaction — the operator still sees the column name,
+    the status, and the categorical review reasons; they only lose
+    the raw PII bytes. Resolution prompts that need the raw value
+    (e.g. ``(b) accept derived``) go through ``_format_value_prompt``
+    which renders the ``derived_value`` (NOT the preserved PII).
     """
+    web_column = row.get("web_column")
+    masked_preserved = _mask_pii_value(web_column, row.get("preserved_value"))
     lines: list[str] = [
         f"  table:                   {_render_value(row.get('table_name'))}",
         f"  legacy_pk:               {_render_value(row.get('legacy_pk'))}",
         f"  web_pk:                  {_render_value(row.get('web_pk'))}",
-        f"  web_column:              {_render_value(row.get('web_column'))}",
+        f"  web_column:              {_render_value(web_column)}",
         f"  strategy:                {_render_value(row.get('strategy'))}",
-        f"  web_value:               {_render_value(row.get('preserved_value'))}",
+        f"  web_value:               {_render_value(masked_preserved)}",
         f"  derived_value:           {_render_value(row.get('derived_value'))}",
         f"  derived_at:              {_render_value(row.get('derived_at'))}",
         f"  status:                  {_render_value(row.get('reconciliation_status'))}",
