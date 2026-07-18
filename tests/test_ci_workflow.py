@@ -102,12 +102,22 @@ def test_ci_workflow_test_job_enforces_global_coverage_floor() -> None:
     # The declared floor itself must not silently drift below 80.
     assert fail_under >= 80
 
+    # Scope to the test job's executable lines only: slice the job
+    # section and drop YAML comments, so a comment that merely mentions
+    # the flags (like the explanatory block above the run: step) can
+    # never satisfy these assertions.
+    test_job_start = workflow.index("\n  test:")
+    test_job = workflow[test_job_start : workflow.index("\n  build:", test_job_start)]
+    executable = "\n".join(
+        line for line in test_job.splitlines() if not line.lstrip().startswith("#")
+    )
+
     # Coverage must be measured over the app package...
-    assert "--cov=app" in workflow
+    assert "--cov=app" in executable
     # ...must produce coverage.json for the CRITICAL_HELPERS gate...
-    assert "--cov-report=json" in workflow
+    assert "--cov-report=json" in executable
     # ...and must enforce the same floor pyproject declares.
-    assert f"--cov-fail-under={fail_under}" in workflow
+    assert f"--cov-fail-under={fail_under}" in executable
 
 
 def test_ci_workflow_defines_deploy_job_with_gating() -> None:
