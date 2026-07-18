@@ -5,7 +5,7 @@
 **Commits**: PR4b — `e7f5857` `feat(core): extend REDACTED_FIELDS with dni/tel1/tel2 for PR4b PII`; `b021e12` `feat(insforge): S3-compatible upload_object / download_object_stream / delete_object`; `b74a135` `feat(animals): PR4b authenticated GET /animales/{id}/foto with isolated photo_service`; `f977c9e` `docs(sdd): PR4b PII audit verdict PASS + apply runbook photo sections`. All four commit SHAs reachable from `HEAD` of `feat/live-migration-photo-storage`; branch is 4 ahead of `origin/main`.
 **Mode**: Strict TDD (orchestrator-confirmed; global maintainer-approved `size:exception`)
 **Delivery**: stacked-to-main with maintainer-approved `size:exception`; target `main` via PR; apply phase does NOT push/open PR/merge (user will auto-merge later)
-**Status**: PR1, PR2, PR2-verify, PR3, PR3 verification remediation, PR3 runbook closure, PR4a, W1, and **PR4b complete on the branch but not yet pushed**. PR4a discovery verdict was PASS, PR4b consumed the pinned contract, and the PR4b PII audit verdict is PASS. PR5, PR6, PR7, and 9.1 deferred to follow-up PRs (out of scope per user directive).
+**Status**: PR1, PR2, PR2-verify, PR3, PR3 verification remediation, PR3 runbook closure, PR4a, W1, PR4b (merged), and **PR5 (merged 2026-07-18 via PR #196, merge commit `024dc97307a745834f103be4ea27687c4381f93e`)** complete on `main`. PR4a discovery verdict was PASS, PR4b consumed the pinned contract, the PR4b PII audit verdict is PASS, and PR5's PII redaction + DNI collision routing + reconcile `--filter-direction` + PUBLIC_PATHS invariant + discovery docs shipped green. PR6, PR7, and 9.1 deferred to follow-up PRs (out of scope per user directive).
 
 ### Cumulative task state (across batches)
 
@@ -531,3 +531,19 @@ Revert the 5 PR4b 4R work-unit commits in reverse chronological order (`df28fc1`
 The pre-4R PR4b baseline (4 commits `e7f5857` → `f977c9e`) stays valid; the 4R commits are purely additive on top of that baseline.
 
 Per the runbook, the bucket itself is NOT deleted by the rollback path; operator runs the documented disable-display → backup → sentinel → delete sequence manually. No InsForge bucket/object/data rollback exists because PR4b + 4R performed no mutation.
+
+
+## PR5 — done 2026-07-18
+
+- merge commit: `024dc97307a745834f103be4ea27687c4381f93e`
+- PR: https://github.com/ardelperal/APAP_WEB/pull/196
+- CI: https://github.com/ardelperal/APAP_WEB/actions/runs/29634884361 (lint PASS, test PASS, build PASS, GitGuardian PASS; e2e/deploy SKIPPED — expected pre-MVP)
+- closed issue(s): none (no PR5-tracking issue was opened; PR1→175, PR2→179, PR3→183, PR4a→187, PR4b→191 sequence broke at PR5)
+- branch `feat/migration-pr5-pii-controls` deleted (§15.2): local OK, remote OK
+- delivery: squash merge of 10 work-unit commits (`b463d5e` PII redaction atoms + CLI preserved_value masking; `c278468` DNI collision routing + reconcile `--filter-direction`; `1cdd043` PUBLIC_PATHS invariant + per-route 302-to-login pins; `f02b82c` source-snapshot-identity + collision-policy discovery sections; `8fe6104` ruff E402 lint fix; `607191c` PR5 tasks marked complete in this file; `a72f491` direction kwarg + DI seam; `af214c6` PII hardening in CLI formatters + audit + spec; `810afc3` `pii_route_coverage` informational detector; `357579c` dysflow-config delegate to global)
+- size: +2691/-384 across 16 files (size:exception pre-MVP, user pre-authorized "no reviewers in pipeline")
+- validation gate: `gentle-ai review validate --gate pre-merge` returned `invalidated` (legacy v1 receipts missing + compact v2 still in `reviewing` state); fell back to green CI per user instruction
+- new test modules: `tests/migration/test_pii_redaction.py` (10 atoms), `tests/migration/test_dni_collision.py` (9 atoms), `tests/test_public_paths.py` (10 atoms)
+- audit doc: `docs/audits/pii-live-migration-2026-Q3.md` (+43 lines; PR4b verdict still PASS)
+- discovery doc: `docs/discovery/migration-risks.md` (+37 lines: source-snapshot-identity + collision-policy)
+- next: PR6 (M2 reverse apply + round-trip tests) and PR7 (verify-fallback-ready gate) remain on the roadmap
