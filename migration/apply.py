@@ -317,6 +317,7 @@ def apply_legacy_to_web(
     partial_path: Path | None = None,
     photos_dir_path: Path | str | None = None,
     dni_collision_counter: DniCollisionCounter | None = None,
+    direction: str = "legacy-to-web",
 ) -> ApplyResult:
     """Bulk-apply legacy rows for one table into the InsForge web DB.
 
@@ -517,6 +518,7 @@ def apply_legacy_to_web(
                     legacy_path=legacy_path,
                     photos_dir_path=photos_dir_path,
                     snapshot_path=resolved_snapshot_path,
+                    direction=direction,
                 )
                 snapshot_written = True
 
@@ -565,7 +567,7 @@ def apply_legacy_to_web(
         if snapshot_written:
             write_partial_apply(
                 resolved_partial_path,
-                direction="legacy-to-web",
+                direction=direction,
                 table_name=safe,
                 progress_applied=applied,
                 progress_total=None,
@@ -579,6 +581,7 @@ def _write_or_check_snapshot(
     legacy_path: str,
     photos_dir_path: Path | str | None,
     snapshot_path: Path,
+    direction: str = "legacy-to-web",
 ) -> Snapshot:
     """Compute hashes, drift-check against the existing snapshot, then write.
 
@@ -600,7 +603,7 @@ def _write_or_check_snapshot(
         # empty source matches a previous empty-source snapshot.
         prospective = Snapshot(
             schema_version=previous.schema_version,
-            direction="legacy-to-web",
+            direction=direction,
             started_at=datetime.now(UTC),
             accdb_sha256=accdb_hash,
             photos_dir_sha256=photos_manifest.sha256,
@@ -628,7 +631,7 @@ def _write_or_check_snapshot(
 
     return write_snapshot(
         snapshot_path,
-        direction="legacy-to-web",
+        direction=direction,
         accdb_sha256=accdb_hash,
         photos_manifest=photos_manifest,
     )
