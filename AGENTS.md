@@ -522,6 +522,12 @@ The mode-toggle and sync-function are enforced at three layers:
 
 Enforcement: PR review + `tests/test_mode_isolation.py` (atomic test that confirms a single request reads from exactly one backend).
 
+### 19. Global coverage floor — 80% enforced in CI
+
+The `fail_under = 80` threshold declared in `pyproject.toml` (`[tool.coverage.report]`) is not documentation: the CI `test` job runs pytest with `--cov=app --cov-report=json --cov-fail-under=80`, so any change that drops total coverage of `app/` below 80% fails the build. The same run writes `coverage.json`, which feeds the `CRITICAL_HELPERS` 100% gate (rule 11) — that gate is unchanged and still applies on top of the global floor. Removing any of the coverage flags from `ci.yml` (or lowering the floor) is a blocked change: it silently disables both gates.
+
+Enforcement: `tests/test_ci_workflow.py::test_ci_workflow_test_job_enforces_global_coverage_floor` pins the flags in `ci.yml` and their parity with `fail_under` in `pyproject.toml`; `--cov-fail-under=80` makes pytest exit non-zero below the floor; `scripts/pytest_plugin/coverage_gate.py` keeps enforcing 100% on `CRITICAL_HELPERS` from the produced `coverage.json`.
+
 ---
 
 > **History:** the resolved "Known conflicts with existing code" tracker (all

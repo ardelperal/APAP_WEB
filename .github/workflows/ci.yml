@@ -65,10 +65,27 @@ jobs:
         # staging (where the URL is set) and locally (devs set the
         # env var). See openspec/changes/hardening-2026-q2/specs/
         # 07-toctou-fix/spec.md REQ-3.
+        # Coverage flags (issue #199, AGENTS.md rule 19 — removing any
+        # of them is a blocked change):
+        # --cov=app: measure coverage over the app package.
+        # --cov-report=json: write coverage.json, which feeds the
+        #   CRITICAL_HELPERS 100% gate (scripts/pytest_plugin/
+        #   coverage_gate.py, AGENTS.md rule 11) — the plugin is a
+        #   no-op when coverage.json is absent.
+        # --cov-fail-under=80: enforce the global floor declared as
+        #   fail_under = 80 in pyproject.toml [tool.coverage.report].
+        #   Explicit flag because pytest-cov only reliably enforces
+        #   the CLI flag, not the config-file value. Parity pinned by
+        #   tests/test_ci_workflow.py::
+        #   test_ci_workflow_test_job_enforces_global_coverage_floor.
         run: |
           python -m pytest -W error::DeprecationWarning \
             --ignore=tests/e2e \
-            --deselect tests/test_voluntarios_concurrent.py
+            --deselect tests/test_voluntarios_concurrent.py \
+            --cov=app \
+            --cov-report=json \
+            --cov-report=term \
+            --cov-fail-under=80
 
   build:
     name: build

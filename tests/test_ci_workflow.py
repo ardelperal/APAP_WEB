@@ -1,3 +1,4 @@
+import tomllib
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -70,6 +71,53 @@ def test_development_guide_documents_e2e_ci_hook() -> None:
     assert "Playwright" in guide
     assert "scripts/dev_server_no_lifespan.py" in guide
     assert "playwright install" in guide
+
+
+def test_ci_workflow_test_job_enforces_global_coverage_floor() -> None:
+    """Issue #199: the CI ``test`` job must enforce ``fail_under`` from pyproject.
+
+    ``pyproject.toml`` declares ``fail_under = 80`` under
+    ``[tool.coverage.report]``, but a pytest run without ``--cov`` never
+    measures coverage, so the floor was dead letter in CI. The test job
+    must:
+
+    1. run pytest with coverage over ``app/`` (``--cov=app``),
+    2. write ``coverage.json`` (``--cov-report=json``) so the
+       CRITICAL_HELPERS gate (``scripts/pytest_plugin/coverage_gate.py``,
+       AGENTS.md rule 11) keeps working — the plugin is a no-op when
+       ``coverage.json`` is absent,
+    3. fail the job below the global floor via an explicit
+       ``--cov-fail-under`` that matches ``fail_under`` in pyproject
+       (explicit because pytest-cov only reliably enforces the flag,
+       not the config-file value).
+
+    Removing any of these from ci.yml is a blocked change (AGENTS.md
+    rule 19).
+    """
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    with (REPO_ROOT / "pyproject.toml").open("rb") as fh:
+        pyproject = tomllib.load(fh)
+    fail_under = pyproject["tool"]["coverage"]["report"]["fail_under"]
+
+    # The declared floor itself must not silently drift below 80.
+    assert fail_under >= 80
+
+    # Scope to the test job's executable lines only: slice the job
+    # section and drop YAML comments, so a comment that merely mentions
+    # the flags (like the explanatory block above the run: step) can
+    # never satisfy these assertions.
+    test_job_start = workflow.index("\n  test:")
+    test_job = workflow[test_job_start : workflow.index("\n  build:", test_job_start)]
+    executable = "\n".join(
+        line for line in test_job.splitlines() if not line.lstrip().startswith("#")
+    )
+
+    # Coverage must be measured over the app package...
+    assert "--cov=app" in executable
+    # ...must produce coverage.json for the CRITICAL_HELPERS gate...
+    assert "--cov-report=json" in executable
+    # ...and must enforce the same floor pyproject declares.
+    assert f"--cov-fail-under={fail_under}" in executable
 
 
 def test_ci_workflow_defines_deploy_job_with_gating() -> None:
