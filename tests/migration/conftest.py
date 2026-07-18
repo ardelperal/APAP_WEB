@@ -186,6 +186,13 @@ class FakeInsForge:
             # path emits a record-only ``UPDATE`` in the no-op case via
             # the shadow log (a real ``UPDATE`` would still execute on
             # the live DB; this fake records the call for assertions).
+            # PR6 reverse applier relies on ``update_reconciliation_status``
+            # which UPDATEs the shadow table — the fake routes those
+            # UPDATEs to the matching shadow row so test atoms can
+            # assert ``review_reasons`` / ``status`` propagation.
+            if "WEB_ONLY_FEATURE_SHADOW" in upper:
+                self._apply_shadow_update(q, params)
+                return []
             return []
 
         # Defensive: a query we don't recognise returns empty. Tests
@@ -194,6 +201,50 @@ class FakeInsForge:
         return []
 
     # --- internals --------------------------------------------------
+
+    def _apply_shadow_update(
+        self, query: str, params: list[Any] | None
+    ) -> None:
+        """Apply an UPDATE against ``web_only_feature_shadow`` to the in-memory store.
+
+        PR6 reverse applier relies on ``update_reconciliation_status``
+        (``migration.shadow_state.ShadowStateRepository``) to stamp
+        the categorical review reasons on the reverse drift rows.
+        The production SQL is parameterised in column order:
+        ``SET reconciliation_status = %s, review_reasons = %s,
+        last_reconciled_at = %s WHERE table_name = %s AND
+        legacy_pk = %s AND web_column = %s``. The fake parses
+        the WHERE clause and applies the SET clause to the
+        matching in-memory shadow row.
+        """
+        shadow = self.tables.setdefault("WEB_ONLY_FEATURE_SHADOW", [])
+        if not params:
+            return
+        # The production SQL parameter order (see migration/shadow_state.py):
+        # params[0]=status, params[1]=review_reasons (JSON string),
+        # params[2]=last_reconciled_at (ISO or None),
+        # params[3]=table_name, params[4]=legacy_pk, params[5]=web_column.
+        try:
+            normalized = list(params) + [None] * (6 - len(params))
+            status = normalized[0]
+            review_reasons_json = normalized[1]
+            last_reconciled_at = normalized[2]
+            table_name = normalized[3]
+            legacy_pk = normalized[4]
+            web_column = normalized[5]
+        except (IndexError, TypeError):
+            return
+        for row in shadow:
+            if (
+                row.get("table_name") == table_name
+                and row.get("legacy_pk") == str(legacy_pk)
+                and row.get("web_column") == web_column
+            ):
+                row["reconciliation_status"] = status
+                row["review_reasons"] = review_reasons_json
+                row["last_reconciled_at"] = last_reconciled_at
+                break
+
     def _route_select(
         self, query: str, params: list[Any] | None
     ) -> list[dict[str, Any]]:

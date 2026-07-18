@@ -57,9 +57,25 @@ columns:
   #   - updated_at:   transform=default_now    → EXENTA (timestamp web)
   #   - activo:       strategy=fixed            (web owns el soft-delete;
   #                                              shadow-state NO lo reconcilia)
+  #   - current_state: strategy=derived          (PR6 / M2 reverse:
+  #                                              web-only column whose
+  #                                              value is produced by the
+  #                                              derivation engine; on
+  #                                              reverse apply the
+  #                                              applier observes a
+  #                                              post-forward override
+  #                                              and emits a
+  #                                              LIFECYCLE_REVERSED
+  #                                              event WITHOUT
+  #                                              re-deriving — design §1
+  #                                              Decision 11). The
+  #                                              forward applier still
+  #                                              owns the derivation
+  #                                              engine call (PR3+).
   - { web_column: id, transform: default_uuid, nullable: false }
   - { web_column: fecha_alta, transform: default_now, nullable: false }
   - { web_column: updated_at, transform: default_now, nullable: false }
   - { web_column: activo, transform: default_true, nullable: false, web_only_strategy: fixed }
+  - { web_column: current_state, transform: identity, nullable: true, web_only_strategy: derived }
 
 fk_lookups: []
