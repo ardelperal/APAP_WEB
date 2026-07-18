@@ -120,6 +120,42 @@ def test_ci_workflow_test_job_enforces_global_coverage_floor() -> None:
     assert f"--cov-fail-under={fail_under}" in executable
 
 
+def test_ci_workflow_lint_job_runs_check_rules_gate() -> None:
+    """Issue #200: the CI ``lint`` job must gate on ``scripts/check_rules.py``.
+
+    The APAP001/APAP003 custom rules (plus Detectors 2-8 of the AST
+    linter) are documented as "the authoritative lint gate" in
+    ``pyproject.toml`` and AGENTS.md, but until this test the linter
+    only ran locally via ``make check-rules`` — CI never executed it,
+    so a violation could land on main with a green build. The lint job
+    must run the linter over the REPO ROOT (``.``), not ``app``:
+    Detectors 5-8 resolve ``app/``-relative paths against the scanned
+    root, so ``check_rules.py app`` silently disables the APAP003 /
+    print / CSRF detectors. Default excludes (``DEFAULT_EXCLUDES`` +
+    ``.check_rulesignore``) silence the known false positives.
+
+    Removing this step from ci.yml is a blocked change (AGENTS.md
+    rule 20).
+    """
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+
+    # Scope to the lint job's executable lines only (same rationale as
+    # test_ci_workflow_test_job_enforces_global_coverage_floor): slice
+    # the job section and drop YAML comments so a comment mentioning
+    # the command can never satisfy the assertion.
+    lint_job_start = workflow.index("\n  lint:")
+    lint_job = workflow[lint_job_start : workflow.index("\n  test:", lint_job_start)]
+    executable = "\n".join(
+        line for line in lint_job.splitlines() if not line.lstrip().startswith("#")
+    )
+
+    assert "python scripts/check_rules.py ." in executable, (
+        "The lint job must run the AGENTS.md rule linter over the repo "
+        "root (python scripts/check_rules.py .) so APAP001/APAP003 and "
+        "Detectors 2-8 gate CI, not just local `make check-rules` runs."
+    )
+
+
 def test_ci_workflow_defines_deploy_job_with_gating() -> None:
     """CD-01: deploy job exists, runs only on push to main, depends on lint+test+build."""
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")

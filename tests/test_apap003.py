@@ -32,6 +32,7 @@ import pytest
 
 from scripts.check_rules import find_violations
 from scripts.ruff_plugin.apap_rules import (
+    APAP003Visitor,
     check_tree,
     discover_rule_classes,
 )
@@ -155,6 +156,47 @@ def test_apap003_does_not_flag_plain_getLogger_call(tmp_path: Path) -> None:
     assert not apap003, (
         f"APAP003 wrongly flagged plain getLogger retrieval: {apap003}"
     )
+
+
+def test_apap003_visitor_direct_excludes_logging_wrapper(
+    tmp_path: Path,
+) -> None:
+    """Issue #200: exercise ``APAP003Visitor`` directly to pin the
+    ``app/core/logging.py`` exclusion — the wrapper module is the ONLY
+    legal caller of ``logging.getLogger(...)`` and must not be flagged
+    even though it emits raw ``logger.*`` calls internally.
+    """
+    src = (
+        "import logging\n"
+        "logger = logging.getLogger('apap')\n"
+        "logger.info('inside the wrapper')\n"
+    )
+    file = tmp_path / "app" / "core" / "logging.py"
+    visitor = APAP003Visitor(file)
+    visitor.visit(_parse(src, file_name=str(file)))
+    assert not visitor.violations, (
+        f"APAP003Visitor must exclude app/core/logging.py: "
+        f"{visitor.violations}"
+    )
+
+
+def test_apap003_visitor_direct_flags_non_excluded_file(
+    tmp_path: Path,
+) -> None:
+    """Counterpart of the exclusion test: the same source in any other
+    app/ file MUST be flagged when visiting directly (not via
+    ``check_tree``).
+    """
+    src = (
+        "import logging\n"
+        "logger = logging.getLogger('apap')\n"
+        "logger.info('raw call')\n"
+    )
+    file = tmp_path / "app" / "core" / "session.py"
+    visitor = APAP003Visitor(file)
+    visitor.visit(_parse(src, file_name=str(file)))
+    assert visitor.violations
+    assert all(v.rule_id == "APAP003" for v in visitor.violations)
 
 
 # --- AST linter integration (scripts/check_rules.py Detector 5) -----------
