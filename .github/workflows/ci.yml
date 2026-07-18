@@ -48,6 +48,17 @@ jobs:
         # test_ci_workflow_lint_job_runs_check_rules_gate.
         run: python scripts/check_rules.py .
 
+      - name: Run module-size ratchet (AGENTS.md rule 21)
+        # Issue #202 — removing this step is a blocked change. The
+        # ratchet keeps every module under app/ and migration/ within
+        # the 700-line budget; the known offenders live in an explicit
+        # BASELINE inside the script that may only shrink. Its own
+        # step (separate from check_rules.py) keeps single
+        # responsibility: check_rules.py is an AST linter, this is a
+        # line-count gate. Pinned by tests/test_module_size.py::
+        # test_ci_workflow_lint_job_runs_module_size_gate.
+        run: python scripts/check_module_size.py
+
       - name: Diagnostic secret-leak scan
         run: grep -rE '(http://|https://|sk-|ghp_)[A-Za-z0-9]+' .github/ || true
 
