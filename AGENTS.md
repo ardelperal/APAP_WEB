@@ -534,6 +534,68 @@ The custom AGENTS.md rule linter (`scripts/check_rules.py` — APAP001 route/SQL
 
 Enforcement: `tests/test_ci_workflow.py::test_ci_workflow_lint_job_runs_check_rules_gate` pins the step (scoped to the lint job's executable lines) and the repo-root invocation; `scripts/check_rules.py` exits non-zero on any violation, failing the `lint` job; the visitors stay pinned by `tests/test_ruff_apap001.py` and `tests/test_apap003.py` so the ruff-plugin mirror and the CI gate cannot drift.
 
+### 21. Module-size budget — 700 lines, shrink-only baseline
+
+No Python module under `app/` or `migration/` may exceed **700 lines** (`tests/` and `scripts/` are exempt — the budget targets product code, where god-files hide layering violations). The modules that already exceeded the budget when this rule landed (2026-07-18 audit: `migration/cli.py`, `migration/reconcile.py`, `migration/apply.py`, `app/modules/materiales/service.py`) live in an explicit `BASELINE` dict inside `scripts/check_module_size.py` that is a **ratchet**: entries may only shrink or disappear, never grow, and no new entry may ever be added. When a feature would push a module over the budget, split it (extract a `queries.py`, a subcommand module, a helpers module) instead of growing it.
+
+WRONG — growing a god-file because "it's where the other handlers are"
+
+```python
+# migration/cli.py, line 1072+ — new subcommand appended to the god-file
+def cmd_export(...): ...
+```
+
+RIGHT — new capability in its own module, god-file only shrinks
+
+```python
+# migration/export.py — new module, well under budget
+def cmd_export(...): ...
+```
+
+Enforcement: `python scripts/check_module_size.py` (stdlib-only, exit 1 on violation) runs as its own step in the CI `lint` job — removing the step is a blocked change, pinned by `tests/test_module_size.py::test_ci_workflow_lint_job_runs_module_size_gate` (scoped to the lint job's executable lines). `tests/test_module_size.py::test_baseline_matches_measured_tree` fails on any drift between `BASELINE` and the real tree, so shrinking a baselined module requires updating its entry in the same PR.
+
+### 22. SQL/service separation — query construction is its own seam
+
+New or refactored services separate **query construction** from **validation/orchestration**. SQL strings and their parameter shaping live in a dedicated `queries.py` (or builder module) per feature module; the service imports those builders, applies domain validation, and talks to the client. The point is testability: the shape of the SQL must be assertable in a plain unit test without spinning up transport, InsForge, or HTTP.
+
+WRONG — SQL interpolated inline among validation and mapping (untestable without transport)
+
+```python
+def update_material(client, material_id, form):
+    if not form.get("nombre"):
+        raise ValueError("nombre required")
+    client.execute_sql(
+        f"UPDATE materiales SET nombre = $1 WHERE id = $2", [form["nombre"], material_id]
+    )
+```
+
+RIGHT — query builder is a pure function, service orchestrates
+
+```python
+# app/modules/materiales/queries.py
+def build_update_material(material_id: str, nombre: str) -> tuple[str, list]:
+    return "UPDATE materiales SET nombre = $1 WHERE id = $2", [nombre, material_id]
+
+# app/modules/materiales/service.py
+def update_material(client, material_id, form):
+    if not form.get("nombre"):
+        raise ValueError("nombre required")
+    sql, params = queries.build_update_material(material_id, form["nombre"])
+    client.execute_sql(sql, params)
+```
+
+This applies to **new services and to any existing service being refactored** (e.g. when splitting a rule-21 baselined module, the extracted seam is exactly this one). It does not mandate a big-bang rewrite of existing services.
+
+Enforcement: PR review. A PR that adds a service with inline SQL mixed into validation/orchestration, or refactors one without introducing the query seam, must be blocked with a pointer to this rule.
+
+### 23. E2E expectation — every UI feature slice grows the E2E net
+
+Every feature slice that adds or changes UI (routes rendering templates, forms, HTMX interactions) MUST add or update at least one Playwright E2E flow under `tests/e2e/`. Backend-only slices (services, migration, scripts) are exempt. The E2E suite is the only net that catches template/route/CSRF wiring regressions that unit tests structurally cannot see.
+
+The CI `e2e` job is currently skipped when `APAP_OAUTH_CLIENT_ID` is not configured (see `.github/workflows/ci.yml`). Once OAuth secrets exist in CI, the job stops being optional and becomes a required check (tracked in issue #206) — do not add new reasons to skip it.
+
+Enforcement: PR review. A PR whose diff touches `templates/` or adds/changes a UI route without touching `tests/e2e/` must justify the exemption explicitly in the PR description or be blocked.
+
 ---
 
 > **History:** the resolved "Known conflicts with existing code" tracker (all

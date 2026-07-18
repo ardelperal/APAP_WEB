@@ -209,6 +209,8 @@ Los flags de cobertura replican exactamente lo que ejecuta el job `test` de `ci.
 
 Si el repo tiene `scripts/check_rules.py` (detectores propios: APAP001 rutas/SQL, APAP003 logger ban, CSRF middleware, log_safe, etc.), correrlo también: `python scripts/check_rules.py .` (con `.` como raíz — pasar `app` desactiva en silencio los detectores 5-8). Desde la issue #200 este linter también corre en CI dentro del job `lint` (regla 20 de AGENTS.md), así que si falla en local fallará el build.
 
+Correr también el ratchet de tamaño de módulos: `python scripts/check_module_size.py` (regla 21 de AGENTS.md, issue #202). Presupuesto de 700 líneas por módulo en `app/` y `migration/`; los offenders conocidos viven en la `BASELINE` del script y solo pueden decrecer. También corre en CI dentro del job `lint`.
+
 ---
 
 ## §6 — Merge a `main` (regla 15.1, pre-MVP)
@@ -320,6 +322,7 @@ pytest -W error::DeprecationWarning --ignore=tests/e2e --deselect tests/test_vol
 ruff check .
 python -m build
 python scripts/check_rules.py .
+python scripts/check_module_size.py
 
 # CodeGraph
 codegraph status .           # sesión start
