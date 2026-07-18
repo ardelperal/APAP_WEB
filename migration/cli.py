@@ -51,6 +51,7 @@ from migration.apply import (
     SourceDriftError,
     apply_legacy_to_web,
 )
+from migration.apply_reverse import apply_web_to_legacy
 from migration.bootstrap import APAP_PHOTOS_BUCKET, check_private_bucket, ensure_private_bucket
 from migration.legacy_reader import LegacyReaderError
 from migration.mappings import list_available_tables, load_mapping
@@ -67,6 +68,14 @@ from migration.shadow_state import ShadowStateRepository
 # runbook body is finalized. Updating this constant before the file
 # exists is a contract change.
 MIGRATION_RUNBOOK_REF: str = "docs/runbooks/live-migration-apply.md"
+
+# Direction flag values (PR6 / M2 reverse apply). The forward path
+# remains ``legacy-to-web`` (default); the operator opts in to the
+# reverse path with ``apap-migrate apply --direction web-to-legacy``.
+# Closed vocabulary; PR7's verify-fallback-ready gate reads the
+# same flag to assert the reverse branch was exercised.
+APPLY_DIRECTION_LEGACY_TO_WEB = "legacy-to-web"
+APPLY_DIRECTION_WEB_TO_LEGACY = "web-to-legacy"
 
 
 def _format_apply_error(reason: str, *, exit_code: int) -> str:
@@ -207,6 +216,23 @@ def build_parser() -> argparse.ArgumentParser:
         dest="check_only",
         action="store_true",
         help="Dry-run: report planned writes without mutating the web DB.",
+    )
+    apply_cmd.add_argument(
+        "--direction",
+        dest="direction",
+        choices=(APPLY_DIRECTION_LEGACY_TO_WEB, APPLY_DIRECTION_WEB_TO_LEGACY),
+        default=APPLY_DIRECTION_LEGACY_TO_WEB,
+        help=(
+            "Apply direction. ``legacy-to-web`` (default) reads from the "
+            "legacy ``.accdb`` and writes into the web DB (PR3 / M1). "
+            "``web-to-legacy`` reads from the web DB and writes to the "
+            "legacy ``.accdb`` via the reverse applier (PR6 / M2). "
+            "The reverse path carries the MSACCESS pre-flight, the "
+            "advisory lock, the per-strategy preserve/derived/fixed "
+            "rules from ``web-only-feature-preservation/spec.md``, "
+            "the LIFECYCLE_REVERSED event surface, and the rowcount=0 "
+            "drift detection that records ``needs_review`` rows."
+        ),
     )
 
     status = sub.add_parser(
@@ -871,6 +897,18 @@ def run_apply(
     results: list[ApplyResult] = []
     try:
         for table in tables:
+            if getattr(args, "direction", APPLY_DIRECTION_LEGACY_TO_WEB) == APPLY_DIRECTION_WEB_TO_LEGACY:
+                results.append(
+                    apply_web_to_legacy(
+                        web_client,  # type: ignore[arg-type]
+                        table,
+                        legacy_path=args.legacy_path,
+                        dry_run=bool(args.check_only),
+                        web_snapshot=None,
+                        lock_path=None,
+                    )
+                )
+                continue
             results.append(
                 apply_legacy_to_web(
                     web_client,
@@ -1062,6 +1100,9 @@ def main(
 
 
 __all__ = [
+    "APPLY_DIRECTION_LEGACY_TO_WEB",
+    "APPLY_DIRECTION_WEB_TO_LEGACY",
+    "MIGRATION_RUNBOOK_REF",
     "build_parser",
     "main",
     "run_apply",

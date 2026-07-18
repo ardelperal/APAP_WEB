@@ -46,7 +46,10 @@
 - [x] PR5 5.2 **GREEN**: Implemented `migration/dni_collision.py` (NEW: `record_dni_collision` helper that routes one row to `web_only_feature_shadow` with `reconciliation_status="needs_review"`, `review_reasons=["dni_collision"]`, `preserved_value=None`, `strategy="preserve"`, `origin_direction=<direction>`; accepts `direction="web-only"` and `direction="web-to-legacy"` and persists the value verbatim on the shadow row via the new `origin_direction` column added in PR5 remediation; `DniCollisionCounter` is the per-run mutable counter that the apply pipeline bumps and the report builder reads). The helper is fully unit-tested (9 atoms in `test_dni_collision.py` covering both scopes + the counter increment + helper invariants + CLI parser surface). **The forward applier does NOT invoke `record_dni_collision`** because legacy `TbVoluntariosParaAutorrellenables` has no `DNI` column (Dysflow-verified 2026-07-11; the forward applier never writes `voluntarios.dni`). The DI seam is wired today so the PR6 reverse applier can pass a `DniCollisionCounter()` and read its value at the end of the run to populate `MigrationReport.collisions[table_name]["dni_collisions"]`. The seam is exercised by `tests/migration/test_dni_collision.py::test_forward_legacy_produces_zero_dni_collisions` (which passes a fresh counter through the seam and asserts it stays at 0 — NOT tautological: pins the contract that `apply_legacy_to_web` MUST NOT bump on forward apply). Extended `migration/shadow_state.py::list_needs_review` with an `origin_direction` kwarg; stamps `"legacy-to-web"` on every row until PR6's reverse applier starts producing its own rows; backward-compatible default `None` (no filter). The `ShadowStateRepository.upsert` signature also gained an `origin_direction` kwarg (with a new closed three-value CHECK constraint on the column). Extended `migration/cli.py` with `--filter-direction {legacy-to-web, web-to-legacy, both}` (default `"both"`); forwarded to `shadow_state.list_needs_review`. Added `_is_pii_web_column` + `_mask_pii_value` helpers; `_format_row_for_check_only` + `_format_row_for_interactive` mask `preserved_value` AND `derived_value` to `[REDACTED]` when `web_column` is in the closed `REDACTED_FIELDS` set; both formatters stamp `origin_direction` per spec REQ-PII-Audit. Added `_PII_VALUE_PATTERNS` + `_looks_like_pii(value)` helper; the CLI masks `legacy_pk` and `web_pk` to `[REDACTED]` when the value matches a DNI / email / phone regex (UUIDs and NCHIPs do not match and pass through unchanged). Renamed `app.core.logging::_normalize_key` → `normalize_key` (now public API; `migration.cli` consumes it for the same closed-list comparison against `web_column`). Updated `docs/discovery/migration-risks.md` with `## Source snapshot identity` section (PR3 lock-snapshot contract, SHA-256 fingerprints, drift detection, per-table hashes) and `## Collision policy (corrected)` section (3 legacy-mapped PII columns + 1 web-only DNI with `legacy_column: null`, Dysflow `get_schema` evidence cited, forward zero-collision invariant, collision routing helper location, closed redaction list cross-reference, the `origin_direction` three-value vocabulary, and the explicit note that the helper is fully tested but the forward applier does not invoke it — the DI seam is for PR6).
 - [x] PR5 5.3 **VERIFICATION**: focused + migration + full local pytest green (`python -m pytest -W error::DeprecationWarning --deselect tests/test_voluntarios_concurrent.py -q` → **2365 passed, 2 skipped (psycopg missing; .env.example absent), 2 deselected in 30.62s**; coverage gate PASS all 17 helpers at 100%); `ruff check .` → All checks passed; `python scripts/check_rules.py app` → exit 0, no output; `python -m build --wheel` → exit 0, `apap_web-0.1.0-py3-none-any.whl` built. Four work-unit commits: `b463d5e` (PR5 WU-1 PII redaction atoms + CLI preserved_value masking), `c278468` (PR5 WU-2 + WU-4 DNI collision routing + reconcile --filter-direction), `1cdd043` (PR5 WU-3 PUBLIC_PATHS invariant + per-route 302-to-login pins), `f02b82c` (PR5 WU-5 source-snapshot-identity + collision-policy sections), `8fe6104` (lint fix for ruff E402).
 - [x] PR5 Rollback: revert the 5 PR5 work-unit commits in reverse chronological order (`8fe6104` → `f02b82c` → `1cdd043` → `c278468` → `b463d5e`). This drops `migration/dni_collision.py`, the 9 new test atoms in `test_dni_collision.py`, the 10 new test atoms in `test_pii_redaction.py`, the 3 new test atoms in `test_cli.py`, the 10 new test atoms in `test_public_paths.py`, the 2 new sections in `docs/discovery/migration-risks.md`, the `--filter-direction` flag, the `origin_direction` filter on `ShadowStateRepository.list_needs_review`, and the `_is_pii_web_column` / `_mask_pii_value` helpers + the `preserved_value` masking in the CLI formatters. The pre-PR5 `migration/cli.py`, `migration/shadow_state.py`, and `app/main.py` stay valid (the new code is additive; `list_needs_review`'s new `origin_direction` kwarg has a `None` default so PR4-equivalent callers see the same listing). The pre-PR5 `docs/discovery/migration-risks.md` stays valid (the original sections are unchanged; the new sections are additions that simply restate the spec's verified evidence). No InsForge bucket/object/data rollback exists because PR5 performed no mutation.
-- [ ] PR6 6.1–6.3, PR7 7.1–7.3 — UNTOUCHED (per orchestrator/user instruction; PR6 = reverse apply + round-trip; PR7 = verify-fallback-ready gate)
+- [x] PR6 6.1 RED — `tests/migration/test_reverse_apply.py` (9 atoms GREEN-collected; 2 happy-path companions added per Hard Rule 5 three-paths coverage: `test_apply_web_to_legacy_dry_run_reports_zero` + `test_sync_state_rollback_on_legacy_write_failure`)
+- [x] PR6 6.2 GREEN — `migration/apply_reverse.py` + `migration/dysflow_client.py::execute_legacy_write` + `migration/legacy_reader.py::set_legacy_write_executor` + `migration/apply.py` direction kwarg + `migration/semantic_events.py::record_lifecycle_reversed` (all 12 atoms pass + 9 reverse apply + 5 round trip)
+- [x] PR6 6.3 VERIFICATION — `pytest tests/migration/test_reverse_apply.py tests/migration/test_round_trip.py -v` → 14 atoms green; full migration suite 255 passed; ruff check migration/ tests/migration/ clean; full local gate 2393 passed, 2 skipped (psycopg + .env.example), 2 deselected
+- [ ] PR7 7.1–7.3 — UNTOUCHED (per orchestrator/user instruction; PR7 = verify-fallback-ready gate)
 - [ ] 9.1 Automatic partial-apply resume — deferred to follow-up PR before M2 fallback-ready; see `tasks.md` 9.1. PR3 deliberately does NOT implement auto-resume.
 
 ### TDD Cycle Evidence
@@ -547,3 +550,102 @@ Per the runbook, the bucket itself is NOT deleted by the rollback path; operator
 - audit doc: `docs/audits/pii-live-migration-2026-Q3.md` (+43 lines; PR4b verdict still PASS)
 - discovery doc: `docs/discovery/migration-risks.md` (+37 lines: source-snapshot-identity + collision-policy)
 - next: PR6 (M2 reverse apply + round-trip tests) and PR7 (verify-fallback-ready gate) remain on the roadmap
+
+
+## PR6 6.1 RED — `2026-07-18T18:59:43+00:00`
+
+Strict TDD: RED-first. Wrote `tests/migration/test_reverse_apply.py` and `tests/migration/test_round_trip.py` BEFORE any production code.
+
+- `tests/migration/test_reverse_apply.py` (9 atoms):
+  - `test_apply_web_to_legacy_inserts`
+  - `test_apply_web_to_legacy_updates`
+  - `test_apply_web_to_legacy_dry_run_does_not_write`
+  - `test_apply_web_to_legacy_dry_run_reports_zero`
+  - `test_preserve_column_not_written_to_legacy` (static grep, zero matches for `UPDATE web_only_feature_shadow SET preserved_value=` in `migration/apply_reverse.py`)
+  - `test_derived_column_no_rederive_on_reverse` (monkeypatches `derive_estado_actual_animal` + `compare_derived_to_stored` to raise; reverse applier must not call them)
+  - `test_lifecycle_reversed_event_emitted` (monkeypatches `migration.semantic_events.record_lifecycle_reversed`; asserts `source_direction="web-to-legacy"` stamp)
+  - `test_sync_state_updated_transactionally` (legacy write succeeds → `sync_state.tables[voluntarios].last_sync_at` advances)
+  - `test_sync_state_rollback_on_legacy_write_failure` (companion: legacy write raises → `sync_state.json` byte-identical to pre-apply)
+- `tests/migration/test_round_trip.py` (5 atoms):
+  - `test_round_trip_100_animals_preserves_nchip`
+  - `test_round_trip_100_voluntarios_preserves_dni`
+  - `test_round_trip_with_3_edits_applies_3_updates`
+  - `test_round_trip_detects_unsynced_edits_as_needs_review`
+  - `test_round_trip_counts_preserved`
+
+RED execution:
+```
+pytest tests/migration/test_reverse_apply.py tests/migration/test_round_trip.py -q
+# 0 collected (collection error: ModuleNotFoundError: migration.apply_reverse)
+```
+RED confirmed. Both test files reference the production module the PR6 GREEN step ships.
+
+## PR6 6.2 GREEN — `2026-07-18T18:59:43+00:00`
+
+Implementation shipped:
+
+- `migration/apply_reverse.py` (NEW, 1130 L):
+  - `apply_web_to_legacy(client, table_name, *, legacy_path, web_snapshot, dry_run, lock_path, dni_collision_counter, sync_state_path)` — PR6 spec entry point.
+  - Bulk reads web + legacy snapshots, computes diff per row in-memory.
+  - Per-row outcomes: ``applied`` (INSERT/UPDATE with log_safe audit) vs ``skipped`` (no-op).
+  - `LIFECYCLE_REVERSED` event for derived-column state changes (spec scenario). Derivation engine NEVER invoked on reverse.
+  - `preserve` columns advance `web_only_feature_shadow.last_legacy_snapshot_at` and bump `dni_collision_counter`; never write `preserved_value` (per-strategy table).
+  - Drift detection: rowcount=0 → record `needs_review` shadow row with `review_reasons=["reverse_drift_legacy_row_missing"]`.
+  - Sync-state transaction: snapshot pre-apply bytes; advance `tables[table].last_sync_at` AFTER legacy writes commit; rollback on exception.
+- `migration/dysflow_client.py::execute_legacy_write(path, sql, params)` (NEW): pyodbc-backed write seam returning rowcount. Mirrors `execute_legacy_sql` seam.
+- `migration/legacy_reader.py::set_legacy_write_executor` (NEW): mirrors `set_legacy_query_executor`. Inline executor pattern: writes callable `(path, sql, params) -> int`.
+- `migration/apply.py`: lifted hardcoded `direction="legacy-to-web"` (lines 568/603/631). New `direction: str = "legacy-to-web"` kwarg on `apply_legacy_to_web`. The reverse applier passes `direction="web-to-legacy"`.
+- `migration/semantic_events.py::record_lifecycle_reversed(...)` (NEW): emit `LIFECYCLE_REVERSED` event with `source_direction="web-to-legacy"` stamp.
+- `migration/mappings/animal.yaml`: added `current_state` column with `web_only_strategy=derived` so the `LIFECYCLE_REVERSED` event has a signal column to fire on (the per-strategy table contract).
+- `migration/cli.py`: `--direction {legacy-to-web,web-to-legacy}` flag on `apply_cmd` (default `legacy-to-web` to keep PR1-PR5 CLI behavior unchanged); new `APPLY_DIRECTION_WEB_TO_LEGACY`/`APPLY_DIRECTION_LEGACY_TO_WEB` constants; `run_apply` dispatches reverse on the new flag.
+- `tests/migration/conftest.py`: `_apply_shadow_update` helper routes the `update_reconciliation_status` UPDATE through the in-memory shadow store so PR6 review-reason stamps survive in the test fixture.
+- `tests/migration/test_round_trip.py` + `tests/migration/test_reverse_apply.py` (GREEN).
+- `migration/cli.py::run_apply` correctly dispatches to `apply_web_to_legacy` when `args.direction == "web-to-legacy"`.
+
+GREEN execution:
+```
+pytest tests/migration/test_reverse_apply.py tests/migration/test_round_trip.py -v
+# 14 passed in 0.45s
+pytest tests/migration -q
+# 255 passed in 4.86s (was 241 before PR6; +14 = the reverse apply 9 + round-trip 5)
+ruff check migration/ tests/migration/
+# All checks passed!
+```
+
+Coverage gate still PASS: all 17 helpers at 100% line coverage (no new ``_row_to_*`` helpers added in PR6 — the per-row helpers are inside ``_reverse_apply_one_row`` and consumed by the new tests; pre-existing ``CRITICAL_HELPERS`` list unchanged).
+
+## PR6 6.3 VERIFICATION — `2026-07-18T18:59:43+00:00`
+
+Regression check + full local gate + ruff scope:
+
+```
+pytest -W error::DeprecationWarning --deselect tests/test_voluntarios_concurrent.py -q
+# 2393 passed, 2 skipped (psycopg + .env.example), 2 deselected in 71.58s
+ruff check migration/ tests/migration/
+# All checks passed.
+python -c "from migration.apply_reverse import apply_web_to_legacy, DIRECTION_WEB_TO_LEGACY"
+# OK
+python -c "from migration.cli import build_parser; p = build_parser(); a = p.parse_args(['apply', '--legacy-path', '/x', '--direction', 'web-to-legacy']); print(a.direction)"
+# web-to-legacy
+```
+
+PR5 regression check: `tests/migration/test_dni_collision.py::test_forward_legacy_produces_zero_dni_collisions` → PASS. The reverse DI seam (counter incremented per `record_dni_collision` call) co-exists with the forward counter (forward never bumps).
+
+Audit doc updated: `docs/audits/pii-live-migration-2026-Q3.md` PR6 section enumerates the new M2 invariants, the new tests, and reconfirms the verdict (PASS — PII redaction discipline / authorization / 15-field list unchanged).
+
+Runbook updated: `docs/runbooks/live-migration-apply.md` adds a "Reverse direction (PR6 / M2)" section with when-to-trigger / pre-deploy checklist / deploy steps / verification / files-written / rollback subsections (all five AGENTS §13 headings present; `tests/test_runbook_links.py` still green).
+
+Files written (additive only; PR1..PR5 atoms untouched):
+- `migration/apply_reverse.py` (NEW, 1130 L)
+- `tests/migration/test_reverse_apply.py` (NEW, 9 atoms)
+- `tests/migration/test_round_trip.py` (NEW, 5 atoms)
+- `migration/dysflow_client.py` (MOD: +`execute_legacy_write`)
+- `migration/legacy_reader.py` (MOD: +`set_legacy_write_executor` + `_execute_legacy_write` + `LegacyWriter`)
+- `migration/apply.py` (MOD: direction kwarg threaded through the SIGINT handler + snapshot helper)
+- `migration/semantic_events.py` (MOD: +`LIFECYCLE_REVERSED_SOURCE_DIRECTION` + `record_lifecycle_reversed`)
+- `migration/mappings/animal.yaml` (MOD: +`current_state` derived column)
+- `migration/cli.py` (MOD: --direction flag on `apply_cmd`)
+- `tests/migration/conftest.py` (MOD: `FakeInsForge._apply_shadow_update`)
+- `docs/audits/pii-live-migration-2026-Q3.md` (append PR6 verdict section)
+- `docs/runbooks/live-migration-apply.md` (append "Reverse direction (PR6 / M2)" section)
+- `openspec/changes/live-data-migration-sandbox/apply-progress.md` (this section)

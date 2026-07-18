@@ -244,6 +244,34 @@ so the PR6 reverse applier can invoke the helper on
 `web-to-legacy` collisions; the seam is exercised by the
 zero-bump atom in `tests/migration/test_dni_collision.py`.
 
+### PR6 Additions (2026-07-18, reverse apply + round-trip)
+
+PR6 (`feat/live-migration-reverse-apply`) ships the symmetric
+`apply_web_to_legacy` path and adds five round-trip invariants
+on top of the PR5 surface. This section enumerates the new
+invariants, the new tests, and reconfirms the verdict.
+
+#### New invariants
+
+| Invariant | Surface | Where it lives |
+|---|---|---|
+| `apply_web_to_legacy(client, table_name, *, web_snapshot, dry_run, lock_path)` is a public reverse-applier entry point | Reuses `execute_legacy_sql` (PR1) and a new symmetric `execute_legacy_write` seam (`migration.dysflow_client.execute_legacy_write`); MSACCESS pre-flight + lock + snapshot all mirror the forward path | `migration/apply_reverse.py`; `migration/dysflow_client.py::execute_legacy_write`; `migration/legacy_reader.py::set_legacy_write_executor` |
+| `migration.semantic_events.record_lifecycle_reversed(...)` emits a `LIFECYCLE_REVERSED` event with `source_direction="web-to-legacy"` | Reverse applier invokes the emitter once per derived-column state change observed between forward and reverse apply | `migration/semantic_events.py`; `migration/apply_reverse.py::_emit_reversed_lifecycle_events_for_changed_derived` |
+| `migration.cli.APPLY_DIRECTION_WEB_TO_LEGACY` flag threaded through `run_apply` | CLI default remains `legacy-to-web` (backward compat); `--direction web-to-legacy` dispatches to `apply_web_to_legacy` | `migration/cli.py::build_parser` + `run_apply` |
+| Per-strategy table honoured symmetrically on reverse (`preserve` advances `last_legacy_snapshot_at`, `derived` does NOT re-derive, `fixed` is never written) | The reverse applier never writes `preserved_value` (pinned by `tests/migration/test_reverse_apply.py::test_preserve_column_not_written_to_legacy` static grep); the derivation engine is never invoked on reverse (pinned by `test_derived_column_no_rederive_on_reverse`) | `migration/apply_reverse.py::_advance_preserve_shadow_state` |
+| Drift detection on reverse: rowcount=0 → record `needs_review` shadow row with `review_reasons=["reverse_drift_legacy_row_missing"]` | Operator resolves via `apap-migrate reconcile --filter-direction web-to-legacy` | `migration/apply_reverse.py::_record_drift_needs_review` (pinned by `tests/migration/test_round_trip.py::test_round_trip_detects_unsynced_edits_as_needs_review`) |
+
+#### M2 verdict (re-confirmed)
+
+**PASS** for the M2 reverse path. The round-trip invariants
+(`tests/migration/test_round_trip.py`, 5 atoms) are exercised via
+`FakeInsForge` + injected legacy executor + injected legacy write
+seam; no real backend mutation. PII redaction discipline
+(15-field closed list) and authorization invariants from PR4b /
+PR5 are unchanged — the reverse applier goes through
+`app.core.logging.log_safe` (15 fields scrubbed) and never
+touches the storage bucket (forward-only).
+
 ### Operator acknowledgement
 
 The operator MUST review and accept this verdict as part of the M1
