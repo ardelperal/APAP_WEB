@@ -34,6 +34,7 @@ CRITICAL_HELPERS: frozenset[str] = frozenset(
         "_is_duplicate_error",
         "_validate_create_params",
         "_build_insert_params",
+        "_reverse_apply_one_row",
     }
 )
 

@@ -94,6 +94,7 @@ from migration.lock_snapshot import (
     write_snapshot,
 )
 from migration.mappings import load_mapping
+from migration.reporting import MigrationReport
 from migration.shadow_state import ShadowStateRepository
 from migration.sync_state import load_sync_state, save_sync_state, update_last_sync_at
 
@@ -260,6 +261,7 @@ def apply_web_to_legacy(
     partial_path: Path | None = None,
     photos_dir_path: Path | str | None = None,
     dni_collision_counter: DniCollisionCounter | None = None,
+    migration_report: MigrationReport | None = None,
     sync_state_path: Path | None = None,
 ) -> ApplyResult:
     """Bulk-apply web rows for one table into the legacy ``.accdb``.
@@ -531,6 +533,12 @@ def apply_web_to_legacy(
                         f"the cursor): {exc}"
                     )
 
+        if migration_report is not None:
+            migration_report.counts.setdefault(safe, {})["count_web"] = len(web_rows)
+            migration_report.collisions.setdefault(safe, {})[
+                "dni_collisions"
+            ] = dni_collision_counter.value if dni_collision_counter is not None else 0
+
         return ApplyResult(
             table_name=safe,
             applied=applied,
@@ -702,6 +710,7 @@ def _reverse_apply_one_row(
     # reverse-path signal and must surface on every processed row,
     # not just rows whose mapped payload differs.
     _emit_reversed_lifecycle_events_for_changed_derived(
+        client=client,
         mapping=mapping,
         existing_legacy_row=existing,
         web_row=web_row,
@@ -791,7 +800,9 @@ def _insert_legacy_row(
     # the columns the row provides. The natural key is bound as the
     # first parameter so a typo on the natural-key column lands in a
     # clean INSERT instead of NULL.
-    cols = [c for c in legacy_payload if _SAFE_TABLE_NAME.match(c)]
+    cols = [
+        c for c in legacy_payload if _SAFE_TABLE_NAME.match(c) and c != natural_key
+    ]
     if not cols:
         raise ValueError(
             f"no safe columns to INSERT into {legacy_table}; payload={legacy_payload!r}"
@@ -882,6 +893,7 @@ def _record_drift_needs_review(
 
 def _emit_reversed_lifecycle_events_for_changed_derived(
     *,
+    client: _InsForgeLike,
     mapping: Any,
     existing_legacy_row: dict[str, Any],
     web_row: dict[str, Any],
@@ -918,6 +930,24 @@ def _emit_reversed_lifecycle_events_for_changed_derived(
             post_state=str(post_state) if post_state is not None else None,
             legacy_source_table=mapping.legacy_table,
             legacy_source_id=legacy_pk_id,
+        )
+        animal_id = _case_insensitive_get(web_row, "id")
+        if animal_id is None:
+            rows = client.execute_sql(
+                f"SELECT id FROM {_safe_table(mapping.web_table)} "
+                f"WHERE {_safe_table(mapping.key_field)} = $1",
+                [legacy_pk],
+            )
+            animal_id = rows[0].get("id") if rows else None
+        if animal_id is None:
+            raise ValueError(
+                f"Cannot resolve animal_id for reversed lifecycle event {legacy_pk!r}"
+            )
+        semantic_events_mod.persist_lifecycle_reversed(
+            web_client=client,
+            event=event,
+            animal_id=str(animal_id),
+            source_entity_id=str(animal_id),
         )
         logging_mod.log_safe(
             "lifecycle.reversed",

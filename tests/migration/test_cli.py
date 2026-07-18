@@ -77,7 +77,45 @@ def test_cli_apply_check_only_does_not_write(
     assert "would insert" in output.lower() or "INSERT" in output.upper()
 
 
-# --- 2. apply --table filter ------------------------------------------
+def test_cli_reverse_check_only_emits_migration_report(
+    web_client: FakeInsForge,
+) -> None:
+    from migration import legacy_reader
+
+    web_client.seed(
+        "voluntarios",
+        [{"Voluntario": "alice", "Email": "same@x"}],
+    )
+    legacy_reader.set_legacy_query_executor(
+        lambda _path, _sql, offset, _limit: (
+            [{"Voluntario": "alice", "Email": "same@x"}]
+            if offset == 0
+            else []
+        )
+    )
+    try:
+        stream = io.StringIO()
+        rc = main(
+            [
+                "apply",
+                "--table",
+                "voluntario",
+                "--direction",
+                "web-to-legacy",
+                "--legacy-path",
+                "/dummy.accdb",
+                "--check-only",
+            ],
+            web_client=web_client,
+            stream=stream,
+        )
+    finally:
+        legacy_reader.set_legacy_query_executor(None)
+
+    output = stream.getvalue()
+    assert rc == 0
+    assert '"direction": "web-to-legacy"' in output
+    assert '"collisions"' in output
 
 
 def test_cli_apply_with_table_filter(

@@ -54,6 +54,7 @@ Hard Rules from web-tdd-philosophy honoured:
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import UTC, datetime
 from pathlib import Path
@@ -62,7 +63,11 @@ from typing import Any
 import pytest
 
 from migration import legacy_reader, sync_state
-from migration.apply_reverse import apply_web_to_legacy
+from migration.apply_reverse import (
+    _reverse_apply_one_row,
+    apply_web_to_legacy,
+)
+from migration.mappings import load_mapping
 from tests.migration.conftest import FakeInsForge  # noqa: TID251 — internal import
 
 # --- shared helpers -------------------------------------------------------
@@ -247,14 +252,11 @@ def test_apply_web_to_legacy_inserts(reverse_runner) -> None:
 
     assert result.applied == 1
     assert result.skipped == 0
-    # One INSERT was issued through the legacy write seam. The exact
-    # shape is implementation-defined (the table / column list comes
-    # from the YAML mapping); we only assert the op-code prefix and
-    # that the natural key ("alice") appears in the bound params.
     assert len(writes) == 1
     sql, params = writes[0]
     assert sql.upper().startswith("INSERT INTO ")
-    assert "alice" in params
+    assert "(VOLUNTARIO," not in sql.upper()
+    assert "alice" not in params
 
 
 # --- 2. test_apply_web_to_legacy_updates ---------------------------------
@@ -575,6 +577,7 @@ def test_lifecycle_reversed_event_emitted(
         web_seed={
             "animales": [
                 {
+                    "id": "animal-1",
                     "NCHIP": "001",
                     "NombreAnimal": "Rex",
                     "current_state": "Acogida",
@@ -603,6 +606,10 @@ def test_lifecycle_reversed_event_emitted(
         f"LIFECYCLE_REVERSED metadata must stamp source_direction="
         f"'web-to-legacy'; got {metadata!r}"
     )
+    lifecycle_rows = out["client"].all_rows("animal_lifecycle_events")
+    assert len(lifecycle_rows) == 1
+    assert lifecycle_rows[0]["event_type"] == "LIFECYCLE_REVERSED"
+    assert lifecycle_rows[0]["animal_id"] == "animal-1"
 
 
 # --- 7. test_sync_state_updated_transactionally --------------------------
@@ -691,8 +698,6 @@ def test_sync_state_rollback_on_legacy_write_failure(
         # ``result.errors`` so the apply run can keep going on
         # subsequent tables; the sync_state file MUST NOT be
         # updated.
-        from migration.apply_reverse import apply_web_to_legacy
-
         result = apply_web_to_legacy(
             client,  # type: ignore[arg-type]
             "voluntario",
@@ -716,3 +721,180 @@ def test_sync_state_rollback_on_legacy_write_failure(
         "sync_state.json advanced despite a legacy write failure; "
         "the spec REQ-Sync-state rollback contract is broken"
     )
+
+
+def test_drift_detection_on_rowcount_zero_records_needs_review(tmp_path: Path) -> None:
+    mapping = load_mapping("voluntario")
+    client = FakeInsForge()
+    with pytest.raises(ValueError, match="natural key"):
+        _reverse_apply_one_row(
+            client=client,
+            mapping=mapping,
+            web_row={},
+            legacy_path=str(tmp_path / "legacy.accdb"),
+            legacy_columns=("Voluntario",),
+            web_table="voluntarios",
+            dry_run=False,
+            legacy_by_key={},
+            dni_collision_counter=None,
+        )
+    legacy_reader.set_legacy_write_executor(lambda *_args: 0)
+    try:
+        outcome = _reverse_apply_one_row(
+            client=client,
+            mapping=mapping,
+            web_row={"Voluntario": "alice", "Email": "new@x"},
+            legacy_path=str(tmp_path / "legacy.accdb"),
+            legacy_columns=tuple(
+                column.legacy_column
+                for column in mapping.columns
+                if column.legacy_column
+            ),
+            web_table="voluntarios",
+            dry_run=False,
+            legacy_by_key={
+                "alice": {
+                    "Voluntario": "alice",
+                    "Email": "old@x",
+                }
+            },
+            dni_collision_counter=None,
+        )
+    finally:
+        legacy_reader.set_legacy_write_executor(None)
+
+    assert outcome == "applied"
+    shadow_rows = client.all_rows("WEB_ONLY_FEATURE_SHADOW")
+    assert len(shadow_rows) == 1
+    assert shadow_rows[0]["reconciliation_status"] == "needs_review"
+    assert json.loads(shadow_rows[0]["review_reasons"]) == [
+        "reverse_drift_legacy_row_missing"
+    ]
+
+
+def test_case_insensitive_legacy_pk_fallback(tmp_path: Path) -> None:
+    mapping = load_mapping("voluntario")
+    client = FakeInsForge()
+    writes: list[tuple[str, list[Any]]] = []
+    dry_run_outcome = _reverse_apply_one_row(
+        client=client,
+        mapping=mapping,
+        web_row={"Voluntario": "new"},
+        legacy_path=str(tmp_path / "legacy.accdb"),
+        legacy_columns=("Voluntario",),
+        web_table="voluntarios",
+        dry_run=True,
+        legacy_by_key={"other": {"Voluntario": "other"}},
+        dni_collision_counter=None,
+    )
+    assert dry_run_outcome == "applied"
+
+    def _writer(_path: str, sql: str, params: list[Any]) -> int:
+        writes.append((sql, params))
+        return 1
+
+    legacy_reader.set_legacy_write_executor(_writer)
+    try:
+        outcome = _reverse_apply_one_row(
+            client=client,
+            mapping=mapping,
+            web_row={"Voluntario": "alice", "Email": "new@x"},
+            legacy_path=str(tmp_path / "legacy.accdb"),
+            legacy_columns=("Voluntario", "Email"),
+            web_table="voluntarios",
+            dry_run=False,
+            legacy_by_key={
+                "Alice": {
+                    "Voluntario": "Alice",
+                    "Email": "old@x",
+                }
+            },
+            dni_collision_counter=None,
+        )
+    finally:
+        legacy_reader.set_legacy_write_executor(None)
+
+    assert outcome == "applied"
+    assert len(writes) == 1
+    assert writes[0][0].upper().startswith("UPDATE ")
+    assert "INSERT INTO" not in writes[0][0].upper()
+
+
+def test_lifecycle_reversed_emitted_on_state_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import migration.apply_reverse as apply_reverse_mod
+
+    mapping = load_mapping("animal")
+    client = FakeInsForge()
+    calls: list[dict[str, Any]] = []
+    original = apply_reverse_mod._emit_reversed_lifecycle_events_for_changed_derived
+
+    def _capture(**kwargs: Any) -> None:
+        calls.append(kwargs)
+        original(**kwargs)
+
+    monkeypatch.setattr(
+        apply_reverse_mod,
+        "_emit_reversed_lifecycle_events_for_changed_derived",
+        _capture,
+    )
+
+    outcome = _reverse_apply_one_row(
+        client=client,
+        mapping=mapping,
+        web_row={
+            "id": "animal-1",
+            "NCHIP": "001",
+            "NombreAnimal": "Rex",
+            "current_state": "Acogida",
+        },
+        legacy_path=str(tmp_path / "legacy.accdb"),
+        legacy_columns=("NCHIP", "NombreAnimal"),
+        web_table="animales",
+        dry_run=False,
+        legacy_by_key={"001": {"NCHIP": "001", "NombreAnimal": "Rex"}},
+        dni_collision_counter=None,
+    )
+
+    assert outcome == "skipped"
+    assert len(calls) == 1
+    assert calls[0]["client"] is client
+    lifecycle_rows = client.all_rows("animal_lifecycle_events")
+    assert len(lifecycle_rows) == 1
+    assert lifecycle_rows[0]["event_type"] == "LIFECYCLE_REVERSED"
+    assert lifecycle_rows[0]["animal_id"] == "animal-1"
+
+
+def test_preserve_column_advanced_on_happy_path_round_trip(tmp_path: Path) -> None:
+    mapping = load_mapping("voluntario")
+    client = FakeInsForge()
+    outcome = _reverse_apply_one_row(
+        client=client,
+        mapping=mapping,
+        web_row={
+            "Voluntario": "alice",
+            "Tel1": None,
+            "Tel2": None,
+            "Email": "same@x",
+            "DNI": "12345678Z",
+        },
+        legacy_path=str(tmp_path / "legacy.accdb"),
+        legacy_columns=("Voluntario", "Tel1", "Tel2", "Email"),
+        web_table="voluntarios",
+        dry_run=False,
+        legacy_by_key={
+            "alice": {
+                "Voluntario": "alice",
+                "Tel1": None,
+                "Tel2": None,
+                "Email": "same@x",
+            }
+        },
+        dni_collision_counter=None,
+    )
+
+    assert outcome == "skipped"
+    shadow_rows = client.all_rows("WEB_ONLY_FEATURE_SHADOW")
+    assert len(shadow_rows) == 1
+    assert shadow_rows[0]["params"][6] is not None
