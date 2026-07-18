@@ -649,3 +649,57 @@ Files written (additive only; PR1..PR5 atoms untouched):
 - `docs/audits/pii-live-migration-2026-Q3.md` (append PR6 verdict section)
 - `docs/runbooks/live-migration-apply.md` (append "Reverse direction (PR6 / M2)" section)
 - `openspec/changes/live-data-migration-sandbox/apply-progress.md` (this section)
+
+## PR6 lens-fix (4R + judgment-day remediation, 2026-07-18)
+
+### F1 — preflight logger alias — 2026-07-18T22:32:06+02:00
+
+Changed `logging_mod.logging_mod.log_safe(...)` to `logging_mod.log_safe(...)` in `migration/apply_reverse.py`. No new atom was required; the focused reverse suite and full strict suite exercise the corrected import path. GREEN: `python -m pytest tests/migration/test_reverse_apply.py -q` → 13 passed; full Ruff and full strict pytest also pass.
+
+### F2 — sync-state snapshot after lock acquisition — 2026-07-18T22:32:06+02:00
+
+Moved `load_sync_state(...)` and `sync_state_pre_bytes = read_bytes()` inside `with lock_ctx`, immediately before the per-row loop. The existing transactional rollback atom remains green. GREEN: `test_sync_state_updated_transactionally` and `test_sync_state_rollback_on_legacy_write_failure` pass; full migration and strict suites pass.
+
+### F3 — unknown legacy rowcount — 2026-07-18T22:32:06+02:00
+
+RED: `python -m pytest tests/migration/test_runtime_boundary.py::test_execute_legacy_write_does_not_coerce_unknown_rowcount -q` → failed with `DID NOT RAISE`. GREEN: the atom passes with `LegacyWriteRowcountUnknownError(rowcount=-1)` and verifies the typed exception; `execute_legacy_write` no longer converts `-1` into drift rowcount `0`, so `_record_drift_needs_review` is not reached for the unknown sentinel.
+
+### F4 — reversed lifecycle INSERT — 2026-07-18T22:32:06+02:00
+
+RED: `test_lifecycle_reversed_event_emitted` failed because `animal_lifecycle_events` contained zero rows while the log event existed. GREEN: `semantic_events.persist_lifecycle_reversed(...)` uses the forward applier INSERT shape and `ON CONFLICT` guard; both the tightened existing atom and the direct state-change atom pass, asserting table content and `LIFECYCLE_REVERSED` metadata.
+
+### F5 — reverse CLI report wiring — 2026-07-18T22:32:06+02:00
+
+RED: `test_cli_reverse_check_only_emits_migration_report` failed because stdout contained only `table=voluntario would insert=0 skipped=1 errors=0`. GREEN: `run_apply` creates `DniCollisionCounter()` and `MigrationReport`, passes both to `apply_web_to_legacy`, emits the JSON report on successful exit, and emits typed-error reports through `log_safe` without breaking the one-line categorical CLI safety contract. The new atom passes.
+
+### F6 — natural-key exclusion from legacy INSERT — 2026-07-18T22:32:06+02:00
+
+RED: `test_apply_web_to_legacy_inserts` failed because the INSERT column list and params still contained `Voluntario` / `alice`. GREEN: `_insert_legacy_row` filters `natural_key` exactly as `_update_legacy_row` does; the atom now asserts the natural-key column and value are absent.
+
+### F7 — direct `_reverse_apply_one_row` coverage — 2026-07-18T22:32:06+02:00
+
+Added four direct atoms: rowcount-zero drift recording, case-insensitive legacy-key fallback, lifecycle event persistence on state change, and preserve-column cursor advancement on a no-edit round trip. RED evidence included the lifecycle direct atom failing before the helper received the client seam; GREEN: `python -m pytest tests/migration/test_reverse_apply.py -q --coverage-file=<temporary>` → 13 passed (9 baseline + 4 new atoms). The tests cover the missing-key and dry-run insert branches needed for the 100% helper gate.
+
+### F8 — CRITICAL_HELPERS allowlist — 2026-07-18T22:32:06+02:00
+
+Added `_reverse_apply_one_row` to `scripts/pytest_plugin/coverage_gate.py` and exempted the migration-owned helper from the app-only drift assertion while retaining the five app-helper checks. Intermediate RED coverage was 90.2% and then 98.0% while the new branch cases were completed. GREEN: full coverage run reports `coverage-gate PASS: all 18 helpers at 100%`; `coverage.json` reports `_reverse_apply_one_row` at 100%.
+
+### PR6 lens-fix verification — 2026-07-18T22:32:06+02:00
+
+| Gate | Command | Result |
+|---|---|---|
+| Focused reverse atoms | `python -m pytest tests/migration/test_reverse_apply.py -q --coverage-file=<temporary>` | 13 passed |
+| Full migration suite | `python -m pytest tests/migration -q --coverage-file=<temporary>` | 261 passed |
+| Full strict suite | `python -m pytest --cov=app --cov=migration --cov-report=json -W error::DeprecationWarning --ignore=tests/e2e --deselect tests/test_voluntarios_concurrent.py -q` | 2399 passed, 2 skipped, 2 deselected; 0 warnings/failures; coverage gate 18/18 at 100%; total coverage 86.51% |
+| Ruff scoped | `python -m ruff check migration/ tests/migration/` | All checks passed |
+| Ruff full | `python -m ruff check .` | All checks passed |
+| Project rule gate | `python scripts/check_rules.py app` | Exit 0, no output |
+| Build | `python -m build --wheel` | `apap_web-0.1.0-py3-none-any.whl` built |
+
+### PR6 lens-fix commits and rollback boundary
+
+- `898bea7` — `fix(migration): harden reverse preflight and sync-state snapshot` (F1/F2).
+- `0eaf1aa` — `fix(migration): remediate PR6 reverse apply review findings` (F3–F8).
+- Rollback: revert `0eaf1aa` to remove the PR6 lens remediation, then revert `898bea7` to restore the pre-fix F1/F2 behavior. The two pre-existing PR6 commits remain untouched. No Access, InsForge, storage, or production backend mutation was performed.
+- Scope proof: `proposal.md`, `design.md`, `exploration.md`, and `specs/` were not modified; unrelated `.atl/*` artifacts and `openspec/changes/adopt-03-seguimiento-state-machine/` remain unstaged and untracked as found.
+
