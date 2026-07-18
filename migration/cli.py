@@ -37,12 +37,13 @@ import argparse
 import re
 import sys
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import IO, Any
 
 from app.core.insforge import InsForgeClient, InsForgeError
-from app.core.logging import REDACTED_FIELDS, normalize_key
+from app.core.logging import REDACTED_FIELDS, log_safe, normalize_key
 from migration import MsAccessPreflightUnavailableError
 from migration.apply import (
     ApplyResult,
@@ -53,8 +54,10 @@ from migration.apply import (
 )
 from migration.apply_reverse import apply_web_to_legacy
 from migration.bootstrap import APAP_PHOTOS_BUCKET, check_private_bucket, ensure_private_bucket
+from migration.dni_collision import DniCollisionCounter
 from migration.legacy_reader import LegacyReaderError
 from migration.mappings import list_available_tables, load_mapping
+from migration.reporting import MigrationReport
 from migration.shadow_state import ShadowStateRepository
 
 # Stable runbook reference for apply-time errors.
@@ -845,6 +848,33 @@ def _resolve_lock_path() -> Path:
     return Path(migration_dir) / "migration.lock"
 
 
+def _emit_migration_report(
+    report: MigrationReport,
+    results: list[ApplyResult],
+    *,
+    started_at: datetime,
+    stream: IO[str],
+    dry_run: bool,
+    error: str | None = None,
+    emit_stream: bool = False,
+) -> None:
+    finished_at = datetime.now(UTC)
+    finalized = replace(
+        report,
+        applied=not dry_run and any(result.applied > 0 for result in results),
+        finished_at=finished_at,
+        duration_seconds=(finished_at - started_at).total_seconds(),
+        error=error,
+    )
+    if emit_stream:
+        stream.write(finalized.to_json() + "\n")
+    else:
+        log_safe(
+            "migration.report",
+            report=finalized.to_json(),
+        )
+
+
 def run_apply(
     args: argparse.Namespace,
     *,
@@ -885,16 +915,41 @@ def run_apply(
         sys.stderr.write("apap-migrate apply: requires a web_client in this runtime\n")
         return 2
 
+    started_at = datetime.now(UTC)
+    migration_report = MigrationReport(
+        direction=(
+            "web-to-legacy"
+            if getattr(args, "direction", APPLY_DIRECTION_LEGACY_TO_WEB)
+            == APPLY_DIRECTION_WEB_TO_LEGACY
+            else "legacy-to-web"
+        ),
+        mode="dry-run" if args.check_only else "full",
+        dry_run=bool(args.check_only),
+        applied=False,
+        started_at=started_at,
+        finished_at=started_at,
+        duration_seconds=0.0,
+    )
+    dni_collision_counter = DniCollisionCounter()
+    results: list[ApplyResult] = []
+
     since: datetime | None = None
     if args.since is not None:
         try:
             since = datetime.fromisoformat(args.since)
         except (TypeError, ValueError) as exc:
             stream.write(f"apap-migrate apply: invalid ISO-8601 timestamp {args.since!r}: {exc}\n")
+            _emit_migration_report(
+                migration_report,
+                results,
+                started_at=started_at,
+                stream=stream,
+                dry_run=bool(args.check_only),
+                error="invalid_timestamp",
+            )
             return 2
 
     tables = [args.table] if args.table else list_available_tables()
-    results: list[ApplyResult] = []
     try:
         for table in tables:
             if getattr(args, "direction", APPLY_DIRECTION_LEGACY_TO_WEB) == APPLY_DIRECTION_WEB_TO_LEGACY:
@@ -906,6 +961,8 @@ def run_apply(
                         dry_run=bool(args.check_only),
                         web_snapshot=None,
                         lock_path=None,
+                        dni_collision_counter=dni_collision_counter,
+                        migration_report=migration_report,
                     )
                 )
                 continue
@@ -927,6 +984,14 @@ def run_apply(
         stream.write(
             _format_apply_error("msaccess_preflight_unavailable", exit_code=5)
         )
+        _emit_migration_report(
+            migration_report,
+            results,
+            started_at=started_at,
+            stream=stream,
+            dry_run=bool(args.check_only),
+            error="msaccess_preflight_unavailable",
+        )
         return 5
     except MsAccessRunningError:
         # Live MSACCESS.EXE process detected. The exception carries
@@ -935,12 +1000,28 @@ def run_apply(
         stream.write(
             _format_apply_error("msaccess_running", exit_code=5)
         )
+        _emit_migration_report(
+            migration_report,
+            results,
+            started_at=started_at,
+            stream=stream,
+            dry_run=bool(args.check_only),
+            error="msaccess_running",
+        )
         return 5
     except LegacyReaderError:
         # pyodbc / dysflow I/O failure. The exception's ``str()``
         # can include the failing SQL fragment — categorical only.
         stream.write(
             _format_apply_error("legacy_read_failed", exit_code=5)
+        )
+        _emit_migration_report(
+            migration_report,
+            results,
+            started_at=started_at,
+            stream=stream,
+            dry_run=bool(args.check_only),
+            error="legacy_read_failed",
         )
         return 5
     except InsForgeError:
@@ -950,6 +1031,14 @@ def run_apply(
         stream.write(
             _format_apply_error("infra_bootstrap_failed", exit_code=5)
         )
+        _emit_migration_report(
+            migration_report,
+            results,
+            started_at=started_at,
+            stream=stream,
+            dry_run=bool(args.check_only),
+            error="infra_bootstrap_failed",
+        )
         return 5
     except SourceDriftError:
         # PR3 fails closed on drift (no informational proceed).
@@ -958,6 +1047,14 @@ def run_apply(
         # acknowledgement.
         stream.write(
             _format_apply_error("source_drift", exit_code=6)
+        )
+        _emit_migration_report(
+            migration_report,
+            results,
+            started_at=started_at,
+            stream=stream,
+            dry_run=bool(args.check_only),
+            error="source_drift",
         )
         return 6
     except PartialApplyInterruptedError:
@@ -969,6 +1066,14 @@ def run_apply(
         stream.write(
             _format_apply_error("partial_apply_interrupted", exit_code=7)
         )
+        _emit_migration_report(
+            migration_report,
+            results,
+            started_at=started_at,
+            stream=stream,
+            dry_run=bool(args.check_only),
+            error="partial_apply_interrupted",
+        )
         return 7
 
     for result in results:
@@ -979,7 +1084,16 @@ def run_apply(
         )
         for error in result.errors:
             stream.write(f"  error={error}\n")
-    return 0 if not any(r.errors for r in results) else 1
+    exit_code = 0 if not any(r.errors for r in results) else 1
+    _emit_migration_report(
+        migration_report,
+        results,
+        started_at=started_at,
+        stream=stream,
+        dry_run=bool(args.check_only),
+        emit_stream=True,
+    )
+    return exit_code
 
 
 def run_status(

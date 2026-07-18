@@ -114,6 +114,14 @@ ACCESS_DRIVER_SUBSTRINGS: tuple[str, ...] = (
 DEFAULT_QUERY_TIMEOUT_SECONDS: int = 30
 
 
+class LegacyWriteRowcountUnknownError(Exception):
+    """Typed error for a legacy driver that cannot report write rowcount."""
+
+    def __init__(self, *, rowcount: int) -> None:
+        self.rowcount = rowcount
+        super().__init__(f"Legacy write rowcount is unknown: {rowcount}")
+
+
 def _resolve_access_driver(pyodbc_mod: Any) -> str:
     """Return the Microsoft Access Driver name as listed by pyodbc.
 
@@ -307,16 +315,9 @@ def execute_legacy_write(
             raise LegacyReaderError(
                 f"Legacy write failed for {path}: {exc}"
             ) from exc
-        # ``cursor.rowcount`` is the canonical pyodbc rowcount after
-        # INSERT / UPDATE / DELETE; for Access the value is reported as
-        # the number of rows affected by the statement. ``-1`` means
-        # the driver could not determine the count; we coerce to ``0``
-        # so the reverse applier never sees a sentinel.
         try:
             rowcount = int(cursor.rowcount)
         except (TypeError, ValueError):
-            rowcount = 0
-        if rowcount < 0:
             rowcount = 0
         # Force a commit so the write is durable across operator
         # restarts. Access autocommits per-statement when the cursor
@@ -327,6 +328,8 @@ def execute_legacy_write(
             # If commit fails the driver will still close cleanly;
             # surface the original error via the next ``close``.
             pass
+        if rowcount == -1:
+            raise LegacyWriteRowcountUnknownError(rowcount=-1)
         return rowcount
     finally:
         try:
@@ -338,6 +341,7 @@ def execute_legacy_write(
 __all__ = [
     "ACCESS_DRIVER_SUBSTRINGS",
     "DEFAULT_QUERY_TIMEOUT_SECONDS",
+    "LegacyWriteRowcountUnknownError",
     "execute_legacy_sql",
     "execute_legacy_write",
 ]

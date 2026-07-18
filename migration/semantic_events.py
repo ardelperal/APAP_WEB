@@ -35,6 +35,7 @@ Mapping table (8 combinations, design §5 + lifecycle-event-log-design §4):
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -344,6 +345,7 @@ def _read_int(row: dict[str, Any] | None, field: str) -> int | None:
 __all__ = [
     "LIFECYCLE_REVERSED_SOURCE_DIRECTION",
     "LifecycleEvent",
+    "persist_lifecycle_reversed",
     "record_lifecycle_reversed",
     "translate_diff",
 ]
@@ -420,3 +422,40 @@ def record_lifecycle_reversed(
         source_entity_type="state_reversal",
         metadata=metadata,
     )
+
+
+_REVERSE_SYSTEM_ACTOR = "00000000-0000-0000-0000-000000000000"
+
+
+def persist_lifecycle_reversed(
+    *,
+    web_client: Any,
+    event: LifecycleEvent,
+    animal_id: str,
+    source_entity_id: str | None = None,
+    created_by: str = _REVERSE_SYSTEM_ACTOR,
+) -> None:
+    if not animal_id:
+        raise ValueError("animal_id is required for lifecycle event persistence")
+    sql = (
+        "INSERT INTO animal_lifecycle_events ("
+        "animal_id, event_type, event_timestamp, "
+        "source_entity_type, source_entity_id, "
+        "legacy_source_table, legacy_source_id, "
+        "metadata, created_by"
+        ") VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) "
+        "ON CONFLICT (animal_id, event_type, event_timestamp) DO NOTHING"
+    )
+    params: list[Any] = [
+        animal_id,
+        event.event_type,
+        event.event_timestamp.isoformat(),
+        event.source_entity_type,
+        source_entity_id or animal_id,
+        event.legacy_source_table,
+        event.legacy_source_id,
+        json.dumps(event.metadata) if event.metadata is not None else None,
+        created_by,
+    ]
+    web_client.execute_sql(sql, params)
+
