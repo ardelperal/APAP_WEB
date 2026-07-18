@@ -486,6 +486,105 @@ The rollback is NEVER destructive of:
 are explicitly NOT recommended — they destroy divergence history and
 round-trip evidence.
 
+
+### Reverse direction (PR6 / M2)
+
+PR6 ships the symmetric reverse applier so the operator can run
+``apap-migrate apply --direction web-to-legacy`` after the forward
+apply lands. The reverse path reuses every seam from the forward
+path (lock, MSACCESS pre-flight, snapshot, partial-apply guard,
+``sync_state.json`` transactional update) plus the reverse-only
+hooks:
+
+- ``migration/apply_reverse.py::apply_web_to_legacy`` is the entry
+  point. Signature:
+  ``apply_web_to_legacy(client, table_name, *, legacy_path,
+  web_snapshot, dry_run, lock_path, dni_collision_counter)``.
+- ``migration/dysflow_client.py::execute_legacy_write`` is the
+  pyodbc-backed write seam (mirror of ``execute_legacy_sql``).
+  Inserts and Updates return ``int`` rowcount; ``0`` triggers the
+  drift-recorder.
+- ``migration/cli.py::APPLY_DIRECTION_WEB_TO_LEGACY`` flag
+  threaded through ``run_apply``. Default remains
+  ``legacy-to-web`` so M1 callers stay green.
+- Per-strategy table from
+  ``web-only-feature-preservation/spec.md`` lines 7-15 is honoured
+  symmetrically: ``preserve`` advances ``last_legacy_snapshot_at``
+  and **never writes** ``preserved_value`` (pinned by the static
+  grep in ``test_preserve_column_not_written_to_legacy``);
+  ``derived`` does NOT re-derive (pinned by
+  ``test_derived_column_no_rederive_on_reverse``); ``fixed`` is
+  one-shot bootstrap and never written on reverse.
+- Drift detection: when the legacy write seam reports
+  ``rowcount == 0`` (natural-key row deleted in legacy between
+  forward + reverse), the divergence is recorded as
+  ``needs_review`` with ``review_reasons=["reverse_drift_legacy_row_missing"]``.
+  The operator resolves via
+  ``apap-migrate reconcile --filter-direction web-to-legacy``.
+
+#### When to trigger (reverse)
+
+- A web-side edit needs to land on the operator box (e.g. the
+  operator filled a ``current_state`` override in the web UI
+  between forward and reverse apply).
+- The forward apply ran N minutes ago and the operator wants to
+  re-converge without a full re-run.
+- An M2 accept gate is being exercised (round-trip test, audit).
+
+#### Pre-deploy checklist (reverse)
+
+- The forward apply ``migration.lock_snapshot.json`` exists and
+  matches the current ``.accdb`` (no drift).
+- ``partial_apply.json`` is absent (a prior reverse was not
+  interrupted).
+- ``apply --direction web-to-legacy --check-only`` reports a
+  sane ``would_apply`` count (operator eyeball — no automated
+  threshold yet).
+- ``web_only_feature_shadow.preserved_value`` is byte-identical
+  to the post-forward state for every preserve column (the
+  reverse applier only advances ``last_legacy_snapshot_at``).
+
+#### Deploy steps (reverse)
+
+1. ``apap-migrate apply --direction web-to-legacy --table voluntario
+   --legacy-path $APAP_LEGACY_ACCDB_PATH --check-only`` →
+   preview the diff. Records ``would_apply=N`` on stdout.
+2. ``apap-migrate apply --direction web-to-legacy --table voluntario
+   --legacy-path $APAP_LEGACY_ACCDB_PATH`` → real run. Each
+   applied row emits ``log_safe("sync.applied", direction="web->legacy",
+   ...)`` with the natural key + ``source_hash``. Derived-column
+   state changes emit ``LIFECYCLE_REVERSED`` events.
+3. ``apap-migrate reconcile --filter-direction web-to-legacy
+   --check-only`` → list any ``needs_review`` rows that the drift
+   recorder produced (legacy-row-missing class).
+
+#### Verification (reverse)
+
+- ``MigrationReport.collisions[<table>]["dni_collisions"]`` matches
+  the runtime count of ``reverse_drift_legacy_row_missing``
+  shadow rows + manual ``dni_collision`` shadings.
+- ``sync_state.tables[<table>].last_sync_at`` advanced past the
+  pre-apply value; pre-apply file is byte-identical when no rows
+  were applied (atomic ``save_sync_state`` contract).
+
+#### Files written (reverse)
+
+- ``migration.partial_apply.json`` if SIGINT hits mid-run (operator
+  must remove before retry, same contract as forward).
+- ``sync_state.json`` advances ``tables[<table>].last_sync_at``.
+- ``migration/dni_collision.py::record_dni_collision`` is invoked
+  for each preserve column with a web-side value (e.g. ``DNI``
+  on ``voluntarios``); the counter increments so the PR7
+  reconcile CLI can surface the count.
+
+#### Rollback (reverse)
+
+The reverse apply is idempotent on re-run: rows whose mapped
+payload already matches the legacy skip; ``needs_review`` rows
+stay ``needs_review`` until the operator resolves via the
+``reconcile --interactive`` flow. No destructive cleanup is
+required.
+
 ### Escalation
 
 If the runbook does NOT resolve the issue:
