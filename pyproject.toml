@@ -160,7 +160,10 @@ select = ["E", "F", "W", "I", "UP", "B"]
 # adding "APAP003" to ``select`` makes ruff fail to parse the config
 # with ``Unknown rule selector: `APAP003```). The authoritative
 # APAP001 + APAP003 lint gate is therefore Detector 1 + Detector 5
-# in ``scripts/check_rules.py`` invoked by ``make check-rules``.
+# in ``scripts/check_rules.py``, invoked locally by ``make check-rules``
+# and gated in CI by the lint job's ``python scripts/check_rules.py .``
+# step (AGENTS.md rule 20, issue #200 — pinned by
+# tests/test_ci_workflow.py::test_ci_workflow_lint_job_runs_check_rules_gate).
 # The plugin module stays tested as a plain Python AST visitor
 # (``tests/test_ruff_apap001.py``, ``tests/test_apap003.py``) so the
 # two detectors cannot drift.

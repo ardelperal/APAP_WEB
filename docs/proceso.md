@@ -207,7 +207,7 @@ python -m build
 
 Los flags de cobertura replican exactamente lo que ejecuta el job `test` de `ci.yml` (regla 19 de AGENTS.md): `--cov-fail-under=80` aplica el suelo global de `pyproject.toml` (`fail_under = 80`) y `--cov-report=json` genera el `coverage.json` que alimenta el gate de `CRITICAL_HELPERS` (regla 11). Si la cobertura local pasa, la de CI también — mismo comando, mismo umbral.
 
-Si el repo tiene `scripts/check_rules.py` (detectores propios: APAP003 logger ban, CSRF middleware, log_safe, etc.), correrlo también: `python scripts/check_rules.py`.
+Si el repo tiene `scripts/check_rules.py` (detectores propios: APAP001 rutas/SQL, APAP003 logger ban, CSRF middleware, log_safe, etc.), correrlo también: `python scripts/check_rules.py .` (con `.` como raíz — pasar `app` desactiva en silencio los detectores 5-8). Desde la issue #200 este linter también corre en CI dentro del job `lint` (regla 20 de AGENTS.md), así que si falla en local fallará el build.
 
 ---
 
@@ -319,7 +319,7 @@ git push origin HEAD
 pytest -W error::DeprecationWarning --ignore=tests/e2e --deselect tests/test_voluntarios_concurrent.py --cov=app --cov-report=json --cov-fail-under=80
 ruff check .
 python -m build
-python scripts/check_rules.py
+python scripts/check_rules.py .
 
 # CodeGraph
 codegraph status .           # sesión start

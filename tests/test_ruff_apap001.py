@@ -17,6 +17,7 @@ import pytest
 
 from scripts.ruff_plugin import apap_rules
 from scripts.ruff_plugin.apap_rules import (
+    APAP001Visitor,
     APAPViolation,
     check_tree,
     discover_rule_classes,
@@ -127,6 +128,49 @@ def test_apap001_violation_message_mentions_execute_sql() -> None:
     apap001 = [v for v in violations if v.rule_id == "APAP001"]
     assert apap001
     assert "execute_sql" in apap001[0].message.lower()
+
+
+# --- APAP001Visitor direct coverage (issue #200) --------------------------
+
+
+def test_apap001_visitor_direct_flags_post_handler(tmp_path: Path) -> None:
+    """Issue #200: exercise ``APAP001Visitor`` directly (not via
+    ``check_tree``) so the visitor class itself is pinned — the CI
+    gate (``scripts/check_rules.py`` Detector 1) mirrors this visitor
+    and the two must not drift.
+    """
+    src = _route_post_with_execute_sql()
+    file = tmp_path / "handler.py"
+    visitor = APAP001Visitor(file)
+    visitor.visit(_parse(src, file_name=str(file)))
+    assert visitor.violations
+    assert all(v.rule_id == "APAP001" for v in visitor.violations)
+    assert all(v.file == file for v in visitor.violations)
+
+
+def test_apap001_visitor_ignores_module_level_execute_sql(
+    tmp_path: Path,
+) -> None:
+    """The verb stack must pop correctly: a ``client.execute_sql`` call
+    at module level (or after leaving a write-verb handler) is OUTSIDE
+    any route handler and must NOT be flagged.
+    """
+    src = (
+        "from fastapi import APIRouter\n"
+        "router = APIRouter()\n"
+        "client = object()\n"
+        "@router.post('/x')\n"
+        "def handler_create_thing(payload: dict) -> dict:\n"
+        "    return {'ok': True}\n"
+        "result = client.execute_sql('SELECT 1', [])\n"
+    )
+    file = tmp_path / "handler.py"
+    visitor = APAP001Visitor(file)
+    visitor.visit(_parse(src, file_name=str(file)))
+    assert not visitor.violations, (
+        f"APAP001Visitor wrongly flagged module-level execute_sql: "
+        f"{visitor.violations}"
+    )
 
 
 # --- APAP003 stub --------------------------------------------------------

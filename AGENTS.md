@@ -308,7 +308,7 @@ This project is **pre-MVP**. The default rule is: **all work lands on `main`, ev
 #### 15.1 Pre-MVP gate — all must be true before merging to `main`
 
 1. **Local `pytest` is green.** `python -m pytest -W error::DeprecationWarning` with the same `addopts` from `pyproject.toml` ([tool.pytest.ini_options] block) passes locally. If `tests/test_voluntarios_concurrent.py` is part of the run, the environment must expose `APAP_E2E_BASE_URL` (per `ci.yml` and the REG-S-3 hardening) — in CI the file is `--deselect`-ed because GitHub does not provision Postgres.
-2. **`ci.yml` is green on the head of the branch being merged.** Lint (`ruff check .`), `test` (pytest with `DeprecationWarning` as error), and `build` (`python -m build`) MUST pass. `e2e` and `deploy` are optional per `.github/workflows/ci.yml`: `e2e` is skipped when `APAP_OAUTH_CLIENT_ID` is not set; `deploy` is skipped when `COOLIFY_WEBHOOK_URL` is not set. Their absence is not a merge blocker in pre-MVP.
+2. **`ci.yml` is green on the head of the branch being merged.** Lint (`ruff check .` + the AGENTS.md rule linter `python scripts/check_rules.py .`, rule 20), `test` (pytest with `DeprecationWarning` as error), and `build` (`python -m build`) MUST pass. `e2e` and `deploy` are optional per `.github/workflows/ci.yml`: `e2e` is skipped when `APAP_OAUTH_CLIENT_ID` is not set; `deploy` is skipped when `COOLIFY_WEBHOOK_URL` is not set. Their absence is not a merge blocker in pre-MVP.
 3. **Diff is reviewable.** A single PR diff should stay under the `review_budget_lines: 400` (orchestrator default). If a feature is larger, split into chained PRs using the `chained-pr` skill — never blow up main with a single oversized merge.
 4. **No `--force`, no history rewrite.** Merge with `--no-ff` to keep the feature commit visible; never `git push --force` to `main`; never rebase already-shipped commits.
 
@@ -527,6 +527,12 @@ Enforcement: PR review + `tests/test_mode_isolation.py` (atomic test that confir
 The `fail_under = 80` threshold declared in `pyproject.toml` (`[tool.coverage.report]`) is not documentation: the CI `test` job runs pytest with `--cov=app --cov-report=json --cov-fail-under=80`, so any change that drops total coverage of `app/` below 80% fails the build. The same run writes `coverage.json`, which feeds the `CRITICAL_HELPERS` 100% gate (rule 11) — that gate is unchanged and still applies on top of the global floor. Removing any of the coverage flags from `ci.yml` (or lowering the floor) is a blocked change: it silently disables both gates.
 
 Enforcement: `tests/test_ci_workflow.py::test_ci_workflow_test_job_enforces_global_coverage_floor` pins the flags in `ci.yml` and their parity with `fail_under` in `pyproject.toml`; `--cov-fail-under=80` makes pytest exit non-zero below the floor; `scripts/pytest_plugin/coverage_gate.py` keeps enforcing 100% on `CRITICAL_HELPERS` from the produced `coverage.json`.
+
+### 20. APAP001/APAP003 rule linter enforced in CI
+
+The custom AGENTS.md rule linter (`scripts/check_rules.py` — APAP001 route/SQL isolation, APAP003 raw-logger ban, plus Detectors 2-8: auth default-deny, redirects, DDL role lists, `print` ban, CSRF middleware/SameSite) is a CI gate, not just a local convenience. The `lint` job in `.github/workflows/ci.yml` runs `python scripts/check_rules.py .` after `ruff check .`; any violation fails the build. Ruff cannot run these rules itself (ruff 0.15+ rejects Python-defined rule selectors in `select`), so the AST linter step is the ONLY automated enforcement of APAP001/APAP003 — removing the step from `ci.yml` is a blocked change. The linter must scan the repo root (`.`): passing `app` as the scan root silently disables Detectors 5-8, which resolve `app/`-relative paths against the scanned root. Known false positives stay silenced via `DEFAULT_EXCLUDES` and `.check_rulesignore`.
+
+Enforcement: `tests/test_ci_workflow.py::test_ci_workflow_lint_job_runs_check_rules_gate` pins the step (scoped to the lint job's executable lines) and the repo-root invocation; `scripts/check_rules.py` exits non-zero on any violation, failing the `lint` job; the visitors stay pinned by `tests/test_ruff_apap001.py` and `tests/test_apap003.py` so the ruff-plugin mirror and the CI gate cannot drift.
 
 ---
 

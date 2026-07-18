@@ -33,6 +33,21 @@ jobs:
       - name: Run ruff
         run: ruff check .
 
+      - name: Run AGENTS.md rule linter (APAP001/APAP003 + Detectors 2-8)
+        # Issue #200, AGENTS.md rule 20 — removing this step is a
+        # blocked change. The AST linter (scripts/check_rules.py) is
+        # the authoritative APAP001/APAP003 gate: ruff 0.15+ cannot
+        # select Python-defined rules, so `ruff check .` above never
+        # runs them (see the [tool.ruff.lint] comment in pyproject).
+        # Scan the REPO ROOT (`.`), not `app`: Detectors 5-8 resolve
+        # app/-relative paths against the scanned root, so passing
+        # `app` would silently disable the APAP003/print/CSRF
+        # detectors. Default excludes (DEFAULT_EXCLUDES +
+        # .check_rulesignore) silence the known false positives.
+        # Parity pinned by tests/test_ci_workflow.py::
+        # test_ci_workflow_lint_job_runs_check_rules_gate.
+        run: python scripts/check_rules.py .
+
       - name: Diagnostic secret-leak scan
         run: grep -rE '(http://|https://|sk-|ghp_)[A-Za-z0-9]+' .github/ || true
 
