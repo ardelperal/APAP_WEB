@@ -10,6 +10,14 @@ This module is INTENTIONALLY independent of ``diff_engine.DiffEngine``
 translator is a pure function with no I/O; the caller (PR 4's hook)
 owns the persistence path.
 
+PR6 / M2 adds the symmetric ``LIFECYCLE_REVERSED`` event for the
+reverse path: when a derived column (``current_state``) was overridden
+in web between forward and reverse apply, the reverse applier emits
+a ``LIFECYCLE_REVERSED`` event carrying ``source_direction="web-to-legacy"``,
+the pre/post states, and the legacy source PK so the operator CLI can
+render the transition log without a second pass through the
+derivation engine.
+
 Mapping table (8 combinations, design §5 + lifecycle-event-log-design §4):
 
 | Legacy table        | op     | Field transition                | Event              |
@@ -20,12 +28,14 @@ Mapping table (8 combinations, design §5 + lifecycle-event-log-design §4):
 | ``TbAcogidaAnimal`` | INSERT | —                               | ``FOSTER_STARTED`` |
 | ``TbAcogidaAnimal`` | UPDATE | ``FFinal: NULL → date``         | ``FOSTER_RETURNED``|
 | ``TbAdopcion``      | INSERT | —                               | ``ADOPTION_STARTED``|
-| ``TbAdopcion``      | UPDATE | ``FDevolucion: NULL → date``    | ``ADOPTION_RETURNED``|
+| ``TbAdopcion``      | UPDATE | ``FDevolucion: NULL → date``     | ``ADOPTION_RETURNED``|
 | ``TbFichaAnimal``   | UPDATE | ``FDefuncion: NULL → date``     | ``DEATH_RECORDED`` |
+| *(reverse path)*    | UPDATE | ``pre_state`` ≠ ``post_state`` (derived column override in web) | ``LIFECYCLE_REVERSED`` |
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -333,6 +343,119 @@ def _read_int(row: dict[str, Any] | None, field: str) -> int | None:
 
 
 __all__ = [
+    "LIFECYCLE_REVERSED_SOURCE_DIRECTION",
     "LifecycleEvent",
+    "persist_lifecycle_reversed",
+    "record_lifecycle_reversed",
     "translate_diff",
 ]
+
+
+# --- LIFECYCLE_REVERSED emitter (PR6 / M2 reverse path) ------------------
+#
+# The reverse applier (web -> legacy) observes a derived-column state
+# change (``animal_current_state.current_state`` was overridden in web
+# between forward and reverse apply) and emits a ``LIFECYCLE_REVERSED``
+# event with pre/post states and ``source_direction="web-to-legacy"``.
+# The semantic surface is intentionally narrow: the reverse applier
+# calls this once per state-change row; everything else stays the same
+# as the forward path (no re-derivation, no DDL, no I/O).
+
+
+LIFECYCLE_REVERSED_SOURCE_DIRECTION = "web-to-legacy"
+
+
+def record_lifecycle_reversed(
+    *,
+    pre_state,
+    post_state,
+    legacy_source_table,
+    legacy_source_id,
+    occurred_at=None,
+):
+    """Emit a ``LIFECYCLE_REVERSED`` event for the reverse applier.
+
+    PR6 spec scenario: Web->legacy emits LIFECYCLE_REVERSED event for
+    animal state. The reverse applier (``migration.apply_reverse``)
+    calls this once per derived-column state change it observes between
+    forward and reverse apply.
+
+    Args:
+        pre_state: the ``current_state`` derived by the prior forward
+            apply. May be None (the row never had a state machine
+            attached) -- kept verbatim on the event so the operator
+            CLI can render "before / after" even on null->string
+            transitions.
+        post_state: the ``current_state`` observed in web post-override.
+            Required for the event to be meaningful; the reverse applier
+            only emits when the two values differ.
+        legacy_source_table: the YAML legacy table the row belongs to
+            (e.g. ``"TbFichaAnimal"``). Mirrors the forward path's
+            ``legacy_source_table`` field on ``LifecycleEvent``.
+        legacy_source_id: the legacy PK as int (when coercible). None
+            for free-text chips (``TbFichaAnimal.key_field`` is string);
+            the applier hydrates ``animal_id`` from the FK at INSERT
+            time.
+        occurred_at: UTC timestamp stamped on the event. Defaults to
+            ``datetime.now(UTC)`` so callers can pass ``None`` and let
+            the helper stamp a fresh value.
+
+    Returns:
+        The constructed :class:`LifecycleEvent`. The reverse applier
+        does not persist the result directly -- it forwards the event
+        to the same lifecycle-event ingestion path the forward
+        applier uses (``animal_lifecycle_events`` INSERT).
+    """
+    ts = occurred_at if occurred_at is not None else datetime.now(UTC)
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=UTC)
+    metadata = {
+        "pre_state": pre_state,
+        "post_state": post_state,
+        "source_direction": LIFECYCLE_REVERSED_SOURCE_DIRECTION,
+    }
+    return LifecycleEvent(
+        event_type="LIFECYCLE_REVERSED",
+        event_timestamp=ts,
+        legacy_source_table=legacy_source_table,
+        legacy_source_id=legacy_source_id,
+        source_entity_type="state_reversal",
+        metadata=metadata,
+    )
+
+
+_REVERSE_SYSTEM_ACTOR = "00000000-0000-0000-0000-000000000000"
+
+
+def persist_lifecycle_reversed(
+    *,
+    web_client: Any,
+    event: LifecycleEvent,
+    animal_id: str,
+    source_entity_id: str | None = None,
+    created_by: str = _REVERSE_SYSTEM_ACTOR,
+) -> None:
+    if not animal_id:
+        raise ValueError("animal_id is required for lifecycle event persistence")
+    sql = (
+        "INSERT INTO animal_lifecycle_events ("
+        "animal_id, event_type, event_timestamp, "
+        "source_entity_type, source_entity_id, "
+        "legacy_source_table, legacy_source_id, "
+        "metadata, created_by"
+        ") VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) "
+        "ON CONFLICT (animal_id, event_type, event_timestamp) DO NOTHING"
+    )
+    params: list[Any] = [
+        animal_id,
+        event.event_type,
+        event.event_timestamp.isoformat(),
+        event.source_entity_type,
+        source_entity_id or animal_id,
+        event.legacy_source_table,
+        event.legacy_source_id,
+        json.dumps(event.metadata) if event.metadata is not None else None,
+        created_by,
+    ]
+    web_client.execute_sql(sql, params)
+

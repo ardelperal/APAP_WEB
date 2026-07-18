@@ -114,6 +114,14 @@ ACCESS_DRIVER_SUBSTRINGS: tuple[str, ...] = (
 DEFAULT_QUERY_TIMEOUT_SECONDS: int = 30
 
 
+class LegacyWriteRowcountUnknownError(Exception):
+    """Typed error for a legacy driver that cannot report write rowcount."""
+
+    def __init__(self, *, rowcount: int) -> None:
+        self.rowcount = rowcount
+        super().__init__(f"Legacy write rowcount is unknown: {rowcount}")
+
+
 def _resolve_access_driver(pyodbc_mod: Any) -> str:
     """Return the Microsoft Access Driver name as listed by pyodbc.
 
@@ -245,8 +253,95 @@ def execute_legacy_sql(
     return [dict(zip(columns, row, strict=True)) for row in page]
 
 
+def execute_legacy_write(
+    path: str,
+    sql: str,
+    params: list[Any] | None,
+) -> int:
+    """Execute a write SQL (INSERT/UPDATE/DELETE) against the legacy ``.accdb``.
+
+    PR6 / M2 symmetric counterpart to :func:`execute_legacy_sql`. The
+    reverse applier (``migration.apply_reverse.apply_web_to_legacy``)
+    uses this seam to push web-side changes back to legacy via pyodbc.
+
+    Args:
+        path: absolute path to the legacy ``.accdb`` file.
+        sql: Access SQL with positional ``?`` placeholders for params.
+        params: parameter list (may be ``None`` when the SQL has no
+            placeholders). Coerced via ``list(params or [])``.
+
+    Returns:
+        ``int`` rowcount (``cursor.rowcount``) reported by pyodbc.
+        ``0`` means the statement matched no rows.
+
+    Raises:
+        LegacyReaderError: any of the following -
+            * pyodbc is not installed,
+            * the Microsoft Access Driver is not installed,
+            * the ``.accdb`` file does not exist,
+            * ``pyodbc.connect`` raised ``pyodbc.Error``,
+            * ``cursor.execute`` raised ``pyodbc.Error`` mid-statement.
+
+    Notes:
+        No raw PII is logged; the audit log lives in the applier
+        layer (``log_safe("sync.applied", direction="web->legacy",
+        ...)`` per applied row).
+    """
+    pyodbc_mod = _get_pyodbc()
+    from migration.legacy_reader import LegacyReaderError
+
+    driver = _resolve_access_driver(pyodbc_mod)
+
+    if not os.path.isfile(path):
+        raise LegacyReaderError(
+            f"Legacy .accdb not found at {path!r}; verify the "
+            "APAP_LEGACY_ACCDB_PATH setting and the operator's mount."
+        )
+
+    conn_str = f"Driver={{{driver}}};Dbq={path};"
+    try:
+        conn = pyodbc_mod.connect(conn_str, timeout=DEFAULT_QUERY_TIMEOUT_SECONDS)
+    except pyodbc_mod.Error as exc:
+        raise LegacyReaderError(
+            f"Cannot connect to legacy .accdb at {path}: {exc}. "
+            "Close any open Microsoft Access windows and retry; "
+            "see docs/runbooks/live-migration-apply.md."
+        ) from exc
+
+    try:
+        try:
+            cursor = conn.execute(sql, list(params or []))
+        except pyodbc_mod.Error as exc:
+            raise LegacyReaderError(
+                f"Legacy write failed for {path}: {exc}"
+            ) from exc
+        try:
+            rowcount = int(cursor.rowcount)
+        except (TypeError, ValueError):
+            rowcount = 0
+        # Force a commit so the write is durable across operator
+        # restarts. Access autocommits per-statement when the cursor
+        # is closed, but we make the contract explicit.
+        try:
+            conn.commit()
+        except pyodbc_mod.Error:
+            # If commit fails the driver will still close cleanly;
+            # surface the original error via the next ``close``.
+            pass
+        if rowcount == -1:
+            raise LegacyWriteRowcountUnknownError(rowcount=-1)
+        return rowcount
+    finally:
+        try:
+            conn.close()
+        except Exception:  # noqa: BLE001 - never mask the original exc
+            pass
+
+
 __all__ = [
     "ACCESS_DRIVER_SUBSTRINGS",
     "DEFAULT_QUERY_TIMEOUT_SECONDS",
+    "LegacyWriteRowcountUnknownError",
     "execute_legacy_sql",
+    "execute_legacy_write",
 ]

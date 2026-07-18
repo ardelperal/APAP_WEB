@@ -48,7 +48,11 @@ from typing import Any
 import pytest
 
 from migration import dysflow_client, legacy_reader
-from migration.dysflow_client import execute_legacy_sql
+from migration.dysflow_client import (
+    LegacyWriteRowcountUnknownError,
+    execute_legacy_sql,
+    execute_legacy_write,
+)
 from migration.legacy_reader import LegacyReaderError, set_legacy_query_executor
 
 # ---------------------------------------------------------------------------
@@ -518,6 +522,43 @@ def test_autouse_reset_clears_executor_between_tests(
     # way it would after any other test.
     set_legacy_query_executor(None)
     assert legacy_reader._legacy_query_executor is None
+
+
+def test_execute_legacy_write_does_not_coerce_unknown_rowcount(
+    existing_accdb: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _Cursor:
+        rowcount = -1
+
+    class _Connection:
+        closed = False
+
+        def execute(self, _sql: str, _params: list[Any]) -> _Cursor:
+            return _Cursor()
+
+        def commit(self) -> None:
+            return None
+
+        def close(self) -> None:
+            self.closed = True
+
+    class _Pyodbc:
+        Error = RuntimeError
+
+        def drivers(self) -> list[str]:
+            return ["Microsoft Access Driver (*.accdb)"]
+
+        def connect(self, _conn_str: str, *, timeout: int) -> _Connection:
+            return _Connection()
+
+    monkeypatch.setattr(os.path, "isfile", lambda _p: True)
+    monkeypatch.setattr(dysflow_client, "_pyodbc_module", _Pyodbc())
+
+    with pytest.raises(Exception) as excinfo:
+        execute_legacy_write(existing_accdb, "UPDATE TbVoluntarios SET Email = ?", ["new@x"])
+
+    assert isinstance(excinfo.value, LegacyWriteRowcountUnknownError)
+    assert getattr(excinfo.value, "rowcount", None) == -1
 
 
 # ---------------------------------------------------------------------------
