@@ -703,3 +703,81 @@ Added `_reverse_apply_one_row` to `scripts/pytest_plugin/coverage_gate.py` and e
 - Rollback: revert `0eaf1aa` to remove the PR6 lens remediation, then revert `898bea7` to restore the pre-fix F1/F2 behavior. The two pre-existing PR6 commits remain untouched. No Access, InsForge, storage, or production backend mutation was performed.
 - Scope proof: `proposal.md`, `design.md`, `exploration.md`, and `specs/` were not modified; unrelated `.atl/*` artifacts and `openspec/changes/adopt-03-seguimiento-state-machine/` remain unstaged and untracked as found.
 
+## PR6 module-size ratchet remediation (2026-07-18)
+
+The PR6 chain grew three modules beyond the AGENTS.md rule 21
+budget (`scripts/check_module_size.py` ratchet). This sub-cycle
+fixes each violation as a separate, scoped refactor.
+
+- R1: `migration/apply.py` shrunk to 869 lines (was 872). Reverted
+  the F1/F2 `direction` parameter plumbing on `apply_legacy_to_web`
+  and `_write_or_check_snapshot`: `apply_reverse.py` carries its
+  own local copy of `_write_or_check_snapshot` with the direction
+  baked in, so the apply.py helper no longer needs the parameter.
+- R2: `migration/cli.py` shrunk to 933 lines (was 1226);
+  `migration/cli_apply_reverse.py` added (NEW, 370 lines) owning
+  the `--direction` flag setup + the `apap-migrate apply` body
+  (forward + reverse dispatch + six typed-exception handlers with
+  the PR3 categorical exit-code contract preserved). Module
+  attribute lookup via `migration.cli.apply_legacy_to_web` keeps
+  the 12 `test_cli_apply_safety.py` monkeypatch atoms green
+  (mirrors the `logging_mod.log_safe` discipline PR6 established).
+- R3: `migration/apply_reverse.py` shrunk to 86 lines (was 1165);
+  thin shim re-exporting the public API + every private symbol the
+  existing 14 reverse-apply atoms + 5 round-trip atoms reach into.
+  New package `migration/reverse_apply/` added with 7 sub-modules:
+
+  | File | Lines | Owns |
+  |---|---|---|
+  | `__init__.py` | 50 | Re-export public API + closed-vocabulary tags |
+  | `orchestrator.py` | 306 | `apply_web_to_legacy` entry point + bulk-legacy read + per-row loop + `sync_state.json` advance |
+  | `per_row.py` | 246 | `_reverse_apply_one_row` + `_insert_legacy_row` + `_update_legacy_row` |
+  | `shadow.py` | 132 | `_advance_preserve_shadow_state` + `_record_drift_needs_review` |
+  | `lifecycle.py` | 103 | `_emit_reversed_lifecycle_events_for_changed_derived` (LIFECYCLE_REVERSED event) |
+  | `lock_context.py` | 179 | `_LockContext` + `_write_or_check_snapshot` + path defaults |
+  | `io_helpers.py` | 96 | `_case_insensitive_get` + `_web_to_legacy_row` + `_compute_source_hash` + `_build_web_select_sql` |
+  | `types.py` | 72 | `_InsForgeLike` Protocol + `ReverseApplyError` hierarchy |
+
+  Module attribute lookup via `migration.apply_reverse.<name>` is
+  the monkeypatch surface (per the PR6 fix commit `e69aa2b`
+  discipline), so tests that patch
+  `apply_reverse_mod._emit_reversed_lifecycle_events_for_changed_derived`
+  (etc.) see their patched callable. The kwarg-only signature of
+  `apply_web_to_legacy` is preserved verbatim per the F5 contract.
+
+- `scripts/check_module_size.py` BASELINE updated to lock in the
+  `cli.py` improvement (1071 → 933). All other BASELINE entries
+  unchanged (shrink-only ratchet). The `test_baseline_matches_measured_tree`
+  guard now passes; `test_ratchet_flags_baselined_module_that_grew`
+  still pins the ratchet direction.
+
+### Verification (post-fix)
+
+| Gate | Command | Result |
+|---|---|---|
+| Module-size ratchet | `python scripts/check_module_size.py .` | OK, 0 violations (was 3) |
+| Full pytest | `python -m pytest -W error::DeprecationWarning --deselect tests/test_voluntarios_concurrent.py -q` | 2413 passed, 2 skipped, 0 warnings (was 2399; +14 reverse-apply / round-trip atoms) |
+| Migration pytest | `python -m pytest tests/migration -q` | 261 passed (preserved) |
+| Ruff scoped | `python -m ruff check migration/ tests/migration/ scripts/` | All checks passed |
+| CRITICAL_HELPERS coverage | `coverage.json` (via `scripts/pytest_plugin/coverage_gate.py`) | 18 helpers at 100% (preserved) |
+| BASELINE drift | `python -m pytest tests/test_module_size.py -q` | 8 passed (BASELINE drift guard green) |
+
+### Commit chain and rollback boundary
+
+- `6c91fbd` — `refactor(migration): apply.py -3 lines; satisfies rule 21 baseline (869)` (R1).
+- `d8e8ff6` — `refactor(migration): extract reverse-apply CLI handler into cli_apply_reverse.py (≤1071 cli.py)` (R2).
+- `<R3 sha>` — `refactor(migration): split apply_reverse.py into reverse_apply package` (R3, this commit).
+- Rollback: revert the three commits in reverse order to restore
+  the pre-PR6 module-size violation; the PR6 reverse-apply
+  feature itself (`5255f67` + `74f5f64`) stays untouched. No
+  Access, InsForge, storage, or production backend mutation was
+  performed; the only files modified are the three oversized
+  modules, the new `migration/reverse_apply/` package, the new
+  `migration/cli_apply_reverse.py`, and the `BASELINE` entry for
+  `migration/cli.py` (shrink-only).
+- Scope proof: `proposal.md`, `design.md`, `exploration.md`,
+  `specs/`, `openspec/changes/adopt-03-seguimiento-state-machine/`,
+  `.atl/*`, and `tests/test_module_size.py` were not modified.
+  The 14 `tests/migration/test_reverse_apply.py` atoms and 5
+  `tests/migration/test_round_trip.py` atoms pass unchanged.
+
