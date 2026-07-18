@@ -197,12 +197,15 @@ Antes de commit + push, todo esto debe estar verde:
 ```bash
 python -m pytest -W error::DeprecationWarning \
   --ignore=tests/e2e \
-  --deselect tests/test_voluntarios_concurrent.py -q
+  --deselect tests/test_voluntarios_concurrent.py \
+  --cov=app --cov-report=json --cov-fail-under=80 -q
 ruff check .
 python -m build
 ```
 
 `test_voluntarios_concurrent.py` se deselecciona localmente porque requiere PostgreSQL (`APAP_E2E_BASE_URL`); en CI también se deselecciona (GitHub no aprovisiona PG). Para correrlo: define `APAP_E2E_BASE_URL` apuntando a un Postgres real.
+
+Los flags de cobertura replican exactamente lo que ejecuta el job `test` de `ci.yml` (regla 19 de AGENTS.md): `--cov-fail-under=80` aplica el suelo global de `pyproject.toml` (`fail_under = 80`) y `--cov-report=json` genera el `coverage.json` que alimenta el gate de `CRITICAL_HELPERS` (regla 11). Si la cobertura local pasa, la de CI también — mismo comando, mismo umbral.
 
 Si el repo tiene `scripts/check_rules.py` (detectores propios: APAP003 logger ban, CSRF middleware, log_safe, etc.), correrlo también: `python scripts/check_rules.py`.
 
@@ -313,7 +316,7 @@ git commit -m "tipo(scope): subject"
 git push origin HEAD
 
 # Validación local
-pytest -W error::DeprecationWarning --ignore=tests/e2e --deselect tests/test_voluntarios_concurrent.py
+pytest -W error::DeprecationWarning --ignore=tests/e2e --deselect tests/test_voluntarios_concurrent.py --cov=app --cov-report=json --cov-fail-under=80
 ruff check .
 python -m build
 python scripts/check_rules.py
