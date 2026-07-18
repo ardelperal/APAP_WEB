@@ -75,6 +75,7 @@ from migration import (
     release_lock,
 )
 from migration.bootstrap import bootstrap_m0_infrastructure
+from migration.dni_collision import DniCollisionCounter
 from migration.legacy_reader import (
     TableSpec,
     load_legacy_snapshot_batched,
@@ -315,6 +316,7 @@ def apply_legacy_to_web(
     snapshot_path: Path | None = None,
     partial_path: Path | None = None,
     photos_dir_path: Path | str | None = None,
+    dni_collision_counter: DniCollisionCounter | None = None,
 ) -> ApplyResult:
     """Bulk-apply legacy rows for one table into the InsForge web DB.
 
@@ -383,6 +385,17 @@ def apply_legacy_to_web(
             source-identity manifest. ``None`` produces an empty
             manifest (the SHA-256 of zero bytes) so a pre-PR4 apply
             can still proceed against a valid empty source.
+        dni_collision_counter: optional DI seam for the DNI collision
+            counter (PR5). The forward applier never invokes
+            :func:`record_dni_collision` because legacy
+            ``TbVoluntariosParaAutorrellenables`` has no ``DNI`` column
+            (verified by Dysflow ``get_schema`` 2026-07-11), so the
+            counter stays at 0 across the entire forward run. The seam
+            is wired today so the PR6 reverse applier (``web_to_legacy``)
+            can pass a counter and read its value at the end of the
+            run to populate
+            ``MigrationReport.collisions[table_name]["dni_collisions"]``.
+            Default ``None`` keeps the existing call sites untouched.
 
     Returns:
         :class:`ApplyResult` with the per-table counts and errors.

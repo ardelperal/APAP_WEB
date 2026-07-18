@@ -96,7 +96,7 @@ All evidence (MigrationReport, audit doc, runbook, logs) MUST use counts (`count
 > **Field scope (Correction B).** The `MigrationReport` type at `migration/reporting.py:118` currently has `direction`, `mode`, `dry_run`, `applied`, timestamps, `diffs`, `conflicts`, `backup_path`, `error`, `reconciliation_summary`. It does NOT yet have `counts`, `source_hashes`, or `collisions`. This change ADDs those three fields via `field(default_factory=dict)` so pre-existing reports stay valid. The full shape added is:
 > - `counts: dict[str, dict[str, int]]` keyed by table name → `{"count_legacy": N, "count_web": N}`.
 > - `source_hashes: dict[str, str]` keyed by table name → 64-hex SHA-256 of the legacy batch's canonical JSON (deterministic per spec REQ-Snap-1).
-> - `collisions: dict[str, int]` keyed by collision counter name (e.g. `"dni_collisions"`, `"row_divergences"`) → integer count only.
+> - `collisions: dict[str, dict[str, int]]` keyed by table name → `{"<counter_name>": <count>, ...}` (nested per-table, per-counter). The nested shape preserves per-table scope so the PR7 reconcile CLI can render e.g. `collisions.voluntarios.dni_collisions=0` and `collisions.voluntarios.row_divergences=0` without flattening. The forward applier never bumps the counter (legacy has no DNI column — verified by Dysflow `get_schema` 2026-07-11); the PR6 reverse applier is the first caller.
 >
 > `ApplyResult` (at `migration/apply.py:69`) keeps its existing shape `{table_name, applied, skipped, errors}`; it does NOT grow. The per-table→per-run aggregate surfaces stay separate so the CLI can render one without the other.
 

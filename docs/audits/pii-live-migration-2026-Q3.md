@@ -201,6 +201,49 @@ The M1 milestone gate accepts the PII contract on the basis of:
 | Audit doc structure (Scope / Methodology / ...)        | `tests/test_pii_audit_doc.py`                        | 7     |
 | Runbook references resolve to authored files           | `tests/test_runbook_links.py`                        | 12    |
 
+## PR5 Additions (2026-07-15)
+
+PR5 (`feat/migration-pr5-pii-controls`, PR #196) re-scopes the
+M1 collision contract and adds five new PII controls on top of
+the PR4b surface. This section enumerates the new invariants,
+the new tests, and reconfirms the verdict.
+
+### New invariants
+
+| Invariant | Surface | Where it lives |
+|---|---|---|
+| Per-table counter wiring with DI seam | `apply_legacy_to_web(dni_collision_counter: DniCollisionCounter \| None = None)` exposes the counter for the PR6 reverse applier; the forward applier never bumps it (legacy has no DNI). | `migration/apply.py` signature; `migration/dni_collision.py::DniCollisionCounter`; `tests/migration/test_dni_collision.py::test_forward_legacy_produces_zero_dni_collisions` pins the zero-bump contract. |
+| `--filter-direction {legacy-to-web, web-to-legacy, both}` CLI flag | Defaults to `"both"` so PR4 callers see the same combined listing; PR5 adds the narrowing path. | `migration/cli.py::build_parser` + `migration/shadow_state.py::list_needs_review(origin_direction=...)`. |
+| `PUBLIC_PATHS` 5-entry shape pinned | Exactly `{/healthz, /login, /auth/google, /auth/callback, /logout}`; no PII route is in the set. | `app/main.py:148`; `tests/test_public_paths.py::EXPECTED_PUBLIC_PATHS`. |
+| `_is_pii_web_column` / `_mask_pii_value` CLI helpers | Apply the closed-list comparison against `web_column` to keep the operator stdout free of raw PII. | `migration/cli.py`; consumed by both formatters. |
+| 5-route 302-to-`/login` parametrisation | Every PII-displaying route (`/voluntarios`, `/voluntarios/{id}`, `/animales`, `/animales/{id}/foto`, `/entradas`) returns 302 to `/login` without a session. | `tests/test_public_paths.py::PII_ROUTES_PARAMETRIZE`; the route layer at `app/modules/*/routes.py`. |
+| `origin_direction` stamp on `list_needs_review` rows | Every listed row carries the producer direction so the operator dashboard can route by migration scope. | `migration/shadow_state.py::list_needs_review` sets `row["origin_direction"] = "legacy-to-web"` by default; PR6 reverse applier will start stamping `"web-to-legacy"`. |
+| `record_dni_collision(direction=...)` persists `origin_direction` | The `direction` kwarg is persisted verbatim on the shadow row (`origin_direction` column carries a closed three-value CHECK: `legacy-to-web`, `web-to-legacy`, `web-only`). | `migration/dni_collision.py::record_dni_collision`; `migration/shadow_state.py::ShadowStateRepository.upsert(origin_direction=...)`. |
+| `legacy_pk` / `web_pk` PII masking in CLI output | A new `_looks_like_pii(value)` helper matches DNI / email / phone regexes and masks the value to `[REDACTED]`; UUIDs and NCHIPs do not match and pass through unchanged. | `migration/cli.py::_PII_VALUE_PATTERNS` + `_looks_like_pii`; consumed by `_format_row_for_check_only` and `_format_row_for_interactive`. |
+| `derived_value` PII masking in CLI output | Same closed-list comparison as `preserved_value`: when `web_column` is in `REDACTED_FIELDS`, `derived_value` is masked to `[REDACTED]`. | `migration/cli.py` formatters; `tests/migration/test_pii_redaction.py::test_cli_reconcile_check_only_output_has_no_raw_pii` pins the contract. |
+
+### New tests (29 atoms + 3 CLI atoms)
+
+| Suite | Atoms | Coverage |
+|---|---|---|
+| `tests/migration/test_pii_redaction.py` | 10 | log_safe redaction on `sync.applied` payload (parametrised over 4 PII fields); shadow `preserved_value` masking; `MigrationReport.to_json()` no-PII regex; CLI stdout no-PII (including the new `derived_value` masking); redaction-list-covers-all-PII (parametrised over the full closed list); synthetic-payload-emits-redacted-payload; collision-marker-in-log-payload. |
+| `tests/migration/test_dni_collision.py` | 9 | Forward-zero-collision (wires the DI seam); web-only shadow routing (asserts `origin_direction="web-only"`); reverse-path counter increment (asserts `origin_direction="web-to-legacy"`); interactive CLI resolution; helper invariants (NOW default, first-wins-does-not-overwrite); counter initial state; CLI parser `--filter-direction` surface (default `"both"`). |
+| `tests/test_public_paths.py` | 10 | PUBLIC_PATHS 5-entry shape invariant; `_is_public_path` recognition; no-PII-route-in-PUBLIC_PATHS; parametrised 302-to-`/login` over 5 PII routes; `/healthz` and `/login` happy-path sanity. |
+| `tests/migration/test_cli.py` | 3 new atoms | `--filter-direction` default (`both`); `--filter-direction legacy-to-web` narrowing; `--filter-direction web-to-legacy` empty-listing in PR5. |
+
+### Verdict (re-confirmed)
+
+**PASS** for M1 forward path. The collision-routing helper
+(`migration/dni_collision.py::record_dni_collision`) is fully
+unit-tested (9 atoms covering both scopes, the counter increment,
+and the helper invariants) but is **NOT invoked by the forward
+applier** — legacy `TbVoluntariosParaAutorrellenables` has no `DNI`
+column (Dysflow-verified 2026-07-11). The DI seam
+`apply_legacy_to_web(dni_collision_counter=...)` is wired today
+so the PR6 reverse applier can invoke the helper on
+`web-to-legacy` collisions; the seam is exercised by the
+zero-bump atom in `tests/migration/test_dni_collision.py`.
+
 ### Operator acknowledgement
 
 The operator MUST review and accept this verdict as part of the M1
