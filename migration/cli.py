@@ -37,27 +37,17 @@ import argparse
 import re
 import sys
 from collections.abc import Callable, Sequence
-from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import IO, Any
 
 from app.core.insforge import InsForgeClient, InsForgeError
-from app.core.logging import REDACTED_FIELDS, log_safe, normalize_key
-from migration import MsAccessPreflightUnavailableError
+from app.core.logging import REDACTED_FIELDS, normalize_key
 from migration.apply import (
-    ApplyResult,
-    MsAccessRunningError,
-    PartialApplyInterruptedError,
-    SourceDriftError,
-    apply_legacy_to_web,
+    apply_legacy_to_web,  # noqa: F401 — monkeypatch surface for test_cli_apply_safety.py
 )
-from migration.apply_reverse import apply_web_to_legacy
 from migration.bootstrap import APAP_PHOTOS_BUCKET, check_private_bucket, ensure_private_bucket
-from migration.dni_collision import DniCollisionCounter
-from migration.legacy_reader import LegacyReaderError
 from migration.mappings import list_available_tables, load_mapping
-from migration.reporting import MigrationReport
 from migration.shadow_state import ShadowStateRepository
 
 # Stable runbook reference for apply-time errors.
@@ -72,36 +62,17 @@ from migration.shadow_state import ShadowStateRepository
 # exists is a contract change.
 MIGRATION_RUNBOOK_REF: str = "docs/runbooks/live-migration-apply.md"
 
-# Direction flag values (PR6 / M2 reverse apply). The forward path
-# remains ``legacy-to-web`` (default); the operator opts in to the
-# reverse path with ``apap-migrate apply --direction web-to-legacy``.
-# Closed vocabulary; PR7's verify-fallback-ready gate reads the
-# same flag to assert the reverse branch was exercised.
-APPLY_DIRECTION_LEGACY_TO_WEB = "legacy-to-web"
-APPLY_DIRECTION_WEB_TO_LEGACY = "web-to-legacy"
-
-
-def _format_apply_error(reason: str, *, exit_code: int) -> str:
-    """Render the canonical ``apap-migrate apply`` error line.
-
-    Format is deterministic so log scrapers and operator tooling can
-    parse it without regex on free-form text. The line carries ONLY
-    a categorical reason + exit code + stable runbook reference —
-    no raw exception payloads, no PII, no filesystem paths.
-
-    Args:
-        reason: a stable categorical reason (e.g. ``msaccess_running``,
-            ``source_drift``). MUST come from a closed vocabulary —
-            see ``run_apply`` for the full table.
-        exit_code: the deterministic process exit code.
-
-    Returns:
-        The single canonical line, terminated with ``\\n``.
-    """
-    return (
-        f"apap-migrate apply: status=error "
-        f"reason={reason} exit={exit_code} runbook={MIGRATION_RUNBOOK_REF}\n"
-    )
+# Import after the runbook constant so the reverse-apply seam
+# (``migration.cli_apply_reverse``) can import this constant back
+# without hitting a partially-initialized module. The seam re-uses
+# this constant for the ``apap-migrate apply: status=error ...``
+# categorical line.
+from migration.cli_apply_reverse import (  # noqa: E402 — circular but deterministic
+    APPLY_DIRECTION_LEGACY_TO_WEB,
+    APPLY_DIRECTION_WEB_TO_LEGACY,
+    add_direction_arg,
+    run_apply,
+)
 
 # Type alias for the prompt reader injected into ``run_reconcile``.
 # Production: ``input`` (read from stdin). Tests: a list-driven
@@ -220,23 +191,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Dry-run: report planned writes without mutating the web DB.",
     )
-    apply_cmd.add_argument(
-        "--direction",
-        dest="direction",
-        choices=(APPLY_DIRECTION_LEGACY_TO_WEB, APPLY_DIRECTION_WEB_TO_LEGACY),
-        default=APPLY_DIRECTION_LEGACY_TO_WEB,
-        help=(
-            "Apply direction. ``legacy-to-web`` (default) reads from the "
-            "legacy ``.accdb`` and writes into the web DB (PR3 / M1). "
-            "``web-to-legacy`` reads from the web DB and writes to the "
-            "legacy ``.accdb`` via the reverse applier (PR6 / M2). "
-            "The reverse path carries the MSACCESS pre-flight, the "
-            "advisory lock, the per-strategy preserve/derived/fixed "
-            "rules from ``web-only-feature-preservation/spec.md``, "
-            "the LIFECYCLE_REVERSED event surface, and the rowcount=0 "
-            "drift detection that records ``needs_review`` rows."
-        ),
-    )
+    add_direction_arg(apply_cmd)
 
     status = sub.add_parser(
         "status",
@@ -846,254 +801,6 @@ def _resolve_lock_path() -> Path:
     if not migration_dir:
         migration_dir = os.environ.get("APAP_MIGRATION_DIR", "./migration")
     return Path(migration_dir) / "migration.lock"
-
-
-def _emit_migration_report(
-    report: MigrationReport,
-    results: list[ApplyResult],
-    *,
-    started_at: datetime,
-    stream: IO[str],
-    dry_run: bool,
-    error: str | None = None,
-    emit_stream: bool = False,
-) -> None:
-    finished_at = datetime.now(UTC)
-    finalized = replace(
-        report,
-        applied=not dry_run and any(result.applied > 0 for result in results),
-        finished_at=finished_at,
-        duration_seconds=(finished_at - started_at).total_seconds(),
-        error=error,
-    )
-    if emit_stream:
-        stream.write(finalized.to_json() + "\n")
-    else:
-        log_safe(
-            "migration.report",
-            report=finalized.to_json(),
-        )
-
-
-def run_apply(
-    args: argparse.Namespace,
-    *,
-    web_client: InsForgeClient | None = None,
-    stream: IO[str] | None = None,
-) -> int:
-    """Body of ``apap-migrate apply``.
-
-    Exit code contract (PR3 verification remediation, per user
-    directive 2026-07-11) — every typed exception produces a single
-    categorical line on the operator stream:
-
-        apap-migrate apply: status=error reason=<cat> exit=<N> runbook=<ref>
-
-    The reasons form a closed vocabulary; the exit codes are
-    deterministic. The runbook reference is the stable constant
-    :data:`MIGRATION_RUNBOOK_REF`. Operator output carries no traceback,
-    no raw exception payloads, no PII, and no filesystem paths —
-    the operator reads the runbook for the verbose interpretation.
-
-    | Exception                              | Exit | reason                              |
-    |----------------------------------------|------|-------------------------------------|
-    | ``MsAccessPreflightUnavailableError``  | 5    | ``msaccess_preflight_unavailable``   |
-    | ``MsAccessRunningError``               | 5    | ``msaccess_running``                 |
-    | ``LegacyReaderError``                  | 5    | ``legacy_read_failed``               |
-    | ``InsForgeError`` (bootstrap path)     | 5    | ``infra_bootstrap_failed``          |
-    | ``SourceDriftError``                   | 6    | ``source_drift``                     |
-    | ``PartialApplyInterruptedError``       | 7    | ``partial_apply_interrupted``        |
-
-    Unknown exceptions propagate as a Python traceback — the CLI
-    does not swallow them. Operators see a real stack so they can
-    diagnose bugs; the categorical handlers above cover every
-    expected failure mode from the PR3/M1 apply pipeline.
-    """
-    if stream is None:
-        stream = sys.stdout
-    if web_client is None:
-        sys.stderr.write("apap-migrate apply: requires a web_client in this runtime\n")
-        return 2
-
-    started_at = datetime.now(UTC)
-    migration_report = MigrationReport(
-        direction=(
-            "web-to-legacy"
-            if getattr(args, "direction", APPLY_DIRECTION_LEGACY_TO_WEB)
-            == APPLY_DIRECTION_WEB_TO_LEGACY
-            else "legacy-to-web"
-        ),
-        mode="dry-run" if args.check_only else "full",
-        dry_run=bool(args.check_only),
-        applied=False,
-        started_at=started_at,
-        finished_at=started_at,
-        duration_seconds=0.0,
-    )
-    dni_collision_counter = DniCollisionCounter()
-    results: list[ApplyResult] = []
-
-    since: datetime | None = None
-    if args.since is not None:
-        try:
-            since = datetime.fromisoformat(args.since)
-        except (TypeError, ValueError) as exc:
-            stream.write(f"apap-migrate apply: invalid ISO-8601 timestamp {args.since!r}: {exc}\n")
-            _emit_migration_report(
-                migration_report,
-                results,
-                started_at=started_at,
-                stream=stream,
-                dry_run=bool(args.check_only),
-                error="invalid_timestamp",
-            )
-            return 2
-
-    tables = [args.table] if args.table else list_available_tables()
-    try:
-        for table in tables:
-            if getattr(args, "direction", APPLY_DIRECTION_LEGACY_TO_WEB) == APPLY_DIRECTION_WEB_TO_LEGACY:
-                results.append(
-                    apply_web_to_legacy(
-                        web_client,  # type: ignore[arg-type]
-                        table,
-                        legacy_path=args.legacy_path,
-                        dry_run=bool(args.check_only),
-                        web_snapshot=None,
-                        lock_path=None,
-                        dni_collision_counter=dni_collision_counter,
-                        migration_report=migration_report,
-                    )
-                )
-                continue
-            results.append(
-                apply_legacy_to_web(
-                    web_client,
-                    table,
-                    legacy_path=args.legacy_path,
-                    since=since,
-                    dry_run=bool(args.check_only),
-                )
-            )
-    except MsAccessPreflightUnavailableError:
-        # psutil missing or process iteration failed. The apply
-        # layer already emitted ``log_safe("apply.preflight_unavailable",
-        # reason=<cat>)`` before re-raising; the CLI just renders
-        # the categorical operator line. No PIDs, no error strings,
-        # no path data.
-        stream.write(
-            _format_apply_error("msaccess_preflight_unavailable", exit_code=5)
-        )
-        _emit_migration_report(
-            migration_report,
-            results,
-            started_at=started_at,
-            stream=stream,
-            dry_run=bool(args.check_only),
-            error="msaccess_preflight_unavailable",
-        )
-        return 5
-    except MsAccessRunningError:
-        # Live MSACCESS.EXE process detected. The exception carries
-        # ``.pids`` — we deliberately do NOT print them (operator
-        # output is categorical; runbook explains what to do).
-        stream.write(
-            _format_apply_error("msaccess_running", exit_code=5)
-        )
-        _emit_migration_report(
-            migration_report,
-            results,
-            started_at=started_at,
-            stream=stream,
-            dry_run=bool(args.check_only),
-            error="msaccess_running",
-        )
-        return 5
-    except LegacyReaderError:
-        # pyodbc / dysflow I/O failure. The exception's ``str()``
-        # can include the failing SQL fragment — categorical only.
-        stream.write(
-            _format_apply_error("legacy_read_failed", exit_code=5)
-        )
-        _emit_migration_report(
-            migration_report,
-            results,
-            started_at=started_at,
-            stream=stream,
-            dry_run=bool(args.check_only),
-            error="legacy_read_failed",
-        )
-        return 5
-    except InsForgeError:
-        # Bootstrap failure (private bucket missing, shadow table
-        # invariant broken, etc.). ``InsForgeError.body`` may carry
-        # internal server-side details — categorical only.
-        stream.write(
-            _format_apply_error("infra_bootstrap_failed", exit_code=5)
-        )
-        _emit_migration_report(
-            migration_report,
-            results,
-            started_at=started_at,
-            stream=stream,
-            dry_run=bool(args.check_only),
-            error="infra_bootstrap_failed",
-        )
-        return 5
-    except SourceDriftError:
-        # PR3 fails closed on drift (no informational proceed).
-        # The exception carries boolean + delta fields — categorical
-        # only. A future PR may add ``--accept-drift`` for explicit
-        # acknowledgement.
-        stream.write(
-            _format_apply_error("source_drift", exit_code=6)
-        )
-        _emit_migration_report(
-            migration_report,
-            results,
-            started_at=started_at,
-            stream=stream,
-            dry_run=bool(args.check_only),
-            error="source_drift",
-        )
-        return 6
-    except PartialApplyInterruptedError:
-        # Prior run was interrupted; ``partial_apply.json`` exists
-        # on disk. The operator MUST review and remove the file
-        # before retrying — PR3 deliberately does NOT auto-resume.
-        # The follow-up ``--resume-from-partial`` operator command
-        # is scheduled for the apply runbook PR (PR4 follow-up).
-        stream.write(
-            _format_apply_error("partial_apply_interrupted", exit_code=7)
-        )
-        _emit_migration_report(
-            migration_report,
-            results,
-            started_at=started_at,
-            stream=stream,
-            dry_run=bool(args.check_only),
-            error="partial_apply_interrupted",
-        )
-        return 7
-
-    for result in results:
-        action = "would insert" if args.check_only else "inserted"
-        stream.write(
-            f"table={result.table_name} {action}={result.applied} "
-            f"skipped={result.skipped} errors={len(result.errors)}\n"
-        )
-        for error in result.errors:
-            stream.write(f"  error={error}\n")
-    exit_code = 0 if not any(r.errors for r in results) else 1
-    _emit_migration_report(
-        migration_report,
-        results,
-        started_at=started_at,
-        stream=stream,
-        dry_run=bool(args.check_only),
-        emit_stream=True,
-    )
-    return exit_code
 
 
 def run_status(
