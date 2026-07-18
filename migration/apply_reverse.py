@@ -373,7 +373,7 @@ def apply_web_to_legacy(
         try:
             msaccess_pids = check_msaccess_running()
         except MsAccessPreflightUnavailableError as preflight_exc:
-            logging_mod.logging_mod.log_safe(
+            logging_mod.log_safe(
                 "apply.preflight_unavailable",
                 reason=preflight_exc.reason,
             )
@@ -454,9 +454,6 @@ def apply_web_to_legacy(
 
     sync_state_loaded: Any = None
     sync_state_pre_bytes: bytes | None = None
-    if not dry_run and resolved_sync_state_path.exists():
-        sync_state_loaded = load_sync_state(resolved_sync_state_path)
-        sync_state_pre_bytes = resolved_sync_state_path.read_bytes()
 
     try:
         with lock_ctx:
@@ -469,6 +466,10 @@ def apply_web_to_legacy(
                     direction=DIRECTION_WEB_TO_LEGACY,
                 )
                 snapshot_written = True
+
+            if not dry_run and resolved_sync_state_path.exists():
+                sync_state_loaded = load_sync_state(resolved_sync_state_path)
+                sync_state_pre_bytes = resolved_sync_state_path.read_bytes()
 
             # --- Per-row apply loop ---------------------------------
             for web_row in web_rows:
