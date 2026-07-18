@@ -430,13 +430,44 @@ def _default_msaccess_preflight(
         "migration.apply.check_msaccess_running",
         lambda: [],
     )
-    # Mark ``_PSUTIL_AVAILABLE = True`` so the seam inside
-    # ``migration.lock.check_msaccess_running`` (when an explicit test
-    # overrides the autouse return-value) does not surface the
-    # ``MsAccessPreflightUnavailableError`` code path. The
-    # ``TestMsaccessPreflightFailClosed`` class flips this flag back
-    # to ``False`` (or raises via a fake ``psutil``) to exercise the
-    # failure shape — see that class for the override.
+
+    class _FakePsutil:
+        """No-process stand-in for the optional ``psutil`` dependency.
+
+        CI environments do not install ``psutil`` (operator-side only per
+        ``docs/runbooks/live-migration-apply.md`` and enforced by
+        ``migration.lock`` itself). The pre-PR6 happy-path tests did
+        not exercise ``check_msaccess_running`` because they imported
+        ``apply_legacy_to_web`` from ``migration.apply`` directly; PR6
+        added ``apply_web_to_legacy`` via ``migration.reverse_apply``
+        which calls ``check_msaccess_running`` unconditionally, so the
+        seam must satisfy CI even without ``psutil`` on the PATH.
+        ``migration.lock.check_msaccess_running`` does
+        ``getattr(sys.modules['migration.lock'], 'psutil', None)`` and
+        raises ``MsAccessPreflightUnavailableError`` if the result is
+        ``None``. Setting ``_PSUTIL_AVAILABLE = True`` alone is not
+        enough; we also need a non-``None`` ``psutil`` attribute.
+        """
+
+        @staticmethod
+        def process_iter(*_args: Any, **_kwargs: Any) -> Iterator[Any]:
+            return iter(())
+
+        @staticmethod
+        def pid_exists(_pid: int) -> bool:
+            return False
+
+    # Bind a non-``None`` ``psutil`` on the lock module so the
+    # ``or psutil_obj is None`` short-circuit does not fire on CI; the
+    # function returns an empty list because the closure-set
+    # ``migration.apply.check_msaccess_running`` (above) wins the
+    # lookup when ``apply_legacy_to_web`` / ``apply_web_to_legacy``
+    # calls it via the ``migration.apply`` module. The
+    # ``TestMsaccessPreflightFailClosed`` class flips
+    # ``_PSUTIL_AVAILABLE`` back to ``False`` (and overrides
+    # ``check_msaccess_running``) to exercise the failure shape —
+    # see that class for the override.
+    monkeypatch.setattr(_migration_lock, "psutil", _FakePsutil)
     monkeypatch.setattr(_migration_lock, "_PSUTIL_AVAILABLE", True)
     yield
 
