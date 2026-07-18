@@ -6,6 +6,11 @@ alwaysApply: true
 
 # APAP_WEB — Agent Instructions
 
+Este archivo define **solo reglas locales del repo de código**. Para config de
+herramientas (dysflow MCP, codegraph-vba, etc.) ver `~/.config/opencode/AGENTS.md`.
+
+---
+
 APAP_WEB is a **FastAPI + HTMX + Jinja2** web application (Python `>=3.11`).
 It is a server-rendered app with a strict layered architecture: routes handle
 HTTP, services own all data access.
