@@ -126,6 +126,31 @@ def test_root_gitignore_has_narrow_secure_env_block_at_project_root() -> None:
     )
 
 
+def test_root_gitignore_ignores_atl_receipts_but_keeps_skill_registry() -> None:
+    """Agent receipt files under ``.atl/`` are ignored; the registry is not.
+
+    Tooling drops per-run receipt ``.md`` files into ``.atl/`` that are
+    local noise, never source. Without an ignore rule they linger
+    untracked in ``git status``. The one deliberate exception is the
+    tracked ``skill-registry.md``, which a ``!`` negation must keep
+    trackable (issue #207).
+    """
+    assert _check_ignored(".atl/some-agent-receipt.md"), (
+        ".atl/*.md receipts must be ignored so they cannot pollute git status"
+    )
+    # ``_check_ignored`` cannot assert the negation: with ``--verbose``,
+    # ``git check-ignore`` exits 0 for any matching pattern, including a
+    # ``!`` exemption. Without ``--verbose`` an exempted path exits 1.
+    registry = _git("check-ignore", "--no-index", ".atl/skill-registry.md")
+    assert registry.returncode == 1, (
+        ".atl/skill-registry.md is deliberately tracked and must stay trackable"
+    )
+    # Pre-existing rule: the generated registry cache stays ignored too.
+    assert _check_ignored(".atl/.skill-registry.cache.json"), (
+        ".atl/.skill-registry.cache.json must remain ignored (pre-existing rule)"
+    )
+
+
 # --- Working-tree state ---------------------------------------------------
 
 
