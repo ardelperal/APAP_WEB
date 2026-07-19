@@ -186,6 +186,13 @@ class FakeInsForge:
             # path emits a record-only ``UPDATE`` in the no-op case via
             # the shadow log (a real ``UPDATE`` would still execute on
             # the live DB; this fake records the call for assertions).
+            # PR6 reverse applier relies on ``update_reconciliation_status``
+            # which UPDATEs the shadow table — the fake routes those
+            # UPDATEs to the matching shadow row so test atoms can
+            # assert ``review_reasons`` / ``status`` propagation.
+            if "WEB_ONLY_FEATURE_SHADOW" in upper:
+                self._apply_shadow_update(q, params)
+                return []
             return []
 
         # Defensive: a query we don't recognise returns empty. Tests
@@ -194,6 +201,50 @@ class FakeInsForge:
         return []
 
     # --- internals --------------------------------------------------
+
+    def _apply_shadow_update(
+        self, query: str, params: list[Any] | None
+    ) -> None:
+        """Apply an UPDATE against ``web_only_feature_shadow`` to the in-memory store.
+
+        PR6 reverse applier relies on ``update_reconciliation_status``
+        (``migration.shadow_state.ShadowStateRepository``) to stamp
+        the categorical review reasons on the reverse drift rows.
+        The production SQL is parameterised in column order:
+        ``SET reconciliation_status = %s, review_reasons = %s,
+        last_reconciled_at = %s WHERE table_name = %s AND
+        legacy_pk = %s AND web_column = %s``. The fake parses
+        the WHERE clause and applies the SET clause to the
+        matching in-memory shadow row.
+        """
+        shadow = self.tables.setdefault("WEB_ONLY_FEATURE_SHADOW", [])
+        if not params:
+            return
+        # The production SQL parameter order (see migration/shadow_state.py):
+        # params[0]=status, params[1]=review_reasons (JSON string),
+        # params[2]=last_reconciled_at (ISO or None),
+        # params[3]=table_name, params[4]=legacy_pk, params[5]=web_column.
+        try:
+            normalized = list(params) + [None] * (6 - len(params))
+            status = normalized[0]
+            review_reasons_json = normalized[1]
+            last_reconciled_at = normalized[2]
+            table_name = normalized[3]
+            legacy_pk = normalized[4]
+            web_column = normalized[5]
+        except (IndexError, TypeError):
+            return
+        for row in shadow:
+            if (
+                row.get("table_name") == table_name
+                and row.get("legacy_pk") == str(legacy_pk)
+                and row.get("web_column") == web_column
+            ):
+                row["reconciliation_status"] = status
+                row["review_reasons"] = review_reasons_json
+                row["last_reconciled_at"] = last_reconciled_at
+                break
+
     def _route_select(
         self, query: str, params: list[Any] | None
     ) -> list[dict[str, Any]]:
@@ -379,13 +430,44 @@ def _default_msaccess_preflight(
         "migration.apply.check_msaccess_running",
         lambda: [],
     )
-    # Mark ``_PSUTIL_AVAILABLE = True`` so the seam inside
-    # ``migration.lock.check_msaccess_running`` (when an explicit test
-    # overrides the autouse return-value) does not surface the
-    # ``MsAccessPreflightUnavailableError`` code path. The
-    # ``TestMsaccessPreflightFailClosed`` class flips this flag back
-    # to ``False`` (or raises via a fake ``psutil``) to exercise the
-    # failure shape — see that class for the override.
+
+    class _FakePsutil:
+        """No-process stand-in for the optional ``psutil`` dependency.
+
+        CI environments do not install ``psutil`` (operator-side only per
+        ``docs/runbooks/live-migration-apply.md`` and enforced by
+        ``migration.lock`` itself). The pre-PR6 happy-path tests did
+        not exercise ``check_msaccess_running`` because they imported
+        ``apply_legacy_to_web`` from ``migration.apply`` directly; PR6
+        added ``apply_web_to_legacy`` via ``migration.reverse_apply``
+        which calls ``check_msaccess_running`` unconditionally, so the
+        seam must satisfy CI even without ``psutil`` on the PATH.
+        ``migration.lock.check_msaccess_running`` does
+        ``getattr(sys.modules['migration.lock'], 'psutil', None)`` and
+        raises ``MsAccessPreflightUnavailableError`` if the result is
+        ``None``. Setting ``_PSUTIL_AVAILABLE = True`` alone is not
+        enough; we also need a non-``None`` ``psutil`` attribute.
+        """
+
+        @staticmethod
+        def process_iter(*_args: Any, **_kwargs: Any) -> Iterator[Any]:
+            return iter(())
+
+        @staticmethod
+        def pid_exists(_pid: int) -> bool:
+            return False
+
+    # Bind a non-``None`` ``psutil`` on the lock module so the
+    # ``or psutil_obj is None`` short-circuit does not fire on CI; the
+    # function returns an empty list because the closure-set
+    # ``migration.apply.check_msaccess_running`` (above) wins the
+    # lookup when ``apply_legacy_to_web`` / ``apply_web_to_legacy``
+    # calls it via the ``migration.apply`` module. The
+    # ``TestMsaccessPreflightFailClosed`` class flips
+    # ``_PSUTIL_AVAILABLE`` back to ``False`` (and overrides
+    # ``check_msaccess_running``) to exercise the failure shape —
+    # see that class for the override.
+    monkeypatch.setattr(_migration_lock, "psutil", _FakePsutil)
     monkeypatch.setattr(_migration_lock, "_PSUTIL_AVAILABLE", True)
     yield
 

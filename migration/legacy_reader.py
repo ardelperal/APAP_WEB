@@ -39,7 +39,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import Any
 
-from migration.dysflow_client import execute_legacy_sql
+from migration.dysflow_client import execute_legacy_sql, execute_legacy_write
 
 # Tamaño del batch (design §5): 100 filas × ~10 cols × ~50 bytes ≈ 50 KB.
 # Permite granularidad razonable para retry y encaja en memoria.
@@ -54,6 +54,13 @@ BATCH_SIZE = 100
 LegacyQueryExecutor = Callable[
     [str, str, int, int], list[dict[str, Any]]
 ]  # alias semántico (Callable subscriptable desde 3.9)
+
+#: Tipo del executor inyectable para escrituras legacy (PR6/M2):
+#: ``Callable[[str, str, list], int]`` — recibe ``(legacy_path, sql,
+#: params)`` y retorna el rowcount. Los tests inyectan un callable que
+#: captura la llamada y retorna ``1``; el entorno real delega en
+#: ``migration.dysflow_client.execute_legacy_write`` (pyodbc).
+LegacyWriteExecutor = Callable[[str, str, list[Any]], int]  # path, sql, params -> rowcount
 
 
 @dataclass(frozen=True, slots=True)
@@ -178,6 +185,53 @@ def set_legacy_query_executor(executor: LegacyQueryExecutor | None) -> None:
     """
     global _legacy_query_executor
     _legacy_query_executor = executor
+
+
+# --- Write seam (PR6/M2 reverse apply) -----------------------------------
+#
+# El seam paralelo al ``_legacy_query_executor`` pero para escrituras.
+# El reverse applier (``migration.apply_reverse.apply_web_to_legacy``)
+# usa este seam para enviar INSERT/UPDATE/DELETE contra el ``.accdb``
+# legacy sin tener que re-implementar el contrato pyodbc en cada
+# test. En producción, la implementación real está en
+# ``migration.dysflow_client.execute_legacy_write``.
+
+
+_legacy_write_executor: LegacyWriteExecutor | None = None
+
+
+def _execute_legacy_write(
+    legacy_path: str,
+    sql: str,
+    params: list[Any],
+) -> int:
+    """Ejecuta SQL de escritura contra el ``.accdb`` vía Dysflow (con executor inyectable).
+
+    Args:
+        legacy_path: ruta absoluta al ``.accdb``.
+        sql: SQL con placeholders posicionales (``?`` en Access/ODBC).
+        params: parámetros para el SQL.
+
+    Returns:
+        Rowcount (``int``); ``0`` significa no-op.
+
+    Raises:
+        LegacyReaderError: propaga cualquier fallo de I/O.
+    """
+    if _legacy_write_executor is not None:
+        return _legacy_write_executor(legacy_path, sql, params)
+    return execute_legacy_write(legacy_path, sql, params)
+
+
+def set_legacy_write_executor(executor: LegacyWriteExecutor | None) -> None:
+    """Inyecta un callable ``(legacy_path, sql, params) -> rowcount`` para tests.
+
+    Pasar ``None`` resetea al estado por defecto (Dysflow real).
+    Espejo de :func:`set_legacy_query_executor` para el seam de
+    escritura que el PR6 reverse applier introdujo.
+    """
+    global _legacy_write_executor
+    _legacy_write_executor = executor
 
 
 def _build_select_sql(spec: TableSpec, offset: int, limit: int) -> str:
