@@ -396,6 +396,8 @@ def main(
     parser.add_argument("--timeout", type=float, default=10.0)
     args = parser.parse_args(argv)
 
+    base_url: str | None
+    service_key: str | None
     if env is None:
         from app.core.config import get_settings
 

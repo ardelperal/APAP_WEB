@@ -8,7 +8,7 @@ against the intended InsForge infrastructure surface.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 from app.core.insforge import InsForgeError
 from migration.shadow_state import ShadowStateRepository
@@ -109,7 +109,9 @@ def bootstrap_m0_infrastructure(
     surfaces, while tests may inject a dedicated fake.
     """
     ensure_shadow_table(client)
-    admin = bucket_admin or client
+    # cast: when no dedicated admin is injected, the production
+    # ``InsForgeClient`` passed as ``client`` owns both surfaces.
+    admin = bucket_admin or cast("_BucketAdmin", client)
     bucket = ensure_private_bucket(admin, bucket_name=bucket_name)
     return BootstrapResult(shadow_table_ready=True, bucket=bucket)
 

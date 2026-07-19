@@ -156,14 +156,67 @@ def test_ci_workflow_lint_job_runs_check_rules_gate() -> None:
     )
 
 
+def test_ci_workflow_defines_typecheck_job_running_mypy() -> None:
+    """Issue #201: the CI ``typecheck`` job must gate on mypy.
+
+    The codebase is fully annotated (``from __future__ import
+    annotations``, dataclasses, ``Final``) but until this test no type
+    checker ever ran: annotations were documentation without
+    verification. The ``typecheck`` job must run the exact same command
+    as ``make typecheck`` (``python -m mypy``, scope and flags declared
+    once in ``pyproject.toml`` ``[tool.mypy]``) so local and CI results
+    cannot drift.
+
+    Removing this job from ci.yml is a blocked change (AGENTS.md
+    rule 24).
+    """
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+
+    assert "\n  typecheck:" in workflow, (
+        "ci.yml must define a typecheck job (issue #201, AGENTS.md rule 24)"
+    )
+
+    # Scope to the typecheck job's executable lines only (same rationale
+    # as test_ci_workflow_lint_job_runs_check_rules_gate): slice the job
+    # section and drop YAML comments so a comment mentioning mypy can
+    # never satisfy the assertion.
+    typecheck_job_start = workflow.index("\n  typecheck:")
+    typecheck_job = workflow[typecheck_job_start : workflow.index("\n  test:", typecheck_job_start)]
+    executable = "\n".join(
+        line for line in typecheck_job.splitlines() if not line.lstrip().startswith("#")
+    )
+
+    # The job must install the dev extra like every other job (mypy is
+    # a dev dependency) and run the config-driven mypy command.
+    assert 'python -m pip install -e ".[dev]"' in executable
+    assert "python -m mypy" in executable, (
+        "The typecheck job must run `python -m mypy` (scope lives in "
+        "pyproject.toml [tool.mypy]) — the same command as `make typecheck`."
+    )
+
+    # mypy itself must be a pinned dev dependency so CI actually gets it.
+    with (REPO_ROOT / "pyproject.toml").open("rb") as fh:
+        pyproject = tomllib.load(fh)
+    dev_deps = pyproject["project"]["optional-dependencies"]["dev"]
+    assert any(dep.startswith("mypy") for dep in dev_deps), (
+        "pyproject.toml [project.optional-dependencies] dev must declare mypy"
+    )
+    # And the scope must be declared in config, not ad-hoc CLI args:
+    # app/ and migration/ are both gated (issue #201 scope decision).
+    mypy_files = pyproject["tool"]["mypy"]["files"]
+    assert "app" in mypy_files
+    assert "migration" in mypy_files
+
+
 def test_ci_workflow_defines_deploy_job_with_gating() -> None:
-    """CD-01: deploy job exists, runs only on push to main, depends on lint+test+build."""
+    """CD-01: deploy job exists, runs only on push to main, depends on lint+typecheck+test+build."""
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
 
     assert "  deploy:" in workflow
     assert "  name: deploy" in workflow
-    # needs must reference the three required jobs
-    assert "needs: [lint, test, build]" in workflow
+    # needs must reference the four required jobs (typecheck added by
+    # issue #201 — the type gate is mandatory before deploy).
+    assert "needs: [lint, typecheck, test, build]" in workflow
     # gating: only on push to main, never on PRs
     # (two if: lines combined with AND are also acceptable, per tasks.md 2.1)
     gating_ok = (

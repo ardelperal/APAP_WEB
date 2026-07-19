@@ -138,6 +138,9 @@ def stream_animal_photo(
         raise PhotoStreamError(
             "animal has no NombreFoto (missing/sentinel); serving placeholder"
         )
+    # Narrowing: the guard above returns True for None, so past this
+    # point nombrefoto is a real object key.
+    assert nombrefoto is not None
 
     try:
         byte_iter = storage_client.download_object_stream(PHOTO_BUCKET, nombrefoto)

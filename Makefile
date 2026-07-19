@@ -8,6 +8,7 @@
 PYTHON ?= python3
 PIP ?= $(PYTHON) -m pip
 RUFF ?= $(PYTHON) -m ruff
+MYPY ?= $(PYTHON) -m mypy
 PYTEST ?= $(PYTHON) -m pytest
 UVICORN ?= $(PYTHON) -m uvicorn
 
@@ -17,7 +18,7 @@ TAILWIND_DIR ?= tailwindcss
 TAILWIND_INPUT ?= $(TAILWIND_DIR)/styles/app.css
 TAILWIND_OUTPUT ?= app/static/css/output.css
 
-.PHONY: help install dev test lint check-rules build all clean css css-watch serve run
+.PHONY: help install dev test lint typecheck check-rules build all clean css css-watch serve run
 
 help:
 	@echo "APAP make targets:"
@@ -25,13 +26,14 @@ help:
 	@echo "  dev          - Same as install (kept for backwards compat)"
 	@echo "  test         - Run pytest with deprecation strictness"
 	@echo "  lint         - Run ruff check on the repo"
+	@echo "  typecheck    - Run mypy over app/ + migration/ (scope in pyproject [tool.mypy])"
 	@echo "  check-rules  - Run the AST-based AGENTS.md rule linter (scripts/check_rules.py)"
 	@echo "  build        - Build sdist + wheel with python -m build"
 	@echo "  css          - Compile Tailwind v4 CSS once (production-style, minified)"
 	@echo "  css-watch    - Run Tailwind v4 in watch mode (dev)"
 	@echo "  serve        - Run uvicorn against app.main:app on 127.0.0.1:8000"
 	@echo "  run          - css + serve (one-shot local preview)"
-	@echo "  all          - css + test + lint (the green-PR gate)"
+	@echo "  all          - css + test + lint + typecheck (the green-PR gate)"
 	@echo "  clean        - Remove build artifacts and tool caches"
 
 install:
@@ -44,6 +46,15 @@ test:
 
 lint:
 	$(RUFF) check .
+
+# typecheck — issue #201, AGENTS.md rule 24. Plain `python -m mypy`:
+# the scope (app/ + migration/) and flags live in pyproject.toml
+# [tool.mypy] so this target and the CI `typecheck` job can never
+# drift. Zero errors is the gate; `# type: ignore` needs its error
+# code. Pinned by tests/test_ci_workflow.py::
+# test_ci_workflow_defines_typecheck_job_running_mypy.
+typecheck:
+	$(MYPY)
 
 # check-rules — Slice 1 of hardening-2026-q2 (PR-1A + PR-1B).
 # Runs the AST linter that catches the four most common AGENTS.md
@@ -79,7 +90,7 @@ serve:
 
 run: css serve
 
-all: css test lint
+all: css test lint typecheck
 
 clean:
 	rm -rf build/ dist/ .pytest_cache/ .ruff_cache/ .coverage htmlcov/

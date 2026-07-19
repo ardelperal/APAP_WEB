@@ -200,6 +200,7 @@ python -m pytest -W error::DeprecationWarning \
   --deselect tests/test_voluntarios_concurrent.py \
   --cov=app --cov-report=json --cov-fail-under=80 -q
 ruff check .
+python -m mypy
 python -m build
 ```
 
@@ -210,6 +211,8 @@ Los flags de cobertura replican exactamente lo que ejecuta el job `test` de `ci.
 Si el repo tiene `scripts/check_rules.py` (detectores propios: APAP001 rutas/SQL, APAP003 logger ban, CSRF middleware, log_safe, etc.), correrlo también: `python scripts/check_rules.py .` (con `.` como raíz — pasar `app` desactiva en silencio los detectores 5-8). Desde la issue #200 este linter también corre en CI dentro del job `lint` (regla 20 de AGENTS.md), así que si falla en local fallará el build.
 
 Correr también el ratchet de tamaño de módulos: `python scripts/check_module_size.py` (regla 21 de AGENTS.md, issue #202). Presupuesto de 700 líneas por módulo en `app/` y `migration/`; los offenders conocidos viven en la `BASELINE` del script y solo pueden decrecer. También corre en CI dentro del job `lint`.
+
+El typecheck es otro gate de CI (regla 24 de AGENTS.md, issue #201): `python -m mypy` (o `make typecheck`) debe salir con cero errores. El alcance y los flags viven en `pyproject.toml` bajo `[tool.mypy]` (`files = ["app", "migration"]`), así que el comando local y el job `typecheck` de CI ejecutan exactamente la misma comprobación. Todo `# type: ignore` debe llevar su código de error específico.
 
 ---
 
@@ -320,6 +323,7 @@ git push origin HEAD
 # Validación local
 pytest -W error::DeprecationWarning --ignore=tests/e2e --deselect tests/test_voluntarios_concurrent.py --cov=app --cov-report=json --cov-fail-under=80
 ruff check .
+python -m mypy
 python -m build
 python scripts/check_rules.py .
 python scripts/check_module_size.py

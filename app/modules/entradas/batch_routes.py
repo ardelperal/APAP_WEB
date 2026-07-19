@@ -21,11 +21,12 @@ support DELETE natively and the project prefers an explicit
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from app.core.auth_dependencies import (
@@ -82,7 +83,7 @@ def _form_data_to_params(form: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _parse_form_records(form_values: list[tuple[str, dict[str, Any]]]) -> list[dict[str, Any]]:
+def _parse_form_records(form_values: list[Mapping[str, Any] | None]) -> list[dict[str, Any]]:
     """Parse the dynamic rows posted from ``batch_new.html``.
 
     ``form_values`` is the list of values returned by FastAPI's
@@ -106,7 +107,7 @@ def _parse_form_records(form_values: list[tuple[str, dict[str, Any]]]) -> list[d
 @router.get("/new", response_class=HTMLResponse)
 def new_batch_form(
     request: Request,
-    user: dict | object = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_authorized_user),
 ):
     if (early := return_early_if_response(user)) is not None:
         return early
@@ -130,7 +131,7 @@ def stage_batch_view(
     origen: list[str] = Form([]),
     motivo: list[str] = Form([]),
     observaciones: list[str] = Form([]),
-    user: dict | object = Depends(require_writer_user),
+    user: Response | dict = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     if (early := return_early_if_response(user)) is not None:
@@ -205,7 +206,7 @@ def stage_batch_view(
 def batch_preview(
     batch_id: str,
     request: Request,
-    user: dict | object = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     if (early := return_early_if_response(user)) is not None:
@@ -227,7 +228,7 @@ def batch_preview(
 def commit_batch_view(
     batch_id: str,
     request: Request,
-    user: dict | object = Depends(require_writer_user),
+    user: Response | dict = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     if (early := return_early_if_response(user)) is not None:
@@ -271,7 +272,7 @@ def commit_batch_view(
 def cancel_batch_view(
     batch_id: str,
     request: Request,
-    user: dict | object = Depends(require_writer_user),
+    user: Response | dict = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     if (early := return_early_if_response(user)) is not None:

@@ -56,7 +56,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
+from typing import Any, cast
 
 from app.core.insforge import InsForgeClient
 
@@ -243,7 +243,8 @@ def _validate_required_fields(params: dict[str, Any]) -> None:
         raise ValueError("NombreAnimal es obligatorio y no puede estar vacio")
 
     try:
-        Especie(params.get("Especie"))
+        # cast: any non-member (including None) lands in the ValueError branch.
+        Especie(cast("str", params.get("Especie")))
     except ValueError as exc:
         raise ValueError(
             f"Especie debe ser una de {[e.value for e in Especie]}, "
@@ -251,7 +252,8 @@ def _validate_required_fields(params: dict[str, Any]) -> None:
         ) from exc
 
     try:
-        Sexo(params.get("Sexo"))
+        # cast: any non-member (including None) lands in the ValueError branch.
+        Sexo(cast("str", params.get("Sexo")))
     except ValueError as exc:
         raise ValueError(
             f"Sexo debe ser uno de {[s.value for s in Sexo]}, "

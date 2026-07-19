@@ -69,7 +69,7 @@ try:
 
     _PSUTIL_AVAILABLE = True
 except ImportError:  # pragma: no cover — exercised only without psutil
-    _psutil_module = None
+    _psutil_module = None  # type: ignore[assignment]
     _PSUTIL_AVAILABLE = False
 
 # Bind ``psutil`` a nivel módulo (además de ``_psutil_module``) para que
@@ -80,7 +80,7 @@ except ImportError:  # pragma: no cover — exercised only without psutil
 # ``check_msaccess_running`` retorna ``None`` y la función siempre
 # devuelve ``[]`` aunque psutil esté instalado (P0 #1 bug — code review
 # PR #99, fix).
-psutil = _psutil_module  # type: ignore[assignment]
+psutil = _psutil_module
 
 
 if TYPE_CHECKING:

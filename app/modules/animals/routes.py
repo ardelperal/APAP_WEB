@@ -166,7 +166,7 @@ def new_animal_form(
 @router.post("", response_class=HTMLResponse)
 def create_animal_view(
     request: Request,
-    form: AnimalForm = Form(...),  # type: ignore[assignment]
+    form: AnimalForm = Form(...),
     user: Response | dict = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
@@ -279,7 +279,7 @@ def edit_animal_form(
 def update_animal_view(
     animal_id: str,
     request: Request,
-    form: AnimalForm = Form(...),  # type: ignore[assignment]
+    form: AnimalForm = Form(...),
     user: Response | dict = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
