@@ -46,7 +46,6 @@ SCAN_DIRS = ("app", "migration")
 BASELINE: dict[str, int] = {
     "app/modules/materiales/service.py": 742,
     "migration/apply.py": 869,
-    "migration/cli.py": 933,
     "migration/reconcile.py": 976,
 }
 
