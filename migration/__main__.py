@@ -1,11 +1,10 @@
 """Entry point para ``python -m migration``.
 
 Este módulo existe para que el comando sea ejecutable desde la CLI sin
-necesidad de un script shim. A partir de PR 1 de
-``web-only-feature-preservation`` delega en ``migration.cli``
-para soportar el subcomando ``reconcile`` con argparse. Los demás
-subcomandos (``apply``, ``status``, ``init``) llegan en MIGRATION-01
-PR 4/6 y se conectan al mismo ``build_parser``.
+necesidad de un script shim. Delega en ``migration.cli``, cuyo
+``build_parser`` expone los subcomandos actuales del ETL:
+``reconcile``, ``apply`` (con ``--direction web-to-legacy`` para el
+camino inverso de PR6/M2), ``status`` y ``ensure-bucket``.
 """
 
 from __future__ import annotations
