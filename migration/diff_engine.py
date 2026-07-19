@@ -48,7 +48,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from migration.reporting import Diff
 from migration.sync_state import (
@@ -251,7 +251,8 @@ def _diff_snapshots(
                     key=str(source_pk_value),
                     table=table,
                     legacy_pk=(source_pk_value if not source_is_web else None),
-                    web_pk=(source_pk_value if source_is_web else None),
+                    # cast: when the source is web, its PK is the row UUID (str).
+                    web_pk=(cast("str | None", source_pk_value) if source_is_web else None),
                     legacy_row=(source_row if not source_is_web else None),
                     web_row=(source_row if source_is_web else None),
                     reason="source_new",

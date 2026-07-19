@@ -216,7 +216,7 @@ def lookup_legacy_pk(
     state: SyncState,
     table: str,
     web_pk: str,
-) -> int | None:
+) -> int | str | None:
     """Busca el ``legacy_pk`` (como ``int``) para ``web_pk`` en ``table``.
 
     Como el mapping es unidireccional (``legacy_pk → web_pk``), esta

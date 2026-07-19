@@ -61,7 +61,7 @@ def _advance_preserve_shadow_state(
     """
     from migration.reverse_apply.io_helpers import _case_insensitive_get
 
-    repo = ShadowStateRepository(client)  # type: ignore[arg-type]
+    repo = ShadowStateRepository(client)
     for col in mapping.columns:
         if getattr(col, "web_only_strategy", None) != "preserve":
             continue
@@ -101,7 +101,7 @@ def _record_drift_needs_review(
     raw payload — count + hash evidence only, per the PII audit
     doc's ``Count + Hash Evidence`` invariant).
     """
-    repo = ShadowStateRepository(client)  # type: ignore[arg-type]
+    repo = ShadowStateRepository(client)
     repo.upsert(
         table_name=mapping.web_table,
         legacy_pk=legacy_pk,

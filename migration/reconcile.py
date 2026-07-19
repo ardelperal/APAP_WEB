@@ -36,7 +36,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 from uuid import UUID
 
 if TYPE_CHECKING:
@@ -711,7 +711,7 @@ def _reconcile_column(
         # the derivation engine's input shape, so they live on the
         # snapshot as a side channel rather than inside derived_inputs.
         snapshot_dict = dict(legacy_snapshot) if legacy_snapshot else {}
-        sentinel_stored = snapshot_dict.pop("_stored_state", None)
+        sentinel_stored = cast("str | None", snapshot_dict.pop("_stored_state", None))
         sentinel_updated_at = snapshot_dict.pop("_web_updated_at", None)
         if sentinel_updated_at is not None and not isinstance(sentinel_updated_at, datetime):
             errors.append(

@@ -264,11 +264,11 @@ class MigrationReport:
                 lines.append("")
                 lines.append("| Table | count_legacy | count_web |")
                 lines.append("|---|---|---|")
-                for table_name, c in self.counts.items():
+                for table_name, table_counts in self.counts.items():
                     lines.append(
                         f"| {table_name} | "
-                        f"{c.get('count_legacy', '')} | "
-                        f"{c.get('count_web', '')} |"
+                        f"{table_counts.get('count_legacy', '')} | "
+                        f"{table_counts.get('count_web', '')} |"
                     )
                 lines.append("")
             if self.source_hashes:
@@ -284,8 +284,8 @@ class MigrationReport:
                 lines.append("")
                 lines.append("| Table | key | count |")
                 lines.append("|---|---|---|")
-                for table_name, c in self.collisions.items():
-                    for key, value in c.items():
+                for table_name, counters in self.collisions.items():
+                    for key, value in counters.items():
                         lines.append(f"| {table_name} | {key} | {value} |")
                 lines.append("")
 

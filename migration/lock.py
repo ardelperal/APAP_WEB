@@ -69,7 +69,7 @@ try:
 
     _PSUTIL_AVAILABLE = True
 except ImportError:  # pragma: no cover — exercised only without psutil
-    _psutil_module = None
+    _psutil_module = None  # type: ignore[assignment]
     _PSUTIL_AVAILABLE = False
 
 # Bind ``psutil`` a nivel módulo (además de ``_psutil_module``) para que
@@ -80,7 +80,7 @@ except ImportError:  # pragma: no cover — exercised only without psutil
 # ``check_msaccess_running`` retorna ``None`` y la función siempre
 # devuelve ``[]`` aunque psutil esté instalado (P0 #1 bug — code review
 # PR #99, fix).
-psutil = _psutil_module  # type: ignore[assignment]
+psutil = _psutil_module
 
 
 if TYPE_CHECKING:
@@ -395,7 +395,7 @@ def _is_process_alive_windows(pid: int) -> bool:
     error_access_denied = 5
     error_invalid_parameter = 87
 
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
     kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
     kernel32.OpenProcess.restype = wintypes.HANDLE
     kernel32.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
@@ -405,7 +405,7 @@ def _is_process_alive_windows(pid: int) -> bool:
 
     handle = kernel32.OpenProcess(process_query_limited_information, False, pid)
     if not handle:
-        error = ctypes.get_last_error()
+        error = ctypes.get_last_error()  # type: ignore[attr-defined]
         if error == error_invalid_parameter:
             return False
         if error == error_access_denied:

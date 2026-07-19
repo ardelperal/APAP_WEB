@@ -50,6 +50,15 @@ dev = [
     # E2E: UI verification via real Chromium browser. CI installs the
     # chromium binary separately with `playwright install chromium`.
     "playwright>=1.45",
+    # Type checking gate (issue #201, AGENTS.md rule 24). Scope and
+    # flags live in [tool.mypy] below; run with `make typecheck` or
+    # `python -m mypy`. >=2.3 = version validated locally (mypy 2.3.0).
+    "mypy>=2.3",
+    # Stub packages for the migration/ scope: psutil and pyyaml are
+    # [etl]-only runtime deps, but mypy needs their stubs at check time
+    # even on machines that never install the etl extra.
+    "types-psutil>=7.0",
+    "types-PyYAML>=6.0",
 ]
 # ETL one-time: only operator machines that run ``python -m migration``
 # need these. Installed with ``pip install '.[etl]'`` on demand.
@@ -194,6 +203,36 @@ known-first-party = ["app", "tests"]
 [tool.apap.coverage_gate]
 extra_helpers = []
 
+
+
+# --- Type checking gate (issue #201, AGENTS.md rule 24) ----------------
+# Single source of truth for the mypy scope and flags: `make typecheck`
+# and the CI `typecheck` job both run plain `python -m mypy`, which
+# reads `files` below. Keeping the scope here (not in CLI args) means
+# local and CI runs can never drift.
+#
+# Scope: app/ AND migration/ are both gated at ZERO errors (32 errors
+# were fixed to reach this baseline — annotation-only changes, no
+# runtime behavior touched). tests/ and scripts/ are out of scope for
+# now (documented follow-up; they are exercised by the suite itself).
+#
+# Mode: gradual-strict. Not `strict = true` yet — the flags below are
+# the moderate base; tightening (e.g. disallow_untyped_defs) may only
+# ADD flags, never remove them. Any `# type: ignore` must carry its
+# specific error code — enforced by the `ignore-without-code` error
+# code below (warn_unused_ignores only removes ignores that are no
+# longer needed; see AGENTS.md rule 24).
+[tool.mypy]
+python_version = "3.11"
+# CI runs on Linux and is the authoritative gate; pin the platform so a
+# local run on Windows type-checks the exact same view (win32-only ctypes
+# attributes are ignored with explicit error codes where needed).
+platform = "linux"
+files = ["app", "migration"]
+warn_unused_ignores = true
+warn_redundant_casts = true
+show_error_codes = true
+enable_error_code = ["ignore-without-code"]
 
 
 # Coverage configuration. Source covers the `app/` package; `tests/`

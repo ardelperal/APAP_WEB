@@ -34,9 +34,23 @@ choices.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Protocol
 
-from app.core.insforge import InsForgeClient
+
+class _SqlClient(Protocol):
+    """Structural surface the repository needs from ``InsForgeClient``.
+
+    Declared as a Protocol so callers (bootstrap, applier, tests) can
+    pass fakes or their own narrower protocols without subclassing the
+    real client.
+    """
+
+    def execute_sql(
+        self,
+        query: str,
+        params: list[Any] | None = None,
+    ) -> list[dict[str, Any]]: ...
+
 
 # --- Schema (T1.4) --------------------------------------------------------
 #
@@ -94,7 +108,7 @@ class ShadowStateRepository:
     operator intervention.
     """
 
-    def __init__(self, client: InsForgeClient) -> None:
+    def __init__(self, client: _SqlClient) -> None:
         self._client = client
 
     # --- write paths ----------------------------------------------------

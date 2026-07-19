@@ -596,6 +596,12 @@ The CI `e2e` job is currently skipped when `APAP_OAUTH_CLIENT_ID` is not configu
 
 Enforcement: PR review. A PR whose diff touches `templates/` or adds/changes a UI route without touching `tests/e2e/` must justify the exemption explicitly in the PR description or be blocked.
 
+### 24. mypy typecheck gate — zero errors on `app/` + `migration/`
+
+Static typing is enforced, not aspirational: the CI `typecheck` job runs `python -m mypy` and any error fails the build. Scope and flags live in `pyproject.toml` under `[tool.mypy]` — the **single source of truth** (`files = ["app", "migration"]`, `warn_unused_ignores`, `warn_redundant_casts`, `show_error_codes`, `enable_error_code = ["ignore-without-code"]`, `python_version = "3.11"`, `platform = "linux"` — CI's platform is the authoritative view); neither the CI job nor the Makefile repeats them, so `make typecheck` locally runs the exact same check as the CI `typecheck` job. Every `# type: ignore` MUST carry its specific error code (e.g. `# type: ignore[assignment]`) — bare ignores are rejected by the `ignore-without-code` error code enabled in `enable_error_code`, while `warn_unused_ignores` deletes ignores that are no longer needed. Removing the `typecheck` job, removing flags from `[tool.mypy]`, or shrinking `files` is a blocked change: it silently un-types whole packages. Tightening is one-way — the config may only ADD flags (e.g. per-module `strict = true`), never drop them.
+
+Enforcement: `tests/test_ci_workflow.py::test_ci_workflow_defines_typecheck_job_running_mypy` pins the CI job and its `python -m mypy` invocation; the deploy job `needs` list includes `typecheck`, so a typing regression blocks deploys; mypy exits non-zero on any error, failing the job.
+
 ---
 
 > **History:** the resolved "Known conflicts with existing code" tracker (all

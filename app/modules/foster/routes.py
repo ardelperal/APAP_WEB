@@ -174,7 +174,7 @@ def new_casa_acogida_form(
 @router.post("", response_class=HTMLResponse)
 def create_casa_acogida_view(
     request: Request,
-    form: CasaAcogidaForm = Form(...),  # type: ignore[assignment]
+    form: CasaAcogidaForm = Form(...),
     user: Any = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
@@ -284,7 +284,7 @@ def edit_casa_acogida_form(
 def update_casa_acogida_view(
     casa_id: str,
     request: Request,
-    form: CasaAcogidaForm = Form(...),  # type: ignore[assignment]
+    form: CasaAcogidaForm = Form(...),
     user: Any = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):

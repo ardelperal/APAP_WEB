@@ -600,6 +600,9 @@ def create_app() -> FastAPI:
         """
         if (early := return_early_if_response(current_user)) is not None:
             return early
+        # Narrowing: the early return above already handled the
+        # Response arm, so current_user can only be the session dict.
+        assert isinstance(current_user, dict)
         email = email.strip()
         rol = rol.strip()
         if not email or not rol:
