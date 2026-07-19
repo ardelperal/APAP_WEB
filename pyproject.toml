@@ -218,15 +218,21 @@ extra_helpers = []
 #
 # Mode: gradual-strict. Not `strict = true` yet — the flags below are
 # the moderate base; tightening (e.g. disallow_untyped_defs) may only
-# ADD flags, never remove them, and any `# type: ignore` must carry its
-# specific error code (enforced by warn_unused_ignores + the
-# convention in AGENTS.md rule 24).
+# ADD flags, never remove them. Any `# type: ignore` must carry its
+# specific error code — enforced by the `ignore-without-code` error
+# code below (warn_unused_ignores only removes ignores that are no
+# longer needed; see AGENTS.md rule 24).
 [tool.mypy]
 python_version = "3.11"
+# CI runs on Linux and is the authoritative gate; pin the platform so a
+# local run on Windows type-checks the exact same view (win32-only ctypes
+# attributes are ignored with explicit error codes where needed).
+platform = "linux"
 files = ["app", "migration"]
 warn_unused_ignores = true
 warn_redundant_casts = true
 show_error_codes = true
+enable_error_code = ["ignore-without-code"]
 
 
 # Coverage configuration. Source covers the `app/` package; `tests/`

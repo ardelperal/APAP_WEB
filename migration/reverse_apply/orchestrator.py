@@ -146,13 +146,13 @@ def apply_web_to_legacy(
         try:
             web_rows = client.execute_sql(sql)
         except Exception as exc:  # noqa: BLE001 — last-resort guard
-            errors: list[str] = []
-            errors.append(f"{mapping.web_table}: web query failed: {exc}")
+            query_errors: list[str] = []
+            query_errors.append(f"{mapping.web_table}: web query failed: {exc}")
             return ApplyResult(
                 table_name=safe,
                 applied=0,
                 skipped=0,
-                errors=errors,
+                errors=query_errors,
             )
     else:
         web_rows = list(web_snapshot.get(mapping.web_table, []))

@@ -221,7 +221,7 @@ def run_apply(
             if getattr(args, "direction", APPLY_DIRECTION_LEGACY_TO_WEB) == APPLY_DIRECTION_WEB_TO_LEGACY:
                 results.append(
                     apply_web_to_legacy(
-                        web_client,  # type: ignore[arg-type]
+                        web_client,
                         table,
                         legacy_path=args.legacy_path,
                         dry_run=bool(args.check_only),
