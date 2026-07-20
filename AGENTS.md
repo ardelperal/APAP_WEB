@@ -630,7 +630,7 @@ def opt(value: str | None) -> str | None:
 from app.core.form_helpers import opt as _opt
 ```
 
-Enforcement: a **watch-list regression guard**, not a general duplicate-code detector — `scripts/check_rules.py` Detector 10 (`duplicate_helper_definition`) maintains an explicit `WATCHED_DUPLICATE_HELPERS` set (starts with `_opt`, `_required_text`, `_optional_text`) and fails if any watched name is *defined* (not just called or imported) in more than one file under `app/`. The already-known duplication is grandfathered in a shrink-only `BASELINE_DUPLICATE_HELPERS` ratchet (mirrors rule 21's pattern) keyed by helper name, so the gate only blocks a **thirteenth** file duplicating a watched name, or a brand-new shared name getting copy-pasted a second time — it does not require #227 to be fixed first. Add newly-established shared helpers to the watch-list as they're identified. Tests: `tests/test_check_rules.py` (Detector 10 section).
+Enforcement: a **watch-list regression guard**, not a general duplicate-code detector — `scripts/check_rules.py` Detector 10 (`duplicate_helper_definition`) inspects only names explicitly listed in `WATCHED_DUPLICATE_HELPERS` (initially `_opt`, `_required_text`, and `_optional_text`). For each watched name, definitions already recorded in the shrink-only `BASELINE_DUPLICATE_HELPERS` ratchet are tolerated; any definition in an additional file fails. A watched name without a baseline fails when it is defined in more than one file. Calls, imports, differently named helpers, and semantic duplicates are outside this detector's scope. Tests: `tests/test_check_rules.py` (Detector 10 section).
 
 ### 26. Justify or eliminate lazy-import cycle workarounds
 
