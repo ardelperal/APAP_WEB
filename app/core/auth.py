@@ -28,6 +28,7 @@ from typing import Any
 from app.core.auth_cache import invalidate_auth
 from app.core.config import Settings
 from app.core.insforge import InsForgeClient
+from app.core.schema_bootstrap import SqlStatement, run_idempotent_sql
 
 
 class Rol(StrEnum):
@@ -118,9 +119,10 @@ def ensure_schema_and_seed(client: InsForgeClient, settings: Settings) -> None:
     This makes the function safe to call on every startup: the table
     is created if missing, and the admin is seeded at most once.
     """
-    client.execute_sql(CREATE_TABLE_SQL)
+    statements = [SqlStatement(CREATE_TABLE_SQL)]
     if settings.initial_admin_email:
-        client.execute_sql(SEED_ADMIN_SQL, [settings.initial_admin_email])
+        statements.append(SqlStatement(SEED_ADMIN_SQL, [settings.initial_admin_email]))
+    run_idempotent_sql(client, statements, step_name="auth")
 
 
 def get_user_by_email(
