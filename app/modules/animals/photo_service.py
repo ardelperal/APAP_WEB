@@ -3,10 +3,9 @@
 The service is the single-responsibility bridge between the animals
 domain (which knows about ``NombreFoto`` / sentinel keys / ``animal_id``)
 and the storage client (which knows about the two-step S3-compatible
-download flow). The service has NO SQL knowledge — it receives the
-storage client and the animal row from the caller — and the route has
-NO storage knowledge — it asks the service for a byte iterator or a
-typed "missing" outcome and translates that into an HTTP response.
+download flow). The service resolves the animal through the animals
+data service, owns the fail-closed policy, and returns bytes plus media
+type. The route only translates that typed outcome into an HTTP response.
 
 Why this boundary exists:
 
@@ -39,10 +38,22 @@ directly to the client.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from dataclasses import dataclass
 from typing import Any, Protocol  # noqa: F401 — Protocol used in _StorageLike
+
+from app.core.insforge import InsForgeClient
+from app.core.logging import log_safe
+from app.modules.animals import service as animals_service
 
 PHOTO_BUCKET = "apap-photos"
 SENTINEL_KEY = "__missing__"
+PLACEHOLDER_PHOTO_PNG: bytes = (
+    b"\x89PNG\r\n\x1a\n"
+    b"\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
+    b"\x00\x00\x00\rIDATx\x9cc\xf8\xff\xff?\x00\x05\xfe\x02"
+    b"\xfeA\xc0\xc1\x00\x00\x00\x00IEND\xaeB`\x82"
+)
 
 # Map a storage-key file extension to its HTTP ``Content-Type``. Lifted
 # to module level so the lookup table is one source of truth and the
@@ -69,6 +80,14 @@ class PhotoStreamError(RuntimeError):
     InsForge-shaped error. The service intentionally uses one error
     type so the route can surface a single, stable fail-closed contract.
     """
+
+
+@dataclass(frozen=True, slots=True)
+class PhotoResolution:
+    """Resolved bytes and media type for the route's HTTP response."""
+
+    content: bytes
+    media_type: str
 
 
 class _StorageLike(Protocol):
@@ -184,11 +203,52 @@ def content_type_for_key(nombrefoto: str | None) -> str:
     return "application/octet-stream"
 
 
+def resolve_animal_photo(
+    client: InsForgeClient,
+    animal_id: str,
+) -> PhotoResolution | None:
+    """Resolve the fail-closed photo policy without constructing HTTP responses.
+
+    ``None`` is reserved for a genuinely missing animal so the route can emit
+    404. Lookup failures, missing/sentinel keys, storage failures, and empty
+    objects all resolve to the placeholder PNG.
+    """
+    try:
+        animal = animals_service.get_animal_by_id(client, animal_id)
+    except Exception as exc:  # noqa: BLE001 — established fail-closed contract
+        log_safe(
+            "animal_foto.sql_lookup_failed",
+            reason=type(exc).__name__,
+        )
+        return PhotoResolution(PLACEHOLDER_PHOTO_PNG, "image/png")
+
+    if animal is None:
+        return None
+    if is_missing_nombrefoto(animal.NombreFoto):
+        return PhotoResolution(PLACEHOLDER_PHOTO_PNG, "image/png")
+
+    try:
+        chunks = list(
+            stream_animal_photo(client, nombrefoto=animal.NombreFoto)
+        )
+    except PhotoStreamError:
+        return PhotoResolution(PLACEHOLDER_PHOTO_PNG, "image/png")
+    if not chunks:
+        return PhotoResolution(PLACEHOLDER_PHOTO_PNG, "image/png")
+    return PhotoResolution(
+        b"".join(chunks),
+        content_type_for_key(animal.NombreFoto),
+    )
+
+
 __all__ = [
     "PHOTO_BUCKET",
+    "PLACEHOLDER_PHOTO_PNG",
     "SENTINEL_KEY",
+    "PhotoResolution",
     "PhotoStreamError",
     "content_type_for_key",
     "is_missing_nombrefoto",
+    "resolve_animal_photo",
     "stream_animal_photo",
 ]
