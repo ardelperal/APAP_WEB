@@ -209,3 +209,29 @@ and static inspection for remaining function-local role imports.
 
 **PASS** — no authorization behavior, role value, default-deny rule, cookie,
 session, CSRF, or logging contract changed.
+
+---
+
+## Issue #229 Addendum — 2026-07-20
+
+### Scope
+
+Deduplication of the developer-role decision shared by
+`require_developer_user` and `require_developer_user_redirect`.
+
+### Methodology
+
+CodeGraph caller analysis, focused dependency tests, denial-log verification,
+and static review of default-deny and redirect propagation paths.
+
+### Findings
+
+| Severity | Finding | Resolution |
+|---|---|---|
+| INFO | The two public dependencies repeated the same role decision and could drift. | A private helper now owns the role check and denial audit event. |
+| INFO | The public failure signals intentionally differ. | Wrappers preserve the existing 403 and 302 contracts respectively. |
+
+### Verdict
+
+**PASS** — developer access remains default-deny, upstream redirects are
+propagated unchanged, and denial logging continues through `log_safe` only.
