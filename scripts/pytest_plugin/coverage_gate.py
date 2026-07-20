@@ -35,6 +35,9 @@ CRITICAL_HELPERS: frozenset[str] = frozenset(
         "_validate_create_params",
         "_build_insert_params",
         "_reverse_apply_one_row",
+        "optional_text",
+        "optional_value",
+        "required_text",
     }
 )
 

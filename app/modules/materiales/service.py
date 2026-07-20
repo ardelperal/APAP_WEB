@@ -51,10 +51,17 @@ mapping all live here.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import partial
 from typing import Any, Final
 
+from app.core.forms import optional_text as _optional_text
+from app.core.forms import required_text
 from app.core.insforge import InsForgeClient, InsForgeError
 from app.core.logging import log_safe
+
+_required_text = partial(
+    required_text, error_template="{field} es obligatorio y no puede estar vacio"
+)
 
 # --- exceptions ----------------------------------------------------------
 
@@ -332,33 +339,7 @@ def _row_to_estancia_material(row: dict[str, Any]) -> EstanciaMaterial:
     )
 
 
-# --- validation helpers (local — no shared imports) ----------------------
-
-
-def _required_text(params: dict[str, Any], field_name: str) -> str:
-    """Read a required text field, raising ValueError if blank.
-
-    Mirrors ``app/modules/foster/service.py::_required_text``. Local
-    to this module so we don't couple to other modules' validation
-    contracts — the field name + Spanish error message are scoped to
-    the materiales domain.
-    """
-    value = str(params.get(field_name) or "").strip()
-    if not value:
-        raise ValueError(f"{field_name} es obligatorio y no puede estar vacio")
-    return value
-
-
-def _optional_text(params: dict[str, Any], field_name: str) -> str | None:
-    """Read an optional text field, normalizing blank to None.
-
-    Mirrors ``app/modules/foster/service.py::_optional_text``.
-    """
-    value = params.get(field_name)
-    if value is None:
-        return None
-    stripped = str(value).strip()
-    return stripped or None
+# --- domain-specific validation helpers ----------------------------------
 
 
 def _validate_cantidad(value: Any) -> int:

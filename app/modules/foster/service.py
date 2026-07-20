@@ -29,10 +29,17 @@ mapping all live here.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import partial
 from typing import Any, Final
 
+from app.core.forms import optional_text as _optional_text
+from app.core.forms import required_text
 from app.core.insforge import InsForgeClient
 from app.core.logging import log_safe
+
+_required_text = partial(
+    required_text, error_template="{field} es obligatorio y no puede estar vacío"
+)
 
 VALID_COCHE_VALUES: Final[frozenset[str]] = frozenset({"Sí", "No"})
 VALID_ESPECIE_VALUES: Final[frozenset[str]] = frozenset({"CANINA", "FELINA"})
@@ -198,21 +205,6 @@ def _row_to_casa_acogida(row: dict[str, Any]) -> CasaAcogida:
         updated_at=str(row["updated_at"]) if row.get("updated_at") else None,
         activo=bool(row.get("activo", True)),
     )
-
-
-def _required_text(params: dict[str, Any], field_name: str) -> str:
-    value = str(params.get(field_name) or "").strip()
-    if not value:
-        raise ValueError(f"{field_name} es obligatorio y no puede estar vacío")
-    return value
-
-
-def _optional_text(params: dict[str, Any], field_name: str) -> str | None:
-    value = params.get(field_name)
-    if value is None:
-        return None
-    stripped = str(value).strip()
-    return stripped or None
 
 
 def _validate_coche(value: Any) -> str:
