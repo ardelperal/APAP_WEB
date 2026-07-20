@@ -620,6 +620,70 @@ def test_delete_object_rejects_unsafe_bucket_name_before_network() -> None:
     assert calls == []
 
 
+# --- Issue #224: `key` (NombreFoto) is a URL path segment and MUST be
+# validated with the same fail-fast contract as the bucket name. ----------
+
+
+def test_upload_object_rejects_unsafe_key_before_network() -> None:
+    """A ``key`` with a path-traversal segment MUST raise before any HTTP call.
+
+    ``_request_upload_strategy`` sends ``key`` as the ``filename`` JSON
+    field (not a URL path segment), but it is still validated for
+    defense-in-depth consistency with the download/delete paths.
+    """
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        return _json_response(200, {"ok": True})
+
+    with pytest.raises(ValueError, match="unsafe storage key"):
+        _client(handler).upload_object(
+            BUCKET, "../../etc/passwd", SAMPLE_BYTES, content_type="image/jpeg"
+        )
+    assert calls == [], "HTTP call happened despite unsafe key rejection"
+
+
+def test_upload_object_rejects_key_with_forward_slash_before_network() -> None:
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        return _json_response(200, {"ok": True})
+
+    with pytest.raises(ValueError, match="unsafe storage key"):
+        _client(handler).upload_object(
+            BUCKET, "sub/dir/file.jpg", SAMPLE_BYTES, content_type="image/jpeg"
+        )
+    assert calls == []
+
+
+def test_download_object_stream_rejects_unsafe_key_before_network() -> None:
+    """``key`` is interpolated directly into the download-strategy URL path."""
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        return _json_response(200, {"url": "https://example.insforge.app/x"})
+
+    with pytest.raises(ValueError, match="unsafe storage key"):
+        b"".join(_client(handler).download_object_stream(BUCKET, "../../etc/passwd"))
+    assert calls == []
+
+
+def test_delete_object_rejects_unsafe_key_before_network() -> None:
+    """``key`` is interpolated directly into the delete URL path."""
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        return _json_response(200, {"deleted": True})
+
+    with pytest.raises(ValueError, match="unsafe storage key"):
+        _client(handler).delete_object(BUCKET, "../../etc/passwd")
+    assert calls == []
+
+
 # =============================================================================
 # Idempotency / idempotent re-upload
 # =============================================================================

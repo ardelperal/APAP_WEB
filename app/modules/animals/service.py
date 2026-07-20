@@ -58,7 +58,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
-from app.core.insforge import InsForgeClient
+from app.core.insforge import InsForgeClient, _validate_storage_key
 
 
 class Especie(StrEnum):
@@ -266,7 +266,21 @@ def _validate_required_fields(params: dict[str, Any]) -> None:
     _validate_required_string(params, "Terapia")
     _validate_required_string(params, "TraeNChip")
     _validate_required_string(params, "FIMPLANTACIONCHIP")
-    _validate_required_string(params, "NombreFoto")
+    nombre_foto = _validate_required_string(params, "NombreFoto")
+
+    # Issue #224: NombreFoto se usa, sin sanear, como segmento de URL en
+    # las llamadas de storage de InsForge (``download_object_stream`` /
+    # ``delete_object`` en ``app/core/insforge.py``). Reutiliza la misma
+    # allow-list que protege ``bucket`` (``_validate_storage_key``) para
+    # rechazar path traversal / separadores de ruta en el path de
+    # escritura, no solo en el de lectura.
+    try:
+        _validate_storage_key(nombre_foto)
+    except ValueError as exc:
+        raise ValueError(
+            f"NombreFoto contiene caracteres no permitidos ({nombre_foto!r}); "
+            "no puede incluir '/', '\\\\', segmentos '..' ni empezar por '.'"
+        ) from exc
 
 
 _INSERT_ANIMAL_SQL = f"""

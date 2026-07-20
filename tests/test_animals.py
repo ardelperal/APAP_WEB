@@ -661,3 +661,75 @@ def test_update_animal_rechaza_campos_requeridos_de_access_o_discovery(
         "no se debe emitir SQL si la validacion falla en update; "
         f"se capturaron {len(captured)} queries: {captured!r}"
     )
+
+
+# --- Issue #224: NombreFoto is used, unsanitized, as a storage `key` URL --
+# path segment (`InsForgeClient.download_object_stream` /
+# `delete_object`). It must be rejected at the write path (create/update)
+# before any SQL is issued, same fail-fast contract as the other required
+# field checks above.
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "../../etc/passwd",
+        "..\\..\\windows\\system32",
+        "/etc/passwd",
+        "sub/dir/foto.jpg",
+        "..oculto.jpg",
+        ".oculto.jpg",
+    ],
+)
+def test_create_animal_rechaza_NombreFoto_con_path_traversal(payload: str) -> None:
+    client, captured = _client_recording(lambda req, body: _json_response(200, []))
+
+    with pytest.raises(ValueError, match="NombreFoto"):
+        create_animal(client, {**_params_minimal(), "NombreFoto": payload})
+    client.close()
+
+    assert captured == [], (
+        "no se debe emitir SQL si NombreFoto es inseguro; "
+        f"se capturaron {len(captured)} queries: {captured!r}"
+    )
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "../../etc/passwd",
+        "..\\..\\windows\\system32",
+        "/etc/passwd",
+        "sub/dir/foto.jpg",
+    ],
+)
+def test_update_animal_rechaza_NombreFoto_con_path_traversal(payload: str) -> None:
+    client, captured = _client_recording(lambda req, body: _json_response(200, []))
+
+    with pytest.raises(ValueError, match="NombreFoto"):
+        update_animal(client, "abc-123", {**_params_minimal(), "NombreFoto": payload})
+    client.close()
+
+    assert captured == []
+
+
+def test_create_animal_acepta_NombreFoto_con_nombre_de_archivo_normal() -> None:
+    """Un nombre de archivo normal (sin separadores ni traversal) sigue funcionando."""
+    returned = {
+        "id": "33333333-3333-3333-3333-333333333333",
+        "NCHIP": "985112004409871",
+        "NombreAnimal": "Luna",
+        "Especie": "CANINA",
+        "Sexo": "H",
+        "FNacimiento": "2023-04-12",
+        "activo": True,
+    }
+
+    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
+        return _json_response(200, [returned])
+
+    client, captured = _client_recording(_handler)
+    create_animal(client, {**_params_minimal(), "NombreFoto": "foto123.jpg"})
+    client.close()
+
+    assert len(captured) == 1
