@@ -35,8 +35,8 @@ from app.core.insforge import InsForgeClient, InsForgeError
 from app.modules.entradas.service import (
     Entrada,
     EntradaConflictError,
-    _is_duplicate_error,
-    _row_to_entrada,
+    is_duplicate_error,
+    row_to_entrada,
 )
 
 
@@ -311,12 +311,12 @@ def commit_batch(client: InsForgeClient, batch_id: str) -> list[Entrada]:
     try:
         rows = client.execute_sql(_COMMIT_BATCH_SQL, [batch_id])
     except InsForgeError as exc:
-        if _is_duplicate_error(exc):
+        if is_duplicate_error(exc):
             raise EntradaConflictError(
                 "entrada duplicada durante el commit del lote"
             ) from exc
         raise
-    return [_row_to_entrada(row) for row in rows]
+    return [row_to_entrada(row) for row in rows]
 
 
 def cancel_batch(client: InsForgeClient, batch_id: str) -> None:
