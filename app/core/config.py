@@ -24,6 +24,8 @@ import functools
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.core.roles import Rol
+
 
 class Settings(BaseSettings):
     """Runtime settings for the APAP_WEB application.
@@ -100,16 +102,11 @@ class Settings(BaseSettings):
     # allows through to write routes (POST/PUT/PATCH/DELETE). The
     # ``reader`` role is intentionally excluded: a reader is read-only
     # by definition, and the per-route dep raises 403 otherwise. The
-    # source of truth is :class:`app.core.auth.Rol` (regla 4 — one
-    # source per domain concept); the import is deferred inside the
-    # property because ``app.core.auth`` already imports ``Settings``,
-    # so a top-level ``from app.core.auth import Rol`` would close a
-    # module-load cycle.
+    # source of truth is :class:`app.core.roles.Rol` (regla 4 — one
+    # source per domain concept).
     @property
     def writer_rols(self) -> frozenset[str]:
         """Roles allowed to write (POST/PUT/PATCH/DELETE) — issue #144."""
-        from app.core.auth import Rol  # noqa: PLC0415 (lazy: breaks cycle)
-
         return frozenset({Rol.DEVELOPER.value, Rol.ADMIN.value, Rol.KEY_USER.value})
 
 

@@ -4,7 +4,7 @@ The project rule 4 (one source of truth per domain concept) requires
 that any frozenset/list of domain values is derived from a single
 StrEnum, not duplicated. This file pins the contract for:
 
-- ``app.core.auth.Rol`` — the source of truth for authorized user roles.
+- ``app.core.roles.Rol`` — the source of truth for authorized user roles.
 - ``app.core.auth.VALID_ROLES`` — derived from ``Rol`` (not hardcoded).
 - ``app.modules.voluntarios.service.RolVoluntario`` — already exists.
 - ``app.modules.voluntarios.service.VALID_ROL_TYPES`` — derived from
@@ -17,7 +17,8 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from app.core.auth import VALID_ROLES, Rol
+from app.core.auth import VALID_ROLES
+from app.core.roles import Rol
 from app.modules.voluntarios.service import VALID_ROL_TYPES, RolVoluntario
 
 
@@ -54,3 +55,13 @@ def test_valid_rol_types_is_derived_from_rol_voluntario_enum() -> None:
     expected = frozenset(r.value for r in RolVoluntario)
     assert VALID_ROL_TYPES == expected
     assert isinstance(VALID_ROL_TYPES, frozenset)
+
+
+def test_role_enum_has_dependency_free_module_home() -> None:
+    """The role enum lives outside auth/config so either module can import it."""
+    from importlib import import_module
+
+    roles = import_module("app.core.roles")
+
+    assert roles.Rol is Rol
+    assert Rol.__module__ == "app.core.roles"

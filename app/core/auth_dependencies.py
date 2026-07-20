@@ -55,11 +55,12 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from starlette.responses import Response
 
-from app.core.auth import Rol
+from app.core.auth import get_user_by_email
 from app.core.auth_cache import get_cached_auth, set_cached_auth
 from app.core.config import get_settings
 from app.core.insforge import InsForgeClient
 from app.core.logging import log_safe
+from app.core.roles import Rol
 from app.core.session import read_session_payload
 
 
@@ -197,11 +198,6 @@ def require_authorized_user(
     ttl = get_settings().auth_cache_ttl_seconds
     cached = get_cached_auth(email, ttl)
     if cached is None:
-        # Import local para evitar un ciclo de import a nivel de modulo
-        # (app.core.auth importa app.core.auth_cache, que no depende de
-        # esta dep; el service se resuelve perezosamente aqui).
-        from app.core.auth import get_user_by_email
-
         fresh = get_user_by_email(client, email)
         if fresh is None:
             set_cached_auth(email, is_authorized=False, rol=None)
@@ -315,7 +311,7 @@ def require_developer_user(
     :func:`require_authorized_user`.
 
     Regla 4 del code quality: el valor ``"developer"`` viene de
-    :class:`app.core.auth.Rol.DEVELOPER` (unica fuente de verdad).
+    :class:`app.core.roles.Rol.DEVELOPER` (unica fuente de verdad).
 
     403 vs redirect a ``/unauthorized``: elegimos 403 (HTTP estandar
     para "Forbidden" — la sesion es valida pero el rol no alcanza)
@@ -365,7 +361,7 @@ def require_developer_user_redirect(
       :func:`require_writer_user` y :func:`require_developer_user`).
 
     Regla 4 (source of truth): el valor ``"developer"`` viene de
-    :class:`app.core.auth.Rol.DEVELOPER`. NO se hardcodea el literal
+    :class:`app.core.roles.Rol.DEVELOPER`. NO se hardcodea el literal
     aqui. Regla 6 (default-deny): si el payload no trae ``rol``, se
     redirige (no se asume el developer).
 
