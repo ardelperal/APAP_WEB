@@ -59,10 +59,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 PER_FILE_ATOM_COUNTS: dict[str, int] = {
     "tests/test_log_safe_redaction.py": 15,
     "tests/test_animals_foto_route.py": 18,
-    "tests/migration/test_insforge_storage_methods.py": 30,
+    "tests/migration/test_insforge_storage_methods.py": 34,
     "tests/test_pii_audit_doc.py": 7,
 }
-EXPECTED_TOTAL: int = sum(PER_FILE_ATOM_COUNTS.values())  # 70
+EXPECTED_TOTAL: int = sum(PER_FILE_ATOM_COUNTS.values())  # 74 (issue #224: +4 _validate_storage_key atoms)
 
 # Headline atom-count patterns for 4R-era claims. Each pattern
 # matches a numeric claim that, if it disagrees with EXPECTED_TOTAL,

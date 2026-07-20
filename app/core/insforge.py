@@ -273,10 +273,11 @@ class InsForgeClient:
         on a body missing the required ``uploadUrl`` field. The bucket
         name has already been validated by ``_validate_bucket_name``.
         """
+        safe_key = _validate_storage_key(key)
         strategy = self._client.post(
             f"/api/storage/buckets/{safe_bucket}/upload-strategy",
             json={
-                "filename": key,
+                "filename": safe_key,
                 "contentType": content_type,
                 "size": size,
             },
@@ -386,9 +387,10 @@ class InsForgeClient:
         responses raise ``InsForgeError``.
         """
         safe_bucket = _validate_bucket_name(bucket)
+        safe_key = _validate_storage_key(key)
 
         strategy = self._client.get(
-            f"/api/storage/buckets/{safe_bucket}/download-strategy/objects/{key}",
+            f"/api/storage/buckets/{safe_bucket}/download-strategy/objects/{safe_key}",
         )
         if not strategy.is_success:
             raise InsForgeError(strategy.status_code, _safe_json(strategy))
@@ -428,8 +430,9 @@ class InsForgeClient:
         ``InsForgeError``.
         """
         safe_bucket = _validate_bucket_name(bucket)
+        safe_key = _validate_storage_key(key)
         response = self._client.delete(
-            f"/api/storage/buckets/{safe_bucket}/objects/{key}",
+            f"/api/storage/buckets/{safe_bucket}/objects/{safe_key}",
         )
         if response.status_code == 404:
             return
@@ -555,6 +558,34 @@ def _validate_bucket_name(bucket_name: str) -> str:
             f"unsafe bucket name {bucket_name!r}; must match {_SAFE_BUCKET_NAME.pattern}"
         )
     return bucket_name
+
+
+# Issue #224: ``key`` (an animal photo filename, e.g. ``NombreFoto``) is
+# interpolated directly into storage URL paths (``download_object_stream``,
+# ``delete_object``) and sent as a JSON ``filename`` field
+# (``_request_upload_strategy``). Unlike ``bucket``, it previously went
+# through no format check at all — only a non-emptiness check in
+# ``app.modules.animals.service``. This mirrors ``_validate_bucket_name``:
+# an allow-list of filename-safe characters (letters, digits, ``_``, ``-``,
+# ``.`` for extensions) that still rejects ``/``, ``\``, any ``..``
+# segment, and a leading dot (hidden-file / relative-traversal payloads).
+_SAFE_STORAGE_KEY = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+
+def _validate_storage_key(key: str) -> str:
+    """Return a safe storage key or raise before any HTTP call.
+
+    Same fail-fast contract as :func:`_validate_bucket_name`: reject
+    path separators, ``..`` traversal segments, and a leading dot,
+    while still accepting ordinary photo filenames such as
+    ``foto123.jpg`` or ``animal-123.png``.
+    """
+    if not _SAFE_STORAGE_KEY.match(key) or ".." in key or key.startswith("."):
+        raise ValueError(
+            f"unsafe storage key {key!r}; must match {_SAFE_STORAGE_KEY.pattern} "
+            "with no path separators, '..' segments, or leading dot"
+        )
+    return key
 
 
 def _extract_bucket_items(body: Any) -> list[Any]:
