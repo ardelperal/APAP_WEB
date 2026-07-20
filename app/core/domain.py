@@ -34,6 +34,7 @@ RULES (issue #29):
 from __future__ import annotations
 
 from app.core.insforge import InsForgeClient
+from app.core.schema_bootstrap import SqlStatement, run_idempotent_sql
 
 # --- animales: 1:1 con TbFichaAnimal (26 cols) + 3 mejoras justificadas ---
 
@@ -640,56 +641,59 @@ def ensure_domain_schema(client: InsForgeClient) -> None:
     The two new tables are PR 1 of ``web-only-feature-preservation``;
     they are P0 BLOCKERS for PR 2 (derivation engine + semantic events).
     """
-    client.execute_sql(ANIMALS_CREATE_TABLE_SQL)
-    client.execute_sql(VOLUNTARIOS_CREATE_TABLE_SQL)
-    client.execute_sql(ROLES_VOLUNTARIO_CREATE_TABLE_SQL)
-    client.execute_sql(ENTRADAS_CREATE_TABLE_SQL)
-    client.execute_sql(ENTRADAS_BATCH_STAGING_CREATE_TABLE_SQL)
-    client.execute_sql(CASAS_ACOGIDA_CREATE_TABLE_SQL)
-    client.execute_sql(ACOGIDAS_CREATE_TABLE_SQL)
-    # FOSTER-02 (#44) — añade la FK estructurada desde ``acogidas`` hacia
-    # ``casas_acogida``. Idempotente (``ADD COLUMN IF NOT EXISTS``) y
-    # emitido DESPUÉS del CREATE TABLE de acogidas para garantizar que
-    # la tabla referenciada (``casas_acogida``) ya existe en la base.
-    client.execute_sql(ACOGIDAS_ADD_CASA_FK_SQL)
-    # FOSTER-03 (#45) — audit log para los overrides de capacidad. La
-    # tabla referencia ``casas_acogida`` y ``animales``, ambas ya
-    # creadas; emisión DESPUÉS del ALTER de ``acogidas`` mantiene el
-    # orden lógico del slice foster. Idempotente vía
-    # ``CREATE TABLE IF NOT EXISTS``.
-    client.execute_sql(FOSTER_CAPACITY_OVERRIDES_CREATE_TABLE_SQL)
-    # Issue #142 — añade la FK opcional ``estancia_id`` al audit log.
-    # Emisión DESPUÉS del CREATE de ``foster_capacity_overrides`` (para
-    # que la tabla target exista) y DESPUÉS del CREATE de ``acogidas``
-    # (para que el FK target exista). Idempotente vía ``ADD COLUMN IF
-    # NOT EXISTS``; ver el docstring del SQL constant para el contrato
-    # completo del fix y la query de auditoría de huérfanos.
-    client.execute_sql(FOSTER_CAPACITY_OVERRIDES_ADD_ESTANCIA_FK_SQL)
-    client.execute_sql(ADOPCIONES_CREATE_TABLE_SQL)
-    client.execute_sql(ANIMAL_LIFECYCLE_EVENTS_CREATE_TABLE_SQL)
-    client.execute_sql(ANIMAL_CURRENT_STATE_CREATE_TABLE_SQL)
-    client.execute_sql(CESIONES_PROPIETARIO_CREATE_TABLE_SQL)
-    client.execute_sql(CONTRATOS_CREATE_TABLE_SQL)
-    # HEALTH-01 (#50) — historial clinico por animal. Ver bloque de doc
-    # arriba; emite DESPUES de contratos porque las tablas de dominio que
-    # referencia ya estan creadas y el lifespan ya creo los catalogos.
-    # ``CREATE TABLE IF NOT EXISTS`` lo hace idempotente entre reinicios.
-    client.execute_sql(ACTUACION_SANITARIA_CREATE_TABLE_SQL)
-    # FOSTER-04 (#46, PR A of 3 chained) — materiales catalog +
-    # estancia_materiales junction. Emitted AFTER ``actuacion_sanitaria``
-    # so that the junction's two FK targets (``acogidas`` and
-    # ``materiales``) already exist when the FK constraints are evaluated
-    # on a fresh backend. Both CREATE TABLEs use ``IF NOT EXISTS`` and
-    # the partial unique index also uses ``IF NOT EXISTS`` so the
-    # bootstrap is replay-safe across cold starts. See
-    # ``docs/proceso.md`` P1 (fidelidad al legacy ``TbMaterial``) and the
-    # spec at engram obs #15894 for the full P1 contract (UNIQUE
-    # (material, tamano, color) for legacy natural-key enforcement).
-    # NOTE: if the partial unique index already contains duplicate active
-    # (estancia_id, material_id) rows from a prior buggy import, the
-    # CREATE UNIQUE INDEX will fail and the entire ensure_domain_schema
-    # call will fail. See docs/runbooks/foster-04-materiales-unique-index-failure.md
-    # for the deduplication procedure (BLOCKER per jd-judge-b on PR #166).
-    client.execute_sql(MATERIALES_CREATE_TABLE_SQL)
-    client.execute_sql(ESTANCIA_MATERIALES_CREATE_TABLE_SQL)
-    client.execute_sql(ESTANCIA_MATERIALES_ACTIVE_UNIQUE_INDEX_SQL)
+    statements = (
+        SqlStatement(ANIMALS_CREATE_TABLE_SQL),
+        SqlStatement(VOLUNTARIOS_CREATE_TABLE_SQL),
+        SqlStatement(ROLES_VOLUNTARIO_CREATE_TABLE_SQL),
+        SqlStatement(ENTRADAS_CREATE_TABLE_SQL),
+        SqlStatement(ENTRADAS_BATCH_STAGING_CREATE_TABLE_SQL),
+        SqlStatement(CASAS_ACOGIDA_CREATE_TABLE_SQL),
+        SqlStatement(ACOGIDAS_CREATE_TABLE_SQL),
+        # FOSTER-02 (#44) — añade la FK estructurada desde ``acogidas`` hacia
+        # ``casas_acogida``. Idempotente (``ADD COLUMN IF NOT EXISTS``) y
+        # emitido DESPUÉS del CREATE TABLE de acogidas para garantizar que
+        # la tabla referenciada (``casas_acogida``) ya existe en la base.
+        SqlStatement(ACOGIDAS_ADD_CASA_FK_SQL),
+        # FOSTER-03 (#45) — audit log para los overrides de capacidad. La
+        # tabla referencia ``casas_acogida`` y ``animales``, ambas ya
+        # creadas; emisión DESPUÉS del ALTER de ``acogidas`` mantiene el
+        # orden lógico del slice foster. Idempotente vía
+        # ``CREATE TABLE IF NOT EXISTS``.
+        SqlStatement(FOSTER_CAPACITY_OVERRIDES_CREATE_TABLE_SQL),
+        # Issue #142 — añade la FK opcional ``estancia_id`` al audit log.
+        # Emisión DESPUÉS del CREATE de ``foster_capacity_overrides`` (para
+        # que la tabla target exista) y DESPUÉS del CREATE de ``acogidas``
+        # (para que el FK target exista). Idempotente vía ``ADD COLUMN IF
+        # NOT EXISTS``; ver el docstring del SQL constant para el contrato
+        # completo del fix y la query de auditoría de huérfanos.
+        SqlStatement(FOSTER_CAPACITY_OVERRIDES_ADD_ESTANCIA_FK_SQL),
+        SqlStatement(ADOPCIONES_CREATE_TABLE_SQL),
+        SqlStatement(ANIMAL_LIFECYCLE_EVENTS_CREATE_TABLE_SQL),
+        SqlStatement(ANIMAL_CURRENT_STATE_CREATE_TABLE_SQL),
+        SqlStatement(CESIONES_PROPIETARIO_CREATE_TABLE_SQL),
+        SqlStatement(CONTRATOS_CREATE_TABLE_SQL),
+        # HEALTH-01 (#50) — historial clinico por animal. Ver bloque de doc
+        # arriba; emite DESPUES de contratos porque las tablas de dominio que
+        # referencia ya estan creadas y el lifespan ya creo los catalogos.
+        # ``CREATE TABLE IF NOT EXISTS`` lo hace idempotente entre reinicios.
+        SqlStatement(ACTUACION_SANITARIA_CREATE_TABLE_SQL),
+        # FOSTER-04 (#46, PR A of 3 chained) — materiales catalog +
+        # estancia_materiales junction. Emitted AFTER ``actuacion_sanitaria``
+        # so that the junction's two FK targets (``acogidas`` and
+        # ``materiales``) already exist when the FK constraints are evaluated
+        # on a fresh backend. Both CREATE TABLEs use ``IF NOT EXISTS`` and
+        # the partial unique index also uses ``IF NOT EXISTS`` so the
+        # bootstrap is replay-safe across cold starts. See
+        # ``docs/proceso.md`` P1 (fidelidad al legacy ``TbMaterial``) and the
+        # spec at engram obs #15894 for the full P1 contract (UNIQUE
+        # (material, tamano, color) for legacy natural-key enforcement).
+        # NOTE: if the partial unique index already contains duplicate active
+        # (estancia_id, material_id) rows from a prior buggy import, the
+        # CREATE UNIQUE INDEX will fail and the entire ensure_domain_schema
+        # call will fail. See docs/runbooks/foster-04-materiales-unique-index-failure.md
+        # for the deduplication procedure (BLOCKER per jd-judge-b on PR #166).
+        SqlStatement(MATERIALES_CREATE_TABLE_SQL),
+        SqlStatement(ESTANCIA_MATERIALES_CREATE_TABLE_SQL),
+        SqlStatement(ESTANCIA_MATERIALES_ACTIVE_UNIQUE_INDEX_SQL),
+    )
+    run_idempotent_sql(client, statements, step_name="domain")
