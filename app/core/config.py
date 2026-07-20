@@ -108,7 +108,8 @@ class Settings(BaseSettings):
     @property
     def writer_rols(self) -> frozenset[str]:
         """Roles allowed to write (POST/PUT/PATCH/DELETE) — issue #144."""
-        from app.core.auth import Rol  # noqa: PLC0415 (lazy: breaks cycle)
+        # lazy-import: avoids circular import with app.core.auth (auth.py imports Settings)
+        from app.core.auth import Rol  # noqa: PLC0415
 
         return frozenset({Rol.DEVELOPER.value, Rol.ADMIN.value, Rol.KEY_USER.value})
 

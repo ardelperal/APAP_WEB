@@ -59,6 +59,15 @@ jobs:
         # test_ci_workflow_lint_job_runs_module_size_gate.
         run: python scripts/check_module_size.py
 
+      - name: Run route-handler size ratchet (AGENTS.md rule 28)
+        # Issue #233 — removing this step is a blocked change. Companion
+        # to the module-size ratchet above, scoped to individual
+        # FastAPI route-handler functions (50-line budget) instead of
+        # whole modules; known offenders (animal_foto and 14 siblings)
+        # live in an explicit BASELINE that may only shrink. Pinned by
+        # tests/test_route_size.py::test_ci_workflow_lint_job_runs_route_size_gate.
+        run: python scripts/check_route_size.py
+
       - name: Diagnostic secret-leak scan
         run: grep -rE '(http://|https://|sk-|ghp_)[A-Za-z0-9]+' .github/ || true
 

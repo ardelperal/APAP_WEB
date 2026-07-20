@@ -200,6 +200,7 @@ def require_authorized_user(
         # Import local para evitar un ciclo de import a nivel de modulo
         # (app.core.auth importa app.core.auth_cache, que no depende de
         # esta dep; el service se resuelve perezosamente aqui).
+        # lazy-import: avoids circular import with app.core.auth
         from app.core.auth import get_user_by_email
 
         fresh = get_user_by_email(client, email)
