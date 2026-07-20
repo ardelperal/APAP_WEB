@@ -15,6 +15,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from app.core.forms import optional_text as _optional_text
+from app.core.forms import required_text as _required_text
 from app.core.insforge import InsForgeClient, InsForgeError
 
 
@@ -128,21 +130,6 @@ def _row_to_entrada(row: dict[str, Any]) -> Entrada:
         updated_at=str(row["updated_at"]) if row.get("updated_at") else None,
         activo=bool(row.get("activo", True)),
     )
-
-
-def _required_text(params: dict[str, Any], field: str) -> str:
-    value = str(params.get(field) or "").strip()
-    if not value:
-        raise ValueError(f"{field} is required and cannot be empty")
-    return value
-
-
-def _optional_text(params: dict[str, Any], field: str) -> str | None:
-    value = params.get(field)
-    if value is None:
-        return None
-    stripped = str(value).strip()
-    return stripped or None
 
 
 def _build_write_params(params: dict[str, Any]) -> list[Any]:

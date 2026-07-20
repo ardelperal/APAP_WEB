@@ -32,6 +32,7 @@ from app.core.auth_dependencies import (
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
+from app.core.forms import optional_value
 from app.core.insforge import InsForgeClient, InsForgeError
 from app.core.logging import log_safe
 from app.core.middleware import base_template_context_processor
@@ -81,38 +82,31 @@ def _form_data_to_params(form: dict[str, Any]) -> dict[str, Any]:
     are returned as ``None`` so the service passes them as NULL to
     InsForge.
     """
-    def _opt(key: str) -> str | None:
-        value = form.get(key)
-        if value is None:
-            return None
-        value = str(value).strip()
-        return value or None
-
     return {
-        "NCHIP": _opt("NCHIP"),
-        "NombreAnimal": _opt("NombreAnimal"),
-        "Especie": _opt("Especie"),
-        "Sexo": _opt("Sexo"),
-        "FNacimiento": _opt("FNacimiento"),
-        "TraeNChip": _opt("TraeNChip"),
-        "FIMPLANTACIONCHIP": _opt("FIMPLANTACIONCHIP"),
-        "Raza": _opt("Raza"),
-        "Color": _opt("Color"),
-        "Pelo": _opt("Pelo"),
-        "Tamano": _opt("Tamano"),
-        "Caracter": _opt("Caracter"),
-        "FDefuncion": _opt("FDefuncion"),
-        "Terapia": _opt("Terapia"),
-        "Observaciones": _opt("Observaciones"),
-        "NombreFoto": _opt("NombreFoto"),
-        "Cartilla": _opt("Cartilla"),
-        "Eutanasia": _opt("Eutanasia"),
-        "RazaPPP": _opt("RazaPPP"),
-        "Mestizo": _opt("Mestizo"),
-        "EutanasiaOtrasCausas": _opt("EutanasiaOtrasCausas"),
-        "EutanasiaEnfermedad": _opt("EutanasiaEnfermedad"),
-        "UltimoEstadoAntesDeFallecido": _opt("UltimoEstadoAntesDeFallecido"),
-        "ComunicacionARIAC": _opt("ComunicacionARIAC"),
+        "NCHIP": optional_value(form.get("NCHIP")),
+        "NombreAnimal": optional_value(form.get("NombreAnimal")),
+        "Especie": optional_value(form.get("Especie")),
+        "Sexo": optional_value(form.get("Sexo")),
+        "FNacimiento": optional_value(form.get("FNacimiento")),
+        "TraeNChip": optional_value(form.get("TraeNChip")),
+        "FIMPLANTACIONCHIP": optional_value(form.get("FIMPLANTACIONCHIP")),
+        "Raza": optional_value(form.get("Raza")),
+        "Color": optional_value(form.get("Color")),
+        "Pelo": optional_value(form.get("Pelo")),
+        "Tamano": optional_value(form.get("Tamano")),
+        "Caracter": optional_value(form.get("Caracter")),
+        "FDefuncion": optional_value(form.get("FDefuncion")),
+        "Terapia": optional_value(form.get("Terapia")),
+        "Observaciones": optional_value(form.get("Observaciones")),
+        "NombreFoto": optional_value(form.get("NombreFoto")),
+        "Cartilla": optional_value(form.get("Cartilla")),
+        "Eutanasia": optional_value(form.get("Eutanasia")),
+        "RazaPPP": optional_value(form.get("RazaPPP")),
+        "Mestizo": optional_value(form.get("Mestizo")),
+        "EutanasiaOtrasCausas": optional_value(form.get("EutanasiaOtrasCausas")),
+        "EutanasiaEnfermedad": optional_value(form.get("EutanasiaEnfermedad")),
+        "UltimoEstadoAntesDeFallecido": optional_value(form.get("UltimoEstadoAntesDeFallecido")),
+        "ComunicacionARIAC": optional_value(form.get("ComunicacionARIAC")),
     }
 
 
