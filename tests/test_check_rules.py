@@ -161,6 +161,12 @@ def test_detector11_flags_unjustified_lazy_import() -> None:
     assert matching[0].file.name == "violating_handler.py"
 
 
+def test_detector11_flags_empty_lazy_import_marker() -> None:
+    target = FIXTURES / "detector11_empty_marker"
+    matching = _rule_violations(target, "unjustified_lazy_import")
+    assert matching
+
+
 def test_detector11_allows_justified_lazy_import() -> None:
     target = FIXTURES / "detector11_clean"
     matching = _rule_violations(target, "unjustified_lazy_import")
@@ -181,6 +187,13 @@ def test_detector11_repo_has_no_unjustified_lazy_imports() -> None:
 
 def test_detector12_flags_submodule_reach() -> None:
     target = FIXTURES / "detector12_violates_submodule"
+    matching = _rule_violations(target, "cross_module_submodule_import")
+    assert matching
+    assert matching[0].file.name == "routes.py"
+
+
+def test_detector12_flags_plain_import_submodule_reach() -> None:
+    target = FIXTURES / "detector12_violates_import"
     matching = _rule_violations(target, "cross_module_submodule_import")
     assert matching
     assert matching[0].file.name == "routes.py"

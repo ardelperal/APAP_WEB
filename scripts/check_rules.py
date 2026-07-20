@@ -1098,7 +1098,12 @@ def _check_unjustified_lazy_import(path: Path, tree: ast.AST) -> list[Violation]
         lineno = node.lineno
         own_line = lines[lineno - 1] if 0 < lineno <= len(lines) else ""
         prev_line = lines[lineno - 2] if lineno >= 2 else ""
-        if _LAZY_IMPORT_MARKER in own_line or _LAZY_IMPORT_MARKER in prev_line:
+        marker_lines = (own_line, prev_line)
+        if any(
+            line.partition(_LAZY_IMPORT_MARKER)[2].strip()
+            for line in marker_lines
+            if _LAZY_IMPORT_MARKER in line
+        ):
             continue
         kind = "import" if isinstance(node, ast.Import) else "from-import"
         violations.append(
@@ -1174,71 +1179,97 @@ def _check_cross_module_import(
         return []
     violations: list[Violation] = []
     for node in ast.walk(tree):
-        if not isinstance(node, ast.ImportFrom):
-            continue
-        if node.level or not node.module or not node.module.startswith("app.modules."):
-            continue
-        segments = node.module.split(".")
-        if len(segments) < 3:
-            continue
-        target_module = segments[2]
-        if target_module == own_module:
-            continue  # same-module import: rule 27 is cross-module only
-        try:
-            rel = path.relative_to(repo_root).as_posix()
-        except ValueError:
-            rel = str(path)
-        if (rel, node.module) in BASELINE_CROSS_MODULE_IMPORTS:
+        if isinstance(node, ast.Import):
+            imported_modules = [alias.name for alias in node.names]
+            import_names: list[ast.alias] = []
+        elif isinstance(node, ast.ImportFrom):
+            if node.level or not node.module:
+                continue
+            imported_modules = [node.module]
+            import_names = node.names
+        else:
             continue
 
-        reaches_submodule = len(segments) > 3
-        if not reaches_submodule:
-            # Shorthand form: ``from app.modules.<target> import <name>``
-            # where <name> is itself a submodule file/package of
-            # <target> (Python's import machinery resolves this exactly
-            # like a submodule path, even though the AST module string
-            # is just ``app.modules.<target>``).
-            target_dir = repo_root / "app" / "modules" / target_module
-            for alias in node.names:
-                if (target_dir / f"{alias.name}.py").is_file() or (
-                    target_dir / alias.name / "__init__.py"
-                ).is_file():
-                    reaches_submodule = True
-                    break
-
-        if reaches_submodule:
-            violations.append(
-                Violation(
-                    file=path,
-                    line=node.lineno,
-                    rule_id="cross_module_submodule_import",
-                    message=(
-                        f"Cross-module import reaches into "
-                        f"'{node.module}' submodule directly. Rule 27: "
-                        f"import from the package app.modules."
-                        f"{target_module} (its __init__.py public API), "
-                        f"never a submodule path."
-                    ),
-                )
-            )
-
-        private_names = [a.name for a in node.names if a.name.startswith("_")]
-        if private_names:
-            violations.append(
-                Violation(
-                    file=path,
-                    line=node.lineno,
-                    rule_id="cross_module_private_import",
-                    message=(
-                        f"Cross-module import of private name(s) "
-                        f"{private_names} from '{node.module}'. Rule 27: "
-                        f"never import a name starting with '_' across "
-                        f"module boundaries, regardless of source."
-                    ),
+        for imported_module in imported_modules:
+            if not imported_module.startswith("app.modules."):
+                continue
+            violations.extend(
+                _cross_module_import_violations(
+                    path, node, imported_module, import_names, own_module, repo_root
                 )
             )
     return violations
 
+
+def _cross_module_import_violations(
+    path: Path,
+    node: ast.Import | ast.ImportFrom,
+    imported_module: str,
+    import_names: list[ast.alias],
+    own_module: str,
+    repo_root: Path,
+) -> list[Violation]:
+    violations: list[Violation] = []
+    segments = imported_module.split(".")
+    if len(segments) < 3:
+        return []
+    target_module = segments[2]
+    if target_module == own_module:
+        return []  # same-module import: rule 27 is cross-module only
+    try:
+        rel = path.relative_to(repo_root).as_posix()
+    except ValueError:
+        rel = str(path)
+    if (rel, imported_module) in BASELINE_CROSS_MODULE_IMPORTS:
+        return []
+
+    reaches_submodule = len(segments) > 3
+    if not reaches_submodule:
+        # Shorthand form: ``from app.modules.<target> import <name>``
+        # where <name> is itself a submodule file/package of
+        # <target> (Python's import machinery resolves this exactly
+        # like a submodule path, even though the AST module string
+        # is just ``app.modules.<target>``).
+        target_dir = repo_root / "app" / "modules" / target_module
+        for alias in import_names:
+            if (target_dir / f"{alias.name}.py").is_file() or (
+                target_dir / alias.name / "__init__.py"
+            ).is_file():
+                reaches_submodule = True
+                break
+
+    if reaches_submodule:
+        violations.append(
+            Violation(
+                file=path,
+                line=node.lineno,
+                rule_id="cross_module_submodule_import",
+                message=(
+                    f"Cross-module import reaches into "
+                    f"'{imported_module}' submodule directly. Rule 27: "
+                    f"import from the package app.modules."
+                    f"{target_module} (its __init__.py public API), "
+                    f"never a submodule path."
+                ),
+            )
+        )
+
+    private_names = [a.name for a in import_names if a.name.startswith("_")]
+    if private_names:
+        violations.append(
+            Violation(
+                file=path,
+                line=node.lineno,
+                rule_id="cross_module_private_import",
+                message=(
+                    f"Cross-module import of private name(s) "
+                    f"{private_names} from '{imported_module}'. Rule 27: "
+                    f"never import a name starting with '_' across "
+                    f"module boundaries, regardless of source."
+                ),
+            )
+        )
+    return violations
 
 # CLI -----------------------------------------------------------------------
 
