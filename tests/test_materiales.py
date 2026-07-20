@@ -27,6 +27,7 @@ import httpx
 import pytest
 
 from app.core.insforge import InsForgeClient
+from app.modules.materiales import estancia_material_service
 from app.modules.materiales import service as materiales_service
 
 # --- helpers --------------------------------------------------------------
@@ -439,7 +440,7 @@ def test_assign_material_to_estancia_concurrent_race_returns_conflict() -> None:
 
     client, _captured = _client_recording(_handler)
     with pytest.raises(materiales_service.MaterialConflictError) as exc_info:
-        materiales_service.assign_material_to_estancia(
+        estancia_material_service.assign_material_to_estancia(
             client,
             estancia_id="22222222-2222-2222-2222-222222222222",
             material_id="11111111-1111-1111-1111-111111111111",
@@ -483,7 +484,7 @@ def test_assign_material_to_estancia_happy_path() -> None:
         raise AssertionError(f"Unexpected SQL: {body['query']}")
 
     client, captured = _client_recording(_handler)
-    result = materiales_service.assign_material_to_estancia(
+    result = estancia_material_service.assign_material_to_estancia(
         client,
         estancia_id="22222222-2222-2222-2222-222222222222",
         material_id="11111111-1111-1111-1111-111111111111",
@@ -531,7 +532,7 @@ def test_assign_material_to_estancia_rejects_inactive_material() -> None:
 
     client, captured = _client_recording(_handler)
     with pytest.raises(ValueError, match=r"material.*activo.*inactivo"):
-        materiales_service.assign_material_to_estancia(
+        estancia_material_service.assign_material_to_estancia(
             client,
             estancia_id="22222222-2222-2222-2222-222222222222",
             material_id="11111111-1111-1111-1111-111111111111",
@@ -557,7 +558,7 @@ def test_assign_material_to_estancia_rejects_closed_or_soft_deleted_estancia() -
 
     client, captured = _client_recording(_handler)
     with pytest.raises(ValueError, match="estancia"):
-        materiales_service.assign_material_to_estancia(
+        estancia_material_service.assign_material_to_estancia(
             client,
             estancia_id="closed-estancia",
             material_id="11111111-1111-1111-1111-111111111111",
@@ -585,7 +586,7 @@ def test_list_materials_for_estancia_returns_active_only() -> None:
         lambda req, body: _json_response(200, rows)
     )
 
-    result = materiales_service.list_materials_for_estancia(
+    result = estancia_material_service.list_materials_for_estancia(
         client, "22222222-2222-2222-2222-222222222222"
     )
     client.close()
@@ -609,7 +610,7 @@ def test_remove_material_from_estancia_soft_deletes() -> None:
     client, captured = _client_recording(
         lambda req, body: _json_response(200, [{"id": body["params"][0]}])
     )
-    result = materiales_service.remove_material_from_estancia(
+    result = estancia_material_service.remove_material_from_estancia(
         client, "33333333-3333-3333-3333-333333333333"
     )
     client.close()
@@ -633,7 +634,7 @@ def test_remove_material_from_estancia_returns_false_when_id_missing() -> None:
     client, captured = _client_recording(
         lambda req, body: _json_response(200, [])
     )
-    result = materiales_service.remove_material_from_estancia(
+    result = estancia_material_service.remove_material_from_estancia(
         client, "missing"
     )
     client.close()

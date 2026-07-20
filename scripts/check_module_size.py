@@ -44,7 +44,6 @@ SCAN_DIRS = ("app", "migration")
 #: fails on any drift between this dict and the real tree. Never add a
 #: new entry: split the module instead.
 BASELINE: dict[str, int] = {
-    "app/modules/materiales/service.py": 742,
     "migration/apply.py": 869,
     "migration/reconcile.py": 976,
 }
