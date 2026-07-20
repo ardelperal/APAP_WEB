@@ -173,6 +173,13 @@ def _is_duplicate_error(exc: InsForgeError) -> bool:
     )
 
 
+# Explicit intra-package contracts. The private implementation names remain
+# stable for the critical-helper coverage gate while sibling modules import
+# only these intentional public aliases.
+row_to_entrada = _row_to_entrada
+is_duplicate_error = _is_duplicate_error
+
+
 def create_entrada(client: InsForgeClient, params: dict[str, Any]) -> Entrada:
     """Create an intake entry and return the persisted row."""
     _build_write_params(params)
