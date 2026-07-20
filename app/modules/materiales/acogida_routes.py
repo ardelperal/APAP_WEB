@@ -68,6 +68,7 @@ from app.core.auth_dependencies import (
 from app.core.csrf import csrf_token_context_processor
 from app.core.insforge import InsForgeClient
 from app.core.middleware import base_template_context_processor
+from app.modules.materiales import estancia_material_service
 from app.modules.materiales import service as materiales_service
 
 # Prefix intentionally omitted (the handler URLs are absolute
@@ -208,7 +209,7 @@ def list_estancia_materiales_view(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
-    assigned = materiales_service.list_materials_for_estancia(
+    assigned = estancia_material_service.list_materials_for_estancia(
         client, estancia_id, activos_solo=True
     )
     catalog = materiales_service.list_materials(client, activos_solo=True)
@@ -259,7 +260,7 @@ def assign_material_to_estancia_view(
     try:
         cantidad_int = _cantidad_or_default(cantidad)
     except ValueError as exc:
-        assigned = materiales_service.list_materials_for_estancia(
+        assigned = estancia_material_service.list_materials_for_estancia(
             client, estancia_id, activos_solo=True
         )
         catalog = materiales_service.list_materials(client, activos_solo=True)
@@ -274,7 +275,7 @@ def assign_material_to_estancia_view(
         )
     notas_clean = _opt(notas)
     try:
-        materiales_service.assign_material_to_estancia(
+        estancia_material_service.assign_material_to_estancia(
             client,
             estancia_id,
             material_id,
@@ -282,7 +283,7 @@ def assign_material_to_estancia_view(
             notas=notas_clean,
         )
     except materiales_service.MaterialConflictError as exc:
-        assigned = materiales_service.list_materials_for_estancia(
+        assigned = estancia_material_service.list_materials_for_estancia(
             client, estancia_id, activos_solo=True
         )
         catalog = materiales_service.list_materials(client, activos_solo=True)
@@ -296,7 +297,7 @@ def assign_material_to_estancia_view(
             status_code=status.HTTP_409_CONFLICT,
         )
     except ValueError as exc:
-        assigned = materiales_service.list_materials_for_estancia(
+        assigned = estancia_material_service.list_materials_for_estancia(
             client, estancia_id, activos_solo=True
         )
         catalog = materiales_service.list_materials(client, activos_solo=True)
@@ -345,7 +346,7 @@ def remove_material_from_estancia_view(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
-    if not materiales_service.remove_material_from_estancia(
+    if not estancia_material_service.remove_material_from_estancia(
         client, junction_id
     ):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
