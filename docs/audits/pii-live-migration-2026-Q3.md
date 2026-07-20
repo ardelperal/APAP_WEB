@@ -100,7 +100,7 @@ the post-state with a concrete value (not absence-of-error).
    streamed-GET succeeds for headers but fails on first-iteration
    (`test_foto_route_placeholder_when_stream_fails_on_first_iteration`),
    and per-chunk read timeout
-   (`test_foto_route_placeholder_on_per_chunk_timeout`). The route
+   (`test_foto_route_placeholder_on_per_chunk_timeout`). The photo service
    consumes the storage generator eagerly so a mid-stream
    `PhotoStreamError` always becomes the placeholder PNG — never a 5xx.
    The service-level wrapping is pinned by
@@ -133,13 +133,24 @@ with the AGENTS.md §13 headings (`## When to trigger`,
 `## Pre-deploy checklist`, `## Deploy steps`, `## Verification`,
 `## Rollback`).
 
+### Issue #233 layering re-audit (2026-07-20)
+
+The fail-closed decision tree moved from the HTTP handler to
+`photo_service.resolve_animal_photo`. The route now performs only the auth
+short-circuit, 404 translation, and `Response` construction. The move does
+not widen access or expose storage metadata: lookup exceptions retain the
+same `log_safe("animal_foto.sql_lookup_failed", reason=...)` event, while
+missing keys, empty streams, and typed storage failures retain the same
+placeholder bytes and media type. Existing route atoms plus
+`tests/test_animal_photo_resolution.py` verify the preserved boundary.
+
 ## Findings
 
 | Severity | Finding                                                                                  | Evidence                                                                                          | Status     |
 |----------|-------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------|------------|
 | P0       | None — no critical findings.                                                              | n/a                                                                                               | n/a        |
 | P1       | None — no high-severity findings.                                                          | n/a                                                                                               | n/a        |
-| P2       | Sentinel placeholder is a static 1x1 transparent PNG; users see no "broken image" hint.   | `app/modules/animals/routes.py::_PLACEHOLDER_PHOTO_PNG`; `app/modules/animals/photo_service.py::SENTINEL_KEY`. UX improvement, not a security defect. | Acknowledged (out of PR4b scope) |
+| P2       | Sentinel placeholder is a static 1x1 transparent PNG; users see no "broken image" hint.   | `app/modules/animals/photo_service.py::PLACEHOLDER_PHOTO_PNG`; `app/modules/animals/photo_service.py::SENTINEL_KEY`. UX improvement, not a security defect. | Acknowledged (out of PR4b scope) |
 | P2       | `delete_object` 404 returns `None` (idempotent) — if the operator logs the return value they see no signal of "already absent". | `tests/migration/test_insforge_storage_methods.py::test_delete_object_404_is_idempotent_noop`. No PII or secret leakage; only operator UX. | Acknowledged (out of PR4b scope) |
 | P3       | `content_type_for_key` falls back to `application/octet-stream` for unknown extensions; browsers will download instead of inline. | `app/modules/animals/photo_service.py::content_type_for_key`. Defensive default, no security impact. | Acknowledged |
 | P3       | `voluntarios.dni` is web-only shadow (verified via Dysflow `get_schema` 2026-07-11: zero DNI column in `TbVoluntariosParaAutorrellenables`). Forward legacy apply MUST leave `dni=NULL`; collisions only arise from manual web entry (UNIQUE constraint) or reverse-path (no legacy column to receive). | `migration/mappings/voluntario.yaml` (`DNI: legacy_column: null`); `tests/test_log_safe_redaction.py::test_log_safe_redacts_each_new_pii_field_value[dni]`; the `dni` row in the Scope table above. | By design — preserves P1 fidelity to the verified legacy schema |
