@@ -64,7 +64,6 @@ _ROUTER_NAMES = frozenset({"router", "application"})
 BASELINE: dict[str, int] = {
     "app/modules/foster/assignment_routes.py::asignar_submit": 109,
     "app/main.py::callback": 107,
-    "app/modules/animals/routes.py::animal_foto": 103,
     "app/modules/acogidas/routes.py::create_acogida_view": 101,
     "app/modules/materiales/acogida_routes.py::assign_material_to_estancia_view": 87,
     "app/modules/cesiones/routes.py::create_cesion_view": 87,
