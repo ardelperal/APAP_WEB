@@ -590,7 +590,7 @@ def test_require_writer_user_rejects_unknown_rol_default_deny() -> None:
     """An unknown rol string MUST be rejected (regla 6 + regla 4: source of truth).
 
     The set of accepted roles is :attr:`Settings.writer_rols`, derived
-    from :class:`app.core.auth.Rol`. Anything outside the enum MUST be
+    from :class:`app.core.roles.Rol`. Anything outside the enum MUST be
     denied even if it looks plausible.
     """
     from fastapi import HTTPException
@@ -649,8 +649,8 @@ def test_settings_writer_rols_is_derived_from_rol_enum() -> None:
     ``Rol`` + this property, NOT a hand-maintained string list anywhere
     else in the codebase.
     """
-    from app.core.auth import Rol
     from app.core.config import get_settings
+    from app.core.roles import Rol
 
     settings = get_settings()
     expected = frozenset({Rol.DEVELOPER.value, Rol.ADMIN.value, Rol.KEY_USER.value})
@@ -679,7 +679,7 @@ def test_require_developer_user_developer_passes_and_others_get_403() -> None:
     Covers four rols in one go:
 
     - ``developer`` is the ONLY rol allowed by this dep (regla 4: source
-      of truth is :class:`app.core.auth.Rol.DEVELOPER`).
+      of truth is :class:`app.core.roles.Rol.DEVELOPER`).
     - ``admin``, ``key_user`` and ``reader`` all hit 403. ``key_user`` in
       particular is allowed by :func:`require_writer_user` (writes stay
       accessible) but NOT here — the overrides audit log is sensitive.
