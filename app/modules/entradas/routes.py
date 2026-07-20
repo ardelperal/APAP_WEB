@@ -17,6 +17,7 @@ from app.core.auth_dependencies import (
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
+from app.core.forms import optional_value as _opt
 from app.core.insforge import InsForgeClient
 from app.core.middleware import base_template_context_processor
 from app.modules.entradas import service as entradas_service
@@ -29,13 +30,6 @@ _templates = Jinja2Templates(
     directory=_TEMPLATES_DIR,
     context_processors=[csrf_token_context_processor, base_template_context_processor],
 )
-
-
-def _opt(value: str | None) -> str | None:
-    if value is None:
-        return None
-    stripped = str(value).strip()
-    return stripped or None
 
 
 def _form_data_to_params(form: dict[str, Any]) -> dict[str, Any]:
