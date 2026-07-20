@@ -37,6 +37,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.insforge import InsForgeClient
+from app.core.schema_bootstrap import SqlStatement, run_idempotent_sql
 
 # --- catalogos_origenes (7 rows from TbOrigenEntrada) --------------------
 #
@@ -312,9 +313,8 @@ def ensure_catalogs(client: InsForgeClient) -> None:
         (CATALOGOS_PERIODICIDAD_CREATE_SQL, CATALOGOS_PERIODICIDAD_SEED_SQL),
         (CATALOGOS_TIPOS_CONTRATO_CREATE_SQL, CATALOGOS_TIPOS_CONTRATO_SEED_SQL),
     )
-    for create_sql, seed_sql in pairs:
-        client.execute_sql(create_sql)
-        client.execute_sql(seed_sql)
+    statements = tuple(SqlStatement(query) for pair in pairs for query in pair)
+    run_idempotent_sql(client, statements, step_name="catalogs")
 
 
 # --- Read helpers --------------------------------------------------------
