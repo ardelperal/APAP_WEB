@@ -118,3 +118,116 @@ def test_cli_exits_one_when_violation_present() -> None:
         f"stdout: {result.stdout}\nstderr: {result.stderr}"
     )
     assert "route_uses_execute_sql" in result.stdout
+
+
+# --- Detector 10 (Rule 25): duplicate_helper_definition -------------------
+
+
+def test_detector10_flags_new_duplicate_beyond_baseline() -> None:
+    """``_opt`` defined in two fixture files (neither in the real repo's
+    BASELINE_DUPLICATE_HELPERS) must be flagged in both files."""
+    target = FIXTURES / "detector10_violates"
+    matching = _rule_violations(target, "duplicate_helper_definition")
+    flagged_files = {v.file.name for v in matching}
+    assert flagged_files == {"routes.py"}
+    # Both the foo/ and bar/ copies must be flagged (2 distinct files).
+    assert len({v.file for v in matching}) == 2
+
+
+def test_detector10_does_not_flag_single_definition() -> None:
+    """A watched name defined in exactly one file must NOT be flagged."""
+    target = FIXTURES / "detector10_clean"
+    matching = _rule_violations(target, "duplicate_helper_definition")
+    assert not matching
+
+
+def test_detector10_baseline_grandfathers_known_repo_duplication() -> None:
+    """The real repo's known (#227) duplication must NOT be flagged —
+    only NEW files beyond BASELINE_DUPLICATE_HELPERS would be."""
+    matching = _rule_violations(REPO_ROOT, "duplicate_helper_definition")
+    assert not matching, (
+        "New duplicate_helper_definition violation(s) beyond the tracked "
+        f"#227 baseline: {[(str(v.file), v.line) for v in matching]}"
+    )
+
+
+# --- Detector 11 (Rule 26): unjustified_lazy_import ------------------------
+
+
+def test_detector11_flags_unjustified_lazy_import() -> None:
+    target = FIXTURES / "detector11_violates"
+    matching = _rule_violations(target, "unjustified_lazy_import")
+    assert matching
+    assert matching[0].file.name == "violating_handler.py"
+
+
+def test_detector11_flags_empty_lazy_import_marker() -> None:
+    target = FIXTURES / "detector11_empty_marker"
+    matching = _rule_violations(target, "unjustified_lazy_import")
+    assert matching
+
+
+def test_detector11_allows_justified_lazy_import() -> None:
+    target = FIXTURES / "detector11_clean"
+    matching = _rule_violations(target, "unjustified_lazy_import")
+    assert not matching
+
+
+def test_detector11_repo_has_no_unjustified_lazy_imports() -> None:
+    """The two known lazy imports (issue #226, config.py + auth_dependencies.py)
+    both carry a 'lazy-import:' marker as of this rule landing."""
+    matching = _rule_violations(REPO_ROOT, "unjustified_lazy_import")
+    assert not matching, (
+        f"Unjustified lazy import(s): {[(str(v.file), v.line) for v in matching]}"
+    )
+
+
+# --- Detector 12 (Rule 27): cross_module_submodule_import / _private_import
+
+
+def test_detector12_flags_submodule_reach() -> None:
+    target = FIXTURES / "detector12_violates_submodule"
+    matching = _rule_violations(target, "cross_module_submodule_import")
+    assert matching
+    assert matching[0].file.name == "routes.py"
+
+
+def test_detector12_flags_plain_import_submodule_reach() -> None:
+    target = FIXTURES / "detector12_violates_import"
+    matching = _rule_violations(target, "cross_module_submodule_import")
+    assert matching
+    assert matching[0].file.name == "routes.py"
+
+
+def test_detector12_flags_private_name_import() -> None:
+    target = FIXTURES / "detector12_violates_private"
+    matching = _rule_violations(target, "cross_module_private_import")
+    assert matching
+    assert matching[0].file.name == "routes.py"
+
+
+def test_detector12_does_not_flag_public_api_import() -> None:
+    target = FIXTURES / "detector12_clean"
+    matching = _rule_violations(
+        target, "cross_module_submodule_import"
+    ) + _rule_violations(target, "cross_module_private_import")
+    assert not matching
+
+
+def test_detector12_repo_only_has_the_known_baselined_violation() -> None:
+    """The real repo must produce zero NEW cross-module violations beyond
+    the single #231 baseline entry (foster/assignment.py -> animals.service).
+    The acogidas/routes.py -> foster.assignment instance found by the same
+    2026-07-20 review was fixed directly in this PR (import renamed to the
+    public ``assignment_service`` alias foster/__init__.py already exports).
+    """
+    submodule = _rule_violations(REPO_ROOT, "cross_module_submodule_import")
+    private = _rule_violations(REPO_ROOT, "cross_module_private_import")
+    assert not private, (
+        f"New cross_module_private_import violation(s): "
+        f"{[(str(v.file), v.line) for v in private]}"
+    )
+    assert not submodule, (
+        f"New cross_module_submodule_import violation(s) beyond the #231 "
+        f"baseline: {[(str(v.file), v.line) for v in submodule]}"
+    )
