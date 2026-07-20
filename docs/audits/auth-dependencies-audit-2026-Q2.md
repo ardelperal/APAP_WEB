@@ -182,3 +182,30 @@ numbered follow-up issues to be opened after PR-5B merges.
 - Related PRs: PR-3 (Rule 6, merged), PR-XSS (XSS audit, OPEN #112), PR-7 (TOCTOU, OPEN #113)
 - Motivation: engram:14518 (security audit — CSRF defense-in-depth + admin endpoints), engram:14516 (rule-compliance audit)
 - SB-3 resolution: engram:14531 (design; `/auth/callback` already in `PUBLIC_PATHS`)
+
+---
+
+## Issue #226 Addendum — 2026-07-20
+
+### Scope
+
+Structural extraction of the authorization `Rol` enum from `app/core/auth.py`
+to dependency-free `app/core/roles.py`, plus import updates in `config.py` and
+`auth_dependencies.py`.
+
+### Methodology
+
+CodeGraph caller/impact analysis, import-order smoke checks, focused auth tests,
+and static inspection for remaining function-local role imports.
+
+### Findings
+
+| Severity | Finding | Resolution |
+|---|---|---|
+| INFO | The prior lazy `Rol` import masked an `auth.py` / `config.py` cycle. | `Rol` now has one dependency-free module home. |
+| INFO | The lazy `get_user_by_email` import was no longer necessary once the role cycle was removed. | Promoted to a module-level import; focused authorization tests remain green. |
+
+### Verdict
+
+**PASS** — no authorization behavior, role value, default-deny rule, cookie,
+session, CSRF, or logging contract changed.
