@@ -283,6 +283,21 @@ def require_writer_user(
     return user
 
 
+def _resolve_developer_user(payload: Response | dict) -> Response | dict | None:
+    """Return an authorized developer payload/redirect, or ``None`` on role denial."""
+    if (early := return_early_if_response(payload)) is not None:
+        return early
+    user_rol = payload.get("rol") if isinstance(payload, dict) else None
+    if user_rol != Rol.DEVELOPER.value:
+        log_safe(
+            "auth.denied",
+            reason="developer_required",
+            user_id=payload.get("user_id") if isinstance(payload, dict) else None,
+        )
+        return None
+    return payload
+
+
 def require_developer_user(
     payload: Response | dict = Depends(require_authorized_user),
 ) -> Response | dict:
@@ -324,23 +339,13 @@ def require_developer_user(
     no autorizada" (otro contexto: cookie pre-fix o usuario desactivado).
     Mezclar ambos mensajes confundiria a operadores y a Sentry.
     """
-    if (early := return_early_if_response(payload)) is not None:
-        return early
-    user_rol = payload.get("rol") if isinstance(payload, dict) else None
-    if user_rol != Rol.DEVELOPER.value:
-        # Issue #146: audit trail. ``developer_required`` is the
-        # non-redirect variant of the denegation signal — the redirect
-        # variant emits the same event under ``require_developer_user_redirect``.
-        log_safe(
-            "auth.denied",
-            reason="developer_required",
-            user_id=payload.get("user_id") if isinstance(payload, dict) else None,
-        )
+    resolved = _resolve_developer_user(payload)
+    if resolved is None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="requiere rol developer",
         )
-    return payload
+    return resolved
 
 
 def require_developer_user_redirect(
@@ -379,9 +384,7 @@ def require_developer_user_redirect(
       ``/unauthorized``, recomendado para preservar el comportamiento
       pre-#146 en callers que ya redirigian (panel admin historico).
     """
-    if (early := return_early_if_response(payload)) is not None:
-        return early
-    user_rol = payload.get("rol") if isinstance(payload, dict) else None
-    if user_rol != Rol.DEVELOPER.value:
+    resolved = _resolve_developer_user(payload)
+    if resolved is None:
         return RedirectResponse(url="/unauthorized", status_code=302)
-    return payload
+    return resolved

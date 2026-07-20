@@ -182,3 +182,29 @@ numbered follow-up issues to be opened after PR-5B merges.
 - Related PRs: PR-3 (Rule 6, merged), PR-XSS (XSS audit, OPEN #112), PR-7 (TOCTOU, OPEN #113)
 - Motivation: engram:14518 (security audit — CSRF defense-in-depth + admin endpoints), engram:14516 (rule-compliance audit)
 - SB-3 resolution: engram:14531 (design; `/auth/callback` already in `PUBLIC_PATHS`)
+
+---
+
+## Issue #229 Addendum — 2026-07-20
+
+### Scope
+
+Deduplication of the developer-role decision shared by
+`require_developer_user` and `require_developer_user_redirect`.
+
+### Methodology
+
+CodeGraph caller analysis, focused dependency tests, denial-log verification,
+and static review of default-deny and redirect propagation paths.
+
+### Findings
+
+| Severity | Finding | Resolution |
+|---|---|---|
+| INFO | The two public dependencies repeated the same role decision and could drift. | A private helper now owns the role check and denial audit event. |
+| INFO | The public failure signals intentionally differ. | Wrappers preserve the existing 403 and 302 contracts respectively. |
+
+### Verdict
+
+**PASS** — developer access remains default-deny, upstream redirects are
+propagated unchanged, and denial logging continues through `log_safe` only.
