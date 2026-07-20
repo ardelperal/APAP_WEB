@@ -42,7 +42,7 @@ from typing import Any, Final, Literal
 
 from app.core.insforge import InsForgeClient
 from app.core.logging import log_safe
-from app.modules.animals import service as animals_service
+from app.modules.animals import get_animal_by_id
 from app.modules.foster import service as foster_service
 
 # --- dataclasses -----------------------------------------------------------
@@ -173,7 +173,7 @@ def evaluate_assignment(
 
     Pasos (D-GC-01/02/03/04/05):
 
-    1. Carga el animal via :func:`animals_service.get_animal_by_id`.
+    1. Carga el animal via :func:`app.modules.animals.get_animal_by_id`.
        Si no existe o está inactivo, raise ``ValueError`` con mensaje
        claro. La verificación se hace ANTES del load de la casa para
        que el error message apunte al animal cuando aplique.
@@ -194,7 +194,7 @@ def evaluate_assignment(
             existe, o la casa está inactiva (dada de baja).
     """
     # Paso 1 — cargar el animal (raise si no existe o inactivo).
-    animal = animals_service.get_animal_by_id(client, animal_id)
+    animal = get_animal_by_id(client, animal_id)
     if animal is None or not animal.activo:
         raise ValueError("el animal no existe o no está activo")
 

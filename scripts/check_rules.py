@@ -1142,15 +1142,7 @@ def _check_unjustified_lazy_import(path: Path, tree: ast.AST) -> list[Violation]
 #: open issue. May only shrink (an entry is removed once its target
 #: module grows a real public API and the import is fixed) — never add
 #: a new entry: fix the target module's ``__init__.py`` instead.
-BASELINE_CROSS_MODULE_IMPORTS: frozenset[tuple[str, str]] = frozenset(
-    {
-        # issue #231: app/modules/animals/__init__.py exposes no public
-        # API yet, so foster/assignment.py cannot import from the
-        # package surface. Fix belongs to #231 (decide animals' public
-        # API shape), not to this docs/tooling PR.
-        ("app/modules/foster/assignment.py", "app.modules.animals"),
-    }
-)
+BASELINE_CROSS_MODULE_IMPORTS: frozenset[tuple[str, str]] = frozenset()
 
 
 def _own_app_modules_name(path: Path, repo_root: Path) -> str | None:
