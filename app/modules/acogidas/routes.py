@@ -40,7 +40,7 @@ from app.core.csrf import csrf_token_context_processor
 from app.core.insforge import InsForgeClient, InsForgeError
 from app.core.middleware import base_template_context_processor
 from app.modules.acogidas import service as acogidas_service
-from app.modules.foster import assignment as foster_assignment_service
+from app.modules.foster import assignment_service
 
 router = APIRouter(prefix="/acogidas", tags=["foster"])
 
@@ -107,7 +107,7 @@ def _enforce_species_gate(
     """
     if not casa_acogida_id:
         return None  # legacy compat — estancia without casa skips the gate
-    decision = foster_assignment_service.evaluate_assignment(
+    decision = assignment_service.evaluate_assignment(
         client, animal_id, casa_acogida_id
     )
     if decision.decision == "block":

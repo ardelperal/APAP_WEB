@@ -139,6 +139,7 @@ def find_violations(
     violations: list[Violation] = []
     for path in _iter_python_files(repo_root):
         violations.extend(_scan_file(path, repo_root))
+    violations.extend(_check_duplicate_helper_definitions(repo_root))
     if excludes:
         return [v for v in violations if not _is_excluded(v.file, repo_root, excludes)]
     return violations
@@ -472,10 +473,12 @@ def _scan_file(path: Path, repo_root: Path) -> list[Violation]:
     out.extend(_check_apap003_raw_logger_call(path, tree, repo_root))
     if _is_app_path(path, repo_root):
         out.extend(_check_print_in_app(path, tree))
+        out.extend(_check_unjustified_lazy_import(path, tree))
     if _is_app_main_or_session(path, repo_root):
         out.extend(_check_csrf_samesite_strict(path, tree))
     if _is_app_main(path, repo_root):
         out.extend(_check_csrf_middleware_registered(path, tree))
+    out.extend(_check_cross_module_import(path, tree, repo_root))
     return out
 
 
@@ -892,6 +895,349 @@ def _check_csrf_samesite_strict(
             ),
         )
     ]
+
+
+# Detector 10 (Rule 25) -------------------------------------------------
+#
+# ``duplicate_helper_definition`` — a watch-list regression guard, NOT a
+# general duplicate-code detector. The 2026-07-20 architecture review
+# found ``_opt`` copied near-identically into a dozen ``routes.py`` /
+# ``service.py`` files and ``_required_text`` / ``_optional_text``
+# reimplemented in eight ``service.py`` files (each self-documented in
+# comments as "mirrors X" — the duplication was noticed and left
+# anyway). Issue #227 tracks consolidating them into one shared module;
+# this detector's job is to make sure the SAME pattern doesn't reappear
+# with a thirteenth file (or a brand-new shared-helper name) while #227
+# is still open.
+
+#: Function names known to have been duplicated across app/ modules.
+#: Grows over time as new shared helpers get established and then
+#: (inevitably) copy-pasted once before someone notices.
+WATCHED_DUPLICATE_HELPERS: frozenset[str] = frozenset(
+    {"_opt", "_required_text", "_optional_text"}
+)
+
+#: Ratchet baseline: files where a watched helper name is ALREADY known
+#: to be duplicated (2026-07-20 audit, issue #227). Entries may only
+#: shrink as #227 lands — removing a file from a name's set, or
+#: removing the name entirely once only one definition remains. Never
+#: add a NEW file here: extract the shared helper into one module
+#: instead of grandfathering another copy.
+BASELINE_DUPLICATE_HELPERS: dict[str, frozenset[str]] = {
+    "_opt": frozenset(
+        {
+            "app/modules/voluntarios/service.py",
+            "app/modules/voluntarios/routes.py",
+            "app/modules/cesiones/routes.py",
+            "app/modules/materiales/routes.py",
+            "app/modules/animals/routes.py",
+            "app/modules/sanidad/routes.py",
+            "app/modules/materiales/acogida_routes.py",
+            "app/modules/foster/routes.py",
+            "app/modules/entradas/batch_routes.py",
+            "app/modules/entradas/routes.py",
+            "app/modules/adopciones/routes.py",
+            "app/modules/acogidas/routes.py",
+        }
+    ),
+    "_required_text": frozenset(
+        {
+            "app/modules/adopciones/service.py",
+            "app/modules/acogidas/service.py",
+            "app/modules/cesiones/service.py",
+            "app/modules/materiales/service.py",
+            "app/modules/entradas/batch_service.py",
+            "app/modules/foster/service.py",
+            "app/modules/entradas/service.py",
+            "app/modules/sanidad/service.py",
+        }
+    ),
+    "_optional_text": frozenset(
+        {
+            "app/modules/adopciones/service.py",
+            "app/modules/acogidas/service.py",
+            "app/modules/cesiones/service.py",
+            "app/modules/materiales/service.py",
+            "app/modules/entradas/batch_service.py",
+            "app/modules/foster/service.py",
+            "app/modules/entradas/service.py",
+            "app/modules/sanidad/service.py",
+        }
+    ),
+}
+
+
+def _iter_app_python_files(repo_root: Path) -> list[Path]:
+    """Yield every Python file under ``repo_root/app``.
+
+    Shared by Detectors 10 and 12 (both scoped to ``app/``, not the
+    whole repo). Mirrors :func:`_iter_app_route_files`.
+    """
+    app_dir = repo_root / "app"
+    if not app_dir.exists():
+        return []
+    return sorted(
+        p for p in app_dir.rglob("*.py") if not (set(p.parts) & _EXCLUDED_PARTS)
+    )
+
+
+def _check_duplicate_helper_definitions(repo_root: Path) -> list[Violation]:
+    """Detector 10 — Rule 25.
+
+    Scans every file under ``repo_root/app`` for top-level or nested
+    ``def``/``async def`` matching a name in
+    :data:`WATCHED_DUPLICATE_HELPERS`. If a watched name is DEFINED
+    (not merely called or imported) in more than one file, every
+    defining file that is NOT already accounted for in
+    :data:`BASELINE_DUPLICATE_HELPERS` is a violation — i.e. this only
+    re-flags NEW drift beyond the already-tracked (#227) duplication.
+    """
+    definitions: dict[str, list[tuple[Path, int]]] = {
+        name: [] for name in WATCHED_DUPLICATE_HELPERS
+    }
+    for path in _iter_app_python_files(repo_root):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except (SyntaxError, UnicodeDecodeError):
+            continue
+        seen_in_file: set[str] = set()
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if node.name not in WATCHED_DUPLICATE_HELPERS or node.name in seen_in_file:
+                continue
+            seen_in_file.add(node.name)
+            definitions[node.name].append((path, node.lineno))
+
+    violations: list[Violation] = []
+    for name, occurrences in definitions.items():
+        if len(occurrences) <= 1:
+            continue
+        baseline_files = BASELINE_DUPLICATE_HELPERS.get(name, frozenset())
+        for path, lineno in occurrences:
+            try:
+                rel = path.relative_to(repo_root).as_posix()
+            except ValueError:
+                rel = str(path)
+            if rel in baseline_files:
+                continue
+            violations.append(
+                Violation(
+                    file=path,
+                    line=lineno,
+                    rule_id="duplicate_helper_definition",
+                    message=(
+                        f"'{name}' is defined here AND in {len(occurrences) - 1} "
+                        f"other file(s) under app/ (watch-list: "
+                        f"{sorted(WATCHED_DUPLICATE_HELPERS)}). Rule 25: extract "
+                        f"the shared helper into one module instead of copying "
+                        f"it again (see issue #227)."
+                    ),
+                )
+            )
+    return violations
+
+
+# Detector 11 (Rule 26) -------------------------------------------------
+#
+# ``unjustified_lazy_import`` — the 2026-07-20 review found two
+# independent function/property-body imports used to dodge a
+# module-level circular import (``app/core/config.py`` importing
+# ``Rol`` from ``auth.py`` inside a property; ``app/core/
+# auth_dependencies.py`` importing ``get_user_by_email`` from
+# ``auth.py`` inside a function), tracked as issue #226. Rule 26
+# requires every local (function/method-body) import under ``app/`` to
+# carry a ``lazy-import:`` marker on its own line or the line before,
+# explaining WHY it isn't hoisted to module level.
+
+
+class _FunctionScopeImportVisitor(ast.NodeVisitor):
+    """Collect ``Import``/``ImportFrom`` nodes whose nearest enclosing
+    scope is a function (not module level). Class bodies do not open a
+    new "scope" for this purpose (an import directly in a class body is
+    still effectively module-load-time), only ``def``/``async def``.
+    """
+
+    def __init__(self) -> None:
+        self.depth = 0
+        self.found: list[ast.Import | ast.ImportFrom] = []
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self.depth += 1
+        self.generic_visit(node)
+        self.depth -= 1
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self.depth += 1
+        self.generic_visit(node)
+        self.depth -= 1
+
+    def visit_Import(self, node: ast.Import) -> None:
+        if self.depth > 0:
+            self.found.append(node)
+        self.generic_visit(node)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        if self.depth > 0:
+            self.found.append(node)
+        self.generic_visit(node)
+
+
+_LAZY_IMPORT_MARKER = "lazy-import:"
+
+
+def _check_unjustified_lazy_import(path: Path, tree: ast.AST) -> list[Violation]:
+    """Detector 11 — Rule 26. Only called for files under ``app/``."""
+    visitor = _FunctionScopeImportVisitor()
+    visitor.visit(tree)
+    if not visitor.found:
+        return []
+    lines = path.read_text(encoding="utf-8").splitlines()
+    violations: list[Violation] = []
+    for node in visitor.found:
+        lineno = node.lineno
+        own_line = lines[lineno - 1] if 0 < lineno <= len(lines) else ""
+        prev_line = lines[lineno - 2] if lineno >= 2 else ""
+        if _LAZY_IMPORT_MARKER in own_line or _LAZY_IMPORT_MARKER in prev_line:
+            continue
+        kind = "import" if isinstance(node, ast.Import) else "from-import"
+        violations.append(
+            Violation(
+                file=path,
+                line=lineno,
+                rule_id="unjustified_lazy_import",
+                message=(
+                    f"Local {kind} inside a function/method body has no "
+                    f"'{_LAZY_IMPORT_MARKER}' justification. Rule 26: either "
+                    f"hoist it to module level, or add a trailing (or "
+                    f"preceding) comment explaining why it must stay lazy "
+                    f"(e.g. '# lazy-import: avoids circular import with "
+                    f"app.core.X')."
+                ),
+            )
+        )
+    return violations
+
+
+# Detector 12 (Rule 27) -------------------------------------------------
+#
+# ``cross_module_submodule_import`` / ``cross_module_private_import`` —
+# the 2026-07-20 dependency-map audit found this project is an almost
+# clean DAG of domain modules (most import nothing from each other).
+# The two exceptions found: ``app/modules/foster/assignment.py``
+# importing ``app.modules.animals.service`` directly (bypassing
+# ``animals/__init__.py``, which exposes no public API — issue #231),
+# and an equivalent shorthand-submodule import from ``acogidas/routes.py``
+# into ``foster.assignment`` (fixed in this same PR, see AGENTS.md rule
+# 27). This detector keeps the DAG clean as the project grows to more
+# modules.
+
+#: Ratchet allowlist: (file, imported dotted module) pairs that are
+#: ALREADY known cross-module submodule-reach violations, tracked by an
+#: open issue. May only shrink (an entry is removed once its target
+#: module grows a real public API and the import is fixed) — never add
+#: a new entry: fix the target module's ``__init__.py`` instead.
+BASELINE_CROSS_MODULE_IMPORTS: frozenset[tuple[str, str]] = frozenset(
+    {
+        # issue #231: app/modules/animals/__init__.py exposes no public
+        # API yet, so foster/assignment.py cannot import from the
+        # package surface. Fix belongs to #231 (decide animals' public
+        # API shape), not to this docs/tooling PR.
+        ("app/modules/foster/assignment.py", "app.modules.animals"),
+    }
+)
+
+
+def _own_app_modules_name(path: Path, repo_root: Path) -> str | None:
+    """Return the domain module name (``animals``, ``foster``, ...) that
+    ``path`` belongs to, or ``None`` if ``path`` is not under
+    ``app/modules/<name>/``.
+    """
+    try:
+        rel = path.relative_to(repo_root)
+    except ValueError:
+        return None
+    parts = rel.parts
+    if len(parts) >= 3 and parts[0] == "app" and parts[1] == "modules":
+        return parts[2]
+    return None
+
+
+def _check_cross_module_import(
+    path: Path, tree: ast.AST, repo_root: Path
+) -> list[Violation]:
+    """Detector 12 — Rule 27. Only fires for files under
+    ``app/modules/<A>/`` importing from ``app/modules/<B>/`` (A != B).
+    """
+    own_module = _own_app_modules_name(path, repo_root)
+    if own_module is None:
+        return []
+    violations: list[Violation] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        if node.level or not node.module or not node.module.startswith("app.modules."):
+            continue
+        segments = node.module.split(".")
+        if len(segments) < 3:
+            continue
+        target_module = segments[2]
+        if target_module == own_module:
+            continue  # same-module import: rule 27 is cross-module only
+        try:
+            rel = path.relative_to(repo_root).as_posix()
+        except ValueError:
+            rel = str(path)
+        if (rel, node.module) in BASELINE_CROSS_MODULE_IMPORTS:
+            continue
+
+        reaches_submodule = len(segments) > 3
+        if not reaches_submodule:
+            # Shorthand form: ``from app.modules.<target> import <name>``
+            # where <name> is itself a submodule file/package of
+            # <target> (Python's import machinery resolves this exactly
+            # like a submodule path, even though the AST module string
+            # is just ``app.modules.<target>``).
+            target_dir = repo_root / "app" / "modules" / target_module
+            for alias in node.names:
+                if (target_dir / f"{alias.name}.py").is_file() or (
+                    target_dir / alias.name / "__init__.py"
+                ).is_file():
+                    reaches_submodule = True
+                    break
+
+        if reaches_submodule:
+            violations.append(
+                Violation(
+                    file=path,
+                    line=node.lineno,
+                    rule_id="cross_module_submodule_import",
+                    message=(
+                        f"Cross-module import reaches into "
+                        f"'{node.module}' submodule directly. Rule 27: "
+                        f"import from the package app.modules."
+                        f"{target_module} (its __init__.py public API), "
+                        f"never a submodule path."
+                    ),
+                )
+            )
+
+        private_names = [a.name for a in node.names if a.name.startswith("_")]
+        if private_names:
+            violations.append(
+                Violation(
+                    file=path,
+                    line=node.lineno,
+                    rule_id="cross_module_private_import",
+                    message=(
+                        f"Cross-module import of private name(s) "
+                        f"{private_names} from '{node.module}'. Rule 27: "
+                        f"never import a name starting with '_' across "
+                        f"module boundaries, regardless of source."
+                    ),
+                )
+            )
+    return violations
 
 
 # CLI -----------------------------------------------------------------------

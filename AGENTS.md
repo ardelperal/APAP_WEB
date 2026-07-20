@@ -602,6 +602,112 @@ Static typing is enforced, not aspirational: the CI `typecheck` job runs `python
 
 Enforcement: `tests/test_ci_workflow.py::test_ci_workflow_defines_typecheck_job_running_mypy` pins the CI job and its `python -m mypy` invocation; the deploy job `needs` list includes `typecheck`, so a typing regression blocks deploys; mypy exits non-zero on any error, failing the job.
 
+### 25. No duplicated cross-module helper functions
+
+Rule 4 says one source of truth per domain concept for *values* (enums, lists). This extends the same principle to *utility/helper functions*: never copy-paste a small helper across modules just because it's convenient in the moment. The 2026-07-20 architecture review found `_opt()` copied near-identically into five `routes.py` files (`app/modules/{animals,entradas,foster,materiales}/routes.py` + `materiales/acogida_routes.py` — and, once the full watch-list ran, into several more) and `_required_text`/`_optional_text` reimplemented across eight `service.py` files. Each copy's docstring literally says "mirrors X" — the duplication was *noticed* and left anyway, because there was no shared module to import from and no gate stopping the copy-paste. Issue #227 tracks consolidating these into one shared module; this rule exists so the same category of drift doesn't reappear once #227 is fixed.
+
+WRONG — noticing the duplication and copy-pasting anyway
+
+```python
+# app/modules/materiales/routes.py
+def _opt(value: str | None) -> str | None:
+    """Mirrors the ``_opt`` precedent in ``app/modules/foster/routes.py``."""
+    if value is None:
+        return None
+    return value.strip() or None
+```
+
+RIGHT — one shared helper, every module imports it
+
+```python
+# app/core/form_helpers.py
+def opt(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return value.strip() or None
+
+# app/modules/materiales/routes.py
+from app.core.form_helpers import opt as _opt
+```
+
+Enforcement: a **watch-list regression guard**, not a general duplicate-code detector — `scripts/check_rules.py` Detector 10 (`duplicate_helper_definition`) maintains an explicit `WATCHED_DUPLICATE_HELPERS` set (starts with `_opt`, `_required_text`, `_optional_text`) and fails if any watched name is *defined* (not just called or imported) in more than one file under `app/`. The already-known duplication is grandfathered in a shrink-only `BASELINE_DUPLICATE_HELPERS` ratchet (mirrors rule 21's pattern) keyed by helper name, so the gate only blocks a **thirteenth** file duplicating a watched name, or a brand-new shared name getting copy-pasted a second time — it does not require #227 to be fixed first. Add newly-established shared helpers to the watch-list as they're identified. Tests: `tests/test_check_rules.py` (Detector 10 section).
+
+### 26. Justify or eliminate lazy-import cycle workarounds
+
+A local `import` inside a function or method body under `app/` is a deliberate escape hatch for circular imports — it should never be silent. The 2026-07-20 review found exactly two such imports (`app/core/config.py`'s `writer_rols` property importing `Rol` from `auth.py`; `app/core/auth_dependencies.py` importing `get_user_by_email` from `auth.py` inside a function), tracked as issue #226. Both dodge a real module-load cycle, but neither said so in a greppable, consistent way. An unexplained local import is either an unresolved cycle (worth fixing at the source) or trivially safe to hoist to the top — either way, the next person reading it deserves a one-line reason instead of having to reverse-engineer the import graph.
+
+WRONG — unexplained local import
+
+```python
+def get_settings_rol(self):
+    from app.core.auth import Rol
+    return Rol
+```
+
+RIGHT — the comment says why it can't be a top-level import
+
+```python
+def get_settings_rol(self):
+    # lazy-import: avoids circular import with app.core.auth (auth.py
+    # imports Settings at module load time).
+    from app.core.auth import Rol
+    return Rol
+```
+
+Enforcement: `scripts/check_rules.py` Detector 11 (`unjustified_lazy_import`) flags any `Import`/`ImportFrom` node whose nearest enclosing scope is a function/method (not module level) under `app/`, unless its own source line or the line immediately before it contains the substring `lazy-import:`. Both known instances (`app/core/config.py`, `app/core/auth_dependencies.py`) now carry the marker. Tests: `tests/test_check_rules.py` (Detector 11 section).
+
+### 27. Cross-module imports go through the target module's public API only
+
+The 2026-07-20 dependency-map audit confirmed this project is otherwise a clean DAG with almost zero inter-module coupling — most domain modules under `app/modules/` import nothing from each other. Two exceptions surfaced: `app/modules/foster/assignment.py` imported `app.modules.animals.service` directly (bypassing `animals/__init__.py`, which exposes no public API — issue #231), and `app/modules/acogidas/routes.py` did the equivalent shorthand-submodule import into `foster.assignment` instead of using the `assignment_service` name `foster/__init__.py` already exports publicly (fixed directly in the PR that added this rule). This rule exists to keep the DAG clean as the project grows to more modules.
+
+From within `app/modules/<A>/`, an import of `app/modules/<B>/` (A != B) MUST (a) import from the package `app.modules.<B>` (its `__init__.py` public surface), never a submodule path like `app.modules.<B>.service` — including the `from app.modules.<B> import service` shorthand, which reaches the same submodule — and (b) never import a name starting with `_`, regardless of source.
+
+WRONG — reaching into a sibling module's submodule directly
+
+```python
+# app/modules/foster/assignment.py
+from app.modules.animals import service as animals_service
+```
+
+RIGHT — importing from the target module's declared public API
+
+```python
+# app/modules/animals/__init__.py
+from app.modules.animals.service import get_animal_by_id
+
+# app/modules/foster/assignment.py
+from app.modules.animals import get_animal_by_id
+```
+
+Enforcement: `scripts/check_rules.py` Detector 12 scans every `ImportFrom` under `app/modules/**/*.py` whose module path starts with `app.modules.` and targets a *different* module than the importing file's own. It flags `cross_module_submodule_import` when the import reaches past `app.modules.<name>` (either literally, or via the `from app.modules.<name> import <submodule>` shorthand, detected by checking whether the imported name matches an actual file/package under the target module), and `cross_module_private_import` when any imported name starts with `_`. The one still-open instance (issue #231 — `animals/__init__.py` needs a real public API designed before the import can be fixed, which is out of scope for a docs/tooling change) is grandfathered in a shrink-only `BASELINE_CROSS_MODULE_IMPORTS` allowlist; no new entries may be added. Same-module "private helper reused by a sibling file" drift (e.g. issue #232, `entradas/batch_service.py` importing `entradas/service.py`'s underscore-prefixed helpers) is a real but *different* pattern — same directory, not cross-module — and is intentionally out of this detector's scope; it stays PR review until a same-module variant is worth the false-positive risk of flagging legitimate intra-package helper sharing. Tests: `tests/test_check_rules.py` (Detector 12 section).
+
+### 28. Thin routes: route-handler size ratchet
+
+Rule 1 already says routes must be HTTP-only. This rule adds a concrete, automatable ratchet for it. The 2026-07-20 review found `app/modules/animals/routes.py::animal_foto` at 103 lines, mixing HTTP response-building with domain fail-closed photo policy (issue #233), when the median route handler in this codebase is 22 lines. A route handler that keeps growing is usually a sign that validation, retry/fallback policy, or business rules leaked into the route instead of the service layer.
+
+WRONG — domain policy decided inline in the route
+
+```python
+@router.get("/{animal_id}/foto")
+def animal_foto(animal_id: str, ...):
+    try:
+        animal = animals_service.get_animal_by_id(client, animal_id)
+    except Exception:
+        return Response(content=_PLACEHOLDER_PHOTO_PNG, media_type="image/png")
+    # ...60+ more lines deciding placeholder-vs-stream fail-closed policy...
+```
+
+RIGHT — the route delegates the policy decision, and only builds the response
+
+```python
+@router.get("/{animal_id}/foto")
+def animal_foto(animal_id: str, ...):
+    outcome = photo_service.resolve_animal_photo(client, animal_id)
+    return outcome.to_response()
+```
+
+Enforcement: `scripts/check_route_size.py` (stdlib-only, mirrors `scripts/check_module_size.py`'s ratchet shape) parses every `app/**/*routes*.py` file plus `app/main.py` with `ast`, finds every function decorated with `@router.<verb>(...)` or `@application.<verb>(...)`, and enforces a **50-line** hard cap on new handlers (calibrated against the real distribution: median 22, mean ~32 lines). The 15 handlers already over budget when the rule landed (`animal_foto` plus 14 siblings, including `app/main.py::callback` and `foster/assignment_routes.py::asignar_submit`) live in a shrink-only `BASELINE` dict — growing a baselined handler fails the check; no new entry may ever be added. Wired into the CI `lint` job immediately after the module-size ratchet step; removing the step is a blocked change. Tests: `tests/test_route_size.py` (mirrors `tests/test_module_size.py`'s shape: baseline-matches-measured-tree, CI-job-runs-the-gate).
+
 ---
 
 > **History:** the resolved "Known conflicts with existing code" tracker (all
