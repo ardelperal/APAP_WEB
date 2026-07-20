@@ -65,6 +65,7 @@ from app.core.config import get_settings
 from app.core.insforge import InsForgeClient
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
+from app.modules.materiales import estancia_material_service
 from app.modules.materiales import service as materiales_service
 from tests.conftest import auth_reval_rows, make_csrf_request
 
@@ -759,7 +760,7 @@ async def test_get_acogidas_materiales_lists_per_estancia(
 
     Verifies three properties at once:
 
-    - The route calls ``materiales_service.list_materials_for_estancia``,
+    - The route calls ``estancia_material_service.list_materials_for_estancia``,
       passing the dependency-injected client, ``estancia_id``, and the
       ``activos_solo=True`` default.
     - The route also calls ``materiales_service.list_materials`` to
@@ -795,7 +796,7 @@ async def test_get_acogidas_materiales_lists_per_estancia(
         return [catalog_material]
 
     monkeypatch.setattr(
-        materiales_service,
+        estancia_material_service,
         "list_materials_for_estancia",
         fake_list_for_estancia,
     )
@@ -903,7 +904,7 @@ async def test_post_acogidas_materiales_assigns_and_redirects(
         return junction
 
     monkeypatch.setattr(
-        materiales_service, "assign_material_to_estancia", fake_assign
+        estancia_material_service, "assign_material_to_estancia", fake_assign
     )
 
     response = await make_csrf_request(
@@ -968,7 +969,7 @@ async def test_post_acogidas_materiales_assign_returns_409_on_duplicate(
         return []
 
     monkeypatch.setattr(
-        materiales_service, "assign_material_to_estancia", fake_assign
+        estancia_material_service, "assign_material_to_estancia", fake_assign
     )
     # The 409 path re-renders the per-stay list, which fetches both
     # the assigned list and the catalog dropdown. Stub both so the
@@ -977,7 +978,7 @@ async def test_post_acogidas_materiales_assign_returns_409_on_duplicate(
         materiales_service, "list_materials", fake_list_materials
     )
     monkeypatch.setattr(
-        materiales_service,
+        estancia_material_service,
         "list_materials_for_estancia",
         fake_list_for_estancia,
     )
@@ -1035,7 +1036,7 @@ async def test_post_acogidas_materiales_assign_cantidad_zero_returns_422(
         )
 
     monkeypatch.setattr(
-        materiales_service,
+        estancia_material_service,
         "assign_material_to_estancia",
         _assign_must_not_run,
     )
@@ -1043,7 +1044,7 @@ async def test_post_acogidas_materiales_assign_cantidad_zero_returns_422(
         materiales_service, "list_materials", fake_list_materials
     )
     monkeypatch.setattr(
-        materiales_service,
+        estancia_material_service,
         "list_materials_for_estancia",
         fake_list_for_estancia,
     )
@@ -1096,7 +1097,7 @@ async def test_post_acogidas_materiales_assign_cantidad_invalid_returns_422(
         )
 
     monkeypatch.setattr(
-        materiales_service,
+        estancia_material_service,
         "assign_material_to_estancia",
         _assign_must_not_run,
     )
@@ -1104,7 +1105,7 @@ async def test_post_acogidas_materiales_assign_cantidad_invalid_returns_422(
         materiales_service, "list_materials", fake_list_materials
     )
     monkeypatch.setattr(
-        materiales_service,
+        estancia_material_service,
         "list_materials_for_estancia",
         fake_list_for_estancia,
     )
@@ -1165,13 +1166,13 @@ async def test_post_acogidas_materiales_assign_value_error_returns_422(
         return []
 
     monkeypatch.setattr(
-        materiales_service, "assign_material_to_estancia", fake_assign
+        estancia_material_service, "assign_material_to_estancia", fake_assign
     )
     monkeypatch.setattr(
         materiales_service, "list_materials", fake_list_materials
     )
     monkeypatch.setattr(
-        materiales_service,
+        estancia_material_service,
         "list_materials_for_estancia",
         fake_list_for_estancia,
     )
@@ -1211,7 +1212,7 @@ async def test_post_acogidas_materiales_mid_delete_soft_deletes(
         return True
 
     monkeypatch.setattr(
-        materiales_service,
+        estancia_material_service,
         "remove_material_from_estancia",
         fake_remove,
     )
@@ -1243,7 +1244,7 @@ async def test_post_acogidas_materiales_mid_delete_returns_404_when_missing(
     """
     _login_as_key_user(client)
     monkeypatch.setattr(
-        materiales_service,
+        estancia_material_service,
         "remove_material_from_estancia",
         lambda _c, _id: False,
     )

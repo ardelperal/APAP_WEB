@@ -12,25 +12,28 @@ detail-page integration land in PR C. See ``sdd/foster-04-materiales/tasks``
 (engram obs #15905) for the full split.
 """
 
-from app.modules.materiales import service
+from app.modules.materiales import estancia_material_service, service
 from app.modules.materiales.acogida_routes import router as materiales_acogida_router
+from app.modules.materiales.estancia_material_service import (
+    assign_material_to_estancia,
+    list_materials_for_estancia,
+    remove_material_from_estancia,
+)
 from app.modules.materiales.routes import router as materiales_router
 from app.modules.materiales.service import (
     EstanciaMaterial,
     Material,
     MaterialConflictError,
-    assign_material_to_estancia,
     create_material,
     deactivate_material,
     get_material_by_id,
     list_materials,
-    list_materials_for_estancia,
-    remove_material_from_estancia,
     update_material,
 )
 
 __all__ = [
     "service",
+    "estancia_material_service",
     "materiales_router",
     "materiales_acogida_router",
     "Material",
