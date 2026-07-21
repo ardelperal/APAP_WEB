@@ -25,7 +25,6 @@ from scripts.pytest_plugin.coverage_gate import (
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 APP_ROOT = REPO_ROOT / "app"
-NON_APP_CRITICAL_HELPERS = frozenset({"_reverse_apply_one_row"})
 
 
 def _defined_functions_in_app() -> set[str]:
@@ -57,7 +56,7 @@ def test_critical_helpers_constant_has_no_drift_from_app() -> None:
     missing = CRITICAL_HELPERS - defined - {
         # ``_row_to_*`` are auto-discovered at runtime, not statically listed.
         n for n in CRITICAL_HELPERS if n.startswith("_row_to_")
-    } - NON_APP_CRITICAL_HELPERS
+    }
     assert not missing, (
         "CRITICAL_HELPERS references helpers not present in app/: "
         f"{missing}. Either restore the helper or remove the constant entry."

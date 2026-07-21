@@ -35,6 +35,11 @@ from app.core.config import get_settings
 from app.core.session import read_session, session_cookie_name
 from app.main import app as _app
 
+# Enables the built-in ``pytester`` fixture (opt-in plugin) used by
+# ``tests/test_coverage_gate.py`` to spawn nested pytest subprocesses and
+# assert on their real exit code (issue #257 regression coverage).
+pytest_plugins = ["pytester"]
+
 
 def auth_reval_rows(
     query: str, params: object = None, *, rol: str = "key_user"
