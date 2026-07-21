@@ -183,3 +183,76 @@ def test_cli_exits_1_when_helper_below_100(tmp_path: Path) -> None:
             ]
         )
     assert exc_info.value.code == 1
+
+
+# --- pytest-plugin hook contract (issue #257) -----------------------------
+#
+# Regression coverage for issue #257: the pytest-plugin hook printed a red
+# "coverage-gate FAIL" banner but the *actual pytest process* still exited
+# 0, because ``pytest_terminal_summary`` mutated ``config.exitstatus`` —
+# which ``_pytest.main.wrap_session`` never reads back; only
+# ``session.exitstatus`` is returned as the process exit code. These tests
+# use the ``pytester`` fixture (registered via ``pytest_plugins`` in
+# ``tests/conftest.py``) to run a nested, isolated pytest process and
+# assert on its real ``result.ret`` — not just banner text in stdout.
+
+
+def _make_synthetic_project(pytester: pytest.Pytester) -> None:
+    """A trivial one-test project that registers the coverage-gate plugin."""
+    pytester.makepyfile(
+        test_dummy="""
+        def test_ok():
+            assert True
+        """
+    )
+    pytester.makeini(
+        """
+        [pytest]
+        addopts = -p scripts.pytest_plugin.coverage_gate
+        """
+    )
+
+
+def test_pytest_plugin_hook_fails_process_exit_code_on_gate_failure(
+    pytester: pytest.Pytester,
+) -> None:
+    """Issue #257: a gate failure must make the nested pytest PROCESS exit
+    non-zero, not just print a red banner.
+
+    ``_redirect`` is a real ``CRITICAL_HELPERS`` entry (hardcoded in the
+    module), so reporting it below 100% in a synthetic ``coverage.json``
+    exercises the exact same helper set the real CI gate tracks — no
+    override mechanism needed.
+    """
+    _make_synthetic_project(pytester)
+    (pytester.path / "coverage.json").write_text(
+        json.dumps(_coverage_data({"_redirect": 50.0})), encoding="utf-8"
+    )
+    result = pytester.runpytest_subprocess()
+    result.assert_outcomes(passed=1)  # the single synthetic test itself passes
+    result.stdout.fnmatch_lines(["*coverage-gate FAIL*"])
+    assert result.ret != 0, (
+        "pytest process must exit non-zero when the coverage gate fails "
+        "(issue #257: config.exitstatus is a no-op; session.exitstatus is "
+        "what wrap_session() actually returns)"
+    )
+    assert result.ret == 1
+
+
+def test_pytest_plugin_hook_exits_zero_when_gate_passes(
+    pytester: pytest.Pytester,
+) -> None:
+    """Companion test: a genuinely passing gate must NOT fail the process.
+
+    Guards against a naive fix that always sets ``session.exitstatus = 1``
+    regardless of ``evaluate_coverage``'s verdict.
+    """
+    _make_synthetic_project(pytester)
+    all_at_100 = {name: 100.0 for name in CRITICAL_HELPERS}
+    (pytester.path / "coverage.json").write_text(
+        json.dumps(_coverage_data(all_at_100)), encoding="utf-8"
+    )
+    result = pytester.runpytest_subprocess()
+    result.assert_outcomes(passed=1)
+    result.stdout.fnmatch_lines(["*coverage-gate PASS*"])
+    assert result.ret == 0

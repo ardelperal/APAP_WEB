@@ -34,7 +34,6 @@ CRITICAL_HELPERS: frozenset[str] = frozenset(
         "_is_duplicate_error",
         "_validate_create_params",
         "_build_insert_params",
-        "_reverse_apply_one_row",
         "optional_text",
         "optional_value",
         "required_text",
@@ -42,6 +41,15 @@ CRITICAL_HELPERS: frozenset[str] = frozenset(
 
     }
 )
+# NOTE (issue #257 companion fix): ``_reverse_apply_one_row`` lives in
+# ``migration/reverse_apply/per_row.py``, not ``app/``. This gate's
+# ``coverage.json`` comes from CI's ``--cov=app`` run ([tool.coverage.run]
+# source = ["app"] in pyproject.toml, per AGENTS.md rule 19) so a
+# migration/-only function can NEVER appear in it — tracking it here was a
+# permanent, structural 0% (not a real regression) that only became
+# CI-blocking once the exit-code bug (#257) was fixed. Do not re-add it
+# without also adding ``--cov=migration`` to CI, which is a separate,
+# bigger decision (changes what the 80% floor measures).
 
 _ROW_TO_PATTERN = re.compile(r"^_row_to_")
 
@@ -164,19 +172,17 @@ def _print_summary(
     terminalreporter.write_sep("=", "\n".join(lines), red=True)
 
 
-@pytest.hookimpl(tryfirst=True)
-def pytest_terminal_summary(
-    terminalreporter: Any,
-    exitstatus: int,
+def _evaluate_gate(
     config: pytest.Config,
-) -> None:
-    """After pytest writes coverage.json, evaluate the gate and report.
+) -> tuple[bool, list[tuple[str, float]], frozenset[str]] | None:
+    """Load coverage.json + config and run ``evaluate_coverage``.
 
-    On failure, ``config.exitstatus = 1`` so pytest exits non-zero.
+    Returns ``None`` when there is no ``coverage.json`` to evaluate (no
+    ``--cov`` run; gate is a no-op), otherwise ``(passed, failures, helpers)``.
     """
     coverage_path = Path(config.getoption("--coverage-file") or "coverage.json")
     if not coverage_path.exists():
-        return  # No --cov run; gate is no-op.
+        return None
     cfg_opt = config.getoption("--coverage-gate-config")
     gate_cfg = _load_config(Path(cfg_opt) if cfg_opt else None)
     helpers = gather_helpers(
@@ -186,9 +192,46 @@ def pytest_terminal_summary(
     with coverage_path.open(encoding="utf-8") as fh:
         coverage_data = json.load(fh)
     passed, failures = evaluate_coverage(coverage_data, helpers)
+    return passed, failures, helpers
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_terminal_summary(
+    terminalreporter: Any,
+    exitstatus: int,
+    config: pytest.Config,
+) -> None:
+    """After pytest writes coverage.json, evaluate the gate and print the banner.
+
+    Enforcement (failing the actual process) happens in
+    ``pytest_sessionfinish`` below — ``config.exitstatus`` is a no-op here;
+    ``_pytest.main.wrap_session`` only reads back ``session.exitstatus``
+    (issue #257).
+    """
+    result = _evaluate_gate(config)
+    if result is None:
+        return
+    passed, failures, helpers = result
     _print_summary(passed, failures, helpers, terminalreporter)
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    """Fail the pytest PROCESS when the coverage gate fails (issue #257).
+
+    ``_pytest.main.wrap_session`` returns ``session.exitstatus`` as the
+    final process exit code; it never reads ``config.exitstatus`` back.
+    Mutating ``session.exitstatus`` here is the documented, effective way
+    for a plugin to force a non-zero exit. Reuses the exact same
+    ``evaluate_coverage``/``gather_helpers`` logic as the terminal-summary
+    banner above (and the CLI ``main()``) — no duplicated gate logic.
+    """
+    result = _evaluate_gate(session.config)
+    if result is None:
+        return
+    passed, _failures, _helpers = result
     if not passed:
-        config.exitstatus = 1
+        session.exitstatus = 1
 
 
 # --- CLI entry point for CI ----------------------------------------------
