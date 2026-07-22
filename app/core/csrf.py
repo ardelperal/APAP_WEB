@@ -122,18 +122,6 @@ def _extract_provided_token(request: Request) -> str | None:
     return None
 
 
-def _extract_form_token(request: Request) -> str | None:
-    """Read the CSRF token from the parsed form body (helper for tests).
-
-    Real callers MUST use the middleware's async form parsing. This
-    synchronous helper exists so unit tests can exercise the
-    "form field path" branch without spinning up the middleware.
-    """
-    # No synchronous request body parser exists in Starlette; tests that
-    # need this path go through the middleware.
-    return None
-
-
 class CSRFValidationError(Exception):
     """Raised when CSRF validation fails.
 
