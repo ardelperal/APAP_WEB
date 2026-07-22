@@ -1,10 +1,42 @@
+import shlex
+import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+MAKEFILE_PATH = REPO_ROOT / "Makefile"
+CHECK_RULES_SCRIPT_PATH = REPO_ROOT / "scripts" / "check_rules.py"
 BRANCH_PROTECTION_PATH = REPO_ROOT / ".github" / "branch-protection.md"
 DEVELOPMENT_GUIDE_PATH = REPO_ROOT / "docs" / "development.md"
+
+
+def _make_target_command(target: str) -> str:
+    lines = MAKEFILE_PATH.read_text(encoding="utf-8").splitlines()
+    start = lines.index(f"{target}:") + 1
+    recipe: list[str] = []
+    for line in lines[start:]:
+        if not line.startswith("\t"):
+            break
+        recipe.append(line.strip().removesuffix("\\").rstrip())
+    return " ".join(recipe)
+
+
+def _seed_detectors_5_through_8(repo_root: Path) -> None:
+    module_dir = repo_root / "app" / "modules" / "demo"
+    module_dir.mkdir(parents=True)
+    (module_dir / "service.py").write_text(
+        "import logging\n"
+        "logger = logging.getLogger(__name__)\n"
+        "logger.warning('unsafe')\n"
+        "print('unsafe')\n",
+        encoding="utf-8",
+    )
+    (repo_root / "app" / "main.py").write_text(
+        "response.set_cookie('apap_session', 'token', samesite='lax')\n",
+        encoding="utf-8",
+    )
 
 
 def test_ci_workflow_defines_lint_test_and_build_jobs() -> None:
@@ -120,7 +152,7 @@ def test_ci_workflow_test_job_enforces_global_coverage_floor() -> None:
     assert f"--cov-fail-under={fail_under}" in executable
 
 
-def test_ci_workflow_lint_job_runs_check_rules_gate() -> None:
+def test_ci_workflow_lint_job_runs_check_rules_gate(tmp_path: Path) -> None:
     """Issue #200: the CI ``lint`` job must gate on ``scripts/check_rules.py``.
 
     The APAP001/APAP003 custom rules (plus Detectors 2-8 of the AST
@@ -149,10 +181,45 @@ def test_ci_workflow_lint_job_runs_check_rules_gate() -> None:
         line for line in lint_job.splitlines() if not line.lstrip().startswith("#")
     )
 
-    assert "python scripts/check_rules.py ." in executable, (
+    make_command = _make_target_command("check-rules")
+    command = shlex.split(make_command)
+    command[0] = sys.executable
+    command[1] = str(CHECK_RULES_SCRIPT_PATH)
+    _seed_detectors_5_through_8(tmp_path)
+    result = subprocess.run(
+        command,
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    expected_rule_ids = {
+        "apap003_raw_logger_call",
+        "print_in_app",
+        "csrf_middleware_registered",
+        "csrf_samesite_strict",
+    }
+    missing_rule_ids = {
+        rule_id
+        for rule_id in expected_rule_ids
+        if f": {rule_id}:" not in result.stdout
+    }
+    assert result.returncode == 1 and not missing_rule_ids, (
+        "The make check-rules recipe must activate Detectors 5-8 from the "
+        f"repository root; exit={result.returncode}, missing={sorted(missing_rule_ids)}, "
+        f"stdout={result.stdout!r}, stderr={result.stderr!r}"
+    )
+
+    ci_command = "python scripts/check_rules.py ."
+    normalized_make_command = make_command.replace("$(PYTHON)", "python", 1)
+    assert ci_command in executable, (
         "The lint job must run the AGENTS.md rule linter over the repo "
         "root (python scripts/check_rules.py .) so APAP001/APAP003 and "
         "Detectors 2-8 gate CI, not just local `make check-rules` runs."
+    )
+    assert normalized_make_command == ci_command, (
+        "make check-rules must invoke the same repository-root command as CI; "
+        f"got {normalized_make_command!r}"
     )
 
 

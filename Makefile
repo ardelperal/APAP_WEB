@@ -71,10 +71,7 @@ typecheck:
 #   openspec/changes/hardening-2026-q2/specs/01-dev-tooling-gate/spec.md
 #   openspec/changes/hardening-2026-q2/apply-progress-pr-1b.md
 check-rules:
-	$(PYTHON) scripts/check_rules.py app \
-		--exclude scripts/check_rules.py \
-		--exclude tests/_rule_helpers/fixtures \
-		--exclude tests/test_migration_004.py
+	$(PYTHON) scripts/check_rules.py .
 
 build:
 	$(PYTHON) -m build
