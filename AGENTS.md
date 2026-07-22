@@ -714,6 +714,19 @@ Enforcement: `scripts/check_route_size.py` (stdlib-only, mirrors `scripts/check_
 The auth cache backing `require_authorized_user` (`app/core/auth_cache.py`, original issue #143) is **per-worker**: each uvicorn/gunicorn worker process holds its own in-memory copy. `invalidate_auth(email)` only reaches the worker that called it; with N workers, the worst-case per-worker staleness window is `APAP_AUTH_CACHE_TTL_SECONDS` (default 300s). For multi-worker deployments, either drop the TTL to `0` (immediate revocation, one extra `SELECT` per request) or switch to the shared backend (`APAP_AUTH_CACHE_BACKEND=redis` — the structural seam in `auth_cache.py`; the actual Redis wire-up is the follow-up PR). Full remediation matrix + verification steps in `docs/runbooks/auth-cache-multi-worker.md`.
 <!-- END region:issue-262-shared-auth-cache -->
 
+### 30. Docstrings are synchronized contracts
+
+Docstrings are part of the code contract: claims about current behavior, inputs, outputs, errors, or side effects MUST be covered by a test. Issue/PR references and production scars that are useful for onboarding MUST be labeled as historical context (not a contract) and preferably moved to `docs/` with a link; this policy complements the Domain services Protocol rule in §29.
+
+**Cheap drift check (required in review):** for each behavioral claim, identify the test that proves it; verify every referenced symbol still exists; and verify every issue/PR reference still describes the current code. If a claim has no test, either add one or rewrite it as explicitly non-contract historical context.
+
+```python
+# Historical context — non-contract: see docs/audits/<feature>-audit-YYYY-Qn.md.
+# Current contract: invalid tokens return 401 and never reach the service.
+```
+
+Enforcement: PR review using the checklist above. Do not add a new AST detector for prose matching; the heuristic is intentionally cheap and outcome-focused, while §29's Protocol boundary remains enforced independently.
+
 ---
 
 > **History:** the resolved "Known conflicts with existing code" tracker (all
