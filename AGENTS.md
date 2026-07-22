@@ -708,6 +708,12 @@ def animal_foto(animal_id: str, ...):
 
 Enforcement: `scripts/check_route_size.py` (stdlib-only, mirrors `scripts/check_module_size.py`'s ratchet shape) parses every `app/**/*routes*.py` file plus `app/main.py` with `ast`, finds every function decorated with `@router.<verb>(...)` or `@application.<verb>(...)`, and enforces a **50-line** hard cap on new handlers (calibrated against the real distribution: median 22, mean ~32 lines). The 15 handlers already over budget when the rule landed (`animal_foto` plus 14 siblings, including `app/main.py::callback` and `foster/assignment_routes.py::asignar_submit`) live in a shrink-only `BASELINE` dict — growing a baselined handler fails the check; no new entry may ever be added. Wired into the CI `lint` job immediately after the module-size ratchet step; removing the step is a blocked change. Tests: `tests/test_route_size.py` (mirrors `tests/test_module_size.py`'s shape: baseline-matches-measured-tree, CI-job-runs-the-gate).
 
+### 29. Auth cache: per-worker scope + opt-in shared backend (issue #262)
+
+<!-- BEGIN region:issue-262-shared-auth-cache -->
+The auth cache backing `require_authorized_user` (`app/core/auth_cache.py`, original issue #143) is **per-worker**: each uvicorn/gunicorn worker process holds its own in-memory copy. `invalidate_auth(email)` only reaches the worker that called it; with N workers, the worst-case per-worker staleness window is `APAP_AUTH_CACHE_TTL_SECONDS` (default 300s). For multi-worker deployments, either drop the TTL to `0` (immediate revocation, one extra `SELECT` per request) or switch to the shared backend (`APAP_AUTH_CACHE_BACKEND=redis` — the structural seam in `auth_cache.py`; the actual Redis wire-up is the follow-up PR). Full remediation matrix + verification steps in `docs/runbooks/auth-cache-multi-worker.md`.
+<!-- END region:issue-262-shared-auth-cache -->
+
 ---
 
 > **History:** the resolved "Known conflicts with existing code" tracker (all

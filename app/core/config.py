@@ -70,15 +70,30 @@ class Settings(BaseSettings):
     # works out of the box, but MUST be overridden in production via env.
     session_secret: str = "dev-only-change-me-in-production"
 
-    # --- Per-request authorization revalidation (issue #143) -----------
-    # TTL (seconds) for the in-process authorization cache backing
+    # --- Per-request authorization revalidation (issue #143, #262) ---
+    # TTL (seconds) for the authorization cache backing
     # ``require_authorized_user``. The cookie signs the identity; the DB
     # (``usuarios_autorizados``) is the source of truth for authorization
     # and is re-validated per request, cached for this many seconds to
     # bound query load. Default 300s (5 min) balances freshness against
     # one SELECT per user per request. Set to 0 to disable the cache for
     # immediate (<1s) revocation at the cost of a query on every request.
+    # In multi-worker deployments with the default in-process backend,
+    # lowering this value shortens the per-worker staleness window
+    # (issue #262). See ``docs/runbooks/auth-cache-multi-worker.md``.
     auth_cache_ttl_seconds: int = 300
+
+    # --- Auth-cache backend selection (issue #262) -------------------
+    # Selects the auth-cache backend used by ``app.core.auth_cache``.
+    # Values:
+    # - ``"in_process"`` (default): worker-local in-memory dict + Lock.
+    #   Per-worker scope; invalidations do NOT propagate to other workers.
+    # - ``"redis"``: shared backend (follow-up PR for the wire-up; this
+    #   slice ships the structural seam only). Cluster-wide scope once
+    #   wired; invalidations propagate to every worker in ~1 RTT.
+    # Unknown values fall back to ``"in_process"`` (fail-soft; a typo in
+    # the env var must NOT crash at request time).
+    auth_cache_backend: str = "in_process"
 
     # --- CSRF defense-in-depth (PR-5B, Slice 5) ------------------------
     # Feature flag for the CSRF middleware (``app/core/csrf.py``). When
