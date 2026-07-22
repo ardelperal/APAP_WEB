@@ -23,14 +23,34 @@ def _read(rel: str) -> str:
 
 
 def test_middleware_default_false_en_fuente() -> None:
-    """app/main.py carries payload.get("is_authorized", False)."""
-    src = _read("app/main.py")
+    """The default-deny ``payload.get("is_authorized", False)`` substring
+    lives in the auth-middleware module.
+
+    Issue #204 moved the auth middleware (incl. the
+    ``protect_user_facing_routes`` function that owns this default-deny
+    contract) from ``app/main.py`` to ``app/core/middleware.py``. The
+    contract itself — default-deny, no path-grants ``is_authorized=True``
+    by omission — is unchanged; only its file location moved.
+
+    The test file moved with the contract: the source-pinning assertion
+    now reads ``app/core/middleware.py`` instead of ``app/main.py``.
+    Count and adversarial checks (``True`` absence) stay identical.
+    """
+    # Issue #204: the auth middleware moved to app/core/middleware.py.
+    # The contract (default-deny ``payload.get("is_authorized", False)``)
+    # is preserved verbatim; this test reads the new file location.
+    src = _read("app/core/middleware.py")
     assert 'payload.get("is_authorized", False)' in src
     assert 'payload.get("is_authorized", True)' not in src
 
 
 def test_solo_dos_call_sites_en_app() -> None:
     """Exactly two `if` call sites of payload.get("is_authorized"...) in app/.
+
+    Issue #204 moved the auth middleware (one of the two
+    ``payload.get("is_authorized"...)`` call sites) from
+    ``app/main.py`` to ``app/core/middleware.py``. The COUNT stays 2;
+    the FILE-LOCATION SET shifts by one entry.
 
     The regex matches the call-site shape so docstring mentions don't
     produce false positives. The PR-1A linter (Detector 2) pins the same
@@ -45,7 +65,13 @@ def test_solo_dos_call_sites_en_app() -> None:
         if pat.search(line)
     ]
     assert len(matches) == 2, f"expected 2 call sites, got {len(matches)}: {matches}"
-    assert {m[0] for m in matches} == {"app/main.py", "app/core/auth_dependencies.py"}
+    # Issue #204: call sites are now in middleware.py (auth chain) and
+    # auth_dependencies.py (the dep-side revalidation). Previously both
+    # lived in app/main.py; one moved to app/core/middleware.py.
+    assert {m[0] for m in matches} == {
+        "app/core/middleware.py",
+        "app/core/auth_dependencies.py",
+    }
 
 
 class _Spy(InsForgeClient):

@@ -355,21 +355,27 @@ def test_get_current_user_optional_delegates_to_read_session_payload() -> None:
 
 
 def test_middleware_uses_read_session_payload() -> None:
-    """The auth middleware in ``app.main`` MUST delegate to ``read_session_payload``.
+    """The auth middleware MUST delegate to ``read_session_payload``.
 
     Three call sites used to inline the 4-line pattern
     (read cookie + decode payload); they MUST now go through the
     helper so a future change to the helper is picked up by all
-    three. This test reads ``app/main.py`` as text and asserts the
-    helper name appears at the right call site — a structural test
-    that catches the regression of inlining the snippet back.
+    three.
+
+    Issue #204: the auth middleware (``protect_user_facing_routes``)
+    moved from ``app/main.py`` to ``app/core/middleware.py``. The
+    helper call moved with it; this test now reads the new file
+    location. The contract — ``read_session_payload(request,
+    secret=settings.session_secret)`` indirection — is unchanged.
     """
-    main_source = Path("app/main.py").read_text(encoding="utf-8")
-    assert "read_session_payload(" in main_source, (
-        "app/main.py must call read_session_payload(request, secret=...) "
-        "in the protect_user_facing_routes middleware; inlining the "
-        "read-cookie + decode-payload snippet again would re-introduce "
-        "the triple duplication that issue #120 is meant to fix."
+    middleware_source = Path("app/core/middleware.py").read_text(encoding="utf-8")
+    assert "read_session_payload(" in middleware_source, (
+        "app/core/middleware.py must call read_session_payload(request, "
+        "secret=...) in the protect_user_facing_routes middleware; "
+        "inlining the read-cookie + decode-payload snippet again would "
+        "re-introduce the triple duplication that issue #120 is meant "
+        "to fix. (Location: issue #204 moved this middleware out of "
+        "app/main.py into app/core/middleware.py.)"
     )
     # The middleware MUST NOT inline the snippet.
     inlined = (
@@ -379,9 +385,9 @@ def test_middleware_uses_read_session_payload() -> None:
         "        else None\n"
         "    )"
     )
-    assert inlined not in main_source, (
-        "app/main.py middleware still inlines the read-cookie snippet; "
-        "must delegate to read_session_payload per issue #120."
+    assert inlined not in middleware_source, (
+        "app/core/middleware.py middleware still inlines the read-cookie "
+        "snippet; must delegate to read_session_payload per issue #120."
     )
 
 

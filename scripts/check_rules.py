@@ -830,24 +830,84 @@ def _check_csrf_middleware_registered(
 ) -> list[Violation]:
     """Detector 7 — Rule 10.
 
-    ``app/main.py`` MUST register ``CsrfMiddleware`` in the middleware
+    The CSRF middleware MUST be wired into the FastAPI middleware
     chain. Catches accidental removal of the gate.
+
+    Issue #204 moved the chain registration from ``app/main.py`` to
+    :func:`app.core.middleware.install_auth_middleware`. The detector
+    therefore checks TWO surfaces on two distinct files:
+
+    - ``app/core/middleware.py`` MUST contain ``CsrfMiddleware``
+      (the class reference), so the registration is wired inside
+      the install function.
+    - ``app/main.py`` MUST call ``install_auth_middleware`` (the
+      function name as a literal), so the wiring actually runs at
+      app boot. This is the transitively-loaded counterpart to the
+      first check.
+
+    Both surfaces are required: dropping the class in middleware.py
+    fails the first check; dropping the installer call in main.py
+    fails the second. The two surfaces together close the same
+    regression window the original Detector 7 covered.
     """
+    # Resolve the two files the detector watches. We do not depend on
+    # the surrounding ``_scan_file`` scope for repo_root; this detector
+    # walks absolute paths only.
+    repo_root = _find_repo_root(path)
+    app_main = repo_root / "app" / "main.py"
+    app_core_middleware = repo_root / "app" / "core" / "middleware.py"
     src = path.read_text(encoding="utf-8")
-    if "CsrfMiddleware" in src:
-        return []
-    return [
-        Violation(
-            file=path,
-            line=1,
-            rule_id="csrf_middleware_registered",
-            message=(
-                "app/main.py does not register CsrfMiddleware. "
-                "Add 'app.add_middleware(CsrfMiddleware)' to create_app(). "
-                "Rule 10: CSRF defense per default."
-            ),
-        )
-    ]
+    if path == app_main:
+        if "install_auth_middleware" in src:
+            return []
+        return [
+            Violation(
+                file=path,
+                line=1,
+                rule_id="csrf_middleware_registered",
+                message=(
+                    "app/main.py does not call install_auth_middleware(). "
+                    "Issue #204 moved the CSRF (and UA) registration into "
+                    "app.core.middleware.install_auth_middleware; call it "
+                    "from create_app() so the CSRF gate is wired. "
+                    "Rule 10: CSRF defense per default."
+                ),
+            )
+        ]
+    if path == app_core_middleware:
+        if "CsrfMiddleware" in src:
+            return []
+        return [
+            Violation(
+                file=path,
+                line=1,
+                rule_id="csrf_middleware_registered",
+                message=(
+                    "app/core/middleware.py does not register CsrfMiddleware. "
+                    "Issue #204 expects "
+                    "`install_auth_middleware(app, settings)` to call "
+                    "`app.add_middleware(CsrfMiddleware)` (gated on "
+                    "`settings.csrf_enabled`). "
+                    "Rule 10: CSRF defense per default."
+                ),
+            )
+        ]
+    return []
+
+
+def _find_repo_root(path: Path) -> Path:
+    """Walk up from ``path`` until we find the directory containing
+    ``app/``. Used by Detector 7 only; the rest of the linter uses
+    the repo_root passed by the CLI loop.
+    """
+    here = path if path.is_dir() else path.parent
+    for candidate in (here, *here.parents):
+        if (candidate / "app").is_dir():
+            return candidate
+    # Fallback: assume the path's parent chain already has the right
+    # structure; the worst case is the walk above didn't find a
+    # marker and we return the file's enclosing directory.
+    return here
 
 
 # Detector 8 -----------------------------------------------------------------

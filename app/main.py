@@ -18,10 +18,22 @@ of issue #17 (Fase 1 — esqueleto) and #16 (Fase 2 — auth). It exposes:
 - ``/static/...``        → compiled CSS and other static assets
 
 Authenticated app routes (``/animales``, ``/entradas``,
-``/voluntarios``, ``/admin``) are protected by the ``protect_user_facing_routes``
-middleware below, which checks the signed session cookie BEFORE
-FastAPI runs route / form validation. The middleware never opens a
-DB connection.
+``/voluntarios``, ``/admin``) are protected by the auth chain installed
+in :func:`app.core.middleware.install_auth_middleware`, which checks
+the signed session cookie BEFORE FastAPI runs route / form
+validation. The middleware never opens a DB connection.
+
+Issue #204 extracted the auth-middleware setup (issue #204) and the
+domain-router registration (``register_routers``) out of this file,
+leaving it as a thin factory: ``create_app`` now boots the FastAPI
+instance, mounts ``/static``, calls ``install_auth_middleware``, hands
+the lifespan over to schema bootstrap, declares the auth flow routes
+(``/login``, ``/auth/google``, ``/auth/callback``, ``/logout``) plus
+the admin and marketing handlers, and finally delegates every domain
+router to :func:`app.routes_registry.register_routers`. The
+``PUBLIC_PATHS`` constant and the ``_is_public_path`` helper are
+re-exported below for backwards compatibility with tests and any
+out-of-tree consumers that imported them from ``app.main``.
 
 Spec home: ``openspec/changes/auth-insforge-hosted-proxy/specs/auth-oauth/spec.md``
 for the OAuth callback contract; ``openspec/changes/ci-cd-foundation/``
@@ -30,7 +42,6 @@ for the deploy webhook contract.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -58,34 +69,29 @@ from app.core.auth_dependencies import (
     get_insforge_client_dep as get_insforge_client,
 )
 from app.core.catalogs import ensure_catalogs
-from app.core.csrf import CsrfMiddleware, csrf_token_context_processor, issue_csrf_to_session
+from app.core.csrf import csrf_token_context_processor, issue_csrf_to_session
 from app.core.domain import ensure_domain_schema
 from app.core.insforge import InsForgeClient, InsForgeError
 from app.core.logging import configure_logging, log_safe
-from app.core.middleware import UADetectionMiddleware, base_template_context_processor
+from app.core.middleware import (
+    DISABLED_DOC_PATHS as _DISABLED_DOC_PATHS,  # noqa: F401  - re-export for parity with PUBLIC_PATHS
+)
+from app.core.middleware import (
+    PUBLIC_PATHS,  # noqa: F401  - re-exported for backwards compat with tests
+    UADetectionMiddleware,  # noqa: F401  - re-exported for tests/test_middleware.py
+    _is_public_path,  # noqa: F401  - re-exported for tests/test_public_paths.py
+    base_template_context_processor,
+    install_auth_middleware,
+)
 from app.core.migration.sql_runner import apply_sql_migrations
 from app.core.pkce import generate_pkce_pair
 from app.core.session import (
     clear_session_cookie_params,
     read_session,
-    read_session_payload,
     session_cookie_name,
     write_session,
 )
-from app.modules.acogidas.routes import router as acogidas_router
-from app.modules.adopciones.routes import router as adopciones_router
-from app.modules.animals.routes import router as animals_router
-from app.modules.cesiones.routes import router as cesiones_router
-from app.modules.entradas.batch_routes import router as entradas_batch_router
-from app.modules.entradas.routes import router as entradas_router
-from app.modules.foster.assignment_routes import router as foster_assignment_router
-from app.modules.foster.routes import router as foster_router
-from app.modules.materiales.acogida_routes import (
-    router as materiales_acogida_router,
-)
-from app.modules.materiales.routes import router as materiales_router
-from app.modules.sanidad.routes import router as sanidad_router
-from app.modules.voluntarios.routes import router as voluntarios_router
+from app.routes_registry import register_routers
 
 _STATIC_DIR = Path(__file__).parent / "static"
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -138,28 +144,6 @@ _DASHBOARD_SHORTCUTS = [
     {"label": "Nueva entrada", "href": "/entradas", "description": "Registra una llegada a protectora."},
     {"label": "Voluntarios", "href": "/voluntarios", "description": "Gestiona personas colaboradoras."},
 ]
-
-# Public paths that the auth layer must never block.
-# The landing page (/) and the access-denied page (/unauthorized) are
-# intentionally protected so the marketing surface can only be reached
-# after OAuth — the modules list links to authenticated app routes and
-# must not leak the org's structure to anonymous probers. Only the
-# technical exceptions below bypass the middleware.
-PUBLIC_PATHS = frozenset(
-    {
-        "/healthz",
-        "/login",
-        "/auth/google",
-        "/auth/callback",
-        "/logout",
-    }
-)
-DISABLED_DOC_PATHS = frozenset({"/docs", "/redoc", "/openapi.json"})
-
-
-def _is_public_path(path: str) -> bool:
-    """Return whether ``path`` is intentionally reachable without a session."""
-    return path in PUBLIC_PATHS or path == "/static" or path.startswith("/static/")
 
 
 @asynccontextmanager
@@ -227,6 +211,16 @@ def create_app() -> FastAPI:
 
     A factory (rather than a module-level instance) keeps tests
     hermetic and lets future phases spin up variants of the app.
+
+    Issue #204: this factory is now thin — the auth middleware chain
+    lives in :func:`app.core.middleware.install_auth_middleware` and
+    the 11 ``app.include_router(...)`` calls live in
+    :func:`app.routes_registry.register_routers`. The auth-flow
+    handlers (``/login``, ``/auth/google``, ``/auth/callback``,
+    ``/logout``, ``/admin``, ``/admin/users``) stay here because they
+    are not "domain module" routes but application-level glue (they
+    share ``get_insforge_client``, the templates instance, and the
+    ``_redirect`` helper above).
     """
     settings = config_module.get_settings()
 
@@ -247,14 +241,12 @@ def create_app() -> FastAPI:
         name="static",
     )
 
-    # CSRF defense-in-depth (PR-5B2, REQ-AH-8). Registered AFTER the
-    # static-files mount and BEFORE the auth middleware below so the
-    # token check can read the session cookie (which Starlette decodes
-    # via the cookie machinery above). Feature-flag gated for
-    # emergency rollback (``APAP_CSRF_ENABLED=false``); see
-    # ``csrf.py`` docstring for the Slice 6 logging-swap contract.
-    if settings.csrf_enabled:
-        application.add_middleware(CsrfMiddleware)
+    # Auth-related middleware chain (issue #204). Reads ``settings`` so
+    # ``APAP_CSRF_ENABLED`` (Slice 5 feature flag) gates CSRF
+    # registration, matching the pre-refactor conditional block at
+    # ``app/main.py:256-257``. See ``app/core/middleware.py`` for the
+    # chain ordering.
+    install_auth_middleware(application, settings)
 
     templates = Jinja2Templates(
         directory=_TEMPLATES_DIR,
@@ -263,44 +255,6 @@ def create_app() -> FastAPI:
             base_template_context_processor,
         ],
     )
-
-    @application.middleware("http")
-    async def protect_user_facing_routes(
-        request: Request,
-        call_next: Callable[[Request], Awaitable[Response]],
-    ) -> Response:
-        """Authenticate user-facing routes before route/body validation.
-
-        Handler-level ``Depends(require_authorized_user)`` runs after FastAPI
-        resolves request parameters, so malformed anonymous form posts can hit
-        ``Form(...)`` validation and return 422 before the handler can redirect.
-        This middleware uses only the signed session cookie and never opens a DB
-        connection, which keeps auth-before-validation cheap and deterministic.
-        """
-        path = request.url.path
-        if _is_public_path(path) or path in DISABLED_DOC_PATHS:
-            return await call_next(request)
-
-        payload = read_session_payload(
-            request, secret=settings.session_secret
-        )
-        if not payload:
-            return _redirect("/login")
-        if path == "/unauthorized":
-            return await call_next(request)
-        if not payload.get("is_authorized", False):
-            return _redirect("/unauthorized")
-        return await call_next(request)
-
-    # UA-based device detection (slice A of UA-based templates, obs #15705).
-    # Placed AFTER the auth middleware so that, in Starlette's stack
-    # (``add_middleware`` inserts at position 0 → last call is outermost),
-    # ``UADetectionMiddleware`` runs FIRST on every request — before the
-    # auth redirect can short-circuit, before CsrfMiddleware handles the
-    # token, and before any route handler reads ``request.state.is_mobile``.
-    # The middleware is purely additive (never short-circuits, never logs);
-    # the per-request cost is one regex match in ``app.core.ua.is_mobile``.
-    application.add_middleware(UADetectionMiddleware)
 
     @application.get("/healthz")
     def healthz() -> dict[str, str]:
@@ -638,50 +592,11 @@ def create_app() -> FastAPI:
         deactivate_authorized_user(client, user_id)
         return _redirect("/admin")
 
-    application.include_router(animals_router)
-    application.include_router(entradas_router)
-    application.include_router(entradas_batch_router)
-    application.include_router(foster_router)
-    # FOSTER-03 (#45) — assignment gate sub-router (asignar/overrides).
-    # Mounted AFTER ``foster_router`` so its more specific paths
-    # (``/{casa_id}/asignar``, ``/{casa_id}/overrides``) take precedence
-    # over ``foster_router``'s dynamic ``/{casa_id}`` for those exact
-    # paths.
-    application.include_router(foster_assignment_router)
-    # FOSTER-02 (#44) — estancias de acogida, mounted AFTER
-    # foster_router because logically they belong to the foster slice
-    # and the FK from ``acogidas`` -> ``casas_acogida`` requires the
-    # foster module to be already loaded.
-    application.include_router(acogidas_router)
-    application.include_router(cesiones_router)
-    application.include_router(voluntarios_router)
-    # ADOPT-01 (#47) — CRUD de adopciones; mounted last so its
-    # ``/{adopcion_id}`` dynamic path does not shadow the more specific
-    # ``/{adopcion_id}/edit`` / ``/{adopcion_id}/update`` /
-    # ``/{adopcion_id}/delete`` siblings (FastAPI matches in declaration
-    # order, and those are declared AFTER ``/{adopcion_id}`` in routes.py
-    # anyway, but the ordering here matches the FOSTER-02 / FOSTER-03
-    # convention: stable insertion point at the end of the chain).
-    application.include_router(adopciones_router)
-    # HEALTH-01 (#50) — CRUD de actuaciones sanitarias (D-24 fecha
-    # validation). Mounted after adopciones for stable insertion order
-    # alongside the other domain routers.
-    application.include_router(sanidad_router)
-    # FOSTER-04 (#46) PR B — catalog CRUD routes. Mounted last so its
-    # dynamic ``/{material_id}`` path does not shadow future sibling
-    # ``/{material_id}/edit`` / ``/{material_id}/deactivate`` paths.
-    # The per-estancia junction router stays as a separate include_router
-    # in PR C — kept distinct so the two routers can mount under
-    # different prefixes (``/materiales`` and ``/acogidas``).
-    application.include_router(materiales_router)
-    # FOSTER-04 (#46) PR C — per-estancia junction routes. Mounted
-    # AFTER the catalog router so the catalog's
-    # ``{material_id}``-shaped paths come first (the junction
-    # router declares absolute paths under ``/acogidas/...`` and a
-    # catch-all is not at risk here, but the order matches the
-    # Q3-from-PR-A-router-split decision and the foster_router +
-    # foster_assignment_router precedent).
-    application.include_router(materiales_acogida_router)
+    # Domain router registration (issue #204). The single entry point
+    # ``register_routers`` owns the include_router ordering — see
+    # ``app/routes_registry.py`` for the inline rationale on each
+    # router's insertion position.
+    register_routers(application)
 
     return application
 
