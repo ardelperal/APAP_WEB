@@ -64,32 +64,27 @@ from app.core.roles import Rol
 from app.core.session import read_session_payload
 
 
-def get_insforge_client_dep() -> Iterator[InsForgeClient]:
-    """Dependencia de FastAPI: produce un cliente InsForge por peticion.
+def get_insforge_client_dep(request: Request) -> Iterator[InsForgeClient]:
+    """Yield the pooled InsForge client owned by the application lifespan.
 
-    Implementado como generador para garantizar que ``close()`` se
-    ejecuta al final de cada request, incluso si el handler levanta una
-    excepcion. ``InsForgeClient`` envuelve un ``httpx.Client``; sin
-    ``close`` explicito, las conexiones HTTP se acumulan (resource
-    leak detectado en el code review externo, problema #3).
+    The lifespan creates the client once and stores it on ``app.state`` so
+    its underlying ``httpx.Client`` can reuse connections across requests.
+    Shutdown closes the pooled client; this dependency deliberately does not
+    own or close it per request.
 
-    FastAPI ejecuta el ``finally`` del generador despues de que el
-    handler retorna o propaga una excepcion, por lo que el ciclo de
-    vida del cliente queda atado al del request.
-
-    Tests pueden sobreescribirlo con ``app.dependency_overrides[...]``;
-    el override debe devolver un objeto que responda a ``close()`` con
-    la misma semantica.
-
-    Usar como dependencia de FastAPI:
-    ``client: InsForgeClient = Depends(get_insforge_client_dep)``.
+    Tests can override this dependency with ``app.dependency_overrides``;
+    FastAPI still resolves those overrides before calling this provider.
     """
-    settings = get_settings()
-    client = InsForgeClient(settings.insforge_url, settings.insforge_service_key)
     try:
-        yield client
-    finally:
-        client.close()
+        client = request.app.state.insforge_client
+    except AttributeError:
+        # Some lightweight ASGI test transports do not run lifespan events.
+        # Keep their app usable by creating the same app-scoped client lazily;
+        # production startup always initializes this state in ``lifespan``.
+        settings = get_settings()
+        client = InsForgeClient(settings.insforge_url, settings.insforge_service_key)
+        request.app.state.insforge_client = client
+    yield client
 
 
 def get_current_user_optional(request: Request) -> dict | None:

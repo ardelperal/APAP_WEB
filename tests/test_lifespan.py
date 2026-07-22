@@ -179,3 +179,120 @@ async def test_lifespan_closes_the_insforge_client(monkeypatch: pytest.MonkeyPat
         pass
 
     assert close_calls == [None], f"InsForgeClient.close() was not called: {close_calls!r}"
+
+
+# ---------------------------------------------------------------------------
+# Issue #260: pooled httpx.Client on app.state
+#
+# Before #260, ``get_insforge_client_dep`` instantiated a fresh
+# ``InsForgeClient`` (and therefore a fresh ``httpx.Client``) on every
+# request and closed it in the dependency's ``finally`` block. That
+# paid the TCP+TLS handshake cost to InsForge on every request.
+#
+# After #260, the lifespan creates ONE ``InsForgeClient``, stores it on
+# ``app.state.insforge_client`` for the dep to hand out, and closes it
+# on shutdown (NOT after bootstrap). The dep no longer creates or
+# closes a client per request — the connection pool and keep-alive are
+# shared across the whole app lifetime.
+# ---------------------------------------------------------------------------
+
+
+async def test_lifespan_stores_insforge_client_on_app_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #260: the bootstrap InsForgeClient MUST be stored on app.state.
+
+    The dep ``get_insforge_client_dep`` looks up the pooled client via
+    ``request.app.state.insforge_client``. Without this assignment the
+    dep would raise ``AttributeError`` on every request — and the whole
+    pooling refactor would silently regress to "create + close per
+    request" if the store was ever removed.
+    """
+    from app.core.insforge import InsForgeClient
+
+    seen: list[Any] = []
+
+    def _capture_auth(client: Any, settings: Any) -> None:
+        seen.append(client)
+
+    def _capture_domain(client: Any) -> None:
+        pass
+
+    def _capture_catalogs(client: Any) -> None:
+        pass
+
+    def _capture_sql(client: Any) -> list[str]:
+        return []
+
+    monkeypatch.setattr("app.main.ensure_schema_and_seed", _capture_auth)
+    monkeypatch.setattr("app.main.ensure_domain_schema", _capture_domain)
+    monkeypatch.setattr("app.main.ensure_catalogs", _capture_catalogs)
+    monkeypatch.setattr("app.main.apply_sql_migrations", _capture_sql)
+
+    async with lifespan(_app):
+        # The store MUST happen DURING startup, before any request can
+        # reach the dep. Probing ``app.state`` here (inside the
+        # ``async with``) catches a regression where the store is moved
+        # to after ``yield`` (which would defeat the purpose — the app
+        # serves no requests until the lifespan yields anyway, but the
+        # store must be observable from inside the yielded block).
+        stored = getattr(_app.state, "insforge_client", None)
+        assert isinstance(stored, InsForgeClient), (
+            f"app.state.insforge_client must be set during lifespan startup, "
+            f"got: {stored!r}"
+        )
+        # Pin: the bootstrap client IS the stored client. A future
+        # refactor that creates two clients (one for bootstrap, one for
+        # runtime) would silently double the connection-pool count; this
+        # identity check stops the drift.
+        bootstrap_client = seen[0]
+        assert stored is bootstrap_client, (
+            "app.state.insforge_client must be the SAME object passed to "
+            "ensure_schema_and_seed (the bootstrap client); creating a "
+            "second InsForgeClient would double the connection pool"
+        )
+
+
+async def test_lifespan_closes_client_on_shutdown_not_after_bootstrap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #260: ``close()`` must fire on shutdown, NOT after bootstrap.
+
+    Pre-#260, the lifespan closed the bootstrap client immediately
+    after the schema steps — leaving requests to instantiate their own
+    per-request client. Post-#260 the client lives until the app
+    shuts down. The dep (and every request) reuses that single
+    instance, which is the whole point of pooling the keep-alive.
+    """
+    close_calls: list[str] = []
+
+    class _TrackingClient:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def execute_sql(self, query: str, params: Any = None) -> list[dict[str, Any]]:
+            return []
+
+        def close(self) -> None:
+            close_calls.append("close")
+
+    monkeypatch.setattr("app.main.InsForgeClient", _TrackingClient)
+    monkeypatch.setattr("app.main.ensure_schema_and_seed", lambda *a, **kw: None)
+    monkeypatch.setattr("app.main.ensure_domain_schema", lambda *a, **kw: None)
+    monkeypatch.setattr("app.main.ensure_catalogs", lambda *a, **kw: None)
+    monkeypatch.setattr("app.main.apply_sql_migrations", _noop_sql_migrations)
+
+    async with lifespan(_app):
+        # Inside the lifespan block (i.e. the app is running): no
+        # close() should have been called yet. The client must stay
+        # alive to serve requests.
+        assert close_calls == [], (
+            f"InsForgeClient.close() was called BEFORE shutdown: {close_calls!r} — "
+            "the pooled client must remain alive while the app is running"
+        )
+
+    # After the lifespan exits (shutdown): exactly one close().
+    assert close_calls == ["close"], (
+        f"InsForgeClient.close() must be called exactly once on shutdown, "
+        f"got: {close_calls!r}"
+    )
