@@ -2,7 +2,7 @@
 
 > Documento vivo. Punto de entrada único para saber qué hay que construir, en qué orden, qué issues lo cubren y qué documentación ya existe. Si una pregunta se responde aquí, no hay que rebuscar.
 
-**Última actualización:** 2026-07-18 (refresco: cierre PR5/M1 PII controls + reconcile + discovery de `live-data-migration-sandbox` sin issue de seguimiento (la secuencia PR1→#175 / PR2→#179 / PR3→#183 / PR4a→#187 / PR4b→#191 se rompió en PR5 por scope discipline) — PR #196 / commits `b463d5e`+`c278468`+`1cdd043`+`f02b82c`+`8fe6104`+`607191c`+`a72f491`+`af214c6`+`810afc3`+`357579c` (squash merge `024dc97307a745834f103be4ea27687c4381f93e`, +2691/-384 sobre 16 archivos, `size:exception` pre-MVP autorizado por el mantenedor "no reviewers in pipeline"); CI run `29634884361` `conclusion=success` (lint + test + build PASS, GitGuardian PASS; e2e/deploy SKIPPED — esperado pre-MVP sin secrets); invariantes PII ampliados (5 nuevos átomos en `tests/migration/test_pii_redaction.py` + 9 átomos en `tests/migration/test_dni_collision.py` + 10 átomos en `tests/test_public_paths.py`; CLI flag `--filter-direction {legacy-to-web,web-to-legacy,both}` enmascarando `preserved_value`/`derived_value` por `REDACTED_FIELDS` closed list + `_looks_like_pii` regex masking para `legacy_pk`/`web_pk`; PUBLIC_PATHS 5-entry shape pinned a `{/healthz, /login, /auth/google, /auth/callback, /logout}` con 302-to-`/login` parametrizado sobre 5 rutas PII-displaying); auditoría [`docs/audits/pii-live-migration-2026-Q3.md`](audits/pii-live-migration-2026-Q3.md) ampliada con la sección "## PR5 Additions (2026-07-15)" preservando verdict **PASS**; discovery [`docs/discovery/migration-risks.md`](discovery/migration-risks.md) extendido (+37 líneas: §"Source snapshot identity" + §"Collision policy (corrected)" con 3 columnas PII legacy-mapped + 1 web-only `voluntarios.dni` verificada vía Dysflow `get_schema` el 2026-07-11 sin columna DNI en `TbVoluntariosParaAutorrellenables`); rama `feat/migration-pr5-pii-controls` borrada en local y en origin per AGENTS §15.2; **PR6 cerrado 2026-07-18 vía PR #213 / merge `2782cb6e66a595de4dfbeff33d84e481f2522a3f`** — M2 reverse-apply + round-trip (14 átomos nuevos sobre los 99 de PR5: 9 `tests/migration/test_reverse_apply.py` + 5 `tests/migration/test_round_trip.py`; commits `5255f67`+`74f5f64` (RED+GREEN originales) + `52c328a` (lens-fix preflight/sync-state snapshot) + `e69aa2b` (F3–F8 review findings) + `ef09dd3` (lens remediation evidence) + `6c91fbd`+`d8e8ff6`+`e04e600` (R1+R2+R3 module-size ratchet) + `5de296c` (MSACCESS psutil autouse fix); module-size ratchet R1+R2+R3 con `migration/reverse_apply/` package + `BASELINE` `cli.py` mejora 1071→933; audit [`docs/audits/pii-live-migration-2026-Q3.md`](audits/pii-live-migration-2026-Q3.md) Verdict **PASS** ampliada con sección "## PR6 Additions (2026-07-18, reverse apply + round-trip)"; runbook [`docs/runbooks/live-migration-apply.md`](runbooks/live-migration-apply.md) extendido con sección "Reverse direction (PR6 / M2)" cubriendo los 5 headings AGENTS §13; full migration suite 261 passed (preserved), full local gate 2413 passed + 2 skipped + 0 warnings; CI run `29661279842` `conclusion=success` (lint + test + build PASS, GitGuardian PASS; e2e/deploy SKIPPED — esperado pre-MVP); validation gate `gentle-ai review validate` invalidated, se cae a CI verde por directiva pre-MVP "no reviewers in pipeline"; rama `feat/live-migration-reverse-apply` borrada en local y en origin per AGENTS §15.2); **PR7 (`verify-fallback-ready` gate) es el siguiente paso** hacia el ready-to-fallback del M1, no autorizado todavía); refresco previo 2026-07-12 (PR4b/M1.storage-implementation de `live-data-migration-sandbox` con issue #191 / PR #192, commits `e7f5857`+`b021e12`+`b74a135`+`f977c9e`+`688653e`+`9821bd7`+`4717a4b`+`cde7c03`+`df28fc1`+`40b5285`+`1fc58f8` (merge `80020105c4b23f25311f405dd0427c0de308f8a1`); CI run `29202180163` `conclusion=success` (lint + test + build); invariantes redactados (storage privado `apap-photos` + fail-closed mid-stream / SQL-lookup vía `PhotoStreamError` + redacción `REDACTED_FIELDS` 12→15 con `dni`/`tel1`/`tel2` + PII ampliada y URL presignada nunca expuesta); auditoría `docs/audits/pii-live-migration-2026-Q3.md` `PASS`; remediación 4R `PASS` (CRIT-1 `688653e` + WARN-3 `9821bd7` + WARN-1 `4717a4b` + WARN-4 `cde7c03` + WARN-5 `df28fc1` + WARN-2 `40b5285` + verify headline `1fc58f8`); drift guard: PR4a evidence hash `62f025e2df0d4fe92e61baa7cf001f34cb3eccdf525564d9ca13bc636bfdac07` consumido sin cambios por PR4b contra el contrato pinned en `docs/discovery/storage-contract-2026-Q3.md`); PR4b es el penúltimo paso (PR5 cierre el milestone M1 con controles PII sobre la superficie de foto storage); cierre PR4a/M1.storage-contract de `live-data-migration-sandbox` con PR #188 commits `f8cbc9a`+`6154d5d`+`2c065f4`+`62ecbe7`+`09cb6ab`+`797682e`+`51eef84`+`b55a187`+`8c00fd8`+`824c036` (merge `24ff0325`) — Closes #187, storage contract spike read-only contra InsForge (sin código de producto, `migration/storage_spike.py` con `ReadOnlyProbeHttpClient` typed-boundary mutation-refused antes de transport + `tests/migration/test_photo_storage.py` 12 atoms + `tests/migration/test_storage_contract_evidence.py` 4 contract-pin atoms + `tests/test_repository_secrets_ignore.py` 8 atoms de W1) + W1 secret-leak hardening (narrow root `.gitignore` con `/.env`, `/coverage.json`, `/coverage_full.json`; `.codegraph/` NO ignorado per AGENTS §14.4); CI run `29197668830` en `824c036` `conclusion=success`; native 4R PASS (0 BLOCKER / 0 CRITICAL / 0 WARNING / 1 INFO B4); single CI-routed correction transaction `824c036` (swap `git status --ignored` → `_check_ignored` primitive en los 2 atoms de working-tree-state); evidence hash `62f025e2df0d4fe92e61baa7cf001f34cb3eccdf525564d9ca13bc636bfdac07` pinned en `docs/discovery/storage-contract-2026-Q3.md` (canonical endpoint `/api/storage/buckets/apap-photos/download-strategy/objects/{key}`, S3 three-step upload con `confirmRequired=true`, cleanup `object_count=0/total=0` — sentinel cleanup mantuvo el bucket privado `apap-photos` vacío, sin fotos reales subidas en el spike); PR4b gate `PASS`; cierre PR3/M1 core apply safety de `live-data-migration-sandbox` con PR #184 commits `525a461`+`6c54931`+`8aa4ff4`+`88bd431`+`4f10274`+`e88455e`+`43bc03c`+`d390b14` (merge `a5e5ee8`) — Closes #183, M1 core apply safety: `migration.lock_snapshot.atomic_write`+`drift`, MSACCESS pre-flight `fail_closed`, `partial_apply.json`, `MigrationReport` counts/source_hashes/collisions, CLI exit-code contract (5/6/7), `docs/runbooks/live-migration-apply.md` authoring + C-3 dead runbook remediation + autouse conftest fixture para CI sin psutil; cierre PR1/M0 de `live-data-migration-sandbox` con PR #176 merge commit `0d2e72d` — Closes #175, runtime pyodbc boundary sin dependencia MCP y seam `set_legacy_query_executor` estable M0→M2; cierre PR2 de `live-data-migration-sandbox` con PR #180 commits `3bc53bc`+`91be88a` (merge `df483e3`) — Closes #179, `ShadowStateRepository` bootstrap + private `apap-photos` bucket con `isPublic=false` y runbook hardenizado (DROP TABLE/delete-bucket destructivos documentados; TRUNCATE no recomendado); cierre #141 `fecha_final` silent-data-loss con PR #151 commit `4d4b3cd`; cierre #142 P1 audit-log atomicity con PR #155 commit `3672d33` + PR #156 commit `27cab72` + cherry-pick `28d04e9`; cierre #143 P1 re-validación de `is_authorized`/`rol` per-request con PR #152 commit `6058a5a`; cierre #45 FOSTER-03 con commits `3e51829`+`5d77cdb`; cierre #47 ADOPT-01 con commits `62b9a46`+`4038a3a`; `main` queda sincronizado con GitHub Issues y CI verde)
+**Última actualización:** 2026-07-22 — refresco de sincronización: estado vivo de issues al corte de hoy; cierre de FOSTER-04 (#46) marcado ✅ con PRs mergeados (#166 + #170 + #171); nota de auditoría sobre #55 (HEALTH-06) sin falso cierre (closure/residual-scope pendiente); corrección del bloque E2E para reflejar el árbol real `tests/e2e/` y la condicionalidad del job `e2e` en `ci.yml`; nuevo §10 «Orden de ejecución en paralelo» con la secuenciación acordada; nota de §11 «Protocolo de sincronización» en §9. Historial de cierres detallado por PR sigue en §4 «Cerradas hoy» (2026-07-05 → 2026-07-22).
 **Mantenedor único:** aroman (autoaprueba issues y PRs)
 **Rama objetivo actual:** **pre-MVP single-branch** — todo va a `main`, una sola rama al final del ciclo (ver §8 y `AGENTS.md` §15)
 **Idioma de toda la documentación, issues y PRs:** castellano (España)
@@ -13,7 +13,7 @@
 
 - **CI/CD foundation (Fase 0):** CI-01, CI-02, CD-01 y CD-02 están **todos en verde en `main`** desde el 2026-07-03. El deploy automático al push a `main` se ejecuta vía webhook firmado a Coolify (`COOLIFY_WEBHOOK_URL` + `COOLIFY_WEBHOOK_SECRET` configurados; verificado en CI run 28674612470). El primer deploy real sigue pendiente del DNS `apap.romancaba.com` (operación manual del mantenedor).
 - **Infraestructura:** repositorio, Coolify y backend de InsForge ya aprovisionados. Runnable de la aplicación en producción pendiente solo del DNS.
-- **Producto (Fases 1-7):** **Fase 1 ✅ mergeada en `main` (#17, commit `d0b1ed1`)**. **Fase 2 ✅ mergeada en `main` (#16, commit `1d22349`)**. **Fase 5a INTAKE cerrada**: INTAKE-01 ✅ (#87/#88/#89), INTAKE-02 ✅ (#40, commit `c7b69ec`), INTAKE-03 ✅ (#41, PR #136, commit `98e80c5`). **Fase 5b FOSTER**: FOSTER-01 ✅ (#43, commit `25e749e`) con entidad propia `casas_acogida` + `capacidad` (legacy `TbAcogidaCasas` 1:1 + 2 mejoras justificadas: `id` UUID y `capacidad INTEGER > 0`). FOSTER-02 ✅ (#44, commit `b7f197f`) con CRUD de estancias referenciando `casas_acogida` (FK estructurada vía `ALTER TABLE ADD COLUMN IF NOT EXISTS`) y `voluntarios` activos (active check per VOL-05); helpers públicos `compute_duracion` e `is_active`; `close_acogida` vs `delete_acogida` separados semánticamente (D-EST-04). FOSTER-03 ✅ (#45, commits `3e51829`+`5d77cdb`, 2026-07-04) con species gate hard + capacity advisory auditado (nuevo módulo `app/modules/foster/assignment.py` con `evaluate_assignment` y `record_override`; cierre de OD-3a y D-18); FOSTER-04 🔲 (#46) pendiente. ADOPT-01 ✅ (#47, commits `62b9a46`+`4038a3a`, 2026-07-04) con CRUD de adopciones referenciando `voluntarios` activos (FK estructurada per VOL-05) + `donativo_adopcion` numeric + `tipo_adopcion` regular/preadopcion/judicial; ADOPT-03 🔲 (#49). Fases 3-7 pendientes. El código de auth está listo; tabla `authorized_users` creada y seedeada (#25).
+- **Producto (Fases 1-7):** **Fase 1 ✅ mergeada en `main` (#17, commit `d0b1ed1`)**. **Fase 2 ✅ mergeada en `main` (#16, commit `1d22349`)**. **Fase 5a INTAKE cerrada**: INTAKE-01 ✅ (#87/#88/#89), INTAKE-02 ✅ (#40, commit `c7b69ec`), INTAKE-03 ✅ (#41, PR #136, commit `98e80c5`). **Fase 5b FOSTER**: FOSTER-01 ✅ (#43, commit `25e749e`) con entidad propia `casas_acogida` + `capacidad` (legacy `TbAcogidaCasas` 1:1 + 2 mejoras justificadas: `id` UUID y `capacidad INTEGER > 0`). FOSTER-02 ✅ (#44, commit `b7f197f`) con CRUD de estancias referenciando `casas_acogida` (FK estructurada vía `ALTER TABLE ADD COLUMN IF NOT EXISTS`) y `voluntarios` activos (active check per VOL-05); helpers públicos `compute_duracion` e `is_active`; `close_acogida` vs `delete_acogida` separados semánticamente (D-EST-04). FOSTER-03 ✅ (#45, commits `3e51829`+`5d77cdb`, 2026-07-04) con species gate hard + capacity advisory auditado (nuevo módulo `app/modules/foster/assignment.py` con `evaluate_assignment` y `record_override`; cierre de OD-3a y D-18); FOSTER-04 ✅ (#46, cerrada 2026-07-05 vía PR #166 (PR A schema + service skeleton, merge `1660d9f`) + PR #170 (PR B catalog CRUD, merge `92b75aa`) + PR #171 (PR C junction routes + detail integration, merge `5017902`); runbook fix PR #172 (merge `57362e7`) tras el cierre) ADOPT-01 ✅ (#47, commits `62b9a46`+`4038a3a`, 2026-07-04) con CRUD de adopciones referenciando `voluntarios` activos (FK estructurada per VOL-05) + `donativo_adopcion` numeric + `tipo_adopcion` regular/preadopcion/judicial; ADOPT-03 🔲 (#49). Fases 3-7 pendientes. El código de auth está listo; tabla `authorized_users` creada y seedeada (#25).
 - **Issues UI/copy recientes (cerradas):** #124 logout → login, #125 OAuth callback loop, #126 UI sin copy interno + campos obligatorios Access, #127 home con tarjetas, #128 eliminar lenguaje interno, #131 labels castellanos. XSS allowlist detectado y fixado en `a528566`.
 - **P1/P0 security follow-ups cerrados hoy (2026-07-05):** #141 `fix(acogidas) fecha_final` silent-data-loss (PR #151, commit `4d4b3cd`); #142 `feat(foster) override→estancia atomicity` (PR #155 commit `3672d33` + PR #156 commit `27cab72` + cherry-pick `28d04e9`); #143 `fix(auth) revocación inefectiva` con re-validación per-request vía caché TTL (`auth_cache_ttl_seconds` = 300s) + invalidación explícita al dar de baja (PR #152, commit `6058a5a`; audit en [`docs/audits/auth-revalidation-2026-Q3.md`](audits/auth-revalidation-2026-Q3.md) — **PASS**).
 - **Documentación de discovery:** generada y consistente. Antes de tocar el legacy, leer `docs/discovery/` (ver §7). Decisiones de proyecto consolidadas en `docs/decisiones-proyecto.md` (nuevo, 2026-07-03).
@@ -129,7 +129,7 @@
 
 **Objetivo:** flujos operativos centrales con asistentes por pasos y snapshots históricos de personas.
 
-> 🟡 **En curso (Fase 5a INTAKE cerrada, Fase 5b FOSTER y Fase 5c ADOPT en curso)**: INTAKE-01 cerrado (schema + service + routes — #87, #88, #89, mergeadas 2026-06-28). INTAKE-02 cerrado (#40, commit `c7b69ec`, 2026-07-04) con staging + commit atómico. INTAKE-03 cerrado (#41, schema + service + routes + form, mergeada 2026-07-03 vía PR #136, commit `98e80c5`). INTAKE-04 (#42) quedó cubierto por CATALOG-01 (#65, PR #135). **FOSTER-01 cerrado** (#43, commit `25e749e`, 2026-07-04) con entidad propia `casas_acogida` + `capacidad` (legacy `TbAcogidaCasas` 1:1 + 2 mejoras justificadas: `id` UUID y `capacidad INTEGER > 0`). **FOSTER-02 cerrado** (#44, commit `b7f197f`, 2026-07-04) con CRUD de estancias de acogida que referencian `casas_acogida` (FK estructurada vía `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`) y `voluntarios` activos (active check per VOL-05); helpers públicos `compute_duracion` (días entre fechas, `None` si abierta) e `is_active` (`activo AND fecha_final IS NULL`); separación semántica `close_acogida` (evento de ciclo de vida: `fecha_final = current_date`, `activo` se mantiene `true`) vs `delete_acogida` (soft-delete real: `activo = false`, `fecha_baja = now()`); 8 endpoints con CSRF + auth; tests TDD (38 service + 23 routes + 3 nuevos domain + 3 nuevos XSS). **FOSTER-03 cerrado** (#45, commits `3e51829`+`5d77cdb`, 2026-07-04) con species gate hard (cierre OD-3a) + capacity advisory auditado (cierre D-18); nuevo módulo `app/modules/foster/assignment.py` con `evaluate_assignment` (`AssignmentDecision` Literal admit/block/admit_with_warning) y `record_override` (audit log + `log_safe`); tabla propia `foster_capacity_overrides` (id, casa_acogida_id, animal_id, operador_user_id, motivo, created_at) vía `CREATE TABLE IF NOT EXISTS`; nuevo sub-router `/casas-acogida/{id}/asignar` y `/casas-acogida/{id}/overrides`; P0 species-gate bypass en `POST /acogidas` cerrado vía `_enforce_species_gate`; overrides restringidos a `developer` rol vía `require_developer_user`. FOSTER-04 (#46) sigue 🔲. **ADOPT-01 cerrado** (#47, commits `62b9a46`+`4038a3a`, 2026-07-04) con CRUD de adopciones referenciando `voluntarios` activos (FK estructurada per VOL-05); `donativo_adopcion` numeric (rechazo explícito de bool) + `tipo_adopcion` `regular`/`preadopcion`/`judicial` vía ALTER TABLE idempotente (D-EST-05); CTE atómico create/update (TOCTOU fix); `search_adopciones_by_adoptante` con ILIKE case-insensitive y `ESCAPE '\\'`; soft-delete atómico `UPDATE ... WHERE id = $1 AND activo = true RETURNING id` (D-ADOPT-03); 7 endpoints con CSRF + auth; tests TDD (29 service + 20 routes) más 16 tests de remediación post-review (CTE-shape, 403 reader→writer, FK disambiguation, wildcard escaping, 100-row cap). ADOPT-03 (#49) sigue 🔲.
+> 🟡 **En curso (Fase 5a INTAKE cerrada, Fase 5b FOSTER y Fase 5c ADOPT en curso)**: INTAKE-01 cerrado (schema + service + routes — #87, #88, #89, mergeadas 2026-06-28). INTAKE-02 cerrado (#40, commit `c7b69ec`, 2026-07-04) con staging + commit atómico. INTAKE-03 cerrado (#41, schema + service + routes + form, mergeada 2026-07-03 vía PR #136, commit `98e80c5`). INTAKE-04 (#42) quedó cubierto por CATALOG-01 (#65, PR #135). **FOSTER-01 cerrado** (#43, commit `25e749e`, 2026-07-04) con entidad propia `casas_acogida` + `capacidad` (legacy `TbAcogidaCasas` 1:1 + 2 mejoras justificadas: `id` UUID y `capacidad INTEGER > 0`). **FOSTER-02 cerrado** (#44, commit `b7f197f`, 2026-07-04) con CRUD de estancias de acogida que referencian `casas_acogida` (FK estructurada vía `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`) y `voluntarios` activos (active check per VOL-05); helpers públicos `compute_duracion` (días entre fechas, `None` si abierta) e `is_active` (`activo AND fecha_final IS NULL`); separación semántica `close_acogida` (evento de ciclo de vida: `fecha_final = current_date`, `activo` se mantiene `true`) vs `delete_acogida` (soft-delete real: `activo = false`, `fecha_baja = now()`); 8 endpoints con CSRF + auth; tests TDD (38 service + 23 routes + 3 nuevos domain + 3 nuevos XSS). **FOSTER-03 cerrado** (#45, commits `3e51829`+`5d77cdb`, 2026-07-04) con species gate hard (cierre OD-3a) + capacity advisory auditado (cierre D-18); nuevo módulo `app/modules/foster/assignment.py` con `evaluate_assignment` (`AssignmentDecision` Literal admit/block/admit_with_warning) y `record_override` (audit log + `log_safe`); tabla propia `foster_capacity_overrides` (id, casa_acogida_id, animal_id, operador_user_id, motivo, created_at) vía `CREATE TABLE IF NOT EXISTS`; nuevo sub-router `/casas-acogida/{id}/asignar` y `/casas-acogida/{id}/overrides`; P0 species-gate bypass en `POST /acogidas` cerrado vía `_enforce_species_gate`; overrides restringidos a `developer` rol vía `require_developer_user`. FOSTER-04 ✅ (#46, cerrada 2026-07-05) — schema + service skeleton en PR #166 (`feat/material-schema-and-service`, merge `1660d9f`), catalog CRUD routes + templates en PR #170 (`feat/material-catalog-routes`, merge `92b75aa`), junction routes + per-estancia detail integration en PR #171 (`feat/material-junction-routes`, merge `5017902`); runbook cross-ref corregido en PR #172 (`fix/domain-runbook-ref-2026-07-05`). Slice completa: tabla `materiales` + junction `estancia_materiales` (legacy 1:1, id UUID + `capacidad INTEGER > 0` heredado de FOSTER-01), CRUD material, asignación por estancia, listado por estancia, RBAC writer/reader, CSRF en cada POST, XSS audit fixture extendido para los nuevos templates. **ADOPT-01 cerrado** (#47, commits `62b9a46`+`4038a3a`, 2026-07-04) con CRUD de adopciones referenciando `voluntarios` activos (FK estructurada per VOL-05); `donativo_adopcion` numeric (rechazo explícito de bool) + `tipo_adopcion` `regular`/`preadopcion`/`judicial` vía ALTER TABLE idempotente (D-EST-05); CTE atómico create/update (TOCTOU fix); `search_adopciones_by_adoptante` con ILIKE case-insensitive y `ESCAPE '\\'`; soft-delete atómico `UPDATE ... WHERE id = $1 AND activo = true RETURNING id` (D-ADOPT-03); 7 endpoints con CSRF + auth; tests TDD (29 service + 20 routes) más 16 tests de remediación post-review (CTE-shape, 403 reader→writer, FK disambiguation, wildcard escaping, 100-row cap). ADOPT-03 (#49) sigue 🔲.
 
 **Documentación de referencia:**
 
@@ -179,7 +179,7 @@
 
 - **Privacidad de datos y fotos**: bucket `apap-photos` con `isPublic=false` (invariante PR2 + test `test_public_bucket_aborts` con exit 5). PR4b cerró M1.storage-implementation en issue #191 / PR #192 / merge `8002010`: la ruta `GET /animales/{animal_id}/foto` exige sesión válida (302 a `/login` si no autenticado), consume el stream antes de construir la respuesta para convertir fallos iniciales, mid-stream y de lookup SQL en el PNG placeholder, y nunca expone la URL presignada. `REDACTED_FIELDS` pasó de 12 a 15 (`dni`, `tel1`, `tel2`) y la auditoría de PII quedó en **PASS**; los commits de remediación 4R `688653e`+`9821bd7`+`4717a4b`+`cde7c03`+`df28fc1`+`40b5285`+`1fc58f8` cerraron el review en **PASS**, y el drift guard contra PR4a (evidence hash `62f025e2df0d4fe92e61baa7cf001f34cb3eccdf525564d9ca13bc636bfdac07` consumido sin cambios) sigue anclando el contrato `apap-photos` en `docs/discovery/storage-contract-2026-Q3.md`. Invariante verificado en PR2 con `test_bucket_visibility_missing_or_null_fails_closed` (502 `bucket_visibility_unknown` ante `isPublic` ausente o null) y `test_apply_bootstrap_failure_does_not_acquire_lock_or_read_legacy` (no lock ni read en bootstrap failure). PR3 trae el MSACCESS pre-flight fail-closed (`test_preflight_failure_does_not_acquire_lock_or_read_legacy` + `test_apply_fails_closed_when_process_iteration_errors` + `MsAccessPreflightUnavailableError` con `reason=msaccess_preflight_unavailable` → exit 5).
 - **M1 forward usable NO es fallback-ready**: tener M1 verde (animales, voluntarios, entradas y fotos migrados vía `apply_legacy_to_web`) NO equivale a poder volver atrás mientras el legacy siga siendo la fuente. **El gate `verify-fallback-ready` (PR7) sigue siendo obligatorio** antes de cualquier decisión de retirar el Access legacy como fuente operativa; el round-trip M2 (PR6) ya prueba ida-y-vuelta como capacidad pero no certifica la decisión de retirar el legacy — esa certificación la cierra PR7.
-- **TDD estricto, fixture-first, idempotente**: cada PR arranca con RED (tests antes de código) bajo `tests/migration/` y `tests/test_*.py`. PR1 fijó la pauta (14 átomos + seam `set_legacy_query_executor` + autouse fixture `_reset_legacy_executor` en `tests/migration/conftest.py`). E2E canónico CI vive en `tests/e2e/test_animals_foto_auth.py` (3 paths por test, buckets efímeros); Playwright MCP es diagnóstico de operador y NO corre en CI.
+- **TDD estricto, fixture-first, idempotente**: cada PR arranca con RED (tests antes de código) bajo `tests/migration/` y `tests/test_*.py`. PR1 fijó la pauta (14 átomos + seam `set_legacy_query_executor` + autouse fixture `_reset_legacy_executor` en `tests/migration/conftest.py`). E2E canónico CI vive en `tests/e2e/conftest.py` + `tests/e2e/test_landing.py` + `tests/e2e/test_nav_layout.py`. Cobertura efectiva: rutas públicas sin sesión (`/healthz` liveness JSON, redirect auth-guard `/` → `/login`, `/animales` sin sesión → `/login`, `/unauthorized` → `/login`), regresión visual del login (APAP primary blue `#0A91EB`, gradient `#076FB8`, label «Entrar con Gmail», footer `#076FB8`), y sentinels de layout responsivo a 375 / 768 / 1280 px (overflow nav + scroll horizontal). **No existe E2E autenticado en CI todavía** — `tests/e2e/test_animals_foto_auth.py` referenciado en versiones anteriores de este doc no está en el árbol actual; el job `e2e` de `ci.yml` queda skip cuando `APAP_OAUTH_CLIENT_ID` no está configurado (pre-MVP sin secretos OAuth en CI), y el job `test` excluye `tests/e2e/` con `--ignore=tests/e2e` para evitar colisión playwright↔pytest-asyncio. La ampliación de cobertura E2E real está trackeada en #206 (bloqueada por secretos OAuth en CI) y #223 (runner autoalojado dedicado).
 - **Ejecución con datos reales solo tras los gates de código**: las unidades de trabajo de operador listadas en `tasks.md` Phase 4 (`ensure-bucket --check-only`, `apply --check-only`, `apply`, `reconcile --check-only`, `status --photos`, `verify-fallback-ready --full`) se ejecutan exclusivamente después de que los gates de código (lint + test + build + `verify-fallback-ready --ci-only` en CI) estén verdes. Sin `verify-fallback-ready` verde y auditado, no se autoriza el cambio de modo.
 
 **Documentación de referencia:**
@@ -259,7 +259,7 @@
 
 ---
 
-## 4. Issues abiertos (refresco 2026-07-03)
+## 4. Issues abiertos (refresco 2026-07-22)
 
 > Lista representativa — auto-actualizable con `gh issue list --state open`. Muestra abierta, priorizada por recencia + relación con roadmap, no exhaustiva. **Las cerradas están listadas al final de esta sección.**
 
@@ -290,7 +290,7 @@
 | #43 | FOSTER-01: CRUD de casas de acogida con preferencia de especie y capacidad | Fase 5b | ✅ (commit `25e749e`, 2026-07-04) |
 | #44 | FOSTER-02: CRUD de estancias de acogida con FK a voluntario | Fase 5b | ✅ (commit `b7f197f`, 2026-07-04) |
 | #45 | FOSTER-03: gate de especie + advisory de capacidad con override auditado | Fase 5b | ✅ (commits `3e51829`+`5d77cdb`, 2026-07-04) |
-| #46 | FOSTER-04: asignación de material a estancias de acogida | Fase 5b | 🔲 |
+| #46 | FOSTER-04: asignación de material a estancias de acogida | Fase 5b | ✅ (cerrada 2026-07-05 vía PR #166 + PR #170 + PR #171; ver §3 Fase 5b) |
 | #47 | ADOPT-01: CRUD de adopciones con FK a voluntario | Fase 5c | ✅ (commits `62b9a46`+`4038a3a`, 2026-07-04) |
 | #48 | ~~ADOPT-02: expiración de pre-adopción tras ventana de 20 días~~ **CANCELADO** por provenancia inválida — cláusula de 20 días = foster (`Plantilla.cls` L381-391), no pre-adopción. Ref `correct-preadoption-legacy-provenance`. | — | ❌ |
 | #49 | ADOPT-03: state machine de seguimiento de 4 estados | Fase 5c | 🔲 |
@@ -299,7 +299,7 @@
 | #52 | HEALTH-03: API de resumen de salud (última por tipo de prueba) | Fase 6a | 🔲 |
 | #53 | HEALTH-04: CRUD de terapias y recomendaciones | Fase 6b | 🔲 |
 | #54 | HEALTH-05: motor de periodicidad para tareas pendientes de salud | Fase 6b | 🔲 |
-| #55 | HEALTH-06: migración de catálogo de pruebas y reglas de periodicidad | Fase 6b | 🔲 |
+| #55 | HEALTH-06: migración de catálogo de pruebas y reglas de periodicidad | Fase 6b | ⚠️ **NO marcada como cerrada** — issue sigue ABIERTA en GitHub (`gh issue view 55` 2026-07-22: `state=OPEN`, `closedAt=null`); la implementación de los 13 nombres de prueba + 12 reglas de periodicidad aparece cubierta por CATALOG-01 (issue #65 / PR #135 merge `1103b2e`, seed idempotente `ON CONFLICT DO NOTHING` + verificación P1 vía Dysflow MCP), pero el cierre formal + scope-residual confirmation queda **pendiente** hasta que se reconcilie el issue contra el seed real y se decida si el scope de #55 está totalmente satisfecho o si queda una sub-tarea. Acción: triaje manual (no cerrar automáticamente) |
 | #56 | DOC-01: generación de PDF de contratos desde plantillas | Fase 7b | 🔲 |
 | #57 | DOC-02: upload de contrato firmado con registro | Fase 7b | 🔲 |
 | #58 | DOC-03: anexos de archivo con linking polimórfico por entidad | Fase 7a | 🔲 |
@@ -310,7 +310,17 @@
 | #63 | REPORT-04: sistema de notificación de pruebas pendientes | Reportes | 🔲 |
 | #64 | REPORT-05: API de contadores de dashboard en tiempo real | Reportes + home | 🔲 |
 | #66 | RBAC-01: modelo RBAC con matriz de permisos a nivel API | Auth | 🔲 |
-| #69 | LIFECYCLE-SCHEMA-03: cache materializado `estado_actual_animal` | Fase 4 | 🔲 |
+| #69 | LIFECYCLE-SCHEMA-03: cache materializado estado_actual_animal | Fase 4 | 🔲 |
+| #198 | review authority inventory corrupted (pre-MVP gate fallback to CI) | Higiene/operación | 🔲 (`type:bug`) |
+| #204 | refactor(app): extraer middleware de auth y registro de rutas de `app/main.py` | Higiene/operación | 🔲 (`type:refactor`, `status:approved`) |
+| #205 | refactor(services): extraer query builders en materiales, acogidas y adopciones | Higiene/operación | 🔲 (`type:refactor`, `status:approved`) |
+| #206 | test(e2e): ampliar cobertura E2E real (bloqueado: secretos OAuth en CI) | Calidad/E2E | 🔲 (`type:chore`, `status:needs-review`) — bloqueada por §10 lote bajo-choque hasta tener `APAP_OAUTH_CLIENT_ID` configurado |
+| #210 | fix(make): check-rules escanea 'app' como raíz y silencia los detectores 5-8 | Calidad/reglas | 🔲 (`type:bug`, `status:approved`) — bloque de §10 lote bajo-choque |
+| #216 | `migration/dysflow_client.py` → `migration/legacy_access_client.py` rename (architectural drift) | Migración | 🔲 (`type:refactor`) — depende de #218 cerrada antes (§10) |
+| #217 | `dni_collision_counter` increment semantics in `apply_reverse` (semantic mismatch) | Migración | 🔲 (`type:bug`) — bloque de §10 triage post-M2 |
+| #218 | `execute_legacy_write`: `conn.commit()` failure swallowed (silent durability gap) | Migración | 🔲 (`type:bug`, `status:approved`) — bloque de §10 triage; precede a #216 y a PR7 (§10) |
+| #219 | `_PII_VALUE_PATTERNS` incomplete: NIE/NIF-especiales missed; numeric-NCHIP false-positives | Migración/PII | 🔲 (`type:bug`) — bloque de §10 triage |
+| #223 | ci(e2e): run end-to-end tests on a dedicated self-hosted runner | CI/E2E | 🔲 (`status:approved` + `status:needs-review`) — desbloquea #206 cuando se materialice el runner |
 
 **Issues cerradas relevantes (refresco 2026-07-04, con commit/título):**
 
@@ -353,7 +363,7 @@
 | Migración en vivo PR5 (M1 milestone) | `feat(migration): controles PII + reconcile + actualizar discovery` | PR4b cerrado (`8002010`) | ✅ merged 2026-07-18 vía PR #196 (merge `024dc973`, 10 commits squash + dysflow-config delegate, +2691/-384 sobre 16 archivos; 29 átomos nuevos en `tests/migration/{test_pii_redaction,test_dni_collision}.py` + `tests/test_public_paths.py`; CI run `29634884361` `conclusion=success` con GitGuardian PASS) |
 | Migración en vivo — media forward | `feat(migration): photo_migration + storage block de animal.yaml` | PR4b cerrado (`8002010`) | 🔲 pendiente por scope-discipline |
 | Migración en vivo PR6 | `feat(migration): apply_reverse.py + round-trip M2` | PR5 cerrado (`024dc973`) | ✅ merged 2026-07-18 vía PR #213 (merge `2782cb6e66a595de4dfbeff33d84e481f2522a3f`; +6391/-2533 sobre 26 archivos; 14 átomos nuevos sobre los 99 de PR5: 9 `test_reverse_apply.py` + 5 `test_round_trip.py`; lens-fix `52c328a`+`e69aa2b`; module-size ratchet R1+R2+R3 con `migration/reverse_apply/` package; CI run `29661279842` `conclusion=success` con GitGuardian PASS) |
-| Migración en vivo PR7 | `feat(migration): verify-fallback-ready + gate CI` | PR6 cerrado (`2782cb6`) | 🔲 pendiente (gate M2) |
+| Migración en vivo PR7 | `feat(migration): verify-fallback-ready + gate CI` | PR6 cerrado (`2782cb6`) | 🔲 pendiente (gate M2) — **PR7 sigue sin issue de seguimiento abierta en GitHub**; crear con el skill `issue-creation` después de la revisión de este refresco (no en esta unidad). Naming propuesto: `feat(migration): PR7 verify-fallback-ready + gate CI`. Tras su creación, añadir fila a §4 y enlazar desde §5 |
 | Fase 4 | `feat(animals): CRUD + timeline + estado derivado` (issue track por abrir) | Fase 3 | 🔲 pendiente abrir issue raíz (los #50-#55/#69 cubren pedazos) |
 | Transversal | `feat(dashboard): bandeja de pendientes + realtime` (issue track por abrir) | Fase 2 | 🔲 pendiente (los #64 cubren la API) |
 | Transversal | `feat(search): búsqueda global` | Fases 3-4 | 🔲 pendiente |
@@ -505,3 +515,201 @@ Acciones que obligan a actualizar el roadmap en la misma sesión:
   ```
 
   Las referencias marcadas como **ROTA** en el refresh 2026-07-03 son: `docs/plan-completo.md`, `docs/canonical-logs.md`, `docs/mockups/login-simple-insforge.html`, `docs/mockups/login-dashboard.html`, `docs/mockups/ficha-animal-timeline.html`. Plan de remediación documentado en §5.
+
+---
+
+## 10. Orden de ejecución en paralelo
+
+> Sección añadida en el refresco 2026-07-22. Codifica la secuenciación
+> acordada para el lote de issues abiertas identificadas en el audit del mismo
+> día (16 issues en 5 cohortes), bajo la política pre-MVP single-branch
+> (AGENTS.md §15.2: una sola rama al final de cada ciclo de merge; nada de
+> `staging`; merge directo a `main` con CI verde + `code-review-expert`).
+
+### 10.1 Constraints operativos
+
+- **Merge serially a `main`**: en pre-MVP no hay `staging`. Cada PR cerrada se
+  integra a `main` una por una; nunca dos PRs en paralelo sobre la misma
+  rama, nunca un PR que asuma el contenido de otro PR aún no mergeado. Si dos
+  unidades de trabajo se pisan en archivos comunes, la segunda se rebasa sobre
+  la primera tras el merge (no se apila antes).
+- **Una rama de trabajo por unidad**: cada issue / PR usa su propia rama
+  dedicada (`docs/<scope>`, `feat/<scope>`, `fix/<scope>`, `refactor/<scope>`
+  según §15.2). No se comparten worktrees entre unidades; cada subagente /
+  sesión trabaja sobre su rama y, tras merge verde, la rama se borra
+  (`git branch -d` local + `git push origin --delete`).
+- **TDD estricto antes de merge**: tests rojos primero (§4 proceso); merge
+  bloqueado si pytest `-W error::DeprecationWarning` no está verde o si
+  ruff/check_rules/check_module_size/check_route_size fallan (§5 proceso).
+
+### 10.2 Cohortes y secuencia
+
+Las 16 issues abiertas identificadas en el audit del 2026-07-22 se agrupan en
+5 cohortes. Dentro de cada cohorte, las issues se mergean en serie a `main`
+con la cadencia indicada. Entre cohortes, la dependencia es dura: la cohorte
+N+1 no arranca hasta que la cohorte N cierra.
+
+#### Cohorte A — bajo-choque (reglas, refactors de hygiene, discovery)
+
+Issues que tocan áreas disjuntas y no chocan entre sí; pueden prepararse en
+paralelo en worktrees separados, pero **se mergean en serie a `main`**.
+
+1. **#210** (`fix(make) check-rules`) — corrige el escaneo raíz del linter
+   APAP001/APAP003 + detecs 5-8. **Primero** porque desbloquea la señal
+   verde/roja local antes de cualquier otro refactor de hygiene.
+2. **#204** (`refactor(app) main.py`) — extrae middleware de auth + registro
+   de rutas. **Después** de #210 para que el linter esté saneado.
+3. **#205** (`refactor(services) query builders`) — extracción de query
+   builders en `materiales`, `acogidas`, `adopciones`. **Split por módulo**
+   (#205a materiales, #205b acogidas, #205c adopciones), cada uno en su PR;
+   merge seriado para mantener review focus bajo el presupuesto de 400 líneas
+   (regla 15.1).
+4. **#30** (`LIFECYCLE-05 search API`) — independiente; orden flexible dentro
+   de la cohorte.
+5. **#6** + **#7** (discovery UX/UI + motor de tareas) — abren como issues de
+   discovery primero (no implementación); entrada de §3 transversal. No
+   requieren PR de código en esta cohorte.
+
+> **Por qué este orden:** #210 deja el linter fiable, #204/#205 luego pueden
+> confiar en la señal local del linter antes de tocar código compartido.
+
+#### Cohorte B — triage de bugs de migración (M2 follow-ups)
+
+Issues #217 / #218 / #219 son bugs detectados en la revisión de PR6/M2
+(`apply_reverse`). Reglas:
+
+- **#218 primero**: `execute_legacy_write` swallowing `conn.commit()` failure
+  es un silent durability gap que precede al PR7. Sin #218 cerrado, PR7 no
+  se puede certificar como `verify-fallback-ready` (la durabilidad del round-trip
+  no está probada bajo fallo de commit).
+- **#217 segundo**: increment semantics del `dni_collision_counter` en
+  `apply_reverse`; depende de que la escritura sea ya durable (#218).
+- **#219 tercero**: `_PII_VALUE_PATTERNS` (NIE / NIF-especiales / numeric-NCHIP
+  false-positives); ortogonal a #217/#218, pero se mete en la misma cohorte
+  porque comparte review focus (capa `migration/`).
+- Tras los tres bugs cerrados: **PR7 (`verify-fallback-ready`)** se puede
+  ejecutar en serio. PR7 sigue sin issue de seguimiento abierta en GitHub —
+  el refresh actual lo deja como follow-up a crear con el skill
+  `issue-creation` tras la revisión de este doc.
+
+> **Por qué este orden:** la precedencia #218 → #217 → #219 está dictada por
+> la cadena de dependencia dura (durabilidad → counter semantics → PII
+> patterns); el PR7 no se ejecuta hasta que las tres cierran.
+
+#### Cohorte C — preflight del ciclo de vida animal
+
+- **#32 + #69** primero, en cualquier orden (schema del timeline + cache
+  materializado `estado_actual_animal`). Ambos son trabajo estructural
+  previo al state resolver.
+- **#33 después**: state resolver (`DameSituacion()` legacy replication)
+  consume el schema de #32 y la materialización de #69. Sin las dos
+  predecesoras, #33 no se puede testear con golden fixtures.
+- **#29** (`LIFECYCLE-04 cambio de chip con cascade`) corre en paralelo a #33
+  en worktrees separados, pero **se mergea después de #33** porque la cascade
+  necesita el state resolver para validar la transición pre-cambio.
+
+#### Cohorte D — voluntarios legacy
+
+- **#36** (`VOL-03 pipeline de deduplicación fuzzy`) y **#37** (`VOL-04
+  migración FK free-text → FK estructurada`) son ortogonales pero ambas
+  tocan `voluntarios` y `legacy` adapters; **se mergean en serie a `main`** en
+  el orden #36 → #37 (primero deduplicación para que el siguiente paso
+  encuentre menos filas).
+
+#### Cohorte E — health batch + RBAC
+
+- **#51** (`HEALTH-02 API batch`) y **#52** (`HEALTH-03 API resumen`) requieren
+  cada uno su propio service + seam de query builder separado (`#205b` ya
+  introduce el patrón en `materiales`; replicar a `salud`). **No se mergean
+  hasta que cada uno tenga su propio seam de servicio** — comparten la misma
+  tabla (`actuacion_sanitaria`) pero exponen shapes distintos. Tras #205
+  cerrado, se pueden abordar en cualquier orden.
+- **#66** (`RBAC-01 matriz de permisos`) corre en paralelo en su propia rama;
+  se mergea al final porque consolida el modelo RBAC que las unidades
+  anteriores asumieron implícitamente.
+
+### 10.3 Visualización del orden
+
+```
+Cohorte A:  #210 → #204 → #205a (materiales) → #205b (acogidas) → #205c (adopciones) → #30 → #6/#7 (discovery)
+Cohorte B:                ↓                                  #218 → #217 → #219 → [PR7]
+Cohorte C:                                                            ↓           #32+#69 → #33 → #29
+Cohorte D:                                                                            ↓   #36 → #37
+Cohorte E:                                                                                ↓   #51 / #52 (paralelo en worktrees, serie en main) → #66
+```
+
+Las flechas verticales son dependencias duras; las horizontales son merge
+serializado. Las unidades paralelas dentro de una misma fila usan worktrees
+distintos pero se mergean una a una a `main`.
+
+### 10.4 E2E y discoverability
+
+- **#206** (E2E real) y **#223** (runner dedicado) viven en una cohorte
+  transversal separada, fuera de las cinco cohortes principales. **#206 está
+  bloqueada por la ausencia de `APAP_OAUTH_CLIENT_ID` en CI**; **#223 es el
+  desbloqueador de #206** (un runner autoalojado puede tener el secret sin
+  filtrarlo). Mientras ambos estén abiertos, la cobertura E2E real queda
+  diferida y los tests `tests/e2e/` siguen siendo público-only (sin
+  autenticación).
+
+
+
+---
+
+## 11. Protocolo de sincronización (refresco 2026-07-22)
+
+Esta sub-sección codifica el protocolo de sincronización entre `main`, las
+issues de GitHub y este roadmap. Es **obligatoria** a partir de este refresh;
+toda unidad de trabajo que toque issues o fases debe aplicarla en el mismo
+ciclo de entrega.
+
+### 11.1 Regla base
+
+**Cada issue que se cierra (merged o resuelta sin PR) debe actualizar
+`docs/roadmap.md` §4 + la fila de la fase correspondiente en §3 en la misma
+unidad de entrega.** No se acepta "lo actualizo mañana": la doc queda
+sincronizada con el commit que cierra la issue, en el mismo PR (o, si la
+issue se cierra sin PR, en un PR de docs dedicado `docs(roadmap): ...`).
+
+### 11.2 Refresco del roadmap antes de seleccionar nueva issue
+
+Antes de tomar una nueva issue abierta, **el roadmap debe estar al día**.
+Procedimiento:
+
+1. Ejecutar `gh issue list --repo ardelperal/APAP_WEB --state open` y comparar
+   contra §4.
+2. Si hay issues abiertas en GitHub que no están en §4 → añadir fila en §4
+   (o mover de §5 si estaba como "pendiente por crear").
+3. Si hay filas en §4 cuyo estado GitHub es `CLOSED` → moverlas a la lista
+   de "Cerradas hoy" con la fecha y el SHA / PR de cierre.
+4. Si una fase (§3) cambia de estado (🔲 → 🟡 → ✅) → actualizar la fila de
+   la fase + la fecha "Última actualización" de la línea 5.
+5. Solo entonces seleccionar la siguiente issue.
+
+### 11.3 Sincronización dentro del mismo ciclo
+
+Acciones que viven en el **mismo PR** que la implementación (no en PRs
+separados, salvo cuando el cambio sea docs-only):
+
+- Apertura de issue: añadir fila a §4, retirar de §5 (si estaba).
+- Cierre de issue: quitar fila de §4 (o reemplazar el 🔲 por ✅ con SHA + PR),
+  reflejar el cambio en §2 si toca algo visible allí, actualizar fase §3.
+- Cambio de estado de fase: leyenda 🔲 / 🟡 / ✅ en §3 + fecha línea 5.
+- Nueva documentación: añadir a §6 en el mismo PR.
+- Nueva decisión: añadir a `docs/decisiones-proyecto.md` y enlazar desde §3,
+  no duplicar.
+
+### 11.4 Anti-patrones explícitos
+
+- ❌ Cerrar issue en GitHub sin tocar `docs/roadmap.md` → violación del §11.1.
+- ❌ Marcar una issue como cerrada en §4 sin verificar `gh issue view <N>`
+  (`state=CLOSED`) → falso cierre; auditoría en §4 #55 es el ejemplo
+  canónico de lo que NO se hace.
+- ❌ Acumular cierres en una sola entrada "Cerradas hoy (últimas 2 semanas)"
+  → cada cierre tiene su bloque fechado para que la búsqueda temporal
+  funcione.
+- ❌ Refrescar el roadmap **después** del PR en vez de en el mismo PR → la
+  doc se desactualiza entre el merge y el refresh, ventana en la que otro
+  agente puede tomar decisiones sobre estado obsoleto.
+- ❌ Modificar `docs/proceso.md` o `AGENTS.md` desde la rama de un feature
+  PR → los docs operativos van por rama dedicada `docs/<scope>` per §17.3.
