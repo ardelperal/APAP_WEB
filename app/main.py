@@ -204,14 +204,18 @@ async def lifespan(_: FastAPI):
     # PII redaction applied.
     configure_logging(settings)
     client = InsForgeClient(settings.insforge_url, settings.insforge_service_key)
+    # Keep one InsForgeClient (and its underlying httpx connection pool) alive
+    # for the complete application lifetime. The request dependency reads
+    # this exact instance from app.state instead of creating one per request.
+    _.state.insforge_client = client
     try:
         ensure_schema_and_seed(client, settings)
         ensure_catalogs(client)
         ensure_domain_schema(client)
         apply_sql_migrations(client)
+        yield
     finally:
         client.close()
-    yield
 
 
 def _redirect(path: str) -> RedirectResponse:

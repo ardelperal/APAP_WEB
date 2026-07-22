@@ -25,6 +25,7 @@ from __future__ import annotations
 import inspect
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -82,17 +83,134 @@ def test_get_insforge_client_dep_return_annotation_is_iterator() -> None:
 
 
 def test_get_insforge_client_dep_is_a_generator() -> None:
-    """The implementation MUST be a generator (yields + finally closes).
+    """The implementation MUST be a generator function (uses ``yield``).
 
-    Without the ``yield`` + ``finally``, the InsForge client's
-    httpx transport would leak on every request. This is a
-    defence-in-depth check: even if the annotation changes, the
-    body must still be a generator function.
+    Pre-#260 the dep was a generator that created + closed a per-request
+    InsForgeClient (the yield + finally closed the client's httpx
+    transport so it never leaked). After #260 the lifecycle is owned by
+    the lifespan (created in startup, closed in shutdown), so the dep
+    only ``yield``s the pooled instance — no per-request create or
+    close. The generator-function shape is still required so:
+
+    - FastAPI's dependency-injection protocol treats it the same way
+      (callers that use ``dependency_overrides[...]`` continue to work
+      whether they override with a generator or a plain callable).
+    - The return annotation stays ``Iterator[InsForgeClient]`` (see
+      :func:`test_get_insforge_client_dep_return_annotation_is_iterator`).
+
+    This test is a defence-in-depth check: even if the annotation
+    changes, the body must still be a generator function.
     """
     assert inspect.isgeneratorfunction(get_insforge_client_dep), (
         "get_insforge_client_dep must be a generator function "
-        "(uses yield + finally) so the InsForge client is closed "
-        "even on handler exceptions."
+        "(uses yield) so the dep hands out the pooled client via the "
+        "same Iterator[InsForgeClient] protocol FastAPI expects"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Issue #260: pooled httpx.Client on app.state
+#
+# The dep no longer creates or closes an InsForgeClient. It yields the
+# pooled instance stored on ``request.app.state.insforge_client`` by
+# the lifespan. The two tests below pin that contract.
+# ---------------------------------------------------------------------------
+
+
+def test_get_insforge_client_dep_returns_pooled_client_from_app_state() -> None:
+    """Issue #260: the dep MUST yield the InsForgeClient stored on app.state.
+
+    A single ``httpx.Client`` connection pool must be reused across
+    requests — created in the lifespan, closed in shutdown, never
+    per-request. The dep is the bridge between that pooled instance
+    and the route handlers: it MUST pull from ``request.app.state``,
+    not construct a new client.
+
+    Without this, the dep could silently re-create a client per
+    request (the very behaviour #260 is removing) and the whole
+    pooling refactor would regress to "no pooling" without any test
+    noticing.
+    """
+    from app.core.auth_dependencies import get_insforge_client_dep  # noqa: PLC0415
+
+    pooled = InsForgeClient("http://test", "k")
+
+    # Wire up a fake request whose ``app.state.insforge_client`` is
+    # our pooled sentinel. The dep MUST hand that exact instance back.
+    class _State:
+        insforge_client = pooled
+
+    class _App:
+        state = _State()
+
+    class _Request:
+        app = _App()
+
+    gen = get_insforge_client_dep(request=_Request())
+    try:
+        handed_out = next(gen)
+    finally:
+        # Close the generator so the dep's protocol completes cleanly
+        # (the dep yields exactly once, so this is a no-op finalisation).
+        for _ in gen:
+            pass
+        gen.close()
+
+    assert handed_out is pooled, (
+        "get_insforge_client_dep MUST return the same InsForgeClient "
+        "stored on app.state.insforge_client — pooling breaks if the "
+        "dep returns anything else"
+    )
+
+
+def test_get_insforge_client_dep_does_not_close_pooled_client() -> None:
+    """Issue #260: the dep MUST NOT call ``close()`` on the pooled client.
+
+    Pre-#260 the dep owned the per-request lifecycle (``finally:
+    client.close()``). Post-#260 the lifespan owns the lifecycle
+    (close on shutdown). If the dep accidentally re-introduced a
+    ``close()`` call, the FIRST request after the lifespan started
+    would tear down the pooled client — every subsequent request
+    would fail with ``httpx.ClosedResourceError`` or similar.
+
+    The contract pinned here: the dep's generator body never invokes
+    ``close()`` on the client it yields. We verify by tracking every
+    ``close()`` call on the pooled sentinel.
+    """
+    from app.core.auth_dependencies import get_insforge_client_dep  # noqa: PLC0415
+
+    close_calls: list[None] = []
+
+    class _PooledClient:
+        def execute_sql(self, query: str, params: Any = None) -> list[dict[str, Any]]:
+            return []
+
+        def close(self) -> None:
+            close_calls.append(None)
+
+    class _State:
+        insforge_client = _PooledClient()
+
+    class _App:
+        state = _State()
+
+    class _Request:
+        app = _App()
+
+    gen = get_insforge_client_dep(request=_Request())
+    try:
+        next(gen)
+    finally:
+        # Drive the generator to completion (including any finally
+        # block) and observe whether close() was invoked.
+        for _ in gen:
+            pass
+        gen.close()
+
+    assert close_calls == [], (
+        f"get_insforge_client_dep MUST NOT close the pooled client "
+        f"(lifespan owns the lifecycle). close() calls observed: "
+        f"{close_calls!r}"
     )
 
 
