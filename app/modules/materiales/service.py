@@ -54,9 +54,10 @@ from dataclasses import dataclass
 from functools import partial
 from typing import Any, Final
 
+from app.core.data_access import SqlExecutor
 from app.core.forms import optional_text as _optional_text
 from app.core.forms import required_text
-from app.core.insforge import InsForgeClient, InsForgeError
+from app.core.insforge import InsForgeError
 from app.core.logging import log_safe
 
 _required_text = partial(
@@ -444,7 +445,7 @@ def _build_junction_write_params(
 
 
 def _validate_estancia_open_and_active(
-    client: InsForgeClient, estancia_id: str
+    client: SqlExecutor, estancia_id: str
 ) -> None:
     """Estancia must be active AND sin fecha_final to accept materials.
 
@@ -474,7 +475,7 @@ def _validate_estancia_open_and_active(
 
 
 def _validate_material_active(
-    client: InsForgeClient, material_id: str
+    client: SqlExecutor, material_id: str
 ) -> None:
     """Material must be active to be assignable.
 
@@ -500,7 +501,7 @@ def _validate_material_active(
 
 
 def create_material(
-    client: InsForgeClient, params: dict[str, Any]
+    client: SqlExecutor, params: dict[str, Any]
 ) -> Material:
     """Insert a new material in the catalog and return the persisted row.
 
@@ -532,7 +533,7 @@ def create_material(
 
 
 def get_material_by_id(
-    client: InsForgeClient, material_id: str
+    client: SqlExecutor, material_id: str
 ) -> Material | None:
     """Return one material by id (active or inactive), or None."""
     rows = client.execute_sql(_MATERIAL_GET_BY_ID_SQL, [material_id])
@@ -540,7 +541,7 @@ def get_material_by_id(
 
 
 def list_materials(
-    client: InsForgeClient, activos_solo: bool = True
+    client: SqlExecutor, activos_solo: bool = True
 ) -> list[Material]:
     """Return materials ordered by fecha_alta DESC.
 
@@ -558,7 +559,7 @@ def list_materials(
 
 
 def update_material(
-    client: InsForgeClient,
+    client: SqlExecutor,
     material_id: str,
     params: dict[str, Any],
 ) -> Material | None:
@@ -591,7 +592,7 @@ def update_material(
 
 
 def deactivate_material(
-    client: InsForgeClient, material_id: str
+    client: SqlExecutor, material_id: str
 ) -> bool:
     """Atomically soft-delete a material AND cascade the junction rows.
 

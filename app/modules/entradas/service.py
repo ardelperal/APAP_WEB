@@ -15,9 +15,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from app.core.data_access import SqlExecutor
 from app.core.forms import optional_text as _optional_text
 from app.core.forms import required_text as _required_text
-from app.core.insforge import InsForgeClient, InsForgeError
+from app.core.insforge import InsForgeError
 
 
 class EntradaConflictError(ValueError):
@@ -143,7 +144,7 @@ def _build_write_params(params: dict[str, Any]) -> list[Any]:
     ]
 
 
-def _validate_references(client: InsForgeClient, params: dict[str, Any]) -> None:
+def _validate_references(client: SqlExecutor, params: dict[str, Any]) -> None:
     animal_id = _required_text(params, "animal_id")
     if not client.execute_sql(_CHECK_ANIMAL_SQL, [animal_id]):
         raise ValueError("animal_id does not reference an existing animal")
@@ -167,7 +168,7 @@ row_to_entrada = _row_to_entrada
 is_duplicate_error = _is_duplicate_error
 
 
-def create_entrada(client: InsForgeClient, params: dict[str, Any]) -> Entrada:
+def create_entrada(client: SqlExecutor, params: dict[str, Any]) -> Entrada:
     """Create an intake entry and return the persisted row."""
     _build_write_params(params)
     _validate_references(client, params)
@@ -181,20 +182,20 @@ def create_entrada(client: InsForgeClient, params: dict[str, Any]) -> Entrada:
     return _row_to_entrada(rows[0])
 
 
-def list_entradas(client: InsForgeClient) -> list[Entrada]:
+def list_entradas(client: SqlExecutor) -> list[Entrada]:
     """Return active intake entries, newest first."""
     rows = client.execute_sql(_LIST_ENTRADAS_SQL)
     return [_row_to_entrada(row) for row in rows]
 
 
-def get_entrada_by_id(client: InsForgeClient, entrada_id: str) -> Entrada | None:
+def get_entrada_by_id(client: SqlExecutor, entrada_id: str) -> Entrada | None:
     """Return one intake entry by id, or ``None`` when it does not exist."""
     rows = client.execute_sql(_GET_ENTRADA_BY_ID_SQL, [entrada_id])
     return _row_to_entrada(rows[0]) if rows else None
 
 
 def update_entrada(
-    client: InsForgeClient,
+    client: SqlExecutor,
     entrada_id: str,
     params: dict[str, Any],
 ) -> Entrada | None:
@@ -211,7 +212,7 @@ def update_entrada(
     return _row_to_entrada(rows[0]) if rows else None
 
 
-def delete_entrada(client: InsForgeClient, entrada_id: str) -> bool:
+def delete_entrada(client: SqlExecutor, entrada_id: str) -> bool:
     """Soft-delete an intake entry. Physical deletes are intentionally forbidden."""
     rows = client.execute_sql(_DELETE_ENTRADA_SQL, [entrada_id])
     return bool(rows)

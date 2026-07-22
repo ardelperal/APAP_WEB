@@ -31,7 +31,8 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from app.core.insforge import InsForgeClient, InsForgeError
+from app.core.data_access import SqlExecutor
+from app.core.insforge import InsForgeError
 from app.modules.entradas.service import (
     Entrada,
     EntradaConflictError,
@@ -145,7 +146,7 @@ def _optional_text(params: dict[str, Any], field_name: str) -> str | None:
     return stripped or None
 
 
-def _validate_references(client: InsForgeClient, params: dict[str, Any]) -> str | None:
+def _validate_references(client: SqlExecutor, params: dict[str, Any]) -> str | None:
     """Return an error message if FK validation fails, else None."""
     animal_id = _required_text(params, "animal_id")
     if not client.execute_sql(_CHECK_ANIMAL_SQL, [animal_id]):
@@ -186,7 +187,7 @@ def _check_cross_batch_uniqueness(records: list[dict[str, Any]]) -> None:
         seen.add(key)
 
 
-def stage_batch(client: InsForgeClient, records: list[dict[str, Any]]) -> BatchStaging:
+def stage_batch(client: SqlExecutor, records: list[dict[str, Any]]) -> BatchStaging:
     """Stage a batch of entrada records.
 
     - Cross-batch uniqueness is checked FIRST (in-memory) — duplicates
@@ -267,7 +268,7 @@ def stage_batch(client: InsForgeClient, records: list[dict[str, Any]]) -> BatchS
     )
 
 
-def get_batch(client: InsForgeClient, batch_id: str) -> BatchStaging | None:
+def get_batch(client: SqlExecutor, batch_id: str) -> BatchStaging | None:
     """Return the preview of a staged batch, or None when not found."""
     rows = client.execute_sql(_GET_STAGING_SQL, [batch_id])
     if not rows:
@@ -296,7 +297,7 @@ def get_batch(client: InsForgeClient, batch_id: str) -> BatchStaging | None:
     )
 
 
-def commit_batch(client: InsForgeClient, batch_id: str) -> list[Entrada]:
+def commit_batch(client: SqlExecutor, batch_id: str) -> list[Entrada]:
     """Atomically copy staged rows into ``entradas`` and clear staging.
 
     Uses a single CTE statement so PostgreSQL executes the INSERT and
@@ -319,6 +320,6 @@ def commit_batch(client: InsForgeClient, batch_id: str) -> list[Entrada]:
     return [row_to_entrada(row) for row in rows]
 
 
-def cancel_batch(client: InsForgeClient, batch_id: str) -> None:
+def cancel_batch(client: SqlExecutor, batch_id: str) -> None:
     """Delete staging rows for a batch without committing."""
     client.execute_sql(_CANCEL_BATCH_SQL, [batch_id])

@@ -36,6 +36,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.core.data_access import SqlExecutor
 from app.core.insforge import InsForgeClient
 from app.core.schema_bootstrap import SqlStatement, run_idempotent_sql
 
@@ -337,7 +338,7 @@ def list_catalogos_motivos(client: InsForgeClient) -> list[dict[str, Any]]:
     return client.execute_sql(LIST_CATALOGOS_MOTIVOS_SQL)
 
 
-def list_catalogos_pruebas(client: InsForgeClient) -> list[dict[str, Any]]:
+def list_catalogos_pruebas(client: SqlExecutor) -> list[dict[str, Any]]:
     """Return all active pruebas ordered by ``orden`` then ``codigo``."""
     return client.execute_sql(LIST_CATALOGOS_PRUEBAS_SQL)
 

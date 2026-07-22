@@ -46,7 +46,7 @@ from datetime import date, datetime
 from typing import Any
 
 from app.core.catalogs import list_catalogos_pruebas as _list_catalogos_pruebas
-from app.core.insforge import InsForgeClient
+from app.core.data_access import SqlExecutor
 from app.core.logging import log_safe
 
 
@@ -325,7 +325,7 @@ def _build_write_params(params: dict[str, Any]) -> list[Any]:
 
 
 def _raise_validation_error(
-    client: InsForgeClient, params: dict[str, Any]
+    client: SqlExecutor, params: dict[str, Any]
 ) -> None:
     """Disambiguate a 0-row CTE result by re-running each check.
 
@@ -404,7 +404,7 @@ def _raise_validation_error(
 
 
 def create_actuacion_sanitaria(
-    client: InsForgeClient,
+    client: SqlExecutor,
     params: dict[str, Any],
     *,
     actor_user_id: str | None = None,
@@ -453,7 +453,7 @@ def create_actuacion_sanitaria(
 
 
 def list_actuaciones_sanitarias(
-    client: InsForgeClient,
+    client: SqlExecutor,
     *,
     animal_id: str | None = None,
 ) -> list[ActuacionSanitaria]:
@@ -473,7 +473,7 @@ def list_actuaciones_sanitarias(
     return [_row_to_actuacion_sanitaria(row) for row in rows]
 
 
-def list_catalogos_pruebas(client: InsForgeClient) -> list[dict[str, Any]]:
+def list_catalogos_pruebas(client: SqlExecutor) -> list[dict[str, Any]]:
     """Return active health-test catalog rows for sanidad forms.
 
     Routes must not import SQL-backed catalog helpers directly. Keeping this
@@ -484,7 +484,7 @@ def list_catalogos_pruebas(client: InsForgeClient) -> list[dict[str, Any]]:
 
 
 def get_actuacion_sanitaria_by_id(
-    client: InsForgeClient, actuacion_id: str
+    client: SqlExecutor, actuacion_id: str
 ) -> ActuacionSanitaria | None:
     """Return one ``actuacion_sanitaria`` by id (active or inactive), or ``None``."""
     rows = client.execute_sql(_GET_ACTUACION_BY_ID_SQL, [actuacion_id])
@@ -492,7 +492,7 @@ def get_actuacion_sanitaria_by_id(
 
 
 def update_actuacion_sanitaria(
-    client: InsForgeClient,
+    client: SqlExecutor,
     actuacion_id: str,
     params: dict[str, Any],
     *,
@@ -543,7 +543,7 @@ def update_actuacion_sanitaria(
 
 
 def delete_actuacion_sanitaria(
-    client: InsForgeClient,
+    client: SqlExecutor,
     actuacion_id: str,
     *,
     actor_user_id: str | None = None,
@@ -569,7 +569,7 @@ def delete_actuacion_sanitaria(
 
 
 def search_actuaciones_by_animal(
-    client: InsForgeClient, animal_id: str
+    client: SqlExecutor, animal_id: str
 ) -> list[ActuacionSanitaria]:
     """Return active ``actuacion_sanitaria`` rows for ``animal_id``.
 

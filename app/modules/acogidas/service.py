@@ -58,6 +58,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any, Final
 
+from app.core.data_access import SqlExecutor
 from app.core.logging import log_safe
 
 
@@ -285,7 +286,7 @@ def _optional_uuid(params: dict[str, Any], field_name: str) -> str | None:
 
 
 def _validate_animal_exists_and_active(
-    client, animal_id: str
+    client: SqlExecutor, animal_id: str
 ) -> None:
     rows = client.execute_sql(_CHECK_ANIMAL_SQL, [animal_id])
     if not rows:
@@ -298,7 +299,7 @@ def _validate_animal_exists_and_active(
         )
 
 
-def _validate_casa_acogida_active(client, casa_id: str) -> None:
+def _validate_casa_acogida_active(client: SqlExecutor, casa_id: str) -> None:
     """casa_acogida_id, if present, must reference an active casa.
 
     The DB-side ``AND activo = true`` is defense in depth; the service
@@ -316,7 +317,9 @@ def _validate_casa_acogida_active(client, casa_id: str) -> None:
         )
 
 
-def _validate_voluntario_activo(client, vol_id: str, field_name: str) -> None:
+def _validate_voluntario_activo(
+    client: SqlExecutor, vol_id: str, field_name: str
+) -> None:
     """Any voluntario_*_id, if present, must reference an active voluntario.
 
     VOL-05 pattern: inactive voluntarios cannot be assigned to new stays.
@@ -336,7 +339,7 @@ def _validate_voluntario_activo(client, vol_id: str, field_name: str) -> None:
 
 
 def _validate_entrada_exists_if_present(
-    client, entrada_id: str | None
+    client: SqlExecutor, entrada_id: str | None
 ) -> None:
     """entrada_origen_id, if present, must reference an existing entrada.
 
@@ -354,7 +357,7 @@ def _validate_entrada_exists_if_present(
         )
 
 
-def _validate_references(client, params: dict[str, Any]) -> None:
+def _validate_references(client: SqlExecutor, params: dict[str, Any]) -> None:
     """Run all FK checks in order. Raises ``ValueError`` on first failure.
 
     Order: animal (required) -> casa (optional) -> voluntarios (4 optional)
@@ -473,7 +476,7 @@ WHERE id = $2
 """
 
 def create_acogida(
-    client, params: dict[str, Any]
+    client: SqlExecutor, params: dict[str, Any]
 ) -> Acogida:
     """Insert a new estancia de acogida and return the persisted row.
 
@@ -547,7 +550,7 @@ def create_acogida(
 
 
 def list_acogidas(
-    client, activas_solo: bool = False
+    client: SqlExecutor, activas_solo: bool = False
 ) -> list[Acogida]:
     """Return all estancias (active + closed), optionally filtered to active only.
 
@@ -563,7 +566,7 @@ def list_acogidas(
 
 
 def get_acogida_by_id(
-    client, acogida_id: str
+    client: SqlExecutor, acogida_id: str
 ) -> Acogida | None:
     """Return one estancia de acogida by id (active or closed), or None."""
     rows = client.execute_sql(_GET_ACOGIDA_BY_ID_SQL, [acogida_id])
@@ -571,7 +574,7 @@ def get_acogida_by_id(
 
 
 def update_acogida(
-    client, acogida_id: str, params: dict[str, Any]
+    client: SqlExecutor, acogida_id: str, params: dict[str, Any]
 ) -> Acogida | None:
     """Update an estancia de acogida and return the updated row, or None.
 
@@ -600,7 +603,7 @@ def update_acogida(
 
 
 def close_acogida(
-    client, acogida_id: str
+    client: SqlExecutor, acogida_id: str
 ) -> Acogida | None:
     """Mark the stay as closed: ``fecha_final = CURRENT_DATE``, ``activo`` stays true.
 
@@ -628,7 +631,7 @@ def close_acogida(
 
 
 def delete_acogida(
-    client, acogida_id: str
+    client: SqlExecutor, acogida_id: str
 ) -> bool:
     """Atomically soft-delete an estancia de acogida.
 

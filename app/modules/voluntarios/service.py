@@ -1,4 +1,4 @@
-"""Voluntarios service: la unica capa que habla con InsForgeClient para el registro de voluntarios.
+"""Voluntarios service: la unica capa que habla con SqlExecutor para el registro de voluntarios.
 
 Es la contraparte del ``app.modules.animals.service``: framework-
 agnostica, valida antes de SQL, devuelve dataclasses, propaga
@@ -42,7 +42,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
-from app.core.insforge import InsForgeClient
+from app.core.data_access import SqlExecutor
 from app.core.logging import log_safe
 
 
@@ -192,7 +192,7 @@ def _build_insert_params(params: dict[str, Any]) -> list[Any]:
     ]
 
 
-def create_voluntario(client: InsForgeClient, params: dict[str, Any]) -> Voluntario:
+def create_voluntario(client: SqlExecutor, params: dict[str, Any]) -> Voluntario:
     """Inserta un voluntario. ``Voluntario`` (nombre) es obligatorio.
 
     Un Email o DNI duplicado se surface como respuesta no-2xx de
@@ -204,25 +204,25 @@ def create_voluntario(client: InsForgeClient, params: dict[str, Any]) -> Volunta
     return _row_to_voluntario(rows[0])
 
 
-def list_voluntarios(client: InsForgeClient) -> list[Voluntario]:
+def list_voluntarios(client: SqlExecutor) -> list[Voluntario]:
     """Devuelve todos los voluntarios activos, ordenados alfabeticamente."""
     rows = client.execute_sql(_LIST_VOLUNTARIOS_SQL)
     return [_row_to_voluntario(row) for row in rows]
 
 
-def get_voluntario_by_id(client: InsForgeClient, voluntario_id: str) -> Voluntario | None:
+def get_voluntario_by_id(client: SqlExecutor, voluntario_id: str) -> Voluntario | None:
     """Devuelve el voluntario con este id (activo o inactivo), o ``None``."""
     rows = client.execute_sql(_GET_VOLUNTARIO_BY_ID_SQL, [voluntario_id])
     return _row_to_voluntario(rows[0]) if rows else None
 
 
-def list_roles(client: InsForgeClient, voluntario_id: str) -> list[str]:
+def list_roles(client: SqlExecutor, voluntario_id: str) -> list[str]:
     """Devuelve la lista de roles asignados al voluntario, ordenados."""
     rows = client.execute_sql(_LIST_ROLES_SQL, [voluntario_id])
     return [str(row["tipo_rol"]) for row in rows]
 
 
-def deactivate_voluntario(client: InsForgeClient, voluntario_id: str) -> bool:
+def deactivate_voluntario(client: SqlExecutor, voluntario_id: str) -> bool:
     """Atomically mark the voluntario as inactive.
 
     Returns ``True`` if the row was active and was deactivated.
