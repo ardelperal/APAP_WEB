@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from app.core.insforge import InsForgeClient, InsForgeError
+from app.core.data_access import SqlExecutor
+from app.core.insforge import InsForgeError
 from app.core.logging import log_safe
 from app.modules.materiales.service import (
     _JUNCTION_DEACTIVATE_SQL,
@@ -20,7 +21,7 @@ from app.modules.materiales.service import (
 
 
 def assign_material_to_estancia(
-    client: InsForgeClient,
+    client: SqlExecutor,
     estancia_id: str,
     material_id: str,
     cantidad: int = 1,
@@ -72,7 +73,7 @@ def assign_material_to_estancia(
 
 
 def list_materials_for_estancia(
-    client: InsForgeClient,
+    client: SqlExecutor,
     estancia_id: str,
     activos_solo: bool = True,
 ) -> list[EstanciaMaterial]:
@@ -93,7 +94,7 @@ def list_materials_for_estancia(
 
 
 def remove_material_from_estancia(
-    client: InsForgeClient, junction_id: str
+    client: SqlExecutor, junction_id: str
 ) -> bool:
     """Atomically soft-delete a single junction row.
 

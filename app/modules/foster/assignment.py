@@ -40,7 +40,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Final, Literal
 
-from app.core.insforge import InsForgeClient
+from app.core.data_access import SqlExecutor
 from app.core.logging import log_safe
 from app.modules.animals import get_animal_by_id
 from app.modules.foster import service as foster_service
@@ -167,7 +167,7 @@ def _row_to_override(row: dict[str, Any]) -> FosterCapacityOverride:
 
 
 def evaluate_assignment(
-    client: InsForgeClient, animal_id: str, casa_id: str
+    client: SqlExecutor, animal_id: str, casa_id: str
 ) -> AssignmentDecision:
     """Evalúa si ``animal_id`` puede ser asignado a ``casa_id``.
 
@@ -234,7 +234,7 @@ def evaluate_assignment(
 
 
 def record_override(
-    client: InsForgeClient,
+    client: SqlExecutor,
     casa_id: str,
     animal_id: str,
     operador_user_id: str,
@@ -290,7 +290,7 @@ def record_override(
 
 
 def list_overrides_for_casa(
-    client: InsForgeClient, casa_id: str
+    client: SqlExecutor, casa_id: str
 ) -> list[FosterCapacityOverride]:
     """Lista overrides aplicadas a una casa, ordenadas ``created_at DESC``.
 
@@ -316,7 +316,7 @@ WHERE casa_acogida_id = $1
 
 
 def count_active_estancias_for_casa(
-    client: InsForgeClient, casa_id: str
+    client: SqlExecutor, casa_id: str
 ) -> int:
     """Return the count of active stays for ``casa_id``.
 

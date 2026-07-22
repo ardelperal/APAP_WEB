@@ -39,9 +39,9 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Any, Protocol  # noqa: F401 — Protocol used in _StorageLike
+from typing import Any, Protocol
 
-from app.core.insforge import InsForgeClient
+from app.core.data_access import SqlExecutor
 from app.core.logging import log_safe
 from app.modules.animals import service as animals_service
 
@@ -100,6 +100,10 @@ class _StorageLike(Protocol):
     def download_object_stream(
         self, bucket: str, key: str
     ) -> Iterator[bytes]: ...
+
+
+class _PhotoClient(SqlExecutor, _StorageLike, Protocol):
+    """Combined SQL and storage surface required to resolve an animal photo."""
 
 
 def is_missing_nombrefoto(nombrefoto: Any) -> bool:
@@ -204,7 +208,7 @@ def content_type_for_key(nombrefoto: str | None) -> str:
 
 
 def resolve_animal_photo(
-    client: InsForgeClient,
+    client: _PhotoClient,
     animal_id: str,
 ) -> PhotoResolution | None:
     """Resolve the fail-closed photo policy without constructing HTTP responses.

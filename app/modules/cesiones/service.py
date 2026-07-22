@@ -58,7 +58,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from app.core.insforge import InsForgeClient, InsForgeError
+from app.core.data_access import SqlExecutor
+from app.core.insforge import InsForgeError
 
 
 class CesionConflictError(ValueError):
@@ -325,7 +326,7 @@ def _is_unique_conflict(exc: InsForgeError) -> bool:
 
 
 def create_cesion(
-    client: InsForgeClient,
+    client: SqlExecutor,
     params: dict[str, Any],
 ) -> tuple[Cesion, Contrato]:
     """Create an owner-surrender record + its linked contrato.
@@ -400,7 +401,7 @@ def create_cesion(
 
 
 def get_cesion_by_entrada_id(
-    client: InsForgeClient,
+    client: SqlExecutor,
     entrada_id: str,
 ) -> Cesion | None:
     """Return the cesión linked to an entrada, or ``None`` when missing.
@@ -412,7 +413,7 @@ def get_cesion_by_entrada_id(
     return _row_to_cesion(rows[0]) if rows else None
 
 
-def list_cesiones(client: InsForgeClient) -> list[Cesion]:
+def list_cesiones(client: SqlExecutor) -> list[Cesion]:
     """Return all cesiones, newest first."""
     rows = client.execute_sql(_SELECT_CESIONES_SQL)
     return [_row_to_cesion(row) for row in rows]

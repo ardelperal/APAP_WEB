@@ -1,6 +1,6 @@
-"""Animales service: unica capa que habla con ``InsForgeClient`` para animales.
+"""Animales service: unica capa que habla con ``SqlExecutor`` para animales.
 
-Es deliberadamente framework-agnostica: toma un ``InsForgeClient`` y
+Es deliberadamente framework-agnostica: toma un ``SqlExecutor`` y
 un dict de campos validados, ejecuta el SQL via ``client.execute_sql``
 y devuelve dataclasses. Las rutas HTTP son una capa fina encima que
 maneja form parsing, auth y renderizado HTML.
@@ -58,7 +58,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, cast
 
-from app.core.insforge import InsForgeClient, _validate_storage_key
+from app.core.data_access import SqlExecutor
+from app.core.insforge import _validate_storage_key
 
 
 class Especie(StrEnum):
@@ -362,7 +363,7 @@ def _build_update_params(params: dict[str, Any]) -> list[Any]:
     return [params.get(col) for col in _UPDATE_COLUMNS]
 
 
-def create_animal(client: InsForgeClient, params: dict[str, Any]) -> Animal:
+def create_animal(client: SqlExecutor, params: dict[str, Any]) -> Animal:
     """Inserta un animal. Levanta ``ValueError`` si los datos son invalidos.
 
     Un NCHIP duplicado se surface como respuesta no-2xx de InsForge;
@@ -375,20 +376,20 @@ def create_animal(client: InsForgeClient, params: dict[str, Any]) -> Animal:
     return _row_to_animal(rows[0])
 
 
-def list_animals(client: InsForgeClient) -> list[Animal]:
+def list_animals(client: SqlExecutor) -> list[Animal]:
     """Devuelve todos los animales activos, mas recientes primero."""
     rows = client.execute_sql(_LIST_ANIMALS_SQL)
     return [_row_to_animal(row) for row in rows]
 
 
-def get_animal_by_id(client: InsForgeClient, animal_id: str) -> Animal | None:
+def get_animal_by_id(client: SqlExecutor, animal_id: str) -> Animal | None:
     """Devuelve el animal con este id (activo o inactivo), o ``None``."""
     rows = client.execute_sql(_GET_ANIMAL_BY_ID_SQL, [animal_id])
     return _row_to_animal(rows[0]) if rows else None
 
 
 def update_animal(
-    client: InsForgeClient,
+    client: SqlExecutor,
     animal_id: str,
     params: dict[str, Any],
 ) -> Animal | None:
@@ -409,7 +410,7 @@ def update_animal(
     return _row_to_animal(rows[0]) if rows else None
 
 
-def delete_animal(client: InsForgeClient, animal_id: str) -> bool:
+def delete_animal(client: SqlExecutor, animal_id: str) -> bool:
     """Soft-delete: marca ``activo = false``. Devuelve True si la fila existio.
 
     Implementado como ``UPDATE … RETURNING id`` para que la condicion

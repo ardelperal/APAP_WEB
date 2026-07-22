@@ -53,7 +53,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from app.core.insforge import InsForgeClient, InsForgeError
+from app.core.data_access import SqlExecutor
+from app.core.insforge import InsForgeError
 from app.core.logging import log_safe
 
 
@@ -395,7 +396,7 @@ def _build_write_params(params: dict[str, Any]) -> list[Any]:
 
 
 def _validate_entrada_exists_if_present(
-    client: InsForgeClient, entrada_id: str | None
+    client: SqlExecutor, entrada_id: str | None
 ) -> None:
     """``entrada_origen_id``, if present, must reference an existing entrada.
 
@@ -420,7 +421,7 @@ def _validate_entrada_exists_if_present(
 
 
 def _raise_validation_error(
-    client: InsForgeClient, params: dict[str, Any]
+    client: SqlExecutor, params: dict[str, Any]
 ) -> None:
     """Disambiguate a 0-row CTE result by re-running each check.
 
@@ -482,7 +483,7 @@ def _escape_like(value: str) -> str:
 
 
 def create_adopcion(
-    client: InsForgeClient,
+    client: SqlExecutor,
     params: dict[str, Any],
     *,
     actor_user_id: str | None = None,
@@ -529,14 +530,14 @@ def create_adopcion(
     return adopcion
 
 
-def list_adopciones(client: InsForgeClient) -> list[Adopcion]:
+def list_adopciones(client: SqlExecutor) -> list[Adopcion]:
     """Return active adopciones, most recent first (hard LIMIT 100)."""
     rows = client.execute_sql(_LIST_ADOPCIONES_SQL)
     return [_row_to_adopcion(row) for row in rows]
 
 
 def get_adopcion_by_id(
-    client: InsForgeClient, adopcion_id: str
+    client: SqlExecutor, adopcion_id: str
 ) -> Adopcion | None:
     """Return one adopción by id (active or inactive), or ``None``."""
     rows = client.execute_sql(_GET_ADOPCION_BY_ID_SQL, [adopcion_id])
@@ -544,7 +545,7 @@ def get_adopcion_by_id(
 
 
 def update_adopcion(
-    client: InsForgeClient,
+    client: SqlExecutor,
     adopcion_id: str,
     params: dict[str, Any],
     *,
@@ -596,7 +597,7 @@ def update_adopcion(
 
 
 def delete_adopcion(
-    client: InsForgeClient,
+    client: SqlExecutor,
     adopcion_id: str,
     *,
     actor_user_id: str | None = None,
@@ -625,7 +626,7 @@ def delete_adopcion(
 
 
 def search_adopciones_by_adoptante(
-    client: InsForgeClient, nombre_parcial: str
+    client: SqlExecutor, nombre_parcial: str
 ) -> list[Adopcion]:
     """Return active adopciones whose ``nombre_adoptante`` matches (ILIKE).
 

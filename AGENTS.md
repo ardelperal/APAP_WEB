@@ -714,3 +714,9 @@ Enforcement: `scripts/check_route_size.py` (stdlib-only, mirrors `scripts/check_
 > rows DONE during the `hardening-2026-q2` chain) was moved out of this file to
 > [`docs/hardening-2026-q2-rule-history.md`](docs/hardening-2026-q2-rule-history.md).
 > This file carries only the live rules.
+
+### 29. Domain services depend on Protocol abstractions
+
+Domain services MUST depend on Protocol abstractions, never concrete backend clients.
+`app.core.data_access.SqlExecutor`, introduced in #259, is the precedent.
+Example: `def list_items(client: SqlExecutor) -> list[Item]: ...` — not `client: InsForgeClient`.

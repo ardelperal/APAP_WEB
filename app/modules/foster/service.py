@@ -32,9 +32,9 @@ from dataclasses import dataclass
 from functools import partial
 from typing import Any, Final
 
+from app.core.data_access import SqlExecutor
 from app.core.forms import optional_text as _optional_text
 from app.core.forms import required_text
-from app.core.insforge import InsForgeClient
 from app.core.logging import log_safe
 
 _required_text = partial(
@@ -259,7 +259,7 @@ def _build_write_params(params: dict[str, Any]) -> list[Any]:
 
 
 def create_casa_acogida(
-    client: InsForgeClient, params: dict[str, Any]
+    client: SqlExecutor, params: dict[str, Any]
 ) -> CasaAcogida:
     """Insert a new casa de acogida and return the persisted row."""
     write_params = _build_write_params(params)
@@ -274,7 +274,7 @@ def create_casa_acogida(
 
 
 def list_casas_acogida(
-    client: InsForgeClient, especie: str | None = None
+    client: SqlExecutor, especie: str | None = None
 ) -> list[CasaAcogida]:
     """Return active casas de acogida, optionally filtered by especie.
 
@@ -290,7 +290,7 @@ def list_casas_acogida(
 
 
 def get_casa_acogida_by_id(
-    client: InsForgeClient, casa_id: str
+    client: SqlExecutor, casa_id: str
 ) -> CasaAcogida | None:
     """Return one casa de acogida by id (active or inactive), or None."""
     rows = client.execute_sql(_GET_CASA_BY_ID_SQL, [casa_id])
@@ -298,7 +298,7 @@ def get_casa_acogida_by_id(
 
 
 def update_casa_acogida(
-    client: InsForgeClient, casa_id: str, params: dict[str, Any]
+    client: SqlExecutor, casa_id: str, params: dict[str, Any]
 ) -> CasaAcogida | None:
     """Update a casa de acogida and return the updated row, or None."""
     write_params = _build_write_params(params)
@@ -310,7 +310,7 @@ def update_casa_acogida(
     return casa
 
 
-def delete_casa_acogida(client: InsForgeClient, casa_id: str) -> bool:
+def delete_casa_acogida(client: SqlExecutor, casa_id: str) -> bool:
     """Atomically soft-delete a casa de acogida.
 
     Returns ``True`` if the row was active and was deactivated.
