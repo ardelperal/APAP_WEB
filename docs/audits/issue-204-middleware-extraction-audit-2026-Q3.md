@@ -124,6 +124,38 @@ the moved location with the count invariant intact.
 
 No new attack surface introduced. No new dependencies. No new env vars.
 
+## Correction (2026-07-22): routes-registry prefix test failure on FastAPI >=0.137
+
+CI run `29953269866` (job `test`) failed the 8 parametrized atoms of
+`tests/test_routes_registry.py::test_register_routers_includes_each_module_router`
+(`/animales`, `/entradas`, `/voluntarios`, `/sanidad`, `/adopciones`,
+`/acogidas`, `/cesiones`, `/materiales`) on a fresh FastAPI app. The
+local pre-push run passed only because the dev venv pinned
+`fastapi==0.133.1`; CI resolves `fastapi>=0.115` and pip pulls
+`fastapi 0.137.2`, which changed `app.include_router(...)` (PR
+[fastapi/fastapi#15745](https://github.com/fastapi/fastapi/pull/15745))
+to store a `_IncludedRouter` wrapper in `app.routes` that does not
+expose `.path` or `.methods`. The set comprehension
+`{r.path for r in app.routes if hasattr(r, 'path')}` therefore
+dropped every registry route, leaving only FastAPI defaults
+(`/openapi.json`, `/docs`, `/redoc`) — none match the asserted
+prefixes.
+
+Fix in `tests/test_routes_registry.py:58-87, 229-271`: the helper
+`_extract_method_path_pairs` and the inline path-set walker in
+`test_register_routers_includes_each_module_router` now recurse
+into `_IncludedRouter.original_router.routes` (the wrapped
+`APIRouter`'s child routes, whose `.path` is already composed).
+`app/routes_registry.py` is unchanged — the registry is correct; the
+test was relying on a flat `app.routes` shape that FastAPI 0.137
+deliberately stopped returning (per upstream discussion
+[fastapi/fastapi#15791](https://github.com/fastapi/fastapi/discussions/15791)).
+Verified locally against clean venvs on `fastapi 0.133.1` (2505
+passed, 0 failed) and `fastapi 0.137.2` (2503 passed, 0 failed),
+plus `ruff`, `mypy`, `scripts/check_rules.py`,
+`scripts/check_module_size.py` clean. CRITICAL_HELPERS gate
+21/21 @100% on both. New CI run URL in the commit body.
+
 ## Test Plan re-run evidence
 
 - `pytest … --cov-fail-under=80`: **2517 passed, 2 skipped, 2 deselected**,

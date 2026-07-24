@@ -18,9 +18,12 @@ These tests pin the contract the registry must hold:
    (e.g. ``/animales`` -> ``app.modules.animals.routes``, ``/voluntarios``
    -> ``app.modules.voluntarios.routes``).
 
-The introspection surface is ``app.routes`` — same as the rest of the
-test suite uses for the smoke test in
-``tests/test_middleware.py::test_ua_detection_middleware_is_registered_in_app``.
+The introspection surface is ``app.routes``. FastAPI >=0.137 wraps each
+included ``APIRouter`` in an ``_IncludedRouter`` instance (see
+fastapi/fastapi#15745) that does NOT expose ``.path``/``.methods`` —
+the helper below recurses into ``_IncludedRouter.original_router.routes``
+so the assertions see the same composed ``APIRoute`` entries on both
+FastAPI 0.115-0.136 and 0.137+.
 """
 
 from __future__ import annotations
@@ -55,17 +58,32 @@ def test_register_routers_is_callable_from_app_routes_registry() -> None:
 def _extract_method_path_pairs(app) -> set[tuple[str, str]]:
     """Flatten ``app.routes`` into ``{(method, path), ...}`` sets.
 
-    ``Mount`` instances (e.g. ``/static``) are excluded — they have no
-    ``methods`` attribute and would crash the comprehension. The
-    pre-refactor ``main.py`` does not depend on the mount's child
-    routes for handler dispatch, so excluding them gives a stable
-    comparison surface.
+    Recurses into ``_IncludedRouter.original_router.routes`` (the
+    FastAPI >=0.137 wrapper introduced in fastapi/fastapi#15745) so
+    the same composed ``APIRoute`` entries are visible on both
+    FastAPI 0.115-0.136 and 0.137+. ``Mount`` instances (e.g.
+    ``/static``) and the ``_IncludedRouter`` wrapper itself are
+    skipped — they have no ``methods`` attribute, and the pre-refactor
+    ``main.py`` does not depend on the mount's child routes for
+    handler dispatch.
     """
     pairs: set[tuple[str, str]] = set()
-    for r in app.routes:
-        if hasattr(r, "methods") and hasattr(r, "path"):
-            for m in r.methods:
-                pairs.add((m, r.path))
+
+    def _walk(routes) -> None:
+        for r in routes:
+            # FastAPI >=0.137: ``_IncludedRouter`` exposes the wrapped
+            # APIRouter via ``.original_router``; descend into its
+            # ``.routes`` to reach the actual ``APIRoute`` entries
+            # (whose ``.path`` is already composed with the prefix).
+            original = getattr(r, "original_router", None)
+            if original is not None and hasattr(original, "routes"):
+                _walk(original.routes)
+                continue
+            if hasattr(r, "methods") and hasattr(r, "path"):
+                for m in r.methods:
+                    pairs.add((m, r.path))
+
+    _walk(app.routes)
     return pairs
 
 
@@ -217,19 +235,37 @@ def test_register_routers_includes_each_module_router(prefix: str) -> None:
     adopciones, sanidad, materiales, materiales_acogida. The test
     covers the unique-prefix subset (the rest are batch/junction
     routers with no first-level prefix).
+
+    The path enumeration recurses into ``_IncludedRouter`` wrappers
+    (FastAPI >=0.137, fastapi/fastapi#15745) the same way
+    :func:`_extract_method_path_pairs` does — the wrapper itself
+    exposes no ``.path``/``.methods`` so the old ``{r.path for r in
+    app.routes if hasattr(r, 'path')}`` set comprehension silently
+    dropped every route that came from ``include_router`` on
+    FastAPI >=0.137, making the assertion pass vacuously for
+    unrelated reasons (FastAPI defaults such as ``/openapi.json``).
     """
     from app.routes_registry import register_routers
 
     fresh_app = FastAPI()
     register_routers(fresh_app)
-    paths = {r.path for r in fresh_app.routes if hasattr(r, "path")}
-    # GET routes are checked. Some sub-routers (e.g. foster
-    # assignment) live under a parent prefix; we walk them all and
-    # confirm at least one GET route exists under that prefix.
-    matching_gets = [
+
+    paths: set[str] = set()
+
+    def _walk(routes) -> None:
+        for r in routes:
+            original = getattr(r, "original_router", None)
+            if original is not None and hasattr(original, "routes"):
+                _walk(original.routes)
+                continue
+            if hasattr(r, "path"):
+                paths.add(r.path)
+
+    _walk(fresh_app.routes)
+    matching = [
         path for path in paths if path == prefix or path.startswith(prefix + "/")
     ]
-    assert matching_gets, (
+    assert matching, (
         f"no routes registered under prefix {prefix!r}; "
         f"the registry dropped this feature module's router"
     )
