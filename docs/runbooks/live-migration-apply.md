@@ -51,7 +51,7 @@ and a stable runbook reference.
       requirement, NOT a soft-fail warning.
 - [ ] **Microsoft Access Database Engine** (redistributable) is
       installed (`python -c "import pyodbc; print(pyodbc.drivers())"` must list
-      `Microsoft Access Driver (*.accdb)`). The executor (`migration/dysflow_client.py`)
+      `Microsoft Access Driver (*.accdb)`). The executor (`migration/legacy_access_client.py`)
       raises `LegacyReaderError` (CLI exit 5, reason
       `legacy_read_failed`) if the driver is missing.
 - [ ] **Microsoft Access is CLOSED on the operator box**. The MSACCESS
@@ -125,7 +125,7 @@ The apply pipeline is a single command. The recommended flow is:
 | 2    | usage error                      | Bad CLI args (unknown table, malformed timestamp, missing web_client).       | Fix the args; rerun.                                                    |
 | 5    | `msaccess_preflight_unavailable` | `psutil` missing or `process_iter` raised mid-iteration.                    | Install `psutil`; rerun. **Do not** proceed without psutil.         |
 | 5    | `msaccess_running`               | A live `MSACCESS.EXE` process was detected.                                  | Close Access; rerun.                                                  |
-| 5    | `legacy_read_failed`             | pyodbc / dysflow I/O failure (driver missing, .accdb locked, network).     | Install Access Driver / unlock .accdb / check path; rerun.            |
+| 5    | `legacy_read_failed`             | pyodbc I/O failure (driver missing, .accdb locked, network).               | Install Access Driver / unlock .accdb / check path; rerun.            |
 | 5    | `infra_bootstrap_failed`         | Private `apap-photos` bucket missing or public; shadow table broken.         | Re-run M0 bootstrap; verify bucket visibility; rerun apply.          |
 | 6    | `source_drift`                   | `migration.lock_snapshot.json` disagrees with current source fingerprints.   | Inspect what changed in `.accdb` or photos; decide and proceed.      |
 | 7    | `partial_apply_interrupted`      | `migration.partial_apply.json` exists from a prior interrupted run.          | Review evidence; `rm` the file; rerun. **No auto-resume.**        |
@@ -500,7 +500,7 @@ hooks:
   point. Signature:
   ``apply_web_to_legacy(client, table_name, *, legacy_path,
   web_snapshot, dry_run, lock_path, dni_collision_counter)``.
-- ``migration/dysflow_client.py::execute_legacy_write`` is the
+- ``migration/legacy_access_client.py::execute_legacy_write`` is the
   pyodbc-backed write seam (mirror of ``execute_legacy_sql``).
   Inserts and Updates return ``int`` rowcount; ``0`` triggers the
   drift-recorder.
