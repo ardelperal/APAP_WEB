@@ -1,18 +1,21 @@
-"""Service operations for material assignments to foster stays."""
+"""Service operations for material assignments to foster stays.
+
+Per AGENTS.md §22, the SQL/service separation seam: SQL strings and
+parameter shaping live in ``app.modules.materiales.queries``; this
+module imports those builders, applies domain validation, and talks
+to the client. The seam is testable: the shape of the SQL is asserted
+in ``tests/test_materiales_queries.py`` without spinning up transport.
+"""
 
 from __future__ import annotations
 
 from app.core.data_access import SqlExecutor
 from app.core.insforge import InsForgeError
 from app.core.logging import log_safe
+from app.modules.materiales import queries
 from app.modules.materiales.service import (
-    _JUNCTION_DEACTIVATE_SQL,
-    _JUNCTION_INSERT_SQL,
-    _JUNCTION_LIST_FOR_ESTANCIA_ALL_SQL,
-    _JUNCTION_LIST_FOR_ESTANCIA_SQL,
     EstanciaMaterial,
     MaterialConflictError,
-    _build_junction_write_params,
     _is_unique_violation,
     _row_to_estancia_material,
     _validate_estancia_open_and_active,
@@ -37,7 +40,8 @@ def assign_material_to_estancia(
     2. ``material_id`` must point at an active material (Scenario 8 —
        soft-deleted materials are rejected).
     3. ``cantidad`` is integer > 0 (defense in depth on top of the
-       DB CHECK constraint).
+       DB CHECK constraint — enforced by the
+       ``queries.build_junction_insert`` builder).
 
     The partial unique index
     ``estancia_materiales_active_unique`` on
@@ -51,11 +55,11 @@ def assign_material_to_estancia(
     _validate_estancia_open_and_active(client, estancia_id)
     _validate_material_active(client, material_id)
 
-    write_params = _build_junction_write_params(
+    sql, write_params = queries.build_junction_insert(
         estancia_id, material_id, cantidad, notas
     )
     try:
-        rows = client.execute_sql(_JUNCTION_INSERT_SQL, write_params)
+        rows = client.execute_sql(sql, write_params)
     except InsForgeError as exc:
         if _is_unique_violation(exc):
             raise MaterialConflictError(
@@ -84,12 +88,10 @@ def list_materials_for_estancia(
     ``activos_solo=False`` returns every row including soft-deleted —
     the admin / audit view (Q-T1, deferred to Fase 6c).
     """
-    sql = (
-        _JUNCTION_LIST_FOR_ESTANCIA_SQL
-        if activos_solo
-        else _JUNCTION_LIST_FOR_ESTANCIA_ALL_SQL
+    sql, params = queries.build_junction_list_for_estancia(
+        estancia_id, activos_solo
     )
-    rows = client.execute_sql(sql, [estancia_id])
+    rows = client.execute_sql(sql, params)
     return [_row_to_estancia_material(row) for row in rows]
 
 
@@ -106,7 +108,8 @@ def remove_material_from_estancia(
     historical row in DB (activo=false) for future auditability. No
     admin view yet (Fase 6c).
     """
-    rows = client.execute_sql(_JUNCTION_DEACTIVATE_SQL, [junction_id])
+    sql, params = queries.build_junction_deactivate(junction_id)
+    rows = client.execute_sql(sql, params)
     removed = bool(rows)
     if removed:
         log_safe(

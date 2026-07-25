@@ -1,8 +1,15 @@
 """Catalog service and shared persistence primitives for FOSTER-04 (Refs #46).
 
-Owns catalog CRUD for ``materiales`` plus the SQL, mapping, and validation
-primitives shared with ``estancia_material_service``. Public junction CRUD
-lives in that dedicated service.
+Owns catalog CRUD for ``materiales`` plus the dataclasses, mapping
+helpers, and domain validation shared with the junction service
+(``estancia_material_service``). Public junction CRUD lives in that
+dedicated service.
+
+Per AGENTS.md §22, **all SQL strings and parameter shaping live in
+``queries.py``**; this module imports those builders, applies domain
+validation, and talks to the client. The seam is testable: the shape
+of the SQL is asserted in ``tests/test_materiales_queries.py`` without
+spinning up transport.
 
 Legacy contract (P1 fidelity to ``TbMaterial`` per
 ``docs/proceso.md`` premise P1 + ``data-model-completeness.md`` §4):
@@ -22,7 +29,9 @@ Validation contract (mirrors INTAKE-01 / FOSTER-01 / FOSTER-02 style):
   ``.strip()``.
 - ``observaciones`` is optional (free-text legacy field).
 - ``cantidad`` is integer > 0 (CHECK constraint + Python validation
-  defensively — Q4 in spec #15894).
+  defensively — Q4 in spec #15894). The cantidad validator itself
+  lives in ``queries.py`` because it is part of the SQL parameter
+  contract; it is invoked transparently by ``build_junction_insert``.
 - Assignment to a soft-deleted or closed estancia is rejected — the
   junction only allows assigning a material to an active estancia
   (``acogidas.activo = true AND fecha_final IS NULL``); see Q5 in
@@ -45,24 +54,18 @@ Soft-delete pattern (matches ``app/modules/foster/service.py`` +
   missing / already-inactive).
 
 Framework-agnostic: routes are thin HTTP glue; SQL, validation, and
-mapping all live here.
+mapping all live here and in ``queries.py``.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from functools import partial
-from typing import Any, Final
+from typing import Any
 
 from app.core.data_access import SqlExecutor
-from app.core.forms import optional_text as _optional_text
-from app.core.forms import required_text
 from app.core.insforge import InsForgeError
 from app.core.logging import log_safe
-
-_required_text = partial(
-    required_text, error_template="{field} es obligatorio y no puede estar vacio"
-)
+from app.modules.materiales import queries
 
 # --- exceptions ----------------------------------------------------------
 
@@ -118,187 +121,6 @@ class EstanciaMaterial:
     fecha_alta: str | None = None
 
 
-# --- catalog SQL columns -------------------------------------------------
-
-
-_MATERIAL_WRITE_COLUMNS: Final[tuple[str, ...]] = (
-    "material",
-    "tamano",
-    "color",
-    "observaciones",
-)
-
-
-_MATERIAL_SELECT_COLUMNS: Final[tuple[str, ...]] = (
-    "id",
-    "material",
-    "tamano",
-    "color",
-    "observaciones",
-    "activo",
-    "fecha_alta",
-    "fecha_baja",
-    "updated_at",
-)
-
-
-# --- catalog SQL constants ----------------------------------------------
-
-
-_MATERIAL_INSERT_SQL: Final[str] = (
-    f"INSERT INTO materiales ({', '.join(_MATERIAL_WRITE_COLUMNS)}) "
-    f"VALUES ({', '.join(f'${i + 1}' for i in range(len(_MATERIAL_WRITE_COLUMNS)))}) "
-    f"RETURNING {', '.join(_MATERIAL_SELECT_COLUMNS)}"
-)
-
-
-_MATERIAL_GET_BY_ID_SQL: Final[str] = (
-    f"SELECT {', '.join(_MATERIAL_SELECT_COLUMNS)} "
-    "FROM materiales WHERE id = $1"
-)
-
-
-# Default list — active-only. The inactive-filter version is the
-# _MATERIAL_LIST_ALL_SQL below; activos_solo=True (default) routes to
-# this one and activos_solo=False routes to the all-rows variant.
-_MATERIAL_LIST_FILTER_ACTIVE_SQL: Final[str] = (
-    f"SELECT {', '.join(_MATERIAL_SELECT_COLUMNS)} "
-    "FROM materiales "
-    "WHERE activo = true "
-    "ORDER BY fecha_alta DESC"
-)
-
-
-_MATERIAL_LIST_ALL_SQL: Final[str] = (
-    f"SELECT {', '.join(_MATERIAL_SELECT_COLUMNS)} "
-    "FROM materiales "
-    "ORDER BY fecha_alta DESC"
-)
-
-
-# Atomic soft-delete: existence check + deactivation in one statement
-# under PostgreSQL's row lock. Mirrors
-# ``app/modules/foster/service.py::_DELETE_CASA_SQL`` + the
-# ``acogidas`` precedent.
-_MATERIAL_DEACTIVATE_SQL: Final[str] = """
-UPDATE materiales
-SET activo = false,
-    fecha_baja = now(),
-    updated_at = now()
-WHERE id = $1 AND activo = true
-RETURNING id
-"""
-
-
-# Cascade: soft-delete every active junction row pointing at this
-# material. Runs AFTER the catalog UPDATE so the material row is
-# already inactive when the cascade flips the junctions (defensive
-# ordering — a partial failure between the two would leave the
-# material inactive but the junction rows visible to list, which is
-# recoverable; the inverse (junctions flipped first then catalog
-# UPDATE failing) would orphan the catalog row in a confusing state).
-_MATERIAL_CASCADE_DEACTIVATE_SQL: Final[str] = """
-UPDATE estancia_materiales
-SET activo = false
-WHERE material_id = $1 AND activo = true
-RETURNING id
-"""
-
-
-# --- junction SQL columns ------------------------------------------------
-
-
-_JUNCTION_WRITE_COLUMNS: Final[tuple[str, ...]] = (
-    "estancia_id",
-    "material_id",
-    "cantidad",
-    "notas",
-)
-
-
-_JUNCTION_SELECT_COLUMNS: Final[tuple[str, ...]] = (
-    "id",
-    "estancia_id",
-    "material_id",
-    "cantidad",
-    "notas",
-    "fecha_alta",
-    "activo",
-)
-
-
-# --- junction SQL constants ---------------------------------------------
-
-
-_JUNCTION_INSERT_SQL: Final[str] = (
-    f"INSERT INTO estancia_materiales ({', '.join(_JUNCTION_WRITE_COLUMNS)}) "
-    f"VALUES ({', '.join(f'${i + 1}' for i in range(len(_JUNCTION_WRITE_COLUMNS)))}) "
-    f"RETURNING {', '.join(_JUNCTION_SELECT_COLUMNS)}"
-)
-
-
-_JUNCTION_GET_BY_ID_SQL: Final[str] = (
-    f"SELECT {', '.join(_JUNCTION_SELECT_COLUMNS)} "
-    "FROM estancia_materiales WHERE id = $1"
-)
-
-
-_JUNCTION_LIST_FOR_ESTANCIA_SQL: Final[str] = (
-    f"SELECT {', '.join(_JUNCTION_SELECT_COLUMNS)} "
-    "FROM estancia_materiales "
-    "WHERE estancia_id = $1 AND activo = true "
-    "ORDER BY fecha_alta DESC"
-)
-
-
-# Used by ``list_materials_for_estancia(activos_solo=False)`` for the
-# admin view in Fase 6c (Q-T1). PR A exposes the active-only default.
-_JUNCTION_LIST_FOR_ESTANCIA_ALL_SQL: Final[str] = (
-    f"SELECT {', '.join(_JUNCTION_SELECT_COLUMNS)} "
-    "FROM estancia_materiales "
-    "WHERE estancia_id = $1 "
-    "ORDER BY fecha_alta DESC"
-)
-
-
-# Atomic soft-delete (idempotent).
-_JUNCTION_DEACTIVATE_SQL: Final[str] = """
-UPDATE estancia_materiales
-SET activo = false
-WHERE id = $1 AND activo = true
-RETURNING id
-"""
-
-
-# Cascade by material — same shape as the catalog cascade but exposed
-# as a separate constant for clarity at the call site that wants to
-# re-cascade without re-deactivating the catalog (e.g. a manual
-# audit-log replay).
-_JUNCTION_CASCADE_DEACTIVATE_BY_MATERIAL_SQL: Final[str] = (
-    _MATERIAL_CASCADE_DEACTIVATE_SQL
-)
-
-
-# --- FK existence checks (read-only, no writes) -------------------------
-
-
-# Validate the estancia EXISTS — the service then checks ``activo`` +
-# ``fecha_final`` explicitly so the rejection works against test mocks
-# that don't simulate the WHERE clause. Mirrors
-# ``app/modules/acogidas/service.py::_CHECK_*_SQL``.
-_ESTANCIA_OPEN_AND_ACTIVE_SQL: Final[str] = (
-    "SELECT id, activo, fecha_final FROM acogidas WHERE id = $1"
-)
-
-
-# Same pattern as the estancia check — the service reads ``activo``
-# from the row and rejects when it is False. Mirrors
-# ``app/modules/foster/service.py::_CHECK_*_SQL`` precedent.
-_MATERIAL_ACTIVE_SQL: Final[str] = (
-    "SELECT id, activo FROM materiales WHERE id = $1"
-)
-
-
 # --- mapping --------------------------------------------------------------
 
 
@@ -343,18 +165,6 @@ def _row_to_estancia_material(row: dict[str, Any]) -> EstanciaMaterial:
 # --- domain-specific validation helpers ----------------------------------
 
 
-def _validate_cantidad(value: Any) -> int:
-    """Validate the ``cantidad`` parameter for the junction.
-
-    Mirrors ``app/modules/foster/service.py::_validate_capacidad``.
-    Integer > 0; ``bool`` is rejected explicitly (Python's ``bool`` is
-    an ``int`` subclass, so ``True`` would otherwise pass as ``1``).
-    """
-    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-        raise ValueError("cantidad debe ser un entero positivo (>= 1)")
-    return value
-
-
 def _is_unique_violation(exc: InsForgeError) -> bool:
     """Detect a PostgreSQL 23505 unique-violation surfaced by InsForge.
 
@@ -374,73 +184,6 @@ def _is_unique_violation(exc: InsForgeError) -> bool:
     )
 
 
-# --- catalog write helpers -----------------------------------------------
-
-
-def _build_material_write_params(params: dict[str, Any]) -> list[Any]:
-    """Order matches ``_MATERIAL_WRITE_COLUMNS`` for the INSERT placeholders."""
-    return [
-        _required_text(params, "material"),
-        _required_text(params, "tamano"),
-        _required_text(params, "color"),
-        _optional_text(params, "observaciones"),
-    ]
-
-
-def _build_material_update_sql(
-    params: dict[str, Any],
-) -> tuple[str, list[Any]]:
-    """Build the dynamic UPDATE SQL for ``materiales``.
-
-    Only the keys actually present in ``params`` are written — this
-    is the partial-update contract (omitting ``observaciones`` leaves
-    it untouched). The catalog's PK + ``updated_at`` bump are
-    unconditional; ``activo``, ``fecha_alta``, ``fecha_baja`` are NOT
-    in the write set (those are managed by ``deactivate_material``
-    and the DB defaults).
-    """
-    set_columns = tuple(
-        col for col in _MATERIAL_WRITE_COLUMNS if col in params
-    )
-    if not set_columns:
-        raise ValueError(
-            "update_material requires at least one writable field "
-            "(material / tamano / color / observaciones)"
-        )
-    sql = (
-        "UPDATE materiales SET "
-        + ", ".join(f"{col} = ${i + 2}" for i, col in enumerate(set_columns))
-        + ", updated_at = now() "
-        + "WHERE id = $1 "
-        + "RETURNING " + ", ".join(_MATERIAL_SELECT_COLUMNS)
-    )
-
-    # Build the param list in the same order as set_columns. Re-validate
-    # each field through the same helpers used at create-time so an
-    # empty-string update still raises.
-    param_extractors: dict[str, Any] = {
-        "material": lambda: _required_text(params, "material"),
-        "tamano": lambda: _required_text(params, "tamano"),
-        "color": lambda: _required_text(params, "color"),
-        "observaciones": lambda: _optional_text(params, "observaciones"),
-    }
-    write_params = [param_extractors[col]() for col in set_columns]
-    return sql, write_params
-
-
-# --- junction write helpers ----------------------------------------------
-
-
-def _build_junction_write_params(
-    estancia_id: str,
-    material_id: str,
-    cantidad: int,
-    notas: str | None,
-) -> list[Any]:
-    """Order matches ``_JUNCTION_WRITE_COLUMNS`` for the INSERT placeholders."""
-    return [estancia_id, material_id, _validate_cantidad(cantidad), notas]
-
-
 # --- FK validators --------------------------------------------------------
 
 
@@ -456,7 +199,8 @@ def _validate_estancia_open_and_active(
     ``fecha_final`` explicitly so the rejection works against test
     mocks that don't simulate the WHERE clause.
     """
-    rows = client.execute_sql(_ESTANCIA_OPEN_AND_ACTIVE_SQL, [estancia_id])
+    sql, params = queries.build_estancia_active(estancia_id)
+    rows = client.execute_sql(sql, params)
     if not rows:
         raise ValueError(
             f"estancia_id debe apuntar a una estancia activa y sin "
@@ -484,7 +228,8 @@ def _validate_material_active(
     ValueError as 422). Same Python-side ``activo`` check pattern as
     the estancia validator.
     """
-    rows = client.execute_sql(_MATERIAL_ACTIVE_SQL, [material_id])
+    sql, params = queries.build_material_active(material_id)
+    rows = client.execute_sql(sql, params)
     if not rows:
         raise ValueError(
             f"material_id debe apuntar a un material activo "
@@ -512,9 +257,9 @@ def create_material(
     ``InsForgeError`` to ``MaterialConflictError`` so the route layer
     can map it to HTTP 409 (Scenario 2 in spec #15894).
     """
-    write_params = _build_material_write_params(params)
+    sql, write_params = queries.build_material_insert(params)
     try:
-        rows = client.execute_sql(_MATERIAL_INSERT_SQL, write_params)
+        rows = client.execute_sql(sql, write_params)
     except InsForgeError as exc:
         if _is_unique_violation(exc):
             raise MaterialConflictError(
@@ -536,7 +281,8 @@ def get_material_by_id(
     client: SqlExecutor, material_id: str
 ) -> Material | None:
     """Return one material by id (active or inactive), or None."""
-    rows = client.execute_sql(_MATERIAL_GET_BY_ID_SQL, [material_id])
+    sql, params = queries.build_material_get_by_id(material_id)
+    rows = client.execute_sql(sql, params)
     return _row_to_material(rows[0]) if rows else None
 
 
@@ -549,12 +295,8 @@ def list_materials(
     list view of the catalog. ``activos_solo=False`` returns every row
     (active + inactive) — the admin / audit view used in Fase 6c.
     """
-    sql = (
-        _MATERIAL_LIST_FILTER_ACTIVE_SQL
-        if activos_solo
-        else _MATERIAL_LIST_ALL_SQL
-    )
-    rows = client.execute_sql(sql)
+    sql, params = queries.build_material_list(activos_solo)
+    rows = client.execute_sql(sql, params)
     return [_row_to_material(row) for row in rows]
 
 
@@ -571,7 +313,7 @@ def update_material(
     ``ValueError`` without touching the DB. Returns ``None`` when no
     row matches the id.
     """
-    sql, write_params = _build_material_update_sql(params)
+    sql, write_params = queries.build_material_update(material_id, params)
     try:
         rows = client.execute_sql(sql, [material_id, *write_params])
     except InsForgeError as exc:
@@ -609,14 +351,14 @@ def deactivate_material(
     catalog UPDATE returns no rows so a non-existent material does not
     fan out spurious UPDATE attempts.
     """
-    catalog_rows = client.execute_sql(
-        _MATERIAL_DEACTIVATE_SQL, [material_id]
-    )
+    deact_sql, deact_params = queries.build_material_deactivate(material_id)
+    catalog_rows = client.execute_sql(deact_sql, deact_params)
     deactivated = bool(catalog_rows)
     if deactivated:
-        cascade_rows = client.execute_sql(
-            _MATERIAL_CASCADE_DEACTIVATE_SQL, [material_id]
+        cascade_sql, cascade_params = queries.build_material_cascade_deactivate(
+            material_id
         )
+        cascade_rows = client.execute_sql(cascade_sql, cascade_params)
         log_safe(
             "materiales.deactivated",
             material_id=material_id,
