@@ -1,4 +1,4 @@
-"""Runtime boundary atoms for ``migration.dysflow_client`` (PR1 / M0).
+"""Runtime boundary atoms for ``migration.legacy_access_client`` (PR1 / M0).
 
 This module pins the contract for the legacy ``.accdb`` executor that
 ``apply_legacy_to_web`` and (in M2) ``apply_web_to_legacy`` consume via
@@ -8,7 +8,7 @@ the ``migration.legacy_reader`` seam. Three classes of coverage:
    fake ``pyodbc`` module via ``monkeypatch.setattr`` so the tests run
    on machines that may not have the Microsoft Access driver installed
    (CI, dev laptops). Production wires the real ``pyodbc`` at import
-   time inside ``migration.dysflow_client``.
+   time inside ``migration.legacy_access_client``.
 
 2. **Seam contract** (``set_legacy_query_executor`` /
    ``_execute_legacy_query``). The seam MUST remain stable between M0
@@ -47,8 +47,8 @@ from typing import Any
 
 import pytest
 
-from migration import dysflow_client, legacy_reader
-from migration.dysflow_client import (
+from migration import legacy_access_client, legacy_reader
+from migration.legacy_access_client import (
     LegacyWriteRowcountUnknownError,
     execute_legacy_sql,
     execute_legacy_write,
@@ -109,7 +109,7 @@ class FakeConnection:
 class FakePyodbc:
     """Stand-in for the ``pyodbc`` module the production executor imports.
 
-    Implements the small surface ``migration.dysflow_client`` uses:
+    Implements the small surface ``migration.legacy_access_client`` uses:
 
     - ``drivers() -> list[str]``
     - ``connect(conn_str, *, timeout) -> FakeConnection``
@@ -118,7 +118,7 @@ class FakePyodbc:
 
     Tests pre-load rows/columns per-call by instantiating
     ``FakePyodbc(rows=[...], columns=[...])`` and patching
-    ``dysflow_client._pyodbc_module`` to the instance.
+    ``legacy_access_client._pyodbc_module`` to the instance.
     """
 
     def __init__(
@@ -163,19 +163,19 @@ def fake_pyodbc_factory():
 
     Returns a callable ``make(**kwargs)`` so each test composes the
     fake it needs. The factory also patches
-    ``dysflow_client._pyodbc_module`` to the returned fake and
+    ``legacy_access_client._pyodbc_module`` to the returned fake and
     restores the previous value on teardown.
     """
-    previous = dysflow_client._pyodbc_module
+    previous = legacy_access_client._pyodbc_module
 
     def _make(**kwargs: Any) -> FakePyodbc:
         fake = FakePyodbc(**kwargs)
-        dysflow_client._pyodbc_module = fake
+        legacy_access_client._pyodbc_module = fake
         return fake
 
     yield _make
 
-    dysflow_client._pyodbc_module = previous
+    legacy_access_client._pyodbc_module = previous
 
 
 @pytest.fixture
@@ -285,8 +285,8 @@ def test_execute_legacy_sql_raises_when_pyodbc_not_installed(
     ``_pyodbc_import_error``. The executor must surface a friendly
     error that points the operator at ``pip install '.[etl]'``.
     """
-    monkeypatch.setattr(dysflow_client, "_pyodbc_module", None)
-    monkeypatch.setattr(dysflow_client, "_pyodbc_import_error", ImportError("No pyodbc"))
+    monkeypatch.setattr(legacy_access_client, "_pyodbc_module", None)
+    monkeypatch.setattr(legacy_access_client, "_pyodbc_import_error", ImportError("No pyodbc"))
 
     with pytest.raises(LegacyReaderError) as excinfo:
         execute_legacy_sql("/does/not/matter.accdb", "SELECT TOP 100 * FROM TbFichaAnimal", 0, 100)
@@ -372,7 +372,7 @@ def test_execute_legacy_sql_raises_on_query_failure_and_closes_connection(
             return _Conn()
 
     monkeypatch.setattr(os.path, "isfile", lambda _p: True)
-    monkeypatch.setattr(dysflow_client, "_pyodbc_module", _PyodbcMod())
+    monkeypatch.setattr(legacy_access_client, "_pyodbc_module", _PyodbcMod())
 
     with pytest.raises(LegacyReaderError):
         execute_legacy_sql("/anywhere.accdb", "SELECT BAD SQL", 0, 100)
@@ -462,7 +462,7 @@ def test_reset_executor_seam_restores_default(monkeypatch: pytest.MonkeyPatch) -
     # Reset; the default executor is now in charge. We patch the
     # ``execute_legacy_sql`` name *inside legacy_reader's namespace*
     # (that's where ``_execute_legacy_query`` looks it up via the
-    # module-level ``from migration.dysflow_client import
+    # module-level ``from migration.legacy_access_client import
     # execute_legacy_sql``). The seam-reset path now delegates to the
     # patched default, proving the override was actually cleared.
     default_called = {"called": False}
@@ -552,7 +552,7 @@ def test_execute_legacy_write_does_not_coerce_unknown_rowcount(
             return _Connection()
 
     monkeypatch.setattr(os.path, "isfile", lambda _p: True)
-    monkeypatch.setattr(dysflow_client, "_pyodbc_module", _Pyodbc())
+    monkeypatch.setattr(legacy_access_client, "_pyodbc_module", _Pyodbc())
 
     with pytest.raises(Exception) as excinfo:
         execute_legacy_write(existing_accdb, "UPDATE TbVoluntarios SET Email = ?", ["new@x"])

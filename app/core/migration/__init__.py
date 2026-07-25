@@ -7,7 +7,7 @@ under ``app/core/migration/sql/`` ship in the production wheel.
 
 The ETL one-time (reconcile, diff_engine, shadow_state, derivation,
 semantic_events, lock, cli, sync_state, legacy_reader, web_reader,
-dysflow_client, reporting) and the YAML mappings live in the
+legacy_access_client, reporting) and the YAML mappings live in the
 top-level ``migration/`` package, which is NOT in the wheel. See
 ``migration/__init__.py`` for the public surface.
 """

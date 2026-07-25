@@ -324,7 +324,7 @@ def apply_legacy_to_web(
 
     1. Read a batch via ``legacy_reader.load_legacy_snapshot_batched``
        (legacy executor seam, injected via ``set_legacy_query_executor``
-       in tests; the real runtime driver is ``migration.dysflow_client``).
+       in tests; the real runtime driver is ``migration.legacy_access_client``).
     2. Map every legacy row to its web-column shape via the YAML.
     3. For each mapped row:
        a. Compute the ``source_hash`` (SHA-256 of the canonical JSON).
@@ -367,7 +367,7 @@ def apply_legacy_to_web(
             ``Settings.migration_dir`` global lookup for an
             assertable side-effect input).
         since: optional ISO cursor; ``None`` → full sync.
-        batch_size: legacy rows per Dysflow page (defaults to 100 to
+        batch_size: legacy rows per page (defaults to 100 to
             match ``legacy_reader.BATCH_SIZE``).
         dry_run: when ``True`` the diff plan is computed and reported
             but no INSERT/UPDATE/shadow writes are issued AND the
@@ -389,7 +389,7 @@ def apply_legacy_to_web(
             counter (PR5). The forward applier never invokes
             :func:`record_dni_collision` because legacy
             ``TbVoluntariosParaAutorrellenables`` has no ``DNI`` column
-            (verified by Dysflow ``get_schema`` 2026-07-11), so the
+            (verified by pyodbc schema introspection 2026-07-11), so the
             counter stays at 0 across the entire forward run. The seam
             is wired today so the PR6 reverse applier (``web_to_legacy``)
             can pass a counter and read its value at the end of the
@@ -401,7 +401,7 @@ def apply_legacy_to_web(
         :class:`ApplyResult` with the per-table counts and errors.
 
     Raises:
-        LegacyReaderError: Dysflow I/O failed. Propagated so the CLI
+        LegacyReaderError: pyodbc I/O failed. Propagated so the CLI
             exits 5 (design §1.5); the lock is released via the
             surrounding ``try/finally``.
         MsAccessRunningError: a live ``MSACCESS.EXE`` blocked the
@@ -485,7 +485,7 @@ def apply_legacy_to_web(
                 ),
             )
 
-    # Build the Dysflow TableSpec — only the columns the YAML asks
+    # Build the TableSpec — only the columns the YAML asks
     # for (no ``SELECT *``). We pass them in the YAML's declared order
     # so a future PR can use the column list as a checksum / contract.
     legacy_columns: tuple[str, ...] = tuple(
