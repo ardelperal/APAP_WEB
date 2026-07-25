@@ -1,0 +1,78 @@
+name: insforge-keep-alive
+
+# InsForge pauses free-tier projects after 7 days of inactivity. This
+# workflow pings the project's rawsql endpoint with a trivial SELECT 1
+# every 5 days so the project stays active. The job is hermetic (no
+# checkout, no Python toolchain): it is a single curl against the
+# backend, authenticated with secrets stored in the repo.
+
+on:
+  schedule:
+    # At 00:00 UTC on day-of-month 1, 6, 11, 16, 21, 26, 31. That is
+    # approximately every 5 days, well inside InsForge's 7-day inactivity
+    # pause window. The earlier `0 */120 * * *` was a typo that POSIX
+    # cron interprets as daily at 00:00 (120 is out of the 0–23 hour
+    # range, so `*/120` produces only the value 0).
+    - cron: '0 0 */5 * *'
+  workflow_dispatch:
+
+# No long-lived in-flight runs: a delayed scheduled run must not pile up
+# on a manual one. cancel-in-progress: false so a manual re-run waits
+# for the scheduled run to finish rather than killing it silently.
+concurrency:
+  group: insforge-keep-alive
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  keepalive:
+    name: keepalive
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping InsForge with SELECT 1
+        # The job default is 360 minutes; one curl call should never
+        # need more than a couple of seconds. Capping the step bounds
+        # the blast radius of a hung runner or a backend that accepts
+        # the TCP handshake but never replies.
+        timeout-minutes: 2
+        # Secrets are passed via env: (not interpolated into run: text)
+        # so they do not appear in the process argv on the runner.
+        # -fsS:
+        #   -f: fail (exit 22) on HTTP >= 400 so a dead backend is
+        #        visible in the workflow log instead of silently passing.
+        #   -s: silent (no progress meter) — we log our own one-liner.
+        #   -S: still show errors even when silent.
+        # The http_code is captured via -w so we can log it; the body
+        # is captured via -o so we can show it on failure.
+        env:
+          APAP_INSFORGE_URL: ${{ secrets.APAP_INSFORGE_URL }}
+          APAP_INSFORGE_SERVICE_KEY: ${{ secrets.APAP_INSFORGE_SERVICE_KEY }}
+        run: |
+          set -euo pipefail
+
+          RESP_FILE=$(mktemp)
+          trap 'rm -f "$RESP_FILE"' EXIT
+
+          HTTP_CODE=$(curl -fsS -o "$RESP_FILE" -w '%{http_code}' \
+            -X POST \
+            -H "Authorization: Bearer ${APAP_INSFORGE_SERVICE_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{"query": "SELECT 1 AS keepalive", "params": []}' \
+            "${APAP_INSFORGE_URL}/api/database/advance/rawsql") \
+            || CURL_RC=$?
+          CURL_RC=${CURL_RC:-0}
+
+          # -fsS makes curl exit non-zero on HTTP >= 400, but we also
+          # verify the 2xx range explicitly so any 3xx/4xx/5xx surface
+          # as a workflow failure with diagnostic context.
+          if [ "$CURL_RC" -ne 0 ] || ! [[ "$HTTP_CODE" =~ ^2[0-9][0-9]$ ]]; then
+            echo "::error::InsForge keep-alive FAILED (curl exit ${CURL_RC}, HTTP ${HTTP_CODE})"
+            BODY_PREVIEW=$(head -c 500 "$RESP_FILE" 2>/dev/null | tr '\n' ' ' || echo '<empty>')
+            echo "::error::Response body (first 500 bytes): ${BODY_PREVIEW}"
+            exit 1
+          fi
+
+          BODY_SNIPPET=$(head -c 200 "$RESP_FILE" | tr '\n' ' ')
+          echo "InsForge keep-alive OK — HTTP ${HTTP_CODE} — body[0:200]: ${BODY_SNIPPET}"
