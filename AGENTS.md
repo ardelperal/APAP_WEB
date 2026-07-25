@@ -725,7 +725,156 @@ Docstrings are part of the code contract: claims about current behavior, inputs,
 # Current contract: invalid tokens return 401 and never reach the service.
 ```
 
-Enforcement: PR review using the checklist above. Do not add a new AST detector for prose matching; the heuristic is intentionally cheap and outcome-focused, while §29's Protocol boundary remains enforced independently.
+Enforcement: PR review using the checklist above. Do not add a new AST detector for prose matching; the heuristic is intentionally cheap and outcome-focused, while §31's Protocol boundary remains enforced independently.
+
+### 31. Domain services depend on Protocol abstractions
+
+Domain services MUST depend on Protocol abstractions, never concrete backend clients.
+`app.core.data_access.SqlExecutor`, introduced in #259, is the precedent.
+Example: `def list_items(client: SqlExecutor) -> list[Item]: ...` — not `client: InsForgeClient`.
+
+> Numbering note: this rule shipped as a second "§29", colliding with the
+> auth-cache rule above and sitting below the History separator (which marks
+> archived content). Issue #291 renumbered it to §31 and moved it back into the
+> live-rules section. Cross-references elsewhere that say "§29 Protocol" mean
+> this rule.
+
+### 32. Anti-patterns — reject these by name
+
+The 2026-07-25 full-codebase audit (issue #294) found that most defects were not
+independent mistakes but **eight recurring shapes**. The individual instances are
+tracked as their own issues; this rule exists so the *shapes* get rejected in
+review before they produce new instances. The project is pre-MVP — this is the
+window where conventions harden, and an anti-pattern that survives to MVP
+survives forever.
+
+Each pattern below names its 2026-07-25 instance so the rule stays concrete.
+When you catch one in review, cite it by number: "this is §32.P4".
+
+#### 32.P1 — Perimeter blindness
+
+Hardening concentrates where the work is interesting (auth cache generations,
+CSRF token comparison, PII redaction lists) while the HTTP edge gets nothing.
+
+*Instance:* zero security headers anywhere in `app/` (#276), no rate limiting
+(#286), email never normalised at the boundary (#278) — all while the core
+auth model was revised four times (#143, #145, #146, #262).
+
+**Criterion:** a PR that hardens an internal mechanism must state, in one line,
+what the corresponding edge-layer exposure is and whether it is already covered.
+"Not applicable" is a valid answer; silence is not.
+
+#### 32.P2 — Insecure defaults that still boot
+
+A missing secret degrades into an insecure-but-running app instead of a failed
+deploy.
+
+*Instance:* `session_secret` ships a working development placeholder and
+`insforge_service_key` defaults to `""` (#275). A missing env var meant every
+session cookie was signed with a secret published in this repository.
+
+**Criterion:** no `Settings` field carrying a secret may have a default that
+works in production. Either it has no default and pydantic fails, or startup
+validates it and refuses to serve. A default that is *convenient in dev* must be
+gated on an explicit development flag.
+
+WRONG — the app boots and is silently insecure
+
+```python
+session_secret: str = "dev-only-change-me-in-production"
+```
+
+RIGHT — dev convenience, production refusal
+
+```python
+session_secret: str = "dev-only-change-me-in-production"
+
+# …and in the lifespan, before serving:
+if not settings.debug and settings.session_secret == _DEV_PLACEHOLDER:
+    log_safe("startup.config_invalid", reason="session_secret_placeholder")
+    raise RuntimeError("APAP_SESSION_SECRET must be set in production")
+```
+
+#### 32.P3 — Rules declared without a gate
+
+A rule whose only enforcement is "PR review" does not change behaviour.
+
+*Instance:* rule 22 (query-builder seam) needed a dedicated issue (#205) to get
+its first application, months after landing; eight of nine modules still do not
+follow it (#290). Every rule in this file that actually holds — §1, §9, §20,
+§21, §25, §26, §27, §28 — has an AST detector or a shrink-only ratchet behind it.
+
+**Criterion:** a new rule in this file ships with (a) a detector or ratchet, or
+(b) an explicit baseline plus an adoption deadline. If neither is feasible, write
+it as a documented *preference* and do not claim enforcement it does not have.
+
+#### 32.P4 — Partial exception handling
+
+The expected failure is caught; the adjacent one from the layer below escapes.
+
+*Instance:* `admin_add_user` catches `ValueError` from the service and lets
+`InsForgeError` from the transport reach an unhandled 500 (#277). There is no
+global exception handler in `app/` to catch it either.
+
+**Criterion:** any route calling a service that reaches InsForge handles both the
+domain error and `InsForgeError` — or a global exception handler exists and is
+tested. Never widen to a bare `except Exception` to satisfy this; name the errors.
+
+#### 32.P5 — Docstrings left behind by refactors
+
+*Instance:* the #233 route-thinning changed `photo_service` from streaming to
+buffering and left the module docstring describing the old `StreamingResponse`
+contract, including a `next(byte_iter)` pre-advance step that no longer exists
+(#285).
+
+Rule §30 already forbids this and did not catch it, because the refactor touched
+the *function* while the stale contract lived in the *module* docstring.
+
+**Criterion:** §30's drift check extends to the module docstring of every file in
+the diff, not only the docstrings of the functions that changed. If a module
+docstring describes a data flow, and the diff changes that flow, the docstring is
+part of the diff.
+
+#### 32.P6 — Tests that exist but never run
+
+*Instance:* `test_voluntarios_concurrent.py` hard-fails without PostgreSQL and is
+`--deselect`-ed in CI, so the only regression guard for the TOCTOU fix executes
+nowhere (#282). Same family: the E2E job gated on a secret that is not set
+(#206, #223).
+
+**Criterion:** no test may be simultaneously hard-failing in the default local
+run and excluded in CI. It runs somewhere, or it is a `skip` with a documented
+reason and a linked issue. "Hard fail, not skip" is only a defensible design when
+some pipeline actually satisfies the precondition.
+
+#### 32.P7 — Guards that cancel themselves
+
+Two individually reasonable rules that annihilate each other, with no test
+pinning the interaction.
+
+*Instance:* the CI `deploy` job skips commits matching `^Merge pull request #`,
+while §15.2 makes every deploy-worthy push to `main` exactly such a commit
+(#281). The deploy step had been dead for the entire pre-MVP period.
+
+**Criterion:** every conditional guard in `ci.yml` carries a comment naming which
+real events reach it and which are skipped, and `tests/test_ci_workflow.py` pins
+the condition. A guard nobody can trigger is indistinguishable from a deleted step.
+
+#### 32.P8 — Aggregate metrics hiding per-layer gaps
+
+*Instance:* 89.18% global coverage concealed a route layer between 57% and 83%,
+with `voluntarios/routes.py` at 57.3% (#288). The floor in `pyproject.toml` is
+global, so nothing complained.
+
+**Criterion:** quality floors are declared per layer, not only in aggregate. When
+you raise a global threshold, check the distribution underneath it first and say
+in the PR which file is the current minimum.
+
+Enforcement: PR review, using the numbered criteria above as the checklist.
+§32.P2, §32.P3, §32.P6 and §32.P7 are the four that are mechanically checkable —
+when a PR adds a `Settings` secret, a new rule, a test, or a CI guard, the
+reviewer applies the matching criterion before approving. The audit that produced
+this rule is issue #294; its findings are labelled `audit-2026-07-25`.
 
 ---
 
@@ -733,9 +882,3 @@ Enforcement: PR review using the checklist above. Do not add a new AST detector 
 > rows DONE during the `hardening-2026-q2` chain) was moved out of this file to
 > [`docs/hardening-2026-q2-rule-history.md`](docs/hardening-2026-q2-rule-history.md).
 > This file carries only the live rules.
-
-### 29. Domain services depend on Protocol abstractions
-
-Domain services MUST depend on Protocol abstractions, never concrete backend clients.
-`app.core.data_access.SqlExecutor`, introduced in #259, is the precedent.
-Example: `def list_items(client: SqlExecutor) -> list[Item]: ...` — not `client: InsForgeClient`.
