@@ -18,11 +18,12 @@ en ``app.core.auth_dependencies`` para evitar el copy-paste con
 
 from __future__ import annotations
 
+from itertools import chain
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
 from app.core.auth_dependencies import (
@@ -34,6 +35,7 @@ from app.core.auth_dependencies import (
 from app.core.csrf import csrf_token_context_processor
 from app.core.forms import optional_value
 from app.core.insforge import InsForgeClient, InsForgeError
+from app.core.logging import log_safe
 from app.core.middleware import base_template_context_processor
 from app.modules.animals import photo_service
 from app.modules.animals import service as animals_service
@@ -324,19 +326,34 @@ def delete_animal_view(
 @router.get("/{animal_id}/foto")
 def animal_foto(
     animal_id: str,
+    request: Request,
     user: Response | dict = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
-    """Translate the photo service outcome into an HTTP response."""
     if (early := return_early_if_response(user)) is not None:
         return early
-    result = photo_service.resolve_animal_photo(client, animal_id)
-    if result is None:
+    outcome = photo_service.resolve_animal_photo(client, animal_id)
+    if outcome is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-    return Response(
-        content=result.content,
-        media_type=result.media_type,
-    )
+    if outcome.status == "not_found":
+        return StreamingResponse(outcome.stream, media_type=outcome.content_type, headers={
+            "ETag": outcome.etag, "Cache-Control": outcome.cache_control,
+            **({"Content-Length": str(outcome.content_length)} if outcome.content_length else {}),
+        })
+    if request.headers.get("if-none-match") == outcome.etag:
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers={
+            "ETag": outcome.etag, "Cache-Control": outcome.cache_control})
+    try:
+        first_chunk = next(outcome.stream)
+    except StopIteration:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND) from None
+    except Exception as exc:
+        log_safe("animals.photo.stream_error", animal_id=animal_id, error=type(exc).__name__)
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND) from None
+    return StreamingResponse(chain([first_chunk], outcome.stream), media_type=outcome.content_type, headers={
+        "ETag": outcome.etag, "Cache-Control": outcome.cache_control,
+        **({"Content-Length": str(outcome.content_length)} if outcome.content_length else {}),
+    })
 
 
 # --- helpers -------------------------------------------------------------
