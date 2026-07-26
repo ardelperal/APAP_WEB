@@ -69,6 +69,7 @@ from app.core.auth_dependencies import (
     get_insforge_client_dep as get_insforge_client,
 )
 from app.core.catalogs import ensure_catalogs
+from app.core.config import _validate_secrets
 from app.core.csrf import csrf_token_context_processor, issue_csrf_to_session
 from app.core.domain import ensure_domain_schema
 from app.core.insforge import InsForgeClient, InsForgeError
@@ -188,6 +189,12 @@ async def lifespan(_: FastAPI):
     # in the steps below is captured by the JSON stdout handler with
     # PII redaction applied.
     configure_logging(settings)
+    # §32.P2 (issue #275): refuse to boot with missing/placeholder/short secrets.
+    # Called AFTER configure_logging so log_safe output is captured.
+    # Called BEFORE InsForgeClient(...) so no network call happens with bad config.
+    # StartupConfigError propagates — the try/finally below does NOT catch it.
+    if not settings.debug:
+        _validate_secrets(settings)
     client = InsForgeClient(settings.insforge_url, settings.insforge_service_key)
     # Keep one InsForgeClient (and its underlying httpx connection pool) alive
     # for the complete application lifetime. The request dependency reads
