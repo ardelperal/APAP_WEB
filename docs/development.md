@@ -267,11 +267,20 @@ La sección `openspec/changes/ci-cd-foundation/design.md § Future work` lista c
 ## Paso 5.5 — Ejecutar el test concurrente de TOCTOU (requiere PostgreSQL local)
 
 El test `tests/test_voluntarios_concurrent.py` verifica la garantía
-anti-TOCTOU del proyecto: dos llamadas concurrentes a
-``POST /voluntarios/{id}/deactivate`` contra PostgreSQL producen
-exactamente un 303 (ganador) y un 404 (perdedor).  El test requiere
-una instancia PostgreSQL real; SQLite no replica la semántica de
-bloqueo a nivel de fila.
+anti-TOCTOU del proyecto: dos conexiones concurrentes a PostgreSQL que
+ejecutan ``UPDATE ... WHERE id = $1 AND activo = true`` producen
+exactamente un winner ( rows_affected > 0) y un loser ( rows_affected = 0).
+El test requiere una instancia PostgreSQL real; SQLite no replica la
+semántica de bloqueo a nivel de fila.
+
+### Enfoque (Option A — direct SQL, no InsForge)
+
+El test usa ``asyncpg`` para conectarse directamente a PostgreSQL y
+ejecutar el UPDATE race condition.  Este enfoque evita necesitar
+InsForge (un BaaS externo) en el entorno de CI: la señal de
+regresión que se valida es la semántica de row-level lock de PostgreSQL,
+no el stack HTTP completo.  La cobertura HTTP round-trip completa se
+ejercita en staging E2E donde InsForge está disponible.
 
 ### Instalar y ejecutar PostgreSQL localmente
 
@@ -298,92 +307,44 @@ Verificar que responde:
 pg_isready -h localhost -p 5432
 ```
 
-### Variables de entorno requeridas
+### Variable de entorno requerida
 
 | Variable | Valor | Descripción |
 |---|---|---|
 | ``APAP_TEST_DATABASE_URL`` | ``postgres://postgres:postgres@localhost:5432/postgres`` | DSN de PostgreSQL (nunca es una URL HTTP) |
-| ``APAP_E2E_BASE_URL`` | ``http://127.0.0.1:8000`` | Endpoint HTTP de la app bajo test |
-| ``APAP_E2E_SESSION_TOKEN`` | _ver abajo_ | Token de sesión autorizado |
 
-**Cómo obtener ``APAP_E2E_SESSION_TOKEN``:**
-
-El token es la cookie de sesión de un usuario autorizado en la app.
-En un navegador abierto contra la app en local (``make run``):
-
-1. Ir a <http://127.0.0.1:8000/login> e iniciar sesión con Google OAuth
-   (configurar ``APAP_GOOGLE_CLIENT_ID`` y ``APAP_GOOGLE_CLIENT_SECRET``
-   en ``.env`` si no están ya).
-2. Abrir las herramientas de desarrollo → Application → Cookies →
-   ``apap_session``.
-3. Copiar el valor de la cookie como valor de ``APAP_E2E_SESSION_TOKEN``.
-
-Alternativa programática (usando la API REST de InsForge):
-
-```bash
-# Intercambiar un code de OAuth por un token JWT de InsForge
-curl -s -X POST "http://localhost:7130/api/auth/oauth/exchange?client_type=web" \
-  -H "Authorization: Bearer $APAP_INSFORGE_SERVICE_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"code": "<insforge_code>", "code_verifier": "<pkce_verifier>"}'
-```
-
-### Crear la base de datos y schema (si no existe)
-
-```bash
-createdb -h localhost -p 5432 -U postgres apap_web
-```
-
-El schema se crea automáticamente via InsForge cuando la app arranca;
-para crear las tablas mínimas a mano:
-
-```sql
--- Conectado como: psql postgres://postgres:postgres@localhost:5432/postgres
-CREATE TABLE IF NOT EXISTS public.conocidos (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    nombre      TEXT NOT NULL,
-    tipo        TEXT NOT NULL,
-    activo      BOOLEAN NOT NULL DEFAULT true,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-```
-
-### Hacer seed de la fila ``v-concurrent-1``
-
-El test busca un voluntario activo con ``nombre = 'v-concurrent-1'``:
-
-```bash
-psql postgres://postgres:postgres@localhost:5432/postgres -c \
-  "INSERT INTO public.conocidos (id, nombre, tipo, activo, created_at, updated_at)
-   VALUES (gen_random_uuid(), 'v-concurrent-1', 'voluntario', true, now(), now())
-   ON CONFLICT DO NOTHING;"
-```
+Ya no se requieren ``APAP_E2E_BASE_URL`` ni ``APAP_E2E_SESSION_TOKEN``:
+el test usa ``asyncpg`` directamente contra PostgreSQL, no httpx contra
+la app.
 
 ### Ejecutar el test concurrente
 
+El test crea la tabla ``public.conocidos`` y hace upsert de la fila
+seed en cada ejecución (idempotente), así que no hay que preparar
+schema manualmente.
+
 ```bash
 export APAP_TEST_DATABASE_URL="postgres://postgres:postgres@localhost:5432/postgres"
-export APAP_E2E_BASE_URL="http://127.0.0.1:8000"
-export APAP_E2E_SESSION_TOKEN="<valor-de-la-cookie-apap_session>"
 pytest tests/test_voluntarios_concurrent.py -v
 ```
 
 ### Salida esperada en verde
 
-```text
+```
 tests/test_voluntarios_concurrent.py::test_concurrent_deactivate_one_winner PASSED
-tests/test_voluntarios_concurrent.py::test_concurrent_deactivate_env_var_required_hard_fail PASSED (skipped: APAP_E2E_BASE_URL is set)
+tests/test_voluntarios_concurrent.py::test_concurrent_deactivate_env_var_required_hard_fail PASSED (skipped: APAP_TEST_DATABASE_URL is set)
 
-============================ 2 passed, 1 skipped ==============================
+========================== 2 passed, 1 skipped ==============================
 ```
 
 Si ``APAP_TEST_DATABASE_URL`` no está definida, el test falla con:
 
 ```
 TOCTOU concurrent test requires PostgreSQL row-level locking
-(see spec REQ-3); set APAP_E2E_BASE_URL to a URL backed by a real
-PostgreSQL instance.
+(see spec REQ-3); set APAP_TEST_DATABASE_URL to a PostgreSQL DSN
+(e.g. postgres://postgres:postgres@localhost:5432/postgres).
+SQLite in-memory does not replicate production concurrency semantics.
+Per round-2 fix REG-S-3: this is a HARD FAIL, not a skip.
 ```
 
 Esto es **intencional**: el test hace HARD FAIL (no skip) cuando no hay

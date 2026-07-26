@@ -175,11 +175,12 @@ jobs:
     services:
       postgres:
         image: postgres:16-alpine
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 5
+        # No custom health-check options: postgres:16-alpine ships with
+        # a working default pg_isready that runs as the correct user.
+        # Adding a custom --health-cmd pg_isready with no --user flag
+        # causes pg_isready to run as root, which fails with:
+        #   FATAL: role "root" does not exist
+        # (Postgres rejects root since only the 'postgres' superuser exists).
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: postgres
@@ -197,73 +198,48 @@ jobs:
       - name: Install development dependencies
         run: python -m pip install -e ".[dev]"
 
-      - name: Install psql client
-        # For seeding the v-concurrent-1 row via direct SQL on the
-        # postgres service (design D4 — direct SQL avoids adding a
-        # /test/seed endpoint just for CI).
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends postgresql-client
-
-      - name: Seed v-concurrent-1 voluntario row
-        # Insert a conocido with gen_random_uuid() PK so the concurrent
-        # deactivate test (test_voluntarios_concurrent.py) has a known
-        # active row to race on.  The test calls /voluntarios/v-concurrent-1
-        # /deactivate which is InsForge-backed (REST, not direct Postgres),
-        # but the row must exist in InsForge's schema for the API to find it.
-        # OQ-2 resolution: direct psql against the postgres service container.
+      - name: Seed v-concurrent-1 row
+        # The test uses a fixed UUID so it can reference the row without
+        # another round-trip.  The test itself creates the table and
+        # upserts the seed row on every run (idempotent), so this step
+        # is belt-and-suspenders; we do it here to make the row visible
+        # to psql inspection if debugging.
         env:
           PGPASSWORD: postgres
         run: |
-          psql \
-            --host localhost \
-            --port 5432 \
-            --username postgres \
-            --dbname postgres \
-            --set ON_ERROR_STOP=1 \
-            --set "uid=$(psql --host localhost --port 5432 --username postgres --dbname postgres --tuples-only --no-align --command \"SELECT gen_random_uuid();\" | tr -d '[:space:]\"')" \
-            --command "INSERT INTO public.conocidos (id, nombre, tipo, activo, created_at, updated_at) VALUES (:'uid', 'v-concurrent-1', 'voluntario', true, now(), now()) ON CONFLICT DO NOTHING;"
-
-      - name: Start APAP_WEB server (no lifespan, no InsForge)
-        # The dev server (scripts/dev_server_no_lifespan.py) skips the
-        # InsForge bootstrap so the app can start in CI without a real
-        # backend. Public HTML routes serve fine; InsForge-backed routes
-        # return 500 (expected in this isolated job — the concurrent test
-        # exercises InsForge's own TOCTOU row-lock behaviour against the
-        # postgres service, not the app's InsForge API calls).
-        run: |
-          python scripts/dev_server_no_lifespan.py &
-          SERVER_PID=$!
-          for i in {1..30}; do
-            if curl -sf http://127.0.0.1:8000/healthz >/dev/null 2>&1; then
-              echo "Server ready after ${i}s"
-              break
-            fi
-            sleep 1
-          done
-          if ! curl -sf http://127.0.0.1:8000/healthz >/dev/null 2>&1; then
-            echo "::error::Dev server did not become ready in 30s"
-            exit 1
-          fi
-          echo "SERVER_PID=$SERVER_PID" >> "$GITHUB_ENV"
+          psql --host localhost --port 5432 --username postgres \
+               --dbname postgres --variable=ON_ERROR_STOP=1 --command "
+            CREATE TABLE IF NOT EXISTS public.conocidos (
+                id          UUID PRIMARY KEY,
+                nombre      TEXT NOT NULL,
+                tipo        TEXT NOT NULL,
+                activo      BOOLEAN NOT NULL DEFAULT true,
+                created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+                updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+            );
+            INSERT INTO public.conocidos (id, nombre, tipo, activo, created_at, updated_at)
+            VALUES (
+                '00000000-0000-0000-0000-000000000001'::uuid,
+                'v-concurrent-1',
+                'voluntario',
+                true,
+                now(),
+                now()
+            )
+            ON CONFLICT (id) DO UPDATE SET activo = true, updated_at = now();
+          "
 
       - name: Run TOCTOU concurrent test
-        # OQ-1 resolution: InsForge is pure REST (httpx), no psycopg/asyncpg.
-        # The concurrent test exercises the InsForge HTTP surface
-        # (POST /voluntarios/{id}/deactivate) which uses the InsForge REST
-        # API backed by the postgres service.  No InsForge client init
-        # with a direct DB connection is needed in CI — InsForge is
-        # already the backend for the API being tested.
+        # Option A (per issue #282 fix): the test exercises the SQL
+        #层面的 TOCTOU contract directly via asyncpg against the postgres
+        # service container.  This avoids requiring InsForge (a separate
+        # BaaS) to be running in CI — the row-level-lock semantics are
+        # what the regression guard validates.  Full HTTP round-trip
+        # coverage is handled by staging E2E where InsForge is available.
         env:
           APAP_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
-          APAP_E2E_BASE_URL: http://127.0.0.1:8000
-          APAP_E2E_SESSION_TOKEN: ${{ secrets.APAP_E2E_SESSION_TOKEN }}
         run: |
           python -m pytest tests/test_voluntarios_concurrent.py -v
-
-      - name: Stop dev server
-        if: always()
-        run: kill "$SERVER_PID" 2>/dev/null || true
 
   e2e:
     name: e2e

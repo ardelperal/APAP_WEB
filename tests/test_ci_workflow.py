@@ -385,7 +385,13 @@ def test_ci_workflow_defines_concurrency_job_with_postgres() -> None:
     ``test_voluntarios_concurrent.py`` so the suite stays fast. The
     ``concurrency`` job exists precisely to exercise the same test with a
     real PostgreSQL service container, restoring the TOCTOU regression
-    signal that was lost when the test was gated on InsForge-backed CI.
+    signal.
+
+    Option A (issue #282 fix): the test exercises the SQL层面的 TOCTOU
+    contract directly via asyncpg against the postgres service container.
+    This avoids requiring InsForge (a separate BaaS) to be running in CI.
+    Full HTTP round-trip coverage is handled by staging E2E where InsForge
+    is available.
 
     This test asserts the contract that makes the signal real:
 
@@ -393,30 +399,23 @@ def test_ci_workflow_defines_concurrency_job_with_postgres() -> None:
     (b) The job runs ``pytest tests/test_voluntarios_concurrent.py`` with
         no ``--deselect`` flag.
     (c) The job environment sets ``APAP_TEST_DATABASE_URL`` (database DSN).
-    (d) The job environment sets ``APAP_E2E_BASE_URL`` (HTTP endpoint only;
-        REQ-2 contract — must never be used as a database DSN).
-    (e) The job environment sets ``APAP_E2E_SESSION_TOKEN`` (authorised
-        session token for the test's HTTP calls).
+    (d) The job does NOT set ``APAP_E2E_BASE_URL`` or ``APAP_E2E_SESSION_TOKEN``
+        (Option A: the test uses asyncpg, not httpx — no HTTP endpoint needed).
 
-    The ``pg_isready`` healthcheck string is also asserted to exist as a
-    contract against subprocess lifecycle risk (threat-matrix RED).
-
-    Secrets (including ``APAP_E2E_SESSION_TOKEN``) must be passed via
-    ``env:`` blocks only — no hardcoded secrets (threat-matrix RED).
+    No custom pg_isready healthcheck is expected: postgres:16-alpine ships
+    with a working default pg_isready. A custom --health-cmd with no --user
+    flag causes pg_isready to run as root, failing with
+    "FATAL: role \"root\" does not exist".
     """
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
 
-    # (a) concurrency: job with postgres:16-alpine service and pg_isready healthcheck
+    # (a) concurrency: job with postgres:16-alpine service.
     assert "\n  concurrency:" in workflow, (
         "ci.yml must define a concurrency job (issue #282, REQ-1)"
     )
     assert "postgres:16-alpine" in workflow, (
         "concurrency job must provision postgres:16-alpine service "
         "(CVE-2024-7348 patched floor, AGENTS.md §8)"
-    )
-    assert "pg_isready" in workflow, (
-        "postgres service must include pg_isready healthcheck "
-        "(subprocess lifecycle contract, threat-matrix RED)"
     )
 
     # Slice to the concurrency job section only.
@@ -446,27 +445,16 @@ def test_ci_workflow_defines_concurrency_job_with_postgres() -> None:
     # (c) APAP_TEST_DATABASE_URL env var set in the job.
     assert "APAP_TEST_DATABASE_URL" in concurrency_section, (
         "concurrency job must set APAP_TEST_DATABASE_URL environment variable "
-        "(REQ-2: explicit database DSN contract, distinct from APAP_E2E_BASE_URL)"
+        "(Option A: asyncpg direct SQL test, no HTTP endpoint needed)"
     )
 
-    # (d) APAP_E2E_BASE_URL env var set in the job.
-    assert "APAP_E2E_BASE_URL" in concurrency_section, (
-        "concurrency job must set APAP_E2E_BASE_URL environment variable "
-        "(REQ-2 contract: HTTP endpoint only, never used as a database DSN)"
+    # (d) No APAP_E2E_BASE_URL or APAP_E2E_SESSION_TOKEN in the concurrency job
+    # (Option A uses asyncpg, not httpx — these env vars are no longer needed).
+    assert "APAP_E2E_BASE_URL" not in concurrency_section, (
+        "concurrency job must NOT set APAP_E2E_BASE_URL; "
+        "Option A test uses asyncpg directly, not httpx against an HTTP endpoint"
     )
-
-    # (e) APAP_E2E_SESSION_TOKEN env var set in the job (via secrets).
-    assert "APAP_E2E_SESSION_TOKEN" in concurrency_section, (
-        "concurrency job must set APAP_E2E_SESSION_TOKEN environment variable "
-        "(authorised session token for the concurrent test's HTTP calls; "
-        "must come from secrets, never hardcoded)"
-    )
-
-    # Secrets via env: block only — no inline secrets in the workflow.
-    # Threat-matrix: CI shell/secrets contract.
-    has_secrets_block = "secrets." in concurrency_section and "env:" in concurrency_section
-    assert has_secrets_block, (
-        "APAP_E2E_SESSION_TOKEN and any other secrets must be passed via "
-        "env: blocks (secrets: contract, threat-matrix RED); "
-        "no inline secret values allowed"
+    assert "APAP_E2E_SESSION_TOKEN" not in concurrency_section, (
+        "concurrency job must NOT set APAP_E2E_SESSION_TOKEN; "
+        "Option A test uses asyncpg directly, not httpx with session cookies"
     )

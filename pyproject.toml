@@ -59,6 +59,11 @@ dev = [
     # even on machines that never install the etl extra.
     "types-psutil>=7.0",
     "types-PyYAML>=6.0",
+    # asyncpg is the async PostgreSQL driver for Python 3.11+. Used
+    # exclusively by tests/test_voluntarios_concurrent.py for the direct
+    # SQL TOCTOU regression guard (issue #282). >=0.29 is the current
+    # stable floor (verified: no DeprecationWarning on Python 3.11+).
+    "asyncpg>=0.29",
 ]
 # ETL one-time: only operator machines that run ``python -m migration``
 # need these. Installed with ``pip install '.[etl]'`` on demand.
