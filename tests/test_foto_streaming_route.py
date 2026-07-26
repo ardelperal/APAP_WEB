@@ -23,7 +23,6 @@ from app.core.insforge import InsForgeClient
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
 
-
 PLACEHOLDER_PNG = (
     b"\x89PNG\r\n\x1a\n"
     b"\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
@@ -302,15 +301,12 @@ class TestFotoMidStreamFailure:
             assert response.status_code in (200, 500), (
                 f"Expected 200 (partial) or 500, got {response.status_code}"
             )
-        except Exception as exc:
+        except Exception:
             # If an exception propagates, that's also acceptable for a
             # mid-stream failure scenario
             pass
 
         # log_safe must have been called with the stream error
-        stream_error_logs = [
-            (e, f) for e, f in logged if "photo" in e.lower() or "stream" in e.lower()
-        ]
         # At minimum, the route's outer handler must have logged something
         # related to the stream error (exact event name per implementation)
         assert any("animals" in e and "photo" in str(f) for e, f in logged) or len(logged) >= 0
@@ -326,22 +322,11 @@ class TestFotoRouteSize:
 
     def test_animal_foto_handler_line_count(self) -> None:
         """Count non-blank, non-comment lines in animal_foto handler."""
-        import ast
         import inspect
 
         from app.modules.animals.routes import animal_foto
 
         source = inspect.getsource(animal_foto)
-        lines = [
-            line.strip()
-            for line in source.splitlines()
-            if line.strip() and not line.strip().startswith("#")
-        ]
-        # Remove the function signature and docstring lines
-        code_lines = [
-            line for line in lines
-            if not line.startswith('"""') and not line.startswith("def animal_foto")
-        ]
         # Count actual body lines
         handler_lines = [
             line for line in source.splitlines()
