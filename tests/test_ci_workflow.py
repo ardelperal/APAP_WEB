@@ -281,9 +281,9 @@ def test_ci_workflow_defines_deploy_job_with_gating() -> None:
 
     assert "  deploy:" in workflow
     assert "  name: deploy" in workflow
-    # needs must reference the four required jobs (typecheck added by
-    # issue #201 — the type gate is mandatory before deploy).
-    assert "needs: [lint, typecheck, test, build]" in workflow
+    # needs must reference the five required jobs (typecheck added by
+    # issue #201; concurrency added by issue #282 — TOCTOU gate).
+    assert "needs: [lint, typecheck, test, concurrency, build]" in workflow
     # gating: only on push to main, never on PRs
     # (two if: lines combined with AND are also acceptable, per tasks.md 2.1)
     gating_ok = (
@@ -370,3 +370,103 @@ def test_ci_workflow_deploy_job_has_secret_leak_grep() -> None:
     assert workflow.count("Diagnostic secret-leak scan") >= 2
     # And the deploy-scoped variant targets the build outputs / source (not only .github/)
     assert "grep -rE '(http://|https://|sk-|ghp_)[A-Za-z0-9]+' . --exclude-dir=.git" in workflow
+
+
+# ---------------------------------------------------------------------------
+# PostgreSQL TOCTOU regression gate — issue #282
+# ---------------------------------------------------------------------------
+
+
+def test_ci_workflow_defines_concurrency_job_with_postgres() -> None:
+    """REQ-1 / REQ-3: the CI ``concurrency`` job provisions PostgreSQL and
+    runs the TOCTOU regression guard without deselection.
+
+    The ``test`` job deliberately omits PostgreSQL and deselects
+    ``test_voluntarios_concurrent.py`` so the suite stays fast. The
+    ``concurrency`` job exists precisely to exercise the same test with a
+    real PostgreSQL service container, restoring the TOCTOU regression
+    signal that was lost when the test was gated on InsForge-backed CI.
+
+    This test asserts the contract that makes the signal real:
+
+    (a) ``concurrency:`` job exists with a ``postgres:16-alpine`` service.
+    (b) The job runs ``pytest tests/test_voluntarios_concurrent.py`` with
+        no ``--deselect`` flag.
+    (c) The job environment sets ``APAP_TEST_DATABASE_URL`` (database DSN).
+    (d) The job environment sets ``APAP_E2E_BASE_URL`` (HTTP endpoint only;
+        REQ-2 contract — must never be used as a database DSN).
+    (e) The job environment sets ``APAP_E2E_SESSION_TOKEN`` (authorised
+        session token for the test's HTTP calls).
+
+    The ``pg_isready`` healthcheck string is also asserted to exist as a
+    contract against subprocess lifecycle risk (threat-matrix RED).
+
+    Secrets (including ``APAP_E2E_SESSION_TOKEN``) must be passed via
+    ``env:`` blocks only — no hardcoded secrets (threat-matrix RED).
+    """
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+
+    # (a) concurrency: job with postgres:16-alpine service and pg_isready healthcheck
+    assert "\n  concurrency:" in workflow, (
+        "ci.yml must define a concurrency job (issue #282, REQ-1)"
+    )
+    assert "postgres:16-alpine" in workflow, (
+        "concurrency job must provision postgres:16-alpine service "
+        "(CVE-2024-7348 patched floor, AGENTS.md §8)"
+    )
+    assert "pg_isready" in workflow, (
+        "postgres service must include pg_isready healthcheck "
+        "(subprocess lifecycle contract, threat-matrix RED)"
+    )
+
+    # Slice to the concurrency job section only.
+    concurrency_start = workflow.index("\n  concurrency:")
+    # Find the next top-level job or end of file.
+    remaining = workflow[concurrency_start + len("\n  concurrency:"):]
+    next_job_match = None
+    for marker in ["\n  lint:", "\n  typecheck:", "\n  test:", "\n  build:", "\n  e2e:", "\n  deploy:"]:
+        idx = remaining.index(marker) if marker in remaining else None
+        if idx is not None:
+            if next_job_match is None or idx < next_job_match:
+                next_job_match = idx
+    concurrency_section = remaining[:next_job_match] if next_job_match is not None else remaining
+
+    # (b) No --deselect for test_voluntarios_concurrent.py in the concurrency job.
+    # The test job deselects it (expected); the concurrency job must NOT.
+    has_concurrent_pytest = "pytest tests/test_voluntarios_concurrent.py" in concurrency_section
+    has_deselect = "--deselect tests/test_voluntarios_concurrent.py" in concurrency_section
+    assert has_concurrent_pytest, (
+        "concurrency job must run pytest tests/test_voluntarios_concurrent.py"
+    )
+    assert not has_deselect, (
+        "concurrency job must NOT deselect test_voluntarios_concurrent.py; "
+        "the whole point of this job is to run it with a real PostgreSQL instance"
+    )
+
+    # (c) APAP_TEST_DATABASE_URL env var set in the job.
+    assert "APAP_TEST_DATABASE_URL" in concurrency_section, (
+        "concurrency job must set APAP_TEST_DATABASE_URL environment variable "
+        "(REQ-2: explicit database DSN contract, distinct from APAP_E2E_BASE_URL)"
+    )
+
+    # (d) APAP_E2E_BASE_URL env var set in the job.
+    assert "APAP_E2E_BASE_URL" in concurrency_section, (
+        "concurrency job must set APAP_E2E_BASE_URL environment variable "
+        "(REQ-2 contract: HTTP endpoint only, never used as a database DSN)"
+    )
+
+    # (e) APAP_E2E_SESSION_TOKEN env var set in the job (via secrets).
+    assert "APAP_E2E_SESSION_TOKEN" in concurrency_section, (
+        "concurrency job must set APAP_E2E_SESSION_TOKEN environment variable "
+        "(authorised session token for the concurrent test's HTTP calls; "
+        "must come from secrets, never hardcoded)"
+    )
+
+    # Secrets via env: block only — no inline secrets in the workflow.
+    # Threat-matrix: CI shell/secrets contract.
+    has_secrets_block = "secrets." in concurrency_section and "env:" in concurrency_section
+    assert has_secrets_block, (
+        "APAP_E2E_SESSION_TOKEN and any other secrets must be passed via "
+        "env: blocks (secrets: contract, threat-matrix RED); "
+        "no inline secret values allowed"
+    )

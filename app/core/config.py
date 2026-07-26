@@ -107,6 +107,13 @@ class Settings(BaseSettings):
     # to ``INFO`` at runtime (the typed default is ``"INFO"``).
     log_level: str = "INFO"
 
+    # --- Test infrastructure (issue #282) ---------------------------------
+    # Explicit PostgreSQL DSN for the concurrent TOCTOU regression test.
+    # Distinct from APAP_E2E_BASE_URL (which is HTTP-only, never a DSN).
+    # Consumer: none yet (contract-only field per REQ-2).  The app's
+    # InsForge backend is addressed via InsForgeClient, not via this var.
+    test_database_url: str = ""
+
     debug: bool = False
 
     # --- RBAC: roles allowed to write (issue #144) --------------------
