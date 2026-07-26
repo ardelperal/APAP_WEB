@@ -30,6 +30,30 @@ class Violation:
 
 
 @dataclass(frozen=True)
+class QuerySeamBaselineNote:
+    """An INFORMATIONAL note emitted when a module in
+    ``BASELINE_NO_QUERIES_MODULES`` is scanned.
+
+    Unlike ``Violation``, this is NOT a CRITICAL and does not block CI.
+    The note exists so the operator knows which legacy modules are
+    grandfathered and therefore how much migration work remains to bring
+    the codebase fully into compliance with Rule §22.
+
+    Detector scope: modules under ``app/modules/`` that are listed in
+    ``BASELINE_NO_QUERIES_MODULES``. When a non-baselined module has
+    ``_*_SQL`` constants in ``service.py`` without a ``queries.py``
+    seam, a ``Violation`` is emitted instead of (or in addition to) this
+    note.
+    """
+
+    module_name: str
+    file: Path
+    line: int
+    rule_id: str = "query_seam_baseline_note"
+    message: str = ""
+
+
+@dataclass(frozen=True)
 class PiiRouteGap:
     """A WARNING-level surface drift between app/ routes and the
     ``PII_ROUTES_PARAMETRIZE`` tuple in ``tests/test_public_paths.py``.
@@ -116,6 +140,48 @@ DEFAULT_EXCLUDES: frozenset[str] = frozenset(
         # ``logging.getLogger(...)`` (it owns the log_safe wrapper).
         # Detector 5 (APAP003) skips it via the same path prefix.
         "app/core/logging.py",
+        # Detector 13 query seam fixtures — the fixture modules themselves
+        # (compliant, legacy, empty, sibling, synthetic_violation) are
+        # scanned by the dedicated fixture tests and must not be hit by
+        # the live repo scan.
+        "tests/fixtures/query_seam",
+    }
+)
+
+# Detector 13 (Rule 22) ----------------------------------------------------
+#
+# ``query_seam_violation`` — flags CRITICAL when a non-baselined
+# ``app/modules/<M>/`` has a ``_*_SQL`` constant in ``service.py`` but no
+# ``queries.py`` seam. The seven legacy modules already without
+# ``queries.py`` are grandfathered in ``BASELINE_NO_QUERIES_MODULES``;
+# adding any of them to the baseline is the correct migration path.
+#
+# Rationale: §22 requires query construction to live in ``queries.py``.
+# The detector fires on ``service.py`` because that is the module
+# developers edit when adding a new SQL statement — it is the natural
+# place to enforce the seam. ``queries.py`` existence is the proxy for
+# "this module has been migrated to the §22 pattern".
+#
+# The detector does NOT flag:
+#   - Baselined legacy modules (they are grandfathered, migration is
+#     tracked separately in issue #290).
+#   - Modules whose ``service.py`` has no ``_*_SQL`` constants.
+#   - Files other than ``service.py`` (e.g. ``batch_service.py``).
+#   - ``queries.py`` itself (it is the seam, not a violation).
+#
+# The Informational ``query_seam_baseline_note`` is emitted for
+# baselined modules that have ``_*_SQL`` constants so operators know
+# how much grandfathered legacy remains.
+
+BASELINE_NO_QUERIES_MODULES: frozenset[str] = frozenset(
+    {
+        "voluntarios",
+        "sanidad",
+        "cesiones",
+        "animals",
+        "foster",
+        "entradas",
+        "adopciones",
     }
 )
 
@@ -473,6 +539,12 @@ def _scan_file(path: Path, repo_root: Path) -> list[Violation]:
     out.extend(_check_apap003_raw_logger_call(path, tree, repo_root))
     if _is_app_path(path, repo_root):
         out.extend(_check_print_in_app(path, tree))
+        # Detector 13: query seam — fires only on service.py files
+        # under app/modules/<M>/. Baselined legacy modules emit an
+        # informational note (not a Violation); non-baselined modules
+        # with _*_SQL but no queries.py emit a Violation.
+        _violations = _check_query_seam_violation_on_path(path, tree, repo_root)
+        out.extend(_violations)
         out.extend(_check_unjustified_lazy_import(path, tree))
     if _is_app_main_or_session(path, repo_root):
         out.extend(_check_csrf_samesite_strict(path, tree))
@@ -480,6 +552,22 @@ def _scan_file(path: Path, repo_root: Path) -> list[Violation]:
         out.extend(_check_csrf_middleware_registered(path, tree))
     out.extend(_check_cross_module_import(path, tree, repo_root))
     return out
+
+
+def _check_query_seam_violation_on_path(
+    path: Path, tree: ast.Module, repo_root: Path
+) -> list[Violation]:
+    """Thin wrapper that guards _check_query_seam_violation to
+    ``app/modules/<M>/service.py`` only. Returns only Violation objects
+    (QuerySeamBaselineNote instances are informational and never block
+    the gate)."""
+    if path.name != "service.py":
+        return []
+    module_name = _own_module_name(path, repo_root)
+    if module_name is None:
+        return []
+    results = _check_query_seam_violation(tree, module_name, path)
+    return [r for r in results if isinstance(r, Violation)]
 
 
 # Detector 1 -----------------------------------------------------------------
@@ -955,6 +1043,151 @@ def _check_csrf_samesite_strict(
             ),
         )
     ]
+
+
+# Detector 13 (Rule 22) -------------------------------------------------
+
+
+def _lower_first_literal(value_node: ast.expr) -> str | None:
+    """Extract the first string literal from a Constant, JoinedStr, or BinOp.
+
+    Handles three AST shapes that can produce a string value:
+
+    - ``ast.Constant`` with a ``str`` value (plain string).
+    - ``ast.JoinedStr`` (f-string with one literal segment — the common
+      case for SQL constants in this codebase).
+    - ``ast.BinOp`` with ``ast.Add`` of two string constants (less common
+      but present in some SQL templates built with ``+``).
+
+    Returns the string lowercased and whitespace-stripped, or ``None``
+    if the node is not one of the above shapes.
+    """
+    if isinstance(value_node, ast.Constant) and isinstance(value_node.value, str):
+        return value_node.value.lower().strip()
+    if isinstance(value_node, ast.JoinedStr):
+        # JoinedStr: walk the values; collect the literal parts.
+        parts: list[str] = []
+        for node in value_node.values:
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                parts.append(node.value)
+        if parts:
+            return "".join(parts).lower().strip()
+        return None
+    if isinstance(value_node, ast.BinOp) and isinstance(value_node.op, ast.Add):
+        left = _lower_first_literal(value_node.left)
+        right = _lower_first_literal(value_node.right)
+        if left is not None and right is not None:
+            return (left + right).strip()
+    return None
+
+
+_SQL_KEYWORDS: frozenset[str] = frozenset(
+    {"select", "insert", "update", "delete", "with"}
+)
+
+
+def _is_sql_keyword_prefix(text: str) -> bool:
+    """Return True iff ``text`` starts with a SQL keyword.
+
+    Used to decide whether a string constant in ``service.py`` looks like
+    a SQL statement (and therefore should live in ``queries.py`` per
+    Rule §22). The check is case-insensitive and strips leading
+    whitespace.
+    """
+    stripped = text.strip().lower()
+    return any(stripped.startswith(kw) for kw in _SQL_KEYWORDS)
+
+
+def _has_queries_py(module_dir: Path) -> bool:
+    """Return True iff ``module_dir / 'queries.py'`` exists."""
+    return (module_dir / "queries.py").is_file()
+
+
+def _own_module_name(path: Path, repo_root: Path) -> str | None:
+    """Return the domain module name for a path under ``app/modules/<M>/``."""
+    try:
+        rel = path.relative_to(repo_root)
+    except ValueError:
+        return None
+    parts = rel.parts
+    if len(parts) >= 3 and parts[0] == "app" and parts[1] == "modules":
+        return parts[2]
+    return None
+
+
+def _check_query_seam_violation(
+    tree: ast.Module, module_name: str, file_path: Path
+) -> list[Violation | QuerySeamBaselineNote]:
+    """Detector 13 — Rule 22.
+
+    Scans a single ``service.py`` file for ``_*_SQL`` constants.
+
+    - If the module's ``queries.py`` exists: module is migrated, no output.
+    - Baselined legacy modules (``BASELINE_NO_QUERIES_MODULES``):
+      emit ``QuerySeamBaselineNote`` (informational) so operators know
+      how much grandfathered legacy remains. No ``Violation``.
+    - Non-baselined modules with ``_*_SQL`` but no ``queries.py``:
+      emit ``Violation`` with ``rule_id = "query_seam_violation"``.
+    - Non-baselined modules with ``_*_SQL`` AND ``queries.py``:
+      no violation (module follows §22 correctly).
+    - Any module with no ``_*_SQL`` at all: no violation, no note.
+
+    The detector only fires for ``service.py`` files. Sibling files
+    like ``batch_service.py`` are intentionally not checked.
+    """
+    # If queries.py exists, the module is migrated — no output regardless
+    # of baseline status.
+    module_dir = file_path.parent
+    if _has_queries_py(module_dir):
+        return []
+    results: list[Violation | QuerySeamBaselineNote] = []
+    is_baselined = module_name in BASELINE_NO_QUERIES_MODULES
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        for target in node.targets:
+            if not isinstance(target, ast.Name):
+                continue
+            if not target.id.endswith("_SQL"):
+                continue
+            first_lit = _lower_first_literal(node.value)
+            if first_lit is None:
+                continue
+            if not _is_sql_keyword_prefix(first_lit):
+                continue
+            # This assignment is a _*_SQL constant with SQL keyword value.
+            if is_baselined:
+                results.append(
+                    QuerySeamBaselineNote(
+                        module_name=module_name,
+                        file=file_path,
+                        line=node.lineno,
+                        message=(
+                            f"Module {module_name!r} is in "
+                            f"BASELINE_NO_QUERIES_MODULES and has "
+                            f"{target.id!r} in service.py. "
+                            f"Migration: extract to queries.py and remove "
+                            f"from the baseline (issue #290)."
+                        ),
+                    )
+                )
+            else:
+                results.append(
+                    Violation(
+                        file=file_path,
+                        line=node.lineno,
+                        rule_id="query_seam_violation",
+                        message=(
+                            f"service.py has {target.id!r} "
+                            f"(SQL literal) but no queries.py seam. "
+                            f"Rule §22: move SQL to "
+                            f"app/modules/{module_name}/queries.py "
+                            f"and import the builder here."
+                        ),
+                    )
+                )
+    return results
 
 
 # Detector 10 (Rule 25) -------------------------------------------------
