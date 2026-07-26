@@ -347,8 +347,8 @@ def animal_foto(
         first_chunk = next(outcome.stream)
     except StopIteration:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND) from None
-    except Exception:
-        log_safe("animals.photo.stream_error", animal_id=animal_id, error=type(Exception).__name__)
+    except Exception as exc:
+        log_safe("animals.photo.stream_error", animal_id=animal_id, error=type(exc).__name__)
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND) from None
     return StreamingResponse(chain([first_chunk], outcome.stream), media_type=outcome.content_type, headers={
         "ETag": outcome.etag, "Cache-Control": outcome.cache_control,
