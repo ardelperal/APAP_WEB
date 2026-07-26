@@ -429,12 +429,17 @@ class TestRateLimitMiddlewareIntegration:
                 follow_redirects=False,
             )
 
+        # Filter to app-logger records only; caplog captures records from every
+        # logger (uvicorn, asyncio, httpcore, ...), and only app records carry
+        # the ``_caller_fields`` extra attached by ``log_safe``.
+        app_records = [r for r in caplog.records if r.name == "app"]
+
         # Find the ratelimit.rejected event
         ratelimit_events = [
-            r for r in caplog.records if r._caller_fields.get("event") == "ratelimit.rejected"
+            r for r in app_records if r._caller_fields.get("event") == "ratelimit.rejected"
         ]
         assert len(ratelimit_events) >= 1, (
-            f"Expected ratelimit.rejected log event, got events={[r._caller_fields.get('event') for r in caplog.records]}"
+            f"Expected ratelimit.rejected log event, got events={[r._caller_fields.get('event') for r in app_records]}"
         )
         # IP must NOT appear in any kwarg
         for record in ratelimit_events:
