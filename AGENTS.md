@@ -343,6 +343,35 @@ When the user signals MVP reached ("ya tenemos MVC", "MVP reached", "pasamos a p
 
 Enforcement: each PR merge landed under this rule MUST mention the `ci.yml` run URL that proved the gate green, in the merge commit body or the PR description. After MVP, this rule is dormant and the global `staging-acceptance-contract` is authoritative. If the gate ever drifts (e.g. someone adds an additional required CI job, or branch protection on `main` requires an extra check), this rule 15 is the source of truth to update in pre-MVP.
 
+#### 15.6 Standing merge authorization (granted 2026-07-26, until project end)
+
+Effective 2026-07-26 and until the user signals the project end, the orchestrator has standing authorization to merge PRs to `main` without per-push user OK. This is a temporary convenience for the pre-MVP phase.
+
+**Scope of the authorization**: the orchestrator may merge a PR to `main` itself when ALL of the following hold:
+
+1. §15.1 pre-MVP gates are visibly green:
+   - local `pytest -W error::DeprecationWarning` passes
+   - `ci.yml` on the head of the merged branch is green (lint, test, typecheck, build)
+   - diff ≤ `review_budget_lines` (or maintainer-approved `size:exception`)
+   - no `--force`, no history rewrite
+2. The merge is a normal feature-branch → main merge (NOT a force-push, NOT a release tag, NOT a default-branch rename, NOT a change to git-hooks or `gentleai.stagingOnly`).
+3. The merge commit body or PR description cites the `ci.yml` run URL that proved the gate green (per §15.5 enforcement note).
+4. No change touches any §15.5 list item that still requires explicit user OK.
+
+**Items that STILL require explicit per-push user OK** (the §15.5 list is unchanged):
+
+- Direct commits to `main` without a PR.
+- `--force` to any branch.
+- Tagging releases / cutting `vX.Y.Z`.
+- Renaming the default branch, changing branch protection on GitHub.
+- Anything that touches `git-hooks/`, the user's global `core.hooksPath`, or any other project's `gentleai.stagingOnly` flag.
+
+**Revocation**: the user can revoke this standing authorization at any time with phrases like "stop auto-merging", "back to per-push OK", "revoke merge authorization", or equivalent. On revocation, this section becomes dormant and the orchestrator reverts to returning PRs without merging.
+
+**Project-end signal**: when the user signals project end ("MVP reached", "project end", "archive", or equivalent), this section becomes dormant. Subsequent work reverts to the standard post-MVP flow (§15.4 reverts; staging re-engages per the global `staging-acceptance-contract`).
+
+This standing authorization was granted in chat on 2026-07-26 and codified by the same PR that updated §17.3 step 6. Cross-reference: §17.3 step 6.
+
 ### 16. Issue work follows `docs/proceso.md` (project-level operational playbook)
 
 The end-to-end playbook for taking a GitHub issue from "open" to "merged and closed with evidence" lives at **`docs/proceso.md`**. It encodes four non-negotiable premises (P1 fidelity to the Access/VBA legacy as a functional superset, P2 resolution of domain doubts in a fixed order with Dysflow at the bottom, P3 docs reflect code, P4 pre-MVP single-branch) plus a concrete workflow (pre-flight → triage → SDD-or-direct → TDD → local validation → merge → close-with-trazability → roadmap sync in the same stride).
@@ -439,7 +468,7 @@ Concretely, the orchestrator delegates the change to a subagent (typically via `
 3. **Verify locally before push.** Run `git diff main...HEAD -- <file>` and read the full diff. Run a focused `grep` for typos, broken cross-references, and any internal mention that references an item the change was supposed to add or remove.
 4. **Push + open PR.** PR title in English, conventional-commit style. PR body: free-form summary of the change + a link or reference to the conversation that requested it. Use `Refs`/`Closes` only when an issue exists.
 5. **CI must be green.** For a docs-only PR this is mostly `ruff` and any lightweight check; the gate is "green", not "trivial".
-6. **Return, do not merge.** The orchestrator (and the subagent that drove the work) returns the commit SHA on the branch + the PR URL + a summarized diff to the user. **The orchestrator does NOT merge.** The user reviews and merges, per §15.5.
+6. **Return and merge if §15.6 authorizes it.** The orchestrator (and the subagent that drove the work) returns the commit SHA on the branch + the PR URL + a summarized diff. If §15.6 standing merge authorization is in effect AND all §15.1 gates are visibly green (local + CI), the orchestrator merges the PR to `main` itself, citing the `ci.yml` run URL in the merge commit body. Otherwise (revoked, dormant, gates red, or any §15.5 list item touched), the orchestrator returns without merging and the user reviews and merges per §15.5.
 
 WRONG — orchestrator edits AGENTS.md inline in the chat
 
