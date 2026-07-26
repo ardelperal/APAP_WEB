@@ -1,59 +1,39 @@
-"""TTL cache for per-request authorization revalidation (issue #143, #262).
+"""Worker-local TTL cache for authorization revalidation (issues #143, #262, #287).
 
 The session cookie signs the user's IDENTITY (email, user_id), which is
 stable for the 7-day cookie lifetime. AUTHORIZATION (``is_authorized`` +
-``rol``), by contrast, can change at any moment — a developer may
-deactivate a user via ``/admin/users/{id}/deactivate`` — so it is
-re-validated against ``usuarios_autorizados`` on every request in
-``app.core.auth_dependencies.require_authorized_user``.
+``rol``) can change at any moment, so
+``app.core.auth_dependencies.require_authorized_user`` re-validates it
+against ``usuarios_autorizados`` on every request.
 
 Without a cache that is one extra ``SELECT`` per request. This module
-memoizes the verdict per email for a short TTL
-(``Settings.auth_cache_ttl_seconds``, default 300s) so the steady-state
-cost is ~one query per user per 5 minutes, while a revocation still takes
-effect within the TTL (or immediately, via explicit invalidation below).
+memoizes each verdict for ``Settings.auth_cache_ttl_seconds`` (default
+300s), reducing the steady-state cost to roughly one query per user per
+five minutes. Explicit invalidation applies immediately inside the current
+worker.
 
-Backend-agnostic seam (issue #262)
-----------------------------------
+Deployment scope (issues #262 and #287)
+---------------------------------------
 
-The cache backend is selected by ``Settings.auth_cache_backend``:
+The runtime backend is always :class:`InProcessAuthCache`: a per-worker
+``dict`` guarded by a ``Lock``. Each process holds its own copy and a
+restart starts empty. With multiple workers, an invalidation issued by
+worker A does NOT propagate to worker B; the other worker can retain its
+verdict until its TTL lapses or it restarts. The worst-case staleness
+window is therefore ``Settings.auth_cache_ttl_seconds``.
 
-- ``"in_process"`` (default): per-worker in-memory ``dict`` + ``Lock``.
-  **WORKER-LOCAL scope** — each process holds its own copy; a process
-  restart (i.e. a deploy) starts empty. With multiple workers, a
-  revocation issued by worker A does NOT propagate to worker B until
-  worker B's TTL lapses or the worker restarts. The per-worker TTL
-  window is the maximum staleness product sees. To minimise the
-  window in multi-worker deployments, set
-  ``APAP_AUTH_CACHE_TTL_SECONDS=0`` (effectively disables the cache;
-  one extra SELECT per request) or switch to the shared backend
-  (``"redis"``).
-- ``"redis"`` (opt-in, follow-up PR for the actual wire-up):
-  SHARED scope — ``invalidate_auth(email)`` propagates to every worker
-  in ~1 RTT. Selecting ``redis`` in this slice selects
-  :class:`RedisAuthCache`, which is the structural seam only; the
-  follow-up PR wires the real Redis client (TLS, retry, sentinel, JSON
-  encoding). See ``docs/runbooks/auth-cache-multi-worker.md`` for the
-  multi-worker remediation playbook.
+The deployed Coolify application currently runs one Uvicorn worker. Before
+increasing the Uvicorn worker count or application replica count, operators
+must set ``APAP_AUTH_CACHE_TTL_SECONDS=0`` for immediate cross-worker
+revocation. That disables cache hits and restores one authorization query
+per authenticated request. See ``docs/runbooks/auth-cache-multi-worker.md``.
 
 Issue #145 — write-after-invalidate race: every cached entry carries a
 per-email ``generation`` and the cache key is ``(email, generation)``.
 Each email has its own generation counter; ``invalidate_auth(email)``
-bumps ONLY that email's generation, so the deactivated email's prior
-verdict is unreachable to any subsequent reader while every other email
-keeps its cached verdict. The narrow race window between a T1 cache-miss,
-T1's DB query, T2's invalidation, and T1's write is bounded by the TTL —
-the generation guard makes the pre-invalidate verdict traceable for
-audit and collapses it into an unreachable key so a process restart
-isn't the only thing that drops it. ``invalidate_all`` bumps every email's
-generation so the whole cache is unreachable at once.
-
-The generation counter is part of the :class:`InProcessAuthCache`
-contract (issue #145); the Redis backend exposes the same Protocol but
-its generation model is internal (per-email version key, atomic
-``INCR``). Tests that need to inspect the per-email generation pin
-:class:`InProcessAuthCache` directly; the module-level
-``_current_generation`` facade returns ``0`` for non-in-process backends.
+bumps only that email's generation, so the prior verdict is unreachable
+to subsequent readers while every other email keeps its cached verdict.
+``invalidate_all`` clears all entries and generation state.
 
 Cache entries are invalidated:
 
@@ -63,9 +43,9 @@ Cache entries are invalidated:
 - implicitly on process restart (deploy).
 
 ``AUTH_CACHE_KEY`` is a manual version marker an operator can bump to
-signal a cache-schema change in code review; because the in-process
-store is cleared on restart, bumping it is documentation of intent
-rather than a runtime switch.
+signal a cache-schema change in code review; because the in-process store
+is cleared on restart, bumping it documents intent rather than acting as a
+runtime switch.
 """
 
 from __future__ import annotations
@@ -73,9 +53,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from threading import Lock
-from typing import Any, Protocol
-
-from app.core.config import Settings, get_settings
+from typing import Protocol
 
 # Manual cache-schema version marker (see module docstring). Bump in a
 # hotfix commit to document that cached verdicts from an older code
@@ -103,24 +81,19 @@ class CachedAuth:
 
 
 class AuthCacheBackend(Protocol):
-    """Structural contract for a per-email authorization cache (issue #262).
+    """Internal contract for the runtime cache and injected test backends.
 
-    Any backend that satisfies this Protocol can be swapped in via
-    :class:`app.core.config.Settings.auth_cache_backend` without touching
-    call sites. Implementations MUST be safe to call from multiple worker
-    threads in the same process; they MAY be shared across workers
-    (Redis, memcached, …) or process-local (in-process dict).
+    Production uses :class:`InProcessAuthCache` exclusively. Keeping the
+    Protocol decouples the module-level facades from the concrete class and
+    lets tests inject deterministic fakes without exposing a runtime backend
+    selector.
 
-    The :meth:`get` contract: ``None`` means "miss" — the caller MUST
-    consult the DB. An entry is fresh only while its age is strictly
-    ``< ttl_seconds``; with ``ttl_seconds <= 0`` every entry reads as
-    stale (cache effectively disabled), which is the knob for
-    immediate revocation.
+    ``None`` from :meth:`get` means a miss and the caller must consult the
+    DB. An entry is fresh only while its age is strictly ``< ttl_seconds``;
+    with ``ttl_seconds <= 0`` every entry reads as stale.
 
-    The :meth:`invalidate` contract: idempotent on missing emails;
-    backend implementations SHOULD propagate the invalidation
-    cluster-wide when shared, or only locally when worker-local — the
-    caller picks by selecting the backend.
+    Implementations must be safe to call from multiple threads in one
+    process. :meth:`invalidate` is idempotent for missing emails.
     """
 
     def get(self, email: str, ttl_seconds: int) -> CachedAuth | None:
@@ -232,8 +205,8 @@ class InProcessAuthCache:
         **Scope**: WORKER-LOCAL. The generation bump is visible only to
         the worker that called this method. Other workers keep serving
         their cached verdict until their TTL expires or the worker
-        restarts. For cluster-wide revocation, select the Redis
-        backend (see module docstring + runbook).
+        restarts. Multi-worker deployments that require immediate
+        revocation must set ``APAP_AUTH_CACHE_TTL_SECONDS=0``.
         """
         with self._lock:
             self._generation[email] = self._generation.get(email, 0) + 1
@@ -256,66 +229,6 @@ class InProcessAuthCache:
             self._cache.clear()
 
 
-class RedisAuthCache:
-    """Shared Redis backend (issue #262) — structural seam.
-
-    This slice ships the **structural seam only**; the follow-up PR
-    wires the real Redis client (TLS, retry, sentinel, JSON encoding,
-    generation key layout). The class is here so
-    :class:`app.core.config.Settings.auth_cache_backend == "redis"``
-    selects a real object that satisfies :class:`AuthCacheBackend`
-    instead of falling back silently to in-process (silent fallback
-    would mask a misconfig).
-
-    The constructor takes a pre-built Redis client (``redis_client``)
-    so the lifespan / settings module can wire the production client
-    in the follow-up PR without touching this class. Tests inject a
-    fake / ``fakeredis``-like client.
-
-    Operations raise :class:`NotImplementedError` until the follow-up
-    wire-up lands. Selecting ``"redis"`` without the follow-up is a
-    fail-loud path, not a silent fallback — see
-    ``docs/runbooks/auth-cache-multi-worker.md``.
-
-    **Scope** (once wired): SHARED — ``invalidate_auth(email)``
-    propagates to every worker in ~1 RTT, so a revocation issued by
-    worker A becomes visible to worker B without waiting for its
-    TTL.
-    """
-
-    def __init__(self, redis_client: Any, ttl_seconds: int = 300) -> None:
-        self._redis = redis_client
-        self._ttl_seconds = ttl_seconds
-
-    def get(self, email: str, ttl_seconds: int) -> CachedAuth | None:
-        raise NotImplementedError(
-            "RedisAuthCache is the structural seam for issue #262; the "
-            "follow-up PR wires the real Redis client. See "
-            "docs/runbooks/auth-cache-multi-worker.md."
-        )
-
-    def set(self, email: str, *, is_authorized: bool, rol: str | None) -> None:
-        raise NotImplementedError(
-            "RedisAuthCache is the structural seam for issue #262; the "
-            "follow-up PR wires the real Redis client. See "
-            "docs/runbooks/auth-cache-multi-worker.md."
-        )
-
-    def invalidate(self, email: str) -> None:
-        raise NotImplementedError(
-            "RedisAuthCache is the structural seam for issue #262; the "
-            "follow-up PR wires the real Redis client. See "
-            "docs/runbooks/auth-cache-multi-worker.md."
-        )
-
-    def invalidate_all(self) -> None:
-        raise NotImplementedError(
-            "RedisAuthCache is the structural seam for issue #262; the "
-            "follow-up PR wires the real Redis client. See "
-            "docs/runbooks/auth-cache-multi-worker.md."
-        )
-
-
 # ---------------------------------------------------------------------------
 # Factory + module-level facade (backwards-compatible public API)
 # ---------------------------------------------------------------------------
@@ -325,38 +238,15 @@ _DEFAULT_BACKEND: AuthCacheBackend | None = None
 
 
 def _get_backend() -> AuthCacheBackend:
-    """Return the process-cached backend, constructing it on first access.
-
-    The backend is selected from :class:`Settings.auth_cache_backend`:
-    unknown names fall back to :class:`InProcessAuthCache` (fail-soft;
-    a typo in the env var must NOT crash at request time — the
-    misconfig is visible in the logs instead).
-
-    Memoised: tests that need a fresh backend call
-    :func:`_reset_backend_for_testing` first.
-    """
+    """Return the memoized in-process backend, constructing it on first access."""
     global _DEFAULT_BACKEND
     if _DEFAULT_BACKEND is None:
-        settings: Settings = get_settings()
-        backend_name = settings.auth_cache_backend
-        if backend_name == "redis":
-            _DEFAULT_BACKEND = RedisAuthCache(
-                redis_client=None,  # follow-up PR wires the real client
-                ttl_seconds=settings.auth_cache_ttl_seconds,
-            )
-        else:
-            _DEFAULT_BACKEND = InProcessAuthCache()
+        _DEFAULT_BACKEND = InProcessAuthCache()
     return _DEFAULT_BACKEND
 
 
 def _reset_backend_for_testing() -> None:
-    """Test helper: forget the memoised backend so the factory re-reads config.
-
-    Tests that mutate ``APAP_AUTH_CACHE_BACKEND`` via ``monkeypatch``
-    must call this between cases (or rely on the autouse fixture in
-    ``tests/test_auth_cache_backend.py``) so the env change takes
-    effect.
-    """
+    """Test helper: forget the memoized backend and its cached entries."""
     global _DEFAULT_BACKEND
     _DEFAULT_BACKEND = None
 
@@ -364,7 +254,7 @@ def _reset_backend_for_testing() -> None:
 def _set_backend_for_testing(backend: AuthCacheBackend) -> None:
     """Test helper: force the module to use a specific backend instance.
 
-    Used to assert that module-level facades dispatch to the configured
+    Used to assert that module-level facades dispatch to an injected test
     backend rather than touching module globals directly.
     """
     global _DEFAULT_BACKEND
@@ -382,9 +272,9 @@ def get_cached_auth(email: str, ttl_seconds: int) -> CachedAuth | None:
     with ``ttl_seconds <= 0`` every entry reads as stale (cache
     effectively disabled), which is the knob for immediate revocation.
 
-    **Scope (issue #262)**: dispatches to the configured backend. With
-    the in-process backend (default) the verdict is worker-local; with
-    the Redis backend the verdict is shared across workers.
+    **Scope (issues #262 and #287)**: the verdict is worker-local. With
+    multiple workers, set ``APAP_AUTH_CACHE_TTL_SECONDS=0`` to prevent
+    one worker from serving a cached verdict invalidated in another.
 
     Issue #145 — the lookup uses the email's current generation so an
     entry written under a previous generation is unreachable after an
@@ -420,22 +310,18 @@ def invalidate_auth(email: str) -> None:
     unreachable to subsequent reads because :func:`get_cached_auth` now
     keys against ``(email, new_gen)`` which does not exist.
 
-    **Scope (issue #262)** — read this before deploying with multiple
-    workers:
+    **Scope (issues #262 and #287)** — read this before deploying with
+    multiple workers: invalidation is WORKER-LOCAL. It is visible only
+    to the worker that called this function. Other workers can keep a
+    stale verdict until their TTL expires or they restart; the
+    worst-case stale-verdict window is ``auth_cache_ttl_seconds``
+    (default 300s).
 
-    - ``in_process`` backend (default, WORKER-LOCAL): the invalidation
-      is visible ONLY to the worker that called this method. Other
-      workers keep serving the stale verdict until their TTL expires
-      or the worker restarts. With N workers the worst-case
-      stale-verdict window is ``auth_cache_ttl_seconds`` (default 300s).
-    - ``redis`` backend (SHARED, follow-up PR): the invalidation
-      propagates to every worker in ~1 RTT, so the cluster-wide
-      staleness window drops to one network round trip.
-
-    For multi-worker deployments, either drop
-    ``APAP_AUTH_CACHE_TTL_SECONDS`` to ``0`` (one extra ``SELECT`` per
-    request, immediate revocation in any worker) or switch to the
-    Redis backend. See ``docs/runbooks/auth-cache-multi-worker.md``.
+    The deployed Coolify application currently runs one worker. Before
+    increasing its worker or replica count, set
+    ``APAP_AUTH_CACHE_TTL_SECONDS=0`` (one extra ``SELECT`` per request)
+    for immediate revocation. See
+    ``docs/runbooks/auth-cache-multi-worker.md``.
     """
     _get_backend().invalidate(email)
 
@@ -449,8 +335,8 @@ def invalidate_all() -> None:
     generation bump is what closes the read-side race for every email
     simultaneously.
 
-    **Scope (issue #262)**: WORKER-LOCAL on the in-process backend;
-    SHARED on the Redis backend (once wired).
+    **Scope (issues #262 and #287)**: WORKER-LOCAL. Other workers retain
+    their own entries until TTL expiry or restart.
     """
     _get_backend().invalidate_all()
 
@@ -460,10 +346,8 @@ def _current_generation(email: str) -> int:
 
     Module-level facade preserved for the issue #145 race-window tests
     (``tests/test_auth_cache.py``). Delegates to the in-process
-    backend's per-email counter; returns ``0`` for non-in-process
-    backends because the Redis model exposes generation internally
-    (per-email version key, atomic ``INCR``) — tests that need the
-    Redis generation pin :class:`InProcessAuthCache` directly.
+    backend's per-email counter; returns ``0`` for injected test
+    backends that do not expose that private counter.
     """
     backend = _get_backend()
     if isinstance(backend, InProcessAuthCache):

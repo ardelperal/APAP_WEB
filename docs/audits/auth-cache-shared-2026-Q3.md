@@ -1,5 +1,7 @@
 # Auditoría: auth cache — backend swappable + multi-worker scope — 2026 Q3
 
+> **Registro histórico de #262 (2026-07-22).** El seam Redis descrito aquí fue retirado por #287 porque nunca llegó a implementarse y el despliegue Coolify usa un único worker. El contrato vigente está auditado en [`auth-cache-in-process-audit-2026-Q3.md`](auth-cache-in-process-audit-2026-Q3.md).
+
 **Scope**: `app/core/auth_cache.py` + `Settings.auth_cache_backend` (issue #262)
 **Method**: code review + TDD coverage + boundary analysis (per-worker vs shared)
 **Date**: 2026-07-22
