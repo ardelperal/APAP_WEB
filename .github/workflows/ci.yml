@@ -207,7 +207,7 @@ jobs:
         env:
           PGPASSWORD: postgres
         run: |
-          psql --host localhost --port 5432 --username postgres \
+          psql --host postgres --port 5432 --username postgres \
                --dbname postgres --variable=ON_ERROR_STOP=1 --command "
             CREATE TABLE IF NOT EXISTS public.conocidos (
                 id          UUID PRIMARY KEY,
@@ -237,7 +237,7 @@ jobs:
         # what the regression guard validates.  Full HTTP round-trip
         # coverage is handled by staging E2E where InsForge is available.
         env:
-          APAP_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+          APAP_TEST_DATABASE_URL: postgres://postgres:postgres@postgres:5432/postgres
         run: |
           python -m pytest tests/test_voluntarios_concurrent.py -v
 
