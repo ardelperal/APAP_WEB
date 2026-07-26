@@ -83,7 +83,7 @@ def test_adversarial_redaction_redacts_variant(
         log_safe("test.event", **{field_name: secret})
 
     record = caplog.records[0]
-    stored_value = getattr(record, field_name)
+    stored_value = record._caller_fields[field_name]
     assert stored_value == "[REDACTED]", (
         f"{field_name!r} leaked: stored={stored_value!r} (secret={secret!r})"
     )
@@ -106,9 +106,9 @@ def test_adversarial_redaction_passes_through_descriptive_names(
         log_safe("test.event", **{field_name: value})
 
     record = caplog.records[0]
-    assert getattr(record, field_name) == value, (
+    assert record._caller_fields[field_name] == value, (
         f"{field_name!r} was wrongly redacted to "
-        f"{getattr(record, field_name)!r}; closed-list policy says only "
+        f"{record._caller_fields.get(field_name)!r}; closed-list policy says only "
         f"exact (case/dash-normalized) matches redact."
     )
 
@@ -130,9 +130,9 @@ def test_adversarial_redaction_handles_all_twelve_fields_together(
 
     record = caplog.records[0]
     for name in REDACTED_FIELDS:
-        assert getattr(record, name) == "[REDACTED]", (
+        assert record._caller_fields[name] == "[REDACTED]", (
             f"field {name!r} leaked: "
-            f"{getattr(record, name)!r}"
+            f"{record._caller_fields.get(name)!r}"
         )
     # No secret appears anywhere on the record.
     record_dump = str(record.__dict__)
@@ -155,9 +155,48 @@ def test_adversarial_mixed_redacted_and_safe_fields(
         )
 
     record = caplog.records[0]
-    assert record.email == "[REDACTED]"
-    assert record.path == "/admin/users"
-    assert record.status_code == 403
-    assert record.reason == "token_mismatch"
-    assert record.voluntario_id == "v-123"
+    assert record._caller_fields["email"] == "[REDACTED]"
+    assert record._caller_fields["path"] == "/admin/users"
+    assert record._caller_fields["status_code"] == 403
+    assert record._caller_fields["reason"] == "token_mismatch"
+    assert record._caller_fields["voluntario_id"] == "v-123"
     assert "victim@example.com" not in str(record.__dict__)
+
+
+# --- T5 RED: adversarial LogRecord-attr-name collisions (issues #283, #284) ---
+
+
+_LOGRECORD_COLLISION_KWARGS = [
+    ("module", "voluntarios"),
+    ("name", "app.extra"),
+    ("process", 12345),
+    ("levelname", "WARNING"),
+    ("pathname", "/some/path"),
+    ("taskName", "my-task"),
+]
+
+
+@pytest.mark.parametrize("attr_name,attr_value", _LOGRECORD_COLLISION_KWARGS)
+def test_no_keyerror_on_logrecord_attr_name_kwarg(
+    attr_name: str,
+    attr_value: object,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """T5.1 RED: log_safe with module=/name=/process= etc.
+
+    After the nested-envelope refactor, these kwarg names no longer collide
+    with LogRecord's own attributes because they live inside record._caller_fields,
+    not as top-level extra keys.
+    """
+    with caplog.at_level(logging.INFO, logger="app"):
+        log_safe("test.collision", **{attr_name: attr_value})
+
+    assert caplog.records, "log_safe did not emit a LogRecord"
+    record = caplog.records[0]
+    assert attr_name in record._caller_fields, (
+        f"kwarg {attr_name!r} not stored in _caller_fields"
+    )
+    assert record._caller_fields[attr_name] == attr_value, (
+        f"_caller_fields[{attr_name!r}] = {record._caller_fields.get(attr_name)!r}, "
+        f"expected {attr_value!r}"
+    )

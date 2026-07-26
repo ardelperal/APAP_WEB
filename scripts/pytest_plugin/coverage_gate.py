@@ -38,6 +38,7 @@ CRITICAL_HELPERS: frozenset[str] = frozenset(
         "optional_value",
         "required_text",
         "_resolve_developer_user",
+        "_stamp_caller_fields",
 
     }
 )

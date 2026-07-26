@@ -21,6 +21,7 @@ does this for safety).
 from __future__ import annotations
 
 import functools
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -83,17 +84,13 @@ class Settings(BaseSettings):
     # (issue #262). See ``docs/runbooks/auth-cache-multi-worker.md``.
     auth_cache_ttl_seconds: int = 300
 
-    # --- Auth-cache backend selection (issue #262) -------------------
-    # Selects the auth-cache backend used by ``app.core.auth_cache``.
-    # Values:
-    # - ``"in_process"`` (default): worker-local in-memory dict + Lock.
-    #   Per-worker scope; invalidations do NOT propagate to other workers.
-    # - ``"redis"``: shared backend (follow-up PR for the wire-up; this
-    #   slice ships the structural seam only). Cluster-wide scope once
-    #   wired; invalidations propagate to every worker in ~1 RTT.
-    # Unknown values fall back to ``"in_process"`` (fail-soft; a typo in
-    # the env var must NOT crash at request time).
-    auth_cache_backend: str = "in_process"
+    # --- Auth-cache backend compatibility guard (issue #262, #287) ----
+    # ``in_process`` is the only supported backend. The field remains so
+    # stale or invalid APAP_AUTH_CACHE_BACKEND values fail settings
+    # validation during startup instead of being ignored by ``extra=ignore``.
+    # Multi-worker deployments must set APAP_AUTH_CACHE_TTL_SECONDS=0 for
+    # immediate cross-worker revocation; see the operator runbook.
+    auth_cache_backend: Literal["in_process"] = "in_process"
 
     # --- CSRF defense-in-depth (PR-5B, Slice 5) ------------------------
     # Feature flag for the CSRF middleware (``app/core/csrf.py``). When

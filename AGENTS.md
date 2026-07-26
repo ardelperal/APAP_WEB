@@ -343,6 +343,35 @@ When the user signals MVP reached ("ya tenemos MVC", "MVP reached", "pasamos a p
 
 Enforcement: each PR merge landed under this rule MUST mention the `ci.yml` run URL that proved the gate green, in the merge commit body or the PR description. After MVP, this rule is dormant and the global `staging-acceptance-contract` is authoritative. If the gate ever drifts (e.g. someone adds an additional required CI job, or branch protection on `main` requires an extra check), this rule 15 is the source of truth to update in pre-MVP.
 
+#### 15.6 Standing merge authorization (granted 2026-07-26, until project end)
+
+Effective 2026-07-26 and until the user signals the project end, the orchestrator has standing authorization to merge PRs to `main` without per-push user OK. This is a temporary convenience for the pre-MVP phase.
+
+**Scope of the authorization**: the orchestrator may merge a PR to `main` itself when ALL of the following hold:
+
+1. §15.1 pre-MVP gates are visibly green:
+   - local `pytest -W error::DeprecationWarning` passes
+   - `ci.yml` on the head of the merged branch is green (lint, test, typecheck, build)
+   - diff ≤ `review_budget_lines` (or maintainer-approved `size:exception`)
+   - no `--force`, no history rewrite
+2. The merge is a normal feature-branch → main merge (NOT a force-push, NOT a release tag, NOT a default-branch rename, NOT a change to git-hooks or `gentleai.stagingOnly`).
+3. The merge commit body or PR description cites the `ci.yml` run URL that proved the gate green (per §15.5 enforcement note).
+4. No change touches any §15.5 list item that still requires explicit user OK.
+
+**Items that STILL require explicit per-push user OK** (the §15.5 list is unchanged):
+
+- Direct commits to `main` without a PR.
+- `--force` to any branch.
+- Tagging releases / cutting `vX.Y.Z`.
+- Renaming the default branch, changing branch protection on GitHub.
+- Anything that touches `git-hooks/`, the user's global `core.hooksPath`, or any other project's `gentleai.stagingOnly` flag.
+
+**Revocation**: the user can revoke this standing authorization at any time with phrases like "stop auto-merging", "back to per-push OK", "revoke merge authorization", or equivalent. On revocation, this section becomes dormant and the orchestrator reverts to returning PRs without merging.
+
+**Project-end signal**: when the user signals project end ("MVP reached", "project end", "archive", or equivalent), this section becomes dormant. Subsequent work reverts to the standard post-MVP flow (§15.4 reverts; staging re-engages per the global `staging-acceptance-contract`).
+
+This standing authorization was granted in chat on 2026-07-26 and codified by the same PR that updated §17.3 step 6. Cross-reference: §17.3 step 6.
+
 ### 16. Issue work follows `docs/proceso.md` (project-level operational playbook)
 
 The end-to-end playbook for taking a GitHub issue from "open" to "merged and closed with evidence" lives at **`docs/proceso.md`**. It encodes four non-negotiable premises (P1 fidelity to the Access/VBA legacy as a functional superset, P2 resolution of domain doubts in a fixed order with Dysflow at the bottom, P3 docs reflect code, P4 pre-MVP single-branch) plus a concrete workflow (pre-flight → triage → SDD-or-direct → TDD → local validation → merge → close-with-trazability → roadmap sync in the same stride).
@@ -439,7 +468,7 @@ Concretely, the orchestrator delegates the change to a subagent (typically via `
 3. **Verify locally before push.** Run `git diff main...HEAD -- <file>` and read the full diff. Run a focused `grep` for typos, broken cross-references, and any internal mention that references an item the change was supposed to add or remove.
 4. **Push + open PR.** PR title in English, conventional-commit style. PR body: free-form summary of the change + a link or reference to the conversation that requested it. Use `Refs`/`Closes` only when an issue exists.
 5. **CI must be green.** For a docs-only PR this is mostly `ruff` and any lightweight check; the gate is "green", not "trivial".
-6. **Return, do not merge.** The orchestrator (and the subagent that drove the work) returns the commit SHA on the branch + the PR URL + a summarized diff to the user. **The orchestrator does NOT merge.** The user reviews and merges, per §15.5.
+6. **Return and merge if §15.6 authorizes it.** The orchestrator (and the subagent that drove the work) returns the commit SHA on the branch + the PR URL + a summarized diff. If §15.6 standing merge authorization is in effect AND all §15.1 gates are visibly green (local + CI), the orchestrator merges the PR to `main` itself, citing the `ci.yml` run URL in the merge commit body. Otherwise (revoked, dormant, gates red, or any §15.5 list item touched), the orchestrator returns without merging and the user reviews and merges per §15.5.
 
 WRONG — orchestrator edits AGENTS.md inline in the chat
 
@@ -708,15 +737,15 @@ def animal_foto(animal_id: str, ...):
 
 Enforcement: `scripts/check_route_size.py` (stdlib-only, mirrors `scripts/check_module_size.py`'s ratchet shape) parses every `app/**/*routes*.py` file plus `app/main.py` with `ast`, finds every function decorated with `@router.<verb>(...)` or `@application.<verb>(...)`, and enforces a **50-line** hard cap on new handlers (calibrated against the real distribution: median 22, mean ~32 lines). The 15 handlers already over budget when the rule landed (`animal_foto` plus 14 siblings, including `app/main.py::callback` and `foster/assignment_routes.py::asignar_submit`) live in a shrink-only `BASELINE` dict — growing a baselined handler fails the check; no new entry may ever be added. Wired into the CI `lint` job immediately after the module-size ratchet step; removing the step is a blocked change. Tests: `tests/test_route_size.py` (mirrors `tests/test_module_size.py`'s shape: baseline-matches-measured-tree, CI-job-runs-the-gate).
 
-### 29. Auth cache: per-worker scope + opt-in shared backend (issue #262)
+### 29. Auth cache: single in-process backend + per-worker scope (issues #262, #287)
 
 <!-- BEGIN region:issue-262-shared-auth-cache -->
-The auth cache backing `require_authorized_user` (`app/core/auth_cache.py`, original issue #143) is **per-worker**: each uvicorn/gunicorn worker process holds its own in-memory copy. `invalidate_auth(email)` only reaches the worker that called it; with N workers, the worst-case per-worker staleness window is `APAP_AUTH_CACHE_TTL_SECONDS` (default 300s). For multi-worker deployments, either drop the TTL to `0` (immediate revocation, one extra `SELECT` per request) or switch to the shared backend (`APAP_AUTH_CACHE_BACKEND=redis` — the structural seam in `auth_cache.py`; the actual Redis wire-up is the follow-up PR). Full remediation matrix + verification steps in `docs/runbooks/auth-cache-multi-worker.md`.
+The auth cache backing `require_authorized_user` (`app/core/auth_cache.py`, original issue #143) supports only the `in_process` backend. `APAP_AUTH_CACHE_BACKEND` remains as a compatibility guard: `in_process` is accepted; `redis` and every unknown value fail settings validation during application startup, before any request is served. Each uvicorn worker process holds its own in-memory cache, so `invalidate_auth(email)` reaches only the worker that called it and the worst-case cross-worker staleness window is `APAP_AUTH_CACHE_TTL_SECONDS` (default 300s). The current Coolify deployment was confirmed on 2026-07-25 as one application replica using the Dockerfile `CMD` with Uvicorn and no `--workers` override, so it runs one worker today. Before increasing the worker or replica count, set `APAP_AUTH_CACHE_TTL_SECONDS=0` for immediate revocation at the cost of one extra authorization `SELECT` per authenticated request. Full deploy, verification, and rollback steps live in `docs/runbooks/auth-cache-multi-worker.md`.
 <!-- END region:issue-262-shared-auth-cache -->
 
 ### 30. Docstrings are synchronized contracts
 
-Docstrings are part of the code contract: claims about current behavior, inputs, outputs, errors, or side effects MUST be covered by a test. Issue/PR references and production scars that are useful for onboarding MUST be labeled as historical context (not a contract) and preferably moved to `docs/` with a link; this policy complements the Domain services Protocol rule in §29.
+Docstrings are part of the code contract: claims about current behavior, inputs, outputs, errors, or side effects MUST be covered by a test. Issue/PR references and production scars that are useful for onboarding MUST be labeled as historical context (not a contract) and preferably moved to `docs/` with a link; this policy complements the Domain services Protocol rule in §31.
 
 **Cheap drift check (required in review):** for each behavioral claim, identify the test that proves it; verify every referenced symbol still exists; and verify every issue/PR reference still describes the current code. If a claim has no test, either add one or rewrite it as explicitly non-contract historical context.
 
@@ -727,17 +756,18 @@ Docstrings are part of the code contract: claims about current behavior, inputs,
 
 Enforcement: PR review using the checklist above. Do not add a new AST detector for prose matching; the heuristic is intentionally cheap and outcome-focused, while §31's Protocol boundary remains enforced independently.
 
+---
+
+> **History:** the resolved "Known conflicts with existing code" tracker (all
+> rows DONE during the `hardening-2026-q2` chain) was moved out of this file to
+> [`docs/hardening-2026-q2-rule-history.md`](docs/hardening-2026-q2-rule-history.md).
+> This file carries only the live rules.
+
 ### 31. Domain services depend on Protocol abstractions
 
 Domain services MUST depend on Protocol abstractions, never concrete backend clients.
 `app.core.data_access.SqlExecutor`, introduced in #259, is the precedent.
 Example: `def list_items(client: SqlExecutor) -> list[Item]: ...` — not `client: InsForgeClient`.
-
-> Numbering note: this rule shipped as a second "§29", colliding with the
-> auth-cache rule above and sitting below the History separator (which marks
-> archived content). Issue #291 renumbered it to §31 and moved it back into the
-> live-rules section. Cross-references elsewhere that say "§29 Protocol" mean
-> this rule.
 
 ### 32. Anti-patterns — reject these by name
 
@@ -876,9 +906,3 @@ when a PR adds a `Settings` secret, a new rule, a test, or a CI guard, the
 reviewer applies the matching criterion before approving. The audit that produced
 this rule is issue #294; its findings are labelled `audit-2026-07-25`.
 
----
-
-> **History:** the resolved "Known conflicts with existing code" tracker (all
-> rows DONE during the `hardening-2026-q2` chain) was moved out of this file to
-> [`docs/hardening-2026-q2-rule-history.md`](docs/hardening-2026-q2-rule-history.md).
-> This file carries only the live rules.

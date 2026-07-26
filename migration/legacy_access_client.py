@@ -49,9 +49,9 @@ from typing import Any
 
 # ``LegacyReaderError`` is imported lazily inside the function bodies
 # below to avoid the circular dependency
-# ``legacy_reader`` -> ``dysflow_client`` -> ``legacy_reader``. Tests
-# that need to construct ``LegacyReaderError`` directly import it
-# from ``migration.legacy_reader``.
+# ``legacy_reader`` -> ``legacy_access_client`` -> ``legacy_reader``.
+# Tests that need to construct ``LegacyReaderError`` directly import
+# it from ``migration.legacy_reader``.
 
 # ---------------------------------------------------------------------------
 # Module-level pyodbc reference (lazy import; tests can monkeypatch).
@@ -186,7 +186,7 @@ def execute_legacy_sql(
         The CLI maps all of these to exit code 5.
     """
     pyodbc_mod = _get_pyodbc()
-    # Lazy import: avoid ``legacy_reader`` -> ``dysflow_client`` cycle.
+    # Lazy import: avoid ``legacy_reader`` -> ``legacy_access_client`` cycle.
     from migration.legacy_reader import LegacyReaderError
 
     # --- pre-flight: driver installed --------------------------------

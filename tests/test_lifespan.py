@@ -17,9 +17,11 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
+from app.core import config as config_module
 from app.main import app as _app
-from app.main import lifespan
+from app.main import create_app, lifespan
 
 
 def _noop_sql_migrations(client: Any) -> list[str]:
@@ -29,6 +31,17 @@ def _noop_sql_migrations(client: Any) -> list[str]:
     assert that the lifespan invokes the runner exactly once.
     """
     return []
+
+
+def test_create_app_rejects_redis_auth_cache_backend_at_startup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stale Redis setting prevents application startup."""
+    monkeypatch.setenv("APAP_AUTH_CACHE_BACKEND", "redis")
+    config_module.get_settings.cache_clear()
+
+    with pytest.raises(ValidationError, match="auth_cache_backend"):
+        create_app()
 
 
 async def test_lifespan_calls_ensure_schema_and_seed_on_startup(

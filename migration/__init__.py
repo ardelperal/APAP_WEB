@@ -12,7 +12,7 @@ Public surface (re-exported here so callers can do
 PR 1/6 (issue #93) entrego el esqueleto: dataclasses ``MigrationReport``,
 ``Diff`` y ``Conflict``, jerarquia de excepciones, y entry point.
 PR 2/6 (issue #94) entrego los 5 YAML mappings.
-PR 3/6 (issue #95) entrego los readers (legacy + web) + dysflow_client stub.
+PR 3/6 (issue #95) entrego los readers (legacy + web) + legacy_access_client stub.
 PR 4/6 entrego el cerebro: ``diff_engine`` (clasificacion INSERT/UPDATE/
 DELETE/NOOP + conflictos ``modified_both_sides``), ``sync_state``
 (persistencia atomica + lookups legacy->web) y ``lock`` (PID + TTL +

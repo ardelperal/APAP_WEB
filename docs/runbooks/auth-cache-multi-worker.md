@@ -1,193 +1,126 @@
-# Auth Cache: Multi-Worker Deployment Runbook (issue #262)
+# Auth Cache Multi-Worker Runbook (issue #287)
 
-## Purpose
+APAP_WEB now supports one authorization-cache backend: the worker-local
+`in_process` cache. This resolves the old Redis selector, which was configurable
+but never implemented. `APAP_AUTH_CACHE_BACKEND=redis` and every unknown value
+now fail settings validation during application startup, before traffic is
+served.
 
-The auth cache backing `require_authorized_user`
-(`app/core/auth_cache.py`, original issue #143) is **per-worker**: each
-uvicorn/gunicorn worker process holds its own in-memory cache. When an
-admin deactivates a user via `/admin/users/{id}/deactivate`, the cache
-invalidation (`invalidate_auth(email)`) only reaches the worker that
-called it. Other workers keep serving the stale verdict until their TTL
-expires (default `APAP_AUTH_CACHE_TTL_SECONDS=300`, 5 minutes) or the
-worker restarts.
+## Current production state
 
-This runbook gives operators a deterministic playbook for the
-multi-worker case:
+Confirmed on 2026-07-25 from the live Coolify application details and the
+repository Dockerfile:
 
-- Lowering `APAP_AUTH_CACHE_TTL_SECONDS` to `0` for immediate
-  cluster-wide revocation (cheap, one extra `SELECT` per request).
-- Switching to the shared Redis backend once the follow-up PR wires it
-  (cluster-wide revocation in ~1 RTT, requires Redis).
-- Documenting the per-worker scope of the default in-process backend so
-  the limitation is not surprising.
+| Setting | Confirmed value |
+|---|---|
+| Coolify application | `apap-web` |
+| Build pack | `dockerfile` |
+| Coolify start-command override | none (`start_command=null`) |
+| Application replicas | 1 (`swarm_replicas=1`) |
+| Image command | `uvicorn app.main:app --host 0.0.0.0 --port 8000` |
+| Uvicorn `--workers` argument | absent |
+| Effective auth-cache scope today | one process, one cache |
 
-The structural seam is in `app/core/auth_cache.py` (issue #262, see
-the module docstring). The Redis backend class exists as a stub today
-(`RedisAuthCache`); the wire-up to a real Redis client is the follow-up
-PR.
+The current deployment therefore does not need cross-worker invalidation.
+`invalidate_auth(email)` invalidates the only process-local cache immediately.
+The semantics remain worker-local: adding workers or replicas creates independent
+caches, each of which can retain a verdict until its TTL expires.
 
-## When to read this runbook
+## When to trigger
 
-- **Incident**: a deactivated user can still hit `/admin/*` for up to
-  `APAP_AUTH_CACHE_TTL_SECONDS` per worker. Read this runbook; pick
-  remediation (drop TTL to `0`, or deploy a Redis backend if available).
-- **Capacity planning**: a new uvicorn/gunicorn deployment runs more
-  than 1 worker. Read this runbook; decide TTL vs Redis before going
-  live.
-- **Pre-prod review**: the issue #262 acceptance criteria mention this
-  doc as the operator-facing remediation.
+Use this runbook:
+
+- before adding `--workers N` where `N > 1`;
+- before increasing the Coolify application replica count above 1;
+- when a deactivated user remains authorized on another worker;
+- when changing `APAP_AUTH_CACHE_TTL_SECONDS` or
+  `APAP_AUTH_CACHE_BACKEND`.
 
 ## Pre-deploy checklist
 
-- [ ] Worker count confirmed (Coolify → Application → Deploy → the
-      `--workers N` argument in the start command, or gunicorn
-      `workers = N`).
-- [ ] If switching to Redis: Redis reachable from the app container
-      (Coolify → Networking → Service); TLS or VPC peering configured
-      per environment policy.
-- [ ] `APAP_AUTH_CACHE_BACKEND` decided: keep `"in_process"` (default)
-      or set to `"redis"` (after the follow-up PR wires the real
-      client).
-- [ ] `APAP_AUTH_CACHE_TTL_SECONDS` decided: keep `300` (default,
-      single-process acceptable; multi-worker waits up to TTL per
-      worker), drop to `60` (faster worker-local staleness, 1 extra
-      SELECT per user per minute), or drop to `0` (immediate revocation,
-      1 extra SELECT per request).
-- [ ] Plan for rollback captured: previous env values + the deploy
-      strategy (`recreate` on Coolify).
-
-## Decision matrix
-
-| Deployment | Backend | TTL | Worst-case staleness per worker |
-|---|---|---|---|
-| Single worker (dev, hobby) | `in_process` (default) | 300 | TTL |
-| Multi-worker, accept up to 5 min | `in_process` (default) | 300 | TTL |
-| Multi-worker, accept up to 1 min | `in_process` (default) | 60 | TTL |
-| Multi-worker, want immediate revocation, no Redis | `in_process` | 0 | 0 (one extra SELECT per request) |
-| Multi-worker, want immediate revocation, have Redis | `redis` (follow-up PR) | any | ~1 RTT |
+- [ ] Confirm the live Coolify application still has one replica.
+- [ ] Confirm no start-command override adds `--workers`.
+- [ ] Confirm `APAP_AUTH_CACHE_BACKEND` is unset or exactly `in_process`.
+- [ ] If the target has multiple workers or replicas, set
+      `APAP_AUTH_CACHE_TTL_SECONDS=0` before scaling.
+- [ ] Record the previous worker count, replica count, backend value, and TTL.
+- [ ] Confirm the expected query increase is acceptable when TTL is zero: one
+      authorization `SELECT` per authenticated request.
 
 ## Deploy steps
 
-### Option A: drop TTL to `0` (no new dep, immediate revocation)
+### Keep the current single-worker deployment
 
-1. Coolify → Application → Environment → edit
-   `APAP_AUTH_CACHE_TTL_SECONDS=0`.
-2. Click "Save" + "Redeploy" (atomic, recreate strategy).
-3. Verify (below).
+1. Leave the Coolify replica count at 1.
+2. Leave the application start-command override empty so the Dockerfile `CMD`
+   remains authoritative.
+3. Remove `APAP_AUTH_CACHE_BACKEND` or set it to `in_process`.
+4. Keep the chosen TTL (`300` by default).
+5. Redeploy and complete the verification below.
 
-Effect: one extra `SELECT FROM usuarios_autorizados WHERE email = $1`
-per authenticated request. Per the architecture doc's quality bar, this
-is acceptable; the same SELECT was already issued unconditionally
-before issue #143 added the cache. Cost: query budget increases
-linearly with concurrent users; the deactivation budget stays bounded
-by network round-trip to InsForge.
+### Scale to multiple workers or replicas
 
-### Option B: switch to the Redis backend (follow-up PR required)
+1. Set `APAP_AUTH_CACHE_TTL_SECONDS=0` in Coolify and save it.
+2. Ensure `APAP_AUTH_CACHE_BACKEND` is unset or `in_process`.
+3. Redeploy with TTL zero while the application still has one worker.
+4. Increase the Uvicorn worker count or Coolify replica count.
+5. Redeploy again and complete the verification below.
 
-1. Ensure `pip install '.[cache-redis]'` (or the equivalent extra) is
-   wired into the production image. This is NOT done in this slice —
-   the follow-up PR adds the `redis` dep under an optional extra.
-2. Coolify → Application → Environment → set
-   `APAP_AUTH_CACHE_BACKEND=redis`.
-3. Set `APAP_REDIS_URL` (or equivalent; the follow-up PR specifies the
-   exact name) to a real Redis instance.
-4. Click "Save" + "Redeploy".
-
-Effect: `invalidate_auth(email)` propagates to every worker in ~1 RTT.
-The cluster-wide staleness window drops to one network round trip.
-
-NOTE: this slice ships only the structural seam. Setting
-`APAP_AUTH_CACHE_BACKEND=redis` without the follow-up PR wired raises
-`NotImplementedError` at the first cache operation — fail-loud, not
-silent.
-
-### Option C: keep the default (single-process or TTL tolerance)
-
-If your deployment runs a single worker, OR if up to
-`APAP_AUTH_CACHE_TTL_SECONDS` per-worker staleness is acceptable, leave
-the defaults:
-
-```bash
-APAP_AUTH_CACHE_BACKEND=in_process   # default; not required
-APAP_AUTH_CACHE_TTL_SECONDS=300      # default; not required
-```
-
-Document the limit in the operator handoff so the next person is not
-surprised.
+TTL zero makes every cache lookup stale, so each authenticated request consults
+`usuarios_autorizados`. This preserves immediate revocation across independent
+workers without claiming cluster-wide invalidation.
 
 ## Verification
 
-After the deploy, verify the cache behavior matches the chosen option.
+1. Confirm the deploy is healthy:
 
-### Smoke (any option)
+   ```bash
+   curl --fail --silent https://apap.romancaba.com/healthz
+   ```
+
+2. In Coolify, confirm the application status is `running:healthy`, the intended
+   replica count is active, and the start-command override matches the plan.
+3. In the application container, inspect the Uvicorn process arguments:
+
+   ```bash
+   ps -ef | grep '[u]vicorn'
+   ```
+
+   For the current deployment, expect one Uvicorn process without `--workers`.
+4. Confirm startup logs contain no Pydantic validation error for
+   `auth_cache_backend`.
+5. For a multi-worker deployment, deactivate a test user and send authenticated
+   requests across repeated load-balanced connections. With TTL zero, every
+   request after deactivation must be denied after the in-flight request ends.
+
+A local startup guard can be checked without deploying:
 
 ```bash
-curl -i https://<env>.apap.local/healthz   # 200 OK in <60s
+APAP_AUTH_CACHE_BACKEND=redis python -c "from app.core.config import get_settings; get_settings()"
 ```
 
-### Verify TTL=0 disables the cache
-
-```bash
-# Authenticate as a known user, observe InsForge query log shows
-# one SELECT FROM usuarios_autorizados per request (not per TTL window).
-tail -f /var/log/apap/queries.log | grep "usuarios_autorizados"
-```
-
-Expected with `TTL=0`: a SELECT per authenticated request.
-
-### Verify Redis backend (after the follow-up PR wires it)
-
-```bash
-# Worker A:
-redis-cli -h <redis-host> SET apap:auth_cache:<email>:generation 0
-
-# Worker B reads:
-redis-cli -h <redis-host> GET apap:auth_cache:<email>:generation
-# Expected: 0 (workers share the version counter)
-```
-
-Follow-up PR will pin the exact key layout.
-
-### Verify per-worker staleness is bounded by TTL (default)
-
-1. Spin two workers (`--workers 2`).
-2. Log in as `test@example.com` on worker 1 → 302 redirect to
-   `/login` (no session yet).
-3. Authenticate; the session cookie is now valid for worker 1.
-4. Send the same request to worker 2 (round-robin / different
-   instance). If the cache hits on worker 2, you'll see no DB query.
-5. From worker 1, deactivate the user.
-6. Hit any authenticated route on worker 2.
-7. Expected with TTL=300: the request STILL succeeds for up to 300s
-   (per-worker staleness). This is the documented limit.
-8. Set TTL=0 and repeat: the request is denied on the next hit on
-   worker 2.
+Expected: non-zero exit with a validation error naming `auth_cache_backend`.
+The app must never start and then fail with `NotImplementedError` on a request.
 
 ## Rollback
 
-If the new TTL or backend misbehaves:
+If TTL zero causes unacceptable query load:
 
-1. Coolify → Application → Environment → restore the previous value
-   of `APAP_AUTH_CACHE_TTL_SECONDS` / `APAP_AUTH_CACHE_BACKEND`.
-2. Click "Redeploy".
-3. Re-run the smoke verification.
+1. Reduce the deployment to one Uvicorn worker and one Coolify replica first.
+2. Restore the previous positive `APAP_AUTH_CACHE_TTL_SECONDS` value.
+3. Ensure `APAP_AUTH_CACHE_BACKEND` remains unset or `in_process`.
+4. Redeploy.
+5. Re-run the health and process-count checks.
 
-Effect: the cache behavior reverts to the previous value on the next
-deploy; no persistent state to clean up (the in-process cache is wiped
-on restart anyway; Redis state, once wired, persists by design).
+Do not restore a positive TTL while multiple workers remain active unless the
+per-worker staleness window is explicitly accepted. There is no persistent cache
+state to clean up; every deploy starts the process-local cache empty.
 
 ## Related
 
-- `app/core/auth_cache.py` — the seam (Protocol + InProcessAuthCache +
-  RedisAuthCache stub + factory).
-- `app/core/config.py` — `auth_cache_backend` and
-  `auth_cache_ttl_seconds` settings.
-- `app/core/auth_dependencies.py:198-221` — `require_authorized_user`,
-  the only consumer of the cache.
-- `AGENTS.md` Rule 12 (audit doc) and Rule 13 (this runbook).
-- `docs/audits/auth-cache-shared-2026-Q3.md` — the audit doc that
-  accompanies this runbook.
-- `docs/audits/auth-revalidation-2026-Q3.md` — the issue #143 audit
-  doc; this runbook is the multi-worker follow-up.
-- `tests/test_auth_cache_backend.py` — the test suite that pins the
-  seam + scope documentation.
+- `app/core/auth_cache.py` — worker-local cache, generation guard, and facades.
+- `app/core/config.py` — TTL plus the `in_process` compatibility guard.
+- `AGENTS.md` §29 — deployment contract.
+- `docs/audits/auth-cache-in-process-audit-2026-Q3.md` — #287 security audit.
+- `tests/test_auth_cache_backend.py` — backend and settings contracts.
+- `tests/test_lifespan.py` — startup rejection for stale Redis configuration.

@@ -276,7 +276,7 @@ def run_apply(
         )
         return 5
     except LegacyReaderError:
-        # pyodbc / dysflow I/O failure. The exception's ``str()``
+        # pyodbc I/O failure. The exception's ``str()``
         # can include the failing SQL fragment — categorical only.
         stream.write(
             _format_apply_error("legacy_read_failed", exit_code=5)

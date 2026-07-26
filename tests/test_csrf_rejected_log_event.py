@@ -127,17 +127,17 @@ async def test_csrf_rejected_event_name_preserved(
     assert response.status_code == 403
 
     rejection_records = [
-        rec for rec in caplog.records if getattr(rec, "event", None) == "csrf.rejected"
+        rec for rec in caplog.records if rec._caller_fields.get("event") == "csrf.rejected"
     ]
     assert rejection_records, (
         f"expected a csrf.rejected log record, got events: "
-        f"{[getattr(r, 'event', None) for r in caplog.records]}"
+        f"{[r._caller_fields.get('event') for r in caplog.records]}"
     )
     record = rejection_records[0]
     # Operator-facing fields MUST be present and literal.
-    assert record.path == "/animales"
-    assert record.method == "POST"
-    assert record.reason in {"missing_token", "token_mismatch", "missing_session"}
+    assert record._caller_fields["path"] == "/animales"
+    assert record._caller_fields["method"] == "POST"
+    assert record._caller_fields["reason"] in {"missing_token", "token_mismatch", "missing_session"}
     # Level: log_safe emits INFO (operators see auth/route events on
     # the default INFO filter). The pre-PR-6 code emitted WARNING;
     # dashboards filter on the event name, not the level.
@@ -163,13 +163,13 @@ async def test_csrf_rejected_does_not_leak_session_token_in_log(
         )
 
     record = next(
-        rec for rec in caplog.records if getattr(rec, "event", None) == "csrf.rejected"
+        rec for rec in caplog.records if rec._caller_fields.get("event") == "csrf.rejected"
     )
     # No literal token in any log attribute.
     record_dump = str(record.__dict__)
     assert "session-bound-csrf-token" not in record_dump
     # The csrf_token field, if present, is redacted (not literal).
-    token_value = getattr(record, "csrf_token", None)
+    token_value = record._caller_fields.get("csrf_token")
     if token_value is not None:
         assert token_value == "[REDACTED]"
 
@@ -230,9 +230,9 @@ async def test_csrf_disabled_event_name_emitted_when_feature_flag_off(
         await middleware.dispatch(request, _call_next)
 
     disabled_records = [
-        rec for rec in caplog.records if getattr(rec, "event", None) == "csrf.disabled"
+        rec for rec in caplog.records if rec._caller_fields.get("event") == "csrf.disabled"
     ]
     assert disabled_records, (
         f"expected a csrf.disabled log record, got events: "
-        f"{[getattr(r, 'event', None) for r in caplog.records]}"
+        f"{[r._caller_fields.get('event') for r in caplog.records]}"
     )

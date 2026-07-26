@@ -52,9 +52,9 @@ def test_log_safe_redacts_each_new_pii_field_value(
 
     assert caplog.records, "log_safe did not emit a LogRecord"
     record = caplog.records[0]
-    assert getattr(record, field_name) == "[REDACTED]", (
+    assert record._caller_fields[field_name] == "[REDACTED]", (
         f"log_safe leaked raw value for {field_name!r}: "
-        f"record.{field_name}={getattr(record, field_name)!r}"
+        f"record._caller_fields[{field_name}]={record._caller_fields.get(field_name)!r}"
     )
     assert secret_value not in str(record.__dict__), (
         f"raw value for {field_name!r} leaked into the formatted record"
@@ -83,9 +83,9 @@ def test_log_safe_redaction_is_case_insensitive_for_new_pii_fields(
 
     assert caplog.records
     record = caplog.records[0]
-    assert getattr(record, field_name) == "[REDACTED]", (
+    assert record._caller_fields[field_name] == "[REDACTED]", (
         f"case variant {field_name!r} was not redacted: "
-        f"record.{field_name}={getattr(record, field_name)!r}"
+        f"record._caller_fields[{field_name}]={record._caller_fields.get(field_name)!r}"
     )
     assert raw_value not in str(record.__dict__)
 
@@ -121,5 +121,5 @@ def test_log_safe_descriptive_field_names_are_not_redacted(
     record = caplog.records[0]
     # Descriptive names that contain substrings of redacted fields are NOT
     # redacted per the closed-list contract.
-    assert record.dni_lookup_table == "voluntarios"
-    assert record.telefono_secundario == "+34600999888"
+    assert record._caller_fields["dni_lookup_table"] == "voluntarios"
+    assert record._caller_fields["telefono_secundario"] == "+34600999888"

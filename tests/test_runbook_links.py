@@ -13,11 +13,11 @@ Scope:
   constant used in operator-facing CLI error output. The CLI emits
   ``runbook=<ref>`` for every typed exception; a missing runbook
   file surfaces as a dead link in production.
-- ``migration.dysflow_client`` — the pyodbc executor's module
+- ``migration.legacy_access_client`` — the pyodbc executor's module
   docstring + user-visible error messages name the operator runbook
   for closing Access manually and troubleshooting the executor.
   These are operator-facing because they appear in
-  ``NotImplementedError`` messages at runtime.
+  ``LegacyReaderError`` messages at runtime.
 - ``pyproject.toml`` — the dependency comment for ``pyodbc`` names
   the runbook the operator consults when the executor raises
   ``LegacyReaderError`` ("Without it, the CLI exits 5 with a
@@ -40,7 +40,7 @@ Three paths per slice (web-tdd-philosophy Rule 5):
   required sections.
 - sad: a missing file surfaces as a failed test (the operator sees
   the test failure at PR-review time, not a dead link in production).
-- edge: cross-cutting — the CLI constant and the dysflow_client
+- edge: cross-cutting — the CLI constant and the legacy_access_client
   references point to the SAME canonical runbook (no operator
   confusion across two divergent references).
 
@@ -59,7 +59,7 @@ import re
 from pathlib import Path
 
 from migration import cli as cli_mod
-from migration import dysflow_client as dysflow_mod
+from migration import legacy_access_client as legacy_access_mod
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DOCS_RUNBOOKS_DIR = REPO_ROOT / "docs" / "runbooks"
@@ -85,9 +85,9 @@ def _missing_required_headings(text: str) -> list[str]:
     return [h for h in AGENTS_SECTION_13_HEADINGS if h not in text]
 
 
-def _discover_dysflow_runbook_refs() -> list[str]:
-    """Return the sorted, deduplicated runbook paths named in dysflow_client.py."""
-    src = Path(dysflow_mod.__file__).read_text(encoding="utf-8")
+def _discover_legacy_access_runbook_refs() -> list[str]:
+    """Return the sorted, deduplicated runbook paths named in legacy_access_client.py."""
+    src = Path(legacy_access_mod.__file__).read_text(encoding="utf-8")
     return sorted(set(_RUNBOOK_REF_RE.findall(src)))
 
 
@@ -137,39 +137,39 @@ class TestCliRunbookReference:
 # --------------------------------------------------------------------------
 
 
-class TestDysflowRunbookReferences:
-    """Every runbook path in ``migration/dysflow_client.py`` resolves to an authored file."""
+class TestLegacyAccessRunbookReferences:
+    """Every runbook path in ``migration/legacy_access_client.py`` resolves to an authored file."""
 
-    def test_dysflow_client_documents_at_least_one_runbook(self) -> None:
-        refs = _discover_dysflow_runbook_refs()
+    def test_legacy_access_client_documents_at_least_one_runbook(self) -> None:
+        refs = _discover_legacy_access_runbook_refs()
         assert refs, (
             "expected at least one docs/runbooks/... reference in "
-            "migration/dysflow_client.py (operator-facing docstring "
-            "or error message)"
+            "migration/legacy_access_client.py (operator-facing "
+            "docstring or error message)"
         )
 
-    def test_dysflow_client_runbook_refs_resolve(self) -> None:
-        refs = _discover_dysflow_runbook_refs()
+    def test_legacy_access_client_runbook_refs_resolve(self) -> None:
+        refs = _discover_legacy_access_runbook_refs()
         for ref in refs:
             resolved = _resolve_runbook(ref)
             assert resolved.exists(), (
-                f"dysflow_client.py runbook reference {ref!r} does "
-                f"not resolve to an existing file: {resolved}"
+                f"legacy_access_client.py runbook reference {ref!r} "
+                f"does not resolve to an existing file: {resolved}"
             )
             assert resolved.is_file(), (
-                f"dysflow_client.py runbook reference {ref!r} is not "
-                f"a regular file: {resolved}"
+                f"legacy_access_client.py runbook reference {ref!r} "
+                f"is not a regular file: {resolved}"
             )
 
-    def test_dysflow_client_runbook_refs_have_agents_section_13(self) -> None:
-        refs = _discover_dysflow_runbook_refs()
+    def test_legacy_access_client_runbook_refs_have_agents_section_13(self) -> None:
+        refs = _discover_legacy_access_runbook_refs()
         for ref in refs:
             resolved = _resolve_runbook(ref)
             text = resolved.read_text(encoding="utf-8")
             missing = _missing_required_headings(text)
             assert not missing, (
-                f"dysflow_client.py runbook {ref!r} is missing required "
-                f"AGENTS §13 headings: {missing!r}"
+                f"legacy_access_client.py runbook {ref!r} is missing "
+                f"required AGENTS §13 headings: {missing!r}"
             )
 
 
@@ -179,7 +179,7 @@ class TestDysflowRunbookReferences:
 
 
 class TestRunbookReferenceConsistency:
-    """CLI constant + dysflow_client references point to the SAME canonical runbook.
+    """CLI constant + legacy_access_client references point to the SAME canonical runbook.
 
     Divergent references create operator confusion: the CLI error
     stream points to one runbook while the legacy executor's error
@@ -187,14 +187,14 @@ class TestRunbookReferenceConsistency:
     runbook for the apply pipeline.
     """
 
-    def test_cli_and_dysflow_references_are_consistent(self) -> None:
+    def test_cli_and_legacy_access_references_are_consistent(self) -> None:
         cli_ref = cli_mod.MIGRATION_RUNBOOK_REF
-        dysflow_refs = _discover_dysflow_runbook_refs()
-        for ref in dysflow_refs:
+        legacy_access_refs = _discover_legacy_access_runbook_refs()
+        for ref in legacy_access_refs:
             assert ref == cli_ref, (
-                f"dysflow_client.py reference {ref!r} disagrees with "
-                f"the CLI constant {cli_ref!r}; both must point to the "
-                f"same canonical operator runbook"
+                f"legacy_access_client.py reference {ref!r} disagrees "
+                f"with the CLI constant {cli_ref!r}; both must point "
+                f"to the same canonical operator runbook"
             )
 
     def test_all_runbook_refs_live_under_docs_runbooks(self) -> None:
@@ -204,7 +204,7 @@ class TestRunbookReferenceConsistency:
         ``README.md`` at the repo root, an audit doc under
         ``docs/audits/``, or a wiki link).
         """
-        all_refs = [cli_mod.MIGRATION_RUNBOOK_REF] + _discover_dysflow_runbook_refs()
+        all_refs = [cli_mod.MIGRATION_RUNBOOK_REF] + _discover_legacy_access_runbook_refs()
         for ref in all_refs:
             assert ref.startswith("docs/runbooks/"), (
                 f"operator runbook reference {ref!r} must live under "
@@ -271,7 +271,7 @@ class TestPyprojectRunbookReferences:
 
         A reference surfaced to the operator (via the pyodbc
         install-hint comment) MUST satisfy the same AGENTS §13
-        contract as the CLI constant + dysflow_client references.
+        contract as the CLI constant + legacy_access_client references.
         Otherwise the operator lands on a stub file and the
         install flow breaks.
         """
