@@ -436,3 +436,15 @@ def test_detector13_linter_exits_zero_on_main() -> None:
     assert "query_seam_violation" not in result.stdout, (
         f"query_seam_violation should not appear on main: {result.stdout}"
     )
+
+
+# T9: Regression — Detector 13 must catch ast.AnnAssign, not just ast.Assign
+def test_detector_13_annassign_critical_violation() -> None:
+    """Detector must catch ast.AnnAssign, not just ast.Assign (issue #290 fix)."""
+    fixtures_root = Path(__file__).parent / "fixtures" / "query_seam"
+    path = fixtures_root / "annassign_violation"
+    violations, _notes = _query_seam_violations(path)
+    assert any(v.rule_id == "query_seam_violation" for v in violations), (
+        f"Annotated assignment SQL was not flagged. "
+        f"violations={[v.rule_id for v in violations]}"
+    )

@@ -560,7 +560,7 @@ def _check_query_seam_violation_on_path(
     """Thin wrapper that guards _check_query_seam_violation to
     ``app/modules/<M>/service.py`` only. Returns only Violation objects
     (QuerySeamBaselineNote instances are informational and never block
-    the gate)."""
+    the gate — see :func:`find_query_seam_baseline_notes`)."""
     if path.name != "service.py":
         return []
     module_name = _own_module_name(path, repo_root)
@@ -568,6 +568,53 @@ def _check_query_seam_violation_on_path(
         return []
     results = _check_query_seam_violation(tree, module_name, path)
     return [r for r in results if isinstance(r, Violation)]
+
+
+def find_query_seam_baseline_notes(
+    repo_root: Path, exclude: frozenset[str] | None = None
+) -> list[QuerySeamBaselineNote]:
+    """Return the list of :class:`QuerySeamBaselineNote` informational
+    records for the query seam detector.
+
+    Mirrors the ``pii_route_coverage`` shape (informational scan that
+    never blocks CI). Walks every ``app/modules/<M>/service.py`` under
+    ``repo_root`` and emits one :class:`QuerySeamBaselineNote` per
+    ``_*_SQL`` constant found in a module listed in
+    :data:`BASELINE_NO_QUERIES_MODULES`. Baselined modules with SQL but
+    no ``queries.py`` are grandfathered — the note exists so operators
+    see how much legacy migration work remains to bring the codebase
+    fully into compliance with §22.
+
+    ``exclude`` honours the same prefix list as :func:`find_violations`
+    (CLI ``--exclude`` / ``.check_rulesignore`` / ``DEFAULT_EXCLUDES``).
+    Modules whose path matches an excluded prefix are silently skipped.
+
+    Returns an empty list when no baselined module still carries SQL
+    literals in ``service.py``.
+    """
+    excludes = exclude if exclude is not None else DEFAULT_EXCLUDES
+    notes: list[QuerySeamBaselineNote] = []
+    modules_root = repo_root / "app" / "modules"
+    if not modules_root.is_dir():
+        return notes
+    for service_path in modules_root.rglob("service.py"):
+        if _is_excluded(service_path, repo_root, excludes):
+            continue
+        module_name = _own_module_name(service_path, repo_root)
+        if module_name is None:
+            continue
+        try:
+            tree = ast.parse(
+                service_path.read_text(encoding="utf-8"),
+                filename=str(service_path),
+            )
+        except (SyntaxError, UnicodeDecodeError):
+            continue
+        results = _check_query_seam_violation(tree, module_name, service_path)
+        for r in results:
+            if isinstance(r, QuerySeamBaselineNote):
+                notes.append(r)
+    return notes
 
 
 # Detector 1 -----------------------------------------------------------------
@@ -1144,49 +1191,56 @@ def _check_query_seam_violation(
     is_baselined = module_name in BASELINE_NO_QUERIES_MODULES
 
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Assign):
+        if isinstance(node, ast.Assign):
+            if not node.targets or not isinstance(node.targets[0], ast.Name):
+                continue
+            name = node.targets[0].id
+            value = node.value
+        elif isinstance(node, ast.AnnAssign):
+            if not isinstance(node.target, ast.Name):
+                continue
+            name = node.target.id
+            value = node.value
+        else:
             continue
-        for target in node.targets:
-            if not isinstance(target, ast.Name):
-                continue
-            if not target.id.endswith("_SQL"):
-                continue
-            first_lit = _lower_first_literal(node.value)
-            if first_lit is None:
-                continue
-            if not _is_sql_keyword_prefix(first_lit):
-                continue
-            # This assignment is a _*_SQL constant with SQL keyword value.
-            if is_baselined:
-                results.append(
-                    QuerySeamBaselineNote(
-                        module_name=module_name,
-                        file=file_path,
-                        line=node.lineno,
-                        message=(
-                            f"Module {module_name!r} is in "
-                            f"BASELINE_NO_QUERIES_MODULES and has "
-                            f"{target.id!r} in service.py. "
-                            f"Migration: extract to queries.py and remove "
-                            f"from the baseline (issue #290)."
-                        ),
-                    )
+        if not name.endswith("_SQL"):
+            continue
+        first_lit = _lower_first_literal(value)
+        if first_lit is None:
+            continue
+        if not _is_sql_keyword_prefix(first_lit):
+            continue
+        # This assignment is a _*_SQL constant with SQL keyword value.
+        if is_baselined:
+            results.append(
+                QuerySeamBaselineNote(
+                    module_name=module_name,
+                    file=file_path,
+                    line=node.lineno,
+                    message=(
+                        f"Module {module_name!r} is in "
+                        f"BASELINE_NO_QUERIES_MODULES and has "
+                        f"{name!r} in service.py. "
+                        f"Migration: extract to queries.py and remove "
+                        f"from the baseline (issue #290)."
+                    ),
                 )
-            else:
-                results.append(
-                    Violation(
-                        file=file_path,
-                        line=node.lineno,
-                        rule_id="query_seam_violation",
-                        message=(
-                            f"service.py has {target.id!r} "
-                            f"(SQL literal) but no queries.py seam. "
-                            f"Rule §22: move SQL to "
-                            f"app/modules/{module_name}/queries.py "
-                            f"and import the builder here."
-                        ),
-                    )
+            )
+        else:
+            results.append(
+                Violation(
+                    file=file_path,
+                    line=node.lineno,
+                    rule_id="query_seam_violation",
+                    message=(
+                        f"service.py has {name!r} "
+                        f"(SQL literal) but no queries.py seam. "
+                        f"Rule §22: move SQL to "
+                        f"app/modules/{module_name}/queries.py "
+                        f"and import the builder here."
+                    ),
                 )
+            )
     return results
 
 
@@ -1625,6 +1679,17 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
+    # Determine the repo root ONCE so every informational detector
+    # (``pii_route_coverage`` + ``query_seam_baseline_note``) reads the
+    # same view of the tree. Use the first scanned path's parent if it
+    # looks like the repo root (so ``scripts/check_rules.py .`` still
+    # works); for ``scripts/check_rules.py app`` the repo root is the
+    # cwd.
+    repo_root = Path.cwd()
+    if paths:
+        first_path = paths[0].resolve()
+        if (first_path / "tests/test_public_paths.py").exists():
+            repo_root = first_path
     # PR5 informational detector: ``pii_route_coverage`` emits WARNINGs
     # that surface drift between ``app/`` routes and the
     # ``PII_ROUTES_PARAMETRIZE`` tuple. Warnings are printed to stdout
@@ -1635,14 +1700,6 @@ def main(argv: list[str] | None = None) -> int:
     # lives at ``<repo_root>/tests/test_public_paths.py``. The app/ scan
     # covers the route side of the comparison.
     pii_gaps: list[PiiRouteGap] = []
-    repo_root = Path.cwd()
-    if paths:
-        # Use the first scanned path's parent if it looks like the repo
-        # root (so ``scripts/check_rules.py .`` still works). For
-        # ``scripts/check_rules.py app`` the repo root is the cwd.
-        first_path = paths[0].resolve()
-        if (first_path / "tests/test_public_paths.py").exists():
-            repo_root = first_path
     pii_gaps.extend(find_pii_route_gaps(repo_root))
     if pii_gaps:
         for gap in sorted(pii_gaps, key=lambda x: x.route_path):
@@ -1655,6 +1712,25 @@ def main(argv: list[str] | None = None) -> int:
             )
         print(
             f"\n{len(pii_gaps)} pii_route_coverage warning(s); "
+            f"informational, does NOT block CI.",
+            file=sys.stdout,
+        )
+    # Detector 13 informational notes: ``query_seam_baseline_note``
+    # surfaces the modules in ``BASELINE_NO_QUERIES_MODULES`` that still
+    # carry ``_*_SQL`` constants in ``service.py`` (issue #290 migration
+    # backlog). Like ``pii_route_coverage``, the notes never block CI;
+    # they exist so the operator sees how much grandfathered legacy
+    # remains to be migrated into the §22 ``queries.py`` seam.
+    seam_notes: list[QuerySeamBaselineNote] = []
+    seam_notes.extend(find_query_seam_baseline_notes(repo_root, exclude=excludes))
+    if seam_notes:
+        for note in sorted(seam_notes, key=lambda x: (x.module_name, x.line)):
+            print(
+                f"INFO ({note.rule_id}): {note.module_name} "
+                f"[{note.file}:{note.line}] \u2014 {note.message}"
+            )
+        print(
+            f"\n{len(seam_notes)} query_seam_baseline_note(s); "
             f"informational, does NOT block CI.",
             file=sys.stdout,
         )
