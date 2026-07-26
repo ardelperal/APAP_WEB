@@ -47,6 +47,9 @@ def test_create_app_rejects_redis_auth_cache_backend_at_startup(
 async def test_lifespan_calls_ensure_schema_and_seed_on_startup(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Bypass startup secret validation (issue #275)
+    config_module.get_settings.cache_clear()
+    monkeypatch.setenv("APAP_DEBUG", "true")
     auth_calls: list[Any] = []
     domain_calls: list[Any] = []
     catalogs_calls: list[Any] = []
@@ -83,6 +86,9 @@ async def test_lifespan_calls_catalog_bootstrap_before_domain(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Catalog tables must exist before domain FKs reference them."""
+    # Bypass startup secret validation (issue #275)
+    config_module.get_settings.cache_clear()
+    monkeypatch.setenv("APAP_DEBUG", "true")
     order: list[str] = []
 
     def _record_auth(*args: Any, **kwargs: Any) -> None:
@@ -115,6 +121,9 @@ async def test_lifespan_passes_a_real_insforge_client_to_bootstrap(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The bootstrap functions must receive an ``InsForgeClient`` built from settings."""
+    # Bypass startup secret validation (issue #275)
+    config_module.get_settings.cache_clear()
+    monkeypatch.setenv("APAP_DEBUG", "true")
     from app.core.insforge import InsForgeClient
 
     seen: list[Any] = []
@@ -150,6 +159,10 @@ async def test_lifespan_propagates_bootstrap_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """If either bootstrap step raises, the lifespan must propagate (fail fast)."""
+    # Bypass startup secret validation (issue #275)
+    config_module.get_settings.cache_clear()
+    monkeypatch.setenv("APAP_DEBUG", "true")
+
     def _boom(*args: Any, **kwargs: Any) -> None:
         raise RuntimeError("bootstrap failed (test)")
 
@@ -162,6 +175,9 @@ async def test_lifespan_propagates_bootstrap_failure(
 
 async def test_lifespan_closes_the_insforge_client(monkeypatch: pytest.MonkeyPatch) -> None:
     """The bootstrap client must be closed even if the bootstrap functions raise."""
+    # Bypass startup secret validation (issue #275)
+    config_module.get_settings.cache_clear()
+    monkeypatch.setenv("APAP_DEBUG", "true")
     close_calls: list[None] = []
 
     class _FakeClient:
@@ -195,6 +211,58 @@ async def test_lifespan_closes_the_insforge_client(monkeypatch: pytest.MonkeyPat
 
 
 # ---------------------------------------------------------------------------
+# Issue #275 (§32.P2): startup secret validation ordering
+# ---------------------------------------------------------------------------
+
+
+async def test_lifespan_validates_secrets_before_constructing_insforge_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """StartupConfigError must be raised BEFORE InsForgeClient is constructed.
+
+    If the validator runs AFTER the client is built, a bad config still pays
+    the cost of an httpx connection attempt. If it runs before, the client is
+    never instantiated and no network call is made. The lifespan MUST propagate
+    the error before client construction — the try/finally does not catch it.
+    """
+    from app.core.config import StartupConfigError
+
+    client_init_calls: list[str] = []
+
+    class _SentinelClient:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            client_init_calls.append("called")
+
+        def execute_sql(self, query: str, params: Any = None) -> list[dict[str, Any]]:
+            return []
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr("app.main.InsForgeClient", _SentinelClient)
+    monkeypatch.setattr("app.main.ensure_schema_and_seed", lambda *a, **kw: None)
+    monkeypatch.setattr("app.main.ensure_domain_schema", lambda *a, **kw: None)
+    monkeypatch.setattr("app.main.ensure_catalogs", lambda *a, **kw: None)
+    monkeypatch.setattr("app.main.apply_sql_migrations", _noop_sql_migrations)
+
+    # Force the validator to fail by using the placeholder secret.
+    # get_settings() is cached; clear it so our env override is picked up.
+    config_module.get_settings.cache_clear()
+    monkeypatch.setenv("APAP_SESSION_SECRET", "dev-only-change-me-in-production")
+    monkeypatch.setenv("APAP_INSFORGE_SERVICE_KEY", "ik_test_key")
+
+    with pytest.raises(StartupConfigError):
+        async with lifespan(_app):
+            pass
+
+    # The client must NEVER have been constructed
+    assert client_init_calls == [], (
+        f"InsForgeClient was constructed {len(client_init_calls)} time(s) "
+        "before validation — it must not be instantiated when secrets are invalid"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Issue #260: pooled httpx.Client on app.state
 #
 # Before #260, ``get_insforge_client_dep`` instantiated a fresh
@@ -221,6 +289,9 @@ async def test_lifespan_stores_insforge_client_on_app_state(
     pooling refactor would silently regress to "create + close per
     request" if the store was ever removed.
     """
+    # Bypass startup secret validation (issue #275)
+    config_module.get_settings.cache_clear()
+    monkeypatch.setenv("APAP_DEBUG", "true")
     from app.core.insforge import InsForgeClient
 
     seen: list[Any] = []
@@ -277,6 +348,9 @@ async def test_lifespan_closes_client_on_shutdown_not_after_bootstrap(
     shuts down. The dep (and every request) reuses that single
     instance, which is the whole point of pooling the keep-alive.
     """
+    # Bypass startup secret validation (issue #275)
+    config_module.get_settings.cache_clear()
+    monkeypatch.setenv("APAP_DEBUG", "true")
     close_calls: list[str] = []
 
     class _TrackingClient:
