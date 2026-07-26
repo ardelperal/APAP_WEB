@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from scripts.check_rules import (
+    QuerySeamBaselineNote,
     Violation,
     _is_client_execute_sql_call,
     find_violations,
@@ -21,6 +22,7 @@ from scripts.check_rules import (
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = REPO_ROOT / "tests" / "_rule_helpers" / "fixtures"
+QUERY_SEAM_FIXTURES = REPO_ROOT / "tests" / "fixtures" / "query_seam"
 SCRIPT = REPO_ROOT / "scripts" / "check_rules.py"
 
 
@@ -230,4 +232,219 @@ def test_detector12_repo_only_has_the_known_baselined_violation() -> None:
     assert not submodule, (
         f"New cross_module_submodule_import violation(s) beyond the #231 "
         f"baseline: {[(str(v.file), v.line) for v in submodule]}"
+    )
+
+
+# --- Detector 13 (Rule 22): query_seam_violation -------------------------
+
+
+def _query_seam_violations(
+    target: Path,
+) -> tuple[list[Violation], list[QuerySeamBaselineNote]]:
+    """Return (violations, baseline_notes) for the query seam detector.
+
+    Used for fixture directories. The legacy fixture uses ``sample`` as the
+    module name (not a real domain module); the check below correctly
+    identifies it as a baselined module and emits the appropriate note or
+    violation based on whether it is in BASELINE_NO_QUERIES_MODULES.
+    """
+    import ast
+
+    from scripts.check_rules import (
+        _check_query_seam_violation,
+    )
+
+    violations: list[Violation] = []
+    notes: list[QuerySeamBaselineNote] = []
+    for path in target.rglob("service.py"):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except (SyntaxError, UnicodeDecodeError):
+            continue
+        # Derive module name from path: target/app/modules/<M>/service.py
+        # parts[0]="app", parts[1]="modules", parts[2]=<M>, parts[3]=service.py
+        try:
+            rel = path.relative_to(target)
+        except ValueError:
+            continue
+        parts = rel.parts
+        if len(parts) < 3 or parts[0] != "app" or parts[1] != "modules":
+            continue
+        module_name = parts[2]
+        results = _check_query_seam_violation(tree, module_name, path)
+        for r in results:
+            if isinstance(r, Violation):
+                violations.append(r)
+            else:
+                notes.append(r)
+    return violations, notes
+
+
+def _violations_for_module(
+    module_dir: Path,
+) -> list[Violation]:
+    """Return query_seam_violation violations for a single module directory.
+
+    The ``module_dir.name == "sample"`` guard skips the fixture sample
+    module when this helper is accidentally called with a fixture dir;
+    for real-repo calls the module name comes from BASELINE_NO_QUERIES_MODULES
+    which does not contain ``sample``.
+    """
+    import ast
+
+    from scripts.check_rules import (
+        _check_query_seam_violation,
+    )
+
+    service_path = module_dir / "service.py"
+    if not service_path.exists():
+        return []
+    try:
+        tree = ast.parse(service_path.read_text(encoding="utf-8"), filename=str(service_path))
+    except (SyntaxError, UnicodeDecodeError):
+        return []
+    module_name = module_dir.name
+    if module_name == "sample":
+        return []  # skip fixture sample (not a real domain module)
+    results = _check_query_seam_violation(tree, module_name, service_path)
+    return [r for r in results if isinstance(r, Violation)]
+
+
+# T1: Baseline ratchet — BASELINE_NO_QUERIES_MODULES may only shrink
+@pytest.mark.parametrize(
+    "module_name",
+    [
+        pytest.param("materiales", id="materiales_has_queries_py"),
+        pytest.param("acogidas", id="acogidas_has_queries_py"),
+    ],
+)
+def test_baseline_no_queries_modules_shrink_only(module_name: str) -> None:
+    """Adding a module that HAS queries.py to BASELINE_NO_QUERIES_MODULES
+    must fail the ratchet: modules that already follow §22 cannot be
+    added to the baseline because it would cause false negatives for
+    compliant modules (T1 per the tasks spec)."""
+    from scripts.check_rules import BASELINE_NO_QUERIES_MODULES
+
+    assert module_name not in BASELINE_NO_QUERIES_MODULES, (
+        f"{module_name!r} is NOT in BASELINE_NO_QUERIES_MODULES — "
+        f"modules that already have queries.py (and therefore follow §22) "
+        f"must NOT be added to the baseline; the ratchet only shrinks."
+    )
+
+
+# T2: Legacy fixture — no queries.py, has SQL constant → CRITICAL violation
+def test_detector13_legacy_module_violates() -> None:
+    """A legacy module (in BASELINE_NO_QUERIES_MODULES) without queries.py
+    but with a _*_SQL constant in service.py must be flagged."""
+    target = QUERY_SEAM_FIXTURES / "legacy"
+    violations, notes = _query_seam_violations(target)
+    assert violations, "Expected query_seam_violation for legacy module; got none"
+    assert violations[0].rule_id == "query_seam_violation"
+
+
+# T3: Compliant fixture — has queries.py + SQL constant → no violation
+def test_detector13_compliant_module_passes() -> None:
+    """A compliant module with both queries.py and _*_SQL in service.py
+    must NOT be flagged (it follows the §22 seam correctly)."""
+    target = QUERY_SEAM_FIXTURES / "compliant"
+    violations, notes = _query_seam_violations(target)
+    assert not violations, f"Compliant module should not be flagged: {violations}"
+
+
+# T4: Empty fixture — service.py with no SQL → no violation
+def test_detector13_empty_service_passes() -> None:
+    """A module with service.py containing no SQL constants must NOT be
+    flagged (no violation possible when there are no _*_SQL constants)."""
+    target = QUERY_SEAM_FIXTURES / "empty"
+    violations, notes = _query_seam_violations(target)
+    assert not violations, f"Empty service should not be flagged: {violations}"
+
+
+# T5: Sibling fixture — batch_service.py with SQL (not service.py) → ignored
+def test_detector13_sibling_batch_service_ignored() -> None:
+    """A batch_service.py sibling file with SQL (but no service.py SQL)
+    must NOT be flagged — the detector only checks service.py."""
+    target = QUERY_SEAM_FIXTURES / "sibling"
+    violations, notes = _query_seam_violations(target)
+    assert not violations, (
+        f"batch_service.py SQL should not be flagged (detector checks "
+        f"service.py only): {violations}"
+    )
+
+
+# T6: Real repo — all legacy modules in baseline produce zero violations
+def test_detector13_repo_legacy_modules_grandfathered() -> None:
+    """The seven legacy modules currently without queries.py are in
+    BASELINE_NO_QUERIES_MODULES and must NOT produce violations."""
+    from scripts.check_rules import BASELINE_NO_QUERIES_MODULES
+
+    violations: list[Violation] = []
+    for module_name in BASELINE_NO_QUERIES_MODULES:
+        module_dir = REPO_ROOT / "app" / "modules" / module_name
+        if not module_dir.exists():
+            continue
+        violations.extend(_violations_for_module(module_dir))
+    assert not violations, (
+        f"Legacy baselined modules should not produce violations: "
+        f"{[(str(v.file), v.line, v.rule_id) for v in violations]}"
+    )
+
+
+# T7: Real repo — compliant modules produce zero violations
+def test_detector13_repo_compliant_modules_passes() -> None:
+    """The modules that already follow §22 (acogidas, materiales) must
+    NOT produce query_seam_violation violations."""
+    violations: list[Violation] = []
+    for module_name in ("acogidas", "materiales"):
+        module_dir = REPO_ROOT / "app" / "modules" / module_name
+        if not module_dir.exists():
+            continue
+        violations.extend(_violations_for_module(module_dir))
+    assert not violations, (
+        f"Compliant modules (acogidas, materiales) should not be flagged: "
+        f"{[(str(v.file), v.line, v.rule_id) for v in violations]}"
+    )
+
+
+# T8: Synthetic new module with _*_SQL but no queries.py → CRITICAL
+def test_detector13_new_module_with_sql_violates() -> None:
+    """A NEW module (not in BASELINE_NO_QUERIES_MODULES) with _*_SQL
+    in service.py but no queries.py must be flagged as a CRITICAL
+    violation (it is violating §22 without grandfathering)."""
+    target = QUERY_SEAM_FIXTURES / "synthetic_violation"
+    violations, notes = _query_seam_violations(target)
+    assert violations, (
+        "Expected query_seam_violation for synthetic new module with SQL; got none"
+    )
+    assert violations[0].rule_id == "query_seam_violation"
+
+
+# T22: linter exits 0 on main (7 baseline INFO notes, no CRITICAL)
+def test_detector13_linter_exits_zero_on_main() -> None:
+    """scripts/check_rules.py . must exit 0 on main — the seven legacy
+    modules are grandfathered in BASELINE_NO_QUERIES_MODULES and the
+    two compliant modules (acogidas, materiales) have queries.py."""
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), str(REPO_ROOT)],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, (
+        f"Expected exit 0 on main; got {result.returncode}\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert "query_seam_violation" not in result.stdout, (
+        f"query_seam_violation should not appear on main: {result.stdout}"
+    )
+
+
+# T9: Regression — Detector 13 must catch ast.AnnAssign, not just ast.Assign
+def test_detector_13_annassign_critical_violation() -> None:
+    """Detector must catch ast.AnnAssign, not just ast.Assign (issue #290 fix)."""
+    fixtures_root = Path(__file__).parent / "fixtures" / "query_seam"
+    path = fixtures_root / "annassign_violation"
+    violations, _notes = _query_seam_violations(path)
+    assert any(v.rule_id == "query_seam_violation" for v in violations), (
+        f"Annotated assignment SQL was not flagged. "
+        f"violations={[v.rule_id for v in violations]}"
     )
