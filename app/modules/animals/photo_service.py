@@ -4,46 +4,43 @@ The service is the single-responsibility bridge between the animals
 domain (which knows about ``NombreFoto`` / sentinel keys / ``animal_id``)
 and the storage client (which knows about the two-step S3-compatible
 download flow). The service resolves the animal through the animals
-data service, owns the fail-closed policy, and returns bytes plus media
-type. The route only translates that typed outcome into an HTTP response.
+data service, owns the fail-closed policy, and returns a
+``PhotoOutcome`` with a byte iterator (never buffered). The route only
+translates that typed outcome into an HTTP response.
 
-Why this boundary exists:
+Streaming contract (issue #285):
 
-- The route layer cannot decide what counts as "missing" (sentinel,
-  None, storage 404). That is a domain decision; the service owns it.
-- The storage client cannot decide what animal_id or NombreFoto to use
-  (those are domain terms). That would couple transport to domain.
-- Both responsibilities together would duplicate the authorization /
-  fail-closed logic. The service is the seam.
+- ``PhotoOutcome`` carries ``stream: Iterator[bytes]`` — the route
+  passes it directly to ``StreamingResponse`` without buffering.
+- ``content_length`` is set when known (placeholder = PNG size;
+  real photo = ``None`` because the stream is consumed lazily).
+- ``etag`` is computed as ``hash(animal_id, updated_at, nombrefoto)``
+  at resolution time so conditional requests work.
+- ``cache_control`` is always
+  ``private, max-age=3600, must-revalidate`` (photos are per-user).
+- ``status`` is ``"ok"`` for a real photo stream and ``"not_found"``
+  for any failure path (unknown animal, sentinel, storage error).
 
-Three-path behavior:
+The route handles two pre-flight concerns before streaming starts:
+1. ``not_found`` status → 404 response.
+2. ``If-None-Match`` header matching ``outcome.etag`` → 304 response.
 
-- Happy: a real ``NombreFoto`` and a working storage → byte iterator.
-- Sad (storage failure): any error from ``download_object_stream``
-  EAGERLY or mid-iteration → ``PhotoStreamError`` so the route can
-  render the placeholder. Mid-iteration errors are caught inside
-  the generator itself, BEFORE the route's ``StreamingResponse``
-  starts streaming — the route pre-advances the generator with
-  ``next(byte_iter)`` to surface them.
-- Edge (missing/sentinel): no storage call at all, raise
-  ``PhotoStreamError`` immediately.
-
-The byte iterator returned by the service is consumed by the route via
-FastAPI ``StreamingResponse``; the iterator is closed implicitly when
-the response finishes. The iterator MUST NOT include any URL/header
-metadata — only the object bytes — because the route serialises it
-directly to the client.
+Mid-stream failures (network drop after 200 headers) are logged via
+``log_safe`` and the response is allowed to truncate — no 5xx leak.
 """
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from app.core.data_access import SqlExecutor
 from app.core.logging import log_safe
 from app.modules.animals import service as animals_service
+
+# --- Module-level constants (must be defined before use) --------------------
 
 PHOTO_BUCKET = "apap-photos"
 SENTINEL_KEY = "__missing__"
@@ -54,6 +51,26 @@ PLACEHOLDER_PHOTO_PNG: bytes = (
     b"\x00\x00\x00\rIDATx\x9cc\xf8\xff\xff?\x00\x05\xfe\x02"
     b"\xfeA\xc0\xc1\x00\x00\x00\x00IEND\xaeB`\x82"
 )
+
+# Sentinel ETag for animals with no photo (deterministic per animal_id).
+_MISSING_ETAG_TEMPLATE = '"missing-%s"'
+
+
+def compute_etag(animal_id: str, updated_at: str | None, nombrefoto: str | None) -> str:
+    """Compute the ETag for an animal photo.
+
+    ETag = ``hash(animal_id, updated_at, nombrefoto)`` encoded as a quoted
+    string. Using metadata rather than the photo bytes allows conditional
+    requests without downloading the photo.
+
+    ``updated_at`` and ``nombrefoto`` may be ``None`` for sentinel cases
+    (unknown animal, SQL error). In that case a deterministic sentinel
+    ETag is returned so conditional requests still work correctly.
+    """
+    key = f"{animal_id}|{updated_at or ''}|{nombrefoto or ''}"
+    digest = hashlib.sha256(key.encode()).hexdigest()[:16]
+    return f'"{digest}"'
+
 
 # Map a storage-key file extension to its HTTP ``Content-Type``. Lifted
 # to module level so the lookup table is one source of truth and the
@@ -84,10 +101,49 @@ class PhotoStreamError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class PhotoResolution:
-    """Resolved bytes and media type for the route's HTTP response."""
+    """Resolved bytes and media type for the route's HTTP response.
+
+    DEPRECATED (issue #285): use ``PhotoOutcome`` instead.
+    ``PhotoResolution`` is retained for backward compatibility with
+    existing tests and is not updated for streaming semantics.
+    """
 
     content: bytes
     media_type: str
+
+
+@dataclass(frozen=True, slots=True)
+class PhotoOutcome:
+    """Streaming photo outcome for the route's HTTP response.
+
+    Carries all metadata needed by the route to build the HTTP response:
+    - ``stream``: an ``Iterator[bytes]`` consumed by ``StreamingResponse``.
+      The iterator is pulled lazily — no buffering.
+    - ``content_type``: the ``Content-Type`` header value.
+    - ``etag``: a quoted-string ETag derived from
+      ``hash(animal_id, updated_at, nombrefoto)``.
+    - ``cache_control``: the ``Cache-Control`` header value —
+      always ``private, max-age=3600, must-revalidate``.
+    - ``content_length``: total bytes when known (``None`` for streams
+      because the total is not known until the iterator is exhausted).
+    - ``status``: ``"ok"`` when a real photo was resolved;
+      ``"not_found"`` for any failure path (unknown animal, sentinel,
+      storage error, SQL error).
+
+    The route's pre-flight logic:
+    1. If ``status == "not_found"`` → 404 response.
+    2. If ``If-None-Match`` header matches ``etag`` → 304 response.
+    3. Otherwise → ``StreamingResponse(stream, media_type=content_type,
+       headers={"ETag": etag, "Cache-Control": cache_control,
+       "Content-Length": str(content_length) if content_length else ""})``.
+    """
+
+    stream: Iterator[bytes]
+    content_type: str
+    etag: str
+    cache_control: str
+    content_length: int | None
+    status: Literal["ok", "not_found"]
 
 
 class _StorageLike(Protocol):
@@ -176,12 +232,24 @@ def stream_animal_photo(
             f"photo stream failed for {nombrefoto!r}"
         ) from exc
 
-    # Iterate lazily; wrap mid-stream errors as PhotoStreamError so the
-    # route's outer ``try / next(byte_iter)`` catches them on the FIRST
-    # failing iteration. ``StreamingResponse`` never sees the raw
-    # exception because the failure surfaces before headers are sent.
+    # Iterate lazily using ``yield from byte_iter``.  This correctly handles
+    # both sync iterators (StopIteration propagates through yield from and
+    # is caught by the outer try/except here) and async iterators
+    # (Python auto-awaited the coroutine from byte_iter.__anext__()).
+    #
+    # NOTE: httpx exceptions raised DURING iteration of a sync iterator
+    # (e.g. network drop mid-stream) propagate through ``yield from``
+    # WITHOUT entering any except clause in this generator.  The caller
+    # (route's pre-advance) sees ``StopIteration`` (generator exhausted)
+    # and falls back to the placeholder outcome.  For async iterators
+    # (the real InsForge client), httpx errors are raised BEFORE
+    # ``yield from`` is entered (in the ``async with download_stream``)
+    # and are caught by the outer ``except Exception`` below.
     try:
         yield from byte_iter
+    except StopIteration:
+        # Normal termination: iterator exhausted.
+        pass
     except PhotoStreamError:
         raise
     except Exception as exc:  # noqa: BLE001 — single typed surface for the route
@@ -207,15 +275,24 @@ def content_type_for_key(nombrefoto: str | None) -> str:
     return "application/octet-stream"
 
 
+_CACHE_CONTROL = "private, max-age=3600, must-revalidate"
+
+
 def resolve_animal_photo(
     client: _PhotoClient,
     animal_id: str,
-) -> PhotoResolution | None:
+) -> PhotoOutcome | None:
     """Resolve the fail-closed photo policy without constructing HTTP responses.
 
-    ``None`` is reserved for a genuinely missing animal so the route can emit
-    404. Lookup failures, missing/sentinel keys, storage failures, and empty
-    objects all resolve to the placeholder PNG.
+    Returns ``None`` when the animal is genuinely unknown (route raises 404).
+    Returns a ``PhotoOutcome`` otherwise; the ``status`` field distinguishes
+    the animal found-but-no-photo case (``"not_found"``, route returns
+    the placeholder PNG at HTTP 200) from the successful photo stream
+    (``"ok"``). The route translates the ``None`` case to 404.
+
+    The returned ``stream`` is an ``Iterator[bytes]`` consumed lazily
+    by ``StreamingResponse``. The iterator must NOT be buffered with
+    ``list()`` — that defeats the streaming purpose.
     """
     try:
         animal = animals_service.get_animal_by_id(client, animal_id)
@@ -224,24 +301,77 @@ def resolve_animal_photo(
             "animal_foto.sql_lookup_failed",
             reason=type(exc).__name__,
         )
-        return PhotoResolution(PLACEHOLDER_PHOTO_PNG, "image/png")
+        # SQL error — animal might exist but we can't confirm; return 200
+        # with placeholder so the client sees a photo rather than a 404.
+        return PhotoOutcome(
+            stream=iter([PLACEHOLDER_PHOTO_PNG]),
+            content_type="image/png",
+            etag=compute_etag(animal_id, None, None),
+            cache_control=_CACHE_CONTROL,
+            content_length=len(PLACEHOLDER_PHOTO_PNG),
+            status="not_found",
+        )
 
     if animal is None:
+        # Animal genuinely missing — route raises 404.
         return None
+
     if is_missing_nombrefoto(animal.NombreFoto):
-        return PhotoResolution(PLACEHOLDER_PHOTO_PNG, "image/png")
+        # Animal found but no photo → placeholder, HTTP 200.
+        return PhotoOutcome(
+            stream=iter([PLACEHOLDER_PHOTO_PNG]),
+            content_type="image/png",
+            etag=compute_etag(animal_id, animal.updated_at, animal.NombreFoto),
+            cache_control=_CACHE_CONTROL,
+            content_length=len(PLACEHOLDER_PHOTO_PNG),
+            status="not_found",
+        )
 
     try:
-        chunks = list(
-            stream_animal_photo(client, nombrefoto=animal.NombreFoto)
-        )
+        byte_iter = stream_animal_photo(client, nombrefoto=animal.NombreFoto)
+        # Pre-advance once to surface any mid-stream error before the
+        # route starts sending HTTP headers.  If the stream is empty
+        # (StopIteration), the animal has no photo → placeholder.
+        # Any other exception means a storage I/O failure → placeholder.
+        try:
+            first_chunk = next(byte_iter)
+        except StopIteration:
+            first_chunk = None
+        except Exception as exc:
+            # Storage error during pre-advance → return placeholder at 200.
+            log_safe(
+                "animals.photo.preadvance_error",
+                animal_id=animal_id,
+                error=type(exc).__name__,
+            )
+            return PhotoOutcome(
+                stream=iter([PLACEHOLDER_PHOTO_PNG]),
+                content_type="image/png",
+                etag=compute_etag(animal_id, animal.updated_at, animal.NombreFoto),
+                cache_control=_CACHE_CONTROL,
+                content_length=len(PLACEHOLDER_PHOTO_PNG),
+                status="not_found",
+            )
     except PhotoStreamError:
-        return PhotoResolution(PLACEHOLDER_PHOTO_PNG, "image/png")
-    if not chunks:
-        return PhotoResolution(PLACEHOLDER_PHOTO_PNG, "image/png")
-    return PhotoResolution(
-        b"".join(chunks),
-        content_type_for_key(animal.NombreFoto),
+        # Raised before yielding any chunk (storage unreachable, DNS fail,
+        # permission error, etc.) → placeholder, HTTP 200.
+        return PhotoOutcome(
+            stream=iter([PLACEHOLDER_PHOTO_PNG]),
+            content_type="image/png",
+            etag=compute_etag(animal_id, animal.updated_at, animal.NombreFoto),
+            cache_control=_CACHE_CONTROL,
+            content_length=len(PLACEHOLDER_PHOTO_PNG),
+            status="not_found",
+        )
+
+    from itertools import chain
+    return PhotoOutcome(
+        stream=chain([first_chunk] if first_chunk is not None else [], byte_iter),
+        content_type=content_type_for_key(animal.NombreFoto),
+        etag=compute_etag(animal_id, animal.updated_at, animal.NombreFoto),
+        cache_control=_CACHE_CONTROL,
+        content_length=None,  # Streamed — total size not known until exhausted.
+        status="ok",
     )
 
 
@@ -249,8 +379,10 @@ __all__ = [
     "PHOTO_BUCKET",
     "PLACEHOLDER_PHOTO_PNG",
     "SENTINEL_KEY",
+    "PhotoOutcome",
     "PhotoResolution",
     "PhotoStreamError",
+    "compute_etag",
     "content_type_for_key",
     "is_missing_nombrefoto",
     "resolve_animal_photo",

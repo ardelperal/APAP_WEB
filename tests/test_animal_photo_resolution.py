@@ -8,7 +8,7 @@ import pytest
 
 from app.modules.animals.photo_service import (
     PLACEHOLDER_PHOTO_PNG,
-    PhotoResolution,
+    PhotoOutcome,
     resolve_animal_photo,
 )
 
@@ -46,10 +46,10 @@ def test_resolve_animal_photo_fails_closed_on_lookup_error(
 
     result = resolve_animal_photo(client, "animal-1")
 
-    assert result == PhotoResolution(
-        content=PLACEHOLDER_PHOTO_PNG,
-        media_type="image/png",
-    )
+    assert isinstance(result, PhotoOutcome)
+    assert result.status == "not_found"
+    assert result.content_type == "image/png"
+    assert result.content_length == len(PLACEHOLDER_PHOTO_PNG)
     assert logged == [
         ("animal_foto.sql_lookup_failed", {"reason": "RuntimeError"})
     ]
