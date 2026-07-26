@@ -25,6 +25,16 @@ Spec: ``openspec/changes/hardening-2026-q2/specs/06-structured-logging/spec.md``
 Design: ``openspec/changes/hardening-2026-q2/design.md`` §Slice 6
 (``app/core/logging.py`` module contract).
 Round-2 fix SB-5: redaction list expanded to 12 fields.
+
+Issues #283/#284 refactor:
+- log_safe no longer passes caller kwargs as top-level extra keys (which
+  collided with reserved LogRecord attr names like ``module``, ``name``,
+  ``process``). Instead, all caller kwargs are collected into a single
+  ``_caller_fields`` dict which is the value of ONE reserved extra key.
+- JsonFormatter uses a strict allow-list instead of a deny-list,
+  preventing ~15 LogRecord internal attributes from leaking into JSON.
+- RedactionFilter walks inside ``record._caller_fields`` so redaction
+  continues to protect PII after the nesting restructure.
 """
 
 from __future__ import annotations
@@ -85,16 +95,59 @@ def normalize_key(key: str) -> str:
     return key.replace("-", "_").lower()
 
 
+def _stamp_caller_fields(event: str, **fields: Any) -> dict[str, Any]:
+    """Collect caller kwargs into a redacted dict for nested logging.
+
+    All ``**fields`` (including the event name) are placed inside a single
+    dict. This dict is the sole value of the reserved extra key
+    ``"_caller_fields"`` on the LogRecord, so caller-supplied kwarg names
+    can never collide with the 25 reserved LogRecord attribute names
+    (``name``, ``module``, ``process``, ``args``, etc.).
+
+    Field names matching :data:`REDACTED_FIELDS` (case-insensitive,
+    ``_``/``-`` normalized) have their values replaced with
+    ``"[REDACTED]"`` before the dict is returned.
+
+    Parameters
+    ----------
+    event:
+        Short event name (e.g. ``"auth.login"``, ``"csrf.rejected"``).
+    **fields:
+        Caller-supplied structured key=value pairs.
+
+    Returns
+    -------
+    dict[str, Any]
+        A dict containing ``event`` and all ``fields``, with PII values
+        redacted. This dict becomes the value of the reserved extra key
+        ``"_caller_fields"`` on the LogRecord.
+    """
+    out: dict[str, Any] = {"event": event}
+    for key, value in fields.items():
+        if normalize_key(key) in REDACTED_FIELDS:
+            out[key] = "[REDACTED]"
+        else:
+            out[key] = value
+    return out
+
+
 class JsonFormatter(logging.Formatter):
     """Render a :class:`logging.LogRecord` as a single-line JSON object.
 
-    The payload always includes ``timestamp``, ``level``, ``logger``,
-    ``message``, ``module``, ``func``, ``line``. Any ``extra={...}``
-    kwarg from the call site is added as top-level keys (after
-    redaction, if a :class:`RedactionFilter` is installed upstream).
+    Strict allow-list: only the documented canonical fields, plus
+    ``event`` (extracted from ``_caller_fields``), ``_caller_fields``
+    itself, and optionally ``exc_info``/``exc_text``/``stack_info``
+    when present on the record.
+
+    No LogRecord internal attributes (``name``, ``msg``, ``args``,
+    ``levelname``, ``pathname``, ``thread``, ``process``, etc.) are
+    emitted. This replaces the v1 deny-list approach which could leak
+    ~15 internal attributes per line (issue #284).
     """
 
-    _RESERVED_KEYS = frozenset(
+    # Canonical fields from LogRecord, plus event (from _caller_fields),
+    # the _caller_fields dict itself, and exception-info keys.
+    _ALLOWLIST = frozenset(
         {
             "timestamp",
             "level",
@@ -103,6 +156,11 @@ class JsonFormatter(logging.Formatter):
             "module",
             "func",
             "line",
+            "event",
+            "_caller_fields",
+            "exc_info",
+            "exc_text",
+            "stack_info",
         }
     )
 
@@ -116,10 +174,17 @@ class JsonFormatter(logging.Formatter):
             "func": record.funcName,
             "line": record.lineno,
         }
-        for key, value in record.__dict__.items():
-            if key in self._RESERVED_KEYS or key.startswith("_"):
-                continue
-            payload[key] = value
+        # Extract 'event' from _caller_fields and emit it as a top-level key.
+        caller_fields = record.__dict__.get("_caller_fields")
+        if isinstance(caller_fields, dict):
+            payload["_caller_fields"] = caller_fields
+            if "event" in caller_fields:
+                payload["event"] = caller_fields["event"]
+        # Emit exception info when present.
+        if record.exc_info:
+            payload["exc_text"] = self.formatException(record.exc_info)
+        if record.stack_info:
+            payload["stack_info"] = self.formatStack(record.stack_info)
         return json.dumps(payload, default=str, ensure_ascii=False)
 
 
@@ -135,6 +200,10 @@ class RedactionFilter(logging.Filter):
 
     Comparison is case-insensitive and treats ``-`` and ``_`` as
     equivalent (see :func:`normalize_key`).
+
+    After the #283/#284 refactor, this filter also walks inside
+    ``record._caller_fields`` so that renaming a caller key does not
+    bypass the closed redaction list.
     """
 
     REDACTED_FIELDS = REDACTED_FIELDS
@@ -144,13 +213,22 @@ class RedactionFilter(logging.Filter):
         return normalize_key(key)
 
     def filter(self, record: logging.LogRecord) -> bool:
+        # Top-level defense: redact any REDACTED_FIELD key at top level.
         for key in list(record.__dict__.keys()):
+            if key.startswith("_"):
+                continue
             if self._normalize(key) in self.REDACTED_FIELDS:
                 # Mutate ``__dict__`` directly so keys that are not valid
                 # Python identifiers (e.g. ``X-Forwarded-For`` with a
                 # dash) still get redacted. ``setattr`` would raise
                 # ``AttributeError`` on those names.
                 record.__dict__[key] = "[REDACTED]"
+        # Nested defense: walk inside _caller_fields (post #283/#284).
+        caller_fields = record.__dict__.get("_caller_fields")
+        if isinstance(caller_fields, dict):
+            for key in list(caller_fields.keys()):
+                if self._normalize(key) in self.REDACTED_FIELDS:
+                    caller_fields[key] = "[REDACTED]"
         return True
 
 
@@ -183,7 +261,23 @@ def log_safe(event: str, **fields: Any) -> None:
     Field names matching :data:`REDACTED_FIELDS` (case-insensitive,
     ``_``/``-`` normalized) are replaced with ``"[REDACTED]"`` BEFORE
     the record is constructed — a sensitive value never reaches the
-    logger unless the developer bypassed this helper.
+    logger unless the developer bypasses this helper.
+
+    All caller kwargs (excluding ``exc_info``) are collected into a single
+    ``_caller_fields`` dict which is stored as ONE reserved extra key on
+    the LogRecord. This prevents ``KeyError: "Attempt to overwrite 'X' in
+    LogRecord"`` when a caller-supplied kwarg name collides with a
+    reserved LogRecord attribute name (``module``, ``name``, ``process``,
+    etc.) — issue #283.
+
+    ``exc_info`` is extracted and forwarded to ``logger.info()`` so the
+    logging machinery sets ``record.exc_info`` and ``record.exc_text``
+    correctly, enabling ``JsonFormatter`` to emit them.
+
+    The JsonFormatter emits ``event`` as a top-level key (extracted from
+    ``_caller_fields``) and ``_caller_fields`` itself as a nested dict.
+    No LogRecord internal attributes leak into the JSON output — issue
+    #284.
 
     Parameters
     ----------
@@ -191,19 +285,23 @@ def log_safe(event: str, **fields: Any) -> None:
         Short event name (e.g. ``"auth.login"``, ``"csrf.rejected"``).
     **fields:
         Structured key=value pairs. PII/secret values will be redacted
-        if their key matches the closed redaction list.
+        if their key matches the closed redaction list. ``exc_info`` is
+        NOT placed in ``_caller_fields`` — it is forwarded to the logger.
 
     Notes
     -----
-    The event name is duplicated as an explicit ``event`` extra field
-    on the LogRecord. Downstream dashboards rely on ``event`` being a
-    dedicated field (rather than reading the message), so renaming the
-    message does not break dashboards.
+    The ``event`` name is placed inside ``_caller_fields`` and also
+    emitted as a top-level ``event`` key by the JsonFormatter
+    allow-list. Downstream dashboards that read ``payload["event"]``
+    continue to work. Dashboards that read
+    ``payload["_caller_fields"]["event"]`` are also supported.
     """
-    record_fields: dict[str, Any] = {"event": event}
-    for key, value in fields.items():
-        if normalize_key(key) in REDACTED_FIELDS:
-            record_fields[key] = "[REDACTED]"
-        else:
-            record_fields[key] = value
-    logging.getLogger("app").info(event, extra=record_fields)
+    # Extract exc_info before building _caller_fields so it reaches the
+    # logging machinery (record.exc_info), not the caller-fields dict.
+    exc_info = fields.pop("exc_info", None)
+    caller_fields = _stamp_caller_fields(event, **fields)
+    logger = logging.getLogger("app")
+    if exc_info is not None:
+        logger.info(event, extra={"_caller_fields": caller_fields}, exc_info=exc_info)
+    else:
+        logger.info(event, extra={"_caller_fields": caller_fields})

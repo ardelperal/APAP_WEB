@@ -37,9 +37,37 @@ from app.core.logging import (
     REDACTED_FIELDS,
     JsonFormatter,
     RedactionFilter,
+    _stamp_caller_fields,
     configure_logging,
     log_safe,
 )
+
+# --- T1 RED: _stamp_caller_fields helper (issues #283, #284) ------------
+
+
+def test_stamp_caller_fields_redacts_email() -> None:
+    """T1.1 RED: _stamp_caller_fields redacts email → result['email'] == '[REDACTED]'."""
+    result = _stamp_caller_fields("test.event", email="a@b.c")
+    assert result["email"] == "[REDACTED]", (
+        f"email was not redacted: {result.get('email')!r}"
+    )
+
+
+def test_stamp_caller_fields_carries_event() -> None:
+    """T1.2 RED: _stamp_caller_fields carries event → result['event'] == event_value."""
+    result = _stamp_caller_fields("auth.login", path="/admin")
+    assert result["event"] == "auth.login", (
+        f"event was not carried: {result.get('event')!r}"
+    )
+
+
+def test_stamp_caller_fields_empty_kwargs() -> None:
+    """T1.3 RED: _stamp_caller_fields handles empty kwargs → result == {'event': event_value}."""
+    result = _stamp_caller_fields("boot.complete")
+    assert result == {"event": "boot.complete"}, (
+        f"empty kwargs produced wrong result: {result!r}"
+    )
+
 
 # --- REQ-1: configure_logging installs a single stdout handler ------------
 
@@ -145,6 +173,8 @@ def test_log_safe_redacts_every_closed_list_field(
     Parametrized over all 12 entries per round-2 fix SB-5
     (csrf_token, pkce_challenge, referer, ip_address, x_forwarded_for
     added to the original 7 from spec.md).
+
+    After the #283/#284 refactor, caller fields live in record._caller_fields.
     """
     secret_value = f"super-secret-{redacted_field}"
     with caplog.at_level(logging.INFO, logger="app"):
@@ -152,9 +182,9 @@ def test_log_safe_redacts_every_closed_list_field(
 
     assert caplog.records, "log_safe did not emit a LogRecord"
     record = caplog.records[0]
-    assert getattr(record, redacted_field) == "[REDACTED]", (
+    assert record._caller_fields[redacted_field] == "[REDACTED]", (
         f"log_safe leaked {redacted_field}: "
-        f"record.{redacted_field}={getattr(record, redacted_field)!r}"
+        f"record._caller_fields[{redacted_field}]={record._caller_fields.get(redacted_field)!r}"
     )
     # The secret value MUST NOT appear anywhere on the record.
     assert secret_value not in str(record.__dict__)
@@ -168,7 +198,7 @@ def test_log_safe_does_not_leak_email_via_record_message(
         log_safe("auth.login", email="victim@example.com")
 
     record = caplog.records[0]
-    assert record.email == "[REDACTED]"
+    assert record._caller_fields["email"] == "[REDACTED]"
     assert "victim@example.com" not in record.getMessage()
 
 
@@ -180,21 +210,21 @@ def test_log_safe_passes_non_pii_through_unchanged(
         log_safe("http.request", path="/admin/users", status_code=200)
 
     record = caplog.records[0]
-    assert record.path == "/admin/users"
-    assert record.status_code == 200
+    assert record._caller_fields["path"] == "/admin/users"
+    assert record._caller_fields["status_code"] == 200
 
 
 def test_log_safe_sets_event_field_explicitly(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """The event name is duplicated as an explicit ``event`` extra for downstream dashboards."""
+    """The event name is stored in _caller_fields and emitted as top-level 'event'."""
     with caplog.at_level(logging.INFO, logger="app"):
         log_safe("csrf.rejected", path="/admin/users", reason="token_mismatch")
 
     record = caplog.records[0]
-    assert record.event == "csrf.rejected"
-    assert record.path == "/admin/users"
-    assert record.reason == "token_mismatch"
+    assert record._caller_fields["event"] == "csrf.rejected"
+    assert record._caller_fields["path"] == "/admin/users"
+    assert record._caller_fields["reason"] == "token_mismatch"
 
 
 def test_log_safe_redaction_is_case_insensitive(
@@ -209,8 +239,8 @@ def test_log_safe_redaction_is_case_insensitive(
         )
 
     record = caplog.records[0]
-    assert record.EMAIL == "[REDACTED]"
-    assert record.Session_Token == "[REDACTED]"
+    assert record._caller_fields["EMAIL"] == "[REDACTED]"
+    assert record._caller_fields["Session_Token"] == "[REDACTED]"
     assert "victim@example.com" not in str(record.__dict__)
     assert "abc.def.ghi" not in str(record.__dict__)
 
@@ -223,7 +253,7 @@ def test_log_safe_redaction_treats_dash_and_underscore_equivalently(
         log_safe("test.event", session_token="abc.def.ghi")
 
     record = caplog.records[0]
-    assert record.session_token == "[REDACTED]"
+    assert record._caller_fields["session_token"] == "[REDACTED]"
 
 
 def test_log_safe_does_not_redact_descriptive_field_name(
@@ -238,7 +268,7 @@ def test_log_safe_does_not_redact_descriptive_field_name(
         log_safe("test.event", user_email_address="ana@example.com")
 
     record = caplog.records[0]
-    assert record.user_email_address == "ana@example.com"
+    assert record._caller_fields["user_email_address"] == "ana@example.com"
 
 
 def test_log_safe_emits_info_level(caplog: pytest.LogCaptureFixture) -> None:
@@ -255,7 +285,61 @@ def test_log_safe_works_without_any_fields(caplog: pytest.LogCaptureFixture) -> 
         log_safe("boot.complete")
     record = caplog.records[0]
     assert record.message == "boot.complete"
-    assert record.event == "boot.complete"
+    assert record._caller_fields["event"] == "boot.complete"
+
+
+# --- T2 RED: log_safe reserved LogRecord attr collision (issues #283, #284) --
+
+
+# All 25 reserved LogRecord attribute names in Python 3.11/3.12.
+_RESERVED_LOGRECORD_ATTRS = [
+    "name",
+    "msg",
+    "args",
+    "levelname",
+    "levelno",
+    "pathname",
+    "filename",
+    "module",
+    "exc_text",
+    "stack_info",
+    "lineno",
+    "funcName",
+    "created",
+    "msecs",
+    "relativeCreated",
+    "thread",
+    "threadName",
+    "processName",
+    "process",
+    "message",
+    "asctime",
+    "taskName",
+]
+
+
+@pytest.mark.parametrize("attr_name", _RESERVED_LOGRECORD_ATTRS)
+def test_log_safe_does_not_raise_on_reserved_logrecord_attr(
+    attr_name: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """T2.1 RED: log_safe does NOT raise KeyError for all 25 reserved LogRecord attr names.
+
+    After the nested-envelope refactor, caller kwargs live inside record._caller_fields,
+    not as top-level extra keys. So a kwarg named 'module' cannot collide with
+    LogRecord.module (which is set by the logging machinery itself).
+    """
+    with caplog.at_level(logging.INFO, logger="app"):
+        # This must not raise KeyError: "Attempt to overwrite 'X' in LogRecord"
+        log_safe("test.collision", **{attr_name: f"caller-value-{attr_name}"})
+
+    assert caplog.records, "log_safe did not emit a LogRecord"
+    record = caplog.records[0]
+    # The caller's value is stored inside _caller_fields, not at the top level.
+    assert attr_name in record._caller_fields, (
+        f"caller kwarg {attr_name!r} not stored in _caller_fields"
+    )
+    assert record._caller_fields[attr_name] == f"caller-value-{attr_name}"
 
 
 # --- REQ-3: RedactionFilter as second line of defense ---------------------
@@ -372,7 +456,10 @@ def test_json_formatter_emits_required_top_level_fields() -> None:
 
 
 def test_json_formatter_includes_extra_fields() -> None:
-    """``extra={...}`` kwargs MUST appear as top-level JSON keys."""
+    """After #283/#284 refactor, caller kwargs are in record._caller_fields.
+
+    The JsonFormatter reads _caller_fields and emits it as a nested dict.
+    """
     record = logging.LogRecord(
         name="app",
         level=logging.INFO,
@@ -382,16 +469,25 @@ def test_json_formatter_includes_extra_fields() -> None:
         args=(),
         exc_info=None,
     )
-    record.path = "/admin/users"
-    record.reason = "token_mismatch"
+    # Simulate what log_safe does: stamp _caller_fields and pass via extra.
+    record.__dict__["_caller_fields"] = {
+        "event": "csrf.rejected",
+        "path": "/admin/users",
+        "reason": "token_mismatch",
+    }
     output = JsonFormatter().format(record)
     payload = json.loads(output)
-    assert payload["path"] == "/admin/users"
-    assert payload["reason"] == "token_mismatch"
+    assert payload["_caller_fields"]["path"] == "/admin/users"
+    assert payload["_caller_fields"]["reason"] == "token_mismatch"
 
 
 def test_json_formatter_renders_to_stdout_format() -> None:
-    """End-to-end: configure_logging + log_safe produces a parseable JSON line on stdout."""
+    """End-to-end: configure_logging + log_safe produces a parseable JSON line on stdout.
+
+    After #283/#284 refactor: caller kwargs are inside payload["_caller_fields"].
+    The JsonFormatter emits event as a top-level key (from _caller_fields.event)
+    and _caller_fields itself as a nested dict.
+    """
     class _FakeSettings:
         log_level = "INFO"
 
@@ -410,8 +506,150 @@ def test_json_formatter_renders_to_stdout_format() -> None:
     assert line, "no output captured"
     payload = json.loads(line)
     assert payload["message"] == "e2e.event"
-    assert payload["event"] == "e2e.event"
-    assert payload["path"] == "/x"
-    assert payload["email"] == "[REDACTED]"
+    assert payload["_caller_fields"]["path"] == "/x"
+    assert payload["_caller_fields"]["email"] == "[REDACTED]"
+    assert payload["_caller_fields"]["event"] == "e2e.event"
     # The secret value MUST NOT appear in the rendered JSON.
     assert "victim@example.com" not in line
+
+
+# --- T3 RED: JsonFormatter strict allow-list (issues #283, #284) -----------
+
+
+_EXPECTED_KEYS_PLAIN = frozenset(
+    {"timestamp", "level", "logger", "message", "module", "func", "line", "event", "_caller_fields"}
+)
+_INTERNAL_KEYS_THAT_MUST_NOT_LEAK = frozenset(
+    {
+        "name",
+        "msg",
+        "args",
+        "levelname",
+        "pathname",
+        "filename",
+        "thread",
+        "process",
+        "taskName",
+        "processName",
+        "threadName",
+        "asctime",
+        "resourceUK",
+        "msecs",
+        "relativeCreated",
+        "exc_info",
+        "exc_text",
+        "stack_info",
+        "created",
+    }
+)
+
+
+def test_json_formatter_emits_exact_key_set_for_plain_call(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """T3.1 RED: JsonFormatter.format plain call emits exactly the documented key set.
+
+    The allow-list emits only timestamp, level, logger, message, module, func,
+    line, event, and _caller_fields. No LogRecord internal keys (name, msg, args,
+    levelname, pathname, thread, process, taskName, etc.) may appear.
+    """
+    with caplog.at_level(logging.INFO, logger="app"):
+        log_safe("auth.login", path="/admin")
+
+    assert caplog.records, "log_safe did not emit"
+    record = caplog.records[0]
+    output = JsonFormatter().format(record)
+    payload = json.loads(output)
+
+    assert frozenset(payload.keys()) == _EXPECTED_KEYS_PLAIN, (
+        f"JsonFormatter emitted unexpected keys: {set(payload.keys()) - _EXPECTED_KEYS_PLAIN}"
+    )
+    # No LogRecord internals may leak.
+    for bad in _INTERNAL_KEYS_THAT_MUST_NOT_LEAK:
+        assert bad not in payload, (
+            f"LogRecord internal key {bad!r} leaked into JSON payload: {payload}"
+        )
+    # _caller_fields is a dict that carries the caller's kwargs.
+    assert isinstance(payload["_caller_fields"], dict), (
+        f"_caller_fields should be a dict, got {type(payload['_caller_fields'])}"
+    )
+    assert payload["_caller_fields"]["path"] == "/admin"
+    assert payload["_caller_fields"]["event"] == "auth.login"
+
+
+def test_json_formatter_emits_exact_key_set_for_redacted_call(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """T3.2 RED: JsonFormatter.format with redacted fields emits same exact key set.
+
+    Even when email is redacted, the top-level key set is unchanged — no extra
+    keys from LogRecord internals may appear.
+    """
+    with caplog.at_level(logging.INFO, logger="app"):
+        log_safe("auth.login", email="a@b.c", path="/admin")
+
+    assert caplog.records, "log_safe did not emit"
+    record = caplog.records[0]
+    output = JsonFormatter().format(record)
+    payload = json.loads(output)
+
+    assert frozenset(payload.keys()) == _EXPECTED_KEYS_PLAIN, (
+        f"JsonFormatter emitted unexpected keys with redaction: {set(payload.keys()) - _EXPECTED_KEYS_PLAIN}"
+    )
+    assert payload["_caller_fields"]["email"] == "[REDACTED]"
+    assert payload["_caller_fields"]["path"] == "/admin"
+    for bad in _INTERNAL_KEYS_THAT_MUST_NOT_LEAK:
+        assert bad not in payload, f"LogRecord internal {bad!r} leaked with redaction"
+
+
+def test_json_formatter_emits_exc_info_when_present(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """T3.3 RED: JsonFormatter.format with exc_info present emits exc_info or exc_text key.
+
+    Tracebacks must be preserved in JSON output (spec REQ-3). The allow-list
+    explicitly includes exc_info, exc_text, and stack_info.
+    """
+    with caplog.at_level(logging.INFO, logger="app"):
+        try:
+            raise ValueError("test traceback")
+        except ValueError:
+            log_safe("error", exc_info=True)
+
+    assert caplog.records, "log_safe did not emit"
+    record = caplog.records[0]
+    output = JsonFormatter().format(record)
+    payload = json.loads(output)
+
+    # exc_info or exc_text or stack_info must be present with non-empty value.
+    exc_keys = {"exc_info", "exc_text", "stack_info"}
+    found = exc_keys & frozenset(payload.keys())
+    assert found, f"No exception info key in payload; expected one of {exc_keys}: {payload}"
+    for k in found:
+        assert payload[k], f"Exception key {k!r} is empty: {payload[k]!r}"
+
+
+# --- T4 RED: nested _caller_fields redaction (issues #283, #284) ---------
+
+
+def test_nested_redaction_replaces_email_inside_caller_fields(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """T4.1 RED: log_safe('x', email='a@b.c') → _caller_fields['email'] == '[REDACTED]'.
+
+    After the nested-envelope refactor, RedactionFilter walks inside _caller_fields
+    and replaces email with '[REDACTED]'. The raw value must not appear in the
+    formatted JSON string.
+    """
+    with caplog.at_level(logging.INFO, logger="app"):
+        log_safe("x", email="a@b.c")
+
+    assert caplog.records, "log_safe did not emit"
+    record = caplog.records[0]
+    output = JsonFormatter().format(record)
+    assert record._caller_fields["email"] == "[REDACTED]", (
+        f"email not redacted inside _caller_fields: {record._caller_fields.get('email')!r}"
+    )
+    assert "a@b.c" not in output, (
+        f"raw email 'a@b.c' leaked into JSON output: {output}"
+    )
