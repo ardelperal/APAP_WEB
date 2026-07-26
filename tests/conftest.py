@@ -83,6 +83,13 @@ def _clear_settings_cache() -> None:
     would otherwise observe a stale singleton from a previous test.
     """
     get_settings.cache_clear()
+    # Reset the rate-limit backend between every test so bucket state from
+    # one test does not affect another (issue #286).
+    try:
+        from app.core.rate_limit_middleware import _reset_rate_limit_backend
+        _reset_rate_limit_backend()
+    except ImportError:
+        pass  # Before rate-limit middleware is added; no-op
 
 
 @pytest_asyncio.fixture

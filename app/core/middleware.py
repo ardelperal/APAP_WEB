@@ -242,3 +242,34 @@ def install_auth_middleware(app: FastAPI, settings) -> None:
     # The middleware is purely additive (never short-circuits, never logs);
     # the per-request cost is one regex match in ``app.core.ua.is_mobile``.
     app.add_middleware(UADetectionMiddleware)
+
+def install_rate_limit_middleware(app: FastAPI, settings: object) -> None:
+    """Install RateLimitMiddleware after CsrfMiddleware (issue #286, D8).
+
+    Installs RateLimitMiddleware via app.add_middleware so that,
+    in Starlette's middleware stack, it runs AFTER CsrfMiddleware.
+    This means CSRF rejections do not consume a legitimate user's rate budget.
+
+    Args:
+        app: FastAPI instance to configure. Mutated in place.
+        settings: app.core.config.Settings instance.
+    """
+    # lazy-import: avoids circular import with app.core.config.
+    from app.core.config import Settings
+
+    # lazy-import: avoids circular import with app.core.rate_limit_middleware.
+    from app.core.rate_limit import InProcessRateLimitBackend
+
+    # lazy-import: avoids circular import. Top-level import would create a cycle.
+    from app.core.rate_limit_middleware import RateLimitMiddleware
+
+    if not isinstance(settings, Settings):
+        return
+    if not settings.rate_limit_enabled:
+        return
+    backend = InProcessRateLimitBackend()
+    # Register backend at module level for test isolation.
+    # lazy-import: runtime-only assignment to module attr; avoids circular import.
+    import app.core.rate_limit_middleware as rl_mod
+    rl_mod._rate_limit_backend = backend
+    app.add_middleware(RateLimitMiddleware, backend=backend)

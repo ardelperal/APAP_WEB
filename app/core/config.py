@@ -101,6 +101,20 @@ class Settings(BaseSettings):
     # blocks legitimate form submissions.
     csrf_enabled: bool = True
 
+    # --- Rate limiting (issue #286) ------------------------------------
+    # Feature flag: when False, the middleware short-circuits on every request.
+    rate_limit_enabled: bool = True
+    # OAuth callback bucket: IP-only, requests per minute.
+    rate_limit_oauth_per_min: int = 10
+    # Write buckets: per-user and per-IP, requests per minute.
+    rate_limit_write_per_min_user: int = 60
+    rate_limit_write_per_min_ip: int = 30
+    # Whether to trust X-Forwarded-For header (needed when behind a proxy).
+    trust_xff: bool = False
+    # Runtime mode: "web" or "test". When "test", the middleware short-circuits
+    # without consuming any rate budget.
+    mode: str = "web"
+
     # --- Structured logging (PR-6A, Slice 6) --------------------------
     # Root log level for the JSON stdout handler installed by
     # ``app.core.logging.configure_logging``. Unknown values fall back

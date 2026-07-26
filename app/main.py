@@ -82,6 +82,7 @@ from app.core.middleware import (
     _is_public_path,  # noqa: F401  - re-exported for tests/test_public_paths.py
     base_template_context_processor,
     install_auth_middleware,
+    install_rate_limit_middleware,
 )
 from app.core.migration.sql_runner import apply_sql_migrations
 from app.core.pkce import generate_pkce_pair
@@ -241,11 +242,23 @@ def create_app() -> FastAPI:
         name="static",
     )
 
+    # Rate limiting on OAuth callback and write routes (issue #286).
+    # Installed BEFORE install_auth_middleware so that CsrfMiddleware —
+    # the LAST middleware added inside install_auth_middleware via
+    # ``app.add_middleware`` — becomes the OUTERMOST in Starlette's
+    # stack (Starlette's ``add_middleware`` does ``insert(0, ...)``,
+    # so the most-recently-added middleware is outermost). Per D8,
+    # CSRF rejections must NOT consume a legitimate user's rate
+    # budget; running CSRF before rate-limit achieves that.
+    install_rate_limit_middleware(application, settings)
+
     # Auth-related middleware chain (issue #204). Reads ``settings`` so
     # ``APAP_CSRF_ENABLED`` (Slice 5 feature flag) gates CSRF
     # registration, matching the pre-refactor conditional block at
     # ``app/main.py:256-257``. See ``app/core/middleware.py`` for the
-    # chain ordering.
+    # chain ordering. Installed AFTER rate-limit so CsrfMiddleware
+    # (added inside this function) is outermost — see the comment
+    # above the rate-limit install.
     install_auth_middleware(application, settings)
 
     templates = Jinja2Templates(

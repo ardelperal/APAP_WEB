@@ -59,14 +59,28 @@ def test_install_auth_middleware_is_callable_from_app_core_middleware() -> None:
 # --- middleware chain shape ------------------------------------------------
 
 
-_EXPECTED_MIDDLEWARE_CLASS_NAMES: tuple[str, ...] = (
-    # Order matches the pre-refactor main.py:255-303 stack as stored in
-    # ``app.user_middleware``. Starlette's add_middleware inserts at the
-    # front; the LAST registered becomes the OUTERMOST at request time.
-    # See ``app/main.py:296-302`` for the original comment that pins this.
+_EXPECTED_AUTH_ONLY_MIDDLEWARE_CLASS_NAMES: tuple[str, ...] = (
+    # Order for a fresh app with ONLY install_auth_middleware called.
+    # RateLimitMiddleware is NOT part of install_auth_middleware.
     "UADetectionMiddleware",
     "BaseHTTPMiddleware",
     "CsrfMiddleware",
+)
+
+_EXPECTED_MIDDLEWARE_CLASS_NAMES: tuple[str, ...] = (
+    # Order: Starlette's add_middleware() prepends; LAST registered = FIRST in list.
+    # Registration: install_rate_limit_middleware is called FIRST (issue #286 D8
+    # bug fix: must precede install_auth so CsrfMiddleware lands LAST inside
+    # install_auth and becomes the OUTERMOST in the stack — i.e. CSRF runs BEFORE
+    # rate-limit so a 403 does not consume a legitimate user's rate budget).
+    # Then install_auth_middleware adds: CsrfMiddleware (add_middleware),
+    # protect_user_facing_routes (BaseHTTPMiddleware via @app.middleware("http")),
+    # UADetectionMiddleware (add_middleware, last).
+    # Final: ['UADetectionMiddleware', 'BaseHTTPMiddleware', 'CsrfMiddleware', 'RateLimitMiddleware']
+    "UADetectionMiddleware",
+    "BaseHTTPMiddleware",
+    "CsrfMiddleware",
+    "RateLimitMiddleware",
 )
 
 
@@ -95,7 +109,7 @@ def test_install_auth_middleware_registers_full_chain_in_order() -> None:
     fresh_app = FastAPI()
     install_auth_middleware(fresh_app, _gs())
     registered = _registered_class_names(fresh_app)
-    assert registered == list(_EXPECTED_MIDDLEWARE_CLASS_NAMES), (
+    assert registered == list(_EXPECTED_AUTH_ONLY_MIDDLEWARE_CLASS_NAMES), (
         f"install_auth_middleware must register the same chain in the "
         f"same order as the pre-refactor main.py. "
         f"expected={_EXPECTED_MIDDLEWARE_CLASS_NAMES!r}, "
