@@ -82,6 +82,7 @@ from app.core.middleware import (
     _is_public_path,  # noqa: F401  - re-exported for tests/test_public_paths.py
     base_template_context_processor,
     install_auth_middleware,
+    install_rate_limit_middleware,
 )
 from app.core.migration.sql_runner import apply_sql_migrations
 from app.core.pkce import generate_pkce_pair
@@ -247,6 +248,11 @@ def create_app() -> FastAPI:
     # ``app/main.py:256-257``. See ``app/core/middleware.py`` for the
     # chain ordering.
     install_auth_middleware(application, settings)
+
+    # Rate limiting on OAuth callback and write routes (issue #286).
+    # Runs AFTER CsrfMiddleware per D8 so CSRF rejections don't consume
+    # a legitimate user's rate budget.
+    install_rate_limit_middleware(application, settings)
 
     templates = Jinja2Templates(
         directory=_TEMPLATES_DIR,
