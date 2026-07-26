@@ -275,8 +275,102 @@ def test_ci_workflow_defines_typecheck_job_running_mypy() -> None:
     assert "migration" in mypy_files
 
 
+def _extract_deploy_job_if_clause(workflow: str) -> str:
+    """Extract the job-level ``if:`` clause from the deploy job.
+
+    Finds ``  deploy:`` by indentation, then reads the ``if:`` expression
+    on the next non-comment, non-empty line before the ``steps:`` block.
+    """
+    # Find deploy job start — must be at ``  deploy:`` (2 spaces)
+    deploy_marker = "\n  deploy:"
+    idx = workflow.index(deploy_marker)
+    # Scan forward until we hit ``steps:`` (same indentation level as ``deploy:``)
+    lines = workflow[idx:].splitlines()
+    for line in lines[1:]:
+        stripped = line.lstrip()
+        if stripped.startswith("if:"):
+            # Strip the leading indentation (2 spaces for a job-level key)
+            return line.strip()
+        if stripped.startswith("steps:"):
+            break
+    raise AssertionError("deploy job has no job-level if: clause")
+
+
+def _extract_deploy_section(workflow: str) -> str:
+    """Extract the entire deploy job section text.
+
+    Starts after the ``  deploy:`` line and ends before the next top-level
+    ``  <name>:`` job (same indentation as ``deploy:``), or at end of file.
+    """
+    import re
+
+    deploy_marker = "\n  deploy:"
+    deploy_job_start = workflow.index(deploy_marker)
+    # Slice to content after the newline that ends the ``  deploy:`` line
+    after_deploy_newline = deploy_job_start + len(deploy_marker)
+    remaining = workflow[after_deploy_newline:]
+    # Find the next top-level job: ``\n  <word>:`` (newline + 2 spaces + name + colon)
+    next_job_match = re.search(r"\n  [a-zA-Z_]+:", remaining)
+    return remaining[:next_job_match.start()] if next_job_match else remaining
+
+
+def _parse_if_clauses(if_expr: str) -> list[tuple[str, str | None]]:
+    """Parse ``key == 'value'`` or ``key == null`` clauses from a GitHub Actions if expression.
+
+    Returns [(key, value | None), ...] in the order they appear.
+    ``github.event.pull_request == null`` is treated as (github.event.pull_request, None).
+    """
+    import re
+
+    # Combined pattern: match both string and null equality, capturing the value.
+    # Uses (?:\s|$) instead of \b after the alternative — \b fails when the
+    # preceding character is a non-word char (e.g. the closing ' of a string
+    # literal followed by &&, where ' &&' has no word boundary).
+    pattern = re.compile(r"(\S+)\s*==\s*(?:'([^']*)'|null)(?:\s|$)")
+    clauses: list[tuple[str, str | None]] = []
+    for m in pattern.finditer(if_expr):
+        key = m.group(1)
+        str_val = m.group(2)
+        value: str | None = str_val if str_val is not None else None
+        clauses.append((key, value))
+    return clauses
+
+
+def _evaluate_if_clauses(
+    clauses: list[tuple[str, str | None]], payload: dict[str, object]
+) -> bool:
+    """Evaluate a list of (key, value) equality clauses against a payload dict.
+
+    GitHub Actions expressions use ``github.<path>`` syntax
+    (e.g. ``github.event_name``, ``github.event.pull_request``).
+    The payload mirrors the GitHub context structure as nested dicts:
+      - ``event.name`` corresponds to ``github.event_name``
+      - ``event.pull_request`` corresponds to ``github.event.pull_request``
+    """
+    for key, expected in clauses:
+        # Strip the leading ``github.`` prefix
+        lookup_key = key.removeprefix("github.")
+        # Map top-level event_name to event.name (GitHub context quirk)
+        if lookup_key == "event_name":
+            lookup_key = "event.name"
+        actual: object = payload
+        for part in lookup_key.split("."):
+            if not isinstance(actual, dict):
+                return False
+            actual = actual.get(part)  # type: ignore[assignment]
+        if actual != expected:
+            return False
+    return True
+
+
 def test_ci_workflow_defines_deploy_job_with_gating() -> None:
-    """CD-01: deploy job exists, runs only on push to main, depends on lint+typecheck+test+build."""
+    """CD-01: deploy job exists, runs only on push to main, depends on lint+typecheck+test+build.
+
+    The only acceptable gating expression is exactly
+    ``github.event_name == 'push' && github.ref == 'refs/heads/main'``.
+    The dead ``github.event.pull_request == null`` clause must not appear
+    (it is always null on a push event and was hiding the real bug).
+    """
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
 
     assert "  deploy:" in workflow
@@ -284,16 +378,76 @@ def test_ci_workflow_defines_deploy_job_with_gating() -> None:
     # needs must reference the four required jobs (typecheck added by
     # issue #201 — the type gate is mandatory before deploy).
     assert "needs: [lint, typecheck, test, build]" in workflow
-    # gating: only on push to main, never on PRs
-    # (two if: lines combined with AND are also acceptable, per tasks.md 2.1)
-    gating_ok = (
-        "if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.pull_request == null" in workflow
-        or (
-            "if: github.event_name == 'push' && github.ref == 'refs/heads/main'" in workflow
-            and "if: github.event.pull_request == null" in workflow
-        )
+
+    # Extract the job-level if: clause
+    if_clause = _extract_deploy_job_if_clause(workflow)
+
+    # Must be exactly the clean two-clause form — no pull_request == null
+    assert (
+        if_clause == "if: github.event_name == 'push' && github.ref == 'refs/heads/main'"
+    ), f"deploy job if: must be exactly the push-to-main predicate; got: {if_clause!r}"
+
+    # The dead pull_request == null clause must not appear anywhere in the deploy job
+    deploy_section = _extract_deploy_section(workflow)
+    assert (
+        "pull_request == null" not in deploy_section
+    ), "deploy job must not contain 'pull_request == null' — that clause is dead code on push events"
+
+    # The merge-commit skip block must also be absent
+    assert (
+        'grep -q "^Merge pull request #' not in deploy_section
+    ), "deploy job must not contain the merge-commit skip block"
+
+
+def test_ci_workflow_deploy_runs_on_main_push() -> None:
+    """CD-01 D4: the deploy job's if: evaluates True for a push to main.
+
+    Under pre-MVP policy (AGENTS.md §15.2) every change lands via PR merge,
+    so a push to main IS the deployable event. The if: must select it and
+    must not have a merge-commit skip guard inside the run block.
+    """
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+
+    if_clause = _extract_deploy_job_if_clause(workflow)
+    clauses = _parse_if_clauses(if_clause)
+
+    # GitHub context structure: github.event_name (e.g. "push"),
+    # github.ref (e.g. "refs/heads/main"), github.event.pull_request (null on push).
+    # The payload mirrors this as {"event": {"name": ..., "pull_request": ...}, "ref": ...}
+    push_to_main_payload: dict[str, object] = {
+        "event": {"name": "push", "pull_request": None},
+        "ref": "refs/heads/main",
+    }
+    assert _evaluate_if_clauses(clauses, push_to_main_payload), (
+        f"deploy job if: {if_clause!r} must evaluate True for push to main"
     )
-    assert gating_ok, "deploy job must gate on push to main AND exclude pull_request events"
+
+    # The deploy job's run steps must NOT contain the merge-commit skip block
+    deploy_section = _extract_deploy_section(workflow)
+    assert (
+        'grep -q "^Merge pull request #' not in deploy_section
+    ), "deploy job run steps must not contain the merge-commit skip guard"
+
+
+def test_ci_workflow_deploy_skips_on_pr() -> None:
+    """CD-01 D5: the deploy job's if: evaluates False for a pull_request event.
+
+    A pull_request event must not trigger the deploy job, even if the PR
+    targets main. The if: must be a pure push-to-main predicate.
+    """
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+
+    if_clause = _extract_deploy_job_if_clause(workflow)
+    clauses = _parse_if_clauses(if_clause)
+
+    # PR event: github.event_name = "pull_request", github.event.pull_request is a dict
+    pr_payload: dict[str, object] = {
+        "event": {"name": "pull_request", "pull_request": {"number": 42}},
+        "ref": "refs/heads/main",
+    }
+    assert not _evaluate_if_clauses(clauses, pr_payload), (
+        f"deploy job if: {if_clause!r} must evaluate False for pull_request event"
+    )
 
 
 def test_ci_workflow_deploy_job_calls_coolify_webhook() -> None:
