@@ -10,6 +10,12 @@ used to sign cookies. Production deployments MUST override the defaults
 for ``google_client_id``, ``google_client_secret``, ``initial_admin_email``
 and ``session_secret`` via env vars or the platform secret store.
 
+Startup validation: ``_validate_secrets`` (called from the lifespan in
+``app/main.py``) enforces that ``insforge_service_key`` is non-empty and
+``session_secret`` is not the published placeholder and is at least 32
+characters. Validation is bypassed when ``debug is True``. See issue #275
+and AGENTS.md §32.P2.
+
 ``get_settings()`` is cached with ``functools.lru_cache(maxsize=1)`` so
 every call returns the same singleton — pydantic-settings re-reads env
 on each ``Settings()`` call, so caching avoids that overhead per
@@ -25,7 +31,46 @@ from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.core.logging import log_safe
 from app.core.roles import Rol
+
+_PLACEHOLDER_SESSION_SECRET = "dev-only-change-me-in-production"
+
+
+class StartupConfigError(RuntimeError):
+    """Raised by ``_validate_secrets`` when a critical secret is missing or weak.
+
+    The message names the offending env var but never echoes the value.
+    """
+
+    def __init__(self, env_var: str, reason: str = "invalid") -> None:
+        self.env_var = env_var
+        self.reason = reason
+        super().__init__(
+            f"startup config error: {env_var} is invalid (reason={reason}); "
+            "set a real value via the env var (or APAP_DEBUG=true to bypass in local dev)"
+        )
+
+
+def _validate_secrets(settings: Settings) -> None:
+    """Refuse to boot with empty / placeholder / short critical secrets.
+
+    Bypassed when ``settings.debug is True`` (dev convenience). Each rejection
+    emits ``log_safe("startup.config_invalid", env_var=..., reason=...)``
+    before raising. ``reason`` is one of ``"empty"`` | ``"placeholder"`` |
+    ``"too_short"``. Issue #275 / AGENTS.md §32.P2.
+    """
+    if settings.debug:
+        return
+    if not settings.insforge_service_key:
+        log_safe("startup.config_invalid", env_var="APAP_INSFORGE_SERVICE_KEY", reason="empty")
+        raise StartupConfigError("APAP_INSFORGE_SERVICE_KEY", "empty")
+    if settings.session_secret == _PLACEHOLDER_SESSION_SECRET:
+        log_safe("startup.config_invalid", env_var="APAP_SESSION_SECRET", reason="placeholder")
+        raise StartupConfigError("APAP_SESSION_SECRET", "placeholder")
+    if len(settings.session_secret) < 32:
+        log_safe("startup.config_invalid", env_var="APAP_SESSION_SECRET", reason="too_short")
+        raise StartupConfigError("APAP_SESSION_SECRET", "too_short")
 
 
 class Settings(BaseSettings):
@@ -69,6 +114,10 @@ class Settings(BaseSettings):
     # --- Session ---------------------------------------------------------
     # HMAC secret used to sign session cookies. Non-empty default so dev
     # works out of the box, but MUST be overridden in production via env.
+    # The lifespan validates this via ``_validate_secrets``:
+    # - placeholder string is rejected (fail-fast; see §32.P2)
+    # - secrets shorter than 32 chars are rejected
+    # - validation is bypassed when ``debug is True``
     session_secret: str = "dev-only-change-me-in-production"
 
     # --- Per-request authorization revalidation (issue #143, #262) ---
