@@ -15,10 +15,8 @@ Tests the new contract from issue #285:
 from __future__ import annotations
 
 from collections.abc import Iterator
-from typing import Any, Literal
-from unittest.mock import MagicMock
+from typing import Any
 
-import httpx
 import pytest
 
 from app.modules.animals.photo_service import (
@@ -26,9 +24,7 @@ from app.modules.animals.photo_service import (
     PhotoOutcome,
     compute_etag,
     resolve_animal_photo,
-    stream_animal_photo,
 )
-
 
 # =============================================================================
 # PhotoOutcome dataclass shape
