@@ -271,7 +271,7 @@ async def test_csrf_rejection_emits_csrf_rejected_log_event(
         )
 
     assert response.status_code == 403
-    events = [getattr(rec, "event", None) for rec in caplog.records]
+    events = [rec._caller_fields.get("event") for rec in caplog.records]
     assert "csrf.rejected" in events, (
         f"expected a csrf.rejected log event, got events={events}, "
         f"messages={[r.message for r in caplog.records]}"

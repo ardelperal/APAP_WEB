@@ -849,7 +849,7 @@ def test_create_adopcion_includes_actor_user_id_in_log_safe() -> None:
     created_records = [
         r
         for r in captured_logs
-        if getattr(r, "event", None) == "adopciones.created"
+        if r._caller_fields.get("event") == "adopciones.created"
     ]
     assert len(created_records) == 1
-    assert created_records[0].actor_user_id == "u-ana"
+    assert created_records[0]._caller_fields["actor_user_id"] == "u-ana"

@@ -123,11 +123,11 @@ def test_sync_applied_log_emits_no_raw_pii(
 
     assert caplog.records, "log_safe did not emit a LogRecord"
     record = caplog.records[0]
-    # The PII value MUST be masked, NOT present in the record dict
+    # The PII value MUST be masked in _caller_fields
     # (closed-list contract — see ``app/core/logging.py``).
-    assert getattr(record, field_name) == "[REDACTED]", (
+    assert record._caller_fields[field_name] == "[REDACTED]", (
         f"sync.applied leaked raw value for {field_name!r}: "
-        f"record.{field_name}={getattr(record, field_name)!r}"
+        f"record._caller_fields[{field_name!r}]={record._caller_fields.get(field_name)!r}"
     )
     # Defensive: scan the FULL record dict for the raw substring so a
     # future code path that adds a new attribute containing the value
@@ -138,7 +138,7 @@ def test_sync_applied_log_emits_no_raw_pii(
     )
     # The event name MUST remain intact (the field name is the
     # operator's dashboard key).
-    assert getattr(record, "event", None) == "sync.applied"
+    assert record._caller_fields.get("event") == "sync.applied"
 
 
 def test_shadow_preserved_value_masked_in_logs(
@@ -184,13 +184,13 @@ def test_shadow_preserved_value_masked_in_logs(
 
     assert caplog.records
     record = caplog.records[0]
-    # The sibling ``dni`` kwarg is masked by the closed list.
-    assert record.dni == "[REDACTED]"
+    # The sibling ``dni`` kwarg is masked by the closed list in _caller_fields.
+    assert record._caller_fields["dni"] == "[REDACTED]"
     # The opaque ``preserved_value`` rides along verbatim because the
     # closed list matches on field NAME, not value. The spec accepts
     # this as long as the audit caller ALSO emits the canonical
     # dimension as a sibling — which this atom's contract enforces.
-    pv = record.preserved_value
+    pv = record._caller_fields["preserved_value"]
     assert isinstance(pv, dict)
     assert pv["dni"] == raw_dni  # opaque blob — rides verbatim
     assert pv["snapshot_at"] == "2026-07-11T10:00:00Z"
@@ -199,8 +199,8 @@ def test_shadow_preserved_value_masked_in_logs(
     # right places. The ``dni=...`` sibling is the dimension the
     # closed list catches; the inner JSONB blob is intentionally
     # NOT parsed (we don't want to walk dicts in the hot path).
-    assert raw_dni in str(record.preserved_value)  # opaque blob verbatim
-    assert record.dni == "[REDACTED]"  # sibling masked
+    assert raw_dni in str(record._caller_fields["preserved_value"])  # opaque blob verbatim
+    assert record._caller_fields["dni"] == "[REDACTED]"  # sibling masked
 
 
 def test_migration_report_json_no_raw_pii(
@@ -443,9 +443,9 @@ def test_synthetic_log_payload_with_each_pii_value_emits_redacted_payload(
     assert caplog.records
     record = caplog.records[0]
     for column, raw in payload.items():
-        assert getattr(record, column) == "[REDACTED]", (
+        assert record._caller_fields[column] == "[REDACTED]", (
             f"field {column!r} was not redacted: "
-            f"record.{column}={getattr(record, column)!r} (raw was {raw!r})"
+            f"record._caller_fields[{column!r}]={record._caller_fields.get(column)!r} (raw was {raw!r})"
         )
 
 
@@ -463,9 +463,9 @@ def _assert_record_has_no_raw_value(
     Extracted so the four sync.applied atoms share one body and the
     next reader sees the same guardrail in every atom.
     """
-    assert getattr(record, field_name) == "[REDACTED]", (
-        f"record.{field_name} leaked raw value: "
-        f"got {getattr(record, field_name)!r}, expected '[REDACTED]'"
+    assert record._caller_fields[field_name] == "[REDACTED]", (
+        f"record._caller_fields[{field_name!r}] leaked raw value: "
+        f"got {record._caller_fields.get(field_name)!r}, expected '[REDACTED]'"
     )
     assert raw_value not in str(record.__dict__), (
         f"raw value {raw_value!r} leaked into the formatted record "
@@ -496,7 +496,7 @@ def test_collision_marker_in_log_payload(
             review_reasons=["dni_collision"],
         )
     record = caplog.records[0]
-    # The DNI is masked (closed list).
-    assert record.dni == "[REDACTED]"
+    # The DNI is masked (closed list) in _caller_fields.
+    assert record._caller_fields["dni"] == "[REDACTED]"
     # The categorical reason is intact (closed list is name-based).
-    assert record.review_reasons == ["dni_collision"]
+    assert record._caller_fields["review_reasons"] == ["dni_collision"]
