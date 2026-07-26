@@ -34,6 +34,7 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Iterator
 from dataclasses import dataclass
+from itertools import chain
 from typing import Any, Literal, Protocol
 
 from app.core.data_access import SqlExecutor
@@ -364,7 +365,6 @@ def resolve_animal_photo(
             status="not_found",
         )
 
-    from itertools import chain
     return PhotoOutcome(
         stream=chain([first_chunk] if first_chunk is not None else [], byte_iter),
         content_type=content_type_for_key(animal.NombreFoto),
