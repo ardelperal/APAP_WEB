@@ -488,3 +488,42 @@ class TestRateLimitMiddlewareIntegration:
         assert "X-RateLimit-Reset" in response.headers
         # Retry-After only on 429
         assert "Retry-After" not in response.headers
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — Middleware ordering: CSRF must run BEFORE rate-limit (issue #286 D8)
+# ---------------------------------------------------------------------------
+
+
+class TestRateLimitMiddlewareOrdering:
+    """Middleware order: CSRF must run BEFORE rate-limit (issue #286 D8).
+
+    A 403 from CsrfMiddleware must NOT consume a legitimate user's rate-limit
+    budget. Starlette's ``app.add_middleware`` does ``user_middleware.insert(0, ...)``
+    so the LAST ``add_middleware`` call wins the OUTERMOST slot — which in
+    ``user_middleware`` is the LOWEST index. CSRF and rate-limit both register
+    via ``add_middleware``; whichever is added LAST ends up OUTER (lowest
+    index). The test below pins the contract that CSRF is outer: lower index
+    than RateLimitMiddleware.
+    """
+
+    def test_csrf_is_outer_than_rate_limit_in_user_middleware(self) -> None:
+        """CsrfMiddleware index < RateLimitMiddleware index in app.user_middleware.
+
+        In Starlette, lower index in ``app.user_middleware`` = outer (runs
+        earlier in the request). CSRF running before rate-limit means a 403
+        from CSRF does not decrement the rate-limit bucket (issue #286 D8).
+        """
+        from app.main import app
+
+        names = [m.cls.__name__ for m in app.user_middleware]
+        csrf_idx = next((i for i, n in enumerate(names) if n == "CsrfMiddleware"), None)
+        rl_idx = next((i for i, n in enumerate(names) if n == "RateLimitMiddleware"), None)
+        assert csrf_idx is not None, f"CsrfMiddleware not registered. order={names}"
+        assert rl_idx is not None, f"RateLimitMiddleware not registered. order={names}"
+        assert csrf_idx < rl_idx, (
+            f"CsrfMiddleware is at index {csrf_idx} but RateLimitMiddleware is at "
+            f"index {rl_idx}. CSRF must run BEFORE rate-limit (lower index in "
+            f"app.user_middleware = outer) so 403 rejections don't consume rate "
+            f"budget. user_middleware order: {names}"
+        )

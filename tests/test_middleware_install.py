@@ -69,14 +69,18 @@ _EXPECTED_AUTH_ONLY_MIDDLEWARE_CLASS_NAMES: tuple[str, ...] = (
 
 _EXPECTED_MIDDLEWARE_CLASS_NAMES: tuple[str, ...] = (
     # Order: Starlette's add_middleware() prepends; LAST registered = FIRST in list.
-    # Registration: CsrfMiddleware -> UADetectionMiddleware (install_auth_middleware)
-    # then RateLimitMiddleware (install_rate_limit_middleware) -- LAST.
-    # Final: ['RateLimitMiddleware', 'UADetectionMiddleware', 'BaseHTTPMiddleware', 'CsrfMiddleware']
-    # RateLimitMiddleware registered last, after CsrfMiddleware, per D8.
-    "RateLimitMiddleware",
+    # Registration: install_rate_limit_middleware is called FIRST (issue #286 D8
+    # bug fix: must precede install_auth so CsrfMiddleware lands LAST inside
+    # install_auth and becomes the OUTERMOST in the stack — i.e. CSRF runs BEFORE
+    # rate-limit so a 403 does not consume a legitimate user's rate budget).
+    # Then install_auth_middleware adds: CsrfMiddleware (add_middleware),
+    # protect_user_facing_routes (BaseHTTPMiddleware via @app.middleware("http")),
+    # UADetectionMiddleware (add_middleware, last).
+    # Final: ['UADetectionMiddleware', 'BaseHTTPMiddleware', 'CsrfMiddleware', 'RateLimitMiddleware']
     "UADetectionMiddleware",
     "BaseHTTPMiddleware",
     "CsrfMiddleware",
+    "RateLimitMiddleware",
 )
 
 

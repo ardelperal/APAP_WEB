@@ -242,17 +242,24 @@ def create_app() -> FastAPI:
         name="static",
     )
 
+    # Rate limiting on OAuth callback and write routes (issue #286).
+    # Installed BEFORE install_auth_middleware so that CsrfMiddleware —
+    # the LAST middleware added inside install_auth_middleware via
+    # ``app.add_middleware`` — becomes the OUTERMOST in Starlette's
+    # stack (Starlette's ``add_middleware`` does ``insert(0, ...)``,
+    # so the most-recently-added middleware is outermost). Per D8,
+    # CSRF rejections must NOT consume a legitimate user's rate
+    # budget; running CSRF before rate-limit achieves that.
+    install_rate_limit_middleware(application, settings)
+
     # Auth-related middleware chain (issue #204). Reads ``settings`` so
     # ``APAP_CSRF_ENABLED`` (Slice 5 feature flag) gates CSRF
     # registration, matching the pre-refactor conditional block at
     # ``app/main.py:256-257``. See ``app/core/middleware.py`` for the
-    # chain ordering.
+    # chain ordering. Installed AFTER rate-limit so CsrfMiddleware
+    # (added inside this function) is outermost — see the comment
+    # above the rate-limit install.
     install_auth_middleware(application, settings)
-
-    # Rate limiting on OAuth callback and write routes (issue #286).
-    # Runs AFTER CsrfMiddleware per D8 so CSRF rejections don't consume
-    # a legitimate user's rate budget.
-    install_rate_limit_middleware(application, settings)
 
     templates = Jinja2Templates(
         directory=_TEMPLATES_DIR,
