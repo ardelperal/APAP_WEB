@@ -376,11 +376,9 @@ class InsForgeClient:
            the server-side credential is still required per the
            operator contract; both must be sent.
 
-        The returned URL MUST NOT be exposed to the browser/client. The
-        caller is expected to wrap this generator in a FastAPI
-        ``StreamingResponse`` (or consume it eagerly; the route layer
-        currently does the latter for placeholder reliability — see
-        ``app/modules/animals/routes.py::animal_foto``).
+        The returned URL MUST NOT be exposed to the browser/client. The caller
+        is expected to wrap this generator in a FastAPI ``StreamingResponse``;
+        the consumer decides whether to pre-advance it or stream it directly.
 
         Network timeouts surface as ``httpx.TimeoutException`` (with
         ``httpx.ReadTimeout`` for stalled streams); non-2xx strategy
