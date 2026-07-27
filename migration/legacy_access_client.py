@@ -45,13 +45,22 @@ through ``set_legacy_query_executor`` for tests.
 from __future__ import annotations
 
 import os
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 # ``LegacyReaderError`` is imported lazily inside the function bodies
 # below to avoid the circular dependency
 # ``legacy_reader`` -> ``legacy_access_client`` -> ``legacy_reader``.
 # Tests that need to construct ``LegacyReaderError`` directly import
 # it from ``migration.legacy_reader``.
+#
+# The commit-failure typed exception (``LegacyWriteCommitFailed``)
+# subclasses ``LegacyReaderError`` so the CLI handler catches it
+# via the existing ``except LegacyReaderError`` clause and exits 5
+# (``legacy_read_failed``). Because that parent class lives in
+# ``legacy_reader.py`` (which imports from this module), the
+# exception is defined in ``legacy_reader.py`` and re-exported
+# here for the test seam. See ``migration.legacy_reader`` for the
+# authoritative definition.
 
 # ---------------------------------------------------------------------------
 # Module-level pyodbc reference (lazy import; tests can monkeypatch).
@@ -281,14 +290,23 @@ def execute_legacy_write(
             * the ``.accdb`` file does not exist,
             * ``pyodbc.connect`` raised ``pyodbc.Error``,
             * ``cursor.execute`` raised ``pyodbc.Error`` mid-statement.
+        LegacyWriteCommitFailed: ``conn.commit()`` raised
+            ``pyodbc.Error`` after a successful ``cursor.execute``.
+            The CLI handler catches this via the ``LegacyReaderError``
+            clause and exits 5 (``legacy_read_failed`` categorical
+            reason). Subclassing ``LegacyReaderError`` keeps the
+            existing CLI exit-code contract without a new handler.
 
     Notes:
         No raw PII is logged; the audit log lives in the applier
         layer (``log_safe("sync.applied", direction="web->legacy",
-        ...)`` per applied row).
+        ...)`` per applied row). The audit log fires AFTER the
+        write seam returns, so a raised ``LegacyWriteCommitFailed``
+        interrupts the row before the log call — the audit log
+        therefore fires only on successful commit (issue #218).
     """
     pyodbc_mod = _get_pyodbc()
-    from migration.legacy_reader import LegacyReaderError
+    from migration.legacy_reader import LegacyReaderError, LegacyWriteCommitFailed
 
     driver = _resolve_access_driver(pyodbc_mod)
 
@@ -322,12 +340,23 @@ def execute_legacy_write(
         # Force a commit so the write is durable across operator
         # restarts. Access autocommits per-statement when the cursor
         # is closed, but we make the contract explicit.
+        #
+        # Issue #218: a commit failure MUST surface as a typed
+        # ``LegacyWriteCommitFailed`` so the CLI handler exits
+        # non-zero (5 ``legacy_read_failed``) and the per-row
+        # ``sync.applied`` audit log fires ONLY on successful
+        # commit. The previous ``except pyodbc_mod.Error: pass``
+        # silently swallowed the failure and returned the
+        # rowcount as success — a silent durability gap.
         try:
             conn.commit()
-        except pyodbc_mod.Error:
-            # If commit fails the driver will still close cleanly;
-            # surface the original error via the next ``close``.
-            pass
+        except pyodbc_mod.Error as exc:
+            raise LegacyWriteCommitFailed(
+                f"Legacy write commit failed for {path}: {exc}. "
+                "The write was rolled back; the per-row "
+                "sync.applied audit log was NOT emitted. See "
+                "docs/runbooks/live-migration-apply.md."
+            ) from exc
         if rowcount == -1:
             raise LegacyWriteRowcountUnknownError(rowcount=-1)
         return rowcount
@@ -341,7 +370,35 @@ def execute_legacy_write(
 __all__ = [
     "ACCESS_DRIVER_SUBSTRINGS",
     "DEFAULT_QUERY_TIMEOUT_SECONDS",
+    "LegacyWriteCommitFailed",
     "LegacyWriteRowcountUnknownError",
     "execute_legacy_sql",
     "execute_legacy_write",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    """Lazy module-level attribute access (PEP 562).
+
+    Re-exports :class:`migration.legacy_reader.LegacyWriteCommitFailed`
+    so callers that import from ``migration.legacy_access_client`` keep
+    working. The exception is defined in ``legacy_reader.py`` (next
+    to its parent ``LegacyReaderError``) to avoid the circular import
+    ``legacy_reader`` -> ``legacy_access_client`` -> ``legacy_reader``.
+
+    Resolution happens on first attribute access, so the import
+    chain ``migration.__init__`` -> ``legacy_reader`` -> ``legacy_access_client``
+    stays trace-free.
+    """
+    if name == "LegacyWriteCommitFailed":
+        from migration.legacy_reader import LegacyWriteCommitFailed
+
+        return LegacyWriteCommitFailed
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+if TYPE_CHECKING:
+    # Resolved at runtime via ``__getattr__`` above; statically imported
+    # here so ruff + mypy see ``LegacyWriteCommitFailed`` as a public
+    # name of this module (issue #218).
+    from migration.legacy_reader import LegacyWriteCommitFailed

@@ -35,6 +35,7 @@ from migration import legacy_reader as legacy_reader_mod
 from migration.apply import ApplyResult, _safe_table
 from migration.bootstrap import bootstrap_m0_infrastructure
 from migration.dni_collision import DniCollisionCounter
+from migration.legacy_reader import LegacyWriteCommitFailed
 from migration.lock_snapshot import read_partial_apply
 from migration.mappings import load_mapping
 from migration.reporting import MigrationReport
@@ -220,6 +221,16 @@ def apply_web_to_legacy(
                         legacy_by_key=legacy_by_key,
                         dni_collision_counter=dni_collision_counter,
                     )
+                except LegacyWriteCommitFailed:
+                    # Categorical failure (issue #218): a failed
+                    # ``conn.commit()`` is a durability gap, not a
+                    # per-row logical error. The row was rolled back
+                    # but the operator would have seen ``applied``
+                    # if we swallowed it into ``errors[]``. Let the
+                    # exception propagate to the CLI handler so the
+                    # apply exits 5 (``legacy_read_failed``) and the
+                    # operator sees the categorical line.
+                    raise
                 except Exception as exc:  # noqa: BLE001 — last-resort guard
                     natural_key = web_row.get(mapping.key_field) if mapping.key_field else None
                     errors.append(

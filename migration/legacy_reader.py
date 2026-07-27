@@ -280,3 +280,35 @@ class LegacyReaderError(Exception):
     El applier / CLI lo captura y lo reporta al usuario con exit code 5
     (design §1.5: I/O error en legacy → código 5).
     """
+
+
+class LegacyWriteCommitFailed(LegacyReaderError):
+    """Typed error raised when ``conn.commit()`` fails on the legacy write seam.
+
+    Issue #218: ``execute_legacy_write`` previously did
+    ``except pyodbc_mod.Error: pass`` on the ``conn.commit()`` call,
+    silently swallowing the failure and returning the rowcount as
+    success. The operator saw ``applied`` while the write was
+    actually rolled back — a silent durability gap.
+
+    Authoritative definition lives here (next to ``LegacyReaderError``)
+    to avoid the circular import
+    ``legacy_reader`` -> ``legacy_access_client`` -> ``legacy_reader``.
+    The exception is re-exported from ``migration.legacy_access_client``
+    so callers that already import from there keep working.
+
+    The CLI handler (``migration.cli_apply_reverse.run_apply``) catches
+    it via the existing ``except LegacyReaderError`` clause — the
+    subclass relationship is the contract — and exits 5 with the
+    ``legacy_read_failed`` categorical reason. A commit failure is a
+    pyodbc I/O failure on the write side, not a per-row logical error
+    and not a partial-apply state, so the 5/6/7 categorical contract
+    places it alongside the existing pyodbc read failures.
+
+    The ``__cause__`` chain carries the original ``pyodbc.Error`` so
+    the operator retains the diagnostic when the runbook surfaces the
+    verbose trace.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
