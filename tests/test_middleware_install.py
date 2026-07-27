@@ -61,7 +61,13 @@ def test_install_auth_middleware_is_callable_from_app_core_middleware() -> None:
 
 _EXPECTED_AUTH_ONLY_MIDDLEWARE_CLASS_NAMES: tuple[str, ...] = (
     # Order for a fresh app with ONLY install_auth_middleware called.
-    # RateLimitMiddleware is NOT part of install_auth_middleware.
+    # Starlette's add_middleware() prepends; LAST registered = FIRST in list.
+    # install_auth_middleware registers (in order): CsrfMiddleware,
+    # protect_user_facing_routes (BaseHTTPMiddleware), UADetectionMiddleware,
+    # then SecurityHeadersMiddleware (OUTERMOST — added last, so runs first).
+    # Final: ['SecurityHeadersMiddleware', 'UADetectionMiddleware',
+    #         'BaseHTTPMiddleware', 'CsrfMiddleware']
+    "SecurityHeadersMiddleware",
     "UADetectionMiddleware",
     "BaseHTTPMiddleware",
     "CsrfMiddleware",
@@ -75,8 +81,11 @@ _EXPECTED_MIDDLEWARE_CLASS_NAMES: tuple[str, ...] = (
     # rate-limit so a 403 does not consume a legitimate user's rate budget).
     # Then install_auth_middleware adds: CsrfMiddleware (add_middleware),
     # protect_user_facing_routes (BaseHTTPMiddleware via @app.middleware("http")),
-    # UADetectionMiddleware (add_middleware, last).
-    # Final: ['UADetectionMiddleware', 'BaseHTTPMiddleware', 'CsrfMiddleware', 'RateLimitMiddleware']
+    # UADetectionMiddleware (add_middleware, last),
+    # SecurityHeadersMiddleware (added LAST = OUTERMOST).
+    # Final: ['SecurityHeadersMiddleware', 'UADetectionMiddleware',
+    #         'BaseHTTPMiddleware', 'CsrfMiddleware', 'RateLimitMiddleware']
+    "SecurityHeadersMiddleware",
     "UADetectionMiddleware",
     "BaseHTTPMiddleware",
     "CsrfMiddleware",

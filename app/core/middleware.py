@@ -243,6 +243,12 @@ def install_auth_middleware(app: FastAPI, settings) -> None:
     # the per-request cost is one regex match in ``app.core.ua.is_mobile``.
     app.add_middleware(UADetectionMiddleware)
 
+    # Security headers (issue #276). Placed LAST so it is the OUTERMOST
+    # middleware in Starlette's stack — every response shape (200, 302,
+    # 403 CSRF, 429 RateLimit, 404, 500, /healthz, /static/*) passes
+    # through it and inherits the defence-in-depth headers.
+    install_security_headers_middleware(app, settings)
+
 def install_rate_limit_middleware(app: FastAPI, settings: object) -> None:
     """Install RateLimitMiddleware after CsrfMiddleware (issue #286, D8).
 
@@ -273,3 +279,81 @@ def install_rate_limit_middleware(app: FastAPI, settings: object) -> None:
     import app.core.rate_limit_middleware as rl_mod
     rl_mod._rate_limit_backend = backend
     app.add_middleware(RateLimitMiddleware, backend=backend)
+
+
+# --- security-headers middleware (issue #276) --------------------------------
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Adds a defence-in-depth set of HTTP security headers to every response.
+
+    Headers added on every response:
+    - ``X-Content-Type-Options: nosniff`` — prevent MIME sniffing
+    - ``X-Frame-Options: DENY`` — prevent clickjacking
+    - ``Referrer-Policy: strict-origin-when-cross-origin``
+    - ``Content-Security-Policy`` — strict baseline (see ``_CSP_BASELINE``)
+
+    HSTS added only when ``settings.debug`` is ``False`` (production):
+    - ``Strict-Transport-Security: max-age=15552000; includeSubDomains``
+
+    The middleware is purely additive: it never short-circuits,
+    never raises, and never mutates ``request.state``.
+
+    Registered as the OUTERMOST middleware (called LAST, reaches responses
+    first) so that all response shapes — 200, 302, 403 CSRF, 429
+    RateLimit, 404, 500, ``/healthz``, ``/static/*`` — inherit the headers.
+
+    CSP baseline (D5):
+    - ``default-src 'self'`` — allow only same-origin fetches by default
+    - ``frame-ancestors 'none'`` — prevent framing at any level (clickjacking)
+    - ``base-uri 'self'`` — prevent <base> tag injection
+    - ``form-action 'self'`` — restrict form targets to same origin
+    - ``img-src 'self' data:`` — same-origin images + inline data URIs (logos)
+    - ``style-src 'self'`` — same-origin stylesheets only
+    - ``script-src 'self'`` — same-origin scripts only
+    """
+
+    _CSP_BASELINE = (
+        "default-src 'self'; "
+        "frame-ancestors 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self'; "
+        "img-src 'self' data:; "
+        "style-src 'self'; "
+        "script-src 'self'"
+    )
+
+    def __init__(self, app, settings: object) -> None:
+        super().__init__(app)
+        self._settings = settings
+        # lazy-import: avoids circular import with app.core.config.
+        from app.core.config import Settings
+
+        if not isinstance(settings, Settings):
+            self._debug = True
+        else:
+            self._debug = settings.debug
+
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Content-Security-Policy"] = self._CSP_BASELINE
+        if not self._debug:
+            response.headers["Strict-Transport-Security"] = (
+                "max-age=15552000; includeSubDomains"
+            )
+        return response
+
+
+def install_security_headers_middleware(app, settings: object) -> None:
+    """Register SecurityHeadersMiddleware as the OUTERMOST middleware.
+
+    Called LAST inside ``install_auth_middleware`` so that
+    ``app.add_middleware`` inserts it at index 0 — Starlette's request
+    flow reaches it first, before UADetection → protect → Csrf →
+    RateLimit → routes. Headers are added in ``dispatch`` AFTER
+    ``call_next``, so every response shape inherits them.
+    """
+    app.add_middleware(SecurityHeadersMiddleware, settings=settings)
