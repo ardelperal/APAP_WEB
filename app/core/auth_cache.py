@@ -33,7 +33,8 @@ per-email ``generation`` and the cache key is ``(email, generation)``.
 Each email has its own generation counter; ``invalidate_auth(email)``
 bumps only that email's generation, so the prior verdict is unreachable
 to subsequent readers while every other email keeps its cached verdict.
-``invalidate_all`` clears all entries and generation state.
+``invalidate_all`` bumps every email's generation so the whole cache is
+unreachable at once (issue #280 fix — generations persist, they are NOT cleared).
 
 Cache entries are invalidated:
 
@@ -202,6 +203,8 @@ class InProcessAuthCache:
                 cached_at=time.monotonic(),
                 generation=gen,
             )
+            # Track the generation so invalidate_all can bump this email.
+            self._generation[email] = gen
 
     def invalidate(self, email: str) -> None:
         """Drop the cached verdict for one email (idempotent if absent).
@@ -230,20 +233,24 @@ class InProcessAuthCache:
             self._generation[email] = self._generation.get(email, 0) + 1
 
     def invalidate_all(self) -> None:
-        """Clear every cached verdict (admin reset tooling / tests).
+        """Atomically make every cached verdict unreachable.
 
-        Issue #145 — bumps every email's generation so all
-        pre-invalidate entries are unreachable to subsequent reads.
-        The dict is also cleared as a memory hygiene step; the
-        generation bump is what closes the read-side race for every
-        email simultaneously.
+        Bumps every per-email generation counter so any pre-existing cache
+        entry's ``generation`` is now stale; then clears the entry dict. The
+        counters stay in ``_generation`` (carry the bumped values forward)
+        — they are NOT cleared, because a ``clear()`` would reset them to 0
+        and reopen the write-after-invalidate race closed by issue #145
+        (see issue #280).
 
         **Scope**: WORKER-LOCAL.
         """
         with self._lock:
-            for email in list(self._generation.keys()):
-                self._generation[email] += 1
-            self._generation.clear()
+            # Iterate over ALL emails that have a cache entry (via _cache
+            # keys), not just emails in _generation. This ensures emails
+            # only SET (never explicitly invalidated) are also bumped.
+            emails_in_cache = {email for (email, _gen) in self._cache}
+            for email in emails_in_cache:
+                self._generation[email] = self._generation.get(email, 0) + 1
             self._cache.clear()
 
 
