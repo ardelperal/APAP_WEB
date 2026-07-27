@@ -145,13 +145,16 @@ class InProcessAuthCache:
     def _current_generation(self, email: str) -> int:
         """Return the current per-email cache generation (issue #145).
 
+        The email is normalized to lowercase to match the case-insensitive
+        cache key behaviour (issue #278).
+
         Exposed for tests and audit. Reading the generation does not
         acquire the lock because the int read from the dict is atomic
         in CPython and any value seen here is only used to compare
         against an entry's stamped generation — a torn read cannot
         violate the invariant.
         """
-        return self._generation.get(email, 0)
+        return self._generation.get(email.lower(), 0)
 
     def get(self, email: str, ttl_seconds: int) -> CachedAuth | None:
         """Return the cached verdict for ``email`` if still fresh, else ``None``.
@@ -160,7 +163,13 @@ class InProcessAuthCache:
         an entry written under a previous generation is unreachable
         after an invalidation, regardless of whether the dict still
         contains its tuple.
+
+        The email is normalized to lowercase before use as a cache key so
+        that all case variants of the same address (e.g.
+        ``Maria.Lopez@Example.COM`` and ``maria.lopez@example.com``) share
+        the same cache entry and invalidation (issue #278).
         """
+        email = email.lower()
         with self._lock:
             gen = self._generation.get(email, 0)
             entry = self._cache.get((email, gen))
@@ -180,7 +189,11 @@ class InProcessAuthCache:
         entry is reachable from the next read; the pre-invalidate
         tuple remains in the dict as dead memory (and is replaced by
         the next ``set`` for that key).
+
+        The email is normalized to lowercase so that all case variants
+        share the same cache entry (issue #278).
         """
+        email = email.lower()
         with self._lock:
             gen = self._generation.get(email, 0)
             self._cache[(email, gen)] = CachedAuth(
@@ -202,12 +215,17 @@ class InProcessAuthCache:
         the same email writes under the new generation and overwrites
         it.
 
+        The email is normalized to lowercase so that all case variants
+        of the same address share the same generation counter
+        (issue #278).
+
         **Scope**: WORKER-LOCAL. The generation bump is visible only to
         the worker that called this method. Other workers keep serving
         their cached verdict until their TTL expires or the worker
         restarts. Multi-worker deployments that require immediate
         revocation must set ``APAP_AUTH_CACHE_TTL_SECONDS=0``.
         """
+        email = email.lower()
         with self._lock:
             self._generation[email] = self._generation.get(email, 0) + 1
 
@@ -301,19 +319,43 @@ def set_cached_auth(email: str, *, is_authorized: bool, rol: str | None) -> None
     _get_backend().set(email, is_authorized=is_authorized, rol=rol)
 
 
-def invalidate_auth(email: str) -> None:
-    """Drop the cached verdict for one email (idempotent if absent).
+def _case_variants(email: str) -> set[str]:
+    """Generate all case variants of an email address for cache invalidation.
 
-    Issue #145 — the invalidate bumps ONLY the named email's generation
-    on the in-process backend. Other emails keep their cached verdict;
-    the deactivated email's prior entry at ``(email, old_gen)`` is
-    unreachable to subsequent reads because :func:`get_cached_auth` now
-    keys against ``(email, new_gen)`` which does not exist.
+    Defense-in-depth for issue #278: legacy entries may have been cached at
+    non-normalized casings (e.g. ``Maria.Lopez@Example.COM``).  Invalidation
+    that only bumps the canonical key leaves stale entries at variant casings
+    reachable if a future lookup uses those casings.  This function generates
+    all variants reachable by swapping the case of each alphabetic character
+    in turn, plus the full-swapcase variant.
+    """
+    # All-lowercase is the canonical form used at write time.
+    variants = {email.lower(), email.upper()}
+    chars = list(email)
+    for i, ch in enumerate(chars):
+        if ch.isalpha():
+            chars[i] = ch.swapcase()
+            variants.add("".join(chars))
+            chars[i] = ch  # restore
+    return variants
+
+
+def invalidate_auth(email: str) -> None:
+    """Drop the cached verdict for one email and all its case variants.
+
+    Issue #145 — the invalidate bumps the named email's generation on the
+    in-process backend. Issue #278 — because the cache keys on the exact
+    string passed, and ``add_authorized_user`` / ``get_user_by_email`` now
+    always normalize before reaching the cache, a legacy entry cached at a
+    non-normalized casing would survive a single-key invalidation.  This
+    function invalidates the canonical key AND every case-variant string
+    so that no stale entry survives regardless of which casing the
+    service layer stored it under.
 
     **Scope (issues #262 and #287)** — read this before deploying with
     multiple workers: invalidation is WORKER-LOCAL. It is visible only
     to the worker that called this function. Other workers can keep a
-    stale verdict until their TTL expires or they restart; the
+    stale verdict until their TTL expires or the worker restarts; the
     worst-case stale-verdict window is ``auth_cache_ttl_seconds``
     (default 300s).
 
@@ -323,7 +365,9 @@ def invalidate_auth(email: str) -> None:
     for immediate revocation. See
     ``docs/runbooks/auth-cache-multi-worker.md``.
     """
-    _get_backend().invalidate(email)
+    backend = _get_backend()
+    for variant in _case_variants(email):
+        backend.invalidate(variant)
 
 
 def invalidate_all() -> None:

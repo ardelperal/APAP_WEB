@@ -25,8 +25,9 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.auth_cache import invalidate_auth
+from app.core.auth_helpers import normalize_email, validate_email_format
 from app.core.config import Settings
-from app.core.insforge import InsForgeClient
+from app.core.insforge import InsForgeClient, InsForgeError
 from app.core.roles import Rol
 from app.core.schema_bootstrap import SqlStatement, run_idempotent_sql
 
@@ -67,6 +68,14 @@ SELECT id, email, rol, activo
 FROM usuarios_autorizados
 WHERE email = $1
   AND activo = true
+"""
+
+# Distinct from GET_USER_BY_EMAIL_SQL so the test spy (issue #143) can
+# differentiate the auth-revalidation call (needs a fake row) from the
+# duplicate-check call (must NOT be intercepted).  Uses a narrower column
+# set so the WHERE clause is the only thing they share.
+_CHECK_DUPLICATE_EMAIL_SQL = """
+SELECT id FROM usuarios_autorizados WHERE email = $1 AND activo = true
 """
 
 LIST_USERS_SQL = """
@@ -110,7 +119,12 @@ def get_user_by_email(
     client: InsForgeClient,
     email: str,
 ) -> dict[str, Any] | None:
-    """Return the active user with this email, or None."""
+    """Return the active user with this email, or None.
+
+    The email is normalized (stripped + lowercased) before lookup so that
+    mixed-case variants resolve to the same canonical row (issue #278).
+    """
+    email = normalize_email(email)
     rows = client.execute_sql(GET_USER_BY_EMAIL_SQL, [email])
     return rows[0] if rows else None
 
@@ -135,14 +149,34 @@ def add_authorized_user(
     for r in Rol)``), so adding a new enum member opens the door
     automatically without any DDL change.
 
+    The email is normalized (stripped + lowercased) before storage and
+    validation. A pre-insert SELECT detects canonical duplicates; a
+    defense-in-depth InsForgeError catch translates unique-key violations
+    (issues #277, #278).
+
     Returns the inserted row.
     """
+    normalized = normalize_email(email)
+    validate_email_format(normalized)
     if role not in VALID_ROLES:
         raise ValueError(f"invalid role: {role!r}; must be one of {sorted(VALID_ROLES)}")
-    rows = client.execute_sql(ADD_USER_SQL, [email, role, added_by])
+    # Pre-insert duplicate check (cheap path — avoids a unique-violation race).
+    # Uses _CHECK_DUPLICATE_EMAIL_SQL (narrow SELECT) so the test spy can
+    # distinguish this call from the auth-revalidation call in
+    # require_authorized_user, which uses GET_USER_BY_EMAIL_SQL (full SELECT).
+    existing = client.execute_sql(_CHECK_DUPLICATE_EMAIL_SQL, [normalized])
+    if existing:
+        raise ValueError(f"email already authorized: {normalized!r}")
+    try:
+        rows = client.execute_sql(ADD_USER_SQL, [normalized, role, added_by])
+    except InsForgeError as exc:
+        # Defense in depth — InsForge may report unique-violation differently
+        if "duplicate" in str(exc).lower() or "unique" in str(exc).lower():
+            raise ValueError(f"email already authorized: {normalized!r}") from exc
+        raise
     # Issue #143: a prior deactivate may have cached a deny for this email;
     # re-adding must take effect on the next request, not after the TTL.
-    invalidate_auth(email)
+    invalidate_auth(normalized)
     return rows[0]
 
 

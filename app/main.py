@@ -51,6 +51,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app.core import config as config_module
+from app.core.admin_helpers import _pop_flash, _redirect_with_flash
 from app.core.auth import (
     VALID_ROLES,
     add_authorized_user,
@@ -545,8 +546,9 @@ def create_app() -> FastAPI:
         """
         if (early := return_early_if_response(current_user)) is not None:
             return early
+        flash_context = _pop_flash(request)
         users = list_authorized_users(client)
-        return templates.TemplateResponse(
+        response: Response = templates.TemplateResponse(
             request=request,
             name="admin.html",
             context={
@@ -554,11 +556,24 @@ def create_app() -> FastAPI:
                 "current_user": current_user,
                 "users": users,
                 "roles": sorted(VALID_ROLES),
+                "error_message": flash_context.message if flash_context else None,
+                "error_type": flash_context.error_type if flash_context else None,
             },
         )
+        if flash_context:
+            response.set_cookie(
+                key="apap_session",
+                value=flash_context.cookie_value,
+                max_age=60 * 60 * 24 * 7,
+                httponly=True,
+                secure=True,
+                samesite="strict",
+            )
+        return response
 
     @application.post("/admin/users")
     def admin_add_user(
+        request: Request,
         current_user: Response | dict = Depends(require_developer_user_redirect),
         client: InsForgeClient = Depends(get_insforge_client),
         email: str = Form(""),
@@ -575,26 +590,38 @@ def create_app() -> FastAPI:
 
         Issue #146 — la dep inyectada aplica el check de developer (rol
         insuficiente → redirect ``/unauthorized`` + ``log_safe``).
+
+        Issue #277 — ValueError from add_authorized_user (duplicate or
+        validation) is caught and rendered in the admin page instead of
+        silently redirecting, giving the operator actionable feedback.
         """
         if (early := return_early_if_response(current_user)) is not None:
             return early
-        # Narrowing: the early return above already handled the
-        # Response arm, so current_user can only be the session dict.
         assert isinstance(current_user, dict)
-        email = email.strip()
-        rol = rol.strip()
-        if not email or not rol:
-            return _redirect("/admin")
-        try:
-            add_authorized_user(
-                client,
-                email=email,
-                role=rol,
-                added_by=current_user["user_id"],
+        email, rol = email.strip(), rol.strip()
+
+        if rol not in VALID_ROLES:
+            return _redirect_with_flash(
+                request,
+                "/admin",
+                "danger",
+                f"invalid role: {rol!r}; must be one of {sorted(VALID_ROLES)}",
             )
-        except ValueError:
-            return _redirect("/admin")
-        return _redirect("/admin")
+
+        add_err = _add_user_or_error(client, email, rol, current_user["user_id"])
+        users = list_authorized_users(client)
+        return templates.TemplateResponse(
+            request,
+            "admin.html",
+            {
+                "app_name": settings.app_name,
+                "current_user": current_user,
+                "users": users,
+                "roles": sorted(VALID_ROLES),
+                "error_message": add_err.message if add_err else None,
+                "error_type": add_err.error_type if add_err else None,
+            },
+        )
 
     @application.post("/admin/users/{user_id}/deactivate")
     def admin_deactivate_user(
@@ -611,6 +638,27 @@ def create_app() -> FastAPI:
             return early
         deactivate_authorized_user(client, user_id)
         return _redirect("/admin")
+
+    def _add_user_or_error(
+        client: InsForgeClient, email: str, rol: str, added_by: str
+    ) -> _AddError | None:
+        """Call add_authorized_user; return an error tuple or None on success."""
+        if not email or not rol:
+            return _AddError(message="email and rol are required", error_type="danger")
+        try:
+            add_authorized_user(client, email=email, role=rol, added_by=added_by)
+            return None
+        except ValueError as exc:
+            return _AddError(message=str(exc), error_type="danger")
+
+    class _AddError:
+        """Lightweight error carrier for _add_user_or_error."""
+
+        __slots__ = ("message", "error_type")
+
+        def __init__(self, message: str, error_type: str) -> None:
+            self.message = message
+            self.error_type = error_type
 
     # Domain router registration (issue #204). The single entry point
     # ``register_routers`` owns the include_router ordering — see

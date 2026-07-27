@@ -3,6 +3,13 @@
 {% block title %}Panel de administración · APAP{% endblock %}
 
 {% block content %}
+  {# Error flash — rendered when add_authorized_user raises ValueError (issue #277) #}
+  {% if error_message %}
+  <div class="mb-6 rounded-lg bg-red-50 border border-red-200 p-4 text-red-700 text-sm" role="alert">
+    {{ error_message }}
+  </div>
+  {% endif %}
+
   <header class="mb-8 flex items-start justify-between gap-6 flex-wrap">
     <div>
       <h1 class="text-2xl font-bold tracking-tight text-primary-dark">Panel de administración</h1>
