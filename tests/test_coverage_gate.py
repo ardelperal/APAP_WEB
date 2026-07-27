@@ -16,7 +16,9 @@ import pytest
 from scripts.pytest_plugin import coverage_gate
 from scripts.pytest_plugin.coverage_gate import (
     CRITICAL_HELPERS,
+    discover_route_files,
     evaluate_coverage,
+    evaluate_route_coverage,
     gather_helpers,
 )
 
@@ -145,6 +147,84 @@ def test_evaluate_coverage_handles_missing_function() -> None:
     assert {n for n, _ in failed} == {"_redirect", "_render_form"}
 
 
+def test_route_coverage_uses_line_percentage_not_branch_percentage() -> None:
+    """A route passes when covered lines reach 85%, regardless of branches."""
+    data = {
+        "files": {
+            "app/modules/demo/routes.py": {
+                "summary": {
+                    "num_statements": 100,
+                    "covered_lines": 85,
+                    "percent_covered": 60.0,
+                }
+            }
+        }
+    }
+
+    passed, failed = evaluate_route_coverage(data, minimum=85.0)
+
+    assert passed is True
+    assert failed == []
+
+
+def test_route_coverage_reports_every_route_file_below_floor() -> None:
+    """The per-layer ratchet prevents weak routes hiding in the global mean."""
+    data = {
+        "files": {
+            "app\\modules\\animals\\routes.py": {
+                "summary": {"num_statements": 100, "covered_lines": 84}
+            },
+            "app/modules/entradas/batch_routes.py": {
+                "summary": {"num_statements": 10, "covered_lines": 8}
+            },
+            "app/modules/animals/service.py": {
+                "summary": {"num_statements": 10, "covered_lines": 0}
+            },
+        }
+    }
+
+    passed, failed = evaluate_route_coverage(data, minimum=85.0)
+
+    assert passed is False
+    assert failed == [
+        ("app/modules/animals/routes.py", 84.0),
+        ("app/modules/entradas/batch_routes.py", 80.0),
+    ]
+
+
+def test_route_coverage_fails_when_discovered_route_is_missing() -> None:
+    """A route omitted from coverage data cannot silently bypass the floor."""
+    expected = frozenset({"app/modules/voluntarios/routes.py"})
+
+    passed, failed = evaluate_route_coverage(
+        {"files": {}},
+        minimum=85.0,
+        expected_paths=expected,
+    )
+
+    assert passed is False
+    assert failed == [("app/modules/voluntarios/routes.py", 0.0)]
+
+
+def test_discover_route_files_includes_nested_and_suffixed_modules(
+    tmp_path: Path,
+) -> None:
+    """Discovery covers both ``routes.py`` and modules such as batch_routes."""
+    modules = tmp_path / "app" / "modules"
+    (modules / "animals").mkdir(parents=True)
+    (modules / "entradas").mkdir()
+    (modules / "animals" / "routes.py").write_text("", encoding="utf-8")
+    (modules / "entradas" / "batch_routes.py").write_text("", encoding="utf-8")
+    (modules / "entradas" / "service.py").write_text("", encoding="utf-8")
+
+    assert discover_route_files(tmp_path / "app") == frozenset(
+        {
+            "app/modules/animals/routes.py",
+            "app/modules/entradas/batch_routes.py",
+        }
+    )
+
+
 # --- CLI contract --------------------------------------------------------
 
 
@@ -160,6 +240,8 @@ def test_cli_writes_summary_when_clean(tmp_path: Path, capsys) -> None:
             str(cov_path),
             "--helpers",
             "_redirect",
+            "--app-root",
+            str(tmp_path / "app"),
         ]
     )
     assert rc == 0
@@ -241,7 +323,7 @@ def test_pytest_plugin_hook_fails_process_exit_code_on_gate_failure(
     (pytester.path / "coverage.json").write_text(
         json.dumps(_coverage_data({"_redirect": 50.0})), encoding="utf-8"
     )
-    result = pytester.runpytest_subprocess()
+    result = pytester.runpytest_subprocess("--coverage-file=coverage.json")
     result.assert_outcomes(passed=1)  # the single synthetic test itself passes
     result.stdout.fnmatch_lines(["*coverage-gate FAIL*"])
     assert result.ret != 0, (
@@ -266,7 +348,7 @@ def test_pytest_plugin_hook_exits_zero_when_gate_passes(
     (pytester.path / "coverage.json").write_text(
         json.dumps(_coverage_data(all_at_100)), encoding="utf-8"
     )
-    result = pytester.runpytest_subprocess()
+    result = pytester.runpytest_subprocess("--coverage-file=coverage.json")
     result.assert_outcomes(passed=1)
     result.stdout.fnmatch_lines(["*coverage-gate PASS*"])
     assert result.ret == 0
