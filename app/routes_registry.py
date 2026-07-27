@@ -28,6 +28,7 @@ from app.modules.materiales.acogida_routes import (
     router as materiales_acogida_router,
 )
 from app.modules.materiales.routes import router as materiales_router
+from app.modules.sanidad.batch_routes import router as sanidad_batch_router
 from app.modules.sanidad.routes import router as sanidad_router
 from app.modules.voluntarios.routes import router as voluntarios_router
 
@@ -50,6 +51,15 @@ def register_routers(app: FastAPI) -> None:
       ``/{adopcion_id}/edit`` siblings.
     - HEALTH-01 (#50) — sanidad_router mounted AFTER adopciones for
       stable insertion order alongside other domain routers.
+    - HEALTH-02 (#51) — sanidad_batch_router mounted AFTER
+      sanidad_router because both routers declare paths under the
+      ``/sanidad`` prefix. The single-record CRUD lives in
+      ``sanidad/routes.py`` and the batch endpoint lives in
+      ``sanidad/batch_routes.py``; mounting the batch router last
+      guarantees the dynamic batch POST ``/sanidad/actuaciones/batch``
+      takes precedence over the single-record POST ``/sanidad`` when
+      both could match (they do not in practice — different paths —
+      but the order keeps FastAPI's router chain unambiguous).
     - FOSTER-04 (#46) — materiales_router and
       materiales_acogida_router mounted LAST (catalog and per-estancia
       junction respectively); the junction router declares absolute
@@ -66,5 +76,6 @@ def register_routers(app: FastAPI) -> None:
     app.include_router(voluntarios_router)
     app.include_router(adopciones_router)
     app.include_router(sanidad_router)
+    app.include_router(sanidad_batch_router)
     app.include_router(materiales_router)
     app.include_router(materiales_acogida_router)

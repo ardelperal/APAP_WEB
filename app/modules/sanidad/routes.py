@@ -1,10 +1,17 @@
-"""Route layer for HEALTH-01 sanidad (CRUD).
+"""Route layer for HEALTH-01 sanidad (single-record CRUD).
 
 Mirrors ``app/modules/adopciones/routes.py`` and
 ``app/modules/entradas/routes.py``: routes are pure HTTP / auth /
 template glue. All data access delegates to ``app.modules.sanidad.service``.
 
-Endpoints (mounted at ``/sanidad`` by ``app/main.py``):
+The HEALTH-02 batch endpoint (issue #51) lives in
+``app/modules/sanidad/batch_routes.py`` so each ``routes*.py`` file
+stays under the AGENTS §21 / §28 budget (modular concern: the single-
+record CRUD has its own concerns that would otherwise leak into the
+batch handler).
+
+Endpoints (mounted at ``/sanidad`` by ``app/main.py`` via the
+combined router registered in ``routes_registry.py``):
 
 - ``GET  /sanidad``                          list of active actuaciones
                                                   (with optional
@@ -25,9 +32,15 @@ Endpoints (mounted at ``/sanidad`` by ``app/main.py``):
                                                   **Requires writer rol**
                                                   (issue #144).
 
+Batch endpoint (HEALTH-02, #51) — see ``batch_routes.py``:
+- ``GET  /sanidad/batch/new``                empty 5-row batch form.
+- ``POST /sanidad/actuaciones/batch``        atomic commit OR staging
+                                                  preview. **Requires
+                                                  writer rol.**
+
 Auth model (issue #144): GET endpoints use ``require_authorized_user``
 (read access stays open to any authorized operator). Write endpoints
-(POST create / POST update / POST delete) use ``require_writer_user``
+(POST create / update / delete / batch) use ``require_writer_user``
 which composes on ``require_authorized_user`` and rejects the ``reader``
 rol with 403 BEFORE the handler runs.
 """
@@ -526,3 +539,9 @@ def delete_actuacion_view(
     return RedirectResponse(
         url="/sanidad", status_code=status.HTTP_303_SEE_OTHER
     )
+
+
+# HEALTH-02 batch endpoint (issue #51) lives in ``batch_routes.py`` to
+# keep each routes file under the AGENTS §21 / §28 size budgets. The
+# router is registered under the same ``sanidad_router`` prefix from
+# ``routes_registry.py`` so the URL contract is unchanged.
