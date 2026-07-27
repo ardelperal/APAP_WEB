@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import httpx
 import pytest
 
@@ -28,6 +30,10 @@ class _FakeInsForge(InsForgeClient):
         # to "key_user" so require_authorized_user's role-refresh reflects
         # the same rol the test's cookie carries.
         self.auth_rol: str = "developer"
+        # For last-developer guard disambiguation:
+        self.deactivate_user_id: str | None = None  # user_id passed to deactivate
+        # Separate storage for get_user_by_id so it doesn't pollute list_users_response
+        self._user_lookup_response: dict | None = None
 
     def execute_sql(self, query, params=None):  # type: ignore[override]
         from tests.conftest import auth_reval_rows
@@ -40,8 +46,24 @@ class _FakeInsForge(InsForgeClient):
         if "INSERT INTO usuarios_autorizados" in query and "VALUES" in query:
             return [dict(self.add_user_response)]
         if "SET activo = false" in query:
+            # Track the user_id being deactivated for disambiguation
+            if params:
+                self.deactivate_user_id = params[0]
             row = self.deactivate_user_response
             return [dict(row)] if row else []
+        # _has_other_active_developers: SELECT EXISTS for last-developer guard
+        if "SELECT EXISTS" in query and "developer" in query:
+            # If deactivate_user_response is None → last developer guard fires
+            # Return True if there IS another developer (deactivate succeeds)
+            # Return False if this IS the last developer (guard fires)
+            return [{"exists": self.deactivate_user_response is not None}]
+        # get_user_by_id for disambiguation — uses separate storage
+        # Normalise whitespace so the multi-line SQL matches regardless of
+        # leading/trailing whitespace.
+        normalised = re.sub(r"\s+", " ", query.strip())
+        if "SELECT id, email, rol, activo FROM usuarios_autorizados WHERE id = $1" in normalised:
+            return [self._user_lookup_response] if self._user_lookup_response else []
+        return []
         return []
 
 
@@ -331,6 +353,52 @@ async def test_admin_deactivate_user_rejects_non_developer(
 
     assert response.status_code == 302
     assert response.headers["location"] == "/unauthorized"
+
+
+async def test_admin_deactivate_user_renders_flash_error_when_last_developer(
+    client: httpx.AsyncClient, fake_insforge: _FakeInsForge
+) -> None:
+    """When deactivate_authorized_user raises ValueError, admin.html re-renders with flash.
+
+    REQ-4 scenario: Deactivate last developer renders error flash.
+    The route catches ValueError and re-renders admin.html with error_message,
+    instead of redirecting to /admin.
+    """
+    from app.core.config import get_settings
+
+    # Set up: deactivate returns empty (guard fires), list_users is empty.
+    # _user_lookup_response has the developer so the ValueError fires.
+    fake_insforge.deactivate_user_response = None  # zero rows from UPDATE → guard fires
+    fake_insforge.list_users_response = []  # list_users returns empty in error path
+    fake_insforge._user_lookup_response = {
+        "id": "only-dev",
+        "email": "only-dev@example.com",
+        "rol": "developer",
+        "activo": True,
+        "fecha_alta": "2026-06-17T00:00:00Z",
+    }
+    # Track deactivate_user_id so SELECT EXISTS query uses it
+    fake_insforge.deactivate_user_id = "only-dev"
+
+    _login_as(
+        client,
+        get_settings().session_secret,
+        rol="developer",
+        email="only-dev@example.com",
+        user_id="only-dev",
+    )
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/admin/users/only-dev/deactivate",
+    )
+
+    # Must re-render admin.html (status 200), NOT redirect (302)
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    # Error flash must be visible in the page
+    assert "cannot deactivate the last active developer" in response.text
 
 
 # --- P2-inherited: /admin debe rechazar sesiones con is_authorized=False -----
