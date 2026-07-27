@@ -24,6 +24,7 @@ pass an explicit ``csrf_token=`` override.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from typing import Any
 
@@ -63,7 +64,15 @@ def auth_reval_rows(
     test's login helper (default ``key_user``; admin/developer tests pass
     ``rol="developer"``).
     """
-    if "usuarios_autorizados" in query and "email = $1" in query:
+    # Auth revalidation (issue #143): uses GET_USER_BY_EMAIL_SQL which
+    # includes 'rol' as a selected column (appears in SELECT ... rol, ...).
+    # The duplicate-check uses _CHECK_DUPLICATE_EMAIL_SQL with a minimal
+    # 'SELECT id' (no rol column) — this pattern must NOT be intercepted.
+    if (
+        "usuarios_autorizados" in query
+        and "email = $1" in query
+        and re.search(r"(?<=[, ])rol(?=[,])", query) is not None
+    ):
         email = (
             params[0]
             if isinstance(params, (list, tuple)) and params

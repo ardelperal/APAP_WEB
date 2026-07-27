@@ -198,9 +198,16 @@ def test_list_authorized_users_returns_all_rows() -> None:
 def test_add_authorized_user_inserts_with_anadido_por() -> None:
     """``add_authorized_user`` runs an INSERT with email, rol and anadido_por."""
     captured: dict = {}
+    call_count = 0
 
     def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
         captured["body"] = json.loads(request.content)
+        if "SELECT" in captured["body"]["query"]:
+            # Pre-check: no existing user with this email
+            return _json_response(200, [])
+        call_count += 1
+        # INSERT returns the new row
         return _json_response(
             200,
             [
@@ -273,6 +280,10 @@ def test_add_authorized_user_accepts_all_known_roles(role: str) -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         captured.append(json.loads(request.content))
+        if "SELECT" in captured[-1]["query"]:
+            # Pre-check: no existing user with this email
+            return _json_response(200, [])
+        # INSERT returns the new row
         return _json_response(
             200,
             [
@@ -295,8 +306,9 @@ def test_add_authorized_user_accepts_all_known_roles(role: str) -> None:
         added_by="u-1",
     )
 
-    assert captured, "execute_sql was not called"
-    assert captured[0]["params"][1] == role
+    assert len(captured) == 2, "pre-check SELECT and INSERT should both run"
+    # captured[0] = pre-check SELECT (returns empty), captured[1] = INSERT
+    assert captured[1]["params"][1] == role
     assert row["rol"] == role
 
 
@@ -314,6 +326,11 @@ def test_add_authorized_user_invalidates_cache() -> None:
     auth_cache.set_cached_auth("new@example.com", is_authorized=False, rol=None)
 
     def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        if "SELECT" in body["query"]:
+            # Pre-check: no existing user
+            return _json_response(200, [])
+        # INSERT returns the new row
         return _json_response(
             200,
             [
@@ -360,3 +377,86 @@ def test_deactivate_authorized_user_unknown_id_does_not_touch_cache() -> None:
     client = _client(lambda request: _json_response(200, []))
 
     assert deactivate_authorized_user(client, "u-unknown") is None
+
+
+# --- Issue #277 / #278: canonical email identity -------------------------------
+
+
+def test_add_authorized_user_rejects_empty_email() -> None:
+    """add_authorized_user("") raises ValueError("email cannot be empty")."""
+    client = _client(lambda request: _json_response(200, []))
+    with pytest.raises(ValueError, match="email cannot be empty"):
+        add_authorized_user(client, email="", role="key_user", added_by="u-1")
+
+
+def test_add_authorized_user_rejects_malformed_email() -> None:
+    """add_authorized_user("notanemail") raises ValueError about format."""
+    client = _client(lambda request: _json_response(200, []))
+    with pytest.raises(ValueError, match="email format invalid"):
+        add_authorized_user(client, email="notanemail", role="key_user", added_by="u-1")
+
+
+def test_add_authorized_user_rejects_duplicate_normalized_email_precheck() -> None:
+    """When the pre-insert SELECT finds the canonical email, raise ValueError."""
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        # The SELECT for get_user_by_email returns a row (duplicate detected)
+        if "SELECT" in captured["body"]["query"]:
+            return _json_response(
+                200,
+                [{"id": "u-1", "email": "maria@lopez.com", "rol": "key_user", "activo": True}],
+            )
+        return _json_response(200, [])
+
+    client = _client(handler)
+    with pytest.raises(ValueError, match="email already authorized"):
+        add_authorized_user(client, email=" Maria@Lopez.com ", role="key_user", added_by="u-1")
+
+    # The duplicate check used the canonical form in SQL
+    assert "maria@lopez.com" in captured["body"]["params"]
+
+
+def test_add_authorized_user_rejects_duplicate_via_insforge_error() -> None:
+    """When the pre-check passes but INSERT raises InsForgeError(23505), raise ValueError."""
+    from app.core.insforge import InsForgeError
+
+    call_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        body = json.loads(request.content)
+        if "SELECT" in body["query"]:
+            # Pre-check: no existing user
+            return _json_response(200, [])
+        call_count += 1
+        if call_count == 1:
+            # INSERT: InsForge unique violation
+            raise InsForgeError(
+                409,
+                {"code": "23505", "message": "duplicate key value violates unique constraint"},
+            )
+        return _json_response(200, [])
+
+    client = _client(handler)
+    with pytest.raises(ValueError, match="email already authorized"):
+        add_authorized_user(client, email="new@example.com", role="key_user", added_by="u-1")
+
+
+def test_get_user_by_email_normalizes_case_before_sql() -> None:
+    """get_user_by_email normalizes its argument before the SQL lookup."""
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        return _json_response(
+            200,
+            [{"id": "u-1", "email": "maria@lopez.com", "rol": "key_user", "activo": True}],
+        )
+
+    client = _client(handler)
+    user = get_user_by_email(client, " Maria@Lopez.com ")
+
+    assert captured["body"]["params"] == ["maria@lopez.com"]
+    assert user is not None

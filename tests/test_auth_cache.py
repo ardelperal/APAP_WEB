@@ -246,3 +246,31 @@ def test_invalidate_all_bumps_generation_and_obsoletes_every_entry() -> None:
     entry = auth_cache.get_cached_auth("a@e.com", ttl_seconds=300)
     assert entry is not None
     assert entry.generation == 0
+
+
+# --- Issue #278: case-folding ghost users -----------------------------------
+
+
+def test_invalidate_auth_cascades_to_case_variants() -> None:
+    """Invalidating one case form invalidates all case variants.
+
+    When the admin deactivates a user whose email was stored in mixed case,
+    the cache must be invalidated for the canonical form AND all other
+    casings of the same local-part + domain, otherwise a cache lookup using
+    a different casing (e.g. after OAuth normalizes to lowercase) would hit a
+    stale cached verdict and skip re-validation (issue #278).
+    """
+    # Prime cache entries at several case variants of the same email
+    auth_cache.set_cached_auth("Maria.Lopez@Example.COM", is_authorized=True, rol="key_user")
+    auth_cache.set_cached_auth("maria.lopez@example.com", is_authorized=True, rol="key_user")
+    auth_cache.set_cached_auth("MARIA.LOPEZ@EXAMPLE.COM", is_authorized=True, rol="key_user")
+    auth_cache.set_cached_auth("maria.lopez@Example.COM", is_authorized=True, rol="key_user")
+
+    # Invalidate using one variant
+    auth_cache.invalidate_auth("maria.lopez@example.com")
+
+    # All variants — including the one NOT invalidated directly — must miss
+    assert auth_cache.get_cached_auth("Maria.Lopez@Example.COM", ttl_seconds=300) is None
+    assert auth_cache.get_cached_auth("maria.lopez@example.com", ttl_seconds=300) is None
+    assert auth_cache.get_cached_auth("MARIA.LOPEZ@EXAMPLE.COM", ttl_seconds=300) is None
+    assert auth_cache.get_cached_auth("maria.lopez@Example.COM", ttl_seconds=300) is None

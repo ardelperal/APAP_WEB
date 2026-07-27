@@ -5,7 +5,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from app.core.insforge import InsForgeClient
+from app.core.insforge import InsForgeClient, InsForgeError
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
 from tests.conftest import make_csrf_request
@@ -158,9 +158,10 @@ async def test_admin_renders_user_table_for_developer(
 # --- POST /admin/users ------------------------------------------------------
 
 
-async def test_admin_add_user_inserts_and_redirects(
+async def test_admin_add_user_inserts_and_renders_admin_page(
     client: httpx.AsyncClient, fake_insforge: _FakeInsForge
 ) -> None:
+    """On success the admin page re-renders with no error message."""
     from app.core.config import get_settings
 
     _login_as(
@@ -175,11 +176,54 @@ async def test_admin_add_user_inserts_and_redirects(
         client,
         "POST",
         "/admin/users",
-        form_data={"email": "new@example.com", "role": "key_user"},
+        form_data={"email": "new@example.com", "rol": "key_user"},
     )
 
-    assert response.status_code == 302
-    assert response.headers["location"] == "/admin"
+    assert response.status_code == 200
+    # No error message in the page
+    assert "email already authorized" not in response.text
+
+
+async def test_admin_add_user_with_duplicate_email_shows_error(
+    client: httpx.AsyncClient, fake_insforge: _FakeInsForge
+) -> None:
+    """When the email is already authorized the admin page re-renders with error context."""
+    from app.core.config import get_settings
+
+    _login_as(
+        client,
+        get_settings().session_secret,
+        rol="developer",
+        email="root@example.com",
+        user_id="u-root",
+    )
+    # Simulate the pre-check returning an existing user
+    fake_insforge.add_user_response = None  # not used for pre-check
+
+    def execute_sql(query, params=None):
+        from tests.conftest import auth_reval_rows
+        _reval = auth_reval_rows(query, params, rol="developer")
+        if _reval is not None:
+            return _reval
+        if "ORDER BY fecha_alta DESC" in query:
+            return []
+        if "SELECT" in query and "usuarios_autorizados" in query:
+            # Pre-check finds existing user
+            return [{"id": "u-1", "email": "existing@example.com", "rol": "key_user", "activo": True}]
+        return []
+
+    # Override the fake to return duplicate on pre-check
+    fake_insforge.execute_sql = execute_sql
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/admin/users",
+        form_data={"email": "new@example.com", "rol": "key_user"},
+    )
+
+    assert response.status_code == 200
+    assert "email already authorized" in response.text
 
 
 async def test_admin_add_user_with_invalid_role_redirects_without_calling_sql(
@@ -226,7 +270,7 @@ async def test_admin_add_user_rejects_non_developer(
         client,
         "POST",
         "/admin/users",
-        form_data={"email": "new@example.com", "role": "key_user"},
+        form_data={"email": "new@example.com", "rol": "key_user"},
     )
 
     assert response.status_code == 302
@@ -368,3 +412,78 @@ async def test_admin_deactivate_user_redirects_when_is_authorized_false(
 
     assert response.status_code == 302
     assert response.headers["location"] == "/unauthorized"
+
+
+# --- §32.P4 (issues #277, #278): global InsForgeError handler ----------------
+#
+# The admin ``_add_user_or_error`` helper only catches ``ValueError`` from
+# ``add_authorized_user`` (the duplicate-email path translates
+# InsForgeError → ValueError inside the service). Any OTHER InsForgeError —
+# transport failure, upstream 5xx, timeout — propagates uncaught and
+# would produce a generic 500 page. This class covers the global handler
+# that converts those into a 502 Bad Gateway with a non-leaking message.
+
+
+class TestInsForgeErrorGlobalHandler:
+    """AGENTS.md §32.P4: any route calling a service that reaches InsForge
+    must handle both the domain error AND InsForgeError, OR a global
+    handler must exist and be exercised by tests."""
+
+    async def test_admin_add_user_returns_502_on_non_duplicate_insforge_error(
+        self, client: httpx.AsyncClient, fake_insforge: _FakeInsForge
+    ) -> None:
+        """A non-duplicate InsForgeError (e.g. 5xx from upstream) returns
+        502, not 500, per the §32.P4 anti-pattern fix."""
+        from app.core.config import get_settings
+
+        _login_as(
+            client,
+            get_settings().session_secret,
+            rol="developer",
+            email="root@example.com",
+            user_id="u-root",
+        )
+
+        def execute_sql(query, params=None):
+            from tests.conftest import auth_reval_rows
+
+            _reval = auth_reval_rows(query, params, rol="developer")
+            if _reval is not None:
+                return _reval
+            if "ORDER BY fecha_alta DESC" in query:
+                return []
+            if (
+                "SELECT" in query
+                and "usuarios_autorizados" in query
+                and "activo = true" in query
+            ):
+                # add_authorized_user's pre-insert duplicate-check
+                # returns no rows so we fall through to the INSERT branch.
+                return []
+            if "INSERT INTO usuarios_autorizados" in query and "VALUES" in query:
+                # Simulate a transport-level 5xx from InsForge. The
+                # service-layer translator only recognises "duplicate" /
+                # "unique" substrings; every other InsForgeError re-raises
+                # verbatim, which the global handler must convert to 502.
+                raise InsForgeError(503, "service unavailable")
+            return []
+
+        fake_insforge.execute_sql = execute_sql
+
+        response = await make_csrf_request(
+            client,
+            "POST",
+            "/admin/users",
+            form_data={"email": "new@example.com", "rol": "key_user"},
+        )
+
+        assert response.status_code == 502
+        body = response.json()
+        assert "Upstream database error" in body["detail"]
+        # The raw InsForgeError repr must NOT leak to the client
+        # (anti-pattern §32.P4: backend detail that does not belong in
+        # the response body). InsForgeError.__str__ formats as
+        # ``"InsForge {status_code}: {body!r}"`` so any leak would
+        # surface the ``"InsForge 503"`` substring.
+        assert "InsForge 503" not in response.text
+        assert "service unavailable" not in response.text
