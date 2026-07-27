@@ -100,6 +100,22 @@ jobs:
     name: test
     runs-on: ubuntu-latest
     needs: lint
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: apap_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d apap_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      APAP_TEST_POSTGRES_DSN: postgresql://postgres:postgres@127.0.0.1:5432/apap_test
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
@@ -118,13 +134,10 @@ jobs:
         # API, which collides with pytest-asyncio's auto-mode loop
         # resolution under a single pytest run. e2e has its own
         # dedicated job below (with playwright + chromium installed).
-        # --deselect tests/test_voluntarios_concurrent.py: this test
-        # requires a real PostgreSQL instance (REG-S-3 round-2 fix
-        # mandates HARD FAIL, not skip, when APAP_E2E_BASE_URL is
-        # absent). CI does not provision PG; the test still runs in
-        # staging (where the URL is set) and locally (devs set the
-        # env var). See openspec/changes/hardening-2026-q2/specs/
-        # 07-toctou-fix/spec.md REQ-3.
+        # The job-level PostgreSQL service supplies APAP_TEST_POSTGRES_DSN
+        # for tests/test_voluntarios_concurrent.py. APAP_E2E_BASE_URL is
+        # intentionally unrelated: it identifies an HTTP server, not a
+        # PostgreSQL connection.
         # Coverage flags (issue #199, AGENTS.md rule 19 — removing any
         # of them is a blocked change):
         # --cov=app: measure coverage over the app package.
@@ -141,7 +154,6 @@ jobs:
         run: |
           python -m pytest -W error::DeprecationWarning \
             --ignore=tests/e2e \
-            --deselect tests/test_voluntarios_concurrent.py \
             --cov=app \
             --cov-report=json \
             --cov-report=term \
