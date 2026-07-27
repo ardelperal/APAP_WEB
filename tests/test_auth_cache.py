@@ -23,10 +23,15 @@ from app.core import auth_cache
 
 @pytest.fixture(autouse=True)
 def _clear_cache() -> None:
-    """Each test starts from an empty process-global cache."""
-    auth_cache.invalidate_all()
+    """Each test starts from a fresh process-global cache.
+
+    ``invalidate_all`` no longer resets generations (issue #280 fix), so
+    we use ``_reset_backend_for_testing`` to get a truly empty backend
+    instead of relying on invalidation.
+    """
+    auth_cache._reset_backend_for_testing()
     yield
-    auth_cache.invalidate_all()
+    auth_cache._reset_backend_for_testing()
 
 
 def test_get_cached_auth_returns_none_when_empty() -> None:
@@ -237,15 +242,66 @@ def test_invalidate_all_bumps_generation_and_obsoletes_every_entry() -> None:
 
     auth_cache.invalidate_all()
 
+    # invalidate_all bumps every generation (issue #280 fix); entries
+    # written before the bump are unreachable even if the dict still
+    # holds them.
+    assert auth_cache._current_generation("a@e.com") > 0
+    assert auth_cache._current_generation("b@e.com") > 0
+
     assert auth_cache.get_cached_auth("a@e.com", ttl_seconds=300) is None
     assert auth_cache.get_cached_auth("b@e.com", ttl_seconds=300) is None
 
-    # Subsequent sets start fresh at generation 0 and are immediately
+    # Subsequent sets write under the bumped generation and are immediately
     # visible — the cache is a clean slate, not a tombstone.
     auth_cache.set_cached_auth("a@e.com", is_authorized=True, rol="key_user")
     entry = auth_cache.get_cached_auth("a@e.com", ttl_seconds=300)
     assert entry is not None
-    assert entry.generation == 0
+    assert entry.generation > 0
+
+
+
+
+def test_invalidate_all_write_after_invalidate_is_unreachable() -> None:
+    """Per issue #280 — invalidate_all must NOT reset per-email
+    generations, otherwise a reader that captured a stale verdict
+    before invalidate_all can race-write it under the same
+    (email, generation) key and become reachable again.
+
+    This test directly reproduces the issue shape: bypass
+    get_cached_auth (read directly from _cache to simulate a reader
+    that computed a verdict before invalidate_all), call
+    invalidate_all, have the reader write under the OLD generation
+    key, and assert the read-back is a miss.
+    """
+    cache = auth_cache._get_backend()
+    email = "test@example.com"
+    # Reader R1 read the verdict BEFORE invalidate_all and is about to write.
+    cache.set(email, is_authorized=True, rol="developer")
+    old_gen = cache._current_generation(email)  # Should be 0
+    snapshot = cache._cache.get((email, old_gen))  # Pre-invalidate snapshot
+    assert snapshot is not None
+
+    # Admin triggers invalidate_all.
+    cache.invalidate_all()
+
+    # The bug: if invalidate_all cleared _generation, R1's write under
+    # old_gen would collide with the bumped gen 1 (which is the current
+    # state — `clear()` resets to 0, +1 puts it at 1; with the fix, +1
+    # puts it at 2). The fix's invariant: `old_gen` no longer matches
+    # `_current_generation(email)`, so the entry is unreachable.
+    assert cache._current_generation(email) != old_gen, (
+        f"invalidate_all did NOT bump generation. old_gen={old_gen}, "
+        f"current={cache._current_generation(email)}"
+    )
+
+    # Verifying the race directly: simulate R1's late write under old_gen.
+    # With the fix, this write is silently ignored (collision check in
+    # set_cached_auth). Without the fix, the entry becomes reachable again.
+    cache._cache[(email, old_gen)] = snapshot  # naive insert
+    result = cache.get(email, ttl_seconds=300)
+    assert result != snapshot, (
+        "race: pre-invalidate verdict became reachable again after invalidate_all"
+    )
 
 
 # --- Issue #278: case-folding ghost users -----------------------------------
