@@ -938,6 +938,58 @@ TEMPLATE_SPECS: list[tuple[str, list[str], dict[str, Any]]] = [
         },
     ),
     (
+        # HEALTH-02 (#51) batch endpoint — preview re-renders the
+        # per-record status table with the operator's input echoed so
+        # failed rows can be fixed without retyping.
+        "sanidad/batch_preview.html",
+        [
+            "preview.ok_count",
+            "preview.error_count",
+            "preview.dry_run",
+            "preview.items[0].index",
+            "preview.items[0].status",
+            "preview.items[0].reason",
+            "records[0].animal_id",
+            "records[0].fecha",
+            "records[0].tipo_actuacion_id",
+            "records[0].voluntario_id",
+            "records[0].veterinario",
+            "records[0].observaciones",
+            "records[0].material_utilizado",
+            "user.email",
+            "error",
+        ],
+        {
+            "user": _BASE_USER,
+            "preview": {
+                "ok_count": 4,
+                "error_count": 1,
+                "dry_run": False,
+                "items": [
+                    {"index": 0, "status": "ok", "reason": None},
+                    {"index": 1, "status": "ok", "reason": None},
+                    {"index": 2, "status": "error",
+                     "reason": "fecha_anterior_alta"},
+                    {"index": 3, "status": "ok", "reason": None},
+                    {"index": 4, "status": "ok", "reason": None},
+                ],
+            },
+            "records": [
+                {
+                    "animal_id": f"00000000-0000-0000-0000-{i:012d}",
+                    "voluntario_id": None,
+                    "fecha": "2026-07-04",
+                    "tipo_actuacion_id": None,
+                    "veterinario": "Dra. Pérez",
+                    "observaciones": "Vacuna anual",
+                    "material_utilizado": "Nobivac Rabia",
+                }
+                for i in range(5)
+            ],
+            "error": "registro 2: fecha_anterior_alta",
+        },
+    ),
+    (
         # FOSTER-04 (#46) PR B — catalog CRUD templates. The detail
         # shows the material's natural-key trio + audit fields; the
         # form owns the 4 catalog fields plus a handler-controlled

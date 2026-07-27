@@ -1,0 +1,117 @@
+{% extends base_template %}
+{% block title %}Actuaciones en lote - APAP{% endblock %}
+{% block content %}
+  <div class="mb-6">
+    <h1 class="text-3xl font-bold text-primary-dark tracking-tight">
+      Actuaciones en lote
+    </h1>
+    <p class="text-text-muted text-sm mt-1">
+      Registra hasta 5+ actuaciones sanitarias en una sola operación.
+      La regla <span class="font-mono">D-24</span> se aplica a cada
+      registro, y el commit es atómico: todos los registros se insertan
+      o ninguno (rollback total si uno falla).
+    </p>
+  </div>
+
+  {% if error %}
+  <div class="bg-rose-50 border border-rose-200 text-rose-800 px-4 py-3 rounded-card mb-6">
+    <p class="font-semibold">No se pudo procesar el lote</p>
+    <p class="text-sm mt-1">{{ error }}</p>
+  </div>
+  {% endif %}
+
+  {% if preview %}
+  <div class="bg-surface rounded-card shadow-card p-6 mb-4">
+    <p class="text-sm text-text-muted mb-4">
+      <span class="font-semibold text-emerald-700">{{ preview.ok_count }} válidos</span> ·
+      <span class="font-semibold text-rose-700">{{ preview.error_count }} con error</span>
+      {% if preview.dry_run %}<span class="ml-2 px-2 py-0.5 rounded bg-amber-100 text-amber-800 text-xs">previsualización</span>{% endif %}
+    </p>
+    <table class="min-w-full text-sm">
+      <thead class="text-left text-text-muted border-b border-border">
+        <tr>
+          <th class="py-2 pr-4">#</th>
+          <th class="py-2 pr-4">Animal</th>
+          <th class="py-2 pr-4">Fecha</th>
+          <th class="py-2 pr-4">Tipo</th>
+          <th class="py-2 pr-4">Estado</th>
+          <th class="py-2 pr-4">Detalle</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for item in preview['items'] %}
+        {% set idx_val = item['index']|int %}
+        {% set source = records[idx_val] if records and idx_val < records|length else {} %}
+        <tr class="border-b border-border/40 {% if item['status'] == 'error' %}bg-rose-50/60{% endif %}">
+          <td class="py-2 pr-4 font-mono text-text-muted">{{ loop.index }}</td>
+          <td class="py-2 pr-4 font-mono">{{ source['animal_id'] or '' }}</td>
+          <td class="py-2 pr-4 font-mono">{{ source['fecha'] or '' }}</td>
+          <td class="py-2 pr-4 font-mono">{{ source['tipo_actuacion_id'] or '' }}</td>
+          <td class="py-2 pr-4">
+            {% if item['status'] == 'ok' %}
+              <span class="text-emerald-700 font-semibold">Válido</span>
+            {% else %}
+              <span class="text-rose-700 font-semibold">Inválido</span>
+            {% endif %}
+          </td>
+          <td class="py-2 pr-4 text-text-muted">{{ item['reason'] or '' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  <form method="post" action="/sanidad/actuaciones/batch" class="bg-surface rounded-card shadow-card p-6 space-y-4">
+    {# PR-5B2: CSRF defense-in-depth (REQ-AH-7) #}
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <input type="hidden" name="dry_run" value="{{ 'true' if preview and preview['dry_run'] and preview['error_count'] > 0 else '' }}" />
+
+    <p class="text-sm font-semibold text-text-muted">Datos por registro</p>
+    {% for record in records %}
+      <div class="grid grid-cols-1 md:grid-cols-7 gap-2 border-t border-border/40 pt-3">
+        <div class="md:col-span-2">
+          <label class="block text-xs text-text-muted">ID animal</label>
+          <input type="text" name="animal_id" value="{{ record['animal_id'] or '' }}"
+                 class="block w-full border border-border rounded px-2 py-1 bg-surface text-text font-mono text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                 placeholder="UUID">
+        </div>
+        <div>
+          <label class="block text-xs text-text-muted">Fecha</label>
+          <input type="date" name="fecha" value="{{ record['fecha'] or '' }}"
+                 class="block w-full border border-border rounded px-2 py-1 bg-surface text-text text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+        </div>
+        <div>
+          <label class="block text-xs text-text-muted">Voluntario</label>
+          <input type="text" name="voluntario_id" value="{{ record['voluntario_id'] or '' }}"
+                 class="block w-full border border-border rounded px-2 py-1 bg-surface text-text font-mono text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                 placeholder="(opcional)">
+        </div>
+        <div>
+          <label class="block text-xs text-text-muted">Tipo</label>
+          <input type="text" name="tipo_actuacion_id" value="{{ record['tipo_actuacion_id'] or '' }}"
+                 class="block w-full border border-border rounded px-2 py-1 bg-surface text-text font-mono text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                 placeholder="(opcional)">
+        </div>
+        <div class="md:col-span-2">
+          <label class="block text-xs text-text-muted">Observaciones</label>
+          <input type="text" name="observaciones" value="{{ record['observaciones'] or '' }}"
+                 class="block w-full border border-border rounded px-2 py-1 bg-surface text-text text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+        </div>
+        {# Hidden fields so the form's blank defaults still flow through. #}
+        <input type="hidden" name="veterinario" value="{{ record['veterinario'] or '' }}" />
+        <input type="hidden" name="material_utilizado" value="{{ record['material_utilizado'] or '' }}" />
+      </div>
+    {% endfor %}
+
+    <div class="flex justify-end gap-3 pt-4 border-t border-border">
+      <a href="/sanidad" class="px-4 py-2 text-text-muted hover:text-text">Cancelar</a>
+      <button type="submit" name="dry_run" value="true" class="px-4 py-2 border border-border text-text rounded font-semibold hover:bg-border/30">
+        Previsualizar
+      </button>
+      <button type="submit" class="bg-primary text-white px-6 py-2 rounded font-semibold hover:bg-primary-dark transition-colors shadow-sm">
+        Confirmar commit
+      </button>
+    </div>
+  </form>
+{% endblock %}

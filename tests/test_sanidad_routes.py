@@ -25,6 +25,7 @@ from app.core.config import get_settings
 from app.core.insforge import InsForgeClient, InsForgeError
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
+from app.modules.sanidad import batch_service as sanidad_batch_service
 from app.modules.sanidad import service as sanidad_service
 from tests.conftest import auth_reval_rows, make_csrf_request
 
@@ -129,6 +130,8 @@ def _actuacion() -> sanidad_service.ActuacionSanitaria:
         ("GET", "/sanidad/actu-123/edit"),
         ("POST", "/sanidad/actu-123/update"),
         ("POST", "/sanidad/actu-123/delete"),
+        ("GET", "/sanidad/batch/new"),
+        ("POST", "/sanidad/actuaciones/batch"),
     ],
 )
 async def test_sanidad_routes_require_authorized_user(
@@ -573,3 +576,384 @@ async def test_delete_backend_error_returns_503(
 
     assert response.status_code == 503
     assert "No se pudo contactar con el backend" in response.text
+
+
+# --- 9. HEALTH-02 batch endpoint (#51) -----------------------------------
+#
+# Mirrors ``tests/test_entradas_batch_routes.py`` patterns:
+#   * Auth guard on every batch endpoint.
+#   * Form rendering of /sanidad/batch/new (5 blank rows + csrf token).
+#   * POST happy path with dry_run=false redirects to /sanidad.
+#   * POST with dry_run=true renders preview without INSERT.
+#   * POST with batch-validation error rerenders preview with 422.
+#   * POST with empty / too-small form rerenders with 422.
+#   * InsForgeError rerenders as 503.
+
+
+def _valid_batch_form() -> dict[str, list[str]]:
+    """5 valid records — minimum accepted by the batch route."""
+    return {
+        "animal_id": [
+            "00000000-0000-0000-0000-000000000001",
+            "00000000-0000-0000-0000-000000000002",
+            "00000000-0000-0000-0000-000000000003",
+            "00000000-0000-0000-0000-000000000004",
+            "00000000-0000-0000-0000-000000000005",
+        ],
+        "voluntario_id": ["", "", "", "", ""],
+        "fecha": ["2026-07-04"] * 5,
+        "tipo_actuacion_id": ["", "", "", "", ""],
+        "veterinario": ["Dra. Pérez"] * 5,
+        "observaciones": ["Vacuna"] * 5,
+        "material_utilizado": ["Nobivac"] * 5,
+    }
+
+
+async def test_batch_new_renders_form_with_five_blank_rows_and_csrf(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+) -> None:
+    """GET /sanidad/batch/new renders the empty batch form."""
+    _login_as_key_user(client)
+
+    response = await client.get("/sanidad/batch/new")
+
+    assert response.status_code == 200
+    body = response.text
+    assert 'name="csrf_token"' in body
+    # 5 animal_id inputs
+    assert body.count('name="animal_id"') == 5
+    assert body.count('name="fecha"') == 5
+
+
+async def test_batch_post_happy_path_redirects_to_list(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """dry_run=false + valid records -> 303 redirect to /sanidad."""
+    _login_as_key_user(client)
+
+    def _commit(
+        client_arg: InsForgeClient,
+        records: list[dict[str, Any]],
+        **kwargs: Any,
+    ) -> Any:
+        return sanidad_batch_service.BatchResult(inserted=())
+
+    monkeypatch.setattr(sanidad_batch_service, "commit_batch", _commit)
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/sanidad/actuaciones/batch",
+        form_data=_valid_batch_form(),
+        csrf_token="test-csrf-token-sanidad",
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/sanidad"
+
+
+async def test_batch_post_dry_run_renders_preview_without_inserting(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """dry_run=true renders preview WITHOUT calling commit_batch.
+
+    The CTE ``dry_run=true`` short-circuits the INSERT inside
+    PostgreSQL (``$8::boolean = false`` filter); the service returns
+    a ``BatchPreview`` envelope that the template renders.
+    """
+    _login_as_key_user(client)
+
+    called: dict[str, bool] = {"commit_called": False}
+
+    def _commit(
+        client_arg: InsForgeClient,
+        records: list[dict[str, Any]],
+        **kwargs: Any,
+    ) -> Any:
+        called["commit_called"] = True
+        return sanidad_batch_service.BatchResult(inserted=())
+
+    def _preview(
+        client_arg: InsForgeClient,
+        records: list[dict[str, Any]],
+    ) -> Any:
+        return sanidad_batch_service.BatchPreview(
+            dry_run=True,
+            ok_count=len(records),
+            error_count=0,
+            items=tuple(
+                sanidad_batch_service.BatchItem(
+                    index=i, status="ok", reason=None
+                )
+                for i in range(len(records))
+            ),
+        )
+
+    monkeypatch.setattr(sanidad_batch_service, "commit_batch", _commit)
+    monkeypatch.setattr(sanidad_batch_service, "preview_batch", _preview)
+
+    form = _valid_batch_form()
+    form["dry_run"] = ["true"]
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/sanidad/actuaciones/batch",
+        form_data=form,
+        csrf_token="test-csrf-token-sanidad",
+    )
+
+    assert response.status_code == 200
+    assert called["commit_called"] is False
+    body = response.text
+    assert "5" in body  # preview ok_count
+    assert "previsualizaci" in body.lower()
+
+
+async def test_batch_post_validation_error_rerenders_with_422(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """BatchValidationError -> 422 + preview re-rendered with errors.
+
+    Pin the parity with the single-record ``create_actuacion_view``:
+    the operator sees WHY the batch failed without retyping the form.
+    """
+    _login_as_key_user(client)
+
+    def _commit(
+        client_arg: InsForgeClient,
+        records: list[dict[str, Any]],
+        **kwargs: Any,
+    ) -> Any:
+        raise sanidad_batch_service.BatchValidationError(
+            failed_indices=(2,),
+            reasons={2: "fecha_anterior_alta"},
+        )
+
+    monkeypatch.setattr(sanidad_batch_service, "commit_batch", _commit)
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/sanidad/actuaciones/batch",
+        form_data=_valid_batch_form(),
+        csrf_token="test-csrf-token-sanidad",
+    )
+
+    assert response.status_code == 422
+    body = response.text
+    assert "fecha_anterior_alta" in body or "registro 2" in body
+
+
+async def test_batch_post_too_few_records_rerenders_with_422(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """N=2 < BATCH_MIN_RECORDS=5 -> 422 with Spanish operator copy.
+
+    The 5+ minimum mirrors the legacy ``TbActuacionSanitariaAux``
+    staging flow; a smaller batch is rejected at the route layer.
+    """
+    _login_as_key_user(client)
+
+    called: dict[str, bool] = {}
+
+    def _commit(
+        client_arg: InsForgeClient,
+        records: list[dict[str, Any]],
+        **kwargs: Any,
+    ) -> Any:
+        called["hit"] = True
+        return sanidad_batch_service.BatchResult(inserted=())
+
+    monkeypatch.setattr(sanidad_batch_service, "commit_batch", _commit)
+
+    form = _valid_batch_form()
+    # Drop 3 of the 5 to submit only 2 records.
+    form["animal_id"] = form["animal_id"][:2]
+    form["fecha"] = form["fecha"][:2]
+    form["veterinario"] = form["veterinario"][:2]
+    form["observaciones"] = form["observaciones"][:2]
+    form["material_utilizado"] = form["material_utilizado"][:2]
+    form["voluntario_id"] = form["voluntario_id"][:2]
+    form["tipo_actuacion_id"] = form["tipo_actuacion_id"][:2]
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/sanidad/actuaciones/batch",
+        form_data=form,
+        csrf_token="test-csrf-token-sanidad",
+    )
+
+    assert response.status_code == 422
+    assert called == {}  # service was never reached
+    assert "5 registros" in response.text or "5" in response.text
+
+
+async def test_batch_post_empty_form_rerenders_with_422(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """All-blank form -> 422 (rows dropped by ``_parse_batch_records``)."""
+    _login_as_key_user(client)
+
+    called: dict[str, bool] = {}
+
+    def _commit(
+        client_arg: InsForgeClient,
+        records: list[dict[str, Any]],
+        **kwargs: Any,
+    ) -> Any:
+        called["hit"] = True
+        return sanidad_batch_service.BatchResult(inserted=())
+
+    monkeypatch.setattr(sanidad_batch_service, "commit_batch", _commit)
+
+    form = {key: ["", "", "", "", ""] for key in _valid_batch_form()}
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/sanidad/actuaciones/batch",
+        form_data=form,
+        csrf_token="test-csrf-token-sanidad",
+    )
+
+    assert response.status_code == 422
+    assert called == {}
+
+
+async def test_batch_post_backend_error_returns_503(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """InsForgeError during batch commit -> 503 (matches single-record)."""
+    _login_as_key_user(client)
+
+    def _commit(
+        client_arg: InsForgeClient,
+        records: list[dict[str, Any]],
+        **kwargs: Any,
+    ) -> Any:
+        raise InsForgeError(503, {"error": "backend unavailable"})
+
+    monkeypatch.setattr(sanidad_batch_service, "commit_batch", _commit)
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/sanidad/actuaciones/batch",
+        form_data=_valid_batch_form(),
+        csrf_token="test-csrf-token-sanidad",
+    )
+
+    assert response.status_code == 503
+    assert "No se pudo contactar con el backend" in response.text
+
+
+async def test_batch_write_routes_reject_reader_with_403(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reader rol MUST be 403 on the batch write endpoint (issue #144)."""
+    route_client.auth_reval_rol = "reader"
+    _login_as_reader(client)
+
+    called: dict[str, bool] = {}
+
+    def _never_called(*args: Any, **kwargs: Any) -> Any:
+        called["hit"] = True
+        return sanidad_batch_service.BatchResult(inserted=())
+
+    monkeypatch.setattr(
+        sanidad_batch_service, "commit_batch", _never_called
+    )
+    monkeypatch.setattr(
+        sanidad_batch_service, "preview_batch", _never_called
+    )
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/sanidad/actuaciones/batch",
+        form_data=_valid_batch_form(),
+        csrf_token="test-csrf-token-sanidad",
+    )
+
+    assert response.status_code == 403
+    assert called == {}
+    assert "Permisos insuficientes" in response.text
+
+
+async def test_batch_routes_never_execute_sql_directly(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No direct ``client.execute_sql`` from the batch route layer.
+
+    Same fixture-based assertion as the single-record CRUD: routes
+    own no SQL. The spy raises on any non-revalidation SQL; we hit
+    every batch endpoint to confirm the spy stays quiet.
+    """
+    _login_as_key_user(client)
+
+    def _preview(
+        client_arg: InsForgeClient,
+        records: list[dict[str, Any]],
+    ) -> Any:
+        return sanidad_batch_service.BatchPreview(
+            dry_run=True,
+            ok_count=len(records),
+            error_count=0,
+            items=tuple(),
+        )
+
+    def _commit(
+        client_arg: InsForgeClient,
+        records: list[dict[str, Any]],
+        **kwargs: Any,
+    ) -> Any:
+        return sanidad_batch_service.BatchResult(inserted=())
+
+    monkeypatch.setattr(sanidad_batch_service, "preview_batch", _preview)
+    monkeypatch.setattr(sanidad_batch_service, "commit_batch", _commit)
+
+    # GET /sanidad/batch/new
+    response = await client.get("/sanidad/batch/new")
+    assert response.status_code == 200
+
+    # POST dry_run=true
+    form = _valid_batch_form()
+    form["dry_run"] = ["true"]
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/sanidad/actuaciones/batch",
+        form_data=form,
+        csrf_token="test-csrf-token-sanidad",
+    )
+    assert response.status_code == 200
+
+    # POST dry_run=false (happy path -> redirect)
+    form = _valid_batch_form()
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/sanidad/actuaciones/batch",
+        form_data=form,
+        csrf_token="test-csrf-token-sanidad",
+    )
+    assert response.status_code == 303
