@@ -16,6 +16,7 @@ from scripts.pytest_plugin import coverage_gate
 from scripts.pytest_plugin.coverage_gate import (
     CRITICAL_HELPERS,
     evaluate_coverage,
+    evaluate_route_coverage,
     gather_helpers,
 )
 
@@ -142,6 +143,51 @@ def test_evaluate_coverage_handles_missing_function() -> None:
     )
     assert passed is False
     assert {n for n, _ in failed} == {"_redirect", "_render_form"}
+
+
+def test_route_coverage_uses_line_percentage_not_branch_percentage() -> None:
+    """A route passes when covered lines reach 85%, regardless of branches."""
+    data = {
+        "files": {
+            "app/modules/demo/routes.py": {
+                "summary": {
+                    "num_statements": 100,
+                    "covered_lines": 85,
+                    "percent_covered": 60.0,
+                }
+            }
+        }
+    }
+
+    passed, failed = evaluate_route_coverage(data, minimum=85.0)
+
+    assert passed is True
+    assert failed == []
+
+
+def test_route_coverage_reports_every_route_file_below_floor() -> None:
+    """The per-layer ratchet prevents weak routes hiding in the global mean."""
+    data = {
+        "files": {
+            "app\\modules\\animals\\routes.py": {
+                "summary": {"num_statements": 100, "covered_lines": 84}
+            },
+            "app/modules/entradas/batch_routes.py": {
+                "summary": {"num_statements": 10, "covered_lines": 8}
+            },
+            "app/modules/animals/service.py": {
+                "summary": {"num_statements": 10, "covered_lines": 0}
+            },
+        }
+    }
+
+    passed, failed = evaluate_route_coverage(data, minimum=85.0)
+
+    assert passed is False
+    assert failed == [
+        ("app/modules/animals/routes.py", 84.0),
+        ("app/modules/entradas/batch_routes.py", 80.0),
+    ]
 
 
 # --- CLI contract --------------------------------------------------------
