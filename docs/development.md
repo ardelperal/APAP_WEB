@@ -135,14 +135,14 @@ esquemas. Cada prueba crea su propio esquema efímero y lo borra al terminar.
 POSIX:
 
 ```bash
-export APAP_TEST_POSTGRES_DSN='postgresql://postgres:postgres@127.0.0.1:5432/apap_test'
+export APAP_TEST_POSTGRES_DSN='postgresql://postgres@127.0.0.1:5432/apap_test'
 python -m pytest tests/test_voluntarios_concurrent.py -v
 ```
 
 PowerShell:
 
 ```powershell
-$env:APAP_TEST_POSTGRES_DSN = 'postgresql://postgres:postgres@127.0.0.1:5432/apap_test'
+$env:APAP_TEST_POSTGRES_DSN = 'postgresql://postgres@127.0.0.1:5432/apap_test'
 python -m pytest tests/test_voluntarios_concurrent.py -v
 ```
 
