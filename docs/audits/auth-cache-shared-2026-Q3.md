@@ -141,3 +141,25 @@ Verdict del review-lens: **APPROVED**.
 ### Coordinated with chained PR #261
 
 Per user instruction, el bloque AGENTS.md nuevo (§29 "Auth cache: per-worker scope") está claramente marcado bajo heading nuevo para evitar edit conflicts con #261 (que añade una docstring policy encima). El audit doc referencia explícitamente el runbook (no duplica el contenido).
+
+---
+
+## Issue #280 close (2026-07-27)
+
+| Item | Value |
+|---|---|
+| Fix | #280 — `invalidate_all` ya no limpia `_generation` (bug: `self._generation.clear()` reabría la race write-after-invalidate que #145 cerró) |
+| Root cause | `invalidate_all` hacía `_generation.clear()` → reset a 0 → una lectora que capturó verdict antes de `invalidate_all` podía re-escribir bajo la misma key `(email, 0)` y el entry volvía a ser reachable |
+| Ficheros de producción | `app/core/auth_cache.py` (3 cambios: `set` ahora inicializa `_generation[email]`, `invalidate_all` itera sobre `_cache` keys, docstrings sync) |
+| Tests | `tests/test_auth_cache.py` (2 assertions flip + 1 new race regression test `test_invalidate_all_write_after_invalidate_is_unreachable`) |
+| Docstrings sync | Module header, `InProcessAuthCache.invalidate_all` method, module-level `invalidate_all` facade (§30) |
+| Audit row | Este entry (issue #280 close) |
+| Verdict | **PASS** |
+
+### Root cause per issue #280 body
+
+El bug #280: `invalidate_all` contenía `self._generation.clear()` que resetaba todos los contadores a 0. Después del reset, si una lectora R1 había capturado un verdict antes del `invalidate_all`, y R1 escribía su verdict bajo `(email, 0)` después, esa entry collideaba con la generation real (0 después del clear, o 1 después del primer bump) y volvía a ser reachable — la race volvía a estar abierta.
+
+La fix (issue #280): drop `self._generation.clear()`. Los contadores de generation persisten (carry forward) después del bump. La lectora R1 que escribió bajo la generation vieja (pre-invalidate) ya no collide con la current generation (post-invalidate). La race está cerrada de nuevo.
+
+Per §30 (docstrings as contracts): las docstrings fueron sync para reflejar el comportamiento corregido.
