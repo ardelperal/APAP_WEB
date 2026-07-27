@@ -52,6 +52,22 @@ La línea `-e ".[dev]"` instala:
 
 Si no tienes `make`, `python -m pip install -e ".[dev]"` es el único paso de instalación necesario.
 
+### Reinstalar después de mover un worktree
+
+La instalación editable guarda la ruta absoluta del checkout en un archivo
+`.pth` del entorno virtual. Si mueves o vuelves a crear un worktree —incluido
+el esquema de este repositorio, con `00_main` y worktrees hermanos— esa ruta
+puede quedar obsoleta y provocar errores de importación engañosos.
+
+Activa el entorno virtual y reinstala desde la raíz del worktree actual:
+
+```bash
+python -m pip install -e ".[dev]"
+```
+
+El comando es el mismo en Windows y Linux. Comprueba siempre que el directorio
+actual sea el worktree que vas a usar antes de ejecutarlo.
+
 ## Paso 3 — Instalar las dependencias de Tailwind v4
 
 ```bash
