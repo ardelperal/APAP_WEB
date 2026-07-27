@@ -74,6 +74,7 @@ from app.core.config import _validate_secrets
 from app.core.csrf import csrf_token_context_processor, issue_csrf_to_session
 from app.core.domain import ensure_domain_schema
 from app.core.insforge import InsForgeClient, InsForgeError
+from app.core.insforge_error_handler import register_insforge_error_handler
 from app.core.logging import configure_logging, log_safe
 from app.core.middleware import (
     DISABLED_DOC_PATHS as _DISABLED_DOC_PATHS,  # noqa: F401  - re-export for parity with PUBLIC_PATHS
@@ -670,3 +671,9 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
+
+
+# §32.P4 (issues #277, #278): register a global handler that converts
+# any unhandled InsForgeError into a non-leaking 502. Lives in its own
+# module so the §21 700-line budget on ``app/main.py`` stays intact.
+register_insforge_error_handler(app)
