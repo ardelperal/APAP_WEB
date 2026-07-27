@@ -1,6 +1,20 @@
-"""Domain: lifecycle — SQL schema and Pydantic models for animal lifecycle events.
+"""Domain: lifecycle — SQL schema, Pydantic models, indices and the
+append-only trigger for the lifecycle-event log.
 
-Bounded context: lifecycle (LIFECYCLE-SCHEMA-02, web-only-feature-preservation PR 1).
+Bounded context: lifecycle (LIFECYCLE-02, issue #32; PR 1 of
+web-only-feature-preservation).
+
+Append-only contract (issue #32 acceptance: "Event log es append-only
+(sin UPDATE/DELETE en BD; tests verifican esto)"):
+
+- ``animal_lifecycle_events_append_only`` is a ``BEFORE UPDATE OR
+  DELETE`` trigger that raises an exception, so a buggy retry /
+  migration tool cannot silently mutate or delete events. The
+  enforcement is structural: a future ALTER that drops the trigger
+  has to come with the same justification it took to add it.
+- The trigger installation is idempotent (``DROP TRIGGER IF EXISTS``
+  + ``CREATE TRIGGER``) so the bootstrap stays replay-safe across
+  cold starts (lifespan runs every process boot).
 """
 
 from __future__ import annotations
@@ -73,6 +87,60 @@ CREATE TABLE IF NOT EXISTS animal_lifecycle_events (
 )
 """
 
+# Index 1/2 of the 4 indices on animal_lifecycle_events (issue #32
+# acceptance: "14 columnas, 4 indices"). The PK on ``id`` and the
+# UNIQUE constraint on ``(animal_id, event_type, event_timestamp)``
+# auto-create 2 indices; we add 2 more for the read patterns the
+# timeline page + the audit graph rely on.
+#
+# - ``idx_animal_lifecycle_events_animal_timestamp`` accelerates the
+#   canonical timeline read: ``SELECT … WHERE animal_id = $1 ORDER BY
+#   event_timestamp DESC``.
+# - ``idx_animal_lifecycle_events_caused_by`` accelerates the
+#   causal-chain walk: ``SELECT … WHERE caused_by_event_id = $1``.
+ANIMAL_LIFECYCLE_EVENTS_ANIMAL_TIMESTAMP_INDEX_SQL = """
+CREATE INDEX IF NOT EXISTS idx_animal_lifecycle_events_animal_timestamp
+ON animal_lifecycle_events (animal_id, event_timestamp DESC)
+"""
+
+ANIMAL_LIFECYCLE_EVENTS_CAUSED_BY_INDEX_SQL = """
+CREATE INDEX IF NOT EXISTS idx_animal_lifecycle_events_caused_by
+ON animal_lifecycle_events (caused_by_event_id)
+"""
+
+# Append-only trigger: ``BEFORE UPDATE OR DELETE`` on the event log
+# raises an exception so a buggy retry / migration tool cannot mutate
+# or delete events. Idempotent installation via ``DROP TRIGGER IF
+# EXISTS`` so the bootstrap is replay-safe across cold starts.
+ANIMAL_LIFECYCLE_EVENTS_DROP_APPEND_ONLY_TRIGGER_SQL = """
+DROP TRIGGER IF EXISTS animal_lifecycle_events_append_only ON animal_lifecycle_events
+"""
+
+ANIMAL_LIFECYCLE_EVENTS_APPEND_ONLY_TRIGGER_SQL = """
+CREATE TRIGGER animal_lifecycle_events_append_only
+BEFORE UPDATE OR DELETE ON animal_lifecycle_events
+FOR EACH ROW EXECUTE FUNCTION raise_append_only_violation()
+"""
+
+# The trigger function is created once and shared by the trigger. It
+# raises an exception so the UPDATE/DELETE aborts before touching any
+# row. The function name is hardcoded in the trigger SQL above, so any
+# change here must be mirrored in the trigger.
+ANIMAL_LIFECYCLE_EVENTS_APPEND_ONLY_FUNCTION_SQL = """
+CREATE OR REPLACE FUNCTION raise_append_only_violation()
+RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION
+        'animal_lifecycle_events is append-only (issue #32 D-23 / LIFECYCLE-02): '
+        'UPDATE and DELETE are rejected at the SQL level. '
+        'Use a follow-up event with caused_by_event_id pointing at the prior '
+        'event to record a correction, or open a maintenance ticket to amend '
+        'historical events through the dedicated admin path.';
+END;
+$$ LANGUAGE plpgsql
+"""
+
+
 ANIMAL_CURRENT_STATE_CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS animal_current_state (
     animal_id UUID PRIMARY KEY REFERENCES animales(id),
@@ -99,4 +167,26 @@ CREATE TABLE IF NOT EXISTS animal_current_state (
 )
 """
 
-__all__ = ["ANIMAL_LIFECYCLE_EVENTS_CREATE_TABLE_SQL", "ANIMAL_CURRENT_STATE_CREATE_TABLE_SQL"]
+# Index 2/2 of the 2 indices on animal_current_state (issue #32
+# acceptance: "cache materializado animal_current_state (11 columnas,
+# 2 indices)"). The PK on ``animal_id`` is auto-index #1; the second
+# index accelerates "all animals currently in state X" dashboard
+# reads.
+ANIMAL_CURRENT_STATE_STATE_INDEX_SQL = """
+CREATE INDEX IF NOT EXISTS idx_animal_current_state_state
+ON animal_current_state (current_state)
+"""
+
+
+__all__ = [
+    "AnimalLifecycleEvent",
+    "AnimalCurrentState",
+    "ANIMAL_LIFECYCLE_EVENTS_CREATE_TABLE_SQL",
+    "ANIMAL_LIFECYCLE_EVENTS_ANIMAL_TIMESTAMP_INDEX_SQL",
+    "ANIMAL_LIFECYCLE_EVENTS_CAUSED_BY_INDEX_SQL",
+    "ANIMAL_LIFECYCLE_EVENTS_DROP_APPEND_ONLY_TRIGGER_SQL",
+    "ANIMAL_LIFECYCLE_EVENTS_APPEND_ONLY_TRIGGER_SQL",
+    "ANIMAL_LIFECYCLE_EVENTS_APPEND_ONLY_FUNCTION_SQL",
+    "ANIMAL_CURRENT_STATE_CREATE_TABLE_SQL",
+    "ANIMAL_CURRENT_STATE_STATE_INDEX_SQL",
+]
