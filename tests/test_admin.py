@@ -158,9 +158,10 @@ async def test_admin_renders_user_table_for_developer(
 # --- POST /admin/users ------------------------------------------------------
 
 
-async def test_admin_add_user_inserts_and_redirects(
+async def test_admin_add_user_inserts_and_renders_admin_page(
     client: httpx.AsyncClient, fake_insforge: _FakeInsForge
 ) -> None:
+    """On success the admin page re-renders with no error message."""
     from app.core.config import get_settings
 
     _login_as(
@@ -175,11 +176,54 @@ async def test_admin_add_user_inserts_and_redirects(
         client,
         "POST",
         "/admin/users",
-        form_data={"email": "new@example.com", "role": "key_user"},
+        form_data={"email": "new@example.com", "rol": "key_user"},
     )
 
-    assert response.status_code == 302
-    assert response.headers["location"] == "/admin"
+    assert response.status_code == 200
+    # No error message in the page
+    assert "email already authorized" not in response.text
+
+
+async def test_admin_add_user_with_duplicate_email_shows_error(
+    client: httpx.AsyncClient, fake_insforge: _FakeInsForge
+) -> None:
+    """When the email is already authorized the admin page re-renders with error context."""
+    from app.core.config import get_settings
+
+    _login_as(
+        client,
+        get_settings().session_secret,
+        rol="developer",
+        email="root@example.com",
+        user_id="u-root",
+    )
+    # Simulate the pre-check returning an existing user
+    fake_insforge.add_user_response = None  # not used for pre-check
+
+    def execute_sql(query, params=None):
+        from tests.conftest import auth_reval_rows
+        _reval = auth_reval_rows(query, params, rol="developer")
+        if _reval is not None:
+            return _reval
+        if "ORDER BY fecha_alta DESC" in query:
+            return []
+        if "SELECT" in query and "usuarios_autorizados" in query:
+            # Pre-check finds existing user
+            return [{"id": "u-1", "email": "existing@example.com", "rol": "key_user", "activo": True}]
+        return []
+
+    # Override the fake to return duplicate on pre-check
+    fake_insforge.execute_sql = execute_sql
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/admin/users",
+        form_data={"email": "new@example.com", "rol": "key_user"},
+    )
+
+    assert response.status_code == 200
+    assert "email already authorized" in response.text
 
 
 async def test_admin_add_user_with_invalid_role_redirects_without_calling_sql(
@@ -226,7 +270,7 @@ async def test_admin_add_user_rejects_non_developer(
         client,
         "POST",
         "/admin/users",
-        form_data={"email": "new@example.com", "role": "key_user"},
+        form_data={"email": "new@example.com", "rol": "key_user"},
     )
 
     assert response.status_code == 302
