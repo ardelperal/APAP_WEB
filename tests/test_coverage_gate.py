@@ -7,6 +7,7 @@ Spec: ``openspec/changes/hardening-2026-q2/specs/01-dev-tooling-gate/spec.md``
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -279,8 +280,19 @@ def test_cli_exits_1_when_helper_below_100(tmp_path: Path) -> None:
 # assert on its real ``result.ret`` — not just banner text in stdout.
 
 
-def _make_synthetic_project(pytester: pytest.Pytester) -> None:
-    """A trivial one-test project that registers the coverage-gate plugin."""
+def _make_synthetic_project(
+    pytester: pytest.Pytester,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A trivial project that imports the real coverage-gate plugin.
+
+    ``runpytest_subprocess`` starts in ``pytester.path``, outside this checkout.
+    Put the current checkout first on the child process's import path explicitly
+    so the test does not depend on an editable-install ``.pth`` file.  ``os.pathsep``
+    keeps the inherited path portable between Windows and POSIX.
+    """
+    project_root = Path(coverage_gate.__file__).resolve().parents[2]
+    monkeypatch.setenv("PYTHONPATH", str(project_root), prepend=os.pathsep)
     pytester.makepyfile(
         test_dummy="""
         def test_ok():
@@ -297,6 +309,7 @@ def _make_synthetic_project(pytester: pytest.Pytester) -> None:
 
 def test_pytest_plugin_hook_fails_process_exit_code_on_gate_failure(
     pytester: pytest.Pytester,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Issue #257: a gate failure must make the nested pytest PROCESS exit
     non-zero, not just print a red banner.
@@ -306,7 +319,7 @@ def test_pytest_plugin_hook_fails_process_exit_code_on_gate_failure(
     exercises the exact same helper set the real CI gate tracks — no
     override mechanism needed.
     """
-    _make_synthetic_project(pytester)
+    _make_synthetic_project(pytester, monkeypatch)
     (pytester.path / "coverage.json").write_text(
         json.dumps(_coverage_data({"_redirect": 50.0})), encoding="utf-8"
     )
@@ -323,13 +336,14 @@ def test_pytest_plugin_hook_fails_process_exit_code_on_gate_failure(
 
 def test_pytest_plugin_hook_exits_zero_when_gate_passes(
     pytester: pytest.Pytester,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Companion test: a genuinely passing gate must NOT fail the process.
 
     Guards against a naive fix that always sets ``session.exitstatus = 1``
     regardless of ``evaluate_coverage``'s verdict.
     """
-    _make_synthetic_project(pytester)
+    _make_synthetic_project(pytester, monkeypatch)
     all_at_100 = {name: 100.0 for name in CRITICAL_HELPERS}
     (pytester.path / "coverage.json").write_text(
         json.dumps(_coverage_data(all_at_100)), encoding="utf-8"
