@@ -121,6 +121,35 @@ PowerShell:
 .venv\Scripts\python.exe -m pytest
 ```
 
+### Regresión concurrente TOCTOU con PostgreSQL
+
+`tests/test_voluntarios_concurrent.py` comprueba el `UPDATE` atómico con dos
+conexiones reales y, por tanto, necesita PostgreSQL. La variable canónica es
+`APAP_TEST_POSTGRES_DSN`: contiene un **DSN de PostgreSQL de pruebas**.
+`APAP_E2E_BASE_URL` no se reutiliza porque identifica una URL HTTP del servidor
+web, no una conexión a la base de datos.
+
+Usa una base desechable o una cuenta con permisos para crear y eliminar
+esquemas. Cada prueba crea su propio esquema efímero y lo borra al terminar.
+
+POSIX:
+
+```bash
+export APAP_TEST_POSTGRES_DSN='postgresql://postgres@127.0.0.1:5432/apap_test'
+python -m pytest tests/test_voluntarios_concurrent.py -v
+```
+
+PowerShell:
+
+```powershell
+$env:APAP_TEST_POSTGRES_DSN = 'postgresql://postgres@127.0.0.1:5432/apap_test'
+python -m pytest tests/test_voluntarios_concurrent.py -v
+```
+
+Si la variable falta, la prueba falla de forma explícita: no hace `skip` ni
+simula el bloqueo con SQLite. En CI, el job `test` aprovisiona PostgreSQL como
+servicio y define el DSN automáticamente.
+
 ### Salida esperada en verde
 
 ```text
