@@ -58,7 +58,7 @@ SEED_ADMIN_SQL = """
 INSERT INTO usuarios_autorizados (email, rol, activo)
 SELECT $1, 'developer', true
 WHERE NOT EXISTS (
-    SELECT 1 FROM usuarios_autorizados WHERE rol = 'developer'
+    SELECT 1 FROM usuarios_autorizados WHERE rol = 'developer' AND activo = true
 )
 RETURNING id, email, rol
 """
@@ -94,7 +94,29 @@ DEACTIVATE_USER_SQL = """
 UPDATE usuarios_autorizados
 SET activo = false
 WHERE id = $1
+  AND (
+      rol <> 'developer'
+      OR (
+          SELECT count(*) FROM (
+              SELECT 1 FROM usuarios_autorizados
+               WHERE rol = 'developer' AND activo = true AND id <> $1
+          ) sub
+      ) >= 1
+  )
 RETURNING id, email, rol, activo
+"""
+
+_CHECK_OTHER_DEVELOPERS_SQL = """
+SELECT EXISTS(
+    SELECT 1 FROM usuarios_autorizados
+     WHERE rol = 'developer' AND activo = true AND id <> $1
+)
+"""
+
+GET_USER_BY_ID_SQL = """
+SELECT id, email, rol, activo
+FROM usuarios_autorizados
+WHERE id = $1
 """
 
 
@@ -180,11 +202,35 @@ def add_authorized_user(
     return rows[0]
 
 
+def _has_other_active_developers(
+    client: InsForgeClient,
+    exclude_user_id: str,
+) -> bool:
+    """Return True if at least one other active developer exists (excluding exclude_user_id).
+
+    Used to guard against deactivating the last active developer.
+    """
+    rows = client.execute_sql(_CHECK_OTHER_DEVELOPERS_SQL, [exclude_user_id])
+    return bool(rows and rows[0].get("exists"))
+
+
+def get_user_by_id(
+    client: InsForgeClient,
+    user_id: str,
+) -> dict[str, Any] | None:
+    """Return the user with this id, or None if not found."""
+    rows = client.execute_sql(GET_USER_BY_ID_SQL, [user_id])
+    return rows[0] if rows else None
+
+
 def deactivate_authorized_user(
     client: InsForgeClient,
     user_id: str,
 ) -> dict[str, Any] | None:
     """Mark the user as inactive. Returns the row, or None if not found.
+
+    Raises ValueError when deactivating the last active developer
+    (would leave no active developer to access /admin).
 
     Issue #143: the per-request authorization cache is invalidated for the
     deactivated email (taken from the ``RETURNING`` row) so the revocation
@@ -192,9 +238,22 @@ def deactivate_authorized_user(
     TTL. Deactivation is keyed by ``id``, but the cache is keyed by
     ``email``; the ``RETURNING email`` bridges the two without a second
     query.
+
+    Issue #279: the atomic conditional UPDATE prevents deactivating the
+    last active developer. On zero rows we disambiguate via get_user_by_id.
     """
     rows = client.execute_sql(DEACTIVATE_USER_SQL, [user_id])
     if not rows:
-        return None
+        # Zero rows: either user not found, OR last-developer guard fired.
+        # Disambiguate with a targeted SELECT.
+        user = get_user_by_id(client, user_id)
+        if user is None:
+            raise ValueError(f"user not found: {user_id!r}")
+        if user.get("rol") == "developer" and not _has_other_active_developers(
+            client, exclude_user_id=user_id
+        ):
+            raise ValueError("cannot deactivate the last active developer")
+        # Edge: row updated but RETURNING didn't yield (shouldn't happen)
+        raise ValueError(f"deactivate failed unexpectedly for user {user_id!r}")
     invalidate_auth(rows[0]["email"])
     return rows[0]

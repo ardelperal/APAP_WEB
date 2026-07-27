@@ -626,6 +626,7 @@ def create_app() -> FastAPI:
 
     @application.post("/admin/users/{user_id}/deactivate")
     def admin_deactivate_user(
+        request: Request,
         user_id: str,
         current_user: Response | dict = Depends(require_developer_user_redirect),
         client: InsForgeClient = Depends(get_insforge_client),
@@ -634,10 +635,29 @@ def create_app() -> FastAPI:
 
         Issue #146 — la dep inyectada aplica el check de developer (rol
         insuficiente → redirect ``/unauthorized`` + ``log_safe``).
+        Issue #279 — ValueError from the last-developer guard is caught
+        and rendered as a flash error in admin.html.
         """
         if (early := return_early_if_response(current_user)) is not None:
             return early
-        deactivate_authorized_user(client, user_id)
+        try:
+            deactivate_authorized_user(client, user_id)
+        except ValueError as exc:
+            # Issue #279: render admin.html with flash error instead of
+            # silently redirecting, mirroring the admin_add_user pattern.
+            users = list_authorized_users(client)
+            return templates.TemplateResponse(
+                request,
+                "admin.html",
+                {
+                    "app_name": settings.app_name,
+                    "current_user": current_user,
+                    "users": users,
+                    "roles": sorted(VALID_ROLES),
+                    "error_message": str(exc),
+                    "error_type": "danger",
+                },
+            )
         return _redirect("/admin")
 
     def _add_user_or_error(
