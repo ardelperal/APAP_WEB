@@ -47,6 +47,7 @@ dev = [
     "pytest-asyncio>=0.24",
     "pytest-cov>=5.0",
     "ruff>=0.6",
+    "psycopg[binary]>=3.3",
     # E2E: UI verification via real Chromium browser. CI installs the
     # chromium binary separately with `playwright install chromium`.
     "playwright>=1.45",

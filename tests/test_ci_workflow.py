@@ -152,6 +152,35 @@ def test_ci_workflow_test_job_enforces_global_coverage_floor() -> None:
     assert f"--cov-fail-under={fail_under}" in executable
 
 
+def test_ci_workflow_runs_postgres_toctou_regression_in_test_job() -> None:
+    """Issue #282: CI provisions PostgreSQL and executes the TOCTOU regression."""
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    test_job_start = workflow.index("\n  test:")
+    test_job = workflow[test_job_start : workflow.index("\n  build:", test_job_start)]
+    executable = "\n".join(
+        line for line in test_job.splitlines() if not line.lstrip().startswith("#")
+    )
+
+    assert "services:" in test_job
+    assert "postgres:" in test_job
+    assert "POSTGRES_DB: apap_test" in test_job
+    assert "APAP_TEST_POSTGRES_DSN:" in test_job
+    assert "--deselect tests/test_voluntarios_concurrent.py" not in executable
+
+
+def test_postgres_toctou_contract_uses_test_dsn_not_http_base_url() -> None:
+    """The PostgreSQL integration test must not overload the HTTP E2E contract."""
+    concurrency_test = (
+        REPO_ROOT / "tests" / "test_voluntarios_concurrent.py"
+    ).read_text(encoding="utf-8")
+    guide = DEVELOPMENT_GUIDE_PATH.read_text(encoding="utf-8")
+
+    assert "APAP_TEST_POSTGRES_DSN" in concurrency_test
+    assert 'os.environ.get("APAP_E2E_BASE_URL")' not in concurrency_test
+    assert "APAP_TEST_POSTGRES_DSN" in guide
+    assert "tests/test_voluntarios_concurrent.py" in guide
+
+
 def test_ci_workflow_lint_job_runs_check_rules_gate(tmp_path: Path) -> None:
     """Issue #200: the CI ``lint`` job must gate on ``scripts/check_rules.py``.
 
