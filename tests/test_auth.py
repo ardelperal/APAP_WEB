@@ -258,11 +258,24 @@ def test_deactivate_authorized_user_returns_updated_row() -> None:
     assert row["activo"] is False
 
 
-def test_deactivate_authorized_user_returns_none_when_id_unknown() -> None:
-    """``deactivate_authorized_user`` returns None when the id does not exist."""
-    client = _client(lambda request: _json_response(200, []))
+def test_deactivate_authorized_user_raises_when_user_not_found() -> None:
+    """``deactivate_authorized_user`` raises ValueError when the id does not exist.
 
-    assert deactivate_authorized_user(client, "u-unknown") is None
+    Issue #279: the function disambiguates 'not found' from 'last developer'
+    via get_user_by_id. When the user does not exist, ValueError is raised
+    so the route can display a meaningful flash rather than silently redirect.
+    """
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        if "SET activo = false" in body["query"]:
+            return _json_response(200, [])
+        if "SELECT id, email, rol, activo FROM usuarios_autorizados WHERE id =" in body["query"]:
+            return _json_response(200, [])  # user not found
+        return _json_response(200, [])
+
+    client = _client(handler)
+    with pytest.raises(ValueError, match="user not found"):
+        deactivate_authorized_user(client, "u-unknown")
 
 
 @pytest.mark.parametrize("role", [r.value for r in Rol])
@@ -372,11 +385,28 @@ def test_deactivate_authorized_user_invalidates_cache() -> None:
 
 
 def test_deactivate_authorized_user_unknown_id_does_not_touch_cache() -> None:
-    """A no-op deactivate (unknown id) must not raise trying to read a row."""
-    auth_cache.invalidate_all()
-    client = _client(lambda request: _json_response(200, []))
+    """Deactivating an unknown user raises ValueError and does not touch the cache.
 
-    assert deactivate_authorized_user(client, "u-unknown") is None
+    The disambiguation SELECT finds no user, so ValueError is raised before
+    any cache invalidation occurs.
+    """
+    auth_cache.invalidate_all()
+    auth_cache.set_cached_auth("any@example.com", is_authorized=True, rol="developer")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        if "SET activo = false" in body["query"]:
+            return _json_response(200, [])
+        if "SELECT id, email, rol, activo FROM usuarios_autorizados WHERE id =" in body["query"]:
+            return _json_response(200, [])  # user not found
+        return _json_response(200, [])
+
+    client = _client(handler)
+    with pytest.raises(ValueError, match="user not found"):
+        deactivate_authorized_user(client, "u-unknown")
+
+    # Cache was NOT invalidated because the error raised before that step
+    assert auth_cache.get_cached_auth("any@example.com", ttl_seconds=300) is not None
 
 
 # --- Issue #277 / #278: canonical email identity -------------------------------
@@ -460,3 +490,190 @@ def test_get_user_by_email_normalizes_case_before_sql() -> None:
 
     assert captured["body"]["params"] == ["maria@lopez.com"]
     assert user is not None
+
+
+# --- Issue #279: last-active-developer guard -------------------------------
+
+
+def test_deactivate_authorized_user_raises_when_last_developer() -> None:
+    """Deactivating the only active developer raises ValueError.
+
+    REQ-1 scenario: Last developer deactivation raises.
+    The conditional UPDATE returns zero rows; _has_other_active_developers
+    confirms no other active developer exists → ValueError.
+    """
+    call_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        body = json.loads(request.content)
+        query = body["query"]
+        if "SET activo = false" in query:
+            # Conditional UPDATE: zero rows because this IS the last developer
+            return _json_response(200, [])
+        if "SELECT EXISTS" in query:
+            # _has_other_active_developers: confirms no other developer
+            return _json_response(200, [{"exists": False}])
+        if "SELECT id, email, rol, activo" in query and "WHERE id =" in query:
+            # get_user_by_id disambiguation
+            return _json_response(200, [
+                {"id": "dev-only", "email": "dev@example.com", "rol": "developer", "activo": True}
+            ])
+        return _json_response(200, [])
+
+    client = _client(handler)
+    with pytest.raises(ValueError, match="cannot deactivate the last active developer"):
+        deactivate_authorized_user(client, "dev-only")
+
+
+def test_deactivate_authorized_user_succeeds_when_other_developer_exists() -> None:
+    """Deactivating one of two developers succeeds without ValueError.
+
+    REQ-1 scenario: Non-last developer deactivation succeeds.
+    REQ-3: Self-deactivation permitted when others exist.
+    """
+    call_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        body = json.loads(request.content)
+        if "SET activo = false" in body["query"]:
+            # Conditional UPDATE: succeeds, returns the deactivated row
+            return _json_response(200, [
+                {"id": "dev1", "email": "dev1@example.com", "rol": "developer", "activo": False}
+            ])
+        return _json_response(200, [])
+
+    client = _client(handler)
+    row = deactivate_authorized_user(client, "dev1")
+    assert row is not None
+    assert row["activo"] is False
+    assert row["id"] == "dev1"
+
+
+def test_deactivate_reader_does_not_fire_developer_guard() -> None:
+    """Deactivating a reader bypasses the last-developer guard.
+
+    REQ-2: Guard fires only for developer role.
+    The conditional UPDATE succeeds because rol <> 'developer' condition is met.
+    """
+    call_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        body = json.loads(request.content)
+        if "SET activo = false" in body["query"]:
+            # Reader deactivation: the guard condition rol <> 'developer' OR ...
+            # is satisfied, so the UPDATE succeeds
+            return _json_response(200, [
+                {"id": "reader1", "email": "reader@example.com", "rol": "reader", "activo": False}
+            ])
+        return _json_response(200, [])
+
+    client = _client(handler)
+    row = deactivate_authorized_user(client, "reader1")
+    assert row is not None
+    assert row["rol"] == "reader"
+    assert row["activo"] is False
+
+
+def test_deactivate_admin_does_not_fire_developer_guard() -> None:
+    """Deactivating an admin (non-developer) bypasses the last-developer guard.
+
+    REQ-2: Guard fires only for developer role.
+    """
+    call_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        body = json.loads(request.content)
+        if "SET activo = false" in body["query"]:
+            return _json_response(200, [
+                {"id": "admin1", "email": "admin@example.com", "rol": "admin", "activo": False}
+            ])
+        return _json_response(200, [])
+
+    client = _client(handler)
+    row = deactivate_authorized_user(client, "admin1")
+    assert row is not None
+    assert row["rol"] == "admin"
+    assert row["activo"] is False
+
+
+def test_deactivate_key_user_does_not_fire_developer_guard() -> None:
+    """Deactivating a key_user (non-developer) bypasses the last-developer guard.
+
+    REQ-2: Guard fires only for developer role.
+    """
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        if "SET activo = false" in body["query"]:
+            return _json_response(200, [
+                {"id": "key1", "email": "key@example.com", "rol": "key_user", "activo": False}
+            ])
+        return _json_response(200, [])
+
+    client = _client(handler)
+    row = deactivate_authorized_user(client, "key1")
+    assert row is not None
+    assert row["rol"] == "key_user"
+    assert row["activo"] is False
+
+
+def test_deactivate_unknown_user_raises_value_error() -> None:
+    """Deactivating a non-existent user raises ValueError.
+
+    The conditional UPDATE affects zero rows; get_user_by_id confirms the user
+    does not exist, so ValueError is raised. The route renders a flash error.
+    """
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        if "SET activo = false" in body["query"]:
+            return _json_response(200, [])
+        if "SELECT id, email, rol, activo FROM usuarios_autorizados WHERE id =" in body["query"]:
+            return _json_response(200, [])  # user not found
+        return _json_response(200, [])
+
+    client = _client(handler)
+    with pytest.raises(ValueError, match="user not found"):
+        deactivate_authorized_user(client, "ghost-id")
+
+
+# --- Issue #279: SEED filter on activo = true ------------------------------
+
+
+def test_ensure_schema_seeds_when_no_active_developer_exists() -> None:
+    """Seed INSERT fires when only inactive developer rows exist.
+
+    REQ-5 scenario: Seed inserts when no active developer exists.
+    The WHERE NOT EXISTS subquery now checks rol='developer' AND activo=true,
+    so an inactive developer row does NOT suppress the seed.
+    """
+    call_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        captured.append(json.loads(request.content))
+        call_count += 1
+        # CREATE TABLE
+        if call_count == 1:
+            return _json_response(200, [])
+        # INSERT: fires because no ACTIVE developer exists
+        if "INSERT INTO usuarios_autorizados" in captured[-1]["query"]:
+            return _json_response(200, [
+                {"id": "seed-1", "email": "owner@example.com", "rol": "developer"}
+            ])
+        return _json_response(200, [])
+
+    captured: list = []
+    client = _client(handler)
+    settings = _settings(initial_admin_email="owner@example.com")
+
+    ensure_schema_and_seed(client, settings)
+
+    assert len(captured) == 2
+    insert = captured[1]
+    assert "INSERT INTO usuarios_autorizados" in insert["query"]
+    assert "SELECT $1, 'developer', true" in insert["query"]
+    # The key assertion: activo = true filter in the subquery
+    assert "activo = true" in insert["query"]
