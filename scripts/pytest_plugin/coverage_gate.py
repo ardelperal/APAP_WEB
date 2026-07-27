@@ -1,4 +1,4 @@
-"""Critical-helpers pytest coverage gate (PR-1B of hardening-2026-q2).
+"""Critical-helper and route-layer pytest coverage gates.
 
 Enforces 100% line coverage on a named set of helpers plus every
 ``_row_to_*`` discovered in ``app/`` at runtime. Fails the pytest
@@ -54,6 +54,7 @@ CRITICAL_HELPERS: frozenset[str] = frozenset(
 # bigger decision (changes what the 80% floor measures).
 
 _ROW_TO_PATTERN = re.compile(r"^_row_to_")
+ROUTE_LAYER_MINIMUM = 85.0
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -104,6 +105,33 @@ def evaluate_coverage(
     return (not failures), failures
 
 
+def evaluate_route_coverage(
+    coverage_data: dict[str, Any],
+    minimum: float,
+    expected_paths: frozenset[str] | None = None,
+) -> tuple[bool, list[tuple[str, float]]]:
+    """Enforce a line-coverage floor for every application route module."""
+    route_files: dict[str, dict[str, Any]] = {}
+    for raw_path, file_data in coverage_data.get("files", {}).items():
+        path = str(raw_path).replace("\\", "/")
+        filename = path.rsplit("/", 1)[-1]
+        if path.startswith("app/modules/") and (
+            filename == "routes.py" or filename.endswith("_routes.py")
+        ):
+            route_files[path] = file_data
+
+    failures: list[tuple[str, float]] = []
+    for path in sorted(expected_paths or frozenset(route_files)):
+        file_data = route_files.get(path, {})
+        summary = file_data.get("summary", {})
+        statements = int(summary.get("num_statements", 0))
+        covered = int(summary.get("covered_lines", 0))
+        percentage = 0.0 if statements == 0 else covered * 100.0 / statements
+        if percentage < minimum:
+            failures.append((path, percentage))
+    return (not failures), failures
+
+
 # --- Helpers discovery ---------------------------------------------------
 
 
@@ -133,6 +161,18 @@ def gather_helpers(
     return CRITICAL_HELPERS | discover_row_to_helpers(app_root) | extra
 
 
+def discover_route_files(app_root: Path) -> frozenset[str]:
+    """Return normalized coverage.py paths for every route module."""
+    modules_root = app_root / "modules"
+    if not modules_root.exists():
+        return frozenset()
+    return frozenset(
+        path.relative_to(app_root.parent).as_posix()
+        for path in modules_root.rglob("*routes.py")
+        if "__pycache__" not in path.parts
+    )
+
+
 def _load_config(config_path: Path | None) -> dict[str, Any]:
     """Load [tool.apap.coverage_gate] from a TOML file."""
     if config_path is None:
@@ -151,6 +191,8 @@ def _print_summary(
     passed: bool,
     failures: list[tuple[str, float]],
     helpers: frozenset[str],
+    route_failures: list[tuple[str, float]],
+    route_minimum: float,
     terminalreporter: Any,
 ) -> None:
     if not helpers:
@@ -164,25 +206,48 @@ def _print_summary(
     if passed:
         terminalreporter.write_sep(
             "=",
-            f"coverage-gate PASS: all {len(helpers)} helpers at 100%.",
+            (
+                f"coverage-gate PASS: all {len(helpers)} helpers at 100% "
+                f"and all route modules at least {route_minimum:.0f}%."
+            ),
             green=True,
         )
         return
-    lines = [f"coverage-gate FAIL: {len(failures)} helper(s) below 100%:"]
-    for name, pct in failures:
-        lines.append(f"  - {name}: {pct:.1f}%")
+    lines = ["coverage-gate FAIL:"]
+    if failures:
+        lines.append(f"{len(failures)} helper(s) below 100%:")
+        for name, pct in failures:
+            lines.append(f"  - {name}: {pct:.1f}%")
+    if route_failures:
+        lines.append(
+            f"{len(route_failures)} route module(s) below {route_minimum:.0f}%:"
+        )
+        for path, pct in route_failures:
+            lines.append(f"  - {path}: {pct:.1f}%")
     terminalreporter.write_sep("=", "\n".join(lines), red=True)
 
 
 def _evaluate_gate(
     config: pytest.Config,
-) -> tuple[bool, list[tuple[str, float]], frozenset[str]] | None:
+) -> tuple[
+    bool,
+    list[tuple[str, float]],
+    frozenset[str],
+    list[tuple[str, float]],
+    float,
+] | None:
     """Load coverage.json + config and run ``evaluate_coverage``.
 
     Returns ``None`` when there is no ``coverage.json`` to evaluate (no
     ``--cov`` run; gate is a no-op), otherwise ``(passed, failures, helpers)``.
     """
-    coverage_path = Path(config.getoption("--coverage-file") or "coverage.json")
+    explicit_coverage_file = config.getoption("--coverage-file")
+    coverage_requested = bool(
+        config.getoption("cov_source", default=None)
+    )
+    if not coverage_requested and explicit_coverage_file is None:
+        return None
+    coverage_path = Path(explicit_coverage_file or "coverage.json")
     if not coverage_path.exists():
         return None
     cfg_opt = config.getoption("--coverage-gate-config")
@@ -193,8 +258,22 @@ def _evaluate_gate(
     )
     with coverage_path.open(encoding="utf-8") as fh:
         coverage_data = json.load(fh)
-    passed, failures = evaluate_coverage(coverage_data, helpers)
-    return passed, failures, helpers
+    helper_passed, failures = evaluate_coverage(coverage_data, helpers)
+    route_minimum = float(
+        gate_cfg.get("route_layer_minimum", ROUTE_LAYER_MINIMUM)
+    )
+    route_passed, route_failures = evaluate_route_coverage(
+        coverage_data,
+        route_minimum,
+        expected_paths=discover_route_files(Path.cwd() / "app"),
+    )
+    return (
+        helper_passed and route_passed,
+        failures,
+        helpers,
+        route_failures,
+        route_minimum,
+    )
 
 
 @pytest.hookimpl(tryfirst=True)
@@ -213,8 +292,15 @@ def pytest_terminal_summary(
     result = _evaluate_gate(config)
     if result is None:
         return
-    passed, failures, helpers = result
-    _print_summary(passed, failures, helpers, terminalreporter)
+    passed, failures, helpers, route_failures, route_minimum = result
+    _print_summary(
+        passed,
+        failures,
+        helpers,
+        route_failures,
+        route_minimum,
+        terminalreporter,
+    )
 
 
 @pytest.hookimpl(trylast=True)
@@ -231,7 +317,7 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     result = _evaluate_gate(session.config)
     if result is None:
         return
-    passed, _failures, _helpers = result
+    passed, _failures, _helpers, _route_failures, _route_minimum = result
     if not passed:
         session.exitstatus = 1
 
@@ -243,8 +329,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="python -m scripts.pytest_plugin.coverage_gate",
         description=(
-            "Parse coverage.json and verify CRITICAL_HELPERS are at 100% "
-            "line coverage. Exit 0 on pass, 1 on fail."
+            "Parse coverage.json, verify CRITICAL_HELPERS at 100%, and "
+            "enforce the configured route-layer line floor."
         ),
     )
     p.add_argument("--coverage-file", default="coverage.json")
@@ -280,7 +366,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     with coverage_path.open(encoding="utf-8") as fh:
         coverage_data = json.load(fh)
-    passed, failures = evaluate_coverage(coverage_data, helpers)
+    helper_passed, failures = evaluate_coverage(coverage_data, helpers)
+    route_minimum = float(
+        gate_cfg.get("route_layer_minimum", ROUTE_LAYER_MINIMUM)
+    )
+    route_passed, route_failures = evaluate_route_coverage(
+        coverage_data,
+        route_minimum,
+        expected_paths=discover_route_files(Path(args.app_root)),
+    )
+    passed = helper_passed and route_passed
     if not helpers:
         print(
             "coverage-gate WARNING: no helpers tracked "
@@ -297,9 +392,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     for name, pct in failures:
         print(f"  - {name}: {pct:.1f}%", file=sys.stderr)
+    for path, pct in route_failures:
+        print(
+            f"  - {path}: {pct:.1f}% (route floor {route_minimum:.1f}%)",
+            file=sys.stderr,
+        )
     raise SystemExit(1)
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

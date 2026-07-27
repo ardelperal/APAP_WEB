@@ -133,7 +133,7 @@ def create_voluntario_view(
             request=request,
             name="voluntarios/form.html",
             context={"user": user, "form_data": form_data, "error": str(exc)},
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
     except InsForgeError as exc:
         if exc.status_code == 409:

@@ -18,8 +18,12 @@ ROUTE_MODULES = (
     "app.modules.acogidas.routes",
     "app.modules.adopciones.routes",
     "app.modules.animals.routes",
+    "app.modules.cesiones.routes",
     "app.modules.entradas.batch_routes",
     "app.modules.entradas.routes",
+    "app.modules.foster.assignment_routes",
+    "app.modules.foster.routes",
+    "app.modules.materiales.acogida_routes",
     "app.modules.materiales.routes",
     "app.modules.sanidad.routes",
     "app.modules.voluntarios.routes",
@@ -27,7 +31,7 @@ ROUTE_MODULES = (
 
 
 @pytest.mark.parametrize("module_name", ROUTE_MODULES)
-def test_every_route_returns_dependency_response_without_domain_work(
+async def test_every_route_returns_dependency_response_without_domain_work(
     module_name: str,
 ) -> None:
     """Every handler honors the auth dependency's redirect/403 response."""
@@ -44,7 +48,10 @@ def test_every_route_returns_dependency_response_without_domain_work(
             elif parameter.name.endswith("_id"):
                 kwargs[parameter.name] = "irrelevant-id"
 
-        assert route.endpoint(**kwargs) is early, route.endpoint.__name__
+        result = route.endpoint(**kwargs)
+        if inspect.isawaitable(result):
+            result = await result
+        assert result is early, route.endpoint.__name__
 
 
 def test_voluntario_form_normalizes_optional_values() -> None:
