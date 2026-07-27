@@ -60,6 +60,19 @@ dev = [
     # even on machines that never install the etl extra.
     "types-psutil>=7.0",
     "types-PyYAML>=6.0",
+    # rapidfuzz is the fuzzy string matcher behind the VOL-03 dedup
+    # pipeline (issue #36). Imported at module-load time by
+    # ``migration.volunteer_dedup`` and consumed by the dedup CLI plus
+    # its 19 atoms in tests/. Without it, the dedup tests can't
+    # import the module and the typecheck gate fails with
+    # ``import-not-found``. We pin the current major's floor
+    # (thefuzz was considered but is EOL since 2024-01 — last release
+    # 0.22.1; rapidfuzz is its maintained successor and ships prebuilt
+    # C++ wheels for Python 3.10+). Migrated here from [etl] on
+    # 2026-07-27 because CI's ``pip install -e ".[dev]"`` doesn't pick
+    # up [etl]; the dedup is now a runtime dep of the migration CLI,
+    # not an opt-in operator extra.
+    "rapidfuzz>=3.0",
 ]
 # ETL one-time: only operator machines that run ``python -m migration``
 # need these. Installed with ``pip install '.[etl]'`` on demand.

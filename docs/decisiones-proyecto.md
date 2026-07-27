@@ -2,7 +2,7 @@
 
 > Registro canónico de decisiones de producto, UX, arquitectura y proceso. Cualquier "esto es así porque X" tiene que estar aquí. Si una decisión contradice el código o la doc, gana el código y este doc se actualiza en la misma sesión (ver `docs/proceso.md` P3 y `docs/roadmap.md` §9).
 
-**Última actualización:** 2026-07-03 (creación; consolida D-01 a D-07 heredadas de #130 + operativas 2026-06 a 2026-07-03)
+**Última actualización:** 2026-07-27 (añadida D-25 sobre librería de fuzzy match para VOL-03 issue #36: `rapidfuzz` en lugar de `thefuzz`)
 **Mantenedor único:** aroman (ver D-36)
 
 ---
@@ -104,7 +104,21 @@ Si el animal tiene `fecha_alta IS NULL` (animales legacy importados sin metadato
 
 **Origen:** issue #50 (HEALTH-01, Fase 6a). Regla referenciada en `docs/roadmap.md` §3 desde la planificación inicial pero sin definición operativa hasta este slice. Implementación verificada por 5 átomos TDD específicos en `tests/test_sanidad.py` (reglas 1+2 puras + regla 3 atómica + exención NULL).
 
----
+### D-25. Librería de fuzzy match para VOL-03: `rapidfuzz` (no `thefuzz`)
+
+El pipeline de deduplicación fuzzy de voluntarios legacy (issue #36 / VOL-03) usa `rapidfuzz` (`>=3.0`, current stable 3.14.x) en vez de `thefuzz` (formerly `fuzzywuzzy`).
+
+**Por qué `rapidfuzz` y no `thefuzz`:**
+
+- `thefuzz` está efectivamente abandonado: último release `0.22.1` del 2024-01-19, sin commits en los últimos 90 días (repositorio `seatgeek/thefuzz` 2026-07-25).
+- `rapidfuzz` es su sucesor mantenido por el mismo autor (`maxbachmann`): release `3.14.5` del 2026-04-07, wheels precompilados para Python 3.10+, implementación C++ que evita la capa Python de `thefuzz` (10–50× más rápido en benchmarks).
+- AGENTS.md §8 prohíbe pinear librerías deprecadas; `thefuzz` entraría en esa categoría.
+
+**Contrato de la API usado**: `rapidfuzz.fuzz.WRatio` (weighted ratio, accent- y case-insensitive) combinado con pre-normalización de diacríticos vía `unicodedata.normalize("NFKD", ...)` + filtrado de `unicodedata.combining(ch)`. La pre-normalización es necesaria porque `WRatio` por sí solo puntúa "María García" / "Maria Garcia" en 83 (por debajo del threshold 85); con la normalización previa la puntuación sube a 100.
+
+**Threshold por defecto**: 85 (sobre la escala 0..100 de `rapidfuzz`). Configurable por el caller (`dedup_volunteers(refs, fuzzy_threshold=N)`); el default es lo bastante alto para evitar colisiones accidentales con nombres no relacionados y lo bastante bajo para absorber typos y variantes de diacríticos comunes en el legacy.
+
+**Origen:** issue #36 (VOL-03, `legacy-discovery-interregatorio` task 3.2), issue spec nota "Considerar thefuzz (formerly fuzzywuzzy) — validar via Context7" — validado en sesión 2026-07-27 vía context7 MCP `resolve-library-id` + `query-docs` + `websearch` (estado de mantenimiento de `seatgeek/thefuzz`).
 
 ---
 
