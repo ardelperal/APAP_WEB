@@ -105,7 +105,7 @@ async def test_nosniff_on_public_path(
 ) -> None:
     """REQ-1: nosniff is present on public paths (no session required)."""
     r = await client.get(path)
-    assert r.headers.get("X-Content-Type-Options") == "nosniff"
+    assert r.headers.get("x-content-type-options") == "nosniff"
 
 
 @pytest.mark.parametrize("path", ["/", "/healthz"])
@@ -115,7 +115,7 @@ async def test_nosniff_on_authenticated_path(
     """REQ-1: nosniff is present on authenticated paths too."""
     _login(client)
     r = await client.get(path)
-    assert r.headers.get("X-Content-Type-Options") == "nosniff"
+    assert r.headers.get("x-content-type-options") == "nosniff"
 
 
 # =============================================================================
@@ -129,7 +129,7 @@ async def test_x_frame_options_deny_on_public_path(
 ) -> None:
     """REQ-2: X-Frame-Options: DENY on public paths."""
     r = await client.get(path)
-    assert r.headers.get("X-Frame-Options") == "DENY"
+    assert r.headers.get("x-frame-options") == "DENY"
 
 
 @pytest.mark.parametrize("path", ["/", "/healthz"])
@@ -139,7 +139,7 @@ async def test_x_frame_options_deny_on_authenticated_path(
     """REQ-2: X-Frame-Options: DENY on authenticated paths."""
     _login(client)
     r = await client.get(path)
-    assert r.headers.get("X-Frame-Options") == "DENY"
+    assert r.headers.get("x-frame-options") == "DENY"
 
 
 # =============================================================================
@@ -153,7 +153,7 @@ async def test_referrer_policy_present(
 ) -> None:
     """REQ-3: Referrer-Policy is present on all responses."""
     r = await client.get(path)
-    assert r.headers.get("Referrer-Policy") == "strict-origin-when-cross-origin"
+    assert r.headers.get("referrer-policy") == "strict-origin-when-cross-origin"
 
 
 @pytest.mark.parametrize("path", ["/", "/healthz", "/login"])
@@ -162,7 +162,7 @@ async def test_csp_baseline_present(
 ) -> None:
     """REQ-4: Content-Security-Policy baseline is present on all responses."""
     r = await client.get(path)
-    assert r.headers.get("Content-Security-Policy") == BASELINE_CSP
+    assert r.headers.get("content-security-policy") == BASELINE_CSP
 
 
 # =============================================================================
@@ -175,7 +175,7 @@ async def test_hsts_emitted_in_production(
 ) -> None:
     """REQ-5: Strict-Transport-Security is present when debug=False."""
     r = await client.get("/healthz")
-    hsts = r.headers.get("Strict-Transport-Security") or ""
+    hsts = r.headers.get("strict-transport-security") or ""
     assert "max-age=15552000" in hsts
     assert "includeSubDomains" in hsts
 
@@ -212,7 +212,7 @@ async def test_hsts_omitted_in_dev(
     # The implementation stores settings.debug directly, so we accept
     # both outcomes for now and rely on manual verification for the
     # dev-mode path.
-    hsts = r.headers.get("Strict-Transport-Security") or ""
+    hsts = r.headers.get("strict-transport-security") or ""
     # Primary assertion: if debug=True were in effect, no HSTS would be present.
     # We assert the current (production) expectation as a baseline.
     assert "max-age=15552000" in hsts, (
@@ -253,12 +253,12 @@ async def test_csrf_403_carries_security_headers(
     assert response.status_code == 403, (
         f"Expected 403 CSRF rejection, got {response.status_code}"
     )
-    assert response.headers.get("X-Content-Type-Options") == "nosniff"
-    assert response.headers.get("X-Frame-Options") == "DENY"
+    assert response.headers.get("x-content-type-options") == "nosniff"
+    assert response.headers.get("x-frame-options") == "DENY"
     assert (
-        response.headers.get("Referrer-Policy") == "strict-origin-when-cross-origin"
+        response.headers.get("referrer-policy") == "strict-origin-when-cross-origin"
     )
-    assert response.headers.get("Content-Security-Policy") == BASELINE_CSP
-    hsts = response.headers.get("Strict-Transport-Security") or ""
+    assert response.headers.get("content-security-policy") == BASELINE_CSP
+    hsts = response.headers.get("strict-transport-security") or ""
     assert "max-age=15552000" in hsts
     assert "includeSubDomains" in hsts

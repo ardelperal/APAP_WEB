@@ -46,7 +46,7 @@ def _assert_no_csp_violations(page: Page) -> None:
     # Re-navigate to trigger console capture (messages are collected from
     # the point the listener is registered).
     page.reload()
-    page.off("console", on_console)
+    page.remove_listener("console", on_console)
 
     assert not csp_violations, (
         f"CSP violation(s) detected: {csp_violations}"
@@ -55,7 +55,7 @@ def _assert_no_csp_violations(page: Page) -> None:
 
 def _assert_csp_header(response, expected_csp: str) -> None:
     """Assert the CSP header is present and matches the expected baseline."""
-    csp = response.headers.get("Content-Security-Policy") or ""
+    csp = response.headers.get("content-security-policy") or ""
     assert csp == expected_csp, f"Expected CSP header {expected_csp!r}, got {csp!r}"
 
 
@@ -117,6 +117,6 @@ def test_static_css_has_csp_header(page: Page, base_url: str) -> None:
     assert response is not None
     # Static files return a response; verify CSP is present.
     # The response for CSS might have Content-Type: text/css; the header should still be there.
-    assert "Content-Security-Policy" in response.headers, (
+    assert "content-security-policy" in response.headers, (
         f"Expected CSP header on /static/css/output.css, got headers: {dict(response.headers)}"
     )
