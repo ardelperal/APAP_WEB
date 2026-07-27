@@ -42,7 +42,13 @@ from app.core.domain_foster import (
 )
 from app.core.domain_lifecycle import (
     ANIMAL_CURRENT_STATE_CREATE_TABLE_SQL,
+    ANIMAL_CURRENT_STATE_STATE_INDEX_SQL,
+    ANIMAL_LIFECYCLE_EVENTS_ANIMAL_TIMESTAMP_INDEX_SQL,
+    ANIMAL_LIFECYCLE_EVENTS_APPEND_ONLY_FUNCTION_SQL,
+    ANIMAL_LIFECYCLE_EVENTS_APPEND_ONLY_TRIGGER_SQL,
+    ANIMAL_LIFECYCLE_EVENTS_CAUSED_BY_INDEX_SQL,
     ANIMAL_LIFECYCLE_EVENTS_CREATE_TABLE_SQL,
+    ANIMAL_LIFECYCLE_EVENTS_DROP_APPEND_ONLY_TRIGGER_SQL,
 )
 from app.core.domain_materiales import (
     ESTANCIA_MATERIALES_ACTIVE_UNIQUE_INDEX_SQL,
@@ -90,12 +96,24 @@ def ensure_domain_schema(client: InsForgeClient) -> None:
         SqlStatement(FOSTER_CAPACITY_OVERRIDES_ADD_ESTANCIA_FK_SQL),
         SqlStatement(ADOPCIONES_CREATE_TABLE_SQL),
         SqlStatement(ANIMAL_LIFECYCLE_EVENTS_CREATE_TABLE_SQL),
+        SqlStatement(ANIMAL_LIFECYCLE_EVENTS_ANIMAL_TIMESTAMP_INDEX_SQL),
+        SqlStatement(ANIMAL_LIFECYCLE_EVENTS_CAUSED_BY_INDEX_SQL),
         SqlStatement(ANIMAL_CURRENT_STATE_CREATE_TABLE_SQL),
+        SqlStatement(ANIMAL_CURRENT_STATE_STATE_INDEX_SQL),
         SqlStatement(CESIONES_PROPIETARIO_CREATE_TABLE_SQL),
         SqlStatement(CONTRATOS_CREATE_TABLE_SQL),
         SqlStatement(ACTUACION_SANITARIA_CREATE_TABLE_SQL),
         SqlStatement(MATERIALES_CREATE_TABLE_SQL),
         SqlStatement(ESTANCIA_MATERIALES_CREATE_TABLE_SQL),
         SqlStatement(ESTANCIA_MATERIALES_ACTIVE_UNIQUE_INDEX_SQL),
+        # Append-only enforcement on the lifecycle-event log (issue
+        # #32, LIFECYCLE-02). The trigger function is created first so
+        # the ``CREATE TRIGGER`` that references it does not race with
+        # the function existence; ``DROP TRIGGER IF EXISTS`` then
+        # ``CREATE TRIGGER`` makes the installation replay-safe
+        # (lifespan runs every cold start).
+        SqlStatement(ANIMAL_LIFECYCLE_EVENTS_APPEND_ONLY_FUNCTION_SQL),
+        SqlStatement(ANIMAL_LIFECYCLE_EVENTS_DROP_APPEND_ONLY_TRIGGER_SQL),
+        SqlStatement(ANIMAL_LIFECYCLE_EVENTS_APPEND_ONLY_TRIGGER_SQL),
     )
     run_idempotent_sql(client, statements, step_name="domain")

@@ -123,6 +123,22 @@ def _fk_targets(sql: str) -> list[tuple[str, str]]:
     return pairs
 
 
+def _select_returns(rows: list[dict[str, Any]]):
+    """Return a handler that serves a SELECT with ``rows`` and OK for everything else.
+
+    Mirrors the helper in ``tests/test_lifecycle_events.py`` so the
+    schema-bootstrap tests can introspect ``information_schema`` and
+    ``pg_indexes`` shapes if needed without standing up Postgres.
+    """
+    def handler(req: httpx.Request, body: dict[str, Any]) -> httpx.Response:
+        query = body.get("query", "") if isinstance(body, dict) else ""
+        if query.lstrip().upper().startswith("SELECT"):
+            return _json_response(200, rows)
+        return _json_response(200, [])
+
+    return handler
+
+
 # --- animales -------------------------------------------------------------
 
 
@@ -880,6 +896,162 @@ def test_animal_lifecycle_events_natural_key_unique_constraint() -> None:
     )
 
 
+# --- animal_lifecycle_events indices + append-only trigger (LIFECYCLE-02)
+#
+# Issue #32 acceptance: the event log carries 4 indices (PK + UNIQUE
+# natural key + 2 query-shape indices) and is append-only at the SQL
+# level (UPDATE/DELETE rejected via BEFORE-trigger). Both are emitted
+# AFTER the CREATE TABLE so a fresh backend that runs the bootstrap
+# from an empty InsForge database reaches a fully-armed event log.
+
+
+def test_animal_lifecycle_events_has_animal_timestamp_index() -> None:
+    """Index on ``(animal_id, event_timestamp DESC)`` accelerates the
+    timeline view: ``SELECT … WHERE animal_id = $1 ORDER BY
+    event_timestamp DESC`` is the canonical read path for the timeline
+    page (E2E-03 in issue #32 acceptance)."""
+    client, captured = _client_recording(_select_returns([]))
+
+    ensure_domain_schema(client)
+    client.close()
+
+    queries = [c["query"].strip() for c in captured]
+    matches = [
+        q for q in queries
+        if "CREATE INDEX IF NOT EXISTS idx_animal_lifecycle_events_animal_timestamp"
+        in q
+    ]
+    assert len(matches) == 1, (
+        f"ensure_domain_schema MUST emit one CREATE INDEX for "
+        f"idx_animal_lifecycle_events_animal_timestamp; got {matches!r}"
+    )
+    sql = matches[0]
+    assert "ON animal_lifecycle_events" in sql
+    assert "(animal_id, event_timestamp DESC)" in sql
+
+
+def test_animal_lifecycle_events_has_caused_by_index() -> None:
+    """Index on ``caused_by_event_id`` accelerates causal-chain lookup:
+    ``SELECT … WHERE caused_by_event_id = $1`` is the query that walks
+    the audit graph for a single event."""
+    client, captured = _client_recording(_select_returns([]))
+
+    ensure_domain_schema(client)
+    client.close()
+
+    queries = [c["query"].strip() for c in captured]
+    matches = [
+        q for q in queries
+        if "CREATE INDEX IF NOT EXISTS idx_animal_lifecycle_events_caused_by" in q
+    ]
+    assert len(matches) == 1, (
+        f"ensure_domain_schema MUST emit one CREATE INDEX for "
+        f"idx_animal_lifecycle_events_caused_by; got {matches!r}"
+    )
+    assert "ON animal_lifecycle_events" in matches[0]
+    assert "(caused_by_event_id)" in matches[0]
+
+
+def test_animal_lifecycle_events_total_indices_count_is_four() -> None:
+    """The event log must have **exactly** 4 indices after the
+    bootstrap: PK (id) + UNIQUE natural key + the 2 query-shape
+    indices. This pins issue #32 acceptance criterion
+    ("14 columnas, 4 indices") — no fewer, no more.
+    """
+    client, captured = _client_recording(_select_returns([]))
+
+    ensure_domain_schema(client)
+    client.close()
+
+    queries = [c["query"].strip() for c in captured]
+    index_statements = [
+        q for q in queries
+        if "CREATE INDEX IF NOT EXISTS" in q and "animal_lifecycle_events" in q
+    ]
+    # 2 explicit indices + the CREATE TABLE carries 1 UNIQUE constraint
+    # that auto-creates a backing index = 3 indices on the table itself.
+    # The 4th index is the PK (id) which PostgreSQL auto-creates.
+    assert len(index_statements) == 2, (
+        f"animal_lifecycle_events must have exactly 2 explicit CREATE "
+        f"INDEX statements (PK + UNIQUE constraint are auto-indices); "
+        f"got: {index_statements!r}"
+    )
+
+
+def test_animal_lifecycle_events_has_append_only_trigger() -> None:
+    """The event log MUST reject UPDATE/DELETE at the SQL level.
+
+    The trigger is a ``BEFORE UPDATE OR DELETE`` that raises an
+    exception so a buggy retry / migration tool cannot silently mutate
+    or delete events. Issue #32 acceptance criterion
+    ("Event log es append-only (sin UPDATE/DELETE en BD; tests
+    verifican esto)").
+    """
+    client, captured = _client_recording(_select_returns([]))
+
+    ensure_domain_schema(client)
+    client.close()
+
+    queries = [c["query"].strip() for c in captured]
+    trigger_statements = [
+        q for q in queries
+        if "CREATE TRIGGER" in q and "animal_lifecycle_events_append_only" in q
+    ]
+    assert len(trigger_statements) == 1, (
+        f"ensure_domain_schema MUST emit exactly one CREATE TRIGGER for "
+        f"the append-only guard; got: {trigger_statements!r}"
+    )
+    sql = trigger_statements[0]
+    assert "BEFORE UPDATE OR DELETE" in sql, (
+        f"append-only trigger must fire BEFORE UPDATE OR DELETE; got: {sql!r}"
+    )
+    assert "ON animal_lifecycle_events" in sql, (
+        f"append-only trigger must target animal_lifecycle_events; got: {sql!r}"
+    )
+    # The trigger delegates the raise to a plpgsql function
+    # (``raise_append_only_violation``); confirm the function is the one
+    # bound here, and that the function itself raises an exception.
+    assert "EXECUTE FUNCTION raise_append_only_violation" in sql, (
+        f"append-only trigger must bind to the raise_append_only_violation "
+        f"function; got: {sql!r}"
+    )
+    function_statements = [
+        q for q in queries
+        if "CREATE OR REPLACE FUNCTION raise_append_only_violation" in q
+    ]
+    assert len(function_statements) == 1, (
+        f"ensure_domain_schema MUST emit exactly one CREATE OR REPLACE "
+        f"FUNCTION for raise_append_only_violation; got: {function_statements!r}"
+    )
+    function_sql = function_statements[0]
+    assert "RAISE EXCEPTION" in function_sql, (
+        f"raise_append_only_violation must RAISE EXCEPTION to abort the "
+        f"UPDATE/DELETE; got: {function_sql!r}"
+    )
+
+
+def test_animal_lifecycle_events_append_only_trigger_is_idempotent() -> None:
+    """The trigger installation is replay-safe: a second ``ensure_domain_schema``
+    call must not crash because the trigger already exists. The bootstrap
+    uses ``DROP TRIGGER IF EXISTS`` + ``CREATE TRIGGER`` so re-runs are
+    no-ops on a live backend."""
+    client, captured = _client_recording(_select_returns([]))
+
+    ensure_domain_schema(client)
+    ensure_domain_schema(client)
+    client.close()
+
+    queries = [c["query"].strip() for c in captured]
+    drop_triggers = [q for q in queries if "DROP TRIGGER IF EXISTS" in q]
+    assert any(
+        "animal_lifecycle_events_append_only" in q for q in drop_triggers
+    ), (
+        f"ensure_domain_schema MUST emit DROP TRIGGER IF EXISTS for "
+        f"animal_lifecycle_events_append_only to make the trigger "
+        f"installation idempotent; got: {drop_triggers!r}"
+    )
+
+
 # --- animal_current_state (LIFECYCLE-SCHEMA-02) ---------------------------
 
 
@@ -927,6 +1099,51 @@ def test_animal_current_state_reconciliation_status_defaults_to_pending() -> Non
     assert "DEFAULT 'pending'" in ANIMAL_CURRENT_STATE_CREATE_TABLE_SQL
 
 
+def test_animal_current_state_has_state_index() -> None:
+    """Index on ``current_state`` accelerates the dashboard query
+    "all animals currently in state X" (``SELECT … WHERE current_state
+    = $1``). Issue #32 acceptance criterion: cache carries 2 indices
+    (PK on ``animal_id`` + state index)."""
+    client, captured = _client_recording(_select_returns([]))
+
+    ensure_domain_schema(client)
+    client.close()
+
+    queries = [c["query"].strip() for c in captured]
+    matches = [
+        q for q in queries
+        if "CREATE INDEX IF NOT EXISTS idx_animal_current_state_state" in q
+    ]
+    assert len(matches) == 1, (
+        f"ensure_domain_schema MUST emit one CREATE INDEX for "
+        f"idx_animal_current_state_state; got {matches!r}"
+    )
+    sql = matches[0]
+    assert "ON animal_current_state" in sql
+    assert "(current_state)" in sql
+
+
+def test_animal_current_state_total_indices_count_is_two() -> None:
+    """The cache table must have **exactly** 2 indices after the
+    bootstrap: PK on ``animal_id`` + state index. Issue #32
+    acceptance criterion pins 2 indices on ``animal_current_state``.
+    """
+    client, captured = _client_recording(_select_returns([]))
+
+    ensure_domain_schema(client)
+    client.close()
+
+    queries = [c["query"].strip() for c in captured]
+    index_statements = [
+        q for q in queries
+        if "CREATE INDEX IF NOT EXISTS" in q and "animal_current_state" in q
+    ]
+    assert len(index_statements) == 1, (
+        f"animal_current_state must have exactly 1 explicit CREATE INDEX "
+        f"statement (the PK is an auto-index); got: {index_statements!r}"
+    )
+
+
 # --- ensure_domain_schema now creates 8 tables (the 2 new ones at the end) -
 
 
@@ -961,12 +1178,17 @@ def test_ensure_domain_schema_creates_twelve_tables_plus_one_alter() -> None:
     client.close()
 
     queries = [c["query"].strip() for c in captured]
-    # FOSTER-04 (#46): 19 statements total (16 CREATE TABLE + 2 ALTER TABLE
-    # + 1 CREATE UNIQUE INDEX) after materiales + estancia_materiales +
-    # their partial unique index were appended at the end.
-    assert len(queries) == 19, (
-        f"expected 19 statements (16 CREATE TABLE + 2 ALTER TABLE + "
-        f"1 CREATE INDEX), got {len(queries)}: {queries}"
+    # LIFECYCLE-02 (#32): 25 statements total (16 CREATE TABLE + 2 ALTER
+    # TABLE + 1 CREATE INDEX estancia_materiales_active_unique +
+    # 2 CREATE INDEX on animal_lifecycle_events +
+    # 1 CREATE INDEX on animal_current_state +
+    # 1 CREATE OR REPLACE FUNCTION for the append-only trigger +
+    # 1 DROP TRIGGER IF EXISTS + 1 CREATE TRIGGER on animal_lifecycle_events
+    # for the append-only guard).
+    assert len(queries) == 25, (
+        f"expected 25 statements (16 CREATE TABLE + 2 ALTER TABLE + "
+        f"4 CREATE INDEX + 1 CREATE FUNCTION + 1 DROP TRIGGER + "
+        f"1 CREATE TRIGGER), got {len(queries)}: {queries}"
     )
     create_queries = [q for q in queries if q.startswith("CREATE TABLE")]
     assert len(create_queries) == 16
@@ -984,17 +1206,40 @@ def test_ensure_domain_schema_creates_twelve_tables_plus_one_alter() -> None:
     assert queries[9].startswith("ALTER TABLE foster_capacity_overrides")
     assert queries[10].startswith("CREATE TABLE IF NOT EXISTS adopciones")
     assert queries[11].startswith("CREATE TABLE IF NOT EXISTS animal_lifecycle_events")
-    assert queries[12].startswith("CREATE TABLE IF NOT EXISTS animal_current_state")
-    assert queries[13].startswith("CREATE TABLE IF NOT EXISTS cesiones_propietario")
-    assert queries[14].startswith("CREATE TABLE IF NOT EXISTS contratos")
-    assert queries[15].startswith("CREATE TABLE IF NOT EXISTS actuacion_sanitaria")
+    # LIFECYCLE-02 (#32): indices on animal_lifecycle_events land RIGHT
+    # AFTER the CREATE TABLE so the table exists when the index is built.
+    assert queries[12].startswith(
+        "CREATE INDEX IF NOT EXISTS idx_animal_lifecycle_events_animal_timestamp"
+    )
+    assert queries[13].startswith(
+        "CREATE INDEX IF NOT EXISTS idx_animal_lifecycle_events_caused_by"
+    )
+    assert queries[14].startswith("CREATE TABLE IF NOT EXISTS animal_current_state")
+    assert queries[15].startswith(
+        "CREATE INDEX IF NOT EXISTS idx_animal_current_state_state"
+    )
+    assert queries[16].startswith("CREATE TABLE IF NOT EXISTS cesiones_propietario")
+    assert queries[17].startswith("CREATE TABLE IF NOT EXISTS contratos")
+    assert queries[18].startswith("CREATE TABLE IF NOT EXISTS actuacion_sanitaria")
     # FOSTER-04 (#46): materiales + estancia_materiales land at the very end
     # so that the junction's FKs to ``acogidas`` and ``materiales`` resolve.
-    assert queries[16].startswith("CREATE TABLE IF NOT EXISTS materiales")
-    assert queries[17].startswith("CREATE TABLE IF NOT EXISTS estancia_materiales")
+    assert queries[19].startswith("CREATE TABLE IF NOT EXISTS materiales")
+    assert queries[20].startswith("CREATE TABLE IF NOT EXISTS estancia_materiales")
     # Partial unique index emitted right after the junction CREATE TABLE.
-    assert queries[18].startswith(
+    assert queries[21].startswith(
         "CREATE UNIQUE INDEX IF NOT EXISTS estancia_materiales_active_unique"
+    )
+    # LIFECYCLE-02 (#32): append-only trigger installation (function +
+    # DROP IF EXISTS + CREATE TRIGGER) lands LAST so the function is
+    # guaranteed to exist before the trigger references it.
+    assert queries[22].startswith(
+        "CREATE OR REPLACE FUNCTION raise_append_only_violation"
+    )
+    assert queries[23].startswith(
+        "DROP TRIGGER IF EXISTS animal_lifecycle_events_append_only"
+    )
+    assert queries[24].startswith(
+        "CREATE TRIGGER animal_lifecycle_events_append_only"
     )
 
 
@@ -1297,21 +1542,41 @@ def test_ensure_domain_schema_emits_actuacion_sanitaria_after_contratos() -> Non
         i for i, q in enumerate(queries)
         if q.startswith("CREATE TABLE IF NOT EXISTS actuacion_sanitaria")
     )
+    materiales_idx = next(
+        i for i, q in enumerate(queries)
+        if q.startswith("CREATE TABLE IF NOT EXISTS materiales")
+    )
     # FOSTER-04 (#46): the two new tables + their partial unique index
     # land at the end so the ``estancia_materiales`` junction FKs to
     # ``acogidas`` and ``materiales`` resolve.
-    assert actuacion_idx < len(queries) - 3, (
-        f"actuacion_sanitaria must come BEFORE the FOSTER-04 tail "
-        f"(materiales + estancia_materiales + unique index); got position "
-        f"{actuacion_idx} of {len(queries)}: {queries[actuacion_idx:][:80]!r}"
+    assert actuacion_idx < materiales_idx, (
+        f"actuacion_sanitaria must come BEFORE materiales (FOSTER-04 tail); "
+        f"got actuacion_idx={actuacion_idx}, materiales_idx={materiales_idx}: "
+        f"{queries[actuacion_idx:materiales_idx+1]!r}"
     )
-    # Last emit is the partial unique index (so the junction exists when
-    # the index is created on a fresh backend).
+    # LIFECYCLE-02 (#32): the append-only trigger installation
+    # (function + DROP IF EXISTS + CREATE TRIGGER) is the LAST emit.
+    # The trigger function must exist before the trigger that references
+    # it, hence ``CREATE OR REPLACE FUNCTION`` first.
     assert queries[-1].startswith(
-        "CREATE UNIQUE INDEX IF NOT EXISTS estancia_materiales_active_unique"
+        "CREATE TRIGGER animal_lifecycle_events_append_only"
     ), (
-        f"estancia_materiales_active_unique index must be the LAST emit; "
+        f"animal_lifecycle_events_append_only CREATE TRIGGER must be the "
+        f"LAST emit (function + drop + create, in that order); "
         f"got: {queries[-1][:80]!r}"
+    )
+    assert queries[-3].startswith(
+        "CREATE OR REPLACE FUNCTION raise_append_only_violation"
+    ), (
+        f"raise_append_only_violation function must come 3 emits before "
+        f"the end (function + drop + create); got queries[-3]: "
+        f"{queries[-3][:80]!r}"
+    )
+    assert queries[-2].startswith(
+        "DROP TRIGGER IF EXISTS animal_lifecycle_events_append_only"
+    ), (
+        f"DROP TRIGGER IF EXISTS must immediately precede the CREATE TRIGGER; "
+        f"got queries[-2]: {queries[-2][:80]!r}"
     )
 
 
