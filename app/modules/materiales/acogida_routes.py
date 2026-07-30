@@ -53,13 +53,13 @@ message) is mirrored on the duplicate-assignment path.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.core.auth_dependencies import (
+    AuthenticatedUser,
     get_insforge_client_dep,
     require_authorized_user,
     require_writer_user,
@@ -119,7 +119,7 @@ def _cantidad_or_default(raw: str | None) -> int:
 
 def _render_per_stay_list(
     request: Request,
-    user: Any,
+    user: AuthenticatedUser,
     estancia_id: str,
     *,
     assigned: list[materiales_service.EstanciaMaterial],
@@ -179,7 +179,7 @@ def _render_per_stay_list(
 def list_estancia_materiales_view(
     estancia_id: str,
     request: Request,
-    user: Any = Depends(require_authorized_user),
+    user: AuthenticatedUser = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Per-stay junction list.
@@ -220,7 +220,7 @@ def assign_material_to_estancia_view(
     material_id: str = Form(...),
     cantidad: str = Form("1"),
     notas: str | None = Form(None),
-    user: Any = Depends(require_writer_user),
+    user: AuthenticatedUser = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Assign a material to this stay.
@@ -314,7 +314,7 @@ def remove_material_from_estancia_view(
     estancia_id: str,
     junction_id: str,
     request: Request,
-    user: Any = Depends(require_writer_user),
+    user: AuthenticatedUser = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Soft-delete a single junction row.

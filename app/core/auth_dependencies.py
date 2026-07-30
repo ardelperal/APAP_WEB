@@ -50,10 +50,12 @@ campos que ``log_safe`` redacta — el codigo pasa solo ``user_id``.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from typing import TypeGuard
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from starlette.responses import Response
+from typing_extensions import TypedDict
 
 from app.core.auth import get_user_by_email
 from app.core.auth_cache import get_cached_auth, set_cached_auth
@@ -62,6 +64,42 @@ from app.core.insforge import InsForgeClient
 from app.core.logging import log_safe
 from app.core.roles import Rol
 from app.core.session import read_session_payload
+
+
+class AuthenticatedUser(TypedDict):
+    """Shape of the authenticated-user dict returned by auth dependencies.
+
+    All fields are non-optional: a dict that passes :func:`is_authenticated_user`
+    has passed the structural check and is guaranteed to have these four keys.
+    """
+
+    user_id: str
+    email: str
+    rol: str
+    is_authorized: bool
+
+
+def is_authenticated_user(obj: object) -> TypeGuard[AuthenticatedUser]:
+    """TypeGuard: narrows ``object`` to :class:`AuthenticatedUser` when the
+    object is a dict with the required keys.
+
+    Use after :func:`return_early_if_response` to narrow the resolved-user
+    branch to the authenticated-user shape::
+
+        if (early := return_early_if_response(user)) is not None:
+            return early
+        # After return_early_if_response, 'user' is a dict.
+        # is_authenticated_user narrows it further to AuthenticatedUser.
+        assert is_authenticated_user(user)
+    """
+    if not isinstance(obj, dict):
+        return False
+    return (
+        isinstance(obj.get("user_id"), str)
+        and isinstance(obj.get("email"), str)
+        and isinstance(obj.get("rol"), str)
+        and isinstance(obj.get("is_authorized"), bool)
+    )
 
 
 def get_insforge_client_dep(request: Request) -> Iterator[InsForgeClient]:
@@ -98,22 +136,23 @@ def get_current_user_optional(request: Request) -> dict | None:
     return read_session_payload(request, secret=get_settings().session_secret)
 
 
-def return_early_if_response(value: Response | dict) -> Response | None:
+def return_early_if_response(value: Response | AuthenticatedUser | dict) -> Response | None:
     """Helper regla 7: si ``value`` es un ``Response`` (redirect), lo retorna.
 
     Los handlers que usan :func:`require_authorized_user` reciben un
-    ``Response | dict``. Si la dep devolvio un ``RedirectResponse`` (no
-    hay sesion, o ``is_authorized=False``), el handler DEBE retornar
-    ese response al cliente sin tocar la logica de negocio:
+    ``AuthenticatedUser`` (TypedDict) cuando la sesion es valida, o un
+    ``Response`` (RedirectResponse) cuando no lo es. Si la dep devolvio un
+    ``RedirectResponse``, el handler DEBE retornar ese response al cliente
+    sin tocar la logica de negocio:
 
     .. code-block:: python
 
         def handler(
-            current_user: Response | dict = Depends(require_authorized_user),
+            current_user: AuthenticatedUser = Depends(require_authorized_user),
         ):
             if (early := return_early_if_response(current_user)) is not None:
                 return early
-            # current_user es dict; logica de negocio.
+            # current_user es AuthenticatedUser; logica de negocio.
 
     Sin este check, ``current_user.get(...)`` falla con ``AttributeError``
     porque un ``RedirectResponse`` no tiene ``.get``.

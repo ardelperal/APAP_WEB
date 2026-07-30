@@ -20,6 +20,7 @@ Spec: ``openspec/changes/hardening-2026-q2/specs/01-dev-tooling-gate/spec.md``
 from __future__ import annotations
 
 import ast
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -161,7 +162,7 @@ def _is_logger_chain(node: ast.AST) -> bool:
     """Match ``logger.X(...)`` and ``logging.getLogger(...).X(...)``.
 
     Shared between APAP003Visitor and the AST linter's Detector 5 so
-    the two stay in lock-step. A bare ``logging.getLogger(__name__)``
+    the two detectors stay in lock-step. A bare ``logging.getLogger(name)``
     retrieval is NOT a logger call chain and is therefore allowed.
     """
     if isinstance(node, ast.Name) and node.id == "logger":
@@ -173,6 +174,62 @@ def _is_logger_chain(node: ast.AST) -> bool:
     ):
         return True
     return False
+
+
+# --- APAP004: user: Any in route auth parameters ---------------------------
+
+
+# Matches ``user: Any`` in route handler parameters.
+_APAP004_PARAM_RE = re.compile(r"\buser\s*:\s*Any\b")
+
+
+class APAP004Visitor(ast.NodeVisitor):
+    """AST visitor for APAP004 — bans ``user: Any`` in route auth parameters.
+
+    Fires on any line matching ``user: Any`` inside a FastAPI route file
+    (``app/main.py`` or ``app/modules/<M>/routes*.py``). The pattern is
+    intentionally broad: it catches ``user: Any``, ``user: Any = Depends(...)``,
+    and ``user: Any,`` in function signatures.
+
+    The authoritative CI gate is Detector 14 in ``scripts/check_rules.py``.
+    This visitor is provided so the rule can be registered in a ruff
+    ``select = ["APAP004"]`` block in a future PR.
+    """
+
+    def __init__(self, file: Path) -> None:
+        self.file = file
+        self.violations: list[APAPViolation] = []
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self._check_any_user(node)
+        self.generic_visit(node)
+
+    visit_AsyncFunctionDef = visit_FunctionDef
+
+    def _check_any_user(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+        src_lines: list[str] = []
+        try:
+            src = self.file.read_text(encoding="utf-8")
+            src_lines = src.splitlines()
+        except (UnicodeDecodeError, OSError):
+            return
+        for lineno, line in enumerate(src_lines, start=1):
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                continue
+            if _APAP004_PARAM_RE.search(line):
+                self.violations.append(
+                    APAPViolation(
+                        file=self.file,
+                        line=lineno,
+                        rule_id="APAP004",
+                        message=(
+                            "user: Any in route handler parameter erases the auth "
+                            "type boundary. Replace with 'user: AuthenticatedUser' "
+                            "from app.core.auth_dependencies."
+                        ),
+                    )
+                )
 
 
 # --- Plugin registry -----------------------------------------------------
@@ -194,6 +251,7 @@ def discover_rule_classes() -> list[_RuleMeta]:
     return [
         _RuleMeta("APAP001", "apap-route-uses-execute-sql", APAP001Visitor),
         _RuleMeta("APAP003", "apap-raw-logger-call", APAP003Visitor),
+        _RuleMeta("APAP004", "apap-user-any-auth-boundary", APAP004Visitor),
     ]
 
 
@@ -201,7 +259,7 @@ def discover_rule_classes() -> list[_RuleMeta]:
 
 
 def check_tree(tree: ast.AST, file: Path) -> list[APAPViolation]:
-    """Walk ``tree`` and return every APAP001 + APAP003 violation.
+    """Walk ``tree`` and return every APAP001 + APAP003 + APAP004 violation.
 
     APAP003 was registered in PR-1B (T-1B.2) but NOT fired until
     PR-6B (T-6.3) so CI between Slice 1 and Slice 5 does not break
@@ -210,9 +268,15 @@ def check_tree(tree: ast.AST, file: Path) -> list[APAPViolation]:
     Detector 5 to ``scripts/check_rules.py`` (the authoritative
     AST linter invoked by ``make check-rules``). The two stay in
     lock-step via ``_is_logger_chain``.
+
+    APAP004 was added in #330 (fix for issue #330): Detector 14 in
+    ``scripts/check_rules.py`` is the authoritative CI gate; this visitor
+    allows registering ``select = ["APAP004"]`` in a future ruff config.
     """
     apap001 = APAP001Visitor(file)
     apap001.visit(tree)
     apap003 = APAP003Visitor(file)
     apap003.visit(tree)
-    return apap001.violations + apap003.violations
+    apap004 = APAP004Visitor(file)
+    apap004.visit(tree)
+    return apap001.violations + apap003.violations + apap004.violations

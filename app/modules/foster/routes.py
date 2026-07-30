@@ -30,6 +30,7 @@ from fastapi.templating import Jinja2Templates
 
 from app.core.auth import Rol
 from app.core.auth_dependencies import (
+    AuthenticatedUser,
     get_insforge_client_dep,
     require_authorized_user,
     require_writer_user,
@@ -110,7 +111,7 @@ def _casa_to_form_data(casa: foster_service.CasaAcogida) -> dict[str, Any]:
 
 def _render_form(
     request: Request,
-    user: Any,
+    user: AuthenticatedUser,
     form_data: dict[str, Any],
     error: str | None,
     form_action: str,
@@ -136,7 +137,7 @@ def _render_form(
 def list_casas_acogida_view(
     request: Request,
     especie: str | None = None,
-    user: Any = Depends(require_authorized_user),
+    user: AuthenticatedUser = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     if (early := return_early_if_response(user)) is not None:
@@ -155,7 +156,7 @@ def list_casas_acogida_view(
 @router.get("/new", response_class=HTMLResponse)
 def new_casa_acogida_form(
     request: Request,
-    user: Any = Depends(require_authorized_user),
+    user: AuthenticatedUser = Depends(require_authorized_user),
 ):
     if (early := return_early_if_response(user)) is not None:
         return early
@@ -169,7 +170,7 @@ def new_casa_acogida_form(
 def create_casa_acogida_view(
     request: Request,
     form: CasaAcogidaForm = Form(...),
-    user: Any = Depends(require_writer_user),
+    user: AuthenticatedUser = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Procesa el submit del formulario. En exito, redirect al detalle.
@@ -208,7 +209,7 @@ def create_casa_acogida_view(
 def casa_acogida_detail(
     casa_id: str,
     request: Request,
-    user: Any = Depends(require_authorized_user),
+    user: AuthenticatedUser = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     if (early := return_early_if_response(user)) is not None:
@@ -254,7 +255,7 @@ def casa_acogida_detail(
 def edit_casa_acogida_form(
     casa_id: str,
     request: Request,
-    user: Any = Depends(require_authorized_user),
+    user: AuthenticatedUser = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     if (early := return_early_if_response(user)) is not None:
@@ -279,7 +280,7 @@ def update_casa_acogida_view(
     casa_id: str,
     request: Request,
     form: CasaAcogidaForm = Form(...),
-    user: Any = Depends(require_writer_user),
+    user: AuthenticatedUser = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Procesa el submit del formulario de edicion. En exito, redirect al detalle.
@@ -317,7 +318,7 @@ def update_casa_acogida_view(
 def delete_casa_acogida_view(
     casa_id: str,
     request: Request,
-    user: Any = Depends(require_writer_user),
+    user: AuthenticatedUser = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     if (early := return_early_if_response(user)) is not None:

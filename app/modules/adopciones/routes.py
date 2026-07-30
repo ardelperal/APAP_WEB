@@ -45,6 +45,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.core.auth_dependencies import (
+    AuthenticatedUser,
     get_insforge_client_dep,
     require_authorized_user,
     require_writer_user,
@@ -144,7 +145,7 @@ def _adopcion_to_form_data(
     }
 
 
-def _actor_user_id(user: Any) -> str | None:
+def _actor_user_id(user: AuthenticatedUser) -> str | None:
     """Extract ``user_id`` from the auth payload for audit logging.
 
     ``user`` is the value returned by ``require_authorized_user`` (a
@@ -160,7 +161,7 @@ def _actor_user_id(user: Any) -> str | None:
 
 def _render_form(
     request: Request,
-    user: Any,
+    user: AuthenticatedUser,
     form_data: dict[str, Any],
     error: str | None,
     form_action: str,
@@ -186,7 +187,7 @@ def _render_form(
 def list_adopciones_view(
     request: Request,
     adoptante: str | None = None,
-    user: Any = Depends(require_authorized_user),
+    user: AuthenticatedUser = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """List active adopciones; ``?adoptante=`` filters by name (ILIKE)."""
@@ -215,7 +216,7 @@ def list_adopciones_view(
 @router.get("/new", response_class=HTMLResponse)
 def new_adopcion_form(
     request: Request,
-    user: Any = Depends(require_authorized_user),
+    user: AuthenticatedUser = Depends(require_authorized_user),
 ):
     """Empty form for a new adopción."""
     if (early := return_early_if_response(user)) is not None:
@@ -242,7 +243,7 @@ def create_adopcion_view(
     entrada_origen_id: str | None = Form(None),
     observaciones: str | None = Form(None),
     tipo_adopcion: str | None = Form(None),
-    user: Any = Depends(require_writer_user),
+    user: AuthenticatedUser = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Create an adopción; redirect to detail on success.
@@ -320,7 +321,7 @@ def create_adopcion_view(
 def adopcion_detail(
     adopcion_id: str,
     request: Request,
-    user: Any = Depends(require_authorized_user),
+    user: AuthenticatedUser = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Detail view; 404 when the id is missing."""
@@ -343,7 +344,7 @@ def adopcion_detail(
 def edit_adopcion_form(
     adopcion_id: str,
     request: Request,
-    user: Any = Depends(require_authorized_user),
+    user: AuthenticatedUser = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Edit form prefilled from the persisted row."""
@@ -381,7 +382,7 @@ def update_adopcion_view(
     entrada_origen_id: str | None = Form(None),
     observaciones: str | None = Form(None),
     tipo_adopcion: str | None = Form(None),
-    user: Any = Depends(require_writer_user),
+    user: AuthenticatedUser = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Update an existing adopción; redirect to detail on success.
@@ -456,7 +457,7 @@ def update_adopcion_view(
 def delete_adopcion_view(
     adopcion_id: str,
     request: Request,
-    user: Any = Depends(require_writer_user),
+    user: AuthenticatedUser = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Soft-delete via ``adopciones_service.delete_adopcion``; redirect to list.

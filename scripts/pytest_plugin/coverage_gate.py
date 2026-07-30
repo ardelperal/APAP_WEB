@@ -40,7 +40,7 @@ CRITICAL_HELPERS: frozenset[str] = frozenset(
         "_resolve_developer_user",
         "_stamp_caller_fields",
         "_validate_secrets",
-
+        "is_authenticated_user",
     }
 )
 # NOTE (issue #257 companion fix): ``_reverse_apply_one_row`` lives in
