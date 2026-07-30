@@ -26,12 +26,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.core.auth_dependencies import (
     get_insforge_client_dep,
+    is_authenticated_user,
     require_authorized_user,
     require_writer_user,
     return_early_if_response,
@@ -164,12 +165,14 @@ def _render_form(
 def list_acogidas_view(
     request: Request,
     activas_solo: int | None = None,
-    user: Any = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """List stays; ``?activas_solo=1`` filters to open stays."""
     if (early := return_early_if_response(user)) is not None:
         return early
+    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
+        return RedirectResponse(url="/unauthorized")
     solo = bool(activas_solo)
     acogidas = acogidas_service.list_acogidas(client, activas_solo=solo)
     return _templates.TemplateResponse(
@@ -189,11 +192,13 @@ def list_acogidas_view(
 @router.get("/new", response_class=HTMLResponse)
 def new_acogida_form(
     request: Request,
-    user: Any = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_authorized_user),
 ):
     """Render an empty create form."""
     if (early := return_early_if_response(user)) is not None:
         return early
+    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
+        return RedirectResponse(url="/unauthorized")
     return _render_form(request, user, {}, None, "/acogidas")
 
 
@@ -216,7 +221,7 @@ def create_acogida_view(
     telefono: str | None = Form(None),
     observaciones: str | None = Form(None),
     override_id: str | None = Form(None),
-    user: Any = Depends(require_writer_user),
+    user: Response | dict = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Create a new estancia; redirect to detail on success, re-render form on validation error.
@@ -231,6 +236,8 @@ def create_acogida_view(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
+    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
+        return RedirectResponse(url="/unauthorized")
     form_data = _form_data_to_params(
         {
             "animal_id": animal_id,
@@ -311,12 +318,14 @@ def create_acogida_view(
 def acogida_detail(
     acogida_id: str,
     request: Request,
-    user: Any = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Render the stay detail view with computed duration + active state."""
     if (early := return_early_if_response(user)) is not None:
         return early
+    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
+        return RedirectResponse(url="/unauthorized")
     acogida = acogidas_service.get_acogida_by_id(client, acogida_id)
     if acogida is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
@@ -341,12 +350,14 @@ def acogida_detail(
 def edit_acogida_form(
     acogida_id: str,
     request: Request,
-    user: Any = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Render the edit form prefilled from the current stay row."""
     if (early := return_early_if_response(user)) is not None:
         return early
+    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
+        return RedirectResponse(url="/unauthorized")
     acogida = acogidas_service.get_acogida_by_id(client, acogida_id)
     if acogida is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
@@ -378,12 +389,14 @@ def update_acogida_view(
     direccion: str | None = Form(None),
     telefono: str | None = Form(None),
     observaciones: str | None = Form(None),
-    user: Any = Depends(require_writer_user),
+    user: Response | dict = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Apply form edits; redirect to detail on success, re-render on validation error."""
     if (early := return_early_if_response(user)) is not None:
         return early
+    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
+        return RedirectResponse(url="/unauthorized")
     form_data = _form_data_to_params(
         {
             "animal_id": animal_id,
@@ -456,7 +469,7 @@ def update_acogida_view(
 def close_acogida_view(
     acogida_id: str,
     request: Request,
-    user: Any = Depends(require_writer_user),
+    user: Response | dict = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Close the stay: ``fecha_final = current_date``, ``activo`` stays true.
@@ -467,6 +480,8 @@ def close_acogida_view(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
+    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
+        return RedirectResponse(url="/unauthorized")
     if acogidas_service.close_acogida(client, acogida_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     return RedirectResponse(
@@ -481,7 +496,7 @@ def close_acogida_view(
 def delete_acogida_view(
     acogida_id: str,
     request: Request,
-    user: Any = Depends(require_writer_user),
+    user: Response | dict = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Soft-delete the stay: ``activo = false`` + ``fecha_baja = now()``.
@@ -491,6 +506,8 @@ def delete_acogida_view(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
+    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
+        return RedirectResponse(url="/unauthorized")
     if not acogidas_service.delete_acogida(client, acogida_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     return RedirectResponse(

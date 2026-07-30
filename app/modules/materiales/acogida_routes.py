@@ -55,12 +55,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.core.auth_dependencies import (
     get_insforge_client_dep,
+    is_authenticated_user,
     require_authorized_user,
     require_writer_user,
     return_early_if_response,
@@ -179,7 +180,7 @@ def _render_per_stay_list(
 def list_estancia_materiales_view(
     estancia_id: str,
     request: Request,
-    user: Any = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Per-stay junction list.
@@ -196,6 +197,8 @@ def list_estancia_materiales_view(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
+    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
+        return RedirectResponse(url="/unauthorized")
     assigned = estancia_material_service.list_materials_for_estancia(
         client, estancia_id, activos_solo=True
     )
@@ -220,7 +223,7 @@ def assign_material_to_estancia_view(
     material_id: str = Form(...),
     cantidad: str = Form("1"),
     notas: str | None = Form(None),
-    user: Any = Depends(require_writer_user),
+    user: Response | dict = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Assign a material to this stay.
@@ -244,6 +247,8 @@ def assign_material_to_estancia_view(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
+    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
+        return RedirectResponse(url="/unauthorized")
     try:
         cantidad_int = _cantidad_or_default(cantidad)
     except ValueError as exc:
@@ -314,7 +319,7 @@ def remove_material_from_estancia_view(
     estancia_id: str,
     junction_id: str,
     request: Request,
-    user: Any = Depends(require_writer_user),
+    user: Response | dict = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Soft-delete a single junction row.
@@ -333,6 +338,8 @@ def remove_material_from_estancia_view(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
+    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
+        return RedirectResponse(url="/unauthorized")
     if not estancia_material_service.remove_material_from_estancia(
         client, junction_id
     ):

@@ -50,6 +50,7 @@ campos que ``log_safe`` redacta — el codigo pasa solo ``user_id``.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from typing import TypedDict, TypeGuard
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
@@ -62,6 +63,58 @@ from app.core.insforge import InsForgeClient
 from app.core.logging import log_safe
 from app.core.roles import Rol
 from app.core.session import read_session_payload
+
+# --- AuthenticatedUser type ---------------------------------------------------
+
+
+class AuthenticatedUser(TypedDict, total=False):
+    """Shape of the dict returned by :func:`require_authorized_user`.
+
+    ``total=False`` because legacy session cookies (signed before the 2026-07
+    ``is_authorized`` hardening) may lack the ``is_authorized`` key.
+    ``user_id`` and ``email`` are required by the session contract;
+    ``rol`` is always present for authorized users after the 2026-07
+    revalidation step in :func:`require_authorized_user`.
+
+    Usage in route handlers::
+
+        def handler(
+            user: AuthenticatedUser = Depends(require_authorized_user),
+        ):
+            if (early := return_early_if_response(user)) is not None:
+                return early
+            # mypy knows user is AuthenticatedUser here
+            uid = user["user_id"]
+    """
+
+    user_id: str
+    email: str
+    rol: str
+    is_authorized: bool
+
+
+def is_authenticated_user(value: Response | dict) -> TypeGuard[AuthenticatedUser]:
+    """TypeGuard: narrows ``Response | dict`` to ``AuthenticatedUser``.
+
+    Usage in route handlers::
+
+        def handler(
+            user: Response | dict = Depends(require_authorized_user),
+        ):
+            if (early := return_early_if_response(user)) is not None:
+                return early
+            if not is_authenticated_user(user):
+                return RedirectResponse(url="/unauthorized")
+            # mypy knows user is AuthenticatedUser here
+            uid = user["user_id"]
+
+    Without this guard mypy treats ``user`` as ``dict`` (too wide) or
+    the handler annotates it as ``Any`` (issue #330 — the original defect).
+    The ``is_authenticated_user`` call is the explicit narrowing the TypeGuard
+    needs to pin ``user`` to ``AuthenticatedUser`` rather than ``Any``.
+    """
+    return isinstance(value, dict)
+
 
 
 def get_insforge_client_dep(request: Request) -> Iterator[InsForgeClient]:
