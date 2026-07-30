@@ -73,6 +73,7 @@ from app.core.middleware import (
     install_rate_limit_middleware,
 )
 from app.core.migration.sql_runner import apply_sql_migrations
+from app.core.request_context import CorrelationIdMiddleware
 from app.routes_registry import register_routers
 
 _STATIC_DIR = Path(__file__).parent / "static"
@@ -180,6 +181,10 @@ def create_app() -> FastAPI:
     # the rate budget. install_rate_limit_middleware is called FIRST,
     # then install_auth_middleware adds CsrfMiddleware inside the chain.
     # See tests/test_middleware_order.py for the pinned order.
+    # CorrelationIdMiddleware (issue #334): added FIRST so it appears LAST
+    # in the middleware list (innermost), catching requests after the auth
+    # chain — sufficient for request_id in log lines.
+    application.add_middleware(CorrelationIdMiddleware)
     install_rate_limit_middleware(application, settings)
     install_auth_middleware(application, settings)
 

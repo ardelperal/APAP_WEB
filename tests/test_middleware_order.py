@@ -14,9 +14,10 @@ any reordering is caught immediately. The ordering is load-bearing:
 The full order (outermost → innermost) is:
   SecurityHeadersMiddleware
   UADetectionMiddleware
-  BaseHTTPMiddleware  (protect_user_facing_routes)
+  BaseHTTPMiddleware
   CsrfMiddleware
   RateLimitMiddleware
+  CorrelationIdMiddleware
 
 Any change to this order is a BREAKING CHANGE that requires explicit
 approval via a dedicated issue and PR — no silent reordering.
@@ -40,6 +41,7 @@ def test_create_app_middleware_order_is_pinned() -> None:
       3. BaseHTTPMiddleware        (protect_user_facing_routes via @app.middleware("http"))
       4. CsrfMiddleware            (added via install_auth_middleware, first)
       5. RateLimitMiddleware       (added first, before install_auth_middleware)
+      6. CorrelationIdMiddleware   (added first, before install_rate_limit_middleware)
 
     Rationale (issue #286 D8):
       - RateLimitMiddleware must be innermost so that a CSRF rejection (403)
@@ -55,6 +57,7 @@ def test_create_app_middleware_order_is_pinned() -> None:
         "BaseHTTPMiddleware",
         "CsrfMiddleware",
         "RateLimitMiddleware",
+        "CorrelationIdMiddleware",
     ]
     assert class_names == expected, (
         f"create_app() middleware order changed — this is a BREAKING CHANGE. "
