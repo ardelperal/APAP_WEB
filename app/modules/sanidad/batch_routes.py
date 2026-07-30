@@ -35,12 +35,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, Form, Request, status
+from fastapi import APIRouter, Depends, Form, Request, Response, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.core.auth_dependencies import (
     get_insforge_client_dep,
+    is_authenticated_user,
     require_authorized_user,
     require_writer_user,
     return_early_if_response,
@@ -203,7 +204,7 @@ def _preview_from_validation_error(
 @router.get("/batch/new", response_class=HTMLResponse)
 def new_batch_actuaciones_form(
     request: Request,
-    user: Any = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_authorized_user),
 ):
     """Render the empty batch form with ``BATCH_MIN_RECORDS`` blank rows.
 
@@ -214,6 +215,8 @@ def new_batch_actuaciones_form(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
+    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
+        return RedirectResponse(url="/unauthorized")
     blank_rows = [
         {field: "" for field in BATCH_FORM_FIELDS}
         for _ in range(BATCH_MIN_RECORDS)
@@ -235,7 +238,7 @@ def batch_actuaciones_view(
     veterinario: list[str] = Form([]),
     observaciones: list[str] = Form([]),
     material_utilizado: list[str] = Form([]),
-    user: Any = Depends(require_writer_user),
+    user: Response | dict = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """HEALTH-02 batch endpoint: staging preview OR atomic commit.
@@ -282,6 +285,8 @@ def _do_batch_view(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
+    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
+        return RedirectResponse(url="/unauthorized")
     records = _parse_batch_records(
         list(
             zip(

@@ -24,13 +24,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.core.auth import Rol
 from app.core.auth_dependencies import (
     get_insforge_client_dep,
+    is_authenticated_user,
     require_authorized_user,
     require_writer_user,
     return_early_if_response,
@@ -136,11 +137,13 @@ def _render_form(
 def list_casas_acogida_view(
     request: Request,
     especie: str | None = None,
-    user: Any = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     if (early := return_early_if_response(user)) is not None:
         return early
+    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
+        return RedirectResponse(url="/unauthorized")
     casas = foster_service.list_casas_acogida(client, especie=especie)
     return _templates.TemplateResponse(
         request=request,
@@ -155,10 +158,12 @@ def list_casas_acogida_view(
 @router.get("/new", response_class=HTMLResponse)
 def new_casa_acogida_form(
     request: Request,
-    user: Any = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_authorized_user),
 ):
     if (early := return_early_if_response(user)) is not None:
         return early
+    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
+        return RedirectResponse(url="/unauthorized")
     return _render_form(request, user, {}, None, "/casas-acogida")
 
 
@@ -169,7 +174,7 @@ def new_casa_acogida_form(
 def create_casa_acogida_view(
     request: Request,
     form: CasaAcogidaForm = Form(...),
-    user: Any = Depends(require_writer_user),
+    user: Response | dict = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Procesa el submit del formulario. En exito, redirect al detalle.
@@ -182,6 +187,8 @@ def create_casa_acogida_view(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
+    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
+        return RedirectResponse(url="/unauthorized")
     form_data: dict[str, Any] = _form_data_to_params(
         form.model_dump(exclude_none=True)
     )
@@ -208,11 +215,13 @@ def create_casa_acogida_view(
 def casa_acogida_detail(
     casa_id: str,
     request: Request,
-    user: Any = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     if (early := return_early_if_response(user)) is not None:
         return early
+    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
+        return RedirectResponse(url="/unauthorized")
     casa = foster_service.get_casa_acogida_by_id(client, casa_id)
     if casa is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
@@ -254,11 +263,13 @@ def casa_acogida_detail(
 def edit_casa_acogida_form(
     casa_id: str,
     request: Request,
-    user: Any = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     if (early := return_early_if_response(user)) is not None:
         return early
+    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
+        return RedirectResponse(url="/unauthorized")
     casa = foster_service.get_casa_acogida_by_id(client, casa_id)
     if casa is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
@@ -279,7 +290,7 @@ def update_casa_acogida_view(
     casa_id: str,
     request: Request,
     form: CasaAcogidaForm = Form(...),
-    user: Any = Depends(require_writer_user),
+    user: Response | dict = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Procesa el submit del formulario de edicion. En exito, redirect al detalle.
@@ -289,6 +300,8 @@ def update_casa_acogida_view(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
+    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
+        return RedirectResponse(url="/unauthorized")
     form_data: dict[str, Any] = _form_data_to_params(
         form.model_dump(exclude_none=True)
     )
@@ -317,11 +330,13 @@ def update_casa_acogida_view(
 def delete_casa_acogida_view(
     casa_id: str,
     request: Request,
-    user: Any = Depends(require_writer_user),
+    user: Response | dict = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     if (early := return_early_if_response(user)) is not None:
         return early
+    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
+        return RedirectResponse(url="/unauthorized")
     if not foster_service.delete_casa_acogida(client, casa_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     return RedirectResponse(
