@@ -1599,6 +1599,41 @@ def _cross_module_import_violations(
         )
     return violations
 
+# Guard: nested-checkout detection ---------------------------------------------
+#
+# The APAP_WEB layout uses git-worktree: 00_main/ is the canonical worktree,
+# sibling worktrees live under APAP_WEB_worktrees/, and the repo root
+# APAP_WEB/ has .git as a FILE (gitdir: 00_main/.git). Running
+# check_rules.py from APAP_WEB/ causes rglob to walk into nested
+# checkouts and report false violations. The guard below detects this
+# layout and fails fast with a clear message instead.
+
+
+def _check_nested_checkout_layout(cwd: Path) -> str | None:
+    """Return an error message if ``cwd`` is the APAP_WEB/ root with nested
+    checkouts, otherwise None.
+
+    Detection heuristic: ``cwd / '00_main'`` is a directory AND
+    ``cwd / '.git'`` is a FILE (not a directory) — the signature of a
+    git-worktree root. Operators running from APAP_WEB/ (the flat-layout
+    root, not 00_main/) will hit this guard and see the directive to
+    cd to 00_main/.
+    """
+    if (cwd / "00_main").is_dir() and (cwd / ".git").is_file():
+        return (
+            "check_rules.py must be run from the canonical worktree (00_main/),\n"
+            "not from the APAP_WEB/ root. The root contains sibling worktrees\n"
+            "that produce false rule violations when scanned.\n"
+            "\n"
+            "  Run: cd 00_main/ (or a sibling worktree under APAP_WEB_worktrees/)\n"
+            "  Then: python scripts/check_rules.py .\n"
+            "\n"
+            "The linter detects it is being run from the flat-layout root and\n"
+            "refuses to produce false violations. Fix: run from 00_main/."
+        )
+    return None
+
+
 # CLI -----------------------------------------------------------------------
 
 
@@ -1653,6 +1688,14 @@ def main(argv: list[str] | None = None) -> int:
     if not args:
         _print_usage()
         return 2
+
+    # Guard: detect and refuse the flat-layout root (APAP_WEB/) which
+    # contains sibling worktrees that produce false rule violations.
+    guard_msg = _check_nested_checkout_layout(Path.cwd())
+    if guard_msg:
+        print(guard_msg, file=sys.stderr)
+        return 1
+
     paths, cli_excludes = _parse_args(args)
     if not paths:
         _print_usage()

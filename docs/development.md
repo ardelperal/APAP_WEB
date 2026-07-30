@@ -284,6 +284,34 @@ pytest tests/e2e/ -v
 
 El job `ci / deploy` solo corre en push directo a `main` (no en PRs ni en merges), preservando el modelo staging-only del proyecto.
 
+## Estructura del repositorio y worktrees
+
+APAP_WEB usa git-worktree. La estructura canonical es:
+
+```
+APAP_WEB/                        ← root (gitdir: 00_main/.git — NO trabajar aquí)
+├── 00_main/                     ← worktree canónico (唯一的 punto de trabajo)
+│   ├── app/
+│   ├── migration/
+│   ├── scripts/
+│   └── ...
+├── APAP_WEB_worktrees/         ← worktrees hermanos (uno por feature/fix)
+│   ├── wt-206-e2e-coverage/
+│   ├── wt-223-ci-runner/
+│   └── wt-326-docstring-drift/
+└── .git                        ← FILE (no directorio): gitdir: 00_main/.git
+```
+
+**Regla: siempre trabajar desde `00_main/` o desde un worktree bajo `APAP_WEB_worktrees/`.**
+Nunca ejecutar comandos de desarrollo (lint, test, check_rules) desde la raíz `APAP_WEB/`.
+
+Cuando ejecutas `python scripts/check_rules.py .` desde la raíz `APAP_WEB/`, el linter detecta
+que está en el layout plano (directorio con `00_main/` como subdirectorio y `.git` como archivo)
+y falla con un mensaje de error en lugar de producir violaciones falsas.
+
+Si `git worktree list` muestra `?? wt-205c-adopciones/` (directorio huerfano, no registrado),
+elimínalo con `Remove-Item -Recurse -Force wt-205c-adopciones/`.
+
 ## Build de la imagen Docker (opcional en local)
 
 El `Dockerfile` multi-stage compila el CSS y construye la wheel en un builder con Python + Node, y copia los artefactos a una imagen runtime solo con Python. Para validar el build localmente:

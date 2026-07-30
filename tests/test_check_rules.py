@@ -16,6 +16,7 @@ import pytest
 from scripts.check_rules import (
     QuerySeamBaselineNote,
     Violation,
+    _check_nested_checkout_layout,
     _is_client_execute_sql_call,
     find_violations,
 )
@@ -447,4 +448,72 @@ def test_detector_13_annassign_critical_violation() -> None:
     assert any(v.rule_id == "query_seam_violation" for v in violations), (
         f"Annotated assignment SQL was not flagged. "
         f"violations={[v.rule_id for v in violations]}"
+    )
+
+
+# --- Nested-checkout guard (issue #340) -------------------------------------
+
+
+def test_guard_detects_apap_web_root() -> None:
+    """The APAP_WEB/ root has 00_main/ as a subdirectory and .git as a
+    FILE (gitdir: worktree root). Running check_rules.py from there
+    walks nested checkouts and produces false violations. The guard
+    detects this layout and returns an error message."""
+    # REPO_ROOT is the worktree (wt-340/); its parent's parent is the
+    # actual APAP_WEB root (C:/00repos/codigo/APAP_WEB/).
+    apap_web_root = REPO_ROOT.parent.parent
+    # This layout only exists on the local Windows dev setup with flat worktrees.
+    # In CI (Linux, regular clone) there is no 00_main/ sibling — skip.
+    if not (apap_web_root / "00_main").is_dir():
+        pytest.skip("00_main/ not found — not running from APAP_WEB flat-layout root")
+    result = _check_nested_checkout_layout(apap_web_root)
+    assert result is not None, (
+        "Expected guard to detect APAP_WEB/ root layout "
+        "(has 00_main/ subdir and .git as file)"
+    )
+    assert "00_main/" in result, "Error message must direct operator to 00_main/"
+    assert "run from" in result.lower() or "cd 00_main" in result.lower()
+
+
+def test_guard_allows_canonical_worktree() -> None:
+    """Running from 00_main/ (where .git is a directory, not a file)
+    must NOT trigger the guard."""
+    # REPO_ROOT is the canonical worktree (00_main/ equivalent).
+    result = _check_nested_checkout_layout(REPO_ROOT)
+    assert result is None, (
+        "Canonical worktree (00_main/) must not trigger the guard; "
+        f"got: {result}"
+    )
+
+
+def test_guard_allows_normal_repo() -> None:
+    """A normal repo (no 00_main/ subdirectory) must not trigger."""
+    result = _check_nested_checkout_layout(FIXTURES)
+    assert result is None, (
+        f"Normal repo (no 00_main/ subdirectory) must not trigger; got: {result}"
+    )
+
+
+def test_guard_cli_fails_from_apap_web_root() -> None:
+    """CLI must exit 1 when cwd is the APAP_WEB/ root layout."""
+    # REPO_ROOT is the worktree (wt-340/); its parent's parent is the
+    # actual APAP_WEB root (C:/00repos/codigo/APAP_WEB/).
+    apap_web_root = REPO_ROOT.parent.parent
+    # This layout only exists on the local Windows dev setup with flat worktrees.
+    # In CI (Linux, regular clone) there is no 00_main/ sibling — skip.
+    if not (apap_web_root / "00_main").is_dir():
+        pytest.skip("00_main/ not found — not running from APAP_WEB flat-layout root")
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "."],
+        capture_output=True,
+        text=True,
+        cwd=str(apap_web_root),
+    )
+    assert result.returncode == 1, (
+        f"Expected exit 1 from APAP_WEB/ root; got {result.returncode}\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    combined = result.stdout + result.stderr
+    assert "00_main/" in combined, (
+        f"Error message must mention 00_main/: {combined}"
     )
