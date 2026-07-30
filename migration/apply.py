@@ -394,7 +394,7 @@ def apply_legacy_to_web(
             is wired today so the PR6 reverse applier (``web_to_legacy``)
             can pass a counter and read its value at the end of the
             run to populate
-            ``MigrationReport.collisions[table_name]["dni_collisions"]``.
+            ``MigrationReport.collisions[table_name]["preserve_advances"]``.
             Default ``None`` keeps the existing call sites untouched.
 
     Returns:
