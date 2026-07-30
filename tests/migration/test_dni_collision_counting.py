@@ -35,7 +35,7 @@ def test_100_row_no_edit_round_trip_reports_preserve_advances(
 ) -> None:
     """100-row no-edit round-trip reports ``preserve_advances == 100``.
 
-    Parametrised atom for issue #217 (option b — RENAME).
+    Atom for issue #217 (option b — RENAME).
 
     A 100-row round-trip where every row's mapped columns are
     equal between web and legacy (no actual collision) exercises the

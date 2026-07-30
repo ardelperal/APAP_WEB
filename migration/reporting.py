@@ -137,7 +137,7 @@ class MigrationReport:
       per-table fingerprint for fast operator review without opening
       the snapshot file.
     - ``collisions``: per-table counters — counts only, no values.
-      Typical keys: ``dni_collisions``, ``row_divergences``. The
+      Typical keys: ``preserve_advances`` (renamed from ``dni_collisions`` in issue #217), ``row_divergences``. The
       operator-facing detail (which PKs collided) lives in
       ``web_only_feature_shadow`` and the ``conflicts`` list, NOT
       here. This invariant keeps the JSON serialization free of
