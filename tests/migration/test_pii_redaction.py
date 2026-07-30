@@ -250,14 +250,14 @@ def test_migration_report_json_no_raw_pii(
         collisions={
             # Counters only — even a future bug that tries to put
             # values here is caught by the regex below.
-            "voluntarios": {"dni_collisions": 0, "row_divergences": 0},
+            "voluntarios": {"preserve_advances": 0, "row_divergences": 0},
         },
     )
     rendered = report.to_json()
     # The JSON envelope MUST contain counts + hashes + counters.
     assert "count_legacy" in rendered
     assert "count_web" in rendered
-    assert "dni_collisions" in rendered
+    assert "preserve_advances" in rendered
     # ...but no fixture PII substring.
     assert not pii_substring_pattern.search(rendered), (
         f"MigrationReport.to_json() leaked a PII substring; full output:\n{rendered}"

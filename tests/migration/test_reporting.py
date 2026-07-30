@@ -5,7 +5,7 @@ Per design D11 (corrections B): ADD to existing ``MigrationReport``:
 - ``counts: dict[str, int]`` (per-table ``{count_legacy, count_web}``)
 - ``source_hashes: dict[str, str]`` (per-table SHA-256)
 - ``collisions: dict[str, int]`` (per-table counters, e.g.
-  ``{"dni_collisions": 0, "row_divergences": N}``)
+  ``{"preserve_advances": 0, "row_divergences": N}``)
 
 All three are added via ``field(default_factory=dict)`` so pre-PR3
 reports (and the existing ``_sample_report`` fixture in
@@ -82,14 +82,14 @@ class TestDefaultFactories:
         report = _sample_report(
             counts={"animal": {"count_legacy": 100, "count_web": 90}},
             source_hashes={"animal": "a" * 64},
-            collisions={"animal": {"dni_collisions": 0, "row_divergences": 2}},
+            collisions={"animal": {"preserve_advances": 0, "row_divergences": 2}},
         )
         assert report.counts == {
             "animal": {"count_legacy": 100, "count_web": 90}
         }
         assert report.source_hashes == {"animal": "a" * 64}
         assert report.collisions == {
-            "animal": {"dni_collisions": 0, "row_divergences": 2}
+            "animal": {"preserve_advances": 0, "row_divergences": 2}
         }
 
     def test_report_is_immutable(self) -> None:
@@ -111,7 +111,7 @@ class TestJsonSerialization:
         report = _sample_report(
             counts={"animal": {"count_legacy": 100, "count_web": 90}},
             source_hashes={"animal": "a" * 64, "voluntario": "b" * 64},
-            collisions={"animal": {"dni_collisions": 0, "row_divergences": 2}},
+            collisions={"animal": {"preserve_advances": 0, "row_divergences": 2}},
         )
         raw = report.to_json()
         loaded = json.loads(raw)
@@ -123,7 +123,7 @@ class TestJsonSerialization:
             "voluntario": "b" * 64,
         }
         assert loaded["collisions"] == {
-            "animal": {"dni_collisions": 0, "row_divergences": 2}
+            "animal": {"preserve_advances": 0, "row_divergences": 2}
         }
 
     def test_json_with_default_factories_serializes_empty_dicts(self) -> None:
@@ -145,7 +145,7 @@ class TestJsonSerialization:
         report = _sample_report(
             counts={"animal": {"count_legacy": 1, "count_web": 0}},
             source_hashes={"animal": "a" * 64},
-            collisions={"animal": {"dni_collisions": 0, "row_divergences": 0}},
+            collisions={"animal": {"preserve_advances": 0, "row_divergences": 0}},
         )
         raw = report.to_json()
         for forbidden in ("DNI", "Email", "Tel1", "Tel2"):
@@ -165,7 +165,7 @@ class TestJsonSerialization:
         ``collisions`` dict.
         """
         report = _sample_report(
-            collisions={"voluntario": {"dni_collisions": 5, "row_divergences": 0}},
+            collisions={"voluntario": {"preserve_advances": 5, "row_divergences": 0}},
         )
         raw = report.to_json()
         # Even though we did not put a DNI value here, the JSON must

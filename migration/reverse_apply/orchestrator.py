@@ -266,7 +266,7 @@ def apply_web_to_legacy(
         if migration_report is not None:
             migration_report.counts.setdefault(safe, {})["count_web"] = len(web_rows)
             migration_report.collisions.setdefault(safe, {})[
-                "dni_collisions"
+                "preserve_advances"
             ] = dni_collision_counter.value if dni_collision_counter is not None else 0
 
         return ApplyResult(
