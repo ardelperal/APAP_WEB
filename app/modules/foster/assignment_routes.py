@@ -38,7 +38,6 @@ from starlette.responses import Response
 
 from app.core.auth_dependencies import (
     get_insforge_client_dep,
-    is_authenticated_user,
     require_authorized_user,
     require_developer_user,
     require_writer_user,
@@ -111,7 +110,7 @@ def _render_asignar_form(
 def asignar_form(
     casa_id: str,
     request: Request,
-    user: Response | dict = Depends(require_authorized_user),
+    user: Any = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Render the foster assignment evaluation form.
@@ -123,8 +122,6 @@ def asignar_form(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
-    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
-        return RedirectResponse(url="/unauthorized")
     casa = foster_service.get_casa_acogida_by_id(client, casa_id)
     if casa is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
@@ -147,7 +144,7 @@ def asignar_submit(
     request: Request,
     animal_id: str = Form(...),
     motivo: str = Form(""),
-    user: Response | dict = Depends(require_writer_user),
+    user: Any = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Execute the gate and route the operator based on the decision.
@@ -173,8 +170,6 @@ def asignar_submit(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
-    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
-        return RedirectResponse(url="/unauthorized")
     casa = foster_service.get_casa_acogida_by_id(client, casa_id)
     if casa is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
@@ -262,7 +257,7 @@ def asignar_submit(
 def overrides_list(
     casa_id: str,
     request: Request,
-    user: Response | dict = Depends(require_developer_user),
+    user: Any = Depends(require_developer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Render the historical list of capacity overrides for one casa.
@@ -282,8 +277,6 @@ def overrides_list(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
-    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
-        return RedirectResponse(url="/unauthorized")
     casa = foster_service.get_casa_acogida_by_id(client, casa_id)
     if casa is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)

@@ -50,13 +50,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.core.auth_dependencies import (
     get_insforge_client_dep,
-    is_authenticated_user,
     require_authorized_user,
     require_writer_user,
     return_early_if_response,
@@ -228,7 +227,7 @@ def _render_backend_error(
 def list_actuaciones_view(
     request: Request,
     animal_id: str | None = None,
-    user: Response | dict = Depends(require_authorized_user),
+    user: Any = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """List active actuaciones; ``?animal_id=`` filters to one animal.
@@ -241,8 +240,6 @@ def list_actuaciones_view(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
-    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
-        return RedirectResponse(url="/unauthorized")
     animal_id = (animal_id or "").strip() or None
     if animal_id:
         actuaciones = sanidad_service.search_actuaciones_by_animal(
@@ -267,14 +264,12 @@ def list_actuaciones_view(
 @router.get("/new", response_class=HTMLResponse)
 def new_actuacion_form(
     request: Request,
-    user: Response | dict = Depends(require_authorized_user),
+    user: Any = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Empty form for a new actuacion, with the catalogos_pruebas dropdown."""
     if (early := return_early_if_response(user)) is not None:
         return early
-    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
-        return RedirectResponse(url="/unauthorized")
     catalogos = _load_catalogos_pruebas_for_form(client, context="new")
     return _render_form(
         request,
@@ -299,7 +294,7 @@ def create_actuacion_view(
     veterinario: str | None = Form(None),
     observaciones: str | None = Form(None),
     material_utilizado: str | None = Form(None),
-    user: Response | dict = Depends(require_writer_user),
+    user: Any = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Create an actuacion; redirect to detail on success.
@@ -312,8 +307,6 @@ def create_actuacion_view(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
-    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
-        return RedirectResponse(url="/unauthorized")
     form_data = _form_data_to_params(
         {
             "animal_id": animal_id,
@@ -366,14 +359,12 @@ def create_actuacion_view(
 def actuacion_detail(
     actuacion_id: str,
     request: Request,
-    user: Response | dict = Depends(require_authorized_user),
+    user: Any = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Detail view; 404 when the id is missing."""
     if (early := return_early_if_response(user)) is not None:
         return early
-    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
-        return RedirectResponse(url="/unauthorized")
     actuacion = sanidad_service.get_actuacion_sanitaria_by_id(
         client, actuacion_id
     )
@@ -410,14 +401,12 @@ def actuacion_detail(
 def edit_actuacion_form(
     actuacion_id: str,
     request: Request,
-    user: Response | dict = Depends(require_authorized_user),
+    user: Any = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Edit form prefilled from the persisted row."""
     if (early := return_early_if_response(user)) is not None:
         return early
-    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
-        return RedirectResponse(url="/unauthorized")
     actuacion = sanidad_service.get_actuacion_sanitaria_by_id(
         client, actuacion_id
     )
@@ -450,7 +439,7 @@ def update_actuacion_view(
     veterinario: str | None = Form(None),
     observaciones: str | None = Form(None),
     material_utilizado: str | None = Form(None),
-    user: Response | dict = Depends(require_writer_user),
+    user: Any = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Update an existing actuacion; redirect to detail on success.
@@ -462,8 +451,6 @@ def update_actuacion_view(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
-    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
-        return RedirectResponse(url="/unauthorized")
     form_data = _form_data_to_params(
         {
             "animal_id": animal_id,
@@ -521,7 +508,7 @@ def update_actuacion_view(
 def delete_actuacion_view(
     actuacion_id: str,
     request: Request,
-    user: Response | dict = Depends(require_writer_user),
+    user: Any = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Soft-delete via ``sanidad_service.delete_actuacion_sanitaria``.
@@ -531,8 +518,6 @@ def delete_actuacion_view(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
-    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
-        return RedirectResponse(url="/unauthorized")
     try:
         deleted = sanidad_service.delete_actuacion_sanitaria(
             client,

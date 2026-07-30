@@ -39,13 +39,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.core.auth_dependencies import (
     get_insforge_client_dep,
-    is_authenticated_user,
     require_authorized_user,
     require_writer_user,
     return_early_if_response,
@@ -136,7 +135,7 @@ def _render_form(
 @router.get("", response_class=HTMLResponse)
 def list_materiales_view(
     request: Request,
-    user: Response | dict = Depends(require_authorized_user),
+    user: Any = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Active catalog list. Delegates to ``materiales_service.list_materials``.
@@ -148,8 +147,6 @@ def list_materiales_view(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
-    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
-        return RedirectResponse(url="/unauthorized")
     materiales = materiales_service.list_materials(client, activos_solo=True)
     return _templates.TemplateResponse(
         request=request,
@@ -164,7 +161,7 @@ def list_materiales_view(
 @router.get("/new", response_class=HTMLResponse)
 def new_material_form(
     request: Request,
-    user: Response | dict = Depends(require_authorized_user),
+    user: Any = Depends(require_authorized_user),
 ):
     """Empty create form.
 
@@ -175,8 +172,6 @@ def new_material_form(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
-    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
-        return RedirectResponse(url="/unauthorized")
     return _render_form(request, user, {}, None, "/materiales")
 
 
@@ -190,7 +185,7 @@ def create_material_view(
     tamano: str = Form(...),
     color: str = Form(...),
     observaciones: str | None = Form(None),
-    user: Response | dict = Depends(require_writer_user),
+    user: Any = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Procesa el submit del formulario de alta. En exito, redirect al detalle.
@@ -207,8 +202,6 @@ def create_material_view(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
-    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
-        return RedirectResponse(url="/unauthorized")
     form_data: dict[str, Any] = _form_data_to_params(
         {
             "material": material,
@@ -250,7 +243,7 @@ def create_material_view(
 def material_detail(
     material_id: str,
     request: Request,
-    user: Response | dict = Depends(require_authorized_user),
+    user: Any = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Detail view. Returns 404 when the row is missing.
@@ -261,8 +254,6 @@ def material_detail(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
-    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
-        return RedirectResponse(url="/unauthorized")
     material = materiales_service.get_material_by_id(client, material_id)
     if material is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
@@ -280,7 +271,7 @@ def material_detail(
 def edit_material_form(
     material_id: str,
     request: Request,
-    user: Response | dict = Depends(require_authorized_user),
+    user: Any = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Edit form prefilled with the persisted row.
@@ -292,8 +283,6 @@ def edit_material_form(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
-    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
-        return RedirectResponse(url="/unauthorized")
     material = materiales_service.get_material_by_id(client, material_id)
     if material is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
@@ -317,7 +306,7 @@ def update_material_view(
     tamano: str = Form(...),
     color: str = Form(...),
     observaciones: str | None = Form(None),
-    user: Response | dict = Depends(require_writer_user),
+    user: Any = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Procesa el submit del formulario de edicion. En exito, redirect al detalle.
@@ -332,8 +321,6 @@ def update_material_view(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
-    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
-        return RedirectResponse(url="/unauthorized")
     form_data: dict[str, Any] = _form_data_to_params(
         {
             "material": material,
@@ -379,7 +366,7 @@ def update_material_view(
 def deactivate_material_view(
     material_id: str,
     request: Request,
-    user: Response | dict = Depends(require_writer_user),
+    user: Any = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Soft-delete via ``materiales_service.deactivate_material``.
@@ -391,8 +378,6 @@ def deactivate_material_view(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
-    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
-        return RedirectResponse(url="/unauthorized")
     if not materiales_service.deactivate_material(client, material_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     return RedirectResponse(
