@@ -31,6 +31,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.core.auth_dependencies import (
+    AuthenticatedUser,
     get_insforge_client_dep,
     require_authorized_user,
     require_writer_user,
@@ -138,7 +139,7 @@ def _acogida_to_form_data(acogida: acogidas_service.Acogida) -> dict[str, Any]:
 
 def _render_form(
     request: Request,
-    user: Any,
+    user: AuthenticatedUser,
     form_data: dict[str, Any],
     error: str | None,
     form_action: str,
@@ -164,7 +165,7 @@ def _render_form(
 def list_acogidas_view(
     request: Request,
     activas_solo: int | None = None,
-    user: Any = Depends(require_authorized_user),
+    user: AuthenticatedUser = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """List stays; ``?activas_solo=1`` filters to open stays."""
@@ -189,7 +190,7 @@ def list_acogidas_view(
 @router.get("/new", response_class=HTMLResponse)
 def new_acogida_form(
     request: Request,
-    user: Any = Depends(require_authorized_user),
+    user: AuthenticatedUser = Depends(require_authorized_user),
 ):
     """Render an empty create form."""
     if (early := return_early_if_response(user)) is not None:
@@ -216,7 +217,7 @@ def create_acogida_view(
     telefono: str | None = Form(None),
     observaciones: str | None = Form(None),
     override_id: str | None = Form(None),
-    user: Any = Depends(require_writer_user),
+    user: AuthenticatedUser = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Create a new estancia; redirect to detail on success, re-render form on validation error.
@@ -311,7 +312,7 @@ def create_acogida_view(
 def acogida_detail(
     acogida_id: str,
     request: Request,
-    user: Any = Depends(require_authorized_user),
+    user: AuthenticatedUser = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Render the stay detail view with computed duration + active state."""
@@ -341,7 +342,7 @@ def acogida_detail(
 def edit_acogida_form(
     acogida_id: str,
     request: Request,
-    user: Any = Depends(require_authorized_user),
+    user: AuthenticatedUser = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Render the edit form prefilled from the current stay row."""
@@ -378,7 +379,7 @@ def update_acogida_view(
     direccion: str | None = Form(None),
     telefono: str | None = Form(None),
     observaciones: str | None = Form(None),
-    user: Any = Depends(require_writer_user),
+    user: AuthenticatedUser = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Apply form edits; redirect to detail on success, re-render on validation error."""
@@ -456,7 +457,7 @@ def update_acogida_view(
 def close_acogida_view(
     acogida_id: str,
     request: Request,
-    user: Any = Depends(require_writer_user),
+    user: AuthenticatedUser = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Close the stay: ``fecha_final = current_date``, ``activo`` stays true.
@@ -481,7 +482,7 @@ def close_acogida_view(
 def delete_acogida_view(
     acogida_id: str,
     request: Request,
-    user: Any = Depends(require_writer_user),
+    user: AuthenticatedUser = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Soft-delete the stay: ``activo = false`` + ``fecha_baja = now()``.

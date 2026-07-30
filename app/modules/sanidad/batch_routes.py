@@ -40,6 +40,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.core.auth_dependencies import (
+    AuthenticatedUser,
     get_insforge_client_dep,
     require_authorized_user,
     require_writer_user,
@@ -132,7 +133,7 @@ def _parse_batch_records(
     return records
 
 
-def _actor_user_id(user: Any) -> str | None:
+def _actor_user_id(user: AuthenticatedUser) -> str | None:
     """Same shape as ``sanidad.routes._actor_user_id`` — extractor for
     audit logs. Local private mirror for the same reason as ``_opt``.
     """
@@ -144,7 +145,7 @@ def _actor_user_id(user: Any) -> str | None:
 
 def _render_batch_preview(
     request: Request,
-    user: Any,
+    user: AuthenticatedUser,
     records: list[dict[str, Any]],
     *,
     preview: sanidad_batch_service.BatchPreview | None = None,
@@ -203,7 +204,7 @@ def _preview_from_validation_error(
 @router.get("/batch/new", response_class=HTMLResponse)
 def new_batch_actuaciones_form(
     request: Request,
-    user: Any = Depends(require_authorized_user),
+    user: AuthenticatedUser = Depends(require_authorized_user),
 ):
     """Render the empty batch form with ``BATCH_MIN_RECORDS`` blank rows.
 
@@ -235,7 +236,7 @@ def batch_actuaciones_view(
     veterinario: list[str] = Form([]),
     observaciones: list[str] = Form([]),
     material_utilizado: list[str] = Form([]),
-    user: Any = Depends(require_writer_user),
+    user: AuthenticatedUser = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """HEALTH-02 batch endpoint: staging preview OR atomic commit.
@@ -255,7 +256,7 @@ def batch_actuaciones_view(
 
 def _do_batch_view(
     request: Request,
-    user: Any,
+    user: AuthenticatedUser,
     client: InsForgeClient,
     dry_run: str | None,
     animal_id: list[str],

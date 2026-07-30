@@ -551,6 +551,8 @@ def _scan_file(path: Path, repo_root: Path) -> list[Violation]:
     if _is_app_main(path, repo_root):
         out.extend(_check_csrf_middleware_registered(path, tree))
     out.extend(_check_cross_module_import(path, tree, repo_root))
+    if _is_route_file(path, repo_root):
+        out.extend(_check_apap004_any_auth_dep(path, tree))
     return out
 
 
@@ -907,6 +909,75 @@ def _is_app_main(path: Path, repo_root: Path) -> bool:
     except ValueError:
         return False
     return relative.parts == ("app", "main.py")
+
+
+def _is_route_file(path: Path, repo_root: Path) -> bool:
+    """True if ``path`` is a FastAPI route file.
+
+    Covers ``app/main.py`` and any ``routes*.py`` / ``batch_routes.py`` /
+    ``assignment_routes.py`` under ``app/modules/<M>/``.
+    """
+    try:
+        relative = path.relative_to(repo_root)
+    except ValueError:
+        return False
+    if relative.parts == ("app", "main.py"):
+        return True
+    # app/modules/<M>/routes*.py or batch_routes.py or assignment_routes.py
+    if (
+        len(relative.parts) >= 3
+        and relative.parts[0] == "app"
+        and relative.parts[1] == "modules"
+    ):
+        name = relative.parts[-1]
+        return (
+            name.startswith("routes")
+            or name == "batch_routes.py"
+            or name == "assignment_routes.py"
+        )
+    return False
+
+
+# Detector 14 (APAP004) ----------------------------------------------------
+
+
+_USER_ANY_PARAM_RE = re.compile(r"\buser\s*:\s*Any\b")
+
+
+def _check_apap004_any_auth_dep(path: Path, tree: ast.AST) -> list[Violation]:
+    """Detector 14 — APAP004.
+
+    Flags ``user: Any`` in FastAPI route handler parameters. The ``Any``
+    annotation erases the mypy type boundary at the auth surface: routes
+    that accept ``user: Any = Depends(...)`` lose all type information about
+    the authenticated-user payload (user_id, email, rol, is_authorized).
+    Replace with ``user: AuthenticatedUser`` imported from
+    ``app.core.auth_dependencies``.
+
+    Scope: ``app/main.py`` and any ``routes*.py`` / ``batch_routes.py`` /
+    ``assignment_routes.py`` under ``app/modules/<M>/``.
+    """
+    violations: list[Violation] = []
+    src = path.read_text(encoding="utf-8")
+    for lineno, line in enumerate(src.splitlines(), start=1):
+        stripped = line.strip()
+        # Skip comment-only lines
+        if stripped.startswith("#"):
+            continue
+        if _USER_ANY_PARAM_RE.search(line):
+            violations.append(
+                Violation(
+                    file=path,
+                    line=lineno,
+                    rule_id="apap004_any_auth_dep",
+                    message=(
+                        "user: Any in route handler parameter erases the auth "
+                        "type boundary. Replace with 'user: AuthenticatedUser' "
+                        "from app.core.auth_dependencies (APAP004)."
+                    ),
+                )
+            )
+    return violations
 
 
 def _is_app_main_or_session(path: Path, repo_root: Path) -> bool:

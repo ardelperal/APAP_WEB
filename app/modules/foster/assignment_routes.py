@@ -37,6 +37,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
 from app.core.auth_dependencies import (
+    AuthenticatedUser,
     get_insforge_client_dep,
     require_authorized_user,
     require_developer_user,
@@ -82,7 +83,7 @@ def _operator_user_id(request: Request) -> str:
 
 def _render_asignar_form(
     request: Request,
-    user: Any,
+    user: AuthenticatedUser,
     casa: foster_service.CasaAcogida,
     form_data: dict[str, Any],
     warning: str | None,
@@ -110,7 +111,7 @@ def _render_asignar_form(
 def asignar_form(
     casa_id: str,
     request: Request,
-    user: Any = Depends(require_authorized_user),
+    user: AuthenticatedUser = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Render the foster assignment evaluation form.
@@ -144,7 +145,7 @@ def asignar_submit(
     request: Request,
     animal_id: str = Form(...),
     motivo: str = Form(""),
-    user: Any = Depends(require_writer_user),
+    user: AuthenticatedUser = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Execute the gate and route the operator based on the decision.
@@ -257,7 +258,7 @@ def asignar_submit(
 def overrides_list(
     casa_id: str,
     request: Request,
-    user: Any = Depends(require_developer_user),
+    user: AuthenticatedUser = Depends(require_developer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Render the historical list of capacity overrides for one casa.

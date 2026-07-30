@@ -44,6 +44,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.core.auth_dependencies import (
+    AuthenticatedUser,
     get_insforge_client_dep,
     require_authorized_user,
     require_writer_user,
@@ -103,7 +104,7 @@ def _material_to_form_data(
 
 def _render_form(
     request: Request,
-    user: Any,
+    user: AuthenticatedUser,
     form_data: dict[str, Any],
     error: str | None,
     form_action: str,
@@ -135,7 +136,7 @@ def _render_form(
 @router.get("", response_class=HTMLResponse)
 def list_materiales_view(
     request: Request,
-    user: Any = Depends(require_authorized_user),
+    user: AuthenticatedUser = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Active catalog list. Delegates to ``materiales_service.list_materials``.
@@ -161,7 +162,7 @@ def list_materiales_view(
 @router.get("/new", response_class=HTMLResponse)
 def new_material_form(
     request: Request,
-    user: Any = Depends(require_authorized_user),
+    user: AuthenticatedUser = Depends(require_authorized_user),
 ):
     """Empty create form.
 
@@ -185,7 +186,7 @@ def create_material_view(
     tamano: str = Form(...),
     color: str = Form(...),
     observaciones: str | None = Form(None),
-    user: Any = Depends(require_writer_user),
+    user: AuthenticatedUser = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Procesa el submit del formulario de alta. En exito, redirect al detalle.
@@ -243,7 +244,7 @@ def create_material_view(
 def material_detail(
     material_id: str,
     request: Request,
-    user: Any = Depends(require_authorized_user),
+    user: AuthenticatedUser = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Detail view. Returns 404 when the row is missing.
@@ -271,7 +272,7 @@ def material_detail(
 def edit_material_form(
     material_id: str,
     request: Request,
-    user: Any = Depends(require_authorized_user),
+    user: AuthenticatedUser = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Edit form prefilled with the persisted row.
@@ -306,7 +307,7 @@ def update_material_view(
     tamano: str = Form(...),
     color: str = Form(...),
     observaciones: str | None = Form(None),
-    user: Any = Depends(require_writer_user),
+    user: AuthenticatedUser = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Procesa el submit del formulario de edicion. En exito, redirect al detalle.
@@ -366,7 +367,7 @@ def update_material_view(
 def deactivate_material_view(
     material_id: str,
     request: Request,
-    user: Any = Depends(require_writer_user),
+    user: AuthenticatedUser = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Soft-delete via ``materiales_service.deactivate_material``.
