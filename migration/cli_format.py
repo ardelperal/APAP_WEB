@@ -83,16 +83,49 @@ def _mask_pii_value(column: str | None, raw: Any) -> Any:
 # DNI typed as the natural key, an email, a phone number). The
 # formatter does not have a column context for the value (it's a
 # PK, not a web column), so the column-based mask is not enough.
-# The value-based mask below applies three closed regex patterns:
-# DNI (8 digits + letter), email (RFC-lite), phone (E.164 / local
-# Spanish). UUIDs, NCHIPs, and other natural keys do NOT match
-# any of the patterns and pass through unchanged. The patterns
-# are deliberately conservative — false negatives on weird PII
+# The value-based mask below applies five closed regex patterns:
+#
+# DNI (8 digits + 1 letter):          12345678Z
+# NIE (X/Y/Z + 7 digits + 1 letter):  X1234567Z, Y7654321A, Z1234567S
+# NIF Especial (K/L/M + 7 + 1):       K1234567A, L1234567B, M1234567C
+# Phone E.164 (9 digits ± country):    +34 612345678, +34612345678, +1 5551234567
+#   Spanish mobile: leading 6/7/8/9 after country code; minimum 9 digits total.
+#   The 9-digit floor excludes numeric NCHIPs (3–5 digits: 001, 1234, 12345).
+#   A bare 9-digit string (612345678) is also accepted as a Spanish local-mobile.
+# Email (RFC-lite):                   alice@example.org, user+tag@domain.es
+#
+# UUIDs, NCHIPs, and other natural keys do NOT match any pattern.
+# The set is deliberately conservative — false negatives on rare PII
 # formats are acceptable as long as the common shapes are caught.
+#
+# Phone E.164 / national formats — covered by three patterns:
+#
+# 1. Spanish landline:  (\+34\s?)?[89]\d{8}
+#    Matches:  912345678  +34912345678  +34 912345678
+# 2. Spanish mobile:    (\+34\s?)?[67]\d{8}
+#    Matches:  612345678  +34612345678  +34 612345678
+# 3. US international:   ^\+1\s?\d{10}$
+#    Matches:  +1 5551234567  +15551234567
+#    (NANP: +1 followed by 10-digit subscriber; the space is optional)
+#
+# NCHIP exclusion: the old pattern ``\+?\d[\d\s\-\(\)]{6,}`` matched any
+# 7+ consecutive digit string, producing false positives on numeric NCHIPs
+# like "0012345".  The three-pattern seam requires either a +1 prefix (US)
+# or a 9-digit subscriber starting with 6-9 (Spanish), which excludes
+# all numeric IDs shorter than 9 digits.
+#
+# Issue #219: extended from 3 to 6 patterns. Previously missed NIE
+# (X/Y/Z prefix) and NIF Especial (K/L/M prefix). Phone regex replaced
+# with a three-pattern seam to handle ES landline/mobile and US international
+# E.164 formats while excluding numeric NCHIPs.
 _PII_VALUE_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"^\d{8}[A-Z]$"),                       # Spanish DNI shape
+    re.compile(r"^\d{8}[A-Z]$"),                         # Spanish DNI
+    re.compile(r"^[XYZ]\d{7}[A-Z]$"),                    # Spanish NIE
+    re.compile(r"^[KLM]\d{7}[A-Z]$"),                    # Spanish NIF Especial
+    re.compile(r"^(\+34\s?)?[89]\d{8}$"),                 # Spanish landline (optional +34)
+    re.compile(r"^(\+34\s?)?[67]\d{8}$"),               # Spanish mobile (optional +34)
+    re.compile(r"^\+1\s?\d{10}$"),                       # US international E.164
     re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$"),          # email (RFC-lite)
-    re.compile(r"^\+?\d[\d\s\-\(\)]{6,}$"),            # phone (E.164 or local)
 )
 
 
