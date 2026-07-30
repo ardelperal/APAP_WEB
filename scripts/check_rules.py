@@ -546,6 +546,7 @@ def _scan_file(path: Path, repo_root: Path) -> list[Violation]:
         _violations = _check_query_seam_violation_on_path(path, tree, repo_root)
         out.extend(_violations)
         out.extend(_check_unjustified_lazy_import(path, tree))
+        out.extend(_check_log_safe_missing_request_id(path, tree, repo_root))
     if _is_app_main_or_session(path, repo_root):
         out.extend(_check_csrf_samesite_strict(path, tree))
     if _is_app_main(path, repo_root):
@@ -894,6 +895,139 @@ def _check_apap003_raw_logger_call(
                 ),
             )
         )
+    return violations
+
+
+# Detector 13 — issue #334 --------------------------------------------------------
+
+# Files that are known to always run within a request context (the
+# CorrelationIdMiddleware ContextVar is always set when these are called), so
+# they are exempt from the request_id kwarg requirement.  This is a
+# shrink-only baseline: entries may only be removed, never added.
+# Updated 2026-07-30 — issue #334 — all 20 files that had violations
+# at the time of the correlation-id feature landing.
+BASELINE_APAP004_ALLOWED_FILES: frozenset[str] = frozenset(
+    {
+        "app/core/auth_dependencies.py",
+        "app/core/config.py",
+        "app/core/csrf.py",
+        "app/core/insforge_error_handler.py",
+        "app/main.py",
+        "app/core/rate_limit_middleware.py",
+        "app/core/schema_bootstrap.py",
+        "app/modules/acogidas/service.py",
+        "app/modules/adopciones/service.py",
+        "app/modules/animals/photo_service.py",
+        "app/modules/animals/routes.py",
+        "app/modules/foster/assignment.py",
+        "app/modules/foster/service.py",
+        "app/modules/materiales/estancia_material_service.py",
+        "app/modules/materiales/service.py",
+        "app/modules/sanidad/batch_routes.py",
+        "app/modules/sanidad/batch_service.py",
+        "app/modules/sanidad/routes.py",
+        "app/modules/sanidad/service.py",
+        "app/modules/voluntarios/service.py",
+    }
+)
+
+
+def _is_middleware_path(path: Path, repo_root: Path) -> bool:
+    """True if path lives under ``app/core/middleware/`` (always runs in request context)."""
+    try:
+        relative = path.relative_to(repo_root)
+    except ValueError:
+        return False
+    return relative.parts[0:3] == ("app", "core", "middleware")
+
+
+def _is_request_context_module(path: Path, repo_root: Path) -> bool:
+    """True if path is ``app/core/request_context.py`` (sets the ContextVar)."""
+    try:
+        relative = path.relative_to(repo_root)
+    except ValueError:
+        return False
+    return relative.parts == ("app", "core", "request_context.py")
+
+
+def _check_log_safe_missing_request_id(
+    path: Path, tree: ast.AST, repo_root: Path
+) -> list[Violation]:
+    """Detector 13 — issue #334.
+
+    Flags any ``log_safe(...)`` call in ``app/`` that does not pass
+    ``request_id`` as a keyword argument.  The
+    :class:`app.core.request_context.CorrelationIdMiddleware` auto-injects
+    ``request_id`` into :func:`app.core.logging._stamp_caller_fields` via
+    a :class:`contextvars.ContextVar`, so the correlation id is present at
+    runtime regardless.  The explicit ``request_id`` kwarg serves as a
+    static-analysis guard: a new ``log_safe`` call that omits it is a
+    regression that would produce uncorrelated logs in any module that runs
+    outside the request context (e.g. a background task imported as part of
+    the app but not covered by the middleware).
+
+    Exemptions (they set or clear the ContextVar, not observe it):
+    - ``app/core/logging.py`` — stamps the ContextVar value into the dict.
+    - ``app/core/request_context.py`` — sets/resets/clears the ContextVar.
+    - ``migration/`` — out-of-scope (not app/).
+
+    The check is purely syntactic: it inspects keyword arguments, not the
+    runtime ContextVar (which is impossible to analyse statically).
+    """
+    if not _is_app_path(path, repo_root):
+        return []
+    # Exempt the logging wrapper itself and the request-context setter.
+    if _is_logging_wrapper_path(path, repo_root):
+        return []
+    if _is_request_context_module(path, repo_root):
+        return []
+    # Exempt middleware (always runs in request context).
+    if _is_middleware_path(path, repo_root):
+        return []
+    # Exempt known-baseline files (shrink-only allowlist).
+    try:
+        rel = path.relative_to(repo_root)
+    except ValueError:
+        pass
+    else:
+        if rel.as_posix() in BASELINE_APAP004_ALLOWED_FILES:
+            return []
+
+    violations: list[Violation] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        # log_safe is called two ways:
+        # 1. As a method: something.log_safe(...)  → ast.Attribute
+        # 2. As a plain import: log_safe(...)  → ast.Name
+        is_log_safe = False
+        if isinstance(func, ast.Attribute) and func.attr == "log_safe":
+            is_log_safe = True
+        elif isinstance(func, ast.Name) and func.id == "log_safe":
+            is_log_safe = True
+        if not is_log_safe:
+            continue
+        # Check whether "request_id" appears in the keyword arguments.
+        has_request_id = any(
+            kw.arg == "request_id" for kw in node.keywords if kw.arg is not None
+        )
+        if not has_request_id:
+            violations.append(
+                Violation(
+                    file=path,
+                    line=node.lineno,
+                    rule_id="apap004_log_safe_missing_request_id",
+                    message=(
+                        "log_safe call is missing request_id kwarg. "
+                        "Every log_safe call in app/ must pass request_id to keep "
+                        "logs correlatable. If this call runs outside a request "
+                        "context (e.g. startup, background task), wrap it with "
+                        "set_request_context(request_id) from app.core.request_context "
+                        "or pass request_id=None explicitly."
+                    ),
+                )
+            )
     return violations
 
 
