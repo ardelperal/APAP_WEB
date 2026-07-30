@@ -123,18 +123,26 @@ async def test_session_cookie_path_matches_logout_clearing_path(
     # IGNORED by the browser — the exact bug we just fixed.
     from pathlib import Path as _P
 
-    main_src = _P("app/main.py").read_text(encoding="utf-8")
+    # After PR #351 (issue #336) the cookie-creation code was extracted
+    # from app/main.py into app/core/auth_flow.py. Check both so the
+    # assertion stays valid regardless of where the code lives.
+    auth_sources = [
+        _P("app/main.py").read_text(encoding="utf-8"),
+        _P("app/core/auth_flow.py").read_text(encoding="utf-8"),
+    ]
+    combined = "\n".join(auth_sources)
     # The auth/callback response.set_cookie call MUST include
     # path="/" so the cookie is set at the site root.
     assert (
-        'session_cookie_name(),' in main_src
-        and 'path="/"' in main_src
+        'session_cookie_name(),' in combined
+        and 'path="/"' in combined
     ), (
-        "app/main.py: the auth/callback set_cookie call MUST include "
-        "path=\"/\" so the session cookie is scoped to the site root "
-        "and matches the /logout clearing cookie. Without this, the "
-        "browser keeps the old cookie (different path) and the user "
-        "stays logged in after clicking Salir."
+        "auth source (app/main.py or app/core/auth_flow.py): "
+        "the auth/callback set_cookie call MUST include path=\"/\" "
+        "so the session cookie is scoped to the site root and matches "
+        "the /logout clearing cookie. Without this, the browser keeps "
+        "the old cookie (different path) and the user stays logged in "
+        "after clicking Salir."
     )
 
 
@@ -150,10 +158,18 @@ def test_logout_clearing_cookie_attributes_match_creation(
     """
     # Find the create-time attributes from the source. ``_SESSION_COOKIE_NAME``
     # is the cookie name; Path / Secure / SameSite are set in
-    # app.main::callback.
+    # app.core.auth_flow::callback (extracted from app.main::callback
+    # in PR #351 / issue #336).
     from pathlib import Path
 
-    main_src = Path("app/main.py").read_text(encoding="utf-8")
+    # After PR #351 (issue #336) the cookie-creation code was extracted
+    # from app/main.py into app/core/auth_flow.py. Check both so the
+    # assertions stay valid regardless of where the code lives.
+    auth_sources = [
+        Path("app/main.py").read_text(encoding="utf-8"),
+        Path("app/core/auth_flow.py").read_text(encoding="utf-8"),
+    ]
+    combined = "\n".join(auth_sources)
     # Path: the create-time set_cookie uses ``max_age=...`` (no path)
     # → defaults to ``/``. The clear-time goes through
     # ``clear_session_cookie_params()`` (defined in app/core/session.py)
@@ -167,14 +183,16 @@ def test_logout_clearing_cookie_attributes_match_creation(
     # SameSite: the session cookie must stay Strict. The apap_pkce OAuth
     # verifier cookie is intentionally Lax so the top-level callback GET can
     # carry it back from Google/InsForge.
-    assert 'session_cookie_name(),\n            session_token' in main_src
-    assert 'samesite="strict"' in main_src, (
-        "app/main.py: the session cookie must keep samesite='strict' "
+    assert 'session_cookie_name(),\n            session_token' in combined
+    assert 'samesite="strict"' in combined, (
+        "auth source (app/main.py or app/core/auth_flow.py): "
+        "the session cookie must keep samesite='strict' "
         "while only the short-lived apap_pkce verifier may be lax"
     )
     # Secure: must be the same.
-    assert main_src.count("secure=True") >= 2, (
-        "app/main.py: secure must be True on both create and clear "
+    assert combined.count("secure=True") >= 2, (
+        "auth source (app/main.py or app/core/auth_flow.py): "
+        "secure must be True on both create and clear "
         "(otherwise the browser ignores the clearing Set-Cookie)"
     )
 

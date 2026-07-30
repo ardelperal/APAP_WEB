@@ -62,8 +62,8 @@ _ROUTER_NAMES = frozenset({"router", "application"})
 #: fails on any drift between this dict and the real tree. Never add a
 #: new entry: split the handler instead.
 BASELINE: dict[str, int] = {
+    # app/main.py::callback was extracted to app/core/auth_flow.py (#336).
     "app/modules/foster/assignment_routes.py::asignar_submit": 109,
-    "app/main.py::callback": 107,
     "app/modules/acogidas/routes.py::create_acogida_view": 101,
     "app/modules/materiales/acogida_routes.py::assign_material_to_estancia_view": 87,
     "app/modules/cesiones/routes.py::create_cesion_view": 87,
