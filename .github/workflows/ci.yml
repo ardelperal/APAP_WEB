@@ -181,7 +181,10 @@ jobs:
 
   e2e:
     name: e2e
-    runs-on: ubuntu-latest
+    # Self-hosted runner: Oracle ARM64 VPS. Falls back to ubuntu-latest when
+    # APAP_SELF_HOSTED_E2E_ENABLED is not set (e.g. forks, local dev CI).
+    # Issue #223.
+    runs-on: ${{ vars.APAP_SELF_HOSTED_E2E_ENABLED && '[self-hosted, Linux, ARM64, apap, oracle]' || 'ubuntu-latest' }}
     needs: build
     # The e2e suite spins up the FastAPI server and runs Playwright
     # against it. The /login handler returns 503 when Google OAuth env
