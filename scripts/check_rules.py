@@ -958,7 +958,7 @@ def _check_integration_test_coverage(repo_root: Path) -> list[Violation]:
       1. Walk ``app/modules/*/queries.py`` — collect all top-level function
          names starting with ``build_``.
       2. For each module, find ``tests/integration/test_<module>_queries_integration.py``
-         (if it exists).
+         (if it exists) OR ``tests/_rule_helpers/fixtures/detector15_<positive|negative>/``.
       3. Parse that test file and collect all ``def test_build_<name>`` names.
       4. Any ``build_*`` in the queries module without a matching
          ``test_build_*`` in the integration file is a violation.
@@ -975,6 +975,7 @@ def _check_integration_test_coverage(repo_root: Path) -> list[Violation]:
         return violations
 
     integration_dir = repo_root / "tests" / "integration"
+    fixtures_dir = repo_root / "tests" / "_rule_helpers" / "fixtures"
 
     for queries_path in sorted(modules_dir.glob("*/queries.py")):
         module_name = queries_path.parent.name
@@ -994,9 +995,22 @@ def _check_integration_test_coverage(repo_root: Path) -> list[Violation]:
         if not build_funcs:
             continue  # Nothing to check
 
-        # 2. Find the corresponding integration test file
+        # 2. Find the corresponding integration test file (fixture root path
+        # is checked so that Detector 15 itself can be tested with fixture files
+        # that live outside the real tests/ tree and do not shadow the pytest
+        # ``tests`` namespace package).
         integration_test_path = integration_dir / f"test_{module_name}_queries_integration.py"
-        if not integration_test_path.exists():
+        fixture_root_path: Path | None = None
+        if fixtures_dir.is_dir():
+            for fixture_dir in sorted(fixtures_dir.iterdir()):
+                if not fixture_dir.is_dir():
+                    continue
+                candidate = fixture_dir / f"test_{module_name}_queries_integration.py"
+                if candidate.exists():
+                    fixture_root_path = candidate
+                    break
+
+        if not integration_test_path.exists() and fixture_root_path is None:
             # No integration test file at all — one violation per untested build_*
             for func_name in sorted(build_funcs):
                 violations.append(
@@ -1015,11 +1029,15 @@ def _check_integration_test_coverage(repo_root: Path) -> list[Violation]:
                 )
             continue
 
+        # Use whichever was found (fixture root takes precedence if both exist,
+        # which cannot happen in practice since module names differ)
+        test_file = fixture_root_path if fixture_root_path else integration_test_path
+
         # 3. Parse the integration test file and collect test function names
         try:
             test_tree = ast.parse(
-                integration_test_path.read_text(encoding="utf-8"),
-                filename=str(integration_test_path),
+                test_file.read_text(encoding="utf-8"),
+                filename=str(test_file),
             )
         except (SyntaxError, UnicodeDecodeError):
             # Parse error in the test file — skip rather than flagging
