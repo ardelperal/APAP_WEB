@@ -462,6 +462,10 @@ def test_guard_detects_apap_web_root() -> None:
     # REPO_ROOT is the worktree (wt-340/); its parent's parent is the
     # actual APAP_WEB root (C:/00repos/codigo/APAP_WEB/).
     apap_web_root = REPO_ROOT.parent.parent
+    # This layout only exists on the local Windows dev setup with flat worktrees.
+    # In CI (Linux, regular clone) there is no 00_main/ sibling — skip.
+    if not (apap_web_root / "00_main").is_dir():
+        pytest.skip("00_main/ not found — not running from APAP_WEB flat-layout root")
     result = _check_nested_checkout_layout(apap_web_root)
     assert result is not None, (
         "Expected guard to detect APAP_WEB/ root layout "
@@ -495,6 +499,10 @@ def test_guard_cli_fails_from_apap_web_root() -> None:
     # REPO_ROOT is the worktree (wt-340/); its parent's parent is the
     # actual APAP_WEB root (C:/00repos/codigo/APAP_WEB/).
     apap_web_root = REPO_ROOT.parent.parent
+    # This layout only exists on the local Windows dev setup with flat worktrees.
+    # In CI (Linux, regular clone) there is no 00_main/ sibling — skip.
+    if not (apap_web_root / "00_main").is_dir():
+        pytest.skip("00_main/ not found — not running from APAP_WEB flat-layout root")
     result = subprocess.run(
         [sys.executable, str(SCRIPT), "."],
         capture_output=True,
