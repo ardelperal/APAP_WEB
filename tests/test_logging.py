@@ -517,7 +517,7 @@ def test_json_formatter_renders_to_stdout_format() -> None:
 
 
 _EXPECTED_KEYS_PLAIN = frozenset(
-    {"timestamp", "level", "logger", "message", "module", "func", "line", "event", "_caller_fields"}
+    {"timestamp", "level", "logger", "message", "module", "func", "line", "event", "_caller_fields", "request_id"}
 )
 _INTERNAL_KEYS_THAT_MUST_NOT_LEAK = frozenset(
     {
