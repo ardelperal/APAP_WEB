@@ -62,19 +62,19 @@ _ROUTER_NAMES = frozenset({"router", "application"})
 #: fails on any drift between this dict and the real tree. Never add a
 #: new entry: split the handler instead.
 BASELINE: dict[str, int] = {
-    "app/modules/foster/assignment_routes.py::asignar_submit": 111,
+    "app/modules/foster/assignment_routes.py::asignar_submit": 109,
     "app/main.py::callback": 107,
-    "app/modules/acogidas/routes.py::create_acogida_view": 103,
-    "app/modules/materiales/acogida_routes.py::assign_material_to_estancia_view": 89,
+    "app/modules/acogidas/routes.py::create_acogida_view": 101,
+    "app/modules/materiales/acogida_routes.py::assign_material_to_estancia_view": 87,
     "app/modules/cesiones/routes.py::create_cesion_view": 87,
-    "app/modules/adopciones/routes.py::create_adopcion_view": 86,
-    "app/modules/acogidas/routes.py::update_acogida_view": 86,
-    "app/modules/adopciones/routes.py::update_adopcion_view": 84,
+    "app/modules/adopciones/routes.py::create_adopcion_view": 84,
+    "app/modules/acogidas/routes.py::update_acogida_view": 84,
+    "app/modules/adopciones/routes.py::update_adopcion_view": 82,
     "app/modules/entradas/batch_routes.py::stage_batch_view": 77,
-    "app/modules/sanidad/routes.py::update_actuacion_view": 72,
-    "app/modules/sanidad/routes.py::create_actuacion_view": 67,
-    "app/modules/materiales/routes.py::update_material_view": 60,
-    "app/modules/materiales/routes.py::create_material_view": 57,
+    "app/modules/sanidad/routes.py::update_actuacion_view": 70,
+    "app/modules/sanidad/routes.py::create_actuacion_view": 65,
+    "app/modules/materiales/routes.py::update_material_view": 58,
+    "app/modules/materiales/routes.py::create_material_view": 55,
     "app/modules/animals/routes.py::create_animal_view": 54,
 }
 

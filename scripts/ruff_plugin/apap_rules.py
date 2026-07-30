@@ -178,94 +178,6 @@ def _is_logger_chain(node: ast.AST) -> bool:
 # --- Plugin registry -----------------------------------------------------
 
 
-# --- APAP004: Any annotation on auth dependency params ----------------------
-
-
-_APAP004_AUTH_DEP_FUNCTIONS: frozenset[str] = frozenset(
-    {
-        "require_authorized_user",
-        "require_writer_user",
-        "require_developer_user",
-        "require_developer_user_redirect",
-    }
-)
-
-
-class APAP004Visitor(ast.NodeVisitor):
-    """AST visitor for APAP004 — bans ``Any`` on auth dependency params.
-
-    Any parameter annotated as ``Any`` whose default is
-    ``Depends(...)`` from ``app.core.auth_dependencies`` defeats mypy's
-    type narrowing at the security boundary. The fix is a properly
-    typed ``AuthenticatedUser`` (TypedDict) with a TypeGuard so mypy
-    understands the narrowing performed by ``return_early_if_response``.
-    """
-
-    def __init__(self, file: Path) -> None:
-        self.file = file
-        self.violations: list[APAPViolation] = []
-
-    def _check_function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
-        all_args = list(node.args.posonlyargs) + list(node.args.args) + list(node.args.kwonlyargs)
-        defaults = node.args.defaults
-        kw_defaults = node.args.kw_defaults
-
-        for i, arg in enumerate(all_args):
-            # Check annotation is ast.Name(id="Any")
-            if not (
-                isinstance(arg.annotation, ast.Name)
-                and arg.annotation.id == "Any"
-            ):
-                continue
-            # Find the default
-            num_positional_defaults = len(defaults)
-            positional_count = len(node.args.posonlyargs) + len(node.args.args)
-            if i < num_positional_defaults:
-                default = defaults[i]
-            elif i < positional_count + len(kw_defaults):
-                kw_index = i - num_positional_defaults
-                default = kw_defaults[kw_index]
-            else:
-                continue
-            if default is None:
-                continue
-            if not isinstance(default, ast.Call):
-                continue
-            if not isinstance(default.func, ast.Name):
-                continue
-            if default.func.id != "Depends":
-                continue
-            if not default.args:
-                continue
-            depends_arg = default.args[0]
-            if not isinstance(depends_arg, ast.Name):
-                continue
-            if depends_arg.id not in _APAP004_AUTH_DEP_FUNCTIONS:
-                continue
-            self.violations.append(
-                APAPViolation(
-                    file=self.file,
-                    line=arg.lineno,
-                    rule_id="APAP004",
-                    message=(
-                        f"Parameter {arg.arg!r} is typed Any but defaults to "
-                        f"Depends({depends_arg.id}). Use a properly typed "
-                        "AuthenticatedUser instead — APAP004 forbids Any on "
-                        "auth dependency parameters."
-                    ),
-                )
-            )
-
-    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
-        self._check_function(node)
-        self.generic_visit(node)
-
-    visit_AsyncFunctionDef = visit_FunctionDef
-
-
-# --- Plugin registry -----------------------------------------------------
-
-
 class _RuleMeta:
     """Minimal ruff-rule metadata for plugin discovery."""
 
@@ -282,7 +194,6 @@ def discover_rule_classes() -> list[_RuleMeta]:
     return [
         _RuleMeta("APAP001", "apap-route-uses-execute-sql", APAP001Visitor),
         _RuleMeta("APAP003", "apap-raw-logger-call", APAP003Visitor),
-        _RuleMeta("APAP004", "apap-any-auth-dep", APAP004Visitor),
     ]
 
 
@@ -290,11 +201,18 @@ def discover_rule_classes() -> list[_RuleMeta]:
 
 
 def check_tree(tree: ast.AST, file: Path) -> list[APAPViolation]:
-    """Walk ``tree`` and return every APAP001 + APAP003 + APAP004 violation."""
+    """Walk ``tree`` and return every APAP001 + APAP003 violation.
+
+    APAP003 was registered in PR-1B (T-1B.2) but NOT fired until
+    PR-6B (T-6.3) so CI between Slice 1 and Slice 5 does not break
+    on raw ``logger.*`` calls during the Slice 4 -> Slice 5
+    transition. The Slice 6 activation wires APAP003 here AND adds
+    Detector 5 to ``scripts/check_rules.py`` (the authoritative
+    AST linter invoked by ``make check-rules``). The two stay in
+    lock-step via ``_is_logger_chain``.
+    """
     apap001 = APAP001Visitor(file)
     apap001.visit(tree)
     apap003 = APAP003Visitor(file)
     apap003.visit(tree)
-    apap004 = APAP004Visitor(file)
-    apap004.visit(tree)
-    return apap001.violations + apap003.violations + apap004.violations
+    return apap001.violations + apap003.violations

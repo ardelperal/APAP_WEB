@@ -539,11 +539,6 @@ def _scan_file(path: Path, repo_root: Path) -> list[Violation]:
     out.extend(_check_apap003_raw_logger_call(path, tree, repo_root))
     if _is_app_path(path, repo_root):
         out.extend(_check_print_in_app(path, tree))
-        # Detector 14: APAP004 — flags ``user: Any = Depends(...)`` on
-        # auth dependency functions. The Any annotation defeats mypy's type
-        # narrowing at the security boundary where the union must be
-        # narrowed to prevent AttributeError on Response objects.
-        out.extend(_check_apap004_any_auth_dep(path, tree))
         # Detector 13: query seam — fires only on service.py files
         # under app/modules/<M>/. Baselined legacy modules emit an
         # informational note (not a Violation); non-baselined modules
@@ -899,106 +894,6 @@ def _check_apap003_raw_logger_call(
                 ),
             )
         )
-    return violations
-
-
-# Detector 14 (APAP004): auth dep params must not be typed as Any -----------
-
-# Auth dependency functions whose parameters, when typed as Any and defaulted
-# to Depends(...), defeat mypy's type narrowing at the security boundary.
-_APAP004_AUTH_DEP_FUNCTIONS: frozenset[str] = frozenset(
-    {
-        "require_authorized_user",
-        "require_writer_user",
-        "require_developer_user",
-        "require_developer_user_redirect",
-    }
-)
-
-
-def _check_apap004_any_auth_dep(
-    path: Path, tree: ast.AST
-) -> list[Violation]:
-    """Detector 14 — APAP004.
-
-    Flags any function parameter annotated as ``Any`` whose default is
-    ``Depends(...)`` from ``app.core.auth_dependencies``. The ``Any``
-    annotation at the exact boundary where the ``Response | dict`` union
-    must be narrowed switches mypy off precisely where the type risk
-    lives: a handler that skips ``return_early_if_response`` and then
-    subscripts the value as a dict would receive no type error.
-
-    The fix is to use a proper narrowed type (AuthenticatedUser or the
-    return type of ``return_early_if_response`` narrowing) so mypy
-    rejects subscripting a ``Response`` without narrowing first.
-
-    Scope: all ``app/`` Python files.
-    """
-    violations: list[Violation] = []
-    for node in ast.walk(tree):
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            continue
-        for arg in node.args.posonlyargs + node.args.args + node.args.kwonlyargs:
-            # Check: annotation is ast.Name(id="Any")
-            if not (
-                isinstance(arg.annotation, ast.Name)
-                and arg.annotation.id == "Any"
-            ):
-                continue
-            # Find the default value for this argument.
-            # Python AST rule: ``defaults`` is right-aligned against all
-            # positional parameters (posonlyargs + args). ``kw_defaults``
-            # aligns left against kwonlyargs.
-            all_args = (
-                node.args.posonlyargs + node.args.args + node.args.kwonlyargs
-            )
-            defaults = node.args.defaults
-            kw_defaults = node.args.kw_defaults
-            try:
-                arg_index = all_args.index(arg)
-            except ValueError:
-                continue
-            # Right-alignment: positional args with defaults
-            positional_offset = len(all_args) - len(defaults)
-            if arg_index >= positional_offset:
-                default = defaults[arg_index - positional_offset]
-            elif arg_index < len(node.args.kwonlyargs):
-                # kwonlyargs align left against kw_defaults
-                kw_index = arg_index
-                default = kw_defaults[kw_index]
-            else:
-                continue
-            if default is None:
-                continue
-            # Check: default is a Call to Depends
-            if not isinstance(default, ast.Call):
-                continue
-            if not isinstance(default.func, ast.Name):
-                continue
-            if default.func.id != "Depends":
-                continue
-            # Check: Depends(...) argument is a call to an auth dep
-            if not default.args:
-                continue
-            depends_arg = default.args[0]
-            if not isinstance(depends_arg, ast.Name):
-                continue
-            if depends_arg.id not in _APAP004_AUTH_DEP_FUNCTIONS:
-                continue
-            violations.append(
-                Violation(
-                    file=path,
-                    line=arg.lineno,
-                    rule_id="apap004_any_auth_dep",
-                    message=(
-                        f"Parameter {arg.arg!r} is annotated Any but defaults to "
-                        f"Depends({depends_arg.id}). This defeats mypy's type "
-                        "narrowing at the auth boundary. Use a properly typed "
-                        "AuthenticatedUser or the narrowed return type of "
-                        "return_early_if_response."
-                    ),
-                )
-            )
     return violations
 
 

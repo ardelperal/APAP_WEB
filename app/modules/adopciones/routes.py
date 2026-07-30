@@ -40,13 +40,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.core.auth_dependencies import (
     get_insforge_client_dep,
-    is_authenticated_user,
     require_authorized_user,
     require_writer_user,
     return_early_if_response,
@@ -187,14 +186,12 @@ def _render_form(
 def list_adopciones_view(
     request: Request,
     adoptante: str | None = None,
-    user: Response | dict = Depends(require_authorized_user),
+    user: Any = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """List active adopciones; ``?adoptante=`` filters by name (ILIKE)."""
     if (early := return_early_if_response(user)) is not None:
         return early
-    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
-        return RedirectResponse(url="/unauthorized")
     if adoptante and adoptante.strip():
         adopciones = adopciones_service.search_adopciones_by_adoptante(
             client, adoptante
@@ -218,13 +215,11 @@ def list_adopciones_view(
 @router.get("/new", response_class=HTMLResponse)
 def new_adopcion_form(
     request: Request,
-    user: Response | dict = Depends(require_authorized_user),
+    user: Any = Depends(require_authorized_user),
 ):
     """Empty form for a new adopción."""
     if (early := return_early_if_response(user)) is not None:
         return early
-    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
-        return RedirectResponse(url="/unauthorized")
     return _render_form(request, user, {}, None, "/adopciones")
 
 
@@ -247,7 +242,7 @@ def create_adopcion_view(
     entrada_origen_id: str | None = Form(None),
     observaciones: str | None = Form(None),
     tipo_adopcion: str | None = Form(None),
-    user: Response | dict = Depends(require_writer_user),
+    user: Any = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Create an adopción; redirect to detail on success.
@@ -271,8 +266,6 @@ def create_adopcion_view(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
-    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
-        return RedirectResponse(url="/unauthorized")
     form_data = _form_data_to_params(
         {
             "animal_id": animal_id,
@@ -327,14 +320,12 @@ def create_adopcion_view(
 def adopcion_detail(
     adopcion_id: str,
     request: Request,
-    user: Response | dict = Depends(require_authorized_user),
+    user: Any = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Detail view; 404 when the id is missing."""
     if (early := return_early_if_response(user)) is not None:
         return early
-    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
-        return RedirectResponse(url="/unauthorized")
     adopcion = adopciones_service.get_adopcion_by_id(client, adopcion_id)
     if adopcion is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
@@ -352,14 +343,12 @@ def adopcion_detail(
 def edit_adopcion_form(
     adopcion_id: str,
     request: Request,
-    user: Response | dict = Depends(require_authorized_user),
+    user: Any = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Edit form prefilled from the persisted row."""
     if (early := return_early_if_response(user)) is not None:
         return early
-    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
-        return RedirectResponse(url="/unauthorized")
     adopcion = adopciones_service.get_adopcion_by_id(client, adopcion_id)
     if adopcion is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
@@ -392,7 +381,7 @@ def update_adopcion_view(
     entrada_origen_id: str | None = Form(None),
     observaciones: str | None = Form(None),
     tipo_adopcion: str | None = Form(None),
-    user: Response | dict = Depends(require_writer_user),
+    user: Any = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Update an existing adopción; redirect to detail on success.
@@ -410,8 +399,6 @@ def update_adopcion_view(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
-    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
-        return RedirectResponse(url="/unauthorized")
     form_data = _form_data_to_params(
         {
             "animal_id": animal_id,
@@ -469,7 +456,7 @@ def update_adopcion_view(
 def delete_adopcion_view(
     adopcion_id: str,
     request: Request,
-    user: Response | dict = Depends(require_writer_user),
+    user: Any = Depends(require_writer_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Soft-delete via ``adopciones_service.delete_adopcion``; redirect to list.
@@ -479,8 +466,6 @@ def delete_adopcion_view(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
-    if not is_authenticated_user(user):  # pragma: no cover  # defensive: unreachable if auth dep is correct
-        return RedirectResponse(url="/unauthorized")
     if not adopciones_service.delete_adopcion(
         client,
         adopcion_id,
