@@ -1322,7 +1322,6 @@ def test_apply_web_to_legacy_generic_exception_rollback_sync_state(
     rolls back ``sync_state.json`` to its pre-apply bytes if the file
     was modified."""
     import migration.reverse_apply.orchestrator as orchestrator_mod
-
     import migration.sync_state as sync_state_mod
 
     sync_path = tmp_path / "sync_state.json"
