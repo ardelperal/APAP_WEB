@@ -949,8 +949,8 @@ def test_apply_web_to_legacy_propagates_msaccess_preflight_unavailable(
     """Lines 122-127: ``MsAccessPreflightUnavailableError`` from
     ``check_msaccess_running`` is logged and re-raised, keeping the
     fail-closed contract for the preflight step."""
-    from migration.apply import MsAccessPreflightUnavailableError
     import migration.reverse_apply.orchestrator as orchestrator_mod
+    from migration.apply import MsAccessPreflightUnavailableError
 
     def _preflight_unavailable() -> list[int]:
         raise MsAccessPreflightUnavailableError(reason="psutil unavailable in test")
@@ -1127,8 +1127,8 @@ def test_apply_web_to_legacy_keyboard_interrupt_writes_partial(
     (a) if a snapshot was written, partial-apply evidence is recorded;
     (b) the interrupt is re-raised so the operator sees it;
     (c) the sync_state file is rolled back if it was modified."""
-    import migration.lock_snapshot as lock_snapshot_mod
     import migration.legacy_reader as lr_mod
+    import migration.lock_snapshot as lock_snapshot_mod
 
     # Stub: snapshot written, then KeyboardInterrupt fires on first row.
     def _stub_write_snapshot(**kwargs: Any) -> None:
@@ -1199,8 +1199,8 @@ def test_apply_web_to_legacy_msaccess_running_error(
 ) -> None:
     """Line 128-138: when MS Access is already running (non-empty PID
     list), ``MsAccessRunningError`` is raised with the PID list."""
-    from migration.apply import MsAccessRunningError
     import migration.reverse_apply.orchestrator as orchestrator_mod
+    from migration.apply import MsAccessRunningError
 
     def _running_pids() -> list[int]:
         return [12345, 67890]
@@ -1266,9 +1266,9 @@ def test_apply_web_to_legacy_legacy_write_commit_failed(
 ) -> None:
     """Line 233: when ``LegacyWriteCommitFailed`` is raised by the
     per-row executor, it propagates to the CLI handler (exit 5)."""
-    from migration.legacy_reader import LegacyWriteCommitFailed
     import migration.legacy_reader as lr_mod
     import migration.reverse_apply.orchestrator as orchestrator_mod
+    from migration.legacy_reader import LegacyWriteCommitFailed
 
     # Stub load_legacy_snapshot_batched so the .accdb file isn't required.
     def _stub_batch(*_args: Any, **_kwargs: Any) -> Any:
@@ -1322,6 +1322,7 @@ def test_apply_web_to_legacy_generic_exception_rollback_sync_state(
     rolls back ``sync_state.json`` to its pre-apply bytes if the file
     was modified."""
     import migration.apply_reverse.orchestrator as orchestrator_mod
+
     import migration.sync_state as sync_state_mod
 
     sync_path = tmp_path / "sync_state.json"
