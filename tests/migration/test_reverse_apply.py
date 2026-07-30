@@ -200,7 +200,7 @@ def reverse_runner(
 
         try:
             result = apply_web_to_legacy(
-                client=client,  # type: ignore[arg-type]
+                client=client,
                 table_name=table_name,
                 legacy_path=str(tmp_path / "legacy.accdb"),
                 web_snapshot=web_snapshot_override,
@@ -699,7 +699,7 @@ def test_sync_state_rollback_on_legacy_write_failure(
         # subsequent tables; the sync_state file MUST NOT be
         # updated.
         result = apply_web_to_legacy(
-            client,  # type: ignore[arg-type]
+            client,
             "voluntario",
             legacy_path=str(tmp_path / "legacy.accdb"),
             web_snapshot=None,
@@ -933,7 +933,7 @@ def test_apply_web_to_legacy_raises_on_partial_apply_interrupted(
 
     with pytest.raises(Exception, match="Previous apply was interrupted"):
         apply_web_to_legacy(
-            client,  # type: ignore[arg-type]
+            client,
             "voluntario",
             legacy_path=str(tmp_path / "legacy.accdb"),
             dry_run=False,
@@ -975,7 +975,7 @@ def test_apply_web_to_legacy_propagates_msaccess_preflight_unavailable(
 
     with pytest.raises(MsAccessPreflightUnavailableError, match="psutil unavailable"):
         apply_web_to_legacy(
-            client,  # type: ignore[arg-type]
+            client,
             "voluntario",
             legacy_path=str(tmp_path / "legacy.accdb"),
             dry_run=False,
@@ -1005,7 +1005,7 @@ def test_apply_web_to_legacy_returns_error_on_web_query_failure(
 
     monkeypatch.setattr(client, "execute_sql", _failing_execute_sql)
     result = apply_web_to_legacy(
-        client,  # type: ignore[arg-type]
+        client,
         "voluntario",
         legacy_path=str(tmp_path / "legacy.accdb"),
         web_snapshot=None,  # force the SQL path
@@ -1050,7 +1050,7 @@ def test_apply_web_to_legacy_propagates_legacy_read_failure(
 
     with pytest.raises(RuntimeError, match="legacy file unreadable"):
         apply_web_to_legacy(
-            client,  # type: ignore[arg-type]
+            client,
             "voluntario",
             legacy_path=str(tmp_path / "legacy.accdb"),
             web_snapshot=None,
@@ -1171,7 +1171,7 @@ def test_apply_web_to_legacy_keyboard_interrupt_writes_partial(
 
     with pytest.raises(KeyboardInterrupt):
         apply_web_to_legacy(
-            client,  # type: ignore[arg-type]
+            client,
             "voluntario",
             legacy_path=str(tmp_path / "legacy.accdb"),
             web_snapshot=None,
@@ -1215,7 +1215,7 @@ def test_apply_web_to_legacy_msaccess_running_error(
 
     with pytest.raises(MsAccessRunningError, match="12345"):
         apply_web_to_legacy(
-            client,  # type: ignore[arg-type]
+            client,
             "voluntario",
             legacy_path=str(tmp_path / "legacy.accdb"),
             dry_run=False,
@@ -1291,7 +1291,7 @@ def test_apply_web_to_legacy_legacy_write_commit_failed(
 
     with pytest.raises(LegacyWriteCommitFailed, match="commit refused"):
         apply_web_to_legacy(
-            client,  # type: ignore[arg-type]
+            client,
             "voluntario",
             legacy_path=str(tmp_path / "legacy.accdb"),
             web_snapshot=None,
@@ -1321,7 +1321,7 @@ def test_apply_web_to_legacy_generic_exception_rollback_sync_state(
     outer operation) triggers the generic exception handler, which
     rolls back ``sync_state.json`` to its pre-apply bytes if the file
     was modified."""
-    import migration.apply_reverse.orchestrator as orchestrator_mod
+    import migration.reverse_apply.orchestrator as orchestrator_mod
 
     import migration.sync_state as sync_state_mod
 
