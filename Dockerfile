@@ -21,7 +21,7 @@ ARG PYTHON_VERSION=3.11
 ARG NODE_VERSION=20
 
 # ---- Tailwind base --------------------------------------------------------
-FROM node:${NODE_VERSION}-bookworm-slim AS tailwind-base
+FROM node:${NODE_VERSION}-bookworm-slim@sha256:3d0f05455dea2c82e2f76e7e2543964c30f6b7d673fc1a83286736d44fe4c41c AS tailwind-base
 WORKDIR /work
 
 # Install Tailwind v4 dependencies (separate layer for cache reuse on package.json).
@@ -37,7 +37,7 @@ RUN cd /work/tailwindcss \
     && npx tailwindcss -i ./styles/app.css -o /work/app/static/css/output.css --minify
 
 # ---- Builder --------------------------------------------------------------
-FROM python:${PYTHON_VERSION}-slim-bookworm AS builder
+FROM python:${PYTHON_VERSION}-slim-bookworm@sha256:28255a3ace7eb4c48bc1b57b90af29e1bc82b4fd6c60614a8e3dce61b87ff941 AS builder
 WORKDIR /work
 
 # Build deps for Python wheels (uvloop, httptools, etc.).
@@ -59,7 +59,7 @@ COPY docs/ /work/docs/
 RUN pip wheel --no-cache-dir --no-deps --wheel-dir /work/dist /work
 
 # ---- Runtime --------------------------------------------------------------
-FROM python:${PYTHON_VERSION}-slim-bookworm AS runtime
+FROM python:${PYTHON_VERSION}-slim-bookworm@sha256:28255a3ace7eb4c48bc1b57b90af29e1bc82b4fd6c60614a8e3dce61b87ff941 AS runtime
 
 # Curl is required by the HEALTHCHECK directive.
 RUN apt-get update \
