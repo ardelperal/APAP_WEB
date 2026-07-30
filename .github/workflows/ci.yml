@@ -138,15 +138,20 @@ jobs:
         # for tests/test_voluntarios_concurrent.py. APAP_E2E_BASE_URL is
         # intentionally unrelated: it identifies an HTTP server, not a
         # PostgreSQL connection.
-        # Coverage flags (issue #199, AGENTS.md rule 19 — removing any
+        # Coverage flags (issue #199 / #331, AGENTS.md rule 19 — removing any
         # of them is a blocked change):
         # --cov=app: measure coverage over the app package.
+        # --cov=migration: measure coverage over the migration/ package
+        #   (issue #331 — the previously unmeasured half of the codebase).
+        #   pytest-cov applies a single --cov-fail-under to the combined
+        #   total; the floor is set at the measured combined value (85%).
+        #   raising it is a welcome separate PR; lowering it is blocked.
         # --cov-report=json: write coverage.json, which feeds the
         #   CRITICAL_HELPERS 100% gate (scripts/pytest_plugin/
         #   coverage_gate.py, AGENTS.md rule 11) — the plugin is a
         #   no-op when coverage.json is absent.
-        # --cov-fail-under=80: enforce the global floor declared as
-        #   fail_under = 80 in pyproject.toml [tool.coverage.report].
+        # --cov-fail-under=85: enforce the combined floor declared as
+        #   fail_under = 85 in pyproject.toml [tool.coverage.report].
         #   Explicit flag because pytest-cov only reliably enforces
         #   the CLI flag, not the config-file value. Parity pinned by
         #   tests/test_ci_workflow.py::
@@ -155,9 +160,10 @@ jobs:
           python -m pytest -W error::DeprecationWarning \
             --ignore=tests/e2e \
             --cov=app \
+            --cov=migration \
             --cov-report=json \
             --cov-report=term \
-            --cov-fail-under=80
+            --cov-fail-under=85
 
   build:
     name: build

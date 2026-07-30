@@ -106,25 +106,27 @@ def test_development_guide_documents_e2e_ci_hook() -> None:
 
 
 def test_ci_workflow_test_job_enforces_global_coverage_floor() -> None:
-    """Issue #199: the CI ``test`` job must enforce ``fail_under`` from pyproject.
+    """Issue #199 / #331: the CI ``test`` job must enforce ``fail_under`` from pyproject.
 
-    ``pyproject.toml`` declares ``fail_under = 80`` under
-    ``[tool.coverage.report]``, but a pytest run without ``--cov`` never
-    measures coverage, so the floor was dead letter in CI. The test job
-    must:
+    ``pyproject.toml`` declares ``fail_under`` under ``[tool.coverage.report]``.
+    The test job must:
 
     1. run pytest with coverage over ``app/`` (``--cov=app``),
-    2. write ``coverage.json`` (``--cov-report=json``) so the
+    2. run pytest with coverage over ``migration/`` (``--cov=migration``) — issue #331
+       halves the codebase was previously unmeasured and unenforced,
+    3. write ``coverage.json`` (``--cov-report=json``) so the
        CRITICAL_HELPERS gate (``scripts/pytest_plugin/coverage_gate.py``,
        AGENTS.md rule 11) keeps working — the plugin is a no-op when
        ``coverage.json`` is absent,
-    3. fail the job below the global floor via an explicit
+    4. fail the job below the combined ``app/`` + ``migration/`` floor via an explicit
        ``--cov-fail-under`` that matches ``fail_under`` in pyproject
        (explicit because pytest-cov only reliably enforces the flag,
        not the config-file value).
 
     Removing any of these from ci.yml is a blocked change (AGENTS.md
-    rule 19).
+    rule 19). The ``migration/`` floor is set at the measured combined
+    value (85%) — raising it is a welcome separate PR; lowering it
+    is blocked by this test.
     """
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
     with (REPO_ROOT / "pyproject.toml").open("rb") as fh:
@@ -146,9 +148,15 @@ def test_ci_workflow_test_job_enforces_global_coverage_floor() -> None:
 
     # Coverage must be measured over the app package...
     assert "--cov=app" in executable
+    # ...and over migration/ (issue #331 — the unmeasured half).
+    assert "--cov=migration" in executable, (
+        "migration/ must be measured alongside app/ (issue #331). "
+        "A single blended floor that app/ can mask is exactly the "
+        "failure mode AGENTS.md §32.P8 warns about."
+    )
     # ...must produce coverage.json for the CRITICAL_HELPERS gate...
     assert "--cov-report=json" in executable
-    # ...and must enforce the same floor pyproject declares.
+    # ...and must enforce the combined floor pyproject declares.
     assert f"--cov-fail-under={fail_under}" in executable
 
 
