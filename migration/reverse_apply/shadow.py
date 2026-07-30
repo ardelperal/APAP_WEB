@@ -48,9 +48,13 @@ def _advance_preserve_shadow_state(
     ``dni_collision`` review reason via
     ``update_reconciliation_status``).
 
-    Bumps ``dni_collision_counter`` once per collision so the PR7
-    reconcile CLI can surface the count via
-    ``MigrationReport.collisions[<table>]["dni_collisions"]``.
+    Bumps ``dni_collision_counter`` once per preserve-column
+    advance so the PR7 reconcile CLI can surface the count via
+    ``MigrationReport.collisions[<table>]["preserve_advances"]``.
+    Note: this counter reflects the number of preserve-column
+    advances (one per preserve column with a web-side value),
+    not the number of actual collisions. The key was renamed from
+    ``dni_collisions`` to ``preserve_advances`` in issue #217.
 
     Note: column names are looked up case-insensitively against
     the web row (the YAML carries CamelCase names like ``DNI``;

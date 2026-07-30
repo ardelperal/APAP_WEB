@@ -21,7 +21,9 @@ scopes:
 
 In both scopes the first INSERT wins; subsequent collisions do NOT
 overwrite. Counts only (never values) appear in
-``MigrationReport.collisions["dni_collisions"]`` (per-table counter).
+``MigrationReport.collisions["preserve_advances"]`` (per-table counter;
+renamed from ``dni_collisions`` in issue #217 to accurately reflect
+that the counter tracks preserve-column advances, not actual collisions).
 
 This module exposes two surfaces:
 
@@ -228,7 +230,7 @@ class DniCollisionCounter:
             )
             counter.bump()
         # At the end of the apply:
-        report.collisions.setdefault("voluntarios", {})["dni_collisions"] = counter.value
+        report.collisions.setdefault("voluntarios", {})["preserve_advances"] = counter.value
 
     The counter is intentionally process-local (no thread safety)
     because the apply pipeline is single-threaded; a future

@@ -379,8 +379,10 @@ def test_round_trip_100_voluntarios_preserves_dni(round_trip_runner) -> None:
 
     # The reverse applier routes each preserve row (DNI) to the
     # shadow table via ``record_dni_collision`` so the operator
-    # can resolve it via ``apap-migrate reconcile``. The counter
-    # is bumped 100 times. Filter to ``web_column == "dni"`` so
+    # can resolve it via ``apap-migrate reconcile``. The
+    # ``preserve_advances`` counter is bumped 100 times (once per
+    # preserve column with a web-side value, not per collision).
+    # Filter to ``web_column == "dni"`` so
     # the assertion ignores the forward-direction ``__row__``
     # divergence rows that the forward applier records on the
     # case-mismatch round-trip (those are the forward applier's

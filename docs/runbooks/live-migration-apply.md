@@ -560,7 +560,7 @@ hooks:
 
 #### Verification (reverse)
 
-- ``MigrationReport.collisions[<table>]["dni_collisions"]`` matches
+- ``MigrationReport.collisions[<table>]["preserve_advances"]`` matches
   the runtime count of ``reverse_drift_legacy_row_missing``
   shadow rows + manual ``dni_collision`` shadings.
 - ``sync_state.tables[<table>].last_sync_at`` advanced past the
