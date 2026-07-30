@@ -146,7 +146,9 @@ class JsonFormatter(logging.Formatter):
     """
 
     # Canonical fields from LogRecord, plus event (from _caller_fields),
-    # the _caller_fields dict itself, and exception-info keys.
+    # the _caller_fields dict itself, exception-info keys, and request_id
+    # (issue #334 — per-request correlation id injected by CorrelationIdMiddleware
+    # and stored in a ContextVar read here).
     _ALLOWLIST = frozenset(
         {
             "timestamp",
@@ -161,6 +163,7 @@ class JsonFormatter(logging.Formatter):
             "exc_info",
             "exc_text",
             "stack_info",
+            "request_id",
         }
     )
 
@@ -185,6 +188,16 @@ class JsonFormatter(logging.Formatter):
             payload["exc_text"] = self.formatException(record.exc_info)
         if record.stack_info:
             payload["stack_info"] = self.formatStack(record.stack_info)
+        # Stamp request_id from the correlation ContextVar (issue #334).
+        # lazy-import: avoids circular import at module load time
+        # (logging.py is imported early; request_context.py imports logging).
+        try:
+            from app.core.request_context import get_correlation_id  # lazy-import: avoids circular import at module load time  # noqa: I001
+            payload["request_id"] = get_correlation_id()
+        except ImportError:
+            # Before request_context is added to the project; log lines
+            # will simply lack request_id until the wiring is complete.
+            payload["request_id"] = ""
         return json.dumps(payload, default=str, ensure_ascii=False)
 
 

@@ -74,22 +74,22 @@ _EXPECTED_AUTH_ONLY_MIDDLEWARE_CLASS_NAMES: tuple[str, ...] = (
 )
 
 _EXPECTED_MIDDLEWARE_CLASS_NAMES: tuple[str, ...] = (
-    # Order: Starlette's add_middleware() prepends; LAST registered = FIRST in list.
-    # Registration: install_rate_limit_middleware is called FIRST (issue #286 D8
-    # bug fix: must precede install_auth so CsrfMiddleware lands LAST inside
-    # install_auth and becomes the OUTERMOST in the stack — i.e. CSRF runs BEFORE
-    # rate-limit so a 403 does not consume a legitimate user's rate budget).
-    # Then install_auth_middleware adds: CsrfMiddleware (add_middleware),
-    # protect_user_facing_routes (BaseHTTPMiddleware via @app.middleware("http")),
-    # UADetectionMiddleware (add_middleware, last),
-    # SecurityHeadersMiddleware (added LAST = OUTERMOST).
-    # Final: ['SecurityHeadersMiddleware', 'UADetectionMiddleware',
-    #         'BaseHTTPMiddleware', 'CsrfMiddleware', 'RateLimitMiddleware']
+    # Order in user_middleware list: FIRST item = OUTERMOST (wraps all others).
+    # Registration sequence in create_app():
+    #   1. CorrelationIdMiddleware added FIRST → appears LAST in list (innermost,
+    #      catches requests AFTER auth chain; still sees auth-chain responses on the
+    #      way back out, which is sufficient for issue #334).
+    #   2. install_rate_limit_middleware adds RateLimitMiddleware.
+    #   3. install_auth_middleware adds SecurityHeaders, UADetection, BaseHTTPMiddleware,
+    #      CsrfMiddleware (last-registered inside install_auth = innermost of the auth chain).
+    # Final list order (first=outermost): SecurityHeaders → UADetection → BaseHTTPMiddleware
+    # → CsrfMiddleware → RateLimitMiddleware → CorrelationIdMiddleware (innermost).
     "SecurityHeadersMiddleware",
     "UADetectionMiddleware",
     "BaseHTTPMiddleware",
     "CsrfMiddleware",
     "RateLimitMiddleware",
+    "CorrelationIdMiddleware",
 )
 
 

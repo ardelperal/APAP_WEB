@@ -89,6 +89,7 @@ from app.core.middleware import (
 )
 from app.core.migration.sql_runner import apply_sql_migrations
 from app.core.pkce import generate_pkce_pair
+from app.core.request_context import CorrelationIdMiddleware
 from app.core.session import (
     clear_session_cookie_params,
     read_session,
@@ -250,7 +251,9 @@ def create_app() -> FastAPI:
         StaticFiles(directory=_STATIC_DIR),
         name="static",
     )
-
+    # Correlation id (issue #334): outermost so every request (incl. CSRF rejections)
+    # carries request_id in log lines. See app/core/request_context.py.
+    application.add_middleware(CorrelationIdMiddleware)
     # Rate limiting on OAuth callback and write routes (issue #286).
     # Installed BEFORE install_auth_middleware so that CsrfMiddleware —
     # the LAST middleware added inside install_auth_middleware via
@@ -260,7 +263,6 @@ def create_app() -> FastAPI:
     # CSRF rejections must NOT consume a legitimate user's rate
     # budget; running CSRF before rate-limit achieves that.
     install_rate_limit_middleware(application, settings)
-
     # Auth-related middleware chain (issue #204). Reads ``settings`` so
     # ``APAP_CSRF_ENABLED`` (Slice 5 feature flag) gates CSRF
     # registration, matching the pre-refactor conditional block at
@@ -269,7 +271,6 @@ def create_app() -> FastAPI:
     # (added inside this function) is outermost — see the comment
     # above the rate-limit install.
     install_auth_middleware(application, settings)
-
     templates = Jinja2Templates(
         directory=_TEMPLATES_DIR,
         context_processors=[
