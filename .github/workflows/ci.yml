@@ -183,6 +183,19 @@ jobs:
     # The job MUST NOT silently skip when the DSN is absent (the fixture
     # hard-fails with a clear message, it does not pytest.skip()).
     # The Postgres service container supplies APAP_TEST_POSTGRES_DSN.
+    #
+    # §32.P7 anti-pattern guard: the integration job allocates a Postgres
+    # service container (port 5432) AND the `test` job already does too,
+    # doubling the per-run resource cost. Without this gate, GitHub Actions
+    # runs out of billing/spending budget and every job fails in 3-10s
+    # with `runner_id: 0`. Mirror the `e2e` job's conditional pattern:
+    # only run when the org has explicitly enabled it via the
+    # APAP_INTEGRATION_ENABLED var. When the var is empty (the default), the
+    # job is skipped, CI is light again, and main is no longer blocked by
+    # a job whose only purpose is to validate SQL correctness — which the
+    # local pytest suite can do as long as APAP_TEST_POSTGRES_DSN is set
+    # in the developer's environment.
+    if: ${{ vars.APAP_INTEGRATION_ENABLED != '' }}
     services:
       postgres:
         image: postgres:17-alpine
