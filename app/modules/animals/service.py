@@ -60,6 +60,8 @@ from typing import Any, cast
 
 from app.core.data_access import SqlExecutor
 from app.core.insforge import _validate_storage_key
+from app.modules.animals import queries as qry
+from app.modules.animals.queries import DB_LABEL_TO_ESTADO
 
 
 class Especie(StrEnum):
@@ -110,6 +112,41 @@ class Animal:
     ComunicacionARIAC: str | None = None
     fecha_alta: str | None = None
     updated_at: str | None = None
+
+
+def _db_state_to_api_estado(db_state: str | None) -> str:
+    """Normalize a DB ``current_state`` Spanish label to API snake_case estado.
+
+    Single source of truth for DB→API estado mapping lives in
+    ``app.modules.animals.queries.DB_LABEL_TO_ESTADO`` (AGENTS.md §4).
+    """
+    if db_state is None:
+        return "pendiente_entrada"
+    return DB_LABEL_TO_ESTADO.get(db_state, "incoherente")
+
+
+@dataclass(frozen=True, slots=True)
+class AnimalSearch:
+    """Un animal en el resultado de búsqueda (spec response shape)."""
+
+    id: str
+    chip: str
+    nombre: str
+    especie: str
+    sexo: str
+    estado: str
+    fecha_nacimiento: str
+    fecha_alta: str
+
+
+@dataclass(frozen=True, slots=True)
+class AnimalSearchResult:
+    """Respuesta paginada del search API (spec response shape)."""
+
+    data: list[AnimalSearch]
+    total: int
+    limit: int
+    offset: int
 
 
 _INSERT_COLUMNS = (
@@ -420,3 +457,90 @@ def delete_animal(client: SqlExecutor, animal_id: str) -> bool:
     """
     rows = client.execute_sql(_DELETE_ANIMAL_SQL, [animal_id])
     return bool(rows)
+
+
+# --- search (issue #30 LIFECYCLE-05) ----------------------------------------
+
+
+def _row_to_animal_search(row: dict[str, Any]) -> AnimalSearch:
+    """Map a search result row to ``AnimalSearch``."""
+    db_state = row.get("current_state")
+    return AnimalSearch(
+        id=str(row["id"]),
+        chip=str(row["NCHIP"]),
+        nombre=str(row["NombreAnimal"]),
+        especie=str(row["Especie"]),
+        sexo=str(row["Sexo"]),
+        estado=_db_state_to_api_estado(db_state),
+        fecha_nacimiento=str(row["FNacimiento"]),
+        fecha_alta=str(row["fecha_alta"]) if row.get("fecha_alta") else "",
+    )
+
+
+def search_animals(
+    client: SqlExecutor,
+    *,
+    q: str | None = None,
+    chip: str | None = None,
+    especie: str | None = None,
+    sexo: str | None = None,
+    estado: str | None = None,
+    fecha_alta_since: str | None = None,
+    fecha_alta_until: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> AnimalSearchResult:
+    """Búsqueda de animales con filtros (issue #30, LIFECYCLE-05).
+
+    Filtros (todos AND):
+    - ``q``: substring match case-insensitive en ``nombre``.
+      Ignorado si ``chip`` está presente.
+    - ``chip``: exact match en ``NCHIP``. Toma precedencia sobre ``q``.
+    - ``especie``: exact match (CANINA | FELINA).
+    - ``sexo``: exact match (M | H).
+    - ``estado``: filtrado por estado derivado (JOIN con
+      ``animal_current_state``). Valores API: pendiente_entrada,
+      pendiente_nueva_situacion, albergue, acogida, adoptado,
+      entregado, fallecido, incoherente.
+    - ``fecha_alta_since`` / ``fecha_alta_until``: rango inclusivo.
+
+    Paginación: ``limit`` default 50, max 200; ``offset`` para cursor.
+    ``limit=0`` devuelve solo ``total`` sin ``data`` (count sin fetch).
+
+    Orden: ``fecha_alta DESC``.
+    """
+    params = qry.AnimalSearchParams(
+        q=q,
+        chip=chip,
+        especie=especie,
+        sexo=sexo,
+        estado=estado,
+        fecha_alta_since=fecha_alta_since,
+        fecha_alta_until=fecha_alta_until,
+        limit=limit,
+        offset=offset,
+    )
+    capped = params.cap_limit()
+
+    # limit=0: count-only path
+    if capped.limit == 0:
+        count_result = qry.build_animal_count(capped)
+        rows = client.execute_sql(count_result.sql, count_result.params)
+        total = int(rows[0]["total"]) if rows else 0
+        return AnimalSearchResult(data=[], total=total, limit=0, offset=capped.offset)
+
+    # Normal path: data + total in two queries
+    search_result = qry.build_animal_search(capped)
+    data_rows = client.execute_sql(search_result.sql, search_result.params)
+    animals = [_row_to_animal_search(row) for row in data_rows]
+
+    count_result = qry.build_animal_count(capped)
+    count_rows = client.execute_sql(count_result.sql, count_result.params)
+    total = int(count_rows[0]["total"]) if count_rows else 0
+
+    return AnimalSearchResult(
+        data=animals,
+        total=total,
+        limit=capped.limit,
+        offset=capped.offset,
+    )

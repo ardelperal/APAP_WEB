@@ -22,8 +22,14 @@ from itertools import chain
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, status
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
 from fastapi.templating import Jinja2Templates
 
 from app.core.auth_dependencies import (
@@ -116,6 +122,46 @@ def list_animales(
         name="animales/list.html",
         context={"user": user, "animales": animales},
     )
+
+
+# --- search (issue #30 LIFECYCLE-05) ---------------------------------------
+
+
+@router.get("/search", response_class=JSONResponse)
+def search_animales(
+    request: Request,
+    user: Response | dict = Depends(require_authorized_user),
+    client: InsForgeClient = Depends(get_insforge_client_dep),
+    q: str | None = Query(default=None, description="Substring match on nombre (case-insensitive). Ignored if chip is set."),
+    chip: str | None = Query(default=None, description="Exact match on NCHIP. Takes precedence over q."),
+    especie: str | None = Query(default=None, description="Exact match: CANINA or FELINA."),
+    sexo: str | None = Query(default=None, description="Exact match: M or H."),
+    estado: str | None = Query(default=None, description="Dynamic state via animal_current_state JOIN. Values: pendiente_entrada | pendiente_nueva_situacion | albergue | acogida | adoptado | entregado | fallecido | incoherente."),
+    fecha_alta_since: str | None = Query(default=None, description="ISO date. Filter fecha_alta >= value."),
+    fecha_alta_until: str | None = Query(default=None, description="ISO date. Filter fecha_alta <= value."),
+    limit: int = Query(default=50, ge=0, le=200, description="Results per page. Default 50, max 200. 0 returns only total (count-only)."),
+    offset: int = Query(default=0, ge=0, description="Pagination cursor."),
+):
+    """Search animals with multi-field filters (issue #30 LIFECYCLE-05).
+
+    Returns JSON: ``{"data": [...], "total": N, "limit": N, "offset": N}``.
+    Protected with ``require_authorized_user`` (any authenticated user).
+    """
+    if (early := return_early_if_response(user)) is not None:
+        return early
+    result = animals_service.search_animals(
+        client,
+        q=q,
+        chip=chip,
+        especie=especie,
+        sexo=sexo,
+        estado=estado,
+        fecha_alta_since=fecha_alta_since,
+        fecha_alta_until=fecha_alta_until,
+        limit=limit,
+        offset=offset,
+    )
+    return JSONResponse(content=_search_result_to_json(result))
 
 
 # --- new (form) -----------------------------------------------------------
@@ -357,6 +403,28 @@ def animal_foto(
 
 
 # --- helpers -------------------------------------------------------------
+def _search_result_to_json(result: animals_service.AnimalSearchResult) -> dict[str, Any]:
+    """Map ``AnimalSearchResult`` to the spec JSON envelope."""
+    return {
+        "data": [
+            {
+                "id": a.id,
+                "chip": a.chip,
+                "nombre": a.nombre,
+                "especie": a.especie,
+                "sexo": a.sexo,
+                "estado": a.estado,
+                "fecha_nacimiento": a.fecha_nacimiento,
+                "fecha_alta": a.fecha_alta,
+            }
+            for a in result.data
+        ],
+        "total": result.total,
+        "limit": result.limit,
+        "offset": result.offset,
+    }
+
+
 def _animal_to_form_data(animal) -> dict[str, Any]:
     """Convierte un Animal a dict para pre-rellenar el form."""
     return {
