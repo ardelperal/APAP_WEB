@@ -386,7 +386,7 @@ def delete_animal_view(
 def change_chip_view(
     animal_id: str,
     payload: ChipChangePayload,
-    user: Response | dict = Depends(require_writer_user),
+    user: Response | dict = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """PATCH /animales/{id}/chip — cambia el chip en cascada a 6 tablas."""
@@ -418,7 +418,7 @@ def change_chip_view(
     if not result.success:
         if "ya esta asignado" in (result.error or ""):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=result.error)
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=result.error)
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=result.error)
 
     return {
         "success": True,

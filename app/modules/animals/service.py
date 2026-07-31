@@ -54,6 +54,7 @@ Mapeo de campos (legacy ``TbFichaAnimal`` -> dataclass):
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, cast
@@ -544,6 +545,8 @@ def search_animals(
         limit=capped.limit,
         offset=capped.offset,
     )
+
+@dataclass(frozen=True, slots=True)
 class ChangeChipResult:
     """Resultado del saga de cambio de chip.
 
