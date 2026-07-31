@@ -24,6 +24,7 @@ import httpx
 import pytest
 
 from app.core.insforge import InsForgeClient
+from app.main import app, get_insforge_client
 
 # =============================================================================
 # Fixtures and helpers shared by route-level and service-level tests
@@ -36,6 +37,58 @@ def _json_response(status: int, body: dict[str, Any]) -> httpx.Response:
         content=json.dumps(body).encode("utf-8"),
         headers={"content-type": "application/json"},
     )
+
+
+# =============================================================================
+# Spy for the InsForge client — handles auth revalidation without network
+# =============================================================================
+
+
+class _ChipCascadeSpy(InsForgeClient):
+    """Minimal spy that handles auth revalidation SELECT queries.
+
+    Used by route-level chip cascade tests to avoid network calls for the
+    per-request auth revalidation inside ``require_authorized_user``.
+    """
+
+    def __init__(self) -> None:
+        import httpx as _httpx
+
+        self._client = _httpx.Client(base_url="https://spy.example")
+        self.auth_reval_rol: str = "key_user"
+        self.get_animal_by_id_rows: list[dict[str, Any]] = [
+            {
+                "id": "abc-123",
+                "NCHIP": "111",
+                "NombreAnimal": "Luna",
+                "Especie": "CANINA",
+                "Sexo": "H",
+                "FNacimiento": "2023-04-12",
+                "activo": True,
+            }
+        ]
+
+    def execute_sql(self, query: str, params: Any = None) -> Any:  # type: ignore[override]
+        from tests.conftest import auth_reval_rows
+
+        # Handle auth revalidation (must answer the SELECT for the user)
+        _reval = auth_reval_rows(query, params, rol=self.auth_reval_rol)
+        if _reval is not None:
+            return _reval
+        # Handle get_animal_by_id: None means simulate 404
+        if "SELECT" in query and "WHERE id = $1" in query:
+            rows = self.get_animal_by_id_rows
+            return list(rows) if rows is not None else []
+        return []
+
+
+@pytest.fixture
+def animals_spy() -> _ChipCascadeSpy:
+    """Override get_insforge_client dependency with a spy for auth revalidation."""
+    spy = _ChipCascadeSpy()
+    app.dependency_overrides[get_insforge_client] = lambda: spy
+    yield spy
+    app.dependency_overrides.pop(get_insforge_client, None)
 
 
 def _login_as_key_user(client: httpx.AsyncClient) -> None:
@@ -65,27 +118,33 @@ def _login_as_key_user(client: httpx.AsyncClient) -> None:
 
 async def _chip_route_response(
     client: httpx.AsyncClient,
+    animals_spy,
+    mocker,
     *,
-    get_animal_by_id_row: dict[str, Any] | None,
+    get_animal_by_id_rows: list[dict[str, Any]] | None,
     change_chip_result: Any,
-    extra_service_side_effects: list[Any] | None = None,
 ) -> httpx.Response:
-    """Helper: set up mocks + call PATCH /animales/{id}/chip and return the response.
+    """Helper: configure spy rows + mock service + call PATCH /animales/{id}/chip.
 
-    Uses ``unittest.mock.patch`` as a context manager so no pytest-mock plugin is needed.
+    ``animals_spy`` is the dependency override for ``get_insforge_client``,
+    so its ``execute_sql`` handles auth revalidation calls without touching the
+    network.  ``change_animal_chip`` is mocked at the service module level so the
+    route handler body is fully exercised while the mock returns a controlled
+    ``ChangeChipResult``.
+
+    Uses ``mocker.patch`` (pytest-mock) instead of ``unittest.mock.patch``
+    as a context manager — pytest-mock's async-aware patch stays active through
+    the full ``await client.patch(...)`` call so the response is fully processed
+    before the mock is torn down.
     """
-    from unittest.mock import patch
+    # Configure spy for get_animal_by_id
+    animals_spy.get_animal_by_id_rows = get_animal_by_id_rows
 
-    with patch(
-        "app.modules.animals.routes.animals_service.get_animal_by_id",
-        return_value=get_animal_by_id_row,
-    ), patch(
+    # mocker.patch stays active through the full async request cycle
+    with mocker.patch(
         "app.modules.animals.routes.animals_service.change_animal_chip",
         return_value=change_chip_result,
-    ) as mock_change:
-        if extra_service_side_effects:
-            mock_change.side_effect = extra_service_side_effects
-
+    ):
         response = await client.patch(
             "/animales/abc-123/chip",
             json={"new_chip": "222", "reason": "Chip fisurado"},
@@ -96,6 +155,8 @@ async def _chip_route_response(
 
 async def test_change_chip_route_returns_404_when_animal_not_found(
     client: httpx.AsyncClient,
+    animals_spy,
+    mocker,
 ) -> None:
     """Animal not found -> 404, no call to change_animal_chip."""
     from app.modules.animals.service import ChangeChipResult
@@ -105,8 +166,8 @@ async def test_change_chip_route_returns_404_when_animal_not_found(
         success=False, old_chip="", new_chip="", updated_tables={}, error=None
     )
     response = await _chip_route_response(
-        client,
-        get_animal_by_id_row=None,
+        client, animals_spy, mocker,
+        get_animal_by_id_rows=None,
         change_chip_result=result,
     )
 
@@ -115,6 +176,8 @@ async def test_change_chip_route_returns_404_when_animal_not_found(
 
 async def test_change_chip_route_returns_409_when_chip_already_assigned(
     client: httpx.AsyncClient,
+    animals_spy,
+    mocker,
 ) -> None:
     """change_animal_chip returns success=False with 'ya esta asignado' -> 409."""
     from app.modules.animals.service import ChangeChipResult
@@ -128,12 +191,12 @@ async def test_change_chip_route_returns_409_when_chip_already_assigned(
         error="El chip 222 ya esta asignado al animal other-456.",
     )
     response = await _chip_route_response(
-        client,
-        get_animal_by_id_row={
+        client, animals_spy, mocker,
+        get_animal_by_id_rows=[{
             "id": "abc-123", "NCHIP": "111", "NombreAnimal": "Luna",
             "Especie": "CANINA", "Sexo": "H",
             "FNacimiento": "2023-04-12", "activo": True,
-        },
+        }],
         change_chip_result=result,
     )
 
@@ -143,6 +206,8 @@ async def test_change_chip_route_returns_409_when_chip_already_assigned(
 
 async def test_change_chip_route_returns_422_when_old_chip_mismatch(
     client: httpx.AsyncClient,
+    animals_spy,
+    mocker,
 ) -> None:
     """change_animal_chip returns success=False without 'ya esta asignado' -> 422."""
     from app.modules.animals.service import ChangeChipResult
@@ -156,12 +221,12 @@ async def test_change_chip_route_returns_422_when_old_chip_mismatch(
         error="El chip old no coincide con el chip actual del animal.",
     )
     response = await _chip_route_response(
-        client,
-        get_animal_by_id_row={
+        client, animals_spy, mocker,
+        get_animal_by_id_rows=[{
             "id": "abc-123", "NCHIP": "111", "NombreAnimal": "Luna",
             "Especie": "CANINA", "Sexo": "H",
             "FNacimiento": "2023-04-12", "activo": True,
-        },
+        }],
         change_chip_result=result,
     )
 
@@ -171,6 +236,8 @@ async def test_change_chip_route_returns_422_when_old_chip_mismatch(
 
 async def test_change_chip_route_returns_200_on_success(
     client: httpx.AsyncClient,
+    animals_spy,
+    mocker,
 ) -> None:
     """change_animal_chip returns success=True -> 200 with result dict."""
     from app.modules.animals.service import ChangeChipResult
@@ -187,12 +254,12 @@ async def test_change_chip_route_returns_200_on_success(
         error=None,
     )
     response = await _chip_route_response(
-        client,
-        get_animal_by_id_row={
+        client, animals_spy, mocker,
+        get_animal_by_id_rows=[{
             "id": "abc-123", "NCHIP": "111", "NombreAnimal": "Luna",
             "Especie": "CANINA", "Sexo": "H",
             "FNacimiento": "2023-04-12", "activo": True,
-        },
+        }],
         change_chip_result=result,
     )
 
