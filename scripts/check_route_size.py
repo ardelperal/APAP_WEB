@@ -1,4 +1,4 @@
-"""Route-handler size and Form-parameter ratchet for APAP_WEB (AGENTS.md rule 28, issue #233/337).
+"""Route-handler size ratchet for APAP_WEB (AGENTS.md rule 28, issue #233).
 
 Companion to ``scripts/check_module_size.py`` (rule 21), scoped to
 individual FastAPI route-handler *functions* instead of whole modules.
@@ -8,29 +8,15 @@ route handler that keeps growing is usually a sign that domain policy
 (validation, fail-closed decisions, business rules) leaked into the
 route instead of living in the service layer.
 
-**Line budget** (``MAX_LINES``): enforces a hard budget for every function
-decorated with ``@router.<verb>(...)`` (any module under ``app/`` whose
-filename contains ``routes``) or ``@application.<verb>(...)``
-(``app/main.py``). Handlers that already exceeded the budget when the
-rule landed live in an explicit ``BASELINE`` dict that is a
-**ratchet**: entries may only shrink or disappear, never grow, and no
-new entry may ever be added — split the non-HTTP logic into the service
-layer instead.
-
-**Form-parameter budget** (``MAX_FORM_PARAMS``): issue #337 found that
-route handlers enumerated up to 26 individual ``Form(...)`` parameters,
-making signatures unmaintainable. A 26-parameter handler cannot be read
-safely, and every new field touches the handler, template and service in
-three places. The fix is to bind forms to Pydantic models via
-``Annotated[MyForm, Form()]`` instead of enumerating fields in the
-signature.
-
-The Form budget enforces a hard ceiling of ``MAX_FORM_PARAMS`` (8) per
-handler. Handlers that already exceed this when the rule landed (measured
-at commit ``adb83c5``) are tracked in ``FORM_BASELINE`` and may only
-shrink — a handler that stays at 13 Form params after migration is
-refactoring is still a violation; it must actually reduce the parameter
-count to come off the baseline.
+Enforces a hard budget (``MAX_LINES``) for every function decorated
+with ``@router.<verb>(...)`` (any module under ``app/`` whose filename
+contains ``routes``) or ``@application.<verb>(...)`` (``app/main.py``).
+Handlers that already exceeded the budget when the rule landed
+(2026-07-20 architecture review, issue #233's ``animal_foto`` plus 14
+siblings measured the same day) live in an explicit ``BASELINE`` dict
+that is a **ratchet**: entries may only shrink or disappear, never
+grow, and no new entry may ever be added — split the non-HTTP logic
+into the service layer instead.
 
 Usage::
 
@@ -58,14 +44,6 @@ from pathlib import Path
 #: logic.
 MAX_LINES = 50
 
-#: Hard budget for Form(...) parameters per route handler (issue #337).
-#: A handler with more than 8 Form params is considered too wide to
-#: read safely; the fix is to bind a Pydantic model via
-#: ``Annotated[MyForm, Form()]`` instead of enumerating fields.
-#: The 5 handlers already exceeding this when the rule landed are
-#: tracked in FORM_BASELINE and must shrink when migrated.
-MAX_FORM_PARAMS = 8
-
 #: HTTP verbs recognized as route decorators (mirrors
 #: ``scripts/check_rules.py``'s ``_decorator_http_verb``).
 _HTTP_VERBS = frozenset({"get", "post", "put", "patch", "delete", "head", "options"})
@@ -89,31 +67,15 @@ BASELINE: dict[str, int] = {
     "app/modules/acogidas/routes.py::create_acogida_view": 101,
     "app/modules/materiales/acogida_routes.py::assign_material_to_estancia_view": 87,
     "app/modules/cesiones/routes.py::create_cesion_view": 87,
+    "app/modules/adopciones/routes.py::create_adopcion_view": 84,
     "app/modules/acogidas/routes.py::update_acogida_view": 84,
+    "app/modules/adopciones/routes.py::update_adopcion_view": 82,
     "app/modules/entradas/batch_routes.py::stage_batch_view": 77,
     "app/modules/sanidad/routes.py::update_actuacion_view": 70,
     "app/modules/sanidad/routes.py::create_actuacion_view": 65,
     "app/modules/materiales/routes.py::update_material_view": 58,
     "app/modules/materiales/routes.py::create_material_view": 55,
     "app/modules/animals/routes.py::create_animal_view": 54,
-    # issue #337: AdopcionForm migration shrank these from 84/82 → 61/57
-    # (still >50 budget; ratchet prevents growth — must shrink further)
-    "app/modules/adopciones/routes.py::create_adopcion_view": 61,
-    "app/modules/adopciones/routes.py::update_adopcion_view": 57,
-}
-
-#: Handlers that exceed MAX_FORM_PARAMS (8) when issue #337 was opened
-#: (measured at commit ``adb83c5``). Values are the exact Form param
-#: counts recorded that day. RATCHET: entries may only shrink or
-#: disappear. When a migration actually reduces the param count, update
-#: the entry to the new (lower) value — the notice will tell you to
-#: remove it once it reaches 0 or falls below MAX_FORM_PARAMS. Never
-#: add a new entry here: use a Pydantic model to consolidate params
-#: instead.
-FORM_BASELINE: dict[str, int] = {
-    "app/modules/cesiones/routes.py::create_cesion_view": 21,
-    "app/modules/acogidas/routes.py::create_acogida_view": 13,
-    "app/modules/acogidas/routes.py::update_acogida_view": 12,
 }
 
 
@@ -167,75 +129,28 @@ def _iter_route_handlers(path: Path) -> list[tuple[str, int]]:
     return handlers
 
 
-def _count_form_params(node: ast.FunctionDef | ast.AsyncFunctionDef) -> int:
-    """Count ``Form(...)`` call expressions in a function's signature.
-
-    Only top-level default values in the function signature are counted;
-    ``Form(...)`` calls inside the body are excluded (they would be
-    legitimate uses of the Form class for dependency injection, not
-    route-level form parameters).
-    """
-    count = 0
-    for _arg, default in zip(node.args.args, node.args.defaults or [], strict=False):
-        if isinstance(default, ast.Call):
-            if isinstance(default.func, ast.Name) and default.func.id == "Form":
-                count += 1
-    return count
-
-
-def _iter_route_handlers_with_form_params(
-    path: Path,
-) -> list[tuple[str, int, int]]:
-    """Return ``(function_name, line_span, form_param_count)`` for every
-    route handler in ``path``.
-    """
-    try:
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    except (SyntaxError, UnicodeDecodeError):
-        return []
-    handlers: list[tuple[str, int, int]] = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-            continue
-        if not any(_is_route_decorator(d) for d in node.decorator_list):
-            continue
-        end = node.end_lineno if node.end_lineno is not None else node.lineno
-        line_span = end - node.lineno + 1
-        form_count = _count_form_params(node)
-        handlers.append((node.name, line_span, form_count))
-    return handlers
-
 
 def check_tree(
     root: Path,
     *,
     max_lines: int = MAX_LINES,
     baseline: Mapping[str, int] | None = None,
-    max_form_params: int = MAX_FORM_PARAMS,
-    form_baseline: Mapping[str, int] | None = None,
 ) -> tuple[list[str], list[str]]:
     """Check every route handler under ``root``'s ``app/`` tree.
 
     Returns ``(violations, notices)`` — same contract as
-    ``check_module_size.check_tree``. Checks both line spans (against
-    ``baseline``) and Form parameter counts (against ``form_baseline``).
+    ``check_module_size.check_tree``.
     """
     if baseline is None:
         baseline = BASELINE
-    if form_baseline is None:
-        form_baseline = FORM_BASELINE
-
     violations: list[str] = []
     notices: list[str] = []
     seen: set[str] = set()
-    seen_form: set[str] = set()
 
     for path in _iter_route_files(root):
         rel = path.relative_to(root).as_posix()
-        for name, lines, form_count in _iter_route_handlers_with_form_params(path):
+        for name, lines in _iter_route_handlers(path):
             key = f"{rel}::{name}"
-
-            # --- line-span check (existing) --------------------------------
             if key in baseline:
                 seen.add(key)
                 budget = baseline[key]
@@ -266,50 +181,10 @@ def check_tree(
                     f"logic to the service layer; do NOT add it to BASELINE"
                 )
 
-            # --- Form-parameter check (issue #337) ---------------------------
-            if key in form_baseline:
-                seen_form.add(key)
-                form_budget = form_baseline[key]
-                if form_count > form_budget:
-                    violations.append(
-                        f"{key}: {form_count} Form params, grew beyond its "
-                        f"FORM_BASELINE of {form_budget} (ratchet: baselined "
-                        f"handlers may only shrink — bind a Pydantic model via "
-                        f"Annotated[MyForm, Form()] to consolidate params)"
-                    )
-                elif form_count < form_budget:
-                    notices.append(
-                        f"{key}: {form_count} Form params, below its "
-                        f"FORM_BASELINE of {form_budget} — update FORM_BASELINE "
-                        f"in scripts/check_route_size.py to lock in the "
-                        f"improvement"
-                        + (
-                            f" (now within the {max_form_params}-param budget: "
-                            f"remove the entry entirely)"
-                            if form_count <= max_form_params
-                            else ""
-                        )
-                    )
-            elif form_count > max_form_params:
-                violations.append(
-                    f"{key}: {form_count} Form params, exceeds the "
-                    f"{max_form_params}-param budget (issue #337) — "
-                    f"bind a Pydantic model via Annotated[MyForm, Form()] "
-                    f"instead of enumerating fields; do NOT add it to "
-                    f"FORM_BASELINE"
-                )
-
     for key in sorted(set(baseline) - seen):
         violations.append(
             f"{key}: baselined at {baseline[key]} lines but the handler "
             f"does not exist under {root} — remove the stale BASELINE entry"
-        )
-
-    for key in sorted(set(form_baseline) - seen_form):
-        violations.append(
-            f"{key}: baselined at {form_baseline[key]} Form params but "
-            f"the handler does not exist under {root} — remove the stale "
-            f"FORM_BASELINE entry"
         )
 
     return violations, notices
@@ -329,8 +204,7 @@ def main(argv: list[str] | None = None) -> int:
     if violations:
         print(
             f"check_route_size: {len(violations)} violation(s). "
-            f"Line budget: {MAX_LINES}/handler (AGENTS.md rule 28). "
-            f"Form-param budget: {MAX_FORM_PARAMS}/handler (issue #337)."
+            f"Budget: {MAX_LINES} lines per route handler (AGENTS.md rule 28)."
         )
         return 1
     print("check_route_size: OK")
