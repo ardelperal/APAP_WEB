@@ -8,6 +8,11 @@ from __future__ import annotations
 
 DASHBOARD_PENDING_CARDS: list[dict[str, str]] = [
     {
+        "label": "Tareas pendientes",
+        "description": "Tareas manuales y automáticas que requieren atención.",
+        "href": "/tareas",
+    },
+    {
         "label": "Animales incoherentes",
         "description": "Revisa fichas con datos que necesitan contraste antes de continuar la gestión.",
     },
