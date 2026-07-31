@@ -95,9 +95,13 @@ etl = [
 ]
 
 [tool.hatch.build.targets.wheel]
-# Fase 1 ships the `app/` package (FastAPI application) and the
-# `tests/` package (pytest suite). The wheel installs both so
-# `from app.main import app` works in production images and in tests.
+# Fase 1 ships only the `app/` package (FastAPI application). The wheel
+# is installed inside the production Docker image; shipping tests/ would
+# expose 58k+ LOC of deliberately-malformed fixture modules
+# (tests/_rule_helpers/fixtures/, tests/fixtures/query_seam/) whose purpose
+# is to violate static-analysis rules.
+#
+# `from app.main import app` only requires ``app/``, not ``tests/``.
 #
 # The top-level ``migration/`` package is the ETL one-time (web<->legacy
 # Access sync). It is NOT shipped in the production wheel because it
@@ -105,7 +109,7 @@ etl = [
 # app never needs. Operators install it on demand with
 # ``pip install '.[etl]'`` from the source checkout and run
 # ``python -m migration`` once.
-only-include = ["app", "tests"]
+only-include = ["app"]
 
 [tool.hatch.build.targets.sdist]
 only-include = ["app", "tests", "docs", "pyproject.toml", "README.md", "tailwindcss"]
