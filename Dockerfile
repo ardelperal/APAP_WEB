@@ -51,7 +51,6 @@ COPY --from=tailwind-base /work/app/static/css/output.css /work/app/static/css/o
 # Build the project wheel.
 COPY pyproject.toml README.md /work/
 COPY app/ /work/app/
-COPY tests/ /work/tests/
 # `docs/setup.md` is the package README (declared in pyproject.toml). The
 # `app/templates/` is already in tailwind-base; `docs/` is only needed here
 # so `pip wheel` can resolve the README.
