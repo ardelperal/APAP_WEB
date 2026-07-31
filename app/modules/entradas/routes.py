@@ -12,14 +12,13 @@ from starlette.responses import Response
 
 from app.core.auth_dependencies import (
     get_insforge_client_dep,
-    require_authorized_user,
-    require_writer_user,
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
 from app.core.forms import optional_value as _opt
 from app.core.insforge import InsForgeClient
 from app.core.middleware import base_template_context_processor
+from app.core.rbac import Permission, require_permission
 from app.modules.entradas import service as entradas_service
 
 router = APIRouter(prefix="/entradas", tags=["entradas"])
@@ -78,7 +77,7 @@ def _render_form(
 @router.get("", response_class=HTMLResponse)
 def list_entradas(
     request: Request,
-    user: Response | dict = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_permission(Permission.READ_ENTRADAS)),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     if (early := return_early_if_response(user)) is not None:
@@ -94,7 +93,7 @@ def list_entradas(
 @router.get("/new", response_class=HTMLResponse)
 def new_entrada_form(
     request: Request,
-    user: Response | dict = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_permission(Permission.READ_ENTRADAS)),
 ):
     if (early := return_early_if_response(user)) is not None:
         return early
@@ -110,7 +109,7 @@ def create_entrada_view(
     origen: str | None = Form(None),
     motivo: str | None = Form(None),
     observaciones: str | None = Form(None),
-    user: Response | dict = Depends(require_writer_user),
+    user: Response | dict = Depends(require_permission(Permission.WRITE_ENTRADAS)),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     if (early := return_early_if_response(user)) is not None:
@@ -154,7 +153,7 @@ def create_entrada_view(
 def entrada_detail(
     entrada_id: str,
     request: Request,
-    user: Response | dict = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_permission(Permission.READ_ENTRADAS)),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     if (early := return_early_if_response(user)) is not None:
@@ -173,7 +172,7 @@ def entrada_detail(
 def edit_entrada_form(
     entrada_id: str,
     request: Request,
-    user: Response | dict = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_permission(Permission.READ_ENTRADAS)),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     if (early := return_early_if_response(user)) is not None:
@@ -200,7 +199,7 @@ def update_entrada_view(
     origen: str | None = Form(None),
     motivo: str | None = Form(None),
     observaciones: str | None = Form(None),
-    user: Response | dict = Depends(require_writer_user),
+    user: Response | dict = Depends(require_permission(Permission.WRITE_ENTRADAS)),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     if (early := return_early_if_response(user)) is not None:
@@ -245,7 +244,7 @@ def update_entrada_view(
 @router.post("/{entrada_id}/delete", response_class=HTMLResponse)
 def delete_entrada_view(
     entrada_id: str,
-    user: Response | dict = Depends(require_writer_user),
+    user: Response | dict = Depends(require_permission(Permission.WRITE_ENTRADAS)),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     if (early := return_early_if_response(user)) is not None:

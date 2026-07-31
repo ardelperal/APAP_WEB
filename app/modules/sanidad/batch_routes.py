@@ -42,8 +42,6 @@ from fastapi.templating import Jinja2Templates
 from app.core.auth_dependencies import (
     AuthenticatedUser,
     get_insforge_client_dep,
-    require_authorized_user,
-    require_writer_user,
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
@@ -51,6 +49,7 @@ from app.core.forms import optional_value as _opt
 from app.core.insforge import InsForgeClient, InsForgeError
 from app.core.logging import log_safe
 from app.core.middleware import base_template_context_processor
+from app.core.rbac import Permission, require_permission
 from app.modules.sanidad import batch_service as sanidad_batch_service
 
 # Same prefix as the single-record router so ``routes_registry.py``
@@ -204,7 +203,7 @@ def _preview_from_validation_error(
 @router.get("/batch/new", response_class=HTMLResponse)
 def new_batch_actuaciones_form(
     request: Request,
-    user: AuthenticatedUser = Depends(require_authorized_user),
+    user: AuthenticatedUser = Depends(require_permission(Permission.READ_SALUD)),
 ):
     """Render the empty batch form with ``BATCH_MIN_RECORDS`` blank rows.
 
@@ -236,7 +235,7 @@ def batch_actuaciones_view(
     veterinario: list[str] = Form([]),
     observaciones: list[str] = Form([]),
     material_utilizado: list[str] = Form([]),
-    user: AuthenticatedUser = Depends(require_writer_user),
+    user: AuthenticatedUser = Depends(require_permission(Permission.WRITE_SALUD)),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """HEALTH-02 batch endpoint: staging preview OR atomic commit.

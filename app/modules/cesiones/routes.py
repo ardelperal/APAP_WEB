@@ -41,13 +41,12 @@ from starlette.responses import Response
 
 from app.core.auth_dependencies import (
     get_insforge_client_dep,
-    require_authorized_user,
-    require_writer_user,
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
 from app.core.insforge import InsForgeClient
 from app.core.middleware import base_template_context_processor
+from app.core.rbac import Permission, require_permission
 from app.modules.cesiones import service as cesiones_service
 
 router = APIRouter(prefix="/cesiones", tags=["cesiones"])
@@ -139,7 +138,7 @@ def _render_form(
 @router.get("/new", response_class=HTMLResponse)
 def new_cesion_form(
     request: Request,
-    user: Response | dict = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_permission(Permission.READ_CESIONES)),
 ):
     """Render the empty surrender form for the operator."""
     if (early := return_early_if_response(user)) is not None:
@@ -174,7 +173,7 @@ async def create_cesion_view(
     numero_colegiado: str | None = Form(None),
     numero_colaborador: str | None = Form(None),
     hora_cesion: str | None = Form(None),
-    user: Response | dict = Depends(require_writer_user),
+    user: Response | dict = Depends(require_permission(Permission.WRITE_CESIONES)),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Process the cesión form. On success, redirect to the parent
