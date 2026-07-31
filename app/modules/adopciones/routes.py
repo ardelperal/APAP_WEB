@@ -47,6 +47,7 @@ from fastapi.templating import Jinja2Templates
 from app.core.auth_dependencies import (
     AuthenticatedUser,
     get_insforge_client_dep,
+    require_authorized_user,
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
@@ -483,7 +484,7 @@ def seguimiento_transition_view(
     request: Request,
     action: str = Form(...),
     documento_url: str | None = Form(None),
-    user: AuthenticatedUser = Depends(require_writer_user),
+    user: AuthenticatedUser = Depends(require_authorized_user),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Transition the seguimiento estado for an adopcion.

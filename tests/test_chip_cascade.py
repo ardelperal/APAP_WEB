@@ -25,7 +25,6 @@ import pytest
 
 from app.core.insforge import InsForgeClient
 
-
 # =============================================================================
 # Fixtures and helpers shared by route-level and service-level tests
 # =============================================================================
@@ -39,6 +38,24 @@ def _json_response(status: int, body: dict[str, Any]) -> httpx.Response:
     )
 
 
+def _login_as_key_user(client: httpx.AsyncClient) -> None:
+    """Install a key_user session cookie so the route auth dependency is satisfied."""
+    from app.core.config import get_settings
+    from app.core.session import session_cookie_name, write_session
+
+    token = write_session(
+        {
+            "email": "ana@example.com",
+            "rol": "key_user",
+            "user_id": "u-ana",
+            "is_authorized": True,
+            "csrf_token": "test-csrf-token-animals",
+        },
+        secret=get_settings().session_secret,
+    )
+    client.cookies.set(session_cookie_name(), token)
+
+
 # =============================================================================
 # Route-level tests — exercise change_chip_view body via HTTP
 # The service is mocked so we don't need the multi-statement spy.
@@ -48,7 +65,6 @@ def _json_response(status: int, body: dict[str, Any]) -> httpx.Response:
 
 async def _chip_route_response(
     client: httpx.AsyncClient,
-    mocker,
     *,
     get_animal_by_id_row: dict[str, Any] | None,
     change_chip_result: Any,
@@ -56,59 +72,40 @@ async def _chip_route_response(
 ) -> httpx.Response:
     """Helper: set up mocks + call PATCH /animales/{id}/chip and return the response.
 
-    Parameters
-    ----------
-    get_animal_by_id_row:
-        ``get_animal_by_id`` return value. Pass ``None`` to simulate 404.
-    change_chip_result:
-        ``ChangeChipResult`` returned by ``change_animal_chip``.
-    extra_service_side_effects:
-        Additional exceptions to attach to ``change_animal_chip`` side_effect list.
+    Uses ``unittest.mock.patch`` as a context manager so no pytest-mock plugin is needed.
     """
-    from app.modules.animals import routes as animals_routes
-    from tests.conftest import make_csrf_request
+    from unittest.mock import patch
 
-    # Mock get_animal_by_id at the routes module level
-    mock_get = mocker.patch.object(
-        animals_routes.animals_service,
-        "get_animal_by_id",
+    with patch(
+        "app.modules.animals.routes.animals_service.get_animal_by_id",
         return_value=get_animal_by_id_row,
-    )
-
-    # Mock change_animal_chip
-    mock_change = mocker.patch.object(
-        animals_routes.animals_service,
-        "change_animal_chip",
+    ), patch(
+        "app.modules.animals.routes.animals_service.change_animal_chip",
         return_value=change_chip_result,
-    )
-    if extra_service_side_effects:
-        mock_change.side_effect = extra_service_side_effects
+    ) as mock_change:
+        if extra_service_side_effects:
+            mock_change.side_effect = extra_service_side_effects
 
-    response = await make_csrf_request(
-        client,
-        "PATCH",
-        "/animales/abc-123/chip",
-        json={"new_chip": "222", "reason": "Chip fisurado"},
-        headers={"X-CSRFToken": "test-csrf-token-animals"},
-    )
+        response = await client.patch(
+            "/animales/abc-123/chip",
+            json={"new_chip": "222", "reason": "Chip fisurado"},
+            headers={"X-CSRFToken": "test-csrf-token-animals"},
+        )
     return response
 
 
-@pytest.mark.parametrize("method,url", [
-    ("PATCH", "/animales/abc-123/chip"),
-])
 async def test_change_chip_route_returns_404_when_animal_not_found(
     client: httpx.AsyncClient,
-    mocker,
 ) -> None:
     """Animal not found -> 404, no call to change_animal_chip."""
     from app.modules.animals.service import ChangeChipResult
 
+    _login_as_key_user(client)
     result = ChangeChipResult(
         success=False, old_chip="", new_chip="", updated_tables={}, error=None
     )
     response = await _chip_route_response(
-        client, mocker,
+        client,
         get_animal_by_id_row=None,
         change_chip_result=result,
     )
@@ -118,11 +115,11 @@ async def test_change_chip_route_returns_404_when_animal_not_found(
 
 async def test_change_chip_route_returns_409_when_chip_already_assigned(
     client: httpx.AsyncClient,
-    mocker,
 ) -> None:
     """change_animal_chip returns success=False with 'ya esta asignado' -> 409."""
     from app.modules.animals.service import ChangeChipResult
 
+    _login_as_key_user(client)
     result = ChangeChipResult(
         success=False,
         old_chip="111",
@@ -131,7 +128,7 @@ async def test_change_chip_route_returns_409_when_chip_already_assigned(
         error="El chip 222 ya esta asignado al animal other-456.",
     )
     response = await _chip_route_response(
-        client, mocker,
+        client,
         get_animal_by_id_row={
             "id": "abc-123", "NCHIP": "111", "NombreAnimal": "Luna",
             "Especie": "CANINA", "Sexo": "H",
@@ -146,11 +143,11 @@ async def test_change_chip_route_returns_409_when_chip_already_assigned(
 
 async def test_change_chip_route_returns_422_when_old_chip_mismatch(
     client: httpx.AsyncClient,
-    mocker,
 ) -> None:
     """change_animal_chip returns success=False without 'ya esta asignado' -> 422."""
     from app.modules.animals.service import ChangeChipResult
 
+    _login_as_key_user(client)
     result = ChangeChipResult(
         success=False,
         old_chip="111",
@@ -159,7 +156,7 @@ async def test_change_chip_route_returns_422_when_old_chip_mismatch(
         error="El chip old no coincide con el chip actual del animal.",
     )
     response = await _chip_route_response(
-        client, mocker,
+        client,
         get_animal_by_id_row={
             "id": "abc-123", "NCHIP": "111", "NombreAnimal": "Luna",
             "Especie": "CANINA", "Sexo": "H",
@@ -174,11 +171,11 @@ async def test_change_chip_route_returns_422_when_old_chip_mismatch(
 
 async def test_change_chip_route_returns_200_on_success(
     client: httpx.AsyncClient,
-    mocker,
 ) -> None:
     """change_animal_chip returns success=True -> 200 with result dict."""
     from app.modules.animals.service import ChangeChipResult
 
+    _login_as_key_user(client)
     result = ChangeChipResult(
         success=True,
         old_chip="111",
@@ -190,7 +187,7 @@ async def test_change_chip_route_returns_200_on_success(
         error=None,
     )
     response = await _chip_route_response(
-        client, mocker,
+        client,
         get_animal_by_id_row={
             "id": "abc-123", "NCHIP": "111", "NombreAnimal": "Luna",
             "Especie": "CANINA", "Sexo": "H",
