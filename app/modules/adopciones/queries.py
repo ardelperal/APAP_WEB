@@ -213,3 +213,47 @@ _CHECK_RESPONSABLE_SQL: Final[str] = (
 def build_adopcion_check_responsable(voluntario_id: str) -> tuple[str, list[Any]]:
     """SELECT for FK check of responsable_adopcion_id (VOL-05 active check)."""
     return _CHECK_RESPONSABLE_SQL, [voluntario_id]
+
+
+# ---------------------------------------------------------------------------
+# ADOPT-03: Seguimiento state machine query builders (issue #49)
+# ---------------------------------------------------------------------------
+
+_SEGUIMIENTO_UPDATE_SQL: str = """
+UPDATE adopciones
+SET
+    seguimiento_estado = $2,
+    seguimiento_documento_entregado_at = COALESCE($3, seguimiento_documento_entregado_at),
+    seguimiento_documento_url = COALESCE($4, seguimiento_documento_url),
+    seguimiento_completado_at = COALESCE($5, seguimiento_completado_at),
+    updated_at = now()
+WHERE id = $1
+RETURNING
+    id,
+    seguimiento_estado,
+    seguimiento_documento_entregado_at,
+    seguimiento_documento_url,
+    seguimiento_completado_at
+"""
+
+
+def build_seguimiento_update(
+    adopcion_id: str,
+    nuevo_estado: str,
+    *,
+    entregado_at: str | None = None,
+    completado_at: str | None = None,
+    documento_url: str | None = None,
+) -> tuple[str, list[Any]]:
+    """Build the UPDATE for a seguimiento state transition.
+
+    Only non-None optional fields are included via COALESCE so that
+    partial updates preserve existing values.
+    """
+    return _SEGUIMIENTO_UPDATE_SQL, [
+        adopcion_id,
+        nuevo_estado,
+        entregado_at,
+        documento_url,
+        completado_at,
+    ]

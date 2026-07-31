@@ -476,3 +476,55 @@ def delete_adopcion_view(
     return RedirectResponse(
         url="/adopciones", status_code=status.HTTP_303_SEE_OTHER
     )
+
+
+# --- seguimiento state transition (ADOPT-03, issue #49) --------------------
+
+
+@router.patch(
+    "/{adopcion_id}/seguimiento",
+    response_class=HTMLResponse,
+    tags=["adopciones"],
+)
+def seguimiento_transition_view(
+    adopcion_id: str,
+    request: Request,
+    action: str = Form(...),
+    documento_url: str | None = Form(None),
+    user: AuthenticatedUser = Depends(require_writer_user),
+    client: InsForgeClient = Depends(get_insforge_client_dep),
+):
+    """Transition the seguimiento estado for an adopcion.
+
+    Body (form): ``action`` is required (``marcar_entregado``,
+    ``anexar_documento``, ``completar``). ``documento_url`` is required
+    only for ``anexar_documento``.
+
+    Returns 409 Conflict when the transition is invalid for the current
+    estado. Returns 404 when the adopcion does not exist.
+    Returns 303 redirect to the detail view on success.
+    """
+    if (early := return_early_if_response(user)) is not None:
+        return early
+
+    outcome = adopciones_service.transition_seguimiento_for_route(
+        client,
+        adopcion_id=adopcion_id,
+        action=action,
+        operador_user_id=_actor_user_id(user) or "unknown",
+        documento_url=documento_url,
+    )
+
+    if isinstance(outcome, adopciones_service._SeguirTransitionError):
+        return _render_form(
+            request,
+            user,
+            {},
+            outcome.message,
+            f"/adopciones/{adopcion_id}",
+            outcome.status_code,
+        )
+
+    return RedirectResponse(
+        url=f"/adopciones/{adopcion_id}", status_code=status.HTTP_303_SEE_OTHER
+    )

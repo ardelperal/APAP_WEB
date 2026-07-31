@@ -13,6 +13,8 @@ volunteer tracking, and ``tipo_adopcion`` from migration
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from enum import StrEnum
 from typing import Any
 
 from app.core.data_access import SqlExecutor
@@ -23,6 +25,100 @@ from app.modules.adopciones import queries
 
 class AdopcionConflictError(ValueError):
     """Raised on UNIQUE ``(animal_id, fecha_adopcion)`` violations."""
+
+
+# ---------------------------------------------------------------------------
+# ADOPT-03: Seguimiento state machine enums (issue #49)
+# ---------------------------------------------------------------------------
+
+
+class SeguimientoEstado(StrEnum):
+    """The 4 pinned states for adoption follow-up tracking.
+
+    Independent of the animal's lifecycle state (ADOPTADO etc.).
+    """
+    PENDIENTE = "PENDIENTE"
+    DOCUMENTO_ENTREGADO = "DOCUMENTO_ENTREGADO"
+    DOCUMENTO_ADJUNTO = "DOCUMENTO_ADJUNTO"
+    SEGUIMIENTO_COMPLETADO = "SEGUIMIENTO_COMPLETADO"
+
+
+class SeguimientoAction(StrEnum):
+    """The 3 actions that drive state transitions."""
+    MARCAR_ENTREGADO = "marcar_entregado"
+    ANEXAR = "anexar_documento"
+    COMPLETAR = "completar"
+
+
+# Derived transition map:VALID_TRANSITIONS[from_state][action] = to_state
+# One source of truth per domain concept (§4).
+_VALID_TRANSITIONS: dict[SeguimientoEstado, dict[SeguimientoAction, SeguimientoEstado]] = {
+    SeguimientoEstado.PENDIENTE: {
+        SeguimientoAction.MARCAR_ENTREGADO: SeguimientoEstado.DOCUMENTO_ENTREGADO,
+        SeguimientoAction.COMPLETAR: SeguimientoEstado.SEGUIMIENTO_COMPLETADO,
+    },
+    SeguimientoEstado.DOCUMENTO_ENTREGADO: {
+        SeguimientoAction.ANEXAR: SeguimientoEstado.DOCUMENTO_ADJUNTO,
+        SeguimientoAction.COMPLETAR: SeguimientoEstado.SEGUIMIENTO_COMPLETADO,
+    },
+    SeguimientoEstado.DOCUMENTO_ADJUNTO: {
+        SeguimientoAction.COMPLETAR: SeguimientoEstado.SEGUIMIENTO_COMPLETADO,
+    },
+}
+
+
+_ACCION_MAP: dict[str, SeguimientoAction] = {
+    "marcar_entregado": SeguimientoAction.MARCAR_ENTREGADO,
+    "anexar_documento": SeguimientoAction.ANEXAR,
+    "completar": SeguimientoAction.COMPLETAR,
+}
+
+
+def resolve_seguimiento_action(action: str) -> SeguimientoAction:
+    """Resolve a string action name to a ``SeguimientoAction`` enum.
+
+    Raises ``ValueError`` when ``action`` is not a recognised name.
+    """
+    resolved = _ACCION_MAP.get(action)
+    if resolved is None:
+        valid = ", ".join(_ACCION_MAP)
+        raise ValueError(
+            f"Accion desconocida: {action}. Valores validos: {valid}"
+        )
+    return resolved
+
+
+def _next_estado(
+    current: SeguimientoEstado, action: SeguimientoAction
+) -> SeguimientoEstado:
+    """Return the next estado for a valid transition; raise ValueError if invalid."""
+    next_states = _VALID_TRANSITIONS.get(current, {})
+    next_estado = next_states.get(action)
+    if next_estado is None:
+        valid = ", ".join(a.value for a in next_states.keys()) or "none"
+        raise ValueError(
+            f"invalid transition: estado={current.value} action={action.value}, "
+            f"valid actions from {current.value}: {valid}"
+        )
+    return next_estado
+
+
+@dataclass(frozen=True, slots=True)
+class SeguimientoTransitionResult:
+    """Result of a successful seguimiento state transition."""
+    adopcion_id: str
+    estado_anterior: str
+    nuevo_estado: str
+    seguimiento_documento_entregado_at: str | None = None
+    seguimiento_documento_url: str | None = None
+    seguimiento_completado_at: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _SeguirTransitionError:
+    """Private sentinel — route translates to an HTTP response."""
+    message: str
+    status_code: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +143,11 @@ class Adopcion:
     responsable_adopcion_id: str | None = None  # VOL-04 #37
     fecha_alta: str | None = None
     updated_at: str | None = None
+    # ADOPT-03: seguimiento state machine fields
+    seguimiento_estado: str | None = None
+    seguimiento_documento_url: str | None = None
+    seguimiento_documento_entregado_at: str | None = None
+    seguimiento_completado_at: str | None = None
 
     @property
     def is_active(self) -> bool:
@@ -96,6 +197,19 @@ def _row_to_adopcion(row: dict[str, Any]) -> Adopcion:
         fecha_alta=str(row["fecha_alta"]) if row.get("fecha_alta") else None,
         updated_at=str(row["updated_at"]) if row.get("updated_at") else None,
         activo=bool(row.get("activo", True)),
+        # ADOPT-03: seguimiento fields
+        seguimiento_estado=row.get("seguimiento_estado"),
+        seguimiento_documento_url=row.get("seguimiento_documento_url"),
+        seguimiento_documento_entregado_at=(
+            str(row["seguimiento_documento_entregado_at"])
+            if row.get("seguimiento_documento_entregado_at")
+            else None
+        ),
+        seguimiento_completado_at=(
+            str(row["seguimiento_completado_at"])
+            if row.get("seguimiento_completado_at")
+            else None
+        ),
     )
 
 
@@ -285,3 +399,129 @@ def search_adopciones_by_adoptante(
     sql, sql_params = queries.build_adopcion_search(escaped)
     rows = client.execute_sql(sql, sql_params)
     return [_row_to_adopcion(row) for row in rows]
+
+
+# ---------------------------------------------------------------------------
+# ADOPT-03: Seguimiento state machine (issue #49)
+# ---------------------------------------------------------------------------
+
+
+def transition_seguimiento(
+    client: SqlExecutor,
+    adopcion_id: str,
+    action: SeguimientoAction,
+    operador_user_id: str,
+    documento_url: str | None = None,
+) -> SeguimientoTransitionResult | None:
+    """Transition the seguimiento estado for an adopcion.
+
+    Validates the current estado against the action using the
+    ``VALID_TRANSITIONS`` map. On success updates the row and returns
+    ``SeguimientoTransitionResult`` with timestamps. On invalid transition
+    raises ``ValueError``. When the adopcion is not found returns ``None``.
+
+    Logs via ``log_safe`` per acceptance criterion 6.
+
+    Raises:
+        ValueError: the (estado, action) pair is not a valid transition.
+        InsForgeError: transport errors propagate to the caller (route maps
+            to 500).
+    """
+    # Fetch current adopcion to determine its estado
+    current = get_adopcion_by_id(client, adopcion_id)
+    if current is None:
+        return None
+
+    estado_anterior = current.seguimiento_estado or "PENDIENTE"
+    try:
+        current_estado = SeguimientoEstado(estado_anterior)
+    except ValueError:
+        # Treat unknown/None estado as PENDIENTE on first transition
+        current_estado = SeguimientoEstado.PENDIENTE
+
+    # Determine next estado; raises ValueError on invalid transition
+    nuevo_estado = _next_estado(current_estado, action)
+
+    # Build timestamp fields based on action
+    now_ts = datetime.now(timezone.utc).isoformat()  # noqa: UP017
+    entregado_at: str | None = None
+    completado_at: str | None = None
+    doc_url: str | None = None
+
+    if action == SeguimientoAction.MARCAR_ENTREGADO:
+        entregado_at = now_ts
+    elif action == SeguimientoAction.ANEXAR:
+        if documento_url is None:
+            raise ValueError("documento_url is required for action ANEXAR")
+        doc_url = documento_url
+    elif action == SeguimientoAction.COMPLETAR:
+        completado_at = now_ts
+
+    sql, sql_params = queries.build_seguimiento_update(
+        adopcion_id=adopcion_id,
+        nuevo_estado=nuevo_estado.value,
+        entregado_at=entregado_at,
+        completado_at=completado_at,
+        documento_url=doc_url,
+    )
+    rows = client.execute_sql(sql, sql_params)
+    if not rows:
+        return None
+
+    result = SeguimientoTransitionResult(
+        adopcion_id=adopcion_id,
+        estado_anterior=estado_anterior,
+        nuevo_estado=nuevo_estado.value,
+        seguimiento_documento_entregado_at=(
+            rows[0].get("seguimiento_documento_entregado_at")
+        ),
+        seguimiento_documento_url=rows[0].get("seguimiento_documento_url"),
+        seguimiento_completado_at=(
+            rows[0].get("seguimiento_completado_at")
+        ),
+    )
+
+    log_safe(
+        "adoption.seguimiento.transition",
+        adopcion_id=adopcion_id,
+        estado_anterior=estado_anterior,
+        nuevo_estado=nuevo_estado.value,
+        action=action.value,
+        operador_user_id=operador_user_id,
+    )
+
+    return result
+
+
+def transition_seguimiento_for_route(
+    client: SqlExecutor,
+    adopcion_id: str,
+    action: str,
+    operador_user_id: str,
+    documento_url: str | None = None,
+) -> SeguimientoTransitionResult | _SeguirTransitionError:
+    """Thin route-facing wrapper over ``transition_seguimiento``.
+
+    Translates exceptions into a result type so the route stays below the
+    50-line handler cap (AGENTS.md rule 28).
+    """
+    resolved = resolve_seguimiento_action(action)
+    try:
+        result = transition_seguimiento(
+            client,
+            adopcion_id=adopcion_id,
+            action=resolved,
+            operador_user_id=operador_user_id,
+            documento_url=documento_url,
+        )
+    except InsForgeError:
+        return _SeguirTransitionError(
+            message="Error del servidor al actualizar el seguimiento.",
+            status_code=500,
+        )
+    if result is None:
+        return _SeguirTransitionError(
+            message="Adopcion no encontrada.",
+            status_code=404,
+        )
+    return result
