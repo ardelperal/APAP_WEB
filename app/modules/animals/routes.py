@@ -31,6 +31,7 @@ from fastapi.responses import (
     StreamingResponse,
 )
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
 
 # Re-export for backwards compat with existing test imports.
 # The canonical location is app.core.auth_dependencies.
@@ -62,6 +63,16 @@ from app.modules.animals.service import Especie as EspecieEnum
 from app.modules.animals.service import Sexo as SexoEnum
 
 router = APIRouter(prefix="/animales", tags=["animales"])
+
+
+# --- chip change payload ------------------------------------------------
+
+
+class ChipChangePayload(BaseModel):
+    """Request body para ``PATCH /animales/{animal_id}/chip``."""
+
+    new_chip: str
+    reason: str
 
 _TEMPLATES_DIR = Path(__file__).parents[2] / "templates"
 # PR-5B2 (REQ-AH-7): inject csrf_token into every template context.
@@ -368,7 +379,53 @@ def delete_animal_view(
     )
 
 
-# --- foto (authenticated stream) -----------------------------------------
+# --- chip change (issue #29, LIFECYCLE-04) -------------------------------
+
+
+@router.patch("/{animal_id}/chip", response_model=dict[str, Any])
+def change_chip_view(
+    animal_id: str,
+    payload: ChipChangePayload,
+    user: Response | dict = Depends(require_writer_user),
+    client: InsForgeClient = Depends(get_insforge_client_dep),
+):
+    """PATCH /animales/{id}/chip — cambia el chip en cascada a 6 tablas."""
+    if (early := return_early_if_response(user)) is not None:
+        return early
+
+    user_id = user.get("user_id", "") if isinstance(user, dict) else ""
+    animal = animals_service.get_animal_by_id(client, animal_id)
+    if animal is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+
+    result = animals_service.change_animal_chip(
+        client,
+        animal_id=animal_id,
+        old_chip=animal.NCHIP,
+        new_chip=payload.new_chip,
+        reason=payload.reason,
+        operador_user_id=user_id,
+    )
+
+    log_safe(
+        "animal.chip_changed",
+        animal_id=animal_id,
+        success=result.success,
+        old_chip=result.old_chip,
+        new_chip=result.new_chip,
+    )
+
+    if not result.success:
+        if "ya esta asignado" in (result.error or ""):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=result.error)
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=result.error)
+
+    return {
+        "success": True,
+        "old_chip": result.old_chip,
+        "new_chip": result.new_chip,
+        "updated_tables": result.updated_tables,
+    }
 
 
 @router.get("/{animal_id}/foto")

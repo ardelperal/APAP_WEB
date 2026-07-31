@@ -47,6 +47,10 @@ async def test_every_route_returns_dependency_response_without_domain_work(
                 kwargs[parameter.name] = Mock()
             elif parameter.name.endswith("_id"):
                 kwargs[parameter.name] = "irrelevant-id"
+            elif parameter.name == "payload":
+                # Body() / Pydantic model parameters: mock with a bare object
+                # so the endpoint receives a valid payload without hitting the DB.
+                kwargs[parameter.name] = Mock()
 
         result = route.endpoint(**kwargs)
         if inspect.isawaitable(result):
