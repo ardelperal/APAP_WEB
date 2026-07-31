@@ -67,6 +67,27 @@ _VALID_TRANSITIONS: dict[SeguimientoEstado, dict[SeguimientoAction, SeguimientoE
 }
 
 
+_ACCION_MAP: dict[str, SeguimientoAction] = {
+    "marcar_entregado": SeguimientoAction.MARCAR_ENTREGADO,
+    "anexar_documento": SeguimientoAction.ANEXAR,
+    "completar": SeguimientoAction.COMPLETAR,
+}
+
+
+def resolve_seguimiento_action(action: str) -> SeguimientoAction:
+    """Resolve a string action name to a ``SeguimientoAction`` enum.
+
+    Raises ``ValueError`` when ``action`` is not a recognised name.
+    """
+    resolved = _ACCION_MAP.get(action)
+    if resolved is None:
+        valid = ", ".join(_ACCION_MAP)
+        raise ValueError(
+            f"Accion desconocida: {action}. Valores validos: {valid}"
+        )
+    return resolved
+
+
 def _next_estado(
     current: SeguimientoEstado, action: SeguimientoAction
 ) -> SeguimientoEstado:
@@ -91,6 +112,13 @@ class SeguimientoTransitionResult:
     seguimiento_documento_entregado_at: str | None = None
     seguimiento_documento_url: str | None = None
     seguimiento_completado_at: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _SeguirTransitionError:
+    """Private sentinel — route translates to an HTTP response."""
+    message: str
+    status_code: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -462,4 +490,38 @@ def transition_seguimiento(
         operador_user_id=operador_user_id,
     )
 
+    return result
+
+
+def transition_seguimiento_for_route(
+    client: SqlExecutor,
+    adopcion_id: str,
+    action: str,
+    operador_user_id: str,
+    documento_url: str | None = None,
+) -> SeguimientoTransitionResult | _SeguirTransitionError:
+    """Thin route-facing wrapper over ``transition_seguimiento``.
+
+    Translates exceptions into a result type so the route stays below the
+    50-line handler cap (AGENTS.md rule 28).
+    """
+    resolved = resolve_seguimiento_action(action)
+    try:
+        result = transition_seguimiento(
+            client,
+            adopcion_id=adopcion_id,
+            action=resolved,
+            operador_user_id=operador_user_id,
+            documento_url=documento_url,
+        )
+    except InsForgeError:
+        return _SeguirTransitionError(
+            message="Error del servidor al actualizar el seguimiento.",
+            status_code=500,
+        )
+    if result is None:
+        return _SeguirTransitionError(
+            message="Adopcion no encontrada.",
+            status_code=404,
+        )
     return result
