@@ -401,7 +401,7 @@ def _evaluate_if_clauses(
 
 
 def test_ci_workflow_defines_deploy_job_with_gating() -> None:
-    """CD-01: deploy job exists, runs only on push to main, depends on lint+typecheck+test+build.
+    """CD-01: deploy job exists, runs only on push to main, depends on lint+typecheck+test+integration+build.
 
     The only acceptable gating expression is exactly
     ``github.event_name == 'push' && github.ref == 'refs/heads/main'``.
@@ -413,8 +413,9 @@ def test_ci_workflow_defines_deploy_job_with_gating() -> None:
     assert "  deploy:" in workflow
     assert "  name: deploy" in workflow
     # needs must reference the four required jobs (typecheck added by
-    # issue #201 — the type gate is mandatory before deploy).
-    assert "needs: [lint, typecheck, test, build]" in workflow
+    # issue #201; integration added by issue #361 — the type gate is
+    # mandatory before deploy).
+    assert "needs: [lint, typecheck, test, integration, build]" in workflow
 
     # Extract the job-level if: clause
     if_clause = _extract_deploy_job_if_clause(workflow)
