@@ -108,7 +108,7 @@ def measure_docstrings(root: Path) -> tuple[DocstringStats, DocstringStats, Docs
                 class_stats.total += 1
                 if _has_docstring(node):
                     class_stats.documented += 1
-            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
                 function_stats.total += 1
                 if _has_docstring(node):
                     function_stats.documented += 1

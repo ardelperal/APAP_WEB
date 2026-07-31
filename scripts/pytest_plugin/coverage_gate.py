@@ -148,7 +148,7 @@ def discover_row_to_helpers(app_root: Path) -> frozenset[str]:
         except (SyntaxError, UnicodeDecodeError):
             continue
         for node in ast.walk(tree):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
                 if _ROW_TO_PATTERN.match(node.name):
                     out.add(node.name)
     return frozenset(out)

@@ -5,6 +5,7 @@ Spec coverage: REQ-1 through REQ-7.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -272,6 +273,27 @@ class TestExtractIdentity:
 
 class TestRateLimitMiddlewareIntegration:
     """RED: Middleware classifies buckets, applies limits, returns headers + 429."""
+
+    @pytest.fixture(autouse=True)
+    def _web_mode(self, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+        """Activate the rate-limit middleware for every test in this class.
+
+        ``tests/conftest.py`` defaults ``APAP_MODE=test`` (so the middleware
+        short-circuits for route tests that exercise auth/CSRF, which expect
+        403/401, not 429). This class DOES test the middleware itself and
+        therefore needs ``mode="web"`` — the bypass must NOT trigger.
+
+        ``monkeypatch.setenv`` is per-test (auto-undone at test end) and the
+        ``get_settings.cache_clear()`` ensures the next ``dispatch()`` call
+        re-reads the env var rather than serving the cached "test" value.
+        """
+
+        from app.core.config import get_settings
+
+        monkeypatch.setenv("APAP_MODE", "web")
+        get_settings.cache_clear()
+        yield
+        get_settings.cache_clear()
 
     async def test_oauth_callback_under_limit_has_rate_limit_headers(
         self, client: httpx.AsyncClient

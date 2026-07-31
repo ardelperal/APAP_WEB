@@ -158,7 +158,7 @@ def _iter_route_handlers(path: Path) -> list[tuple[str, int]]:
         return []
     handlers: list[tuple[str, int]] = []
     for node in ast.walk(tree):
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             continue
         if not any(_is_route_decorator(d) for d in node.decorator_list):
             continue
@@ -195,7 +195,7 @@ def _iter_route_handlers_with_form_params(
         return []
     handlers: list[tuple[str, int, int]] = []
     for node in ast.walk(tree):
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             continue
         if not any(_is_route_decorator(d) for d in node.decorator_list):
             continue

@@ -24,6 +24,7 @@ pass an explicit ``csrf_token=`` override.
 
 from __future__ import annotations
 
+import os
 import re
 from collections.abc import Mapping
 from typing import Any
@@ -32,9 +33,20 @@ import httpx
 import pytest
 import pytest_asyncio
 
-from app.core.config import get_settings
-from app.core.session import read_session, session_cookie_name
-from app.main import app as _app
+# CRITICAL: set APAP_MODE=test BEFORE any other import that reads Settings.
+# The RateLimitMiddleware (issue #286) short-circuits when ``settings.mode == "test"``,
+# which is the contract that route tests rely on to avoid 429s in the test client.
+# Without this env var set at conftest-import time, every test that hits a write
+# route gets 429 (rate-limited) BEFORE the role/auth check runs, and the test
+# expecting 403 (forbidden) sees 429 instead. PR #361 routes CI to the
+# self-hosted runner, which actually executes the tests; before that PR, the
+# GitHub-hosted runner pool was blocked and tests never ran, masking this
+# configuration gap.
+os.environ.setdefault("APAP_MODE", "test")
+
+from app.core.config import get_settings  # noqa: E402  (must follow the env set)
+from app.core.session import read_session, session_cookie_name  # noqa: E402
+from app.main import app as _app  # noqa: E402
 
 # Enables the built-in ``pytester`` fixture (opt-in plugin) used by
 # ``tests/test_coverage_gate.py`` to spawn nested pytest subprocesses and
@@ -75,7 +87,7 @@ def auth_reval_rows(
     ):
         email = (
             params[0]
-            if isinstance(params, (list, tuple)) and params
+            if isinstance(params, list | tuple) and params
             else "reval@example.com"
         )
         return [{"id": "u-reval", "email": email, "rol": rol, "activo": True}]

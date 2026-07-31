@@ -330,7 +330,7 @@ def test_resolve_animal_photo_stream_is_iterator_not_buffered_list(
     first_chunk = next(result.stream)
     assert first_chunk == b"chunk1-"
     # It is an iterator, not a list
-    assert not isinstance(result.stream, (list, tuple))
+    assert not isinstance(result.stream, list | tuple)
 
 
 def test_resolve_animal_photo_sentinel_has_content_length(

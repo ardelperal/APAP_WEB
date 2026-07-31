@@ -41,7 +41,7 @@ def _defined_functions_in_app() -> set[str]:
         except SyntaxError:
             continue
         for node in ast.walk(tree):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
                 found.add(node.name)
     return found
 

@@ -16,7 +16,19 @@ permissions:
 jobs:
   lint:
     name: lint
-    runs-on: ubuntu-latest
+    # §15.1 + §32.P7: route the basic gate jobs to the project-owned self-hosted
+    # runner (`apap-web-oracle-arm64`, Oracle VPS, aarch64 Ubuntu 24.04). The
+    # GitHub-hosted `ubuntu-latest` pool's billing was exhausted by the
+    # double-Postgres allocations introduced in #355 (the integration job
+    # allocated its own service container in addition to the test job's),
+    # so jobs that previously ran on GitHub-hosted runners were failing in
+    # 3-10s with `runner_id: 0`. The self-hosted runner has no per-minute
+    # billing and the integration job is now gated on
+    # `APAP_INTEGRATION_ENABLED` (default empty), so basic CI is light again.
+    # The e2e job remains gated on `APAP_SELF_HOSTED_E2E_ENABLED` per its
+    # own pre-existing condition (it requires Playwright + Chromium, which
+    # are NOT installed on the basic self-hosted runner — keep the gate).
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle]
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
@@ -81,7 +93,9 @@ jobs:
 
   typecheck:
     name: typecheck
-    runs-on: ubuntu-latest
+    # See lint job for the runs-on rationale (self-hosted runner; the
+    # GitHub-hosted pool was exhausted by #355's integration job).
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle]
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
@@ -106,7 +120,12 @@ jobs:
 
   test:
     name: test
-    runs-on: ubuntu-latest
+    # See lint job for the runs-on rationale. The test job keeps its
+    # Postgres service container (test_voluntarios_concurrent.py needs it,
+    # though it now uses pytest.skip when no DSN — see #282 fix), but the
+    # service container cost is fine because the runner is self-hosted
+    # (no GitHub Actions minutes consumed).
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle]
     needs: lint
     services:
       postgres:
@@ -176,13 +195,32 @@ jobs:
 
   integration:
     name: integration
-    runs-on: ubuntu-latest
+    # See lint job for the runs-on rationale. This job is also gated
+    # on `APAP_INTEGRATION_ENABLED` (default empty → skipped) so it
+    # does not allocate a Postgres service container on every PR by
+    # default. When the org explicitly enables integration tests, the
+    # job runs on the self-hosted runner with the same service container
+    # as the test job.
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle]
     needs: lint
     # Issue #329: integration tests execute every exported query function
     # from app/modules/*/queries.py against a real Postgres engine.
     # The job MUST NOT silently skip when the DSN is absent (the fixture
     # hard-fails with a clear message, it does not pytest.skip()).
     # The Postgres service container supplies APAP_TEST_POSTGRES_DSN.
+    #
+    # §32.P7 anti-pattern guard: the integration job allocates a Postgres
+    # service container (port 5432) AND the `test` job already does too,
+    # doubling the per-run resource cost. Without this gate, GitHub Actions
+    # runs out of billing/spending budget and every job fails in 3-10s
+    # with `runner_id: 0`. Mirror the `e2e` job's conditional pattern:
+    # only run when the org has explicitly enabled it via the
+    # APAP_INTEGRATION_ENABLED var. When the var is empty (the default), the
+    # job is skipped, CI is light again, and main is no longer blocked by
+    # a job whose only purpose is to validate SQL correctness — which the
+    # local pytest suite can do as long as APAP_TEST_POSTGRES_DSN is set
+    # in the developer's environment.
+    if: ${{ vars.APAP_INTEGRATION_ENABLED != '' }}
     services:
       postgres:
         image: postgres:17-alpine
@@ -227,7 +265,8 @@ jobs:
 
   build:
     name: build
-    runs-on: ubuntu-latest
+    # See lint job for the runs-on rationale.
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle]
     needs: [test, integration]
     steps:
       - name: Check out repository
@@ -317,7 +356,11 @@ jobs:
 
   deploy:
     name: deploy
-    runs-on: ubuntu-latest
+    # See lint job for the runs-on rationale. Deploy only fires on
+    # push-to-main (gated below); routing to self-hosted avoids the
+    # GitHub-hosted runner block. The deploy step itself just POSTs
+    # to the Coolify webhook — Python 3.12 is enough.
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle]
     needs: [lint, typecheck, test, integration, build]
     # Fires on every push to main: PR merges (the normal pre-MVP path per
     # AGENTS.md §15.2) and any direct push both trigger a deploy.
