@@ -90,6 +90,21 @@ class _AnimalsRouteSpy(InsForgeClient):
         self.delete_returning_rows: list[dict[str, Any]] = [
             {"id": "abc-123", "activo": False}
         ]
+        # Chip change saga: default chip change spy rows.
+        # Tests can override these to simulate different scenarios.
+        self.chip_change_get_animal_rows: list[dict[str, Any]] = [
+            {
+                "id": "abc-123",
+                "NCHIP": "111",
+                "NombreAnimal": "Luna",
+                "Especie": "CANINA",
+                "Sexo": "H",
+                "FNacimiento": "2023-04-12",
+                "activo": True,
+            }
+        ]
+        self.chip_change_new_chip_assigned: bool = False  # True = another animal has new_chip
+        self.chip_change_old_chip_match: bool = True  # True = old_chip matches actual
 
     def execute_sql(self, query: str, params: Any = None):  # type: ignore[override]
         # Issue #143: the per-request authorization revalidation SELECT
@@ -105,6 +120,37 @@ class _AnimalsRouteSpy(InsForgeClient):
             return list(self.update_returning_rows)
         if "SELECT" in query and "WHERE id = $1" in query:
             return list(self.get_animal_by_id_rows)
+        # Chip change saga handlers (issue #29)
+        q_lower = query.lower()
+        params_list = list(params) if params else []
+        # Chip uniqueness: SELECT id FROM animals WHERE NCHIP = $1 AND id != $2
+        if "select id from animals where nchip" in q_lower and len(params_list) >= 2:
+            if self.chip_change_new_chip_assigned:
+                return [{"id": "other-animal"}]  # new_chip is taken
+            return []
+        # Current chip: SELECT NCHIP FROM animals WHERE id = $1
+        if "select nchip from animals where id" in q_lower and len(params_list) >= 1:
+            if not self.chip_change_old_chip_match:
+                return []  # animal not found or chip doesn't match
+            return [{"NCHIP": "111"}]
+        # All chip-change UPDATE queries return their PK row
+        if any(kw in q_lower for kw in (
+            "update entradas set chip",
+            "update acogidas set chip",
+            "update adopciones set chip",
+            "update actuaciones_sanitarias set chip",
+            "update terapias set chip",
+        )):
+            return [{"id": "row-1"}]
+        # UPDATE animals for chip change
+        if "update animals set nchip" in q_lower:
+            return [{"id": "abc-123", "NCHIP": params_list[0] if params_list else ""}]
+        # BEGIN, COMMIT, ROLLBACK
+        if q_lower.strip() in ("begin", "commit", "rollback"):
+            return []
+        # INSERT lifecycle event
+        if "insert into animal_lifecycle_events" in q_lower:
+            return []
         return []
 
 
@@ -503,3 +549,93 @@ async def test_write_route_rejects_reader_with_403(
     assert not write_queries, (
         f"reader POST MUST NOT emit animal SQL; got: {write_queries!r}"
     )
+
+
+# --- chip change (issue #29) ------------------------------------------------
+
+
+async def test_change_chip_view_returns_200_with_valid_payload(
+    client: httpx.AsyncClient,
+    animals_spy: _AnimalsRouteSpy,
+) -> None:
+    """PATCH /animales/{animal_id}/chip con payload valido -> 200 + result dict.
+
+    The route delegates to animals_service.change_animal_chip and returns
+    the saga result directly. This test verifies the happy path at the
+    route level (full HTTP + service integration, not mocked at service level).
+    """
+    _login_as_key_user(client)
+
+    # Configure spy to return proper chip-change rows
+    animals_spy.get_animal_by_id_rows = animals_spy.chip_change_get_animal_rows
+
+    response = await client.patch(
+        "/animales/abc-123/chip",
+        json={"new_chip": "222", "reason": "Chip fisurado"},
+        headers={"X-CSRFToken": "test-csrf-token-animals"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["old_chip"] == "111"
+    assert data["new_chip"] == "222"
+    assert "updated_tables" in data
+
+
+async def test_change_chip_view_returns_404_for_unknown_animal(
+    client: httpx.AsyncClient,
+    animals_spy: _AnimalsRouteSpy,
+) -> None:
+    """PATCH /animales/{animal_id}/chip con id inexistente -> 404."""
+    _login_as_key_user(client)
+
+    # Configure spy to return empty (animal not found)
+    animals_spy.get_animal_by_id_rows = []
+
+    response = await client.patch(
+        "/animales/nonexistent/chip",
+        json={"new_chip": "222", "reason": "Chip fisurado"},
+        headers={"X-CSRFToken": "test-csrf-token-animals"},
+    )
+
+    assert response.status_code == 404
+
+
+async def test_change_chip_view_returns_409_when_new_chip_already_assigned(
+    client: httpx.AsyncClient,
+    animals_spy: _AnimalsRouteSpy,
+) -> None:
+    """PATCH /animales/{animal_id}/chip cuando new_chip ya esta asignado -> 409."""
+    _login_as_key_user(client)
+
+    animals_spy.get_animal_by_id_rows = animals_spy.chip_change_get_animal_rows
+    animals_spy.chip_change_new_chip_assigned = True  # Simulate chip already taken
+
+    response = await client.patch(
+        "/animales/abc-123/chip",
+        json={"new_chip": "222", "reason": "Chip fisurado"},
+        headers={"X-CSRFToken": "test-csrf-token-animals"},
+    )
+
+    assert response.status_code == 409
+    assert "ya esta asignado" in response.json()["detail"]
+
+
+async def test_change_chip_view_returns_422_on_chip_mismatch(
+    client: httpx.AsyncClient,
+    animals_spy: _AnimalsRouteSpy,
+) -> None:
+    """PATCH /animales/{animal_id}/chip cuando old_chip no coincide -> 422."""
+    _login_as_key_user(client)
+
+    animals_spy.get_animal_by_id_rows = animals_spy.chip_change_get_animal_rows
+    animals_spy.chip_change_old_chip_match = False  # Simulate old_chip mismatch
+
+    response = await client.patch(
+        "/animales/abc-123/chip",
+        json={"new_chip": "222", "reason": "Chip fisurado"},
+        headers={"X-CSRFToken": "test-csrf-token-animals"},
+    )
+
+    assert response.status_code == 422
