@@ -44,6 +44,7 @@ class Adopcion:
     entrada_origen_id: str | None = None
     observaciones: str | None = None
     tipo_adopcion: str = "regular"
+    responsable_adopcion_id: str | None = None  # VOL-04 #37
     fecha_alta: str | None = None
     updated_at: str | None = None
 
@@ -87,6 +88,11 @@ def _row_to_adopcion(row: dict[str, Any]) -> Adopcion:
         ),
         observaciones=row.get("observaciones"),
         tipo_adopcion=str(row.get("tipo_adopcion") or "regular"),
+        responsable_adopcion_id=(
+            str(row["responsable_adopcion_id"])
+            if row.get("responsable_adopcion_id")
+            else None
+        ),
         fecha_alta=str(row["fecha_alta"]) if row.get("fecha_alta") else None,
         updated_at=str(row["updated_at"]) if row.get("updated_at") else None,
         activo=bool(row.get("activo", True)),
@@ -143,8 +149,17 @@ def _raise_validation_error(client: SqlExecutor, params: dict[str, Any]) -> None
                 f"entrada_origen_id does not reference an existing entrada: {ent_id}"
             )
 
+    resp_id = _optional_text(params, "responsable_adopcion_id")
+    if resp_id:
+        sql, sql_params = queries.build_adopcion_check_responsable(resp_id)
+        if not client.execute_sql(sql, sql_params):
+            raise ValueError(
+                "responsable_adopcion_id must reference an active volunteer"
+            )
+
     raise ValueError(
-        "FK validation failed (animal_id, voluntario, entrada) — none matched"
+        "FK validation failed (animal_id, voluntario_seguimiento, "
+        "entrada, responsable_adopcion) — none matched"
     )
 
 
