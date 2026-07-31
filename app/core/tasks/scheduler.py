@@ -34,10 +34,10 @@ def run_scheduler() -> None:
     """
     # lazy-import: avoids circular import with app.core.config (settings
     # is heavy and this function is CLI-only).
-    from app.core.insforge import InsForgeClient  # lazy-import: avoids circular
-    from app.core.tasks.rules import TASK_RULES  # lazy-import: avoids circular
     from app.core.config import get_settings  # lazy-import: avoids circular
+    from app.core.insforge import InsForgeClient  # lazy-import: avoids circular
     from app.core.logging import log_safe  # lazy-import: CLI-only
+    from app.core.tasks.rules import TASK_RULES  # lazy-import: avoids circular
     from app.modules.tasks import service as tareas_service  # lazy-import: CLI-only
 
     settings = get_settings()
@@ -49,7 +49,7 @@ def run_scheduler() -> None:
         context: dict = {}
 
         nuevos = 0
-        for rule_name, rule_fn in TASK_RULES.items():
+        for _rule_name, rule_fn in TASK_RULES.items():
             drafts = rule_fn(context)
             for draft in drafts:
                 # Deduplicate: skip if an open tarea exists for same vinculo+tipo
