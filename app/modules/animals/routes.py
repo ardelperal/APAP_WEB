@@ -34,10 +34,9 @@ from fastapi.templating import Jinja2Templates
 
 # Re-export for backwards compat with existing test imports.
 # The canonical location is app.core.auth_dependencies.
-# Re-export for backwards compat with existing test imports.
-# The canonical location is app.core.auth_dependencies.
 from app.core.auth_dependencies import (
     get_insforge_client_dep,
+    require_authorized_user,
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
