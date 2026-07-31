@@ -31,6 +31,7 @@ ADOPCION_WRITE_COLUMNS: Final[tuple[str, ...]] = (
     "entrada_origen_id",
     "observaciones",
     "tipo_adopcion",
+    "responsable_adopcion_id",  # VOL-04 #37: free-text legacy → FK
 )
 
 ADOPCION_SELECT_COLUMNS: Final[tuple[str, ...]] = (
@@ -59,14 +60,18 @@ checked_voluntario AS (
 checked_entrada AS (
     SELECT id FROM entradas WHERE id = $11
 ),
+checked_responsable AS (
+    SELECT id FROM voluntarios WHERE id = $14 AND activo = true
+),
 inserted AS (
     INSERT INTO adopciones ({", ".join(ADOPCION_WRITE_COLUMNS)})
     SELECT
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
     FROM checked_animal
     WHERE
         ($2::text IS NULL OR EXISTS (SELECT 1 FROM checked_voluntario))
         AND ($11::text IS NULL OR EXISTS (SELECT 1 FROM checked_entrada))
+        AND ($14::text IS NULL OR EXISTS (SELECT 1 FROM checked_responsable))
     RETURNING {", ".join(ADOPCION_SELECT_COLUMNS)}
 )
 SELECT {", ".join(ADOPCION_SELECT_COLUMNS)} FROM inserted
@@ -103,6 +108,9 @@ checked_voluntario AS (
 checked_entrada AS (
     SELECT id FROM entradas WHERE id = $12
 ),
+checked_responsable AS (
+    SELECT id FROM voluntarios WHERE id = $15 AND activo = true
+),
 updated AS (
     UPDATE adopciones SET
 {", ".join(f"{col} = ${i + 4}" for i, col in enumerate(ADOPCION_WRITE_COLUMNS))},
@@ -111,6 +119,7 @@ updated_at = now()
       AND EXISTS (SELECT 1 FROM checked_animal)
       AND ($3::text IS NULL OR EXISTS (SELECT 1 FROM checked_voluntario))
       AND ($12::text IS NULL OR EXISTS (SELECT 1 FROM checked_entrada))
+      AND ($15::text IS NULL OR EXISTS (SELECT 1 FROM checked_responsable))
     RETURNING {", ".join(ADOPCION_SELECT_COLUMNS)}
 )
 SELECT {", ".join(ADOPCION_SELECT_COLUMNS)} FROM updated
@@ -154,6 +163,7 @@ def _build_write_params(params: dict[str, Any]) -> list[Any]:
         optional_text(params, "entrada_origen_id"),
         optional_text(params, "observaciones"),
         optional_text(params, "tipo_adopcion") or "regular",
+        optional_text(params, "responsable_adopcion_id"),  # VOL-04 #37
     ]
 
 
@@ -193,3 +203,13 @@ def build_adopcion_check_voluntario(voluntario_id: str) -> tuple[str, list[Any]]
 
 def build_adopcion_check_entrada(entrada_id: str) -> tuple[str, list[Any]]:
     return _CHECK_ENTRADA_SQL, [entrada_id]
+
+
+_CHECK_RESPONSABLE_SQL: Final[str] = (
+    "SELECT id FROM voluntarios WHERE id = $1 AND activo = true"
+)
+
+
+def build_adopcion_check_responsable(voluntario_id: str) -> tuple[str, list[Any]]:
+    """SELECT for FK check of responsable_adopcion_id (VOL-05 active check)."""
+    return _CHECK_RESPONSABLE_SQL, [voluntario_id]

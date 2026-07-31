@@ -20,6 +20,7 @@ _FULL_PARAMS = {
     "entrada_origen_id": " ent-1 ",
     "observaciones": " notes ",
     "tipo_adopcion": " judicial ",
+    "responsable_adopcion_id": " resp-1 ",  # VOL-04 #37
 }
 
 _EXPECTED_WRITE_PARAMS = [
@@ -36,6 +37,7 @@ _EXPECTED_WRITE_PARAMS = [
     "ent-1",
     "notes",
     "judicial",
+    "resp-1",  # responsable_adopcion_id (VOL-04 #37)
 ]
 
 
@@ -92,6 +94,12 @@ def test_build_adopcion_update_exact_sql_and_params() -> None:
             queries._CHECK_ENTRADA_SQL,
             ["ent-1"],
         ),
+        (
+            queries.build_adopcion_check_responsable,
+            "vol-1",
+            queries._CHECK_RESPONSABLE_SQL,
+            ["vol-1"],
+        ),
     ],
 )
 def test_single_argument_builders_exact_sql_and_params(
@@ -121,19 +129,20 @@ def test_write_builders_preserve_validation_and_defaults() -> None:
 
     assert sql == queries._INSERT_ADOPCION_SQL
     assert params == [
-        "animal-1",
-        None,
-        "2026-07-27",
-        None,
-        None,
-        None,
-        "Ada",
-        None,
-        None,
-        None,
-        None,
-        None,
-        "regular",
+        "animal-1",   # 0  animal_id
+        None,         # 1  voluntario_seguimiento_id
+        "2026-07-27", # 2  fecha_adopcion
+        None,         # 3  fecha_devolucion
+        None,         # 4  donativo_preadopcion
+        None,         # 5  donativo_adopcion
+        "Ada",        # 6  nombre_adoptante
+        None,         # 7  dni_adoptante
+        None,         # 8  telefono_adoptante
+        None,         # 9  email_adoptante
+        None,         # 10 entrada_origen_id
+        None,         # 11 observaciones
+        "regular",    # 12 tipo_adopcion
+        None,         # 13 responsable_adopcion_id (VOL-04 #37)
     ]
 
 
