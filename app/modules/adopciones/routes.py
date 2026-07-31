@@ -476,3 +476,84 @@ def delete_adopcion_view(
     return RedirectResponse(
         url="/adopciones", status_code=status.HTTP_303_SEE_OTHER
     )
+
+
+# --- seguimiento state transition (ADOPT-03, issue #49) --------------------
+
+
+@router.patch(
+    "/{adopcion_id}/seguimiento",
+    response_class=HTMLResponse,
+    tags=["adopciones"],
+)
+def seguimiento_transition_view(
+    adopcion_id: str,
+    request: Request,
+    action: str = Form(...),
+    documento_url: str | None = Form(None),
+    user: AuthenticatedUser = Depends(require_writer_user),
+    client: InsForgeClient = Depends(get_insforge_client_dep),
+):
+    """Transition the seguimiento estado for an adopcion.
+
+    Body (form): ``action`` is required (``marcar_entregado``,
+    ``anexar_documento``, ``completar``). ``documento_url`` is required
+    only for ``anexar_documento``.
+
+    Returns 409 Conflict when the transition is invalid for the current
+    estado. Returns 404 when the adopcion does not exist.
+    Returns 303 redirect to the detail view on success.
+    """
+    if (early := return_early_if_response(user)) is not None:
+        return early
+
+    # Map string action to enum
+    action_map = {
+        "marcar_entregado": adopciones_service.SeguimientoAction.MARCAR_ENTREGADO,
+        "anexar_documento": adopciones_service.SeguimientoAction.ANEXAR,
+        "completar": adopciones_service.SeguimientoAction.COMPLETAR,
+    }
+    if action not in action_map:
+        return _render_form(
+            request,
+            user,
+            {},
+            f"Accion desconocida: {action}. Valores validos: "
+            f"{', '.join(action_map.keys())}",
+            f"/adopciones/{adopcion_id}",
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+        )
+
+    try:
+        result = adopciones_service.transition_seguimiento(
+            client,
+            adopcion_id=adopcion_id,
+            action=action_map[action],
+            operador_user_id=_actor_user_id(user) or "unknown",
+            documento_url=documento_url,
+        )
+    except ValueError as exc:
+        return _render_form(
+            request,
+            user,
+            {},
+            f"No se pudo avanzar el seguimiento: {exc}",
+            f"/adopciones/{adopcion_id}",
+            status.HTTP_409_CONFLICT,
+        )
+    except InsForgeError:
+        return _render_form(
+            request,
+            user,
+            {},
+            "Error del servidor al actualizar el seguimiento.",
+            f"/adopciones/{adopcion_id}",
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+
+    return RedirectResponse(
+        url=f"/adopciones/{adopcion_id}", status_code=status.HTTP_303_SEE_OTHER
+    )
