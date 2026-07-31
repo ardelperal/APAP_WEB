@@ -26,13 +26,12 @@ from starlette.responses import Response
 
 from app.core.auth_dependencies import (
     get_insforge_client_dep,
-    require_authorized_user,
-    require_writer_user,
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
 from app.core.insforge import InsForgeClient, InsForgeError
 from app.core.middleware import base_template_context_processor
+from app.core.rbac import Permission, require_permission
 from app.modules.voluntarios import service as voluntarios_service
 
 router = APIRouter(prefix="/voluntarios", tags=["voluntarios"])
@@ -68,7 +67,7 @@ def _form_data_to_params(form: dict[str, Any]) -> dict[str, Any]:
 @router.get("", response_class=HTMLResponse)
 def list_voluntarios_view(
     request: Request,
-    user: Response | dict = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_permission(Permission.READ_VOLUNTARIOS)),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Lista de voluntarios activos, ordenados alfabeticamente."""
@@ -88,7 +87,7 @@ def list_voluntarios_view(
 @router.get("/new", response_class=HTMLResponse)
 def new_voluntario_form(
     request: Request,
-    user: Response | dict = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_permission(Permission.READ_VOLUNTARIOS)),
 ):
     """Formulario vacio para dar de alta un voluntario."""
     if (early := return_early_if_response(user)) is not None:
@@ -115,7 +114,7 @@ def create_voluntario_view(
     Tel2: str | None = Form(None),
     Email: str | None = Form(None),
     DNI: str | None = Form(None),
-    user: Response | dict = Depends(require_writer_user),
+    user: Response | dict = Depends(require_permission(Permission.WRITE_VOLUNTARIOS)),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Procesa el submit del formulario. En exito, redirect al detalle."""
@@ -161,7 +160,7 @@ def create_voluntario_view(
 def voluntario_detail(
     voluntario_id: str,
     request: Request,
-    user: Response | dict = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_permission(Permission.READ_VOLUNTARIOS)),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Detalle de un voluntario. 404 si no existe."""
@@ -185,7 +184,7 @@ def voluntario_detail(
 def deactivate_voluntario_view(
     voluntario_id: str,
     request: Request,
-    user: Response | dict = Depends(require_writer_user),
+    user: Response | dict = Depends(require_permission(Permission.WRITE_VOLUNTARIOS)),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Soft-delete via un solo ``UPDATE ... WHERE id = $1 AND activo = true``.

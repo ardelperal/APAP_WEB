@@ -4,16 +4,16 @@ Thin layer on top of ``app.modules.animals.service``. The routes
 handle HTTP-specific concerns (form parsing, redirects, HTML
 rendering) and delegate the SQL to the service.
 
-Auth model: any active user from ``usuarios_autorizados`` (i.e. any
-authorized user) can read and create animals. The admin panel
-(``/admin``) is the only developer-only surface.
-``require_authorized_user`` returns a 302 redirect to ``/login`` or
-``/unauthorized`` for unauthenticated / unauthorised callers.
+Auth model (issue #66 RBAC): permissions are checked via
+``require_permission`` from ``app.core.rbac``.  The permission matrix:
+- READ_ANIMALES: admin, staff, voluntario
+- WRITE_ANIMALES: admin, staff, voluntario
+- DELETE_ANIMALES: admin, staff
 
 Las dependencias de auth (``get_insforge_client_dep``,
-``get_current_user_optional`` y ``require_authorized_user``) viven
-en ``app.core.auth_dependencies`` para evitar el copy-paste con
-``app.modules.voluntarios.routes``.
+``get_current_user_optional`` y ``require_permission``) viven
+en ``app.core.auth_dependencies`` / ``app.core.rbac`` para evitar
+el copy-paste con ``app.modules.voluntarios.routes``.
 """
 
 from __future__ import annotations
@@ -32,10 +32,12 @@ from fastapi.responses import (
 )
 from fastapi.templating import Jinja2Templates
 
+# Re-export for backwards compat with existing test imports.
+# The canonical location is app.core.auth_dependencies.
+# Re-export for backwards compat with existing test imports.
+# The canonical location is app.core.auth_dependencies.
 from app.core.auth_dependencies import (
     get_insforge_client_dep,
-    require_authorized_user,
-    require_writer_user,
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
@@ -43,6 +45,7 @@ from app.core.forms import optional_value
 from app.core.insforge import InsForgeClient, InsForgeError
 from app.core.logging import log_safe
 from app.core.middleware import base_template_context_processor
+from app.core.rbac import Permission, require_permission
 from app.modules.animals import photo_service
 from app.modules.animals import service as animals_service
 from app.modules.animals.forms import AnimalForm
@@ -110,7 +113,7 @@ def _form_data_to_params(form: dict[str, Any]) -> dict[str, Any]:
 @router.get("", response_class=HTMLResponse)
 def list_animales(
     request: Request,
-    user: Response | dict = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_permission(Permission.READ_ANIMALES)),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Lista de animales activos, mas recientes primero."""
@@ -170,7 +173,7 @@ def search_animales(
 @router.get("/new", response_class=HTMLResponse)
 def new_animal_form(
     request: Request,
-    user: Response | dict = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_permission(Permission.READ_ANIMALES)),
 ):
     """Formulario vacio para dar de alta un animal."""
     if (early := return_early_if_response(user)) is not None:
@@ -195,7 +198,7 @@ def new_animal_form(
 def create_animal_view(
     request: Request,
     form: AnimalForm = Form(...),
-    user: Response | dict = Depends(require_writer_user),
+    user: Response | dict = Depends(require_permission(Permission.WRITE_ANIMALES)),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Procesa el submit del formulario. En exito, redirect al detalle.
@@ -255,7 +258,7 @@ def create_animal_view(
 def animal_detail(
     animal_id: str,
     request: Request,
-    user: Response | dict = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_permission(Permission.READ_ANIMALES)),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Detalle de un animal. 404 si no existe."""
@@ -278,7 +281,7 @@ def animal_detail(
 def edit_animal_form(
     animal_id: str,
     request: Request,
-    user: Response | dict = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_permission(Permission.READ_ANIMALES)),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Formulario prellenado para editar un animal."""
@@ -308,7 +311,7 @@ def update_animal_view(
     animal_id: str,
     request: Request,
     form: AnimalForm = Form(...),
-    user: Response | dict = Depends(require_writer_user),
+    user: Response | dict = Depends(require_permission(Permission.WRITE_ANIMALES)),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Procesa el submit de edicion. Redirect al detalle en exito.
@@ -347,7 +350,7 @@ def update_animal_view(
 def delete_animal_view(
     animal_id: str,
     request: Request,
-    user: Response | dict = Depends(require_writer_user),
+    user: Response | dict = Depends(require_permission(Permission.DELETE_ANIMALES)),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Soft-delete via ``animals_service.delete_animal``. Redirect a la lista.
@@ -373,7 +376,7 @@ def delete_animal_view(
 def animal_foto(
     animal_id: str,
     request: Request,
-    user: Response | dict = Depends(require_authorized_user),
+    user: Response | dict = Depends(require_permission(Permission.READ_ANIMALES)),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     if (early := return_early_if_response(user)) is not None:

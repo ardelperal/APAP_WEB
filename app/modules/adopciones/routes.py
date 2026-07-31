@@ -47,13 +47,12 @@ from fastapi.templating import Jinja2Templates
 from app.core.auth_dependencies import (
     AuthenticatedUser,
     get_insforge_client_dep,
-    require_authorized_user,
-    require_writer_user,
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
 from app.core.insforge import InsForgeClient, InsForgeError
 from app.core.middleware import base_template_context_processor
+from app.core.rbac import Permission, require_permission
 from app.modules.adopciones import service as adopciones_service
 
 router = APIRouter(prefix="/adopciones", tags=["adopciones"])
@@ -187,7 +186,7 @@ def _render_form(
 def list_adopciones_view(
     request: Request,
     adoptante: str | None = None,
-    user: AuthenticatedUser = Depends(require_authorized_user),
+    user: AuthenticatedUser = Depends(require_permission(Permission.READ_ADOPCIONES)),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """List active adopciones; ``?adoptante=`` filters by name (ILIKE)."""
@@ -216,7 +215,7 @@ def list_adopciones_view(
 @router.get("/new", response_class=HTMLResponse)
 def new_adopcion_form(
     request: Request,
-    user: AuthenticatedUser = Depends(require_authorized_user),
+    user: AuthenticatedUser = Depends(require_permission(Permission.READ_ADOPCIONES)),
 ):
     """Empty form for a new adopción."""
     if (early := return_early_if_response(user)) is not None:
@@ -243,14 +242,12 @@ def create_adopcion_view(
     entrada_origen_id: str | None = Form(None),
     observaciones: str | None = Form(None),
     tipo_adopcion: str | None = Form(None),
-    user: AuthenticatedUser = Depends(require_writer_user),
+    user: AuthenticatedUser = Depends(require_permission(Permission.WRITE_ADOPCIONES)),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Create an adopción; redirect to detail on success.
 
-    P1-3 (risk review 2026-07-04): write endpoint, requires
-    ``require_writer_user`` so a ``reader`` rol is rejected with 403
-    BEFORE the handler runs (issue #144).
+    Auth (issue #66 RBAC): requires WRITE_ADOPCIONES permission.
 
     P1-2 (risk review 2026-07-04): the try/except wraps both
     ``ValueError`` (FK / required-field / numeric coercion errors) AND
@@ -321,7 +318,7 @@ def create_adopcion_view(
 def adopcion_detail(
     adopcion_id: str,
     request: Request,
-    user: AuthenticatedUser = Depends(require_authorized_user),
+    user: AuthenticatedUser = Depends(require_permission(Permission.READ_ADOPCIONES)),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Detail view; 404 when the id is missing."""
@@ -344,7 +341,7 @@ def adopcion_detail(
 def edit_adopcion_form(
     adopcion_id: str,
     request: Request,
-    user: AuthenticatedUser = Depends(require_authorized_user),
+    user: AuthenticatedUser = Depends(require_permission(Permission.READ_ADOPCIONES)),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Edit form prefilled from the persisted row."""
@@ -382,16 +379,12 @@ def update_adopcion_view(
     entrada_origen_id: str | None = Form(None),
     observaciones: str | None = Form(None),
     tipo_adopcion: str | None = Form(None),
-    user: AuthenticatedUser = Depends(require_writer_user),
+    user: AuthenticatedUser = Depends(require_permission(Permission.WRITE_ADOPCIONES)),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Update an existing adopción; redirect to detail on success.
 
-    P1-3 (risk review 2026-07-04): write endpoint, requires
-    ``require_writer_user``. P1-2: catches both ``ValueError`` and
-    ``InsForgeError`` for a clean 422 with the operator's form input
-    preserved. P1-1: ``AdopcionConflictError`` is caught separately to
-    render the natural-key UNIQUE violation as 409.
+    Auth (issue #66 RBAC): requires WRITE_ADOPCIONES permission.
 
     P2-1 (risk review 2026-07-04): previously only ``create_adopcion``
     translated the UNIQUE violation; now ``update_adopcion`` does the
@@ -457,13 +450,12 @@ def update_adopcion_view(
 def delete_adopcion_view(
     adopcion_id: str,
     request: Request,
-    user: AuthenticatedUser = Depends(require_writer_user),
+    user: AuthenticatedUser = Depends(require_permission(Permission.WRITE_ADOPCIONES)),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Soft-delete via ``adopciones_service.delete_adopcion``; redirect to list.
 
-    P1-3 (risk review 2026-07-04): write endpoint, requires
-    ``require_writer_user`` so a ``reader`` rol is rejected with 403.
+    Auth (issue #66 RBAC): requires WRITE_ADOPCIONES permission.
     """
     if (early := return_early_if_response(user)) is not None:
         return early

@@ -57,14 +57,13 @@ from fastapi.templating import Jinja2Templates
 from app.core.auth_dependencies import (
     AuthenticatedUser,
     get_insforge_client_dep,
-    require_authorized_user,
-    require_writer_user,
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
 from app.core.insforge import InsForgeClient, InsForgeError
 from app.core.logging import log_safe
 from app.core.middleware import base_template_context_processor
+from app.core.rbac import Permission, require_permission
 from app.modules.sanidad import service as sanidad_service
 
 router = APIRouter(prefix="/sanidad", tags=["sanidad"])
@@ -228,7 +227,7 @@ def _render_backend_error(
 def list_actuaciones_view(
     request: Request,
     animal_id: str | None = None,
-    user: AuthenticatedUser = Depends(require_authorized_user),
+    user: AuthenticatedUser = Depends(require_permission(Permission.READ_SALUD)),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """List active actuaciones; ``?animal_id=`` filters to one animal.
@@ -265,7 +264,7 @@ def list_actuaciones_view(
 @router.get("/new", response_class=HTMLResponse)
 def new_actuacion_form(
     request: Request,
-    user: AuthenticatedUser = Depends(require_authorized_user),
+    user: AuthenticatedUser = Depends(require_permission(Permission.READ_SALUD)),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Empty form for a new actuacion, with the catalogos_pruebas dropdown."""
@@ -295,7 +294,7 @@ def create_actuacion_view(
     veterinario: str | None = Form(None),
     observaciones: str | None = Form(None),
     material_utilizado: str | None = Form(None),
-    user: AuthenticatedUser = Depends(require_writer_user),
+    user: AuthenticatedUser = Depends(require_permission(Permission.WRITE_SALUD)),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Create an actuacion; redirect to detail on success.
@@ -360,7 +359,7 @@ def create_actuacion_view(
 def actuacion_detail(
     actuacion_id: str,
     request: Request,
-    user: AuthenticatedUser = Depends(require_authorized_user),
+    user: AuthenticatedUser = Depends(require_permission(Permission.READ_SALUD)),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Detail view; 404 when the id is missing."""
@@ -402,7 +401,7 @@ def actuacion_detail(
 def edit_actuacion_form(
     actuacion_id: str,
     request: Request,
-    user: AuthenticatedUser = Depends(require_authorized_user),
+    user: AuthenticatedUser = Depends(require_permission(Permission.READ_SALUD)),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Edit form prefilled from the persisted row."""
@@ -440,7 +439,7 @@ def update_actuacion_view(
     veterinario: str | None = Form(None),
     observaciones: str | None = Form(None),
     material_utilizado: str | None = Form(None),
-    user: AuthenticatedUser = Depends(require_writer_user),
+    user: AuthenticatedUser = Depends(require_permission(Permission.WRITE_SALUD)),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Update an existing actuacion; redirect to detail on success.
@@ -509,7 +508,7 @@ def update_actuacion_view(
 def delete_actuacion_view(
     actuacion_id: str,
     request: Request,
-    user: AuthenticatedUser = Depends(require_writer_user),
+    user: AuthenticatedUser = Depends(require_permission(Permission.WRITE_SALUD)),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Soft-delete via ``sanidad_service.delete_actuacion_sanitaria``.
