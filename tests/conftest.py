@@ -87,7 +87,7 @@ def auth_reval_rows(
     ):
         email = (
             params[0]
-            if isinstance(params, (list, tuple)) and params
+            if isinstance(params, list | tuple) and params
             else "reval@example.com"
         )
         return [{"id": "u-reval", "email": email, "rol": rol, "activo": True}]

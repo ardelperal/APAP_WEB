@@ -316,6 +316,6 @@ def _json_default(obj: Any) -> Any:
     """
     if isinstance(obj, datetime):
         return obj.isoformat()
-    if isinstance(obj, (set, frozenset)):
+    if isinstance(obj, set | frozenset):
         return sorted(obj)
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")

@@ -403,7 +403,7 @@ def _collect_actual_routes(repo_root: Path) -> list[tuple[str, Path, int]]:
             continue
         prefix = _api_router_prefix(tree)
         for node in ast.walk(tree):
-            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
                 continue
             for decorator in node.decorator_list:
                 p = _route_decorator_path(decorator)
@@ -628,7 +628,7 @@ def find_query_seam_baseline_notes(
 def _check_route_uses_execute_sql(path: Path, tree: ast.AST) -> list[Violation]:
     violations: list[Violation] = []
     for node in ast.walk(tree):
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             continue
         verb = _route_http_verb(node)
         if verb is None or verb not in _WRITE_HTTP_VERBS:
@@ -988,7 +988,7 @@ def _check_integration_test_coverage(repo_root: Path) -> list[Violation]:
 
         build_funcs: set[str] = set()
         for node in ast.walk(tree):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
                 if node.name.startswith("build_"):
                     build_funcs.add(node.name)
 
@@ -1046,7 +1046,7 @@ def _check_integration_test_coverage(repo_root: Path) -> list[Violation]:
 
         tested_funcs: set[str] = set()
         for node in ast.walk(test_tree):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
                 if node.name.startswith("test_build_"):
                     # Extract the build function name: test_build_foo -> build_foo
                     tested_funcs.add(node.name[len("test_") :])
@@ -1536,7 +1536,7 @@ def _check_duplicate_helper_definitions(repo_root: Path) -> list[Violation]:
             continue
         seen_in_file: set[str] = set()
         for node in ast.walk(tree):
-            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
                 continue
             if node.name not in WATCHED_DUPLICATE_HELPERS or node.name in seen_in_file:
                 continue

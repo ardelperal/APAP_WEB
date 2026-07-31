@@ -131,7 +131,7 @@ def _optional_numeric(params: dict[str, Any], field: str) -> float | None:
         return None
     if isinstance(value, bool):
         raise ValueError(f"{field} must be a number, not a boolean")
-    if not isinstance(value, (int, float, str)):
+    if not isinstance(value, int | float | str):
         raise ValueError(f"{field} must be a number")
     try:
         return float(value)
