@@ -54,7 +54,6 @@ Mapeo de campos (legacy ``TbFichaAnimal`` -> dataclass):
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, cast
@@ -460,7 +459,6 @@ def delete_animal(client: SqlExecutor, animal_id: str) -> bool:
     return bool(rows)
 
 
-<<<<<<< HEAD
 # --- search (issue #30 LIFECYCLE-05) ----------------------------------------
 
 
@@ -546,11 +544,6 @@ def search_animals(
         limit=capped.limit,
         offset=capped.offset,
     )
-=======
-# --- chip change (issue #29, LIFECYCLE-04) --------------------------------
-
-
-@dataclass(frozen=True, slots=True)
 class ChangeChipResult:
     """Resultado del saga de cambio de chip.
 
@@ -776,4 +769,3 @@ def _commit_tx(client: SqlExecutor) -> None:
 def _rollback_tx(client: SqlExecutor) -> None:
     client.execute_sql("ROLLBACK", [])
 
->>>>>>> ea2a149 (feat(animals): chip change with cascade -- closes #29)
