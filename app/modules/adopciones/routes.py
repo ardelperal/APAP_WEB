@@ -51,10 +51,12 @@ from app.core.auth_dependencies import (
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
+from app.core.forms import optional_value as _opt
 from app.core.insforge import InsForgeClient, InsForgeError
 from app.core.middleware import base_template_context_processor
 from app.core.rbac import Permission, require_permission
 from app.modules.adopciones import service as adopciones_service
+from app.modules.adopciones.forms import AdopcionForm
 
 router = APIRouter(prefix="/adopciones", tags=["adopciones"])
 
@@ -69,52 +71,19 @@ _templates = Jinja2Templates(
 )
 
 
-_FORM_FIELDS = (
-    "animal_id",
-    "voluntario_seguimiento_id",
-    "fecha_adopcion",
-    "fecha_devolucion",
-    "donativo_preadopcion",
-    "donativo_adopcion",
-    "nombre_adoptante",
-    "dni_adoptante",
-    "telefono_adoptante",
-    "email_adoptante",
-    "entrada_origen_id",
-    "observaciones",
-    "tipo_adopcion",
-)
+def _form_data_to_params(form: AdopcionForm) -> dict[str, Any]:
+    """Translate an AdopcionForm dump into the service's ``params`` schema.
 
-
-def _opt(value: str | None) -> str | None:
-    """Strip a string or convert empty to ``None`` for optional fields.
-
-    Mirrors ``entradas/routes.py::_opt`` and ``cesiones/routes.py::_opt``.
-    Lets the operator leave optional fields blank in the form (e.g.
-    ``dni_adoptante``) and have the service write NULL to the DB
-    rather than an empty string.
+    All fields (required + optional) are included. ``_opt`` is applied
+    to every value: empty strings become ``None`` so the service stores
+    NULL, and non-empty strings are trimmed. This mirrors the original
+    ``_opt()`` behaviour that the refactor replaced.
     """
-    if value is None:
-        return None
-    stripped = str(value).strip()
-    return stripped or None
-
-
-def _form_data_to_params(form: dict[str, Any]) -> dict[str, Any]:
-    """Translate the raw form dict into the service's ``params`` schema.
-
-    ``donativo_*`` are kept as strings here on purpose: the service's
-    ``_optional_numeric`` raises a clean ``ValueError`` on bad input
-    (the route would otherwise crash on a hand-rolled ``int()`` /
-    ``float()``). Empty strings stay empty so the service treats them
-    as ``None``.
-
-    P1-2 (readability review 2026-07-04): the previous
-    ``_opt_numeric`` wrapper was a redundant ``return _opt(value)``.
-    Removed; the comprehension below applies ``_opt`` to every form
-    field including ``donativo_preadopcion`` / ``donativo_adopcion``.
-    """
-    return {key: _opt(form.get(key)) for key in _FORM_FIELDS}
+    raw = form.model_dump()  # includes None fields (optional str fields)
+    params: dict[str, Any] = {}
+    for key, value in raw.items():
+        params[key] = _opt(value)
+    return params
 
 
 def _adopcion_to_form_data(
@@ -230,23 +199,16 @@ def new_adopcion_form(
 @router.post("", response_class=HTMLResponse)
 def create_adopcion_view(
     request: Request,
-    animal_id: str = Form(...),
-    voluntario_seguimiento_id: str | None = Form(None),
-    fecha_adopcion: str = Form(...),
-    fecha_devolucion: str | None = Form(None),
-    donativo_preadopcion: str | None = Form(None),
-    donativo_adopcion: str | None = Form(None),
-    nombre_adoptante: str = Form(...),
-    dni_adoptante: str | None = Form(None),
-    telefono_adoptante: str | None = Form(None),
-    email_adoptante: str | None = Form(None),
-    entrada_origen_id: str | None = Form(None),
-    observaciones: str | None = Form(None),
-    tipo_adopcion: str | None = Form(None),
+    form: AdopcionForm = Form(...),
     user: AuthenticatedUser = Depends(require_permission(Permission.WRITE_ADOPCIONES)),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Create an adopción; redirect to detail on success.
+
+    Uses ``AdopcionForm`` (Pydantic v2 with ``Form()``) as the single
+    source of truth for the 13 form fields. Adding a field means
+    adding it to ``app.modules.adopciones.forms.AdopcionForm`` — the two
+    handlers cannot drift.
 
     Auth (issue #66 RBAC): requires WRITE_ADOPCIONES permission.
 
@@ -265,23 +227,7 @@ def create_adopcion_view(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
-    form_data = _form_data_to_params(
-        {
-            "animal_id": animal_id,
-            "voluntario_seguimiento_id": voluntario_seguimiento_id,
-            "fecha_adopcion": fecha_adopcion,
-            "fecha_devolucion": fecha_devolucion,
-            "donativo_preadopcion": donativo_preadopcion,
-            "donativo_adopcion": donativo_adopcion,
-            "nombre_adoptante": nombre_adoptante,
-            "dni_adoptante": dni_adoptante,
-            "telefono_adoptante": telefono_adoptante,
-            "email_adoptante": email_adoptante,
-            "entrada_origen_id": entrada_origen_id,
-            "observaciones": observaciones,
-            "tipo_adopcion": tipo_adopcion,
-        }
-    )
+    form_data = _form_data_to_params(form)
     try:
         adopcion = adopciones_service.create_adopcion(
             client,
@@ -367,23 +313,14 @@ def edit_adopcion_form(
 def update_adopcion_view(
     adopcion_id: str,
     request: Request,
-    animal_id: str = Form(...),
-    voluntario_seguimiento_id: str | None = Form(None),
-    fecha_adopcion: str = Form(...),
-    fecha_devolucion: str | None = Form(None),
-    donativo_preadopcion: str | None = Form(None),
-    donativo_adopcion: str | None = Form(None),
-    nombre_adoptante: str = Form(...),
-    dni_adoptante: str | None = Form(None),
-    telefono_adoptante: str | None = Form(None),
-    email_adoptante: str | None = Form(None),
-    entrada_origen_id: str | None = Form(None),
-    observaciones: str | None = Form(None),
-    tipo_adopcion: str | None = Form(None),
+    form: AdopcionForm = Form(...),
     user: AuthenticatedUser = Depends(require_permission(Permission.WRITE_ADOPCIONES)),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """Update an existing adopción; redirect to detail on success.
+
+    Uses ``AdopcionForm`` (Pydantic v2 with ``Form()``) as the single
+    source of truth — same pattern as ``create_adopcion_view``.
 
     Auth (issue #66 RBAC): requires WRITE_ADOPCIONES permission.
 
@@ -394,23 +331,7 @@ def update_adopcion_view(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
-    form_data = _form_data_to_params(
-        {
-            "animal_id": animal_id,
-            "voluntario_seguimiento_id": voluntario_seguimiento_id,
-            "fecha_adopcion": fecha_adopcion,
-            "fecha_devolucion": fecha_devolucion,
-            "donativo_preadopcion": donativo_preadopcion,
-            "donativo_adopcion": donativo_adopcion,
-            "nombre_adoptante": nombre_adoptante,
-            "dni_adoptante": dni_adoptante,
-            "telefono_adoptante": telefono_adoptante,
-            "email_adoptante": email_adoptante,
-            "entrada_origen_id": entrada_origen_id,
-            "observaciones": observaciones,
-            "tipo_adopcion": tipo_adopcion,
-        }
-    )
+    form_data = _form_data_to_params(form)
     try:
         adopcion = adopciones_service.update_adopcion(
             client,
