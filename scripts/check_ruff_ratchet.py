@@ -39,7 +39,19 @@ SCOPE: tuple[str, ...] = ("app", "migration", "scripts")
 
 #: Rulesets selected on top of the pyproject ``select``. Keep in sync with the
 #: table in issue #380.
+#:
+#: These are rule *groups*, not individual codes, which means a ruff upgrade can
+#: introduce rules nobody chose. That is not hypothetical: the first CI run of
+#: this ratchet failed on ``PLR0917``, a rule that is preview-gated in 0.15.21
+#: but graduated in a later release the runner resolved through the old
+#: ``ruff>=0.6`` floor. Hence RUFF_VERSION below.
 SELECT: str = "S,ERA,ARG,FAST,N,C901,PLR,SIM,RET,TRY,PTH"
+
+#: The exact ruff BASELINE was measured against, pinned in pyproject.toml.
+#: A different version may add, remove or re-gate rules, which would make the
+#: comparison meaningless. Fail loudly with an actionable message instead of
+#: reporting a confusing "new rule not in BASELINE".
+RUFF_VERSION: str = "0.15.21"
 
 #: rule_code -> baseline violation count, measured on main @f2509aa.
 #: RATCHET: every value may only decrease. Adding a key is a blocked change —
@@ -86,6 +98,29 @@ BASELINE: dict[str, int] = {
     "TRY004": 10,
     "TRY300": 3,
 }
+
+
+def check_ruff_version() -> str | None:
+    """Return an error string when the installed ruff is not RUFF_VERSION."""
+    try:
+        proc = subprocess.run(  # noqa: S603
+            [sys.executable, "-m", "ruff", "--version"],
+            capture_output=True, text=True, check=False,
+        )
+    except OSError as exc:
+        return f"cannot run ruff ({exc})"
+
+    found = proc.stdout.strip().removeprefix("ruff").strip()
+    if found != RUFF_VERSION:
+        return (
+            f"ruff {found or '<unknown>'} is installed but BASELINE was measured "
+            f"against {RUFF_VERSION}. A different ruff may add, remove or re-gate "
+            f"rules, so the comparison would be meaningless. Either reinstall the "
+            f"pinned version (`pip install -e \".[dev]\"`), or — if the bump is "
+            f"intentional — re-measure BASELINE and update RUFF_VERSION in the "
+            f"same commit."
+        )
+    return None
 
 
 def run_ruff(root: Path, scope: tuple[str, ...] = SCOPE) -> tuple[Counter[str], str | None]:
@@ -167,6 +202,11 @@ def compare(counts: Counter[str]) -> tuple[list[str], list[str]]:
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
     root = Path(args[0]).resolve() if args else Path(__file__).resolve().parents[1]
+
+    version_error = check_ruff_version()
+    if version_error is not None:
+        print(f"FAIL check_ruff_ratchet: {version_error}")
+        return 1
 
     counts, error = run_ruff(root)
     if error is not None:

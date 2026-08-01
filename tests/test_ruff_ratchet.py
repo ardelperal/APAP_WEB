@@ -162,3 +162,30 @@ def test_ci_workflow_lint_job_runs_ruff_ratchet_gate() -> None:
         "(python scripts/check_ruff_ratchet.py) so the rulesets are "
         "enforced in CI, not just at PR review time."
     )
+
+
+def test_ruff_version_matches_the_measured_baseline() -> None:
+    """BASELINE is only meaningful against the ruff it was measured with.
+
+    Issue #380: the first CI run failed on `PLR0917`, a rule preview-gated in
+    0.15.21 that had graduated in the newer ruff the runner resolved through
+    the old `ruff>=0.6` floor. The floor is now an exact pin and this asserts
+    it, so a bump fails with an actionable message instead of a confusing
+    "new rule not in BASELINE".
+    """
+    from check_ruff_ratchet import RUFF_VERSION, check_ruff_version
+
+    assert check_ruff_version() is None, (
+        f"installed ruff differs from the pinned {RUFF_VERSION}"
+    )
+
+
+def test_pyproject_pins_ruff_exactly() -> None:
+    """An open version floor is not a deterministic gate."""
+    text = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    from check_ruff_ratchet import RUFF_VERSION
+
+    assert f'"ruff=={RUFF_VERSION}"' in text, (
+        "pyproject must pin ruff exactly, and to the version BASELINE was measured with"
+    )
+    assert '"ruff>=' not in text, "ruff must not be declared with an open floor"
