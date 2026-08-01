@@ -61,6 +61,7 @@ from app.modules.animals.forms import AnimalForm
 # / ``SexoEnum`` en los bodies de los handlers.
 from app.modules.animals.service import Especie as EspecieEnum
 from app.modules.animals.service import Sexo as SexoEnum
+from app.modules.sanidad import get_resumen_sanitario
 
 router = APIRouter(prefix="/animales", tags=["animales"])
 
@@ -282,6 +283,44 @@ def animal_detail(
         name="animales/detail.html",
         context={"user": user, "animal": animal},
     )
+
+
+# --- HEALTH-03 salud resumen (issue #52) -----------------------------------
+
+
+@router.get("/{animal_id}/salud/resumen", response_class=JSONResponse)
+def animal_salud_resumen(
+    animal_id: str,
+    user: Response | dict = Depends(require_authorized_user),
+    client: InsForgeClient = Depends(get_insforge_client_dep),
+):
+    """Health summary: latest actuacion per tipo for one animal.
+
+    GET /animales/{animal_id}/salud/resumen
+    Returns the most recent ``actuacion_sanitaria`` row per
+    ``catalogos_pruebas.observaciones`` (tipo), with fecha, resultado,
+    descripcion, and producto.
+
+    Protected with ``require_authorized_user`` per spec acceptance criteria.
+    Returns an empty resumen list when no actuaciones exist for the animal.
+    """
+    if (early := return_early_if_response(user)) is not None:
+        return early
+    resumen = get_resumen_sanitario(client, animal_id)
+    return JSONResponse(content={
+        "animal_id": resumen.animal_id,
+        "nchip": resumen.nchip or "",
+        "resumen": [
+            {
+                "tipo": item.tipo,
+                "ultima_fecha": item.ultima_fecha,
+                "ultimo_resultado": item.ultimo_resultado or "",
+                "ultima_descripcion": item.ultima_descripcion or "",
+                "producto": item.producto,
+            }
+            for item in resumen.resumen
+        ],
+    })
 
 
 # --- edit (form prellenado) ----------------------------------------------
