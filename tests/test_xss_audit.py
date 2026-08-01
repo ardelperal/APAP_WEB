@@ -1133,93 +1133,6 @@ TEMPLATE_SPECS: list[tuple[str, list[str], dict[str, Any]]] = [
             "error": None,
         },
     ),
-    # --- HEALTH-05 (#54) — terapias + recomendaciones CRUD (3 templates) ---
-    (
-        "sanidad/terapias_list.html",
-        [
-            "terapias[0].id",
-            "terapias[0].animal_id",
-            "terapias[0].fecha",
-            "terapias[0].voluntario_id",
-            "terapias[0].descripcion",
-            "animal_id",
-        ],
-        {
-            "user": _BASE_USER,
-            "terapias": [
-                {
-                    "id": "11111111-1111-1111-1111-111111111111",
-                    "animal_id": "animal-1",
-                    "fecha": "2026-07-04",
-                    "voluntario_id": "vol-1",
-                    "descripcion": "Terapia de ejemplo",
-                    "activo": True,
-                }
-            ],
-            "animal_id": "",
-        },
-    ),
-    (
-        "sanidad/terapia_form.html",
-        [
-            "form_data.animal_id",
-            "form_data.voluntario_id",
-            "form_data.fecha",
-            "form_data.descripcion",
-            "error",
-            "form_action",
-            "is_edit",
-        ],
-        {
-            "user": _BASE_USER,
-            "form_data": {
-                "animal_id": "",
-                "voluntario_id": "",
-                "fecha": "",
-                "descripcion": "",
-            },
-            "error": None,
-            "form_action": "/terapias",
-            "is_edit": False,
-        },
-    ),
-    (
-        "sanidad/terapia_detail.html",
-        [
-            "terapia.id",
-            "terapia.animal_id",
-            "terapia.fecha",
-            "terapia.voluntario_id",
-            "terapia.descripcion",
-            "terapia.activo",
-            "recomendaciones[0].id",
-            "recomendaciones[0].fecha",
-            "recomendaciones[0].texto",
-            "recomendaciones[0].completada",
-            "delete_error",
-        ],
-        {
-            "user": _BASE_USER,
-            "terapia": {
-                "id": "11111111-1111-1111-1111-111111111111",
-                "animal_id": "animal-1",
-                "fecha": "2026-07-04",
-                "voluntario_id": "vol-1",
-                "descripcion": "Terapia de ejemplo",
-                "activo": True,
-                "updated_at": "2026-07-04T12:00:00Z",
-            },
-            "recomendaciones": [
-                {
-                    "id": "22222222-2222-2222-2222-222222222222",
-                    "fecha": "2026-07-05",
-                    "texto": "Seguir con el tratamiento",
-                    "completada": False,
-                }
-            ],
-            "delete_error": None,
-        },
-    ),
     # --- tareas engine (issue #7) ---
     (
         "tareas/list.html",
@@ -1698,15 +1611,6 @@ def test_no_user_data_in_url_attributes() -> None:
             # in ``app/main.py`` - a module-level constant (hardcoded
             # list of internal routes). Never user input.
             ("index.html", "shortcut.href"),
-            # ``form_action`` in ``sanidad/terapia_form.html`` is set by the
-            # terapia route to either ``/terapias`` (new) or
-            # ``/terapias/{id}`` (edit), never user data.
-            # HEALTH-05 (#54).
-            ("sanidad/terapia_form.html", "form_action"),
-            # ``terapia.id`` in ``sanidad/terapia_detail.html`` is the
-            # server-generated UUID primary key returned by InsForge —
-            # never user body data. HEALTH-05 (#54).
-            ("sanidad/terapia_detail.html", "terapia.id"),
         }
     )
     offenders: list[str] = []

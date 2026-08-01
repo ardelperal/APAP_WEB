@@ -1,7 +1,16 @@
-"""Route-layer tests for HEAL-05 sanidad/terapia_routes (issue #54).
+"""Route-layer tests for HEALTH-01 sanidad (CRUD).
 
-Mirrors ``tests/test_salud_routes.py`` — patches service functions
-via monkeypatch rather than replacing execute_sql.
+Mirror of ``tests/test_adopciones_routes.py`` and
+``tests/test_entradas_routes.py``: routes are pure HTTP / auth /
+template glue. The fixture ``_NoSqlRouteClient`` enforces the
+AGENTS.md layer-boundary rule (no ``client.execute_sql`` in routes).
+All data access goes through ``app.modules.sanidad.service``.
+
+Auth model (issue #144): GET endpoints use ``require_authorized_user``;
+write endpoints (POST create / update / delete) use
+``require_writer_user`` which composes on
+``require_authorized_user`` and rejects the ``reader`` rol with 403
+BEFORE the handler runs.
 """
 
 from __future__ import annotations
@@ -16,21 +25,38 @@ from app.core.config import get_settings
 from app.core.insforge import InsForgeClient, InsForgeError
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
-from app.modules.sanidad import terapia_service as terapia_service
-from tests.conftest import make_csrf_request
+from app.modules.sanidad import batch_service as sanidad_batch_service
+from app.modules.sanidad import service as sanidad_service
+from tests.conftest import auth_reval_rows, make_csrf_request
 
 
 class _NoSqlRouteClient(InsForgeClient):
-    """Client spy that fails if a route executes SQL directly."""
+    """Client spy that fails if a route executes SQL directly.
+
+    Mirrors the same pattern used in ``tests/test_adopciones_routes.py``:
+    routes own no SQL, they delegate to the service. If a route ever
+    calls ``client.execute_sql``, the spy raises AssertionError and the
+    failing test names the offending query.
+    """
 
     def __init__(self) -> None:  # type: ignore[override]
         import httpx as _httpx
+
         self._client = _httpx.Client(base_url="https://spy.example")
+        # Issue #144: rol returned by the per-request authorization
+        # revalidation SELECT. Defaults to ``key_user``; reader
+        # rejection tests set this to ``reader`` so
+        # ``require_writer_user`` produces 403 BEFORE any handler SQL.
+        self.auth_reval_rol: str = "key_user"
 
     def execute_sql(self, query: str, params: Any = None):  # type: ignore[override]
-        # Only allow auth_reval queries (used by require_authorized_user)
-        if "usuarios_autorizados" in query and "email" in query.lower():
-            return [{"id": "u-ana", "email": "ana@example.com", "rol": "key_user", "is_authorized": True}]
+        # Issue #143: require_authorized_user revalidates authorization per
+        # request via the get_user_by_email service; that SELECT flows
+        # through this client and is allowed. Any OTHER direct SQL from a
+        # route handler still violates the "cero SQL en routes" contract.
+        _reval = auth_reval_rows(query, params, rol=self.auth_reval_rol)
+        if _reval is not None:
+            return _reval
         raise AssertionError(f"routes must not execute SQL directly: {query!r}")
 
 
@@ -45,6 +71,7 @@ def route_client() -> _NoSqlRouteClient:
 
 
 def _login_as_key_user(client: httpx.AsyncClient) -> None:
+    """Mint a session cookie with a known CSRF token bound to it."""
     token = write_session(
         {
             "email": "ana@example.com",
@@ -59,6 +86,7 @@ def _login_as_key_user(client: httpx.AsyncClient) -> None:
 
 
 def _login_as_reader(client: httpx.AsyncClient) -> None:
+    """Install a reader session cookie; reader MUST be 403 on writes (issue #144)."""
     token = write_session(
         {
             "email": "rocio@example.com",
@@ -72,606 +100,860 @@ def _login_as_reader(client: httpx.AsyncClient) -> None:
     client.cookies.set(session_cookie_name(), token)
 
 
-def _terapia() -> terapia_service.Terapia:
-    return terapia_service.Terapia(
-        id="terapia-123",
+def _actuacion() -> sanidad_service.ActuacionSanitaria:
+    """Canonical ActuacionSanitaria fixture for assertions."""
+    return sanidad_service.ActuacionSanitaria(
+        id="actu-123",
         animal_id="animal-123",
-        voluntario_id="vol-123",
         fecha="2026-07-04",
-        descripcion="Sesión de fisioterapia",
-        created_at="2026-07-04T10:00:00Z",
+        tipo_actuacion_id=None,
+        veterinario="Dra. Pérez",
+        observaciones="Vacuna anual",
+        voluntario_id=None,
+        material_utilizado="Nobivac Rabia",
+        fecha_alta="2026-07-04T10:00:00Z",
         updated_at="2026-07-04T10:00:00Z",
         activo=True,
     )
 
 
-def _recomendacion() -> terapia_service.Recomendacion:
-    return terapia_service.Recomendacion(
-        id="rec-123",
-        terapia_id="terapia-123",
-        fecha="2026-07-04",
-        texto="Aplicar hielo 20 min/día",
-        completada=False,
-        created_at="2026-07-04T10:00:00Z",
-        activo=True,
-    )
-
-
-# --- 1. Auth guard ----------------------------------------------------------
+# --- 1. Auth guard: every endpoint requires a session ---------------------
 
 
 @pytest.mark.parametrize(
     "method,path",
     [
-        ("GET", "/terapias"),
-        ("GET", "/terapias/new"),
-        ("POST", "/terapias"),
-        ("GET", "/terapias/terapia-123"),
-        ("GET", "/terapias/terapia-123/edit"),
-        ("POST", "/terapias/terapia-123/update"),
-        ("POST", "/terapias/terapia-123/delete"),
-        ("POST", "/terapias/terapia-123/recomendaciones"),
-        ("POST", "/recomendaciones/rec-123/complete"),
-        ("POST", "/recomendaciones/rec-123/delete"),
+        ("GET", "/sanidad"),
+        ("GET", "/sanidad/new"),
+        ("POST", "/sanidad"),
+        ("GET", "/sanidad/actu-123"),
+        ("GET", "/sanidad/actu-123/edit"),
+        ("POST", "/sanidad/actu-123/update"),
+        ("POST", "/sanidad/actu-123/delete"),
+        ("GET", "/sanidad/batch/new"),
+        ("POST", "/sanidad/actuaciones/batch"),
     ],
 )
-async def test_sanidad_terapia_routes_require_authorized_user(
+async def test_sanidad_routes_require_authorized_user(
     client: httpx.AsyncClient, method: str, path: str
 ) -> None:
-    """Every sanidad terapia endpoint requires a session; anonymous -> /login."""
+    """Every sanidad endpoint requires a session; anonymous -> /login."""
     response = await client.request(method, path, follow_redirects=False)
+
     assert response.status_code == 302
     assert response.headers["location"] == "/login"
 
 
-# --- 2. Write endpoints reject reader with 403 --------------------------------
+# --- 2. require_writer_user: writes reject reader with 403 ----------------
 
 
 @pytest.mark.parametrize(
     "method,path,form_data",
     [
-        ("POST", "/terapias", {"animal_id": "a", "voluntario_id": "v", "fecha": "2026-07-04"}),
-        ("POST", "/terapias/terapia-123/update", {"animal_id": "a", "voluntario_id": "v", "fecha": "2026-07-04"}),
-        ("POST", "/terapias/terapia-123/delete", None),
-        ("POST", "/terapias/terapia-123/recomendaciones", {"fecha": "2026-07-04", "texto": "texto"}),
-        ("POST", "/recomendaciones/rec-123/complete", None),
-        ("POST", "/recomendaciones/rec-123/delete", None),
+        ("POST", "/sanidad", {"animal_id": "a", "fecha": "2026-07-04"}),
+        ("POST", "/sanidad/actu-123/update", {"animal_id": "a", "fecha": "2026-07-04"}),
+        ("POST", "/sanidad/actu-123/delete", None),
     ],
 )
 async def test_sanidad_write_routes_reject_reader_with_403(
-    client: httpx.AsyncClient, method: str, path: str, form_data: dict[str, Any] | None
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+    method: str,
+    path: str,
+    form_data: dict[str, str] | None,
 ) -> None:
-    """Write endpoints require ``WRITE_SALUD``; reader -> 403."""
+    """Reader rol is forbidden on every sanidad write route (issue #144)."""
+    route_client.auth_reval_rol = "reader"
     _login_as_reader(client)
+
+    def _never_called(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError(
+            f"reader POST MUST NOT reach the service; got {args=} {kwargs=}"
+        )
+
+    monkeypatch.setattr(
+        sanidad_service, "create_actuacion_sanitaria", _never_called
+    )
+    monkeypatch.setattr(
+        sanidad_service, "update_actuacion_sanitaria", _never_called
+    )
+    monkeypatch.setattr(
+        sanidad_service, "delete_actuacion_sanitaria", _never_called
+    )
+
     response = await make_csrf_request(
         client, method, path, form_data=form_data
     )
+
+    assert response.status_code == 403, (
+        f"reader rol MUST be rejected on write routes; got {response.status_code} "
+        f"on {method} {path}"
+    )
+    assert "Permisos insuficientes" in response.text
+
+
+# --- 3. Form rendering: csrf_token present on new + edit -----------------
+
+
+async def test_new_actuacion_form_renders_with_csrf(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GET /sanidad/new renders the form with csrf_token + catalogos_pruebas."""
+    _login_as_key_user(client)
+
+    def _catalogos(_client: Any) -> list[dict[str, Any]]:
+        return [
+            {"id": "cat-1", "codigo": "Rabia", "nombre": "Rabia", "especie": "ambos"},
+            {"id": "cat-2", "codigo": "Esterilización", "nombre": "Esterilización", "especie": "ambos"},
+        ]
+
+    monkeypatch.setattr(
+        sanidad_service, "list_catalogos_pruebas", _catalogos
+    )
+
+    response = await client.get("/sanidad/new")
+
+    assert response.status_code == 200
+    body = response.text
+    assert 'name="csrf_token"' in body
+    assert 'action="/sanidad"' in body
+    # Catalogos_pruebas dropdown is populated.
+    assert "Rabia" in body
+    assert "Esterilización" in body
+
+
+async def test_edit_actuacion_form_renders_with_csrf(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GET /sanidad/{id}/edit renders the prefilled form with csrf_token."""
+    _login_as_key_user(client)
+    actuacion = _actuacion()
+    monkeypatch.setattr(
+        sanidad_service,
+        "get_actuacion_sanitaria_by_id",
+        lambda _c, _id: actuacion,
+    )
+
+    def _catalogos(_client: Any) -> list[dict[str, Any]]:
+        return []
+
+    monkeypatch.setattr(
+        sanidad_service, "list_catalogos_pruebas", _catalogos
+    )
+
+    response = await client.get("/sanidad/actu-123/edit")
+
+    assert response.status_code == 200
+    body = response.text
+    assert 'name="csrf_token"' in body
+    assert 'action="/sanidad/actu-123/update"' in body
+    # Form is prefilled with the stored values.
+    assert "animal-123" in body
+    assert "2026-07-04" in body
+    assert "Dra. Pérez" in body
+
+
+# --- 4. Sad validation: fecha invalid -> 422 with Spanish message --------
+
+
+async def test_create_actuacion_with_future_fecha_returns_422(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-24 regla 2 (fecha futura) renders 422 with a Spanish message."""
+    from datetime import date, timedelta
+
+    _login_as_key_user(client)
+
+    def _catalogos(_client: Any) -> list[dict[str, Any]]:
+        return []
+
+    monkeypatch.setattr(
+        sanidad_service, "list_catalogos_pruebas", _catalogos
+    )
+
+    future = (date.today() + timedelta(days=365)).isoformat()
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/sanidad",
+        form_data={"animal_id": "animal-1", "fecha": future},
+    )
+
+    assert response.status_code == 422, (
+        f"future fecha MUST be rejected with 422; got {response.status_code}"
+    )
+    body = response.text
+    assert "fecha no puede ser futura" in body
+
+
+async def test_create_actuacion_with_malformed_fecha_returns_422(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-24 regla 1 (formato) renders 422 with a Spanish message."""
+    _login_as_key_user(client)
+
+    def _catalogos(_client: Any) -> list[dict[str, Any]]:
+        return []
+
+    monkeypatch.setattr(
+        sanidad_service, "list_catalogos_pruebas", _catalogos
+    )
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/sanidad",
+        form_data={"animal_id": "animal-1", "fecha": "ayer"},
+    )
+
+    assert response.status_code == 422
+    assert "fecha debe tener formato YYYY-MM-DD" in response.text
+
+
+# --- 5. Happy path: create returns 303 to detail -------------------------
+
+
+async def test_create_actuacion_success_redirects_to_detail(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """POST /sanidad with valid data returns 303 to /sanidad/{id}."""
+    _login_as_key_user(client)
+    actuacion = _actuacion()
+
+    def _create(_client: Any, _params: dict[str, Any], **_: Any) -> Any:
+        return actuacion
+
+    def _catalogos(_client: Any) -> list[dict[str, Any]]:
+        return []
+
+    monkeypatch.setattr(
+        sanidad_service, "create_actuacion_sanitaria", _create
+    )
+    monkeypatch.setattr(
+        sanidad_service, "list_catalogos_pruebas", _catalogos
+    )
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/sanidad",
+        form_data={"animal_id": "animal-1", "fecha": "2026-07-04"},
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/sanidad/actu-123"
+
+
+# --- 6. 404 paths ---------------------------------------------------------
+
+
+async def test_detail_returns_404_for_missing_id(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GET /sanidad/{missing} returns 404 when the row does not exist."""
+    _login_as_key_user(client)
+    monkeypatch.setattr(
+        sanidad_service,
+        "get_actuacion_sanitaria_by_id",
+        lambda _c, _id: None,
+    )
+
+    response = await client.get("/sanidad/missing-id")
+
+    assert response.status_code == 404
+
+
+async def test_delete_returns_404_for_missing_id(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """POST /sanidad/{missing}/delete returns 404 when the row does not exist."""
+    _login_as_key_user(client)
+    monkeypatch.setattr(
+        sanidad_service,
+        "delete_actuacion_sanitaria",
+        lambda _c, _id, **__: False,
+    )
+
+    response = await make_csrf_request(
+        client, "POST", "/sanidad/missing-id/delete"
+    )
+
+    assert response.status_code == 404
+
+
+# --- 7. List with / without animal_id filter -----------------------------
+
+
+async def test_list_actuaciones_without_filter_uses_global_list(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GET /sanidad (no query) calls list_actuaciones_sanitarias."""
+    _login_as_key_user(client)
+
+    def _list(_client: Any, *, animal_id: str | None = None) -> list[Any]:
+        return [_actuacion()]
+
+    monkeypatch.setattr(
+        sanidad_service, "list_actuaciones_sanitarias", _list
+    )
+
+    response = await client.get("/sanidad")
+
+    assert response.status_code == 200
+    body = response.text
+    assert "2026-07-04" in body
+    assert "Dra. Pérez" in body
+
+
+async def test_list_actuaciones_with_animal_id_uses_search(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GET /sanidad?animal_id=... delegates to search_actuaciones_by_animal."""
+    _login_as_key_user(client)
+    called_with: dict[str, Any] = {}
+
+    def _search(_client: Any, animal_id: str) -> list[Any]:
+        called_with["animal_id"] = animal_id
+        return [_actuacion()]
+
+    monkeypatch.setattr(
+        sanidad_service, "search_actuaciones_by_animal", _search
+    )
+
+    response = await client.get("/sanidad?animal_id=animal-X")
+
+    assert response.status_code == 200
+    assert called_with == {"animal_id": "animal-X"}
+
+
+# --- 8. No SQL en routes (layer boundary) --------------------------------
+
+
+async def test_no_sql_executed_directly_from_routes(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """All GET routes must run without direct SQL (service delegation only).
+
+    The route_client spy raises AssertionError on any non-revalidation
+    SQL — so the mere fact that this test completes (no exception) proves
+    no route bypasses the service. We hit list + detail + new + edit,
+    each routed through the service.
+    """
+    _login_as_key_user(client)
+
+    # Stub the service functions so the routes can complete their renders.
+    monkeypatch.setattr(
+        sanidad_service,
+        "list_actuaciones_sanitarias",
+        lambda _c, **__: [_actuacion()],
+    )
+    monkeypatch.setattr(
+        sanidad_service,
+        "search_actuaciones_by_animal",
+        lambda _c, _id: [_actuacion()],
+    )
+    monkeypatch.setattr(
+        sanidad_service,
+        "get_actuacion_sanitaria_by_id",
+        lambda _c, _id: _actuacion(),
+    )
+    monkeypatch.setattr(
+        sanidad_service,
+        "list_catalogos_pruebas",
+        lambda _c: [],
+    )
+
+    # Hit every GET endpoint. Each must complete without raising from the
+    # spy. If a route bypassed the service and called client.execute_sql,
+    # the spy would raise AssertionError.
+    for path in (
+        "/sanidad",
+        "/sanidad?animal_id=animal-X",
+        "/sanidad/new",
+        "/sanidad/actu-123",
+        "/sanidad/actu-123/edit",
+    ):
+        response = await client.get(path)
+        assert response.status_code == 200, f"{path} returned {response.status_code}"
+
+
+async def test_create_validation_error_survives_catalog_recovery_failure(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ValueError remains 422 even if catalog reload fails during recovery."""
+    _login_as_key_user(client)
+
+    def _create(*args: Any, **kwargs: Any) -> Any:
+        raise ValueError("fecha no puede ser futura")
+
+    def _catalogos(_client: Any) -> list[dict[str, Any]]:
+        raise InsForgeError(503, {"error": "catalog unavailable"})
+
+    monkeypatch.setattr(
+        sanidad_service, "create_actuacion_sanitaria", _create
+    )
+    monkeypatch.setattr(sanidad_service, "list_catalogos_pruebas", _catalogos)
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/sanidad",
+        form_data={"animal_id": "animal-1", "fecha": "2030-01-01"},
+    )
+
+    assert response.status_code == 422
+    assert "fecha no puede ser futura" in response.text
+
+
+async def test_create_backend_error_returns_503_not_422(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """InsForgeError is logged and surfaced as backend outage, not validation."""
+    _login_as_key_user(client)
+
+    def _create(*args: Any, **kwargs: Any) -> Any:
+        raise InsForgeError(503, {"error": "backend unavailable"})
+
+    monkeypatch.setattr(
+        sanidad_service, "create_actuacion_sanitaria", _create
+    )
+    monkeypatch.setattr(sanidad_service, "list_catalogos_pruebas", lambda _c: [])
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/sanidad",
+        form_data={"animal_id": "animal-1", "fecha": "2026-07-04"},
+    )
+
+    assert response.status_code == 503
+    assert "No se pudo contactar con el backend" in response.text
+
+
+async def test_delete_backend_error_returns_503(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Delete handles InsForgeError instead of leaking an unhandled 500."""
+    _login_as_key_user(client)
+
+    def _delete(*args: Any, **kwargs: Any) -> bool:
+        raise InsForgeError(503, {"error": "backend unavailable"})
+
+    monkeypatch.setattr(
+        sanidad_service, "delete_actuacion_sanitaria", _delete
+    )
+
+    response = await make_csrf_request(
+        client, "POST", "/sanidad/actu-123/delete"
+    )
+
+    assert response.status_code == 503
+    assert "No se pudo contactar con el backend" in response.text
+
+
+# --- 9. HEALTH-02 batch endpoint (#51) -----------------------------------
+#
+# Mirrors ``tests/test_entradas_batch_routes.py`` patterns:
+#   * Auth guard on every batch endpoint.
+#   * Form rendering of /sanidad/batch/new (5 blank rows + csrf token).
+#   * POST happy path with dry_run=false redirects to /sanidad.
+#   * POST with dry_run=true renders preview without INSERT.
+#   * POST with batch-validation error rerenders preview with 422.
+#   * POST with empty / too-small form rerenders with 422.
+#   * InsForgeError rerenders as 503.
+
+
+def _valid_batch_form() -> dict[str, list[str]]:
+    """5 valid records — minimum accepted by the batch route."""
+    return {
+        "animal_id": [
+            "00000000-0000-0000-0000-000000000001",
+            "00000000-0000-0000-0000-000000000002",
+            "00000000-0000-0000-0000-000000000003",
+            "00000000-0000-0000-0000-000000000004",
+            "00000000-0000-0000-0000-000000000005",
+        ],
+        "voluntario_id": ["", "", "", "", ""],
+        "fecha": ["2026-07-04"] * 5,
+        "tipo_actuacion_id": ["", "", "", "", ""],
+        "veterinario": ["Dra. Pérez"] * 5,
+        "observaciones": ["Vacuna"] * 5,
+        "material_utilizado": ["Nobivac"] * 5,
+    }
+
+
+async def test_batch_new_renders_form_with_five_blank_rows_and_csrf(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+) -> None:
+    """GET /sanidad/batch/new renders the empty batch form."""
+    _login_as_key_user(client)
+
+    response = await client.get("/sanidad/batch/new")
+
+    assert response.status_code == 200
+    body = response.text
+    assert 'name="csrf_token"' in body
+    # 5 animal_id inputs
+    assert body.count('name="animal_id"') == 5
+    assert body.count('name="fecha"') == 5
+
+
+async def test_batch_post_happy_path_redirects_to_list(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """dry_run=false + valid records -> 303 redirect to /sanidad."""
+    _login_as_key_user(client)
+
+    def _commit(
+        client_arg: InsForgeClient,
+        records: list[dict[str, Any]],
+        **kwargs: Any,
+    ) -> Any:
+        return sanidad_batch_service.BatchResult(inserted=())
+
+    monkeypatch.setattr(sanidad_batch_service, "commit_batch", _commit)
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/sanidad/actuaciones/batch",
+        form_data=_valid_batch_form(),
+        csrf_token="test-csrf-token-sanidad",
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/sanidad"
+
+
+async def test_batch_post_dry_run_renders_preview_without_inserting(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """dry_run=true renders preview WITHOUT calling commit_batch.
+
+    The CTE ``dry_run=true`` short-circuits the INSERT inside
+    PostgreSQL (``$8::boolean = false`` filter); the service returns
+    a ``BatchPreview`` envelope that the template renders.
+    """
+    _login_as_key_user(client)
+
+    called: dict[str, bool] = {"commit_called": False}
+
+    def _commit(
+        client_arg: InsForgeClient,
+        records: list[dict[str, Any]],
+        **kwargs: Any,
+    ) -> Any:
+        called["commit_called"] = True
+        return sanidad_batch_service.BatchResult(inserted=())
+
+    def _preview(
+        client_arg: InsForgeClient,
+        records: list[dict[str, Any]],
+    ) -> Any:
+        return sanidad_batch_service.BatchPreview(
+            dry_run=True,
+            ok_count=len(records),
+            error_count=0,
+            items=tuple(
+                sanidad_batch_service.BatchItem(
+                    index=i, status="ok", reason=None
+                )
+                for i in range(len(records))
+            ),
+        )
+
+    monkeypatch.setattr(sanidad_batch_service, "commit_batch", _commit)
+    monkeypatch.setattr(sanidad_batch_service, "preview_batch", _preview)
+
+    form = _valid_batch_form()
+    form["dry_run"] = ["true"]
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/sanidad/actuaciones/batch",
+        form_data=form,
+        csrf_token="test-csrf-token-sanidad",
+    )
+
+    assert response.status_code == 200
+    assert called["commit_called"] is False
+    body = response.text
+    assert "5" in body  # preview ok_count
+    assert "previsualizaci" in body.lower()
+
+
+async def test_batch_post_validation_error_rerenders_with_422(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """BatchValidationError -> 422 + preview re-rendered with errors.
+
+    Pin the parity with the single-record ``create_actuacion_view``:
+    the operator sees WHY the batch failed without retyping the form.
+    """
+    _login_as_key_user(client)
+
+    def _commit(
+        client_arg: InsForgeClient,
+        records: list[dict[str, Any]],
+        **kwargs: Any,
+    ) -> Any:
+        raise sanidad_batch_service.BatchValidationError(
+            failed_indices=(2,),
+            reasons={2: "fecha_anterior_alta"},
+        )
+
+    monkeypatch.setattr(sanidad_batch_service, "commit_batch", _commit)
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/sanidad/actuaciones/batch",
+        form_data=_valid_batch_form(),
+        csrf_token="test-csrf-token-sanidad",
+    )
+
+    assert response.status_code == 422
+    body = response.text
+    assert "fecha_anterior_alta" in body or "registro 2" in body
+
+
+async def test_batch_post_too_few_records_rerenders_with_422(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """N=2 < BATCH_MIN_RECORDS=5 -> 422 with Spanish operator copy.
+
+    The 5+ minimum mirrors the legacy ``TbActuacionSanitariaAux``
+    staging flow; a smaller batch is rejected at the route layer.
+    """
+    _login_as_key_user(client)
+
+    called: dict[str, bool] = {}
+
+    def _commit(
+        client_arg: InsForgeClient,
+        records: list[dict[str, Any]],
+        **kwargs: Any,
+    ) -> Any:
+        called["hit"] = True
+        return sanidad_batch_service.BatchResult(inserted=())
+
+    monkeypatch.setattr(sanidad_batch_service, "commit_batch", _commit)
+
+    form = _valid_batch_form()
+    # Drop 3 of the 5 to submit only 2 records.
+    form["animal_id"] = form["animal_id"][:2]
+    form["fecha"] = form["fecha"][:2]
+    form["veterinario"] = form["veterinario"][:2]
+    form["observaciones"] = form["observaciones"][:2]
+    form["material_utilizado"] = form["material_utilizado"][:2]
+    form["voluntario_id"] = form["voluntario_id"][:2]
+    form["tipo_actuacion_id"] = form["tipo_actuacion_id"][:2]
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/sanidad/actuaciones/batch",
+        form_data=form,
+        csrf_token="test-csrf-token-sanidad",
+    )
+
+    assert response.status_code == 422
+    assert called == {}  # service was never reached
+    assert "5 registros" in response.text or "5" in response.text
+
+
+async def test_batch_post_empty_form_rerenders_with_422(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """All-blank form -> 422 (rows dropped by ``_parse_batch_records``)."""
+    _login_as_key_user(client)
+
+    called: dict[str, bool] = {}
+
+    def _commit(
+        client_arg: InsForgeClient,
+        records: list[dict[str, Any]],
+        **kwargs: Any,
+    ) -> Any:
+        called["hit"] = True
+        return sanidad_batch_service.BatchResult(inserted=())
+
+    monkeypatch.setattr(sanidad_batch_service, "commit_batch", _commit)
+
+    form = {key: ["", "", "", "", ""] for key in _valid_batch_form()}
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/sanidad/actuaciones/batch",
+        form_data=form,
+        csrf_token="test-csrf-token-sanidad",
+    )
+
+    assert response.status_code == 422
+    assert called == {}
+
+
+async def test_batch_post_backend_error_returns_503(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """InsForgeError during batch commit -> 503 (matches single-record)."""
+    _login_as_key_user(client)
+
+    def _commit(
+        client_arg: InsForgeClient,
+        records: list[dict[str, Any]],
+        **kwargs: Any,
+    ) -> Any:
+        raise InsForgeError(503, {"error": "backend unavailable"})
+
+    monkeypatch.setattr(sanidad_batch_service, "commit_batch", _commit)
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/sanidad/actuaciones/batch",
+        form_data=_valid_batch_form(),
+        csrf_token="test-csrf-token-sanidad",
+    )
+
+    assert response.status_code == 503
+    assert "No se pudo contactar con el backend" in response.text
+
+
+async def test_batch_write_routes_reject_reader_with_403(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reader rol MUST be 403 on the batch write endpoint (issue #144)."""
+    route_client.auth_reval_rol = "reader"
+    _login_as_reader(client)
+
+    called: dict[str, bool] = {}
+
+    def _never_called(*args: Any, **kwargs: Any) -> Any:
+        called["hit"] = True
+        return sanidad_batch_service.BatchResult(inserted=())
+
+    monkeypatch.setattr(
+        sanidad_batch_service, "commit_batch", _never_called
+    )
+    monkeypatch.setattr(
+        sanidad_batch_service, "preview_batch", _never_called
+    )
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/sanidad/actuaciones/batch",
+        form_data=_valid_batch_form(),
+        csrf_token="test-csrf-token-sanidad",
+    )
+
     assert response.status_code == 403
+    assert called == {}
+    assert "Permisos insuficientes" in response.text
 
 
-# --- 3. Terapia CRUD via monkeypatch -----------------------------------------
-
-
-async def test_list_terapias_ok(
+async def test_batch_routes_never_execute_sql_directly(
     client: httpx.AsyncClient,
     route_client: _NoSqlRouteClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """GET /terapias returns 200 with terapias list."""
+    """No direct ``client.execute_sql`` from the batch route layer.
+
+    Same fixture-based assertion as the single-record CRUD: routes
+    own no SQL. The spy raises on any non-revalidation SQL; we hit
+    every batch endpoint to confirm the spy stays quiet.
+    """
     _login_as_key_user(client)
-    monkeypatch.setattr(
-        terapia_service, "list_terapias",
-        lambda _c, *, animal_id=None: [_terapia()],
-    )
-    response = await client.get("/terapias", follow_redirects=True)
+
+    def _preview(
+        client_arg: InsForgeClient,
+        records: list[dict[str, Any]],
+    ) -> Any:
+        return sanidad_batch_service.BatchPreview(
+            dry_run=True,
+            ok_count=len(records),
+            error_count=0,
+            items=tuple(),
+        )
+
+    def _commit(
+        client_arg: InsForgeClient,
+        records: list[dict[str, Any]],
+        **kwargs: Any,
+    ) -> Any:
+        return sanidad_batch_service.BatchResult(inserted=())
+
+    monkeypatch.setattr(sanidad_batch_service, "preview_batch", _preview)
+    monkeypatch.setattr(sanidad_batch_service, "commit_batch", _commit)
+
+    # GET /sanidad/batch/new
+    response = await client.get("/sanidad/batch/new")
     assert response.status_code == 200
 
-
-async def test_list_terapias_filters_by_animal_id(
-    client: httpx.AsyncClient,
-    route_client: _NoSqlRouteClient,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """GET /terapias?animal_id= passes the filter to the service."""
-    _login_as_key_user(client)
-    captured: dict[str, Any] = {}
-
-    def _list_with_animal_id(c, *, animal_id=None):
-        captured["animal_id"] = animal_id
-        return [_terapia()]
-
-    monkeypatch.setattr(terapia_service, "list_terapias", _list_with_animal_id)
-    response = await client.get("/terapias?animal_id=animal-456", follow_redirects=True)
-    assert response.status_code == 200
-    assert captured["animal_id"] == "animal-456"
-
-
-async def test_create_terapia_success_and_redirects(
-    client: httpx.AsyncClient,
-    route_client: _NoSqlRouteClient,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """POST /terapias creates and redirects to detail."""
-    _login_as_key_user(client)
-    created = _terapia()
-    monkeypatch.setattr(
-        terapia_service, "create_terapia",
-        lambda _c, params, **kw: created,
-    )
+    # POST dry_run=true
+    form = _valid_batch_form()
+    form["dry_run"] = ["true"]
     response = await make_csrf_request(
-        client, "POST", "/terapias",
-        form_data={
-            "animal_id": "animal-123",
-            "voluntario_id": "vol-123",
-            "fecha": "2026-07-04",
-        },
+        client,
+        "POST",
+        "/sanidad/actuaciones/batch",
+        form_data=form,
+        csrf_token="test-csrf-token-sanidad",
     )
-    assert response.status_code == 303
-    assert response.headers["location"] == "/terapias/terapia-123"
-
-
-async def test_create_terapia_value_error_422(
-    client: httpx.AsyncClient,
-    route_client: _NoSqlRouteClient,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """POST /terapias with a service ValueError returns 422."""
-    _login_as_key_user(client)
-    monkeypatch.setattr(
-        terapia_service, "create_terapia",
-        lambda _c, params, **kw: (_ for _ in ()).throw(
-            ValueError("voluntario_id debe apuntar a un voluntario activo")
-        ),
-    )
-    response = await make_csrf_request(
-        client, "POST", "/terapias",
-        form_data={
-            "animal_id": "animal-123",
-            "voluntario_id": "vol-123",
-            "fecha": "2026-07-04",
-        },
-    )
-    assert response.status_code == 422
-
-
-async def test_create_terapia_backend_error_503(
-    client: httpx.AsyncClient,
-    route_client: _NoSqlRouteClient,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """POST /terapias when InsForgeError is raised returns 503."""
-    _login_as_key_user(client)
-    monkeypatch.setattr(
-        terapia_service, "create_terapia",
-        lambda _c, params, **kw: (_ for _ in ()).throw(
-            InsForgeError(500, "connection refused")
-        ),
-    )
-    response = await make_csrf_request(
-        client, "POST", "/terapias",
-        form_data={
-            "animal_id": "animal-123",
-            "voluntario_id": "vol-123",
-            "fecha": "2026-07-04",
-        },
-    )
-    assert response.status_code == 503
-
-
-async def test_get_terapia_detail_404(
-    client: httpx.AsyncClient,
-    route_client: _NoSqlRouteClient,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """GET /terapias/{id} returns 404 when not found."""
-    _login_as_key_user(client)
-    monkeypatch.setattr(
-        terapia_service, "get_terapia",
-        lambda _c, _id: None,
-    )
-    response = await client.get("/terapias/not-found", follow_redirects=True)
-    assert response.status_code == 404
-
-
-async def test_get_terapia_detail_includes_recomendaciones(
-    client: httpx.AsyncClient,
-    route_client: _NoSqlRouteClient,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """GET /terapias/{id} returns 200 with recomendaciones."""
-    _login_as_key_user(client)
-    terapia = _terapia()
-    rec = _recomendacion()
-    monkeypatch.setattr(terapia_service, "get_terapia", lambda _c, _id: terapia)
-    monkeypatch.setattr(
-        terapia_service, "list_recomendaciones",
-        lambda _c, _tid: [rec],
-    )
-    response = await client.get("/terapias/terapia-123", follow_redirects=True)
     assert response.status_code == 200
 
-
-async def test_new_terapia_form_ok(
-    client: httpx.AsyncClient,
-    route_client: _NoSqlRouteClient,
-) -> None:
-    """GET /terapias/new returns 200 with an empty form."""
-    _login_as_key_user(client)
-    response = await client.get("/terapias/new", follow_redirects=True)
-    assert response.status_code == 200
-
-
-async def test_edit_terapia_form_ok(
-    client: httpx.AsyncClient,
-    route_client: _NoSqlRouteClient,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """GET /terapias/{id}/edit returns 200 with prefilled form."""
-    _login_as_key_user(client)
-    monkeypatch.setattr(
-        terapia_service, "get_terapia",
-        lambda _c, _id: _terapia(),
-    )
-    response = await client.get("/terapias/terapia-123/edit", follow_redirects=True)
-    assert response.status_code == 200
-
-
-async def test_edit_terapia_form_404_when_not_found(
-    client: httpx.AsyncClient,
-    route_client: _NoSqlRouteClient,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """GET /terapias/{id}/edit returns 404 when the terapia does not exist."""
-    _login_as_key_user(client)
-    monkeypatch.setattr(
-        terapia_service, "get_terapia",
-        lambda _c, _id: None,
-    )
-    response = await client.get("/terapias/not-found/edit", follow_redirects=True)
-    assert response.status_code == 404
-
-
-async def test_update_terapia_success_and_redirects(
-    client: httpx.AsyncClient,
-    route_client: _NoSqlRouteClient,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """POST /terapias/{id}/update updates and redirects to detail."""
-    _login_as_key_user(client)
-    updated = _terapia()
-    monkeypatch.setattr(
-        terapia_service, "update_terapia",
-        lambda _c, _id, params, **kw: updated,
-    )
+    # POST dry_run=false (happy path -> redirect)
+    form = _valid_batch_form()
     response = await make_csrf_request(
-        client, "POST", "/terapias/terapia-123/update",
-        form_data={
-            "animal_id": "animal-123",
-            "voluntario_id": "vol-123",
-            "fecha": "2026-07-05",
-        },
+        client,
+        "POST",
+        "/sanidad/actuaciones/batch",
+        form_data=form,
+        csrf_token="test-csrf-token-sanidad",
     )
     assert response.status_code == 303
-    assert response.headers["location"] == "/terapias/terapia-123"
-
-
-async def test_update_terapia_422_on_value_error(
-    client: httpx.AsyncClient,
-    route_client: _NoSqlRouteClient,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """POST /terapias/{id}/update returns 422 on service ValueError."""
-    _login_as_key_user(client)
-    monkeypatch.setattr(
-        terapia_service, "update_terapia",
-        lambda _c, _id, params, **kw: (_ for _ in ()).throw(
-            ValueError("animal_id debe apuntar a un animal activo")
-        ),
-    )
-    response = await make_csrf_request(
-        client, "POST", "/terapias/terapia-123/update",
-        form_data={
-            "animal_id": "animal-inactive",
-            "voluntario_id": "vol-123",
-            "fecha": "2026-07-05",
-        },
-    )
-    assert response.status_code == 422
-
-
-async def test_update_terapia_503_on_backend_error(
-    client: httpx.AsyncClient,
-    route_client: _NoSqlRouteClient,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """POST /terapias/{id}/update returns 503 when InsForgeError is raised."""
-    _login_as_key_user(client)
-    monkeypatch.setattr(
-        terapia_service, "update_terapia",
-        lambda _c, _id, params, **kw: (_ for _ in ()).throw(
-            InsForgeError(500, "connection refused")
-        ),
-    )
-    response = await make_csrf_request(
-        client, "POST", "/terapias/terapia-123/update",
-        form_data={
-            "animal_id": "animal-123",
-            "voluntario_id": "vol-123",
-            "fecha": "2026-07-05",
-        },
-    )
-    assert response.status_code == 503
-
-
-async def test_update_terapia_404_when_not_found(
-    client: httpx.AsyncClient,
-    route_client: _NoSqlRouteClient,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """POST /terapias/{id}/update returns 404 when the terapia does not exist."""
-    _login_as_key_user(client)
-    monkeypatch.setattr(
-        terapia_service, "update_terapia",
-        lambda _c, _id, params, **kw: None,
-    )
-    response = await make_csrf_request(
-        client, "POST", "/terapias/not-found/update",
-        form_data={
-            "animal_id": "animal-123",
-            "voluntario_id": "vol-123",
-            "fecha": "2026-07-05",
-        },
-    )
-    assert response.status_code == 404
-
-
-async def test_delete_terapia_409_when_pending_recomendaciones(
-    client: httpx.AsyncClient,
-    route_client: _NoSqlRouteClient,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """POST /terapias/{id}/delete returns 409 when pending recommendations exist."""
-    _login_as_key_user(client)
-    monkeypatch.setattr(
-        terapia_service, "delete_terapia",
-        lambda _c, _id, **kw: (_ for _ in ()).throw(
-            terapia_service.TerapiaDeleteError(
-                "No se puede borrar la terapia: tiene recomendaciones pendientes"
-            )
-        ),
-    )
-    # The exception handler calls get_terapia + list_recomendaciones to render
-    # the detail template — these must also be mocked so the spy never sees SQL.
-    monkeypatch.setattr(
-        terapia_service, "get_terapia",
-        lambda _c, _id: _terapia(),
-    )
-    monkeypatch.setattr(
-        terapia_service, "list_recomendaciones",
-        lambda _c, _tid: [_recomendacion()],
-    )
-    response = await make_csrf_request(
-        client, "POST", "/terapias/terapia-123/delete"
-    )
-    assert response.status_code == 409
-
-
-async def test_delete_terapia_success(
-    client: httpx.AsyncClient,
-    route_client: _NoSqlRouteClient,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """POST /terapias/{id}/delete soft-deletes and redirects to /terapias."""
-    _login_as_key_user(client)
-    monkeypatch.setattr(
-        terapia_service, "delete_terapia",
-        lambda _c, _id, **kw: True,
-    )
-    response = await make_csrf_request(
-        client, "POST", "/terapias/terapia-123/delete"
-    )
-    assert response.status_code == 303
-    assert response.headers["location"] == "/terapias"
-
-
-async def test_delete_terapia_503_on_backend_error(
-    client: httpx.AsyncClient,
-    route_client: _NoSqlRouteClient,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """POST /terapias/{id}/delete returns 503 when InsForgeError is raised."""
-    _login_as_key_user(client)
-    monkeypatch.setattr(
-        terapia_service, "delete_terapia",
-        lambda _c, _id, **kw: (_ for _ in ()).throw(
-            InsForgeError(500, "connection refused")
-        ),
-    )
-    response = await make_csrf_request(
-        client, "POST", "/terapias/terapia-123/delete"
-    )
-    assert response.status_code == 503
-
-
-async def test_delete_terapia_404_when_not_found(
-    client: httpx.AsyncClient,
-    route_client: _NoSqlRouteClient,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """POST /terapias/{id}/delete returns 404 when the terapia does not exist."""
-    _login_as_key_user(client)
-    monkeypatch.setattr(
-        terapia_service, "delete_terapia",
-        lambda _c, _id, **kw: False,
-    )
-    response = await make_csrf_request(
-        client, "POST", "/terapias/not-found/delete"
-    )
-    assert response.status_code == 404
-
-
-# --- 4. Recomendacion routes via monkeypatch ----------------------------------
-
-
-async def test_create_recomendacion_success_and_redirects(
-    client: httpx.AsyncClient,
-    route_client: _NoSqlRouteClient,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """POST /terapias/{id}/recomendaciones creates and redirects to detail."""
-    _login_as_key_user(client)
-    monkeypatch.setattr(
-        terapia_service, "create_recomendacion",
-        lambda _c, _tid, params, **kw: None,
-    )
-    response = await make_csrf_request(
-        client, "POST", "/terapias/terapia-123/recomendaciones",
-        form_data={"fecha": "2026-07-04", "texto": "Aplicar hielo"},
-    )
-    assert response.status_code == 303
-
-
-async def test_create_recomendacion_value_error_redirects_with_error(
-    client: httpx.AsyncClient,
-    route_client: _NoSqlRouteClient,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """POST /terapias/{id}/recomendaciones redirects with error param on ValueError."""
-    _login_as_key_user(client)
-    monkeypatch.setattr(
-        terapia_service, "create_recomendacion",
-        lambda _c, _tid, params, **kw: (_ for _ in ()).throw(
-            ValueError("terapia_id no existe")
-        ),
-    )
-    response = await make_csrf_request(
-        client, "POST", "/terapias/terapia-123/recomendaciones",
-        form_data={"fecha": "2026-07-04", "texto": "Aplicar hielo"},
-    )
-    assert response.status_code == 303
-    assert "error=" in response.headers["location"]
-
-
-async def test_create_recomendacion_backend_error_redirects_with_error(
-    client: httpx.AsyncClient,
-    route_client: _NoSqlRouteClient,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """POST /terapias/{id}/recomendaciones redirects with error=backend on InsForgeError."""
-    _login_as_key_user(client)
-    monkeypatch.setattr(
-        terapia_service, "create_recomendacion",
-        lambda _c, _tid, params, **kw: (_ for _ in ()).throw(
-            InsForgeError(500, "connection refused")
-        ),
-    )
-    response = await make_csrf_request(
-        client, "POST", "/terapias/terapia-123/recomendaciones",
-        form_data={"fecha": "2026-07-04", "texto": "Aplicar hielo"},
-    )
-    assert response.status_code == 303
-    assert "error=backend" in response.headers["location"]
-
-
-async def test_complete_recomendacion_success_and_redirects(
-    client: httpx.AsyncClient,
-    route_client: _NoSqlRouteClient,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """POST /recomendaciones/{id}/complete marks as completed and redirects."""
-    _login_as_key_user(client)
-    completed = terapia_service.Recomendacion(
-        id="rec-123",
-        terapia_id="terapia-123",
-        fecha="2026-07-04",
-        texto="Aplicar hielo",
-        completada=True,
-        created_at="2026-07-04T10:00:00Z",
-        activo=True,
-    )
-    monkeypatch.setattr(
-        terapia_service, "complete_recomendacion",
-        lambda _c, _id, **kw: completed,
-    )
-    response = await make_csrf_request(
-        client, "POST", "/recomendaciones/rec-123/complete"
-    )
-    assert response.status_code == 303
-
-
-async def test_complete_recomendacion_value_error_redirects(
-    client: httpx.AsyncClient,
-    route_client: _NoSqlRouteClient,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """POST /recomendaciones/{id}/complete redirects on ValueError."""
-    _login_as_key_user(client)
-    monkeypatch.setattr(
-        terapia_service, "complete_recomendacion",
-        lambda _c, _id, **kw: (_ for _ in ()).throw(ValueError("already completed")),
-    )
-    response = await make_csrf_request(
-        client, "POST", "/recomendaciones/rec-123/complete"
-    )
-    assert response.status_code == 303
-
-
-async def test_complete_recomendacion_backend_error_raises_503(
-    client: httpx.AsyncClient,
-    route_client: _NoSqlRouteClient,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """POST /recomendaciones/{id}/complete raises 503 on InsForgeError."""
-    _login_as_key_user(client)
-    monkeypatch.setattr(
-        terapia_service, "complete_recomendacion",
-        lambda _c, _id, **kw: (_ for _ in ()).throw(
-            InsForgeError(500, "connection refused")
-        ),
-    )
-    response = await make_csrf_request(
-        client, "POST", "/recomendaciones/rec-123/complete"
-    )
-    assert response.status_code == 503
-
-
-async def test_delete_recomendacion_success_and_redirects(
-    client: httpx.AsyncClient,
-    route_client: _NoSqlRouteClient,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """POST /recomendaciones/{id}/delete soft-deletes and redirects."""
-    _login_as_key_user(client)
-    monkeypatch.setattr(
-        terapia_service, "get_recomendacion_terapia_id",
-        lambda _c, _id: "terapia-123",
-    )
-    monkeypatch.setattr(
-        terapia_service, "delete_recomendacion",
-        lambda _c, _id, **kw: True,
-    )
-    response = await make_csrf_request(
-        client, "POST", "/recomendaciones/rec-123/delete"
-    )
-    assert response.status_code == 303
-
-
-async def test_delete_recomendacion_not_found_404(
-    client: httpx.AsyncClient,
-    route_client: _NoSqlRouteClient,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """POST /recomendaciones/{id}/delete returns 404 when not found."""
-    _login_as_key_user(client)
-    monkeypatch.setattr(
-        terapia_service, "get_recomendacion_terapia_id",
-        lambda _c, _id: None,
-    )
-    monkeypatch.setattr(
-        terapia_service, "delete_recomendacion",
-        lambda _c, _id, **kw: False,
-    )
-    response = await make_csrf_request(
-        client, "POST", "/recomendaciones/not-found/delete"
-    )
-    assert response.status_code == 404
