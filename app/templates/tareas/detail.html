@@ -1,0 +1,56 @@
+{% extends base_template %}
+
+{% block title %}Tarea {{ tarea.id }} · APAP{% endblock %}
+
+{% block content %}
+  <header class="mb-8 flex items-start justify-between gap-6 flex-wrap">
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight text-primary-dark">Detalle de tarea</h1>
+      <p class="mt-2 text-text-muted font-mono text-xs">{{ tarea.id }}</p>
+    </div>
+    <a href="/tareas" class="text-primary hover:underline text-sm">← Volver a tareas</a>
+  </header>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+    {# Task fields #}
+    <section class="bg-surface rounded-card shadow-card border-l-4 border-primary p-6">
+      <h2 class="text-lg font-semibold text-primary-dark mb-4">Datos de la tarea</h2>
+      <dl class="grid grid-cols-2 gap-4 text-sm">
+        <dt class="text-text-muted">Tipo</dt>
+        <dd class="text-text font-medium">{{ tarea.tipo }}</dd>
+        <dt class="text-text-muted">Origen</dt>
+        <dd class="text-text">{{ tarea.origen }}</dd>
+        <dt class="text-text-muted">Prioridad</dt>
+        <dd class="text-text">{{ tarea.prioridad }}</dd>
+        <dt class="text-text-muted">Estado</dt>
+        <dd class="text-text">{{ tarea.estado }}</dd>
+        <dt class="text-text-muted">Vencimiento</dt>
+        <dd class="text-text">{% if tarea.vencimiento_at %}{{ tarea.vencimiento_at[:10] }}{% else %}—{% endif %}</dd>
+        <dt class="text-text-muted">Vínculo</dt>
+        <dd class="text-text">{% if tarea.vinculo_tipo %}{{ tarea.vinculo_tipo }}{% else %}—{% endif %}</dd>
+        <dt class="text-text-muted">Creada</dt>
+        <dd class="text-text">{% if tarea.created_at %}{{ tarea.created_at[:10] }}{% else %}—{% endif %}</dd>
+      </dl>
+    </section>
+
+    {# Actions #}
+    <section class="bg-surface rounded-card shadow-card p-6">
+      <h2 class="text-lg font-semibold text-primary-dark mb-4">Acciones</h2>
+      <div class="flex flex-col gap-3">
+        <form method="post" action="/tareas/{{ tarea.id }}/cerrar">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <button type="submit" class="w-full rounded bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-dark transition-colors">
+            Marcar como completada
+          </button>
+        </form>
+        <form method="post" action="/tareas/{{ tarea.id }}/asignar" class="flex gap-2">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <input type="text" name="responsable_id" placeholder="ID responsable" class="flex-1 rounded border border-border px-3 py-2 text-sm" />
+          <button type="submit" class="rounded bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-dark transition-colors">
+            Asignar
+          </button>
+        </form>
+      </div>
+    </section>
+  </div>
+{% endblock %}

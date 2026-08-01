@@ -30,6 +30,7 @@ from app.modules.materiales.acogida_routes import (
 from app.modules.materiales.routes import router as materiales_router
 from app.modules.sanidad.batch_routes import router as sanidad_batch_router
 from app.modules.sanidad.routes import router as sanidad_router
+from app.modules.tasks.routes import router as tareas_router
 from app.modules.voluntarios.routes import router as voluntarios_router
 
 
@@ -65,6 +66,8 @@ def register_routers(app: FastAPI) -> None:
       junction respectively); the junction router declares absolute
       paths under ``/acogidas/...`` so the catalog's
       ``{material_id}``-shaped paths must come first.
+    - TASKS-01 (#7) — tareas_router mounted before materiales_router
+      so the ``/tareas`` prefix is unambiguous.
     """
     app.include_router(animals_router)
     app.include_router(entradas_router)
@@ -77,5 +80,6 @@ def register_routers(app: FastAPI) -> None:
     app.include_router(adopciones_router)
     app.include_router(sanidad_router)
     app.include_router(sanidad_batch_router)
+    app.include_router(tareas_router)
     app.include_router(materiales_router)
     app.include_router(materiales_acogida_router)
