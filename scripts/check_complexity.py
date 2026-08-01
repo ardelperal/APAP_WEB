@@ -1,10 +1,12 @@
-"""Cyclomatic complexity (CC) ratchet for ``app/main.py::create_app``.
+"""Cyclomatic complexity (CC) ratchet for high-risk functions.
 
-AGENTS.md rule 21 + issue #336: ``create_app`` must stay at CC <= 15.
+AGENTS.md rule 21 + issues #336 and #332: ``create_app`` and
+``apply_web_to_legacy`` must stay at CC <= 15.
 The ratchet is shrink-only: the budget may only decrease, never increase.
 
-The check uses ``radon cc -a`` (aggregate complexity) on ``app/main.py``
-and extracts the CC of the ``create_app`` function specifically.
+CC is computed via a stdlib-only AST walker (no external dependency on
+radon). The walker counts decision points: if/elif/while/for/except/and/or/
+ternary/comprehension/assert.
 
 Usage::
 
@@ -15,103 +17,151 @@ Exit code 0 when clean, 1 on any violation. Stdlib-only, deterministic.
 
 Run locally before pushing; CI should run it in the ``lint`` job.
 
-Issue: #336
+Issues: #336 (create_app), #332 (apply_web_to_legacy)
 """
 
 from __future__ import annotations
 
-import re
-import subprocess
+import ast
 import sys
 from pathlib import Path
 
-#: Hard CC budget for create_app.
+#: Hard CC budget per function.
 MAX_CC = 15
 
-#: Baselined CC for create_app at the time of the refactor (issue #336).
-#: RATCHET: may only decrease.
-BASELINE_CC: dict[str, int] = {
-    "app/main.py::create_app": 1,  # issue #336 refactor — extracted closures
+#: (file_path_relative_to_root, function_simple_name) -> baseline CC.
+#: RATCHET: may only decrease; no entry may be added.
+#: Values are the measured CC AFTER the refactor (issue #336 for create_app,
+#: issue #332 for apply_web_to_legacy). radon's explicit `-s` score for the
+#: post-refactor apply_web_to_legacy is 14 (was 57 pre-refactor); the AST
+#: walker reports 13 — the ratchet compares AST counts so the value is the
+#: AST measurement.
+BASELINE_CC: dict[tuple[str, str], int] = {
+    ("app/main.py", "create_app"): 1,  # issue #336 refactor — extracted closures
+    (
+        "migration/reverse_apply/orchestrator.py",
+        "apply_web_to_legacy",
+    ): 13,  # issue #332 refactor — extracted helpers (was CC=57)
 }
 
 
-def extract_function_cc(output: str, func_simple_name: str) -> int | None:
-    """Parse ``radon cc -a`` output for a specific function.
+def _count_decision_points(node: ast.AST) -> int:
+    """Return the number of decision points under ``node``.
 
-    radon -a output format per function (one per line):
-      F <line>:<col> <module>/<path>.<func> - <grade>
+    CC starts at 1 and we add 1 for each:
+      - if/elif (each branch)
+      - for/while/async for
+      - except handler
+      - and/or (BoolOp with >1 values adds len(values)-1)
+      - ternary (IfExp)
+      - comprehension (List/Dict/Set/Generator)
+      - assert
 
-    e.g. "F 140:0 create_app - A"
-    e.g. with closures: "F 212:4 _register_index_handler.index - A"
-
-    The CC is encoded in the grade: A=1, B=2, C=3, D=4, E=5, F=6+
+    Skipping walrus (NamedExpr) on purpose: it doesn't branch.
     """
-    # Direct match: F <line>:<col> <func_name> - <grade>
-    pattern = rf"F\s+\d+:\d+\s+{re.escape(func_simple_name)}\s+-\s+([A-F])(\d+)?"
-    m = re.search(pattern, output, re.MULTILINE)
-    if m:
-        grade = m.group(1)
-        explicit = m.group(2)
-        if explicit:
-            return int(explicit)
-        grade_map = {"A": 1, "B": 2, "C": 3, "D": 4, "E": 5, "F": 6}
-        return grade_map.get(grade, 6)
+    count = 0
+    for child in ast.walk(node):
+        if isinstance(child, (ast.If, ast.IfExp)):
+            count += 1
+        elif isinstance(child, (ast.For, ast.AsyncFor, ast.While)):
+            count += 1
+        elif isinstance(child, ast.ExceptHandler):
+            count += 1
+        elif isinstance(child, ast.BoolOp):
+            # `a and b and c` has 2 decision points (b, c); single operand
+            # like `a and b` has 1.
+            count += max(0, len(child.values) - 1)
+        elif isinstance(child, (ast.ListComp, ast.DictComp, ast.SetComp, ast.GeneratorExp)):
+            count += 1
+        elif isinstance(child, ast.Assert):
+            count += 1
+    return count
+
+
+def _function_cc(tree: ast.AST, func_name: str) -> int | None:
+    """Find the top-level function ``func_name`` in ``tree`` and return its CC.
+
+    Only top-level (module-level) functions are considered. Returns ``None``
+    if the function is not defined at the top level.
+    """
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == func_name:
+            return 1 + _count_decision_points(node)
     return None
 
 
-def check_complexity(root: Path) -> tuple[list[str], list[str]]:
-    """Check CC of create_app against the budget.
+def check_one_function(
+    root: Path,
+    file_rel: str,
+    func_name: str,
+) -> tuple[list[str], list[str]]:
+    """Check CC of one function against the budget.
 
     Returns (violations, notices).
     """
-    target = root / "app" / "main.py"
+    target = root / file_rel
     if not target.exists():
         return [f"{target}: file not found"], []
 
     try:
-        result = subprocess.run(
-            [sys.executable, "-m", "radon", "cc", "-a", "--show-closures", str(target)],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        output = result.stdout + result.stderr
-    except subprocess.TimeoutExpired:
-        return [f"radon cc timed out on {target}"], []
-    except FileNotFoundError:
-        return ["radon not installed: pip install radon"], []
+        source = target.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        return [f"{file_rel}: cannot read ({exc})"], []
+
+    try:
+        tree = ast.parse(source, filename=str(target))
+    except SyntaxError as exc:
+        return [f"{file_rel}: syntax error ({exc})"], []
+
+    key = (file_rel, func_name)
+    cc = _function_cc(tree, func_name)
 
     violations: list[str] = []
     notices: list[str] = []
 
-    func_name = "app.main.py::create_app"
-    cc = extract_function_cc(output, "create_app")
-
     if cc is None:
-        # Function may have been removed or renamed — flag it
-        violations.append(f"{func_name}: could not find create_app in radon output")
+        violations.append(
+            f"{file_rel}::{func_name}: could not find top-level function"
+        )
         return violations, notices
 
-    baseline = BASELINE_CC.get("app/main.py::create_app", None)
+    baseline = BASELINE_CC.get(key, None)
+    full_name = f"{file_rel}::{func_name}"
     if baseline is not None and cc > baseline:
         violations.append(
-            f"{func_name}: CC={cc}, exceeds baseline of {baseline} "
-            f"(ratchet: CC may only decrease — split create_app further)"
+            f"{full_name}: CC={cc}, exceeds baseline of {baseline} "
+            f"(ratchet: CC may only decrease)"
         )
     elif cc > MAX_CC:
         violations.append(
-            f"{func_name}: CC={cc}, exceeds hard budget of {MAX_CC} "
-            f"(AGENTS.md rule 21 + issue #336)"
+            f"{full_name}: CC={cc}, exceeds hard budget of {MAX_CC} "
+            f"(AGENTS.md rule 21 + issues #336, #332)"
         )
     elif baseline is not None and cc < baseline:
         notices.append(
-            f"{func_name}: CC={cc}, below baseline of {baseline} — "
-            f"update BASELINE_CC in scripts/check_complexity.py to lock in the improvement"
+            f"{full_name}: CC={cc}, below baseline of {baseline} — "
+            f"update BASELINE_CC to lock in the improvement"
         )
     else:
-        notices.append(f"{func_name}: CC={cc} — within budget")
+        notices.append(f"{full_name}: CC={cc} — within budget")
 
     return violations, notices
+
+
+def check_complexity(root: Path) -> tuple[list[str], list[str]]:
+    """Check CC of all tracked functions against the budget.
+
+    Returns (violations, notices).
+    """
+    all_violations: list[str] = []
+    all_notices: list[str] = []
+
+    for (file_rel, func_name) in BASELINE_CC:
+        viol, notices = check_one_function(root, file_rel, func_name)
+        all_violations.extend(viol)
+        all_notices.extend(notices)
+
+    return all_violations, all_notices
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -128,7 +178,7 @@ def main(argv: list[str] | None = None) -> int:
     if violations:
         print(
             f"check_complexity: {len(violations)} violation(s). "
-            f"create_app CC budget: {MAX_CC} (AGENTS.md rule 21 + issue #336)."
+            f"CC budget: {MAX_CC} (AGENTS.md rule 21 + issues #336, #332)."
         )
         return 1
     print("check_complexity: OK")
