@@ -122,14 +122,6 @@ def _extract_provided_token(request: Request) -> str | None:
     return None
 
 
-class CSRFValidationError(Exception):
-    """Raised when CSRF validation fails.
-
-    NOT an HTTPException (Rule 7): 403 responses are produced by the
-    middleware itself, not by raising into FastAPI's error pipeline.
-    """
-
-
 class CsrfMiddleware(BaseHTTPMiddleware):
     """Validate CSRF tokens on POST/PUT/PATCH/DELETE for protected paths.
 

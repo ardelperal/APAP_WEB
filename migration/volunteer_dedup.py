@@ -302,25 +302,6 @@ class _UnionFind:
             self.parent[rx] = ry
 
 
-def _cluster_by_fuzzy(
-    refs: Sequence[VolunteerRef],
-    candidate_pairs: Iterable[tuple[int, int]],
-    *,
-    threshold: int,
-) -> _UnionFind:
-    """Build a fresh union-find and apply the candidate-pair list.
-
-    ``candidate_pairs`` is the iterable of ``(i, j)`` index pairs
-    whose normalised names score at or above ``threshold`` under
-    ``rapidfuzz.fuzz.WRatio``. The function only does the unions —
-    the caller has already scored the pairs and filtered.
-    """
-    uf = _UnionFind(len(refs))
-    for i, j in candidate_pairs:
-        uf.union(i, j)
-    return uf
-
-
 def _fuzzy_candidate_pairs(
     refs: Sequence[VolunteerRef],
     *,
