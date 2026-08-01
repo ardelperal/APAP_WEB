@@ -11,7 +11,9 @@ cyclomatic complexity (CC) and line count.
 
 from __future__ import annotations
 
-from fastapi import Depends, FastAPI, Request
+from typing import Annotated
+
+from fastapi import Depends, FastAPI, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 
 from app.core import config as config_module
@@ -26,7 +28,6 @@ from app.core.session import (
     session_cookie_name,
     write_session,
 )
-from typing import Annotated
 
 
 def _redirect(path: str) -> RedirectResponse:
