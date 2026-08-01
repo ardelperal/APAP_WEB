@@ -80,6 +80,14 @@ jobs:
         # tests/test_route_size.py::test_ci_workflow_lint_job_runs_route_size_gate.
         run: python scripts/check_route_size.py
 
+      - name: Run docstring-coverage ratchet (issue #339)
+        # Issue #339 — removing this step is a blocked change. The
+        # ratchet enforces that docstring coverage in app/ + migration/
+        # + scripts/ does not fall below BASELINE_COVERAGE_FLOOR (73.0%).
+        # Tests pin the wiring: tests/test_docstring_coverage.py::
+        # test_ci_workflow_lint_job_runs_docstring_gate.
+        run: python scripts/check_docstring_coverage.py
+
       - name: Diagnostic secret-leak scan
         run: grep -rE '(http://|https://|sk-|ghp_)[A-Za-z0-9]+' .github/ || true
 
