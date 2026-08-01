@@ -25,8 +25,8 @@ def _seed_related_records(ep: _EphemeralPostgres) -> dict[str, str]:
     # Create animal (using raw SQL since animales has no queries.py)
     animal_id = str(uuid4())
     ep.execute(
-        f"INSERT INTO animales (id, nombre, especie, raza, fecha_alta, activo) "
-        f"VALUES ('{animal_id}', 'Luna', 'Perro', 'Mestiza', now(), true)"
+        f"INSERT INTO animales (id, nchip, nombreanimal, especie, sexo, fnacimiento, fecha_alta, activo) "
+        f"VALUES ('{animal_id}', 'CHIP-LUNA-MAT', 'Luna', 'CANINA', 'H', '2019-06-01', now(), true)"
     )
 
     # Create entrada
@@ -39,15 +39,15 @@ def _seed_related_records(ep: _EphemeralPostgres) -> dict[str, str]:
     # Create casa_acogida
     casa_id = str(uuid4())
     ep.execute(
-        f"INSERT INTO casas_acogida (id, nombre, direccion, telefono, activo, fecha_alta) "
-        f"VALUES ('{casa_id}', 'Casa Test', 'Calle Test', '123456789', true, now())"
+        f"INSERT INTO casas_acogida (id, nombre, apellidos, calle, telefono, localidad, provincia, coche, capacidad, activo, fecha_alta) "
+        f"VALUES ('{casa_id}', 'Casa Test', 'Test', 'Calle Test', '123456789', 'Madrid', 'Madrid', 'No', 1, true, now())"
     )
 
     # Create estancia/acogida
     estancia_id = str(uuid4())
     ep.execute(
-        f"INSERT INTO acogidas (id, animal_id, casa_acogida_id, fecha_inicio, direccion, telefono, activo, fecha_alta) "
-        f"VALUES ('{estancia_id}', '{animal_id}', '{casa_id}', '{date.today()}', 'Direccion test', '123456789', true, now())"
+        f"INSERT INTO acogidas (id, animal_id, fecha_inicio, direccion, telefono, activo, fecha_alta) "
+        f"VALUES ('{estancia_id}', '{animal_id}', '{date.today()}', 'Direccion test', '123456789', true, now())"
     )
 
     return {

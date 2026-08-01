@@ -24,14 +24,14 @@ def _seed_acogida_related_records(ep: _EphemeralPostgres) -> dict[str, str]:
     """
     animal_id = str(uuid4())
     ep.execute(
-        f"INSERT INTO animales (id, nombre, especie, fecha_alta, activo) "
-        f"VALUES ('{animal_id}', 'Luna', 'Perro', now(), true)"
+        f"INSERT INTO animales (id, nchip, nombreanimal, especie, sexo, fnacimiento, fecha_alta, activo) "
+        f"VALUES ('{animal_id}', 'CHIP-LUNA-001', 'Luna', 'CANINA', 'H', '2019-06-01', now(), true)"
     )
 
     voluntario_id = str(uuid4())
     ep.execute(
-        f"INSERT INTO voluntarios (id, nombre, email, rol, activo, fecha_alta) "
-        f"VALUES ('{voluntario_id}', 'Ana Lopez', 'ana@test.com', 'voluntario', true, now())"
+        f"INSERT INTO voluntarios (id, voluntario, email, activo, fecha_alta) "
+        f"VALUES ('{voluntario_id}', 'Ana Lopez', 'ana@test.com', true, now())"
     )
 
     entrada_id = str(uuid4())
@@ -42,8 +42,8 @@ def _seed_acogida_related_records(ep: _EphemeralPostgres) -> dict[str, str]:
 
     casa_id = str(uuid4())
     ep.execute(
-        f"INSERT INTO casas_acogida (id, nombre, direccion, telefono, activo, fecha_alta) "
-        f"VALUES ('{casa_id}', 'Casa Luna', 'Calle Sol 1', '600111222', true, now())"
+        f"INSERT INTO casas_acogida (id, nombre, apellidos, calle, telefono, localidad, provincia, coche, capacidad, activo, fecha_alta) "
+        f"VALUES ('{casa_id}', 'Casa Luna', 'Test', 'Calle Sol 1', '600111222', 'Madrid', 'Madrid', 'No', 1, true, now())"
     )
 
     return {
@@ -290,8 +290,8 @@ def test_build_acogida_link_override(
     override_id = str(uuid4())
     ephemeral_postgres.execute(
         f"INSERT INTO foster_capacity_overrides "
-        f"(id, casa_acogida_id, animal_id, estancia_id) "
-        f"VALUES ('{override_id}', '{related['casa_id']}', '{related['animal_id']}', NULL)"
+        f"(id, casa_acogida_id, animal_id, operador_user_id, motivo) "
+        f"VALUES ('{override_id}', '{related['casa_id']}', '{related['animal_id']}', '{related['voluntario_id']}', 'test override')"
     )
 
     # Create an acogida

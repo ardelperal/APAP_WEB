@@ -24,20 +24,20 @@ def _seed_sanidad_related_records(ep: _EphemeralPostgres) -> dict[str, str]:
     """
     animal_id = str(uuid4())
     ep.execute(
-        f"INSERT INTO animales (id, nombre, especie, fecha_alta, activo) "
-        f"VALUES ('{animal_id}', 'Nube', 'Gato', now(), true)"
+        f"INSERT INTO animales (id, nchip, nombreanimal, especie, sexo, fnacimiento, fecha_alta, activo) "
+        f"VALUES ('{animal_id}', 'CHIP-TEST-NUBE', 'Nube', 'FELINA', 'H', '2019-01-01', now(), true)"
     )
 
     voluntario_id = str(uuid4())
     ep.execute(
-        f"INSERT INTO voluntarios (id, nombre, email, rol, activo, fecha_alta) "
-        f"VALUES ('{voluntario_id}', 'Dr. Garcia', 'garcia@ vets.com', 'sanitario', true, now())"
+        f"INSERT INTO voluntarios (id, voluntario, email, activo, fecha_alta) "
+        f"VALUES ('{voluntario_id}', 'Dr. Garcia', 'garcia@test.com', true, now())"
     )
 
     tipo_id = str(uuid4())
     ep.execute(
-        f"INSERT INTO catalogos_pruebas (id, nombre, tipo, activo) "
-        f"VALUES ('{tipo_id}', 'Vacuna', 'sanidad', true)"
+        f"INSERT INTO catalogos_pruebas (id, codigo, nombre, especie, observaciones, activo) "
+        f"VALUES ('{tipo_id}', 'sanidad-vacuna', 'Vacuna', 'ambos', 'sanidad', true)"
     )
 
     return {
@@ -89,10 +89,10 @@ def test_build_resumen_sanitario(ephemeral_postgres: _EphemeralPostgres) -> None
     actuacion_id = str(uuid4())
     ephemeral_postgres.execute(
         f"INSERT INTO actuaciones (id, animal_id, voluntario_id, tipo_actuacion_id, "
-        f"fecha, veterinario, observaciones, material_utilizado, activo) "
+        f"fecha, veterinario, observaciones, material_utilizado, activo, fecha_alta) "
         f"VALUES ('{actuacion_id}', '{related['animal_id']}', "
         f"'{related['voluntario_id']}', '{related['tipo_actuacion_id']}', "
-        f"now(), 'Dr. Smith', 'Primera dosis', 'Vacuna 1ml', true)"
+        f"now(), 'Dr. Smith', 'Primera dosis', 'Vacuna 1ml', true, now())"
     )
 
     sql, params = q.build_resumen_sanitario(related["animal_id"])
