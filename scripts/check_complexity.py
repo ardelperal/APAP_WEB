@@ -1,10 +1,11 @@
-"""Cyclomatic complexity (CC) ratchet for ``app/main.py::create_app``.
+"""Cyclomatic complexity (CC) ratchet for high-risk functions.
 
-AGENTS.md rule 21 + issue #336: ``create_app`` must stay at CC <= 15.
+AGENTS.md rule 21 + issues #336 and #332: ``create_app`` and
+``apply_web_to_legacy`` must stay at CC <= 15.
 The ratchet is shrink-only: the budget may only decrease, never increase.
 
-The check uses ``radon cc -a`` (aggregate complexity) on ``app/main.py``
-and extracts the CC of the ``create_app`` function specifically.
+The check uses ``radon cc -a`` on each target file and extracts the CC of
+the named function.
 
 Usage::
 
@@ -15,7 +16,7 @@ Exit code 0 when clean, 1 on any violation. Stdlib-only, deterministic.
 
 Run locally before pushing; CI should run it in the ``lint`` job.
 
-Issue: #336
+Issues: #336 (create_app), #332 (apply_web_to_legacy)
 """
 
 from __future__ import annotations
@@ -25,13 +26,17 @@ import subprocess
 import sys
 from pathlib import Path
 
-#: Hard CC budget for create_app.
+#: Hard CC budget per function.
 MAX_CC = 15
 
-#: Baselined CC for create_app at the time of the refactor (issue #336).
-#: RATCHET: may only decrease.
-BASELINE_CC: dict[str, int] = {
-    "app/main.py::create_app": 1,  # issue #336 refactor — extracted closures
+#: (file_path_relative_to_root, function_simple_name) -> baseline CC.
+#: RATCHET: may only decrease; no entry may be added.
+BASELINE_CC: dict[tuple[str, str], int] = {
+    ("app/main.py", "create_app"): 1,  # issue #336 refactor — extracted closures
+    (
+        "migration/reverse_apply/orchestrator.py",
+        "apply_web_to_legacy",
+    ): 3,  # issue #332 refactor — extracted helpers; CC=C (3)
 }
 
 
@@ -59,12 +64,16 @@ def extract_function_cc(output: str, func_simple_name: str) -> int | None:
     return None
 
 
-def check_complexity(root: Path) -> tuple[list[str], list[str]]:
-    """Check CC of create_app against the budget.
+def check_one_function(
+    root: Path,
+    file_rel: str,
+    func_name: str,
+) -> tuple[list[str], list[str]]:
+    """Check CC of one function against the budget.
 
     Returns (violations, notices).
     """
-    target = root / "app" / "main.py"
+    target = root / file_rel
     if not target.exists():
         return [f"{target}: file not found"], []
 
@@ -84,34 +93,52 @@ def check_complexity(root: Path) -> tuple[list[str], list[str]]:
     violations: list[str] = []
     notices: list[str] = []
 
-    func_name = "app.main.py::create_app"
-    cc = extract_function_cc(output, "create_app")
+    key = (file_rel, func_name)
+    cc = extract_function_cc(output, func_name)
 
     if cc is None:
-        # Function may have been removed or renamed — flag it
-        violations.append(f"{func_name}: could not find create_app in radon output")
+        violations.append(
+            f"{file_rel}::{func_name}: could not find {func_name} in radon output"
+        )
         return violations, notices
 
-    baseline = BASELINE_CC.get("app/main.py::create_app", None)
+    baseline = BASELINE_CC.get(key, None)
+    full_name = f"{file_rel}::{func_name}"
     if baseline is not None and cc > baseline:
         violations.append(
-            f"{func_name}: CC={cc}, exceeds baseline of {baseline} "
-            f"(ratchet: CC may only decrease — split create_app further)"
+            f"{full_name}: CC={cc}, exceeds baseline of {baseline} "
+            f"(ratchet: CC may only decrease)"
         )
     elif cc > MAX_CC:
         violations.append(
-            f"{func_name}: CC={cc}, exceeds hard budget of {MAX_CC} "
-            f"(AGENTS.md rule 21 + issue #336)"
+            f"{full_name}: CC={cc}, exceeds hard budget of {MAX_CC} "
+            f"(AGENTS.md rule 21 + issues #336, #332)"
         )
     elif baseline is not None and cc < baseline:
         notices.append(
-            f"{func_name}: CC={cc}, below baseline of {baseline} — "
-            f"update BASELINE_CC in scripts/check_complexity.py to lock in the improvement"
+            f"{full_name}: CC={cc}, below baseline of {baseline} — "
+            f"update BASELINE_CC to lock in the improvement"
         )
     else:
-        notices.append(f"{func_name}: CC={cc} — within budget")
+        notices.append(f"{full_name}: CC={cc} — within budget")
 
     return violations, notices
+
+
+def check_complexity(root: Path) -> tuple[list[str], list[str]]:
+    """Check CC of all tracked functions against the budget.
+
+    Returns (violations, notices).
+    """
+    all_violations: list[str] = []
+    all_notices: list[str] = []
+
+    for (file_rel, func_name) in BASELINE_CC:
+        viol, notices = check_one_function(root, file_rel, func_name)
+        all_violations.extend(viol)
+        all_notices.extend(notices)
+
+    return all_violations, all_notices
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -128,7 +155,7 @@ def main(argv: list[str] | None = None) -> int:
     if violations:
         print(
             f"check_complexity: {len(violations)} violation(s). "
-            f"create_app CC budget: {MAX_CC} (AGENTS.md rule 21 + issue #336)."
+            f"CC budget: {MAX_CC} (AGENTS.md rule 21 + issues #336, #332)."
         )
         return 1
     print("check_complexity: OK")
