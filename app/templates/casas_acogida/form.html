@@ -25,25 +25,25 @@
       <legend class="text-sm font-semibold text-text-muted">Datos del acogedor</legend>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <label class="block text-sm font-medium text-text">Nombre <span class="text-rose-700">*</span></label>
-          <input type="text" name="nombre" value="{{ form_data.nombre or '' }}"
+          <label for="nombre" class="block text-sm font-medium text-text">Nombre <span class="text-rose-700">*</span></label>
+          <input type="text" id="nombre" name="nombre" value="{{ form_data.nombre or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                  required>
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Apellidos <span class="text-rose-700">*</span></label>
-          <input type="text" name="apellidos" value="{{ form_data.apellidos or '' }}"
+          <label for="apellidos" class="block text-sm font-medium text-text">Apellidos <span class="text-rose-700">*</span></label>
+          <input type="text" id="apellidos" name="apellidos" value="{{ form_data.apellidos or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                  required>
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">DNI del acogedor</label>
-          <input type="text" name="dni_acogedor" value="{{ form_data.dni_acogedor or '' }}"
+          <label for="dni_acogedor" class="block text-sm font-medium text-text">DNI del acogedor</label>
+          <input type="text" id="dni_acogedor" name="dni_acogedor" value="{{ form_data.dni_acogedor or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Vinculación con la protectora</label>
-          <input type="text" name="vinculacion" value="{{ form_data.vinculacion or '' }}"
+          <label for="vinculacion" class="block text-sm font-medium text-text">Vinculación con la protectora</label>
+          <input type="text" id="vinculacion" name="vinculacion" value="{{ form_data.vinculacion or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
       </div>
@@ -53,39 +53,39 @@
       <legend class="text-sm font-semibold text-text-muted">Dirección</legend>
       <div class="grid grid-cols-1 md:grid-cols-6 gap-4">
         <div class="md:col-span-3">
-          <label class="block text-sm font-medium text-text">Calle <span class="text-rose-700">*</span></label>
-          <input type="text" name="calle" value="{{ form_data.calle or '' }}"
+          <label for="calle" class="block text-sm font-medium text-text">Calle <span class="text-rose-700">*</span></label>
+          <input type="text" id="calle" name="calle" value="{{ form_data.calle or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                  required>
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Número</label>
-          <input type="text" name="numero" value="{{ form_data.numero or '' }}"
+          <label for="numero" class="block text-sm font-medium text-text">Número</label>
+          <input type="text" id="numero" name="numero" value="{{ form_data.numero or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Piso</label>
-          <input type="text" name="piso" value="{{ form_data.piso or '' }}"
+          <label for="piso" class="block text-sm font-medium text-text">Piso</label>
+          <input type="text" id="piso" name="piso" value="{{ form_data.piso or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Letra</label>
-          <input type="text" name="letra" value="{{ form_data.letra or '' }}"
+          <label for="letra" class="block text-sm font-medium text-text">Letra</label>
+          <input type="text" id="letra" name="letra" value="{{ form_data.letra or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
         <div class="md:col-span-2">
-          <label class="block text-sm font-medium text-text">Localidad</label>
-          <input type="text" name="localidad" value="{{ form_data.localidad or '' }}"
+          <label for="localidad" class="block text-sm font-medium text-text">Localidad</label>
+          <input type="text" id="localidad" name="localidad" value="{{ form_data.localidad or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
         <div class="md:col-span-2">
-          <label class="block text-sm font-medium text-text">Provincia</label>
-          <input type="text" name="provincia" value="{{ form_data.provincia or '' }}"
+          <label for="provincia" class="block text-sm font-medium text-text">Provincia</label>
+          <input type="text" id="provincia" name="provincia" value="{{ form_data.provincia or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
         <div class="md:col-span-2">
-          <label class="block text-sm font-medium text-text">Código postal</label>
-          <input type="text" name="cp" value="{{ form_data.cp or '' }}"
+          <label for="cp" class="block text-sm font-medium text-text">Código postal</label>
+          <input type="text" id="cp" name="cp" value="{{ form_data.cp or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
       </div>
@@ -95,19 +95,19 @@
       <legend class="text-sm font-semibold text-text-muted">Contacto</legend>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <label class="block text-sm font-medium text-text">Teléfono <span class="text-rose-700">*</span></label>
-          <input type="text" name="telefono" value="{{ form_data.telefono or '' }}"
+          <label for="telefono" class="block text-sm font-medium text-text">Teléfono <span class="text-rose-700">*</span></label>
+          <input type="text" id="telefono" name="telefono" value="{{ form_data.telefono or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                  required>
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Teléfono 2</label>
-          <input type="text" name="telefono2" value="{{ form_data.telefono2 or '' }}"
+          <label for="telefono2" class="block text-sm font-medium text-text">Teléfono 2</label>
+          <input type="text" id="telefono2" name="telefono2" value="{{ form_data.telefono2 or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
         <div class="md:col-span-2">
-          <label class="block text-sm font-medium text-text">Email</label>
-          <input type="email" name="email" value="{{ form_data.email or '' }}"
+          <label for="email" class="block text-sm font-medium text-text">Email</label>
+          <input type="email" id="email" name="email" value="{{ form_data.email or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
       </div>
@@ -117,8 +117,8 @@
       <legend class="text-sm font-semibold text-text-muted">Aceptación</legend>
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div>
-          <label class="block text-sm font-medium text-text">Coche disponible <span class="text-rose-700">*</span></label>
-          <select name="coche"
+          <label for="coche" class="block text-sm font-medium text-text">Coche disponible <span class="text-rose-700">*</span></label>
+          <select id="coche" name="coche"
                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                   required>
             <option value="Sí" {% if form_data.coche == "Sí" %}selected{% endif %}>Sí</option>
@@ -126,8 +126,8 @@
           </select>
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Especie preferente</label>
-          <select name="especie_preferente"
+          <label for="especie_preferente" class="block text-sm font-medium text-text">Especie preferente</label>
+          <select id="especie_preferente" name="especie_preferente"
                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
             <option value="" {% if not form_data.especie_preferente %}selected{% endif %}>Cualquiera</option>
             <option value="CANINA" {% if form_data.especie_preferente == "CANINA" %}selected{% endif %}>CANINA</option>
@@ -135,20 +135,20 @@
           </select>
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Capacidad máxima <span class="text-rose-700">*</span></label>
-          <input type="number" name="capacidad" min="1" step="1" value="{{ form_data.capacidad or '' }}"
+          <label for="capacidad" class="block text-sm font-medium text-text">Capacidad máxima <span class="text-rose-700">*</span></label>
+          <input type="number" id="capacidad" name="capacidad" min="1" step="1" value="{{ form_data.capacidad or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                  required>
         </div>
       </div>
       <div>
-        <label class="block text-sm font-medium text-text">Características</label>
-        <textarea name="caracteristicas" rows="2"
+        <label for="caracteristicas" class="block text-sm font-medium text-text">Características</label>
+        <textarea id="caracteristicas" name="caracteristicas" rows="2"
                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">{{ form_data.caracteristicas or '' }}</textarea>
       </div>
       <div>
-        <label class="block text-sm font-medium text-text">Observaciones</label>
-        <textarea name="observaciones" rows="2"
+        <label for="observaciones" class="block text-sm font-medium text-text">Observaciones</label>
+        <textarea id="observaciones" name="observaciones" rows="2"
                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">{{ form_data.observaciones or '' }}</textarea>
       </div>
     </fieldset>

@@ -22,15 +22,15 @@
     <h2 class="text-lg font-semibold text-primary-dark">Nueva tarea manual</h2>
     <form method="post" action="/tareas" class="mt-4 flex flex-wrap items-end gap-3">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-      <label class="flex flex-col text-sm flex-1 min-w-[200px]">
+      <label for="prioridad" class="flex flex-col text-sm flex-1 min-w-[200px]">
         <span class="mb-1 text-text font-medium">Tipo</span>
-        <select name="tipo" required class="rounded border border-border px-3 py-2 text-text bg-surface focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+        <select id="tipo" name="tipo" required class="rounded border border-border px-3 py-2 text-text bg-surface focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
           <option value="manual">Manual</option>
         </select>
       </label>
       <label class="flex flex-col text-sm flex-1 min-w-[200px]">
         <span class="mb-1 text-text font-medium">Prioridad</span>
-        <select name="prioridad" required class="rounded border border-border px-3 py-2 text-text bg-surface focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+        <select id="prioridad" name="prioridad" required class="rounded border border-border px-3 py-2 text-text bg-surface focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
           <option value="baja">Baja</option>
           <option value="normal" selected>Normal</option>
           <option value="alta">Alta</option>

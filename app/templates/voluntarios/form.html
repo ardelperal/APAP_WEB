@@ -19,30 +19,30 @@
     {# PR-5B2: CSRF defense-in-depth (REQ-AH-7). #}
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
     <div>
-      <label class="block text-sm font-medium text-text">Nombre <span class="text-rose-700">*</span></label>
-      <input type="text" name="Voluntario" value="{{ form_data.Voluntario or '' }}"
+      <label for="Voluntario" class="block text-sm font-medium text-text">Nombre <span class="text-rose-700">*</span></label>
+      <input type="text" id="Voluntario" name="Voluntario" value="{{ form_data.Voluntario or '' }}"
              class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
              required>
     </div>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
       <div>
-        <label class="block text-sm font-medium text-text">Email</label>
-        <input type="email" name="Email" value="{{ form_data.Email or '' }}"
+        <label for="Email" class="block text-sm font-medium text-text">Email</label>
+        <input type="email" id="Email" name="Email" value="{{ form_data.Email or '' }}"
                class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
       </div>
       <div>
-        <label class="block text-sm font-medium text-text">DNI</label>
-        <input type="text" name="DNI" value="{{ form_data.DNI or '' }}"
+        <label for="DNI" class="block text-sm font-medium text-text">DNI</label>
+        <input type="text" id="DNI" name="DNI" value="{{ form_data.DNI or '' }}"
                class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
       </div>
       <div>
-        <label class="block text-sm font-medium text-text">Teléfono 1</label>
-        <input type="tel" name="Tel1" value="{{ form_data.Tel1 or '' }}"
+        <label for="Tel1" class="block text-sm font-medium text-text">Teléfono 1</label>
+        <input type="tel" id="Tel1" name="Tel1" value="{{ form_data.Tel1 or '' }}"
                class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
       </div>
       <div>
-        <label class="block text-sm font-medium text-text">Teléfono 2</label>
-        <input type="tel" name="Tel2" value="{{ form_data.Tel2 or '' }}"
+        <label for="Tel2" class="block text-sm font-medium text-text">Teléfono 2</label>
+        <input type="tel" id="Tel2" name="Tel2" value="{{ form_data.Tel2 or '' }}"
                class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
       </div>
     </div>

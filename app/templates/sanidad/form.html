@@ -26,23 +26,23 @@
       <legend class="text-sm font-semibold text-text-muted">Datos del acto</legend>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <label class="block text-sm font-medium text-text">ID del animal <span class="text-rose-700">*</span></label>
-          <input type="text" name="animal_id" value="{{ form_data.animal_id or '' }}"
+          <label for="animal_id" class="block text-sm font-medium text-text">ID del animal <span class="text-rose-700">*</span></label>
+          <input type="text" id="animal_id" name="animal_id" value="{{ form_data.animal_id or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text font-mono focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                  placeholder="UUID del animal"
                  required>
           <p class="mt-1 text-xs text-text-muted">Debe corresponder a un animal activo en la protectora.</p>
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Fecha <span class="text-rose-700">*</span></label>
-          <input type="date" name="fecha" value="{{ form_data.fecha or '' }}"
+          <label for="fecha" class="block text-sm font-medium text-text">Fecha <span class="text-rose-700">*</span></label>
+          <input type="date" id="fecha" name="fecha" value="{{ form_data.fecha or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                  required>
           <p class="mt-1 text-xs text-text-muted">Regla D-24: no se permiten fechas futuras ni anteriores al alta del animal.</p>
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Tipo de actuación</label>
-          <select name="tipo_actuacion_id"
+          <label for="tipo_actuacion_id" class="block text-sm font-medium text-text">Tipo de actuación</label>
+          <select id="tipo_actuacion_id" name="tipo_actuacion_id"
                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
             <option value="">— Sin clasificar —</option>
             {% for prueba in catalogos_pruebas %}
@@ -55,8 +55,8 @@
           <p class="mt-1 text-xs text-text-muted">Catálogo de pruebas (CATALOG-01). Opcional — puede dejarse sin clasificar.</p>
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Veterinario</label>
-          <input type="text" name="veterinario" value="{{ form_data.veterinario or '' }}"
+          <label for="veterinario" class="block text-sm font-medium text-text">Veterinario</label>
+          <input type="text" id="veterinario" name="veterinario" value="{{ form_data.veterinario or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
       </div>
@@ -66,22 +66,22 @@
       <legend class="text-sm font-semibold text-text-muted">Responsable y material</legend>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <label class="block text-sm font-medium text-text">ID del voluntario responsable</label>
-          <input type="text" name="voluntario_id" value="{{ form_data.voluntario_id or '' }}"
+          <label for="voluntario_id" class="block text-sm font-medium text-text">ID del voluntario responsable</label>
+          <input type="text" id="voluntario_id" name="voluntario_id" value="{{ form_data.voluntario_id or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text font-mono focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                  placeholder="UUID del voluntario (opcional)">
           <p class="mt-1 text-xs text-text-muted">Debe corresponder a un voluntario activo (VOL-05). Opcional.</p>
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Material utilizado</label>
-          <input type="text" name="material_utilizado" value="{{ form_data.material_utilizado or '' }}"
+          <label for="material_utilizado" class="block text-sm font-medium text-text">Material utilizado</label>
+          <input type="text" id="material_utilizado" name="material_utilizado" value="{{ form_data.material_utilizado or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
           <p class="mt-1 text-xs text-text-muted">Producto, dosis o detalle del material. Texto libre.</p>
         </div>
       </div>
       <div>
-        <label class="block text-sm font-medium text-text">Observaciones</label>
-        <textarea name="observaciones" rows="3"
+        <label for="observaciones" class="block text-sm font-medium text-text">Observaciones</label>
+        <textarea id="observaciones" name="observaciones" rows="3"
                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">{{ form_data.observaciones or '' }}</textarea>
       </div>
     </fieldset>

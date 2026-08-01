@@ -26,15 +26,15 @@
       <legend class="text-sm font-semibold text-text-muted px-2">Vinculación con la entrada</legend>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <label class="block text-sm font-medium text-text">ID de entrada <span class="text-rose-700">*</span></label>
-          <input type="text" name="entrada_id" value="{{ form_data.entrada_id or '' }}"
+          <label for="entrada_id" class="block text-sm font-medium text-text">ID de entrada <span class="text-rose-700">*</span></label>
+          <input type="text" id="entrada_id" name="entrada_id" value="{{ form_data.entrada_id or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                  required>
           <p class="text-xs text-text-muted mt-1">Identificador de la entrada (TbEntradas) a la que se vincula la cesión (FK UNIQUE).</p>
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Número de contrato (CP) <span class="text-rose-700">*</span></label>
-          <input type="text" name="numero_contrato" value="{{ form_data.numero_contrato or '' }}"
+          <label for="numero_contrato" class="block text-sm font-medium text-text">Número de contrato (CP) <span class="text-rose-700">*</span></label>
+          <input type="text" id="numero_contrato" name="numero_contrato" value="{{ form_data.numero_contrato or '' }}"
                  placeholder="CP0001"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                  required>
@@ -47,59 +47,59 @@
       <legend class="text-sm font-semibold text-text-muted px-2">Datos del propietario que entrega</legend>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <label class="block text-sm font-medium text-text">Nombre completo <span class="text-rose-700">*</span></label>
-          <input type="text" name="nombre_representante" value="{{ form_data.nombre_representante or '' }}"
+          <label for="nombre_representante" class="block text-sm font-medium text-text">Nombre completo <span class="text-rose-700">*</span></label>
+          <input type="text" id="nombre_representante" name="nombre_representante" value="{{ form_data.nombre_representante or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                  required>
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">DNI / NIF</label>
-          <input type="text" name="dni_representante" value="{{ form_data.dni_representante or '' }}"
+          <label for="dni_representante" class="block text-sm font-medium text-text">DNI / NIF</label>
+          <input type="text" id="dni_representante" name="dni_representante" value="{{ form_data.dni_representante or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
         <div class="md:col-span-2">
-          <label class="block text-sm font-medium text-text">Calle</label>
-          <input type="text" name="calle_representante" value="{{ form_data.calle_representante or '' }}"
+          <label for="calle_representante" class="block text-sm font-medium text-text">Calle</label>
+          <input type="text" id="calle_representante" name="calle_representante" value="{{ form_data.calle_representante or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Número</label>
-          <input type="text" name="numero_calle_representante" value="{{ form_data.numero_calle_representante or '' }}"
+          <label for="numero_calle_representante" class="block text-sm font-medium text-text">Número</label>
+          <input type="text" id="numero_calle_representante" name="numero_calle_representante" value="{{ form_data.numero_calle_representante or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Piso</label>
-          <input type="text" name="piso_representante" value="{{ form_data.piso_representante or '' }}"
+          <label for="piso_representante" class="block text-sm font-medium text-text">Piso</label>
+          <input type="text" id="piso_representante" name="piso_representante" value="{{ form_data.piso_representante or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Letra</label>
-          <input type="text" name="letra_representante" value="{{ form_data.letra_representante or '' }}"
+          <label for="letra_representante" class="block text-sm font-medium text-text">Letra</label>
+          <input type="text" id="letra_representante" name="letra_representante" value="{{ form_data.letra_representante or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Localidad</label>
-          <input type="text" name="localidad_representante" value="{{ form_data.localidad_representante or '' }}"
+          <label for="localidad_representante" class="block text-sm font-medium text-text">Localidad</label>
+          <input type="text" id="localidad_representante" name="localidad_representante" value="{{ form_data.localidad_representante or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Provincia</label>
-          <input type="text" name="provincia_representante" value="{{ form_data.provincia_representante or '' }}"
+          <label for="provincia_representante" class="block text-sm font-medium text-text">Provincia</label>
+          <input type="text" id="provincia_representante" name="provincia_representante" value="{{ form_data.provincia_representante or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Código postal</label>
-          <input type="text" name="cp_representante" value="{{ form_data.cp_representante or '' }}"
+          <label for="cp_representante" class="block text-sm font-medium text-text">Código postal</label>
+          <input type="text" id="cp_representante" name="cp_representante" value="{{ form_data.cp_representante or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Teléfono</label>
-          <input type="text" name="telefono_representante" value="{{ form_data.telefono_representante or '' }}"
+          <label for="telefono_representante" class="block text-sm font-medium text-text">Teléfono</label>
+          <input type="text" id="telefono_representante" name="telefono_representante" value="{{ form_data.telefono_representante or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Email</label>
-          <input type="email" name="email_representante" value="{{ form_data.email_representante or '' }}"
+          <label for="email_representante" class="block text-sm font-medium text-text">Email</label>
+          <input type="email" id="email_representante" name="email_representante" value="{{ form_data.email_representante or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
       </div>
@@ -109,8 +109,8 @@
       <legend class="text-sm font-semibold text-text-muted px-2">Datos veterinarios</legend>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <label class="block text-sm font-medium text-text">¿Cartilla sanitaria?</label>
-          <select name="cartilla_sanitaria"
+          <label for="cartilla_sanitaria" class="block text-sm font-medium text-text">¿Cartilla sanitaria?</label>
+          <select id="cartilla_sanitaria" name="cartilla_sanitaria"
                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
             <option value="">—</option>
             <option value="Sí" {% if form_data.cartilla_sanitaria == 'Sí' %}selected{% endif %}>Sí</option>
@@ -118,8 +118,8 @@
           </select>
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">¿Certificado veterinario?</label>
-          <select name="certificado_veterinario"
+          <label for="certificado_veterinario" class="block text-sm font-medium text-text">¿Certificado veterinario?</label>
+          <select id="certificado_veterinario" name="certificado_veterinario"
                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
             <option value="">—</option>
             <option value="Sí" {% if form_data.certificado_veterinario == 'Sí' %}selected{% endif %}>Sí</option>
@@ -127,8 +127,8 @@
           </select>
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">¿Autorización de recogida?</label>
-          <select name="autorizacion_recogida"
+          <label for="autorizacion_recogida" class="block text-sm font-medium text-text">¿Autorización de recogida?</label>
+          <select id="autorizacion_recogida" name="autorizacion_recogida"
                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
             <option value="">—</option>
             <option value="Sí" {% if form_data.autorizacion_recogida == 'Sí' %}selected{% endif %}>Sí</option>
@@ -136,18 +136,18 @@
           </select>
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Fecha vacuna rabia</label>
-          <input type="date" name="fecha_vacuna_rabia" value="{{ form_data.fecha_vacuna_rabia or '' }}"
+          <label for="fecha_vacuna_rabia" class="block text-sm font-medium text-text">Fecha vacuna rabia</label>
+          <input type="date" id="fecha_vacuna_rabia" name="fecha_vacuna_rabia" value="{{ form_data.fecha_vacuna_rabia or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Número de colegiado</label>
-          <input type="text" name="numero_colegiado" value="{{ form_data.numero_colegiado or '' }}"
+          <label for="numero_colegiado" class="block text-sm font-medium text-text">Número de colegiado</label>
+          <input type="text" id="numero_colegiado" name="numero_colegiado" value="{{ form_data.numero_colegiado or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Número de colaborador</label>
-          <input type="text" name="numero_colaborador" value="{{ form_data.numero_colaborador or '' }}"
+          <label for="numero_colaborador" class="block text-sm font-medium text-text">Número de colaborador</label>
+          <input type="text" id="numero_colaborador" name="numero_colaborador" value="{{ form_data.numero_colaborador or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
       </div>
@@ -157,14 +157,14 @@
       <legend class="text-sm font-semibold text-text-muted px-2">Momento de la cesión</legend>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <label class="block text-sm font-medium text-text">Fecha de la cesión</label>
-          <input type="date" name="fecha_cesion" value="{{ form_data.fecha_cesion or '' }}"
+          <label for="fecha_cesion" class="block text-sm font-medium text-text">Fecha de la cesión</label>
+          <input type="date" id="fecha_cesion" name="fecha_cesion" value="{{ form_data.fecha_cesion or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
           <p class="text-xs text-text-muted mt-1">Si se deja vacía, se usa la fecha actual para el contrato.</p>
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Hora de la cesión</label>
-          <input type="datetime-local" name="hora_cesion" value="{{ form_data.hora_cesion or '' }}"
+          <label for="hora_cesion" class="block text-sm font-medium text-text">Hora de la cesión</label>
+          <input type="datetime-local" id="hora_cesion" name="hora_cesion" value="{{ form_data.hora_cesion or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
       </div>

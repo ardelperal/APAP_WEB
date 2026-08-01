@@ -25,24 +25,24 @@
       <legend class="text-sm font-semibold text-text-muted">Datos del adoptante</legend>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <label class="block text-sm font-medium text-text">Nombre del adoptante <span class="text-rose-700">*</span></label>
-          <input type="text" name="nombre_adoptante" value="{{ form_data.nombre_adoptante or '' }}"
+          <label for="nombre_adoptante" class="block text-sm font-medium text-text">Nombre del adoptante <span class="text-rose-700">*</span></label>
+          <input type="text" id="nombre_adoptante" name="nombre_adoptante" value="{{ form_data.nombre_adoptante or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                  required>
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">DNI del adoptante</label>
-          <input type="text" name="dni_adoptante" value="{{ form_data.dni_adoptante or '' }}"
+          <label for="dni_adoptante" class="block text-sm font-medium text-text">DNI del adoptante</label>
+          <input type="text" id="dni_adoptante" name="dni_adoptante" value="{{ form_data.dni_adoptante or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Teléfono</label>
-          <input type="text" name="telefono_adoptante" value="{{ form_data.telefono_adoptante or '' }}"
+          <label for="telefono_adoptante" class="block text-sm font-medium text-text">Teléfono</label>
+          <input type="text" id="telefono_adoptante" name="telefono_adoptante" value="{{ form_data.telefono_adoptante or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Email</label>
-          <input type="email" name="email_adoptante" value="{{ form_data.email_adoptante or '' }}"
+          <label for="email_adoptante" class="block text-sm font-medium text-text">Email</label>
+          <input type="email" id="email_adoptante" name="email_adoptante" value="{{ form_data.email_adoptante or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
       </div>
@@ -52,16 +52,16 @@
       <legend class="text-sm font-semibold text-text-muted">Datos de la adopción</legend>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <label class="block text-sm font-medium text-text">ID del animal <span class="text-rose-700">*</span></label>
-          <input type="text" name="animal_id" value="{{ form_data.animal_id or '' }}"
+          <label for="animal_id" class="block text-sm font-medium text-text">ID del animal <span class="text-rose-700">*</span></label>
+          <input type="text" id="animal_id" name="animal_id" value="{{ form_data.animal_id or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text font-mono focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                  placeholder="UUID del animal"
                  required>
           <p class="mt-1 text-xs text-text-muted">Debe corresponder a un animal activo en la protectora.</p>
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Tipo de adopción</label>
-          <select name="tipo_adopcion"
+          <label for="tipo_adopcion" class="block text-sm font-medium text-text">Tipo de adopción</label>
+          <select id="tipo_adopcion" name="tipo_adopcion"
                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
             <option value="regular" {% if form_data.tipo_adopcion == "regular" or not form_data.tipo_adopcion %}selected{% endif %}>Regular</option>
             <option value="preadopcion" {% if form_data.tipo_adopcion == "preadopcion" %}selected{% endif %}>Pre-adopción</option>
@@ -69,25 +69,25 @@
           </select>
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Fecha de adopción <span class="text-rose-700">*</span></label>
-          <input type="date" name="fecha_adopcion" value="{{ form_data.fecha_adopcion or '' }}"
+          <label for="fecha_adopcion" class="block text-sm font-medium text-text">Fecha de adopción <span class="text-rose-700">*</span></label>
+          <input type="date" id="fecha_adopcion" name="fecha_adopcion" value="{{ form_data.fecha_adopcion or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                  required>
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Fecha de devolución</label>
-          <input type="date" name="fecha_devolucion" value="{{ form_data.fecha_devolucion or '' }}"
+          <label for="fecha_devolucion" class="block text-sm font-medium text-text">Fecha de devolución</label>
+          <input type="date" id="fecha_devolucion" name="fecha_devolucion" value="{{ form_data.fecha_devolucion or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
           <p class="mt-1 text-xs text-text-muted">Déjala en blanco si la adopción sigue vigente.</p>
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Donativo pre-adopción (€)</label>
-          <input type="number" name="donativo_preadopcion" step="0.01" min="0" value="{{ form_data.donativo_preadopcion or '' }}"
+          <label for="donativo_preadopcion" class="block text-sm font-medium text-text">Donativo pre-adopción (€)</label>
+          <input type="number" id="donativo_preadopcion" name="donativo_preadopcion" step="0.01" min="0" value="{{ form_data.donativo_preadopcion or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Donativo adopción (€)</label>
-          <input type="number" name="donativo_adopcion" step="0.01" min="0" value="{{ form_data.donativo_adopcion or '' }}"
+          <label for="donativo_adopcion" class="block text-sm font-medium text-text">Donativo adopción (€)</label>
+          <input type="number" id="donativo_adopcion" name="donativo_adopcion" step="0.01" min="0" value="{{ form_data.donativo_adopcion or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
       </div>
@@ -97,22 +97,22 @@
       <legend class="text-sm font-semibold text-text-muted">Seguimiento y origen</legend>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <label class="block text-sm font-medium text-text">Voluntario de seguimiento</label>
-          <input type="text" name="voluntario_seguimiento_id" value="{{ form_data.voluntario_seguimiento_id or '' }}"
+          <label for="voluntario_seguimiento_id" class="block text-sm font-medium text-text">Voluntario de seguimiento</label>
+          <input type="text" id="voluntario_seguimiento_id" name="voluntario_seguimiento_id" value="{{ form_data.voluntario_seguimiento_id or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text font-mono focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                  placeholder="UUID del voluntario (opcional)">
           <p class="mt-1 text-xs text-text-muted">Debe corresponder a un voluntario activo. Opcional.</p>
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">ID de entrada de origen</label>
-          <input type="text" name="entrada_origen_id" value="{{ form_data.entrada_origen_id or '' }}"
+          <label for="entrada_origen_id" class="block text-sm font-medium text-text">ID de entrada de origen</label>
+          <input type="text" id="entrada_origen_id" name="entrada_origen_id" value="{{ form_data.entrada_origen_id or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text font-mono focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                  placeholder="UUID de la entrada (opcional)">
         </div>
       </div>
       <div>
-        <label class="block text-sm font-medium text-text">Observaciones</label>
-        <textarea name="observaciones" rows="3"
+        <label for="observaciones" class="block text-sm font-medium text-text">Observaciones</label>
+        <textarea id="observaciones" name="observaciones" rows="3"
                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">{{ form_data.observaciones or '' }}</textarea>
       </div>
     </fieldset>

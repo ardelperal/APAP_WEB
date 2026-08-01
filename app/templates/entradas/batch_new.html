@@ -26,40 +26,40 @@
         <legend class="text-sm font-semibold text-text-muted px-2">Entrada {{ loop.index }}</legend>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
-            <label class="block text-xs font-medium text-text-muted">Animal (UUID) <span class="text-rose-700">*</span></label>
-            <input type="text" name="animal_id"
+            <label for="animal_id" class="block text-xs font-medium text-text-muted">Animal (UUID) <span class="text-rose-700">*</span></label>
+            <input type="text" id="animal_id" name="animal_id"
                    value="{{ row.animal_id or '' }}"
                    class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                    required>
           </div>
           <div>
-            <label class="block text-xs font-medium text-text-muted">Fecha de entrada <span class="text-rose-700">*</span></label>
-            <input type="date" name="fecha_entrada"
+            <label for="fecha_entrada" class="block text-xs font-medium text-text-muted">Fecha de entrada <span class="text-rose-700">*</span></label>
+            <input type="date" id="fecha_entrada" name="fecha_entrada"
                    value="{{ row.fecha_entrada or '' }}"
                    class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                    required>
           </div>
           <div>
-            <label class="block text-xs font-medium text-text-muted">Voluntario de entrada</label>
-            <input type="text" name="voluntario_entrada_id"
+            <label for="voluntario_entrada_id" class="block text-xs font-medium text-text-muted">Voluntario de entrada</label>
+            <input type="text" id="voluntario_entrada_id" name="voluntario_entrada_id"
                    value="{{ row.voluntario_entrada_id or '' }}"
                    class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
           </div>
           <div>
-            <label class="block text-xs font-medium text-text-muted">Origen</label>
-            <input type="text" name="origen"
+            <label for="origen" class="block text-xs font-medium text-text-muted">Origen</label>
+            <input type="text" id="origen" name="origen"
                    value="{{ row.origen or '' }}"
                    class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
           </div>
           <div>
-            <label class="block text-xs font-medium text-text-muted">Motivo</label>
-            <input type="text" name="motivo"
+            <label for="motivo" class="block text-xs font-medium text-text-muted">Motivo</label>
+            <input type="text" id="motivo" name="motivo"
                    value="{{ row.motivo or '' }}"
                    class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
           </div>
           <div class="md:col-span-2">
-            <label class="block text-xs font-medium text-text-muted">Observaciones</label>
-            <textarea name="observaciones" rows="2"
+            <label for="observaciones" class="block text-xs font-medium text-text-muted">Observaciones</label>
+            <textarea id="observaciones" name="observaciones" rows="2"
                       class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">{{ row.observaciones or '' }}</textarea>
           </div>
         </div>
