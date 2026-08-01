@@ -75,10 +75,10 @@ inserted AS (
     RETURNING {", ".join(ADOPCION_SELECT_COLUMNS)}
 )
 SELECT {", ".join(ADOPCION_SELECT_COLUMNS)} FROM inserted
-"""
+"""  # noqa: S608 constant col lists only; all user data is $N params
 
 _LIST_ADOPCIONES_SQL: Final[str] = (
-    f"SELECT {', '.join(ADOPCION_SELECT_COLUMNS)} "
+    f"SELECT {', '.join(ADOPCION_SELECT_COLUMNS)} "  # noqa: S608 constant column list only
     "FROM adopciones "
     "WHERE activo = true "
     "ORDER BY fecha_alta DESC "
@@ -86,7 +86,7 @@ _LIST_ADOPCIONES_SQL: Final[str] = (
 )
 
 _LIST_ADOPCIONES_BY_ADOPTANTE_SQL: Final[str] = (
-    f"SELECT {', '.join(ADOPCION_SELECT_COLUMNS)} "
+    f"SELECT {', '.join(ADOPCION_SELECT_COLUMNS)} "  # noqa: S608 constant col list; $1 is a param (search term), not user-controlled column
     "FROM adopciones "
     "WHERE activo = true "
     "AND nombre_adoptante ILIKE '%' || $1 || '%' ESCAPE '\\' "
@@ -95,7 +95,7 @@ _LIST_ADOPCIONES_BY_ADOPTANTE_SQL: Final[str] = (
 )
 
 _GET_ADOPCION_BY_ID_SQL: Final[str] = (
-    f"SELECT {', '.join(ADOPCION_SELECT_COLUMNS)} FROM adopciones WHERE id = $1"
+    f"SELECT {', '.join(ADOPCION_SELECT_COLUMNS)} FROM adopciones WHERE id = $1"  # noqa: S608 constant column list only
 )
 
 _UPDATE_ADOPCION_SQL: Final[str] = f"""
@@ -123,7 +123,7 @@ updated_at = now()
     RETURNING {", ".join(ADOPCION_SELECT_COLUMNS)}
 )
 SELECT {", ".join(ADOPCION_SELECT_COLUMNS)} FROM updated
-"""
+"""  # noqa: S608 constant col lists only; all user data is $N params
 
 _DELETE_ADOPCION_SQL: Final[str] = """
 UPDATE adopciones

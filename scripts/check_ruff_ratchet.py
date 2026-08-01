@@ -53,11 +53,11 @@ SELECT: str = "S,ERA,ARG,FAST,N,C901,PLR,SIM,RET,TRY,PTH"
 #: reporting a confusing "new rule not in BASELINE".
 RUFF_VERSION: str = "0.15.21"
 
-#: Per-rule baseline violation counts, updated on 2026-08-01 to reflect
-#: the post-merge main state after the scan-* sweep started landing PRs.
-#: The shrink-only rule (each value may only DECREASE going forward) is
-#: preserved — this update is a one-shot calibration, not a baseline raise.
-#: The count of violations in the codebase is UNCHANGED by this commit.
+#: Per-rule baseline violation counts, updated on 2026-08-01 (scan sweep) and
+#: 2026-08-01 again (issue #387 S608 triage in app/ — 55 noqa'd as structural,
+#: 11 remain in migration/ out of scope). The shrink-only rule (each value may
+#: only DECREASE going forward) is preserved — this update is a one-shot
+#: calibration, not a baseline raise.
 BASELINE: dict[str, int] = {
     "ARG001": 46,
     "ARG002": 3,
@@ -88,7 +88,7 @@ BASELINE: dict[str, int] = {
     "S112": 1,
     "S603": 2,
     "S607": 2,
-    "S608": 66,
+    "S608": 11,
     "SIM102": 6,
     "SIM103": 3,
     "SIM105": 14,

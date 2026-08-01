@@ -135,20 +135,20 @@ _INSERT_VOLUNTARIO_SQL = f"""
 INSERT INTO voluntarios ({", ".join(_INSERT_COLUMNS)})
 VALUES ({", ".join(f"${i+1}" for i in range(len(_INSERT_COLUMNS)))})
 RETURNING {", ".join(_SELECT_COLUMNS)}
-"""
+"""  # noqa: S608 constant col names only; all user data is $N params
 
 _LIST_VOLUNTARIOS_SQL = f"""
 SELECT {", ".join(_SELECT_COLUMNS)}
 FROM voluntarios
 WHERE activo = true
 ORDER BY Voluntario ASC
-"""
+"""  # noqa: S608 constant column lists only
 
 _GET_VOLUNTARIO_BY_ID_SQL = f"""
 SELECT {", ".join(_SELECT_COLUMNS)}
 FROM voluntarios
 WHERE id = $1
-"""
+"""  # noqa: S608 constant column lists only
 
 _LIST_ROLES_SQL = """
 SELECT tipo_rol

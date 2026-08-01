@@ -127,14 +127,14 @@ _SELECT_COLUMNS: Final[tuple[str, ...]] = (
 
 
 _INSERT_CASA_SQL: Final[str] = (
-    f"INSERT INTO casas_acogida ({', '.join(_WRITE_COLUMNS)}) "
+    f"INSERT INTO casas_acogida ({', '.join(_WRITE_COLUMNS)}) "  # noqa: S608 constant col names only; all user values are $N params
     f"VALUES ({', '.join(f'${i + 1}' for i in range(len(_WRITE_COLUMNS)))}) "
     f"RETURNING {', '.join(_SELECT_COLUMNS)}"
 )
 
 
 _LIST_CASAS_SQL: Final[str] = (
-    f"SELECT {', '.join(_SELECT_COLUMNS)} "
+    f"SELECT {', '.join(_SELECT_COLUMNS)} "  # noqa: S608 constant column list only
     "FROM casas_acogida "
     "WHERE activo = true "
     "ORDER BY fecha_alta DESC"
@@ -142,7 +142,7 @@ _LIST_CASAS_SQL: Final[str] = (
 
 
 _LIST_CASAS_BY_ESPECIE_SQL: Final[str] = (
-    f"SELECT {', '.join(_SELECT_COLUMNS)} "
+    f"SELECT {', '.join(_SELECT_COLUMNS)} "  # noqa: S608 constant column list only
     "FROM casas_acogida "
     "WHERE activo = true "
     "AND (especie_preferente = $1 OR especie_preferente IS NULL) "
@@ -151,12 +151,12 @@ _LIST_CASAS_BY_ESPECIE_SQL: Final[str] = (
 
 
 _GET_CASA_BY_ID_SQL: Final[str] = (
-    f"SELECT {', '.join(_SELECT_COLUMNS)} FROM casas_acogida WHERE id = $1"
+    f"SELECT {', '.join(_SELECT_COLUMNS)} FROM casas_acogida WHERE id = $1"  # noqa: S608 constant column list only
 )
 
 
 _UPDATE_CASA_SQL: Final[str] = (
-    "UPDATE casas_acogida SET "
+    "UPDATE casas_acogida SET "  # noqa: S608 constant col names only; all user values are $N params
     + ", ".join(f"{col} = ${i + 2}" for i, col in enumerate(_WRITE_COLUMNS))
     + ", updated_at = now() "
     + "WHERE id = $1 "

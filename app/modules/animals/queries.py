@@ -177,14 +177,14 @@ def build_animal_search(
     # LIMIT 0 signals count-only (no data rows returned)
     if p.limit == 0:
         sql = (
-            f"SELECT COUNT(*) AS total "
+            f"SELECT COUNT(*) AS total "  # noqa: S608 constant col names + internal enum mapping; all filter vals are params
             f"FROM animales a "
             f"LEFT JOIN animal_current_state acs ON a.id = acs.animal_id "
             f"WHERE {where_clause}"
         )
     else:
         sql = (
-            f"SELECT {', '.join(_ANIMAL_SEARCH_COLUMNS)} "
+            f"SELECT {', '.join(_ANIMAL_SEARCH_COLUMNS)} "  # noqa: S608 constant col names + internal enum mapping; all filter vals are params
             f"FROM animales a "
             f"LEFT JOIN animal_current_state acs ON a.id = acs.animal_id "
             f"WHERE {where_clause} "
@@ -230,7 +230,7 @@ def build_animal_count(params: AnimalSearchParams) -> SearchResult:
     where_clause = " AND ".join(conditions)
 
     sql = (
-        f"SELECT COUNT(*) AS total "
+        f"SELECT COUNT(*) AS total "  # noqa: S608 constant col names + internal enum mapping; all filter vals are params
         f"FROM animales a "
         f"LEFT JOIN animal_current_state acs ON a.id = acs.animal_id "
         f"WHERE {where_clause}"

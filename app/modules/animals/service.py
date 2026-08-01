@@ -327,20 +327,20 @@ _INSERT_ANIMAL_SQL = f"""
 INSERT INTO animales ({", ".join(_INSERT_COLUMNS)})
 VALUES ({", ".join(f"${i+1}" for i in range(len(_INSERT_COLUMNS)))})
 RETURNING {", ".join(_SELECT_COLUMNS)}
-"""
+"""  # noqa: S608 constant col lists only; all user data is $N params
 
 _LIST_ANIMALS_SQL = f"""
 SELECT {", ".join(_SELECT_COLUMNS)}
 FROM animales
 WHERE activo = true
 ORDER BY fecha_alta DESC
-"""
+"""  # noqa: S608 constant column lists only
 
 _GET_ANIMAL_BY_ID_SQL = f"""
 SELECT {", ".join(_SELECT_COLUMNS)}
 FROM animales
 WHERE id = $1
-"""
+"""  # noqa: S608 constant column lists only
 
 
 # Columnas que se actualizan en UPDATE (excluye PK id, created_at
@@ -349,7 +349,7 @@ WHERE id = $1
 _UPDATE_COLUMNS = _INSERT_COLUMNS
 
 _UPDATE_ANIMAL_SQL = (
-    "UPDATE animales SET "
+    "UPDATE animales SET "  # noqa: S608 constant col names only; all user values are $N params
     + ", ".join(f"{col} = ${i+2}" for i, col in enumerate(_UPDATE_COLUMNS))
     + ", updated_at = now() "
     + "WHERE id = $1 "

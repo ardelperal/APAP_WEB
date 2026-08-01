@@ -177,14 +177,14 @@ inserted AS (
     RETURNING {", ".join(_SELECT_COLUMNS)}
 )
 SELECT {", ".join(_SELECT_COLUMNS)} FROM inserted
-"""
+"""  # noqa: S608 constant col lists only; all user data is $N params
 
 
 # CRITICAL-2 + P2-2 (risk review 2026-07-04, mirroring adopciones):
 # bounded result set so a malicious or runaway caller cannot dump the
 # whole table.
 _LIST_ACTUACIONES_SANITARIAS_SQL: str = (
-    f"SELECT {', '.join(_SELECT_COLUMNS)} "
+    f"SELECT {', '.join(_SELECT_COLUMNS)} "  # noqa: S608 constant column list only
     "FROM actuacion_sanitaria "
     "WHERE activo = true "
     "ORDER BY fecha_alta DESC "
@@ -196,7 +196,7 @@ _LIST_ACTUACIONES_SANITARIAS_SQL: str = (
 # Ordered by ``fecha DESC`` (most-recent clinical event first) and capped
 # at ``LIMIT 100`` to avoid DOSing the table.
 _LIST_BY_ANIMAL_SQL: str = (
-    f"SELECT {', '.join(_SELECT_COLUMNS)} "
+    f"SELECT {', '.join(_SELECT_COLUMNS)} "  # noqa: S608 constant column list only
     "FROM actuacion_sanitaria "
     "WHERE activo = true AND animal_id = $1 "
     "ORDER BY fecha DESC, fecha_alta DESC "
@@ -205,7 +205,7 @@ _LIST_BY_ANIMAL_SQL: str = (
 
 
 _GET_ACTUACION_BY_ID_SQL: str = (
-    f"SELECT {', '.join(_SELECT_COLUMNS)} "
+    f"SELECT {', '.join(_SELECT_COLUMNS)} "  # noqa: S608 constant column list only
     "FROM actuacion_sanitaria WHERE id = $1"
 )
 
@@ -236,7 +236,7 @@ updated_at = now()
     RETURNING {", ".join(_UPDATE_RETURNING_COLUMNS)}
 )
 SELECT {", ".join(_SELECT_COLUMNS)} FROM updated
-"""
+"""  # noqa: S608 constant col lists only; all user data is $N params
 
 
 # Atomic soft-delete: existence check + deactivation in one statement
