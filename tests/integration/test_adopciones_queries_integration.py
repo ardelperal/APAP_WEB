@@ -25,19 +25,22 @@ def _seed_adopcion_related_records(ep: _EphemeralPostgres) -> dict[str, str]:
     animal_id = str(uuid4())
     ep.execute(
         f"INSERT INTO animales (id, nchip, nombreanimal, especie, sexo, fnacimiento, fecha_alta, activo) "
-        f"VALUES ('{animal_id}', 'CHIP-BOBBY-001', 'Bobby', 'CANINA', 'M', '2018-03-15', now(), true)"
+        f"VALUES ('{animal_id}', 'CHIP-BOBBY-001', 'Bobby', 'CANINA', 'M', '2018-03-15', now(), true) "
+        f"RETURNING id"
     )
 
     voluntario_id = str(uuid4())
     ep.execute(
         f"INSERT INTO voluntarios (id, voluntario, email, activo, fecha_alta) "
-        f"VALUES ('{voluntario_id}', 'Juan Perez', 'juan@test.com', true, now())"
+        f"VALUES ('{voluntario_id}', 'Juan Perez', 'juan@test.com', true, now()) "
+        f"RETURNING id"
     )
 
     entrada_id = str(uuid4())
     ep.execute(
         f"INSERT INTO entradas (id, animal_id, fecha_entrada, motivo, observaciones, fecha_alta, activo) "
-        f"VALUES ('{entrada_id}', '{animal_id}', '2024-01-15', 'Ingreso', 'Test', now(), true)"
+        f"VALUES ('{entrada_id}', '{animal_id}', '2024-01-15', 'Ingreso', 'Test', now(), true) "
+        f"RETURNING id"
     )
 
     return {

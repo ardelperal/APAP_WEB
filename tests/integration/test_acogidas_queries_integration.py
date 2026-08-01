@@ -25,25 +25,29 @@ def _seed_acogida_related_records(ep: _EphemeralPostgres) -> dict[str, str]:
     animal_id = str(uuid4())
     ep.execute(
         f"INSERT INTO animales (id, nchip, nombreanimal, especie, sexo, fnacimiento, fecha_alta, activo) "
-        f"VALUES ('{animal_id}', 'CHIP-LUNA-001', 'Luna', 'CANINA', 'H', '2019-06-01', now(), true)"
+        f"VALUES ('{animal_id}', 'CHIP-LUNA-001', 'Luna', 'CANINA', 'H', '2019-06-01', now(), true) "
+        f"RETURNING id"
     )
 
     voluntario_id = str(uuid4())
     ep.execute(
         f"INSERT INTO voluntarios (id, voluntario, email, activo, fecha_alta) "
-        f"VALUES ('{voluntario_id}', 'Ana Lopez', 'ana@test.com', true, now())"
+        f"VALUES ('{voluntario_id}', 'Ana Lopez', 'ana@test.com', true, now()) "
+        f"RETURNING id"
     )
 
     entrada_id = str(uuid4())
     ep.execute(
         f"INSERT INTO entradas (id, animal_id, fecha_entrada, motivo, observaciones, fecha_alta, activo) "
-        f"VALUES ('{entrada_id}', '{animal_id}', '2024-01-15', 'Ingreso', 'Test', now(), true)"
+        f"VALUES ('{entrada_id}', '{animal_id}', '2024-01-15', 'Ingreso', 'Test', now(), true) "
+        f"RETURNING id"
     )
 
     casa_id = str(uuid4())
     ep.execute(
         f"INSERT INTO casas_acogida (id, nombre, apellidos, calle, telefono, localidad, provincia, coche, capacidad, activo, fecha_alta) "
-        f"VALUES ('{casa_id}', 'Casa Luna', 'Test', 'Calle Sol 1', '600111222', 'Madrid', 'Madrid', 'No', 1, true, now())"
+        f"VALUES ('{casa_id}', 'Casa Luna', 'Test', 'Calle Sol 1', '600111222', 'Madrid', 'Madrid', 'No', 1, true, now()) "
+        f"RETURNING id"
     )
 
     return {
@@ -291,7 +295,8 @@ def test_build_acogida_link_override(
     ephemeral_postgres.execute(
         f"INSERT INTO foster_capacity_overrides "
         f"(id, casa_acogida_id, animal_id, operador_user_id, motivo) "
-        f"VALUES ('{override_id}', '{related['casa_id']}', '{related['animal_id']}', '{related['voluntario_id']}', 'test override')"
+        f"VALUES ('{override_id}', '{related['casa_id']}', '{related['animal_id']}', '{related['voluntario_id']}', 'test override') "
+        f"RETURNING id"
     )
 
     # Create an acogida

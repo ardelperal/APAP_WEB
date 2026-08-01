@@ -25,19 +25,22 @@ def _seed_sanidad_related_records(ep: _EphemeralPostgres) -> dict[str, str]:
     animal_id = str(uuid4())
     ep.execute(
         f"INSERT INTO animales (id, nchip, nombreanimal, especie, sexo, fnacimiento, fecha_alta, activo) "
-        f"VALUES ('{animal_id}', 'CHIP-TEST-NUBE', 'Nube', 'FELINA', 'H', '2019-01-01', now(), true)"
+        f"VALUES ('{animal_id}', 'CHIP-TEST-NUBE', 'Nube', 'FELINA', 'H', '2019-01-01', now(), true) "
+        f"RETURNING id"
     )
 
     voluntario_id = str(uuid4())
     ep.execute(
         f"INSERT INTO voluntarios (id, voluntario, email, activo, fecha_alta) "
-        f"VALUES ('{voluntario_id}', 'Dr. Garcia', 'garcia@test.com', true, now())"
+        f"VALUES ('{voluntario_id}', 'Dr. Garcia', 'garcia@test.com', true, now()) "
+        f"RETURNING id"
     )
 
     tipo_id = str(uuid4())
     ep.execute(
         f"INSERT INTO catalogos_pruebas (id, codigo, nombre, especie, observaciones, activo) "
-        f"VALUES ('{tipo_id}', 'sanidad-vacuna', 'Vacuna', 'ambos', 'sanidad', true)"
+        f"VALUES ('{tipo_id}', 'sanidad-vacuna', 'Vacuna', 'ambos', 'sanidad', true) "
+        f"RETURNING id"
     )
 
     return {

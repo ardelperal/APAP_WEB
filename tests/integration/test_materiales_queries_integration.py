@@ -26,28 +26,32 @@ def _seed_related_records(ep: _EphemeralPostgres) -> dict[str, str]:
     animal_id = str(uuid4())
     ep.execute(
         f"INSERT INTO animales (id, nchip, nombreanimal, especie, sexo, fnacimiento, fecha_alta, activo) "
-        f"VALUES ('{animal_id}', 'CHIP-LUNA-MAT', 'Luna', 'CANINA', 'H', '2019-06-01', now(), true)"
+        f"VALUES ('{animal_id}', 'CHIP-LUNA-MAT', 'Luna', 'CANINA', 'H', '2019-06-01', now(), true) "
+        f"RETURNING id"
     )
 
     # Create entrada
     entrada_id = str(uuid4())
     ep.execute(
         f"INSERT INTO entradas (id, animal_id, fecha_entrada, motivo, observaciones, fecha_alta, activo) "
-        f"VALUES ('{entrada_id}', '{animal_id}', '2024-01-15', 'Ingreso', 'Test', now(), true)"
+        f"VALUES ('{entrada_id}', '{animal_id}', '2024-01-15', 'Ingreso', 'Test', now(), true) "
+        f"RETURNING id"
     )
 
     # Create casa_acogida
     casa_id = str(uuid4())
     ep.execute(
         f"INSERT INTO casas_acogida (id, nombre, apellidos, calle, telefono, localidad, provincia, coche, capacidad, activo, fecha_alta) "
-        f"VALUES ('{casa_id}', 'Casa Test', 'Test', 'Calle Test', '123456789', 'Madrid', 'Madrid', 'No', 1, true, now())"
+        f"VALUES ('{casa_id}', 'Casa Test', 'Test', 'Calle Test', '123456789', 'Madrid', 'Madrid', 'No', 1, true, now()) "
+        f"RETURNING id"
     )
 
     # Create estancia/acogida
     estancia_id = str(uuid4())
     ep.execute(
         f"INSERT INTO acogidas (id, animal_id, fecha_inicio, direccion, telefono, activo, fecha_alta) "
-        f"VALUES ('{estancia_id}', '{animal_id}', '{date.today()}', 'Direccion test', '123456789', true, now())"
+        f"VALUES ('{estancia_id}', '{animal_id}', '{date.today()}', 'Direccion test', '123456789', true, now()) "
+        f"RETURNING id"
     )
 
     return {
@@ -224,7 +228,8 @@ def test_build_junction_insert(ephemeral_postgres: _EphemeralPostgres) -> None:
     material_id = str(uuid4())
     ephemeral_postgres.execute(
         f"INSERT INTO materiales (id, material, tamano, color, activo, fecha_alta) "
-        f"VALUES ('{material_id}', 'Comida', '5kg', 'Rojo', true, now())"
+        f"VALUES ('{material_id}', 'Comida', '5kg', 'Rojo', true, now()) "
+        f"RETURNING id"
     )
 
     # Insert junction using the query builder
@@ -251,7 +256,8 @@ def test_build_junction_list_for_estancia(ephemeral_postgres: _EphemeralPostgres
     material_id = str(uuid4())
     ephemeral_postgres.execute(
         f"INSERT INTO materiales (id, material, tamano, color, activo, fecha_alta) "
-        f"VALUES ('{material_id}', 'Arena', '10kg', 'Blanca', true, now())"
+        f"VALUES ('{material_id}', 'Arena', '10kg', 'Blanca', true, now()) "
+        f"RETURNING id"
     )
 
     # Insert junction
@@ -282,7 +288,8 @@ def test_build_junction_deactivate(ephemeral_postgres: _EphemeralPostgres) -> No
     material_id = str(uuid4())
     ephemeral_postgres.execute(
         f"INSERT INTO materiales (id, material, tamano, color, activo, fecha_alta) "
-        f"VALUES ('{material_id}', 'Juguete', 'Mediano', 'Rojo', true, now())"
+        f"VALUES ('{material_id}', 'Juguete', 'Mediano', 'Rojo', true, now()) "
+        f"RETURNING id"
     )
 
     # Insert junction
