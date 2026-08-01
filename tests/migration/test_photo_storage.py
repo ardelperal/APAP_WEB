@@ -419,3 +419,14 @@ def test_cli_without_credentials_writes_blocked_document_without_network(
     assert "Verdict: BLOCKED" in text
     assert "Live probe did not run: missing APAP_INSFORGE_URL/APAP_INSFORGE_SERVICE_KEY" in text
     assert network_calls == []
+
+
+def test_looks_like_url_inspects_http_and_https_schema_strings() -> None:
+    """Issue #394: _looks_like_url inspects JSON string field prefixes for URL detection."""
+    from migration.storage_spike import _looks_like_url
+
+    assert _looks_like_url("http://example.com/photo.jpg") is True
+    assert _looks_like_url("https://example.com/photo.jpg") is True
+    assert _looks_like_url("not_a_url") is False
+    assert _looks_like_url(123) is False
+
