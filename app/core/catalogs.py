@@ -186,53 +186,70 @@ ORDER BY orden NULLS LAST, codigo
 """
 
 
-# --- catalogos_periodicidad (12 rows from TbPruebasPeridicidad) ----------
+# --- catalogos_periodicidad (9 rows from TbPruebasPeridicidad) ---------------
 #
-# The legacy uses the column name ``PeridicidadEnMeses`` (the typo
-# ``Peridicidad`` is preserved in the legacy). In the catalog we rename
-# it to ``periodicidad_meses`` for clarity; ``Esterilizacion`` is
-# conspicuously absent because the legacy has no periodicity row for
-# it (the operation is one-shot, not periodic).
+# The legacy ``TbPruebasPeridicidad`` carries species-aware periodicity
+# rules: the same test (e.g. "Vacuna Polivalente") has different intervals
+# for CANINA vs FELINA, and Desparasitación is every 3 months (not 12).
+# The schema uses (codigo, especie) as the natural key, mirroring
+# ``catalogos_pruebas``.
 #
-# All 12 rows report 12 months in the legacy as of 2026-07-03.
+# ``especie`` column semantics:
+#   - NULL    = applies to all species (e.g. Esterilización which is one-shot)
+#   - 'canina' = Canina-specific rule
+#   - 'felina' = Felina-specific rule
+#
+# ``periodicidad_meses`` semantics:
+#   - NULL  = one-shot operation, not recurring (e.g. Esterilización)
+#   - > 0  = months between recurring tests
+#
+# Seed rows (from legacy TbPruebasPeridicidad, Dysflow 2026-07-03):
+#   Vacuna Polivalente CANINA  12 meses
+#   Rabia             CANINA  12 meses
+#   Leishmaniosis     CANINA  12 meses
+#   Desparasitación Int CANINA  3 meses
+#   Desparasitación Ext CANINA  3 meses
+#   Vacuna Polivalente FELINA  12 meses
+#   Rabia             FELINA  12 meses
+#   Esterilización    CANINA  NULL (one-shot)
+#   Esterilización    FELINA  NULL (one-shot)
 
 
 CATALOGOS_PERIODICIDAD_CREATE_SQL = """
 CREATE TABLE IF NOT EXISTS catalogos_periodicidad (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    codigo TEXT UNIQUE NOT NULL,
+    codigo TEXT NOT NULL,
     nombre TEXT NOT NULL,
-    periodicidad_meses INTEGER NOT NULL,
+    especie TEXT DEFAULT NULL,
+    periodicidad_meses INTEGER,
     activo BOOLEAN NOT NULL DEFAULT true,
     orden INTEGER,
     fecha_alta TIMESTAMP NOT NULL DEFAULT now(),
-    updated_at TIMESTAMP NOT NULL DEFAULT now()
+    updated_at TIMESTAMP NOT NULL DEFAULT now(),
+    CONSTRAINT catalogos_periodicidad_natural_key UNIQUE (codigo, especie)
 )
 """
 
 CATALOGOS_PERIODICIDAD_SEED_SQL = """
-INSERT INTO catalogos_periodicidad (codigo, nombre, periodicidad_meses, orden)
+INSERT INTO catalogos_periodicidad (codigo, nombre, especie, periodicidad_meses, orden)
 VALUES
-    ('Básico', 'Básico', 12, 1),
-    ('Desparasitación Externa', 'Desparasitación Externa', 12, 2),
-    ('Desparasitación Interna', 'Desparasitación Interna', 12, 3),
-    ('EHR', 'EHR', 12, 4),
-    ('Heptavalente', 'Heptavalente', 12, 5),
-    ('IFI', 'IFI', 12, 6),
-    ('LEUC', 'LEUC', 12, 7),
-    ('Leucemia', 'Leucemia', 12, 8),
-    ('LH', 'LH', 12, 9),
-    ('Puppy', 'Puppy', 12, 10),
-    ('Rabia', 'Rabia', 12, 11),
-    ('Trivalente', 'Trivalente', 12, 12)
-ON CONFLICT (codigo) DO NOTHING
+    ('Vacuna Polivalente', 'Vacuna Polivalente', 'canina', 12,  1),
+    ('Rabia',               'Rabia',               'canina', 12,  2),
+    ('Leishmaniosis',      'Leishmaniosis',        'canina', 12,  3),
+    ('Desparasitación Interna', 'Desparasitación Interna', 'canina', 3, 4),
+    ('Desparasitación Externa', 'Desparasitación Externa', 'canina', 3, 5),
+    ('Vacuna Polivalente', 'Vacuna Polivalente', 'felina', 12,  6),
+    ('Rabia',               'Rabia',               'felina', 12,  7),
+    ('Esterilización',    'Esterilización',        'canina', NULL, 8),
+    ('Esterilización',    'Esterilización',        'felina', NULL, 9)
+ON CONFLICT (codigo, especie) DO NOTHING
 """
 
 LIST_CATALOGOS_PERIODICIDAD_SQL = """
-SELECT id, codigo, nombre, periodicidad_meses, activo, orden
+SELECT id, codigo, nombre, especie, periodicidad_meses, activo, orden
 FROM catalogos_periodicidad
 WHERE activo = true
-ORDER BY orden NULLS LAST, codigo
+ORDER BY orden NULLS LAST, especie NULLS LAST, codigo
 """
 
 
@@ -344,7 +361,7 @@ def list_catalogos_pruebas(client: SqlExecutor) -> list[dict[str, Any]]:
 
 
 def list_catalogos_periodicidad(
-    client: InsForgeClient,
+    client: SqlExecutor,
 ) -> list[dict[str, Any]]:
     """Return all active periodicidades ordered by ``orden`` then ``codigo``."""
     return client.execute_sql(LIST_CATALOGOS_PERIODICIDAD_SQL)

@@ -335,12 +335,13 @@ def test_catalogos_periodicidad_create_table_sql_uses_if_not_exists() -> None:
 
 
 def test_catalogos_periodicidad_create_table_sql_has_required_columns() -> None:
-    """TbPruebasPeridicidad has NombrePrueba + PeridicidadEnMeses."""
+    """TbPruebasPeridicidad has species-aware columns (especie added in HEALTH-06)."""
     columns = _column_names(CATALOGOS_PERIODICIDAD_CREATE_SQL)
     required = {
         "id",
         "codigo",
         "nombre",
+        "especie",
         "periodicidad_meses",
         "activo",
     }
@@ -348,22 +349,32 @@ def test_catalogos_periodicidad_create_table_sql_has_required_columns() -> None:
     assert not missing, f"catalogos_periodicidad missing columns: {sorted(missing)}"
 
 
-def test_catalogos_periodicidad_seed_contains_all_twelve_legacy_values() -> None:
-    """12 periodicidades verified via Dysflow (all in months)."""
+def test_catalogos_periodicidad_seed_has_nine_species_aware_rows() -> None:
+    """9 periodicity rules from TbPruebasPeridicidad (species-aware, HEALTH-06 #55).
+
+    Seed rows (from legacy TbPruebasPeridicidad, Dysflow 2026-07-03):
+      1. Vacuna Polivalente CANINA  12 meses
+      2. Rabia             CANINA  12 meses
+      3. Leishmaniosis     CANINA  12 meses
+      4. Desparasitación Int CANINA  3 meses
+      5. Desparasitación Ext CANINA  3 meses
+      6. Vacuna Polivalente FELINA  12 meses
+      7. Rabia             FELINA  12 meses
+      8. Esterilización    CANINA  NULL (one-shot)
+      9. Esterilización    FELINA  NULL (one-shot)
+
+    The old 12-row codigo-only seed is replaced by this 9-row
+    species-aware seed (HEALTH-06 migration).
+    """
     seed_sql = _seed_sql_for("catalogos_periodicidad")
+    # 9 distinct test names in the new seed
     expected = {
-        "Básico",
-        "Desparasitación Externa",
-        "Desparasitación Interna",
-        "EHR",
-        "Heptavalente",
-        "IFI",
-        "LEUC",
-        "Leucemia",
-        "LH",
-        "Puppy",
+        "Vacuna Polivalente",
         "Rabia",
-        "Trivalente",
+        "Leishmaniosis",
+        "Desparasitación Interna",
+        "Desparasitación Externa",
+        "Esterilización",
     }
     found: set[str] = set()
     for value in expected:
@@ -371,7 +382,7 @@ def test_catalogos_periodicidad_seed_contains_all_twelve_legacy_values() -> None
             f"catalogos_periodicidad seed missing the literal {value!r}"
         )
         found.add(value)
-    assert len(found) == 12, f"expected 12 periodicidades, got {len(found)}"
+    assert len(found) == 6, f"expected 6 distinct test names, got {len(found)}"
 
 
 # --- catalogos_tipos_contrato (TbPlantillas, 8 rows) ---------------------
