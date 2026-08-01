@@ -419,7 +419,7 @@ def create_recomendacion_view(
     except ValueError as exc:
         # Could not create — either terapia missing or inactive
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from exc
     except InsForgeError as exc:

@@ -13,7 +13,7 @@ import pytest
 
 from app.core.auth_dependencies import get_insforge_client_dep
 from app.core.config import get_settings
-from app.core.insforge import InsForgeClient
+from app.core.insforge import InsForgeClient, InsForgeError
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
 from app.modules.salud import service as salud_service
@@ -372,3 +372,323 @@ async def test_delete_recomendacion_soft_deletes_and_redirects(
     )
     assert response.status_code == 303
     assert "/terapias/terapia-123" in response.headers["location"]
+
+
+# --- 5. Uncovered form-render and CRUD paths ----------------------------------
+
+
+async def test_new_terapia_form_ok(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+) -> None:
+    """GET /terapias/new returns 200 with an empty form."""
+    _login_as_key_user(client)
+    response = await client.get("/terapias/new", follow_redirects=True)
+    assert response.status_code == 200
+
+
+async def test_edit_terapia_form_ok(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GET /terapias/{id}/edit returns 200 with prefilled form."""
+    _login_as_key_user(client)
+    monkeypatch.setattr(
+        salud_service, "get_terapia_by_id",
+        lambda _c, _id: _terapia(),
+    )
+    response = await client.get("/terapias/terapia-123/edit", follow_redirects=True)
+    assert response.status_code == 200
+
+
+async def test_update_terapia_success_and_redirects(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """POST /terapias/{id}/update updates and redirects to detail."""
+    _login_as_key_user(client)
+    updated = _terapia()
+    monkeypatch.setattr(
+        salud_service, "update_terapia",
+        lambda _c, _id, params, **kw: updated,
+    )
+    response = await make_csrf_request(
+        client, "POST", "/terapias/terapia-123/update",
+        form_data={
+            "animal_id": "animal-123",
+            "voluntario_id": "vol-123",
+            "fecha": "2026-07-05",
+        },
+    )
+    assert response.status_code == 303
+    assert response.headers["location"] == "/terapias/terapia-123"
+
+
+async def test_update_terapia_422_on_fk_error(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """POST /terapias/{id}/update returns 422 on FK validation error."""
+    _login_as_key_user(client)
+    monkeypatch.setattr(
+        salud_service, "update_terapia",
+        lambda _c, _id, params, **kw: (_ for _ in ()).throw(
+            ValueError("voluntario_id debe apuntar a un voluntario activo")
+        ),
+    )
+    response = await make_csrf_request(
+        client, "POST", "/terapias/terapia-123/update",
+        form_data={
+            "animal_id": "animal-123",
+            "voluntario_id": "vol-inactive",
+            "fecha": "2026-07-05",
+        },
+    )
+    assert response.status_code == 422
+
+
+async def test_list_recomendaciones_ok(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GET /terapias/{id}/recomendaciones returns 200 with list."""
+    _login_as_key_user(client)
+    monkeypatch.setattr(
+        salud_service, "get_terapia_by_id",
+        lambda _c, _id: _terapia(),
+    )
+    monkeypatch.setattr(
+        salud_service, "list_recomendaciones",
+        lambda _c, _tid: [_recomendacion()],
+    )
+    response = await client.get(
+        "/terapias/terapia-123/recomendaciones", follow_redirects=True
+    )
+    assert response.status_code == 200
+
+
+async def test_create_recomendacion_terapia_not_found_422(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """POST /terapias/{id}/recomendaciones returns 422 when terapia missing."""
+    _login_as_key_user(client)
+    monkeypatch.setattr(
+        salud_service, "create_recomendacion",
+        lambda _c, params, **kw: (_ for _ in ()).throw(
+            ValueError("terapia_id no existe")
+        ),
+    )
+    response = await make_csrf_request(
+        client, "POST", "/terapias/terapia-123/recomendaciones",
+        form_data={"fecha": "2026-07-04", "texto": "Aplicar hielo"},
+    )
+    assert response.status_code == 422
+
+
+async def test_complete_recomendacion_backend_error_503(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PATCH /recomendaciones/{id} returns 503 on InsForgeError."""
+    _login_as_key_user(client)
+    monkeypatch.setattr(
+        salud_service, "complete_recomendacion",
+        lambda _c, _id, **kw: (_ for _ in ()).throw(
+            InsForgeError(500, "connection refused")
+        ),
+    )
+    response = await make_csrf_request(
+        client, "PATCH", "/recomendaciones/rec-123"
+    )
+    assert response.status_code == 503
+
+
+async def test_delete_recomendacion_not_found_404(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """DELETE /recomendaciones/{id} returns 404 when not found."""
+    _login_as_key_user(client)
+    monkeypatch.setattr(
+        salud_service, "get_recomendacion_by_id",
+        lambda _c, _id: None,
+    )
+    response = await make_csrf_request(
+        client, "DELETE", "/recomendaciones/not-found"
+    )
+    assert response.status_code == 404
+
+
+async def test_delete_recomendacion_backend_error_503(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """DELETE /recomendaciones/{id} returns 503 on InsForgeError."""
+    _login_as_key_user(client)
+    monkeypatch.setattr(
+        salud_service, "get_recomendacion_by_id",
+        lambda _c, _id: _recomendacion(),
+    )
+    monkeypatch.setattr(
+        salud_service, "delete_recomendacion",
+        lambda _c, _id, **kw: (_ for _ in ()).throw(
+            InsForgeError(500, "connection refused")
+        ),
+    )
+    response = await make_csrf_request(
+        client, "DELETE", "/recomendaciones/rec-123"
+    )
+    assert response.status_code == 503
+
+
+# --- 6. Remaining uncovered branches ------------------------------------------
+
+
+async def test_edit_terapia_form_404_when_not_found(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GET /terapias/{id}/edit returns 404 when the terapia does not exist."""
+    _login_as_key_user(client)
+    monkeypatch.setattr(
+        salud_service, "get_terapia_by_id",
+        lambda _c, _id: None,
+    )
+    response = await client.get("/terapias/not-found/edit", follow_redirects=True)
+    assert response.status_code == 404
+
+
+async def test_update_terapia_404_when_not_found(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """POST /terapias/{id}/update returns 404 when the terapia does not exist."""
+    _login_as_key_user(client)
+    monkeypatch.setattr(
+        salud_service, "update_terapia",
+        lambda _c, _id, params, **kw: None,
+    )
+    response = await make_csrf_request(
+        client, "POST", "/terapias/not-found/update",
+        form_data={
+            "animal_id": "animal-123",
+            "voluntario_id": "vol-123",
+            "fecha": "2026-07-05",
+        },
+    )
+    assert response.status_code == 404
+
+
+async def test_create_terapia_backend_error_503(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """POST /terapias returns 503 when the backend raises InsForgeError."""
+    _login_as_key_user(client)
+    monkeypatch.setattr(
+        salud_service, "create_terapia",
+        lambda _c, params, **kw: (_ for _ in ()).throw(
+            InsForgeError(500, "connection refused")
+        ),
+    )
+    response = await make_csrf_request(
+        client, "POST", "/terapias",
+        form_data={
+            "animal_id": "animal-123",
+            "voluntario_id": "vol-123",
+            "fecha": "2026-07-04",
+        },
+    )
+    assert response.status_code == 503
+
+
+async def test_update_terapia_backend_error_503(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """POST /terapias/{id}/update returns 503 when the backend raises InsForgeError."""
+    _login_as_key_user(client)
+    monkeypatch.setattr(
+        salud_service, "update_terapia",
+        lambda _c, _id, params, **kw: (_ for _ in ()).throw(
+            InsForgeError(500, "connection refused")
+        ),
+    )
+    response = await make_csrf_request(
+        client, "POST", "/terapias/terapia-123/update",
+        form_data={
+            "animal_id": "animal-123",
+            "voluntario_id": "vol-123",
+            "fecha": "2026-07-05",
+        },
+    )
+    assert response.status_code == 503
+
+
+async def test_delete_terapia_backend_error_503(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """POST /terapias/{id}/delete returns 503 when InsForgeError is raised."""
+    _login_as_key_user(client)
+    monkeypatch.setattr(
+        salud_service, "delete_terapia",
+        lambda _c, _id, **kw: (_ for _ in ()).throw(
+            InsForgeError(500, "connection refused")
+        ),
+    )
+    response = await make_csrf_request(
+        client, "POST", "/terapias/terapia-123/delete"
+    )
+    assert response.status_code == 503
+
+
+async def test_list_recomendaciones_404_when_terapia_not_found(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GET /terapias/{id}/recomendaciones returns 404 when the terapia is missing."""
+    _login_as_key_user(client)
+    monkeypatch.setattr(
+        salud_service, "get_terapia_by_id",
+        lambda _c, _id: None,
+    )
+    response = await client.get(
+        "/terapias/not-found/recomendaciones", follow_redirects=True
+    )
+    assert response.status_code == 404
+
+
+async def test_create_recomendacion_backend_error_503(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """POST /terapias/{id}/recomendaciones returns 503 on InsForgeError."""
+    _login_as_key_user(client)
+    monkeypatch.setattr(
+        salud_service, "create_recomendacion",
+        lambda _c, params, **kw: (_ for _ in ()).throw(
+            InsForgeError(500, "connection refused")
+        ),
+    )
+    response = await make_csrf_request(
+        client, "POST", "/terapias/terapia-123/recomendaciones",
+        form_data={"fecha": "2026-07-04", "texto": "Aplicar hielo"},
+    )
+    assert response.status_code == 503
