@@ -158,7 +158,7 @@ def _coerce_estado(value: str) -> EstadoTarea:
 # --- public API -----------------------------------------------------------
 
 
-def crear_tarea(
+def crear_tarea(  # noqa: PLR0913  # service facade; 8 args mirror the task creation domain model
     client: SqlExecutor,
     *,
     tipo: str,
@@ -209,7 +209,7 @@ def crear_tarea(
     return str(rows[0]["id"])
 
 
-def listar_tareas(
+def listar_tareas(  # noqa: PLR0913  # service facade; 7 args mirror the task list filter surface
     client: SqlExecutor,
     *,
     estado: str | None = None,

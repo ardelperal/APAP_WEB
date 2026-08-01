@@ -142,7 +142,7 @@ def list_animales(
 
 
 @router.get("/search", response_class=JSONResponse)
-def search_animales(
+def search_animales(  # noqa: PLR0913  # 9 query filters needed for the search UI; not reducible without removing features
     request: Request,
     user: Annotated[Response | dict, Depends(require_authorized_user)],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],

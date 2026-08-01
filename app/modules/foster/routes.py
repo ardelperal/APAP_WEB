@@ -108,7 +108,7 @@ def _casa_to_form_data(casa: foster_service.CasaAcogida) -> dict[str, Any]:
     }
 
 
-def _render_form(
+def _render_form(  # noqa: PLR0913  # non-route helper; 6 args is minimal for template context
     request: Request,
     user: AuthenticatedUser,
     form_data: dict[str, Any],

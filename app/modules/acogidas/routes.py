@@ -40,6 +40,7 @@ from app.core.insforge import InsForgeClient, InsForgeError
 from app.core.middleware import base_template_context_processor
 from app.core.rbac import Permission, require_permission
 from app.modules.acogidas import service as acogidas_service
+from app.modules.acogidas.forms import AcogidaForm
 from app.modules.foster import assignment_service
 
 router = APIRouter(prefix="/acogidas", tags=["foster"])
@@ -136,7 +137,7 @@ def _acogida_to_form_data(acogida: acogidas_service.Acogida) -> dict[str, Any]:
     }
 
 
-def _render_form(
+def _render_form(  # noqa: PLR0913  # non-route helper; 6 args is minimal for template context
     request: Request,
     user: AuthenticatedUser,
     form_data: dict[str, Any],
@@ -203,22 +204,11 @@ def new_acogida_form(
 @router.post("", response_class=HTMLResponse)
 def create_acogida_view(
     request: Request,
+    form: Annotated[AcogidaForm, Form()],
+    override_id: Annotated[str | None, Form()] = None,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_ACOGIDAS))],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
-    animal_id: Annotated[str, Form()],
-    fecha_inicio: Annotated[str, Form()],
-    casa_acogida_id: Annotated[str | None, Form()] = None,
-    voluntario_acogida_id: Annotated[str | None, Form()] = None,
-    voluntario_seguimiento1_id: Annotated[str | None, Form()] = None,
-    voluntario_seguimiento2_id: Annotated[str | None, Form()] = None,
-    voluntario_sanitario_id: Annotated[str | None, Form()] = None,
-    fecha_final: Annotated[str | None, Form()] = None,
-    entrada_origen_id: Annotated[str | None, Form()] = None,
-    direccion: Annotated[str | None, Form()] = None,
-    telefono: Annotated[str | None, Form()] = None,
-    observaciones: Annotated[str | None, Form()] = None,
-    override_id: Annotated[str | None, Form()] = None,
-):
+):  # noqa: PLR0913  # refactored to AcogidaForm; override_id is a cross-cutting concern
     """Create a new estancia; redirect to detail on success, re-render form on validation error.
 
     Issue #142: ``override_id`` is the (optional) hidden form field
@@ -233,18 +223,18 @@ def create_acogida_view(
         return early
     form_data = _form_data_to_params(
         {
-            "animal_id": animal_id,
-            "casa_acogida_id": casa_acogida_id,
-            "voluntario_acogida_id": voluntario_acogida_id,
-            "voluntario_seguimiento1_id": voluntario_seguimiento1_id,
-            "voluntario_seguimiento2_id": voluntario_seguimiento2_id,
-            "voluntario_sanitario_id": voluntario_sanitario_id,
-            "fecha_inicio": fecha_inicio,
-            "fecha_final": fecha_final,
-            "entrada_origen_id": entrada_origen_id,
-            "direccion": direccion,
-            "telefono": telefono,
-            "observaciones": observaciones,
+            "animal_id": form.animal_id,
+            "casa_acogida_id": form.casa_acogida_id,
+            "voluntario_acogida_id": form.voluntario_acogida_id,
+            "voluntario_seguimiento1_id": form.voluntario_seguimiento1_id,
+            "voluntario_seguimiento2_id": form.voluntario_seguimiento2_id,
+            "voluntario_sanitario_id": form.voluntario_sanitario_id,
+            "fecha_inicio": form.fecha_inicio,
+            "fecha_final": form.fecha_final,
+            "entrada_origen_id": form.entrada_origen_id,
+            "direccion": form.direccion,
+            "telefono": form.telefono,
+            "observaciones": form.observaciones,
         }
     )
     # Issue #142: thread override_id through to the service so it can
@@ -260,7 +250,7 @@ def create_acogida_view(
     # require a motivo (only the audit log of the override does, and
     # that was already recorded in /asignar before the redirect).
     gate_error = _enforce_species_gate(
-        client, animal_id, form_data.get("casa_acogida_id")
+        client, form.animal_id, form_data.get("casa_acogida_id")
     )
     if gate_error:
         return _render_form(
@@ -366,38 +356,27 @@ def edit_acogida_form(
 def update_acogida_view(
     acogida_id: str,
     request: Request,
+    form: Annotated[AcogidaForm, Form()],
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_ACOGIDAS))],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
-    animal_id: Annotated[str, Form()],
-    fecha_inicio: Annotated[str, Form()],
-    casa_acogida_id: Annotated[str | None, Form()] = None,
-    voluntario_acogida_id: Annotated[str | None, Form()] = None,
-    voluntario_seguimiento1_id: Annotated[str | None, Form()] = None,
-    voluntario_seguimiento2_id: Annotated[str | None, Form()] = None,
-    voluntario_sanitario_id: Annotated[str | None, Form()] = None,
-    fecha_final: Annotated[str | None, Form()] = None,
-    entrada_origen_id: Annotated[str | None, Form()] = None,
-    direccion: Annotated[str | None, Form()] = None,
-    telefono: Annotated[str | None, Form()] = None,
-    observaciones: Annotated[str | None, Form()] = None,
-):
+):  # noqa: PLR0913  # refactored to AcogidaForm
     """Apply form edits; redirect to detail on success, re-render on validation error."""
     if (early := return_early_if_response(user)) is not None:
         return early
     form_data = _form_data_to_params(
         {
-            "animal_id": animal_id,
-            "casa_acogida_id": casa_acogida_id,
-            "voluntario_acogida_id": voluntario_acogida_id,
-            "voluntario_seguimiento1_id": voluntario_seguimiento1_id,
-            "voluntario_seguimiento2_id": voluntario_seguimiento2_id,
-            "voluntario_sanitario_id": voluntario_sanitario_id,
-            "fecha_inicio": fecha_inicio,
-            "fecha_final": fecha_final,
-            "entrada_origen_id": entrada_origen_id,
-            "direccion": direccion,
-            "telefono": telefono,
-            "observaciones": observaciones,
+            "animal_id": form.animal_id,
+            "casa_acogida_id": form.casa_acogida_id,
+            "voluntario_acogida_id": form.voluntario_acogida_id,
+            "voluntario_seguimiento1_id": form.voluntario_seguimiento1_id,
+            "voluntario_seguimiento2_id": form.voluntario_seguimiento2_id,
+            "voluntario_sanitario_id": form.voluntario_sanitario_id,
+            "fecha_inicio": form.fecha_inicio,
+            "fecha_final": form.fecha_final,
+            "entrada_origen_id": form.entrada_origen_id,
+            "direccion": form.direccion,
+            "telefono": form.telefono,
+            "observaciones": form.observaciones,
         }
     )
     # FOSTER-03 (#45) close bypass P0: same gate as in create_acogida_view.
@@ -408,7 +387,7 @@ def update_acogida_view(
     # in exchange for not having to load the existing row to compare
     # (avoids a SELECT-then-UPDATE TOCTOU pattern).
     gate_error = _enforce_species_gate(
-        client, animal_id, form_data.get("casa_acogida_id")
+        client, form.animal_id, form_data.get("casa_acogida_id")
     )
     if gate_error:
         return _render_form(

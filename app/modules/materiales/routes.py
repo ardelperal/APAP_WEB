@@ -54,6 +54,7 @@ from app.core.insforge import InsForgeClient
 from app.core.middleware import base_template_context_processor
 from app.core.rbac import Permission, require_permission
 from app.modules.materiales import service as materiales_service
+from app.modules.materiales.forms import MaterialForm
 
 router = APIRouter(prefix="/materiales", tags=["materiales"])
 
@@ -101,7 +102,7 @@ def _material_to_form_data(
     }
 
 
-def _render_form(
+def _render_form(  # noqa: PLR0913  # non-route helper; 6 args is minimal for template context
     request: Request,
     user: AuthenticatedUser,
     form_data: dict[str, Any],
@@ -181,13 +182,10 @@ def new_material_form(
 @router.post("", response_class=HTMLResponse)
 def create_material_view(
     request: Request,
+    form: Annotated[MaterialForm, Form()],
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_MATERIALES))],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
-    material: Annotated[str, Form()],
-    tamano: Annotated[str, Form()],
-    color: Annotated[str, Form()],
-    observaciones: Annotated[str | None, Form()] = None,
-):
+):  # noqa: PLR0913  # refactored to MaterialForm
     """Procesa el submit del formulario de alta. En exito, redirect al detalle.
 
     Distinct HTTP status codes per failure mode (operator UX):
@@ -202,14 +200,7 @@ def create_material_view(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
-    form_data: dict[str, Any] = _form_data_to_params(
-        {
-            "material": material,
-            "tamano": tamano,
-            "color": color,
-            "observaciones": observaciones,
-        }
-    )
+    form_data: dict[str, Any] = _form_data_to_params(form.model_dump())
     try:
         new_material = materiales_service.create_material(client, form_data)
     except materiales_service.MaterialConflictError as exc:
@@ -302,13 +293,10 @@ def edit_material_form(
 def update_material_view(
     material_id: str,
     request: Request,
+    form: Annotated[MaterialForm, Form()],
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_MATERIALES))],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
-    material: Annotated[str, Form()],
-    tamano: Annotated[str, Form()],
-    color: Annotated[str, Form()],
-    observaciones: Annotated[str | None, Form()] = None,
-):
+):  # noqa: PLR0913  # refactored to MaterialForm
     """Procesa el submit del formulario de edicion. En exito, redirect al detalle.
 
     Same 3-way status contract as ``create_material_view``:
@@ -321,14 +309,7 @@ def update_material_view(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
-    form_data: dict[str, Any] = _form_data_to_params(
-        {
-            "material": material,
-            "tamano": tamano,
-            "color": color,
-            "observaciones": observaciones,
-        }
-    )
+    form_data: dict[str, Any] = _form_data_to_params(form.model_dump())
     try:
         updated = materiales_service.update_material(
             client, material_id, form_data

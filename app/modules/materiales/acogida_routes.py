@@ -118,7 +118,7 @@ def _cantidad_or_default(raw: str | None) -> int:
     return value
 
 
-def _render_per_stay_list(
+def _render_per_stay_list(  # noqa: PLR0913  # non-route helper; 7 args needed to populate the per-stay template context
     request: Request,
     user: AuthenticatedUser,
     estancia_id: str,
@@ -215,7 +215,7 @@ def list_estancia_materiales_view(
 
 
 @router.post("/acogidas/{estancia_id}/materiales", response_class=HTMLResponse)
-def assign_material_to_estancia_view(
+def assign_material_to_estancia_view(  # noqa: PLR0913  # 2 Form fields + 5 fixed deps; form model would add noise
     estancia_id: str,
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_writer_user)],

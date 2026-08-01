@@ -60,7 +60,7 @@ RETURNING id, tipo, origen, prioridad, estado, responsable_id,
 """
 
 
-def build_insert_tarea(
+def build_insert_tarea(  # noqa: PLR0913  # query builder with 8 keyword-only args; not a route
     *,
     tipo: str,
     origen: str,
@@ -117,7 +117,7 @@ OFFSET $6
 """
 
 
-def build_list_tareas(
+def build_list_tareas(  # noqa: PLR0913  # query builder; 6 keyword-only args mirror the filter surface
     *,
     estado: str | None = None,
     responsable_id: str | None = None,

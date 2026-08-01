@@ -65,6 +65,7 @@ from app.core.logging import log_safe
 from app.core.middleware import base_template_context_processor
 from app.core.rbac import Permission, require_permission
 from app.modules.sanidad import service as sanidad_service
+from app.modules.sanidad.forms import ActuacionForm
 
 router = APIRouter(prefix="/sanidad", tags=["sanidad"])
 
@@ -137,7 +138,7 @@ def _actor_user_id(user: AuthenticatedUser) -> str | None:
     return None
 
 
-def _render_form(
+def _render_form(  # noqa: PLR0913  # non-route helper; 7 args (incl. catalogos_pruebas) needed for dropdown template context
     request: Request,
     user: AuthenticatedUser,
     form_data: dict[str, Any],
@@ -186,7 +187,7 @@ def _load_catalogos_pruebas_for_form(
         return []
 
 
-def _render_backend_error(
+def _render_backend_error(  # noqa: PLR0913  # non-route helper; 8 args needed to rebuild the form on backend failure
     request: Request,
     user: AuthenticatedUser,
     client: InsForgeClient,
@@ -287,16 +288,10 @@ def new_actuacion_form(
 @router.post("", response_class=HTMLResponse)
 def create_actuacion_view(
     request: Request,
+    form: Annotated[ActuacionForm, Form()],
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
-    animal_id: Annotated[str, Form()],
-    fecha: Annotated[str, Form()],
-    voluntario_id: Annotated[str | None, Form()] = None,
-    tipo_actuacion_id: Annotated[str | None, Form()] = None,
-    veterinario: Annotated[str | None, Form()] = None,
-    observaciones: Annotated[str | None, Form()] = None,
-    material_utilizado: Annotated[str | None, Form()] = None,
-):
+):  # noqa: PLR0913  # refactored to ActuacionForm
     """Create an actuacion; redirect to detail on success.
 
     Write endpoint — ``require_writer_user`` rejects ``reader`` with 403
@@ -309,13 +304,13 @@ def create_actuacion_view(
         return early
     form_data = _form_data_to_params(
         {
-            "animal_id": animal_id,
-            "voluntario_id": voluntario_id,
-            "fecha": fecha,
-            "tipo_actuacion_id": tipo_actuacion_id,
-            "veterinario": veterinario,
-            "observaciones": observaciones,
-            "material_utilizado": material_utilizado,
+            "animal_id": form.animal_id,
+            "voluntario_id": form.voluntario_id,
+            "fecha": form.fecha,
+            "tipo_actuacion_id": form.tipo_actuacion_id,
+            "veterinario": form.veterinario,
+            "observaciones": form.observaciones,
+            "material_utilizado": form.material_utilizado,
         }
     )
     try:
@@ -432,16 +427,10 @@ def edit_actuacion_form(
 def update_actuacion_view(
     actuacion_id: str,
     request: Request,
+    form: Annotated[ActuacionForm, Form()],
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
-    animal_id: Annotated[str, Form()],
-    fecha: Annotated[str, Form()],
-    voluntario_id: Annotated[str | None, Form()] = None,
-    tipo_actuacion_id: Annotated[str | None, Form()] = None,
-    veterinario: Annotated[str | None, Form()] = None,
-    observaciones: Annotated[str | None, Form()] = None,
-    material_utilizado: Annotated[str | None, Form()] = None,
-):
+):  # noqa: PLR0913  # refactored to ActuacionForm
     """Update an existing actuacion; redirect to detail on success.
 
     Write endpoint — ``require_writer_user``. Same error-handling
@@ -453,13 +442,13 @@ def update_actuacion_view(
         return early
     form_data = _form_data_to_params(
         {
-            "animal_id": animal_id,
-            "voluntario_id": voluntario_id,
-            "fecha": fecha,
-            "tipo_actuacion_id": tipo_actuacion_id,
-            "veterinario": veterinario,
-            "observaciones": observaciones,
-            "material_utilizado": material_utilizado,
+            "animal_id": form.animal_id,
+            "voluntario_id": form.voluntario_id,
+            "fecha": form.fecha,
+            "tipo_actuacion_id": form.tipo_actuacion_id,
+            "veterinario": form.veterinario,
+            "observaciones": form.observaciones,
+            "material_utilizado": form.material_utilizado,
         }
     )
     try:

@@ -107,7 +107,7 @@ def new_voluntario_form(
 
 
 @router.post("", response_class=HTMLResponse)
-def create_voluntario_view(
+def create_voluntario_view(  # noqa: PLR0913  # 5 Form fields + 4 fixed deps; form model would reduce by only 4 args
     request: Request,
     user: Annotated[Response | dict, Depends(require_permission(Permission.WRITE_VOLUNTARIOS))],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],

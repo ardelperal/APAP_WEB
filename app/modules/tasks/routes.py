@@ -32,6 +32,7 @@ from app.core.csrf import csrf_token_context_processor
 from app.core.insforge import InsForgeClient
 from app.core.middleware import base_template_context_processor
 from app.modules.tasks import service as tareas_service
+from app.modules.tasks.forms import TareaForm
 
 router = APIRouter(prefix="/tareas", tags=["tareas"])
 
@@ -46,7 +47,7 @@ _templates = Jinja2Templates(
 
 
 @router.get("", response_class=HTMLResponse)
-def listar_tareas(
+def listar_tareas(  # noqa: PLR0913  # 4 query filters + 3 fixed deps; filters needed for task UX
     request: Request,
     current_user: Annotated[dict, Depends(require_authorized_user)],
     client: Annotated[InsForgeClient, Depends(get_insforge_client)],
@@ -137,15 +138,10 @@ def detalle_tarea(
 @router.post("", response_class=RedirectResponse)
 def crear_tarea(
     request: Request,
+    form: Annotated[TareaForm, Form()],
     current_user: Annotated[dict, Depends(require_authorized_user)],
     client: Annotated[InsForgeClient, Depends(get_insforge_client)],
-    tipo: Annotated[str, Form()],
-    origen: Annotated[str, Form()] = "dashboard_manual",
-    prioridad: Annotated[str, Form()] = "normal",
-    vencimiento_at: Annotated[str | None, Form()] = None,
-    vinculo_tipo: Annotated[str | None, Form()] = None,
-    vinculo_id: Annotated[str | None, Form()] = None,
-):
+):  # noqa: PLR0913  # refactored to TareaForm
     """Create a manual tarea from form data.
 
     On success redirects to GET /tareas.
@@ -154,12 +150,12 @@ def crear_tarea(
     try:
         tareas_service.crear_tarea(
             client=client,
-            tipo=tipo,
-            origen=origen,
-            prioridad=prioridad,
-            vencimiento_at=vencimiento_at,
-            vinculo_tipo=vinculo_tipo,
-            vinculo_id=vinculo_id,
+            tipo=form.tipo,
+            origen=form.origen,
+            prioridad=form.prioridad,
+            vencimiento_at=form.vencimiento_at,
+            vinculo_tipo=form.vinculo_tipo,
+            vinculo_id=form.vinculo_id,
         )
     except ValueError:
         # Redirect back to list on validation error

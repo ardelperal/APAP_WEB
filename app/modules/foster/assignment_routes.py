@@ -81,7 +81,7 @@ def _operator_user_id(request: Request) -> str:
     return str(payload.get("user_id") or "")
 
 
-def _render_asignar_form(
+def _render_asignar_form(  # noqa: PLR0913  # non-route helper; 7 args needed for template context (incl. casa object)
     request: Request,
     user: AuthenticatedUser,
     casa: foster_service.CasaAcogida,
@@ -140,7 +140,7 @@ def asignar_form(
 
 
 @router.post("/{casa_id}/asignar", response_class=HTMLResponse)
-def asignar_submit(
+def asignar_submit(  # noqa: PLR0913  # 2 Form fields + 4 fixed deps; form model would not reduce complexity meaningfully
     casa_id: str,
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_writer_user)],

@@ -48,6 +48,7 @@ from app.core.insforge import InsForgeClient
 from app.core.middleware import base_template_context_processor
 from app.core.rbac import Permission, require_permission
 from app.modules.cesiones import service as cesiones_service
+from app.modules.cesiones.forms import CesionForm
 
 router = APIRouter(prefix="/cesiones", tags=["cesiones"])
 
@@ -152,30 +153,10 @@ def new_cesion_form(
 @router.post("", response_class=HTMLResponse)
 async def create_cesion_view(
     request: Request,
+    form: Annotated[CesionForm, Form()],
     user: Annotated[Response | dict, Depends(require_permission(Permission.WRITE_CESIONES))],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
-    entrada_id: Annotated[str, Form()],
-    numero_contrato: Annotated[str, Form()],
-    nombre_representante: Annotated[str, Form()],
-    dni_representante: Annotated[str | None, Form()] = None,
-    fecha_cesion: Annotated[str | None, Form()] = None,
-    calle_representante: Annotated[str | None, Form()] = None,
-    numero_calle_representante: Annotated[str | None, Form()] = None,
-    piso_representante: Annotated[str | None, Form()] = None,
-    letra_representante: Annotated[str | None, Form()] = None,
-    localidad_representante: Annotated[str | None, Form()] = None,
-    provincia_representante: Annotated[str | None, Form()] = None,
-    cp_representante: Annotated[str | None, Form()] = None,
-    telefono_representante: Annotated[str | None, Form()] = None,
-    email_representante: Annotated[str | None, Form()] = None,
-    cartilla_sanitaria: Annotated[str | None, Form()] = None,
-    certificado_veterinario: Annotated[str | None, Form()] = None,
-    autorizacion_recogida: Annotated[str | None, Form()] = None,
-    fecha_vacuna_rabia: Annotated[str | None, Form()] = None,
-    numero_colegiado: Annotated[str | None, Form()] = None,
-    numero_colaborador: Annotated[str | None, Form()] = None,
-    hora_cesion: Annotated[str | None, Form()] = None,
-):
+):  # noqa: PLR0913  # refactored to CesionForm (22 Form fields → 1 annotated model)
     """Process the cesión form. On success, redirect to the parent
     ``/entradas/{entrada_id}`` (the cesión lives 1-a-1 with its
     intake); on validation errors re-render with 422; on the
@@ -189,27 +170,27 @@ async def create_cesion_view(
 
     form_data = _form_data_to_params(
         {
-            "entrada_id": entrada_id,
-            "numero_contrato": numero_contrato,
-            "nombre_representante": nombre_representante,
-            "dni_representante": dni_representante,
-            "fecha_cesion": fecha_cesion,
-            "calle_representante": calle_representante,
-            "numero_calle_representante": numero_calle_representante,
-            "piso_representante": piso_representante,
-            "letra_representante": letra_representante,
-            "localidad_representante": localidad_representante,
-            "provincia_representante": provincia_representante,
-            "cp_representante": cp_representante,
-            "telefono_representante": telefono_representante,
-            "email_representante": email_representante,
-            "cartilla_sanitaria": cartilla_sanitaria,
-            "certificado_veterinario": certificado_veterinario,
-            "autorizacion_recogida": autorizacion_recogida,
-            "fecha_vacuna_rabia": fecha_vacuna_rabia,
-            "numero_colegiado": numero_colegiado,
-            "numero_colaborador": numero_colaborador,
-            "hora_cesion": hora_cesion,
+            "entrada_id": form.entrada_id,
+            "numero_contrato": form.numero_contrato,
+            "nombre_representante": form.nombre_representante,
+            "dni_representante": form.dni_representante,
+            "fecha_cesion": form.fecha_cesion,
+            "calle_representante": form.calle_representante,
+            "numero_calle_representante": form.numero_calle_representante,
+            "piso_representante": form.piso_representante,
+            "letra_representante": form.letra_representante,
+            "localidad_representante": form.localidad_representante,
+            "provincia_representante": form.provincia_representante,
+            "cp_representante": form.cp_representante,
+            "telefono_representante": form.telefono_representante,
+            "email_representante": form.email_representante,
+            "cartilla_sanitaria": form.cartilla_sanitaria,
+            "certificado_veterinario": form.certificado_veterinario,
+            "autorizacion_recogida": form.autorizacion_recogida,
+            "fecha_vacuna_rabia": form.fecha_vacuna_rabia,
+            "numero_colegiado": form.numero_colegiado,
+            "numero_colaborador": form.numero_colaborador,
+            "hora_cesion": form.hora_cesion,
         }
     )
 
