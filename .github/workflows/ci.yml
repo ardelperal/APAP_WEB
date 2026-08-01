@@ -9,6 +9,12 @@ on:
   # an open PR after the workflow itself was edited). Use:
   #   gh workflow run ci.yml --ref <branch>
   workflow_dispatch:
+  # Issue #381: the heavy scanners (`security-deep`) run on a schedule, not on
+  # every PR. While the MVP is still being built, pulling multi-hundred-MB base
+  # images on each pull request buys nothing — those images change roughly
+  # monthly. Monday 06:17 UTC; the odd minute avoids the top-of-hour stampede.
+  schedule:
+    - cron: "17 6 * * 1"
 
 permissions:
   contents: read
@@ -110,6 +116,147 @@ jobs:
 
       - name: Diagnostic secret-leak scan
         run: grep -rE '(http://|https://|sk-|ghp_)[A-Za-z0-9]+' .github/ || true
+
+  security:
+    name: security
+    # Issue #381. Light scanners only — these run on every PR and must stay
+    # fast. The heavy image scanning lives in `security-deep` below, on a
+    # weekly schedule, because base images change roughly monthly and paying
+    # that cost per pull request slows the loop for nothing while the MVP is
+    # still being built.
+    #
+    # Same self-hosted runner as the other gate jobs: the Oracle VPS is up
+    # 24/7 and has Docker, so the container-based scanners cost nothing extra.
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle]
+    needs: lint
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: pyproject.toml
+          cache: pip
+
+      - name: Audit dependencies for known advisories
+        # Scoped to a throwaway venv on purpose. Bare `pip-audit` audits the
+        # AMBIENT environment, not the project: on a shared self-hosted runner
+        # that pulls in whatever else lives in that Python. Verified locally on
+        # 2026-08-01 — an unscoped run reported ansible-core, mcp, pillow and
+        # click, none of which this project depends on. A fresh venv makes the
+        # result a function of pyproject.toml alone.
+        # Issue #381 — removing this step is a blocked change.
+        #
+        # The --ignore-vuln list is a SHRINK-ONLY allowlist, same contract as
+        # the ratchets in scripts/: it freezes the advisories that were already
+        # present when the gate landed, so the job fails on NEW ones from day
+        # one instead of being disabled until the backlog is paid down.
+        #
+        # Every ID below is tracked by an open issue. Removing an ID is the
+        # closing act of that issue — never add one to make the job green.
+        #   #383 python-multipart 0.0.27  -> 0.0.31
+        #   #384 starlette 1.0.1          -> 1.3.1
+        #   #385 pydantic-settings + dev/build toolchain
+        # Measured 2026-08-01 on main @f2509aa.
+        run: |
+          set -euo pipefail
+          rm -rf .audit-venv
+          python -m venv .audit-venv
+          .audit-venv/bin/python -m pip install -q --upgrade pip
+          .audit-venv/bin/python -m pip install -q -e ".[dev]"
+          .audit-venv/bin/python -m pip install -q pip-audit
+          .audit-venv/bin/python -m pip_audit --progress-spinner off --skip-editable \
+            --ignore-vuln PYSEC-2026-3036 \
+            --ignore-vuln PYSEC-2026-3037 \
+            --ignore-vuln PYSEC-2026-3040 \
+            --ignore-vuln PYSEC-2026-2280 \
+            --ignore-vuln PYSEC-2026-2281 \
+            --ignore-vuln PYSEC-2026-248 \
+            --ignore-vuln PYSEC-2026-249 \
+            --ignore-vuln GHSA-4xgf-cpjx-pc3j \
+            --ignore-vuln PYSEC-2026-2987 \
+            --ignore-vuln PYSEC-2026-3002 \
+            --ignore-vuln PYSEC-2026-3455 \
+            --ignore-vuln PYSEC-2026-3456 \
+            --ignore-vuln PYSEC-2026-3457 \
+            --ignore-vuln PYSEC-2026-3447 \
+            --ignore-vuln PYSEC-2026-196 \
+            --ignore-vuln PYSEC-2026-1796 \
+            --ignore-vuln PYSEC-2026-2875 \
+            --ignore-vuln PYSEC-2026-2876
+
+      - name: Scan working tree for secrets
+        # Issue #381. `dir` mode, not `detect`: filesystem scanning does not
+        # depend on git plumbing, so it behaves identically here, in a linked
+        # worktree, and on a shallow checkout. Full-history scanning is in
+        # `security-deep`.
+        #
+        # Known false positive lives in .gitleaksignore, not in a weakened
+        # ruleset. Image pinned by digest (AGENTS.md digest-pinning rule,
+        # issue #338) so the gate cannot change under us.
+        run: |
+          docker run --rm -v "$PWD:/repo" \
+            zricethezav/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
+            dir /repo --redact --no-banner --exit-code 1
+
+      - name: Scan Dockerfile for misconfiguration
+        # Issue #381. Config-only scan: fast, no image pull, no vulnerability
+        # database download. Reported 0 findings on main @f2509aa.
+        run: |
+          docker run --rm -v "$PWD:/repo" \
+            aquasec/trivy@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f \
+            config /repo/Dockerfile --severity HIGH,CRITICAL --exit-code 1 --quiet
+
+  security-deep:
+    name: security-deep
+    # Issue #381. The heavy half: pulls base images and a vulnerability
+    # database, so it does NOT run per pull request. Triggers are the weekly
+    # schedule, any tag push (releases), and manual dispatch.
+    #
+    # This split is deliberate. A digest-pinned base image (issue #338) is
+    # reproducible, not safe — it keeps shipping the same layer while CVEs
+    # accumulate against it. Weekly is the right cadence for that decay; per-PR
+    # is not, because nothing in a pull request can change it.
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.ref, 'refs/tags/')
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          # Full history — the whole point of this scan is the commits that
+          # `dir` mode in the `security` job cannot see.
+          fetch-depth: 0
+
+      - name: Scan full git history for secrets
+        run: |
+          docker run --rm -v "$PWD:/repo" \
+            zricethezav/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
+            detect --source=/repo --redact --no-banner --exit-code 1
+
+      - name: Scan pinned base images for known vulnerabilities
+        # The `build` job produces a wheel, not a container image, so there is
+        # no application image to scan. What ships to production is built FROM
+        # the digests pinned in the Dockerfile, so those are the layers whose
+        # CVE exposure actually matters. Digests are read from the Dockerfile
+        # itself, so re-pinning a base image automatically re-points this scan.
+        run: |
+          set -euo pipefail
+          images=$(grep -oE '^FROM [^ ]+@sha256:[a-f0-9]+' Dockerfile \
+                   | awk '{print $2}' | sort -u)
+          echo "Scanning:"; echo "$images"
+          status=0
+          for img in $images; do
+            echo "::group::trivy $img"
+            docker run --rm \
+              aquasec/trivy@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f \
+              image "$img" --severity HIGH,CRITICAL --exit-code 1 --quiet || status=1
+            echo "::endgroup::"
+          done
+          exit $status
 
   typecheck:
     name: typecheck
