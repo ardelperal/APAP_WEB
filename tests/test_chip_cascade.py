@@ -119,7 +119,6 @@ def _login_as_key_user(client: httpx.AsyncClient) -> None:
 async def _chip_route_response(
     client: httpx.AsyncClient,
     animals_spy,
-    mocker,
     *,
     get_animal_by_id_rows: list[dict[str, Any]] | None,
     change_chip_result: Any,
@@ -140,11 +139,9 @@ async def _chip_route_response(
     # Configure spy for get_animal_by_id
     animals_spy.get_animal_by_id_rows = get_animal_by_id_rows
 
-    # mocker.patch stays active through the full async request cycle
-    with mocker.patch(
-        "app.modules.animals.routes.animals_service.change_animal_chip",
-        return_value=change_chip_result,
-    ):
+    # Patch the `change_animal_chip` symbol in `animals_service` with a stub.
+    from unittest.mock import patch
+    with patch("app.modules.animals.service.change_animal_chip", return_value=change_chip_result):
         response = await client.patch(
             "/animales/abc-123/chip",
             json={"new_chip": "222", "reason": "Chip fisurado"},
@@ -156,7 +153,6 @@ async def _chip_route_response(
 async def test_change_chip_route_returns_404_when_animal_not_found(
     client: httpx.AsyncClient,
     animals_spy,
-    mocker,
 ) -> None:
     """Animal not found -> 404, no call to change_animal_chip."""
     from app.modules.animals.service import ChangeChipResult
@@ -166,7 +162,7 @@ async def test_change_chip_route_returns_404_when_animal_not_found(
         success=False, old_chip="", new_chip="", updated_tables={}, error=None
     )
     response = await _chip_route_response(
-        client, animals_spy, mocker,
+        client, animals_spy,
         get_animal_by_id_rows=None,
         change_chip_result=result,
     )
@@ -177,7 +173,7 @@ async def test_change_chip_route_returns_404_when_animal_not_found(
 async def test_change_chip_route_returns_409_when_chip_already_assigned(
     client: httpx.AsyncClient,
     animals_spy,
-    mocker,
+    monkeypatch,
 ) -> None:
     """change_animal_chip returns success=False with 'ya esta asignado' -> 409."""
     from app.modules.animals.service import ChangeChipResult
@@ -191,7 +187,7 @@ async def test_change_chip_route_returns_409_when_chip_already_assigned(
         error="El chip 222 ya esta asignado al animal other-456.",
     )
     response = await _chip_route_response(
-        client, animals_spy, mocker,
+        client, animals_spy,
         get_animal_by_id_rows=[{
             "id": "abc-123", "NCHIP": "111", "NombreAnimal": "Luna",
             "Especie": "CANINA", "Sexo": "H",
@@ -207,7 +203,7 @@ async def test_change_chip_route_returns_409_when_chip_already_assigned(
 async def test_change_chip_route_returns_422_when_old_chip_mismatch(
     client: httpx.AsyncClient,
     animals_spy,
-    mocker,
+    monkeypatch,
 ) -> None:
     """change_animal_chip returns success=False without 'ya esta asignado' -> 422."""
     from app.modules.animals.service import ChangeChipResult
@@ -221,7 +217,7 @@ async def test_change_chip_route_returns_422_when_old_chip_mismatch(
         error="El chip old no coincide con el chip actual del animal.",
     )
     response = await _chip_route_response(
-        client, animals_spy, mocker,
+        client, animals_spy,
         get_animal_by_id_rows=[{
             "id": "abc-123", "NCHIP": "111", "NombreAnimal": "Luna",
             "Especie": "CANINA", "Sexo": "H",
@@ -237,7 +233,7 @@ async def test_change_chip_route_returns_422_when_old_chip_mismatch(
 async def test_change_chip_route_returns_200_on_success(
     client: httpx.AsyncClient,
     animals_spy,
-    mocker,
+    monkeypatch,
 ) -> None:
     """change_animal_chip returns success=True -> 200 with result dict."""
     from app.modules.animals.service import ChangeChipResult
@@ -254,7 +250,7 @@ async def test_change_chip_route_returns_200_on_success(
         error=None,
     )
     response = await _chip_route_response(
-        client, animals_spy, mocker,
+        client, animals_spy,
         get_animal_by_id_rows=[{
             "id": "abc-123", "NCHIP": "111", "NombreAnimal": "Luna",
             "Especie": "CANINA", "Sexo": "H",
@@ -496,3 +492,9 @@ def test_chip_change_validates_empty_fields():
             reason="",
             operador_user_id="user-1",
         )
+
+
+
+
+
+
