@@ -95,6 +95,19 @@ jobs:
         # may only decrease. Companion to the module-size ratchet above.
         run: python scripts/check_complexity.py
 
+      - name: Run extended-ruff ratchet (issue #380)
+        # Issue #380 — removing this step is a blocked change. The extended
+        # rulesets (S/ERA/ARG/FAST/N/C901/PLR/SIM/RET/TRY/PTH) are NOT in
+        # [tool.ruff.lint] select because 802 pre-existing violations would
+        # fail `ruff check .` above on every PR. This ratchet freezes the
+        # per-rule counts in BASELINE so they may only shrink, and fails when
+        # a new violation of any selected rule lands. Scope is production
+        # code only (app/ + migration/ + scripts/); tests/ is excluded
+        # because S101/PLR2004/ARG* are correct idioms there. Pinned by
+        # tests/test_ruff_ratchet.py::
+        # test_ci_workflow_lint_job_runs_ruff_ratchet_gate.
+        run: python scripts/check_ruff_ratchet.py
+
       - name: Diagnostic secret-leak scan
         run: grep -rE '(http://|https://|sk-|ghp_)[A-Za-z0-9]+' .github/ || true
 
