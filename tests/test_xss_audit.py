@@ -1199,6 +1199,107 @@ TEMPLATE_SPECS: list[tuple[str, list[str], dict[str, Any]]] = [
             },
         },
     ),
+    # HEALTH-04 (#53): salud CRUD templates
+    (
+        "salud/list_terapias.html",
+        [
+            "terapias[0].fecha",
+            "terapias[0].descripcion",
+            "animal_id",
+        ],
+        {
+            "user": _BASE_USER,
+            "terapias": [
+                {
+                    "id": "11111111-1111-1111-1111-111111111111",
+                    "animal_id": "22222222-2222-2222-2222-222222222222",
+                    "voluntario_id": "33333333-3333-3333-3333-333333333333",
+                    "fecha": "2026-07-01",
+                    "descripcion": "Terapia de ejemplo",
+                    "activo": True,
+                }
+            ],
+            "animal_id": "",
+        },
+    ),
+    (
+        "salud/terapia_form.html",
+        [
+            "form_data.animal_id",
+            "form_data.voluntario_id",
+            "form_data.fecha",
+            "form_data.descripcion",
+            "error",
+        ],
+        {
+            "user": _BASE_USER,
+            "form_data": {
+                "animal_id": "22222222-2222-2222-2222-222222222222",
+                "voluntario_id": "33333333-3333-3333-3333-333333333333",
+                "fecha": "2026-07-01",
+                "descripcion": "Descripción de terapia",
+            },
+            "error": None,
+            "form_action": "/terapias",
+        },
+    ),
+    (
+        "salud/terapia_detail.html",
+        [
+            "terapia.id",
+            "terapia.fecha",
+            "terapia.descripcion",
+            "terapia.animal_id",
+            "terapia.voluntario_id",
+            "recomendaciones[0].fecha",
+            "recomendaciones[0].texto",
+        ],
+        {
+            "user": _BASE_USER,
+            "terapia": {
+                "id": "11111111-1111-1111-1111-111111111111",
+                "animal_id": "22222222-2222-2222-2222-222222222222",
+                "voluntario_id": "33333333-3333-3333-3333-333333333333",
+                "fecha": "2026-07-01",
+                "descripcion": "Terapia de ejemplo",
+                "activo": True,
+            },
+            "recomendaciones": [
+                {
+                    "id": "44444444-4444-4444-4444-444444444444",
+                    "terapia_id": "11111111-1111-1111-1111-111111111111",
+                    "fecha": "2026-07-02",
+                    "texto": "Reposo 48h",
+                    "completada": False,
+                    "activo": True,
+                }
+            ],
+        },
+    ),
+    (
+        "salud/recomendaciones_list.html",
+        [
+            "terapia.id",
+            "recomendaciones[0].fecha",
+            "recomendaciones[0].texto",
+        ],
+        {
+            "user": _BASE_USER,
+            "terapia": {
+                "id": "11111111-1111-1111-1111-111111111111",
+            },
+            "recomendaciones": [
+                {
+                    "id": "44444444-4444-4444-4444-444444444444",
+                    "terapia_id": "11111111-1111-1111-1111-111111111111",
+                    "fecha": "2026-07-02",
+                    "texto": "Reposo 48h",
+                    "completada": False,
+                    "activo": True,
+                }
+            ],
+        },
+    ),
 ]
 
 
@@ -1483,6 +1584,11 @@ def test_no_user_data_in_url_attributes() -> None:
             # (new) or ``/materiales/{id}/edit`` (edit), never user
             # data. FOSTER-04 (#46) PR B.
             ("materiales/form.html", "form_action"),
+            # ``form_action`` in ``salud/terapia_form.html`` is set by
+            # the salud route to either ``/terapias`` (new) or
+            # ``/terapias/{id}/update`` (edit), never user data.
+            # HEALTH-04 (#53).
+            ("salud/terapia_form.html", "form_action"),
             # ``estancia_id`` in ``acogidas/materiales.html`` is the
             # FastAPI path parameter ``/acogidas/{estancia_id}/...``
             # — server-extracted from the URL by the router (never
