@@ -455,6 +455,69 @@ def test_detector_13_annassign_critical_violation() -> None:
     )
 
 
+# --- Detector 15 (issue #329): integration_test_coverage grandfathering -------
+
+
+def test_detector15_negative_fixture_still_flags_uncovered() -> None:
+    """detector15_negative has build_bar with NO integration test and
+    NOT in BASELINE_NO_INTEGRATION_TESTS — must be flagged."""
+    target = FIXTURES / "detector15_negative"
+    matching = _rule_violations(target, "integration_test_coverage")
+    assert matching, "build_bar in detector15_negative should be flagged"
+    assert matching[0].file.name == "queries.py"
+
+
+def test_detector15_grandfathered_fixture_build_baz_not_flagged() -> None:
+    """detector15_grandfathered has build_baz with NO integration test
+    BUT is in BASELINE_NO_INTEGRATION_TESTS — must NOT be flagged.
+
+    This verifies the grandfathering mechanism works: build_baz is skipped
+    even though it has no integration test in the fixture."""
+    from scripts.check_rules import BASELINE_NO_INTEGRATION_TESTS
+
+    # Verify build_baz is in the baseline
+    baz_entry = ("app/modules/baz_fixture/queries.py", "build_baz")
+    assert baz_entry in BASELINE_NO_INTEGRATION_TESTS, (
+        f"{baz_entry!r} must be in BASELINE_NO_INTEGRATION_TESTS"
+    )
+    # Verify the grandfathered function is NOT flagged when scanning
+    # the grandfathered fixture in isolation (where baseline is honored).
+    target = FIXTURES / "detector15_grandfathered"
+    all_violations = find_violations(target)
+    baz_violations = [
+        v for v in all_violations
+        if v.rule_id == "integration_test_coverage"
+        and "build_baz" in v.message
+    ]
+    assert not baz_violations, (
+        f"build_baz is in BASELINE_NO_INTEGRATION_TESTS and must NOT be flagged: "
+        f"{baz_violations}"
+    )
+
+
+def test_detector15_linter_exits_zero_on_main() -> None:
+    """Detector 15 (integration_test_coverage) must exit 0 on the full repo.
+
+    The 8 build_* functions in animals/queries.py and tasks/queries.py are
+    grandfathered in BASELINE_NO_INTEGRATION_TESTS (added post-#355,
+    out of #329 closed scope). No other integration_test_coverage violations
+    exist in the repo, so the linter must exit 0."""
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), str(REPO_ROOT)],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, (
+        f"Linter must exit 0 on main with grandfathering in place.\n"
+        f"Exit code: {result.returncode}\n"
+        f"stdout: {result.stdout}\n"
+        f"stderr: {result.stderr}"
+    )
+    assert "integration_test_coverage" not in result.stdout, (
+        f"integration_test_coverage violations should not appear: {result.stdout}"
+    )
+
+
 # --- Nested-checkout guard (issue #340) -------------------------------------
 
 

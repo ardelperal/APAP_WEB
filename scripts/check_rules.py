@@ -185,6 +185,49 @@ BASELINE_NO_QUERIES_MODULES: frozenset[str] = frozenset(
     }
 )
 
+# Detector 15 (issue #329) ----------------------------------------------------
+#
+# ``BASELINE_NO_INTEGRATION_TESTS`` — grandfathered ``(file_rel, func_name)``
+# pairs for ``build_*`` functions in ``app/modules/*/queries.py`` that were
+# added AFTER #329's closed scope (animals + tasks, added post-#355) and
+# therefore have no integration tests in scope for this detector.
+#
+# Rationale: these modules were added after the #355 feature branch landed
+# and are explicitly out of #329's scope per the audit's "closed scope" rule.
+# Adding them to the baseline (rather than writing tests) is the correct
+# migration path — a follow-up issue will add the integration tests.
+#
+# Format: ``(module_rel_path, function_name)`` tuples.
+# ``module_rel_path`` is the repo-root-relative POSIX path to the queries.py.
+# ``function_name`` is the exact ``build_*`` function name.
+#
+# The detector skips (does not flag) any ``build_*`` function that appears
+# in this set. Adding a new entry is the correct action when a new
+# ``queries.py`` module is added without integration tests (rather than
+# disabling the detector or writing a placeholder test).
+
+BASELINE_NO_INTEGRATION_TESTS: frozenset[tuple[str, str]] = frozenset(
+    {
+        # animals/queries.py — added post-#355, out of #329 scope
+        ("app/modules/animals/queries.py", "build_animal_count"),
+        ("app/modules/animals/queries.py", "build_animal_search"),
+        # tasks/queries.py — added post-#355, out of #329 scope
+        ("app/modules/tasks/queries.py", "build_get_tarea"),
+        ("app/modules/tasks/queries.py", "build_insert_tarea"),
+        ("app/modules/tasks/queries.py", "build_list_tareas"),
+        ("app/modules/tasks/queries.py", "build_update_estado"),
+        ("app/modules/tasks/queries.py", "build_update_metadata"),
+        ("app/modules/tasks/queries.py", "build_update_responsable"),
+        # Grandfathered fixture (detector15_grandfathered): build_baz has
+        # no integration test but is in BASELINE_NO_INTEGRATION_TESTS,
+        # so Detector 15 verifies the grandfathering mechanism works correctly.
+        (
+            "app/modules/baz_fixture/queries.py",
+            "build_baz",
+        ),
+    }
+)
+
 _IGNORE_FILENAME = ".check_rulesignore"
 
 
@@ -1012,7 +1055,11 @@ def _check_integration_test_coverage(repo_root: Path) -> list[Violation]:
 
         if not integration_test_path.exists() and fixture_root_path is None:
             # No integration test file at all — one violation per untested build_*
+            file_rel = queries_path.relative_to(repo_root).as_posix()
             for func_name in sorted(build_funcs):
+                # Skip grandfathered functions (out of #329 scope)
+                if (file_rel, func_name) in BASELINE_NO_INTEGRATION_TESTS:
+                    continue
                 violations.append(
                     Violation(
                         file=queries_path,
@@ -1052,7 +1099,11 @@ def _check_integration_test_coverage(repo_root: Path) -> list[Violation]:
                     tested_funcs.add(node.name[len("test_") :])
 
         # 4. Any build_* without a test_build_* is a violation
+        file_rel = queries_path.relative_to(repo_root).as_posix()
         for func_name in sorted(build_funcs - tested_funcs):
+            # Skip grandfathered functions (out of #329 scope)
+            if (file_rel, func_name) in BASELINE_NO_INTEGRATION_TESTS:
+                continue
             violations.append(
                 Violation(
                     file=queries_path,
