@@ -11,7 +11,6 @@ from dataclasses import dataclass
 
 from app.core.data_access import SqlExecutor
 
-
 # --- Result type -----------------------------------------------------------
 
 
