@@ -152,7 +152,12 @@ filterwarnings = [
 markers = [
     # E2E tests — require a live server; excluded from default pytest run.
     "e2e: end-to-end browser tests that require APAP_E2E_BASE_URL to be reachable.",
-]
+    # Integration tests — execute every exported query function from
+    # app/modules/*/queries.py against a real Postgres engine. Requires
+    # APAP_TEST_POSTGRES_DSN. CI supplies the service container DSN and
+    # the job MUST NOT silently skip when the DSN is absent (issue #329).
+    "integration: integration tests that run SQL against a real Postgres engine.",
+    ]
 
 # Ruff configuration — fast single-binary linter, current best practice.
 # Rule selection matches the architecture doc's quality bar:
