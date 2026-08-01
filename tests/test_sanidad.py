@@ -673,3 +673,116 @@ def test_sanidad_mock_helpers_let_caller_override_fecha() -> None:
     )
 
     assert actuacion.fecha == "2020-01-01"
+
+
+# --- HEALTH-03 resumen sanitario (issue #52) -------------------------------
+
+
+def _resumen_row(
+    overrides: dict[str, Any] | None = None,
+    *,
+    tipo: str = "Vacuna",
+    fecha: str = "2024-03-15",
+    resultado: str | None = "Correcto",
+    descripcion: str = "Heptavalente",
+    producto: str | None = "Nobivac",
+) -> dict[str, Any]:
+    """Build a mock resumen row (single tipo's latest actuacion)."""
+    row: dict[str, Any] = {
+        "tipo": tipo,
+        "ultima_fecha": fecha,
+        "ultimo_resultado": resultado,
+        "ultima_descripcion": descripcion,
+        "producto": producto,
+    }
+    if overrides:
+        row.update(overrides)
+    return row
+
+
+def _handler_resumen(
+    resumen_rows: list[dict[str, Any]],
+    nchip: str = "123456789012345",
+) -> Callable[[httpx.Request, dict[str, Any]], httpx.Response]:
+    """Handler that returns resumen rows + nchip for the animal."""
+
+    def _h(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
+        query = str(body.get("query", "") or "")
+        if "nchip" in query.lower():
+            return _json_response(200, [{"nchip": nchip}])
+        return _json_response(200, resumen_rows)
+
+    return _h
+
+
+def test_get_resumen_sanitario_happy_path() -> None:
+    """get_resumen_sanitario returns resumen with correct item mapping."""
+    rows = [
+        _resumen_row(tipo="Vacuna", fecha="2024-03-15", producto="Nobivac"),
+        _resumen_row(tipo="Desparasitación", fecha="2024-01-10", producto="Milbemax"),
+    ]
+    client, _ = _client_recording(_handler_resumen(rows))
+
+    result = sanidad_service.get_resumen_sanitario(
+        client, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    )
+
+    assert result.animal_id == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    assert result.nchip == "123456789012345"
+    assert len(result.resumen) == 2
+    assert result.resumen[0].tipo == "Vacuna"
+    assert result.resumen[0].ultima_fecha == "2024-03-15"
+    assert result.resumen[0].ultimo_resultado == "Correcto"
+    assert result.resumen[0].ultima_descripcion == "Heptavalente"
+    assert result.resumen[0].producto == "Nobivac"
+    assert result.resumen[1].tipo == "Desparasitación"
+
+
+def test_get_resumen_sanitario_empty() -> None:
+    """When the animal has no actuaciones, resumen is an empty list."""
+    client, _ = _client_recording(_handler_resumen([], nchip="999999999999999"))
+
+    result = sanidad_service.get_resumen_sanitario(
+        client, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    )
+
+    assert result.animal_id == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    assert result.nchip == "999999999999999"
+    assert result.resumen == []
+
+
+def test_get_resumen_sanitario_optional_fields_null() -> None:
+    """When resultado/descripcion/producto are NULL, fields are None."""
+    rows = [
+        _resumen_row(
+            tipo="Analítica",
+            fecha="2023-11-20",
+            resultado=None,
+            descripcion=None,
+            producto=None,
+        ),
+    ]
+    client, _ = _client_recording(_handler_resumen(rows))
+
+    result = sanidad_service.get_resumen_sanitario(
+        client, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    )
+
+    assert len(result.resumen) == 1
+    assert result.resumen[0].tipo == "Analítica"
+    assert result.resumen[0].ultimo_resultado is None
+    assert result.resumen[0].ultima_descripcion is None
+    assert result.resumen[0].producto is None
+
+
+def test_get_resumen_sanitario_single_tipo() -> None:
+    """When only one tipo has records, resumen has exactly one element."""
+    rows = [_resumen_row(tipo="Vacuna")]
+    client, _ = _client_recording(_handler_resumen(rows))
+
+    result = sanidad_service.get_resumen_sanitario(
+        client, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    )
+
+    assert len(result.resumen) == 1
+    assert result.resumen[0].tipo == "Vacuna"

@@ -79,3 +79,4 @@ opencode.json
 # Not project source — keep them local.
 .openclaw/
 SOUL.md
+.audit-venv/

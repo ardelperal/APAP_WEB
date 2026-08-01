@@ -1220,6 +1220,72 @@ TEMPLATE_SPECS: list[tuple[str, list[str], dict[str, Any]]] = [
             "delete_error": None,
         },
     ),
+    # --- tareas engine (issue #7) ---
+    (
+        "tareas/list.html",
+        [
+            "tareas[0].id",
+            "tareas[0].tipo",
+            "tareas[0].prioridad",
+            "tareas[0].estado",
+            "tareas[0].vencimiento_at",
+            "filter_estado",
+            "filter_responsable_id",
+        ],
+        {
+            "current_user": _BASE_USER,
+            "tareas": [
+                {
+                    "id": "11111111-1111-1111-1111-111111111111",
+                    "tipo": "manual",
+                    "origen": "dashboard_manual",
+                    "prioridad": "normal",
+                    "estado": "pendiente",
+                    "responsable_id": None,
+                    "vencimiento_at": "2026-08-01T00:00:00Z",
+                    "created_at": "2026-07-01T10:00:00Z",
+                    "cerrada_at": None,
+                    "comentario": None,
+                    "vinculo_tipo": None,
+                    "vinculo_id": None,
+                    "metadata": {},
+                }
+            ],
+            "filter_estado": None,
+            "filter_responsable_id": None,
+        },
+    ),
+    (
+        "tareas/detail.html",
+        [
+            "tarea.id",
+            "tarea.tipo",
+            "tarea.origen",
+            "tarea.prioridad",
+            "tarea.estado",
+            "tarea.vencimiento_at",
+            "tarea.vinculo_tipo",
+            "tarea.created_at",
+        ],
+        {
+            "current_user": _BASE_USER,
+            "tarea": {
+                "id": "11111111-1111-1111-1111-111111111111",
+                "tipo": "manual",
+                "origen": "dashboard_manual",
+                "prioridad": "normal",
+                "estado": "pendiente",
+                "responsable_id": None,
+                "vencimiento_at": "2026-08-01T00:00:00Z",
+                "created_at": "2026-07-01T10:00:00Z",
+                "cerrada_at": None,
+                "comentario": None,
+                "vinculo_tipo": None,
+                "vinculo_id": None,
+                "metadata": {},
+            },
+        },
+    ),
 ]
 
 
