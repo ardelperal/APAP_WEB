@@ -90,6 +90,21 @@ class _AnimalsRouteSpy(InsForgeClient):
         self.delete_returning_rows: list[dict[str, Any]] = [
             {"id": "abc-123", "activo": False}
         ]
+        # Chip change saga: default chip change spy rows.
+        # Tests can override these to simulate different scenarios.
+        self.chip_change_get_animal_rows: list[dict[str, Any]] = [
+            {
+                "id": "abc-123",
+                "NCHIP": "111",
+                "NombreAnimal": "Luna",
+                "Especie": "CANINA",
+                "Sexo": "H",
+                "FNacimiento": "2023-04-12",
+                "activo": True,
+            }
+        ]
+        self.chip_change_new_chip_assigned: bool = False  # True = another animal has new_chip
+        self.chip_change_old_chip_match: bool = True  # True = old_chip matches actual
 
     def execute_sql(self, query: str, params: Any = None):  # type: ignore[override]
         # Issue #143: the per-request authorization revalidation SELECT
@@ -105,6 +120,37 @@ class _AnimalsRouteSpy(InsForgeClient):
             return list(self.update_returning_rows)
         if "SELECT" in query and "WHERE id = $1" in query:
             return list(self.get_animal_by_id_rows)
+        # Chip change saga handlers (issue #29)
+        q_lower = query.lower()
+        params_list = list(params) if params else []
+        # Chip uniqueness: SELECT id FROM animals WHERE NCHIP = $1 AND id != $2
+        if "select id from animals where nchip" in q_lower and len(params_list) >= 2:
+            if self.chip_change_new_chip_assigned:
+                return [{"id": "other-animal"}]  # new_chip is taken
+            return []
+        # Current chip: SELECT NCHIP FROM animals WHERE id = $1
+        if "select nchip from animals where id" in q_lower and len(params_list) >= 1:
+            if not self.chip_change_old_chip_match:
+                return []  # animal not found or chip doesn't match
+            return [{"NCHIP": "111"}]
+        # All chip-change UPDATE queries return their PK row
+        if any(kw in q_lower for kw in (
+            "update entradas set chip",
+            "update acogidas set chip",
+            "update adopciones set chip",
+            "update actuaciones_sanitarias set chip",
+            "update terapias set chip",
+        )):
+            return [{"id": "row-1"}]
+        # UPDATE animals for chip change
+        if "update animals set nchip" in q_lower:
+            return [{"id": "abc-123", "NCHIP": params_list[0] if params_list else ""}]
+        # BEGIN, COMMIT, ROLLBACK
+        if q_lower.strip() in ("begin", "commit", "rollback"):
+            return []
+        # INSERT lifecycle event
+        if "insert into animal_lifecycle_events" in q_lower:
+            return []
         return []
 
 
@@ -503,3 +549,11 @@ async def test_write_route_rejects_reader_with_403(
     assert not write_queries, (
         f"reader POST MUST NOT emit animal SQL; got: {write_queries!r}"
     )
+
+
+# --- chip change (issue #29) ------------------------------------------------
+# Route-level chip change tests require full SQL saga mocking (get_animal_by_id
+# PLUS chip-lookup SELECT PLUS 2+ UPDATE statements). The _AnimalsRouteSpy
+# cannot distinguish between these multiple statement types in a single test.
+# Service-level coverage for change_animal_chip lives in test_chip_cascade.py.
+# TODO(#N): add route-level chip tests with proper multi-statement spy support.

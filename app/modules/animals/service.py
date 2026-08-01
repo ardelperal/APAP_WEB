@@ -544,3 +544,15 @@ def search_animals(
         limit=capped.limit,
         offset=capped.offset,
     )
+
+
+# --- re-export chip cascade from dedicated module (rule 21 split) ---------
+# Extracted to app/modules/animals/chip_service.py to keep this file
+# under the 700-line budget.
+from app.modules.animals.chip_service import (  # noqa: E402, F401
+    ChangeChipResult,
+    change_animal_chip,
+)
+
+__all__: list[str] = []
+
