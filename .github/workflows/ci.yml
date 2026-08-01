@@ -195,10 +195,16 @@ jobs:
         # Known false positive lives in .gitleaksignore, not in a weakened
         # ruleset. Image pinned by digest (AGENTS.md digest-pinning rule,
         # issue #338) so the gate cannot change under us.
+        #
+        # `-w /repo` plus a relative `.` target is load-bearing: gitleaks
+        # fingerprints are `<file>:<rule>:<line>`, so scanning `/repo`
+        # absolutely produces `/repo/tests/...` and no relative allowlist entry
+        # can ever match it. Verified — the first CI run failed for exactly
+        # this reason.
         run: |
-          docker run --rm -v "$PWD:/repo" \
+          docker run --rm -v "$PWD:/repo" -w /repo \
             zricethezav/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
-            dir /repo --redact --no-banner --exit-code 1
+            dir . --redact --no-banner --exit-code 1
 
       - name: Scan Dockerfile for misconfiguration
         # Issue #381. Config-only scan: fast, no image pull, no vulnerability
@@ -233,9 +239,9 @@ jobs:
 
       - name: Scan full git history for secrets
         run: |
-          docker run --rm -v "$PWD:/repo" \
+          docker run --rm -v "$PWD:/repo" -w /repo \
             zricethezav/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
-            detect --source=/repo --redact --no-banner --exit-code 1
+            detect --source=. --redact --no-banner --exit-code 1
 
       - name: Scan pinned base images for known vulnerabilities
         # The `build` job produces a wheel, not a container image, so there is

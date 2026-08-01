@@ -8,8 +8,12 @@
 
 # 2026-08-01 — rule `generic-api-key` in
 # tests/migration/test_insforge_storage_methods.py
-# `KEY = "abc123def456.jpg"` is a storage object FILENAME used as a test
-# fixture, not a credential. The adjacent SERVICE_KEY on line 39 is the
-# literal string "ik_test_service_for_pr4b", also a fixture. Confirmed by
-# reading the file; nothing here reaches a real InsForge tenant.
+# The flagged value is a storage object FILENAME used as a test fixture, not a
+# credential. The adjacent SERVICE_KEY on the line above is likewise a fixture
+# string. Confirmed by reading the file; nothing here reaches a real InsForge
+# tenant.
+#
+# Do NOT quote the flagged values in this file. The first version of this
+# comment did, and gitleaks flagged .gitleaksignore itself — an allowlist that
+# creates the finding it allowlists.
 tests/migration/test_insforge_storage_methods.py:generic-api-key:40

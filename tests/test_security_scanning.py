@@ -95,7 +95,7 @@ def test_deep_job_scans_history_and_base_images() -> None:
     """The deep job must cover what the light job structurally cannot."""
     deep = _job("security-deep", "typecheck")
     assert "fetch-depth: 0" in deep, "history scanning needs the full clone"
-    assert "detect --source=/repo" in deep
+    assert "detect --source=." in deep
     assert "Dockerfile" in deep and "image" in deep
 
 
@@ -115,3 +115,28 @@ def test_gitleaksignore_entries_carry_a_dated_reason() -> None:
         path = entry.split(":", 1)[0]
         assert path in comments, f"allowlist entry {path} has no explanatory comment"
     assert re.search(r"20\d{2}-\d{2}-\d{2}", comments), "entries must carry a date"
+
+
+def test_gitleaks_runs_with_a_relative_target() -> None:
+    """Fingerprints are `<file>:<rule>:<line>` — the path must be relative.
+
+    Scanning an absolute `/repo` yields `/repo/tests/...` findings, which no
+    relative .gitleaksignore entry can ever match, so the allowlist silently
+    does nothing and the job fails forever. The first CI run of this job did
+    exactly that.
+    """
+    both = _job("security", "security-deep") + _job("security-deep", "typecheck")
+    assert "-w /repo" in both, "gitleaks must run with /repo as the working directory"
+    assert "dir /repo" not in both, "scan `.`, not the absolute /repo path"
+    assert "--source=/repo" not in both, "scan `.`, not the absolute /repo path"
+
+
+def test_gitleaksignore_does_not_quote_the_flagged_values() -> None:
+    """An allowlist must not contain the secrets it allowlists.
+
+    The first version of this file quoted the fixture value in its own
+    explanatory comment, and gitleaks flagged .gitleaksignore itself.
+    """
+    text = GITLEAKSIGNORE_PATH.read_text(encoding="utf-8")
+    assert "ik_test_service" not in text
+    assert "abc123def456" not in text
