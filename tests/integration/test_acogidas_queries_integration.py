@@ -36,8 +36,8 @@ def _seed_acogida_related_records(ep: _EphemeralPostgres) -> dict[str, str]:
 
     entrada_id = str(uuid4())
     ep.execute(
-        f"INSERT INTO entradas (id, animal_id, motivo, observaciones, fecha_alta, activo) "
-        f"VALUES ('{entrada_id}', '{animal_id}', 'Ingreso', 'Test', now(), true)"
+        f"INSERT INTO entradas (id, animal_id, fecha_entrada, motivo, observaciones, fecha_alta, activo) "
+        f"VALUES ('{entrada_id}', '{animal_id}', '2024-01-15', 'Ingreso', 'Test', now(), true)"
     )
 
     casa_id = str(uuid4())
