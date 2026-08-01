@@ -48,6 +48,7 @@ from typing import Any
 from app.core.catalogs import list_catalogos_pruebas as _list_catalogos_pruebas
 from app.core.data_access import SqlExecutor
 from app.core.logging import log_safe
+from app.modules.sanidad import queries
 
 
 class ActuacionSanitariaConflictError(ValueError):
@@ -589,3 +590,62 @@ def search_actuaciones_by_animal(
         return []
     rows = client.execute_sql(_LIST_BY_ANIMAL_SQL, [animal_id.strip()])
     return [_row_to_actuacion_sanitaria(row) for row in rows]
+
+
+# --- HEALTH-03 resumen (issue #52) -------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class SaludResumenItem:
+    """A single tipo's latest actuacion for ``SaludResumen``."""
+
+    tipo: str
+    ultima_fecha: str
+    ultimo_resultado: str | None
+    ultima_descripcion: str | None
+    producto: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class SaludResumen:
+    """The health-summary response for one animal (HEALTH-03, issue #52)."""
+
+    animal_id: str
+    nchip: str | None
+    resumen: list[SaludResumenItem]
+
+
+def _row_to_salud_resumen_item(row: dict[str, Any]) -> SaludResumenItem:
+    return SaludResumenItem(
+        tipo=str(row["tipo"]),
+        ultima_fecha=str(row["ultima_fecha"]),
+        ultimo_resultado=str(row["ultimo_resultado"]) if row.get("ultimo_resultado") else None,
+        ultima_descripcion=str(row["ultima_descripcion"]) if row.get("ultima_descripcion") else None,
+        producto=str(row["producto"]) if row.get("producto") else None,
+    )
+
+
+def get_resumen_sanitario(
+    client: SqlExecutor,
+    animal_id: str,
+) -> SaludResumen:
+    """Return the latest actuacion of each tipo for one animal.
+
+    HEALTH-03 (issue #52): ``GET /animales/{animal_id}/salud/resumen``.
+    For each ``catalogos_pruebas.observaciones`` (tipo) that has at least
+    one active ``actuacion_sanitaria`` row for ``animal_id``, returns the
+    most recent one (MAX fecha) with its resultado, description (codigo),
+    and product (material_utilizado).
+
+    Returns a ``SaludResumen`` with an empty ``resumen`` list when the
+    animal has no actuaciones at all.
+    """
+    sql, params = queries.build_resumen_sanitario(animal_id)
+    rows = client.execute_sql(sql, params)
+    items = [_row_to_salud_resumen_item(row) for row in rows]
+
+    nchip_sql, nchip_params = queries.build_get_animal_nchip(animal_id)
+    animal_rows = client.execute_sql(nchip_sql, nchip_params)
+    nchip = animal_rows[0]["nchip"] if animal_rows else None
+
+    return SaludResumen(animal_id=animal_id, nchip=nchip, resumen=items)

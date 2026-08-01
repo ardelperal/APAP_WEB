@@ -253,3 +253,47 @@ def build_batch_insert(
 
     params: list[Any] = [*arrays, bool(dry_run)]
     return _BATCH_INSERT_SQL, params
+
+
+# --- HEALTH-03 resumen (issue #52) -----------------------------------------
+# Get the latest actuacion_sanitaria per tipo (catalogos_pruebas.observaciones)
+# for a given animal.  One row per tipo, ordered by fecha DESC, capped at the
+# most-recent row per tipo via DISTINCT ON.
+#
+# Param: $1 — animal_id (UUID text)
+_BUILD_RESUMEN_SANITARIO_SQL: str = """
+SELECT DISTINCT ON (cp.observaciones)
+    cp.observaciones          AS tipo,
+    a.fecha                   AS ultima_fecha,
+    a.observaciones           AS ultimo_resultado,
+    cp.codigo                 AS ultima_descripcion,
+    a.material_utilizado      AS producto
+FROM actuacion_sanitaria a
+JOIN catalogos_pruebas cp ON cp.id = a.tipo_actuacion_id
+WHERE a.activo = true
+  AND a.animal_id = $1
+ORDER BY cp.observaciones, a.fecha DESC
+"""
+
+
+def build_resumen_sanitario(animal_id: str) -> tuple[str, list[Any]]:
+    """Pure builder for the resumen sanitario per-type latest-actuacion query.
+
+    Returns ``(sql, params)`` where params is ``[animal_id]``.
+
+    The query uses ``DISTINCT ON (cp.observaciones)`` to return exactly one
+    row per ``catalogos_pruebas.observaciones`` (the tipo grouping), ordered
+    by ``fecha DESC`` so the retained row is the most recent actuation of
+    that type.
+    """
+    return _BUILD_RESUMEN_SANITARIO_SQL, [animal_id]
+
+
+_GET_ANIMAL_NCHIP_SQL: str = """
+SELECT nchip FROM animales WHERE id = $1 AND activo = true
+"""
+
+
+def build_get_animal_nchip(animal_id: str) -> tuple[str, list[Any]]:
+    """Return the nchip for an active animal, or None if not found."""
+    return _GET_ANIMAL_NCHIP_SQL, [animal_id]
