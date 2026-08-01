@@ -104,7 +104,7 @@ _ACOGIDA_INSERT_SQL: Final[str] = (
 
 _ACOGIDA_GET_BY_ID_SQL: Final[str] = (
     f"SELECT {', '.join(ACOGIDA_SELECT_COLUMNS)} "
-    "FROM acogidas WHERE id = $1"
+    "FROM acogidas WHERE id = %s"
 )
 
 
@@ -301,14 +301,19 @@ def build_acogida_update(
         for col in ACOGIDA_WRITE_COLUMNS
         if col in params or col not in _UPDATE_PATCH_ONLY_COLUMNS
     )
+    # psycopg positional %s is matched by ORDER of appearance in the SQL string.
+    # SQL order: SET col = %s ... WHERE id = %s (WHERE appears LAST → id is LAST param).
+    # Caller currently calls: execute_sql(sql, [acogida_id, *write_params]).
+    # After this fix the call becomes: execute_sql(sql, [*write_params, acogida_id]).
     sql = (
-        "UPDATE acogidas SET "
-        + ", ".join(f"{col} = ${i + 2}" for i, col in enumerate(set_columns))
+        "UPDATE acogidas "
+        + "SET " + ", ".join(f"{col} = %s" for col in set_columns)
         + ", updated_at = now() "
-        + "WHERE id = $1 "
+        + "WHERE id = %s "
         + "RETURNING " + ", ".join(ACOGIDA_SELECT_COLUMNS)
     )
-    return sql, _extract_write_params(params, columns=set_columns)
+    write_params = _extract_write_params(params, columns=set_columns)
+    return sql, (*write_params, acogida_id)
 
 
 def build_acogida_close(acogida_id: str) -> tuple[str, list[Any]]:
