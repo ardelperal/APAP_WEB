@@ -56,6 +56,10 @@ from app.core.domain_materiales import (
     MATERIALES_CREATE_TABLE_SQL,
 )
 from app.core.domain_salud import ACTUACION_SANITARIA_CREATE_TABLE_SQL
+from app.core.domain_terapias import (
+    RECOMENDACIONES_CREATE_TABLE_SQL,
+    TERAPIAS_CREATE_TABLE_SQL,
+)
 from app.core.domain_voluntarios import (
     ROLES_VOLUNTARIO_CREATE_TABLE_SQL,
     VOLUNTARIOS_CREATE_TABLE_SQL,
@@ -103,6 +107,8 @@ def ensure_domain_schema(client: InsForgeClient) -> None:
         SqlStatement(CESIONES_PROPIETARIO_CREATE_TABLE_SQL),
         SqlStatement(CONTRATOS_CREATE_TABLE_SQL),
         SqlStatement(ACTUACION_SANITARIA_CREATE_TABLE_SQL),
+        SqlStatement(TERAPIAS_CREATE_TABLE_SQL),
+        SqlStatement(RECOMENDACIONES_CREATE_TABLE_SQL),
         SqlStatement(MATERIALES_CREATE_TABLE_SQL),
         SqlStatement(ESTANCIA_MATERIALES_CREATE_TABLE_SQL),
         SqlStatement(ESTANCIA_MATERIALES_ACTIVE_UNIQUE_INDEX_SQL),

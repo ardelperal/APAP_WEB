@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head><title>Terapia {{ terapia.id }}</title></head>
+<body>
+<h1>Terapia {{ terapia.fecha }}</h1>
+<p>{{ terapia.descripcion }}</p>
+<p>Animal: {{ terapia.animal_id }}</p>
+<p>Voluntario: {{ terapia.voluntario_id }}</p>
+
+<h2>Recomendaciones</h2>
+<ul>
+{% for rec in recomendaciones %}
+<li>{{ rec.fecha }} - {{ rec.texto }}
+{% if not rec.completada %}(pendiente){% else %}(completada){% endif %}</li>
+{% endfor %}
+</ul>
+</body>
+</html>
