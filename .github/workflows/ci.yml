@@ -164,10 +164,6 @@ jobs:
           .audit-venv/bin/python -m pip install -q -e ".[dev]"
           .audit-venv/bin/python -m pip install -q pip-audit
           .audit-venv/bin/python -m pip_audit --progress-spinner off --skip-editable \
-            --ignore-vuln PYSEC-2026-2280 \
-            --ignore-vuln PYSEC-2026-2281 \
-            --ignore-vuln PYSEC-2026-248 \
-            --ignore-vuln PYSEC-2026-249 \
             --ignore-vuln GHSA-4xgf-cpjx-pc3j \
             --ignore-vuln PYSEC-2026-2987 \
             --ignore-vuln PYSEC-2026-3002 \
