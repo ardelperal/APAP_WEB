@@ -1,0 +1,75 @@
+{% extends base_template %}
+{% block title %}Terapias - APAP{% endblock %}
+{% block content %}
+  <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
+    <div>
+      <h1 class="text-3xl font-bold text-primary-dark tracking-tight">Terapias</h1>
+      <p class="text-text-muted text-sm mt-1">
+        Sesiones de therapy para animales con sus recomendaciones asociadas.
+        {% if animal_id %}
+          Filtrando por animal: <span class="font-mono">{{ animal_id }}</span>.
+        {% endif %}
+      </p>
+    </div>
+    <a href="/terapias/new" class="bg-primary text-white px-4 py-2 rounded font-semibold hover:bg-primary-dark transition-colors shadow-sm">
+      + Nueva terapia
+    </a>
+  </div>
+
+  <form method="get" action="/terapias" class="mb-4 flex items-center gap-2 flex-wrap">
+    <label for="animal_id" class="text-sm text-text-muted">Filtrar por animal (UUID):</label>
+    <input type="text" name="animal_id" id="animal_id" value="{{ animal_id }}"
+           placeholder="UUID del animal"
+           class="border border-border rounded px-2 py-1 bg-surface text-text font-mono" />
+    <button type="submit" class="px-3 py-1 rounded border border-border text-text-muted hover:text-primary hover:border-primary transition-colors">
+      Filtrar
+    </button>
+    {% if animal_id %}
+      <a href="/terapias" class="px-3 py-1 text-rose-700 hover:text-rose-900 text-sm">Quitar filtro</a>
+    {% endif %}
+  </form>
+
+  {% if terapias %}
+  <div class="bg-surface rounded-card shadow-card overflow-hidden">
+    <table class="min-w-full text-left text-sm">
+      <thead class="bg-primary text-white">
+        <tr>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Animal</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Fecha</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Voluntario</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide">Descripción</th>
+          <th class="px-6 py-3 font-semibold uppercase text-xs tracking-wide"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for terapia in terapias %}
+        <tr class="border-b border-border last:border-b-0 hover:bg-primary/5 transition-colors">
+          <td class="px-6 py-4 text-text-muted font-mono text-xs">{{ terapia.animal_id }}</td>
+          <td class="px-6 py-4 text-text font-mono">{{ terapia.fecha }}</td>
+          <td class="px-6 py-4 text-text-muted font-mono text-xs">{{ terapia.voluntario_id or "—" }}</td>
+          <td class="px-6 py-4 text-text-muted">{{ terapia.descripcion or "—" }}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-right">
+            <a href="/terapias/{{ terapia.id }}" class="text-primary font-semibold hover:underline">Ver</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="bg-gradient-to-br from-primary/10 to-primary/5 border-l-4 border-primary rounded-card shadow-card p-8 text-center">
+    <div class="text-5xl mb-3" aria-hidden="true">🩺</div>
+    <h2 class="text-primary-dark font-semibold text-lg">No hay terapias registradas</h2>
+    <p class="text-text-muted text-sm mt-1 mb-4">
+      {% if animal_id %}
+        Ninguna terapia coincide con este animal.
+      {% else %}
+        Registra la primera sesión de terapia para empezar.
+      {% endif %}
+    </p>
+    <a href="/terapias/new" class="inline-block bg-primary text-white px-4 py-2 rounded font-semibold hover:bg-primary-dark transition-colors">
+      Registrar primera terapia
+    </a>
+  </div>
+  {% endif %}
+{% endblock %}

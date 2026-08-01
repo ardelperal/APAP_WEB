@@ -30,6 +30,7 @@ from app.modules.materiales.acogida_routes import (
 from app.modules.materiales.routes import router as materiales_router
 from app.modules.sanidad.batch_routes import router as sanidad_batch_router
 from app.modules.sanidad.routes import router as sanidad_router
+from app.modules.sanidad.terapia_routes import router as terapia_router
 from app.modules.voluntarios.routes import router as voluntarios_router
 
 
@@ -77,5 +78,6 @@ def register_routers(app: FastAPI) -> None:
     app.include_router(adopciones_router)
     app.include_router(sanidad_router)
     app.include_router(sanidad_batch_router)
+    app.include_router(terapia_router)
     app.include_router(materiales_router)
     app.include_router(materiales_acogida_router)
