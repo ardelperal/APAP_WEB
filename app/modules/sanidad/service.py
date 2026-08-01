@@ -45,7 +45,12 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any
 
-from app.core.catalogs import list_catalogos_pruebas as _list_catalogos_pruebas
+from app.core.catalogs import (
+    list_catalogos_periodicidad as _list_catalogos_periodicidad,
+)
+from app.core.catalogs import (
+    list_catalogos_pruebas as _list_catalogos_pruebas,
+)
 from app.core.data_access import SqlExecutor
 from app.core.logging import log_safe
 from app.modules.sanidad import queries
@@ -482,6 +487,21 @@ def list_catalogos_pruebas(client: SqlExecutor) -> list[dict[str, Any]]:
     still reusing the canonical catalog query implementation.
     """
     return _list_catalogos_pruebas(client)
+
+
+def list_catalogos_periodicidad(client: SqlExecutor) -> list[dict[str, Any]]:
+    """Return active periodicity rules for health tests (HEALTH-06 #55).
+
+    The catalog is species-aware: each rule carries an ``especie`` field
+    (``NULL`` = all species, ``'canina'`` or ``'felina'`` = specific).
+    ``periodicidad_meses`` is ``NULL`` for one-shot operations
+    (e.g. Esterilización) and a positive integer for recurring tests.
+
+    Routes must not import SQL-backed catalog helpers directly. Keeping this
+    wrapper in the sanidad service preserves the route/service boundary while
+    still reusing the canonical catalog query implementation.
+    """
+    return _list_catalogos_periodicidad(client)
 
 
 def get_actuacion_sanitaria_by_id(
