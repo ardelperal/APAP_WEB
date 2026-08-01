@@ -56,6 +56,10 @@ dev = [
     # scripts/check_ruff_ratchet.py; the script asserts the version to make
     # that non-optional.
     "ruff==0.15.21",
+    # Dead-code guard (issue #392). Pinned floor: the AST filter logic in
+    # check_vulture_guard.py depends on specific AST node structure.  Update
+    # the guard script when upgrading.
+    "vulture>=2.16",
     "psycopg[binary]>=3.3",
     # E2E: UI verification via real Chromium browser. CI installs the
     # chromium binary separately with `playwright install chromium`.
