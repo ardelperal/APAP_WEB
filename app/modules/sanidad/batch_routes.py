@@ -33,7 +33,7 @@ rejected with 403 BEFORE the handler runs.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Annotated
 
 from fastapi import APIRouter, Depends, Form, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -203,7 +203,7 @@ def _preview_from_validation_error(
 @router.get("/batch/new", response_class=HTMLResponse)
 def new_batch_actuaciones_form(
     request: Request,
-    user: AuthenticatedUser = Depends(require_permission(Permission.READ_SALUD)),
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_SALUD))],
 ):
     """Render the empty batch form with ``BATCH_MIN_RECORDS`` blank rows.
 
@@ -227,16 +227,16 @@ def new_batch_actuaciones_form(
 @router.post("/actuaciones/batch", response_class=HTMLResponse)
 def batch_actuaciones_view(
     request: Request,
-    dry_run: str | None = Form(None),
-    animal_id: list[str] = Form([]),
-    voluntario_id: list[str] = Form([]),
-    fecha: list[str] = Form([]),
-    tipo_actuacion_id: list[str] = Form([]),
-    veterinario: list[str] = Form([]),
-    observaciones: list[str] = Form([]),
-    material_utilizado: list[str] = Form([]),
-    user: AuthenticatedUser = Depends(require_permission(Permission.WRITE_SALUD)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    dry_run: Annotated[str | None, Form()] = None,
+    animal_id: Annotated[list[str], Form()] = [],
+    voluntario_id: Annotated[list[str], Form()] = [],
+    fecha: Annotated[list[str], Form()] = [],
+    tipo_actuacion_id: Annotated[list[str], Form()] = [],
+    veterinario: Annotated[list[str], Form()] = [],
+    observaciones: Annotated[list[str], Form()] = [],
+    material_utilizado: Annotated[list[str], Form()] = [],
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))] = None,
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)] = None,
 ):
     """HEALTH-02 batch endpoint: staging preview OR atomic commit.
 

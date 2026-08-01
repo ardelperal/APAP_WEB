@@ -38,7 +38,7 @@ could previously POST / DELETE adopciones.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -156,8 +156,8 @@ def _render_form(
 def list_adopciones_view(
     request: Request,
     adoptante: str | None = None,
-    user: AuthenticatedUser = Depends(require_permission(Permission.READ_ADOPCIONES)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_ADOPCIONES))] = None,
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)] = None,
 ):
     """List active adopciones; ``?adoptante=`` filters by name (ILIKE)."""
     if (early := return_early_if_response(user)) is not None:
@@ -185,7 +185,7 @@ def list_adopciones_view(
 @router.get("/new", response_class=HTMLResponse)
 def new_adopcion_form(
     request: Request,
-    user: AuthenticatedUser = Depends(require_permission(Permission.READ_ADOPCIONES)),
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_ADOPCIONES))],
 ):
     """Empty form for a new adopción."""
     if (early := return_early_if_response(user)) is not None:
@@ -199,9 +199,9 @@ def new_adopcion_form(
 @router.post("", response_class=HTMLResponse)
 def create_adopcion_view(
     request: Request,
-    form: AdopcionForm = Form(...),
-    user: AuthenticatedUser = Depends(require_permission(Permission.WRITE_ADOPCIONES)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    form: Annotated[AdopcionForm, Form()],
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_ADOPCIONES))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Create an adopción; redirect to detail on success.
 
@@ -265,8 +265,8 @@ def create_adopcion_view(
 def adopcion_detail(
     adopcion_id: str,
     request: Request,
-    user: AuthenticatedUser = Depends(require_permission(Permission.READ_ADOPCIONES)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_ADOPCIONES))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Detail view; 404 when the id is missing."""
     if (early := return_early_if_response(user)) is not None:
@@ -288,8 +288,8 @@ def adopcion_detail(
 def edit_adopcion_form(
     adopcion_id: str,
     request: Request,
-    user: AuthenticatedUser = Depends(require_permission(Permission.READ_ADOPCIONES)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_ADOPCIONES))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Edit form prefilled from the persisted row."""
     if (early := return_early_if_response(user)) is not None:
@@ -313,9 +313,9 @@ def edit_adopcion_form(
 def update_adopcion_view(
     adopcion_id: str,
     request: Request,
-    form: AdopcionForm = Form(...),
-    user: AuthenticatedUser = Depends(require_permission(Permission.WRITE_ADOPCIONES)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    form: Annotated[AdopcionForm, Form()],
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_ADOPCIONES))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Update an existing adopción; redirect to detail on success.
 
@@ -372,8 +372,8 @@ def update_adopcion_view(
 def delete_adopcion_view(
     adopcion_id: str,
     request: Request,
-    user: AuthenticatedUser = Depends(require_permission(Permission.WRITE_ADOPCIONES)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_ADOPCIONES))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Soft-delete via ``adopciones_service.delete_adopcion``; redirect to list.
 
@@ -403,10 +403,10 @@ def delete_adopcion_view(
 def seguimiento_transition_view(
     adopcion_id: str,
     request: Request,
-    action: str = Form(...),
-    documento_url: str | None = Form(None),
-    user: AuthenticatedUser = Depends(require_authorized_user),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    action: Annotated[str, Form()],
+    documento_url: Annotated[str | None, Form()] = None,
+    user: Annotated[AuthenticatedUser, Depends(require_authorized_user)] = None,
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)] = None,
 ):
     """Transition the seguimiento estado for an adopcion.
 

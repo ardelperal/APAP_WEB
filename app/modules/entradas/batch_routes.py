@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -107,7 +107,7 @@ def _parse_form_records(form_values: list[Mapping[str, Any] | None]) -> list[dic
 @router.get("/new", response_class=HTMLResponse)
 def new_batch_form(
     request: Request,
-    user: Response | dict = Depends(require_authorized_user),
+    user: Annotated[Response | dict, Depends(require_authorized_user)],
 ):
     if (early := return_early_if_response(user)) is not None:
         return early
@@ -125,14 +125,14 @@ def new_batch_form(
 @router.post("", response_class=HTMLResponse)
 def stage_batch_view(
     request: Request,
-    animal_id: list[str] = Form([]),
-    voluntario_entrada_id: list[str] = Form([]),
-    fecha_entrada: list[str] = Form([]),
-    origen: list[str] = Form([]),
-    motivo: list[str] = Form([]),
-    observaciones: list[str] = Form([]),
-    user: Response | dict = Depends(require_writer_user),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    animal_id: Annotated[list[str], Form()] = [],
+    voluntario_entrada_id: Annotated[list[str], Form()] = [],
+    fecha_entrada: Annotated[list[str], Form()] = [],
+    origen: Annotated[list[str], Form()] = [],
+    motivo: Annotated[list[str], Form()] = [],
+    observaciones: Annotated[list[str], Form()] = [],
+    user: Annotated[Response | dict, Depends(require_writer_user)] = None,
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)] = None,
 ):
     if (early := return_early_if_response(user)) is not None:
         return early
@@ -206,8 +206,8 @@ def stage_batch_view(
 def batch_preview(
     batch_id: str,
     request: Request,
-    user: Response | dict = Depends(require_authorized_user),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[Response | dict, Depends(require_authorized_user)],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     if (early := return_early_if_response(user)) is not None:
         return early
@@ -228,8 +228,8 @@ def batch_preview(
 def commit_batch_view(
     batch_id: str,
     request: Request,
-    user: Response | dict = Depends(require_writer_user),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[Response | dict, Depends(require_writer_user)],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     if (early := return_early_if_response(user)) is not None:
         return early
@@ -272,8 +272,8 @@ def commit_batch_view(
 def cancel_batch_view(
     batch_id: str,
     request: Request,
-    user: Response | dict = Depends(require_writer_user),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[Response | dict, Depends(require_writer_user)],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     if (early := return_early_if_response(user)) is not None:
         return early

@@ -75,6 +75,7 @@ from app.core.middleware import (
 from app.core.migration.sql_runner import apply_sql_migrations
 from app.core.request_context import CorrelationIdMiddleware
 from app.routes_registry import register_routers
+from typing import Annotated
 
 _STATIC_DIR = Path(__file__).parent / "static"
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -214,7 +215,7 @@ def _register_index_handler(app: FastAPI, templates, settings) -> None:
     @app.get("/", response_class=HTMLResponse)
     def index(
         request: Request,
-        current_user: Response | dict = Depends(require_authorized_user),
+        current_user: Annotated[Response | dict, Depends(require_authorized_user)],
     ):
         if (early := return_early_if_response(current_user)) is not None:
             return early
@@ -237,7 +238,7 @@ def _register_unauthorized_handler(app: FastAPI, templates, settings) -> None:
     @app.get("/unauthorized", response_class=HTMLResponse)
     def unauthorized(
         request: Request,
-        current_user: dict | None = Depends(get_current_user_optional),
+        current_user: Annotated[dict | None, Depends(get_current_user_optional)],
     ):
         return templates.TemplateResponse(
             request=request,

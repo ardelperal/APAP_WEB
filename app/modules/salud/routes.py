@@ -27,7 +27,7 @@ Write endpoints use ``require_permission(Permission.WRITE_SALUD)``.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -141,8 +141,8 @@ def _render_terapia_form_error(
 def list_terapias_view(
     request: Request,
     animal_id: str | None = None,
-    user: AuthenticatedUser = Depends(require_permission(Permission.READ_SALUD)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_SALUD))] = None,
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)] = None,
 ):
     """List active terapias; ``?animal_id=`` filters to one animal."""
     if (early := return_early_if_response(user)) is not None:
@@ -166,8 +166,8 @@ def list_terapias_view(
 @router.get("/terapias/new", response_class=HTMLResponse)
 def new_terapia_form(
     request: Request,
-    user: AuthenticatedUser = Depends(require_permission(Permission.WRITE_SALUD)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Empty form for a new terapia."""
     if (early := return_early_if_response(user)) is not None:
@@ -183,12 +183,12 @@ def new_terapia_form(
 @router.post("/terapias", response_class=HTMLResponse)
 def create_terapia_view(
     request: Request,
-    animal_id: str = Form(...),
-    voluntario_id: str = Form(...),
-    fecha: str = Form(...),
-    descripcion: str | None = Form(None),
-    user: AuthenticatedUser = Depends(require_permission(Permission.WRITE_SALUD)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    animal_id: Annotated[str, Form()],
+    voluntario_id: Annotated[str, Form()],
+    fecha: Annotated[str, Form()],
+    descripcion: Annotated[str | None, Form()] = None,
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))] = None,
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)] = None,
 ):
     """Create a terapia; redirect to detail on success.
 
@@ -226,8 +226,8 @@ def create_terapia_view(
 def terapia_detail(
     terapia_id: str,
     request: Request,
-    user: AuthenticatedUser = Depends(require_permission(Permission.READ_SALUD)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_SALUD))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Detail view with its recomendaciones; 404 when the id is missing."""
     if (early := return_early_if_response(user)) is not None:
@@ -254,8 +254,8 @@ def terapia_detail(
 def edit_terapia_form(
     terapia_id: str,
     request: Request,
-    user: AuthenticatedUser = Depends(require_permission(Permission.WRITE_SALUD)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Edit form prefilled from the persisted row."""
     if (early := return_early_if_response(user)) is not None:
@@ -279,12 +279,12 @@ def edit_terapia_form(
 def update_terapia_view(
     terapia_id: str,
     request: Request,
-    animal_id: str = Form(...),
-    voluntario_id: str = Form(...),
-    fecha: str = Form(...),
-    descripcion: str | None = Form(None),
-    user: AuthenticatedUser = Depends(require_permission(Permission.WRITE_SALUD)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    animal_id: Annotated[str, Form()],
+    voluntario_id: Annotated[str, Form()],
+    fecha: Annotated[str, Form()],
+    descripcion: Annotated[str | None, Form()] = None,
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))] = None,
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)] = None,
 ):
     """Update an existing terapia; redirect to detail on success.
 
@@ -324,8 +324,8 @@ def update_terapia_view(
 def delete_terapia_view(
     terapia_id: str,
     request: Request,
-    user: AuthenticatedUser = Depends(require_permission(Permission.WRITE_SALUD)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Soft-delete via ``salud_service.delete_terapia``.
 
@@ -369,8 +369,8 @@ def delete_terapia_view(
 def list_recomendaciones_view(
     terapia_id: str,
     request: Request,
-    user: AuthenticatedUser = Depends(require_permission(Permission.READ_SALUD)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_SALUD))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """List active recomendaciones for a terapia."""
     if (early := return_early_if_response(user)) is not None:
@@ -394,10 +394,10 @@ def list_recomendaciones_view(
 def create_recomendacion_view(
     terapia_id: str,
     request: Request,
-    fecha: str = Form(...),
-    texto: str = Form(...),
-    user: AuthenticatedUser = Depends(require_permission(Permission.WRITE_SALUD)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    fecha: Annotated[str, Form()],
+    texto: Annotated[str, Form()],
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Create a recomendacion linked to the terapia.
 
@@ -442,8 +442,8 @@ def create_recomendacion_view(
 def complete_recomendacion_view(
     recomendacion_id: str,
     request: Request,
-    user: AuthenticatedUser = Depends(require_permission(Permission.WRITE_SALUD)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Mark a recomendacion as completed (``completada=true``).
 
@@ -480,8 +480,8 @@ def complete_recomendacion_view(
 def delete_recomendacion_view(
     recomendacion_id: str,
     request: Request,
-    user: AuthenticatedUser = Depends(require_permission(Permission.WRITE_SALUD)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Soft-delete a recomendacion.
 

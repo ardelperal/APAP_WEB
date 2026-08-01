@@ -71,6 +71,7 @@ from app.core.insforge import InsForgeClient
 from app.core.middleware import base_template_context_processor
 from app.modules.materiales import estancia_material_service
 from app.modules.materiales import service as materiales_service
+from typing import Annotated
 
 # Prefix intentionally omitted (the handler URLs are absolute
 # ``/acogidas/{id}/materiales``) — adding a prefix here would
@@ -179,8 +180,8 @@ def _render_per_stay_list(
 def list_estancia_materiales_view(
     estancia_id: str,
     request: Request,
-    user: AuthenticatedUser = Depends(require_authorized_user),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_authorized_user)],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Per-stay junction list.
 
@@ -217,11 +218,11 @@ def list_estancia_materiales_view(
 def assign_material_to_estancia_view(
     estancia_id: str,
     request: Request,
-    material_id: str = Form(...),
-    cantidad: str = Form("1"),
-    notas: str | None = Form(None),
-    user: AuthenticatedUser = Depends(require_writer_user),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    material_id: Annotated[str, Form()],
+    cantidad: Annotated[str, Form()] = "1",
+    notas: Annotated[str | None, Form()] = None,
+    user: Annotated[AuthenticatedUser, Depends(require_writer_user)] = None,
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)] = None,
 ):
     """Assign a material to this stay.
 
@@ -314,8 +315,8 @@ def remove_material_from_estancia_view(
     estancia_id: str,
     junction_id: str,
     request: Request,
-    user: AuthenticatedUser = Depends(require_writer_user),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_writer_user)],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Soft-delete a single junction row.
 
