@@ -88,6 +88,13 @@ jobs:
         # test_ci_workflow_lint_job_runs_docstring_gate.
         run: python scripts/check_docstring_coverage.py
 
+      - name: Run CC complexity ratchet (AGENTS.md rule 21 + issues #336, #332)
+        # Issue #332 — removing this step is a blocked change. The ratchet
+        # enforces CC <= 15 on create_app (issue #336) and
+        # apply_web_to_legacy (issue #332); the baselines in BASELINE_CC
+        # may only decrease. Companion to the module-size ratchet above.
+        run: python scripts/check_complexity.py
+
       - name: Diagnostic secret-leak scan
         run: grep -rE '(http://|https://|sk-|ghp_)[A-Za-z0-9]+' .github/ || true
 
