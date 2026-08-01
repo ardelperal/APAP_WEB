@@ -6,6 +6,13 @@ executed against a real Postgres engine.
 
 CI supplies ``APAP_TEST_POSTGRES_DSN`` via the service container.
 The job MUST NOT silently skip when the DSN is absent.
+
+catalogos_* CREATE TABLE statements are inlined here (issue #329 follow-up:
+#379 re-applied the conftest without these, so the FK from ``contratos``
+to ``catalogos_tipos_contrato`` failed on a fresh service container and
+poisoned the rest of the transaction). Keeping them inline (rather than a
+new ``app/core/domain_catalogos.py``) preserves the conftest's "stdlib-only,
+no InsForge coupling" property and matches the close-scope fix.
 """
 
 from __future__ import annotations
@@ -60,11 +67,102 @@ from app.core.domain_voluntarios import (
     VOLUNTARIOS_CREATE_TABLE_SQL,
 )
 
+# catalogos_* CREATE TABLE statements (issue #329 follow-up).
+# Schemas verified 2026-08-01 against the InsForge project's underlying
+# Postgres via `insforge.get-table-schema` MCP. The integration tests use raw
+# psycopg against the service container — these CREATE TABLE IF NOT EXISTS
+# statements are the only thing needed to make the ephemeral schema match
+# the InsForge domain + catalogos layout.
+_CATALOGOS_MOTIVOS_CREATE_TABLE_SQL = """\
+CREATE TABLE IF NOT EXISTS catalogos_motivos (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    codigo TEXT NOT NULL,
+    nombre TEXT NOT NULL,
+    especie TEXT NOT NULL,
+    activo BOOLEAN NOT NULL DEFAULT true,
+    orden INTEGER,
+    fecha_alta TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS catalogos_motivos_natural_key
+    ON catalogos_motivos (codigo, especie);
+"""
+
+_CATALOGOS_ORIGENES_CREATE_TABLE_SQL = """\
+CREATE TABLE IF NOT EXISTS catalogos_origenes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    codigo TEXT NOT NULL,
+    nombre TEXT NOT NULL,
+    descripcion TEXT,
+    activo BOOLEAN NOT NULL DEFAULT true,
+    orden INTEGER,
+    fecha_alta TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS catalogos_origenes_codigo_key
+    ON catalogos_origenes (codigo);
+"""
+
+_CATALOGOS_PERIODICIDAD_CREATE_TABLE_SQL = """\
+CREATE TABLE IF NOT EXISTS catalogos_periodicidad (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    codigo TEXT NOT NULL,
+    nombre TEXT NOT NULL,
+    periodicidad_meses INTEGER NOT NULL,
+    activo BOOLEAN NOT NULL DEFAULT true,
+    orden INTEGER,
+    fecha_alta TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS catalogos_periodicidad_codigo_key
+    ON catalogos_periodicidad (codigo);
+"""
+
+_CATALOGOS_PRUEBAS_CREATE_TABLE_SQL = """\
+CREATE TABLE IF NOT EXISTS catalogos_pruebas (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    codigo TEXT NOT NULL,
+    nombre TEXT NOT NULL,
+    especie TEXT NOT NULL,
+    observaciones TEXT,
+    activo BOOLEAN NOT NULL DEFAULT true,
+    orden INTEGER,
+    fecha_alta TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS catalogos_pruebas_natural_key
+    ON catalogos_pruebas (codigo, especie);
+"""
+
+_CATALOGOS_TIPOS_CONTRATO_CREATE_TABLE_SQL = """\
+CREATE TABLE IF NOT EXISTS catalogos_tipos_contrato (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    codigo TEXT NOT NULL,
+    nombre TEXT NOT NULL,
+    iniciales TEXT,
+    descripcion TEXT,
+    tabla_legacy TEXT,
+    campo_legacy TEXT,
+    activo BOOLEAN NOT NULL DEFAULT true,
+    orden INTEGER,
+    fecha_alta TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS catalogos_tipos_contrato_codigo_key
+    ON catalogos_tipos_contrato (codigo);
+"""
+
 _DSN_ENV = "APAP_TEST_POSTGRES_DSN"
 
-# Full ordered list of domain schema statements needed for integration tests.
-# Mirrors ensure_domain_schema() ordering (respects FK dependencies).
+# Full ordered list of schema statements needed for integration tests.
+# Order respects FK dependencies: catalogos_* first (no FKs of their own,
+# but referenced by contratos), then the existing domain statements.
 _DOMAIN_SQL_STATEMENTS = (
+    _CATALOGOS_MOTIVOS_CREATE_TABLE_SQL,
+    _CATALOGOS_ORIGENES_CREATE_TABLE_SQL,
+    _CATALOGOS_PERIODICIDAD_CREATE_TABLE_SQL,
+    _CATALOGOS_PRUEBAS_CREATE_TABLE_SQL,
+    _CATALOGOS_TIPOS_CONTRATO_CREATE_TABLE_SQL,
     ANIMALS_CREATE_TABLE_SQL,
     VOLUNTARIOS_CREATE_TABLE_SQL,
     ROLES_VOLUNTARIO_CREATE_TABLE_SQL,
@@ -109,6 +207,102 @@ def _require_postgres_dsn() -> str:
     return dsn
 
 
+def _split_sql_statements(sql_text: str) -> list[str]:
+    """Split a multi-statement SQL string on outer semicolons.
+
+    Respects PostgreSQL dollar-quoted blocks (``$$ ... $$`` and
+    ``$tag$ ... $tag$``) and single-quoted string literals (with
+    ``''`` as the escape). A naive ``split(';')`` breaks on the
+    semicolons inside ``CREATE FUNCTION ... AS $$ ... $$ BEGIN ...
+    'foo; bar' ... END; $$ LANGUAGE plpgsql`` bodies, so this
+    splitter walks character-by-character and only emits a split at
+    semicolons that are outside any quoted region.
+    """
+    statements: list[str] = []
+    buf: list[str] = []
+    i = 0
+    n = len(sql_text)
+    in_single = False
+    dollar_tag: str | None = None  # the open tag (e.g. "$$" or "$func$") if inside one
+
+    while i < n:
+        ch = sql_text[i]
+
+        # Inside a single-quoted string: only '' (escaped quote) ends it.
+        if in_single:
+            buf.append(ch)
+            if ch == "'":
+                if i + 1 < n and sql_text[i + 1] == "'":
+                    buf.append("'")
+                    i += 2
+                    continue
+                in_single = False
+            i += 1
+            continue
+
+        # Inside a dollar-quoted block: only the matching $tag$ ends it.
+        if dollar_tag is not None:
+            buf.append(ch)
+            if ch == "$" and sql_text[i : i + len(dollar_tag)] == dollar_tag:
+                # Append the rest of the tag (we already appended the leading '$').
+                buf.extend(dollar_tag[1:])
+                i += len(dollar_tag)
+                dollar_tag = None
+                continue
+            i += 1
+            continue
+
+        # Generic handling outside any quoted region.
+        if ch == "'":
+            buf.append(ch)
+            in_single = True
+            i += 1
+            continue
+
+        if ch == "$":
+            # Try to match a dollar-quote tag: $$, $tag$, $tag123$
+            j = i + 1
+            while j < n and (sql_text[j].isalnum() or sql_text[j] == "_"):
+                j += 1
+            if j < n and sql_text[j] == "$":
+                dollar_tag = sql_text[i : j + 1]
+                buf.append(dollar_tag)
+                i = j + 1
+                continue
+            # Not a dollar-quote; fall through and treat as a literal char.
+
+        if ch == ";":
+            stmt = "".join(buf).strip()
+            if stmt:
+                statements.append(stmt)
+            buf = []
+            i += 1
+            continue
+
+        buf.append(ch)
+        i += 1
+
+    tail = "".join(buf).strip()
+    if tail:
+        statements.append(tail)
+    return statements
+
+
+def _run_statements(
+    conn: psycopg.Connection, statements: tuple[str, ...]
+) -> None:
+    """Execute every (multi-)statement from ``statements`` against ``conn``.
+
+    Each entry is run via a separate ``execute()`` call so the
+    ``conn.autocommit=True`` setting (set by the caller) commits each
+    statement independently. A failure surfaces the offending SQL
+    immediately instead of poisoning the rest of the loop.
+    """
+    for raw in statements:
+        for stmt in _split_sql_statements(raw):
+            conn.execute(sql.SQL(stmt))
+
+
 @pytest.fixture(scope="session")
 def ephemeral_postgres() -> Iterator[_EphemeralPostgres]:
     """Session-scoped ephemeral Postgres schema with full domain schema.
@@ -133,23 +327,27 @@ class _EphemeralPostgres:
         self._provision()
 
     def _provision(self) -> None:
-        """Create the ephemeral schema and provision all domain tables."""
-        with psycopg.connect(self._dsn) as conn:
+        """Create the ephemeral schema and provision all domain tables.
+
+        Uses ``autocommit=True`` so each statement is its own transaction —
+        a failure in one statement does not poison the connection for the
+        rest of the loop. This means pytest reports the FIRST failing
+        statement instead of every subsequent one complaining about the
+        same ``[BAD]`` connection state.
+
+        ``_run_statements`` further splits each multi-statement SQL
+        constant on outer semicolons (respecting dollar-quoted blocks and
+        single-quoted string literals), so the ``;`` inside a
+        ``RAISE EXCEPTION 'foo; bar'`` does not break the body.
+        """
+        with psycopg.connect(self._dsn, autocommit=True) as conn:
             conn.execute(
                 sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(self._schema))
             )
-            # Set search_path for the schema
             conn.execute(
                 sql.SQL("SET search_path TO {}").format(sql.Identifier(self._schema))
             )
-            for statement in _DOMAIN_SQL_STATEMENTS:
-                # Each statement is a multi-statement SQL string; execute them
-                # one by one. Skip empty strings.
-                for line in statement.strip().split(";"):
-                    trimmed = line.strip()
-                    if trimmed:
-                        conn.execute(sql.SQL(trimmed))
-            conn.commit()
+            _run_statements(conn, _DOMAIN_SQL_STATEMENTS)
         self._provisioned = True
 
     def teardown(self) -> None:
@@ -157,13 +355,12 @@ class _EphemeralPostgres:
         if not self._provisioned:
             return
         try:
-            with psycopg.connect(self._dsn) as conn:
+            with psycopg.connect(self._dsn, autocommit=True) as conn:
                 conn.execute(
                     sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(
                         sql.Identifier(self._schema)
                     )
                 )
-                conn.commit()
         except Exception:
             # Best-effort cleanup; don't fail if already gone
             pass
