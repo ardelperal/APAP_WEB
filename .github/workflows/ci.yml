@@ -202,32 +202,13 @@ jobs:
 
   integration:
     name: integration
-    # See lint job for the runs-on rationale. This job is also gated
-    # on `APAP_INTEGRATION_ENABLED` (default empty → skipped) so it
-    # does not allocate a Postgres service container on every PR by
-    # default. When the org explicitly enables integration tests, the
-    # job runs on the self-hosted runner with the same service container
-    # as the test job.
-    runs-on: [self-hosted, Linux, ARM64, apap, oracle]
+    runs-on: ubuntu-latest
     needs: lint
     # Issue #329: integration tests execute every exported query function
     # from app/modules/*/queries.py against a real Postgres engine.
     # The job MUST NOT silently skip when the DSN is absent (the fixture
     # hard-fails with a clear message, it does not pytest.skip()).
     # The Postgres service container supplies APAP_TEST_POSTGRES_DSN.
-    #
-    # §32.P7 anti-pattern guard: the integration job allocates a Postgres
-    # service container (port 5432) AND the `test` job already does too,
-    # doubling the per-run resource cost. Without this gate, GitHub Actions
-    # runs out of billing/spending budget and every job fails in 3-10s
-    # with `runner_id: 0`. Mirror the `e2e` job's conditional pattern:
-    # only run when the org has explicitly enabled it via the
-    # APAP_INTEGRATION_ENABLED var. When the var is empty (the default), the
-    # job is skipped, CI is light again, and main is no longer blocked by
-    # a job whose only purpose is to validate SQL correctness — which the
-    # local pytest suite can do as long as APAP_TEST_POSTGRES_DSN is set
-    # in the developer's environment.
-    if: ${{ vars.APAP_INTEGRATION_ENABLED != '' }}
     services:
       postgres:
         image: postgres:17-alpine
@@ -272,7 +253,6 @@ jobs:
 
   build:
     name: build
-    # See lint job for the runs-on rationale.
     runs-on: [self-hosted, Linux, ARM64, apap, oracle]
     needs: [test, integration]
     steps:
@@ -363,10 +343,6 @@ jobs:
 
   deploy:
     name: deploy
-    # See lint job for the runs-on rationale. Deploy only fires on
-    # push-to-main (gated below); routing to self-hosted avoids the
-    # GitHub-hosted runner block. The deploy step itself just POSTs
-    # to the Coolify webhook — Python 3.12 is enough.
     runs-on: [self-hosted, Linux, ARM64, apap, oracle]
     needs: [lint, typecheck, test, integration, build]
     # Fires on every push to main: PR merges (the normal pre-MVP path per

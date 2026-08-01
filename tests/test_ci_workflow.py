@@ -412,9 +412,8 @@ def test_ci_workflow_defines_deploy_job_with_gating() -> None:
 
     assert "  deploy:" in workflow
     assert "  name: deploy" in workflow
-    # needs must reference the four required jobs (typecheck added by
-    # issue #201; integration added by issue #361 — the type gate is
-    # mandatory before deploy).
+    # needs must reference the five required jobs (typecheck added by
+    # issue #201; integration added by issue #329).
     assert "needs: [lint, typecheck, test, integration, build]" in workflow
 
     # Extract the job-level if: clause

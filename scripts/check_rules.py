@@ -185,6 +185,49 @@ BASELINE_NO_QUERIES_MODULES: frozenset[str] = frozenset(
     }
 )
 
+# Detector 15 (issue #329) ----------------------------------------------------
+#
+# ``BASELINE_NO_INTEGRATION_TESTS`` — grandfathered ``(file_rel, func_name)``
+# pairs for ``build_*`` functions in ``app/modules/*/queries.py`` that were
+# added AFTER #329's closed scope (animals + tasks, added post-#355) and
+# therefore have no integration tests in scope for this detector.
+#
+# Rationale: these modules were added after the #355 feature branch landed
+# and are explicitly out of #329's scope per the audit's "closed scope" rule.
+# Adding them to the baseline (rather than writing tests) is the correct
+# migration path — a follow-up issue will add the integration tests.
+#
+# Format: ``(module_rel_path, function_name)`` tuples.
+# ``module_rel_path`` is the repo-root-relative POSIX path to the queries.py.
+# ``function_name`` is the exact ``build_*`` function name.
+#
+# The detector skips (does not flag) any ``build_*`` function that appears
+# in this set. Adding a new entry is the correct action when a new
+# ``queries.py`` module is added without integration tests (rather than
+# disabling the detector or writing a placeholder test).
+
+BASELINE_NO_INTEGRATION_TESTS: frozenset[tuple[str, str]] = frozenset(
+    {
+        # animals/queries.py — added post-#355, out of #329 scope
+        ("app/modules/animals/queries.py", "build_animal_count"),
+        ("app/modules/animals/queries.py", "build_animal_search"),
+        # tasks/queries.py — added post-#355, out of #329 scope
+        ("app/modules/tasks/queries.py", "build_get_tarea"),
+        ("app/modules/tasks/queries.py", "build_insert_tarea"),
+        ("app/modules/tasks/queries.py", "build_list_tareas"),
+        ("app/modules/tasks/queries.py", "build_update_estado"),
+        ("app/modules/tasks/queries.py", "build_update_metadata"),
+        ("app/modules/tasks/queries.py", "build_update_responsable"),
+        # Grandfathered fixture (detector15_grandfathered): build_baz has
+        # no integration test but is in BASELINE_NO_INTEGRATION_TESTS,
+        # so Detector 15 verifies the grandfathering mechanism works correctly.
+        (
+            "app/modules/baz_fixture/queries.py",
+            "build_baz",
+        ),
+    }
+)
+
 _IGNORE_FILENAME = ".check_rulesignore"
 
 
@@ -206,6 +249,9 @@ def find_violations(
     for path in _iter_python_files(repo_root):
         violations.extend(_scan_file(path, repo_root))
     violations.extend(_check_duplicate_helper_definitions(repo_root))
+    # Detector 15 (issue #329): integration test coverage — repo-level,
+    # runs after all per-file scans so all queries.py have been seen.
+    violations.extend(_check_integration_test_coverage(repo_root))
     if excludes:
         return [v for v in violations if not _is_excluded(v.file, repo_root, excludes)]
     return violations
@@ -942,6 +988,138 @@ def _is_route_file(path: Path, repo_root: Path) -> bool:
 
 
 _USER_ANY_PARAM_RE = re.compile(r"\buser\s*:\s*Any\b")
+
+
+def _check_integration_test_coverage(repo_root: Path) -> list[Violation]:
+    """Detector 15 — issue #329.
+
+    Reflection-based detector that enumerates every ``queries.py`` in
+    ``app/modules/`` and fails if any exported ``build_*`` function lacks
+    an integration test exercising it in ``tests/integration/``.
+
+    The detection is reflection-based (not hardcoded):
+      1. Walk ``app/modules/*/queries.py`` — collect all top-level function
+         names starting with ``build_``.
+      2. For each module, find ``tests/integration/test_<module>_queries_integration.py``
+         (if it exists) OR ``tests/_rule_helpers/fixtures/detector15_<positive|negative>/``.
+      3. Parse that test file and collect all ``def test_build_<name>`` names.
+      4. Any ``build_*`` in the queries module without a matching
+         ``test_build_*`` in the integration file is a violation.
+
+    A module with no ``queries.py`` produces zero violations (the detector
+    only fires for modules that have a queries.py).
+
+    The detector runs at the repo level (not per-file) because it needs
+    to cross-reference two different directory trees.
+    """
+    violations: list[Violation] = []
+    modules_dir = repo_root / "app" / "modules"
+    if not modules_dir.is_dir():
+        return violations
+
+    integration_dir = repo_root / "tests" / "integration"
+    fixtures_dir = repo_root / "tests" / "_rule_helpers" / "fixtures"
+
+    for queries_path in sorted(modules_dir.glob("*/queries.py")):
+        module_name = queries_path.parent.name
+
+        # 1. Collect all build_* functions from the queries module
+        try:
+            tree = ast.parse(queries_path.read_text(encoding="utf-8"), filename=str(queries_path))
+        except (SyntaxError, UnicodeDecodeError):
+            continue
+
+        build_funcs: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if node.name.startswith("build_"):
+                    build_funcs.add(node.name)
+
+        if not build_funcs:
+            continue  # Nothing to check
+
+        # 2. Find the corresponding integration test file (fixture root path
+        # is checked so that Detector 15 itself can be tested with fixture files
+        # that live outside the real tests/ tree and do not shadow the pytest
+        # ``tests`` namespace package).
+        integration_test_path = integration_dir / f"test_{module_name}_queries_integration.py"
+        fixture_root_path: Path | None = None
+        if fixtures_dir.is_dir():
+            for fixture_dir in sorted(fixtures_dir.iterdir()):
+                if not fixture_dir.is_dir():
+                    continue
+                candidate = fixture_dir / f"test_{module_name}_queries_integration.py"
+                if candidate.exists():
+                    fixture_root_path = candidate
+                    break
+
+        if not integration_test_path.exists() and fixture_root_path is None:
+            # No integration test file at all — one violation per untested build_*
+            file_rel = queries_path.relative_to(repo_root).as_posix()
+            for func_name in sorted(build_funcs):
+                # Skip grandfathered functions (out of #329 scope)
+                if (file_rel, func_name) in BASELINE_NO_INTEGRATION_TESTS:
+                    continue
+                violations.append(
+                    Violation(
+                        file=queries_path,
+                        line=1,
+                        rule_id="integration_test_coverage",
+                        message=(
+                            f"Query function {func_name!r} in "
+                            f"app/modules/{module_name}/queries.py has no integration test. "
+                            f"Expected tests/integration/test_{module_name}_queries_integration.py "
+                            f"to contain a test_{func_name} test. "
+                            f"Issue #329: SQL must be validated against a real Postgres engine."
+                        ),
+                    )
+                )
+            continue
+
+        # Use whichever was found (fixture root takes precedence if both exist,
+        # which cannot happen in practice since module names differ)
+        test_file = fixture_root_path if fixture_root_path else integration_test_path
+
+        # 3. Parse the integration test file and collect test function names
+        try:
+            test_tree = ast.parse(
+                test_file.read_text(encoding="utf-8"),
+                filename=str(test_file),
+            )
+        except (SyntaxError, UnicodeDecodeError):
+            # Parse error in the test file — skip rather than flagging
+            # false violations. A separate test would catch the syntax error.
+            continue
+
+        tested_funcs: set[str] = set()
+        for node in ast.walk(test_tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if node.name.startswith("test_build_"):
+                    # Extract the build function name: test_build_foo -> build_foo
+                    tested_funcs.add(node.name[len("test_") :])
+
+        # 4. Any build_* without a test_build_* is a violation
+        file_rel = queries_path.relative_to(repo_root).as_posix()
+        for func_name in sorted(build_funcs - tested_funcs):
+            # Skip grandfathered functions (out of #329 scope)
+            if (file_rel, func_name) in BASELINE_NO_INTEGRATION_TESTS:
+                continue
+            violations.append(
+                Violation(
+                    file=queries_path,
+                    line=1,
+                    rule_id="integration_test_coverage",
+                    message=(
+                        f"Query function {func_name!r} in "
+                        f"app/modules/{module_name}/queries.py has no integration test. "
+                        f"Expected test_{func_name!r} in "
+                        f"tests/integration/test_{module_name}_queries_integration.py. "
+                        f"Issue #329: SQL must be validated against a real Postgres engine."
+                    ),
+                )
+            )
+
+    return violations
 
 
 def _check_apap004_any_auth_dep(path: Path, tree: ast.AST) -> list[Violation]:

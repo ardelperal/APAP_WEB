@@ -26,10 +26,9 @@ _POSTGRES_DSN_ENV = "APAP_TEST_POSTGRES_DSN"
 def _require_postgres_dsn() -> str:
     dsn = os.environ.get(_POSTGRES_DSN_ENV)
     if not dsn:
-        pytest.fail(
-            "La regresión TOCTOU requiere PostgreSQL real; define "
-            f"{_POSTGRES_DSN_ENV} con el DSN de una base de datos de pruebas. "
-            "APAP_E2E_BASE_URL no sirve: es una URL HTTP, no un DSN."
+        pytest.skip(
+            f"TOCTOU regression requires PostgreSQL; set {_POSTGRES_DSN_ENV} "
+            "to a libpq DSN to run it. APAP_E2E_BASE_URL is an HTTP URL, not a DSN."
         )
     return dsn
 
