@@ -91,7 +91,7 @@ def test_build_resumen_sanitario(ephemeral_postgres: _EphemeralPostgres) -> None
     # Insert an actuacion so there's data to return
     actuacion_id = str(uuid4())
     ephemeral_postgres.execute(
-        f"INSERT INTO actuaciones (id, animal_id, voluntario_id, tipo_actuacion_id, "
+        f"INSERT INTO actuacion_sanitaria (id, animal_id, voluntario_id, tipo_actuacion_id, "
         f"fecha, veterinario, observaciones, material_utilizado, activo, fecha_alta) "
         f"VALUES ('{actuacion_id}', '{related['animal_id']}', "
         f"'{related['voluntario_id']}', '{related['tipo_actuacion_id']}', "
