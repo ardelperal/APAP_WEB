@@ -164,7 +164,7 @@ def test_build_acogida_update(
     sql, params = q.build_acogida_update(
         str(acogida_id), {"direccion": "Calle actualizada", "telefono": "600999999"}
     )
-    rows = ephemeral_postgres.execute(sql, params)
+    rows = ephemeral_postgres.execute(sql, [str(acogida_id), *params])
     assert len(rows) == 1
     assert rows[0]["direccion"] == "Calle actualizada"
     assert rows[0]["telefono"] == "600999999"

@@ -300,18 +300,20 @@ def build_acogida_update(
         for col in ACOGIDA_WRITE_COLUMNS
         if col in params or col not in _UPDATE_PATCH_ONLY_COLUMNS
     )
-    # psycopg3 uses $N positional placeholders. SET columns come first
-    # in the params list; id comes LAST so WHERE id = $N+1.
-    n_set = len(set_columns)
+    # psycopg3 uses $N positional placeholders. The id is reserved for
+    # ``$1`` (WHERE id = $1); the SET placeholders start at ``$2``. The
+    # caller (service) is responsible for prepending the id to the
+    # returned write_params when calling ``client.execute_sql``, mirroring
+    # the ``build_material_update`` precedent.
     sql = (
         "UPDATE acogidas "
-        + "SET " + ", ".join(f"{col} = ${i + 1}" for i, col in enumerate(set_columns))
+        + "SET " + ", ".join(f"{col} = ${i + 2}" for i, col in enumerate(set_columns))
         + ", updated_at = now() "
-        + f"WHERE id = ${n_set + 1} "
+        + "WHERE id = $1 "
         + "RETURNING " + ", ".join(ACOGIDA_SELECT_COLUMNS)
     )
     write_params = _extract_write_params(params, columns=set_columns)
-    return sql, [*write_params, acogida_id]
+    return sql, write_params
 
 
 def build_acogida_close(acogida_id: str) -> tuple[str, list[Any]]:
