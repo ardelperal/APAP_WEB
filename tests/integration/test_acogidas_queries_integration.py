@@ -76,8 +76,8 @@ def test_build_acogida_insert(
     )
     rows = ephemeral_postgres.execute(sql, params)
     assert len(rows) == 1
-    assert rows[0]["animal_id"] == related["animal_id"]
-    assert rows[0]["casa_acogida_id"] == related["casa_id"]
+    assert str(rows[0]["animal_id"]) == related["animal_id"]
+    assert str(rows[0]["casa_acogida_id"]) == related["casa_id"]
     assert rows[0]["activo"] is True
 
 

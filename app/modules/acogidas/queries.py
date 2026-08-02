@@ -75,7 +75,6 @@ ACOGIDA_SELECT_COLUMNS: Final[tuple[str, ...]] = (
     "telefono",
     "observaciones",
     "fecha_alta",
-    "fecha_baja",
     "updated_at",
     "activo",
 )
@@ -97,7 +96,7 @@ _UPDATE_PATCH_ONLY_COLUMNS: Final[frozenset[str]] = frozenset({"fecha_final"})
 
 _ACOGIDA_INSERT_SQL: Final[str] = (
     f"INSERT INTO acogidas ({', '.join(ACOGIDA_WRITE_COLUMNS)}) "
-    f"VALUES ({', '.join(f'${i + 1}' for i in range(len(ACOGIDA_WRITE_COLUMNS)))}) "
+    f"VALUES ({', '.join(['%s'] * len(ACOGIDA_WRITE_COLUMNS))}) "
     f"RETURNING {', '.join(ACOGIDA_SELECT_COLUMNS)}"
 )
 

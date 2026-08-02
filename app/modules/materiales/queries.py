@@ -89,7 +89,7 @@ JUNCTION_SELECT_COLUMNS: Final[tuple[str, ...]] = (
 
 _MATERIAL_INSERT_SQL: Final[str] = (
     f"INSERT INTO materiales ({', '.join(MATERIAL_WRITE_COLUMNS)}) "
-    f"VALUES ({', '.join(f'${i + 1}' for i in range(len(MATERIAL_WRITE_COLUMNS)))}) "
+    f"VALUES ({', '.join(['%s'] * len(MATERIAL_WRITE_COLUMNS))}) "
     f"RETURNING {', '.join(MATERIAL_SELECT_COLUMNS)}"
 )
 
@@ -143,7 +143,7 @@ RETURNING id
 
 _JUNCTION_INSERT_SQL: Final[str] = (
     f"INSERT INTO estancia_materiales ({', '.join(JUNCTION_WRITE_COLUMNS)}) "
-    f"VALUES ({', '.join(f'${i + 1}' for i in range(len(JUNCTION_WRITE_COLUMNS)))}) "
+    f"VALUES ({', '.join(['%s'] * len(JUNCTION_WRITE_COLUMNS))}) "
     f"RETURNING {', '.join(JUNCTION_SELECT_COLUMNS)}"
 )
 
