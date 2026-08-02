@@ -322,11 +322,14 @@ def _truncate_between_tests(ephemeral_postgres: _EphemeralPostgres) -> None:
     """Wipe all data before each test for isolation under the session-scoped schema."""
     with ephemeral_postgres.connection() as conn:
         with conn.cursor() as cur:
+            # ``pg_class`` / ``pg_attribute`` etc. all start with ``pg`` —
+            # using ``pg%`` (no underscore) avoids the psycopg3 ambiguity
+            # around ``pg_%`` which it parses as a ``%(name)`` placeholder.
             cur.execute(
                 """
                 SELECT tablename FROM pg_tables
                 WHERE schemaname = $1
-                AND tablename NOT LIKE 'pg_%'
+                AND tablename NOT LIKE 'pg%'
                 """,
                 (ephemeral_postgres.schema,),
             )
