@@ -325,8 +325,8 @@ def _truncate_between_tests(ephemeral_postgres: _EphemeralPostgres) -> None:
             cur.execute(
                 """
                 SELECT tablename FROM pg_tables
-                WHERE schemaname = %s
-                AND tablename NOT LIKE 'pg_%%'
+                WHERE schemaname = $1
+                AND tablename NOT LIKE 'pg_%'
                 """,
                 (ephemeral_postgres.schema,),
             )
