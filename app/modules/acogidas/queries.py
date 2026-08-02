@@ -104,7 +104,7 @@ _ACOGIDA_INSERT_SQL: Final[str] = (
 
 _ACOGIDA_GET_BY_ID_SQL: Final[str] = (
     f"SELECT {', '.join(ACOGIDA_SELECT_COLUMNS)} "
-    "FROM acogidas WHERE id = %s"
+    "FROM acogidas WHERE id = $1"
 )
 
 
@@ -131,7 +131,7 @@ _ACOGIDA_LIST_ACTIVAS_SQL: Final[str] = (
 _ACOGIDA_CLOSE_SQL: Final[str] = (
     f"UPDATE acogidas SET fecha_final = CURRENT_DATE, "
     f"updated_at = now() "
-    f"WHERE id = %s "
+    f"WHERE id = $1 "
     f"RETURNING {', '.join(ACOGIDA_SELECT_COLUMNS)}"
 )
 
@@ -144,7 +144,7 @@ UPDATE acogidas
 SET activo = false,
     fecha_baja = now(),
     updated_at = now()
-WHERE id = %s AND activo = true
+WHERE id = $1 AND activo = true
 RETURNING id
 """
 
@@ -153,12 +153,12 @@ RETURNING id
 
 
 _ACOGIDA_CHECK_ANIMAL_SQL: Final[str] = (
-    "SELECT id, activo FROM animales WHERE id = %s"
+    "SELECT id, activo FROM animales WHERE id = $1"
 )
 
 
 _ACOGIDA_CHECK_CASA_SQL: Final[str] = (
-    "SELECT id, activo FROM casas_acogida WHERE id = %s AND activo = true"
+    "SELECT id, activo FROM casas_acogida WHERE id = $1 AND activo = true"
 )
 
 
@@ -166,14 +166,14 @@ _ACOGIDA_CHECK_CASA_SQL: Final[str] = (
 # for new FK references (VOL-05). Soft-deleted voluntarios are
 # rejected.
 _ACOGIDA_CHECK_VOLUNTARIO_SQL: Final[str] = (
-    "SELECT id, activo FROM voluntarios WHERE id = %s AND activo = true"
+    "SELECT id, activo FROM voluntarios WHERE id = $1 AND activo = true"
 )
 
 
 # Entrada existence check (no active filter — legacy entries may be
 # soft-deleted, but the FK still resolves).
 _ACOGIDA_CHECK_ENTRADA_SQL: Final[str] = (
-    "SELECT id FROM entradas WHERE id = %s"
+    "SELECT id FROM entradas WHERE id = $1"
 )
 
 
@@ -193,10 +193,10 @@ _ACOGIDA_CHECK_ENTRADA_SQL: Final[str] = (
 # UPDATE.
 _ACOGIDA_LINK_OVERRIDE_SQL: Final[str] = """
 UPDATE foster_capacity_overrides
-SET estancia_id = %s
-WHERE id = %s
-  AND casa_acogida_id = %s
-  AND animal_id = %s
+SET estancia_id = $1
+WHERE id = $2
+  AND casa_acogida_id = $3
+  AND animal_id = $4
   AND estancia_id IS NULL
 """
 
@@ -301,19 +301,18 @@ def build_acogida_update(
         for col in ACOGIDA_WRITE_COLUMNS
         if col in params or col not in _UPDATE_PATCH_ONLY_COLUMNS
     )
-    # psycopg positional %s is matched by ORDER of appearance in the SQL string.
-    # SQL order: SET col = %s ... WHERE id = %s (WHERE appears LAST → id is LAST param).
-    # Caller currently calls: execute_sql(sql, [acogida_id, *write_params]).
-    # After this fix the call becomes: execute_sql(sql, [*write_params, acogida_id]).
+    # psycopg3 uses $N positional placeholders. SET columns come first
+    # in the params list; id comes LAST so WHERE id = $N+1.
+    n_set = len(set_columns)
     sql = (
         "UPDATE acogidas "
-        + "SET " + ", ".join(f"{col} = %s" for col in set_columns)
+        + "SET " + ", ".join(f"{col} = ${i + 1}" for i, col in enumerate(set_columns))
         + ", updated_at = now() "
-        + "WHERE id = %s "
+        + f"WHERE id = ${n_set + 1} "
         + "RETURNING " + ", ".join(ACOGIDA_SELECT_COLUMNS)
     )
     write_params = _extract_write_params(params, columns=set_columns)
-    return sql, (*write_params, acogida_id)
+    return sql, [*write_params, acogida_id]
 
 
 def build_acogida_close(acogida_id: str) -> tuple[str, list[Any]]:
