@@ -18,16 +18,16 @@ def test_voluntarios_exports_sql() -> None:
     assert "CREATE TABLE IF NOT EXISTS voluntarios" in VOLUNTARIOS_CREATE_TABLE_SQL
 
 
-def test_voluntarios_sql_has_legacy_columns() -> None:
-    """TbVoluntariosParaAutorrellenables: Voluntario, Tel1, Tel2, Email."""
-    required = {"Voluntario", "Tel1", "Tel2", "Email", "fecha_alta", "activo"}
+def test_voluntarios_sql_has_lowercase_columns() -> None:
+    """TbVoluntariosParaAutorrellenables (lowercase schema): voluntario, tel1, tel2, email."""
+    required = {"voluntario", "tel1", "tel2", "email", "fecha_alta", "activo"}
     for col in required:
         assert col in VOLUNTARIOS_CREATE_TABLE_SQL, f"Missing: {col}"
 
 
 def test_voluntarios_email_and_dni_unique() -> None:
-    assert "Email TEXT UNIQUE" in VOLUNTARIOS_CREATE_TABLE_SQL
-    assert "DNI TEXT UNIQUE" in VOLUNTARIOS_CREATE_TABLE_SQL
+    assert "email TEXT UNIQUE" in VOLUNTARIOS_CREATE_TABLE_SQL
+    assert "dni TEXT UNIQUE" in VOLUNTARIOS_CREATE_TABLE_SQL
 
 
 def test_roles_voluntario_exports_sql() -> None:
@@ -59,6 +59,6 @@ def test_voluntario_model_has_required_fields() -> None:
     from app.core.domain_voluntarios import Voluntario
 
     model = Voluntario.model_fields
-    required_fields = {"id", "Voluntario", "Email", "DNI"}
+    required_fields = {"id", "voluntario", "email", "dni"}
     missing = required_fields - set(model)
     assert not missing, f"Voluntario model missing fields: {missing}"

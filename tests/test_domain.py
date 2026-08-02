@@ -8,11 +8,13 @@ the SQL strings, which keeps the test honest about what the code intends
 to create.
 
 The schema is the **migration target** of the legacy Microsoft Access
-production database (issue #29). Field names use the exact legacy
-CamelCase Spanish spelling (NCHIP, NombreAnimal, FIMPLANTACIONCHIP,
-FNacimiento, FDefuncion, etc.) to keep the migration a near-1:1 column
-copy. The ``Situacion`` legacy column is intentionally absent because
-it is derived.
+production database (issue #29). Field names use the lowercase InsForge
+production spelling (nchip, nombreanimal, fimplantacionchip,
+fnacimiento, fdefuncion, etc.) — the legacy CamelCase columns were
+renamed at the migration seam (commit ``c30ef13 fix(domain): lowercase
+column names to match InsForge production schema``) and the test
+follows the lowercase contract. The ``situacion`` legacy column is
+intentionally absent because it is derived.
 """
 
 from __future__ import annotations
@@ -151,13 +153,15 @@ def test_animales_create_table_sql_has_all_legacy_columns() -> None:
 
     Reference: Dysflow inspection of
     C:\\00repos\\codigo\\APAP_ACTUAL\\Registro_APAP_Alcala_datos_18.accdb
-    on 2026-06-19. The 26 legacy columns are:
-    NCHIP, TraeNChip, FIMPLANTACIONCHIP, NombreAnimal, Especie, Sexo,
-    Raza, Color, Pelo, Tamanyos (legacy encoding), Caracter, FNacimiento,
-    FDefuncion, Terapia, Observaciones, Situacion (REMOVED — derived),
-    NombreFoto, Cartilla, Eutanasia, RazaPPP, Mestizo,
-    EutanasiaOtrasCausas, EutanasiaEnfermedad, UltimoEstadoAntesDeFallecido,
-    ComunicacionARIAC.
+    on 2026-06-19. The 26 legacy columns are renamed to lowercase at the
+    migration seam (commit ``c30ef13 fix(domain): lowercase column names
+    to match InsForge production schema``):
+    nchip, traenchip, fimplantacionchip, nombreanimal, especie, sexo,
+    raza, color, pelo, tamano, caracter, fnacimiento,
+    fdefuncion, terapia, observaciones, situacion (REMOVED — derived),
+    nombrefoto, cartilla, eutanasia, razappp, mestizo,
+    eutanasia_otras_causas, eutanasia_enfermedad,
+    ultimo_estado_antes_de_fallecido, comunicacionariac.
     Plus 3 justified improvements: id, fecha_alta, updated_at, activo.
     """
     columns = _column_names(ANIMALS_CREATE_TABLE_SQL)
@@ -167,57 +171,57 @@ def test_animales_create_table_sql_has_all_legacy_columns() -> None:
         "fecha_alta",
         "updated_at",
         "activo",
-        # Identity (legacy 1:1)
-        "NCHIP",
-        "TraeNChip",
-        "FIMPLANTACIONCHIP",
-        "NombreAnimal",
+        # Identity (legacy 1:1, lowercase)
+        "nchip",
+        "traenchip",
+        "fimplantacionchip",
+        "nombreanimal",
         # Domain (legacy 1:1, with CHECK constraints)
-        "Especie",
-        "Sexo",
+        "especie",
+        "sexo",
         # Physical characteristics (legacy 1:1)
-        "Raza",
-        "Color",
-        "Pelo",
-        "Tamano",
-        "Caracter",
+        "raza",
+        "color",
+        "pelo",
+        "tamano",
+        "caracter",
         # Dates (legacy 1:1)
-        "FNacimiento",
-        "FDefuncion",
+        "fnacimiento",
+        "fdefuncion",
         # Health flags (legacy 1:1)
-        "Terapia",
-        "Eutanasia",
-        "RazaPPP",
-        "Mestizo",
-        "EutanasiaOtrasCausas",
-        "EutanasiaEnfermedad",
-        "ComunicacionARIAC",
+        "terapia",
+        "eutanasia",
+        "razappp",
+        "mestizo",
+        "eutanasia_otras_causas",
+        "eutanasia_enfermedad",
+        "comunicacionariac",
         # Documentation (legacy 1:1)
-        "Observaciones",
-        "NombreFoto",
-        "Cartilla",
-        "UltimoEstadoAntesDeFallecido",
+        "observaciones",
+        "nombrefoto",
+        "cartilla",
+        "ultimo_estado_antes_de_fallecido",
     }
     missing = required - columns
     assert not missing, f"animales table missing legacy columns: {sorted(missing)}"
 
 
 def test_animales_table_does_not_store_situacion() -> None:
-    """Situacion is derived from the event log; it is intentionally not stored."""
+    """situacion is derived from the event log; it is intentionally not stored."""
     columns = _column_names(ANIMALS_CREATE_TABLE_SQL)
-    assert "Situacion" not in columns, (
-        "Situacion must be derived from the event log, not stored on animales"
+    assert "situacion" not in columns, (
+        "situacion must be derived from the event log, not stored on animales"
     )
 
 
 def test_animales_table_enforces_especie_and_sexo_domains() -> None:
     sql = ANIMALS_CREATE_TABLE_SQL
-    assert "Especie IN ('CANINA', 'FELINA')" in sql
-    assert "Sexo IN ('M', 'H')" in sql
+    assert "especie IN ('CANINA', 'FELINA')" in sql
+    assert "sexo IN ('M', 'H')" in sql
 
 
-def test_animales_NCHIP_is_unique() -> None:
-    assert "NCHIP TEXT UNIQUE NOT NULL" in ANIMALS_CREATE_TABLE_SQL
+def test_animales_nchip_is_unique() -> None:
+    assert "nchip TEXT UNIQUE NOT NULL" in ANIMALS_CREATE_TABLE_SQL
 
 
 # --- voluntarios ----------------------------------------------------------
@@ -230,17 +234,17 @@ def test_voluntarios_create_table_sql_uses_if_not_exists() -> None:
 def test_voluntarios_create_table_sql_has_all_legacy_columns() -> None:
     """Every column from TbVoluntariosParaAutorrellenables must be present.
 
-    Legacy 4 columns: Voluntario, Tel1, Tel2, Email.
-    Plus 3 justified improvements: id, DNI, fecha_alta, updated_at, activo.
+    Legacy 4 columns (lowercase): voluntario, tel1, tel2, email.
+    Plus 3 justified improvements: id, dni, fecha_alta, updated_at, activo.
     """
     columns = _column_names(VOLUNTARIOS_CREATE_TABLE_SQL)
     required = {
         "id",
-        "Voluntario",
-        "Tel1",
-        "Tel2",
-        "Email",
-        "DNI",
+        "voluntario",
+        "tel1",
+        "tel2",
+        "email",
+        "dni",
         "fecha_alta",
         "updated_at",
         "activo",
@@ -249,9 +253,9 @@ def test_voluntarios_create_table_sql_has_all_legacy_columns() -> None:
     assert not missing, f"voluntarios table missing columns: {sorted(missing)}"
 
 
-def test_voluntarios_email_and_DNI_are_unique() -> None:
-    assert "Email TEXT UNIQUE" in VOLUNTARIOS_CREATE_TABLE_SQL
-    assert "DNI TEXT UNIQUE" in VOLUNTARIOS_CREATE_TABLE_SQL
+def test_voluntarios_email_and_dni_are_unique() -> None:
+    assert "email TEXT UNIQUE" in VOLUNTARIOS_CREATE_TABLE_SQL
+    assert "dni TEXT UNIQUE" in VOLUNTARIOS_CREATE_TABLE_SQL
 
 
 # --- roles_voluntario -----------------------------------------------------
