@@ -322,14 +322,18 @@ def _truncate_between_tests(ephemeral_postgres: _EphemeralPostgres) -> None:
     """Wipe all data before each test for isolation under the session-scoped schema."""
     with ephemeral_postgres.connection() as conn:
         with conn.cursor() as cur:
-            # ``pg_class`` / ``pg_attribute`` etc. all start with ``pg`` —
-            # using ``pg%`` (no underscore) avoids the psycopg3 ambiguity
-            # around ``pg_%`` which it parses as a ``%(name)`` placeholder.
+            # psycopg3's query auto-parser sees any ``%`` followed by a
+            # non-``sbt(`` character as a malformed ``%(name)s`` placeholder
+            # and errors with
+            # ``only '%s', '%b', '%t' are allowed as placeholders, got '%'``.
+            # The fix is to double the ``%`` (``%%``) — psycopg3 unescapes
+            # the double back to a single ``%`` at the protocol boundary
+            # while bypassing the placeholder regex.
             cur.execute(
                 """
                 SELECT tablename FROM pg_tables
                 WHERE schemaname = $1
-                AND tablename NOT LIKE 'pg%'
+                AND tablename NOT LIKE 'pg%%'
                 """,
                 (ephemeral_postgres.schema,),
             )
