@@ -317,6 +317,24 @@ def ephemeral_postgres() -> Iterator[_EphemeralPostgres]:
     EphemeralPostgres.teardown()
 
 
+@pytest.fixture(autouse=True)
+def _truncate_between_tests(ephemeral_postgres: _EphemeralPostgres) -> None:
+    """Wipe all data before each test for isolation under the session-scoped schema."""
+    with ephemeral_postgres.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT tablename FROM pg_tables
+                WHERE schemaname = %s
+                AND tablename NOT LIKE 'pg_%%'
+                """,
+                (ephemeral_postgres.schema,),
+            )
+            tables = [row["tablename"] for row in cur.fetchall()]
+            if tables:
+                cur.execute(f"TRUNCATE TABLE {', '.join(tables)} CASCADE")
+
+
 class _EphemeralPostgres:
     """Manages an ephemeral Postgres schema for integration tests."""
 
