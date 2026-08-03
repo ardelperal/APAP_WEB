@@ -69,7 +69,7 @@ from app.core.domain_voluntarios import (
     VOLUNTARIOS_CREATE_TABLE_SQL,
 )
 
-_DOLLAR_PLACEHOLDER = re.compile(r"\$\d+")
+_DOLLAR_PLACEHOLDER = re.compile(r"\$(\d+)")
 
 
 def _to_client_placeholder_style(query: str) -> str:
@@ -113,6 +113,35 @@ def _to_client_placeholder_style(query: str) -> str:
     if "$" in query:
         return _DOLLAR_PLACEHOLDER.sub("%s", query)
     return query
+
+
+def _expand_params_for_placeholder_style(
+    query: str, params: list[Any]
+) -> tuple[str, list[Any]]:
+    """Rewrite ``$N`` → ``%s`` and expand ``params`` to match each occurrence.
+
+    psycopg3's client-side parser counts every ``%s`` as a distinct
+    bind slot, so a production query that references ``$1`` twice
+    (perfectly valid in Postgres' extended protocol) ends up with two
+    ``%s`` placeholders and demands two bind values. We track each
+    ``$N`` occurrence during the rewrite and emit one param per
+    occurrence, duplicating values where the production SQL reused the
+    same slot. The wire protocol then binds every expanded slot to the
+    intended value.
+    """
+    if not params:
+        return _to_client_placeholder_style(query), params
+    indices: list[int] = []
+
+    def _sub(match: re.Match[str]) -> str:
+        indices.append(int(match.group(1)))
+        return "%s"
+
+    rewritten = _DOLLAR_PLACEHOLDER.sub(_sub, query)
+    if not indices:
+        return rewritten, params
+    expanded = [params[n - 1] for n in indices]
+    return rewritten, expanded
 
 # catalogos_* CREATE TABLE statements (issue #329 follow-up).
 # Schemas verified 2026-08-01 against the InsForge project's underlying
@@ -475,8 +504,24 @@ class _EphemeralPostgres:
         v3.3.4's ``ClientCursor`` parses the bind count correctly. The
         server still receives ``$N`` SQL because psycopg3's C extension
         re-number ``%s`` to ``$N`` for the wire protocol.
+
+        Because each ``$N`` becomes its own ``%s`` (no dedup), the
+        substituted query may have more placeholders than the original
+        ``$N`` count when the production SQL legitimately references
+        the same ``$N`` twice (e.g. ``_INSERT_ADOPCION_SQL`` joins a
+        CTE row to the same ``$1`` in the main INSERT). We therefore
+        expand ``params`` to one entry per occurrence so psycopg3's
+        bind-count check passes; the wire protocol still binds every
+        duplicated slot to the same value.
         """
+        if params is None:
+            params = []
+        else:
+            params = list(params)
+        rewritten_query, expanded_params = _expand_params_for_placeholder_style(
+            query, params
+        )
         with self.connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(_to_client_placeholder_style(query), params)
+                cur.execute(rewritten_query, expanded_params)
                 return list(cur.fetchall())
