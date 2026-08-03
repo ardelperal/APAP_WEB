@@ -113,8 +113,21 @@ checked_responsable AS (
 ),
 updated AS (
     UPDATE adopciones SET
-{", ".join(f"{col} = ${i + 4}" for i, col in enumerate(ADOPCION_WRITE_COLUMNS))},
-updated_at = now()
+        animal_id = $2,
+        voluntario_seguimiento_id = $3,
+        fecha_adopcion = $4,
+        fecha_devolucion = $5,
+        donativo_preadopcion = $6,
+        donativo_adopcion = $7,
+        nombre_adoptante = $8,
+        dni_adoptante = $9,
+        telefono_adoptante = $10,
+        email_adoptante = $11,
+        entrada_origen_id = $12,
+        observaciones = $13,
+        tipo_adopcion = $14,
+        responsable_adopcion_id = $15,
+        updated_at = now()
     WHERE id = $1
       AND EXISTS (SELECT 1 FROM checked_animal)
       AND ($3::text IS NULL OR EXISTS (SELECT 1 FROM checked_voluntario))
