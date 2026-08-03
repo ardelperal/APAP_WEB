@@ -118,16 +118,18 @@ def _to_client_placeholder_style(query: str) -> str:
 def _expand_params_for_placeholder_style(
     query: str, params: list[Any]
 ) -> tuple[str, list[Any]]:
-    """Rewrite ``$N`` → ``%s`` and expand ``params`` to match each occurrence.
+    """Rewrite ``$N`` → ``%s`` and pad ``params`` to match each distinct
+    placeholder occurrence.
 
-    psycopg3's client-side parser counts every ``%s`` as a distinct
-    bind slot, so a production query that references ``$1`` twice
-    (perfectly valid in Postgres' extended protocol) ends up with two
-    ``%s`` placeholders and demands two bind values. We track each
-    ``$N`` occurrence during the rewrite and emit one param per
-    occurrence, duplicating values where the production SQL reused the
-    same slot. The wire protocol then binds every expanded slot to the
-    intended value.
+    psycopg3 v3.3.4's ``ClientCursor`` client-side parser counts every
+    ``%s`` as a distinct bind slot, so a production query that
+    references ``$1`` twice (perfectly valid in Postgres' extended
+    protocol) ends up with two ``%s`` placeholders and demands two bind
+    values. We track each distinct ``$N`` occurrence and emit one param
+    per occurrence. Where the SQL references an ``$N`` higher than
+    ``len(params)`` (e.g. server-managed columns like ``updated_at`` that
+    do not appear in the test params), we pad with ``None`` so the bind
+    count matches the placeholder count.
     """
     if not params:
         return _to_client_placeholder_style(query), params
@@ -140,7 +142,12 @@ def _expand_params_for_placeholder_style(
     rewritten = _DOLLAR_PLACEHOLDER.sub(_sub, query)
     if not indices:
         return rewritten, params
-    expanded = [params[n - 1] for n in indices]
+    expanded: list[Any] = []
+    for n in indices:
+        if 1 <= n <= len(params):
+            expanded.append(params[n - 1])
+        else:
+            expanded.append(None)
     return rewritten, expanded
 
 # catalogos_* CREATE TABLE statements (issue #329 follow-up).
