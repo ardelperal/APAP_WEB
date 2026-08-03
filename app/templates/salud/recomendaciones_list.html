@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<html>
+<head><title>Recomendaciones</title></head>
+<body>
+<h1>Recomendaciones de Terapia {{ terapia.id }}</h1>
+<ul>
+{% for rec in recomendaciones %}
+<li>{{ rec.fecha }} - {{ rec.texto }}</li>
+{% endfor %}
+</ul>
+</body>
+</html>

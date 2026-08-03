@@ -78,11 +78,13 @@ def test_ci_workflow_runs_e2e_job_with_playwright() -> None:
     assert "pytest tests/e2e/" in workflow
 
 
-def test_ci_workflow_includes_diagnostic_secret_leak_scan() -> None:
+def test_ci_workflow_does_not_include_diagnostic_secret_leak_scan() -> None:
+    """Issue #393: placeholder secret-leak scan step removed in favor of gitleaks (#381)."""
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
 
-    assert "Diagnostic secret-leak scan" in workflow
-    assert "grep -rE '(http://|https://|sk-|ghp_)[A-Za-z0-9]+' .github/ || true" in workflow
+    assert "Diagnostic secret-leak scan" not in workflow
+    assert "grep -rE '(http://|https://|sk-|ghp_)[A-Za-z0-9]+'" not in workflow
+
 
 
 def test_branch_protection_note_lists_required_ci_checks() -> None:
@@ -553,11 +555,4 @@ def test_ci_workflow_payload_shape_matches_coolify_expectation() -> None:
     assert "COMMIT_MESSAGE:" in workflow
 
 
-def test_ci_workflow_deploy_job_has_secret_leak_grep() -> None:
-    """CD-01: deploy job has a second secret-leak grep step, separate from the lint one."""
-    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
 
-    # The diagnostic step name appears in the deploy job too
-    assert workflow.count("Diagnostic secret-leak scan") >= 2
-    # And the deploy-scoped variant targets the build outputs / source (not only .github/)
-    assert "grep -rE '(http://|https://|sk-|ghp_)[A-Za-z0-9]+' . --exclude-dir=.git" in workflow

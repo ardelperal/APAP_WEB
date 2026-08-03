@@ -535,10 +535,11 @@ def test_ensure_domain_schema_emits_casa_fk_migration_after_acogidas_create() ->
         q for q in queries if q.startswith("CREATE TABLE IF NOT EXISTS")
     ]
     alter_queries = [q for q in queries if q.startswith("ALTER TABLE")]
-    # FOSTER-04 (#46): 16 CREATE TABLEs after materiales + estancia_materiales
-    # (FOSTER-01..03 + ACTUACION_SANITARIA + 2 new foster-04 tables).
-    assert len(create_queries) == 16, (
-        f"expected 16 CREATE TABLEs, got {len(create_queries)}: {create_queries}"
+    # HEALTH-04 (#53): 18 CREATE TABLEs after terapias + recomendaciones
+    # (FOSTER-01..03 + ACTUACION_SANITARIA + 2 foster-04 tables +
+    # 2 HEALTH-04 tables).
+    assert len(create_queries) == 18, (
+        f"expected 18 CREATE TABLEs, got {len(create_queries)}: {create_queries}"
     )
     assert len(alter_queries) == 2, (
         f"expected 2 ALTER TABLEs (FOSTER-02 casa FK + issue #142 estancia FK), got {len(alter_queries)}: {alter_queries}"
@@ -1182,20 +1183,20 @@ def test_ensure_domain_schema_creates_twelve_tables_plus_one_alter() -> None:
     client.close()
 
     queries = [c["query"].strip() for c in captured]
-    # LIFECYCLE-02 (#32): 25 statements total (16 CREATE TABLE + 2 ALTER
+    # HEALTH-04 (#53): 27 statements total (18 CREATE TABLE + 2 ALTER
     # TABLE + 1 CREATE INDEX estancia_materiales_active_unique +
     # 2 CREATE INDEX on animal_lifecycle_events +
     # 1 CREATE INDEX on animal_current_state +
     # 1 CREATE OR REPLACE FUNCTION for the append-only trigger +
     # 1 DROP TRIGGER IF EXISTS + 1 CREATE TRIGGER on animal_lifecycle_events
     # for the append-only guard).
-    assert len(queries) == 25, (
-        f"expected 25 statements (16 CREATE TABLE + 2 ALTER TABLE + "
+    assert len(queries) == 27, (
+        f"expected 27 statements (18 CREATE TABLE + 2 ALTER TABLE + "
         f"4 CREATE INDEX + 1 CREATE FUNCTION + 1 DROP TRIGGER + "
         f"1 CREATE TRIGGER), got {len(queries)}: {queries}"
     )
     create_queries = [q for q in queries if q.startswith("CREATE TABLE")]
-    assert len(create_queries) == 16
+    assert len(create_queries) == 18
     assert queries[0].startswith("CREATE TABLE IF NOT EXISTS animales")
     assert queries[1].startswith("CREATE TABLE IF NOT EXISTS voluntarios")
     assert queries[2].startswith("CREATE TABLE IF NOT EXISTS roles_voluntario")
@@ -1225,24 +1226,28 @@ def test_ensure_domain_schema_creates_twelve_tables_plus_one_alter() -> None:
     assert queries[16].startswith("CREATE TABLE IF NOT EXISTS cesiones_propietario")
     assert queries[17].startswith("CREATE TABLE IF NOT EXISTS contratos")
     assert queries[18].startswith("CREATE TABLE IF NOT EXISTS actuacion_sanitaria")
+    # HEALTH-04 (#53): terapias + recomendaciones land after actuacion_sanitaria
+    # so that the FKs to ``animales`` / ``voluntarios`` resolve.
+    assert queries[19].startswith("CREATE TABLE IF NOT EXISTS terapias")
+    assert queries[20].startswith("CREATE TABLE IF NOT EXISTS recomendaciones")
     # FOSTER-04 (#46): materiales + estancia_materiales land at the very end
     # so that the junction's FKs to ``acogidas`` and ``materiales`` resolve.
-    assert queries[19].startswith("CREATE TABLE IF NOT EXISTS materiales")
-    assert queries[20].startswith("CREATE TABLE IF NOT EXISTS estancia_materiales")
+    assert queries[21].startswith("CREATE TABLE IF NOT EXISTS materiales")
+    assert queries[22].startswith("CREATE TABLE IF NOT EXISTS estancia_materiales")
     # Partial unique index emitted right after the junction CREATE TABLE.
-    assert queries[21].startswith(
+    assert queries[23].startswith(
         "CREATE UNIQUE INDEX IF NOT EXISTS estancia_materiales_active_unique"
     )
     # LIFECYCLE-02 (#32): append-only trigger installation (function +
     # DROP IF EXISTS + CREATE TRIGGER) lands LAST so the function is
     # guaranteed to exist before the trigger references it.
-    assert queries[22].startswith(
+    assert queries[24].startswith(
         "CREATE OR REPLACE FUNCTION raise_append_only_violation"
     )
-    assert queries[23].startswith(
+    assert queries[25].startswith(
         "DROP TRIGGER IF EXISTS animal_lifecycle_events_append_only"
     )
-    assert queries[24].startswith(
+    assert queries[26].startswith(
         "CREATE TRIGGER animal_lifecycle_events_append_only"
     )
 
