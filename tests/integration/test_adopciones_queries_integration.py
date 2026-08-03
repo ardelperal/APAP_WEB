@@ -145,7 +145,11 @@ def test_build_adopcion_update(ephemeral_postgres: _EphemeralPostgres) -> None:
     # Update
     sql, params = q.build_adopcion_update(
         str(adopcion_id),
-        {"nombre_adoptante": "Pedro Sanchez Actualizado", "telefono_adoptante": "600654321"},
+        {
+            "animal_id": related["animal_id"],
+            "nombre_adoptante": "Pedro Sanchez Actualizado",
+            "telefono_adoptante": "600654321",
+        },
     )
     rows = ephemeral_postgres.execute(sql, params)
     assert len(rows) == 1

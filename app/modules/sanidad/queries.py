@@ -153,9 +153,9 @@ validated AS (
             ELSE NULL
         END AS reason
     FROM input_data i
-    LEFT JOIN checked_animals ca ON ca.id = i.animal_id
-    LEFT JOIN checked_voluntarios cv ON cv.id = i.voluntario_id
-    LEFT JOIN checked_tipos ct ON ct.id = i.tipo_actuacion_id
+    LEFT JOIN checked_animals ca ON ca.id = i.animal_id::uuid
+    LEFT JOIN checked_voluntarios cv ON cv.id = i.voluntario_id::uuid
+    LEFT JOIN checked_tipos ct ON ct.id = i.tipo_actuacion_id::uuid
 ),
 all_valid AS (
     SELECT COALESCE(bool_and(is_valid), TRUE) AS ok
