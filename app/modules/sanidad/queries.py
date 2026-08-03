@@ -109,19 +109,23 @@ WITH input_data AS (
 checked_animals AS (
     SELECT a.id, a.fecha_alta
     FROM animales a
-    JOIN input_data i ON a.id = i.animal_id
+    -- The arrays come in as ``$N::text[]`` (see the ``unnest`` block
+    # above), so ``i.animal_id`` is text. ``animales.id`` is UUID; cast
+    # before joining or Postgres raises ``operator does not exist:
+    # uuid = text``.
+    JOIN input_data i ON a.id = i.animal_id::uuid
     WHERE a.activo = true
 ),
 checked_voluntarios AS (
     SELECT v.id
     FROM voluntarios v
-    JOIN input_data i ON v.id = i.voluntario_id
+    JOIN input_data i ON v.id = i.voluntario_id::uuid
     WHERE v.activo = true
 ),
 checked_tipos AS (
     SELECT c.id
     FROM catalogos_pruebas c
-    JOIN input_data i ON c.id = i.tipo_actuacion_id
+    JOIN input_data i ON c.id = i.tipo_actuacion_id::uuid
 ),
 validated AS (
     SELECT
