@@ -70,7 +70,8 @@ def test_build_adopcion_insert(ephemeral_postgres: _EphemeralPostgres) -> None:
     )
     rows = ephemeral_postgres.execute(sql, params)
     assert len(rows) == 1
-    assert rows[0]["animal_id"] == related["animal_id"]
+    # psycopg3 returns UUID objects from UUID columns.
+    assert str(rows[0]["animal_id"]) == related["animal_id"]
     assert rows[0]["nombre_adoptante"] == "Maria Lopez"
     assert rows[0]["activo"] is True
 
@@ -213,7 +214,9 @@ def test_build_adopcion_check_animal(ephemeral_postgres: _EphemeralPostgres) -> 
     sql, params = q.build_adopcion_check_animal(related["animal_id"])
     rows = ephemeral_postgres.execute(sql, params)
     assert len(rows) == 1
-    assert rows[0]["id"] == related["animal_id"]
+    # psycopg3 returns UUID objects from UUID columns; the seed dict
+    # holds string UUIDs, so we str-cast before comparing.
+    assert str(rows[0]["id"]) == related["animal_id"]
 
 
 @pytest.mark.integration
@@ -224,7 +227,7 @@ def test_build_adopcion_check_voluntario(ephemeral_postgres: _EphemeralPostgres)
     sql, params = q.build_adopcion_check_voluntario(related["voluntario_id"])
     rows = ephemeral_postgres.execute(sql, params)
     assert len(rows) == 1
-    assert rows[0]["id"] == related["voluntario_id"]
+    assert str(rows[0]["id"]) == related["voluntario_id"]
 
 
 @pytest.mark.integration
@@ -235,7 +238,7 @@ def test_build_adopcion_check_entrada(ephemeral_postgres: _EphemeralPostgres) ->
     sql, params = q.build_adopcion_check_entrada(related["entrada_id"])
     rows = ephemeral_postgres.execute(sql, params)
     assert len(rows) == 1
-    assert rows[0]["id"] == related["entrada_id"]
+    assert str(rows[0]["id"]) == related["entrada_id"]
 
 
 @pytest.mark.integration
@@ -246,7 +249,7 @@ def test_build_adopcion_check_responsable(ephemeral_postgres: _EphemeralPostgres
     sql, params = q.build_adopcion_check_responsable(related["voluntario_id"])
     rows = ephemeral_postgres.execute(sql, params)
     assert len(rows) == 1
-    assert rows[0]["id"] == related["voluntario_id"]
+    assert str(rows[0]["id"]) == related["voluntario_id"]
 
 
 @pytest.mark.integration

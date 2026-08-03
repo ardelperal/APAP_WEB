@@ -214,7 +214,7 @@ def test_build_estancia_active(ephemeral_postgres: _EphemeralPostgres) -> None:
     sql, params = q.build_estancia_active(related["estancia_id"])
     rows = ephemeral_postgres.execute(sql, params)
     assert len(rows) == 1
-    assert rows[0]["id"] == related["estancia_id"]
+    assert str(rows[0]["id"]) == related["estancia_id"]
     assert rows[0]["activo"] is True
 
 
@@ -241,8 +241,10 @@ def test_build_junction_insert(ephemeral_postgres: _EphemeralPostgres) -> None:
     )
     rows = ephemeral_postgres.execute(sql, params)
     assert len(rows) == 1
-    assert rows[0]["estancia_id"] == related["estancia_id"]
-    assert rows[0]["material_id"] == material_id
+    # psycopg3 returns UUID objects from UUID columns; the seed dict
+    # holds string UUIDs, so we str-cast before comparing.
+    assert str(rows[0]["estancia_id"]) == related["estancia_id"]
+    assert str(rows[0]["material_id"]) == material_id
     assert rows[0]["cantidad"] == 3
 
 
@@ -275,7 +277,7 @@ def test_build_junction_list_for_estancia(ephemeral_postgres: _EphemeralPostgres
     )
     rows = ephemeral_postgres.execute(sql, params)
     assert len(rows) == 1
-    assert rows[0]["estancia_id"] == related["estancia_id"]
+    assert str(rows[0]["estancia_id"]) == related["estancia_id"]
 
 
 @pytest.mark.integration

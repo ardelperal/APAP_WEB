@@ -160,9 +160,17 @@ def test_build_acogida_update(
     inserted = ephemeral_postgres.execute(insert_sql, insert_params)
     acogida_id = inserted[0]["id"]
 
-    # Update
+    # Update — the form always ships ``animal_id`` + ``fecha_inicio``
+    # (the same required-text fields the create form does), plus the
+    # user-edited ``direccion`` / ``telefono``.
     sql, params = q.build_acogida_update(
-        str(acogida_id), {"direccion": "Calle actualizada", "telefono": "600999999"}
+        str(acogida_id),
+        {
+            "animal_id": related["animal_id"],
+            "fecha_inicio": date.today().isoformat(),
+            "direccion": "Calle actualizada",
+            "telefono": "600999999",
+        },
     )
     rows = ephemeral_postgres.execute(sql, [str(acogida_id), *params])
     assert len(rows) == 1
@@ -241,7 +249,9 @@ def test_build_acogida_check_animal(
     sql, params = q.build_acogida_check_animal(related["animal_id"])
     rows = ephemeral_postgres.execute(sql, params)
     assert len(rows) == 1
-    assert rows[0]["id"] == related["animal_id"]
+    # psycopg3 returns UUID objects from UUID columns; the seed dict
+    # holds string UUIDs, so we str-cast before comparing.
+    assert str(rows[0]["id"]) == related["animal_id"]
 
 
 @pytest.mark.integration
@@ -254,7 +264,7 @@ def test_build_acogida_check_casa(
     sql, params = q.build_acogida_check_casa(related["casa_id"])
     rows = ephemeral_postgres.execute(sql, params)
     assert len(rows) == 1
-    assert rows[0]["id"] == related["casa_id"]
+    assert str(rows[0]["id"]) == related["casa_id"]
 
 
 @pytest.mark.integration
@@ -267,7 +277,7 @@ def test_build_acogida_check_voluntario(
     sql, params = q.build_acogida_check_voluntario(related["voluntario_id"])
     rows = ephemeral_postgres.execute(sql, params)
     assert len(rows) == 1
-    assert rows[0]["id"] == related["voluntario_id"]
+    assert str(rows[0]["id"]) == related["voluntario_id"]
 
 
 @pytest.mark.integration
@@ -280,7 +290,7 @@ def test_build_acogida_check_entrada(
     sql, params = q.build_acogida_check_entrada(related["entrada_id"])
     rows = ephemeral_postgres.execute(sql, params)
     assert len(rows) == 1
-    assert rows[0]["id"] == related["entrada_id"]
+    assert str(rows[0]["id"]) == related["entrada_id"]
 
 
 @pytest.mark.integration
