@@ -143,6 +143,7 @@ _ACOGIDA_CLOSE_SQL: Final[str] = (
 _ACOGIDA_DELETE_SQL: Final[str] = """
 UPDATE acogidas
 SET activo = false,
+    fecha_baja = now(),
     updated_at = now()
 WHERE id = $1 AND activo = true
 RETURNING id
