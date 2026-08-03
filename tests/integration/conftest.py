@@ -322,18 +322,21 @@ def _truncate_between_tests(ephemeral_postgres: _EphemeralPostgres) -> None:
     """Wipe all data before each test for isolation under the session-scoped schema."""
     with ephemeral_postgres.connection() as conn:
         with conn.cursor() as cur:
-            # psycopg3's placeholder detector can't see ``$1`` through a
-            # string literal that contains ``%`` (it parses any ``%`` as
-            # the start of a ``%(name)s`` placeholder regardless of context),
-            # so the LIKE pattern is split: ``pg`` (literal) + ``%`` (LIKE
-            # wildcard, passed as a separate parameter).
+            # ``left(tablename, 2) <> 'pg'`` excludes the Postgres system
+            # tables (``pg_class``, ``pg_attribute``, ...) without using ``%``
+            # or ``LIKE`` in the SQL string. ``%`` in the string trips
+            # psycopg3's client-side placeholder detector (it parses any
+            # ``%`` as the start of a ``%(name)s`` placeholder regardless of
+            # context), and a ``$N`` placeholder alongside a ``%`` makes the
+            # parser drop ``$N`` entirely, so the cursor rejects the bind
+            # with ``0 placeholders but 2 parameters were passed``.
             cur.execute(
                 """
                 SELECT tablename FROM pg_tables
                 WHERE schemaname = $1
-                AND tablename NOT LIKE $2
+                AND left(tablename, 2) <> 'pg'
                 """,
-                (ephemeral_postgres.schema, "pg%"),
+                (ephemeral_postgres.schema,),
             )
             tables = [row["tablename"] for row in cur.fetchall()]
             if tables:
