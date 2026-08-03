@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS acogidas (
     observaciones TEXT,
     fecha_alta TIMESTAMP NOT NULL DEFAULT now(),
     updated_at TIMESTAMP NOT NULL DEFAULT now(),
+    fecha_baja TIMESTAMP,
     activo BOOLEAN NOT NULL DEFAULT true,
     CONSTRAINT acogidas_natural_key UNIQUE (animal_id, fecha_inicio)
 )

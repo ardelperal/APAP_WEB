@@ -109,19 +109,23 @@ WITH input_data AS (
 checked_animals AS (
     SELECT a.id, a.fecha_alta
     FROM animales a
-    JOIN input_data i ON a.id = i.animal_id
+    -- The arrays come in as ``$N::text[]`` (see the ``unnest`` block
+    -- above), so ``i.animal_id`` is text. ``animales.id`` is UUID; cast
+    -- before joining or Postgres raises ``operator does not exist:
+    -- uuid = text``.
+    JOIN input_data i ON a.id = i.animal_id::uuid
     WHERE a.activo = true
 ),
 checked_voluntarios AS (
     SELECT v.id
     FROM voluntarios v
-    JOIN input_data i ON v.id = i.voluntario_id
+    JOIN input_data i ON v.id = i.voluntario_id::uuid
     WHERE v.activo = true
 ),
 checked_tipos AS (
     SELECT c.id
     FROM catalogos_pruebas c
-    JOIN input_data i ON c.id = i.tipo_actuacion_id
+    JOIN input_data i ON c.id = i.tipo_actuacion_id::uuid
 ),
 validated AS (
     SELECT
@@ -149,9 +153,9 @@ validated AS (
             ELSE NULL
         END AS reason
     FROM input_data i
-    LEFT JOIN checked_animals ca ON ca.id = i.animal_id
-    LEFT JOIN checked_voluntarios cv ON cv.id = i.voluntario_id
-    LEFT JOIN checked_tipos ct ON ct.id = i.tipo_actuacion_id
+    LEFT JOIN checked_animals ca ON ca.id = i.animal_id::uuid
+    LEFT JOIN checked_voluntarios cv ON cv.id = i.voluntario_id::uuid
+    LEFT JOIN checked_tipos ct ON ct.id = i.tipo_actuacion_id::uuid
 ),
 all_valid AS (
     SELECT COALESCE(bool_and(is_valid), TRUE) AS ok
@@ -163,7 +167,7 @@ inserted AS (
         veterinario, observaciones, material_utilizado
     )
     SELECT
-        v.animal_id, v.voluntario_id, v.fecha, v.tipo_actuacion_id,
+        v.animal_id::uuid, v.voluntario_id::uuid, v.fecha, v.tipo_actuacion_id::uuid,
         v.veterinario, v.observaciones, v.material_utilizado
     FROM validated v
     CROSS JOIN all_valid
@@ -198,9 +202,13 @@ SELECT
     'validation_error'::text AS kind,
     batch_index,
     reason,
-    NULL::text AS id, animal_id, voluntario_id, fecha,
-    NULL::text AS tipo_actuacion_id,
-    NULL::text AS veterinario, NULL::text AS observaciones,
+    NULL::uuid AS id,
+    NULL::uuid AS animal_id,
+    NULL::uuid AS voluntario_id,
+    fecha::date AS fecha,
+    NULL::uuid AS tipo_actuacion_id,
+    NULL::text AS veterinario,
+    NULL::text AS observaciones,
     NULL::text AS material_utilizado,
     NULL::timestamp AS fecha_alta,
     NULL::timestamp AS updated_at,
@@ -263,6 +271,7 @@ def build_batch_insert(
 # Param: $1 — animal_id (UUID text)
 _BUILD_RESUMEN_SANITARIO_SQL: str = """
 SELECT DISTINCT ON (cp.observaciones)
+    a.animal_id               AS animal_id,
     cp.observaciones          AS tipo,
     a.fecha                   AS ultima_fecha,
     a.observaciones           AS ultimo_resultado,

@@ -22,17 +22,24 @@ def _seed_terapia_related_records(ep: _EphemeralPostgres) -> dict[str, str]:
     """Create minimum related records for terapia tests.
 
     Returns dict with animal_id, voluntario_id.
+
+    The seed INSERTs include ``RETURNING id`` so the conftest wrapper
+    (``tests/integration/conftest.py::execute``) does not raise on the
+    non-tuple result that an INSERT without RETURNING produces under
+    psycopg3's ClientCursor.
     """
     animal_id = str(uuid4())
     ep.execute(
-        f"INSERT INTO animales (id, nombre, especie, fecha_alta, activo) "
-        f"VALUES ('{animal_id}', 'Luna', 'Perro', now(), true)"
+        f"INSERT INTO animales (id, nchip, nombreanimal, especie, sexo, fnacimiento, fecha_alta, activo) "
+        f"VALUES ('{animal_id}', 'CHIP-SALUD-{animal_id[:8]}', 'Luna', 'FELINA', 'H', '2022-01-15', now(), true) "
+        f"RETURNING id"
     )
 
     voluntario_id = str(uuid4())
     ep.execute(
-        f"INSERT INTO voluntarios (id, nombre, email, rol, activo, fecha_alta) "
-        f"VALUES ('{voluntario_id}', 'Dra. García', 'garcia@vets.com', 'sanitario', true, now())"
+        f"INSERT INTO voluntarios (id, voluntario, email, activo, fecha_alta) "
+        f"VALUES ('{voluntario_id}', 'Dra. García', 'garcia@vets.com', true, now()) "
+        f"RETURNING id"
     )
 
     return {
@@ -56,7 +63,8 @@ def test_build_create_terapia(ephemeral_postgres: _EphemeralPostgres) -> None:
     rows = ephemeral_postgres.execute(sql, p)
 
     assert len(rows) == 1
-    assert rows[0]["animal_id"] == related["animal_id"]
+    # psycopg3 returns UUID objects from UUID columns.
+    assert str(rows[0]["animal_id"]) == related["animal_id"]
     assert rows[0]["descripcion"] == "Fisioterapia post-operatoria"
     assert rows[0]["activo"] is True
 
@@ -100,7 +108,8 @@ def test_build_list_terapias_by_animal(ephemeral_postgres: _EphemeralPostgres) -
     rows = ephemeral_postgres.execute(list_sql, list_p)
 
     assert len(rows) >= 1
-    assert all(r["animal_id"] == related["animal_id"] for r in rows)
+    # psycopg3 returns UUID objects from UUID columns.
+    assert all(str(r["animal_id"]) == related["animal_id"] for r in rows)
 
 
 @pytest.mark.integration
@@ -285,7 +294,8 @@ def test_build_create_recomendacion(ephemeral_postgres: _EphemeralPostgres) -> N
     rows = ephemeral_postgres.execute(rec_sql, rec_p)
 
     assert len(rows) == 1
-    assert rows[0]["terapia_id"] == terapia_id
+    # psycopg3 returns UUID objects from UUID columns.
+    assert str(rows[0]["terapia_id"]) == str(terapia_id)
     assert rows[0]["texto"] == "Reposo 48h"
     assert rows[0]["completada"] is False
     assert rows[0]["activo"] is True
@@ -320,7 +330,10 @@ def test_build_list_recomendaciones_by_terapia(
     rows = ephemeral_postgres.execute(list_sql, list_p)
 
     assert len(rows) >= 1
-    assert all(r["terapia_id"] == terapia_id and r["activo"] is True for r in rows)
+    # psycopg3 returns UUID objects from UUID columns.
+    assert all(
+        str(r["terapia_id"]) == str(terapia_id) and r["activo"] is True for r in rows
+    )
 
 
 @pytest.mark.integration

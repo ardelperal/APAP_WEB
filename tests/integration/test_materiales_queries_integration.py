@@ -25,29 +25,33 @@ def _seed_related_records(ep: _EphemeralPostgres) -> dict[str, str]:
     # Create animal (using raw SQL since animales has no queries.py)
     animal_id = str(uuid4())
     ep.execute(
-        f"INSERT INTO animales (id, nombre, especie, raza, fecha_alta, activo) "
-        f"VALUES ('{animal_id}', 'Luna', 'Perro', 'Mestiza', now(), true)"
+        f"INSERT INTO animales (id, nchip, nombreanimal, especie, sexo, fnacimiento, fecha_alta, activo) "
+        f"VALUES ('{animal_id}', 'CHIP-LUNA-MAT', 'Luna', 'CANINA', 'H', '2019-06-01', now(), true) "
+        f"RETURNING id"
     )
 
     # Create entrada
     entrada_id = str(uuid4())
     ep.execute(
-        f"INSERT INTO entradas (id, animal_id, motivo, observaciones, fecha_alta, activo) "
-        f"VALUES ('{entrada_id}', '{animal_id}', 'Ingreso', 'Test', now(), true)"
+        f"INSERT INTO entradas (id, animal_id, fecha_entrada, motivo, observaciones, fecha_alta, activo) "
+        f"VALUES ('{entrada_id}', '{animal_id}', '2024-01-15', 'Ingreso', 'Test', now(), true) "
+        f"RETURNING id"
     )
 
     # Create casa_acogida
     casa_id = str(uuid4())
     ep.execute(
-        f"INSERT INTO casas_acogida (id, nombre, direccion, telefono, activo, fecha_alta) "
-        f"VALUES ('{casa_id}', 'Casa Test', 'Calle Test', '123456789', true, now())"
+        f"INSERT INTO casas_acogida (id, nombre, apellidos, calle, telefono, localidad, provincia, coche, capacidad, activo, fecha_alta) "
+        f"VALUES ('{casa_id}', 'Casa Test', 'Test', 'Calle Test', '123456789', 'Madrid', 'Madrid', 'No', 1, true, now()) "
+        f"RETURNING id"
     )
 
     # Create estancia/acogida
     estancia_id = str(uuid4())
     ep.execute(
-        f"INSERT INTO acogidas (id, animal_id, casa_acogida_id, fecha_inicio, direccion, telefono, activo, fecha_alta) "
-        f"VALUES ('{estancia_id}', '{animal_id}', '{casa_id}', '{date.today()}', 'Direccion test', '123456789', true, now())"
+        f"INSERT INTO acogidas (id, animal_id, fecha_inicio, direccion, telefono, activo, fecha_alta) "
+        f"VALUES ('{estancia_id}', '{animal_id}', '{date.today()}', 'Direccion test', '123456789', true, now()) "
+        f"RETURNING id"
     )
 
     return {
@@ -133,11 +137,12 @@ def test_build_material_update(ephemeral_postgres: _EphemeralPostgres) -> None:
     inserted = ephemeral_postgres.execute(insert_sql, insert_params)
     material_id = inserted[0]["id"]
 
-    # Update
+    # Update — the builder reserves ``$1`` for the WHERE id; the caller
+    # (this integration test, mirroring the service) prepends it.
     sql, params = q.build_material_update(
         str(material_id), {"material": "Collar XL", "color": "Azul"}
     )
-    rows = ephemeral_postgres.execute(sql, params)
+    rows = ephemeral_postgres.execute(sql, [str(material_id), *params])
     assert len(rows) == 1
     assert rows[0]["material"] == "Collar XL"
     assert rows[0]["color"] == "Azul"
@@ -210,7 +215,7 @@ def test_build_estancia_active(ephemeral_postgres: _EphemeralPostgres) -> None:
     sql, params = q.build_estancia_active(related["estancia_id"])
     rows = ephemeral_postgres.execute(sql, params)
     assert len(rows) == 1
-    assert rows[0]["id"] == related["estancia_id"]
+    assert str(rows[0]["id"]) == related["estancia_id"]
     assert rows[0]["activo"] is True
 
 
@@ -224,7 +229,8 @@ def test_build_junction_insert(ephemeral_postgres: _EphemeralPostgres) -> None:
     material_id = str(uuid4())
     ephemeral_postgres.execute(
         f"INSERT INTO materiales (id, material, tamano, color, activo, fecha_alta) "
-        f"VALUES ('{material_id}', 'Comida', '5kg', 'Rojo', true, now())"
+        f"VALUES ('{material_id}', 'Comida', '5kg', 'Rojo', true, now()) "
+        f"RETURNING id"
     )
 
     # Insert junction using the query builder
@@ -236,8 +242,10 @@ def test_build_junction_insert(ephemeral_postgres: _EphemeralPostgres) -> None:
     )
     rows = ephemeral_postgres.execute(sql, params)
     assert len(rows) == 1
-    assert rows[0]["estancia_id"] == related["estancia_id"]
-    assert rows[0]["material_id"] == material_id
+    # psycopg3 returns UUID objects from UUID columns; the seed dict
+    # holds string UUIDs, so we str-cast before comparing.
+    assert str(rows[0]["estancia_id"]) == related["estancia_id"]
+    assert str(rows[0]["material_id"]) == material_id
     assert rows[0]["cantidad"] == 3
 
 
@@ -251,7 +259,8 @@ def test_build_junction_list_for_estancia(ephemeral_postgres: _EphemeralPostgres
     material_id = str(uuid4())
     ephemeral_postgres.execute(
         f"INSERT INTO materiales (id, material, tamano, color, activo, fecha_alta) "
-        f"VALUES ('{material_id}', 'Arena', '10kg', 'Blanca', true, now())"
+        f"VALUES ('{material_id}', 'Arena', '10kg', 'Blanca', true, now()) "
+        f"RETURNING id"
     )
 
     # Insert junction
@@ -269,7 +278,7 @@ def test_build_junction_list_for_estancia(ephemeral_postgres: _EphemeralPostgres
     )
     rows = ephemeral_postgres.execute(sql, params)
     assert len(rows) == 1
-    assert rows[0]["estancia_id"] == related["estancia_id"]
+    assert str(rows[0]["estancia_id"]) == related["estancia_id"]
 
 
 @pytest.mark.integration
@@ -282,7 +291,8 @@ def test_build_junction_deactivate(ephemeral_postgres: _EphemeralPostgres) -> No
     material_id = str(uuid4())
     ephemeral_postgres.execute(
         f"INSERT INTO materiales (id, material, tamano, color, activo, fecha_alta) "
-        f"VALUES ('{material_id}', 'Juguete', 'Mediano', 'Rojo', true, now())"
+        f"VALUES ('{material_id}', 'Juguete', 'Mediano', 'Rojo', true, now()) "
+        f"RETURNING id"
     )
 
     # Insert junction

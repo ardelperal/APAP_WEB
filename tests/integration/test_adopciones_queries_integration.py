@@ -24,20 +24,23 @@ def _seed_adopcion_related_records(ep: _EphemeralPostgres) -> dict[str, str]:
     """
     animal_id = str(uuid4())
     ep.execute(
-        f"INSERT INTO animales (id, nombre, especie, fecha_alta, activo) "
-        f"VALUES ('{animal_id}', 'Bobby', 'Perro', now(), true)"
+        f"INSERT INTO animales (id, nchip, nombreanimal, especie, sexo, fnacimiento, fecha_alta, activo) "
+        f"VALUES ('{animal_id}', 'CHIP-BOBBY-001', 'Bobby', 'CANINA', 'M', '2018-03-15', now(), true) "
+        f"RETURNING id"
     )
 
     voluntario_id = str(uuid4())
     ep.execute(
-        f"INSERT INTO voluntarios (id, nombre, email, rol, activo, fecha_alta) "
-        f"VALUES ('{voluntario_id}', 'Juan Perez', 'juan@test.com', 'voluntario', true, now())"
+        f"INSERT INTO voluntarios (id, voluntario, email, activo, fecha_alta) "
+        f"VALUES ('{voluntario_id}', 'Juan Perez', 'juan@test.com', true, now()) "
+        f"RETURNING id"
     )
 
     entrada_id = str(uuid4())
     ep.execute(
-        f"INSERT INTO entradas (id, animal_id, motivo, observaciones, fecha_alta, activo) "
-        f"VALUES ('{entrada_id}', '{animal_id}', 'Ingreso', 'Test', now(), true)"
+        f"INSERT INTO entradas (id, animal_id, fecha_entrada, motivo, observaciones, fecha_alta, activo) "
+        f"VALUES ('{entrada_id}', '{animal_id}', '2024-01-15', 'Ingreso', 'Test', now(), true) "
+        f"RETURNING id"
     )
 
     return {
@@ -67,7 +70,8 @@ def test_build_adopcion_insert(ephemeral_postgres: _EphemeralPostgres) -> None:
     )
     rows = ephemeral_postgres.execute(sql, params)
     assert len(rows) == 1
-    assert rows[0]["animal_id"] == related["animal_id"]
+    # psycopg3 returns UUID objects from UUID columns.
+    assert str(rows[0]["animal_id"]) == related["animal_id"]
     assert rows[0]["nombre_adoptante"] == "Maria Lopez"
     assert rows[0]["activo"] is True
 
@@ -141,7 +145,12 @@ def test_build_adopcion_update(ephemeral_postgres: _EphemeralPostgres) -> None:
     # Update
     sql, params = q.build_adopcion_update(
         str(adopcion_id),
-        {"nombre_adoptante": "Pedro Sanchez Actualizado", "telefono_adoptante": "600654321"},
+        {
+            "animal_id": related["animal_id"],
+            "fecha_adopcion": date.today().isoformat(),
+            "nombre_adoptante": "Pedro Sanchez Actualizado",
+            "telefono_adoptante": "600654321",
+        },
     )
     rows = ephemeral_postgres.execute(sql, params)
     assert len(rows) == 1
@@ -210,7 +219,9 @@ def test_build_adopcion_check_animal(ephemeral_postgres: _EphemeralPostgres) -> 
     sql, params = q.build_adopcion_check_animal(related["animal_id"])
     rows = ephemeral_postgres.execute(sql, params)
     assert len(rows) == 1
-    assert rows[0]["id"] == related["animal_id"]
+    # psycopg3 returns UUID objects from UUID columns; the seed dict
+    # holds string UUIDs, so we str-cast before comparing.
+    assert str(rows[0]["id"]) == related["animal_id"]
 
 
 @pytest.mark.integration
@@ -221,7 +232,7 @@ def test_build_adopcion_check_voluntario(ephemeral_postgres: _EphemeralPostgres)
     sql, params = q.build_adopcion_check_voluntario(related["voluntario_id"])
     rows = ephemeral_postgres.execute(sql, params)
     assert len(rows) == 1
-    assert rows[0]["id"] == related["voluntario_id"]
+    assert str(rows[0]["id"]) == related["voluntario_id"]
 
 
 @pytest.mark.integration
@@ -232,7 +243,7 @@ def test_build_adopcion_check_entrada(ephemeral_postgres: _EphemeralPostgres) ->
     sql, params = q.build_adopcion_check_entrada(related["entrada_id"])
     rows = ephemeral_postgres.execute(sql, params)
     assert len(rows) == 1
-    assert rows[0]["id"] == related["entrada_id"]
+    assert str(rows[0]["id"]) == related["entrada_id"]
 
 
 @pytest.mark.integration
@@ -243,7 +254,7 @@ def test_build_adopcion_check_responsable(ephemeral_postgres: _EphemeralPostgres
     sql, params = q.build_adopcion_check_responsable(related["voluntario_id"])
     rows = ephemeral_postgres.execute(sql, params)
     assert len(rows) == 1
-    assert rows[0]["id"] == related["voluntario_id"]
+    assert str(rows[0]["id"]) == related["voluntario_id"]
 
 
 @pytest.mark.integration
@@ -259,6 +270,7 @@ def test_build_seguimiento_update(ephemeral_postgres: _EphemeralPostgres) -> Non
         "estado": "seguimiento",
         "fecha_adopcion": str(date.today()),
         "entrada_id": related["entrada_id"],
+        "nombre_adoptante": "Test Adoptante",
     }
     sql, params = q.build_adopcion_insert(adopcion_params)
     ep_rows = ephemeral_postgres.execute(sql, params)

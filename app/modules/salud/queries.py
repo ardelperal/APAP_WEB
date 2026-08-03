@@ -114,7 +114,9 @@ updated AS (
     WHERE target_terapia.id = $1
       AND checked_animal.id IS NOT NULL
       AND checked_voluntario.id IS NOT NULL
-    RETURNING {", ".join(TERAPIA_SELECT_COLUMNS)}
+    RETURNING target_terapia.id, target_terapia.animal_id, target_terapia.voluntario_id,
+             target_terapia.fecha, target_terapia.descripcion,
+             target_terapia.created_at, target_terapia.updated_at, target_terapia.activo
 )
 SELECT {", ".join(TERAPIA_SELECT_COLUMNS)} FROM updated
 """
