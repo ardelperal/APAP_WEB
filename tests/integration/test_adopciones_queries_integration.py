@@ -147,6 +147,7 @@ def test_build_adopcion_update(ephemeral_postgres: _EphemeralPostgres) -> None:
         str(adopcion_id),
         {
             "animal_id": related["animal_id"],
+            "fecha_adopcion": date.today().isoformat(),
             "nombre_adoptante": "Pedro Sanchez Actualizado",
             "telefono_adoptante": "600654321",
         },

@@ -167,7 +167,7 @@ inserted AS (
         veterinario, observaciones, material_utilizado
     )
     SELECT
-        v.animal_id, v.voluntario_id, v.fecha, v.tipo_actuacion_id,
+        v.animal_id::uuid, v.voluntario_id::uuid, v.fecha, v.tipo_actuacion_id::uuid,
         v.veterinario, v.observaciones, v.material_utilizado
     FROM validated v
     CROSS JOIN all_valid

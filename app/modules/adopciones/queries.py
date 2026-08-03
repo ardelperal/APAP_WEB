@@ -89,7 +89,7 @@ _LIST_ADOPCIONES_BY_ADOPTANTE_SQL: Final[str] = (
     f"SELECT {', '.join(ADOPCION_SELECT_COLUMNS)} "
     "FROM adopciones "
     "WHERE activo = true "
-    "AND nombre_adoptante ILIKE concat('%', $1, '%') ESCAPE '\\' "
+    "AND nombre_adoptante ILIKE concat(chr(37), $1, chr(37)) ESCAPE '\\' "
     "ORDER BY fecha_alta DESC "
     "LIMIT 100"
 )
