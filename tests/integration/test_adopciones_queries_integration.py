@@ -262,6 +262,7 @@ def test_build_seguimiento_update(ephemeral_postgres: _EphemeralPostgres) -> Non
         "estado": "seguimiento",
         "fecha_adopcion": str(date.today()),
         "entrada_id": related["entrada_id"],
+        "nombre_adoptante": "Test Adoptante",
     }
     sql, params = q.build_adopcion_insert(adopcion_params)
     ep_rows = ephemeral_postgres.execute(sql, params)

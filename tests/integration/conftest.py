@@ -418,17 +418,14 @@ class _EphemeralPostgres:
     ) -> list[dict[str, Any]]:
         """Execute a query and return all rows as dicts.
 
-        ``prepare=False`` skips psycopg3's client-side placeholder
-        detection (``PostgresQuery.convert()`` is bypassed) and sends the
-        query via the simple-query protocol path. The integration tests
-        run hand-written SQL with ``$N`` placeholders that psycopg3's
-        default ``ClientCursor`` does not recognise (its regex only
-        counts ``%s`` / ``%(name)s``), so without ``prepare=False`` the
-        cursor raises ``the query has 0 placeholders but N parameters
-        were passed`` even though the server would happily parse ``$N``
-        itself through the extended-query protocol.
+        Uses psycopg3's default ``prepare=None`` (extended query protocol)
+        so ``$N`` positional placeholders are recognised by the client
+        parser. ``prepare=False`` would route through the simple-query
+        protocol which does NOT support ``$N`` placeholders — see the
+        ``bb13e70`` → revert in this branch's history for the failed
+        experiment.
         """
         with self.connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(query, params, prepare=False)
+                cur.execute(query, params)
                 return list(cur.fetchall())
