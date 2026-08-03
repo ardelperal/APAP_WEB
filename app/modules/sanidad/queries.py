@@ -202,7 +202,7 @@ SELECT
     'validation_error'::text AS kind,
     batch_index,
     reason,
-    NULL::text AS id, animal_id, voluntario_id, fecha,
+    NULL::uuid AS id, animal_id, voluntario_id, fecha,
     NULL::text AS tipo_actuacion_id,
     NULL::text AS veterinario, NULL::text AS observaciones,
     NULL::text AS material_utilizado,
