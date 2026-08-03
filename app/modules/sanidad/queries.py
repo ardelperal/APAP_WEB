@@ -110,9 +110,9 @@ checked_animals AS (
     SELECT a.id, a.fecha_alta
     FROM animales a
     -- The arrays come in as ``$N::text[]`` (see the ``unnest`` block
-    # above), so ``i.animal_id`` is text. ``animales.id`` is UUID; cast
-    # before joining or Postgres raises ``operator does not exist:
-    # uuid = text``.
+    -- above), so ``i.animal_id`` is text. ``animales.id`` is UUID; cast
+    -- before joining or Postgres raises ``operator does not exist:
+    -- uuid = text``.
     JOIN input_data i ON a.id = i.animal_id::uuid
     WHERE a.activo = true
 ),
@@ -267,6 +267,7 @@ def build_batch_insert(
 # Param: $1 — animal_id (UUID text)
 _BUILD_RESUMEN_SANITARIO_SQL: str = """
 SELECT DISTINCT ON (cp.observaciones)
+    a.animal_id               AS animal_id,
     cp.observaciones          AS tipo,
     a.fecha                   AS ultima_fecha,
     a.observaciones           AS ultimo_resultado,

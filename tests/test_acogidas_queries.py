@@ -314,17 +314,16 @@ def test_build_acogida_close_sets_fecha_final_to_current_date() -> None:
 
 
 def test_build_acogida_delete_flips_activo_and_bumps_updated_at() -> None:
-    """Soft-delete: ``activo = false`` + ``updated_at = now()``;
-    the WHERE clause folds the existence check into the same
-    statement under PostgreSQL's row lock. ``acogidas`` has no
-    ``fecha_baja`` column (only ``fecha_final`` for the close lifecycle
-    and ``activo`` for the soft-delete), so we only bump
-    ``updated_at``.
+    """Soft-delete: ``activo = false`` + ``fecha_baja = now()`` +
+    ``updated_at = now()``; the WHERE clause folds the existence check
+    into the same statement under PostgreSQL's row lock. ``acogidas``
+    has a ``fecha_baja`` column (audit-2026-07-30, VOL-04 follow-up)
+    that captures when the row was soft-deleted.
     """
     sql, params = queries.build_acogida_delete("acog-uuid-1")
     assert "UPDATE acogidas" in sql
     assert "activo = false" in sql
-    assert "fecha_baja" not in sql
+    assert "fecha_baja = now()" in sql
     assert "updated_at = now()" in sql
     assert "WHERE id = $1" in sql
     assert "activo = true" in sql

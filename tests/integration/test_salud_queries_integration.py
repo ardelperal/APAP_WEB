@@ -295,7 +295,7 @@ def test_build_create_recomendacion(ephemeral_postgres: _EphemeralPostgres) -> N
 
     assert len(rows) == 1
     # psycopg3 returns UUID objects from UUID columns.
-    assert str(rows[0]["terapia_id"]) == terapia_id
+    assert str(rows[0]["terapia_id"]) == str(terapia_id)
     assert rows[0]["texto"] == "Reposo 48h"
     assert rows[0]["completada"] is False
     assert rows[0]["activo"] is True
@@ -332,7 +332,7 @@ def test_build_list_recomendaciones_by_terapia(
     assert len(rows) >= 1
     # psycopg3 returns UUID objects from UUID columns.
     assert all(
-        str(r["terapia_id"]) == terapia_id and r["activo"] is True for r in rows
+        str(r["terapia_id"]) == str(terapia_id) and r["activo"] is True for r in rows
     )
 
 
