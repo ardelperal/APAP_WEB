@@ -25,8 +25,8 @@ def _seed_terapia_related_records(ep: _EphemeralPostgres) -> dict[str, str]:
     """
     animal_id = str(uuid4())
     ep.execute(
-        f"INSERT INTO animales (id, nombreanimal, especie, sexo, fnacimiento, fecha_alta, activo) "
-        f"VALUES ('{animal_id}', 'Luna', 'FELINA', 'H', '2022-01-15', now(), true)"
+        f"INSERT INTO animales (id, nchip, nombreanimal, especie, sexo, fnacimiento, fecha_alta, activo) "
+        f"VALUES ('{animal_id}', 'CHIP-SALUD-{animal_id[:8]}', 'Luna', 'FELINA', 'H', '2022-01-15', now(), true)"
     )
 
     voluntario_id = str(uuid4())

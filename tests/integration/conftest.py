@@ -18,6 +18,7 @@ no InsForge coupling" property and matches the close-scope fix.
 from __future__ import annotations
 
 import os
+import re
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -28,9 +29,6 @@ import pytest
 from psycopg import sql
 from psycopg.rows import dict_row
 
-# Re-export the domain SQL constants so the fixture can provision
-# all tables without importing InsForgeClient (the integration tests
-# use raw psycopg, not InsForgeClient).
 from app.core.domain_adopciones import ADOPCIONES_CREATE_TABLE_SQL
 from app.core.domain_animales import ANIMALS_CREATE_TABLE_SQL
 from app.core.domain_casas_acogida import CASAS_ACOGIDA_CREATE_TABLE_SQL
@@ -70,6 +68,51 @@ from app.core.domain_voluntarios import (
     ROLES_VOLUNTARIO_CREATE_TABLE_SQL,
     VOLUNTARIOS_CREATE_TABLE_SQL,
 )
+
+_DOLLAR_PLACEHOLDER = re.compile(r"\$\d+")
+
+
+def _to_client_placeholder_style(query: str) -> str:
+    """Rewrite ``$N`` placeholders as ``%s`` for psycopg3 v3.3.4's client.
+
+    The query builders in ``app/modules/*/queries.py`` use ``$N``
+    placeholders (native Postgres extended-protocol style). psycopg3
+    v3.3.4's default ``ClientCursor`` runs every ``execute()`` through
+    ``PostgresQuery.convert()`` whose regex (in
+    ``psycopg/_queries.py::_re_placeholder``) only matches ``%s`` /
+    ``%(name)s`` — so a query that only has ``$N`` is parsed as having
+    zero placeholders and the bind check raises
+    ``the query has 0 placeholders but N parameters were passed``.
+
+    Translating to ``%s`` is invisible to the server: the C extension's
+    ``_query2pg_client`` rewrites ``%s`` to ``$N`` for the wire protocol
+    before sending, and Postgres parses the ``$N`` natively. So the
+    statement that reaches the server is byte-identical to what
+    ``queries.py`` wrote.
+
+    We do this translation at the test-boundary in ``execute`` (NOT in
+    ``queries.py``) so that:
+
+    - The production code path (``InsForgeClient.execute_sql`` — HTTP
+      to the InsForge API) is untouched. InsForge's server receives
+      ``$N`` placeholders, which it binds natively.
+    - The integration tests run against any Postgres (not just
+      InsForge): psycopg3 is server-agnostic and translates ``%s`` to
+      ``$N`` automatically.
+
+    Alternative architectures that we tried and rejected:
+
+    - ``ServerCursor`` (bypasses client-side parse, lets the server
+      bind ``$N`` natively): psycopg3 v3.3.4's ServerCursor only
+      supports ``SELECT`` statements — it sends
+      ``DECLARE name CURSOR FOR <query>`` which the server rejects for
+      ``INSERT`` / ``UPDATE`` / ``DELETE`` with
+      ``syntax error at or near "INSERT"``. The integration tests
+      execute all four statement types, so ServerCursor is not viable.
+    """
+    if "$" in query:
+        return _DOLLAR_PLACEHOLDER.sub("%s", query)
+    return query
 
 # catalogos_* CREATE TABLE statements (issue #329 follow-up).
 # Schemas verified 2026-08-01 against the InsForge project's underlying
@@ -411,7 +454,10 @@ class _EphemeralPostgres:
     @contextmanager
     def connection(self) -> Iterator[Any]:
         """Context manager for a connection with search_path set to the
-        ephemeral schema.
+        ephemeral schema. Uses psycopg3's default ``ClientCursor``
+        (which is the only cursor type that supports INSERT/UPDATE/DELETE
+        in addition to SELECT — see ``_to_client_placeholder_style``
+        for why we cannot use ``ServerCursor``).
         """
         with psycopg.connect(self._dsn, row_factory=dict_row) as conn:
             conn.execute(
@@ -424,14 +470,13 @@ class _EphemeralPostgres:
     ) -> list[dict[str, Any]]:
         """Execute a query and return all rows as dicts.
 
-        Uses psycopg3's default ``prepare=None`` (extended query protocol)
-        so ``$N`` positional placeholders are recognised by the client
-        parser. ``prepare=False`` would route through the simple-query
-        protocol which does NOT support ``$N`` placeholders — see the
-        ``bb13e70`` → revert in this branch's history for the failed
-        experiment.
+        ``$N`` placeholders in the query are rewritten to ``%s`` at the
+        test boundary (``_to_client_placeholder_style``) so psycopg3
+        v3.3.4's ``ClientCursor`` parses the bind count correctly. The
+        server still receives ``$N`` SQL because psycopg3's C extension
+        re-number ``%s`` to ``$N`` for the wire protocol.
         """
         with self.connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(query, params)
+                cur.execute(_to_client_placeholder_style(query), params)
                 return list(cur.fetchall())
