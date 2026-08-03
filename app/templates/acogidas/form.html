@@ -29,15 +29,15 @@
       <legend class="text-sm font-semibold text-text-muted">Vinculación</legend>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <label class="block text-sm font-medium text-text">Animal <span class="text-rose-700">*</span></label>
-          <input type="text" name="animal_id" value="{{ form_data.animal_id or '' }}"
+          <label for="animal_id" class="block text-sm font-medium text-text">Animal <span class="text-rose-700">*</span></label>
+          <input type="text" id="animal_id" name="animal_id" value="{{ form_data.animal_id or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 font-mono"
                  required>
           <p class="text-xs text-text-muted mt-1">Identificador del animal (UUID).</p>
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Casa de acogida</label>
-          <input type="text" name="casa_acogida_id" value="{{ form_data.casa_acogida_id or '' }}"
+          <label for="casa_acogida_id" class="block text-sm font-medium text-text">Casa de acogida</label>
+          <input type="text" id="casa_acogida_id" name="casa_acogida_id" value="{{ form_data.casa_acogida_id or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 font-mono">
           <p class="text-xs text-text-muted mt-1">Opcional. Debe ser una casa activa (UUID).</p>
         </div>
@@ -48,14 +48,14 @@
       <legend class="text-sm font-semibold text-text-muted">Fechas</legend>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <label class="block text-sm font-medium text-text">Fecha de inicio <span class="text-rose-700">*</span></label>
-          <input type="date" name="fecha_inicio" value="{{ form_data.fecha_inicio or '' }}"
+          <label for="fecha_inicio" class="block text-sm font-medium text-text">Fecha de inicio <span class="text-rose-700">*</span></label>
+          <input type="date" id="fecha_inicio" name="fecha_inicio" value="{{ form_data.fecha_inicio or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                  required>
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Fecha de cierre</label>
-          <input type="date" name="fecha_final" value="{{ form_data.fecha_final or '' }}"
+          <label for="fecha_final" class="block text-sm font-medium text-text">Fecha de cierre</label>
+          <input type="date" id="fecha_final" name="fecha_final" value="{{ form_data.fecha_final or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
           <p class="text-xs text-text-muted mt-1">Si la estancia ya ha terminado. Déjalo vacío para una estancia abierta.</p>
         </div>
@@ -67,23 +67,23 @@
       <p class="text-xs text-text-muted">Todos opcionales. Si se indica, debe ser un voluntario activo (UUID).</p>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <label class="block text-sm font-medium text-text">Voluntario de acogida</label>
-          <input type="text" name="voluntario_acogida_id" value="{{ form_data.voluntario_acogida_id or '' }}"
+          <label for="voluntario_acogida_id" class="block text-sm font-medium text-text">Voluntario de acogida</label>
+          <input type="text" id="voluntario_acogida_id" name="voluntario_acogida_id" value="{{ form_data.voluntario_acogida_id or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 font-mono">
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Voluntario de seguimiento 1</label>
-          <input type="text" name="voluntario_seguimiento1_id" value="{{ form_data.voluntario_seguimiento1_id or '' }}"
+          <label for="voluntario_seguimiento1_id" class="block text-sm font-medium text-text">Voluntario de seguimiento 1</label>
+          <input type="text" id="voluntario_seguimiento1_id" name="voluntario_seguimiento1_id" value="{{ form_data.voluntario_seguimiento1_id or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 font-mono">
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Voluntario de seguimiento 2</label>
-          <input type="text" name="voluntario_seguimiento2_id" value="{{ form_data.voluntario_seguimiento2_id or '' }}"
+          <label for="voluntario_seguimiento2_id" class="block text-sm font-medium text-text">Voluntario de seguimiento 2</label>
+          <input type="text" id="voluntario_seguimiento2_id" name="voluntario_seguimiento2_id" value="{{ form_data.voluntario_seguimiento2_id or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 font-mono">
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Voluntario sanitario</label>
-          <input type="text" name="voluntario_sanitario_id" value="{{ form_data.voluntario_sanitario_id or '' }}"
+          <label for="voluntario_sanitario_id" class="block text-sm font-medium text-text">Voluntario sanitario</label>
+          <input type="text" id="voluntario_sanitario_id" name="voluntario_sanitario_id" value="{{ form_data.voluntario_sanitario_id or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 font-mono">
         </div>
       </div>
@@ -93,25 +93,25 @@
       <legend class="text-sm font-semibold text-text-muted">Datos adicionales</legend>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <label class="block text-sm font-medium text-text">Entrada de origen</label>
-          <input type="text" name="entrada_origen_id" value="{{ form_data.entrada_origen_id or '' }}"
+          <label for="entrada_origen_id" class="block text-sm font-medium text-text">Entrada de origen</label>
+          <input type="text" id="entrada_origen_id" name="entrada_origen_id" value="{{ form_data.entrada_origen_id or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 font-mono">
           <p class="text-xs text-text-muted mt-1">Opcional. UUID de la entrada que originó esta estancia.</p>
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Teléfono de contacto</label>
-          <input type="text" name="telefono" value="{{ form_data.telefono or '' }}"
+          <label for="telefono" class="block text-sm font-medium text-text">Teléfono de contacto</label>
+          <input type="text" id="telefono" name="telefono" value="{{ form_data.telefono or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
         <div class="md:col-span-2">
-          <label class="block text-sm font-medium text-text">Dirección</label>
-          <input type="text" name="direccion" value="{{ form_data.direccion or '' }}"
+          <label for="direccion" class="block text-sm font-medium text-text">Dirección</label>
+          <input type="text" id="direccion" name="direccion" value="{{ form_data.direccion or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
           <p class="text-xs text-text-muted mt-1">Dirección denormalizada del legacy (se conserva por fidelidad histórica).</p>
         </div>
         <div class="md:col-span-2">
-          <label class="block text-sm font-medium text-text">Observaciones</label>
-          <textarea name="observaciones" rows="3"
+          <label for="observaciones" class="block text-sm font-medium text-text">Observaciones</label>
+          <textarea id="observaciones" name="observaciones" rows="3"
                     class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">{{ form_data.observaciones or '' }}</textarea>
         </div>
       </div>

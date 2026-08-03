@@ -71,31 +71,31 @@
     {% for record in records %}
       <div class="grid grid-cols-1 md:grid-cols-7 gap-2 border-t border-border/40 pt-3">
         <div class="md:col-span-2">
-          <label class="block text-xs text-text-muted">ID animal</label>
-          <input type="text" name="animal_id" value="{{ record['animal_id'] or '' }}"
+          <label for="animal_id" class="block text-xs text-text-muted">ID animal</label>
+          <input type="text" id="animal_id" name="animal_id" value="{{ record['animal_id'] or '' }}"
                  class="block w-full border border-border rounded px-2 py-1 bg-surface text-text font-mono text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                  placeholder="UUID">
         </div>
         <div>
-          <label class="block text-xs text-text-muted">Fecha</label>
-          <input type="date" name="fecha" value="{{ record['fecha'] or '' }}"
+          <label for="fecha" class="block text-xs text-text-muted">Fecha</label>
+          <input type="date" id="fecha" name="fecha" value="{{ record['fecha'] or '' }}"
                  class="block w-full border border-border rounded px-2 py-1 bg-surface text-text text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
         <div>
-          <label class="block text-xs text-text-muted">Voluntario</label>
-          <input type="text" name="voluntario_id" value="{{ record['voluntario_id'] or '' }}"
+          <label for="voluntario_id" class="block text-xs text-text-muted">Voluntario</label>
+          <input type="text" id="voluntario_id" name="voluntario_id" value="{{ record['voluntario_id'] or '' }}"
                  class="block w-full border border-border rounded px-2 py-1 bg-surface text-text font-mono text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                  placeholder="(opcional)">
         </div>
         <div>
-          <label class="block text-xs text-text-muted">Tipo</label>
-          <input type="text" name="tipo_actuacion_id" value="{{ record['tipo_actuacion_id'] or '' }}"
+          <label for="tipo_actuacion_id" class="block text-xs text-text-muted">Tipo</label>
+          <input type="text" id="tipo_actuacion_id" name="tipo_actuacion_id" value="{{ record['tipo_actuacion_id'] or '' }}"
                  class="block w-full border border-border rounded px-2 py-1 bg-surface text-text font-mono text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                  placeholder="(opcional)">
         </div>
         <div class="md:col-span-2">
-          <label class="block text-xs text-text-muted">Observaciones</label>
-          <input type="text" name="observaciones" value="{{ record['observaciones'] or '' }}"
+          <label for="observaciones" class="block text-xs text-text-muted">Observaciones</label>
+          <input type="text" id="observaciones" name="observaciones" value="{{ record['observaciones'] or '' }}"
                  class="block w-full border border-border rounded px-2 py-1 bg-surface text-text text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
         {# Hidden fields so the form's blank defaults still flow through. #}

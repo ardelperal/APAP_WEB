@@ -22,62 +22,62 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
       <div>
-        <label class="block text-sm font-medium text-text">N.º de chip <span class="text-rose-700">*</span></label>
-        <input type="text" name="NCHIP" value="{{ form_data.NCHIP or '' }}"
+        <label for="NCHIP" class="block text-sm font-medium text-text">N.º de chip <span class="text-rose-700">*</span></label>
+        <input type="text" id="NCHIP" name="NCHIP" value="{{ form_data.NCHIP or '' }}"
                class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                required>
       </div>
       <div>
-        <label class="block text-sm font-medium text-text">Nombre <span class="text-rose-700">*</span></label>
-        <input type="text" name="NombreAnimal" value="{{ form_data.NombreAnimal or '' }}"
+        <label for="NombreAnimal" class="block text-sm font-medium text-text">Nombre <span class="text-rose-700">*</span></label>
+        <input type="text" id="NombreAnimal" name="NombreAnimal" value="{{ form_data.NombreAnimal or '' }}"
                class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                required>
       </div>
       <div>
-        <label class="block text-sm font-medium text-text">Especie <span class="text-rose-700">*</span></label>
-        <select name="Especie" class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" required>
+        <label for="Especie" class="block text-sm font-medium text-text">Especie <span class="text-rose-700">*</span></label>
+        <select id="Especie" name="Especie" class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" required>
           {% for esp in especies %}
           <option value="{{ esp }}" {% if form_data.Especie == esp %}selected{% endif %}>{{ esp }}</option>
           {% endfor %}
         </select>
       </div>
       <div>
-        <label class="block text-sm font-medium text-text">Sexo <span class="text-rose-700">*</span></label>
-        <select name="Sexo" class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" required>
+        <label for="Sexo" class="block text-sm font-medium text-text">Sexo <span class="text-rose-700">*</span></label>
+        <select id="Sexo" name="Sexo" class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" required>
           {% for sx in sexos %}
           <option value="{{ sx }}" {% if form_data.Sexo == sx %}selected{% endif %}>{{ sx }}</option>
           {% endfor %}
         </select>
       </div>
       <div>
-        <label class="block text-sm font-medium text-text">Fecha de nacimiento <span class="text-rose-700">*</span></label>
-        <input type="date" name="FNacimiento" value="{{ form_data.FNacimiento or '' }}"
+        <label for="FNacimiento" class="block text-sm font-medium text-text">Fecha de nacimiento <span class="text-rose-700">*</span></label>
+        <input type="date" id="FNacimiento" name="FNacimiento" value="{{ form_data.FNacimiento or '' }}"
                class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                required>
       </div>
       <div>
-        <label class="block text-sm font-medium text-text">Raza</label>
-        <input type="text" name="Raza" value="{{ form_data.Raza or '' }}"
+        <label for="Raza" class="block text-sm font-medium text-text">Raza</label>
+        <input type="text" id="Raza" name="Raza" value="{{ form_data.Raza or '' }}"
                class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
       </div>
       <div>
-        <label class="block text-sm font-medium text-text">Color</label>
-        <input type="text" name="Color" value="{{ form_data.Color or '' }}"
+        <label for="Color" class="block text-sm font-medium text-text">Color</label>
+        <input type="text" id="Color" name="Color" value="{{ form_data.Color or '' }}"
                class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
       </div>
       <div>
-        <label class="block text-sm font-medium text-text">Pelo</label>
-        <input type="text" name="Pelo" value="{{ form_data.Pelo or '' }}"
+        <label for="Pelo" class="block text-sm font-medium text-text">Pelo</label>
+        <input type="text" id="Pelo" name="Pelo" value="{{ form_data.Pelo or '' }}"
                class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
       </div>
       <div>
-        <label class="block text-sm font-medium text-text">Tamaño</label>
-        <input type="text" name="Tamano" value="{{ form_data.Tamano or '' }}"
+        <label for="Tamano" class="block text-sm font-medium text-text">Tamaño</label>
+        <input type="text" id="Tamano" name="Tamano" value="{{ form_data.Tamano or '' }}"
                class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
       </div>
       <div>
-        <label class="block text-sm font-medium text-text">Carácter</label>
-        <input type="text" name="Caracter" value="{{ form_data.Caracter or '' }}"
+        <label for="Caracter" class="block text-sm font-medium text-text">Carácter</label>
+        <input type="text" id="Caracter" name="Caracter" value="{{ form_data.Caracter or '' }}"
                class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
       </div>
     </div>
@@ -86,62 +86,62 @@
       <summary class="cursor-pointer font-semibold text-text">Datos adicionales del animal</summary>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
         <div>
-          <label class="block text-sm font-medium text-text">¿Trae chip? <span class="text-rose-700">*</span></label>
-          <input type="text" name="TraeNChip" value="{{ form_data.TraeNChip or '' }}"
+          <label for="TraeNChip" class="block text-sm font-medium text-text">¿Trae chip? <span class="text-rose-700">*</span></label>
+          <input type="text" id="TraeNChip" name="TraeNChip" value="{{ form_data.TraeNChip or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                  required>
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Fecha de implantación del chip <span class="text-rose-700">*</span></label>
-          <input type="date" name="FIMPLANTACIONCHIP" value="{{ form_data.FIMPLANTACIONCHIP or '' }}"
+          <label for="FIMPLANTACIONCHIP" class="block text-sm font-medium text-text">Fecha de implantación del chip <span class="text-rose-700">*</span></label>
+          <input type="date" id="FIMPLANTACIONCHIP" name="FIMPLANTACIONCHIP" value="{{ form_data.FIMPLANTACIONCHIP or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                  required>
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Fecha de defunción</label>
-          <input type="date" name="FDefuncion" value="{{ form_data.FDefuncion or '' }}"
+          <label for="FDefuncion" class="block text-sm font-medium text-text">Fecha de defunción</label>
+          <input type="date" id="FDefuncion" name="FDefuncion" value="{{ form_data.FDefuncion or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Terapia <span class="text-rose-700">*</span></label>
-          <input type="text" name="Terapia" value="{{ form_data.Terapia or '' }}"
+          <label for="Terapia" class="block text-sm font-medium text-text">Terapia <span class="text-rose-700">*</span></label>
+          <input type="text" id="Terapia" name="Terapia" value="{{ form_data.Terapia or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                  required>
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Eutanasia</label>
-          <input type="text" name="Eutanasia" value="{{ form_data.Eutanasia or '' }}"
+          <label for="Eutanasia" class="block text-sm font-medium text-text">Eutanasia</label>
+          <input type="text" id="Eutanasia" name="Eutanasia" value="{{ form_data.Eutanasia or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Mestizo</label>
-          <input type="text" name="Mestizo" value="{{ form_data.Mestizo or '' }}"
+          <label for="Mestizo" class="block text-sm font-medium text-text">Mestizo</label>
+          <input type="text" id="Mestizo" name="Mestizo" value="{{ form_data.Mestizo or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Raza PPP</label>
-          <input type="text" name="RazaPPP" value="{{ form_data.RazaPPP or '' }}"
+          <label for="RazaPPP" class="block text-sm font-medium text-text">Raza PPP</label>
+          <input type="text" id="RazaPPP" name="RazaPPP" value="{{ form_data.RazaPPP or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Cartilla</label>
-          <input type="text" name="Cartilla" value="{{ form_data.Cartilla or '' }}"
+          <label for="Cartilla" class="block text-sm font-medium text-text">Cartilla</label>
+          <input type="text" id="Cartilla" name="Cartilla" value="{{ form_data.Cartilla or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Foto <span class="text-rose-700">*</span></label>
-          <input type="text" name="NombreFoto" value="{{ form_data.NombreFoto or '' }}"
+          <label for="NombreFoto" class="block text-sm font-medium text-text">Foto <span class="text-rose-700">*</span></label>
+          <input type="text" id="NombreFoto" name="NombreFoto" value="{{ form_data.NombreFoto or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                  required>
         </div>
         <div>
-          <label class="block text-sm font-medium text-text">Comunicación RIAC</label>
-          <input type="text" name="ComunicacionARIAC" value="{{ form_data.ComunicacionARIAC or '' }}"
+          <label for="ComunicacionARIAC" class="block text-sm font-medium text-text">Comunicación RIAC</label>
+          <input type="text" id="ComunicacionARIAC" name="ComunicacionARIAC" value="{{ form_data.ComunicacionARIAC or '' }}"
                  class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
         </div>
         <div class="md:col-span-2">
-          <label class="block text-sm font-medium text-text">Observaciones</label>
-          <textarea name="Observaciones" rows="2"
+          <label for="Observaciones" class="block text-sm font-medium text-text">Observaciones</label>
+          <textarea id="Observaciones" name="Observaciones" rows="2"
                     class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">{{ form_data.Observaciones or '' }}</textarea>
         </div>
       </div>

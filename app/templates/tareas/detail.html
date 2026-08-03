@@ -45,7 +45,8 @@
         </form>
         <form method="post" action="/tareas/{{ tarea.id }}/asignar" class="flex gap-2">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-          <input type="text" name="responsable_id" placeholder="ID responsable" class="flex-1 rounded border border-border px-3 py-2 text-sm" />
+          <label for="responsable_id" class="sr-only">ID responsable</label>
+          <input type="text" id="responsable_id" name="responsable_id" placeholder="ID responsable" class="flex-1 rounded border border-border px-3 py-2 text-sm" />
           <button type="submit" class="rounded bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-dark transition-colors">
             Asignar
           </button>

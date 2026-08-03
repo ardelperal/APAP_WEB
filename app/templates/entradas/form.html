@@ -22,35 +22,35 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
       <div>
-        <label class="block text-sm font-medium text-text">Animal <span class="text-rose-700">*</span></label>
-        <input type="text" name="animal_id" value="{{ form_data.animal_id or '' }}"
+        <label for="animal_id" class="block text-sm font-medium text-text">Animal <span class="text-rose-700">*</span></label>
+        <input type="text" id="animal_id" name="animal_id" value="{{ form_data.animal_id or '' }}"
                class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                required>
       </div>
       <div>
-        <label class="block text-sm font-medium text-text">Fecha de entrada <span class="text-rose-700">*</span></label>
-        <input type="date" name="fecha_entrada" value="{{ form_data.fecha_entrada or '' }}"
+        <label for="fecha_entrada" class="block text-sm font-medium text-text">Fecha de entrada <span class="text-rose-700">*</span></label>
+        <input type="date" id="fecha_entrada" name="fecha_entrada" value="{{ form_data.fecha_entrada or '' }}"
                class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                required>
       </div>
       <div>
-        <label class="block text-sm font-medium text-text">Voluntario de entrada</label>
-        <input type="text" name="voluntario_entrada_id" value="{{ form_data.voluntario_entrada_id or '' }}"
+        <label for="voluntario_entrada_id" class="block text-sm font-medium text-text">Voluntario de entrada</label>
+        <input type="text" id="voluntario_entrada_id" name="voluntario_entrada_id" value="{{ form_data.voluntario_entrada_id or '' }}"
                class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
       </div>
       <div>
-        <label class="block text-sm font-medium text-text">Origen</label>
-        <input type="text" name="origen" value="{{ form_data.origen or '' }}"
+        <label for="origen" class="block text-sm font-medium text-text">Origen</label>
+        <input type="text" id="origen" name="origen" value="{{ form_data.origen or '' }}"
                class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
       </div>
       <div>
-        <label class="block text-sm font-medium text-text">Motivo</label>
-        <input type="text" name="motivo" value="{{ form_data.motivo or '' }}"
+        <label for="motivo" class="block text-sm font-medium text-text">Motivo</label>
+        <input type="text" id="motivo" name="motivo" value="{{ form_data.motivo or '' }}"
                class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
       </div>
       <div class="md:col-span-2">
-        <label class="block text-sm font-medium text-text">Observaciones</label>
-        <textarea name="observaciones" rows="3"
+        <label for="observaciones" class="block text-sm font-medium text-text">Observaciones</label>
+        <textarea id="observaciones" name="observaciones" rows="3"
                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">{{ form_data.observaciones or '' }}</textarea>
       </div>
     </div>
