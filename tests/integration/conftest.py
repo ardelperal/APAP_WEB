@@ -320,23 +320,24 @@ def ephemeral_postgres() -> Iterator[_EphemeralPostgres]:
 @pytest.fixture(autouse=True)
 def _truncate_between_tests(ephemeral_postgres: _EphemeralPostgres) -> None:
     """Wipe all data before each test for isolation under the session-scoped schema."""
+    schema = ephemeral_postgres.schema
     with ephemeral_postgres.connection() as conn:
         with conn.cursor() as cur:
             # ``left(tablename, 2) <> 'pg'`` excludes the Postgres system
-            # tables (``pg_class``, ``pg_attribute``, ...) without using ``%``
-            # or ``LIKE`` in the SQL string. ``%`` in the string trips
-            # psycopg3's client-side placeholder detector (it parses any
-            # ``%`` as the start of a ``%(name)s`` placeholder regardless of
-            # context), and a ``$N`` placeholder alongside a ``%`` makes the
-            # parser drop ``$N`` entirely, so the cursor rejects the bind
-            # with ``0 placeholders but 2 parameters were passed``.
+            # tables (``pg_class``, ``pg_attribute``, ...). The schema name
+            # is a UUID we generate in ``__init__`` so it is safe to
+            # interpolate directly into the SQL string (no user input
+            # involved). ``cur.execute(query)`` with no params takes the
+            # simple-query protocol path, which the cursor sends as a raw
+            # Parse message to the server and the server handles ``$N``
+            # natively — bypassing psycopg3's client-side placeholder
+            # parser that only counts ``%`` style placeholders.
             cur.execute(
-                """
+                f"""
                 SELECT tablename FROM pg_tables
-                WHERE schemaname = $1
+                WHERE schemaname = '{schema}'
                 AND left(tablename, 2) <> 'pg'
-                """,
-                (ephemeral_postgres.schema,),
+                """
             )
             tables = [row["tablename"] for row in cur.fetchall()]
             if tables:
