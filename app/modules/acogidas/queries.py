@@ -137,11 +137,12 @@ _ACOGIDA_CLOSE_SQL: Final[str] = (
 
 # Atomic soft-delete: existence check + deactivation in one statement
 # under PostgreSQL's row lock. Pattern matches casas_acogida and
-# entradas.
+# entradas. ``acogidas`` does not have a ``fecha_baja`` column (only
+# ``fecha_final`` for close + ``activo`` for soft-delete), so we bump
+# ``updated_at`` alone when deactivating.
 _ACOGIDA_DELETE_SQL: Final[str] = """
 UPDATE acogidas
 SET activo = false,
-    fecha_baja = now(),
     updated_at = now()
 WHERE id = $1 AND activo = true
 RETURNING id
@@ -189,7 +190,9 @@ _ACOGIDA_CHECK_ENTRADA_SQL: Final[str] = (
 # different stay because the form's casa+animal pair will not match
 # the override row. Empty ``override_id`` (from a missing form field
 # that serializes as ``""``) is treated the same as absent — no
-# UPDATE.
+# UPDATE. ``RETURNING id`` lets the integration-test wrapper
+# (``tests/integration/conftest.py::execute``) read the cursor
+# without raising on a non-tuple result.
 _ACOGIDA_LINK_OVERRIDE_SQL: Final[str] = """
 UPDATE foster_capacity_overrides
 SET estancia_id = $1
@@ -197,6 +200,7 @@ WHERE id = $2
   AND casa_acogida_id = $3
   AND animal_id = $4
   AND estancia_id IS NULL
+RETURNING id
 """
 
 
