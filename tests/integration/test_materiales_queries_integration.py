@@ -137,11 +137,12 @@ def test_build_material_update(ephemeral_postgres: _EphemeralPostgres) -> None:
     inserted = ephemeral_postgres.execute(insert_sql, insert_params)
     material_id = inserted[0]["id"]
 
-    # Update
+    # Update — the builder reserves ``$1`` for the WHERE id; the caller
+    # (this integration test, mirroring the service) prepends it.
     sql, params = q.build_material_update(
         str(material_id), {"material": "Collar XL", "color": "Azul"}
     )
-    rows = ephemeral_postgres.execute(sql, params)
+    rows = ephemeral_postgres.execute(sql, [str(material_id), *params])
     assert len(rows) == 1
     assert rows[0]["material"] == "Collar XL"
     assert rows[0]["color"] == "Azul"
