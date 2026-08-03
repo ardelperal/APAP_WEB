@@ -140,9 +140,9 @@ def _render_terapia_form_error(
 @router.get("/terapias", response_class=HTMLResponse)
 def list_terapias_view(
     request: Request,
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_SALUD))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
     animal_id: str | None = None,
-    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_SALUD))] = None,
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)] = None,
 ):
     """List active terapias; ``?animal_id=`` filters to one animal."""
     if (early := return_early_if_response(user)) is not None:
@@ -183,12 +183,12 @@ def new_terapia_form(
 @router.post("/terapias", response_class=HTMLResponse)
 def create_terapia_view(
     request: Request,
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
     animal_id: Annotated[str, Form()],
     voluntario_id: Annotated[str, Form()],
     fecha: Annotated[str, Form()],
     descripcion: Annotated[str | None, Form()] = None,
-    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))] = None,
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)] = None,
 ):
     """Create a terapia; redirect to detail on success.
 
@@ -279,12 +279,12 @@ def edit_terapia_form(
 def update_terapia_view(
     terapia_id: str,
     request: Request,
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
     animal_id: Annotated[str, Form()],
     voluntario_id: Annotated[str, Form()],
     fecha: Annotated[str, Form()],
     descripcion: Annotated[str | None, Form()] = None,
-    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))] = None,
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)] = None,
 ):
     """Update an existing terapia; redirect to detail on success.
 

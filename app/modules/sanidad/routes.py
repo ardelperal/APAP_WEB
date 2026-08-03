@@ -226,9 +226,9 @@ def _render_backend_error(
 @router.get("", response_class=HTMLResponse)
 def list_actuaciones_view(
     request: Request,
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_SALUD))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
     animal_id: str | None = None,
-    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_SALUD))] = None,
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)] = None,
 ):
     """List active actuaciones; ``?animal_id=`` filters to one animal.
 
@@ -287,6 +287,8 @@ def new_actuacion_form(
 @router.post("", response_class=HTMLResponse)
 def create_actuacion_view(
     request: Request,
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
     animal_id: Annotated[str, Form()],
     fecha: Annotated[str, Form()],
     voluntario_id: Annotated[str | None, Form()] = None,
@@ -294,8 +296,6 @@ def create_actuacion_view(
     veterinario: Annotated[str | None, Form()] = None,
     observaciones: Annotated[str | None, Form()] = None,
     material_utilizado: Annotated[str | None, Form()] = None,
-    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))] = None,
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)] = None,
 ):
     """Create an actuacion; redirect to detail on success.
 
@@ -432,6 +432,8 @@ def edit_actuacion_form(
 def update_actuacion_view(
     actuacion_id: str,
     request: Request,
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
     animal_id: Annotated[str, Form()],
     fecha: Annotated[str, Form()],
     voluntario_id: Annotated[str | None, Form()] = None,
@@ -439,8 +441,6 @@ def update_actuacion_view(
     veterinario: Annotated[str | None, Form()] = None,
     observaciones: Annotated[str | None, Form()] = None,
     material_utilizado: Annotated[str | None, Form()] = None,
-    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))] = None,
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)] = None,
 ):
     """Update an existing actuacion; redirect to detail on success.
 

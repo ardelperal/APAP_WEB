@@ -117,9 +117,9 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
     @app.get("/auth/callback")
     def callback(
         request: Request,
+        client: Annotated[InsForgeClient, Depends(get_insforge_client)],
         insforge_code: Annotated[str | None, Query()] = None,
         code: Annotated[str | None, Query()] = None,  # legacy direct-callback (pre-InsForge-proxy)
-        client: Annotated[InsForgeClient, Depends(get_insforge_client)] = None,
     ) -> Response:
         """Exchange the OAuth code for an InsForge JWT and issue a session.
 

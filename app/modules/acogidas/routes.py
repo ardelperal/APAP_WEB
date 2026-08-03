@@ -163,9 +163,9 @@ def _render_form(
 @router.get("", response_class=HTMLResponse)
 def list_acogidas_view(
     request: Request,
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_ACOGIDAS))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
     activas_solo: int | None = None,
-    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_ACOGIDAS))] = None,
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)] = None,
 ):
     """List stays; ``?activas_solo=1`` filters to open stays."""
     if (early := return_early_if_response(user)) is not None:
@@ -203,6 +203,8 @@ def new_acogida_form(
 @router.post("", response_class=HTMLResponse)
 def create_acogida_view(
     request: Request,
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_ACOGIDAS))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
     animal_id: Annotated[str, Form()],
     fecha_inicio: Annotated[str, Form()],
     casa_acogida_id: Annotated[str | None, Form()] = None,
@@ -216,8 +218,6 @@ def create_acogida_view(
     telefono: Annotated[str | None, Form()] = None,
     observaciones: Annotated[str | None, Form()] = None,
     override_id: Annotated[str | None, Form()] = None,
-    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_ACOGIDAS))] = None,
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)] = None,
 ):
     """Create a new estancia; redirect to detail on success, re-render form on validation error.
 
@@ -366,6 +366,8 @@ def edit_acogida_form(
 def update_acogida_view(
     acogida_id: str,
     request: Request,
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_ACOGIDAS))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
     animal_id: Annotated[str, Form()],
     fecha_inicio: Annotated[str, Form()],
     casa_acogida_id: Annotated[str | None, Form()] = None,
@@ -378,8 +380,6 @@ def update_acogida_view(
     direccion: Annotated[str | None, Form()] = None,
     telefono: Annotated[str | None, Form()] = None,
     observaciones: Annotated[str | None, Form()] = None,
-    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_ACOGIDAS))] = None,
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)] = None,
 ):
     """Apply form edits; redirect to detail on success, re-render on validation error."""
     if (early := return_early_if_response(user)) is not None:

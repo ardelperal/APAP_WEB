@@ -103,14 +103,14 @@ def new_entrada_form(
 @router.post("", response_class=HTMLResponse)
 def create_entrada_view(
     request: Request,
+    user: Annotated[Response | dict, Depends(require_permission(Permission.WRITE_ENTRADAS))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
     animal_id: Annotated[str, Form()],
     fecha_entrada: Annotated[str, Form()],
     voluntario_entrada_id: Annotated[str | None, Form()] = None,
     origen: Annotated[str | None, Form()] = None,
     motivo: Annotated[str | None, Form()] = None,
     observaciones: Annotated[str | None, Form()] = None,
-    user: Annotated[Response | dict, Depends(require_permission(Permission.WRITE_ENTRADAS))] = None,
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)] = None,
 ):
     if (early := return_early_if_response(user)) is not None:
         return early
@@ -193,14 +193,14 @@ def edit_entrada_form(
 def update_entrada_view(
     entrada_id: str,
     request: Request,
+    user: Annotated[Response | dict, Depends(require_permission(Permission.WRITE_ENTRADAS))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
     animal_id: Annotated[str, Form()],
     fecha_entrada: Annotated[str, Form()],
     voluntario_entrada_id: Annotated[str | None, Form()] = None,
     origen: Annotated[str | None, Form()] = None,
     motivo: Annotated[str | None, Form()] = None,
     observaciones: Annotated[str | None, Form()] = None,
-    user: Annotated[Response | dict, Depends(require_permission(Permission.WRITE_ENTRADAS))] = None,
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)] = None,
 ):
     if (early := return_early_if_response(user)) is not None:
         return early

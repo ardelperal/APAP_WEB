@@ -143,10 +143,10 @@ def asignar_form(
 def asignar_submit(
     casa_id: str,
     request: Request,
+    user: Annotated[AuthenticatedUser, Depends(require_writer_user)],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
     animal_id: Annotated[str, Form()],
     motivo: Annotated[str, Form()] = "",
-    user: Annotated[AuthenticatedUser, Depends(require_writer_user)] = None,
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)] = None,
 ):
     """Execute the gate and route the operator based on the decision.
 

@@ -109,13 +109,13 @@ def new_voluntario_form(
 @router.post("", response_class=HTMLResponse)
 def create_voluntario_view(
     request: Request,
+    user: Annotated[Response | dict, Depends(require_permission(Permission.WRITE_VOLUNTARIOS))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
     Voluntario: Annotated[str, Form()],
     Tel1: Annotated[str | None, Form()] = None,
     Tel2: Annotated[str | None, Form()] = None,
     Email: Annotated[str | None, Form()] = None,
     DNI: Annotated[str | None, Form()] = None,
-    user: Annotated[Response | dict, Depends(require_permission(Permission.WRITE_VOLUNTARIOS))] = None,
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)] = None,
 ):
     """Procesa el submit del formulario. En exito, redirect al detalle."""
     if (early := return_early_if_response(user)) is not None:

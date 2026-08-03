@@ -227,16 +227,16 @@ def new_batch_actuaciones_form(
 @router.post("/actuaciones/batch", response_class=HTMLResponse)
 def batch_actuaciones_view(
     request: Request,
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
     dry_run: Annotated[str | None, Form()] = None,
-    animal_id: Annotated[list[str], Form()] = [],
-    voluntario_id: Annotated[list[str], Form()] = [],
-    fecha: Annotated[list[str], Form()] = [],
-    tipo_actuacion_id: Annotated[list[str], Form()] = [],
-    veterinario: Annotated[list[str], Form()] = [],
-    observaciones: Annotated[list[str], Form()] = [],
-    material_utilizado: Annotated[list[str], Form()] = [],
-    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))] = None,
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)] = None,
+    animal_id: Annotated[list[str] | None, Form()] = None,
+    voluntario_id: Annotated[list[str] | None, Form()] = None,
+    fecha: Annotated[list[str] | None, Form()] = None,
+    tipo_actuacion_id: Annotated[list[str] | None, Form()] = None,
+    veterinario: Annotated[list[str] | None, Form()] = None,
+    observaciones: Annotated[list[str] | None, Form()] = None,
+    material_utilizado: Annotated[list[str] | None, Form()] = None,
 ):
     """HEALTH-02 batch endpoint: staging preview OR atomic commit.
 
@@ -247,9 +247,9 @@ def batch_actuaciones_view(
     """
     return _do_batch_view(
         request, user, client, dry_run,
-        animal_id, voluntario_id, fecha,
-        tipo_actuacion_id, veterinario, observaciones,
-        material_utilizado,
+        animal_id or [], voluntario_id or [], fecha or [],
+        tipo_actuacion_id or [], veterinario or [], observaciones or [],
+        material_utilizado or [],
     )
 
 

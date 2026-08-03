@@ -181,12 +181,12 @@ def new_material_form(
 @router.post("", response_class=HTMLResponse)
 def create_material_view(
     request: Request,
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_MATERIALES))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
     material: Annotated[str, Form()],
     tamano: Annotated[str, Form()],
     color: Annotated[str, Form()],
     observaciones: Annotated[str | None, Form()] = None,
-    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_MATERIALES))] = None,
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)] = None,
 ):
     """Procesa el submit del formulario de alta. En exito, redirect al detalle.
 
@@ -302,12 +302,12 @@ def edit_material_form(
 def update_material_view(
     material_id: str,
     request: Request,
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_MATERIALES))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
     material: Annotated[str, Form()],
     tamano: Annotated[str, Form()],
     color: Annotated[str, Form()],
     observaciones: Annotated[str | None, Form()] = None,
-    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_MATERIALES))] = None,
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)] = None,
 ):
     """Procesa el submit del formulario de edicion. En exito, redirect al detalle.
 

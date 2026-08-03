@@ -218,11 +218,11 @@ def list_estancia_materiales_view(
 def assign_material_to_estancia_view(
     estancia_id: str,
     request: Request,
+    user: Annotated[AuthenticatedUser, Depends(require_writer_user)],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
     material_id: Annotated[str, Form()],
     cantidad: Annotated[str, Form()] = "1",
     notas: Annotated[str | None, Form()] = None,
-    user: Annotated[AuthenticatedUser, Depends(require_writer_user)] = None,
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)] = None,
 ):
     """Assign a material to this stay.
 

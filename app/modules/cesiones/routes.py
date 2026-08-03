@@ -152,6 +152,8 @@ def new_cesion_form(
 @router.post("", response_class=HTMLResponse)
 async def create_cesion_view(
     request: Request,
+    user: Annotated[Response | dict, Depends(require_permission(Permission.WRITE_CESIONES))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
     entrada_id: Annotated[str, Form()],
     numero_contrato: Annotated[str, Form()],
     nombre_representante: Annotated[str, Form()],
@@ -173,8 +175,6 @@ async def create_cesion_view(
     numero_colegiado: Annotated[str | None, Form()] = None,
     numero_colaborador: Annotated[str | None, Form()] = None,
     hora_cesion: Annotated[str | None, Form()] = None,
-    user: Annotated[Response | dict, Depends(require_permission(Permission.WRITE_CESIONES))] = None,
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)] = None,
 ):
     """Process the cesión form. On success, redirect to the parent
     ``/entradas/{entrada_id}`` (the cesión lives 1-a-1 with its

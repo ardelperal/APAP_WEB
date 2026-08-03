@@ -168,19 +168,53 @@ def _iter_route_handlers(path: Path) -> list[tuple[str, int]]:
 
 
 def _count_form_params(node: ast.FunctionDef | ast.AsyncFunctionDef) -> int:
-    """Count ``Form(...)`` call expressions in a function's signature.
+    """Count ``Form(...)`` references in a function's signature.
 
-    Only top-level default values in the function signature are counted;
+    Every FastAPI idiom the project uses is recognised:
+
+    * ``x: Form() = ...`` — annotation IS the ``Form(...)`` call.
+    * ``x: Annotated[T, Form()] = ...`` — ``Form(...)`` lives inside the
+      annotation tree.
+    * ``x = Form(...)`` — bare ``Form(...)`` default with no annotation.
+
     ``Form(...)`` calls inside the body are excluded (they would be
     legitimate uses of the Form class for dependency injection, not
     route-level form parameters).
     """
     count = 0
-    for _arg, default in zip(node.args.args, node.args.defaults or [], strict=False):
-        if isinstance(default, ast.Call):
-            if isinstance(default.func, ast.Name) and default.func.id == "Form":
-                count += 1
+    for arg in node.args.args:
+        if _annotation_uses_form(arg.annotation):
+            count += 1
+    for default in node.args.defaults or []:
+        if _default_is_form(default):
+            count += 1
     return count
+
+
+def _annotation_uses_form(annotation: ast.expr | None) -> bool:
+    """Return True when the annotation tree contains a ``Form(...)`` call."""
+    if annotation is None:
+        return False
+    if isinstance(annotation, ast.Call):
+        return (
+            isinstance(annotation.func, ast.Name)
+            and annotation.func.id == "Form"
+        )
+    if isinstance(annotation, ast.Subscript):
+        return _annotation_uses_form(annotation.slice)
+    if isinstance(annotation, ast.Tuple):
+        return any(_annotation_uses_form(elt) for elt in annotation.elts)
+    return False
+
+
+def _default_is_form(default: ast.expr) -> bool:
+    """Return True when the default expression is a bare ``Form(...)`` call."""
+    if isinstance(default, ast.Call):
+        return (
+            isinstance(default.func, ast.Name)
+            and default.func.id == "Form"
+        )
+    return False
 
 
 def _iter_route_handlers_with_form_params(

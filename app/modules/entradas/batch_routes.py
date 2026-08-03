@@ -125,26 +125,26 @@ def new_batch_form(
 @router.post("", response_class=HTMLResponse)
 def stage_batch_view(
     request: Request,
-    animal_id: Annotated[list[str], Form()] = [],
-    voluntario_entrada_id: Annotated[list[str], Form()] = [],
-    fecha_entrada: Annotated[list[str], Form()] = [],
-    origen: Annotated[list[str], Form()] = [],
-    motivo: Annotated[list[str], Form()] = [],
-    observaciones: Annotated[list[str], Form()] = [],
-    user: Annotated[Response | dict, Depends(require_writer_user)] = None,
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)] = None,
+    user: Annotated[Response | dict, Depends(require_writer_user)],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    animal_id: Annotated[list[str] | None, Form()] = None,
+    voluntario_entrada_id: Annotated[list[str] | None, Form()] = None,
+    fecha_entrada: Annotated[list[str] | None, Form()] = None,
+    origen: Annotated[list[str] | None, Form()] = None,
+    motivo: Annotated[list[str] | None, Form()] = None,
+    observaciones: Annotated[list[str] | None, Form()] = None,
 ):
     if (early := return_early_if_response(user)) is not None:
         return early
 
     rows_input = list(
         zip(
-            animal_id,
-            voluntario_entrada_id,
-            fecha_entrada,
-            origen,
-            motivo,
-            observaciones,
+            animal_id or [],
+            voluntario_entrada_id or [],
+            fecha_entrada or [],
+            origen or [],
+            motivo or [],
+            observaciones or [],
             strict=False,
         )
     )

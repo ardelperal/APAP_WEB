@@ -135,9 +135,9 @@ def _render_form(
 @router.get("", response_class=HTMLResponse)
 def list_casas_acogida_view(
     request: Request,
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_CASAS_ACOGIDA))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
     especie: str | None = None,
-    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_CASAS_ACOGIDA))] = None,
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)] = None,
 ):
     if (early := return_early_if_response(user)) is not None:
         return early

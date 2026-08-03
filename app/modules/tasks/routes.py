@@ -48,12 +48,12 @@ _templates = Jinja2Templates(
 @router.get("", response_class=HTMLResponse)
 def listar_tareas(
     request: Request,
+    current_user: Annotated[dict, Depends(require_authorized_user)],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client)],
     estado: str | None = None,
     responsable_id: str | None = None,
     vinculo_tipo: str | None = None,
     vinculo_id: str | None = None,
-    current_user: Annotated[dict, Depends(require_authorized_user)] = None,
-    client: Annotated[InsForgeClient, Depends(get_insforge_client)] = None,
 ):
     """List tareas with optional filters (estado, responsable, vinculo)."""
     try:
@@ -137,14 +137,14 @@ def detalle_tarea(
 @router.post("", response_class=RedirectResponse)
 def crear_tarea(
     request: Request,
+    current_user: Annotated[dict, Depends(require_authorized_user)],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client)],
     tipo: Annotated[str, Form()],
     origen: Annotated[str, Form()] = "dashboard_manual",
     prioridad: Annotated[str, Form()] = "normal",
     vencimiento_at: Annotated[str | None, Form()] = None,
     vinculo_tipo: Annotated[str | None, Form()] = None,
     vinculo_id: Annotated[str | None, Form()] = None,
-    current_user: Annotated[dict, Depends(require_authorized_user)] = None,
-    client: Annotated[InsForgeClient, Depends(get_insforge_client)] = None,
 ):
     """Create a manual tarea from form data.
 
@@ -173,10 +173,10 @@ def crear_tarea(
 @router.post("/{tarea_id}/asignar", response_class=RedirectResponse)
 def asignar_tarea(
     request: Request,
+    current_user: Annotated[dict, Depends(require_authorized_user)],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client)],
     tarea_id: str,
     responsable_id: Annotated[str | None, Form()] = None,
-    current_user: Annotated[dict, Depends(require_authorized_user)] = None,
-    client: Annotated[InsForgeClient, Depends(get_insforge_client)] = None,
 ):
     """Assign a tarea to a responsable (or unassign)."""
     try:
@@ -196,10 +196,10 @@ def asignar_tarea(
 @router.post("/{tarea_id}/cerrar", response_class=RedirectResponse)
 def cerrar_tarea(
     request: Request,
+    current_user: Annotated[dict, Depends(require_authorized_user)],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client)],
     tarea_id: str,
     comentario: Annotated[str | None, Form()] = None,
-    current_user: Annotated[dict, Depends(require_authorized_user)] = None,
-    client: Annotated[InsForgeClient, Depends(get_insforge_client)] = None,
 ):
     """Close a tarea (transition to 'completada')."""
     try:

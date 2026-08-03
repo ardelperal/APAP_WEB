@@ -155,9 +155,9 @@ def _render_form(
 @router.get("", response_class=HTMLResponse)
 def list_adopciones_view(
     request: Request,
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_ADOPCIONES))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
     adoptante: str | None = None,
-    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_ADOPCIONES))] = None,
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)] = None,
 ):
     """List active adopciones; ``?adoptante=`` filters by name (ILIKE)."""
     if (early := return_early_if_response(user)) is not None:
@@ -403,10 +403,10 @@ def delete_adopcion_view(
 def seguimiento_transition_view(
     adopcion_id: str,
     request: Request,
+    user: Annotated[AuthenticatedUser, Depends(require_authorized_user)],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
     action: Annotated[str, Form()],
     documento_url: Annotated[str | None, Form()] = None,
-    user: Annotated[AuthenticatedUser, Depends(require_authorized_user)] = None,
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)] = None,
 ):
     """Transition the seguimiento estado for an adopcion.
 
