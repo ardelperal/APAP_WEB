@@ -32,7 +32,7 @@ middleware does not reject them.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Form, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse

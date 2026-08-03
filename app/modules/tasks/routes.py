@@ -16,6 +16,7 @@ CSRF: all POST forms include csrf_token (CsrfMiddleware validates).
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -31,7 +32,6 @@ from app.core.csrf import csrf_token_context_processor
 from app.core.insforge import InsForgeClient
 from app.core.middleware import base_template_context_processor
 from app.modules.tasks import service as tareas_service
-from typing import Annotated
 
 router = APIRouter(prefix="/tareas", tags=["tareas"])
 

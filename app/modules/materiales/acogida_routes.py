@@ -53,6 +53,7 @@ message) is mirrored on the duplicate-assignment path.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -71,7 +72,6 @@ from app.core.insforge import InsForgeClient
 from app.core.middleware import base_template_context_processor
 from app.modules.materiales import estancia_material_service
 from app.modules.materiales import service as materiales_service
-from typing import Annotated
 
 # Prefix intentionally omitted (the handler URLs are absolute
 # ``/acogidas/{id}/materiales``) — adding a prefix here would

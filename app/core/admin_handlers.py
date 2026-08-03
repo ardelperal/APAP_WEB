@@ -11,6 +11,7 @@ cyclomatic complexity (CC) and line count.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Annotated
 
 from fastapi import Depends, FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -31,7 +32,6 @@ from app.core.auth_dependencies import (
     return_early_if_response,
 )
 from app.core.insforge import InsForgeClient
-from typing import Annotated
 
 
 @dataclass

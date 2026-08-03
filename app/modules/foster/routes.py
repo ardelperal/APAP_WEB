@@ -22,7 +22,7 @@ Endpoints (mounted at ``/casas-acogida`` by ``app/main.py``):
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse

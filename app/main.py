@@ -36,6 +36,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Annotated
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -75,7 +76,6 @@ from app.core.middleware import (
 from app.core.migration.sql_runner import apply_sql_migrations
 from app.core.request_context import CorrelationIdMiddleware
 from app.routes_registry import register_routers
-from typing import Annotated
 
 _STATIC_DIR = Path(__file__).parent / "static"
 _TEMPLATES_DIR = Path(__file__).parent / "templates"

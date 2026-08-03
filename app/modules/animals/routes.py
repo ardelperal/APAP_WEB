@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from itertools import chain
 from pathlib import Path
-from typing import Any, Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, status
 from fastapi.responses import (
