@@ -205,10 +205,9 @@ def new_acogida_form(
 def create_acogida_view(
     request: Request,
     form: Annotated[AcogidaForm, Form()],
-    override_id: Annotated[str | None, Form()] = None,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_ACOGIDAS))],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
-):  # noqa: PLR0913  # refactored to AcogidaForm; override_id is a cross-cutting concern
+):  # noqa: PLR0913  # refactored to AcogidaForm
     """Create a new estancia; redirect to detail on success, re-render form on validation error.
 
     Issue #142: ``override_id`` is the (optional) hidden form field
@@ -239,8 +238,8 @@ def create_acogida_view(
     )
     # Issue #142: thread override_id through to the service so it can
     # link the foster_capacity_overrides row.
-    if override_id is not None and override_id.strip():
-        form_data["override_id"] = override_id.strip()
+    if form.override_id is not None and form.override_id.strip():
+        form_data["override_id"] = form.override_id.strip()
     # FOSTER-03 (#45) close bypass P0: the species gate must run before
     # the INSERT. The helper returns the rejection reason (Spanish
     # message) when the gate would block the assignment; we render the

@@ -86,8 +86,9 @@ _ROUTER_NAMES = frozenset({"router", "application"})
 BASELINE: dict[str, int] = {
     # app/main.py::callback was extracted to app/core/auth_flow.py (#336).
     "app/modules/foster/assignment_routes.py::asignar_submit": 109,
-    # issue #388: AcogidaForm migration shrank from 101 → 90
-    "app/modules/acogidas/routes.py::create_acogida_view": 90,
+    # issue #388: AcogidaForm migration shrank from 101 → 90; rebased on
+    # origin/main, override_id moved into the form model, now 89.
+    "app/modules/acogidas/routes.py::create_acogida_view": 89,
     "app/modules/materiales/acogida_routes.py::assign_material_to_estancia_view": 87,
     # issue #388: CesionForm migration shrank from 87 → 67 lines; still >50 budget
     "app/modules/cesiones/routes.py::create_cesion_view": 67,

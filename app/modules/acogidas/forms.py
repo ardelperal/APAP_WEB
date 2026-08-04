@@ -36,3 +36,10 @@ class AcogidaForm(BaseModel):
     direccion: str | None = None
     telefono: str | None = None
     observaciones: str | None = None
+    # Issue #142: ``override_id`` is the (optional) hidden form field
+    # threaded from ``POST /casas-acogida/{id}/asignar`` when the gate
+    # returns ``admit_with_warning`` and the operator confirmed the
+    # override. FastAPI cannot mix ``Annotated[Model, Form()]`` with
+    # additional ``Form()`` parameters in one route, so the field lives
+    # on the model and is read off ``form.override_id`` in the handler.
+    override_id: str | None = None
