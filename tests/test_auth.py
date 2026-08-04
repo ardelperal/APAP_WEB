@@ -449,8 +449,16 @@ def test_add_authorized_user_rejects_duplicate_normalized_email_precheck() -> No
 
 
 def test_add_authorized_user_rejects_duplicate_via_insforge_error() -> None:
-    """When the pre-check passes but INSERT raises InsForgeError(23505), raise ValueError."""
-    from app.core.insforge import InsForgeError
+    """When the pre-check passes but INSERT 23505s, raise ValueError.
+
+    The handler returns a 409 with the Postgres ``23505`` SQLSTATE the
+    way the real InsForge gateway does; ``InsForgeClient.execute_sql``
+    translates it to :class:`~app.core.data_access.UniqueViolationError`
+    (a :class:`~app.core.data_access.DuplicateKeyError` subclass) so
+    the service catches the Protocol-level error without inspecting
+    the envelope.
+    """
+    from app.core.data_access import DuplicateKeyError
 
     call_count = 0
 
@@ -462,8 +470,9 @@ def test_add_authorized_user_rejects_duplicate_via_insforge_error() -> None:
             return _json_response(200, [])
         call_count += 1
         if call_count == 1:
-            # INSERT: InsForge unique violation
-            raise InsForgeError(
+            # INSERT: 409 with Postgres 23505 — execute_sql translates to
+            # DuplicateKeyError (UniqueViolationError) at the adapter boundary.
+            return _json_response(
                 409,
                 {"code": "23505", "message": "duplicate key value violates unique constraint"},
             )
@@ -472,6 +481,10 @@ def test_add_authorized_user_rejects_duplicate_via_insforge_error() -> None:
     client = _client(handler)
     with pytest.raises(ValueError, match="email already authorized"):
         add_authorized_user(client, email="new@example.com", role="key_user", added_by="u-1")
+    # The service caught the Protocol-level exception, not the transport
+    # envelope — guards against a regression where the catch reverts to
+    # ``except InsForgeError``.
+    assert issubclass(DuplicateKeyError, Exception)
 
 
 def test_get_user_by_email_normalizes_case_before_sql() -> None:
