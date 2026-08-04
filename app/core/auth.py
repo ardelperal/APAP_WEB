@@ -27,7 +27,7 @@ from typing import Any
 from app.core.auth_cache import invalidate_auth
 from app.core.auth_helpers import normalize_email, validate_email_format
 from app.core.config import Settings
-from app.core.insforge import InsForgeClient, InsForgeError
+from app.core.data_access import DuplicateKeyError, SqlExecutor
 from app.core.roles import Rol
 from app.core.schema_bootstrap import SqlStatement, run_idempotent_sql
 
@@ -120,7 +120,7 @@ WHERE id = $1
 """
 
 
-def ensure_schema_and_seed(client: InsForgeClient, settings: Settings) -> None:
+def ensure_schema_and_seed(client: SqlExecutor, settings: Settings) -> None:
     """Create the table (idempotent) and seed the bootstrap admin if configured.
 
     The seed is gated on:
@@ -138,7 +138,7 @@ def ensure_schema_and_seed(client: InsForgeClient, settings: Settings) -> None:
 
 
 def get_user_by_email(
-    client: InsForgeClient,
+    client: SqlExecutor,
     email: str,
 ) -> dict[str, Any] | None:
     """Return the active user with this email, or None.
@@ -151,13 +151,13 @@ def get_user_by_email(
     return rows[0] if rows else None
 
 
-def list_authorized_users(client: InsForgeClient) -> list[dict[str, Any]]:
+def list_authorized_users(client: SqlExecutor) -> list[dict[str, Any]]:
     """Return all users (active and inactive) for the admin panel."""
     return client.execute_sql(LIST_USERS_SQL)
 
 
 def add_authorized_user(
-    client: InsForgeClient,
+    client: SqlExecutor,
     email: str,
     role: str,
     added_by: str,
@@ -173,8 +173,9 @@ def add_authorized_user(
 
     The email is normalized (stripped + lowercased) before storage and
     validation. A pre-insert SELECT detects canonical duplicates; a
-    defense-in-depth InsForgeError catch translates unique-key violations
-    (issues #277, #278).
+    defense-in-depth :class:`~app.core.data_access.DuplicateKeyError`
+    catch covers the race where two parallel INSERTs slip past the
+    pre-check (issues #277, #278).
 
     Returns the inserted row.
     """
@@ -191,11 +192,12 @@ def add_authorized_user(
         raise ValueError(f"email already authorized: {normalized!r}")
     try:
         rows = client.execute_sql(ADD_USER_SQL, [normalized, role, added_by])
-    except InsForgeError as exc:
-        # Defense in depth — InsForge may report unique-violation differently
-        if "duplicate" in str(exc).lower() or "unique" in str(exc).lower():
-            raise ValueError(f"email already authorized: {normalized!r}") from exc
-        raise
+    except DuplicateKeyError as exc:
+        # Defense in depth — the adapter translates 23505 / duplicate-key
+        # bodies to DuplicateKeyError before this layer sees them; any
+        # other envelope shape is a genuine transport failure that the
+        # global InsForgeError handler still owns.
+        raise ValueError(f"email already authorized: {normalized!r}") from exc
     # Issue #143: a prior deactivate may have cached a deny for this email;
     # re-adding must take effect on the next request, not after the TTL.
     invalidate_auth(normalized)
@@ -203,7 +205,7 @@ def add_authorized_user(
 
 
 def _has_other_active_developers(
-    client: InsForgeClient,
+    client: SqlExecutor,
     exclude_user_id: str,
 ) -> bool:
     """Return True if at least one other active developer exists (excluding exclude_user_id).
@@ -215,7 +217,7 @@ def _has_other_active_developers(
 
 
 def get_user_by_id(
-    client: InsForgeClient,
+    client: SqlExecutor,
     user_id: str,
 ) -> dict[str, Any] | None:
     """Return the user with this id, or None if not found."""
@@ -224,7 +226,7 @@ def get_user_by_id(
 
 
 def deactivate_authorized_user(
-    client: InsForgeClient,
+    client: SqlExecutor,
     user_id: str,
 ) -> dict[str, Any] | None:
     """Mark the user as inactive. Returns the row, or None if not found.
