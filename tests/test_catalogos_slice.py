@@ -581,11 +581,32 @@ def test_application_layer_does_not_import_insforge() -> None:
 
 
 def test_di_layer_does_not_export_domain_or_port() -> None:
-    """The DI helper exposes ONLY the FastAPI dependency — domain entities are hidden."""
+    """The DI helper exposes ONLY FastAPI dependencies — domain entities and
+    ports are hidden behind the ``get_<slice>_port`` factories.
+
+    As more slices land, ``app.core.di.__all__`` grows by one entry per
+    slice (``get_catalogos_port``, ``get_schema_bootstrap_port``, ...).
+    The invariant this test pins is: every exported name in
+    ``app.core.di`` is a FastAPI dependency callable, NOT a domain
+    entity or a Protocol class (the latter would let the route layer
+    skip the DI seam and bind a port directly).
+    """
     import importlib
 
     di_pkg = importlib.import_module("app.core.di")
     catalogos_di = importlib.import_module("app.core.di.catalogos_di")
 
-    assert di_pkg.__all__ == ["get_catalogos_port"]
+    # catalogos_di is slice-scoped: it only exports its own dependency.
     assert catalogos_di.__all__ == ["get_catalogos_port"]
+
+    # The package re-exports each slice's DI factory. None of those
+    # factories are domain entities or Protocol classes.
+    for export_name in di_pkg.__all__:
+        attr = getattr(di_pkg, export_name)
+        attr_module = getattr(attr, "__module__", "") or ""
+        assert "core.domain" not in attr_module, (
+            f"app.core.di leaked a domain import via {export_name!r} from {attr_module!r}"
+        )
+        assert "core.ports" not in attr_module, (
+            f"app.core.di leaked a port import via {export_name!r} from {attr_module!r}"
+        )
