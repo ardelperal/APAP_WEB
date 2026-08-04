@@ -477,7 +477,7 @@ def _row_to_animal_search(row: dict[str, Any]) -> AnimalSearch:
     )
 
 
-def search_animals(
+def search_animals(  # noqa: PLR0913  # search facade; 10 distinct filter kwargs mirror the API surface
     client: SqlExecutor,
     *,
     q: str | None = None,

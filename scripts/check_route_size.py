@@ -86,15 +86,21 @@ _ROUTER_NAMES = frozenset({"router", "application"})
 BASELINE: dict[str, int] = {
     # app/main.py::callback was extracted to app/core/auth_flow.py (#336).
     "app/modules/foster/assignment_routes.py::asignar_submit": 109,
-    "app/modules/acogidas/routes.py::create_acogida_view": 101,
+    # issue #388: AcogidaForm migration shrank from 101 → 90; rebased on
+    # origin/main, override_id moved into the form model, now 89.
+    "app/modules/acogidas/routes.py::create_acogida_view": 89,
     "app/modules/materiales/acogida_routes.py::assign_material_to_estancia_view": 87,
-    "app/modules/cesiones/routes.py::create_cesion_view": 87,
-    "app/modules/acogidas/routes.py::update_acogida_view": 84,
+    # issue #388: CesionForm migration shrank from 87 → 67 lines; still >50 budget
+    "app/modules/cesiones/routes.py::create_cesion_view": 67,
+    # issue #388: AcogidaForm migration shrank from 84 → 73 lines; still >50 budget
+    "app/modules/acogidas/routes.py::update_acogida_view": 73,
     "app/modules/entradas/batch_routes.py::stage_batch_view": 77,
-    "app/modules/sanidad/routes.py::update_actuacion_view": 70,
-    "app/modules/sanidad/routes.py::create_actuacion_view": 65,
-    "app/modules/materiales/routes.py::update_material_view": 58,
-    "app/modules/materiales/routes.py::create_material_view": 55,
+    # issue #388: ActuacionForm migration shrank from 70 → 64 lines; still >50 budget
+    "app/modules/sanidad/routes.py::update_actuacion_view": 64,
+    # issue #388: ActuacionForm migration shrank from 65 → 59 lines; still >50 budget
+    "app/modules/sanidad/routes.py::create_actuacion_view": 59,
+    # issue #388: MaterialForm migration shrank update_material_view 58 → 48 and
+    # create_material_view 55 → 45 — both now within 50-line budget, removed from BASELINE
     "app/modules/animals/routes.py::create_animal_view": 54,
     # issue #337: AdopcionForm migration shrank these from 82/78 (RBAC-era) → 59/53
     # (still >50 budget; ratchet prevents growth — must shrink further)
@@ -110,11 +116,10 @@ BASELINE: dict[str, int] = {
 #: remove it once it reaches 0 or falls below MAX_FORM_PARAMS. Never
 #: add a new entry here: use a Pydantic model to consolidate params
 #: instead.
-FORM_BASELINE: dict[str, int] = {
-    "app/modules/cesiones/routes.py::create_cesion_view": 21,
-    "app/modules/acogidas/routes.py::create_acogida_view": 13,
-    "app/modules/acogidas/routes.py::update_acogida_view": 12,
-}
+# issue #388: CesionForm migration reduced Form params 21 → 0 (now uses
+# Annotated[CesionForm, Form()] — single Pydantic model, no individual Form() params)
+# All three handlers now have 0 or 1 Form params (≤ MAX_FORM_PARAMS=8) — REMOVED
+FORM_BASELINE: dict[str, int] = {}
 
 
 def _is_route_decorator(node: ast.expr) -> bool:

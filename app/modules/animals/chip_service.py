@@ -32,7 +32,7 @@ class ChangeChipResult:
 # --- public saga ----------------------------------------------------------
 
 
-def change_animal_chip(
+def change_animal_chip(  # noqa: PLR0913  # saga with 6 domain-specific keyword-only args; not a route
     client: SqlExecutor,
     *,
     animal_id: str,

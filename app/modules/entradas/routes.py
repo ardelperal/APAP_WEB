@@ -20,6 +20,7 @@ from app.core.insforge import InsForgeClient
 from app.core.middleware import base_template_context_processor
 from app.core.rbac import Permission, require_permission
 from app.modules.entradas import service as entradas_service
+from app.modules.entradas.forms import EntradaForm
 
 router = APIRouter(prefix="/entradas", tags=["entradas"])
 
@@ -53,7 +54,7 @@ def _entrada_to_form_data(entrada: entradas_service.Entrada) -> dict[str, Any]:
     }
 
 
-def _render_form(
+def _render_form(  # noqa: PLR0913  # non-route helper; 6 args is minimal for template context
     request: Request,
     user: Response | dict,
     form_data: dict[str, Any],
@@ -103,27 +104,13 @@ def new_entrada_form(
 @router.post("", response_class=HTMLResponse)
 def create_entrada_view(
     request: Request,
+    form: Annotated[EntradaForm, Form()],
     user: Annotated[Response | dict, Depends(require_permission(Permission.WRITE_ENTRADAS))],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
-    animal_id: Annotated[str, Form()],
-    fecha_entrada: Annotated[str, Form()],
-    voluntario_entrada_id: Annotated[str | None, Form()] = None,
-    origen: Annotated[str | None, Form()] = None,
-    motivo: Annotated[str | None, Form()] = None,
-    observaciones: Annotated[str | None, Form()] = None,
-):
+):  # noqa: PLR0913  # refactored to EntradaForm
     if (early := return_early_if_response(user)) is not None:
         return early
-    form_data = _form_data_to_params(
-        {
-            "animal_id": animal_id,
-            "voluntario_entrada_id": voluntario_entrada_id,
-            "fecha_entrada": fecha_entrada,
-            "origen": origen,
-            "motivo": motivo,
-            "observaciones": observaciones,
-        }
-    )
+    form_data = _form_data_to_params(form.model_dump())
     try:
         entrada = entradas_service.create_entrada(client, form_data)
     except entradas_service.EntradaConflictError:
@@ -193,27 +180,13 @@ def edit_entrada_form(
 def update_entrada_view(
     entrada_id: str,
     request: Request,
+    form: Annotated[EntradaForm, Form()],
     user: Annotated[Response | dict, Depends(require_permission(Permission.WRITE_ENTRADAS))],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
-    animal_id: Annotated[str, Form()],
-    fecha_entrada: Annotated[str, Form()],
-    voluntario_entrada_id: Annotated[str | None, Form()] = None,
-    origen: Annotated[str | None, Form()] = None,
-    motivo: Annotated[str | None, Form()] = None,
-    observaciones: Annotated[str | None, Form()] = None,
-):
+):  # noqa: PLR0913  # refactored to EntradaForm
     if (early := return_early_if_response(user)) is not None:
         return early
-    form_data = _form_data_to_params(
-        {
-            "animal_id": animal_id,
-            "voluntario_entrada_id": voluntario_entrada_id,
-            "fecha_entrada": fecha_entrada,
-            "origen": origen,
-            "motivo": motivo,
-            "observaciones": observaciones,
-        }
-    )
+    form_data = _form_data_to_params(form.model_dump())
     try:
         entrada = entradas_service.update_entrada(client, entrada_id, form_data)
     except entradas_service.EntradaConflictError:

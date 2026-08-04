@@ -123,7 +123,7 @@ def new_batch_form(
 
 
 @router.post("", response_class=HTMLResponse)
-def stage_batch_view(
+def stage_batch_view(  # noqa: PLR0913  # batch endpoint with 6 list-form fields; inherent complexity not reducible
     request: Request,
     user: Annotated[Response | dict, Depends(require_writer_user)],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],

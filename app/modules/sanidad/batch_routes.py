@@ -142,7 +142,7 @@ def _actor_user_id(user: AuthenticatedUser) -> str | None:
     return None
 
 
-def _render_batch_preview(
+def _render_batch_preview(  # noqa: PLR0913  # non-route helper; 6 args needed to render batch preview template
     request: Request,
     user: AuthenticatedUser,
     records: list[dict[str, Any]],
@@ -225,7 +225,7 @@ def new_batch_actuaciones_form(
 
 
 @router.post("/actuaciones/batch", response_class=HTMLResponse)
-def batch_actuaciones_view(
+def batch_actuaciones_view(  # noqa: PLR0913  # batch endpoint with 7 list-form fields; inherent complexity not reducible
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
@@ -253,7 +253,7 @@ def batch_actuaciones_view(
     )
 
 
-def _do_batch_view(
+def _do_batch_view(  # noqa: PLR0913  # non-route batch orchestrator; 8 args needed for multi-record processing
     request: Request,
     user: AuthenticatedUser,
     client: InsForgeClient,

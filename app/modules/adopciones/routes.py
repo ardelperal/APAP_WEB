@@ -128,7 +128,7 @@ def _actor_user_id(user: AuthenticatedUser) -> str | None:
     return None
 
 
-def _render_form(
+def _render_form(  # noqa: PLR0913  # non-route helper; 6 args is minimal for template context
     request: Request,
     user: AuthenticatedUser,
     form_data: dict[str, Any],
@@ -400,7 +400,7 @@ def delete_adopcion_view(
     response_class=HTMLResponse,
     tags=["adopciones"],
 )
-def seguimiento_transition_view(
+def seguimiento_transition_view(  # noqa: PLR0913  # PATCH with 2 Form fields + 4 fixed deps; not worth a separate form model
     adopcion_id: str,
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_authorized_user)],

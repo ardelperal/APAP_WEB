@@ -45,6 +45,7 @@ from app.core.logging import log_safe
 from app.core.middleware import base_template_context_processor
 from app.core.rbac import Permission, require_permission
 from app.modules.salud import service as salud_service
+from app.modules.salud.forms import RecomendacionForm, TerapiaForm
 
 router = APIRouter(tags=["salud"])
 
@@ -85,7 +86,7 @@ def _actor_user_id(user: AuthenticatedUser) -> str | None:
     return None
 
 
-def _render_terapia_form(
+def _render_terapia_form(  # noqa: PLR0913  # non-route helper; 6 args is minimal for template context
     request: Request,
     user: AuthenticatedUser,
     form_data: dict[str, Any],
@@ -183,13 +184,10 @@ def new_terapia_form(
 @router.post("/terapias", response_class=HTMLResponse)
 def create_terapia_view(
     request: Request,
+    form: Annotated[TerapiaForm, Form()],
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
-    animal_id: Annotated[str, Form()],
-    voluntario_id: Annotated[str, Form()],
-    fecha: Annotated[str, Form()],
-    descripcion: Annotated[str | None, Form()] = None,
-):
+):  # noqa: PLR0913  # refactored to TerapiaForm
     """Create a terapia; redirect to detail on success.
 
     Write endpoint — ``require_permission(WRITE_SALUD)`` rejects ``reader``
@@ -199,10 +197,10 @@ def create_terapia_view(
     if (early := return_early_if_response(user)) is not None:
         return early
     params = _form_data_to_terapia_params({
-        "animal_id": animal_id,
-        "voluntario_id": voluntario_id,
-        "fecha": fecha,
-        "descripcion": descripcion,
+        "animal_id": form.animal_id,
+        "voluntario_id": form.voluntario_id,
+        "fecha": form.fecha,
+        "descripcion": form.descripcion,
     })
     try:
         terapia = salud_service.create_terapia(
@@ -279,13 +277,10 @@ def edit_terapia_form(
 def update_terapia_view(
     terapia_id: str,
     request: Request,
+    form: Annotated[TerapiaForm, Form()],
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
-    animal_id: Annotated[str, Form()],
-    voluntario_id: Annotated[str, Form()],
-    fecha: Annotated[str, Form()],
-    descripcion: Annotated[str | None, Form()] = None,
-):
+):  # noqa: PLR0913  # refactored to TerapiaForm
     """Update an existing terapia; redirect to detail on success.
 
     Write endpoint — same error-handling contract as ``create_terapia_view``.
@@ -293,10 +288,10 @@ def update_terapia_view(
     if (early := return_early_if_response(user)) is not None:
         return early
     params = _form_data_to_terapia_params({
-        "animal_id": animal_id,
-        "voluntario_id": voluntario_id,
-        "fecha": fecha,
-        "descripcion": descripcion,
+        "animal_id": form.animal_id,
+        "voluntario_id": form.voluntario_id,
+        "fecha": form.fecha,
+        "descripcion": form.descripcion,
     })
     try:
         terapia = salud_service.update_terapia(
@@ -394,11 +389,10 @@ def list_recomendaciones_view(
 def create_recomendacion_view(
     terapia_id: str,
     request: Request,
-    fecha: Annotated[str, Form()],
-    texto: Annotated[str, Form()],
+    form: Annotated[RecomendacionForm, Form()],
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
-):
+):  # noqa: PLR0913  # refactored to RecomendacionForm
     """Create a recomendacion linked to the terapia.
 
     Write endpoint — requires ``WRITE_SALUD``.
@@ -407,8 +401,8 @@ def create_recomendacion_view(
         return early
     params = {
         "terapia_id": terapia_id,
-        "fecha": fecha.strip(),
-        "texto": texto.strip(),
+        "fecha": form.fecha.strip(),
+        "texto": form.texto.strip(),
     }
     try:
         salud_service.create_recomendacion(
