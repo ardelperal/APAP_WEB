@@ -144,15 +144,21 @@ class DuplicateKeyError(InsForgeError):
         super(InsForgeError, self).__init__(message or "duplicate key")
 
 
-class UniqueViolation(DuplicateKeyError):
+class UniqueViolationError(DuplicateKeyError):
     """Postgres SQLSTATE ``23505`` specifically — a unique-constraint violation.
 
     A subclass of :class:`DuplicateKeyError` so existing
-    ``except DuplicateKeyError` handlers keep working; code that wants
+    ``except DuplicateKeyError`` handlers keep working; code that wants
     to differentiate "PK duplicate" from "any uniqueness violation"
-    can catch :class:`UniqueViolation` first.
+    can catch :class:`UniqueViolationError` first.
+
+    The name carries the ``Error`` suffix required by ruff N818 to
+    match the rest of the project's exception hierarchy (DataAccessError,
+    InsForgeError, DuplicateKeyError, ...). The shorter
+    ``UniqueViolation`` was the Phase 1 task-spec draft; the suffix is
+    what survived into the actual implementation.
 
     Inherits the message-only ``__init__`` from :class:`DuplicateKeyError`;
-    callers raise :class:`UniqueViolation` with the lower-cased
+    callers raise :class:`UniqueViolationError` with the lower-cased
     upstream message and nothing else.
     """

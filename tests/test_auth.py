@@ -453,7 +453,7 @@ def test_add_authorized_user_rejects_duplicate_via_insforge_error() -> None:
 
     The handler returns a 409 with the Postgres ``23505`` SQLSTATE the
     way the real InsForge gateway does; ``InsForgeClient.execute_sql``
-    translates it to :class:`~app.core.data_access.UniqueViolation`
+    translates it to :class:`~app.core.data_access.UniqueViolationError`
     (a :class:`~app.core.data_access.DuplicateKeyError` subclass) so
     the service catches the Protocol-level error without inspecting
     the envelope.
@@ -471,7 +471,7 @@ def test_add_authorized_user_rejects_duplicate_via_insforge_error() -> None:
         call_count += 1
         if call_count == 1:
             # INSERT: 409 with Postgres 23505 — execute_sql translates to
-            # DuplicateKeyError (UniqueViolation) at the adapter boundary.
+            # DuplicateKeyError (UniqueViolationError) at the adapter boundary.
             return _json_response(
                 409,
                 {"code": "23505", "message": "duplicate key value violates unique constraint"},

@@ -21,12 +21,18 @@ from app.core.data_access import (
     DataAccessError,
     DuplicateKeyError,
     InsForgeError,
-    UniqueViolation,
+    UniqueViolationError,
 )
 
 # Body-shape markers that signal a Postgres unique-key violation when the
 # upstream InsForge gateway wraps the SQLSTATE in a plain JSON envelope.
 _DUPLICATE_KEY_BODY_HINTS = ("duplicate", "unique")
+
+#: HTTP 409 Conflict — the only status this translator inspects; every
+#: other status flows through :class:`InsForgeError` unchanged. Named
+#: constant instead of a magic literal so PLR2004 doesn't flag every
+#: comparison.
+HTTP_STATUS_CONFLICT = 409
 
 
 def _classify_409_body(body: Any) -> tuple[str | None, str | None]:
@@ -88,7 +94,7 @@ def translate_post_error(exc: InsForgeError) -> DataAccessError:
     :func:`app.core.insforge_error_handler.register_insforge_error_handler`
     handler still owns the 502 conversion for transport failures.
     """
-    if exc.status_code != 409:
+    if exc.status_code != HTTP_STATUS_CONFLICT:
         return exc
     sqlstate, lowered_message = _classify_409_body(exc.body)
     if sqlstate is None and lowered_message is None:
@@ -100,5 +106,5 @@ def translate_post_error(exc: InsForgeError) -> DataAccessError:
     # stable and case-insensitive.
     detail = lowered_message if lowered_message is not None else "23505"
     if sqlstate == "23505":
-        return UniqueViolation(detail)
+        return UniqueViolationError(detail)
     return DuplicateKeyError(detail)
