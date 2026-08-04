@@ -1,9 +1,10 @@
-"""Domain schema bootstrap: re-export shim for backward compatibility.
+"""Domain schema bootstrap: backward-compat shim.
 
 This module is the single entry point for domain schema creation.
-It re-exports SQL constants from 9 cohesive sub-modules so that
-``tests/test_domain.py`` and other consumers can continue to import
-from ``app.core.domain`` without modification.
+It re-exports SQL constants from 12 cohesive sub-modules so that
+``tests/test_domain.py``, ``tests/integration/conftest.py``, and
+other consumers can continue to import from ``app.core.domain`` and
+``app.core.domain_<x>`` without modification.
 
 The sub-modules are:
     domain_animales       — animales table
@@ -17,14 +18,21 @@ The sub-modules are:
     domain_contracts     — contratos table
     domain_salud         — actuacion_sanitaria table
     domain_materiales    — materiales, estancia_materiales tables
+    domain_terapias      — terapias, recomendaciones tables
 
 Source of truth for the SQL that creates the domain tables in the
-InsForge backend. The ``ensure_domain_schema`` function is the single
-entry point that ``app.main`` calls on startup.
+InsForge backend. The :func:`ensure_domain_schema` function is the
+legacy ``client``-typed entry point that ``app.main`` calls on
+startup; the canonical "via port" use case lives at
+:func:`app.core.application.schema_bootstrap.ensure_domain_schema.ensure_domain_schema`
+and is what future slices will wire into ``app/main.py``.
 """
 
 from __future__ import annotations
 
+from app.core.adapters.insforge.schema_bootstrap_insforge_adapter import (
+    InsForgeSchemaBootstrapAdapter,
+)
 from app.core.domain_adopciones import ADOPCIONES_CREATE_TABLE_SQL
 from app.core.domain_animales import ANIMALS_CREATE_TABLE_SQL  # noqa: I001
 from app.core.domain_casas_acogida import CASAS_ACOGIDA_CREATE_TABLE_SQL
@@ -34,13 +42,13 @@ from app.core.domain_entradas import (
     ENTRADAS_BATCH_STAGING_CREATE_TABLE_SQL,
     ENTRADAS_CREATE_TABLE_SQL,
 )
-from app.core.domain_foster import (
+from app.core.domain_foster import (  # noqa: F401
     ACOGIDAS_ADD_CASA_FK_SQL,
     ACOGIDAS_CREATE_TABLE_SQL,
     FOSTER_CAPACITY_OVERRIDES_ADD_ESTANCIA_FK_SQL,
     FOSTER_CAPACITY_OVERRIDES_CREATE_TABLE_SQL,
 )
-from app.core.domain_lifecycle import (
+from app.core.domain_lifecycle import (  # noqa: F401
     ANIMAL_CURRENT_STATE_CREATE_TABLE_SQL,
     ANIMAL_CURRENT_STATE_STATE_INDEX_SQL,
     ANIMAL_LIFECYCLE_EVENTS_ANIMAL_TIMESTAMP_INDEX_SQL,
@@ -50,26 +58,63 @@ from app.core.domain_lifecycle import (
     ANIMAL_LIFECYCLE_EVENTS_CREATE_TABLE_SQL,
     ANIMAL_LIFECYCLE_EVENTS_DROP_APPEND_ONLY_TRIGGER_SQL,
 )
-from app.core.domain_materiales import (
+from app.core.domain_materiales import (  # noqa: F401
     ESTANCIA_MATERIALES_ACTIVE_UNIQUE_INDEX_SQL,
     ESTANCIA_MATERIALES_CREATE_TABLE_SQL,
     MATERIALES_CREATE_TABLE_SQL,
 )
-from app.core.domain_salud import ACTUACION_SANITARIA_CREATE_TABLE_SQL
-from app.core.domain_terapias import (
+from app.core.domain_salud import ACTUACION_SANITARIA_CREATE_TABLE_SQL  # noqa: F401
+from app.core.domain_terapias import (  # noqa: F401
     RECOMENDACIONES_CREATE_TABLE_SQL,
     TERAPIAS_CREATE_TABLE_SQL,
 )
-from app.core.domain_voluntarios import (
+from app.core.domain_voluntarios import (  # noqa: F401
     ROLES_VOLUNTARIO_CREATE_TABLE_SQL,
     VOLUNTARIOS_CREATE_TABLE_SQL,
 )
 from app.core.insforge import InsForgeClient
-from app.core.schema_bootstrap import SqlStatement, run_idempotent_sql
+
+__all__ = [
+    "ACOGIDAS_ADD_CASA_FK_SQL",
+    "ACOGIDAS_CREATE_TABLE_SQL",
+    "ACTUACION_SANITARIA_CREATE_TABLE_SQL",
+    "ADOPCIONES_CREATE_TABLE_SQL",
+    "ANIMAL_CURRENT_STATE_CREATE_TABLE_SQL",
+    "ANIMAL_CURRENT_STATE_STATE_INDEX_SQL",
+    "ANIMAL_LIFECYCLE_EVENTS_ANIMAL_TIMESTAMP_INDEX_SQL",
+    "ANIMAL_LIFECYCLE_EVENTS_APPEND_ONLY_FUNCTION_SQL",
+    "ANIMAL_LIFECYCLE_EVENTS_APPEND_ONLY_TRIGGER_SQL",
+    "ANIMAL_LIFECYCLE_EVENTS_CAUSED_BY_INDEX_SQL",
+    "ANIMAL_LIFECYCLE_EVENTS_CREATE_TABLE_SQL",
+    "ANIMAL_LIFECYCLE_EVENTS_DROP_APPEND_ONLY_TRIGGER_SQL",
+    "ANIMALS_CREATE_TABLE_SQL",
+    "CASAS_ACOGIDA_CREATE_TABLE_SQL",
+    "CESIONES_PROPIETARIO_CREATE_TABLE_SQL",
+    "CONTRATOS_CREATE_TABLE_SQL",
+    "ENTRADAS_BATCH_STAGING_CREATE_TABLE_SQL",
+    "ENTRADAS_CREATE_TABLE_SQL",
+    "ESTANCIA_MATERIALES_ACTIVE_UNIQUE_INDEX_SQL",
+    "ESTANCIA_MATERIALES_CREATE_TABLE_SQL",
+    "FOSTER_CAPACITY_OVERRIDES_ADD_ESTANCIA_FK_SQL",
+    "FOSTER_CAPACITY_OVERRIDES_CREATE_TABLE_SQL",
+    "MATERIALES_CREATE_TABLE_SQL",
+    "RECOMENDACIONES_CREATE_TABLE_SQL",
+    "ROLES_VOLUNTARIO_CREATE_TABLE_SQL",
+    "TERAPIAS_CREATE_TABLE_SQL",
+    "VOLUNTARIOS_CREATE_TABLE_SQL",
+    "ensure_domain_schema",
+]
 
 
 def ensure_domain_schema(client: InsForgeClient) -> None:
     """Create the domain tables (idempotent) in dependency order.
+
+    Backward-compat shim: builds an :class:`InsForgeSchemaBootstrapAdapter`
+    from ``client`` and delegates to :meth:`InsForgeSchemaBootstrapAdapter.ensure_domain_schema`.
+
+    The dependency order is preserved exactly so lifespan replays and
+    ``tests/test_domain.py`` assertions (which pin the SQL emission
+    sequence) keep working without changes.
 
     Order respects FK dependencies:
 
@@ -87,39 +132,4 @@ def ensure_domain_schema(client: InsForgeClient) -> None:
     11. ``materiales`` and ``estancia_materiales`` at the end so their
         junction FKs to ``acogidas`` and ``materiales`` resolve.
     """
-    statements = (
-        SqlStatement(ANIMALS_CREATE_TABLE_SQL),
-        SqlStatement(VOLUNTARIOS_CREATE_TABLE_SQL),
-        SqlStatement(ROLES_VOLUNTARIO_CREATE_TABLE_SQL),
-        SqlStatement(ENTRADAS_CREATE_TABLE_SQL),
-        SqlStatement(ENTRADAS_BATCH_STAGING_CREATE_TABLE_SQL),
-        SqlStatement(CASAS_ACOGIDA_CREATE_TABLE_SQL),
-        SqlStatement(ACOGIDAS_CREATE_TABLE_SQL),
-        SqlStatement(ACOGIDAS_ADD_CASA_FK_SQL),
-        SqlStatement(FOSTER_CAPACITY_OVERRIDES_CREATE_TABLE_SQL),
-        SqlStatement(FOSTER_CAPACITY_OVERRIDES_ADD_ESTANCIA_FK_SQL),
-        SqlStatement(ADOPCIONES_CREATE_TABLE_SQL),
-        SqlStatement(ANIMAL_LIFECYCLE_EVENTS_CREATE_TABLE_SQL),
-        SqlStatement(ANIMAL_LIFECYCLE_EVENTS_ANIMAL_TIMESTAMP_INDEX_SQL),
-        SqlStatement(ANIMAL_LIFECYCLE_EVENTS_CAUSED_BY_INDEX_SQL),
-        SqlStatement(ANIMAL_CURRENT_STATE_CREATE_TABLE_SQL),
-        SqlStatement(ANIMAL_CURRENT_STATE_STATE_INDEX_SQL),
-        SqlStatement(CESIONES_PROPIETARIO_CREATE_TABLE_SQL),
-        SqlStatement(CONTRATOS_CREATE_TABLE_SQL),
-        SqlStatement(ACTUACION_SANITARIA_CREATE_TABLE_SQL),
-        SqlStatement(TERAPIAS_CREATE_TABLE_SQL),
-        SqlStatement(RECOMENDACIONES_CREATE_TABLE_SQL),
-        SqlStatement(MATERIALES_CREATE_TABLE_SQL),
-        SqlStatement(ESTANCIA_MATERIALES_CREATE_TABLE_SQL),
-        SqlStatement(ESTANCIA_MATERIALES_ACTIVE_UNIQUE_INDEX_SQL),
-        # Append-only enforcement on the lifecycle-event log (issue
-        # #32, LIFECYCLE-02). The trigger function is created first so
-        # the ``CREATE TRIGGER`` that references it does not race with
-        # the function existence; ``DROP TRIGGER IF EXISTS`` then
-        # ``CREATE TRIGGER`` makes the installation replay-safe
-        # (lifespan runs every cold start).
-        SqlStatement(ANIMAL_LIFECYCLE_EVENTS_APPEND_ONLY_FUNCTION_SQL),
-        SqlStatement(ANIMAL_LIFECYCLE_EVENTS_DROP_APPEND_ONLY_TRIGGER_SQL),
-        SqlStatement(ANIMAL_LIFECYCLE_EVENTS_APPEND_ONLY_TRIGGER_SQL),
-    )
-    run_idempotent_sql(client, statements, step_name="domain")
+    InsForgeSchemaBootstrapAdapter(client).ensure_domain_schema()
