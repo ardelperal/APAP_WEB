@@ -77,6 +77,7 @@ def test_logout_clears_session_and_redirects_to_root(
     Issue #124: the logout handler clears the session cookie and redirects
     to /. This test verifies the redirect chain at browser level.
     """
+    _skip_if_oauth_not_configured(page, base_url)
     response = page.goto(f"{base_url}/logout", wait_until="domcontentloaded")
     assert response is not None
     assert response.status == 302
