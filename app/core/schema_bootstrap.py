@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from app.core.insforge import InsForgeClient
+from app.core.data_access import SqlExecutor
 from app.core.logging import log_safe
 
 
@@ -19,7 +19,7 @@ class SqlStatement:
 
 
 def run_idempotent_sql(
-    client: InsForgeClient,
+    client: SqlExecutor,
     statements: Sequence[SqlStatement],
     *,
     step_name: str,
@@ -30,6 +30,11 @@ def run_idempotent_sql(
     example ``IF NOT EXISTS`` or ``ON CONFLICT DO NOTHING``). This helper
     centralizes ordered execution and safe failure telemetry without
     swallowing or translating the original database exception.
+
+    The ``client`` parameter is typed as the :class:`SqlExecutor`
+    Protocol (issue #259) rather than the concrete ``InsForgeClient``,
+    so this primitive stays backend-agnostic and can drive the future
+    legacy-Access adapter without a separate bootstrap path.
     """
     for statement_index, statement in enumerate(statements):
         try:
