@@ -48,7 +48,7 @@ rol with 403 BEFORE the handler runs.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -226,9 +226,9 @@ def _render_backend_error(
 @router.get("", response_class=HTMLResponse)
 def list_actuaciones_view(
     request: Request,
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_SALUD))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
     animal_id: str | None = None,
-    user: AuthenticatedUser = Depends(require_permission(Permission.READ_SALUD)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """List active actuaciones; ``?animal_id=`` filters to one animal.
 
@@ -264,8 +264,8 @@ def list_actuaciones_view(
 @router.get("/new", response_class=HTMLResponse)
 def new_actuacion_form(
     request: Request,
-    user: AuthenticatedUser = Depends(require_permission(Permission.READ_SALUD)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_SALUD))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Empty form for a new actuacion, with the catalogos_pruebas dropdown."""
     if (early := return_early_if_response(user)) is not None:
@@ -287,15 +287,15 @@ def new_actuacion_form(
 @router.post("", response_class=HTMLResponse)
 def create_actuacion_view(
     request: Request,
-    animal_id: str = Form(...),
-    voluntario_id: str | None = Form(None),
-    fecha: str = Form(...),
-    tipo_actuacion_id: str | None = Form(None),
-    veterinario: str | None = Form(None),
-    observaciones: str | None = Form(None),
-    material_utilizado: str | None = Form(None),
-    user: AuthenticatedUser = Depends(require_permission(Permission.WRITE_SALUD)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    animal_id: Annotated[str, Form()],
+    fecha: Annotated[str, Form()],
+    voluntario_id: Annotated[str | None, Form()] = None,
+    tipo_actuacion_id: Annotated[str | None, Form()] = None,
+    veterinario: Annotated[str | None, Form()] = None,
+    observaciones: Annotated[str | None, Form()] = None,
+    material_utilizado: Annotated[str | None, Form()] = None,
 ):
     """Create an actuacion; redirect to detail on success.
 
@@ -359,8 +359,8 @@ def create_actuacion_view(
 def actuacion_detail(
     actuacion_id: str,
     request: Request,
-    user: AuthenticatedUser = Depends(require_permission(Permission.READ_SALUD)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_SALUD))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Detail view; 404 when the id is missing."""
     if (early := return_early_if_response(user)) is not None:
@@ -401,8 +401,8 @@ def actuacion_detail(
 def edit_actuacion_form(
     actuacion_id: str,
     request: Request,
-    user: AuthenticatedUser = Depends(require_permission(Permission.READ_SALUD)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_SALUD))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Edit form prefilled from the persisted row."""
     if (early := return_early_if_response(user)) is not None:
@@ -432,15 +432,15 @@ def edit_actuacion_form(
 def update_actuacion_view(
     actuacion_id: str,
     request: Request,
-    animal_id: str = Form(...),
-    voluntario_id: str | None = Form(None),
-    fecha: str = Form(...),
-    tipo_actuacion_id: str | None = Form(None),
-    veterinario: str | None = Form(None),
-    observaciones: str | None = Form(None),
-    material_utilizado: str | None = Form(None),
-    user: AuthenticatedUser = Depends(require_permission(Permission.WRITE_SALUD)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    animal_id: Annotated[str, Form()],
+    fecha: Annotated[str, Form()],
+    voluntario_id: Annotated[str | None, Form()] = None,
+    tipo_actuacion_id: Annotated[str | None, Form()] = None,
+    veterinario: Annotated[str | None, Form()] = None,
+    observaciones: Annotated[str | None, Form()] = None,
+    material_utilizado: Annotated[str | None, Form()] = None,
 ):
     """Update an existing actuacion; redirect to detail on success.
 
@@ -508,8 +508,8 @@ def update_actuacion_view(
 def delete_actuacion_view(
     actuacion_id: str,
     request: Request,
-    user: AuthenticatedUser = Depends(require_permission(Permission.WRITE_SALUD)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Soft-delete via ``sanidad_service.delete_actuacion_sanitaria``.
 

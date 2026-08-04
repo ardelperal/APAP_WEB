@@ -32,7 +32,7 @@ middleware does not reject them.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Form, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -138,7 +138,7 @@ def _render_form(
 @router.get("/new", response_class=HTMLResponse)
 def new_cesion_form(
     request: Request,
-    user: Response | dict = Depends(require_permission(Permission.READ_CESIONES)),
+    user: Annotated[Response | dict, Depends(require_permission(Permission.READ_CESIONES))],
 ):
     """Render the empty surrender form for the operator."""
     if (early := return_early_if_response(user)) is not None:
@@ -152,29 +152,29 @@ def new_cesion_form(
 @router.post("", response_class=HTMLResponse)
 async def create_cesion_view(
     request: Request,
-    entrada_id: str = Form(...),
-    numero_contrato: str = Form(...),
-    nombre_representante: str = Form(...),
-    dni_representante: str | None = Form(None),
-    fecha_cesion: str | None = Form(None),
-    calle_representante: str | None = Form(None),
-    numero_calle_representante: str | None = Form(None),
-    piso_representante: str | None = Form(None),
-    letra_representante: str | None = Form(None),
-    localidad_representante: str | None = Form(None),
-    provincia_representante: str | None = Form(None),
-    cp_representante: str | None = Form(None),
-    telefono_representante: str | None = Form(None),
-    email_representante: str | None = Form(None),
-    cartilla_sanitaria: str | None = Form(None),
-    certificado_veterinario: str | None = Form(None),
-    autorizacion_recogida: str | None = Form(None),
-    fecha_vacuna_rabia: str | None = Form(None),
-    numero_colegiado: str | None = Form(None),
-    numero_colaborador: str | None = Form(None),
-    hora_cesion: str | None = Form(None),
-    user: Response | dict = Depends(require_permission(Permission.WRITE_CESIONES)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[Response | dict, Depends(require_permission(Permission.WRITE_CESIONES))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    entrada_id: Annotated[str, Form()],
+    numero_contrato: Annotated[str, Form()],
+    nombre_representante: Annotated[str, Form()],
+    dni_representante: Annotated[str | None, Form()] = None,
+    fecha_cesion: Annotated[str | None, Form()] = None,
+    calle_representante: Annotated[str | None, Form()] = None,
+    numero_calle_representante: Annotated[str | None, Form()] = None,
+    piso_representante: Annotated[str | None, Form()] = None,
+    letra_representante: Annotated[str | None, Form()] = None,
+    localidad_representante: Annotated[str | None, Form()] = None,
+    provincia_representante: Annotated[str | None, Form()] = None,
+    cp_representante: Annotated[str | None, Form()] = None,
+    telefono_representante: Annotated[str | None, Form()] = None,
+    email_representante: Annotated[str | None, Form()] = None,
+    cartilla_sanitaria: Annotated[str | None, Form()] = None,
+    certificado_veterinario: Annotated[str | None, Form()] = None,
+    autorizacion_recogida: Annotated[str | None, Form()] = None,
+    fecha_vacuna_rabia: Annotated[str | None, Form()] = None,
+    numero_colegiado: Annotated[str | None, Form()] = None,
+    numero_colaborador: Annotated[str | None, Form()] = None,
+    hora_cesion: Annotated[str | None, Form()] = None,
 ):
     """Process the cesión form. On success, redirect to the parent
     ``/entradas/{entrada_id}`` (the cesión lives 1-a-1 with its

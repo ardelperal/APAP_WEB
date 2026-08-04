@@ -11,7 +11,9 @@ cyclomatic complexity (CC) and line count.
 
 from __future__ import annotations
 
-from fastapi import Depends, FastAPI, Request
+from typing import Annotated
+
+from fastapi import Depends, FastAPI, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 
 from app.core import config as config_module
@@ -69,7 +71,7 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
 
     @app.get("/auth/google")
     def start_google_login(
-        client: InsForgeClient = Depends(get_insforge_client),
+        client: Annotated[InsForgeClient, Depends(get_insforge_client)],
     ) -> Response:
         """Start the Google OAuth flow via InsForge.
 
@@ -115,9 +117,9 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
     @app.get("/auth/callback")
     def callback(
         request: Request,
-        insforge_code: str | None = None,
-        code: str | None = None,  # legacy direct-callback (pre-InsForge-proxy)
-        client: InsForgeClient = Depends(get_insforge_client),
+        client: Annotated[InsForgeClient, Depends(get_insforge_client)],
+        insforge_code: Annotated[str | None, Query()] = None,
+        code: Annotated[str | None, Query()] = None,  # legacy direct-callback (pre-InsForge-proxy)
     ) -> Response:
         """Exchange the OAuth code for an InsForge JWT and issue a session.
 

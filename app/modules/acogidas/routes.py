@@ -24,7 +24,7 @@ Endpoints (mounted at ``/acogidas`` by ``app/main.py``):
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -163,9 +163,9 @@ def _render_form(
 @router.get("", response_class=HTMLResponse)
 def list_acogidas_view(
     request: Request,
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_ACOGIDAS))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
     activas_solo: int | None = None,
-    user: AuthenticatedUser = Depends(require_permission(Permission.READ_ACOGIDAS)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     """List stays; ``?activas_solo=1`` filters to open stays."""
     if (early := return_early_if_response(user)) is not None:
@@ -189,7 +189,7 @@ def list_acogidas_view(
 @router.get("/new", response_class=HTMLResponse)
 def new_acogida_form(
     request: Request,
-    user: AuthenticatedUser = Depends(require_permission(Permission.READ_ACOGIDAS)),
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_ACOGIDAS))],
 ):
     """Render an empty create form."""
     if (early := return_early_if_response(user)) is not None:
@@ -203,21 +203,21 @@ def new_acogida_form(
 @router.post("", response_class=HTMLResponse)
 def create_acogida_view(
     request: Request,
-    animal_id: str = Form(...),
-    fecha_inicio: str = Form(...),
-    casa_acogida_id: str | None = Form(None),
-    voluntario_acogida_id: str | None = Form(None),
-    voluntario_seguimiento1_id: str | None = Form(None),
-    voluntario_seguimiento2_id: str | None = Form(None),
-    voluntario_sanitario_id: str | None = Form(None),
-    fecha_final: str | None = Form(None),
-    entrada_origen_id: str | None = Form(None),
-    direccion: str | None = Form(None),
-    telefono: str | None = Form(None),
-    observaciones: str | None = Form(None),
-    override_id: str | None = Form(None),
-    user: AuthenticatedUser = Depends(require_permission(Permission.WRITE_ACOGIDAS)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_ACOGIDAS))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    animal_id: Annotated[str, Form()],
+    fecha_inicio: Annotated[str, Form()],
+    casa_acogida_id: Annotated[str | None, Form()] = None,
+    voluntario_acogida_id: Annotated[str | None, Form()] = None,
+    voluntario_seguimiento1_id: Annotated[str | None, Form()] = None,
+    voluntario_seguimiento2_id: Annotated[str | None, Form()] = None,
+    voluntario_sanitario_id: Annotated[str | None, Form()] = None,
+    fecha_final: Annotated[str | None, Form()] = None,
+    entrada_origen_id: Annotated[str | None, Form()] = None,
+    direccion: Annotated[str | None, Form()] = None,
+    telefono: Annotated[str | None, Form()] = None,
+    observaciones: Annotated[str | None, Form()] = None,
+    override_id: Annotated[str | None, Form()] = None,
 ):
     """Create a new estancia; redirect to detail on success, re-render form on validation error.
 
@@ -311,8 +311,8 @@ def create_acogida_view(
 def acogida_detail(
     acogida_id: str,
     request: Request,
-    user: AuthenticatedUser = Depends(require_permission(Permission.READ_ACOGIDAS)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_ACOGIDAS))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Render the stay detail view with computed duration + active state."""
     if (early := return_early_if_response(user)) is not None:
@@ -341,8 +341,8 @@ def acogida_detail(
 def edit_acogida_form(
     acogida_id: str,
     request: Request,
-    user: AuthenticatedUser = Depends(require_permission(Permission.READ_ACOGIDAS)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_ACOGIDAS))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Render the edit form prefilled from the current stay row."""
     if (early := return_early_if_response(user)) is not None:
@@ -366,20 +366,20 @@ def edit_acogida_form(
 def update_acogida_view(
     acogida_id: str,
     request: Request,
-    animal_id: str = Form(...),
-    fecha_inicio: str = Form(...),
-    casa_acogida_id: str | None = Form(None),
-    voluntario_acogida_id: str | None = Form(None),
-    voluntario_seguimiento1_id: str | None = Form(None),
-    voluntario_seguimiento2_id: str | None = Form(None),
-    voluntario_sanitario_id: str | None = Form(None),
-    fecha_final: str | None = Form(None),
-    entrada_origen_id: str | None = Form(None),
-    direccion: str | None = Form(None),
-    telefono: str | None = Form(None),
-    observaciones: str | None = Form(None),
-    user: AuthenticatedUser = Depends(require_permission(Permission.WRITE_ACOGIDAS)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_ACOGIDAS))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    animal_id: Annotated[str, Form()],
+    fecha_inicio: Annotated[str, Form()],
+    casa_acogida_id: Annotated[str | None, Form()] = None,
+    voluntario_acogida_id: Annotated[str | None, Form()] = None,
+    voluntario_seguimiento1_id: Annotated[str | None, Form()] = None,
+    voluntario_seguimiento2_id: Annotated[str | None, Form()] = None,
+    voluntario_sanitario_id: Annotated[str | None, Form()] = None,
+    fecha_final: Annotated[str | None, Form()] = None,
+    entrada_origen_id: Annotated[str | None, Form()] = None,
+    direccion: Annotated[str | None, Form()] = None,
+    telefono: Annotated[str | None, Form()] = None,
+    observaciones: Annotated[str | None, Form()] = None,
 ):
     """Apply form edits; redirect to detail on success, re-render on validation error."""
     if (early := return_early_if_response(user)) is not None:
@@ -456,8 +456,8 @@ def update_acogida_view(
 def close_acogida_view(
     acogida_id: str,
     request: Request,
-    user: AuthenticatedUser = Depends(require_permission(Permission.WRITE_ACOGIDAS)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_ACOGIDAS))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Close the stay: ``fecha_final = current_date``, ``activo`` stays true.
 
@@ -481,8 +481,8 @@ def close_acogida_view(
 def delete_acogida_view(
     acogida_id: str,
     request: Request,
-    user: AuthenticatedUser = Depends(require_permission(Permission.WRITE_ACOGIDAS)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_ACOGIDAS))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Soft-delete the stay: ``activo = false`` + ``fecha_baja = now()``.
 

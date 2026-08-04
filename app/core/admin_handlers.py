@@ -11,6 +11,7 @@ cyclomatic complexity (CC) and line count.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Annotated
 
 from fastapi import Depends, FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -68,8 +69,8 @@ def register_admin_routes(app: FastAPI, templates) -> None:
     @app.get("/admin", response_class=HTMLResponse)
     def admin(
         request: Request,
-        current_user: Response | dict = Depends(require_developer_user_redirect),
-        client: InsForgeClient = Depends(get_insforge_client),
+        current_user: Annotated[Response | dict, Depends(require_developer_user_redirect)],
+        client: Annotated[InsForgeClient, Depends(get_insforge_client)],
     ):
         """Developer-only user management panel.
 
@@ -111,10 +112,10 @@ def register_admin_routes(app: FastAPI, templates) -> None:
     @app.post("/admin/users")
     def admin_add_user(
         request: Request,
-        current_user: Response | dict = Depends(require_developer_user_redirect),
-        client: InsForgeClient = Depends(get_insforge_client),
-        email: str = Form(""),
-        rol: str = Form(""),
+        current_user: Annotated[Response | dict, Depends(require_developer_user_redirect)],
+        client: Annotated[InsForgeClient, Depends(get_insforge_client)],
+        email: Annotated[str, Form()] = "",
+        rol: Annotated[str, Form()] = "",
     ) -> Response:
         """Add a new authorized user. Developer only.
 
@@ -164,8 +165,8 @@ def register_admin_routes(app: FastAPI, templates) -> None:
     def admin_deactivate_user(
         request: Request,
         user_id: str,
-        current_user: Response | dict = Depends(require_developer_user_redirect),
-        client: InsForgeClient = Depends(get_insforge_client),
+        current_user: Annotated[Response | dict, Depends(require_developer_user_redirect)],
+        client: Annotated[InsForgeClient, Depends(get_insforge_client)],
     ) -> Response:
         """Deactivate an authorized user. Developer only.
 

@@ -33,7 +33,7 @@ rejected with 403 BEFORE the handler runs.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Form, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -203,7 +203,7 @@ def _preview_from_validation_error(
 @router.get("/batch/new", response_class=HTMLResponse)
 def new_batch_actuaciones_form(
     request: Request,
-    user: AuthenticatedUser = Depends(require_permission(Permission.READ_SALUD)),
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_SALUD))],
 ):
     """Render the empty batch form with ``BATCH_MIN_RECORDS`` blank rows.
 
@@ -227,16 +227,16 @@ def new_batch_actuaciones_form(
 @router.post("/actuaciones/batch", response_class=HTMLResponse)
 def batch_actuaciones_view(
     request: Request,
-    dry_run: str | None = Form(None),
-    animal_id: list[str] = Form([]),
-    voluntario_id: list[str] = Form([]),
-    fecha: list[str] = Form([]),
-    tipo_actuacion_id: list[str] = Form([]),
-    veterinario: list[str] = Form([]),
-    observaciones: list[str] = Form([]),
-    material_utilizado: list[str] = Form([]),
-    user: AuthenticatedUser = Depends(require_permission(Permission.WRITE_SALUD)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    dry_run: Annotated[str | None, Form()] = None,
+    animal_id: Annotated[list[str] | None, Form()] = None,
+    voluntario_id: Annotated[list[str] | None, Form()] = None,
+    fecha: Annotated[list[str] | None, Form()] = None,
+    tipo_actuacion_id: Annotated[list[str] | None, Form()] = None,
+    veterinario: Annotated[list[str] | None, Form()] = None,
+    observaciones: Annotated[list[str] | None, Form()] = None,
+    material_utilizado: Annotated[list[str] | None, Form()] = None,
 ):
     """HEALTH-02 batch endpoint: staging preview OR atomic commit.
 
@@ -247,9 +247,9 @@ def batch_actuaciones_view(
     """
     return _do_batch_view(
         request, user, client, dry_run,
-        animal_id, voluntario_id, fecha,
-        tipo_actuacion_id, veterinario, observaciones,
-        material_utilizado,
+        animal_id or [], voluntario_id or [], fecha or [],
+        tipo_actuacion_id or [], veterinario or [], observaciones or [],
+        material_utilizado or [],
     )
 
 

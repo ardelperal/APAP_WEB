@@ -48,6 +48,75 @@ def test_admin_add_user_is_sync_def_not_async() -> None:
     )
 
 
+def _form_param_names(func) -> list[str]:
+    """Return the names of parameters declared as ``Form(...)`` inputs.
+
+    Recognises both the legacy ``x: str = Form(...)`` pattern and the
+    modern ``x: Annotated[str, Form()] = ...`` pattern.
+    """
+    import ast as _ast
+
+    source = inspect.getsource(func)
+    # Drop the ``@app.post(...)`` decorator line so the source parses
+    # as a bare function definition (the function lives inside
+    # ``create_app`` so every line is indented; the AST parser only
+    # cares about the function name and arg shapes).
+    lines = [
+        line for line in source.splitlines()
+        if line.strip() and not line.lstrip().startswith("@")
+    ]
+    # Determine the common leading-indent of the function body lines
+    # so we can dedent uniformly and let the parser see the docstring
+    # as part of the function.
+    non_empty = [line for line in lines if line.strip()]
+    indent = min(
+        len(line) - len(line.lstrip())
+        for line in non_empty
+    )
+    dedented = "\n".join(line[indent:] if len(line) >= indent else line for line in lines)
+    tree = _ast.parse(dedented)
+    for node in _ast.walk(tree):
+        if not isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
+            continue
+        if node.name != func.__name__:
+            continue
+        # Python puts the LAST N defaults in ``args.defaults``; the first
+        # args don't carry defaults even when they appear in the
+        # signature without ``= ...``. Pad with ``None`` so every arg
+        # is visited.
+        defaults = [None] * (
+            len(node.args.args) - len(node.args.defaults or [])
+        ) + list(node.args.defaults or [])
+        form_names: list[str] = []
+        for arg, default in zip(node.args.args, defaults, strict=False):
+            if _annotation_uses_form(_ast, arg.annotation):
+                form_names.append(arg.arg)
+                continue
+            if (
+                isinstance(default, _ast.Call)
+                and isinstance(default.func, _ast.Name)
+                and default.func.id == "Form"
+            ):
+                form_names.append(arg.arg)
+        return form_names
+    return []
+
+
+def _annotation_uses_form(_ast, annotation) -> bool:
+    if annotation is None:
+        return False
+    if isinstance(annotation, _ast.Call):
+        return (
+            isinstance(annotation.func, _ast.Name)
+            and annotation.func.id == "Form"
+        )
+    if isinstance(annotation, _ast.Subscript):
+        return _annotation_uses_form(_ast, annotation.slice)
+    if isinstance(annotation, _ast.Tuple):
+        return any(_annotation_uses_form(_ast, elt) for elt in annotation.elts)
+    return False
+
+
 def test_admin_add_user_signature_uses_form_params_not_request_form() -> None:
     """``admin_add_user`` MUST read the form via ``Form(...)`` parameters.
 
@@ -56,12 +125,8 @@ def test_admin_add_user_signature_uses_form_params_not_request_form() -> None:
     async handlers; using them in a sync ``def`` makes the contract
     obvious and matches the rest of the codebase.
     """
-    sig = inspect.signature(_get_admin_add_user())
-    form_param_names = [
-        name
-        for name, p in sig.parameters.items()
-        if hasattr(p.default, "__class__") and p.default.__class__.__name__ == "Form"
-    ]
+    func = _get_admin_add_user()
+    form_param_names = _form_param_names(func)
     # At least the two form fields the handler reads (email + rol)
     # must be declared as Form() parameters, not pulled out of
     # ``await request.form()``.

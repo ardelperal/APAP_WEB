@@ -22,7 +22,7 @@ Endpoints (mounted at ``/casas-acogida`` by ``app/main.py``):
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -135,9 +135,9 @@ def _render_form(
 @router.get("", response_class=HTMLResponse)
 def list_casas_acogida_view(
     request: Request,
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_CASAS_ACOGIDA))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
     especie: str | None = None,
-    user: AuthenticatedUser = Depends(require_permission(Permission.READ_CASAS_ACOGIDA)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
 ):
     if (early := return_early_if_response(user)) is not None:
         return early
@@ -155,7 +155,7 @@ def list_casas_acogida_view(
 @router.get("/new", response_class=HTMLResponse)
 def new_casa_acogida_form(
     request: Request,
-    user: AuthenticatedUser = Depends(require_permission(Permission.READ_CASAS_ACOGIDA)),
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_CASAS_ACOGIDA))],
 ):
     if (early := return_early_if_response(user)) is not None:
         return early
@@ -168,9 +168,9 @@ def new_casa_acogida_form(
 @router.post("", response_class=HTMLResponse)
 def create_casa_acogida_view(
     request: Request,
-    form: CasaAcogidaForm = Form(...),
-    user: AuthenticatedUser = Depends(require_permission(Permission.WRITE_CASAS_ACOGIDA)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    form: Annotated[CasaAcogidaForm, Form()],
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_CASAS_ACOGIDA))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Procesa el submit del formulario. En exito, redirect al detalle.
 
@@ -208,8 +208,8 @@ def create_casa_acogida_view(
 def casa_acogida_detail(
     casa_id: str,
     request: Request,
-    user: AuthenticatedUser = Depends(require_permission(Permission.READ_CASAS_ACOGIDA)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_CASAS_ACOGIDA))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     if (early := return_early_if_response(user)) is not None:
         return early
@@ -254,8 +254,8 @@ def casa_acogida_detail(
 def edit_casa_acogida_form(
     casa_id: str,
     request: Request,
-    user: AuthenticatedUser = Depends(require_permission(Permission.READ_CASAS_ACOGIDA)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_CASAS_ACOGIDA))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     if (early := return_early_if_response(user)) is not None:
         return early
@@ -278,9 +278,9 @@ def edit_casa_acogida_form(
 def update_casa_acogida_view(
     casa_id: str,
     request: Request,
-    form: CasaAcogidaForm = Form(...),
-    user: AuthenticatedUser = Depends(require_permission(Permission.WRITE_CASAS_ACOGIDA)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    form: Annotated[CasaAcogidaForm, Form()],
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_CASAS_ACOGIDA))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Procesa el submit del formulario de edicion. En exito, redirect al detalle.
 
@@ -317,8 +317,8 @@ def update_casa_acogida_view(
 def delete_casa_acogida_view(
     casa_id: str,
     request: Request,
-    user: AuthenticatedUser = Depends(require_permission(Permission.WRITE_CASAS_ACOGIDA)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_CASAS_ACOGIDA))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     if (early := return_early_if_response(user)) is not None:
         return early
