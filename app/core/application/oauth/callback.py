@@ -46,7 +46,6 @@ Hexagonal contract:
 
 from __future__ import annotations
 
-from app.core.data_access import InsForgeError
 from app.core.domain.auth.user import AuthorizedUser
 from app.core.domain.oauth import (
     AuthenticatedSession,

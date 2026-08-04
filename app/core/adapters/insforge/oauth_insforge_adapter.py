@@ -37,7 +37,7 @@ from __future__ import annotations
 from app.core.domain.oauth import PkcePair
 from app.core.insforge import InsForgeClient
 from app.core.pkce import generate_pkce_pair
-from app.core.ports.oauth_port import OAuthPort, OAuthUser
+from app.core.ports.oauth_port import OAuthUser
 
 
 class InsForgeOAuthAdapter:
@@ -47,11 +47,6 @@ class InsForgeOAuthAdapter:
     :class:`InsForgeClient` reference passed at construction time;
     the DI layer (``app/core/di/oauth_di.py``) owns the client's
     lifecycle, not the adapter.
-
-    The :class:`OAuthPort` base class is used as an explicit
-    superclass (mypy enforces the structural match; this also
-    documents the Protocol contract at the class level rather
-    than only in the abstract type definition).
     """
 
     def __init__(self, client: InsForgeClient) -> None:

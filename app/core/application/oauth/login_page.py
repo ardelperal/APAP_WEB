@@ -27,7 +27,6 @@ that runs BEFORE the port is consulted.
 from __future__ import annotations
 
 from app.core.config import Settings
-from app.core.domain.oauth import OAuthNotConfiguredError
 
 
 def login_page(settings: Settings) -> str | None:
@@ -42,14 +41,6 @@ def login_page(settings: Settings) -> str | None:
     single-source-of-truth so a future admin UI that wants to
     surface the same state (e.g. "OAuth not configured" banner) can
     call this use case without re-implementing the rule.
-
-    The :class:`OAuthNotConfiguredError` is the corresponding typed
-    signal the route layer could raise instead of returning
-    ``None``; the current shape (return None) matches the existing
-    route contract (the legacy route also returns a ``JSONResponse``
-    directly without raising). The exception is provided as the
-    named-domain-error alternative for future slices that want a
-    translator-based route layer.
     """
     if not settings.google_client_id or not settings.google_client_secret:
         return None
