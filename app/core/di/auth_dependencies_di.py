@@ -8,23 +8,71 @@ from this module (see ``app/core/auth_dependencies.py``).
 Why this split exists (epic #420, §33.3)
 ----------------------------------------
 
-:class:`app.core.auth_dependencies` historically owned both the
-FastAPI dependency factories AND the import of ``app.core.auth``. Per
-the hexagonal architecture, the composition root of a slice lives in
-``app/core/di/<slice>_di.py``; the new home is this file. The
-business-layer ``app/core/auth.py`` stays where it is — the di module
-imports it, never the other way around.
+The 9 FastAPI auth deps historically lived in
+``app/core/auth_dependencies.py`` together with the import of
+``app.core.auth``. Per the hexagonal architecture, the composition root
+of a slice lives in ``app/core/di/<slice>_di.py``; the new home is this
+file. The business-layer ``app/core/auth.py`` stays where it is — the
+di module imports it, never the other way around.
+
+Why the shim lookup is lazy at call time
+----------------------------------------
+
+A naive ``from app.core import auth_dependencies as _shim`` at module
+level here AND ``from app.core.di.auth_dependencies_di import *`` at
+module level in the shim creates an order-dependent cycle:
+
+1. If a fresh process imports this di module FIRST, the di module's
+   ``from app.core import auth_dependencies as _shim`` triggers shim
+   load; the shim's first line is
+   ``from app.core.di.auth_dependencies_di import *``, which sees the
+   PARTIAL di module (only stdlib imports above the ``_shim`` import
+   are bound — the 9 public symbols are defined AFTER that line).
+   The star-import imports nothing useful; the shim ends up empty of
+   its 9 consumer-facing re-exports.
+2. If the shim is imported FIRST, the cycle is fine: the shim's
+   star-import triggers di load, the di module's module-level
+   ``from app.core import auth_dependencies as _shim`` resolves to the
+   partial shim (harmless), and the di module finishes binding its 9
+   public names. Then the shim's star-import completes and picks up
+   all 9 names.
+
+So the cycle is order-dependent and silently breaks for any code path
+that loads the di module before the shim (e.g. the pin test's direct
+import of the di module, or any consumer that adds a direct
+``from app.core.di.auth_dependencies_di import ...`` later).
+
+The fix is to defer the shim lookup to function-call time. The di
+module reads ``log_safe`` and ``read_session_payload`` through
+``_shim().<name>`` inside each function body (see :func:`_shim`). The
+shim imports the di module's 9 names via ``from app.core.di.auth_dependencies_di import *``,
+and that import now runs against the FULLY-loaded di module because
+the di module no longer triggers shim load at module level.
+
+Test monkeypatches on the shim's ``log_safe`` /
+``read_session_payload`` still propagate to the di module's
+function calls: the lazy lookup returns the same module object the
+test patched, and Python attribute access observes the patched value
+on every call.
+
+See the regression guard at
+``tests/test_auth_dependencies_slice.py::test_shim_exports_resolve_when_di_module_imported_first``
+for the subprocess test that pins this invariant.
 
 Slice contracts
 ---------------
 
 The 9 public symbols preserve byte-identical signatures with the
-pre-slice form. The 19 consumer modules (see proposal §3) import via
-``from app.core.auth_dependencies import <name>`` and keep working
-through the shim. ``app.dependency_overrides[<name>]`` in the test
-suite works the same way — the override key is the function object
-itself, and the shim re-exports the same object (identity, not just
-equality).
+pre-slice form. The ~35 consumer modules (corrected from the design's
+19 — the prior count was a partial sample; the real surface includes
+``app/core/admin_handlers.py``, ``app/core/auth_flow.py``,
+``app/core/rbac.py``, every ``app/modules/*/routes.py`` (13 modules
+plus 3 batch_routes), and the 16 test files that import from the
+shim via ``from app.core.auth_dependencies import <name>``). They
+keep working through the shim.
+``app.dependency_overrides[<name>]`` in the test suite works the
+same way — the override key is the function object itself, and the
+shim re-exports the same object (identity, not just equality).
 
 The §32.P4 fix (Variant A) lives inside :func:`require_authorized_user`
 and only wraps the single ``get_user_by_email`` call. It does NOT
@@ -42,20 +90,39 @@ from fastapi.responses import RedirectResponse
 from starlette.responses import Response
 from typing_extensions import TypedDict
 
-# ``_shim`` is the legacy ``app.core.auth_dependencies`` module (the shim).
-# The di module reads ``log_safe`` and ``read_session_payload`` through
-# ``_shim`` so test monkeypatches on ``app.core.auth_dependencies.log_safe``
-# / ``read_session_payload`` propagate to the di module's function calls.
-# The import is module-level (no ``lazy-import:` marker needed) because the
-# shim is fully loaded by the time any function here is invoked; the
-# lookup is dynamic at call time. Doc: see the shim's module docstring.
-from app.core import auth_dependencies as _shim
 from app.core.auth import get_user_by_email
 from app.core.auth_cache import get_cached_auth, set_cached_auth
 from app.core.config import get_settings
 from app.core.data_access import InsForgeError
 from app.core.insforge import InsForgeClient
 from app.core.roles import Rol
+
+
+def _shim():
+    """Return the legacy ``app.core.auth_dependencies`` shim module.
+
+    The lookup is deferred to function-call time. Without the deferral,
+    a fresh process that imports the di module FIRST triggers a
+    partial-module shim load; the shim's
+    ``from app.core.di.auth_dependencies_di import *`` then runs
+    against the PARTIAL di module (the 9 public symbols are defined
+    AFTER the di module's module-level shim import) and the shim
+    ends up with NO re-exports. Consumers
+    (``from app.core.auth_dependencies import require_authorized_user``)
+    then fail with ImportError.
+
+    Test monkeypatches on the shim's ``log_safe`` /
+    ``read_session_payload`` still propagate: the lookup returns the
+    same module object, and Python attribute access sees the patched
+    value at every call.
+
+    Returns:
+        The ``app.core.auth_dependencies`` module object.
+    """
+    # lazy-import: deferred to call time — avoids the order-dependent module-load cycle with the shim's ``import *`` of this module (full rationale in the docstring above).
+    from app.core import auth_dependencies
+
+    return auth_dependencies
 
 
 class AuthenticatedUser(TypedDict):
@@ -125,7 +192,7 @@ def get_current_user_optional(request: Request) -> dict | None:
     en handlers que quieran render condicional (mostrar el nombre de
     usuario si esta logueado) pero que no requieren auth.
     """
-    return _shim.read_session_payload(request, secret=get_settings().session_secret)
+    return _shim().read_session_payload(request, secret=get_settings().session_secret)
 
 
 def return_early_if_response(value: Response | AuthenticatedUser | dict) -> Response | None:
@@ -202,14 +269,14 @@ def require_authorized_user(
     la dep ni en el handler.
     """
     if not payload:
-        _shim.log_safe(
+        _shim().log_safe(
             "auth.denied",
             reason="no_session",
             user_id=None,
         )
         return RedirectResponse(url="/login", status_code=302)
     if not payload.get("is_authorized", False):
-        _shim.log_safe(
+        _shim().log_safe(
             "auth.denied",
             reason="cookie_no_flag",
             user_id=payload.get("user_id") if isinstance(payload, dict) else None,
@@ -219,7 +286,7 @@ def require_authorized_user(
     email = payload.get("email")
     if not isinstance(email, str) or not email:
         # Cookie firma identidad; sin email no hay a quien revalidar.
-        _shim.log_safe(
+        _shim().log_safe(
             "auth.denied",
             reason="no_email",
             user_id=payload.get("user_id") if isinstance(payload, dict) else None,
@@ -238,7 +305,7 @@ def require_authorized_user(
             # prior line 237. ``set_cached_auth`` is intentionally NOT
             # called here: a transient DB outage does not poison the
             # auth cache with a deny verdict.
-            _shim.log_safe(
+            _shim().log_safe(
                 "auth.denied",
                 reason="db_unreachable",
                 user_id=payload.get("user_id") if isinstance(payload, dict) else None,
@@ -246,7 +313,7 @@ def require_authorized_user(
             return RedirectResponse(url="/unauthorized", status_code=302)
         if fresh is None:
             set_cached_auth(email, is_authorized=False, rol=None)
-            _shim.log_safe(
+            _shim().log_safe(
                 "auth.denied",
                 reason="db_reval_miss",
                 user_id=payload.get("user_id") if isinstance(payload, dict) else None,
@@ -257,7 +324,7 @@ def require_authorized_user(
         return payload
 
     if not cached.is_authorized:
-        _shim.log_safe(
+        _shim().log_safe(
             "auth.denied",
             reason="db_reval_miss",
             user_id=payload.get("user_id") if isinstance(payload, dict) else None,
@@ -311,7 +378,7 @@ def require_writer_user(
         # missing-rol rejection from a deactivated-session redirect that
         # the upstream dep propagated — operators grep auth.denied by
         # reason to spot a non-writer trying to mutate domain state.
-        _shim.log_safe(
+        _shim().log_safe(
             "auth.denied",
             reason="writer_required",
             user_id=user.get("user_id") if isinstance(user, dict) else None,
@@ -329,7 +396,7 @@ def _resolve_developer_user(payload: Response | dict) -> Response | dict | None:
         return early
     user_rol = payload.get("rol") if isinstance(payload, dict) else None
     if user_rol != Rol.DEVELOPER.value:
-        _shim.log_safe(
+        _shim().log_safe(
             "auth.denied",
             reason="developer_required",
             user_id=payload.get("user_id") if isinstance(payload, dict) else None,
