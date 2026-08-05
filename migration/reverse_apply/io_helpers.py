@@ -85,7 +85,10 @@ def _build_web_select_sql(web_table: str, columns: tuple[str, ...]) -> str:
 
     safe = _safe_table(web_table)
     cols = ", ".join(_safe_table(c) for c in columns) or "*"
-    return f"SELECT {cols} FROM {safe}"
+    # noqa S608: tabla y CADA columna pasan por ``_safe_table()``, que lanza
+    # si no casan ``^[A-Za-z_][A-Za-z0-9_]*$``. Sin valores interpolados y
+    # sin operandos de request. Issue #387.
+    return f"SELECT {cols} FROM {safe}"  # noqa: S608
 
 
 __all__ = [

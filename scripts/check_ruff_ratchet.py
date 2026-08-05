@@ -87,7 +87,10 @@ BASELINE: dict[str, int] = {
     "S112": 1,
     "S603": 2,
     "S607": 2,
-    "S608": 65,
+    # 65 -> 54: los 11 sitios de ``migration/`` triados en el issue #387.
+    # Los 54 restantes viven todos en ``app/modules/`` y son la otra mitad
+    # del triaje.
+    "S608": 54,
     "SIM102": 5,
     "SIM103": 3,
     "SIM105": 14,

@@ -41,11 +41,23 @@ def _build_web_select_sql(spec: WebTableSpec) -> str:
     can assert the exact query shape against a ``FakeInsForge``
     without spinning up transport.
     """
-    cols = ", ".join(spec.columns)
+    # Import local: evita un ciclo con ``migration.apply``. Mismo patrón
+    # que ``reverse_apply/io_helpers.py``.
+    from migration.apply import _safe_table
+
+    # Defensa en profundidad (issue #387): los identificadores se validan
+    # aunque hoy vengan del YAML de mapeo. ``"*"`` es comodín legítimo.
+    table = _safe_table(spec.web_table)
+    cols = ", ".join(c if c == "*" else _safe_table(c) for c in spec.columns)
     where = ""
     if spec.since:
+        # ``since`` es ``datetime``: ``isoformat()`` no puede inyectar.
         where = f" WHERE updated_at > '{spec.since.isoformat()}'"
-    return f"SELECT {cols} FROM {spec.web_table}{where}"
+    # noqa S608: tabla y columnas validadas contra
+    # ``^[A-Za-z_][A-Za-z0-9_]*$``; el único valor interpolado es un
+    # ``datetime.isoformat()``. Ningún operando viene de datos de request
+    # (``app/`` no importa ``migration/``).
+    return f"SELECT {cols} FROM {table}{where}"  # noqa: S608
 
 
 class InsForgeWebReaderAdapter(WebReaderPort):

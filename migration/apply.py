@@ -724,7 +724,7 @@ def _fetch_web_row_by_key(
     """
     key_col = _safe_table(mapping.key_field)
     table = _safe_table(mapping.web_table)
-    sql = f"SELECT * FROM {table} WHERE {key_col} = $1 LIMIT 1"
+    sql = f"SELECT * FROM {table} WHERE {key_col} = $1 LIMIT 1"  # noqa: S608 ids validados
     rows = client.execute_sql(sql, [legacy_pk])
     return rows[0] if rows else None
 
@@ -746,8 +746,8 @@ def _insert_web_row(
     if not cols:
         raise ValueError(f"no safe columns to INSERT into {web_table}")
     placeholders = ", ".join(f"${i + 1}" for i in range(len(cols)))
-    col_list = ", ".join(cols)
-    sql = f"INSERT INTO {safe_table} ({col_list}) VALUES ({placeholders}) RETURNING id"
+    cols_vals = f"({', '.join(cols)}) VALUES ({placeholders})"
+    sql = f"INSERT INTO {safe_table} {cols_vals} RETURNING id"  # noqa: S608 ids validados
     params = [web_row[c] for c in cols]
     client.execute_sql(sql, params)
 
