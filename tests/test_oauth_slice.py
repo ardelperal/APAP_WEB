@@ -33,10 +33,8 @@ the 503 body, the redirect URLs).
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
-import httpx
 import pytest
 
 from app.core.adapters.insforge.oauth_insforge_adapter import (
@@ -44,6 +42,8 @@ from app.core.adapters.insforge.oauth_insforge_adapter import (
 )
 from app.core.application.oauth import (
     ClearSessionParams,
+)
+from app.core.application.oauth import (
     callback as callback_uc,
 )
 from app.core.application.oauth import (
@@ -67,9 +67,7 @@ from app.core.domain.oauth import (
     UserNotAuthorizedError,
 )
 from app.core.insforge import InsForgeClient, InsForgeUser, OAuthExchangeResult
-from app.core.ports.auth_port import AuthUsersPort
 from app.core.ports.oauth_port import OAuthPort, OAuthUser
-
 
 # --- helpers ---------------------------------------------------------------
 
