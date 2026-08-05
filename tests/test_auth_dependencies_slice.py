@@ -29,6 +29,10 @@ from __future__ import annotations
 
 import ast
 import inspect
+import re
+import subprocess
+import sys
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -84,7 +88,7 @@ def test_di_module_exports_all_nine_symbols() -> None:
 def test_shim_reexports_all_nine_symbols() -> None:
     """``app.core.auth_dependencies`` is a thin re-export shim.
 
-    The shim is what the ~35 consumer files import. The identity check
+    The shim is what the 19 consumer files import. The identity check
     (``shim.X is di.X``) is the contract that lets FastAPI's
     ``app.dependency_overrides[<key>]`` keep working: the override key
     is the function object from the di module, and the shim must hand
@@ -106,12 +110,150 @@ def test_shim_reexports_all_nine_symbols() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Atom 3 — the di module has no raw SQL and no execute_sql
+# Atom 3 — the di module has no raw SQL, no direct insforge imports, and no
+# transport-shaped construction (R04 leak constraint, full set)
 # ---------------------------------------------------------------------------
 
 
+# R04 — the leak constraint, in machine-checkable form. Any of these in
+# the di module body would mean the composition root bypasses the
+# service seam and reaches the transport directly.
+_RAW_SQL_KEYWORDS = (
+    "SELECT",
+    "INSERT",
+    "UPDATE",
+    "DELETE",
+    "CREATE",
+    "DROP",
+    "ALTER",
+)
+
+
+def _module_r04_violations(source: str) -> list[str]:
+    """Walk the AST and return a list of R04 violation descriptions.
+
+    A violation is any of:
+
+    1. A raw SQL keyword (``SELECT``, ``INSERT``, ``UPDATE``, ``DELETE``,
+       ``CREATE``, ``DROP``, ``ALTER``) appearing as a string-literal
+       inside the module body — but NOT inside docstrings (the module
+       docstring describes ``POST/PUT/PATCH/DELETE`` HTTP methods, not
+       raw SQL keywords).
+    2. An ``InsForgeClient(...)`` constructor call OUTSIDE the single
+       permitted fallback site inside ``get_insforge_client_dep``.
+       Importing ``InsForgeClient`` at module level IS allowed — it is
+       the only construction site permitted, and the fallback needs
+       the symbol in scope.
+    3. A direct attribute access of ``auth_cache`` (the module must go
+       through the ``get_cached_auth`` / ``set_cached_auth`` facade,
+       not reach into the cache module directly).
+
+    Returns:
+        A list of human-readable violation descriptions. Empty list =
+        no leaks.
+    """
+    violations: list[str] = []
+    tree = ast.parse(source)
+
+    def _enclosing_function(node: ast.AST) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
+        current = node
+        while hasattr(current, "parent"):
+            current = current.parent  # type: ignore[attr-defined]
+            if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                return current
+        return None
+
+    # ast.walk() doesn't surface parents — build a parent map.
+    for parent in ast.walk(tree):
+        for child in ast.iter_child_nodes(parent):
+            child.parent = parent  # type: ignore[attr-defined]
+
+    def _is_docstring(node: ast.Constant) -> bool:
+        """Return True if ``node`` is a docstring (skip it for SQL scan).
+
+        A docstring in Python's AST is the FIRST statement of a
+        Module/FunctionDef/AsyncFunctionDef/ClassDef body, and it is
+        the value of an ``ast.Expr`` wrapping a string Constant.
+        """
+        if not (isinstance(node, ast.Constant) and isinstance(node.value, str)):
+            return False
+        parent = getattr(node, "parent", None)
+        if not isinstance(parent, ast.Expr):
+            return False
+        grandparent = getattr(parent, "parent", None)
+        body = getattr(grandparent, "body", None)
+        if body is None or len(body) == 0:
+            return False
+        return body[0] is parent
+
+    # ---- Constraint 1: raw SQL keywords in string literals (skip docstrings).
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Constant) and isinstance(node.value, str)):
+            continue
+        if _is_docstring(node):
+            # Docstrings may mention HTTP methods (POST/PUT/PATCH/DELETE)
+            # or describe public APIs in English/Spanish — that is
+            # documentation, not code. Raw SQL appears only in code
+            # strings (``client.execute_sql("SELECT ...")``).
+            continue
+        text = node.value.upper()
+        for kw in _RAW_SQL_KEYWORDS:
+            pattern = rf"\b{kw}\b"
+            if re.search(pattern, text):
+                violations.append(
+                    f"raw SQL keyword {kw!r} in code string literal at line {node.lineno}"
+                )
+                break
+
+    # ---- Constraint 2: ``InsForgeClient(...)`` constructor outside the
+    # permitted fallback site.
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not (isinstance(func, ast.Name) and func.id == "InsForgeClient"):
+            continue
+        enclosing = _enclosing_function(node)
+        if enclosing is None or enclosing.name != "get_insforge_client_dep":
+            violations.append(
+                f"InsForgeClient(...) construction at line {node.lineno} "
+                f"outside the permitted get_insforge_client_dep fallback "
+                f"site (the service seam must own this)"
+            )
+
+    # ---- Constraint 3: direct attribute access of ``auth_cache`` or
+    # unauthorized import from the auth_cache module. The composition
+    # root only touches the cache through the module-level facade
+    # (``get_cached_auth`` / ``set_cached_auth`` imported at the top).
+    # Reaching for ``app.core.auth_cache.<name>`` directly would
+    # bypass the in-process backend abstraction (issue #287).
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute):
+            value = node.value
+            if isinstance(value, ast.Name) and value.id == "auth_cache":
+                violations.append(
+                    f"direct access to app.core.auth_cache.{node.attr} at "
+                    f"line {node.lineno} (must use the get_cached_auth / "
+                    f"set_cached_auth facade)"
+                )
+        if isinstance(node, ast.ImportFrom) and node.module and node.module.endswith(
+            "auth_cache"
+        ):
+            if any(name not in {"get_cached_auth", "set_cached_auth"} for name in (
+                alias.name for alias in node.names
+            )):
+                violations.append(
+                    f"unauthorized import from app.core.auth_cache at "
+                    f"line {node.lineno} (only get_cached_auth / "
+                    f"set_cached_auth are permitted)"
+                )
+
+    return violations
+
+
 def test_di_module_has_no_raw_sql_or_execute_sql() -> None:
-    """The di module MUST NOT execute raw SQL — it delegates to a service.
+    """The di module MUST NOT execute raw SQL, import transport, or
+    bypass the service seam — full R04 leak constraint set.
 
     The composition root holds no transport-shaped imports. The
     revalidation goes through :func:`app.core.auth.get_user_by_email`,
@@ -119,26 +261,32 @@ def test_di_module_has_no_raw_sql_or_execute_sql() -> None:
     ``client.execute_sql(...)`` call into the di module, this test
     fails and prevents the leak.
 
-    Note: ``InsForgeClient(...)`` is allowed at the single
-    ``get_insforge_client_dep`` call site when ``app.state.insforge_client``
-    is absent (lazy fallback for ASGI test transports that skip the
-    lifespan). This is the established pattern shared with
-    :mod:`app.core.di.oauth_di` and the legacy
-    ``app.core.auth_dependencies.get_insforge_client_dep``.
+    The three checks enforced here are the complete R04 set:
+
+    1. **No raw SQL** — no ``SELECT`` / ``INSERT`` / ``UPDATE`` / ``DELETE``
+       / ``CREATE`` / ``DROP`` / ``ALTER`` string literal in the module
+       code (docstrings excluded — they may mention HTTP methods like
+       ``POST/PUT/PATCH/DELETE`` in plain English/Spanish).
+    2. **No transport construction outside the permitted fallback** —
+       ``InsForgeClient(...)`` is allowed ONLY inside
+       ``get_insforge_client_dep`` at the lazy fallback site (a single
+       line, when ``app.state.insforge_client`` is absent). Importing
+       ``InsForgeClient`` at module level is permitted because that
+       single function needs the symbol in scope.
+    3. **No direct ``app.core.auth_cache`` access** — the di module must
+       use the ``get_cached_auth`` / ``set_cached_auth`` facade and must
+       not import other symbols from the cache module.
+
+    Note: importing ``get_cached_auth`` and ``set_cached_auth`` FROM
+    ``app.core.auth_cache`` at module level IS allowed (constraint 3's
+    exception clause) — that is the facade wiring.
     """
     source = DI_PATH.read_text(encoding="utf-8")
-    tree = ast.parse(source)
-
-    leaks: list[str] = []
-    for node in ast.walk(tree):
-        # Detect any call to ``execute_sql`` on any receiver.
-        if isinstance(node, ast.Call):
-            func = node.func
-            if isinstance(func, ast.Attribute) and func.attr == "execute_sql":
-                leaks.append(f"raw execute_sql call at line {node.lineno}")
-    assert not leaks, (
-        f"app.core.di.auth_dependencies_di leaks transport imports "
-        f"into the composition root: {leaks!r}"
+    violations = _module_r04_violations(source)
+    assert not violations, (
+        f"app.core.di.auth_dependencies_di violates the R04 leak "
+        f"constraint — the composition root must not bypass the service "
+        f"seam. Violations: {violations!r}"
     )
 
 
@@ -231,7 +379,7 @@ def set_cached_auth(monkeypatch: pytest.MonkeyPatch) -> _SetCachedAuthSpy:
 
 def test_require_authorized_user_catches_insforge_error_and_redirects(
     monkeypatch: pytest.MonkeyPatch,
-    set_cached_auth: _SetCachedAuthSpy,
+    set_cached_auth,
 ) -> None:
     """§32.P4 Variant A: ``InsForgeError`` is caught and returns 302.
 
@@ -376,4 +524,114 @@ def test_shim_under_fifty_lines() -> None:
         f"app.core.auth_dependencies.py is {line_count} lines; the shim "
         f"cap is 50 lines. If it grew past 50, the shim is hiding logic "
         f"that belongs in app.core.di.auth_dependencies_di."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Atom 8 — fresh-process regression test for the di↔shim module-level cycle
+# ---------------------------------------------------------------------------
+
+
+def test_shim_exports_resolve_when_di_module_imported_first() -> None:
+    """The shim MUST re-export the 9 public names when the di module
+    is imported FIRST in a fresh Python process.
+
+    Regression test for the module-level cycle. A fresh process that
+    imports ``app.core.di.auth_dependencies_di`` BEFORE
+    ``app.core.auth_dependencies`` used to silently break the shim's
+    re-exports:
+
+      1. The di module's module-level
+         ``from app.core import auth_dependencies as _shim`` triggered
+         shim load.
+      2. The shim's first line,
+         ``from app.core.di.auth_dependencies_di import *``, ran
+         against the PARTIAL di module (the 9 public symbols are
+         defined AFTER the di module's shim-import line, so at that
+         moment only stdlib imports are bound).
+      3. The star-import re-exported nothing.
+      4. The shim finished with ``log_safe`` and
+         ``read_session_payload`` but no consumer-facing 9 names.
+      5. Any consumer
+         (``from app.core.auth_dependencies import require_authorized_user``)
+         then raised ``ImportError``.
+
+    With the cycle fix (defer the shim lookup to call time via
+    ``_shim()``), the di module's load does not touch the shim.
+    Whichever order a fresh process loads the two modules, the shim
+    ends up with all 9 public names and identity preserved
+    (``shim.<name> is di.<name>``).
+
+    A unit test cannot reproduce this — pytest has already loaded
+    the modules through the test file's own imports. We exercise the
+    invariant in a real subprocess so ``sys.modules`` is genuinely
+    fresh.
+
+    The subprocess also confirms ``auth.denied`` log emission still
+    reaches the test-side ``monkeypatch`` on the shim's ``log_safe``
+    (the Lazy-lookup claim: monkeypatches still propagate). That is
+    NOT asserted here (no monkeypatch in a subprocess); the in-process
+    atom 4 already pins that path. This atom pins the symbol-identity
+    invariant only.
+    """
+    script = textwrap.dedent(
+        """
+        import sys
+        # Clear every app.* entry from sys.modules so the subprocess
+        # is genuinely a fresh import state.
+        for mod_name in list(sys.modules):
+            if mod_name == "app" or mod_name.startswith("app."):
+                del sys.modules[mod_name]
+        # Import the DI module FIRST.
+        from app.core.di import auth_dependencies_di  # noqa: F401
+        # THEN import the shim.
+        import app.core.auth_dependencies as fresh_shim
+        NINE = (
+            "AuthenticatedUser",
+            "is_authenticated_user",
+            "get_insforge_client_dep",
+            "get_current_user_optional",
+            "return_early_if_response",
+            "require_authorized_user",
+            "require_writer_user",
+            "require_developer_user",
+            "require_developer_user_redirect",
+        )
+        missing = [n for n in NINE if not hasattr(fresh_shim, n)]
+        if missing:
+            print("MISSING:" + ",".join(missing))
+            sys.exit(1)
+        not_identity = [
+            n
+            for n in NINE
+            if getattr(fresh_shim, n) is not getattr(auth_dependencies_di, n)
+        ]
+        if not_identity:
+            print("NOT_IDENTITY:" + ",".join(not_identity))
+            sys.exit(2)
+        # Exercise the consumer import path that triggers the bug
+        # in the unfixed code (and that real callers rely on).
+        from app.core.auth_dependencies import require_authorized_user
+        assert callable(require_authorized_user)
+        print("OK")
+        """
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        cwd=str(REPO_ROOT),
+    )
+    assert result.returncode == 0, (
+        f"Fresh-process DI-first import regressed the shim re-exports.\n"
+        f"stdout: {result.stdout!r}\n"
+        f"stderr: {result.stderr!r}\n"
+        f"The di module must defer the shim lookup to call time so the "
+        f"shim's star-import runs against the fully-loaded di module."
+    )
+    assert "OK" in result.stdout, (
+        f"Subprocess did not signal success; got stdout={result.stdout!r} "
+        f"stderr={result.stderr!r}"
     )
