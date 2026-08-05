@@ -180,7 +180,7 @@ _CESION_RETURNING_COLUMNS = (
     "updated_at",
 )
 _INSERT_CESION_SQL = (
-    "INSERT INTO cesiones_propietario ("
+    "INSERT INTO cesiones_propietario ("  # noqa: S608 constant identifiers; values are $N binds
     + ", ".join(_INSERT_CESION_COLUMNS)
     + ") VALUES ("
     + ", ".join(f"${i+1}" for i in range(len(_INSERT_CESION_COLUMNS)))
@@ -196,13 +196,13 @@ _INSERT_CONTRATO_SQL = (
 )
 
 _SELECT_CESION_BY_ENTRADA_SQL = (
-    "SELECT "
+    "SELECT "  # noqa: S608 constant identifiers; values are $N binds
     + ", ".join(_CESION_RETURNING_COLUMNS)
     + " FROM cesiones_propietario WHERE entrada_id = $1"
 )
 
 _SELECT_CESIONES_SQL = (
-    "SELECT "
+    "SELECT "  # noqa: S608 constant identifiers; values are $N binds
     + ", ".join(_CESION_RETURNING_COLUMNS)
     + " FROM cesiones_propietario ORDER BY fecha_alta DESC NULLS LAST"
 )

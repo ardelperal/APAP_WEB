@@ -68,7 +68,7 @@ inserted AS (
     RETURNING {", ".join(TERAPIA_SELECT_COLUMNS)}
 )
 SELECT {", ".join(TERAPIA_SELECT_COLUMNS)} FROM inserted
-"""
+"""  # noqa: S608 constant identifiers; values are $N binds
 
 # List all active terapias, optionally filtered by animal_id.
 # Bounded: LIMIT 100 to prevent table dumps.
@@ -78,7 +78,7 @@ FROM terapias
 WHERE activo = true
 ORDER BY fecha DESC
 LIMIT 100
-"""
+"""  # noqa: S608 constant identifiers; values are $N binds
 
 _LIST_TERAPIAS_BY_ANIMAL_SQL: Final[str] = f"""
 SELECT {", ".join(TERAPIA_SELECT_COLUMNS)}
@@ -86,12 +86,12 @@ FROM terapias
 WHERE activo = true AND animal_id = $1
 ORDER BY fecha DESC
 LIMIT 100
-"""
+"""  # noqa: S608 constant identifiers; values are $N binds
 
 _GET_TERAPIA_BY_ID_SQL: Final[str] = f"""
 SELECT {", ".join(TERAPIA_SELECT_COLUMNS)}
 FROM terapias WHERE id = $1
-"""
+"""  # noqa: S608 constant identifiers; values are $N binds
 
 # Atomic UPDATE: same FK + VOL-05 checks as INSERT.
 # Placeholders: $1 = terapia_id, $2 = animal_id, $3 = voluntario_id,
@@ -119,7 +119,7 @@ updated AS (
              target_terapia.created_at, target_terapia.updated_at, target_terapia.activo
 )
 SELECT {", ".join(TERAPIA_SELECT_COLUMNS)} FROM updated
-"""
+"""  # noqa: S608 constant identifiers; values are $N binds
 
 # Soft-delete with pre-check: reject if any active recomendaciones exist.
 # Returns the terapia id on success; empty result set on failure (either
@@ -177,7 +177,7 @@ inserted AS (
     RETURNING {", ".join(RECOMENDACION_SELECT_COLUMNS)}
 )
 SELECT {", ".join(RECOMENDACION_SELECT_COLUMNS)} FROM inserted
-"""
+"""  # noqa: S608 constant identifiers; values are $N binds
 
 # List active recomendaciones for a terapia.
 _LIST_RECOMENDACIONES_BY_TERAPIA_SQL: Final[str] = f"""
@@ -185,12 +185,12 @@ SELECT {", ".join(RECOMENDACION_SELECT_COLUMNS)}
 FROM recomendaciones
 WHERE terapia_id = $1 AND activo = true
 ORDER BY fecha DESC
-"""
+"""  # noqa: S608 constant identifiers; values are $N binds
 
 _GET_RECOMENDACION_BY_ID_SQL: Final[str] = f"""
 SELECT {", ".join(RECOMENDACION_SELECT_COLUMNS)}
 FROM recomendaciones WHERE id = $1
-"""
+"""  # noqa: S608 constant identifiers; values are $N binds
 
 # Complete a recomendacion (set completada = true).
 # Returns the updated row; fails with 0 rows if the row doesn't exist
@@ -200,7 +200,7 @@ UPDATE recomendaciones
 SET completada = true
 WHERE id = $1 AND activo = true
 RETURNING {", ".join(RECOMENDACION_SELECT_COLUMNS)}
-"""
+"""  # noqa: S608 constant identifiers; values are $N binds
 
 # Soft-delete a recomendacion.
 _DELETE_RECOMENDACION_SQL: Final[str] = """

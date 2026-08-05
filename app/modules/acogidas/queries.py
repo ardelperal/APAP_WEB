@@ -95,27 +95,27 @@ _UPDATE_PATCH_ONLY_COLUMNS: Final[frozenset[str]] = frozenset({"fecha_final"})
 
 
 _ACOGIDA_INSERT_SQL: Final[str] = (
-    f"INSERT INTO acogidas ({', '.join(ACOGIDA_WRITE_COLUMNS)}) "
+    f"INSERT INTO acogidas ({', '.join(ACOGIDA_WRITE_COLUMNS)}) "  # noqa: S608 constant identifiers
     f"VALUES ({', '.join(f'${i + 1}' for i in range(len(ACOGIDA_WRITE_COLUMNS)))}) "
     f"RETURNING {', '.join(ACOGIDA_SELECT_COLUMNS)}"
 )
 
 
 _ACOGIDA_GET_BY_ID_SQL: Final[str] = (
-    f"SELECT {', '.join(ACOGIDA_SELECT_COLUMNS)} "
+    f"SELECT {', '.join(ACOGIDA_SELECT_COLUMNS)} "  # noqa: S608 constant identifiers
     "FROM acogidas WHERE id = $1"
 )
 
 
 _ACOGIDA_LIST_ALL_SQL: Final[str] = (
-    f"SELECT {', '.join(ACOGIDA_SELECT_COLUMNS)} "
+    f"SELECT {', '.join(ACOGIDA_SELECT_COLUMNS)} "  # noqa: S608 constant identifiers
     "FROM acogidas "
     "ORDER BY fecha_inicio DESC"
 )
 
 
 _ACOGIDA_LIST_ACTIVAS_SQL: Final[str] = (
-    f"SELECT {', '.join(ACOGIDA_SELECT_COLUMNS)} "
+    f"SELECT {', '.join(ACOGIDA_SELECT_COLUMNS)} "  # noqa: S608 constant identifiers
     "FROM acogidas "
     "WHERE fecha_final IS NULL "
     "ORDER BY fecha_inicio DESC"
@@ -128,7 +128,7 @@ _ACOGIDA_LIST_ACTIVAS_SQL: Final[str] = (
 # stay in data-cleanup scenarios (defensive: real flow only closes
 # active stays).
 _ACOGIDA_CLOSE_SQL: Final[str] = (
-    f"UPDATE acogidas SET fecha_final = CURRENT_DATE, "
+    f"UPDATE acogidas SET fecha_final = CURRENT_DATE, "  # noqa: S608 constant identifiers
     f"updated_at = now() "
     f"WHERE id = $1 "
     f"RETURNING {', '.join(ACOGIDA_SELECT_COLUMNS)}"

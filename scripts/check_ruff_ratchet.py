@@ -87,10 +87,13 @@ BASELINE: dict[str, int] = {
     "S112": 1,
     "S603": 2,
     "S607": 2,
-    # 65 -> 54: los 11 sitios de ``migration/`` triados en el issue #387.
-    # Los 54 restantes viven todos en ``app/modules/`` y son la otra mitad
-    # del triaje.
-    "S608": 54,
+    # S608 fue retirado del baseline al completarse el triaje del issue #387
+    # (65 -> 54 con los 11 sitios de ``migration/`` en el PR #422, y -> 0 con
+    # los 54 de ``app/modules/``). Todos resultaron categoria (b):
+    # identificadores constantes, valores por bind param, cero hallazgos de
+    # inyeccion. La entrada se ELIMINA en vez de ponerse a 0 para que un S608
+    # nuevo caiga en la rama de regla desconocida y falle: un sitio sin triar
+    # debe parar el CI, no consumir una cuota.
     "SIM102": 5,
     "SIM103": 3,
     "SIM105": 14,
