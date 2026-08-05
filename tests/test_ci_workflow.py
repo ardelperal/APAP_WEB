@@ -555,4 +555,52 @@ def test_ci_workflow_payload_shape_matches_coolify_expectation() -> None:
     assert "COMMIT_MESSAGE:" in workflow
 
 
+def _job_executable(workflow: str, start: str, end: str) -> str:
+    start_index = workflow.index(start)
+    section = workflow[start_index : workflow.index(end, start_index)]
+    return "\n".join(
+        line for line in section.splitlines() if not line.lstrip().startswith("#")
+    )
+
+
+def test_ci_workflow_lint_job_runs_jscpd_gate() -> None:
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    lint_job = _job_executable(workflow, "\n  lint:", "\n  security:")
+
+    assert "python scripts/check_jscpd.py" in lint_job
+    assert lint_job.index("python scripts/check_jscpd.py") > lint_job.index(
+        "python scripts/check_vulture_guard.py"
+    )
+
+
+def test_ci_workflow_lint_job_runs_mutation_sites_gate() -> None:
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    lint_job = _job_executable(workflow, "\n  lint:", "\n  security:")
+
+    assert "python scripts/check_mutation_sites.py" in lint_job
+    assert lint_job.index("python scripts/check_mutation_sites.py") > lint_job.index(
+        "python scripts/check_jscpd.py"
+    )
+
+
+def test_ci_workflow_test_job_runs_crap_gate() -> None:
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    test_job = _job_executable(workflow, "\n  test:", "\n  integration:")
+    lint_job = _job_executable(workflow, "\n  lint:", "\n  security:")
+
+    assert "python scripts/check_crap.py" in test_job
+    assert "python scripts/check_crap.py" not in lint_job
+    assert test_job.index("python scripts/check_crap.py") > test_job.index(
+        "python -m pytest -W error::DeprecationWarning"
+    )
+
+
+def test_ci_workflow_test_job_excludes_insforge_adapter() -> None:
+    with (REPO_ROOT / "pyproject.toml").open("rb") as fh:
+        pyproject = tomllib.load(fh)
+
+    omit = pyproject["tool"]["coverage"]["run"]["omit"]
+    assert "app/core/insforge.py" in omit
+
+
 
