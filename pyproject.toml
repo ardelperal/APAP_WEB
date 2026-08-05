@@ -154,6 +154,13 @@ addopts = [
     "--strict-config",
     # Skip e2e/ by default — see markers section above for rationale.
     "--ignore=tests/e2e/",
+    # Integration tests run in their dedicated CI job with PostgreSQL; keep
+    # the default local suite aligned with that job boundary.
+    "--ignore=tests/integration",
+    # pytest-randomly is installed for reproducible seeds, but the existing
+    # suite's fixture order is intentionally kept stable until PR #3 adopts
+    # randomized ordering explicitly.
+    "--randomly-dont-reorganize",
     # Register the critical-helpers coverage gate (PR-1B of hardening-2026-q2).
     # The plugin reads coverage.json after pytest and fails the suite when any
     # CRITICAL_HELPERS entry is below 100% line coverage (warning-only when
