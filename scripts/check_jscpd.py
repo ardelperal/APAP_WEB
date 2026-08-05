@@ -18,7 +18,7 @@ import tokenize
 from collections import defaultdict
 from pathlib import Path
 
-BASELINE_JSCPD_PCT = 1.79  # measured on the PR #1 foundation tree
+BASELINE_JSCPD_PCT = 1.78  # measured on the PR #1 foundation tree (app-and-migration)
 SCAN_DIRS = ("app", "migration", "scripts")
 MIN_CLONE_TOKENS = 50
 _MIN_CLONE_GROUP_MEMBERS = 2
