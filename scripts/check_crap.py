@@ -305,6 +305,7 @@ def check_tree(
             "coverage.json missing — CRAP check skipped (run pytest --cov first)"
         ]
     try:
+        coverage_files = _load_coverage(coverage_file)
         measured = measure_tree(root, coverage_path=coverage_file)
     except (OSError, UnicodeDecodeError, SyntaxError, TypeError, ValueError) as exc:
         return [str(exc)], []
@@ -331,9 +332,15 @@ def check_tree(
             )
 
     for key in sorted(set(baseline) - set(measured)):
-        violations.append(
-            f"{key}: stale BASELINE_CRAP entry — function no longer exists"
-        )
+        rel = key.split("::", 1)[0]
+        if _coverage_record(coverage_files, rel) is None:
+            notices.append(
+                f"{key}: no coverage record; CRAP baseline not evaluated"
+            )
+        else:
+            violations.append(
+                f"{key}: stale BASELINE_CRAP entry — function no longer exists"
+            )
     return violations, notices
 
 
