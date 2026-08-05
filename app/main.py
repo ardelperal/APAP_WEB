@@ -176,6 +176,11 @@ def create_app() -> FastAPI:
             base_template_context_processor,
         ],
     )
+    # Expose templates on ``app.state`` so the FastAPI DI helper for
+    # the admin slice (:func:`app.core.di.admin_di.get_admin_template_adapter`)
+    # can resolve the same shared instance. The helper wraps it in
+    # ``AdminTemplateAdapter`` per request.
+    application.state.templates = templates
 
     # Middleware stack — order is load-bearing (issue #286 D8):
     # RateLimit MUST be innermost so CSRF rejections do NOT consume
