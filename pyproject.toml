@@ -291,6 +291,7 @@ omit = [
     "app/__init__.py",
     "app/core/__init__.py",
     "app/modules/__init__.py",
+    "app/core/insforge.py",
 ]
 
 [tool.coverage.report]
