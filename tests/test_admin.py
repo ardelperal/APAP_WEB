@@ -71,6 +71,32 @@ class _FakeInsForge(InsForgeClient):
 def fake_insforge() -> _FakeInsForge:
     fake = _FakeInsForge()
     app.dependency_overrides[get_insforge_client] = lambda: fake
+    # Slice 6 (admin handlers): the admin routes now compose AuthUsersPort
+    # via the ``get_auth_users_port`` dep, which resolves the client from
+    # ``app.state.insforge_client``. Set it here so both the legacy
+    # dep override AND the new port dep see the fake.
+    app.state.insforge_client = fake
+    # Slice 6 (admin template adapter): the admin routes wrap Jinja via
+    # ``get_admin_template_adapter`` which reads ``app.state.templates``.
+    # In production the lifespan sets it (via ``create_app``); in tests
+    # the lifespan is skipped, so set it explicitly with the same
+    # context processors as production so ``{% extends base_template %}``
+    # resolves.
+    from pathlib import Path
+
+    from fastapi.templating import Jinja2Templates
+
+    from app.core.csrf import csrf_token_context_processor
+    from app.core.middleware import base_template_context_processor
+
+    _templates_dir = Path(__file__).resolve().parent.parent / "app" / "templates"
+    app.state.templates = Jinja2Templates(
+        directory=str(_templates_dir),
+        context_processors=[
+            csrf_token_context_processor,
+            base_template_context_processor,
+        ],
+    )
     yield fake
     app.dependency_overrides.pop(get_insforge_client, None)
 
