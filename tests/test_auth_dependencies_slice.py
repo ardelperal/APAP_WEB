@@ -84,7 +84,7 @@ def test_di_module_exports_all_nine_symbols() -> None:
 def test_shim_reexports_all_nine_symbols() -> None:
     """``app.core.auth_dependencies`` is a thin re-export shim.
 
-    The shim is what the 19 consumer files import. The identity check
+    The shim is what the ~35 consumer files import. The identity check
     (``shim.X is di.X``) is the contract that lets FastAPI's
     ``app.dependency_overrides[<key>]`` keep working: the override key
     is the function object from the di module, and the shim must hand
@@ -185,8 +185,53 @@ def _fake_request() -> object:
     return _Request()
 
 
+class _SetCachedAuthSpy:
+    """Spy on :func:`app.core.auth_cache.set_cached_auth`.
+
+    Records every call into ``self.calls`` and exposes the count via
+    ``self.call_count``. The §32.P4 fix MUST NOT call ``set_cached_auth``
+    on a transient DB outage — pinning ``call_count == 0`` catches the
+    regression if a future change removes the negative guard.
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+        self.call_count: int = 0
+
+    def __call__(
+        self, email: str, *, is_authorized: bool, rol: str | None
+    ) -> None:
+        self.call_count += 1
+        self.calls.append(
+            {"email": email, "is_authorized": is_authorized, "rol": rol}
+        )
+
+
+@pytest.fixture
+def set_cached_auth(monkeypatch: pytest.MonkeyPatch) -> _SetCachedAuthSpy:
+    """Install a :class:`_SetCachedAuthSpy` and clear the cache.
+
+    The spy is wired into both the source module
+    (``app.core.auth_cache.set_cached_auth``) and the di module's
+    local rebinding (``_di.set_cached_auth``) so the production call
+    site is observed regardless of which alias was used at import time.
+    Yields the spy so the test can read ``spy.call_count``.
+    """
+    from app.core import auth_cache as _auth_cache
+
+    spy = _SetCachedAuthSpy()
+    monkeypatch.setattr(
+        "app.core.auth_cache.set_cached_auth", spy
+    )
+    monkeypatch.setattr(_di, "set_cached_auth", spy)
+    _auth_cache.invalidate_all()
+    yield spy
+    _auth_cache.invalidate_all()
+
+
 def test_require_authorized_user_catches_insforge_error_and_redirects(
     monkeypatch: pytest.MonkeyPatch,
+    set_cached_auth: _SetCachedAuthSpy,
 ) -> None:
     """§32.P4 Variant A: ``InsForgeError`` is caught and returns 302.
 
@@ -198,7 +243,8 @@ def test_require_authorized_user_catches_insforge_error_and_redirects(
     2. It returns a ``RedirectResponse`` to ``/unauthorized`` (302).
     3. It emits ``log_safe("auth.denied", reason="db_unreachable", ...)``.
     4. It does NOT call ``set_cached_auth`` (would poison the cache
-       with a deny verdict based on a transient failure).
+       with a deny verdict based on a transient failure) — pinned
+       with the ``set_cached_auth`` fixture's ``spy.call_count``.
     """
     from starlette.responses import RedirectResponse
 
@@ -212,23 +258,6 @@ def test_require_authorized_user_catches_insforge_error_and_redirects(
     # is what the existing tests do — mirrors the fail-closed contract
     # of the rest of the auth dep test suite).
     monkeypatch.setattr(_shim, "log_safe", _capture)
-
-    # Capture set_cached_auth calls — the fix MUST NOT poison the cache.
-    set_calls: list[dict[str, object]] = []
-
-    def _fake_set_cached_auth(
-        email: str, *, is_authorized: bool, rol: str | None
-    ) -> None:
-        set_calls.append(
-            {"email": email, "is_authorized": is_authorized, "rol": rol}
-        )
-
-    monkeypatch.setattr(_di, "set_cached_auth", _fake_set_cached_auth)
-
-    # The dep reads the TTL from settings; default 300s is fine.
-    # Clear the auth cache so the test starts from a guaranteed miss.
-    from app.core import auth_cache as _auth_cache
-    _auth_cache.invalidate_all()
 
     result = _di.require_authorized_user(
         request=_fake_request(),
@@ -265,9 +294,16 @@ def test_require_authorized_user_catches_insforge_error_and_redirects(
     assert "email" not in denial_events[0][1]
 
     # Assertion 4: set_cached_auth was NOT called (cache-poisoning guard).
-    assert set_calls == [], (
+    # The ``set_cached_auth`` fixture installs a spy on both the source
+    # module (``app.core.auth_cache.set_cached_auth``) and the di
+    # module's local rebinding; the production dep call site must
+    # never invoke it on a transient DB outage. Pinned via
+    # ``spy.call_count``, not the empty-list trick (which would not
+    # detect the bug if the spy was incorrectly never wired in).
+    assert set_cached_auth.call_count == 0, (
         f"§32.P4 fix: a transient DB outage MUST NOT poison the auth cache "
-        f"with a deny verdict. set_cached_auth calls observed: {set_calls!r}"
+        f"with a deny verdict. set_cached_auth calls observed: "
+        f"{set_cached_auth.calls!r}"
     )
 
 
