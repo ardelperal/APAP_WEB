@@ -177,6 +177,26 @@ def test_coverage_omitted_adapter_is_not_measured(tmp_path: Path) -> None:
     assert "app/core/insforge.py::risky" not in measured
 
 
+def test_baseline_file_without_coverage_record_is_skipped(
+    tmp_path: Path,
+) -> None:
+    checker = _load_checker()
+    _write_module(tmp_path, _risky_source())
+    (tmp_path / "coverage.json").write_text(
+        json.dumps({"files": {}}),
+        encoding="utf-8",
+    )
+
+    violations, notices = checker.check_tree(
+        tmp_path,
+        baseline={"app/sample.py::risky": 42.0},
+    )
+
+    assert violations == []
+    assert len(notices) == 1
+    assert "no coverage record" in notices[0]
+
+
 def test_baseline_matches_current_measured_offenders() -> None:
     checker = _load_checker()
     coverage_path = REPO_ROOT / "coverage.json"
