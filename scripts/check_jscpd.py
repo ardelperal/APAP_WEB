@@ -14,14 +14,16 @@ import argparse
 import ast
 import copy
 import io
+import sys
 import tokenize
 from collections import defaultdict
 from pathlib import Path
 
-BASELINE_JSCPD_PCT = 1.78  # measured on the PR #1 foundation tree (app-and-migration)
+BASELINE_JSCPD_PCT = 1.88  # measured on the PR #1 foundation tree (Python 3.14 CI runner)
 SCAN_DIRS = ("app", "migration", "scripts")
 MIN_CLONE_TOKENS = 50
 _MIN_CLONE_GROUP_MEMBERS = 2
+_PYTHON_VERSION_FLOOR = (3, 11)
 
 
 class _Normalizer(ast.NodeTransformer):
@@ -165,12 +167,20 @@ def measure_tree(root: Path) -> tuple[float, list[str]]:
     return percentage, sorted(regions)
 
 
+def _python_version() -> str:
+    return f"{sys.version_info.major}.{sys.version_info.minor}"
+
+
 def check_tree(
     root: Path,
     *,
     baseline_pct: float = BASELINE_JSCPD_PCT,
 ) -> tuple[list[str], list[str]]:
     """Return ``(violations, notices)`` for the duplicate percentage ratchet."""
+    if sys.version_info[:2] < _PYTHON_VERSION_FLOOR:
+        return [
+            f"check_jscpd: requires Python >= {_PYTHON_VERSION_FLOOR[0]}.{_PYTHON_VERSION_FLOOR[1]}"
+        ], []
     try:
         percentage, regions = measure_tree(root)
     except (OSError, UnicodeDecodeError, SyntaxError) as exc:
@@ -184,8 +194,8 @@ def check_tree(
         ], []
     if percentage < baseline_pct:
         return [], [
-            f"duplicate code {percentage:.2f}% is below baseline {baseline_pct:.2f}% — "
-            "lower BASELINE_JSCPD_PCT in the same PR"
+            f"duplicate code {percentage:.2f}% is below baseline {baseline_pct:.2f}% (Python "
+            f"{_python_version()}) — lower BASELINE_JSCPD_PCT in the same PR"
         ]
     return [], []
 
