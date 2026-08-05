@@ -7,13 +7,12 @@ backtick reference to something that already exists in the codebase.
 
 This catches the pattern where a checkbox was not ticked when the code landed.
 
-Stdlib-only: pathlib, subprocess, re.
+Stdlib-only: pathlib, re.
 """
 
 from __future__ import annotations
 
 import re
-import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -91,25 +90,6 @@ def _file_exists(repo_root: Path, ref: str) -> bool:
     # Strip leading ./ or / used in task descriptions
     path = ref[2:] if ref.startswith(("./", ".\\")) else ref.lstrip("/\\")
     return (repo_root / path).is_file()
-
-
-def _symbol_exists(repo_root: Path, ref: str) -> bool:
-    # Skip single-character and clearly non-symbol refs
-    if len(ref) <= 1 or ref in {"_", "main"}:
-        return False
-    pattern = (
-        rf"^(class|def|async def)\s+{re.escape(ref)}\b"
-        rf"|^{re.escape(ref)}\s*="
-    )
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(repo_root), "grep", "-n", "-E", pattern,
-             "--", "*.py"],
-            capture_output=True, text=True, timeout=30,
-        )
-        return result.returncode == 0
-    except (subprocess.TimeoutExpired, OSError):
-        return False
 
 
 # ---------------------------------------------------------------------------

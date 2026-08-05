@@ -21,7 +21,6 @@ support DELETE natively and the project prefers an explicit
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -82,26 +81,6 @@ def _form_data_to_params(form: dict[str, Any]) -> dict[str, Any]:
         "observaciones": _opt(form.get("observaciones")),
     }
 
-
-def _parse_form_records(form_values: list[Mapping[str, Any] | None]) -> list[dict[str, Any]]:
-    """Parse the dynamic rows posted from ``batch_new.html``.
-
-    ``form_values`` is the list of values returned by FastAPI's
-    ``Form(...)`` repeatable parameter mechanism; each entry is a
-    dict of fields for one row. Rows with all-blank fields are dropped
-    so a partially-filled form does not produce ghost records.
-    """
-    records: list[dict[str, Any]] = []
-    for entry in form_values:
-        if entry is None:
-            continue
-        if not isinstance(entry, dict):
-            entry = dict(entry)
-        params = _form_data_to_params(entry)
-        if not any(params.values()):
-            continue
-        records.append(params)
-    return records
 
 
 @router.get("/new", response_class=HTMLResponse)

@@ -56,16 +56,6 @@ from app.core.logging import log_safe
 from app.modules.sanidad import queries
 
 
-class ActuacionSanitariaConflictError(ValueError):
-    """Reserved for future UNIQUE constraints (parallel to ``AdopcionConflictError``).
-
-    Currently unused at the service level — there is no natural-key UNIQUE
-    on the public CRUD surface today. Kept so future slices that add a
-    UNIQUE constraint (e.g. one-actuation-per-animal-per-day) have a
-    domain-meaningful exception to raise without a refactor of the route.
-    """
-
-
 @dataclass(frozen=True, slots=True)
 class ActuacionSanitaria:
     """A public service-row representation for ``actuacion_sanitaria``."""
