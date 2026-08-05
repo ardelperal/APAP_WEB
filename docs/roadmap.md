@@ -2,7 +2,7 @@
 
 > Documento vivo. Punto de entrada único para saber qué hay que construir, en qué orden, qué issues lo cubren y qué documentación ya existe. Si una pregunta se responde aquí, no hay que rebuscar.
 
-**Última actualización:** 2026-07-30 — refresco post-wave: 6 issues cerradas desde el refresco 2026-07-27 (#217, #219, #51, #36, #32, #218). **GATE CRÍTICO:** los 22 features con `status:approved` en §4 (issues #29, #30, #33, #37, #49, #52-#69) referencian `SDD: legacy-discovery-interrogatorio` que **NO existe** en `openspec/changes/`. Feature work bloqueado hasta que ese SDD se abra y se reconcilie el task mapping, o hasta que el mapping existente se extraiga de engram/docs hacia un `openspec/changes/*` real. Ver §3 + §4. Resumen de merges post-2026-07-27: **#51** HEALTH-02 batch API (PR #322 `f237c55`); **#36** VOL-03 deduplicación fuzzy (PR #321 `e0f6eeb`); **#32** LIFECYCLE-02 schema append-only (PR #320 `0049708`); **#218** conn.commit() silent durability (PR #319 `1bcc5b2`); **#217** dni_collision_counter semantics (PR #323 `aa062ec`); **#219** PII patterns NIE/NIF-especiales (PR #324 `9b45cd5`).
+**Última actualización:** 2026-08-05 — refresco post-refactor hexagonal. **El GATE del SDD que anunciaban el header y §4 está RESUELTO y era falso desde el 2026-07-31**: `openspec/changes/legacy-discovery-interrogatorio` SÍ existe en disco y está trackeado en git (commit `12f6fb3`, «docs(sdd): consolidate legacy-discovery-interrogatorio — closes #343 Path A»), un día después del refresco anterior. Los 22 features con `status:approved` NO están bloqueados por eso. Novedad estructural de esta ventana: **la arquitectura pasó a hexagonal por vertical slices** — seis slices en `main` (#414 auth-users, #415 catalogos, #416 schema-bootstrap, #417 migration-web, #419 admin, #418 oauth), la regla de ubicación codificada en `AGENTS.md` §33 (PR #421) y el índice vivo en la épica #420. También: #422 cierra la mitad `migration/` del triaje S608 (#387), y 16 issues del backlog se adaptaron al contrato hexagonal para que su implementación futura no tenga ambigüedad. Ver §2.bis.
 **Mantenedor único:** aroman (autoaprueba issues y PRs)
 **Rama objetivo actual:** **pre-MVP single-branch** — todo va a `main`, una sola rama al final del ciclo (ver §8 y `AGENTS.md` §15)
 **Idioma de toda la documentación, issues y PRs:** castellano (España)
@@ -43,6 +43,76 @@
 | Foundation UX/UI | 🔲 | Issue #6 abierto |
 | Motor común de tareas | 🔲 | Issue #7 abierto |
 | Hoja de ruta viva | ✅ | Esta issue #14 (mergeada en `69b509e`) |
+
+---
+
+## 2.bis Arquitectura: refactor hexagonal por vertical slices (2026-08-05)
+
+> **Si vas a escribir código nuevo, esta sección manda sobre los ejemplos de §3 y §4.**
+> Fuentes autoritativas: **`AGENTS.md` §33** (la regla, enforceable en review) y la
+> **épica #420** (índice vivo de slices, orden de ejecución y definition of done).
+> Este bloque es el resumen; si discrepan, gana `AGENTS.md`.
+
+### Qué cambió
+
+La arquitectura dejó de ser «FastAPI + service layer» y pasó a **hexagonal con vertical
+slices**. El detonante: `app/core/*.py` importaba `InsForgeClient` directamente, así que
+el backend no era sustituible y la lógica no era testeable sin transporte.
+
+### Slices en `main`
+
+| Slice | PR | Qué encapsula |
+|---|---|---|
+| auth-users | #414 | `usuarios_autorizados` — plantilla del patrón para el resto |
+| catalogos | #415 | Tablas de catálogo (`list_periodicidad`, `list_tipos_contrato`, …) |
+| schema-bootstrap | #416 | `ensure_domain_schema` + `run_idempotent_sql` |
+| migration-web | #417 | Lado lectura de migración web (`WebReaderPort`) |
+| admin | #419 | Rutas admin → casos de uso + `AdminTemplateAdapter` |
+| auth-flow / oauth | #418 | Flujo OAuth completo (PKCE, sesión, 4 casos de uso) |
+
+### Dónde va cada cosa (regla corta; la larga está en `AGENTS.md` §33.2)
+
+- **`app/core/<capa>/<slice>/`** — transversal: lo consumen **2+ slices** *y* no tiene
+  razón de negocio propia para cambiar. Las dos mitades son obligatorias.
+- **`app/modules/<slice>/`** — capacidad de negocio; el slice entero en una carpeta:
+  `domain/`, `ports/`, `application/` (un caso de uso por fichero),
+  `adapters/insforge/` (con su `<slice>_insforge_queries.py`, regla §22),
+  `di/`, y un `routes.py` fino.
+- **Ante la duda, módulo.** Promover a `core` después es barato; sacarlo de `core` con
+  cinco consumidores colgando, no.
+
+Invariantes: `InsForgeClient`/`InsForgeError` solo bajo `adapters/` y `di/` (más
+`app/main.py`, que construye el cliente); ningún `service.py` nuevo que ejecute SQL;
+ningún criterio de aceptación que nombre al proveedor; un test de pin arquitectónico por
+slice que falle si un import de transporte se cuela de capa.
+
+**Deuda registrada:** `admin` está en `core` sin cumplir la regla (un solo consumidor).
+Es una excepción deliberada documentada en `AGENTS.md` §33.5 y en #420 — **no sirve de
+precedente** para meter la siguiente capacidad de negocio en `core`.
+
+### Lo que falta
+
+1. `auth-dependencies` — `app/core/auth_dependencies.py`, último seam de auth en core.
+2. **Slices de módulo** — 22 ficheros en 11 módulos (`acogidas`, `adopciones`, `animals`,
+   `cesiones`, `entradas`, `foster`, `materiales`, `salud`, `sanidad`, `tasks`,
+   `voluntarios`). Independientes entre sí → PRs encadenables.
+3. Cola de migración/infra — `migration/{apply,bootstrap,cli,cli_apply_reverse}.py`,
+   `app/core/migration/sql_runner.py`, `app/core/tasks/scheduler.py`.
+
+Medición de progreso (un solo comando):
+
+```bash
+git grep -n "^\s*from app.core.insforge import" -- 'app/**.py' 'migration/**.py' | wc -l
+```
+
+Legítimos son los `app/core/di/*_di.py` y `app/main.py`; el resto es backlog.
+
+### Backlog ya alineado
+
+16 issues anteriores al refactor se adaptaron el 2026-08-05 para que su implementación
+futura no sea ambigua: #33, #54, #56–#64 llevan un bloque «Contrato de arquitectura»;
+#341, #387, #390, #392 y #395 llevan nota de coordinación porque tocan ficheros que el
+refactor reubica.
 
 ---
 
@@ -263,17 +333,37 @@
 
 ## 4. Issues abiertos (refresco 2026-07-30)
 
-> **⚠️ GATE — Feature work bloqueado:** los 22 features con `status:approved`
-> referencian `SDD: legacy-discovery-interrogatorio, task N.M` (ej. #66 → task 3.9,
-> #33 → task 3.1, etc.). El change `openspec/changes/legacy-discovery-interrogatorio`
-> **NO existe en disco** (`ls openspec/changes/legacy-discovery-interrogatorio/` →
-> `Directory not found`). Los 22 features no se pueden ejecutar hasta que:
-> (a) se abra el SDD `legacy-discovery-interrogatorio` y se reconcilie el task mapping,
-> o (b) se extraiga el mapping existente de engram/docs hacia un `openspec/changes/*`
-> proposal real. **Acción inmediata:** el mantenedor debe decidir (a) o (b) antes de
-> asignar cualquier feature de esta lista.
+> **✅ GATE RESUELTO (2026-08-05) — el bloqueo que anunciaba esta sección era falso.**
+> El change `openspec/changes/legacy-discovery-interrogatorio` **SÍ existe en disco** y
+> está trackeado en git: `proposal.md`, `tasks.md` y `specs/` entraron el **2026-07-31**
+> con el commit `12f6fb3` («docs(sdd): consolidate legacy-discovery-interrogatorio —
+> closes #343 Path A»), un día después del refresco 2026-07-30 que redactó este aviso.
+> Los 22 features con `status:approved` **no están bloqueados** por esta causa.
+>
+> Lección de proceso: este documento se declara «punto de entrada único», así que un
+> aviso obsoleto aquí no es ruido — detiene trabajo real. §9 obliga a refrescarlo en la
+> misma sesión en que algo cambia; ese refresco no ocurrió entre el 2026-07-31 y el
+> 2026-08-05, y el resultado fueron cinco días anunciando un bloqueo inexistente.
+> Verificar un GATE antes de propagarlo es parte del refresco, no un extra.
 
 > Lista representativa — auto-actualizable con `gh issue list --state open`. Muestra abierta, priorizada por recencia + relación con roadmap, no exhaustiva. **Las cerradas están listadas al final de esta sección.**
+
+> **Estado de PRs abiertos al 2026-08-05** (tras la limpieza que dejó el remoto en `main` + 3 ramas):
+>
+> - **#406** `chore/issue-392-deadcode` — CI en rojo. Borrado de 5 símbolos muertos (#392).
+> - **#408** `fix/issue-387-s608-sql-v2` — CI en rojo y **~97 commits por detrás de `main`**.
+>   Cubre la mitad `app/modules/` del triaje S608. **No mergear tal cual:** su triaje se midió
+>   cuando había 57 sitios; hoy hay 54 (tras #422) y su rama no lo sabe. El harness de #387
+>   obliga a re-medir y comentar cuando el número difiere, no a ajustar el objetivo. Los
+>   conflictos con `main` que aparentan reescrituras de fichero completo son artefacto de
+>   finales de línea: con `--ignore-all-space` el cambio real son ~16 líneas.
+> - Dos ramas remotas corresponden a PRs **cerrados sin mergear** (#362, #413) y se mantienen
+>   a propósito; #413 fue el intento por capas que sustituyeron los slices verticales.
+>
+> **Rama local sin PR:** `rescue/329-mvp-ready-gate` conserva dos commits recuperados que
+> añadían un gate `APAP_MVP_READY` al job `e2e`. **No aplicar:** su propósito era apagar e2e
+> en pre-MVP, pero hoy e2e corre y pasa en `main`, así que aplicarlo restaría señal. Se
+> conserva solo como registro.
 
 > **Cerradas hoy (2026-07-05) — 3 issues P1/P0:**
 >
