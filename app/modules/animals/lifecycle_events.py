@@ -363,7 +363,7 @@ def actualizar_estado_animal(
     )
 
 
-def record_event(
+def record_event(  # noqa: PLR0913  # domain event recorder; 10 keyword-only args are all distinct domain fields
     client: SqlExecutor,
     *,
     animal_id: str,

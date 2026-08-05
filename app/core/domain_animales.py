@@ -20,30 +20,30 @@ class Animal(BaseModel):
     """
 
     id: UUID | None = None
-    NCHIP: str
-    TraeNChip: str | None = None
-    FIMPLANTACIONCHIP: date | None = None
-    NombreAnimal: str
-    Especie: str = Field(..., pattern=r"^(CANINA|FELINA)$")
-    Sexo: str = Field(..., pattern=r"^[MH]$")
-    Raza: str | None = None
-    Color: str | None = None
-    Pelo: str | None = None
-    Tamano: str | None = None
-    Caracter: str | None = None
-    FNacimiento: date
-    FDefuncion: date | None = None
-    Terapia: str | None = None
-    Observaciones: str | None = None
-    NombreFoto: str | None = None
-    Cartilla: str | None = None
-    Eutanasia: str | None = None
-    RazaPPP: str | None = None
-    Mestizo: str | None = None
-    EutanasiaOtrasCausas: str | None = None
-    EutanasiaEnfermedad: str | None = None
-    UltimoEstadoAntesDeFallecido: str | None = None
-    ComunicacionARIAC: str | None = None
+    nchip: str
+    traenchip: str | None = None
+    fimplantacionchip: date | None = None
+    nombreanimal: str
+    especie: str = Field(..., pattern=r"^(CANINA|FELINA)$")
+    sexo: str = Field(..., pattern=r"^[MH]$")
+    raza: str | None = None
+    color: str | None = None
+    pelo: str | None = None
+    tamano: str | None = None
+    caracter: str | None = None
+    fnacimiento: date
+    fdefuncion: date | None = None
+    terapia: str | None = None
+    observaciones: str | None = None
+    nombrefoto: str | None = None
+    cartilla: str | None = None
+    eutanasia: str | None = None
+    razappp: str | None = None
+    mestizo: str | None = None
+    eutanasia_otras_causas: str | None = None
+    eutanasia_enfermedad: str | None = None
+    ultimo_estado_antes_de_fallecido: str | None = None
+    comunicacionariac: str | None = None
     fecha_alta: str | None = None
     updated_at: str | None = None
     activo: bool = True
@@ -55,30 +55,30 @@ class Animal(BaseModel):
 ANIMALS_CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS animales (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    NCHIP TEXT UNIQUE NOT NULL,
-    TraeNChip TEXT,
-    FIMPLANTACIONCHIP DATE,
-    NombreAnimal TEXT NOT NULL,
-    Especie TEXT NOT NULL CHECK (Especie IN ('CANINA', 'FELINA')),
-    Sexo TEXT NOT NULL CHECK (Sexo IN ('M', 'H')),
-    Raza TEXT,
-    Color TEXT,
-    Pelo TEXT,
-    Tamano TEXT,
-    Caracter TEXT,
-    FNacimiento DATE NOT NULL,
-    FDefuncion DATE,
-    Terapia TEXT,
-    Observaciones TEXT,
-    NombreFoto TEXT,
-    Cartilla TEXT,
-    Eutanasia TEXT,
-    RazaPPP TEXT,
-    Mestizo TEXT,
-    EutanasiaOtrasCausas TEXT,
-    EutanasiaEnfermedad TEXT,
-    UltimoEstadoAntesDeFallecido TEXT,
-    ComunicacionARIAC TEXT,
+    nchip TEXT UNIQUE NOT NULL,
+    traenchip TEXT,
+    fimplantacionchip DATE,
+    nombreanimal TEXT NOT NULL,
+    especie TEXT NOT NULL CHECK (especie IN ('CANINA', 'FELINA')),
+    sexo TEXT NOT NULL CHECK (sexo IN ('M', 'H')),
+    raza TEXT,
+    color TEXT,
+    pelo TEXT,
+    tamano TEXT,
+    caracter TEXT,
+    fnacimiento DATE NOT NULL,
+    fdefuncion DATE,
+    terapia TEXT,
+    observaciones TEXT,
+    nombrefoto TEXT,
+    cartilla TEXT,
+    eutanasia TEXT,
+    razappp TEXT,
+    mestizo TEXT,
+    eutanasia_otras_causas TEXT,
+    eutanasia_enfermedad TEXT,
+    ultimo_estado_antes_de_fallecido TEXT,
+    comunicacionariac TEXT,
     fecha_alta TIMESTAMP NOT NULL DEFAULT now(),
     updated_at TIMESTAMP NOT NULL DEFAULT now(),
     activo BOOLEAN NOT NULL DEFAULT true

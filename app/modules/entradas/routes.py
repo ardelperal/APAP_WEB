@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -20,6 +20,7 @@ from app.core.insforge import InsForgeClient
 from app.core.middleware import base_template_context_processor
 from app.core.rbac import Permission, require_permission
 from app.modules.entradas import service as entradas_service
+from app.modules.entradas.forms import EntradaForm
 
 router = APIRouter(prefix="/entradas", tags=["entradas"])
 
@@ -53,7 +54,7 @@ def _entrada_to_form_data(entrada: entradas_service.Entrada) -> dict[str, Any]:
     }
 
 
-def _render_form(
+def _render_form(  # noqa: PLR0913  # non-route helper; 6 args is minimal for template context
     request: Request,
     user: Response | dict,
     form_data: dict[str, Any],
@@ -77,8 +78,8 @@ def _render_form(
 @router.get("", response_class=HTMLResponse)
 def list_entradas(
     request: Request,
-    user: Response | dict = Depends(require_permission(Permission.READ_ENTRADAS)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[Response | dict, Depends(require_permission(Permission.READ_ENTRADAS))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     if (early := return_early_if_response(user)) is not None:
         return early
@@ -93,7 +94,7 @@ def list_entradas(
 @router.get("/new", response_class=HTMLResponse)
 def new_entrada_form(
     request: Request,
-    user: Response | dict = Depends(require_permission(Permission.READ_ENTRADAS)),
+    user: Annotated[Response | dict, Depends(require_permission(Permission.READ_ENTRADAS))],
 ):
     if (early := return_early_if_response(user)) is not None:
         return early
@@ -103,27 +104,13 @@ def new_entrada_form(
 @router.post("", response_class=HTMLResponse)
 def create_entrada_view(
     request: Request,
-    animal_id: str = Form(...),
-    fecha_entrada: str = Form(...),
-    voluntario_entrada_id: str | None = Form(None),
-    origen: str | None = Form(None),
-    motivo: str | None = Form(None),
-    observaciones: str | None = Form(None),
-    user: Response | dict = Depends(require_permission(Permission.WRITE_ENTRADAS)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
-):
+    form: Annotated[EntradaForm, Form()],
+    user: Annotated[Response | dict, Depends(require_permission(Permission.WRITE_ENTRADAS))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+):  # noqa: PLR0913  # refactored to EntradaForm
     if (early := return_early_if_response(user)) is not None:
         return early
-    form_data = _form_data_to_params(
-        {
-            "animal_id": animal_id,
-            "voluntario_entrada_id": voluntario_entrada_id,
-            "fecha_entrada": fecha_entrada,
-            "origen": origen,
-            "motivo": motivo,
-            "observaciones": observaciones,
-        }
-    )
+    form_data = _form_data_to_params(form.model_dump())
     try:
         entrada = entradas_service.create_entrada(client, form_data)
     except entradas_service.EntradaConflictError:
@@ -153,8 +140,8 @@ def create_entrada_view(
 def entrada_detail(
     entrada_id: str,
     request: Request,
-    user: Response | dict = Depends(require_permission(Permission.READ_ENTRADAS)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[Response | dict, Depends(require_permission(Permission.READ_ENTRADAS))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     if (early := return_early_if_response(user)) is not None:
         return early
@@ -172,8 +159,8 @@ def entrada_detail(
 def edit_entrada_form(
     entrada_id: str,
     request: Request,
-    user: Response | dict = Depends(require_permission(Permission.READ_ENTRADAS)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[Response | dict, Depends(require_permission(Permission.READ_ENTRADAS))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     if (early := return_early_if_response(user)) is not None:
         return early
@@ -193,27 +180,13 @@ def edit_entrada_form(
 def update_entrada_view(
     entrada_id: str,
     request: Request,
-    animal_id: str = Form(...),
-    fecha_entrada: str = Form(...),
-    voluntario_entrada_id: str | None = Form(None),
-    origen: str | None = Form(None),
-    motivo: str | None = Form(None),
-    observaciones: str | None = Form(None),
-    user: Response | dict = Depends(require_permission(Permission.WRITE_ENTRADAS)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
-):
+    form: Annotated[EntradaForm, Form()],
+    user: Annotated[Response | dict, Depends(require_permission(Permission.WRITE_ENTRADAS))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+):  # noqa: PLR0913  # refactored to EntradaForm
     if (early := return_early_if_response(user)) is not None:
         return early
-    form_data = _form_data_to_params(
-        {
-            "animal_id": animal_id,
-            "voluntario_entrada_id": voluntario_entrada_id,
-            "fecha_entrada": fecha_entrada,
-            "origen": origen,
-            "motivo": motivo,
-            "observaciones": observaciones,
-        }
-    )
+    form_data = _form_data_to_params(form.model_dump())
     try:
         entrada = entradas_service.update_entrada(client, entrada_id, form_data)
     except entradas_service.EntradaConflictError:
@@ -244,8 +217,8 @@ def update_entrada_view(
 @router.post("/{entrada_id}/delete", response_class=HTMLResponse)
 def delete_entrada_view(
     entrada_id: str,
-    user: Response | dict = Depends(require_permission(Permission.WRITE_ENTRADAS)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[Response | dict, Depends(require_permission(Permission.WRITE_ENTRADAS))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     if (early := return_early_if_response(user)) is not None:
         return early

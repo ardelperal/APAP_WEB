@@ -14,11 +14,11 @@ class Voluntario(BaseModel):
     """Pydantic model for the voluntarios table."""
 
     id: UUID | None = None
-    Voluntario: str
-    Tel1: str | None = None
-    Tel2: str | None = None
-    Email: str | None = None
-    DNI: str | None = None
+    voluntario: str
+    tel1: str | None = None
+    tel2: str | None = None
+    email: str | None = None
+    dni: str | None = None
     fecha_alta: str | None = None
     updated_at: str | None = None
     activo: bool = True
@@ -29,11 +29,11 @@ class Voluntario(BaseModel):
 VOLUNTARIOS_CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS voluntarios (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    Voluntario TEXT NOT NULL,
-    Tel1 TEXT,
-    Tel2 TEXT,
-    Email TEXT UNIQUE,
-    DNI TEXT UNIQUE,
+    voluntario TEXT NOT NULL,
+    tel1 TEXT,
+    tel2 TEXT,
+    email TEXT UNIQUE,
+    dni TEXT UNIQUE,
     fecha_alta TIMESTAMP NOT NULL DEFAULT now(),
     updated_at TIMESTAMP NOT NULL DEFAULT now(),
     activo BOOLEAN NOT NULL DEFAULT true

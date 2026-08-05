@@ -86,15 +86,21 @@ _ROUTER_NAMES = frozenset({"router", "application"})
 BASELINE: dict[str, int] = {
     # app/main.py::callback was extracted to app/core/auth_flow.py (#336).
     "app/modules/foster/assignment_routes.py::asignar_submit": 109,
-    "app/modules/acogidas/routes.py::create_acogida_view": 101,
+    # issue #388: AcogidaForm migration shrank from 101 → 90; rebased on
+    # origin/main, override_id moved into the form model, now 89.
+    "app/modules/acogidas/routes.py::create_acogida_view": 89,
     "app/modules/materiales/acogida_routes.py::assign_material_to_estancia_view": 87,
-    "app/modules/cesiones/routes.py::create_cesion_view": 87,
-    "app/modules/acogidas/routes.py::update_acogida_view": 84,
+    # issue #388: CesionForm migration shrank from 87 → 67 lines; still >50 budget
+    "app/modules/cesiones/routes.py::create_cesion_view": 67,
+    # issue #388: AcogidaForm migration shrank from 84 → 73 lines; still >50 budget
+    "app/modules/acogidas/routes.py::update_acogida_view": 73,
     "app/modules/entradas/batch_routes.py::stage_batch_view": 77,
-    "app/modules/sanidad/routes.py::update_actuacion_view": 70,
-    "app/modules/sanidad/routes.py::create_actuacion_view": 65,
-    "app/modules/materiales/routes.py::update_material_view": 58,
-    "app/modules/materiales/routes.py::create_material_view": 55,
+    # issue #388: ActuacionForm migration shrank from 70 → 64 lines; still >50 budget
+    "app/modules/sanidad/routes.py::update_actuacion_view": 64,
+    # issue #388: ActuacionForm migration shrank from 65 → 59 lines; still >50 budget
+    "app/modules/sanidad/routes.py::create_actuacion_view": 59,
+    # issue #388: MaterialForm migration shrank update_material_view 58 → 48 and
+    # create_material_view 55 → 45 — both now within 50-line budget, removed from BASELINE
     "app/modules/animals/routes.py::create_animal_view": 54,
     # issue #337: AdopcionForm migration shrank these from 82/78 (RBAC-era) → 59/53
     # (still >50 budget; ratchet prevents growth — must shrink further)
@@ -110,11 +116,10 @@ BASELINE: dict[str, int] = {
 #: remove it once it reaches 0 or falls below MAX_FORM_PARAMS. Never
 #: add a new entry here: use a Pydantic model to consolidate params
 #: instead.
-FORM_BASELINE: dict[str, int] = {
-    "app/modules/cesiones/routes.py::create_cesion_view": 21,
-    "app/modules/acogidas/routes.py::create_acogida_view": 13,
-    "app/modules/acogidas/routes.py::update_acogida_view": 12,
-}
+# issue #388: CesionForm migration reduced Form params 21 → 0 (now uses
+# Annotated[CesionForm, Form()] — single Pydantic model, no individual Form() params)
+# All three handlers now have 0 or 1 Form params (≤ MAX_FORM_PARAMS=8) — REMOVED
+FORM_BASELINE: dict[str, int] = {}
 
 
 def _is_route_decorator(node: ast.expr) -> bool:
@@ -168,19 +173,53 @@ def _iter_route_handlers(path: Path) -> list[tuple[str, int]]:
 
 
 def _count_form_params(node: ast.FunctionDef | ast.AsyncFunctionDef) -> int:
-    """Count ``Form(...)`` call expressions in a function's signature.
+    """Count ``Form(...)`` references in a function's signature.
 
-    Only top-level default values in the function signature are counted;
+    Every FastAPI idiom the project uses is recognised:
+
+    * ``x: Form() = ...`` — annotation IS the ``Form(...)`` call.
+    * ``x: Annotated[T, Form()] = ...`` — ``Form(...)`` lives inside the
+      annotation tree.
+    * ``x = Form(...)`` — bare ``Form(...)`` default with no annotation.
+
     ``Form(...)`` calls inside the body are excluded (they would be
     legitimate uses of the Form class for dependency injection, not
     route-level form parameters).
     """
     count = 0
-    for _arg, default in zip(node.args.args, node.args.defaults or [], strict=False):
-        if isinstance(default, ast.Call):
-            if isinstance(default.func, ast.Name) and default.func.id == "Form":
-                count += 1
+    for arg in node.args.args:
+        if _annotation_uses_form(arg.annotation):
+            count += 1
+    for default in node.args.defaults or []:
+        if _default_is_form(default):
+            count += 1
     return count
+
+
+def _annotation_uses_form(annotation: ast.expr | None) -> bool:
+    """Return True when the annotation tree contains a ``Form(...)`` call."""
+    if annotation is None:
+        return False
+    if isinstance(annotation, ast.Call):
+        return (
+            isinstance(annotation.func, ast.Name)
+            and annotation.func.id == "Form"
+        )
+    if isinstance(annotation, ast.Subscript):
+        return _annotation_uses_form(annotation.slice)
+    if isinstance(annotation, ast.Tuple):
+        return any(_annotation_uses_form(elt) for elt in annotation.elts)
+    return False
+
+
+def _default_is_form(default: ast.expr) -> bool:
+    """Return True when the default expression is a bare ``Form(...)`` call."""
+    if isinstance(default, ast.Call):
+        return (
+            isinstance(default.func, ast.Name)
+            and default.func.id == "Form"
+        )
+    return False
 
 
 def _iter_route_handlers_with_form_params(

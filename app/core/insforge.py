@@ -7,9 +7,16 @@ Thin async HTTPX wrapper around the public InsForge REST API. Used by:
 - the Google OAuth flow (``/api/auth/oauth/google`` + callback);
 - the allowlist middleware to look up an email in ``authorized_users``.
 
-All HTTP errors are surfaced as :class:`InsForgeError` so the caller can
-decide whether to log, retry, or fall back. The transport is injectable
-so tests can use ``httpx.MockTransport`` without hitting the network.
+HTTP errors are surfaced as :class:`InsForgeError` so the caller can
+decide whether to log, retry, or fall back. The :meth:`InsForgeClient.execute_sql`
+method additionally translates the most common transport-layer error
+(Postgres ``23505`` unique-violation reported as HTTP 409) into the
+Protocol-level :class:`~app.core.data_access.DuplicateKeyError` so
+domain code can ``except DuplicateKeyError`` without inspecting the
+envelope. The translation lives in
+:mod:`app.core.insforge_error_translation` to keep this module under the
+700-line budget (AGENTS.md rule 21). The transport is injectable so
+tests can use ``httpx.MockTransport`` without hitting the network.
 """
 
 from __future__ import annotations
@@ -21,6 +28,9 @@ from dataclasses import dataclass
 from typing import Any
 
 import httpx
+
+from app.core.data_access import InsForgeError
+from app.core.insforge_error_translation import translate_post_error
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,13 +49,11 @@ class InsForgeUser:
     email: str
 
 
-class InsForgeError(RuntimeError):
-    """Raised when the InsForge API returns a non-2xx response."""
-
-    def __init__(self, status_code: int, body: Any) -> None:
-        self.status_code = status_code
-        self.body = body
-        super().__init__(f"InsForge {status_code}: {body!r}")
+# ``InsForgeError`` is re-exported from ``app.core.data_access`` so the
+# Protocol-level ``DuplicateKeyError`` can inherit from it cleanly
+# (without a circular import between this module and ``data_access``).
+# Existing ``from app.core.insforge import InsForgeError`` imports keep
+# working through this re-export.
 
 
 class InsForgeClient:
@@ -104,14 +112,23 @@ class InsForgeClient:
         2026-06-28 — the function was returning the full envelope
         and every ``rows[0]`` call site crashed with
         ``KeyError: 0``.
+
+        409 responses carrying a Postgres ``23505`` SQLSTATE (or a
+        message containing ``"duplicate"`` / ``"unique"``) are
+        translated to :class:`~app.core.data_access.UniqueViolationError`
+        so domain code can ``except DuplicateKeyError`` without
+        inspecting the transport envelope. Every other non-2xx
+        response continues to surface as :class:`InsForgeError` —
+        the global handler in :mod:`app.core.insforge_error_handler`
+        still owns the 502 conversion for those.
         """
-        response = self._client.post(
-            "/api/database/advance/rawsql",
-            json={"query": query, "params": params or []},
-        )
-        if not response.is_success:
-            raise InsForgeError(response.status_code, _safe_json(response))
-        body = _safe_json(response)
+        try:
+            body = self._post_raw_sql(query, params)
+        except InsForgeError as exc:
+            # Translate the transport error to a Protocol-level error when
+            # possible; the ``from exc`` clause keeps the original
+            # ``InsForgeError`` as ``__cause__`` for postmortem tracebacks.
+            raise translate_post_error(exc) from exc
         # Accept both the real InsForge envelope and a bare list
         # (the in-process tests bypass HTTP and return the list
         # directly).
@@ -119,10 +136,30 @@ class InsForgeClient:
             return body["rows"]
         if isinstance(body, list):
             return body
-        raise InsForgeError(
-            response.status_code,
-            body,
+        raise InsForgeError(500, body)
+
+    def _post_raw_sql(
+        self,
+        query: str,
+        params: list[Any] | None,
+    ) -> Any:
+        """POST a raw SQL statement and return the parsed body, translating transport errors.
+
+        Extracted from :meth:`execute_sql` so the ``try/except InsForgeError``
+        pattern does not nest an abstract ``raise`` inside the body of
+        ``execute_sql`` (ruff TRY301). The translator (``translate_post_error``)
+        converts 409 uniqueness bodies to :class:`DuplicateKeyError` /
+        :class:`UniqueViolationError`; every other non-2xx response surfaces as
+        the original :class:`InsForgeError` so the global handler still owns
+        the 502 conversion for transport failures.
+        """
+        response = self._client.post(
+            "/api/database/advance/rawsql",
+            json={"query": query, "params": params or []},
         )
+        if not response.is_success:
+            raise InsForgeError(response.status_code, _safe_json(response))
+        return _safe_json(response)
 
     # --- Storage buckets ------------------------------------------------
 

@@ -355,8 +355,12 @@ class ShadowStateRepository:
             clauses.append("last_legacy_snapshot_at >= %s")
             params.append(since)
         where = " AND ".join(clauses)
+        # noqa S608: ``where`` se compone SOLO de literales fijos definidos
+        # arriba en este mismo método (``clauses``); todo valor del operador
+        # viaja en ``params`` como bind param ``%s``. Sin operandos de
+        # request. Issue #387.
         sql = (
-            "SELECT id, table_name, legacy_pk, web_pk, web_column, "
+            "SELECT id, table_name, legacy_pk, web_pk, web_column, "  # noqa: S608
             "preserved_value, strategy, last_legacy_snapshot_at, "
             "last_web_edit_at, last_reconciled_at, reconciliation_status, "
             "review_reasons "

@@ -24,26 +24,30 @@ def _seed_acogida_related_records(ep: _EphemeralPostgres) -> dict[str, str]:
     """
     animal_id = str(uuid4())
     ep.execute(
-        f"INSERT INTO animales (id, nombre, especie, fecha_alta, activo) "
-        f"VALUES ('{animal_id}', 'Luna', 'Perro', now(), true)"
+        f"INSERT INTO animales (id, nchip, nombreanimal, especie, sexo, fnacimiento, fecha_alta, activo) "
+        f"VALUES ('{animal_id}', 'CHIP-LUNA-001', 'Luna', 'CANINA', 'H', '2019-06-01', now(), true) "
+        f"RETURNING id"
     )
 
     voluntario_id = str(uuid4())
     ep.execute(
-        f"INSERT INTO voluntarios (id, nombre, email, rol, activo, fecha_alta) "
-        f"VALUES ('{voluntario_id}', 'Ana Lopez', 'ana@test.com', 'voluntario', true, now())"
+        f"INSERT INTO voluntarios (id, voluntario, email, activo, fecha_alta) "
+        f"VALUES ('{voluntario_id}', 'Ana Lopez', 'ana@test.com', true, now()) "
+        f"RETURNING id"
     )
 
     entrada_id = str(uuid4())
     ep.execute(
-        f"INSERT INTO entradas (id, animal_id, motivo, observaciones, fecha_alta, activo) "
-        f"VALUES ('{entrada_id}', '{animal_id}', 'Ingreso', 'Test', now(), true)"
+        f"INSERT INTO entradas (id, animal_id, fecha_entrada, motivo, observaciones, fecha_alta, activo) "
+        f"VALUES ('{entrada_id}', '{animal_id}', '2024-01-15', 'Ingreso', 'Test', now(), true) "
+        f"RETURNING id"
     )
 
     casa_id = str(uuid4())
     ep.execute(
-        f"INSERT INTO casas_acogida (id, nombre, direccion, telefono, activo, fecha_alta) "
-        f"VALUES ('{casa_id}', 'Casa Luna', 'Calle Sol 1', '600111222', true, now())"
+        f"INSERT INTO casas_acogida (id, nombre, apellidos, calle, telefono, localidad, provincia, coche, capacidad, activo, fecha_alta) "
+        f"VALUES ('{casa_id}', 'Casa Luna', 'Test', 'Calle Sol 1', '600111222', 'Madrid', 'Madrid', 'No', 1, true, now()) "
+        f"RETURNING id"
     )
 
     return {
@@ -72,8 +76,8 @@ def test_build_acogida_insert(
     )
     rows = ephemeral_postgres.execute(sql, params)
     assert len(rows) == 1
-    assert rows[0]["animal_id"] == related["animal_id"]
-    assert rows[0]["casa_acogida_id"] == related["casa_id"]
+    assert str(rows[0]["animal_id"]) == related["animal_id"]
+    assert str(rows[0]["casa_acogida_id"]) == related["casa_id"]
     assert rows[0]["activo"] is True
 
 
@@ -156,11 +160,19 @@ def test_build_acogida_update(
     inserted = ephemeral_postgres.execute(insert_sql, insert_params)
     acogida_id = inserted[0]["id"]
 
-    # Update
+    # Update — the form always ships ``animal_id`` + ``fecha_inicio``
+    # (the same required-text fields the create form does), plus the
+    # user-edited ``direccion`` / ``telefono``.
     sql, params = q.build_acogida_update(
-        str(acogida_id), {"direccion": "Calle actualizada", "telefono": "600999999"}
+        str(acogida_id),
+        {
+            "animal_id": related["animal_id"],
+            "fecha_inicio": date.today().isoformat(),
+            "direccion": "Calle actualizada",
+            "telefono": "600999999",
+        },
     )
-    rows = ephemeral_postgres.execute(sql, params)
+    rows = ephemeral_postgres.execute(sql, [str(acogida_id), *params])
     assert len(rows) == 1
     assert rows[0]["direccion"] == "Calle actualizada"
     assert rows[0]["telefono"] == "600999999"
@@ -237,7 +249,9 @@ def test_build_acogida_check_animal(
     sql, params = q.build_acogida_check_animal(related["animal_id"])
     rows = ephemeral_postgres.execute(sql, params)
     assert len(rows) == 1
-    assert rows[0]["id"] == related["animal_id"]
+    # psycopg3 returns UUID objects from UUID columns; the seed dict
+    # holds string UUIDs, so we str-cast before comparing.
+    assert str(rows[0]["id"]) == related["animal_id"]
 
 
 @pytest.mark.integration
@@ -250,7 +264,7 @@ def test_build_acogida_check_casa(
     sql, params = q.build_acogida_check_casa(related["casa_id"])
     rows = ephemeral_postgres.execute(sql, params)
     assert len(rows) == 1
-    assert rows[0]["id"] == related["casa_id"]
+    assert str(rows[0]["id"]) == related["casa_id"]
 
 
 @pytest.mark.integration
@@ -263,7 +277,7 @@ def test_build_acogida_check_voluntario(
     sql, params = q.build_acogida_check_voluntario(related["voluntario_id"])
     rows = ephemeral_postgres.execute(sql, params)
     assert len(rows) == 1
-    assert rows[0]["id"] == related["voluntario_id"]
+    assert str(rows[0]["id"]) == related["voluntario_id"]
 
 
 @pytest.mark.integration
@@ -276,7 +290,7 @@ def test_build_acogida_check_entrada(
     sql, params = q.build_acogida_check_entrada(related["entrada_id"])
     rows = ephemeral_postgres.execute(sql, params)
     assert len(rows) == 1
-    assert rows[0]["id"] == related["entrada_id"]
+    assert str(rows[0]["id"]) == related["entrada_id"]
 
 
 @pytest.mark.integration
@@ -290,8 +304,9 @@ def test_build_acogida_link_override(
     override_id = str(uuid4())
     ephemeral_postgres.execute(
         f"INSERT INTO foster_capacity_overrides "
-        f"(id, casa_acogida_id, animal_id, estancia_id) "
-        f"VALUES ('{override_id}', '{related['casa_id']}', '{related['animal_id']}', NULL)"
+        f"(id, casa_acogida_id, animal_id, operador_user_id, motivo) "
+        f"VALUES ('{override_id}', '{related['casa_id']}', '{related['animal_id']}', '{related['voluntario_id']}', 'test override') "
+        f"RETURNING id"
     )
 
     # Create an acogida

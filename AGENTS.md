@@ -39,11 +39,24 @@ HTTP from Python.
 You are implementing features in a FastAPI application with a strict layered architecture.
 Follow these rules exactly. Each rule includes the reason — understand it, don't just copy the pattern.
 
+> **Architecture in transition (read before §1).** The target architecture is
+> **hexagonal with vertical slices** — see **§33** for where a slice goes and
+> what it contains, and epic #420 for the migration order. Rules §1, §5 and §22
+> below describe the route → service → queries layout that is still present in
+> unconverted modules under `app/modules/**`. They remain binding **for that
+> code**. For new capabilities, and for any module being converted, **§33 is
+> authoritative and outranks them**. Never add a new `service.py` that executes
+> SQL.
+
 ### 1. Layer boundaries are absolute
 
 Routes handle HTTP only: form parsing, auth guards, redirects, HTML rendering.
 Services handle all data access: SQL, validation, domain logic.
 Never call `client.execute_sql(...)` from a route. If the service method doesn't exist yet, create it first — do not bypass the layer as a temporary measure.
+
+In a converted slice the same boundary holds with different names: the route
+delegates to a **use case** in `application/`, which reaches data through a
+**port**. See §33.3.
 
 WRONG — SQL in route
 
@@ -131,6 +144,9 @@ VALID_TYPES = frozenset(r.value for r in TipoRol)
 ### 5. Validation lives in the service, not in routes
 
 Business rules (required fields, enum membership, domain constraints) belong in the service layer. Routes translate the service's `ValueError` into an HTTP response — they do not re-implement the rules.
+
+In a converted slice, invariants live in `domain/` and are enforced by the use
+case in `application/`; the route still only translates the error (§33).
 
 WRONG — validation duplicated in route
 
@@ -587,6 +603,9 @@ Enforcement: `python scripts/check_module_size.py` (stdlib-only, exit 1 on viola
 
 New or refactored services separate **query construction** from **validation/orchestration**. SQL strings and their parameter shaping live in a dedicated `queries.py` (or builder module) per feature module; the service imports those builders, applies domain validation, and talks to the client. The point is testability: the shape of the SQL must be assertable in a plain unit test without spinning up transport, InsForge, or HTTP.
 
+In a converted slice this seam is `adapters/insforge/<slice>_insforge_queries.py`,
+next to the adapter that uses it (§33.3). SQL never appears in `application/`.
+
 WRONG — SQL interpolated inline among validation and mapping (untestable without transport)
 
 ```python
@@ -769,6 +788,10 @@ Domain services MUST depend on Protocol abstractions, never concrete backend cli
 `app.core.data_access.SqlExecutor`, introduced in #259, is the precedent.
 Example: `def list_items(client: SqlExecutor) -> list[Item]: ...` — not `client: InsForgeClient`.
 
+§33 is the slice-shaped form of this rule: the Protocol is the slice's own port
+in `ports/<slice>_port.py`, expressed in domain terms rather than as a generic
+SQL executor.
+
 ### 32. Anti-patterns — reject these by name
 
 The 2026-07-25 full-codebase audit (issue #294) found that most defects were not
@@ -905,4 +928,76 @@ Enforcement: PR review, using the numbered criteria above as the checklist.
 when a PR adds a `Settings` secret, a new rule, a test, or a CI guard, the
 reviewer applies the matching criterion before approving. The audit that produced
 this rule is issue #294; its findings are labelled `audit-2026-07-25`.
+
+### 33. Slice location — `app/core/` vs `app/modules/<slice>/`
+
+The architecture is **hexagonal with vertical slices** (epic #420). This rule
+answers the one question that comes up every single time a slice is written:
+**where does it go?** Get this wrong repeatedly and the codebase ends up a
+layered monolith with a hexagonal veneer.
+
+#### 33.1 The two locations
+
+- **`app/core/<layer>/<slice>/`** — cross-cutting capability. Today: `auth-users`
+  (#414), `catalogos` (#415), `schema-bootstrap` (#416). Layers are global
+  folders (`domain/`, `ports/`, `application/`, `adapters/insforge/`, `di/`) and
+  the slice is a subdirectory inside each.
+- **`app/modules/<slice>/`** — business capability. The slice owns its whole
+  stack in **one** folder.
+
+#### 33.2 The rule that decides
+
+Apply in order:
+
+1. Is it consumed by **two or more** slices, **and** does it have no business
+   reason of its own to change? → `app/core/`.
+2. Does it own business vocabulary and change for its own reason?
+   → `app/modules/<slice>/`.
+3. **In doubt, module.** Promoting into `core` later is cheap. Pulling something
+   out of `core` once five consumers hang off it is not.
+
+Criterion 1 needs **both** halves. "Feels foundational" is not a reason.
+"Auth is already there" is not a reason. A single consumer is never enough.
+
+#### 33.3 Layout of a module slice
+
+```
+app/modules/<slice>/
+├── domain/                          # pure entities and rules, no I/O
+├── ports/<slice>_port.py            # Protocol: what the use case needs
+├── application/                     # one use case per file
+├── adapters/insforge/
+│   ├── <slice>_insforge_adapter.py  # implements the port
+│   └── <slice>_insforge_queries.py  # SQL lives here (§22)
+├── di/<slice>_di.py                 # composition root for the slice
+└── routes.py                        # thin: parse, delegate, render (§28)
+```
+
+#### 33.4 What holds in either location
+
+- `InsForgeClient` and `InsForgeError` are imported **only** under `adapters/`
+  and `di/`, plus `app/main.py` which builds the pooled client. Domain, ports
+  and application are transport-agnostic (§31 is the general form of this).
+- No new `service.py` executing SQL. That is the layer this refactor retires;
+  §1 and §5 describe it because it is still present in unconverted modules, not
+  because new code should look like it.
+- Acceptance criteria name the **capability** (store a file, send a
+  notification), never the vendor that provides it.
+- Every slice ships an architectural pin test that fails when a transport import
+  leaks into the wrong layer. A rule without a gate is §32.P3.
+
+#### 33.5 Known exception, recorded on purpose
+
+`app/core/application/admin/` is consumed only by `app/core/admin_handlers.py`
+and `app/main.py` — no second slice. By §33.2 it belongs in `app/modules/`. It
+landed in `core` because it was converted early (#419), not because it is
+cross-cutting.
+
+It is **not** being moved: relocating a freshly merged slice is churn with no
+functional gain. It is recorded here so it reads as a deliberate exception
+rather than a precedent. Do not cite `admin` to justify putting the next
+business capability in `core`.
+
+Enforcement: PR review against §33.2, plus the per-slice pin tests from §33.4.
+The slice index, execution order and definition of done live in issue #420.
 

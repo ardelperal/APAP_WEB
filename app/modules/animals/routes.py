@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from itertools import chain
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, status
 from fastapi.responses import (
@@ -124,8 +124,8 @@ def _form_data_to_params(form: dict[str, Any]) -> dict[str, Any]:
 @router.get("", response_class=HTMLResponse)
 def list_animales(
     request: Request,
-    user: Response | dict = Depends(require_permission(Permission.READ_ANIMALES)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[Response | dict, Depends(require_permission(Permission.READ_ANIMALES))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Lista de animales activos, mas recientes primero."""
     if (early := return_early_if_response(user)) is not None:
@@ -142,19 +142,19 @@ def list_animales(
 
 
 @router.get("/search", response_class=JSONResponse)
-def search_animales(
+def search_animales(  # noqa: PLR0913  # 9 query filters needed for the search UI; not reducible without removing features
     request: Request,
-    user: Response | dict = Depends(require_authorized_user),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
-    q: str | None = Query(default=None, description="Substring match on nombre (case-insensitive). Ignored if chip is set."),
-    chip: str | None = Query(default=None, description="Exact match on NCHIP. Takes precedence over q."),
-    especie: str | None = Query(default=None, description="Exact match: CANINA or FELINA."),
-    sexo: str | None = Query(default=None, description="Exact match: M or H."),
-    estado: str | None = Query(default=None, description="Dynamic state via animal_current_state JOIN. Values: pendiente_entrada | pendiente_nueva_situacion | albergue | acogida | adoptado | entregado | fallecido | incoherente."),
-    fecha_alta_since: str | None = Query(default=None, description="ISO date. Filter fecha_alta >= value."),
-    fecha_alta_until: str | None = Query(default=None, description="ISO date. Filter fecha_alta <= value."),
-    limit: int = Query(default=50, ge=0, le=200, description="Results per page. Default 50, max 200. 0 returns only total (count-only)."),
-    offset: int = Query(default=0, ge=0, description="Pagination cursor."),
+    user: Annotated[Response | dict, Depends(require_authorized_user)],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    q: Annotated[str | None, Query(description="Substring match on nombre (case-insensitive). Ignored if chip is set.")] = None,
+    chip: Annotated[str | None, Query(description="Exact match on NCHIP. Takes precedence over q.")] = None,
+    especie: Annotated[str | None, Query(description="Exact match: CANINA or FELINA.")] = None,
+    sexo: Annotated[str | None, Query(description="Exact match: M or H.")] = None,
+    estado: Annotated[str | None, Query(description="Dynamic state via animal_current_state JOIN. Values: pendiente_entrada | pendiente_nueva_situacion | albergue | acogida | adoptado | entregado | fallecido | incoherente.")] = None,
+    fecha_alta_since: Annotated[str | None, Query(description="ISO date. Filter fecha_alta >= value.")] = None,
+    fecha_alta_until: Annotated[str | None, Query(description="ISO date. Filter fecha_alta <= value.")] = None,
+    limit: Annotated[int, Query(ge=0, le=200, description="Results per page. Default 50, max 200. 0 returns only total (count-only).")] = 50,
+    offset: Annotated[int, Query(ge=0, description="Pagination cursor.")] = 0,
 ):
     """Search animals with multi-field filters (issue #30 LIFECYCLE-05).
 
@@ -184,7 +184,7 @@ def search_animales(
 @router.get("/new", response_class=HTMLResponse)
 def new_animal_form(
     request: Request,
-    user: Response | dict = Depends(require_permission(Permission.READ_ANIMALES)),
+    user: Annotated[Response | dict, Depends(require_permission(Permission.READ_ANIMALES))],
 ):
     """Formulario vacio para dar de alta un animal."""
     if (early := return_early_if_response(user)) is not None:
@@ -208,9 +208,9 @@ def new_animal_form(
 @router.post("", response_class=HTMLResponse)
 def create_animal_view(
     request: Request,
-    form: AnimalForm = Form(...),
-    user: Response | dict = Depends(require_permission(Permission.WRITE_ANIMALES)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    form: Annotated[AnimalForm, Form()],
+    user: Annotated[Response | dict, Depends(require_permission(Permission.WRITE_ANIMALES))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Procesa el submit del formulario. En exito, redirect al detalle.
 
@@ -269,8 +269,8 @@ def create_animal_view(
 def animal_detail(
     animal_id: str,
     request: Request,
-    user: Response | dict = Depends(require_permission(Permission.READ_ANIMALES)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[Response | dict, Depends(require_permission(Permission.READ_ANIMALES))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Detalle de un animal. 404 si no existe."""
     if (early := return_early_if_response(user)) is not None:
@@ -291,8 +291,8 @@ def animal_detail(
 @router.get("/{animal_id}/salud/resumen", response_class=JSONResponse)
 def animal_salud_resumen(
     animal_id: str,
-    user: Response | dict = Depends(require_authorized_user),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[Response | dict, Depends(require_authorized_user)],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Health summary: latest actuacion per tipo for one animal.
 
@@ -330,8 +330,8 @@ def animal_salud_resumen(
 def edit_animal_form(
     animal_id: str,
     request: Request,
-    user: Response | dict = Depends(require_permission(Permission.READ_ANIMALES)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[Response | dict, Depends(require_permission(Permission.READ_ANIMALES))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Formulario prellenado para editar un animal."""
     if (early := return_early_if_response(user)) is not None:
@@ -359,9 +359,9 @@ def edit_animal_form(
 def update_animal_view(
     animal_id: str,
     request: Request,
-    form: AnimalForm = Form(...),
-    user: Response | dict = Depends(require_permission(Permission.WRITE_ANIMALES)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    form: Annotated[AnimalForm, Form()],
+    user: Annotated[Response | dict, Depends(require_permission(Permission.WRITE_ANIMALES))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Procesa el submit de edicion. Redirect al detalle en exito.
 
@@ -399,8 +399,8 @@ def update_animal_view(
 def delete_animal_view(
     animal_id: str,
     request: Request,
-    user: Response | dict = Depends(require_permission(Permission.DELETE_ANIMALES)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[Response | dict, Depends(require_permission(Permission.DELETE_ANIMALES))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Soft-delete via ``animals_service.delete_animal``. Redirect a la lista.
 
@@ -425,8 +425,8 @@ def delete_animal_view(
 def change_chip_view(
     animal_id: str,
     payload: ChipChangePayload,
-    user: Response | dict = Depends(require_authorized_user),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[Response | dict, Depends(require_authorized_user)],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """PATCH /animales/{id}/chip — cambia el chip en cascada a 6 tablas."""
     if (early := return_early_if_response(user)) is not None:
@@ -471,8 +471,8 @@ def change_chip_view(
 def animal_foto(
     animal_id: str,
     request: Request,
-    user: Response | dict = Depends(require_permission(Permission.READ_ANIMALES)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[Response | dict, Depends(require_permission(Permission.READ_ANIMALES))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     if (early := return_early_if_response(user)) is not None:
         return early

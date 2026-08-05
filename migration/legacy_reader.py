@@ -265,11 +265,27 @@ def _build_select_sql(spec: TableSpec, offset: int, limit: int) -> str:
     Returns:
         SQL formateado como string (sin punto y coma final).
     """
-    cols = ", ".join(spec.columns)
+    # Import local: ``migration.apply`` ya importa este módulo, así que
+    # importarlo arriba crearía un ciclo. Mismo patrón que
+    # ``reverse_apply/io_helpers.py`` y ``reverse_apply/lifecycle.py``.
+    from migration.apply import _safe_table
+
+    # Los identificadores se validan aunque hoy vengan del YAML de mapeo
+    # (repo-controlled): defensa en profundidad, issue #387. ``"*"`` es el
+    # comodín legítimo que usa ``reverse_apply/orchestrator.py``.
+    table = _safe_table(spec.legacy_table)
+    cols = ", ".join(c if c == "*" else _safe_table(c) for c in spec.columns)
     where = f" WHERE {spec.where}" if spec.where else ""
     # Access requiere ``TOP n`` justo después de ``SELECT``. ``n`` debe
     # ser un literal entero (no se puede parametrizar).
-    return f"SELECT TOP {limit} {cols} FROM {spec.legacy_table}{where}"
+    # noqa S608 abajo: ``limit`` es ``int`` (garantizado por la firma y por
+    # mypy), tabla y columnas están validadas contra
+    # ``^[A-Za-z_][A-Za-z0-9_]*$``, y ``spec.where`` es un fragmento SQL de
+    # caller confiable — hoy es ``None`` en los dos únicos sitios de
+    # producción que construyen un ``TableSpec`` (``apply.py`` y
+    # ``reverse_apply/orchestrator.py``). Nada de esto viene de datos de
+    # request: ``app/`` no importa ``migration/``.
+    return f"SELECT TOP {limit} {cols} FROM {table}{where}"  # noqa: S608
 
 
 class LegacyReaderError(Exception):

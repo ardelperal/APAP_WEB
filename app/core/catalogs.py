@@ -37,7 +37,6 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.data_access import SqlExecutor
-from app.core.insforge import InsForgeClient
 from app.core.schema_bootstrap import SqlStatement, run_idempotent_sql
 
 # --- catalogos_origenes (7 rows from TbOrigenEntrada) --------------------
@@ -305,7 +304,7 @@ ORDER BY orden NULLS LAST, codigo
 # --- Runner (DDL + seed, atomic per-catalog) ------------------------------
 
 
-def ensure_catalogs(client: InsForgeClient) -> None:
+def ensure_catalogs(client: SqlExecutor) -> None:
     """Create all 5 catalog tables and seed them from the Access legacy.
 
     Each catalog runs CREATE-then-INSERT in order. ``CREATE TABLE IF
@@ -321,8 +320,10 @@ def ensure_catalogs(client: InsForgeClient) -> None:
     ``docs/discovery/feature-XX-catalogs.md`` and the issue body.
 
     Args:
-        client: An ``InsForgeClient`` whose ``execute_sql`` POSTs to
-            the InsForge ``/api/database/advance/rawsql`` endpoint.
+        client: Any backend client satisfying the :class:`SqlExecutor`
+            Protocol. ``InsForgeClient`` is one such implementation;
+            the parameter is typed as the Protocol so the function
+            stays backend-agnostic.
     """
     pairs = (
         (CATALOGOS_ORIGENES_CREATE_SQL, CATALOGOS_ORIGENES_SEED_SQL),
@@ -340,17 +341,20 @@ def ensure_catalogs(client: InsForgeClient) -> None:
 # Each ``list_catalogos_<name>`` is a thin wrapper over
 # ``client.execute_sql`` with the corresponding ``LIST_*_SQL``
 # constant. The wrappers return the raw rows as ``dict`` from the
-# InsForge client; routes / templates can project to UI form on top.
+# backend client; routes / templates can project to UI form on top.
 # No row transformation is needed because ``execute_sql`` already
-# returns ``list[dict[str, Any]]``.
+# returns ``list[dict[str, Any]]``. All wrappers depend on the
+# :class:`SqlExecutor` Protocol (issue #259) rather than the concrete
+# :class:`InsForgeClient` so the catalog readers stay
+# backend-agnostic.
 
 
-def list_catalogos_origenes(client: InsForgeClient) -> list[dict[str, Any]]:
+def list_catalogos_origenes(client: SqlExecutor) -> list[dict[str, Any]]:
     """Return all active origenes ordered by their ``orden`` field."""
     return client.execute_sql(LIST_CATALOGOS_ORIGENES_SQL)
 
 
-def list_catalogos_motivos(client: InsForgeClient) -> list[dict[str, Any]]:
+def list_catalogos_motivos(client: SqlExecutor) -> list[dict[str, Any]]:
     """Return all active motivos grouped by especie."""
     return client.execute_sql(LIST_CATALOGOS_MOTIVOS_SQL)
 
@@ -368,7 +372,7 @@ def list_catalogos_periodicidad(
 
 
 def list_catalogos_tipos_contrato(
-    client: InsForgeClient,
+    client: SqlExecutor,
 ) -> list[dict[str, Any]]:
     """Return all active contract-template types for Fase 7."""
     return client.execute_sql(LIST_CATALOGOS_TIPOS_CONTRATO_SQL)

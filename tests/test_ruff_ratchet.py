@@ -57,12 +57,12 @@ def test_compare_is_clean_when_counts_match_baseline() -> None:
 def test_compare_fails_when_a_count_increases() -> None:
     """One extra violation of a tracked rule must fail the ratchet."""
     counts = Counter(BASELINE)
-    counts["FAST002"] += 1
+    counts["ARG001"] += 1
 
     violations, _ = compare(counts)
 
     assert len(violations) == 1
-    assert "FAST002" in violations[0]
+    assert "ARG001" in violations[0]
     assert "may only decrease" in violations[0]
 
 
@@ -81,7 +81,7 @@ def test_compare_fails_on_a_rule_absent_from_baseline() -> None:
 def test_compare_notices_an_improvement_without_failing() -> None:
     """Dropping below baseline is a NOTE, so the win can be locked in."""
     counts = Counter(BASELINE)
-    counts["FAST002"] -= 10
+    counts["ARG001"] -= 10
 
     violations, notices = compare(counts)
 

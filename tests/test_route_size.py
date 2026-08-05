@@ -211,7 +211,10 @@ def test_form_baseline_matches_measured_tree() -> None:
     """FORM_BASELINE only lists real handlers, at their real (over-budget) Form count."""
     checker = _load_checker()
 
-    assert checker.FORM_BASELINE, "expected a non-empty FORM_BASELINE"
+    # All three original FORM_BASELINE entries were migrated to Annotated[PydanticForm, Form()]
+    # in issue #388: create_cesion_view (21→0), create_acogida_view (13→1),
+    # update_acogida_view (12→1). All counts are now ≤ MAX_FORM_PARAMS (8),
+    # so FORM_BASELINE is legitimately empty — the assertion below is a no-op.
     for key, budget in checker.FORM_BASELINE.items():
         rel_posix, _, func_name = key.partition("::")
         path = REPO_ROOT / Path(rel_posix)

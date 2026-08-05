@@ -40,17 +40,30 @@ async def test_every_route_returns_dependency_response_without_domain_work(
 
     for route in route_module.router.routes:
         kwargs: dict[str, object] = {"user": early}
+        param_names = {
+            parameter.name
+            for parameter in inspect.signature(route.endpoint).parameters.values()
+        }
+        if "client" in param_names:
+            kwargs["client"] = Mock()
         for parameter in inspect.signature(route.endpoint).parameters.values():
             if parameter.default is not inspect.Parameter.empty:
                 continue
-            if parameter.name == "request":
-                kwargs[parameter.name] = Mock()
-            elif parameter.name.endswith("_id"):
+            if parameter.name in ("request", "user", "client"):
+                kwargs.setdefault(parameter.name, Mock())
+                continue
+            if parameter.name.endswith("_id"):
                 kwargs[parameter.name] = "irrelevant-id"
             elif parameter.name == "payload":
                 # Body() / Pydantic model parameters: mock with a bare object
                 # so the endpoint receives a valid payload without hitting the DB.
                 kwargs[parameter.name] = Mock()
+            else:
+                # Any other required parameter (typically a required Form(...)
+                # field such as ``Voluntario`` or ``animal_id``). The auth
+                # guard in the handler body must short-circuit BEFORE the
+                # parameter is consumed, so a placeholder value is enough.
+                kwargs[parameter.name] = "irrelevant"
 
         result = route.endpoint(**kwargs)
         if inspect.isawaitable(result):

@@ -67,8 +67,12 @@ def _emit_reversed_lifecycle_events_for_changed_derived(
         )
         animal_id = _case_insensitive_get(web_row, "id")
         if animal_id is None:
+            # noqa S608: ambos identificadores pasan por ``_safe_table()``,
+            # que lanza si no casan ``^[A-Za-z_][A-Za-z0-9_]*$``;
+            # ``legacy_pk`` va como bind param ``$1``. Sin operandos de
+            # request. Issue #387.
             rows = client.execute_sql(
-                f"SELECT id FROM {_safe_table(mapping.web_table)} "
+                f"SELECT id FROM {_safe_table(mapping.web_table)} "  # noqa: S608
                 f"WHERE {_safe_table(mapping.key_field)} = $1",
                 [legacy_pk],
             )

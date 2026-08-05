@@ -37,7 +37,7 @@ material+tamaño+color" hint.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -54,6 +54,7 @@ from app.core.insforge import InsForgeClient
 from app.core.middleware import base_template_context_processor
 from app.core.rbac import Permission, require_permission
 from app.modules.materiales import service as materiales_service
+from app.modules.materiales.forms import MaterialForm
 
 router = APIRouter(prefix="/materiales", tags=["materiales"])
 
@@ -101,7 +102,7 @@ def _material_to_form_data(
     }
 
 
-def _render_form(
+def _render_form(  # noqa: PLR0913  # non-route helper; 6 args is minimal for template context
     request: Request,
     user: AuthenticatedUser,
     form_data: dict[str, Any],
@@ -135,8 +136,8 @@ def _render_form(
 @router.get("", response_class=HTMLResponse)
 def list_materiales_view(
     request: Request,
-    user: AuthenticatedUser = Depends(require_permission(Permission.READ_MATERIALES)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_MATERIALES))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Active catalog list. Delegates to ``materiales_service.list_materials``.
 
@@ -161,7 +162,7 @@ def list_materiales_view(
 @router.get("/new", response_class=HTMLResponse)
 def new_material_form(
     request: Request,
-    user: AuthenticatedUser = Depends(require_permission(Permission.READ_MATERIALES)),
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_MATERIALES))],
 ):
     """Empty create form.
 
@@ -181,13 +182,10 @@ def new_material_form(
 @router.post("", response_class=HTMLResponse)
 def create_material_view(
     request: Request,
-    material: str = Form(...),
-    tamano: str = Form(...),
-    color: str = Form(...),
-    observaciones: str | None = Form(None),
-    user: AuthenticatedUser = Depends(require_permission(Permission.WRITE_MATERIALES)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
-):
+    form: Annotated[MaterialForm, Form()],
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_MATERIALES))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+):  # noqa: PLR0913  # refactored to MaterialForm
     """Procesa el submit del formulario de alta. En exito, redirect al detalle.
 
     Distinct HTTP status codes per failure mode (operator UX):
@@ -202,14 +200,7 @@ def create_material_view(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
-    form_data: dict[str, Any] = _form_data_to_params(
-        {
-            "material": material,
-            "tamano": tamano,
-            "color": color,
-            "observaciones": observaciones,
-        }
-    )
+    form_data: dict[str, Any] = _form_data_to_params(form.model_dump())
     try:
         new_material = materiales_service.create_material(client, form_data)
     except materiales_service.MaterialConflictError as exc:
@@ -243,8 +234,8 @@ def create_material_view(
 def material_detail(
     material_id: str,
     request: Request,
-    user: AuthenticatedUser = Depends(require_permission(Permission.READ_MATERIALES)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_MATERIALES))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Detail view. Returns 404 when the row is missing.
 
@@ -271,8 +262,8 @@ def material_detail(
 def edit_material_form(
     material_id: str,
     request: Request,
-    user: AuthenticatedUser = Depends(require_permission(Permission.READ_MATERIALES)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_MATERIALES))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Edit form prefilled with the persisted row.
 
@@ -302,13 +293,10 @@ def edit_material_form(
 def update_material_view(
     material_id: str,
     request: Request,
-    material: str = Form(...),
-    tamano: str = Form(...),
-    color: str = Form(...),
-    observaciones: str | None = Form(None),
-    user: AuthenticatedUser = Depends(require_permission(Permission.WRITE_MATERIALES)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
-):
+    form: Annotated[MaterialForm, Form()],
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_MATERIALES))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+):  # noqa: PLR0913  # refactored to MaterialForm
     """Procesa el submit del formulario de edicion. En exito, redirect al detalle.
 
     Same 3-way status contract as ``create_material_view``:
@@ -321,14 +309,7 @@ def update_material_view(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
-    form_data: dict[str, Any] = _form_data_to_params(
-        {
-            "material": material,
-            "tamano": tamano,
-            "color": color,
-            "observaciones": observaciones,
-        }
-    )
+    form_data: dict[str, Any] = _form_data_to_params(form.model_dump())
     try:
         updated = materiales_service.update_material(
             client, material_id, form_data
@@ -366,8 +347,8 @@ def update_material_view(
 def deactivate_material_view(
     material_id: str,
     request: Request,
-    user: AuthenticatedUser = Depends(require_permission(Permission.WRITE_MATERIALES)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_MATERIALES))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Soft-delete via ``materiales_service.deactivate_material``.
 

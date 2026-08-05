@@ -205,7 +205,10 @@ def _insert_legacy_row(
         )
     placeholders = ", ".join("?" for _ in cols)
     col_list = ", ".join(cols)
-    sql = f"INSERT INTO {safe_table} ({col_list}) VALUES ({placeholders})"
+    # noqa S608: ``safe_table`` pasa por ``_safe_table()``; las columnas se
+    # filtran por ``_SAFE_TABLE_NAME``; los valores van como bind params
+    # ``?``. Sin operandos de request. Issue #387.
+    sql = f"INSERT INTO {safe_table} ({col_list}) VALUES ({placeholders})"  # noqa: S608
     params = [legacy_payload[c] for c in cols]
     legacy_reader_mod._execute_legacy_write(legacy_path, sql, params)
 
@@ -232,7 +235,10 @@ def _update_legacy_row(
     if not cols:
         return 0
     set_clause = ", ".join(f"{c} = ?" for c in cols)
-    sql = f"UPDATE {safe_table} SET {set_clause} WHERE {safe_key} = ?"
+    # noqa S608: ``safe_table`` y ``safe_key`` pasan por ``_safe_table()``;
+    # las columnas del SET se filtran por ``_SAFE_TABLE_NAME``; los valores
+    # van como bind params ``?``. Sin operandos de request. Issue #387.
+    sql = f"UPDATE {safe_table} SET {set_clause} WHERE {safe_key} = ?"  # noqa: S608
     params = [legacy_payload[c] for c in cols] + [natural_key_value]
     return int(
         legacy_reader_mod._execute_legacy_write(legacy_path, sql, params)

@@ -47,6 +47,7 @@ from typing import IO, Any
 
 from app.core.insforge import InsForgeClient, InsForgeError
 from migration.apply import (
+    _safe_table,
     apply_legacy_to_web,  # noqa: F401 — monkeypatch surface for test_cli_apply_safety.py
 )
 from migration.bootstrap import APAP_PHOTOS_BUCKET, check_private_bucket, ensure_private_bucket
@@ -314,8 +315,9 @@ def _apply_accept_derived(
         raise ValueError(f"accept derived: unsafe table_name {table_name!r}")
     if not _SAFE_IDENTIFIER.match(web_column):
         raise ValueError(f"accept derived: unsafe web_column {web_column!r}")
+    # noqa S608 (#387): identificadores ya validados arriba, valores por %s.
     web_client.execute_sql(
-        f"UPDATE {table_name} SET {web_column} = %s WHERE id = %s",
+        f"UPDATE {table_name} SET {web_column} = %s WHERE id = %s",  # noqa: S608
         [new_value, web_pk],
     )
     shadow_state.update_reconciliation_status(
@@ -575,7 +577,10 @@ def run_status(
     tables = [args.table] if args.table else list_available_tables()
     for table in tables:
         mapping = load_mapping(table)
-        rows = web_client.execute_sql(f"SELECT COUNT(*) FROM {mapping.web_table}")
+        # Defensa en profundidad (#387): el mismo patrón en apply.py ya
+        # validaba el identificador; aquí faltaba.
+        safe_web_table = _safe_table(mapping.web_table)
+        rows = web_client.execute_sql(f"SELECT COUNT(*) FROM {safe_web_table}")  # noqa: S608
         count = rows[0].get("count", 0) if rows else 0
         stream.write(f"table={table} web_table={mapping.web_table} web_count={count}\n")
     return 0

@@ -29,7 +29,7 @@ update/delete) keep working unchanged.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -81,7 +81,7 @@ def _operator_user_id(request: Request) -> str:
     return str(payload.get("user_id") or "")
 
 
-def _render_asignar_form(
+def _render_asignar_form(  # noqa: PLR0913  # non-route helper; 7 args needed for template context (incl. casa object)
     request: Request,
     user: AuthenticatedUser,
     casa: foster_service.CasaAcogida,
@@ -111,8 +111,8 @@ def _render_asignar_form(
 def asignar_form(
     casa_id: str,
     request: Request,
-    user: AuthenticatedUser = Depends(require_authorized_user),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_authorized_user)],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Render the foster assignment evaluation form.
 
@@ -140,13 +140,13 @@ def asignar_form(
 
 
 @router.post("/{casa_id}/asignar", response_class=HTMLResponse)
-def asignar_submit(
+def asignar_submit(  # noqa: PLR0913  # 2 Form fields + 4 fixed deps; form model would not reduce complexity meaningfully
     casa_id: str,
     request: Request,
-    animal_id: str = Form(...),
-    motivo: str = Form(""),
-    user: AuthenticatedUser = Depends(require_writer_user),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_writer_user)],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    animal_id: Annotated[str, Form()],
+    motivo: Annotated[str, Form()] = "",
 ):
     """Execute the gate and route the operator based on the decision.
 
@@ -258,8 +258,8 @@ def asignar_submit(
 def overrides_list(
     casa_id: str,
     request: Request,
-    user: AuthenticatedUser = Depends(require_developer_user),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_developer_user)],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Render the historical list of capacity overrides for one casa.
 

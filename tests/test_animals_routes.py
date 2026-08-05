@@ -341,7 +341,9 @@ def _animal_form_params(func):
     ``from __future__ import annotations`` makes all annotations lazy
     strings, so we compare by ``str(annotation)`` against
     ``"AnimalForm"`` (which matches both the string form and the
-    resolved class).
+    resolved class). The project binds the form via
+    ``Annotated[AnimalForm, Form()]``, so the substring check is the
+    correct invariant.
     """
     try:
         hints = inspect.get_annotations(func)
@@ -351,7 +353,7 @@ def _animal_form_params(func):
     return [
         p
         for name, p in sig.parameters.items()
-        if str(hints.get(name)) == "AnimalForm"
+        if "AnimalForm" in str(hints.get(name, ""))
     ]
 
 

@@ -17,7 +17,7 @@ en ``app.core.auth_dependencies`` para evitar el copy-paste con
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -67,8 +67,8 @@ def _form_data_to_params(form: dict[str, Any]) -> dict[str, Any]:
 @router.get("", response_class=HTMLResponse)
 def list_voluntarios_view(
     request: Request,
-    user: Response | dict = Depends(require_permission(Permission.READ_VOLUNTARIOS)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[Response | dict, Depends(require_permission(Permission.READ_VOLUNTARIOS))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Lista de voluntarios activos, ordenados alfabeticamente."""
     if (early := return_early_if_response(user)) is not None:
@@ -87,7 +87,7 @@ def list_voluntarios_view(
 @router.get("/new", response_class=HTMLResponse)
 def new_voluntario_form(
     request: Request,
-    user: Response | dict = Depends(require_permission(Permission.READ_VOLUNTARIOS)),
+    user: Annotated[Response | dict, Depends(require_permission(Permission.READ_VOLUNTARIOS))],
 ):
     """Formulario vacio para dar de alta un voluntario."""
     if (early := return_early_if_response(user)) is not None:
@@ -107,15 +107,15 @@ def new_voluntario_form(
 
 
 @router.post("", response_class=HTMLResponse)
-def create_voluntario_view(
+def create_voluntario_view(  # noqa: PLR0913  # 5 Form fields + 4 fixed deps; form model would reduce by only 4 args
     request: Request,
-    Voluntario: str = Form(...),
-    Tel1: str | None = Form(None),
-    Tel2: str | None = Form(None),
-    Email: str | None = Form(None),
-    DNI: str | None = Form(None),
-    user: Response | dict = Depends(require_permission(Permission.WRITE_VOLUNTARIOS)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[Response | dict, Depends(require_permission(Permission.WRITE_VOLUNTARIOS))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    Voluntario: Annotated[str, Form()],
+    Tel1: Annotated[str | None, Form()] = None,
+    Tel2: Annotated[str | None, Form()] = None,
+    Email: Annotated[str | None, Form()] = None,
+    DNI: Annotated[str | None, Form()] = None,
 ):
     """Procesa el submit del formulario. En exito, redirect al detalle."""
     if (early := return_early_if_response(user)) is not None:
@@ -160,8 +160,8 @@ def create_voluntario_view(
 def voluntario_detail(
     voluntario_id: str,
     request: Request,
-    user: Response | dict = Depends(require_permission(Permission.READ_VOLUNTARIOS)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[Response | dict, Depends(require_permission(Permission.READ_VOLUNTARIOS))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Detalle de un voluntario. 404 si no existe."""
     if (early := return_early_if_response(user)) is not None:
@@ -184,8 +184,8 @@ def voluntario_detail(
 def deactivate_voluntario_view(
     voluntario_id: str,
     request: Request,
-    user: Response | dict = Depends(require_permission(Permission.WRITE_VOLUNTARIOS)),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[Response | dict, Depends(require_permission(Permission.WRITE_VOLUNTARIOS))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Soft-delete via un solo ``UPDATE ... WHERE id = $1 AND activo = true``.
 

@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<html>
+<head><title>Terapias</title></head>
+<body>
+<h1>Terapias</h1>
+<ul>
+{% for terapia in terapias %}
+<li>{{ terapia.fecha }} - {{ terapia.descripcion }}</li>
+{% endfor %}
+</ul>
+</body>
+</html>

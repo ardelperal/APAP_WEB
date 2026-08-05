@@ -36,6 +36,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Annotated
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -175,6 +176,11 @@ def create_app() -> FastAPI:
             base_template_context_processor,
         ],
     )
+    # Expose templates on ``app.state`` so the FastAPI DI helper for
+    # the admin slice (:func:`app.core.di.admin_di.get_admin_template_adapter`)
+    # can resolve the same shared instance. The helper wraps it in
+    # ``AdminTemplateAdapter`` per request.
+    application.state.templates = templates
 
     # Middleware stack — order is load-bearing (issue #286 D8):
     # RateLimit MUST be innermost so CSRF rejections do NOT consume
@@ -214,7 +220,7 @@ def _register_index_handler(app: FastAPI, templates, settings) -> None:
     @app.get("/", response_class=HTMLResponse)
     def index(
         request: Request,
-        current_user: Response | dict = Depends(require_authorized_user),
+        current_user: Annotated[Response | dict, Depends(require_authorized_user)],
     ):
         if (early := return_early_if_response(current_user)) is not None:
             return early
@@ -237,7 +243,7 @@ def _register_unauthorized_handler(app: FastAPI, templates, settings) -> None:
     @app.get("/unauthorized", response_class=HTMLResponse)
     def unauthorized(
         request: Request,
-        current_user: dict | None = Depends(get_current_user_optional),
+        current_user: Annotated[dict | None, Depends(get_current_user_optional)],
     ):
         return templates.TemplateResponse(
             request=request,

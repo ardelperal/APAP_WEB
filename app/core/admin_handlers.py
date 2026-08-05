@@ -1,103 +1,93 @@
 """Admin-panel route handlers extracted from ``app/main.py::create_app``.
 
-These handlers (``admin``, ``admin_add_user``, ``admin_deactivate_user``) are
-application-level glue — they share the ``templates`` instance and the
-``settings`` singleton. ``create_app`` imports and registers them.
+These handlers (``admin``, ``admin_add_user``, ``admin_deactivate_user``)
+are thin HTTP-only glue that delegates the domain work to the
+application-layer use cases:
 
-Issue #336: extracted from ``create_app`` to reduce the factory's
-cyclomatic complexity (CC) and line count.
+- :func:`app.core.application.admin.render_admin_panel.render_admin_panel`
+- :func:`app.core.application.admin.add_user.add_user`
+- :func:`app.core.application.admin.deactivate_user.deactivate_user`
+
+Each handler composes the :class:`AuthUsersPort` (PR #414 data seam)
+and the :class:`AdminTemplateAdapter` (this slice's renderer seam)
+through FastAPI ``Depends`` providers — the route bodies never import
+``InsForgeClient`` or ``Jinja2Templates`` directly.
+
+``register_admin_routes`` keeps the same signature as the pre-Phase-1
+module so ``app/main.py::create_app`` does not need to change.
 """
-
 from __future__ import annotations
 
-from dataclasses import dataclass
+from typing import Annotated, cast
 
 from fastapi import Depends, FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, Response
 
 from app.core import config as config_module
-from app.core.admin_helpers import _pop_flash, _redirect_with_flash
-from app.core.auth import (
-    VALID_ROLES,
-    add_authorized_user,
-    deactivate_authorized_user,
-    list_authorized_users,
+from app.core.adapters.admin_template_adapter import AdminTemplateAdapter
+from app.core.admin_helpers import _pop_flash
+from app.core.application.admin.add_user import add_user as _add_user_use_case
+from app.core.application.admin.deactivate_user import (
+    deactivate_user as _deactivate_user_use_case,
 )
-from app.core.auth_dependencies import (
-    get_insforge_client_dep as get_insforge_client,
+from app.core.application.admin.render_admin_panel import (
+    render_admin_panel as _render_admin_panel_use_case,
 )
+from app.core.auth import VALID_ROLES
 from app.core.auth_dependencies import (
     require_developer_user_redirect,
     return_early_if_response,
 )
-from app.core.insforge import InsForgeClient
-
-
-@dataclass
-class _AddError:
-    """Lightweight error carrier for _add_user_or_error."""
-
-    __slots__ = ("message", "error_type")
-
-    message: str
-    error_type: str
-
-
-def _add_user_or_error(
-    client: InsForgeClient, email: str, rol: str, added_by: str
-) -> _AddError | None:
-    """Call add_authorized_user; return an error tuple or None on success."""
-    if not email or not rol:
-        return _AddError(message="email and rol are required", error_type="danger")
-    try:
-        add_authorized_user(client, email=email, role=rol, added_by=added_by)
-        return None
-    except ValueError as exc:
-        return _AddError(message=str(exc), error_type="danger")
+from app.core.di.admin_di import get_admin_template_adapter
+from app.core.di.auth_di import get_auth_users_port
+from app.core.ports.auth_port import AuthUsersPort
 
 
 def register_admin_routes(app: FastAPI, templates) -> None:
     """Register the admin-panel routes on ``app``.
 
     Registers: ``/admin``, ``/admin/users``, ``/admin/users/{user_id}/deactivate``.
-    These are application-level glue routes that share the ``templates``
-    instance created inside ``create_app``.
+    The shared ``templates`` parameter is accepted for backwards
+    compatibility with :func:`app.main.create_app`; the per-request
+    ``Jinja2Templates`` instance lives on ``app.state.templates`` and
+    is wrapped by the ``AdminTemplateAdapter`` injected via
+    :func:`app.core.di.admin_di.get_admin_template_adapter`.
     """
+    del templates  # The adapter resolves the per-app templates from app.state.
     settings = config_module.get_settings()
 
     @app.get("/admin", response_class=HTMLResponse)
     def admin(
         request: Request,
-        current_user: Response | dict = Depends(require_developer_user_redirect),
-        client: InsForgeClient = Depends(get_insforge_client),
+        current_user: Annotated[Response | dict, Depends(require_developer_user_redirect)],
+        auth_port: Annotated[AuthUsersPort, Depends(get_auth_users_port)],
+        template_adapter: Annotated[AdminTemplateAdapter, Depends(get_admin_template_adapter)],
     ):
         """Developer-only user management panel.
 
-        ``require_developer_user_redirect`` (issue #146) ya redirige a
-        ``/login`` si no hay sesion, a ``/unauthorized`` si la sesion
-        expiro o el rol es insuficiente (cualquier rol distinto de
-        ``developer``), y emite ``log_safe("auth.denied", ...)`` en cada
-        denegacion para audit trail. Antes de #146 este handler repetia
-        inline ``current_user.get("rol") != "developer"`` — duplicacion
-        eliminada al consolidar la comprobacion del rol en la dep.
+        ``require_developer_user_redirect`` (issue #146) redirects to
+        ``/login`` if there is no session and to ``/unauthorized`` if
+        the session is expired or the rol is anything other than
+        ``developer``; it emits ``log_safe("auth.denied", ...)`` on
+        every denial for audit trail. The pre-#146 inline
+        ``current_user.get("rol") != "developer"`` check was removed
+        when the dep consolidated the role check.
         """
         if (early := return_early_if_response(current_user)) is not None:
             return early
+        current_user_typed: dict = cast("dict", current_user)
         flash_context = _pop_flash(request)
-        users = list_authorized_users(client)
-        response: Response = templates.TemplateResponse(
-            request=request,
-            name="admin.html",
-            context={
-                "app_name": settings.app_name,
-                "current_user": current_user,
-                "users": users,
-                "roles": sorted(VALID_ROLES),
-                "error_message": flash_context.message if flash_context else None,
-                "error_type": flash_context.error_type if flash_context else None,
-            },
+        response = _render_admin_panel_use_case(
+            auth_port,
+            template_adapter,
+            request,
+            current_user=current_user_typed,
+            app_name=settings.app_name,
+            roles=VALID_ROLES,
+            error_message=flash_context.message if flash_context else None,
+            error_type=flash_context.error_type if flash_context else None,
         )
-        if flash_context:
+        if flash_context is not None:
             response.set_cookie(
                 key="apap_session",
                 value=flash_context.cookie_value,
@@ -111,90 +101,66 @@ def register_admin_routes(app: FastAPI, templates) -> None:
     @app.post("/admin/users")
     def admin_add_user(
         request: Request,
-        current_user: Response | dict = Depends(require_developer_user_redirect),
-        client: InsForgeClient = Depends(get_insforge_client),
-        email: str = Form(""),
-        rol: str = Form(""),
+        current_user: Annotated[Response | dict, Depends(require_developer_user_redirect)],
+        auth_port: Annotated[AuthUsersPort, Depends(get_auth_users_port)],
+        template_adapter: Annotated[AdminTemplateAdapter, Depends(get_admin_template_adapter)],
+        email: Annotated[str, Form()] = "",
+        rol: Annotated[str, Form()] = "",
     ) -> Response:
         """Add a new authorized user. Developer only.
 
         Sync ``def`` (not ``async def``) so FastAPI runs the handler
-        in the threadpool and the sync InsForgeClient doesn't block
-        the event loop. Other admin handlers use the same style.
-        Form fields are declared as ``Form(...)`` parameters instead
-        of pulling them out of ``await request.form()`` so the
-        contract is obvious from the signature.
+        in the threadpool — the same style as the other admin
+        handlers. The domain validation, redirect-with-flash for the
+        invalid-role path, and re-render-with-flash for the
+        duplicate-email path are owned by
+        :func:`app.core.application.admin.add_user.add_user`; the
+        route only wires the HTTP boundary.
 
-        Issue #146 — la dep inyectada aplica el check de developer (rol
-        insuficiente → redirect ``/unauthorized`` + ``log_safe``).
-
-        Issue #277 — ValueError from add_authorized_user (duplicate or
-        validation) is caught and rendered in the admin page instead of
-        silently redirecting, giving the operator actionable feedback.
+        Issue #146 — the dep injects the developer check (insufficient
+        rol → redirect ``/unauthorized`` + ``log_safe``).
         """
         if (early := return_early_if_response(current_user)) is not None:
             return early
-        assert isinstance(current_user, dict)
-        email, rol = email.strip(), rol.strip()
-
-        if rol not in VALID_ROLES:
-            return _redirect_with_flash(
-                request,
-                "/admin",
-                "danger",
-                f"invalid role: {rol!r}; must be one of {sorted(VALID_ROLES)}",
-            )
-
-        add_err = _add_user_or_error(client, email, rol, current_user["user_id"])
-        users = list_authorized_users(client)
-        return templates.TemplateResponse(
+        current_user_typed: dict = cast("dict", current_user)
+        return _add_user_use_case(
+            auth_port,
+            template_adapter,
             request,
-            "admin.html",
-            {
-                "app_name": settings.app_name,
-                "current_user": current_user,
-                "users": users,
-                "roles": sorted(VALID_ROLES),
-                "error_message": add_err.message if add_err else None,
-                "error_type": add_err.error_type if add_err else None,
-            },
+            current_user=current_user_typed,
+            email=email,
+            rol=rol,
+            app_name=settings.app_name,
+            roles=VALID_ROLES,
         )
 
     @app.post("/admin/users/{user_id}/deactivate")
     def admin_deactivate_user(
         request: Request,
         user_id: str,
-        current_user: Response | dict = Depends(require_developer_user_redirect),
-        client: InsForgeClient = Depends(get_insforge_client),
+        current_user: Annotated[Response | dict, Depends(require_developer_user_redirect)],
+        auth_port: Annotated[AuthUsersPort, Depends(get_auth_users_port)],
+        template_adapter: Annotated[AdminTemplateAdapter, Depends(get_admin_template_adapter)],
     ) -> Response:
         """Deactivate an authorized user. Developer only.
 
-        Issue #146 — la dep inyectada aplica el check de developer (rol
-        insuficiente → redirect ``/unauthorized`` + ``log_safe``).
-        Issue #279 — ValueError from the last-developer guard is caught
-        and rendered as a flash error in admin.html.
+        The last-developer guard, the not-found disambiguation, and
+        the redirect-vs-re-render response shape are owned by
+        :func:`app.core.application.admin.deactivate_user.deactivate_user`
+        (issue #279); the route only wires the HTTP boundary.
+
+        Issue #146 — the dep injects the developer check (insufficient
+        rol → redirect ``/unauthorized`` + ``log_safe``).
         """
         if (early := return_early_if_response(current_user)) is not None:
             return early
-        try:
-            deactivate_authorized_user(client, user_id)
-        except ValueError as exc:
-            # Issue #279: render admin.html with flash error instead of
-            # silently redirecting, mirroring the admin_add_user pattern.
-            users = list_authorized_users(client)
-            return templates.TemplateResponse(
-                request,
-                "admin.html",
-                {
-                    "app_name": settings.app_name,
-                    "current_user": current_user,
-                    "users": users,
-                    "roles": sorted(VALID_ROLES),
-                    "error_message": str(exc),
-                    "error_type": "danger",
-                },
-            )
-        return _redirect("/admin")
-
-    def _redirect(path: str) -> Response:
-        return RedirectResponse(url=path, status_code=302)
+        current_user_typed: dict = cast("dict", current_user)
+        return _deactivate_user_use_case(
+            auth_port,
+            template_adapter,
+            request,
+            current_user=current_user_typed,
+            user_id=user_id,
+            app_name=settings.app_name,
+            roles=VALID_ROLES,
+        )

@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+<head><title>{{ form_action }}</title></head>
+<body>
+{% if error %}<p style="color:red">{{ error }}</p>{% endif %}
+<form method="post" action="{{ form_action }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <label for="animal_id">Animal ID <input id="animal_id" name="animal_id" value="{{ form_data.animal_id }}"></label>
+  <label for="voluntario_id">Voluntario ID <input id="voluntario_id" name="voluntario_id" value="{{ form_data.voluntario_id }}"></label>
+  <label for="fecha">Fecha <input id="fecha" name="fecha" value="{{ form_data.fecha }}"></label>
+  <label for="descripcion">Descripción <textarea id="descripcion" name="descripcion">{{ form_data.descripcion }}</textarea></label>
+  <button type="submit">Guardar</button>
+</form>
+</body>
+</html>

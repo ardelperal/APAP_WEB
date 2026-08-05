@@ -15,7 +15,22 @@ Issue #206 partial scope: logout is a public route, no OAuth required.
 
 from __future__ import annotations
 
+import pytest
 from playwright.sync_api import Page
+
+
+def _skip_if_oauth_not_configured(page: Page, base_url: str) -> None:
+    """Skip when /login returns 503 (Google OAuth not configured in dev).
+
+    Mirror of the helper in tests/e2e/test_public_redirects.py — kept local
+    so test_logout.py remains self-contained and conftest.py is untouched.
+    """
+    preflight = page.request.get(f"{base_url}/login")
+    if preflight.status == 503:
+        pytest.skip(
+            "/login returns 503 (Google OAuth not configured); "
+            "the logout redirect chain cannot be observed end-to-end."
+        )
 
 
 def test_logout_is_a_get_redirect(page: Page, base_url: str) -> None:
@@ -24,6 +39,7 @@ def test_logout_is_a_get_redirect(page: Page, base_url: str) -> None:
     Current implementation: the logout handler issues a redirect to /,
     not /login. The session cookie is cleared by the response.
     """
+    _skip_if_oauth_not_configured(page, base_url)
     response = page.goto(f"{base_url}/logout", wait_until="domcontentloaded")
     assert response is not None
     assert response.status == 302, (
@@ -57,6 +73,7 @@ def test_logout_followed_by_protected_route_redirects_to_login(
     page: Page, base_url: str
 ) -> None:
     """After logging out, accessing a protected route bounces to /login."""
+    _skip_if_oauth_not_configured(page, base_url)
     # First logout (no session to clear, but exercises the route)
     page.goto(f"{base_url}/logout", wait_until="domcontentloaded")
 

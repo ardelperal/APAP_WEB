@@ -53,6 +53,7 @@ message) is mirrored on the duplicate-assignment path.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -117,7 +118,7 @@ def _cantidad_or_default(raw: str | None) -> int:
     return value
 
 
-def _render_per_stay_list(
+def _render_per_stay_list(  # noqa: PLR0913  # non-route helper; 7 args needed to populate the per-stay template context
     request: Request,
     user: AuthenticatedUser,
     estancia_id: str,
@@ -179,8 +180,8 @@ def _render_per_stay_list(
 def list_estancia_materiales_view(
     estancia_id: str,
     request: Request,
-    user: AuthenticatedUser = Depends(require_authorized_user),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_authorized_user)],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Per-stay junction list.
 
@@ -214,14 +215,14 @@ def list_estancia_materiales_view(
 
 
 @router.post("/acogidas/{estancia_id}/materiales", response_class=HTMLResponse)
-def assign_material_to_estancia_view(
+def assign_material_to_estancia_view(  # noqa: PLR0913  # 2 Form fields + 5 fixed deps; form model would add noise
     estancia_id: str,
     request: Request,
-    material_id: str = Form(...),
-    cantidad: str = Form("1"),
-    notas: str | None = Form(None),
-    user: AuthenticatedUser = Depends(require_writer_user),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_writer_user)],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    material_id: Annotated[str, Form()],
+    cantidad: Annotated[str, Form()] = "1",
+    notas: Annotated[str | None, Form()] = None,
 ):
     """Assign a material to this stay.
 
@@ -314,8 +315,8 @@ def remove_material_from_estancia_view(
     estancia_id: str,
     junction_id: str,
     request: Request,
-    user: AuthenticatedUser = Depends(require_writer_user),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    user: Annotated[AuthenticatedUser, Depends(require_writer_user)],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
     """Soft-delete a single junction row.
 

@@ -16,6 +16,7 @@ CSRF: all POST forms include csrf_token (CsrfMiddleware validates).
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -31,6 +32,7 @@ from app.core.csrf import csrf_token_context_processor
 from app.core.insforge import InsForgeClient
 from app.core.middleware import base_template_context_processor
 from app.modules.tasks import service as tareas_service
+from app.modules.tasks.forms import TareaForm
 
 router = APIRouter(prefix="/tareas", tags=["tareas"])
 
@@ -45,14 +47,14 @@ _templates = Jinja2Templates(
 
 
 @router.get("", response_class=HTMLResponse)
-def listar_tareas(
+def listar_tareas(  # noqa: PLR0913  # 4 query filters + 3 fixed deps; filters needed for task UX
     request: Request,
+    current_user: Annotated[dict, Depends(require_authorized_user)],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client)],
     estado: str | None = None,
     responsable_id: str | None = None,
     vinculo_tipo: str | None = None,
     vinculo_id: str | None = None,
-    current_user: dict = Depends(require_authorized_user),
-    client: InsForgeClient = Depends(get_insforge_client),
 ):
     """List tareas with optional filters (estado, responsable, vinculo)."""
     try:
@@ -112,8 +114,8 @@ def _render_tareas_list(
 def detalle_tarea(
     request: Request,
     tarea_id: str,
-    current_user: dict = Depends(require_authorized_user),
-    client: InsForgeClient = Depends(get_insforge_client),
+    current_user: Annotated[dict, Depends(require_authorized_user)],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client)],
 ):
     """Render the detail view for a single tarea."""
     tarea = tareas_service.obtener_tarea(client=client, tarea_id=tarea_id)
@@ -136,15 +138,10 @@ def detalle_tarea(
 @router.post("", response_class=RedirectResponse)
 def crear_tarea(
     request: Request,
-    tipo: str = Form(...),
-    origen: str = Form("dashboard_manual"),
-    prioridad: str = Form("normal"),
-    vencimiento_at: str | None = Form(None),
-    vinculo_tipo: str | None = Form(None),
-    vinculo_id: str | None = Form(None),
-    current_user: dict = Depends(require_authorized_user),
-    client: InsForgeClient = Depends(get_insforge_client),
-):
+    form: Annotated[TareaForm, Form()],
+    current_user: Annotated[dict, Depends(require_authorized_user)],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client)],
+):  # noqa: PLR0913  # refactored to TareaForm
     """Create a manual tarea from form data.
 
     On success redirects to GET /tareas.
@@ -153,12 +150,12 @@ def crear_tarea(
     try:
         tareas_service.crear_tarea(
             client=client,
-            tipo=tipo,
-            origen=origen,
-            prioridad=prioridad,
-            vencimiento_at=vencimiento_at,
-            vinculo_tipo=vinculo_tipo,
-            vinculo_id=vinculo_id,
+            tipo=form.tipo,
+            origen=form.origen,
+            prioridad=form.prioridad,
+            vencimiento_at=form.vencimiento_at,
+            vinculo_tipo=form.vinculo_tipo,
+            vinculo_id=form.vinculo_id,
         )
     except ValueError:
         # Redirect back to list on validation error
@@ -172,10 +169,10 @@ def crear_tarea(
 @router.post("/{tarea_id}/asignar", response_class=RedirectResponse)
 def asignar_tarea(
     request: Request,
+    current_user: Annotated[dict, Depends(require_authorized_user)],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client)],
     tarea_id: str,
-    responsable_id: str | None = Form(None),
-    current_user: dict = Depends(require_authorized_user),
-    client: InsForgeClient = Depends(get_insforge_client),
+    responsable_id: Annotated[str | None, Form()] = None,
 ):
     """Assign a tarea to a responsable (or unassign)."""
     try:
@@ -195,10 +192,10 @@ def asignar_tarea(
 @router.post("/{tarea_id}/cerrar", response_class=RedirectResponse)
 def cerrar_tarea(
     request: Request,
+    current_user: Annotated[dict, Depends(require_authorized_user)],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client)],
     tarea_id: str,
-    comentario: str | None = Form(None),
-    current_user: dict = Depends(require_authorized_user),
-    client: InsForgeClient = Depends(get_insforge_client),
+    comentario: Annotated[str | None, Form()] = None,
 ):
     """Close a tarea (transition to 'completada')."""
     try:
