@@ -248,63 +248,96 @@ the original to a re-export shim. Apply the §32.P4 `InsForgeError`
 fix in `require_authorized_user` in the same PR. Refresh this audit
 doc and add the architectural pin test.
 
-Files changed:
+Files changed (5 total — corrected from the prior tally of 4):
 
-- Created: `app/core/di/auth_dependencies_di.py` (~375 lines)
-- Created: `tests/test_auth_dependencies_slice.py` (7 atoms)
-- Modified: `app/core/auth_dependencies.py` → ~34-line re-export shim
+- Created: `app/core/di/auth_dependencies_di.py` (443 lines after the
+  cycle-fix §Lazy-import helper; 510 lines including blank lines)
+- Created: `tests/test_auth_dependencies_slice.py` (8 atoms after
+  the gate-review backfill: atoms 1–7 plus atom 8 fresh-process
+  regression test)
+- Modified: `app/core/auth_dependencies.py` → 24-line re-export shim
+  after the docstring compaction (down from the prior 41 lines; the
+  cycle fix did not require touching the shim)
+- Modified: `tests/test_middleware_is_authorized.py` — source-pin
+  location update (the pre-slice default-deny check now lives in the
+  di module, not in the shim body)
 - Modified: `docs/audits/auth-dependencies-audit-2026-Q2.md` (this addendum)
 
 ### Methodology
 
-1. **CodeGraph caller map** of the 9 symbols: ~35 consumer files
+1. **CodeGraph caller map** of the 9 symbols: 35 consumer files
    (corrected from the design's 19 — the prior count was a partial
    sample; the actual surface includes `app/core/admin_handlers.py`,
    `app/core/auth_flow.py`, `app/core/rbac.py`, every
-   `app/modules/*/routes.py` (13 modules), and the two test files).
-   The shim approach is transparent for all of them.
-2. **AST diff**: shim body is `from app.core.logging import log_safe`
-   + `from app.core.session import read_session_payload` + `from app.core.di.auth_dependencies_di import *`
-   plus a module docstring; no logic. The extra `log_safe` /
+   `app/modules/*/routes.py` plus 3 `batch_routes.py` files, the
+   `app/main.py` lifespan body, and 16 test files including
+   `tests/test_auth_dependencies.py`, `tests/test_auth_session_is_authorized.py`,
+   `tests/test_middleware_is_authorized.py`,
+   `tests/test_rbac.py`, `tests/test_rule_7_compliance.py`,
+   `tests/test_apap004_user_any.py`, the 8 module-routes test
+   files, and the 3 module-batch-routes test files). The shim
+   approach is transparent for all of them.
+2. **AST diff**: the post-fix shim body is
+   `from app.core.di.auth_dependencies_di import *` +
+   `from app.core.logging import log_safe` +
+   `from app.core.session import read_session_payload` plus a
+   module docstring; no logic. The extra `log_safe` /
    `read_session_payload` re-exports let the existing tests'
    `monkeypatch.setattr("app.core.auth_dependencies.log_safe", ...)`
-   patches propagate to the di module's function calls (the di module
-   resolves these names via `_shim.<name>` at call time).
+   patches propagate to the di module's function calls (the di
+   module resolves these names via `_shim().<name>` at call time).
 3. **Signature comparison**: `inspect.signature()` for each of the 9
    names matches between shim and di module byte-for-byte
    (atom 5 of the pin test).
 4. **§32.P4 review**: identified the unhandled `InsForgeError` path
    in `require_authorized_user` → revalidation step → designed Variant A.
-5. **Lazy-import cycle (#226)**: documented in
+5. **DI↔shim cycle fix (gate correction 1)**: the prior
+   ``from app.core import auth_dependencies as _shim`` at module
+   level created an order-dependent cycle. A fresh process that
+   imported the di module FIRST triggered a partial shim load; the
+   shim's `from app.core.di.auth_dependencies_di import *` then
+   ran against the PARTIAL di module (the 9 public symbols are
+   defined AFTER the di module's module-level shim import) and the
+   shim ended up empty of its 9 consumer-facing re-exports. The fix
+   replaces the module-level binding with a lazy lookup helper
+   ``_shim()`` inside the di module — see
+   :func:`app.core.di.auth_dependencies_di._shim`. The shim is
+   unchanged structurally; only the di module's import strategy
+   changed. The fresh-process regression test
+   ``tests/test_auth_dependencies_slice.py::test_shim_exports_resolve_when_di_module_imported_first``
+   pins the invariant.
+6. **Lazy-import cycle (#226)**: documented in
    `decisiones-proyecto.md`; module-level import from `app.core.auth`
-   unchanged. The new di module imports the shim (`from app.core
-   import auth_dependencies as _shim`) at module level so the test
-   patches on the shim propagate to the di module's call sites that
-   read `log_safe` / `read_session_payload` via `_shim`. This is a new
-   cycle (di module ↔ shim) but it is module-level on both sides and
-   the import order is set up so the shim's `log_safe` and
-   `read_session_payload` are bound before the di module's import
-   triggers. Not yet tracked in `decisiones-proyecto.md`; will be added
-   in a follow-up.
+   unchanged. The new di module does NOT import the shim at module
+   level anymore — it looks the shim up at call time via
+   ``_shim()`` — so the prior module-level cycle is gone. This
+   decision (Option A in engram observation #24065) is the canonical
+   shape for the 11 module slices that follow.
 
 ### Findings
 
 | Severity | Finding | Resolution |
 |---|---|---|
-| CRITICAL | §32.P4: `InsForgeError` from `get_user_by_email` would escape as 500 (issue #294). | Variant A in same PR — `try/except InsForgeError` wraps the single `get_user_by_email(client, email)` call, emits `log_safe("auth.denied", reason="db_unreachable", user_id=...)`, returns `RedirectResponse("/unauthorized", 302)`. Cache is NOT poisoned (atom 4 negative guard). |
+| CRITICAL | §32.P4: `InsForgeError` from `get_user_by_email` would escape as 500 (issue #294). | Variant A in same PR — `try/except InsForgeError` wraps the single `get_user_by_email(client, email)` call, emits `log_safe("auth.denied", reason="db_unreachable", user_id=...)`, returns `RedirectResponse("/unauthorized", 302)`. Cache is NOT poisoned (atom 4 negative guard via the `set_cached_auth` fixture's `call_count`). |
+| CRITICAL | DI↔shim order-dependent module-level cycle (gate correction 1) — a fresh process importing the di module first broke all consumer `from app.core.auth_dependencies import <name>` paths with `ImportError`. | Replaced the di module's module-level `from app.core import auth_dependencies as _shim` with a lazy lookup helper `_shim()`. Shim is unchanged structurally. Pinned by the new atom 8 fresh-process regression test (a `subprocess` invocation that clears `sys.modules` then imports the di module first). |
 | INFO | Module-level import from `app.core.auth` (cycle #226) — the pre-existing convention. | Documented in `decisiones-proyecto.md`; unchanged. |
-| INFO | New cycle: di module ↔ shim (di module imports shim as `_shim`; shim imports di module's functions via `import *`). | Module-level on both sides; import order in the shim binds `log_safe` and `read_session_payload` before the di module's import triggers. To be recorded in `decisiones-proyecto.md` in a follow-up. |
-| INFO | Shim is 34 lines, well below the 50-line cap. | No new `BASELINE` entry required (rule §21). |
+| INFO | R04 leak constraint, full set (gate correction 3): the prior atom 3 only checked `execute_sql` calls. The updated atom 3 enforces the complete set: (a) no raw SQL keywords in code string literals, (b) no `InsForgeClient(...)` construction outside the single permitted fallback site, (c) no direct `app.core.auth_cache` access outside the `get_cached_auth` / `set_cached_auth` facade. | Pinned by atom 3 with the `_module_r04_violations` AST helper. |
+| INFO | Shim is 24 lines, well below the 50-line cap (gate correction 4 — the prior tally said 34; the shim shrunk further after the docstring compaction). | No new `BASELINE` entry required (rule §21). |
+| INFO | Di module is 443 lines (gate correction 4 — the prior tally said 375; the bump is from the cycle fix's `_shim()` helper + the order-explanation docstring, 510 lines including blank lines). | Still within the 700-line module budget (atom 6 + rule §21). |
 | INFO | `AuthCacheBackend` Protocol exists but is bypassed by the module-level `get_cached_auth` / `set_cached_auth` facade. | Pre-existing debt (issue #287); out of scope for this slice. |
 | INFO | `app.dependency_overrides[<key>]` continues to work for `get_insforge_client`, `get_insforge_client_dep`, `get_current_user_optional`. The first is from `app.main` (unchanged); the latter two are re-exported by the shim with identity (`shim.<X> is di.<X>`, atom 2). | No change needed. |
 
 ### Verdict
 
 **PASS** — slice migrated to `app/core/di/`, 9 signatures byte-identical
-(pin test atom 5), §32.P4 fix in place (pin test atom 4), no consumer
-import path broken (pin test atoms 1 + 2), all 45 existing tests in
-`tests/test_auth_dependencies.py` + `tests/test_auth_session_is_authorized.py`
-pass without modification, audit doc addendum shipped.
+(pin test atom 5), §32.P4 fix in place with the cache-poisoning
+negative guard (pin test atom 4), no consumer import path broken in
+either import order (pin test atoms 1, 2, and the new atom 8
+fresh-process regression test), all 49 existing tests in
+`tests/test_auth_dependencies.py` +
+`tests/test_auth_session_is_authorized.py` +
+`tests/test_middleware_is_authorized.py` pass without modification,
+audit doc addendum shipped.
 
 ### Out of scope (gate correction 4)
 
@@ -325,5 +358,7 @@ and live behind separate PRs in the epic #420 chain:
 
 Each will land its own `app/core/di/<module>_di.py` (the
 module-slice composition root) following the same shim pattern this
-slice establishes. The shim's `import *` is the precedent they will
-copy.
+slice establishes, AND applying the lazy-import `_shim()` pattern
+where the module needs to read helpers from the legacy shim. The
+shim's `import *` and the di module's lazy lookup are the two
+precedents they will copy.
