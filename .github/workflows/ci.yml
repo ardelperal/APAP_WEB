@@ -114,6 +114,22 @@ jobs:
         # test_ci_workflow_lint_job_runs_ruff_ratchet_gate.
         run: python scripts/check_ruff_ratchet.py
 
+      - name: Run vulture dead-code guard (issues #392, #424)
+        # Removing this step is a blocked change. Raw vulture output is
+        # unusable — ~90% of findings are framework-driven false positives
+        # (FastAPI route handlers, pytest fixtures). The guard filters in
+        # three stages: (1) AST resolution of vulture's decorator line to its
+        # def, then drop anything decorated; (2) name drop for framework
+        # hooks; (3) cross-reference against every identifier used under
+        # REFERENCE_SCOPE, which includes tests so a production helper
+        # exercised only by the suite is not reported.
+        #
+        # #424: the first version of this step could not fail — its regex
+        # matched no vulture line, its def resolution walked the wrong way,
+        # and its cross-reference compared vulture's output against itself.
+        # tests/test_check_vulture_guard.py pins all three.
+        run: python scripts/check_vulture_guard.py
+
   security:
     name: security
     # Issue #381. Light scanners only — these run on every PR and must stay
