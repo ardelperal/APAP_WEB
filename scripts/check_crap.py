@@ -290,26 +290,10 @@ def measure_tree(
     return dict(sorted(measured.items()))
 
 
-def check_tree(
-    root: Path,
-    *,
-    baseline: Mapping[str, float] | None = None,
-    coverage_path: Path | None = None,
+def _check_measured_scores(
+    measured: Mapping[str, float],
+    baseline: Mapping[str, float],
 ) -> tuple[list[str], list[str]]:
-    """Return ``(violations, notices)`` for the scanned tree."""
-    if baseline is None:
-        baseline = BASELINE_CRAP
-    coverage_file = coverage_path or root / "coverage.json"
-    if not coverage_file.is_file():
-        return [], [
-            "coverage.json missing — CRAP check skipped (run pytest --cov first)"
-        ]
-    try:
-        coverage_files = _load_coverage(coverage_file)
-        measured = measure_tree(root, coverage_path=coverage_file)
-    except (OSError, UnicodeDecodeError, SyntaxError, TypeError, ValueError) as exc:
-        return [str(exc)], []
-
     violations: list[str] = []
     notices: list[str] = []
     for key, score in measured.items():
@@ -330,7 +314,16 @@ def check_tree(
                 f"{key}: CRAP={score:.2f}, outside grade {MAX_CRAP_GRADE} "
                 f"(requires CRAP < {MAX_CRAP_SCORE:g})"
             )
+    return violations, notices
 
+
+def _check_stale_baseline(
+    coverage_files: Mapping[str, Any],
+    measured: Mapping[str, float],
+    baseline: Mapping[str, float],
+) -> tuple[list[str], list[str]]:
+    violations: list[str] = []
+    notices: list[str] = []
     for key in sorted(set(baseline) - set(measured)):
         rel = key.split("::", 1)[0]
         if _coverage_record(coverage_files, rel) is None:
@@ -342,6 +335,35 @@ def check_tree(
                 f"{key}: stale BASELINE_CRAP entry — function no longer exists"
             )
     return violations, notices
+
+
+def check_tree(
+    root: Path,
+    *,
+    baseline: Mapping[str, float] | None = None,
+    coverage_path: Path | None = None,
+) -> tuple[list[str], list[str]]:
+    """Return ``(violations, notices)`` for the scanned tree."""
+    if baseline is None:
+        baseline = BASELINE_CRAP
+    coverage_file = coverage_path or root / "coverage.json"
+    if not coverage_file.is_file():
+        return [], [
+            "coverage.json missing — CRAP check skipped (run pytest --cov first)"
+        ]
+    try:
+        coverage_files = _load_coverage(coverage_file)
+        measured = measure_tree(root, coverage_path=coverage_file)
+    except (OSError, UnicodeDecodeError, SyntaxError, TypeError, ValueError) as exc:
+        return [str(exc)], []
+
+    violations, notices = _check_measured_scores(measured, baseline)
+    stale_violations, stale_notices = _check_stale_baseline(
+        coverage_files,
+        measured,
+        baseline,
+    )
+    return violations + stale_violations, notices + stale_notices
 
 
 def _emit_baseline(root: Path) -> int:
