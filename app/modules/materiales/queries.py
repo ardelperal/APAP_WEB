@@ -88,20 +88,20 @@ JUNCTION_SELECT_COLUMNS: Final[tuple[str, ...]] = (
 
 
 _MATERIAL_INSERT_SQL: Final[str] = (
-    f"INSERT INTO materiales ({', '.join(MATERIAL_WRITE_COLUMNS)}) "
+    f"INSERT INTO materiales ({', '.join(MATERIAL_WRITE_COLUMNS)}) "  # noqa: S608
     f"VALUES ({', '.join(f'${i + 1}' for i in range(len(MATERIAL_WRITE_COLUMNS)))}) "
     f"RETURNING {', '.join(MATERIAL_SELECT_COLUMNS)}"
 )
 
 
 _MATERIAL_GET_BY_ID_SQL: Final[str] = (
-    f"SELECT {', '.join(MATERIAL_SELECT_COLUMNS)} "
+    f"SELECT {', '.join(MATERIAL_SELECT_COLUMNS)} "  # noqa: S608 constant identifiers
     "FROM materiales WHERE id = $1"
 )
 
 
 _MATERIAL_LIST_FILTER_ACTIVE_SQL: Final[str] = (
-    f"SELECT {', '.join(MATERIAL_SELECT_COLUMNS)} "
+    f"SELECT {', '.join(MATERIAL_SELECT_COLUMNS)} "  # noqa: S608 constant identifiers
     "FROM materiales "
     "WHERE activo = true "
     "ORDER BY fecha_alta DESC"
@@ -109,7 +109,7 @@ _MATERIAL_LIST_FILTER_ACTIVE_SQL: Final[str] = (
 
 
 _MATERIAL_LIST_ALL_SQL: Final[str] = (
-    f"SELECT {', '.join(MATERIAL_SELECT_COLUMNS)} "
+    f"SELECT {', '.join(MATERIAL_SELECT_COLUMNS)} "  # noqa: S608 constant identifiers
     "FROM materiales "
     "ORDER BY fecha_alta DESC"
 )
@@ -142,14 +142,14 @@ RETURNING id
 
 
 _JUNCTION_INSERT_SQL: Final[str] = (
-    f"INSERT INTO estancia_materiales ({', '.join(JUNCTION_WRITE_COLUMNS)}) "
+    f"INSERT INTO estancia_materiales ({', '.join(JUNCTION_WRITE_COLUMNS)}) "  # noqa: S608
     f"VALUES ({', '.join(f'${i + 1}' for i in range(len(JUNCTION_WRITE_COLUMNS)))}) "
     f"RETURNING {', '.join(JUNCTION_SELECT_COLUMNS)}"
 )
 
 
 _JUNCTION_LIST_FOR_ESTANCIA_SQL: Final[str] = (
-    f"SELECT {', '.join(JUNCTION_SELECT_COLUMNS)} "
+    f"SELECT {', '.join(JUNCTION_SELECT_COLUMNS)} "  # noqa: S608 constant identifiers
     "FROM estancia_materiales "
     "WHERE estancia_id = $1 AND activo = true "
     "ORDER BY fecha_alta DESC"
@@ -157,7 +157,7 @@ _JUNCTION_LIST_FOR_ESTANCIA_SQL: Final[str] = (
 
 
 _JUNCTION_LIST_FOR_ESTANCIA_ALL_SQL: Final[str] = (
-    f"SELECT {', '.join(JUNCTION_SELECT_COLUMNS)} "
+    f"SELECT {', '.join(JUNCTION_SELECT_COLUMNS)} "  # noqa: S608 constant identifiers
     "FROM estancia_materiales "
     "WHERE estancia_id = $1 "
     "ORDER BY fecha_alta DESC"
@@ -255,7 +255,7 @@ def build_material_update(
             "(material / tamano / color / observaciones)"
         )
     sql = (
-        "UPDATE materiales SET "
+        "UPDATE materiales SET "  # noqa: S608 constant identifiers; values are $N binds
         + ", ".join(f"{col} = ${i + 2}" for i, col in enumerate(set_columns))
         + ", updated_at = now() "
         + "WHERE id = $1 "

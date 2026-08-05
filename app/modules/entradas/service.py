@@ -81,23 +81,23 @@ _INSERT_ENTRADA_SQL = f"""
 INSERT INTO entradas ({", ".join(_WRITE_COLUMNS)})
 VALUES ({", ".join(f"${i+1}" for i in range(len(_WRITE_COLUMNS)))})
 RETURNING {", ".join(_SELECT_COLUMNS)}
-"""
+"""  # noqa: S608 constant identifiers; values are $N binds
 
 _LIST_ENTRADAS_SQL = f"""
 SELECT {", ".join(_SELECT_COLUMNS)}
 FROM entradas
 WHERE activo = true
 ORDER BY fecha_alta DESC
-"""
+"""  # noqa: S608 constant identifiers; values are $N binds
 
 _GET_ENTRADA_BY_ID_SQL = f"""
 SELECT {", ".join(_SELECT_COLUMNS)}
 FROM entradas
 WHERE id = $1
-"""
+"""  # noqa: S608 constant identifiers; values are $N binds
 
 _UPDATE_ENTRADA_SQL = (
-    "UPDATE entradas SET "
+    "UPDATE entradas SET "  # noqa: S608 constant identifiers; values are $N binds
     + ", ".join(f"{col} = ${i+2}" for i, col in enumerate(_WRITE_COLUMNS))
     + ", updated_at = now() "
     + "WHERE id = $1 "
