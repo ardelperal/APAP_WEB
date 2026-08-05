@@ -1,0 +1,37 @@
+#!/usr/bin/env sh
+# APAP_WEB advisory-only pre-commit quality signal.
+#
+# User granted the AGENTS.md §15.5 git-hooks exception for the
+# quality-gates-expansion session. This hook MUST always exit 0. CI runs the
+# same detectors independently, so --no-verify never cancels the release gate
+# (REQ-QG-HOOK-3 / AGENTS.md §32.P7).
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR 2>/dev/null \
+    | grep -E '\.py$' || true)
+if [ -z "$staged" ]; then
+    exit 0
+fi
+
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+cd "$repo_root" || exit 0
+
+echo "ADVISORY: running staged-Python quality signals; findings never block commit"
+
+findings=0
+for detector in \
+    scripts/check_crap.py \
+    scripts/check_jscpd.py \
+    scripts/check_mutation_sites.py
+do
+    echo "ADVISORY: $detector"
+    if ! python "$detector"; then
+        findings=$((findings + 1))
+    fi
+done
+
+if [ "$findings" -gt 0 ]; then
+    echo "ADVISORY: $findings detector(s) reported findings; review the output before pushing."
+fi
+
+echo "ADVISORY: pre-commit quality signals complete; commit allowed."
+exit 0
