@@ -1044,7 +1044,18 @@ class TestLegacyReader:
 
 
 class TestWebReader:
-    """Tests para ``web_reader.load_web_snapshot``."""
+    """Tests para ``migration.application.web_reader.load_web_snapshot``.
+
+    La hexagonal slice (``refactor/hexagonal-slice-migration-web``)
+    mueve el read-side a ``migration/application/web_reader/`` con
+    un Protocol port y un adapter InsForge. Los tests siguen
+    importando ``WebTableSpec`` + ``load_web_snapshot`` desde el
+    shim ``migration.web_reader`` (backwards compat), pero el
+    cliente ahora se inyecta via :class:`WebReaderPort`
+    (concretamente el :class:`InsForgeWebReaderAdapter`) en lugar
+    del :class:`InsForgeClient` raw — el Protocol port es el seam
+    que oculta el transporte al use case.
+    """
 
     def _make_mock_client(self, captured: list[str]) -> InsForgeClient:
         """Construye un InsForgeClient con MockTransport que captura el SQL enviado."""
@@ -1068,10 +1079,15 @@ class TestWebReader:
         captured: list[str] = []
         client = self._make_mock_client(captured)
 
+        from migration.adapters.insforge.web_reader_insforge_adapter import (
+            InsForgeWebReaderAdapter,
+        )
         from migration.web_reader import WebTableSpec, load_web_snapshot
 
+        port = InsForgeWebReaderAdapter(client)
+
         result = load_web_snapshot(
-            client,
+            port,
             [WebTableSpec("animales", ("id", "NCHIP"))],
         )
 
@@ -1088,11 +1104,16 @@ class TestWebReader:
         captured: list[str] = []
         client = self._make_mock_client(captured)
 
+        from migration.adapters.insforge.web_reader_insforge_adapter import (
+            InsForgeWebReaderAdapter,
+        )
         from migration.web_reader import WebTableSpec, load_web_snapshot
 
         since = datetime(2026, 6, 20, 10, 0)
+        port = InsForgeWebReaderAdapter(client)
+
         load_web_snapshot(
-            client,
+            port,
             [WebTableSpec("animales", ("id",), since=since)],
         )
 
@@ -1116,10 +1137,15 @@ class TestWebReader:
             transport=httpx.MockTransport(handler),
         )
 
+        from migration.adapters.insforge.web_reader_insforge_adapter import (
+            InsForgeWebReaderAdapter,
+        )
         from migration.web_reader import WebTableSpec, load_web_snapshot
 
+        port = InsForgeWebReaderAdapter(client)
+
         result = load_web_snapshot(
-            client,
+            port,
             [WebTableSpec("animales", ("id",))],
         )
 
