@@ -11,19 +11,25 @@
     "is expected to confirm these counts; if the runner reports different ones,",
     "re-acquire there and replace this file rather than widening the entries.",
     "",
-    "Session health at acquisition: 233 mutants, 129 KILLED, 104 SURVIVED,",
-    "0 INCOMPETENT -- 44.64% survival. The same module measured on native",
-    "Windows returned 233/233 INCOMPETENT with cr-rate reporting a passing",
-    "0.00, which is why the gate checks run health before it checks any score."
+    "Session health at acquisition: 233 mutants generated, 66 SKIPPED by",
+    "cr-filter-operators (unkillable PEP 604 annotation mutations), 167",
+    "executed, 129 KILLED, 38 SURVIVED, 0 INCOMPETENT -- 22.75% survival of",
+    "killable mutants. The unfiltered run reported 44.64%, of which 63% was",
+    "annotation noise; running without the filter re-inflates these numbers.",
+    "",
+    "The same module measured on native Windows returned 233/233 INCOMPETENT",
+    "with cr-rate reporting a passing 0.00, which is why the gate checks run",
+    "health before it checks any score."
   ],
   "acquired_on": {
     "date": "2026-08-06",
     "platform": "linux-x86_64 (WSL Ubuntu 22.04)",
     "python": "3.12.3",
     "cosmic_ray": "8.4.6",
-    "pythonhashseed": "0"
+    "pythonhashseed": "0",
+    "operators_filtered": "core/ReplaceBinaryOperator_BitOr_.*"
   },
   "modules": {
-    "migration/derivation.py": 104
+    "migration/derivation.py": 38
   }
 }

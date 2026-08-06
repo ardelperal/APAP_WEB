@@ -39,11 +39,18 @@ CREATE TABLE work_results (
 """
 
 
-def make_session(path: Path, jobs: list[tuple[str, str | None]]) -> Path:
+def make_session(
+    path: Path,
+    jobs: list[tuple[str, str | None]],
+    *,
+    skipped: list[str] | None = None,
+) -> Path:
     """Write a cosmic-ray-shaped session.
 
     ``jobs`` is a list of ``(module_path, test_outcome)``. A ``None`` outcome
-    models a queued job that never produced a result.
+    models a queued job that never produced a result. ``skipped`` adds modules
+    whose mutants were filtered out by ``cr-filter-operators``: those carry
+    ``worker_outcome = SKIPPED`` and a NULL ``test_outcome``.
     """
     connection = sqlite3.connect(path)
     try:
@@ -60,6 +67,17 @@ def make_session(path: Path, jobs: list[tuple[str, str | None]]) -> Path:
                     "INSERT INTO work_results VALUES (?, ?, ?)",
                     ("NORMAL", outcome, job_id),
                 )
+        for index, module_path in enumerate(skipped or []):
+            job_id = f"skipped-{index}"
+            connection.execute("INSERT INTO work_items VALUES (?)", (job_id,))
+            connection.execute(
+                "INSERT INTO mutation_specs VALUES (?, ?, ?)",
+                (module_path, "core/ReplaceBinaryOperator_BitOr_Add", job_id),
+            )
+            connection.execute(
+                "INSERT INTO work_results VALUES (?, ?, ?)",
+                ("SKIPPED", None, job_id),
+            )
         connection.commit()
     finally:
         connection.close()
@@ -157,6 +175,58 @@ def test_health_rejects_a_run_that_killed_nothing(tmp_path: Path) -> None:
     rows, _ = read_session(session)
     violations = check_run_health(rows)
     assert any("0/10 mutants were killed" in v for v in violations)
+
+
+# --- filtered (SKIPPED) mutants --------------------------------------------
+
+
+def test_filtered_mutants_do_not_make_a_session_look_incomplete(
+    tmp_path: Path,
+) -> None:
+    """cr-filter-operators leaves SKIPPED rows with a NULL test_outcome.
+
+    Treating those as pending work would fail every filtered session — the
+    regression this test exists to prevent.
+    """
+    session = make_session(
+        tmp_path / "s.sqlite",
+        [("app/m.py", "KILLED")] * 10,
+        skipped=["app/m.py"] * 66,
+    )
+    rows, _ = read_session(session)
+    assert len(rows) == 76
+    assert check_run_health(rows) == []
+
+
+def test_filtered_mutants_are_excluded_from_the_incompetent_ratio(
+    tmp_path: Path,
+) -> None:
+    """A skipped mutant is not evidence of a broken runner."""
+    session = make_session(
+        tmp_path / "s.sqlite",
+        [("app/m.py", "KILLED")] * 10,
+        skipped=["app/m.py"] * 90,
+    )
+    rows, _ = read_session(session)
+    assert check_run_health(rows) == []
+
+
+def test_filtered_mutants_are_not_counted_as_survivors(tmp_path: Path) -> None:
+    session = make_session(
+        tmp_path / "s.sqlite",
+        [("app/m.py", "SURVIVED"), ("app/m.py", "KILLED")],
+        skipped=["app/m.py"] * 66,
+    )
+    rows, _ = read_session(session)
+    assert measure_survivors(rows) == {"app/m.py": 1}
+
+
+def test_a_fully_filtered_session_is_rejected(tmp_path: Path) -> None:
+    """An over-broad exclude-operators list must not read as a clean run."""
+    session = make_session(tmp_path / "s.sqlite", [], skipped=["app/m.py"] * 20)
+    rows, _ = read_session(session)
+    violations = check_run_health(rows)
+    assert any("filtered out" in v for v in violations)
 
 
 # --- measure_survivors -----------------------------------------------------

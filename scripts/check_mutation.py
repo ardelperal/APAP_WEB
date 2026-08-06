@@ -49,6 +49,7 @@ DEFAULT_BASELINE_PATH = "docs/quality/mutation-baseline.json"
 _SURVIVED = "survived"
 _KILLED = "killed"
 _INCOMPETENT = "incompetent"
+_SKIPPED = "skipped"
 
 
 def _normalize_outcome(raw: object) -> str:
@@ -74,7 +75,8 @@ def read_session(session_path: Path) -> tuple[list[dict[str, Any]], list[str]]:
 
     query = """
         SELECT ms.module_path AS module_path,
-               wr.test_outcome AS test_outcome
+               wr.test_outcome AS test_outcome,
+               wr.worker_outcome AS worker_outcome
         FROM work_items AS wi
         JOIN mutation_specs AS ms ON ms.job_id = wi.job_id
         LEFT JOIN work_results AS wr ON wr.job_id = wi.job_id
@@ -96,10 +98,24 @@ def read_session(session_path: Path) -> tuple[list[dict[str, Any]], list[str]]:
         {
             "module_path": Path(str(row["module_path"])).as_posix(),
             "test_outcome": _normalize_outcome(row["test_outcome"]),
+            "worker_outcome": _normalize_outcome(row["worker_outcome"]),
         }
         for row in raw_rows
     ]
     return rows, []
+
+
+def active_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop jobs deliberately excluded before execution.
+
+    ``cr-filter-operators`` records a filtered mutant as
+    ``worker_outcome = SKIPPED`` with a NULL ``test_outcome``. Those are not
+    pending work and they are not results — they were never meant to run, so
+    they must not count toward completeness, the INCOMPETENT ratio, or the
+    survivor totals. Without this, enabling the filter would make every
+    session look incomplete.
+    """
+    return [row for row in rows if row["worker_outcome"] != _SKIPPED]
 
 
 def check_run_health(rows: list[dict[str, Any]]) -> list[str]:
@@ -109,9 +125,16 @@ def check_run_health(rows: list[dict[str, Any]]) -> list[str]:
     carries no information, and reporting its survival rate would be worse
     than reporting nothing.
     """
+    if not rows:
+        return ["session contains no mutation jobs — nothing was measured"]
+
+    rows = active_rows(rows)
     total = len(rows)
     if total == 0:
-        return ["session contains no mutation jobs — nothing was measured"]
+        return [
+            "every mutant in the session was filtered out — the "
+            "exclude-operators list is too broad to measure anything"
+        ]
 
     pending = sum(1 for row in rows if not row["test_outcome"])
     if pending:
@@ -144,7 +167,7 @@ def check_run_health(rows: list[dict[str, Any]]) -> list[str]:
 def measure_survivors(rows: list[dict[str, Any]]) -> dict[str, int]:
     """Return POSIX-style module path to surviving-mutant count."""
     survivors: dict[str, int] = {}
-    for row in rows:
+    for row in active_rows(rows):
         module = row["module_path"]
         survivors.setdefault(module, 0)
         if row["test_outcome"] == _SURVIVED:

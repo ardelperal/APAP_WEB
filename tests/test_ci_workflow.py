@@ -652,6 +652,25 @@ def test_ci_workflow_mutation_job_runs_the_ratchet_gate() -> None:
     )
 
 
+def test_ci_workflow_mutation_job_filters_equivalent_mutants() -> None:
+    """Issue #431: ``cr-filter-operators`` must run between init and exec.
+
+    It excludes mutations of the ``|`` in PEP 604 annotations, which no test
+    can kill because ``from __future__ import annotations`` stops annotations
+    from evaluating. On the first pilot session those were 66 of 104 reported
+    survivors — dropping this step inflates every baseline by ~63%.
+    """
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    mutation_job = _job_executable(workflow, "\n  mutation:", "\n  typecheck:")
+
+    assert "cr-filter-operators" in mutation_job
+    assert (
+        mutation_job.index("cosmic-ray init")
+        < mutation_job.index("cr-filter-operators")
+        < mutation_job.index("cosmic-ray exec")
+    )
+
+
 def test_ci_workflow_mutation_job_is_never_triggered_by_a_pull_request() -> None:
     """Issue #431: the mutation job is scheduled/manual only.
 
