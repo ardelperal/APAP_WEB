@@ -103,6 +103,21 @@ jobs:
         # test_ci_workflow_lint_job_runs_layers_gate.
         run: python scripts/check_layers.py
 
+      - name: Run slice-completeness gate (AGENTS.md rule 33 + hardening Step 2)
+        # Issue #420 (epic) / hardening roadmap Step 2 — removing this
+        # step is a blocked change. Sister of check_layers.py above: that
+        # gate proves "no forbidden import"; this one proves a slice is
+        # structurally complete. Four assertions per slice (core and
+        # module): port Protocol declared, adapter wired from di,
+        # application adapter-free, every occupied layer has a test
+        # file. Slices that predate the gate live in a shrink-only
+        # BASELINE (currently 4 entries: the admin slice — ports file
+        # missing, application imports AdminTemplateAdapter — fix in a
+        # follow-up that adds app/core/ports/admin_port.py).
+        # Pinned by tests/test_slice_completeness.py::
+        # test_ci_workflow_lint_job_runs_slice_completeness_gate.
+        run: python scripts/check_slice_completeness.py
+
       - name: Run docstring-coverage ratchet (issue #339)
         # Issue #339 — removing this step is a blocked change. The
         # ratchet enforces that docstring coverage in app/ + migration/
