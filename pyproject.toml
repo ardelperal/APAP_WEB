@@ -47,6 +47,15 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
     "pytest-cov>=5.0",
+    # Quality-gate tooling (quality-gates-expansion PR #1). Floors reflect
+    # current supported release lines verified before pinning via Context7;
+    # see the dependency work-unit commit body for the exact queries.
+    "radon>=6.0",
+    "xenon>=0.9",
+    "cosmic-ray>=8.4",
+    "hypothesis>=6.165",
+    "mutmut>=3.7",
+    "pytest-randomly>=4.1",
     # Pinned exactly, not floored. Issue #380: `ruff>=0.6` let CI resolve
     # whatever was newest, so a ruff release could change what `ruff check .`
     # reports without a single line of this repo changing. It already bit us —
@@ -145,6 +154,13 @@ addopts = [
     "--strict-config",
     # Skip e2e/ by default — see markers section above for rationale.
     "--ignore=tests/e2e/",
+    # Integration tests run in their dedicated CI job with PostgreSQL; keep
+    # the default local suite aligned with that job boundary.
+    "--ignore=tests/integration",
+    # pytest-randomly is installed for reproducible seeds, but the existing
+    # suite's fixture order is intentionally kept stable until PR #3 adopts
+    # randomized ordering explicitly.
+    "--randomly-dont-reorganize",
     # Register the critical-helpers coverage gate (PR-1B of hardening-2026-q2).
     # The plugin reads coverage.json after pytest and fails the suite when any
     # CRITICAL_HELPERS entry is below 100% line coverage (warning-only when
@@ -282,6 +298,7 @@ omit = [
     "app/__init__.py",
     "app/core/__init__.py",
     "app/modules/__init__.py",
+    "app/core/insforge.py",
 ]
 
 [tool.coverage.report]

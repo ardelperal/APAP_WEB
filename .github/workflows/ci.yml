@@ -130,6 +130,17 @@ jobs:
         # tests/test_check_vulture_guard.py pins all three.
         run: python scripts/check_vulture_guard.py
 
+      - name: Run jscpd duplicate-code ratchet (quality-gates-expansion)
+        # REQ-QG-DRY-1: stdlib AST Type-1/2 clone detector. The command
+        # runs in CI independently of the advisory pre-commit hook so
+        # --no-verify cannot cancel the release gate (AGENTS.md §32.P7).
+        run: python scripts/check_jscpd.py
+
+      - name: Run mutation-sites count ratchet (quality-gates-expansion)
+        # REQ-QG-MSITES-1: cheap per-file AST proxy before the scheduled
+        # cosmic-ray phase. The shrink-only baseline may only decrease.
+        run: python scripts/check_mutation_sites.py
+
   security:
     name: security
     # Issue #381. Light scanners only — these run on every PR and must stay
@@ -371,6 +382,12 @@ jobs:
             --cov-report=term \
             --cov-fail-under=85
 
+      - name: Run CRAP score ratchet (quality-gates-expansion)
+        # REQ-QG-CRAP-1: reads the coverage.json produced by the pytest
+        # step above. This MUST stay in the test job: lint has an
+        # independent checkout and cannot consume per-PR coverage.
+        run: python scripts/check_crap.py
+
   integration:
     name: integration
     runs-on: ubuntu-latest
@@ -416,11 +433,18 @@ jobs:
         # domain schema once per test session.
         # No coverage collection: integration tests measure correctness, not
         # app code coverage.
+        # The default pytest addopts excludes tests/integration, so this job
+        # overrides addopts to collect the dedicated integration test directory.
         run: |
-          python -m pytest -W error::DeprecationWarning \
+          python -m pytest \
+            --override-ini="addopts=-ra --strict-markers --strict-config --randomly-dont-reorganize" \
+            -W error::DeprecationWarning \
             --ignore=tests/e2e \
+            --no-cov \
+            tests/integration \
             -m integration \
             -v
+
 
   build:
     name: build
