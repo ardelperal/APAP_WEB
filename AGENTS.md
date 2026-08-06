@@ -1020,6 +1020,13 @@ This rule adopts the discipline from
 numeric target rather than a judgement call. We have no agent swarm; we have
 gates. Same idea, different mechanism.
 
+**Before extending the harness, read
+[`docs/quality/hardening-roadmap.md`](docs/quality/hardening-roadmap.md).** It
+carries the ordered plan, the standing assessment of what each gate does and does
+not guarantee, and the measured facts about the tooling — including the ones that
+cost hours to discover and will cost them again if re-derived. It is the handoff
+document for any agent continuing this work.
+
 #### 34.1 The quality ladder — cheap and structural first, semantic last
 
 Run in this order. Each step is meaningless if the one before it is red.
