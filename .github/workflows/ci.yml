@@ -280,6 +280,81 @@ jobs:
           done
           exit $status
 
+  mutation:
+    name: mutation
+    # Issue #431. Mutation testing is a trend instrument, not a per-PR check:
+    # the pilot module alone is 233 mutants. Same split rationale as
+    # `security-deep` above — scheduled and manual only, never on a pull
+    # request. Guards that reach this job: the weekly cron and an explicit
+    # `gh workflow run ci.yml`. Nothing in a pull request triggers it (§32.P7:
+    # this comment names which events reach the job and which are skipped).
+    #
+    # LINUX ONLY, and that is load-bearing rather than incidental. cosmic-ray
+    # 8.4.6 returns INCOMPETENT for 100% of mutants on native Windows while
+    # `cr-rate` still reports a passing 0.00 — measured 27/27 on a control
+    # module and 233/233 on migration/derivation.py. The self-hosted runner is
+    # Linux, so the gate is sound here; developers reproduce through WSL per
+    # docs/runbooks/mutation-testing.md.
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle]
+    env:
+      # TASK-2.1 (W-5) determinism mitigation. The companion `--worker-count=1`
+      # from that task does NOT exist in cosmic-ray 8.4.6: `cosmic-ray exec`
+      # takes no such option and the `local` distributor is already sequential,
+      # so single-worker execution is the built-in behaviour, not a flag.
+      PYTHONHASHSEED: "0"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: pyproject.toml
+          cache: pip
+
+      - name: Install development dependencies
+        run: python -m pip install -e ".[dev]"
+
+      - name: Verify the unmutated suite is green
+        # cosmic-ray's own sanity check. A failing baseline makes every
+        # mutant result meaningless, so this runs before any session is
+        # created. Its error block is famously terse — when it fails, run the
+        # `test-command` from docs/quality/cosmic-ray.toml by hand to see the
+        # real reason (a missing pytest plugin surfaces only that way).
+        run: cosmic-ray baseline docs/quality/cosmic-ray.toml
+
+      - name: Run the mutation session
+        run: |
+          set -euo pipefail
+          rm -f mutation.sqlite
+          cosmic-ray init docs/quality/cosmic-ray.toml mutation.sqlite
+          cosmic-ray exec docs/quality/cosmic-ray.toml mutation.sqlite
+
+      - name: Enforce the mutation ratchet (issue #431)
+        # Removing this step is a blocked change, and replacing it with
+        # `cr-rate --fail-over` is the specific regression it exists to
+        # prevent: cr-rate reports 0.00 both for a run that killed every
+        # mutant and for a run where nothing executed, so it cannot fail on a
+        # broken runner. scripts/check_mutation.py rejects a degenerate
+        # session before it compares any score. Pinned by
+        # tests/test_ci_workflow.py::
+        # test_ci_workflow_mutation_job_runs_the_ratchet_gate.
+        run: python scripts/check_mutation.py mutation.sqlite
+
+      - name: Upload the mutation session
+        # The session database is the evidence behind the number. Kept so a
+        # baseline change can be audited without re-running the job.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-session
+          path: mutation.sqlite
+          if-no-files-found: warn
+          retention-days: 30
+
   typecheck:
     name: typecheck
     # See lint job for the runs-on rationale (self-hosted runner; the

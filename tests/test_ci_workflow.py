@@ -629,4 +629,57 @@ def test_ci_workflow_integration_job_overrides_ignore_for_tests_integration() ->
     assert "-W error::DeprecationWarning" in integration_job
 
 
+def test_ci_workflow_mutation_job_runs_the_ratchet_gate() -> None:
+    """Issue #431: the mutation job must gate on ``scripts/check_mutation.py``.
+
+    Swapping the ratchet for ``cr-rate --fail-over`` is the specific
+    regression this pins. ``cr-rate`` reports ``0.00`` both for a run that
+    killed every mutant and for a run where nothing executed, so it cannot
+    fail on a broken runner — verified end to end on 2026-08-06, where
+    ``cr-rate --fail-over 20`` exited 0 on a session whose 27 mutants were
+    all ``INCOMPETENT``. Removing this step is a blocked change.
+    """
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    mutation_job = _job_executable(workflow, "\n  mutation:", "\n  typecheck:")
+
+    assert "python scripts/check_mutation.py mutation.sqlite" in mutation_job
+    assert "cr-rate" not in mutation_job, (
+        "cr-rate cannot fail on a degenerate run; the gate is check_mutation.py"
+    )
+    # The ratchet must run after the session exists, never before.
+    assert mutation_job.index("python scripts/check_mutation.py") > mutation_job.index(
+        "cosmic-ray exec"
+    )
+
+
+def test_ci_workflow_mutation_job_is_never_triggered_by_a_pull_request() -> None:
+    """Issue #431: the mutation job is scheduled/manual only.
+
+    A 233-mutant session per pull request would make the loop unusable, and
+    §32.P7 requires the reachable events to be named rather than implied.
+    """
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    start = workflow.index("\n  mutation:")
+    section = workflow[start : workflow.index("\n  typecheck:", start)]
+
+    if_clause = section[section.index("if:") : section.index("runs-on:")]
+    assert "github.event_name == 'schedule'" in if_clause
+    assert "github.event_name == 'workflow_dispatch'" in if_clause
+    assert "pull_request" not in if_clause
+
+
+def test_ci_workflow_mutation_job_pins_hash_seed_for_determinism() -> None:
+    """TASK-2.1 (W-5): ``PYTHONHASHSEED=0`` is set for the mutation session.
+
+    The companion ``--worker-count=1`` from that task is deliberately absent:
+    ``cosmic-ray exec`` 8.4.6 accepts no such option and its ``local``
+    distributor is already sequential.
+    """
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    mutation_job = _job_executable(workflow, "\n  mutation:", "\n  typecheck:")
+
+    assert 'PYTHONHASHSEED: "0"' in mutation_job
+    assert "--worker-count" not in mutation_job
+
+
 
