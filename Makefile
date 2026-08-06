@@ -95,6 +95,7 @@ mutation:
 	rm -f mutation.sqlite
 	PYTHONHASHSEED=0 cosmic-ray baseline docs/quality/cosmic-ray.toml
 	PYTHONHASHSEED=0 cosmic-ray init docs/quality/cosmic-ray.toml mutation.sqlite
+	cr-filter-operators mutation.sqlite docs/quality/cosmic-ray.toml
 	PYTHONHASHSEED=0 cosmic-ray exec docs/quality/cosmic-ray.toml mutation.sqlite
 	$(PYTHON) scripts/check_mutation.py mutation.sqlite
 

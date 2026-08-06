@@ -40,3 +40,24 @@ test-command = "python -m pytest tests/test_derivation.py tests/test_derivation_
 
 [cosmic-ray.distributor]
 name = "local"
+
+# Equivalent-mutant filter. Applied with `cr-filter-operators` between `init`
+# and `exec`; matching mutants are recorded as worker_outcome = SKIPPED and
+# never executed.
+#
+# `ReplaceBinaryOperator_BitOr_*` mutates the `|` in PEP 604 type unions
+# (`str | None`). Every module here carries `from __future__ import
+# annotations`, so annotations are never evaluated at runtime and those
+# mutants are unkillable by construction -- no test can observe them.
+#
+# Measured on the first pilot session (migration/derivation.py, 233 mutants):
+# 104 survivors, of which 66 were BitOr mutations on annotation lines. That is
+# 63% of the reported survival rate being pure noise, and it would have been
+# frozen into the baseline. Filtered, the module has 38 real survivors out of
+# 167 killable mutants -- 22.75%, not the 44.64% the unfiltered run showed.
+#
+# The cost of this filter is real but small: a genuine runtime `|` on ints or
+# sets is also skipped. Grep confirms this module has none. Revisit the
+# exclusion if a target module does integer bit-masking.
+[cosmic-ray.filters.operators-filter]
+exclude-operators = ["core/ReplaceBinaryOperator_BitOr_.*"]

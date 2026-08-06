@@ -39,9 +39,19 @@ mutants; the gate is a trend instrument, not a per-PR check.
 ```bash
 export PYTHONHASHSEED=0                     # determinism (TASK-2.1, W-5)
 cosmic-ray init docs/quality/cosmic-ray.toml mutation.sqlite
-cosmic-ray exec --worker-count=1 docs/quality/cosmic-ray.toml mutation.sqlite
+cr-filter-operators mutation.sqlite docs/quality/cosmic-ray.toml
+cosmic-ray exec docs/quality/cosmic-ray.toml mutation.sqlite
 python scripts/check_mutation.py mutation.sqlite --emit-baseline
 ```
+
+**Never skip `cr-filter-operators`.** It excludes mutations of the `|` in PEP
+604 type annotations, which no test can kill because `from __future__ import
+annotations` stops annotations from ever evaluating. On the first pilot run
+those accounted for 66 of 104 reported survivors — 63% of the score was noise
+that would have been frozen into the baseline as if it were real debt.
+
+`--worker-count=1` from TASK-2.1 does **not** exist: `cosmic-ray exec` 8.4.6
+takes no such option and its `local` distributor is already sequential.
 
 Write the emitted JSON into `docs/quality/mutation-baseline.json` under a
 `modules` key, and record in the PR body **which platform and runner** produced

@@ -327,10 +327,18 @@ jobs:
         run: cosmic-ray baseline docs/quality/cosmic-ray.toml
 
       - name: Run the mutation session
+        # `cr-filter-operators` runs between init and exec and is not
+        # optional: it excludes mutations of the `|` in PEP 604 type
+        # annotations, which cannot be killed by any test because
+        # `from __future__ import annotations` means annotations never
+        # evaluate. On the first pilot run those were 66 of 104 reported
+        # survivors -- 63% of the score was noise. Dropping this step
+        # silently inflates every baseline.
         run: |
           set -euo pipefail
           rm -f mutation.sqlite
           cosmic-ray init docs/quality/cosmic-ray.toml mutation.sqlite
+          cr-filter-operators mutation.sqlite docs/quality/cosmic-ray.toml
           cosmic-ray exec docs/quality/cosmic-ray.toml mutation.sqlite
 
       - name: Enforce the mutation ratchet (issue #431)
