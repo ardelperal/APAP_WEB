@@ -96,7 +96,13 @@ def read_session(session_path: Path) -> tuple[list[dict[str, Any]], list[str]]:
 
     rows = [
         {
-            "module_path": Path(str(row["module_path"])).as_posix(),
+            # cosmic-ray on Windows records backslash-separated module paths
+            # (e.g. ``app\\modules\\m.py``); the committed baseline is POSIX.
+            # Normalising to forward slashes before constructing ``Path``
+            # makes the conversion OS-independent — on Linux, ``Path``
+            # treats backslashes as ordinary filename characters and would
+            # otherwise leave them in place.
+            "module_path": str(row["module_path"]).replace("\\", "/"),
             "test_outcome": _normalize_outcome(row["test_outcome"]),
             "worker_outcome": _normalize_outcome(row["worker_outcome"]),
         }
