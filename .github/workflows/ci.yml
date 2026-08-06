@@ -285,9 +285,11 @@ jobs:
     # Issue #431. Mutation testing is a trend instrument, not a per-PR check:
     # the pilot module alone is 233 mutants. Same split rationale as
     # `security-deep` above — scheduled and manual only, never on a pull
-    # request. Guards that reach this job: the weekly cron and an explicit
-    # `gh workflow run ci.yml`. Nothing in a pull request triggers it (§32.P7:
-    # this comment names which events reach the job and which are skipped).
+    # request. Guards that reach this job: the weekly cron, an explicit
+    # `gh workflow run ci.yml`, and release-tag pushes (so a release can
+    # bundle a mutation evidence run). Nothing in a pull request triggers
+    # it (§32.P7: this comment names which events reach the job and which
+    # are skipped).
     #
     # LINUX ONLY, and that is load-bearing rather than incidental. cosmic-ray
     # 8.4.6 returns INCOMPETENT for 100% of mutants on native Windows while
@@ -297,7 +299,8 @@ jobs:
     # docs/runbooks/mutation-testing.md.
     if: >-
       github.event_name == 'schedule' ||
-      github.event_name == 'workflow_dispatch'
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.ref, 'refs/tags/')
     runs-on: [self-hosted, Linux, ARM64, apap, oracle]
     env:
       # TASK-2.1 (W-5) determinism mitigation. The companion `--worker-count=1`
