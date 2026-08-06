@@ -118,6 +118,53 @@ acquired **on Linux**.
 
 ### Step 6 — Kill the pilot's survivors (#433) and close the query-test gap (#435)
 
+### Step 7 — Process gates that only exist as prose
+
+Each of these is a rule the repo already declares and does not enforce — §32.P3
+in four more places. All are cheap; none block anything, so do not let them jump
+ahead of steps 1–3.
+
+- **#442 — PR size gate.** §15.1 declares a 400-line review budget. Verified
+  2026-08-06: nothing enforces it, there is no `pr-check.yml`. The budget lives
+  in `CLAUDE.md` as prose aimed at a well-behaved agent. `gentle-ai` enforces the
+  equivalent deterministically. The reframe that matters: with an LLM reviewing
+  the diff, reviewer fatigue stops being the argument — revert granularity,
+  all-or-nothing approval pressure, and hidden omissions remain. And because
+  agents write this code, the budget is a **design** constraint: it forces
+  decomposition.
+- **#443 — import-cycle detector.** 19 `lazy-import:` markers across 7 files,
+  against §26's own claim of "exactly two" on 2026-07-20 — ~10× in 17 days. §26
+  demands a comment, not a fix, so it legitimised the debt; `check_layers.py`
+  only sees cycles that cross layers. Reuses the graph `check_layers.py` already
+  builds (Tarjan SCC, ~70 lines).
+- **#440 — §15.2 rewrite.** Policy changed 2026-08-06: merged branches are
+  **kept**, not deleted, and adopt `<type>/<issue>-<slug>`. Note for whoever
+  writes it: deleting a ref never deleted commits (`--no-ff` keeps them in
+  `main`, and GitHub retains `refs/pull/<n>/head` forever), so the benefit is
+  narrower than it looks while the cost — dead refs indistinguishable from live
+  ones — is immediate. Naming is what makes retention viable.
+- **#441 — branch-name gate.** Enforces #440's convention. Depends on it.
+
+### Not adopted, and why
+
+[fallow.tools](https://fallow.tools/) was evaluated 2026-08-06 (user request).
+**TypeScript/JavaScript only** — this repo is Python plus a Windows-only
+Access/VBA half, so there is no surface for it. Of its feature set, only
+circular-dependency detection was a genuine gap (now #443); unused code,
+duplication, complexity and architecture boundaries are already covered by
+`check_vulture_guard.py`, `check_jscpd.py`, `check_complexity.py` and
+`check_layers.py`. Its paid runtime layer (hot/cold paths, deletion confidence)
+is a good idea with no data behind it here — revisit post-MVP, when production
+traffic exists.
+
+CodeRabbit was evaluated the same day. It is an **AI PR reviewer, not a runner**
+— the runner already exists (self-hosted Oracle ARM64). Self-hosting it is
+enterprise-tier (~$15k/month floor). As another LLM reviewer it lands in the same
+category as `judgment-day` / `code-review-expert`: a useful second read, never
+the determinism. What *is* worth copying from `Gentleman-Programming/gentle-ai`
+is its `pr-check.yml` — deterministic process gates (size, issue reference,
+`status:approved`, `type:*` label), which is what #442 does.
+
 ---
 
 ## 3. Hard-won facts — do not re-derive these
