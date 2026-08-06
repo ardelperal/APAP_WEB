@@ -18,7 +18,7 @@ TAILWIND_DIR ?= tailwindcss
 TAILWIND_INPUT ?= $(TAILWIND_DIR)/styles/app.css
 TAILWIND_OUTPUT ?= app/static/css/output.css
 
-.PHONY: help install dev test lint typecheck check-rules mutation build all clean css css-watch serve run
+.PHONY: help install dev test lint typecheck check-rules check-layers mutation build all clean css css-watch serve run
 
 help:
 	@echo "APAP make targets:"
@@ -73,6 +73,13 @@ typecheck:
 #   openspec/changes/hardening-2026-q2/apply-progress-pr-1b.md
 check-rules:
 	$(PYTHON) scripts/check_rules.py .
+
+# check-layers — AGENTS.md rule 33, issue #436. The hexagonal harness:
+# dependency direction, inner-layer purity, vertical-slice boundaries.
+# The 53 pre-existing violations live in a shrink-only BASELINE measured
+# against main @41fbd2a. CI runs it in the lint job.
+check-layers:
+	$(PYTHON) scripts/check_layers.py .
 
 # mutation — issue #431. Runs the cosmic-ray session for the curated target
 # set in docs/quality/cosmic-ray.toml and gates it with the ratchet.
