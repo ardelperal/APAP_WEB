@@ -1,0 +1,29 @@
+{
+  "_comment": [
+    "Shrink-only surviving-mutant ratchet for the mutation gate (issue #431).",
+    "Entries may only decrease. Raising one is a blocked change: it converts a",
+    "test-quality regression into a new normal. Enforced by",
+    "scripts/check_mutation.py; see docs/runbooks/mutation-testing.md.",
+    "",
+    "PROVISIONAL. Acquired on WSL Ubuntu 22.04 / x86_64 / CPython 3.12.3 with",
+    "cosmic-ray 8.4.6 and PYTHONHASHSEED=0, NOT on the CI runner (self-hosted",
+    "Linux ARM64). The first scheduled or dispatched run of the `mutation` job",
+    "is expected to confirm these counts; if the runner reports different ones,",
+    "re-acquire there and replace this file rather than widening the entries.",
+    "",
+    "Session health at acquisition: 233 mutants, 129 KILLED, 104 SURVIVED,",
+    "0 INCOMPETENT -- 44.64% survival. The same module measured on native",
+    "Windows returned 233/233 INCOMPETENT with cr-rate reporting a passing",
+    "0.00, which is why the gate checks run health before it checks any score."
+  ],
+  "acquired_on": {
+    "date": "2026-08-06",
+    "platform": "linux-x86_64 (WSL Ubuntu 22.04)",
+    "python": "3.12.3",
+    "cosmic_ray": "8.4.6",
+    "pythonhashseed": "0"
+  },
+  "modules": {
+    "migration/derivation.py": 104
+  }
+}
