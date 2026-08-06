@@ -1002,7 +1002,14 @@ functional gain. It is recorded here so it reads as a deliberate exception
 rather than a precedent. Do not cite `admin` to justify putting the next
 business capability in `core`.
 
-Enforcement: PR review against §33.2, plus the per-slice pin tests from §33.4.
+Enforcement: `scripts/check_layers.py` is a CI gate in the `lint` job (issue
+#436) — it enforces dependency direction, inner-layer purity and slice
+boundaries over `app/`, exits non-zero on any new violation, and is pinned by
+`tests/test_layers.py::test_ci_workflow_lint_job_runs_layers_gate`. The 53
+violations that predate the gate live in a shrink-only `BASELINE` measured
+against main @41fbd2a; entries may only disappear. One boundary semantic is
+still an open design question (#437) and is marked `xfail(strict)` rather than
+assumed. Plus PR review against §33.2 and the per-slice pin tests from §33.4.
 The slice index, execution order and definition of done live in issue #420.
 
 ### 34. Test strength is measured, not assumed
