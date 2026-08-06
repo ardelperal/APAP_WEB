@@ -17,8 +17,6 @@ the importing file would assert nothing.
 import importlib.util
 from pathlib import Path
 
-import pytest
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CHECKER_PATH = REPO_ROOT / "scripts" / "check_layers.py"
 WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
@@ -178,26 +176,6 @@ def test_inner_layer_may_not_import_delivery(tmp_path: Path) -> None:
     assert all("dependency inversion" in v for v in violations)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Open design question, issue #437. This test asserts that a delivery "
-        "file in app/modules/<slice> may import inward into a CROSS-CUTTING "
-        "core capability (app/core/application/auth/...). AGENTS.md §33.1 "
-        "defines app/core/<layer>/<slice>/ as exactly that — cross-cutting, "
-        "meant to be consumed — so the test expresses the documented intent. "
-        "_check_slice currently treats every differently-named slice as a "
-        "competing vertical column and flags it, which would force each slice "
-        "to duplicate auth or route a simple read through DI ceremony. "
-        "The two real occurrences on main (animals/routes.py, "
-        "acogidas/routes.py) are baselined. Resolving this means teaching "
-        "_check_slice that a target under app/core/ is cross-cutting rather "
-        "than a sibling column; that is an architecture decision for the "
-        "harness owner, not a drive-by fix. xfail(strict) so it flips to a "
-        "failure the moment someone makes it pass, forcing the baseline and "
-        "this marker to be revisited together."
-    ),
-)
 def test_delivery_may_import_inward(tmp_path: Path) -> None:
     checker = _load_checker()
     _tree(
