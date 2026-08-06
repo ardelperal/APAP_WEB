@@ -614,4 +614,19 @@ def test_default_pytest_collection_matches_ci_boundary() -> None:
     assert "--randomly-dont-reorganize" in addopts
 
 
+def test_ci_workflow_integration_job_overrides_ignore_for_tests_integration() -> None:
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    integration_job = _job_executable(workflow, "\n  integration:", "\n  build:")
+
+    assert (
+        '--override-ini="addopts=-ra --strict-markers --strict-config '
+        '--randomly-dont-reorganize"' in integration_job
+    )
+    assert "--ignore=tests/integration" not in integration_job
+    assert "tests/integration \\" in integration_job
+    assert "-m integration" in integration_job
+    assert "--no-cov" in integration_job
+    assert "-W error::DeprecationWarning" in integration_job
+
+
 
