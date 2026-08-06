@@ -433,11 +433,18 @@ jobs:
         # domain schema once per test session.
         # No coverage collection: integration tests measure correctness, not
         # app code coverage.
+        # The default pytest addopts excludes tests/integration, so this job
+        # overrides addopts to collect the dedicated integration test directory.
         run: |
-          python -m pytest -W error::DeprecationWarning \
+          python -m pytest \
+            --override-ini="addopts=-ra --strict-markers --strict-config --randomly-dont-reorganize" \
+            -W error::DeprecationWarning \
             --ignore=tests/e2e \
+            --no-cov \
+            tests/integration \
             -m integration \
             -v
+
 
   build:
     name: build
