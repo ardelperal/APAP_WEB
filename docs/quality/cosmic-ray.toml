@@ -1,6 +1,9 @@
 # cosmic-ray configuration for the mutation gate (issue #431).
 #
-# PILOT SCOPE -- one module, deliberately.
+# CURATED TARGET SET -- one module per PR, each pinned in
+# `mutation-baseline.json`. cosmic-ray accepts `module-path` as a string OR a
+# list of strings (verified at cosmic_ray/cli.py:92); we use the list form so
+# the pilot and the second slice share a session.
 #
 # The accepted design (TASK-2.2) specified `module-path = "app"`. Measurement
 # on 2026-08-06 rejected that: `app/` + `migration/` hold 3579 mutable AST
@@ -12,9 +15,16 @@
 # density in the tree (84 sites / 396 LOC = 21.2 per 100 LOC, 233 cosmic-ray
 # mutants) AND dedicated unit tests that run in under a second.
 #
+# `app/modules/adopciones/service.py` is the second slice (#434): 110 sites /
+# 527 LOC = 20.9/100 LOC, on a par with the pilot. Its baseline entry in
+# mutation-baseline.json is marked `awaiting_acquisition` -- cosmic-ray 8.4.6
+# is broken on native Windows (issue #431, Finding 1), so the entry cannot be
+# filled in locally; the next scheduled CI mutation run on the Linux ARM64
+# runner will replace the marker with the real survivor count. `check_mutation.py`
+# enforces a 14-day grace period on `awaiting_acquisition` entries.
+#
 # Candidates for the next slices, by measured density:
 #   migration/diff_engine.py             131 sites / 642 LOC  (20.4)
-#   app/modules/adopciones/service.py    110 sites / 527 LOC  (20.9)
 #   app/core/insforge.py                 112 sites / 690 LOC  (16.2)
 #   app/modules/animals/queries.py        65 sites / 238 LOC  (27.3)
 #
@@ -31,12 +41,21 @@
 # The test command uses an absolute interpreter path on purpose: cosmic-ray
 # spawns its worker without a shell, so a bare `python` does not resolve on
 # every platform. On the CI runner the path below is the job's virtualenv.
+#
+# The test-command is shared across every target module: cosmic-ray executes
+# the same command for every mutant regardless of which file it came from
+# (verified at cosmic_ray/commands/execute.py:49 -- `config.test_command` is
+# not per-module). The command must therefore include every target's tests,
+# not just the pilot's.
 
 [cosmic-ray]
-module-path = "migration/derivation.py"
+module-path = [
+    "migration/derivation.py",
+    "app/modules/adopciones/service.py",
+]
 timeout = 60.0
 excluded-modules = []
-test-command = "python -m pytest tests/test_derivation.py tests/test_derivation_11cases.py -x -q --no-cov -p no:cacheprovider -o addopts=''"
+test-command = "python -m pytest tests/test_derivation.py tests/test_derivation_11cases.py tests/test_adopciones.py tests/test_adopciones_queries.py tests/test_adopciones_routes.py -x -q --no-cov -p no:cacheprovider -o addopts=''"
 
 [cosmic-ray.distributor]
 name = "local"

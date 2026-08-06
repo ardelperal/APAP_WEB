@@ -19,7 +19,19 @@
     "",
     "The same module measured on native Windows returned 233/233 INCOMPETENT",
     "with cr-rate reporting a passing 0.00, which is why the gate checks run",
-    "health before it checks any score."
+    "health before it checks any score.",
+    "",
+    "AWAITING_ACQUISITION map. Modules listed here have been added to the",
+    "target set but their survivor count has not yet been acquired on Linux.",
+    "The value is the ISO date the entry landed on `main`; scripts/check_mutation.py",
+    "fails the build if it persists past GRACE_PERIOD_DAYS (=14). The intent",
+    "is to give the next scheduled CI `mutation` job time to fill in the real",
+    "number, then to alarm loudly if that never happens. See issue #434.",
+    "",
+    "app/modules/adopciones/service.py was added on 2026-08-06 (PR against #434)",
+    "with cosmic-ray 8.4.6 INCOMPETENT on native Windows blocking local",
+    "acquisition (issue #431, Finding 1). The first scheduled CI mutation run",
+    "on the Linux ARM64 runner replaces the marker."
   ],
   "acquired_on": {
     "date": "2026-08-06",
@@ -31,5 +43,8 @@
   },
   "modules": {
     "migration/derivation.py": 38
+  },
+  "awaiting_acquisition": {
+    "app/modules/adopciones/service.py": "2026-08-06"
   }
 }

@@ -10,12 +10,15 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import date, timedelta  # noqa: F401  (timedelta used in tests below)
 from pathlib import Path
 
 import pytest
 
 from scripts.check_mutation import (
+    GRACE_PERIOD_DAYS,
     MAX_INCOMPETENT_RATIO,
+    check_pending_overdue,
     check_ratchet,
     check_run_health,
     load_baseline,
@@ -276,22 +279,135 @@ def test_ratchet_rejects_stale_baseline_entry() -> None:
     assert "stale baseline entry" in violations[0]
 
 
+def test_ratchet_ignores_awaiting_acquisition_modules() -> None:
+    """Issue #434: a module added with an ``awaiting_acquisition`` marker must
+    not raise "no baseline entry" when measured. Its overdue-ness is enforced
+    separately by ``check_pending_overdue``.
+    """
+    violations, notices = check_ratchet(
+        {"app/adopciones/service.py": 5},
+        {},
+        {"app/adopciones/service.py": "2026-08-06"},
+    )
+    assert violations == []
+    assert notices == []
+
+
+# --- check_pending_overdue --------------------------------------------------
+
+
+def test_pending_entry_within_grace_period_passes() -> None:
+    """Issue #434: a fresh awaiting_acquisition entry is silent.
+
+    The grace gives the scheduled CI ``mutation`` job time to acquire the
+    real number; it must not raise a red flag during that window.
+    """
+    today = date(2026, 8, 6)
+    violations = check_pending_overdue(
+        {"app/adopciones/service.py": "2026-08-06"},
+        today,
+    )
+    assert violations == []
+
+
+def test_pending_entry_exactly_at_grace_period_passes() -> None:
+    """``> grace_period_days`` is overdue; ``== grace_period_days`` is not."""
+    today = date(2026, 8, 6) + timedelta(days=GRACE_PERIOD_DAYS)
+    violations = check_pending_overdue(
+        {"app/adopciones/service.py": "2026-08-06"},
+        today,
+    )
+    assert violations == []
+
+
+def test_pending_entry_one_day_past_grace_fails_with_a_clear_message() -> None:
+    today = date(2026, 8, 6) + timedelta(days=GRACE_PERIOD_DAYS + 1)
+    violations = check_pending_overdue(
+        {"app/adopciones/service.py": "2026-08-06"},
+        today,
+    )
+    assert len(violations) == 1
+    assert "app/adopciones/service.py" in violations[0]
+    assert f"{GRACE_PERIOD_DAYS}-day grace period" in violations[0]
+    assert "scheduled CI mutation job" in violations[0]
+
+
+def test_pending_entry_far_past_grade_reports_the_age() -> None:
+    today = date(2026, 8, 6) + timedelta(days=100)
+    violations = check_pending_overdue(
+        {"app/adopciones/service.py": "2026-08-06"},
+        today,
+    )
+    assert "100 days old" in violations[0]
+
+
+def test_pending_entry_with_invalid_iso_date_fails() -> None:
+    """An unparseable date is treated as overdue; it cannot stay silent."""
+    violations = check_pending_overdue(
+        {"app/x.py": "yesterday-ish"},
+        date(2026, 8, 6),
+    )
+    assert "not a valid ISO date" in violations[0]
+
+
+def test_pending_overdue_with_empty_map_passes() -> None:
+    violations = check_pending_overdue({}, date(2026, 8, 6))
+    assert violations == []
+
+
 # --- load_baseline ---------------------------------------------------------
 
 
 def test_load_baseline_reads_modules(tmp_path: Path) -> None:
     path = tmp_path / "b.json"
     path.write_text(json.dumps({"modules": {"app/a.py": 2}}), encoding="utf-8")
-    modules, errors = load_baseline(path)
+    modules, awaiting, errors = load_baseline(path)
     assert errors == []
     assert modules == {"app/a.py": 2}
+    assert awaiting == {}
 
 
 def test_load_baseline_reports_malformed_json(tmp_path: Path) -> None:
     path = tmp_path / "b.json"
     path.write_text("{not json", encoding="utf-8")
-    _, errors = load_baseline(path)
+    _, _, errors = load_baseline(path)
     assert "cannot read baseline" in errors[0]
+
+
+def test_load_baseline_reads_awaiting_acquisition(tmp_path: Path) -> None:
+    """Issue #434: pending entries live in a separate map, not under modules."""
+    payload = {
+        "modules": {"app/a.py": 2},
+        "awaiting_acquisition": {"app/b.py": "2026-08-06"},
+    }
+    path = tmp_path / "b.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    modules, awaiting, errors = load_baseline(path)
+    assert errors == []
+    assert modules == {"app/a.py": 2}
+    assert awaiting == {"app/b.py": "2026-08-06"}
+
+
+def test_load_baseline_rejects_non_object_awaiting_acquisition(tmp_path: Path) -> None:
+    """A list under awaiting_acquisition is a structural defect; the file is rejected."""
+    path = tmp_path / "b.json"
+    path.write_text(json.dumps({"awaiting_acquisition": ["bad"]}), encoding="utf-8")
+    _, _, errors = load_baseline(path)
+    assert "'awaiting_acquisition' must be an object" in errors[0]
+
+
+def test_load_baseline_rejects_non_int_module_values(tmp_path: Path) -> None:
+    """A string under modules is a structural defect; the file is rejected.
+
+    Without this guard a future contributor could silently turn a real
+    measurement into a malformed file and the ratchet would either crash on
+    ``int(value)`` or compare strings. Either way the gate stops being
+    deterministic (§34.3).
+    """
+    path = tmp_path / "b.json"
+    path.write_text(json.dumps({"modules": {"app/a.py": "two"}}), encoding="utf-8")
+    _, _, errors = load_baseline(path)
+    assert "'modules' contains non-int values" in errors[0]
 
 
 # --- main ------------------------------------------------------------------
@@ -330,3 +446,92 @@ def test_main_passes_on_a_healthy_pinned_run(
 
     assert main([str(session), "--baseline", str(baseline)]) == 0
     assert "check_mutation: OK" in capsys.readouterr().out
+
+
+def test_main_passes_when_pending_module_is_measured_within_grace(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Issue #434: end-to-end pass when the new module has been measured.
+
+    Simulates the first scheduled CI mutation run after the PR lands: the
+    session covers both the pilot and the new module, the baseline pins the
+    pilot and marks the new one as awaiting acquisition, and ``main`` reports
+    OK without raising "no baseline entry" for the pending module.
+    """
+    today = date.today()
+    since = (today - timedelta(days=GRACE_PERIOD_DAYS - 1)).isoformat()
+
+    jobs = (
+        [("migration/derivation.py", "KILLED")] * 10
+        + [("app/modules/adopciones/service.py", "KILLED")] * 10
+    )
+    session = make_session(tmp_path / "s.sqlite", jobs)
+
+    baseline = tmp_path / "b.json"
+    baseline.write_text(
+        json.dumps(
+            {
+                "modules": {"migration/derivation.py": 0},
+                "awaiting_acquisition": {
+                    "app/modules/adopciones/service.py": since,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    import scripts.check_mutation as cm
+
+    class _FrozenDate(date):
+        @classmethod
+        def today(cls) -> _FrozenDate:  # type: ignore[override]
+            return _FrozenDate.fromisoformat(today.isoformat())
+
+    monkeypatch.setattr(cm, "date", _FrozenDate)
+
+    assert main([str(session), "--baseline", str(baseline)]) == 0
+    out = capsys.readouterr().out
+    assert "check_mutation: OK" in out
+    assert "1 awaiting acquisition" in out
+
+
+def test_main_fails_when_pending_module_overdue(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Issue #434: end-to-end fail when the scheduled run never acquires.
+
+    The grace period expired and ``awaiting_acquisition`` is still on disk;
+    the ratchet must surface that with the §32.P3 message and exit 1.
+    """
+    today = date.today()
+    since = (today - timedelta(days=GRACE_PERIOD_DAYS + 5)).isoformat()
+
+    jobs = [("migration/derivation.py", "KILLED")] * 10
+    session = make_session(tmp_path / "s.sqlite", jobs)
+
+    baseline = tmp_path / "b.json"
+    baseline.write_text(
+        json.dumps(
+            {
+                "modules": {"migration/derivation.py": 0},
+                "awaiting_acquisition": {
+                    "app/modules/adopciones/service.py": since,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    import scripts.check_mutation as cm
+
+    class _FrozenDate(date):
+        @classmethod
+        def today(cls) -> _FrozenDate:  # type: ignore[override]
+            return _FrozenDate.fromisoformat(today.isoformat())
+
+    monkeypatch.setattr(cm, "date", _FrozenDate)
+
+    assert main([str(session), "--baseline", str(baseline)]) == 1
+    out = capsys.readouterr().out
+    assert "FAIL: app/modules/adopciones/service.py: awaiting_acquisition marker" in out
+    assert f"{GRACE_PERIOD_DAYS}-day grace period" in out

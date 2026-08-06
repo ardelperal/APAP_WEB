@@ -15,6 +15,12 @@ Reads a cosmic-ray session database and enforces, in order:
 3. **Shrink-only survivor ratchet** — per-module surviving-mutant counts may
    only decrease, mirroring ``scripts/check_module_size.py``,
    ``scripts/check_route_size.py`` and ``scripts/check_mutation_sites.py``.
+4. **Acquisition grace period** — modules newly added to the target set carry
+   an ``awaiting_acquisition`` marker (issue #434) with the ISO date they
+   landed on ``main``. The marker must be replaced with a real survivor count
+   by the next scheduled CI mutation run. The ratchet fails closed if the
+   marker persists past ``GRACE_PERIOD_DAYS`` days, so a broken measurement
+   cannot stay silent (§32.P3). See issue #434.
 
 Stdlib-only on purpose: the session is read through ``sqlite3`` rather than
 through cosmic-ray's own API, so this gate and its tests run on any platform,
@@ -34,6 +40,7 @@ import argparse
 import json
 import sqlite3
 from collections.abc import Mapping
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +52,12 @@ MAX_INCOMPETENT_RATIO = 0.20
 
 #: Default location of the committed baseline, relative to the repo root.
 DEFAULT_BASELINE_PATH = "docs/quality/mutation-baseline.json"
+
+#: How long an ``awaiting_acquisition`` entry may sit before the ratchet
+#: fails the build. Long enough for the weekly scheduled CI ``mutation`` job
+#: to acquire the real number, short enough that a forgotten entry surfaces
+#: within a sprint (issue #434). 14 days = two weekly cron windows.
+GRACE_PERIOD_DAYS = 14
 
 _SURVIVED = "survived"
 _KILLED = "killed"
@@ -181,29 +194,63 @@ def measure_survivors(rows: list[dict[str, Any]]) -> dict[str, int]:
     return dict(sorted(survivors.items()))
 
 
-def load_baseline(baseline_path: Path) -> tuple[dict[str, int], list[str]]:
-    """Return ``(modules, errors)`` from the committed baseline JSON."""
+def load_baseline(
+    baseline_path: Path,
+) -> tuple[dict[str, int], dict[str, str], list[str]]:
+    """Return ``(modules, awaiting_acquisition, errors)`` from the baseline JSON.
+
+    ``modules`` is the shrink-only map of path -> surviving-mutant count.
+    ``awaiting_acquisition`` is the map of path -> ISO date the entry landed
+    on ``main`` (issue #434). Both must be JSON objects; otherwise the
+    baseline is rejected up front so a malformed file cannot pass the ratchet
+    silently.
+    """
     if not baseline_path.exists():
-        return {}, [f"{baseline_path}: baseline not found"]
+        return {}, {}, [f"{baseline_path}: baseline not found"]
     try:
         payload = json.loads(baseline_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        return {}, [f"{baseline_path}: cannot read baseline ({exc})"]
-    modules = payload.get("modules", {})
-    if not isinstance(modules, dict):
-        return {}, [f"{baseline_path}: 'modules' must be an object"]
-    return {str(k): int(v) for k, v in modules.items()}, []
+        return {}, {}, [f"{baseline_path}: cannot read baseline ({exc})"]
+
+    modules_raw = payload.get("modules", {})
+    if not isinstance(modules_raw, dict):
+        return {}, {}, [f"{baseline_path}: 'modules' must be an object"]
+    try:
+        modules = {str(k): int(v) for k, v in modules_raw.items()}
+    except (TypeError, ValueError) as exc:
+        return {}, {}, [f"{baseline_path}: 'modules' contains non-int values ({exc})"]
+
+    awaiting_raw = payload.get("awaiting_acquisition", {})
+    if not isinstance(awaiting_raw, dict):
+        return (
+            {},
+            {},
+            [f"{baseline_path}: 'awaiting_acquisition' must be an object"],
+        )
+    awaiting_acquisition = {str(k): str(v) for k, v in awaiting_raw.items()}
+
+    return modules, awaiting_acquisition, []
 
 
 def check_ratchet(
     measured: Mapping[str, int],
     baseline: Mapping[str, int],
+    awaiting_acquisition: Mapping[str, str] = {},
 ) -> tuple[list[str], list[str]]:
-    """Return ``(violations, notices)`` for the shrink-only survivor ratchet."""
+    """Return ``(violations, notices)`` for the shrink-only survivor ratchet.
+
+    Modules in ``awaiting_acquisition`` are excluded from the
+    "no baseline entry" violation: they are intentionally pending and are
+    enforced separately by ``check_pending_overdue``. Every other measured
+    module must have a baseline entry, and every baseline entry must show
+    up in the session or be marked stale.
+    """
     violations: list[str] = []
     notices: list[str] = []
 
     for module, survivors in sorted(measured.items()):
+        if module in awaiting_acquisition:
+            continue
         if module not in baseline:
             violations.append(
                 f"{module}: {survivors} surviving mutant(s) but no baseline entry — "
@@ -226,6 +273,43 @@ def check_ratchet(
             f"{module}: stale baseline entry — the session covered no such module"
         )
     return violations, notices
+
+
+def check_pending_overdue(
+    awaiting_acquisition: Mapping[str, str],
+    today: date,
+    grace_period_days: int = GRACE_PERIOD_DAYS,
+) -> list[str]:
+    """Return violation messages for ``awaiting_acquisition`` entries past their grace period.
+
+    A pending entry is overdue when ``today - since > grace_period_days``.
+    Long-enough grace gives the scheduled CI ``mutation`` job time to acquire
+    the real number; short-enough that a forgotten entry surfaces within a
+    sprint. See issue #434 and AGENTS.md §32.P3.
+
+    ``today`` is injected to keep the function pure and testable across
+    platforms; callers should pass ``date.today()`` (the production path)
+    or a fixed date (the test path).
+    """
+    violations: list[str] = []
+    for module, since_str in sorted(awaiting_acquisition.items()):
+        try:
+            since = date.fromisoformat(since_str)
+        except ValueError:
+            violations.append(
+                f"{module}: awaiting_acquisition date {since_str!r} is not a valid "
+                "ISO date (expected YYYY-MM-DD)"
+            )
+            continue
+        age_days = (today - since).days
+        if age_days > grace_period_days:
+            violations.append(
+                f"{module}: awaiting_acquisition marker is {age_days} days old, "
+                f"past the {grace_period_days}-day grace period. The next scheduled "
+                "CI mutation job should have replaced this entry with the real "
+                "survivor count acquired on Linux. See issue #434."
+            )
+    return violations
 
 
 def _fail(messages: list[str], summary: str | None = None) -> int:
@@ -263,16 +347,29 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"modules": measured}, indent=2, sort_keys=True))
         return 0
 
-    baseline, errors = load_baseline(baseline_path)
+    baseline, awaiting_acquisition, errors = load_baseline(baseline_path)
     if errors:
         return _fail(errors)
 
-    violations, notices = check_ratchet(measured, baseline)
+    pending_violations = check_pending_overdue(
+        awaiting_acquisition, date.today(), GRACE_PERIOD_DAYS
+    )
+    violations, notices = check_ratchet(measured, baseline, awaiting_acquisition)
     for notice in notices:
         print(f"NOTE: {notice}")
-    if violations:
-        return _fail(violations, f"check_mutation: {len(violations)} violation(s).")
-    print(f"check_mutation: OK ({len(measured)} module(s), run is healthy)")
+    if violations or pending_violations:
+        all_violations = pending_violations + violations
+        return _fail(
+            all_violations, f"check_mutation: {len(all_violations)} violation(s)."
+        )
+    pending_count = len(awaiting_acquisition)
+    if pending_count:
+        print(
+            f"check_mutation: OK ({len(measured)} module(s), "
+            f"{pending_count} awaiting acquisition)"
+        )
+    else:
+        print(f"check_mutation: OK ({len(measured)} module(s), run is healthy)")
     return 0
 
 
