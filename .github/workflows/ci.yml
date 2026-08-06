@@ -118,6 +118,25 @@ jobs:
         # test_ci_workflow_lint_job_runs_slice_completeness_gate.
         run: python scripts/check_slice_completeness.py
 
+      - name: Run migration boundary gate (issue #420, hardening Step 3)
+        # Hardening-roadmap §2 Step 3 (docs/quality/hardening-roadmap.md).
+        # migration/ was excluded from check_layers.py as "a standalone ETL
+        # tool" — true, yet unstated. This gate is the migration equivalent:
+        # pure / access-bound / orchestration classes, each with a
+        # forbidden-import set, plus a tests-per-module rule. The hexagonal
+        # rules in check_layers.py do not apply to migration's different
+        # architecture (forcing them would manufacture false confidence per
+        # AGENTS.md §32.P3).
+        #
+        # Pre-existing violations (test-coverage gaps for modules exercised
+        # only transitively, plus precautionary pure-classification entries
+        # for orchestration files) live in a shrink-only BASELINE inside the
+        # script. Adding a new migration module without a covering test fails
+        # the build from day one. Pinned by tests/test_migration_boundaries.py::
+        # test_ci_workflow_lint_job_runs_migration_boundaries_gate.
+        run: python scripts/check_migration_boundaries.py
+>>>>>>> 5eb91e4 (feat(architecture): migration/ boundary gate (Step 3 of hardening roadmap))
+
       - name: Run docstring-coverage ratchet (issue #339)
         # Issue #339 — removing this step is a blocked change. The
         # ratchet enforces that docstring coverage in app/ + migration/
