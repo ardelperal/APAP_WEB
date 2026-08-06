@@ -18,7 +18,7 @@ TAILWIND_DIR ?= tailwindcss
 TAILWIND_INPUT ?= $(TAILWIND_DIR)/styles/app.css
 TAILWIND_OUTPUT ?= app/static/css/output.css
 
-.PHONY: help install dev test lint typecheck check-rules build all clean css css-watch serve run
+.PHONY: help install dev test lint typecheck check-rules mutation build all clean css css-watch serve run
 
 help:
 	@echo "APAP make targets:"
@@ -28,6 +28,7 @@ help:
 	@echo "  lint         - Run ruff check on the repo"
 	@echo "  typecheck    - Run mypy over app/ + migration/ (scope in pyproject [tool.mypy])"
 	@echo "  check-rules  - Run the AST-based AGENTS.md rule linter (scripts/check_rules.py)"
+	@echo "  mutation     - Run the cosmic-ray session + ratchet (LINUX ONLY; use WSL)"
 	@echo "  build        - Build sdist + wheel with python -m build"
 	@echo "  css          - Compile Tailwind v4 CSS once (production-style, minified)"
 	@echo "  css-watch    - Run Tailwind v4 in watch mode (dev)"
@@ -72,6 +73,31 @@ typecheck:
 #   openspec/changes/hardening-2026-q2/apply-progress-pr-1b.md
 check-rules:
 	$(PYTHON) scripts/check_rules.py .
+
+# mutation — issue #431. Runs the cosmic-ray session for the curated target
+# set in docs/quality/cosmic-ray.toml and gates it with the ratchet.
+#
+# LINUX ONLY. cosmic-ray 8.4.6 returns INCOMPETENT for 100% of mutants on
+# native Windows while `cr-rate` still reports a passing 0.00, so a session
+# produced there is worse than no session at all. The guard below refuses to
+# run rather than let that happen; on a Windows workstation use WSL, per
+# docs/runbooks/mutation-testing.md. PYTHONHASHSEED=0 is the TASK-2.1 (W-5)
+# determinism mitigation; its companion `--worker-count=1` does not exist in
+# cosmic-ray 8.4.6 and the local distributor is already sequential.
+mutation:
+	@case "$$(uname -s)" in \
+	  Linux*) ;; \
+	  *) echo "make mutation: refusing to run on $$(uname -s)."; \
+	     echo "cosmic-ray does not execute mutants outside Linux and reports"; \
+	     echo "a passing 0.00 anyway. Use WSL — see docs/runbooks/mutation-testing.md."; \
+	     exit 1 ;; \
+	esac
+	rm -f mutation.sqlite
+	PYTHONHASHSEED=0 cosmic-ray baseline docs/quality/cosmic-ray.toml
+	PYTHONHASHSEED=0 cosmic-ray init docs/quality/cosmic-ray.toml mutation.sqlite
+	cr-filter-operators mutation.sqlite docs/quality/cosmic-ray.toml
+	PYTHONHASHSEED=0 cosmic-ray exec docs/quality/cosmic-ray.toml mutation.sqlite
+	$(PYTHON) scripts/check_mutation.py mutation.sqlite
 
 build:
 	$(PYTHON) -m build

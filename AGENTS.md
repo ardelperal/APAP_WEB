@@ -1005,3 +1005,149 @@ business capability in `core`.
 Enforcement: PR review against §33.2, plus the per-slice pin tests from §33.4.
 The slice index, execution order and definition of done live in issue #420.
 
+### 34. Test strength is measured, not assumed
+
+Rules 11 and 19 gate **coverage**. Coverage answers "was this line executed",
+which is not the question anyone actually cares about. The question is "if this
+line were wrong, would a test fail?" — and a suite can hold 85% coverage while
+answering *no*. The first mutation measurement of this codebase found
+`migration/derivation.py` at 22.75% surviving mutants with 31 green tests over
+it (#433). Nothing in the gate stack before #431 could see that.
+
+This rule adopts the discipline from
+[unclebob/swarm-forge](https://github.com/unclebob/swarm-forge), whose
+`cleaner` / `hardener` / `QA` roles each own a named quality dimension with a
+numeric target rather than a judgement call. We have no agent swarm; we have
+gates. Same idea, different mechanism.
+
+**Before extending the harness, read
+[`docs/quality/hardening-roadmap.md`](docs/quality/hardening-roadmap.md).** It
+carries the ordered plan, the standing assessment of what each gate does and does
+not guarantee, and the measured facts about the tooling — including the ones that
+cost hours to discover and will cost them again if re-derived. It is the handoff
+document for any agent continuing this work.
+
+#### 34.1 The quality ladder — cheap and structural first, semantic last
+
+Run in this order. Each step is meaningless if the one before it is red.
+
+| Order | Question | Owner |
+|---|---|---|
+| 1 | Does it parse, type, and lint? | `ruff`, `mypy` (§24) |
+| 2 | Does it respect the boundaries? | `check_rules.py` (§20), `check_layers.py`, `check_module_size.py` (§21), `check_route_size.py` (§28) |
+| 3 | Is complexity bounded and duplication flat? | `check_complexity.py`, `check_jscpd.py`, `check_mutation_sites.py` |
+| 4 | Is it executed by tests? | coverage floors (§11, §19) |
+| 5 | **Is it actually asserted by tests?** | `check_mutation.py` (§34.2) |
+
+Steps 1–4 run per PR. Step 5 is a nightly/manual job — a 233-mutant session is
+not a per-PR check. That split is deliberate, not a compromise.
+
+#### 34.2 The mutation gate
+
+Owned by `scripts/check_mutation.py`, configured in
+`docs/quality/cosmic-ray.toml`, baselined in
+`docs/quality/mutation-baseline.json`, run by the `mutation` job in `ci.yml`.
+Full procedure: `docs/runbooks/mutation-testing.md`.
+
+- The baseline is a **shrink-only ratchet**, exactly like §21 and §28: surviving
+  mutant counts may only decrease. Raising an entry to make a run green is a
+  blocked change — it converts a test-quality regression into the new normal.
+- Adding a module to the target set is a PR of its own, with its measured entry
+  in the same commit. Growth order and rationale live in #434.
+- **Linux only.** cosmic-ray 8.4.6 reports every mutant as `INCOMPETENT` on
+  native Windows while still printing a passing score. Reproduce locally through
+  WSL; `make mutation` refuses to run anywhere else.
+
+#### 34.3 Never trust a score without checking the run that produced it
+
+This is the rule that generalises beyond mutation testing, and it is the one
+worth internalising.
+
+`cr-rate --fail-over 20` — the obvious gate, and the one the original design
+specified — exits **0** on a session where 27 of 27 mutants failed to execute,
+because a survival rate of `0.00` is indistinguishable from a perfect score. A
+gate that cannot fail is §32.P7 with extra steps.
+
+WRONG — gating on the score alone
+
+```yaml
+- run: cr-rate --fail-over 20 mutation.sqlite
+```
+
+RIGHT — reject a degenerate run before believing any number
+
+```yaml
+# 0 results, all INCOMPETENT, or 0 killed => FAIL, before any score is compared
+- run: python scripts/check_mutation.py mutation.sqlite
+```
+
+Generalised: **when you add a quality metric, write down what a broken
+measurement looks like and make the gate fail on it.** A metric whose failure
+mode is silence is worse than no metric, because it manufactures confidence. If
+you cannot describe how the measurement could break, you do not understand it
+well enough to gate on it yet.
+
+#### 34.4 Equivalent mutants are noise — filter them and say why
+
+A mutant that no test could ever kill is not debt.
+`ReplaceBinaryOperator_BitOr_*` mutates the `|` in PEP 604 annotations
+(`str | None`); every module here carries `from __future__ import annotations`,
+so those never evaluate. On the pilot they were **66 of 104 reported
+survivors** — 63% of the score was noise about to be frozen into a baseline as
+if it were real.
+
+`cr-filter-operators` runs between `init` and `exec` and is not optional. Any
+addition to `exclude-operators` must carry a comment stating what class of
+mutant it removes, why that class is unkillable, and what genuine signal is lost
+with it.
+
+#### 34.5 Testability is a design constraint, not a testing problem
+
+swarm-forge separates *testable* modules from *environmentally unsuitable* ones
+— code that opens GUIs, drives external devices, or hangs under automation — and
+requires the unsuitable boundary to be as small as possible and excluded from
+tools that run tests. This project has exactly such a boundary: the Access half
+of `migration/` (`legacy_access_client.py`, `legacy_reader.py`, and the MSACCESS
+pre-flight in `apply.py`) cannot run on the Linux CI runner at all.
+
+The constraint that follows is the same one §31 already states for Protocols,
+applied to the process boundary:
+
+- Domain and derivation logic must be reachable **without** Access, InsForge, or
+  HTTP. `migration/derivation.py` is the model: pure functions, 31 unit tests, a
+  mutation target.
+- Access-bound code stays a thin adapter shell. When a behaviour is worth
+  testing, it does not belong in the shell — move it out first, then test it.
+- A module that cannot run in CI is excluded from the coverage and mutation
+  targets rather than silently dragging their numbers around.
+
+WRONG — policy trapped behind the unsuitable boundary
+
+```python
+# migration/legacy_access_client.py
+def read_ficha(self, pk):
+    row = self._dao.OpenRecordset(...)               # Windows-only, untestable
+    if row["FechaAlta"] and not row["FechaBaja"]:    # domain rule, stranded
+        return "activo"
+```
+
+RIGHT — the rule moves out, the shell stays dumb
+
+```python
+# migration/derivation.py  (pure, tested, mutation-gated)
+def derive_state(fecha_alta, fecha_baja) -> str: ...
+
+# migration/legacy_access_client.py
+def read_ficha(self, pk):
+    row = self._dao.OpenRecordset(...)
+    return derive_state(row["FechaAlta"], row["FechaBaja"])
+```
+
+Enforcement: §34.2's ratchet is a CI gate — `scripts/check_mutation.py` exits
+non-zero and the step is pinned by `tests/test_ci_workflow.py`. §34.1's ordering
+is enforced by the existing per-step gates it indexes. **§34.3, §34.4 and §34.5
+are PR review**, and per §32.P3 they are documented preferences with no detector
+behind them — do not claim otherwise. §34.5's boundary is partially covered by
+§31's Protocol rule and `check_layers.py`; the Access-shell judgement is not
+automatable today.
+

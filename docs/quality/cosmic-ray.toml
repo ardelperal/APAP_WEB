@@ -1,0 +1,63 @@
+# cosmic-ray configuration for the mutation gate (issue #431).
+#
+# PILOT SCOPE -- one module, deliberately.
+#
+# The accepted design (TASK-2.2) specified `module-path = "app"`. Measurement
+# on 2026-08-06 rejected that: `app/` + `migration/` hold 3579 mutable AST
+# sites across 217 files, and at the observed throughput a whole-tree session
+# is measured in days. The target set is therefore curated and grows one
+# module per PR, each with its own entry in mutation-baseline.json.
+#
+# `migration/derivation.py` is the pilot because it has the highest mutable
+# density in the tree (84 sites / 396 LOC = 21.2 per 100 LOC, 233 cosmic-ray
+# mutants) AND dedicated unit tests that run in under a second.
+#
+# Candidates for the next slices, by measured density:
+#   migration/diff_engine.py             131 sites / 642 LOC  (20.4)
+#   app/modules/adopciones/service.py    110 sites / 527 LOC  (20.9)
+#   app/core/insforge.py                 112 sites / 690 LOC  (16.2)
+#   app/modules/animals/queries.py        65 sites / 238 LOC  (27.3)
+#
+# NOT candidates: the other `queries.py` modules. They are almost entirely SQL
+# string constants, which no mainstream Python mutation engine mutates by
+# default -- `app/modules/salud/queries.py` offers exactly 2 mutable sites in
+# 313 lines. See issue #431, Finding 3.
+#
+# PLATFORM -- Linux only. cosmic-ray 8.4.6 returns INCOMPETENT for 100% of
+# mutants on native Windows while `cr-rate` still reports a passing 0.00.
+# Never gate on a session produced on Windows; see docs/runbooks/
+# mutation-testing.md and issue #431, Finding 1.
+#
+# The test command uses an absolute interpreter path on purpose: cosmic-ray
+# spawns its worker without a shell, so a bare `python` does not resolve on
+# every platform. On the CI runner the path below is the job's virtualenv.
+
+[cosmic-ray]
+module-path = "migration/derivation.py"
+timeout = 60.0
+excluded-modules = []
+test-command = "python -m pytest tests/test_derivation.py tests/test_derivation_11cases.py -x -q --no-cov -p no:cacheprovider -o addopts=''"
+
+[cosmic-ray.distributor]
+name = "local"
+
+# Equivalent-mutant filter. Applied with `cr-filter-operators` between `init`
+# and `exec`; matching mutants are recorded as worker_outcome = SKIPPED and
+# never executed.
+#
+# `ReplaceBinaryOperator_BitOr_*` mutates the `|` in PEP 604 type unions
+# (`str | None`). Every module here carries `from __future__ import
+# annotations`, so annotations are never evaluated at runtime and those
+# mutants are unkillable by construction -- no test can observe them.
+#
+# Measured on the first pilot session (migration/derivation.py, 233 mutants):
+# 104 survivors, of which 66 were BitOr mutations on annotation lines. That is
+# 63% of the reported survival rate being pure noise, and it would have been
+# frozen into the baseline. Filtered, the module has 38 real survivors out of
+# 167 killable mutants -- 22.75%, not the 44.64% the unfiltered run showed.
+#
+# The cost of this filter is real but small: a genuine runtime `|` on ints or
+# sets is also skipped. Grep confirms this module has none. Revisit the
+# exclusion if a target module does integer bit-masking.
+[cosmic-ray.filters.operators-filter]
+exclude-operators = ["core/ReplaceBinaryOperator_BitOr_.*"]
