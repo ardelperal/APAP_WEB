@@ -701,4 +701,57 @@ def test_ci_workflow_mutation_job_pins_hash_seed_for_determinism() -> None:
     assert "--worker-count" not in mutation_job
 
 
+def test_mutation_baseline_has_derivation_entry_at_or_below_prior_measurement() -> None:
+    """Issue #433: ``mutation-baseline.json`` must keep ``migration/derivation.py`` pinned.
+
+    The shrink-only ratchet in ``scripts/check_mutation.py`` enforces
+    that no per-module survivor count grows above its baseline entry.
+    Local re-measurement is impossible on Windows (cosmic-ray 8.4.6 is
+    INCOMPETENT for 100% of mutants — issue #431, Finding 1), so the
+    entry stays at the prior main-branch measurement until the next
+    Linux CI scheduled run narrows it. This test pins the contract:
+
+    - the baseline JSON exists, parses, and carries the entry, and
+    - the entry's value is **at most** the previously measured 38
+      survivors from the WSL/CPython 3.12.3 acquisition on 2026-08-06.
+    """
+    import json
+
+    baseline_path = REPO_ROOT / "docs" / "quality" / "mutation-baseline.json"
+    assert baseline_path.is_file(), (
+        f"{baseline_path} must exist — the ratchet fails closed without it"
+    )
+
+    payload = json.loads(baseline_path.read_text(encoding="utf-8"))
+    modules = payload.get("modules", {})
+    assert "migration/derivation.py" in modules, (
+        "the baseline must record migration/derivation.py so the "
+        "shrink-only ratchet has a target to enforce against "
+        "(issue #431)"
+    )
+
+    recorded = int(modules["migration/derivation.py"])
+    PRIOR_MEASUREMENT = 38  # WSL Ubuntu 22.04 / CPython 3.12.3 — 2026-08-06
+
+    # The ratchet is shrink-only: shrinking the entry is allowed and
+    # encouraged when CI narrows it; raising above the prior measurement
+    # would convert a real test-quality regression into a new normal.
+    assert recorded <= PRIOR_MEASUREMENT, (
+        f"migration/derivation.py baseline grew to {recorded}, above the "
+        f"prior measurement of {PRIOR_MEASUREMENT}. Raising is a blocked "
+        f"change (issue #431 shrink-only contract). Run cosmic-ray on "
+        f"Linux to re-acquire a smaller survivor count, then update the "
+        f"baseline in the same PR as the test additions that killed the "
+        f"new mutants."
+    )
+
+    # Surface the current value in the pytest output so the next agent
+    # who looks at this test can see exactly where the baseline lives.
+    print(
+        "\nmutation-baseline.json[migration/derivation.py] = "
+        f"{recorded} (prior measurement: {PRIOR_MEASUREMENT})"
+    )
+    assert isinstance(recorded, int)
+
+
 
