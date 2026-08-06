@@ -187,6 +187,30 @@ CROSS_SLICE_PUBLIC_ROOT_DEPTH = 3
 
 
 # ---------------------------------------------------------------------------
+# Cross-cutting exemption
+# ---------------------------------------------------------------------------
+
+
+def _is_cross_cutting_core_target(layer: str, module: str) -> bool:
+    """Return True when a delivery-layer import reaches into ``app/core/``.
+
+    Per AGENTS.md §33.1, ``app/core/<layer>/<slice>/`` exists to be
+    consumed by every other slice — it is cross-cutting, not a competing
+    vertical column. The delivery layer (``app/modules/<slice>/``) is the
+    entry point that resolves this intent: a route file imports a use
+    case or a port from core the same way it imports ``fastapi``,
+    because that is what the hexagonal build is for.
+
+    The source layer is therefore part of the contract. Inside ``app/core``
+    itself, two non-di slices still compose through ports or the ``di/``
+    composition root (rule 33.3), and this helper does not exempt them —
+    the test ``test_core_slice_may_not_import_a_sibling_slice`` enforces
+    that boundary and must keep passing.
+    """
+    return layer == "delivery" and module.startswith("app.core.")
+
+
+# ---------------------------------------------------------------------------
 # Classification
 # ---------------------------------------------------------------------------
 
@@ -465,6 +489,8 @@ def _check_slice(
     if own_slice is None or target_slice is None or own_slice == target_slice:
         return None
     if layer in SLICE_EXEMPT_LAYERS or target_layer in SLICE_EXEMPT_LAYERS:
+        return None
+    if _is_cross_cutting_core_target(layer, module):
         return None
 
     if layer == "delivery" and target_layer == "delivery":
