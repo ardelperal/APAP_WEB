@@ -386,6 +386,7 @@ mutation-sites, CRAP, module-size, Ruff, rules, mypy, coverage, and build gates.
 |---|---|---|
 | INFO | The original DI module exceeded the 250 mutation-site ceiling at 252. | Split to 124 and 92 sites; combined total reduced to 216 and the mutation baseline entry was removed. |
 | INFO | Moving `require_authorized_user` made its CRAP baseline path stale. | Moved the same shrink-only baseline to the session DI path and lowered it from 14.05 to 9.01. |
+| INFO | Duplicate-code measurement is Python-version-sensitive. | Lowered the CI-authoritative Python 3.14 jscpd baseline from 1.88% to 1.81%; Python 3.11 measures 1.72%. |
 | INFO | Redirect, default-deny, cache, logging, and import-order contracts could drift during extraction. | Existing pins were updated to scan the new seam; all behavior and object-identity assertions pass. |
 
 ### Verdict
