@@ -255,9 +255,12 @@ Cerrada con evidencia (YYYY-MM-DD): commit <sha> "<subject>" cubre <one-liner>. 
 
 ### 6.4 Limpieza tras merge
 
-- Borrar rama local (`git branch -d <rama>`).
-- Borrar rama remote si existía (`git push origin --delete <rama>`).
-- Estado final esperado: solo `main`.
+Per AGENTS.md §15.2: las ramas mergeadas **se retienen**, no se borran. Lo único que se limpia es el **worktree local** (si se creó específicamente para sacar la PR):
+
+- Si la rama se trabajó en un worktree (`git worktree add ...`): `git worktree remove --force <path>`.
+- Si la rama NO se trabajó en un worktree: nada que limpiar — la rama local se queda hasta que se decida renombrarla (`archive/<old-name>` si queda abandonada).
+- **Nunca** `git push origin --delete <rama>`: las ramas remotas se retienen para que un fork herede el historial completo y los `refs/pull/<n>/head` queden enlazables.
+- Estado final esperado: rama local (poten worktree remoto) + `main`.
 
 ### 6.5 Actualizar el roadmap en la misma sesión
 
@@ -340,8 +343,9 @@ gh run watch $(gh run list --branch main --limit 1 --json databaseId -q '.[0].da
 
 # Tras merge verde
 git checkout main
-git branch -d <rama>
-git push origin --delete <rama>
+# Solo si hubo worktree: git worktree remove --force <path>
+# NO git push origin --delete — la rama remota se retiene (AGENTS §15.2)
+git branch -m archive/<old-name>   # solo si la rama queda abandonada
 gh issue close #N --comment "..."
 
 # Dysflow (P2 punto 4)
