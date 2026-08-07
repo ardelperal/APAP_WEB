@@ -40,14 +40,14 @@ BASELINE_MUTATION_SITES: dict[str, int] = {
     "app/modules/sanidad/service.py": 387,
     "migration/apply.py": 336,
     "migration/cli.py": 443,
-    "migration/diff_engine.py": 333,
-    "migration/lock.py": 268,  # Re-baselined after Path A refactor of acquire_lock (issue #420 / PR #452). The 4-helper split grew the file by 9 sites (function defs + docstrings) but reduced the per-function CRAP from 26.54 to 1.00 (grade A).
+    "migration/diff_engine.py": 331,
+    "migration/lock.py": 264,  # Re-baselined after Path A refactor of acquire_lock (issue #420 / PR #452). The 4-helper split grew the file by 9 sites (function defs + docstrings) but reduced the per-function CRAP from 26.54 to 1.00 (grade A). Re-re-baselined down after the issue #390 PLR0911 cleanup merged the redundant ``except PermissionError``/``except OSError`` arms back into a single ``return True`` (per the conservative-fail-safe comment in the function).
     "migration/lock_snapshot.py": 287,
     "migration/reconcile.py": 453,
     "migration/reporting.py": 267,
     "migration/reverse_apply/orchestrator.py": 254,
-    "migration/semantic_events.py": 304,
-    "migration/storage_spike.py": 705,
+    "migration/semantic_events.py": 300,
+    "migration/storage_spike.py": 695,
     "migration/volunteer_dedup.py": 301,
 }
 

@@ -134,6 +134,192 @@ def _emit_migration_report(
         )
 
 
+# Exception → (categorical reason, exit code) mapping used by
+# :func:`_emit_apply_categorical_error` to consolidate the six
+# ``except`` branches the apply pipeline may raise. ``LegacyReaderError``
+# and ``InsForgeError`` are excluded because their reason strings are
+# not derivable from the exception class alone — they need the
+# original branching for the per-class comment that documents why
+# the operator sees a categorical line.
+_APPLY_EXIT_CODE_BY_EXCEPTION: dict[type[BaseException], tuple[str, int]] = {
+    MsAccessPreflightUnavailableError: ("msaccess_preflight_unavailable", 5),
+    MsAccessRunningError: ("msaccess_running", 5),
+    SourceDriftError: ("source_drift", 6),
+    PartialApplyInterruptedError: ("partial_apply_interrupted", 7),
+}
+
+
+def _emit_apply_categorical_error(
+    stream: IO[str],
+    migration_report: MigrationReport,
+    results: list[ApplyResult],
+    *,
+    started_at: datetime,
+    dry_run: bool,
+    exc: BaseException,
+) -> int:
+    """Emit the canonical ``apap-migrate apply`` error line + report.
+
+    Returns the exit code associated with ``exc`` (looked up in
+    :data:`_APPLY_EXIT_CODE_BY_EXCEPTION`). Extracted from
+    :func:`run_apply` so the parent function stays under the PLR0911
+    return-statement cap.
+    """
+    reason, exit_code = _APPLY_EXIT_CODE_BY_EXCEPTION[type(exc)]
+    stream.write(_format_apply_error(reason, exit_code=exit_code))
+    _emit_migration_report(
+        migration_report,
+        results,
+        started_at=started_at,
+        stream=stream,
+        dry_run=dry_run,
+        error=reason,
+    )
+    return exit_code
+
+
+def _apply_tables(
+    args: argparse.Namespace,
+    web_client: InsForgeClient,
+    stream: IO[str],
+    *,
+    started_at: datetime,
+    migration_report: MigrationReport,
+    since: datetime | None,
+    tables: list[str],
+) -> int:
+    """Per-table apply loop with the typed-exception / exit-code contract.
+
+    Extracted from :func:`run_apply` so the parent function stays under
+    the PLR0911 return-statement cap. Returns the exit code; emits the
+    final per-row summary on success.
+    """
+    dni_collision_counter = DniCollisionCounter()
+    results: list[ApplyResult] = []
+    direction = getattr(args, "direction", APPLY_DIRECTION_LEGACY_TO_WEB)
+
+    try:
+        for table in tables:
+            if direction == APPLY_DIRECTION_WEB_TO_LEGACY:
+                results.append(
+                    apply_web_to_legacy(
+                        web_client,
+                        table,
+                        legacy_path=args.legacy_path,
+                        dry_run=bool(args.check_only),
+                        web_snapshot=None,
+                        lock_path=None,
+                        dni_collision_counter=dni_collision_counter,
+                        migration_report=migration_report,
+                    )
+                )
+                continue
+            results.append(
+                cli_mod.apply_legacy_to_web(
+                    web_client,
+                    table,
+                    legacy_path=args.legacy_path,
+                    since=since,
+                    dry_run=bool(args.check_only),
+                )
+            )
+    except (MsAccessPreflightUnavailableError, MsAccessRunningError,
+            SourceDriftError, PartialApplyInterruptedError) as exc:
+        return _emit_apply_categorical_error(
+            stream,
+            migration_report,
+            results,
+            started_at=started_at,
+            dry_run=bool(args.check_only),
+            exc=exc,
+        )
+    except LegacyReaderError:
+        # pyodbc I/O failure. The exception's ``str()`` can include the
+        # failing SQL fragment — categorical only.
+        stream.write(_format_apply_error("legacy_read_failed", exit_code=5))
+        _emit_migration_report(
+            migration_report,
+            results,
+            started_at=started_at,
+            stream=stream,
+            dry_run=bool(args.check_only),
+            error="legacy_read_failed",
+        )
+        return 5
+    except InsForgeError:
+        # Bootstrap failure (private bucket missing, shadow table
+        # invariant broken, etc.). ``InsForgeError.body`` may carry
+        # internal server-side details — categorical only.
+        stream.write(_format_apply_error("infra_bootstrap_failed", exit_code=5))
+        _emit_migration_report(
+            migration_report,
+            results,
+            started_at=started_at,
+            stream=stream,
+            dry_run=bool(args.check_only),
+            error="infra_bootstrap_failed",
+        )
+        return 5
+
+    for result in results:
+        action = "would insert" if args.check_only else "inserted"
+        stream.write(
+            f"table={result.table_name} {action}={result.applied} "
+            f"skipped={result.skipped} errors={len(result.errors)}\n"
+        )
+        for error in result.errors:
+            stream.write(f"  error={error}\n")
+    exit_code = 0 if not any(r.errors for r in results) else 1
+    _emit_migration_report(
+        migration_report,
+        results,
+        started_at=started_at,
+        stream=stream,
+        dry_run=bool(args.check_only),
+        emit_stream=True,
+    )
+    return exit_code
+
+
+def _parse_since_or_emit(
+    args: argparse.Namespace,
+    stream: IO[str],
+    migration_report: MigrationReport,
+    *,
+    started_at: datetime,
+) -> datetime | str | None:
+    """Parse ``args.since`` as ISO-8601, or emit an invalid_timestamp report.
+
+    Returns ``None`` when ``args.since`` is unset, the parsed
+    ``datetime`` when parsing succeeds, or the literal string
+    ``"_INVALID_TIMESTAMP"`` (a sentinel object) when parsing fails
+    so the caller knows to emit the failure report and return exit
+    code 2.
+    """
+    if args.since is None:
+        return None
+    try:
+        return datetime.fromisoformat(args.since)
+    except (TypeError, ValueError) as exc:
+        stream.write(f"apap-migrate apply: invalid ISO-8601 timestamp {args.since!r}: {exc}\n")
+        _emit_migration_report(
+            migration_report,
+            [],
+            started_at=started_at,
+            stream=stream,
+            dry_run=bool(args.check_only),
+            error="invalid_timestamp",
+        )
+        return _INVALID_TIMESTAMP
+
+
+# Sentinel returned by :func:`_parse_since_or_emit` when ``args.since``
+# is not a valid ISO-8601 timestamp. The string identity is checked
+# with ``is`` (not equality) so the caller does not accidentally match
+# a real ISO-8601 string.
+_INVALID_TIMESTAMP = "_INVALID_TIMESTAMP"
+
+
 def run_apply(
     args: argparse.Namespace,
     *,
@@ -196,170 +382,24 @@ def run_apply(
         finished_at=started_at,
         duration_seconds=0.0,
     )
-    dni_collision_counter = DniCollisionCounter()
-    results: list[ApplyResult] = []
 
-    since: datetime | None = None
-    if args.since is not None:
-        try:
-            since = datetime.fromisoformat(args.since)
-        except (TypeError, ValueError) as exc:
-            stream.write(f"apap-migrate apply: invalid ISO-8601 timestamp {args.since!r}: {exc}\n")
-            _emit_migration_report(
-                migration_report,
-                results,
-                started_at=started_at,
-                stream=stream,
-                dry_run=bool(args.check_only),
-                error="invalid_timestamp",
-            )
-            return 2
+    since = _parse_since_or_emit(args, stream, migration_report, started_at=started_at)
+    if since is _INVALID_TIMESTAMP:
+        return 2
 
     tables = [args.table] if args.table else list_available_tables()
-    try:
-        for table in tables:
-            if getattr(args, "direction", APPLY_DIRECTION_LEGACY_TO_WEB) == APPLY_DIRECTION_WEB_TO_LEGACY:
-                results.append(
-                    apply_web_to_legacy(
-                        web_client,
-                        table,
-                        legacy_path=args.legacy_path,
-                        dry_run=bool(args.check_only),
-                        web_snapshot=None,
-                        lock_path=None,
-                        dni_collision_counter=dni_collision_counter,
-                        migration_report=migration_report,
-                    )
-                )
-                continue
-            results.append(
-                cli_mod.apply_legacy_to_web(
-                    web_client,
-                    table,
-                    legacy_path=args.legacy_path,
-                    since=since,
-                    dry_run=bool(args.check_only),
-                )
-            )
-    except MsAccessPreflightUnavailableError:
-        # psutil missing or process iteration failed. The apply
-        # layer already emitted ``log_safe("apply.preflight_unavailable",
-        # reason=<cat>)`` before re-raising; the CLI just renders
-        # the categorical operator line. No PIDs, no error strings,
-        # no path data.
-        stream.write(
-            _format_apply_error("msaccess_preflight_unavailable", exit_code=5)
-        )
-        _emit_migration_report(
-            migration_report,
-            results,
-            started_at=started_at,
-            stream=stream,
-            dry_run=bool(args.check_only),
-            error="msaccess_preflight_unavailable",
-        )
-        return 5
-    except MsAccessRunningError:
-        # Live MSACCESS.EXE process detected. The exception carries
-        # ``.pids`` — we deliberately do NOT print them (operator
-        # output is categorical; runbook explains what to do).
-        stream.write(
-            _format_apply_error("msaccess_running", exit_code=5)
-        )
-        _emit_migration_report(
-            migration_report,
-            results,
-            started_at=started_at,
-            stream=stream,
-            dry_run=bool(args.check_only),
-            error="msaccess_running",
-        )
-        return 5
-    except LegacyReaderError:
-        # pyodbc I/O failure. The exception's ``str()``
-        # can include the failing SQL fragment — categorical only.
-        stream.write(
-            _format_apply_error("legacy_read_failed", exit_code=5)
-        )
-        _emit_migration_report(
-            migration_report,
-            results,
-            started_at=started_at,
-            stream=stream,
-            dry_run=bool(args.check_only),
-            error="legacy_read_failed",
-        )
-        return 5
-    except InsForgeError:
-        # Bootstrap failure (private bucket missing, shadow table
-        # invariant broken, etc.). ``InsForgeError.body`` may carry
-        # internal server-side details — categorical only.
-        stream.write(
-            _format_apply_error("infra_bootstrap_failed", exit_code=5)
-        )
-        _emit_migration_report(
-            migration_report,
-            results,
-            started_at=started_at,
-            stream=stream,
-            dry_run=bool(args.check_only),
-            error="infra_bootstrap_failed",
-        )
-        return 5
-    except SourceDriftError:
-        # PR3 fails closed on drift (no informational proceed).
-        # The exception carries boolean + delta fields — categorical
-        # only. A future PR may add ``--accept-drift`` for explicit
-        # acknowledgement.
-        stream.write(
-            _format_apply_error("source_drift", exit_code=6)
-        )
-        _emit_migration_report(
-            migration_report,
-            results,
-            started_at=started_at,
-            stream=stream,
-            dry_run=bool(args.check_only),
-            error="source_drift",
-        )
-        return 6
-    except PartialApplyInterruptedError:
-        # Prior run was interrupted; ``partial_apply.json`` exists
-        # on disk. The operator MUST review and remove the file
-        # before retrying — PR3 deliberately does NOT auto-resume.
-        # The follow-up ``--resume-from-partial`` operator command
-        # is scheduled for the apply runbook PR (PR4 follow-up).
-        stream.write(
-            _format_apply_error("partial_apply_interrupted", exit_code=7)
-        )
-        _emit_migration_report(
-            migration_report,
-            results,
-            started_at=started_at,
-            stream=stream,
-            dry_run=bool(args.check_only),
-            error="partial_apply_interrupted",
-        )
-        return 7
-
-    for result in results:
-        action = "would insert" if args.check_only else "inserted"
-        stream.write(
-            f"table={result.table_name} {action}={result.applied} "
-            f"skipped={result.skipped} errors={len(result.errors)}\n"
-        )
-        for error in result.errors:
-            stream.write(f"  error={error}\n")
-    exit_code = 0 if not any(r.errors for r in results) else 1
-    _emit_migration_report(
-        migration_report,
-        results,
+    # ``_parse_since_or_emit`` narrowed to ``datetime | str | None``;
+    # the ``_INVALID_TIMESTAMP`` branch returned above, so the
+    # remaining value is ``datetime | None`` (or ``None`` when unset).
+    return _apply_tables(
+        args,
+        web_client,
+        stream,
         started_at=started_at,
-        stream=stream,
-        dry_run=bool(args.check_only),
-        emit_stream=True,
+        migration_report=migration_report,
+        since=since,  # type: ignore[arg-type]
+        tables=tables,
     )
-    return exit_code
 
 
 __all__ = [

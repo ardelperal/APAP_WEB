@@ -100,6 +100,36 @@ def translate_diff(diff: Diff, table_mapping: TableMapping) -> list[LifecycleEve
 # --- INSERT handlers ------------------------------------------------------
 
 
+def _started_event(
+    diff: Diff,
+    *,
+    legacy_table: str,
+    timestamp_field: str,
+    id_field: str,
+    event_type: str,
+    entity_type: str,
+) -> list[LifecycleEvent]:
+    """Build a single ``*_STARTED`` event from ``diff`` or return ``[]``.
+
+    Helper shared by every INSERT arm of :func:`_translate_insert`;
+    collapses the (timestamp-missing → []) vs (timestamp-present →
+    one event) branches into one expression and keeps each
+    table-specific call site readable.
+    """
+    timestamp = _read_timestamp(diff.legacy_row, timestamp_field)
+    if timestamp is None:
+        return []
+    return [
+        LifecycleEvent(
+            event_type=event_type,
+            event_timestamp=timestamp,
+            legacy_source_table=legacy_table,
+            legacy_source_id=_read_int(diff.legacy_row, id_field),
+            source_entity_type=entity_type,
+        )
+    ]
+
+
 def _translate_insert(diff: Diff, legacy_table: str) -> list[LifecycleEvent]:
     """Translate an INSERT diff on a lifecycle table.
 
@@ -108,47 +138,32 @@ def _translate_insert(diff: Diff, legacy_table: str) -> list[LifecycleEvent]:
     created at registration, before any lifecycle action).
     """
     if legacy_table == "TbEntradas":
-        timestamp = _read_timestamp(diff.legacy_row, "FEntrada")
-        if timestamp is None:
-            return []
-        return [
-            LifecycleEvent(
-                event_type="INTAKE_STARTED",
-                event_timestamp=timestamp,
-                legacy_source_table="TbEntradas",
-                legacy_source_id=_read_int(diff.legacy_row, "IDEntrada"),
-                source_entity_type="intake",
-            )
-        ]
-
+        return _started_event(
+            diff,
+            legacy_table="TbEntradas",
+            timestamp_field="FEntrada",
+            id_field="IDEntrada",
+            event_type="INTAKE_STARTED",
+            entity_type="intake",
+        )
     if legacy_table == "TbAcogidaAnimal":
-        timestamp = _read_timestamp(diff.legacy_row, "FInicio")
-        if timestamp is None:
-            return []
-        return [
-            LifecycleEvent(
-                event_type="FOSTER_STARTED",
-                event_timestamp=timestamp,
-                legacy_source_table="TbAcogidaAnimal",
-                legacy_source_id=_read_int(diff.legacy_row, "IDAcogida"),
-                source_entity_type="foster",
-            )
-        ]
-
+        return _started_event(
+            diff,
+            legacy_table="TbAcogidaAnimal",
+            timestamp_field="FInicio",
+            id_field="IDAcogida",
+            event_type="FOSTER_STARTED",
+            entity_type="foster",
+        )
     if legacy_table == "TbAdopcion":
-        timestamp = _read_timestamp(diff.legacy_row, "FAdopcion")
-        if timestamp is None:
-            return []
-        return [
-            LifecycleEvent(
-                event_type="ADOPTION_STARTED",
-                event_timestamp=timestamp,
-                legacy_source_table="TbAdopcion",
-                legacy_source_id=_read_int(diff.legacy_row, "IDAdopcion"),
-                source_entity_type="adoption",
-            )
-        ]
-
+        return _started_event(
+            diff,
+            legacy_table="TbAdopcion",
+            timestamp_field="FAdopcion",
+            id_field="IDAdopcion",
+            event_type="ADOPTION_STARTED",
+            entity_type="adoption",
+        )
     # ``TbFichaAnimal`` INSERT → no lifecycle event (registration is
     # not a lifecycle transition). DELETE also covered here because it
     # would land in the ``return []`` arm above.

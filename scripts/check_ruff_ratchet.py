@@ -59,18 +59,23 @@ RUFF_VERSION: str = "0.15.21"
 #: preserved — this update is a one-shot calibration, not a baseline raise.
 #: The count of violations in the codebase is UNCHANGED by this commit.
 BASELINE: dict[str, int] = {
-    "ARG001": 46,
+    "ARG001": 45,
     "ARG002": 3,
-    "C901": 18,
+    "C901": 16,
     "ERA001": 4,
     "N802": 1,
     "N803": 5,
     "N806": 2,
     "N815": 2,
     "N818": 3,
-    "PLR0911": 10,
-    "PLR0912": 9,
-    "PLR0913": 66,
+    # PLR0911 (too-many-return-statements) se completo en el issue #390: las
+    # 10 violaciones restantes se redujeron a 0 mediante extracciones de
+    # helpers (``_resolve_user_payload``, ``_build_probe_result``,
+    # ``_is_route_decorator``, etc.) sin ``# noqa``. La entrada se ELIMINA
+    # del BASELINE para que cualquier PLR0911 nuevo caiga en la rama de
+    # regla desconocida y falle el ratchet.
+    "PLR0912": 7,
+    "PLR0913": 36,
     "PLR0915": 1,
     "PLR1714": 2,
     "PLR1730": 2,
@@ -81,12 +86,12 @@ BASELINE: dict[str, int] = {
     "PTH123": 2,
     "RET504": 1,
     "RET505": 1,
-    "S101": 5,
+    "S101": 4,
     "S105": 3,
     "S110": 4,
     "S112": 1,
     "S603": 2,
-    "S607": 2,
+    "S607": 1,
     # S608 fue retirado del baseline al completarse el triaje del issue #387
     # (65 -> 54 con los 11 sitios de ``migration/`` en el PR #422, y -> 0 con
     # los 54 de ``app/modules/``). Todos resultaron categoria (b):
@@ -103,7 +108,7 @@ BASELINE: dict[str, int] = {
     "SIM910": 1,
     "TRY003": 185,
     "TRY004": 10,
-    "TRY300": 3,
+    "TRY300": 1,
 }
 
 

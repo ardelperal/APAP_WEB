@@ -103,6 +103,35 @@ class DerivationResult:
 # --- Derivation entry point ----------------------------------------------
 
 
+def _resolve_single_active(
+    active_intakes: list[dict[str, Any]],
+    active_fosters: list[dict[str, Any]],
+    active_adoptions: list[dict[str, Any]],
+) -> DerivationResult | None:
+    if len(active_intakes) == 1:
+        intake = active_intakes[0]
+        return DerivationResult(
+            state=STATE_ALBERGUE,
+            kind=DerivationKind.ALBERGUE,
+            active_intake_id=_legacy_pk_as_str(intake, "IDEntrada"),
+        )
+    if len(active_fosters) == 1:
+        foster = active_fosters[0]
+        return DerivationResult(
+            state=STATE_ACOGIDA,
+            kind=DerivationKind.ACOGIDA,
+            active_foster_id=_legacy_pk_as_str(foster, "IDAcogida"),
+        )
+    if len(active_adoptions) == 1:
+        adoption = active_adoptions[0]
+        return DerivationResult(
+            state=STATE_ADOPTADO,
+            kind=DerivationKind.ADOPTADO,
+            active_adoption_id=_legacy_pk_as_str(adoption, "IDAdopcion"),
+        )
+    return None
+
+
 def derive_estado_actual_animal(
     tb_ficha: dict[str, Any] | None,
     tb_entradas: Iterable[dict[str, Any]],
@@ -180,34 +209,12 @@ def derive_estado_actual_animal(
             )
         return DerivationResult(state=STATE_ENTREGADO, kind=DerivationKind.ENTREGADO)
 
-    # --- P3: Single active intake -------------------------------------
-    if len(active_intakes) == 1:
-        intake = active_intakes[0]
-        return DerivationResult(
-            state=STATE_ALBERGUE,
-            kind=DerivationKind.ALBERGUE,
-            active_intake_id=_legacy_pk_as_str(intake, "IDEntrada"),
-        )
+    # --- P3/P4/P5: Single active placement ---------------------------
+    single_active = _resolve_single_active(active_intakes, active_fosters, active_adoptions)
+    if single_active is not None:
+        return single_active
 
-    # --- P4: Single active foster -------------------------------------
-    if len(active_fosters) == 1:
-        foster = active_fosters[0]
-        return DerivationResult(
-            state=STATE_ACOGIDA,
-            kind=DerivationKind.ACOGIDA,
-            active_foster_id=_legacy_pk_as_str(foster, "IDAcogida"),
-        )
-
-    # --- P5: Single active adoption -----------------------------------
-    if len(active_adoptions) == 1:
-        adoption = active_adoptions[0]
-        return DerivationResult(
-            state=STATE_ADOPTADO,
-            kind=DerivationKind.ADOPTADO,
-            active_adoption_id=_legacy_pk_as_str(adoption, "IDAdopcion"),
-        )
-
-    # --- P6: Death ----------------------------------------------------
+    # --- P6: Death + defensive fallback ------------------------------
     #
     # VBA priority 6: death overrides all. The parenthetical carries
     # the ``UltimoEstadoAntesDeFallecido`` value (one of the four
@@ -215,20 +222,22 @@ def derive_estado_actual_animal(
     # The VBA also preserves an existing ``Fallecido`` string when the
     # state was already set; we replicate that to avoid producing
     # ``Fallecido (Fallecido (Albergue))`` if called twice.
-
+    #
+    # The ``else`` arm is the defensive fallback — the cascade above
+    # should cover every input, so we return ``Incoherente`` to keep
+    # the function total and surface a "needs operator review" verdict.
+    # P6 and fallback share one ``return`` so the parent stays under
+    # PLR0911's 6-return cap.
     if has_death:
         pre = _resolve_pre_death_state(ficha)
-        return DerivationResult(
-            state=f"Fallecido ({pre})",
-            kind=DerivationKind.FALLECIDO,
-            pre_death_state=pre,
-        )
-
-    # Defensive fallback — the cascade above should cover every input.
-    # Returning ``Incoherente`` keeps the function total (no exceptions
-    # surface into the applier) and matches the VBA behaviour of
-    # defaulting to a "needs operator review" verdict on edge cases.
-    return DerivationResult(state=STATE_INCOHERENTE, kind=DerivationKind.INCOHERENTE)
+        pre_death_state: str | None = pre
+        state = f"Fallecido ({pre})"
+        kind = DerivationKind.FALLECIDO
+    else:
+        pre_death_state = None
+        state = STATE_INCOHERENTE
+        kind = DerivationKind.INCOHERENTE
+    return DerivationResult(state=state, kind=kind, pre_death_state=pre_death_state)
 
 
 # --- Comparator (T2.2) --------------------------------------------------

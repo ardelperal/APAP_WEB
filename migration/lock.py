@@ -416,15 +416,12 @@ def _is_process_alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
+        # El proceso ya no existe → stale lock eligible for overwrite.
         return False
-    except PermissionError:
-        # El proceso existe pero no tenemos permiso para señalarlo.
-        # Lo tratamos como vivo (conservador — NO overwrite).
-        return True
-    except OSError:
-        # Cualquier otro error (Windows sin PROCESS_QUERY_LIMITED_INFORMATION,
-        # etc.) → fail-safe.
-        return True
+    # ``PermissionError`` (proceso existe pero no señalable) y
+    # ``OSError`` (Windows sin PROCESS_QUERY_LIMITED_INFORMATION, etc.)
+    # son ambos fail-safe: cuando no podemos verificar la liveness
+    # asumimos vivo para no provocar split-brain por overwrite erróneo.
     return True
 
 

@@ -438,6 +438,11 @@ def _find_target_row(
     Returns:
         ``(target_row, target_pk_value)`` o ``(None, None)`` si no
         hay match.
+
+    El cuerpo reasigna ``result`` por rama y devuelve una sola vez al
+    final para mantener el conteo de PLR0911 bajo el cap de 6. La
+    rama ``source_is_web`` (PK = UUID; matching por natural key)
+    conserva ``return`` anticipado porque solo tiene 3 caminos.
     """
     if source_is_web:
         # source = web (PK = id UUID); target = legacy (PK = legacy_key).
@@ -453,29 +458,28 @@ def _find_target_row(
             return None, None
         return target_row, str(source_pk_value)
 
-    # source = legacy.
+    # source = legacy. Matching por natural key o via sync_state,
+    # recogido en ``result`` para evitar tres ``return`` adicionales.
+    result: tuple[dict[str, Any] | None, str | None] = (None, None)
     if mapping.key_field == mapping.legacy_key:
         # Natural key: el valor de la legacy_key == valor de la key_field
         # en el target.
         target_row = target_by_pk.get(str(source_pk_value))
-        if target_row is None:
-            return None, None
-        target_pk = target_row.get("id")
-        return target_row, (str(target_pk) if target_pk is not None else None)
-
-    # source = legacy, matching via sync_state.
-    table = mapping.web_table
-    web_uuid = lookup_web_pk(sync_state, table, source_pk_value)
-    if web_uuid is None:
-        # Legacy_pk no tiene contraparte web registrada → INSERT.
-        return None, None
-    target_row = target_by_pk.get(str(web_uuid))
-    if target_row is None:
-        # sync_state dice que existe un web_uuid pero no está en el
-        # snapshot actual (probablemente un DELETE en web) → INSERT
-        # de la fila legacy la recreará.
-        return None, None
-    return target_row, str(web_uuid)
+        if target_row is not None:
+            target_pk = target_row.get("id")
+            result = (target_row, str(target_pk) if target_pk is not None else None)
+    else:
+        table = mapping.web_table
+        web_uuid = lookup_web_pk(sync_state, table, source_pk_value)
+        if web_uuid is not None:
+            target_row = target_by_pk.get(str(web_uuid))
+            if target_row is not None:
+                # sync_state dice que existe un web_uuid y la fila está
+                # en el snapshot → match. (Si web_uuid es None o la fila
+                # falta —probablemente un DELETE en web— ``result``
+                # permanece en ``(None, None)`` y el caller emite INSERT.)
+                result = (target_row, str(web_uuid))
+    return result
 
 
 # --- Internal: field comparison -------------------------------------------

@@ -20,6 +20,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
+from app.core.config import Settings
 from app.core.logging import log_safe
 from app.core.rate_limit import (
     RateLimitBackend,
@@ -97,90 +98,94 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         path = request.url.path
 
         # OAuth callback — always rate-limited even though it is a GET
-        is_oauth_callback = path == "/auth/callback" and method == "GET"
-        is_write = method in WRITE_METHODS
-        is_read_only = method in SAFE_METHODS  # HEAD/OPTIONS only; GET is NOT a read here
-
-        if is_oauth_callback:
-            identity = _extract_identity(request, settings)
-            scope = "oauth"
-            identity_key = identity.ip or "unknown"
-            limit = settings.rate_limit_oauth_per_min
-            allowed, info = self._backend.hit(
-                scope=scope,
-                identity=identity_key,
-                limit=limit,
-                now=_monotonic_now(),
-                window_seconds=60,
-            )
-            reason = None if allowed else "ip"
-            response = await call_next(request)
-            if allowed:
-                response = _add_rate_limit_headers(response, info)
-            else:
-                log_safe(
-                    "ratelimit.rejected",
-                    path=path,
-                    reason=reason,
-                    scope=scope,
-                    user_id=identity.user_id,
-                )
-                return _build_429_response(info)
-            return response
-
-        if is_write:
-            identity = _extract_identity(request, settings)
-            # User bucket
-            if identity.user_id:
-                user_allowed, user_info = self._backend.hit(
-                    scope="write_user",
-                    identity=identity.user_id,
-                    limit=settings.rate_limit_write_per_min_user,
-                    now=_monotonic_now(),
-                    window_seconds=60,
-                )
-            else:
-                user_allowed = True
-                user_info = RetryInfo(
-                    allowed=True, limit=0, remaining=0, reset_at=0.0, retry_after=None
-                )
-            # IP bucket
-            ip_allowed, ip_info = self._backend.hit(
-                scope="write_ip",
-                identity=identity.ip or "unknown",
-                limit=settings.rate_limit_write_per_min_ip,
-                now=_monotonic_now(),
-                window_seconds=60,
-            )
-            # Tighter bucket wins
-            if not ip_allowed:
-                allowed, info, reason = False, ip_info, "ip"
-            elif not user_allowed:
-                allowed, info, reason = False, user_info, "user"
-            else:
-                # Both allowed — record against more-exhausted bucket for header accuracy
-                allowed, info = True, (user_info if user_info.remaining <= ip_info.remaining else ip_info)
-                reason = None
-            response = await call_next(request)
-            if allowed:
-                response = _add_rate_limit_headers(response, info)
-            else:
-                log_safe(
-                    "ratelimit.rejected",
-                    path=path,
-                    reason=reason,
-                    scope="write",
-                    user_id=identity.user_id,
-                )
-                return _build_429_response(info)
-            return response
-
-        if is_read_only:
-            # HEAD/OPTIONS — passthrough, no rate limit
-            return await call_next(request)
-
-        # GET (non-OAuth callback) — no rate limit
+        if path == "/auth/callback" and method == "GET":
+            return await self._dispatch_oauth_callback(request, call_next, settings, path)
+        if method in WRITE_METHODS:
+            return await self._dispatch_write(request, call_next, settings, path)
+        # HEAD/OPTIONS or GET (non-OAuth callback) — passthrough, no rate limit.
         return await call_next(request)
+
+    async def _dispatch_oauth_callback(
+        self,
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+        settings: Settings,
+        path: str,
+    ) -> Response:
+        """OAuth callback branch (IP-only, default 10/min) extracted from :meth:`dispatch`."""
+        identity = _extract_identity(request, settings)
+        identity_key = identity.ip or "unknown"
+        limit = settings.rate_limit_oauth_per_min
+        allowed, info = self._backend.hit(
+            scope="oauth",
+            identity=identity_key,
+            limit=limit,
+            now=_monotonic_now(),
+            window_seconds=60,
+        )
+        response = await call_next(request)
+        if allowed:
+            return _add_rate_limit_headers(response, info)
+        log_safe(
+            "ratelimit.rejected",
+            path=path,
+            reason="ip",
+            scope="oauth",
+            user_id=identity.user_id,
+        )
+        return _build_429_response(info)
+
+    async def _dispatch_write(
+        self,
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+        settings: Settings,
+        path: str,
+    ) -> Response:
+        """Write route branch (both user-id and IP buckets, tighter wins) extracted from :meth:`dispatch`."""
+        identity = _extract_identity(request, settings)
+        # User bucket
+        if identity.user_id:
+            user_allowed, user_info = self._backend.hit(
+                scope="write_user",
+                identity=identity.user_id,
+                limit=settings.rate_limit_write_per_min_user,
+                now=_monotonic_now(),
+                window_seconds=60,
+            )
+        else:
+            user_allowed = True
+            user_info = RetryInfo(
+                allowed=True, limit=0, remaining=0, reset_at=0.0, retry_after=None
+            )
+        # IP bucket
+        ip_allowed, ip_info = self._backend.hit(
+            scope="write_ip",
+            identity=identity.ip or "unknown",
+            limit=settings.rate_limit_write_per_min_ip,
+            now=_monotonic_now(),
+            window_seconds=60,
+        )
+        # Tighter bucket wins
+        if not ip_allowed:
+            allowed, info, reason = False, ip_info, "ip"
+        elif not user_allowed:
+            allowed, info, reason = False, user_info, "user"
+        else:
+            # Both allowed — record against more-exhausted bucket for header accuracy
+            allowed, info = True, (user_info if user_info.remaining <= ip_info.remaining else ip_info)
+            reason = None
+        response = await call_next(request)
+        if allowed:
+            return _add_rate_limit_headers(response, info)
+        log_safe(
+            "ratelimit.rejected",
+            path=path,
+            reason=reason,
+            scope="write",
+            user_id=identity.user_id,
+        )
+        return _build_429_response(info)
 
 
 def _add_rate_limit_headers(response: Response, info: RetryInfo) -> Response:

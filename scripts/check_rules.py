@@ -94,6 +94,16 @@ _APAP003_FORBIDDEN_LOG_METHODS = frozenset(
 )
 _EXCLUDED_PARTS = frozenset({"__pycache__", ".venv", "venv", ".git", "build", "dist"})
 
+# HTTP verbs recognised as route decorators, plus the names those decorators
+# may be attached to (``router`` for ``fastapi.APIRouter`` instances and
+# ``application`` for ``app.core.application``'s own router). Centralised so
+# the two helpers (``_route_decorator_path`` and ``_decorator_http_verb``)
+# share a single source of truth and the type-guard chain does not drift.
+_ROUTE_HTTP_METHODS = frozenset(
+    {"get", "post", "put", "patch", "delete", "head", "options"}
+)
+_ROUTE_DECORATOR_OWNERS = frozenset({"router", "application"})
+
 # PR5 detector: prefixes the spec mandates as PII-shaped routes the
 # closed-list audit covers. Routes starting with one of these are
 # checked against ``PII_ROUTES_PARAMETRIZE``.
@@ -356,22 +366,33 @@ def _parametrize_entry_to_regex(entry: str) -> re.Pattern[str]:
     return re.compile(f"^{body}(/.*)?$")
 
 
+def _is_route_decorator(node: ast.expr) -> bool:
+    """True when ``node`` is an HTTP route decorator (``@router.METHOD``).
+
+    Validates the structural shape: ``Call`` → ``Attribute`` → verb in
+    :data:`_ROUTE_HTTP_METHODS` → ``Name`` in
+    :data:`_ROUTE_DECORATOR_OWNERS`. Does NOT require the call to have
+    arguments — :func:`_decorator_http_verb` works on bare decorators
+    like ``@router.get`` whereas :func:`_route_decorator_path` adds an
+    ``args`` check on top of this predicate.
+    """
+    if not isinstance(node, ast.Call):
+        return False
+    func = node.func
+    if not isinstance(func, ast.Attribute):
+        return False
+    if func.attr not in _ROUTE_HTTP_METHODS:
+        return False
+    if not isinstance(func.value, ast.Name):
+        return False
+    return func.value.id in _ROUTE_DECORATOR_OWNERS
+
+
 def _route_decorator_path(node: ast.expr) -> str | None:
     """Extract the path string from a ``@router.METHOD(path, ...)``
     decorator. Returns ``None`` for non-HTTP decorators.
     """
-    if not isinstance(node, ast.Call):
-        return None
-    func = node.func
-    if not isinstance(func, ast.Attribute):
-        return None
-    if func.attr not in {"get", "post", "put", "patch", "delete", "head", "options"}:
-        return None
-    if not isinstance(func.value, ast.Name):
-        return None
-    if func.value.id not in {"router", "application"}:
-        return None
-    if not node.args:
+    if not _is_route_decorator(node) or not node.args:
         return None
     first = node.args[0]
     if isinstance(first, ast.Constant) and isinstance(first.value, str):
@@ -712,15 +733,9 @@ def _route_http_verb(func: ast.FunctionDef | ast.AsyncFunctionDef) -> str | None
 
 
 def _decorator_http_verb(node: ast.expr) -> str | None:
-    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+    if not _is_route_decorator(node):
         return None
-    if node.func.attr not in {"get", "post", "put", "patch", "delete", "head", "options"}:
-        return None
-    if not isinstance(node.func.value, ast.Name):
-        return None
-    if node.func.value.id not in {"router", "application"}:
-        return None
-    return node.func.attr
+    return node.func.attr  # type: ignore[attr-defined]
 
 
 # Detector 2 ---------------------------------------------------------------

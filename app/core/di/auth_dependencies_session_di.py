@@ -45,6 +45,48 @@ def get_current_user_optional(request: Request) -> dict | None:
     return _shim().read_session_payload(request, secret=get_settings().session_secret)
 
 
+def _revalidate_and_load(
+    payload: dict,
+    email: str,
+    client: InsForgeClient,
+) -> Response | dict:
+    """Revalidate ``email`` against the auth backend and update ``payload``.
+
+    Cache miss path of :func:`require_authorized_user`. Issues the SELECT,
+    caches the verdict (positive or negative), and either returns the
+    updated ``payload`` or denies with the matching reason.
+    """
+    try:
+        fresh = get_user_by_email(client, email)
+    except InsForgeError:
+        return _deny(payload, "db_unreachable")
+    if fresh is None:
+        set_cached_auth(email, is_authorized=False, rol=None)
+        return _deny(payload, "db_reval_miss")
+    set_cached_auth(email, is_authorized=True, rol=fresh["rol"])
+    payload["rol"] = fresh["rol"]
+    return payload
+
+
+def _resolve_user_payload(
+    payload: dict,
+    email: str,
+    client: InsForgeClient,
+) -> Response | dict:
+    """Cache-aware auth resolver used by :func:`require_authorized_user`.
+
+    On a cache hit the verdict is applied in-process; on a miss the
+    backend is queried through :func:`_revalidate_and_load`.
+    """
+    cached = get_cached_auth(email, get_settings().auth_cache_ttl_seconds)
+    if cached is None:
+        return _revalidate_and_load(payload, email, client)
+    if not cached.is_authorized:
+        return _deny(payload, "db_reval_miss")
+    payload["rol"] = cached.rol
+    return payload
+
+
 def require_authorized_user(
     request: Request,
     payload: dict | None = Depends(get_current_user_optional),
@@ -60,23 +102,7 @@ def require_authorized_user(
     if not isinstance(email, str) or not email:
         return _deny(payload, "no_email")
 
-    cached = get_cached_auth(email, get_settings().auth_cache_ttl_seconds)
-    if cached is None:
-        try:
-            fresh = get_user_by_email(client, email)
-        except InsForgeError:
-            return _deny(payload, "db_unreachable")
-        if fresh is None:
-            set_cached_auth(email, is_authorized=False, rol=None)
-            return _deny(payload, "db_reval_miss")
-        set_cached_auth(email, is_authorized=True, rol=fresh["rol"])
-        payload["rol"] = fresh["rol"]
-        return payload
-
-    if not cached.is_authorized:
-        return _deny(payload, "db_reval_miss")
-    payload["rol"] = cached.rol
-    return payload
+    return _resolve_user_payload(payload, email, client)
 
 
 __all__ = [

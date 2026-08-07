@@ -30,6 +30,18 @@ _SCHEMA = "apap.storage-contract-probe/v1"
 _PASS = "PASS"
 _BLOCKED = "BLOCKED"
 
+# (type, label) tuples consumed by :func:`_type_name`. Order matters:
+# ``bool`` precedes ``int`` because ``bool`` is a subclass of ``int`` in
+# Python; the order preserves the historical ``isinstance`` precedence
+# of the original if/elif chain.
+_TYPE_NAMES: tuple[tuple[type, str], ...] = (
+    (bool, "bool"),
+    (int, "int"),
+    (float, "float"),
+    (dict, "dict"),
+    (list, "list"),
+)
+
 
 class MutationRefusedError(RuntimeError):
     """Raised before any network call when a mutation method is requested."""
@@ -108,38 +120,19 @@ class ReadOnlyProbeHttpClient:
         return self._client.request(normalized, url, **kwargs)
 
 
-def probe_download_strategy(
+def _build_probe_result(
+    response: httpx.Response,
     config: StorageProbeConfig,
     *,
-    transport: httpx.BaseTransport | None = None,
+    transport: httpx.BaseTransport | None,
 ) -> StorageProbeResult:
-    """Probe the candidate download-strategy endpoint without mutations."""
-    try:
-        with ReadOnlyProbeHttpClient(
-            base_url=config.base_url,
-            service_key=config.service_key,
-            transport=transport,
-            timeout=config.timeout,
-        ) as client:
-            response = client.request(
-                "GET",
-                config.endpoint_path,
-                params={"path": config.storage_path, "expiresIn": str(config.expires_in)},
-            )
-    except MutationRefusedError:
-        return _result(
-            _base_payload(config)
-            | {
-                "status": "mutation_refused",
-                "pr4b_gate": _BLOCKED,
-                "decision_reason": "Probe attempted a mutating HTTP method.",
-            }
-        )
-    except httpx.TimeoutException:
-        return _network_failure(config, "timeout")
-    except httpx.HTTPError:
-        return _network_failure(config, "network_error")
+    """Classify ``response`` into the final probe verdict.
 
+    Extracted from :func:`probe_download_strategy` so the parent
+    function stays under the PLR0911 return-statement cap. Branches in
+    priority order: ``object_not_found`` (auth proven, sentinel absent),
+    blocked (non-2xx), unsupported_shape (2xx without URL), happy path.
+    """
     body = _safe_json(response)
     status = _status_from_code(response.status_code)
     strategy_without_auth_status = None
@@ -200,6 +193,41 @@ def probe_download_strategy(
             "decision_reason": resolved["decision_reason"],
         }
     )
+
+
+def probe_download_strategy(
+    config: StorageProbeConfig,
+    *,
+    transport: httpx.BaseTransport | None = None,
+) -> StorageProbeResult:
+    """Probe the candidate download-strategy endpoint without mutations."""
+    try:
+        with ReadOnlyProbeHttpClient(
+            base_url=config.base_url,
+            service_key=config.service_key,
+            transport=transport,
+            timeout=config.timeout,
+        ) as client:
+            response = client.request(
+                "GET",
+                config.endpoint_path,
+                params={"path": config.storage_path, "expiresIn": str(config.expires_in)},
+            )
+    except MutationRefusedError:
+        return _result(
+            _base_payload(config)
+            | {
+                "status": "mutation_refused",
+                "pr4b_gate": _BLOCKED,
+                "decision_reason": "Probe attempted a mutating HTTP method.",
+            }
+        )
+    except httpx.TimeoutException:
+        return _network_failure(config, "timeout")
+    except httpx.HTTPError:
+        return _network_failure(config, "network_error")
+
+    return _build_probe_result(response, config, transport=transport)
 
 
 def missing_credentials_result(storage_path: str) -> StorageProbeResult:
@@ -653,16 +681,9 @@ def _looks_like_url(value: Any) -> bool:
 def _type_name(value: Any) -> str:
     if value is None:
         return "null"
-    if isinstance(value, bool):
-        return "bool"
-    if isinstance(value, int):
-        return "int"
-    if isinstance(value, float):
-        return "float"
-    if isinstance(value, dict):
-        return "dict"
-    if isinstance(value, list):
-        return "list"
+    for type_, name in _TYPE_NAMES:
+        if isinstance(value, type_):
+            return name
     return "str"
 
 
