@@ -37,10 +37,19 @@ def _job(name: str, next_name: str) -> str:
     )
 
 
-def test_security_job_exists_and_runs_on_the_self_hosted_runner() -> None:
-    """The scanners must run on the project's own 24/7 runner."""
+def test_security_job_runs_on_github_hosted_ubuntu_latest() -> None:
+    """The scanners run on GitHub-hosted ``ubuntu-latest``.
+
+    PR #452 migrated the basic CI gates (lint, typecheck, test, integration,
+    build, security) from the project's own self-hosted runner
+    (``[self-hosted, Linux, ARM64, apap, oracle]``) to ``ubuntu-latest``. The
+    self-hosted Oracle ARM64 VPS has chronic session-renewal problems that
+    cause flapping jobs and queue stalls, so per AGENTS.md §15 the basic gates
+    now run on GitHub-hosted infrastructure; the self-hosted runner is kept
+    only as a fallback for the E2E job (``vars.APAP_SELF_HOSTED_E2E_ENABLED``).
+    """
     job = _job("security", "security-deep")
-    assert "[self-hosted, Linux, ARM64, apap, oracle]" in job
+    assert "runs-on: ubuntu-latest" in job
 
 
 def test_security_job_runs_pip_audit() -> None:
