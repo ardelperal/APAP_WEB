@@ -1,0 +1,30 @@
+name: pr-size
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  pr-size:
+    name: pr-size
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Compute diff against merge-base
+        id: diff
+        run: |
+          BASE=$(git merge-base origin/main HEAD)
+          ADDED=$(git diff --shortstat "$BASE"...HEAD | awk '{print $4}')
+          DELETED=$(git diff --shortstat "$BASE"...HEAD | awk '{print $6}')
+          if [ -z "$ADDED" ]; then ADDED=0; fi
+          if [ -z "$DELETED" ]; then DELETED=0; fi
+          TOTAL=$((ADDED + DELETED))
+          echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
+
+      - name: Enforce 400-line budget (AGENTS.md §15.1)
+        env:
+          TOTAL: ${{ steps.diff.outputs.total }}
+          HAS_EXCEPTION: ${{ contains(github.event.pull_request.labels.*.name, 'size:exception') }}
+        run: python scripts/check_pr_size.py "$TOTAL" "$HAS_EXCEPTION"

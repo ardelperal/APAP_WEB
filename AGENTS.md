@@ -328,6 +328,8 @@ This project is **pre-MVP**. The default rule is: **all work lands on `main`; me
 3. **Diff is reviewable.** A single PR diff should stay under the `review_budget_lines: 400` (orchestrator default). If a feature is larger, split into chained PRs using the `chained-pr` skill — never blow up main with a single oversized merge.
 4. **No `--force`, no history rewrite.** Merge with `--no-ff` to keep the feature commit visible; never `git push --force` to `main`; never rebase already-shipped commits.
 
+**Enforcement** lands in #442: a dedicated `.github/workflows/pr-size.yml` runs `scripts/check_pr_size.py` on every `pull_request`, comparing `git diff --shortstat` against the merge-base. Without an override, any PR over 400 lines fails the build. The `size:exception` label on the PR is the only acceptable override (§15.6) — explicit, visible, intentional. Pinned by `tests/test_ci_workflow.py::test_ci_workflow_pr_size_job_is_wired` and `tests/test_pr_size.py`. Refs Gentleman-Programming/gentle-ai's `Check PR Cognitive Load`, whose labels and budget we adopted but whose gate we did not (issue #442).
+
 #### 15.2 Pre-MVP branch lifecycle — retain merged branches, name them `<type>/<issue>-<slug>` (issue #440)
 
 Merged branches are **retained**, not deleted. Rationale: a fork inherits more value with the full branch history, and abandoned/unmerged branches are otherwise lost outright. The user's decision on 2026-08-06 made retention the policy.
