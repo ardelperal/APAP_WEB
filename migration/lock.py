@@ -58,7 +58,7 @@ from ctypes import wintypes
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NoReturn
 
 # Importación tolerante: ``psutil`` es opcional (design §1.2).
 # Si no está instalado, el módulo degrada gracefully — los checks
@@ -201,42 +201,9 @@ def acquire_lock(
             hay otro proceso escribiéndolo).
         OSError: si hay un error de I/O al escribir el lock.
     """
-    # Importación lazy para romper el ciclo ``__init__`` → ``lock``.
-    from migration import LockActiveError
-
     lock_path = Path(lock_path)
-    parent = lock_path.parent
-    if parent and not parent.exists():
-        parent.mkdir(parents=True, exist_ok=True)
-
-    # Fase 1: si el lock existe, verificar staleness.
-    if lock_path.exists():
-        existing = _read_lock_unverified(lock_path)
-        if existing is not None and not _is_lock_stale(existing):
-            raise LockActiveError(
-                f"Migration lock is active (pid={existing.pid}, "
-                f"acquired_at={existing.acquired_at.isoformat()}, "
-                f"ttl={existing.ttl_seconds}s)"
-            )
-        # Lock corrupto o vacío: no intentamos auto-recuperar. Un writer vivo
-        # puede estar pausado entre os.open(O_CREAT|O_EXCL) y f.write()
-        # por tiempo arbitrario; unlink+acquire por otro proceso
-        # rompería el contrato (ambos retornarían success). Tratamos cualquier
-        # lock corrupto/vacío como in-flight writer activo.
-        if existing is None:
-            raise LockActiveError(
-                "Lock file exists but is empty or corrupt (unparseable). "
-                "Another process may be acquiring it. "
-                "Manually remove the lock file if no other process is running."
-            ) from None
-        # Lock es parseable pero stale: verificar staleness antes de sobrescribir.
-        if _is_lock_stale(existing):
-            try:
-                lock_path.unlink()
-            except FileNotFoundError:
-                # Otro proceso pudo haberlo borrado entre read y unlink.
-                # Race aceptable; seguimos.
-                pass
+    _ensure_parent_dir(lock_path)
+    _check_and_clear_existing_lock(lock_path)
 
     # Fase 2: crear el lock nuevo.
     info = LockInfo(
@@ -244,39 +211,93 @@ def acquire_lock(
         acquired_at=datetime.now(UTC),
         ttl_seconds=ttl_seconds,
     )
+    return _claim_new_lock(lock_path, info)
 
-    # Reclamamos el lock REAL, no un ``.tmp``. El patrón anterior
-    # ``tmp + os.replace`` todavía permitía esta carrera:
-    #
-    #   A crea ``.tmp`` -> replace a ``lock`` -> ``.tmp`` desaparece
-    #   B crea un nuevo ``.tmp`` -> replace y también devuelve ACQUIRED
-    #
-    # Usar ``O_EXCL`` sobre ``lock_path`` garantiza el contrato público:
-    # dos acquires concurrentes sobre un lock inexistente producen un
-    # ganador y un ``LockActiveError``.
+
+def _ensure_parent_dir(lock_path: Path) -> None:
+    """Crea el directorio padre de ``lock_path`` si no existe.
+
+    Factorizado desde ``acquire_lock`` para bajar CC; la rama del
+    directorio padre no es trivial y merece un test dedicado porque
+    ``apply`` confía en que el lock file se pueda crear en un
+    directorio nuevo (p.ej. primer run post-deploy).
+    """
+    parent = lock_path.parent
+    if parent and not parent.exists():
+        parent.mkdir(parents=True, exist_ok=True)
+
+
+def _check_and_clear_existing_lock(lock_path: Path) -> None:
+    """Fase 1 de ``acquire_lock``: evalúa y limpia el lock preexistente.
+
+    Cuatro resultados posibles:
+      - No hay lock file → no-op, return.
+      - Lock parseable y dueño vivo → ``LockActiveError`` (bloquea).
+      - Lock parseable y dueño muerto (stale) → unlink + return.
+      - Lock corrupto/vacío → ``LockActiveError`` (nunca se auto-recupera).
+
+    Raises:
+        LockActiveError: si el lock está activo o si está corrupto/vacío
+            (un writer in-flight puede estar pausado entre ``os.open`` y
+            ``f.write`` por tiempo arbitrario; unlink+acquire por otro
+            proceso rompería el contrato — ambos retornarían success).
+    """
+    from migration import LockActiveError
+
+    existing = _read_lock_unverified(lock_path)
+    if existing is None:
+        # No parseable: o no existe o está corrupto/vacío.
+        if lock_path.exists():
+            # Archivo existe pero no se pudo parsear. Nunca se
+            # auto-recupera: podría ser un writer pausado a mitad
+            # de escritura.
+            raise LockActiveError(
+                "Lock file exists but is empty or corrupt (unparseable). "
+                "Another process may be acquiring it. "
+                "Manually remove the lock file if no other process is running."
+            ) from None
+        return
+    if not _is_lock_stale(existing):
+        # Lock activo: PID vivo, incluso si TTL expiró.
+        raise LockActiveError(
+            f"Migration lock is active (pid={existing.pid}, "
+            f"acquired_at={existing.acquired_at.isoformat()}, "
+            f"ttl={existing.ttl_seconds}s)"
+        )
+    # Parseable y stale: unlink con race handling.
+    _unlink_stale_lock(lock_path)
+
+
+def _unlink_stale_lock(lock_path: Path) -> None:
+    """Unlink de un lock stale, tolerando que otro proceso lo borre antes."""
+    try:
+        lock_path.unlink()
+    except FileNotFoundError:
+        # Otro proceso pudo haberlo borrado entre read y unlink.
+        # Race aceptable; seguimos.
+        pass
+
+
+def _claim_new_lock(lock_path: Path, info: LockInfo) -> LockInfo:
+    """Fase 2 de ``acquire_lock``: crea atómicamente el lock y lo escribe.
+
+    Usa ``O_CREAT|O_EXCL|O_WRONLY`` sobre ``lock_path`` (no un ``.tmp``)
+    para garantizar que dos acquires concurrentes sobre un lock
+    inexistente producen un ganador y un ``LockActiveError``. Si
+    ``os.open`` falla con ``FileExistsError``, ``_raise_after_concurrent_acquire``
+    evalúa el estado del archivo y levanta el error adecuado.
+
+    Si la escritura del JSON falla (disco lleno, proceso matado),
+    el lock creado se borra para no dejar basura que confunda el
+    próximo acquire.
+
+    Raises:
+        LockActiveError: si otro acquire concurrente ganó el slot.
+    """
     try:
         fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
     except FileExistsError:
-        # Otro ``acquire_lock`` concurrente ganó el lock real. Re-leemos
-        # para construir un error útil cuando sea posible. Si el ganador
-        # todavía está escribiendo y el JSON no es parseable, preservamos
-        # igualmente el contrato: el segundo caller recibe LockActiveError,
-        # nunca un error de I/O o JSON intermedio.
-        existing = _read_lock_unverified(lock_path)
-        if existing is not None and not _is_lock_stale(existing):
-            raise LockActiveError(
-                f"Migration lock is active (pid={existing.pid}, "
-                f"acquired_at={existing.acquired_at.isoformat()}, "
-                f"ttl={existing.ttl_seconds}s)"
-            ) from None
-        # Lock corrupto/mid-write o stale justo en la ventana de carrera:
-        # para el segundo acquire concurrente seguimos devolviendo
-        # LockActiveError. Un futuro retry podrá evaluar staleness con el
-        # archivo ya estable.
-        raise LockActiveError(
-            "Concurrent acquire is in flight; lock file is not stable yet. "
-            "Retry shortly."
-        ) from None
+        _raise_after_concurrent_acquire(lock_path)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(info.to_json())
@@ -289,6 +310,33 @@ def acquire_lock(
             pass
         raise
     return info
+
+
+def _raise_after_concurrent_acquire(lock_path: Path) -> NoReturn:
+    """Levanta ``LockActiveError`` cuando un acquire concurrente ganó el slot.
+
+    Re-lee el lock file para construir un error útil cuando sea posible.
+    Si el ganador todavía está escribiendo y el JSON no es parseable,
+    preservamos igualmente el contrato: el segundo caller recibe
+    ``LockActiveError``, nunca un error de I/O o JSON intermedio.
+    """
+    from migration import LockActiveError
+
+    existing = _read_lock_unverified(lock_path)
+    if existing is not None and not _is_lock_stale(existing):
+        raise LockActiveError(
+            f"Migration lock is active (pid={existing.pid}, "
+            f"acquired_at={existing.acquired_at.isoformat()}, "
+            f"ttl={existing.ttl_seconds}s)"
+        ) from None
+    # Lock corrupto/mid-write o stale justo en la ventana de carrera:
+    # para el segundo acquire concurrente seguimos devolviendo
+    # LockActiveError. Un futuro retry podrá evaluar staleness con el
+    # archivo ya estable.
+    raise LockActiveError(
+        "Concurrent acquire is in flight; lock file is not stable yet. "
+        "Retry shortly."
+    ) from None
 
 
 def release_lock(lock_path: Path | str) -> None:

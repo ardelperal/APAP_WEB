@@ -2718,3 +2718,308 @@ class TestLock:
                 '{"pid": 1, "acquired_at": "2026-06-21T00:00:00+00:00", '
                 '"ttl_seconds": "not-an-int"}'
             )
+
+    # --- helpers (Path A refactor: acquire_lock split into 4 helpers) ------
+
+    def test_ensure_parent_dir_creates_missing_parents(self, tmp_path) -> None:
+        """``_ensure_parent_dir`` crea el directorio padre si no existe.
+
+        Cobertura para ``acquire_lock`` Fase 0: cuando el lock file vive
+        en un directorio que aún no existe (primer run post-deploy, o un
+        ``tmp_path/nested/`` creado por el test), el helper lo crea con
+        ``parents=True``. Sin este path cubierto, CRAP del helper
+        subía.
+        """
+        from migration.lock import _ensure_parent_dir
+
+        nested = tmp_path / "a" / "b" / "c" / "sync.lock"
+        assert not nested.parent.exists()
+        _ensure_parent_dir(nested)
+        assert nested.parent.is_dir()
+
+    def test_ensure_parent_dir_is_noop_when_parent_exists(self, tmp_path) -> None:
+        """``_ensure_parent_dir`` no raise si el padre ya existe."""
+        from migration.lock import _ensure_parent_dir
+
+        lock_path = tmp_path / "sync.lock"
+        assert lock_path.parent.exists()
+        # No raise, no error.
+        _ensure_parent_dir(lock_path)
+        assert lock_path.parent.is_dir()
+
+    def test_ensure_parent_dir_handles_path_with_no_parent(self) -> None:
+        """``_ensure_parent_dir`` tolera paths sin componente padre (p.ej. ``Path('lock')``)."""
+        from migration.lock import _ensure_parent_dir
+
+        bare = Path("lock")
+        # No raise: el helper detecta ``parent`` vacío como no-op.
+        _ensure_parent_dir(bare)
+
+    def test_check_and_clear_existing_lock_noop_when_missing(self, tmp_path) -> None:
+        """``_check_and_clear_existing_lock`` no raise cuando no hay lock file."""
+        from migration.lock import _check_and_clear_existing_lock
+
+        lock_path = tmp_path / "missing.lock"
+        assert not lock_path.exists()
+        # No raise, no side effect.
+        _check_and_clear_existing_lock(lock_path)
+        assert not lock_path.exists()
+
+    def test_check_and_clear_existing_lock_raises_on_corrupt(self, tmp_path) -> None:
+        """``_check_and_clear_existing_lock`` raises ``LockActiveError`` si el lock está corrupto.
+
+        Cobertura para el path "lock existe pero _read_lock_unverified
+        retorna None" (vacío, JSON parcial, mtime antiguo). El helper
+        nunca auto-recupera: podría ser un writer pausado entre
+        ``os.open(O_CREAT|O_EXCL)`` y ``f.write()``.
+        """
+        from migration.lock import _check_and_clear_existing_lock
+
+        lock_path = tmp_path / "corrupt.lock"
+        lock_path.write_text("{", encoding="utf-8")
+        with pytest.raises(LockActiveError, match="empty or corrupt"):
+            _check_and_clear_existing_lock(lock_path)
+        # El archivo NO se borra (auto-recovery prohibido para corrupt).
+        assert lock_path.exists()
+
+    def test_check_and_clear_existing_lock_raises_on_active(self, tmp_path) -> None:
+        """``_check_and_clear_existing_lock`` raises si el lock es parseable y dueño vivo."""
+        import os
+
+        from migration.lock import LockInfo, _check_and_clear_existing_lock
+
+        lock_path = tmp_path / "active.lock"
+        active = LockInfo(
+            pid=os.getpid(),
+            acquired_at=datetime.now(tz=UTC).replace(microsecond=0),
+            ttl_seconds=1800,
+        )
+        lock_path.write_text(active.to_json(), encoding="utf-8")
+        with pytest.raises(LockActiveError, match=f"pid={os.getpid()}"):
+            _check_and_clear_existing_lock(lock_path)
+        # El archivo no se borra (es un lock activo, no stale).
+        assert lock_path.exists()
+
+    def test_check_and_clear_existing_lock_unlinks_stale(self, tmp_path) -> None:
+        """``_check_and_clear_existing_lock`` unlinka un lock parseable con dueño muerto."""
+        from migration.lock import LockInfo, _check_and_clear_existing_lock
+
+        lock_path = tmp_path / "stale.lock"
+        # PID inexistente → dueño muerto.
+        stale = LockInfo(
+            pid=999_999_999,
+            acquired_at=datetime.now(tz=UTC).replace(microsecond=0),
+            ttl_seconds=1800,
+        )
+        lock_path.write_text(stale.to_json(), encoding="utf-8")
+        # No raise.
+        _check_and_clear_existing_lock(lock_path)
+        # El lock stale fue removido.
+        assert not lock_path.exists()
+
+    def test_unlink_stale_lock_tolerates_already_gone(self, tmp_path) -> None:
+        """``_unlink_stale_lock`` no raise si el archivo ya no existe.
+
+        Race condition: otro proceso pudo haber unlinkado entre el
+        ``_read_lock_unverified`` y el ``unlink``. El helper debe ser
+        idempotente.
+        """
+        from migration.lock import _unlink_stale_lock
+
+        lock_path = tmp_path / "ghost.lock"
+        # No crear el archivo: simula la race donde ya no está.
+        _unlink_stale_lock(lock_path)
+        # No raise.
+
+    def test_raise_after_concurrent_acquire_raises_for_active_winner(
+        self, tmp_path
+    ) -> None:
+        """``_raise_after_concurrent_acquire`` raises con pid del ganador si el lock es activo."""
+        import os
+
+        from migration.lock import LockInfo, _raise_after_concurrent_acquire
+
+        lock_path = tmp_path / "winner.lock"
+        winner = LockInfo(
+            pid=os.getpid(),
+            acquired_at=datetime.now(tz=UTC).replace(microsecond=0),
+            ttl_seconds=1800,
+        )
+        lock_path.write_text(winner.to_json(), encoding="utf-8")
+        with pytest.raises(LockActiveError, match=f"pid={os.getpid()}"):
+            _raise_after_concurrent_acquire(lock_path)
+
+    def test_raise_after_concurrent_acquire_raises_generic_for_corrupt(
+        self, tmp_path
+    ) -> None:
+        """``_raise_after_concurrent_acquire`` raises ``LockActiveError`` con mensaje genérico si el ganador no terminó de escribir.
+
+        Cuando el ganador está entre ``os.open(O_CREAT|O_EXCL)`` y
+        ``f.write()`` (race window), el segundo acquire concurrente
+        ve JSON inválido y debe recibir un error genérico "retry
+        shortly" — nunca un error de I/O o de parseo JSON.
+        """
+        from migration.lock import _raise_after_concurrent_acquire
+
+        lock_path = tmp_path / "mid_write.lock"
+        # JSON parcial: el ganador está escribiendo.
+        lock_path.write_text("{", encoding="utf-8")
+        with pytest.raises(LockActiveError, match="in flight"):
+            _raise_after_concurrent_acquire(lock_path)
+
+    def test_raise_after_concurrent_acquire_raises_generic_for_stale_winner(
+        self, tmp_path
+    ) -> None:
+        """``_raise_after_concurrent_acquire`` raises genérico si el ganador ya es stale.
+
+        Cuando el ganador quedó stale justo en la race window
+        (el proceso murió entre ``os.open`` y ``f.write``), el
+        segundo acquire todavía ve el lock como "en vuelo" desde
+        su ventana de carrera, no como stale reusable. Se preserva
+        el contrato: el segundo caller hace retry shortly.
+        """
+        from migration.lock import LockInfo, _raise_after_concurrent_acquire
+
+        lock_path = tmp_path / "stale_winner.lock"
+        # Ganador ya muerto: el lock es stale, pero desde la race window
+        # el segundo caller no puede distinguir "ganador está escribiendo"
+        # de "ganador murió escribiendo" — reintenta.
+        stale_winner = LockInfo(
+            pid=999_999_999,
+            acquired_at=datetime.now(tz=UTC).replace(microsecond=0),
+            ttl_seconds=1800,
+        )
+        lock_path.write_text(stale_winner.to_json(), encoding="utf-8")
+        with pytest.raises(LockActiveError, match="in flight"):
+            _raise_after_concurrent_acquire(lock_path)
+
+    def test_claim_new_lock_writes_lock_info_atomically(self, tmp_path) -> None:
+        """``_claim_new_lock`` crea el lock file y escribe el JSON del ``LockInfo`` dado."""
+        from migration.lock import LockInfo, _claim_new_lock
+
+        lock_path = tmp_path / "claim.lock"
+        info = LockInfo(
+            pid=42,
+            acquired_at=datetime(2026, 6, 21, 0, 0, 0, tzinfo=UTC),
+            ttl_seconds=900,
+        )
+        result = _claim_new_lock(lock_path, info)
+        assert result is info
+        assert lock_path.exists()
+        assert json.loads(lock_path.read_text(encoding="utf-8")) == json.loads(
+            info.to_json()
+        )
+
+    def test_claim_new_lock_raises_when_file_already_exists(self, tmp_path) -> None:
+        """``_claim_new_lock`` raises ``LockActiveError`` si el lock ya existe (race)."""
+        from migration.lock import LockInfo, _claim_new_lock
+
+        lock_path = tmp_path / "claimed.lock"
+        # Simular que otro proceso ya creó el lock.
+        lock_path.write_text("placeholder", encoding="utf-8")
+        info = LockInfo(
+            pid=42,
+            acquired_at=datetime(2026, 6, 21, 0, 0, 0, tzinfo=UTC),
+            ttl_seconds=900,
+        )
+        with pytest.raises(LockActiveError):
+            _claim_new_lock(lock_path, info)
+
+    def test_claim_new_lock_cleans_up_on_write_failure(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """``_claim_new_lock`` unlinka el lock file si ``f.write`` falla.
+
+        Cobertura del path de cleanup (disco lleno, proceso matado entre
+        ``os.open`` y ``f.write``): el lock creado por ``O_EXCL`` se
+        borra para no dejar basura que confunda el próximo acquire.
+        """
+        from migration import lock as lock_mod
+        from migration.lock import LockInfo, _claim_new_lock
+
+        lock_path = tmp_path / "cleanup.lock"
+        info = LockInfo(
+            pid=42,
+            acquired_at=datetime(2026, 6, 21, 0, 0, 0, tzinfo=UTC),
+            ttl_seconds=900,
+        )
+
+        class _FailingFile:
+            """Mock que cierra el fd en ``__exit__`` y falla en ``write``.
+
+            El ``os.fdopen`` real crea un Python file object que posee
+            el fd; en este test simulamos que la escritura falla
+            (disco lleno) pero el ``__exit__`` cierra el fd igual que
+            el ``os.fdopen`` real.
+            """
+
+            def __init__(self, fd, *_args, **_kwargs) -> None:
+                self._fd = fd
+
+            def __enter__(self) -> _FailingFile:
+                return self
+
+            def __exit__(self, *_args) -> None:
+                lock_mod.os.close(self._fd)
+
+            def write(self, _payload: str) -> None:
+                raise OSError("simulated disk full")
+
+        monkeypatch.setattr(lock_mod.os, "fdopen", _FailingFile)
+        with pytest.raises(OSError, match="simulated disk full"):
+            _claim_new_lock(lock_path, info)
+        # Cleanup: el lock file creado por O_EXCL se eliminó.
+        assert not lock_path.exists(), (
+            "_claim_new_lock must unlink the O_EXCL-created file when write fails"
+        )
+
+    def test_claim_new_lock_cleans_up_tolerates_file_already_gone(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """``_claim_new_lock`` tolera que el lock ya haya desaparecido al hacer cleanup.
+
+        Race: si el write falla Y simultáneamente otro actor borró el
+        lock file, el cleanup ``os.unlink`` debe tolerar
+        ``FileNotFoundError`` (idempotente). Mockeamos ``os.unlink`` para
+        que retorne ``FileNotFoundError`` en lugar de borrar — esto evita
+        la carrera con el file locking de Windows donde un fd abierto no
+        puede ser unlinkeado.
+        """
+        from migration import lock as lock_mod
+        from migration.lock import LockInfo, _claim_new_lock
+
+        lock_path = tmp_path / "cleanup_race.lock"
+        info = LockInfo(
+            pid=42,
+            acquired_at=datetime(2026, 6, 21, 0, 0, 0, tzinfo=UTC),
+            ttl_seconds=900,
+        )
+
+        class _FailingFile:
+            def __init__(self, fd, *_args, **_kwargs) -> None:
+                self._fd = fd
+
+            def __enter__(self) -> _FailingFile:
+                return self
+
+            def __exit__(self, *_args) -> None:
+                lock_mod.os.close(self._fd)
+
+            def write(self, _payload: str) -> None:
+                raise OSError("simulated mid-write failure")
+
+        real_unlink = lock_mod.os.unlink
+
+        def fake_unlink(path) -> None:
+            # El cleanup ``try: os.unlink() except FileNotFoundError: pass``
+            # solo llama a ``unlink`` sobre ``lock_path``. Simulamos que
+            # el archivo ya no está.
+            if str(path) == str(lock_path):
+                raise FileNotFoundError(2, "simulated already gone", str(path))
+            real_unlink(path)
+
+        monkeypatch.setattr(lock_mod.os, "fdopen", _FailingFile)
+        monkeypatch.setattr(lock_mod.os, "unlink", fake_unlink)
+        # No raise de FileNotFoundError en el cleanup.
+        with pytest.raises(OSError, match="simulated mid-write failure"):
+            _claim_new_lock(lock_path, info)

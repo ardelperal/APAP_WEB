@@ -156,7 +156,6 @@ BASELINE_CRAP: dict[str, float] = {
     "migration/lock.py::LockInfo.from_json": 7.39,
     "migration/lock.py::_is_process_alive": 20.27,
     "migration/lock.py::_is_process_alive_windows": 38.28,
-    "migration/lock.py::acquire_lock": 18.57,
     "migration/lock.py::check_msaccess_running": 12.89,
     "migration/lock_snapshot.py::Snapshot.from_json": 6.4,
     "migration/lock_snapshot.py::compute_photos_dir_hash": 8.23,
