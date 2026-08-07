@@ -1,100 +1,26 @@
-"""FastAPI dependencies for the auth flow (slice #420-7).
+"""Public composition root for the auth-dependencies slice.
 
-Composition root of the auth-dependencies slice. Holds the 9 public
-symbols and one private helper that ``app/core/auth_dependencies.py``
-previously defined whole. The legacy path is now a shim that re-exports
-from this module (see ``app/core/auth_dependencies.py``).
-
-Why this split exists (epic #420, §33.3)
-----------------------------------------
-
-The 9 FastAPI auth deps historically lived in
-``app/core/auth_dependencies.py`` together with the import of
-``app.core.auth``. Per the hexagonal architecture, the composition root
-of a slice lives in ``app/core/di/<slice>_di.py``; the new home is this
-file. The business-layer ``app/core/auth.py`` stays where it is — the
-di module imports it, never the other way around.
-
-Why the shim lookup is lazy at call time
-----------------------------------------
-
-A naive ``from app.core import auth_dependencies as _shim`` at module
-level here AND ``from app.core.di.auth_dependencies_di import *`` at
-module level in the shim creates an order-dependent cycle:
-
-1. If a fresh process imports this di module FIRST, the di module's
-   ``from app.core import auth_dependencies as _shim`` triggers shim
-   load; the shim's first line is
-   ``from app.core.di.auth_dependencies_di import *``, which sees the
-   PARTIAL di module (only stdlib imports above the ``_shim`` import
-   are bound — the 9 public symbols are defined AFTER that line).
-   The star-import imports nothing useful; the shim ends up empty of
-   its 9 consumer-facing re-exports.
-2. If the shim is imported FIRST, the cycle is fine: the shim's
-   star-import triggers di load, the di module's module-level
-   ``from app.core import auth_dependencies as _shim`` resolves to the
-   partial shim (harmless), and the di module finishes binding its 9
-   public names. Then the shim's star-import completes and picks up
-   all 9 names.
-
-So the cycle is order-dependent and silently breaks for any code path
-that loads the di module before the shim (e.g. the pin test's direct
-import of the di module, or any consumer that adds a direct
-``from app.core.di.auth_dependencies_di import ...`` later).
-
-The fix is to defer the shim lookup to function-call time. The di
-module reads ``log_safe`` and ``read_session_payload`` through
-``_shim().<name>`` inside each function body (see :func:`_shim`). The
-shim imports the di module's 9 names via ``from app.core.di.auth_dependencies_di import *``,
-and that import now runs against the FULLY-loaded di module because
-the di module no longer triggers shim load at module level.
-
-Test monkeypatches on the shim's ``log_safe`` /
-``read_session_payload`` still propagate to the di module's
-function calls: the lazy lookup returns the same module object the
-test patched, and Python attribute access observes the patched value
-on every call.
-
-See the regression guard at
-``tests/test_auth_dependencies_slice.py::test_shim_exports_resolve_when_di_module_imported_first``
-for the subprocess test that pins this invariant.
-
-Slice contracts
----------------
-
-The 9 public symbols preserve byte-identical signatures with the
-pre-slice form. The ~35 consumer modules (corrected from the design's
-19 — the prior count was a partial sample; the real surface includes
-``app/core/admin_handlers.py``, ``app/core/auth_flow.py``,
-``app/core/rbac.py``, every ``app/modules/*/routes.py`` (13 modules
-plus 3 batch_routes), and the 16 test files that import from the
-shim via ``from app.core.auth_dependencies import <name>``). They
-keep working through the shim.
-``app.dependency_overrides[<name>]`` in the test suite works the
-same way — the override key is the function object itself, and the
-shim re-exports the same object (identity, not just equality).
-
-The §32.P4 fix (Variant A) lives inside :func:`require_authorized_user`
-and only wraps the single ``get_user_by_email`` call. It does NOT
-wrap cache reads (in-process, cannot raise ``InsForgeError``) and does
-NOT wrap dict-internal mutations.
+The session and backend revalidation dependencies live in
+:mod:`app.core.di.auth_dependencies_session_di`. This module preserves the
+nine-symbol public API consumed by :mod:`app.core.auth_dependencies` and direct
+DI callers.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 from typing import TypeGuard
 
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, status
 from fastapi.responses import RedirectResponse
 from starlette.responses import Response
 from typing_extensions import TypedDict
 
-from app.core.auth import get_user_by_email
-from app.core.auth_cache import get_cached_auth, set_cached_auth
 from app.core.config import get_settings
-from app.core.data_access import InsForgeError
-from app.core.insforge import InsForgeClient
+from app.core.di.auth_dependencies_session_di import (
+    get_current_user_optional,
+    get_insforge_client_dep,
+    require_authorized_user,
+)
 from app.core.roles import Rol
 
 
@@ -161,40 +87,6 @@ def is_authenticated_user(obj: object) -> TypeGuard[AuthenticatedUser]:
     )
 
 
-def get_insforge_client_dep(request: Request) -> Iterator[InsForgeClient]:
-    """Yield the pooled InsForge client owned by the application lifespan.
-
-    The lifespan creates the client once and stores it on ``app.state`` so
-    its underlying ``httpx.Client`` can reuse connections across requests.
-    Shutdown closes the pooled client; this dependency deliberately does not
-    own or close it per request.
-
-    Tests can override this dependency with ``app.dependency_overrides``;
-    FastAPI still resolves those overrides before calling this provider.
-    """
-    try:
-        client = request.app.state.insforge_client
-    except AttributeError:
-        # Some lightweight ASGI test transports do not run lifespan events.
-        # Keep their app usable by creating the same app-scoped client lazily;
-        # production startup always initializes this state in ``lifespan``.
-        settings = get_settings()
-        client = InsForgeClient(settings.insforge_url, settings.insforge_service_key)
-        request.app.state.insforge_client = client
-    yield client
-
-
-def get_current_user_optional(request: Request) -> dict | None:
-    """Dependencia de FastAPI: devuelve el payload de la sesion, o None.
-
-    Lee la cookie de sesion firmada y devuelve el payload como dict,
-    o ``None`` si la cookie no existe o la firma no es valida. Usar
-    en handlers que quieran render condicional (mostrar el nombre de
-    usuario si esta logueado) pero que no requieren auth.
-    """
-    return _shim().read_session_payload(request, secret=get_settings().session_secret)
-
-
 def return_early_if_response(value: Response | AuthenticatedUser | dict) -> Response | None:
     """Helper regla 7: si ``value`` es un ``Response`` (redirect), lo retorna.
 
@@ -219,119 +111,6 @@ def return_early_if_response(value: Response | AuthenticatedUser | dict) -> Resp
     if isinstance(value, Response):
         return value
     return None
-
-
-def require_authorized_user(
-    request: Request,
-    payload: dict | None = Depends(get_current_user_optional),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
-) -> Response | dict:
-    """Dependencia de FastAPI: exige una sesion autorizada, revalidada por request.
-
-    La cookie firma la IDENTIDAD (email/user_id), estable durante 7 dias.
-    La AUTORIZACION (``is_authorized`` + ``rol``) NO es de confianza desde
-    la cookie: se re-valida contra ``usuarios_autorizados`` en CADA request
-    (issue #143), con una cache TTL en proceso
-    (``Settings.auth_cache_ttl_seconds``, default 300s) para acotar el coste
-    a ~una query por usuario cada 5 minutos. Esto hace que la desactivacion
-    de un usuario via ``/admin/users/{id}/deactivate`` tome efecto en menos
-    del TTL, en vez de esperar a que expire la cookie (hasta 7 dias).
-
-    Comportamiento:
-
-    - Si no hay sesion, devuelve ``RedirectResponse`` 302 a ``/login``.
-    - Si la cookie no lleva ``is_authorized=True`` (cookie pre-fix, o
-      firmada antes del flag), devuelve 302 a ``/unauthorized`` sin tocar
-      la DB — el default-deny de la regla 6 se conserva como primera puerta.
-    - Si la cookie afirma estar autorizada, se consulta la cache y, si es
-      un miss, la DB: si el usuario ya no esta activo (sin fila en
-      ``usuarios_autorizados`` con ``activo=true``) devuelve 302 a
-      ``/unauthorized`` y memoiza el deny; si sigue activo devuelve el
-      payload con el ``rol`` refrescado desde la DB (asi un cambio de rol
-      mid-session se recoge en el siguiente request).
-    - Si la revalidacion contra la DB no puede completarse (transport
-      falla y ``get_user_by_email`` levanta ``InsForgeError``), devuelve
-      302 a ``/unauthorized`` y emite ``log_safe("auth.denied",
-      reason="db_unreachable")`` — la peticion no llega a un 500
-      inmanejable (issue #294 §32.P4 fix).
-
-    Regla 6 (defaults deny): el default de ``payload.get("is_authorized",
-    ...)`` sigue siendo ``False``. La revalidacion por DB es un endurecimiento
-    ADICIONAL, no un reemplazo de esa primera puerta.
-
-    Regla 7 (redirects no son exceptions): la dep devuelve un ``Response``
-    (no raise ``HTTPException``); el handler DEBE chequear
-    ``isinstance(user, Response)`` (via ``return_early_if_response``) antes
-    de tratarlo como dict.
-
-    Regla 1 (cero SQL en routes): la revalidacion consulta la DB a traves
-    de ``app.core.auth.get_user_by_email`` (el service), nunca SQL crudo en
-    la dep ni en el handler.
-    """
-    if not payload:
-        _shim().log_safe(
-            "auth.denied",
-            reason="no_session",
-            user_id=None,
-        )
-        return RedirectResponse(url="/login", status_code=302)
-    if not payload.get("is_authorized", False):
-        _shim().log_safe(
-            "auth.denied",
-            reason="cookie_no_flag",
-            user_id=payload.get("user_id") if isinstance(payload, dict) else None,
-        )
-        return RedirectResponse(url="/unauthorized", status_code=302)
-
-    email = payload.get("email")
-    if not isinstance(email, str) or not email:
-        # Cookie firma identidad; sin email no hay a quien revalidar.
-        _shim().log_safe(
-            "auth.denied",
-            reason="no_email",
-            user_id=payload.get("user_id") if isinstance(payload, dict) else None,
-        )
-        return RedirectResponse(url="/unauthorized", status_code=302)
-
-    ttl = get_settings().auth_cache_ttl_seconds
-    cached = get_cached_auth(email, ttl)
-    if cached is None:
-        try:
-            fresh = get_user_by_email(client, email)
-        except InsForgeError:
-            # §32.P4 Variant A — transport failure during per-request
-            # revalidation is a denial, not a 500. The catch is bare
-            # (no ``as exc``) to match the existing code style at the
-            # prior line 237. ``set_cached_auth`` is intentionally NOT
-            # called here: a transient DB outage does not poison the
-            # auth cache with a deny verdict.
-            _shim().log_safe(
-                "auth.denied",
-                reason="db_unreachable",
-                user_id=payload.get("user_id") if isinstance(payload, dict) else None,
-            )
-            return RedirectResponse(url="/unauthorized", status_code=302)
-        if fresh is None:
-            set_cached_auth(email, is_authorized=False, rol=None)
-            _shim().log_safe(
-                "auth.denied",
-                reason="db_reval_miss",
-                user_id=payload.get("user_id") if isinstance(payload, dict) else None,
-            )
-            return RedirectResponse(url="/unauthorized", status_code=302)
-        set_cached_auth(email, is_authorized=True, rol=fresh["rol"])
-        payload["rol"] = fresh["rol"]
-        return payload
-
-    if not cached.is_authorized:
-        _shim().log_safe(
-            "auth.denied",
-            reason="db_reval_miss",
-            user_id=payload.get("user_id") if isinstance(payload, dict) else None,
-        )
-        return RedirectResponse(url="/unauthorized", status_code=302)
-    payload["rol"] = cached.rol
-    return payload
 
 
 def require_writer_user(

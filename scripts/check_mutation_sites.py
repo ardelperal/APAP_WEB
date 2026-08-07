@@ -24,7 +24,6 @@ SCAN_DIRS = ("app", "migration")
 #: Current offenders measured with ``--emit-baseline``.
 #: RATCHET: entries may only shrink or disappear; never add headroom.
 BASELINE_MUTATION_SITES: dict[str, int] = {
-    "app/core/di/auth_dependencies_di.py": 252,  # Pre-existing on main via PR #427; grandfathered. Follow-up issue #430 tracks the split.
     "app/core/insforge.py": 526,
     "app/modules/acogidas/routes.py": 383,
     "app/modules/acogidas/service.py": 322,
