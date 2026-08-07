@@ -45,6 +45,7 @@
     "migration/derivation.py": 38
   },
   "awaiting_acquisition": {
-    "app/modules/adopciones/service.py": "2026-08-06"
+    "app/modules/adopciones/service.py": "2026-08-06",
+    "migration/diff_engine.py": "2026-08-07"
   }
 }
