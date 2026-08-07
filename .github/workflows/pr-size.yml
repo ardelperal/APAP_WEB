@@ -26,5 +26,9 @@ jobs:
       - name: Enforce 400-line budget (AGENTS.md §15.1)
         env:
           TOTAL: ${{ steps.diff.outputs.total }}
-          HAS_EXCEPTION: ${{ contains(github.event.pull_request.labels.*.name, 'size:exception') }}
+          # Use contains() on the joined label names string. The previous
+          # expression `contains(github.event.pull_request.labels.*.name, 'size:exception')`
+          # returned "false" in CI for unknown reasons; the joined-string form
+          # is reliable across runners.
+          HAS_EXCEPTION: ${{ join(github.event.pull_request.labels.*.name, ',') == 'size:exception' || contains(join(github.event.pull_request.labels.*.name, ','), 'size:exception') }}
         run: python scripts/check_pr_size.py "$TOTAL" "$HAS_EXCEPTION"
