@@ -43,7 +43,7 @@ from __future__ import annotations
 
 import ast
 import sys
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 #: Directories subject to the rules. ``tests/`` is read-only for the
@@ -289,7 +289,7 @@ def _run_check(
     predicate,
     hint: str,
 ) -> list[tuple[str, str]]:
-    """Generic forbidden-import check; per-class wrappers parameterise it.
+    """Generic forbidden-import check; the per-class dispatcher parameterises it.
 
     Each file class (pure / access-bound / orchestration) names its
     own rule id, predicate (which module segments are forbidden) and
@@ -311,55 +311,83 @@ def _run_check(
     return out
 
 
-def _check_pure(
-    rel: str, imports: list[tuple[str, int]]
-) -> list[tuple[str, str]]:
-    """Pure modules: no app/, no third-party DB/HTTP, no legacy seam."""
-    return _run_check(
-        rel,
-        imports,
-        rule_id="pure-imports",
-        predicate=_is_pure_violation,
-        hint=(
-            "pure modules may only import stdlib and intra-migration "
-            "non-legacy modules; move the dependency to an orchestration "
-            "module or to app.core.* if it is genuinely cross-cutting"
-        ),
-    )
+#: Per-class rule binding: (file_class, rule_id, predicate, hint).
+#: Keeping the rules as data (not as three near-identical wrapper
+#: functions) keeps the jscpd ratchet quiet — the three wrappers used
+#: to be three Type-2 clones after the AST normaliser erased the
+#: rule_id / predicate / hint arguments.
+_RULES: tuple[tuple[str, str, Callable[[str], str | None], str], ...] = (
+    (
+        "pure",
+        "pure-imports",
+        _is_pure_violation,
+        "pure modules may only import stdlib and intra-migration "
+        "non-legacy modules; move the dependency to an orchestration "
+        "module or to app.core.* if it is genuinely cross-cutting",
+    ),
+    (
+        "access-bound",
+        "access-bound-imports",
+        _is_access_bound_violation,
+        "the legacy Access seam must stay free of app/ coupling "
+        "(runtime-boundary contract per "
+        "tests/migration/test_runtime_boundary.py)",
+    ),
+    (
+        "orchestration",
+        "orchestration-imports",
+        _is_orchestration_violation,
+        "migration CLI / apply drivers must not depend on app.modules.* "
+        "(business logic); compose in app/core/di/ or in a "
+        "migration.application.* use case instead",
+    ),
+)
 
 
-def _check_access_bound(
-    rel: str, imports: list[tuple[str, int]]
-) -> list[tuple[str, str]]:
-    """Access-bound modules: no app/ (runtime-boundary contract)."""
-    return _run_check(
-        rel,
-        imports,
-        rule_id="access-bound-imports",
-        predicate=_is_access_bound_violation,
-        hint=(
-            "the legacy Access seam must stay free of app/ coupling "
-            "(runtime-boundary contract per "
-            "tests/migration/test_runtime_boundary.py)"
-        ),
-    )
+def _record(  # noqa: PLR0913  # dedup state is the contract: baseline + 3 mutable containers
+    key: str,
+    message: str,
+    *,
+    baseline: Mapping[str, str],
+    seen_baselined: set[str],
+    reported: set[str],
+    violations: list[str],
+) -> None:
+    """Fold a (key, message) pair through the baseline / dedup gates."""
+    if key in baseline:
+        seen_baselined.add(key)
+        return
+    if key in reported:
+        return
+    reported.add(key)
+    violations.append(message)
 
 
-def _check_orchestration(
-    rel: str, imports: list[tuple[str, int]]
-) -> list[tuple[str, str]]:
-    """Orchestration modules: no app.modules.* (business logic)."""
-    return _run_check(
-        rel,
-        imports,
-        rule_id="orchestration-imports",
-        predicate=_is_orchestration_violation,
-        hint=(
-            "migration CLI / apply drivers must not depend on app.modules.* "
-            "(business logic); compose in app/core/di/ or in a "
-            "migration.application.* use case instead"
-        ),
-    )
+def _apply_class_rules(  # noqa: PLR0913  # dedup state carried explicitly; see _record above
+    rel: str,
+    imports: list[tuple[str, int]],
+    *,
+    file_class: str,
+    baseline: Mapping[str, str],
+    seen_baselined: set[str],
+    reported: set[str],
+    violations: list[str],
+) -> None:
+    """Run the rule matching ``file_class`` and record every violation."""
+    for rule_class, rule_id, predicate, hint in _RULES:
+        if rule_class != file_class:
+            continue
+        for key, message in _run_check(
+            rel, imports, rule_id=rule_id, predicate=predicate, hint=hint
+        ):
+            _record(
+                key,
+                message,
+                baseline=baseline,
+                seen_baselined=seen_baselined,
+                reported=reported,
+                violations=violations,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -529,28 +557,27 @@ def check_tree(
     for path in _iter_python_files(root, SCAN_DIRS):
         rel = path.relative_to(root).as_posix()
         file_class = classify_file(rel)
-        check_fn = _check_pure if file_class == "pure" else (
-            _check_access_bound if file_class == "access-bound" else _check_orchestration
-        )
         source = path.read_text(encoding="utf-8")
         imports = extract_imports(source, _file_module(rel))
-        for key, message in check_fn(rel, imports):
-            if key in baseline:
-                seen_baselined.add(key)
-                continue
-            if key in reported:
-                continue
-            reported.add(key)
-            violations.append(message)
+        _apply_class_rules(
+            rel,
+            imports,
+            file_class=file_class,
+            baseline=baseline,
+            seen_baselined=seen_baselined,
+            reported=reported,
+            violations=violations,
+        )
 
     for key, message in _check_tests_per_module(root):
-        if key in baseline:
-            seen_baselined.add(key)
-            continue
-        if key in reported:
-            continue
-        reported.add(key)
-        violations.append(message)
+        _record(
+            key,
+            message,
+            baseline=baseline,
+            seen_baselined=seen_baselined,
+            reported=reported,
+            violations=violations,
+        )
 
     notices = [
         f"{key}: baselined but no longer a violation -- remove the entry from "

@@ -135,7 +135,6 @@ jobs:
         # the build from day one. Pinned by tests/test_migration_boundaries.py::
         # test_ci_workflow_lint_job_runs_migration_boundaries_gate.
         run: python scripts/check_migration_boundaries.py
->>>>>>> 5eb91e4 (feat(architecture): migration/ boundary gate (Step 3 of hardening roadmap))
 
       - name: Run docstring-coverage ratchet (issue #339)
         # Issue #339 — removing this step is a blocked change. The
