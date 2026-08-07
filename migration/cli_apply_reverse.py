@@ -31,7 +31,6 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from typing import IO
 
-import migration.cli as cli_mod
 from app.core.insforge import InsForgeClient, InsForgeError
 from app.core.logging import log_safe
 from migration import MsAccessPreflightUnavailableError
@@ -42,7 +41,6 @@ from migration.apply import (
     SourceDriftError,
 )
 from migration.apply_reverse import apply_web_to_legacy
-from migration.cli import MIGRATION_RUNBOOK_REF
 from migration.dni_collision import DniCollisionCounter
 from migration.legacy_reader import LegacyReaderError
 from migration.mappings import list_available_tables
@@ -200,28 +198,15 @@ def _apply_tables(
 
     try:
         for table in tables:
-            if direction == APPLY_DIRECTION_WEB_TO_LEGACY:
-                results.append(
-                    apply_web_to_legacy(
-                        web_client,
-                        table,
-                        legacy_path=args.legacy_path,
-                        dry_run=bool(args.check_only),
-                        web_snapshot=None,
-                        lock_path=None,
-                        dni_collision_counter=dni_collision_counter,
-                        migration_report=migration_report,
-                    )
-                )
-                continue
-            results.append(
-                cli_mod.apply_legacy_to_web(
-                    web_client,
-                    table,
-                    legacy_path=args.legacy_path,
-                    since=since,
-                    dry_run=bool(args.check_only),
-                )
+            _apply_one_table(
+                table,
+                direction,
+                args,
+                web_client,
+                since,
+                dni_collision_counter,
+                migration_report,
+                results,
             )
     except (MsAccessPreflightUnavailableError, MsAccessRunningError,
             SourceDriftError, PartialApplyInterruptedError) as exc:
@@ -236,39 +221,20 @@ def _apply_tables(
     except LegacyReaderError:
         # pyodbc I/O failure. The exception's ``str()`` can include the
         # failing SQL fragment — categorical only.
-        stream.write(_format_apply_error("legacy_read_failed", exit_code=5))
-        _emit_migration_report(
-            migration_report,
-            results,
-            started_at=started_at,
-            stream=stream,
-            dry_run=bool(args.check_only),
-            error="legacy_read_failed",
+        return _emit_failure_and_report(
+            "legacy_read_failed", 5, args, migration_report, results,
+            started_at, stream,
         )
-        return 5
     except InsForgeError:
         # Bootstrap failure (private bucket missing, shadow table
         # invariant broken, etc.). ``InsForgeError.body`` may carry
         # internal server-side details — categorical only.
-        stream.write(_format_apply_error("infra_bootstrap_failed", exit_code=5))
-        _emit_migration_report(
-            migration_report,
-            results,
-            started_at=started_at,
-            stream=stream,
-            dry_run=bool(args.check_only),
-            error="infra_bootstrap_failed",
+        return _emit_failure_and_report(
+            "infra_bootstrap_failed", 5, args, migration_report, results,
+            started_at, stream,
         )
-        return 5
 
-    for result in results:
-        action = "would insert" if args.check_only else "inserted"
-        stream.write(
-            f"table={result.table_name} {action}={result.applied} "
-            f"skipped={result.skipped} errors={len(result.errors)}\n"
-        )
-        for error in result.errors:
-            stream.write(f"  error={error}\n")
+    _emit_results_summary(results, args, stream)
     exit_code = 0 if not any(r.errors for r in results) else 1
     _emit_migration_report(
         migration_report,
@@ -277,6 +243,86 @@ def _apply_tables(
         stream=stream,
         dry_run=bool(args.check_only),
         emit_stream=True,
+    )
+    return exit_code
+
+
+def _apply_one_table(
+    table: str,
+    direction: str,
+    args: argparse.Namespace,
+    web_client: object,
+    since: datetime | None,
+    dni_collision_counter: dict[str, int],
+    migration_report: MigrationReport,
+    results: list[object],
+) -> None:
+    """Apply one table in the chosen direction and append the result."""
+    # Lazy import: ``migration.cli`` imports this module at module load
+    # to re-export ``run_apply`` (backwards compat). A top-level import
+    # here would deadlock the circular load. Module-attribute lookup at
+    # call time lets the monkeypatch seam in test_cli_apply_safety.py
+    # still observe its patched callable.
+    import migration.cli as cli_mod
+
+    if direction == APPLY_DIRECTION_WEB_TO_LEGACY:
+        results.append(
+            apply_web_to_legacy(
+                web_client,
+                table,
+                legacy_path=args.legacy_path,
+                dry_run=bool(args.check_only),
+                web_snapshot=None,
+                lock_path=None,
+                dni_collision_counter=dni_collision_counter,
+                migration_report=migration_report,
+            )
+        )
+        return
+    results.append(
+        cli_mod.apply_legacy_to_web(
+            web_client,
+            table,
+            legacy_path=args.legacy_path,
+            since=since,
+            dry_run=bool(args.check_only),
+        )
+    )
+
+
+def _emit_results_summary(results: list[object], args: argparse.Namespace, stream: IO[str]) -> None:
+    """Print one line per table summarising inserts / skips / errors."""
+    for result in results:
+        action = "would insert" if args.check_only else "inserted"
+        stream.write(
+            f"table={result.table_name} {action}={result.applied} "
+            f"skipped={result.skipped} errors={len(result.errors)}\n"
+        )
+        for error in result.errors:
+            stream.write(f"  error={error}\n")
+
+
+def _emit_failure_and_report(
+    error_kind: str,
+    exit_code: int,
+    args: argparse.Namespace,
+    migration_report: MigrationReport,
+    results: list[object],
+    started_at: datetime,
+    stream: IO[str],
+) -> int:
+    """Print the categorical apply-error and emit the failure report.
+
+    Used by the except clauses in :func:`_apply_tables`.
+    """
+    stream.write(_format_apply_error(error_kind, exit_code=exit_code))
+    _emit_migration_report(
+        migration_report,
+        results,
+        started_at=started_at,
+        stream=stream,
+        dry_run=bool(args.check_only),
+        error=error_kind,
     )
     return exit_code
 

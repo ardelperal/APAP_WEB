@@ -144,37 +144,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     ) -> Response:
         """Write route branch (both user-id and IP buckets, tighter wins) extracted from :meth:`dispatch`."""
         identity = _extract_identity(request, settings)
-        # User bucket
-        if identity.user_id:
-            user_allowed, user_info = self._backend.hit(
-                scope="write_user",
-                identity=identity.user_id,
-                limit=settings.rate_limit_write_per_min_user,
-                now=_monotonic_now(),
-                window_seconds=60,
-            )
-        else:
-            user_allowed = True
-            user_info = RetryInfo(
-                allowed=True, limit=0, remaining=0, reset_at=0.0, retry_after=None
-            )
-        # IP bucket
-        ip_allowed, ip_info = self._backend.hit(
-            scope="write_ip",
-            identity=identity.ip or "unknown",
-            limit=settings.rate_limit_write_per_min_ip,
-            now=_monotonic_now(),
-            window_seconds=60,
+        user_allowed, user_info = self._user_bucket_result(identity, settings)
+        ip_allowed, ip_info = self._ip_bucket_result(identity, settings)
+        allowed, info, reason = _pick_stricter(
+            ip_allowed, ip_info, user_allowed, user_info
         )
-        # Tighter bucket wins
-        if not ip_allowed:
-            allowed, info, reason = False, ip_info, "ip"
-        elif not user_allowed:
-            allowed, info, reason = False, user_info, "user"
-        else:
-            # Both allowed — record against more-exhausted bucket for header accuracy
-            allowed, info = True, (user_info if user_info.remaining <= ip_info.remaining else ip_info)
-            reason = None
         response = await call_next(request)
         if allowed:
             return _add_rate_limit_headers(response, info)
@@ -186,6 +160,58 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             user_id=identity.user_id,
         )
         return _build_429_response(info)
+
+    def _user_bucket_result(
+        self,
+        identity: object,
+        settings: Settings,
+    ) -> tuple[bool, RetryInfo]:
+        """Check the user bucket; no-op (allow) when the request has no user identity."""
+        if identity.user_id:
+            return self._backend.hit(
+                scope="write_user",
+                identity=identity.user_id,
+                limit=settings.rate_limit_write_per_min_user,
+                now=_monotonic_now(),
+                window_seconds=60,
+            )
+        return True, RetryInfo(
+            allowed=True, limit=0, remaining=0, reset_at=0.0, retry_after=None
+        )
+
+    def _ip_bucket_result(
+        self,
+        identity: object,
+        settings: Settings,
+    ) -> tuple[bool, RetryInfo]:
+        """Check the IP bucket."""
+        return self._backend.hit(
+            scope="write_ip",
+            identity=identity.ip or "unknown",
+            limit=settings.rate_limit_write_per_min_ip,
+            now=_monotonic_now(),
+            window_seconds=60,
+        )
+
+
+def _pick_stricter(
+    ip_allowed: bool,
+    ip_info: RetryInfo,
+    user_allowed: bool,
+    user_info: RetryInfo,
+) -> tuple[bool, RetryInfo, str | None]:
+    """Choose the tighter of two rate-limit buckets.
+
+    Returns ``(allowed, info, reason)``: when both buckets allow the request,
+    ``info`` is the more-exhausted bucket (lower remaining) so the
+    ``X-RateLimit-Remaining`` header is conservative. When one bucket
+    rejects, that bucket's info is returned with the matching reason.
+    """
+    if not ip_allowed:
+        return False, ip_info, "ip"
+    if not user_allowed:
+        return False, user_info, "user"
+    return True, (user_info if user_info.remaining <= ip_info.remaining else ip_info), None
 
 
 def _add_rate_limit_headers(response: Response, info: RetryInfo) -> Response:
