@@ -583,6 +583,30 @@ def test_ci_workflow_lint_job_runs_mutation_sites_gate() -> None:
     )
 
 
+def test_ci_workflow_lint_job_runs_import_cycle_detector() -> None:
+    """Issue #443: the CI ``lint`` job must gate on the cycle detector.
+
+    The detector replaces the §26 rubber stamp ("a comment justifies
+    the cycle") with a shrink-only ratchet over the actual import
+    graph. Without this step, the 19 lazy-import markers across 7
+    files (vs 2 on 2026-07-20) keep accumulating and no machine
+    rejects a new one. Sister of
+    ``test_ci_workflow_lint_job_runs_layers_gate``: Tarjan catches the
+    shape, the layer check catches the direction. Pinned by tests/
+    test_import_cycles.py.
+    """
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    lint_job = _job_executable(workflow, "\n  lint:", "\n  security:")
+
+    assert "python scripts/check_import_cycles.py" in lint_job
+    # The detector must run after the mutation-sites step so the lint
+    # job ordering matches the other ratchets (cheap AST checks first,
+    # then graph-level checks).
+    assert lint_job.index("python scripts/check_import_cycles.py") > lint_job.index(
+        "python scripts/check_mutation_sites.py"
+    )
+
+
 def test_ci_workflow_test_job_runs_crap_gate() -> None:
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
     test_job = _job_executable(workflow, "\n  test:", "\n  integration:")

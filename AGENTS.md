@@ -701,7 +701,7 @@ Enforcement: a **watch-list regression guard**, not a general duplicate-code det
 
 ### 26. Justify or eliminate lazy-import cycle workarounds
 
-A local `import` inside a function or method body under `app/` is a deliberate escape hatch for circular imports — it should never be silent. The 2026-07-20 review found exactly two such imports (`app/core/config.py`'s `writer_rols` property importing `Rol` from `auth.py`; `app/core/auth_dependencies.py` importing `get_user_by_email` from `auth.py` inside a function), tracked as issue #226. Both dodge a real module-load cycle, but neither said so in a greppable, consistent way. An unexplained local import is either an unresolved cycle (worth fixing at the source) or trivially safe to hoist to the top — either way, the next person reading it deserves a one-line reason instead of having to reverse-engineer the import graph.
+A local `import` inside a function or method body under `app/` is a deliberate escape hatch for circular imports — it should never be silent, and **adding a new one is a regression** the project does not authorise. The 2026-07-20 review found exactly two such imports (`app/core/config.py`'s `writer_rols` property importing `Rol` from `auth.py`; `app/core/auth_dependencies.py` importing `get_user_by_email` from `auth.py` inside a function), tracked as issue #226. By 2026-08-07 the count had grown to **19 lazy-import markers across 7 files**, with no machine rejecting new ones — that is the §32.P3 anti-pattern this rule was supposed to prevent, and what issue #443 fixes.
 
 WRONG — unexplained local import
 
@@ -711,17 +711,24 @@ def get_settings_rol(self):
     return Rol
 ```
 
-RIGHT — the comment says why it can't be a top-level import
+RIGHT — the marker references an entry in the baseline; it does not authorise a new one
 
 ```python
 def get_settings_rol(self):
-    # lazy-import: avoids circular import with app.core.auth (auth.py
-    # imports Settings at module load time).
+    # lazy-import: BASELINE entry app.core.config -> app.core.auth
+    # (see scripts/check_import_cycles.py). Break the cycle at source.
     from app.core.auth import Rol
     return Rol
 ```
 
-Enforcement: `scripts/check_rules.py` Detector 11 (`unjustified_lazy_import`) flags any `Import`/`ImportFrom` node whose nearest enclosing scope is a function/method (not module level) under `app/`, unless its own source line or the line immediately before it contains the substring `lazy-import:`. Both known instances (`app/core/config.py`, `app/core/auth_dependencies.py`) now carry the marker. Tests: `tests/test_check_rules.py` (Detector 11 section).
+Enforcement is **two layers**, not one:
+
+1. **Marked** — `scripts/check_rules.py` Detector 11 (`unjustified_lazy_import`) still flags any `Import`/`ImportFrom` node whose nearest enclosing scope is a function/method (not module level) under `app/`, unless its own source line or the line immediately before it contains the substring `lazy-import:`. A bare marker is a precondition, not a justification.
+2. **Gated** — `scripts/check_import_cycles.py` (issue #443) runs Tarjan SCC over the app/ import graph and fails on any cycle that is not in its `BASELINE`. A new `lazy-import` that creates a fresh cycle fails the CI `lint` job; a `lazy-import` against an already-baselined cycle still fails review if it grows the cycle's footprint. The baseline is **shrink-only**: removing an entry requires deleting it together with the lazy-import it documents.
+
+Adding a lazy-import is only allowed if the cycle it dodges is already in `BASELINE` and the import keeps the cycle's footprint unchanged. Anything else is either "fix the cycle at source" or "freeze the new cycle in `BASELINE` with an explicit reason in a follow-up PR". The marker never authorises a new cycle on its own — that is the rubber stamp issue #443 retired.
+
+Tests: `tests/test_check_rules.py` (Detector 11), `tests/test_import_cycles.py`, and `tests/test_ci_workflow.py::test_ci_workflow_lint_job_runs_import_cycle_detector`.
 
 ### 27. Cross-module imports go through the target module's public API only
 
