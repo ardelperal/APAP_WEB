@@ -191,6 +191,20 @@ jobs:
         # cosmic-ray phase. The shrink-only baseline may only decrease.
         run: python scripts/check_mutation_sites.py
 
+      - name: Run import-cycle detector (AGENTS.md §26, issue #443)
+        # Issue #443 — removing this step is a blocked change. Tarjan
+        # SCC over the app/ import graph; cycles in BASELINE are
+        # tolerated, new ones fail. The 19 lazy-import markers across 7
+        # files (vs 2 on 2026-07-20) document the 8 cycles frozen in
+        # the script's shrink-only BASELINE; adding a new lazy import
+        # outside the baseline fails here. Companion to scripts/
+        # check_layers.py (catches cycles via Tarjan, the layer check
+        # catches forbidden axis directions). Pinned by tests/
+        # test_ci_workflow.py::
+        # test_ci_workflow_lint_job_runs_import_cycle_detector and
+        # tests/test_import_cycles.py.
+        run: python scripts/check_import_cycles.py
+
   security:
     name: security
     # Issue #381. Light scanners only — these run on every PR and must stay
