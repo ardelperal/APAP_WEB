@@ -754,4 +754,87 @@ def test_mutation_baseline_has_derivation_entry_at_or_below_prior_measurement() 
     assert isinstance(recorded, int)
 
 
+def test_cosmic_ray_toml_includes_adopciones_service_in_module_path() -> None:
+    """Issue #434: the second mutation target must be listed in cosmic-ray.toml.
+
+    cosmic-ray accepts ``module-path`` as a string OR a list of strings
+    (verified at cosmic_ray/cli.py:92). The list form is what lets us
+    grow the target set one module per PR without splitting the session.
+    Removing the entry, or replacing the list with a single string, would
+    silently drop adopciones/service.py from the gate.
+    """
+    import tomllib
+
+    toml_path = REPO_ROOT / "docs" / "quality" / "cosmic-ray.toml"
+    with toml_path.open("rb") as fh:
+        cfg = tomllib.load(fh)
+
+    module_path = cfg["cosmic-ray"]["module-path"]
+    assert isinstance(module_path, list), (
+        "module-path must be a list (cosmic-ray accepts string or list of strings "
+        "per cosmic_ray/cli.py:92). A single string would silently drop all but "
+        "one target."
+    )
+    assert "migration/derivation.py" in module_path, (
+        "the pilot target was removed from module-path; that is a regression"
+    )
+    assert "app/modules/adopciones/service.py" in module_path, (
+        "adopciones/service.py must be in module-path to be measured by the "
+        "mutation gate (issue #434)"
+    )
+
+
+def test_mutation_baseline_marks_adopciones_as_awaiting_acquisition() -> None:
+    """Issue #434: the baseline must mark the new module as pending Linux acquisition.
+
+    cosmic-ray 8.4.6 returns INCOMPETENT for 100% of mutants on native Windows
+    (issue #431, Finding 1), so the survivor count cannot be acquired locally.
+    The baseline carries an ``awaiting_acquisition`` marker with the date the
+    entry landed on ``main``; the ratchet (``check_mutation.py``) enforces a
+    14-day grace period before failing the build if the marker persists.
+
+    Replacing the marker with a real integer count is the explicit handoff
+    that closes #434. ``tests/test_check_mutation.py`` covers the ratchet
+    behaviour; this test pins the wiring.
+    """
+    import json
+    from datetime import date, timedelta  # noqa: F401
+
+    from scripts.check_mutation import GRACE_PERIOD_DAYS
+
+    baseline_path = REPO_ROOT / "docs" / "quality" / "mutation-baseline.json"
+    payload = json.loads(baseline_path.read_text(encoding="utf-8"))
+
+    awaiting = payload.get("awaiting_acquisition", {})
+    assert "app/modules/adopciones/service.py" in awaiting, (
+        "adopciones/service.py must carry an awaiting_acquisition marker "
+        "until the first scheduled CI mutation run replaces it with the "
+        "real survivor count (issue #434)"
+    )
+
+    since_str = awaiting["app/modules/adopciones/service.py"]
+    since = date.fromisoformat(since_str)
+    age = (date.today() - since).days
+    assert age <= GRACE_PERIOD_DAYS, (
+        f"awaiting_acquisition marker for adopciones/service.py is {age} days "
+        f"old, past the {GRACE_PERIOD_DAYS}-day grace period. The scheduled CI "
+        f"mutation job should have replaced it. See issue #434."
+    )
+
+    # The module must NOT appear under ``modules`` with a real (non-null)
+    # count: that would silently freeze a placeholder as if it were measured.
+    modules = payload.get("modules", {})
+    assert "app/modules/adopciones/service.py" not in modules, (
+        "adopciones/service.py is awaiting acquisition; an entry under "
+        "'modules' with a real count is a regression — issue #434 ships "
+        "the marker, the follow-up PR drops it"
+    )
+
+    print(
+        "\nmutation-baseline.json[awaiting_acquisition]"
+        "[app/modules/adopciones/service.py] = "
+        f"{since_str} (age: {age} days, grace: {GRACE_PERIOD_DAYS})"
+    )
+
+
 
