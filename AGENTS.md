@@ -4,10 +4,63 @@ globs: *
 alwaysApply: true
 ---
 
-# APAP_WEB — Agent Instructions
+# APAP_WEB — Agent Skills Index
 
-Este archivo define **solo reglas locales del repo de código**. Para config de
-herramientas (dysflow MCP, codegraph-vba, etc.) ver `~/.config/opencode/AGENTS.md`.
+When working on this project, load the relevant skill(s) BEFORE writing any code or docs.
+
+## How to Use
+
+1. Check the trigger column to find skills that match your current task
+2. Load the skill by reading the SKILL.md file at the listed path (via `read` tool or symlink)
+3. Follow ALL patterns and rules from the loaded skill
+4. Multiple skills can apply simultaneously
+5. When in doubt, prefer the more specific skill (e.g. `codebase-guide` over `documentation-patterns` for maintainer docs)
+
+## Mandatory skills
+
+These skills are **mandatory** — load them before any work in their scope:
+
+| Skill | Mandatory for |
+|---|---|
+| **`agents-md-pattern`** | **Any** change to `AGENTS.md` itself (must follow Gentleman-Programming pattern). |
+| **`branch-pr`** | **Any** commit, PR creation, or merge to `main`. Conventional commits, PR pequeño y reversible, `--squash --delete-branch`. |
+| **`code-review-expert`** | **Any** subagent-driven slice landing on `main` (mandatory review lens per §17.2). |
+| **`judgment-day`** | **Any** high-stakes diff (auth, secrets, CSRF, PII, migrations, raw SQL). |
+| **`documentation-patterns`** | **Any** doc writing or refactor (format, tone, structure, single-source-of-truth). |
+
+## Project-context skills (este repo)
+
+| Skill | Trigger | Path |
+|---|---|---|
+| `apap-architecture` | Working on routes, services, queries layer, layer boundaries (rule 1), validation (rule 5), or migration toward hexagonal slices (§33). | [`skills/apap-architecture/SKILL.md`](skills/apap-architecture/SKILL.md) |
+| `apap-security` | Working on auth (rule 6), CSRF (rule 10), secrets (rule 8), log_safe (rule 9), or PII. | [`skills/apap-security/SKILL.md`](skills/apap-security/SKILL.md) |
+| `apap-testing` | Adding CRITICAL_HELPERS (rule 11), coverage (rule 19), or pytest configuration. | [`skills/apap-testing/SKILL.md`](skills/apap-testing/SKILL.md) |
+| `apap-migration` | Working on `app/core/migration/` (rule 18), bidirectional sync, or `python -m migration reconcile`. | [`skills/apap-migration/SKILL.md`](skills/apap-migration/SKILL.md) |
+| `apap-merge-workflow` | Pre-MVP single-branch policy (§15.1–§15.6), branch lifecycle, standing merge authorization. | [`skills/apap-merge-workflow/SKILL.md`](skills/apap-merge-workflow/SKILL.md) |
+| `apap-orchestrator-discipline` | Coordinating subagents (§17), delegation patterns, review lenses. | [`skills/apap-orchestrator-discipline/SKILL.md`](skills/apap-orchestrator-discipline/SKILL.md) |
+
+> **Las skills viven físicamente en `C:\Proyectos\skills\skills\` y están linkeadas en opencode.** Los paths arriba son relativos al repo y funcionan vía `read` tool. Si necesitás editar las skills, editá el original en `C:\Proyectos\skills\skills\`. Si una skill listada no existe físicamente, **créala primero** siguiendo `skill-creator` o `skill-improver`.
+
+## Cross-cutting skills (vienen de otros repos)
+
+| Skill | Trigger | Origen |
+|---|---|---|
+| `telefonica-brand-design` | Cualquier UI Mistica (design tokens, brand, layout). | Gentleman-Programming/mistica |
+| `frontend-design` | Diseño UI distintivo (no AI defaults). | Gentleman-Programming |
+| `dysflow-usage` | Cualquier uso de dysflow MCP. | Gentleman-Programming |
+| `dysflow-arnes` | Hard rules de dysflow. | Gentleman-Programming |
+| `codegraph-usage` | Working with codegraph MCP/CLI (rule 14). | Gentleman-Programming |
+| `code-review-expert` | Every subagent-driven slice (mandatory review lens). | Gentleman-Programming |
+| `judgment-day` | High-stakes diffs (auth, secrets, migrations). | Gentleman-Programming |
+| `documentation-patterns` | Writing or refactoring docs. | Gentleman-Programming (adapted) |
+| `branch-pr` | Any PR creation or merge. | Gentleman-Programming |
+| `skill-creator` | Creating new skills following the pattern. | Gentleman-Programming |
+
+## Reinforcement
+
+Si una IA está escribiendo código o docs en este repo sin cargar las skills relevantes, está trabajando a ciegas. Las skills son el single source of truth para "cómo se hace X en este proyecto". **Cargá primero, escribí después**. Si una IA escribe una doc sin haber cargado `documentation-patterns`, **la doc será rechazada en review** — el formato no cumplirá con el patrón del repo.
+
+Las reglas específicas del proyecto (33+ secciones que siguen a partir de §1) NO están en skills — son reglas de arquitectura, seguridad, y operación específicas de APAP_WEB. Se mantienen en este AGENTS.md porque son no externalizables a un solo skill. Si crece el AGENTS.md a > 1500 líneas, considerar extraer secciones a skills dedicadas.
 
 ---
 
@@ -319,7 +372,7 @@ Enforcement: PR review. If a change to `.gitignore` would silently re-ignore `.c
 
 ### 15. Merge workflow — pre-MVP single-branch policy + post-MVP revert path
 
-This project is **pre-MVP**. The default rule is: **all work lands on `main`; merged branches are retained with `<type>/<issue>-<slug>` names (§15.2), not deleted, so a fork inherits the full branch history and live/dead refs are distinguishable at a glance.** There is no long-lived `staging` branch in pre-MVP. When the user declares MVP reached, the workflow reverts to the standard `staging` + UAT gate described in §"Post-MVP revert" below.
+This project is **pre-MVP**. The default rule is: **all work lands on `main`, every non-`main` branch is deleted immediately after its merge, and at the end of each merge cycle the only branch left standing is `main`.** There is no long-lived `staging` branch in pre-MVP. When the user declares MVP reached, the workflow reverts to the standard `staging` + UAT gate described in §"Post-MVP revert" below.
 
 #### 15.1 Pre-MVP gate — all must be true before merging to `main`
 
@@ -328,27 +381,12 @@ This project is **pre-MVP**. The default rule is: **all work lands on `main`; me
 3. **Diff is reviewable.** A single PR diff should stay under the `review_budget_lines: 400` (orchestrator default). If a feature is larger, split into chained PRs using the `chained-pr` skill — never blow up main with a single oversized merge.
 4. **No `--force`, no history rewrite.** Merge with `--no-ff` to keep the feature commit visible; never `git push --force` to `main`; never rebase already-shipped commits.
 
-**Enforcement** lands in #442: a dedicated `.github/workflows/pr-size.yml` runs `scripts/check_pr_size.py` on every `pull_request`, comparing `git diff --shortstat` against the merge-base. Without an override, any PR over 400 lines fails the build. The `size:exception` label on the PR is the only acceptable override (§15.6) — explicit, visible, intentional. Pinned by `tests/test_ci_workflow.py::test_ci_workflow_pr_size_job_is_wired` and `tests/test_pr_size.py`. Refs Gentleman-Programming/gentle-ai's `Check PR Cognitive Load`, whose labels and budget we adopted but whose gate we did not (issue #442).
+#### 15.2 Pre-MVP branch lifecycle
 
-#### 15.2 Pre-MVP branch lifecycle — retain merged branches, name them `<type>/<issue>-<slug>` (issue #440)
-
-Merged branches are **retained**, not deleted. Rationale: a fork inherits more value with the full branch history, and abandoned/unmerged branches are otherwise lost outright. The user's decision on 2026-08-06 made retention the policy.
-
-The counter-argument is a factual note that has to live next to the rule so nobody "re-optimises" it back to deletion: deleting a branch ref never deleted its commits. With `--no-ff` (already required by §15.1) they stay in `main`'s history under the merge commit, and GitHub retains `refs/pull/<n>/head` permanently. What deletion actually cost was the **named pointer**, `git log --graph` readability, and any **unmerged** branch. So the benefit of retention is narrower than it looks, while the cost — dozens of dead refs indistinguishable from live ones — is immediate. **Naming is what makes the policy viable**, not a nicety.
-
-**Naming convention.** Branch names MUST follow `<type>/<issue>-<slug>`:
-
-- `<type>` is one of `feat | fix | refactor | docs | ci | test`.
-- `<issue>` is the GitHub issue number the branch resolves (no leading `#`).
-- `<slug>` is lowercase ASCII kebab-case, `[a-z0-9-]+`.
-
-Examples: `feat/431-mutation-gate`, `fix/429-integration-job`, `refactor/437-slice-boundary`. The issue number is the point — a dead branch must explain itself in two years and link to its issue, which links to its PR.
-
-**`archive/` rename prefix.** Abandoned branches — superseded, declined, or otherwise retired — MUST be renamed with the `archive/` prefix before being left behind (`git branch -m archive/<old-name>`). Live and dead are distinguishable at a glance, not by reading the last commit.
-
-**Carve-outs.** `main` is the only branch exempt from the convention. `staging` does not exist in pre-MVP and is recreated at the §15.4 MVP flip — that gate is unchanged by this rule. Branches that pre-date the rename live in a shrink-only allowlist inside the #441 enforcement script; entries are removed only when the branch is renamed into compliance or deleted. Adding to the allowlist is a one-shot calibration with explicit justification, never routine.
-
-**Enforcement** lands in #441 (a CI branch-name gate). Pinned by `tests/test_ci_workflow.py::test_ci_workflow_lint_job_runs_branch_name_gate` once that PR lands. Until #441 ships, the convention is enforced by PR review at merge time. Refs #436.
+- Work happens on short-lived feature branches off `main`. Names follow conventional commits' scope: `feat/<scope>`, `fix/<scope>`, `refactor/<scope>`, `docs/<scope>`, `ci/<scope>`, `test/<scope>`.
+- After the PR merges to `main` AND CI is green: `git branch -d <branch>` locally, then `git push origin --delete <branch>` (only if the remote allows it and no one else uses it).
+- **Never** delete `main`. **Never** create or persist a `staging` branch in pre-MVP — that contradicts the single-branch policy. If `staging` already exists from before this rule was in force, migrate its commits into `main` first, then `git branch -D staging`. The remote `staging` ref is retained (no `git push origin --delete`) per §15.2 retention policy — a human can clean it up manually if they want.
+- After every merge cycle, the only branch left standing is `main`. Anything else is a leak.
 
 #### 15.3 Staging-only pre-push hook — status on this repo
 
@@ -655,10 +693,6 @@ Enforcement: PR review. A PR that adds a service with inline SQL mixed into vali
 
 Every feature slice that adds or changes UI (routes rendering templates, forms, HTMX interactions) MUST add or update at least one Playwright E2E flow under `tests/e2e/`. Backend-only slices (services, migration, scripts) are exempt. The E2E suite is the only net that catches template/route/CSRF wiring regressions that unit tests structurally cannot see.
 
-**QA-through-UI only.** Verification of any UI-facing feature slice MUST go through the existing Playwright E2E suite under `tests/e2e/` (or an equivalent in-tree browser test). QA via the Python shell, direct DB inspection, or `curl` against a running server is NOT a substitute and MUST NOT be presented as such in PR descriptions, runbooks, or status reports. The rationale: §32.P1 — hardening concentrates where the work is interesting while the HTTP edge gets nothing; the E2E suite is the layer that catches the edge regressions the unit suite cannot see. PR descriptions that claim a UI slice "verified by inspecting the DB" or "verified by running curl" are review-blockers and MUST be sent back for E2E coverage.
-
-This rule applies to the **verification step** of a PR, not to the **development loop** (developers may use shell, `curl`, or DB inspection to debug while iterating). The rule defines which evidence is accepted as "QA passed" when a PR lands.
-
 The CI `e2e` job is currently skipped when `APAP_OAUTH_CLIENT_ID` is not configured (see `.github/workflows/ci.yml`). Once OAuth secrets exist in CI, the job stops being optional and becomes a required check (tracked in issue #206) — do not add new reasons to skip it.
 
 Enforcement: PR review. A PR whose diff touches `templates/` or adds/changes a UI route without touching `tests/e2e/` must justify the exemption explicitly in the PR description or be blocked.
@@ -701,7 +735,7 @@ Enforcement: a **watch-list regression guard**, not a general duplicate-code det
 
 ### 26. Justify or eliminate lazy-import cycle workarounds
 
-A local `import` inside a function or method body under `app/` is a deliberate escape hatch for circular imports — it should never be silent, and **adding a new one is a regression** the project does not authorise. The 2026-07-20 review found exactly two such imports (`app/core/config.py`'s `writer_rols` property importing `Rol` from `auth.py`; `app/core/auth_dependencies.py` importing `get_user_by_email` from `auth.py` inside a function), tracked as issue #226. By 2026-08-07 the count had grown to **19 lazy-import markers across 7 files**, with no machine rejecting new ones — that is the §32.P3 anti-pattern this rule was supposed to prevent, and what issue #443 fixes.
+A local `import` inside a function or method body under `app/` is a deliberate escape hatch for circular imports — it should never be silent. The 2026-07-20 review found exactly two such imports (`app/core/config.py`'s `writer_rols` property importing `Rol` from `auth.py`; `app/core/auth_dependencies.py` importing `get_user_by_email` from `auth.py` inside a function), tracked as issue #226. Both dodge a real module-load cycle, but neither said so in a greppable, consistent way. An unexplained local import is either an unresolved cycle (worth fixing at the source) or trivially safe to hoist to the top — either way, the next person reading it deserves a one-line reason instead of having to reverse-engineer the import graph.
 
 WRONG — unexplained local import
 
@@ -711,24 +745,17 @@ def get_settings_rol(self):
     return Rol
 ```
 
-RIGHT — the marker references an entry in the baseline; it does not authorise a new one
+RIGHT — the comment says why it can't be a top-level import
 
 ```python
 def get_settings_rol(self):
-    # lazy-import: BASELINE entry app.core.config -> app.core.auth
-    # (see scripts/check_import_cycles.py). Break the cycle at source.
+    # lazy-import: avoids circular import with app.core.auth (auth.py
+    # imports Settings at module load time).
     from app.core.auth import Rol
     return Rol
 ```
 
-Enforcement is **two layers**, not one:
-
-1. **Marked** — `scripts/check_rules.py` Detector 11 (`unjustified_lazy_import`) still flags any `Import`/`ImportFrom` node whose nearest enclosing scope is a function/method (not module level) under `app/`, unless its own source line or the line immediately before it contains the substring `lazy-import:`. A bare marker is a precondition, not a justification.
-2. **Gated** — `scripts/check_import_cycles.py` (issue #443) runs Tarjan SCC over the app/ import graph and fails on any cycle that is not in its `BASELINE`. A new `lazy-import` that creates a fresh cycle fails the CI `lint` job; a `lazy-import` against an already-baselined cycle still fails review if it grows the cycle's footprint. The baseline is **shrink-only**: removing an entry requires deleting it together with the lazy-import it documents.
-
-Adding a lazy-import is only allowed if the cycle it dodges is already in `BASELINE` and the import keeps the cycle's footprint unchanged. Anything else is either "fix the cycle at source" or "freeze the new cycle in `BASELINE` with an explicit reason in a follow-up PR". The marker never authorises a new cycle on its own — that is the rubber stamp issue #443 retired.
-
-Tests: `tests/test_check_rules.py` (Detector 11), `tests/test_import_cycles.py`, and `tests/test_ci_workflow.py::test_ci_workflow_lint_job_runs_import_cycle_detector`.
+Enforcement: `scripts/check_rules.py` Detector 11 (`unjustified_lazy_import`) flags any `Import`/`ImportFrom` node whose nearest enclosing scope is a function/method (not module level) under `app/`, unless its own source line or the line immediately before it contains the substring `lazy-import:`. Both known instances (`app/core/config.py`, `app/core/auth_dependencies.py`) now carry the marker. Tests: `tests/test_check_rules.py` (Detector 11 section).
 
 ### 27. Cross-module imports go through the target module's public API only
 
@@ -1024,159 +1051,6 @@ functional gain. It is recorded here so it reads as a deliberate exception
 rather than a precedent. Do not cite `admin` to justify putting the next
 business capability in `core`.
 
-Enforcement: `scripts/check_layers.py` is a CI gate in the `lint` job (issue
-#436) — it enforces dependency direction, inner-layer purity and slice
-boundaries over `app/`, exits non-zero on any new violation, and is pinned by
-`tests/test_layers.py::test_ci_workflow_lint_job_runs_layers_gate`. The 53
-violations that predate the gate live in a shrink-only `BASELINE` measured
-against main @41fbd2a; entries may only disappear. One boundary semantic is
-still an open design question (#437) and is marked `xfail(strict)` rather than
-assumed. Plus PR review against §33.2 and the per-slice pin tests from §33.4.
+Enforcement: PR review against §33.2, plus the per-slice pin tests from §33.4.
 The slice index, execution order and definition of done live in issue #420.
-
-### 34. Test strength is measured, not assumed
-
-Rules 11 and 19 gate **coverage**. Coverage answers "was this line executed",
-which is not the question anyone actually cares about. The question is "if this
-line were wrong, would a test fail?" — and a suite can hold 85% coverage while
-answering *no*. The first mutation measurement of this codebase found
-`migration/derivation.py` at 22.75% surviving mutants with 31 green tests over
-it (#433). Nothing in the gate stack before #431 could see that.
-
-This rule adopts the discipline from
-[unclebob/swarm-forge](https://github.com/unclebob/swarm-forge), whose
-`cleaner` / `hardener` / `QA` roles each own a named quality dimension with a
-numeric target rather than a judgement call. We have no agent swarm; we have
-gates. Same idea, different mechanism.
-
-**Before extending the harness, read
-[`docs/quality/hardening-roadmap.md`](docs/quality/hardening-roadmap.md).** It
-carries the ordered plan, the standing assessment of what each gate does and does
-not guarantee, and the measured facts about the tooling — including the ones that
-cost hours to discover and will cost them again if re-derived. It is the handoff
-document for any agent continuing this work.
-
-#### 34.1 The quality ladder — cheap and structural first, semantic last
-
-Run in this order. Each step is meaningless if the one before it is red.
-
-| Order | Question | Owner |
-|---|---|---|
-| 1 | Does it parse, type, and lint? | `ruff`, `mypy` (§24) |
-| 2 | Does it respect the boundaries? | `check_rules.py` (§20), `check_layers.py`, `check_module_size.py` (§21), `check_route_size.py` (§28) |
-| 3 | Is complexity bounded and duplication flat? | `check_complexity.py`, `check_jscpd.py`, `check_mutation_sites.py` |
-| 4 | Is it executed by tests? | coverage floors (§11, §19) |
-| 5 | **Is it actually asserted by tests?** | `check_mutation.py` (§34.2) |
-
-Steps 1–4 run per PR. Step 5 is a nightly/manual job — a 233-mutant session is
-not a per-PR check. That split is deliberate, not a compromise.
-
-#### 34.2 The mutation gate
-
-Owned by `scripts/check_mutation.py`, configured in
-`docs/quality/cosmic-ray.toml`, baselined in
-`docs/quality/mutation-baseline.json`, run by the `mutation` job in `ci.yml`.
-Full procedure: `docs/runbooks/mutation-testing.md`.
-
-- The baseline is a **shrink-only ratchet**, exactly like §21 and §28: surviving
-  mutant counts may only decrease. Raising an entry to make a run green is a
-  blocked change — it converts a test-quality regression into the new normal.
-- Adding a module to the target set is a PR of its own, with its measured entry
-  in the same commit. Growth order and rationale live in #434.
-- **Linux only.** cosmic-ray 8.4.6 reports every mutant as `INCOMPETENT` on
-  native Windows while still printing a passing score. Reproduce locally through
-  WSL; `make mutation` refuses to run anywhere else.
-
-#### 34.3 Never trust a score without checking the run that produced it
-
-This is the rule that generalises beyond mutation testing, and it is the one
-worth internalising.
-
-`cr-rate --fail-over 20` — the obvious gate, and the one the original design
-specified — exits **0** on a session where 27 of 27 mutants failed to execute,
-because a survival rate of `0.00` is indistinguishable from a perfect score. A
-gate that cannot fail is §32.P7 with extra steps.
-
-WRONG — gating on the score alone
-
-```yaml
-- run: cr-rate --fail-over 20 mutation.sqlite
-```
-
-RIGHT — reject a degenerate run before believing any number
-
-```yaml
-# 0 results, all INCOMPETENT, or 0 killed => FAIL, before any score is compared
-- run: python scripts/check_mutation.py mutation.sqlite
-```
-
-Generalised: **when you add a quality metric, write down what a broken
-measurement looks like and make the gate fail on it.** A metric whose failure
-mode is silence is worse than no metric, because it manufactures confidence. If
-you cannot describe how the measurement could break, you do not understand it
-well enough to gate on it yet.
-
-#### 34.4 Equivalent mutants are noise — filter them and say why
-
-A mutant that no test could ever kill is not debt.
-`ReplaceBinaryOperator_BitOr_*` mutates the `|` in PEP 604 annotations
-(`str | None`); every module here carries `from __future__ import annotations`,
-so those never evaluate. On the pilot they were **66 of 104 reported
-survivors** — 63% of the score was noise about to be frozen into a baseline as
-if it were real.
-
-`cr-filter-operators` runs between `init` and `exec` and is not optional. Any
-addition to `exclude-operators` must carry a comment stating what class of
-mutant it removes, why that class is unkillable, and what genuine signal is lost
-with it.
-
-#### 34.5 Testability is a design constraint, not a testing problem
-
-swarm-forge separates *testable* modules from *environmentally unsuitable* ones
-— code that opens GUIs, drives external devices, or hangs under automation — and
-requires the unsuitable boundary to be as small as possible and excluded from
-tools that run tests. This project has exactly such a boundary: the Access half
-of `migration/` (`legacy_access_client.py`, `legacy_reader.py`, and the MSACCESS
-pre-flight in `apply.py`) cannot run on the Linux CI runner at all.
-
-The constraint that follows is the same one §31 already states for Protocols,
-applied to the process boundary:
-
-- Domain and derivation logic must be reachable **without** Access, InsForge, or
-  HTTP. `migration/derivation.py` is the model: pure functions, 31 unit tests, a
-  mutation target.
-- Access-bound code stays a thin adapter shell. When a behaviour is worth
-  testing, it does not belong in the shell — move it out first, then test it.
-- A module that cannot run in CI is excluded from the coverage and mutation
-  targets rather than silently dragging their numbers around.
-
-WRONG — policy trapped behind the unsuitable boundary
-
-```python
-# migration/legacy_access_client.py
-def read_ficha(self, pk):
-    row = self._dao.OpenRecordset(...)               # Windows-only, untestable
-    if row["FechaAlta"] and not row["FechaBaja"]:    # domain rule, stranded
-        return "activo"
-```
-
-RIGHT — the rule moves out, the shell stays dumb
-
-```python
-# migration/derivation.py  (pure, tested, mutation-gated)
-def derive_state(fecha_alta, fecha_baja) -> str: ...
-
-# migration/legacy_access_client.py
-def read_ficha(self, pk):
-    row = self._dao.OpenRecordset(...)
-    return derive_state(row["FechaAlta"], row["FechaBaja"])
-```
-
-Enforcement: §34.2's ratchet is a CI gate — `scripts/check_mutation.py` exits
-non-zero and the step is pinned by `tests/test_ci_workflow.py`. §34.1's ordering
-is enforced by the existing per-step gates it indexes. **§34.3, §34.4 and §34.5
-are PR review**, and per §32.P3 they are documented preferences with no detector
-behind them — do not claim otherwise. §34.5's boundary is partially covered by
-§31's Protocol rule and `check_layers.py`; the Access-shell judgement is not
-automatable today.
 
