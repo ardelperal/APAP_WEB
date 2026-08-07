@@ -17,7 +17,7 @@ adapted from its agent-role model to this repo's gate model. Tracking issues:
 
 ### Done and pushed
 
-PR #432 (draft, branch `feat/quality-gates-mutation`, stacked on
+PR #432 (DRAFT, branch `feat/quality-gates-mutation`, stacked on
 `feat/quality-gates-foundations` — **do not merge before PR #1 / #428**):
 
 | Artifact | What it does |
@@ -118,53 +118,6 @@ acquired **on Linux**.
 
 ### Step 6 — Kill the pilot's survivors (#433) and close the query-test gap (#435)
 
-### Step 7 — Process gates that only exist as prose
-
-Each of these is a rule the repo already declares and does not enforce — §32.P3
-in four more places. All are cheap; none block anything, so do not let them jump
-ahead of steps 1–3.
-
-- **#442 — PR size gate.** §15.1 declares a 400-line review budget. Verified
-  2026-08-06: nothing enforces it, there is no `pr-check.yml`. The budget lives
-  in `CLAUDE.md` as prose aimed at a well-behaved agent. `gentle-ai` enforces the
-  equivalent deterministically. The reframe that matters: with an LLM reviewing
-  the diff, reviewer fatigue stops being the argument — revert granularity,
-  all-or-nothing approval pressure, and hidden omissions remain. And because
-  agents write this code, the budget is a **design** constraint: it forces
-  decomposition.
-- **#443 — import-cycle detector.** 19 `lazy-import:` markers across 7 files,
-  against §26's own claim of "exactly two" on 2026-07-20 — ~10× in 17 days. §26
-  demands a comment, not a fix, so it legitimised the debt; `check_layers.py`
-  only sees cycles that cross layers. Reuses the graph `check_layers.py` already
-  builds (Tarjan SCC, ~70 lines).
-- **#440 — §15.2 rewrite.** Policy changed 2026-08-06: merged branches are
-  **kept**, not deleted, and adopt `<type>/<issue>-<slug>`. Note for whoever
-  writes it: deleting a ref never deleted commits (`--no-ff` keeps them in
-  `main`, and GitHub retains `refs/pull/<n>/head` forever), so the benefit is
-  narrower than it looks while the cost — dead refs indistinguishable from live
-  ones — is immediate. Naming is what makes retention viable.
-- **#441 — branch-name gate.** Enforces #440's convention. Depends on it.
-
-### Not adopted, and why
-
-[fallow.tools](https://fallow.tools/) was evaluated 2026-08-06 (user request).
-**TypeScript/JavaScript only** — this repo is Python plus a Windows-only
-Access/VBA half, so there is no surface for it. Of its feature set, only
-circular-dependency detection was a genuine gap (now #443); unused code,
-duplication, complexity and architecture boundaries are already covered by
-`check_vulture_guard.py`, `check_jscpd.py`, `check_complexity.py` and
-`check_layers.py`. Its paid runtime layer (hot/cold paths, deletion confidence)
-is a good idea with no data behind it here — revisit post-MVP, when production
-traffic exists.
-
-CodeRabbit was evaluated the same day. It is an **AI PR reviewer, not a runner**
-— the runner already exists (self-hosted Oracle ARM64). Self-hosting it is
-enterprise-tier (~$15k/month floor). As another LLM reviewer it lands in the same
-category as `judgment-day` / `code-review-expert`: a useful second read, never
-the determinism. What *is* worth copying from `Gentleman-Programming/gentle-ai`
-is its `pr-check.yml` — deterministic process gates (size, issue reference,
-`status:approved`, `type:*` label), which is what #442 does.
-
 ---
 
 ## 3. Hard-won facts — do not re-derive these
@@ -200,6 +153,11 @@ is its `pr-check.yml` — deterministic process gates (size, issue reference,
    `mutation_specs`, `work_results`; outcomes stored as SQLAlchemy member
    **names** (`KILLED`), while `TestOutcome` is a `StrEnum` whose values are
    lowercase. Normalise both.
+9. **`Path.as_posix()` is OS-dependent on Windows-recorded SQLite paths.**
+   `Path("app\\modules\\m.py").as_posix()` returns `"app/modules/m.py"` on
+   Windows but `"app\\modules\\m.py"` on Linux. Cross-platform session reads
+   need an explicit `.replace("\\", "/")` before `.as_posix()` — added during
+   PR #432 rebase after CI failed `test_read_session_normalizes_windows_module_paths`.
 
 ### Where mutation testing pays, and where it does not
 
@@ -245,6 +203,17 @@ Highest-value targets, by density:
 - **`make` is not installed on the Windows workstation.** Verify Makefile recipes
   by reasoning or under WSL.
 
+### Parallel PRs and rebase
+
+- **Two PRs developed in parallel out of order will silently delete each other
+  on rebase.** PR #438 (hexagonal) and PR #429 (foundations) both touched
+  `ci.yml`, `AGENTS.md`, `Makefile`, `pyproject.toml`. PR #438 was branched off
+  main BEFORE PR #429 existed, so it DELETED 8 files PR #429 added (`scripts/check_crap.py`,
+  `scripts/check_jscpd.py`, `scripts/check_mutation_sites.py`, plus 5 test files,
+  `git-hooks/pre-commit`, `openspec/changes/quality-gates-expansion/tasks.md`).
+  An automated rebase would have honored the deletions. Resolution: cherry-pick
+  PR #438's ADDITIONS only, discard the deletions. This is what #444 does.
+
 ---
 
 ## 4. Standing judgement on the harness
@@ -272,3 +241,81 @@ source repo, which has no such story.
 write down what a broken measurement looks like and make the gate fail on it. A
 metric whose failure mode is silence is worse than no metric, because it
 manufactures confidence.
+
+---
+
+## 4. Session log — 2026-08-06
+
+Continuation session, ~5 hours, user out of house partway through.
+
+### Done
+
+| # | PR | Commit | What |
+|---|---|---|---|
+| A1 | #439 | `e653904` (squash `e94c34c`) | Integration job fix: `--override-ini` + `tests/integration` collection. Merged to `feat/quality-gates-foundations`. |
+| A2 | #429 | `fde7c42` | Merge to `main` (squash of foundations). |
+| A3 | #432 | `ba489c6` | Rebase onto post-#429 main. Added **tag trigger** to `mutation` job (`startsWith(github.ref, 'refs/tags/')`) — missing from the original PR. Added **backslash normalization** in `scripts/check_mutation.py` (Linux `Path` doesn't treat `\` as a separator, so `as_posix()` on Windows-recorded session SQLite was OS-dependent — `test_read_session_normalizes_windows_module_paths` failed in CI until `.replace("\\", "/")` was added). Merged. |
+| B1 | #444 | `91e6f79` | Rebase-and-merge of PR #438's hexagonal layer gate onto post-#429 + post-#432 main. The PR #438 branch was developed in parallel to PR #429 and DELETED 8 files + 17 lines of `pyproject.toml` that PR #429 added — resolution was to bring only the additions (check_layers.py, test_layers.py, capas-y-slices.md, ci.yml step, AGENTS.md §33 enforcement, Makefile check-layers target). Plus a lint-clean refactor of `scripts/check_layers.py` (C901/PLR0911/PLR2004/SIM102) with **zero baseline bump** — Path A only, no Path B. File grew 609 → 673 lines (still under §21 cap). |
+| B2 | #447 | `61e1ad1` | Resolve #437: `_check_slice` recognises a target under `app/core/` as cross-cutting (asymmetric: `modules/.../delivery → core/...` allowed; `core/<slice_a>/<file> → core/<slice_b>/<submodule>` for non-di still banned). New helper `_is_cross_cutting_core_target(module, layer)` — `layer == "delivery"` guard makes it one-directional. Removed `@pytest.mark.xfail(strict=True)` from `test_delivery_may_import_inward`. BASELINE entries removed: **none** (issue text mentions animals/acogidas routes, but actual code imports `app.core.auth_dependencies`, not `app.core.application.auth.get_user`). |
+| C1 | #446 | `4e2863a` | `tests/test_animals_queries.py` — 36 cases pinning every public builder of `app/modules/animals/queries.py` (the highest-density queries module at 27.3 sites/100 LOC). Includes dynamic-filter paths (chip-precedence-over-q, all-filters-combined pins `$N` order) and `DB_LABEL_TO_ESTADO` round-trips + unmapped. Unblocks the module as a mutation target per #434. |
+| C2 | #448 | `c5ad0bc` | 36 table-driven test cases in `tests/test_derivation.py` that exercise each surviving-mutation cluster independently (priority-cascade clauses, `==`/`!=` boundary literals, identity operators, missing-vs-zero key fallbacks). Plus a baseline-pin test in `tests/test_ci_workflow.py` (AGENTS.md §32.P3) that asserts `mutation-baseline.json[migration/derivation.py]` stays ≤ 38. **Baseline left at 38 (Path X)** — Linux acquisition required for a real number; CI `mutation` job (schedule+dispatch+tag) will corroborate the new count on its next run; a follow-up PR narrows the entry. |
+| CI | #452 | `b53109b` | Migrate basic CI gates from `runs-on: [self-hosted, Linux, ARM64, apap, oracle]` to `runs-on: ubuntu-latest` because the Oracle VPS runner developed a chronic session-renewal problem. Also fixed `tests/test_security_scanning.py` (still asserting the old runner) and refactored `migration/lock.py::acquire_lock` to lower its CRAP score from 26.54 to 1.00 (CC 14 → 1, 5 small helpers, 100% coverage). |
+| B3 | #449 | `e430140` | Slice-completeness gate (`scripts/check_slice_completeness.py`, 759 LOC since `scripts/` is exempt from the §21 cap). Four assertions per slice: port Protocol declared, adapter wired from `di/`, application layer adapter-free, every occupied layer has a test file. 23 tests pass; gate OK with 4 baselined violations. |
+| A4 | #450 | `1822222` | Add `app/modules/adopciones/service.py` (110 sites / 527 LOC = 20.9/100 LOC) to cosmic-ray target set with `PENDING LINUX ACQUISITION` baseline marker (14-day grace period via `check_pending_overdue()` in `scripts/check_mutation.py`). |
+| B4 | #451 | `cce67b3` | Migration boundary gate (`scripts/check_migration_boundaries.py`, 672 → 699 LOC after jscpd refactor). Three file classes (pure / access-bound / orchestration) each with its forbidden-import set, plus tests-per-module. The jscpd refactor collapsed three Type-2 clones (`_check_pure` / `_check_access_bound` / `_check_orchestration`) into a single `_RULES` data tuple; jscpd dropped from 1.93% (FAIL) to 1.74% (PASS against 1.88% baseline) on Linux Python 3.14. |
+
+### Open after this session
+
+| # | PR | What |
+|---|---|---|
+| B3 | (next) | Slice-completeness gate (the real gap): port Protocol declared, adapter injected from `di/`, test per layer. New script `scripts/check_slice_completeness.py` to keep `check_layers.py` under the §21 cap. |
+| B4 | (next) | Layer gate for `migration/` as a separate file (`scripts/check_migration_boundaries.py`), NOT extending `check_layers.py`. `migration/` is not hexagonal — it has derivation (pure), legacy access (Access-bound), orchestration (apply/reconcile/cli). Forcing hexagonal rules on ETL breaks §32.P3. |
+| A4 | (next) | Add `app/modules/adopciones/service.py` to mutation target set (#434, 20.9 sites/100 LOC). **Linux baseline acquisition required — can't run cosmic-ray on Windows**. PR lands the `module-path` change with a `PENDING LINUX ACQUISITION` marker in `mutation-baseline.json`, pinned by a test that fails if the marker survives past the first schedule run after the PR lands. |
+
+### Decisions taken while the user was out (reversible)
+
+| # | Decision | Why |
+|---|---|---|
+| D1 | Delegated B-track and C-track to subagents in fresh worktrees, per §17.1 | orchestrator coordinates, subagents write |
+| D2 | A4 PR lands with `PENDING LINUX ACQUISITION` baseline marker, not skipped | §32.P3 — a measurement whose failure mode is silence is worse than no measurement |
+| D3 | B4 is a separate gate (`check_migration_boundaries.py`), not an extension of `check_layers.py` | `migration/` is not hexagonal; forcing hexagonal rules on ETL manufactures false confidence |
+| D4 | C2 tests written without local verification that mutations die (Windows-broken cosmic-ray). Baseline entry pinned to the pre-PR main-branch measurement | Same as D2; CI `mutation` job (Linux, scheduled) will corroborate |
+| D5 | For C1, `codegraph_explore` before reading `app/modules/animals/queries.py` | §14 — CodeGraph is Read-equivalent |
+
+All five are reversible. Tell me when you're back if any of them should be undone.
+
+### Facts learned that aren't in this roadmap yet
+
+1. **The original PR #432's `mutation` job was missing the tag trigger.** The rebase revealed it: `if: schedule || workflow_dispatch` only. Added `startsWith(github.ref, 'refs/tags/')` because §32.P7 and AGENTS.md §34.2 require release tags to bundle mutation evidence. The test that pins "no pull_request" trigger still passes.
+2. **Linux `Path` doesn't treat backslashes as separators.** `Path("app\\modules\\m.py").as_posix()` returns `"app\\modules\\m.py"` on Linux but `"app/modules/m.py"` on Windows. CI test `test_read_session_normalizes_windows_module_paths` was written assuming the cross-platform equivalence; the implementation needed an explicit `.replace("\\", "/")` before `as_posix()`.
+3. **Parallel-universe PRs.** PR #438 (hexagonal gate) was developed in parallel to PR #429 (foundations). When PR #429 landed first, the rebase of PR #438 onto main revealed 8 file deletions + 17 lines of pyproject.toml removed that PR #429 added. Resolution was to bring only the additions. Lesson: when two PRs touching similar files land out of order, the second rebase must be done by someone with the full spec — an automated rebase will silently delete.
+4. **The extended ruff ratchet scope excludes `tests/` by design.** `SCOPE = ("app", "migration", "scripts")`. In `tests/`, `assert` (S101), magic values (PLR2004), and unused args (ARG*) are idiomatic. Including them would add ~4200 baseline entries with no signal. Discovered while reading `check_ruff_ratchet.py` during B1's refactor.
+
+### Open worktrees to clean up
+
+- `C:/00repos/codigo/APAP_WEB_worktrees/wt-rebase-pr432` (A3, merged)
+- `C:/00repos/codigo/APAP_WEB_worktrees/wt-fix-pr438-lint-and-437` (B1, merged)
+- `C:/00repos/codigo/APAP_WEB_worktrees/wt-roadmap-update` (this PR)
+- `C:/00repos/codigo/APAP_WEB_worktrees/wt-fix-437` (B2, merged)
+- `C:/00repos/codigo/APAP_WEB_worktrees/wt-test-animals-queries` (C1, merged)
+- `C:/00repos/codigo/APAP_WEB_worktrees/wt-fix-derivation-survivors` (C2, merged)
+- `C:/00repos/codigo/APAP_WEB_worktrees/wt-ci-move-to-github` (PR #452, open)
+- `C:/00repos/codigo/APAP_WEB_worktrees/wt-slice-completeness-gate` (B3, waiting on CI)
+- `C:/00repos/codigo/APAP_WEB_worktrees/wt-migration-boundaries-gate` (B4, waiting on CI)
+- `C:/00repos/codigo/APAP_WEB_worktrees/wt-mutation-target-adopciones` (A4, waiting on CI)
+
+Run after session: `git worktree remove <path> --force` then `git branch -d <local-branch>`.
+
+### CI infrastructure incident — 2026-08-06 afternoon
+
+The project-owned self-hosted runner (`apap-web-oracle-arm64`, Oracle VPS) developed a zombie session: the listener process reported "Connected to GitHub" but GitHub-side the runner stayed `offline` and never picked up queued jobs. Three PRs (#449, #450, #451) hit the 1.5h timeout and got auto-cancelled. Cause: when systemd restarts the runner service, the orphaned listener PIDs from the previous session survive in the cgroup (they were reparented to PID 1 when the original parent exited), and they continue to hold the GitHub session. systemd restart does NOT reap them. The new listener reports "Connected to GitHub" but actually gets `Runner connect error: Error: Conflict. Retrying until reconnected` on every retry.
+
+Workaround that worked: `sudo systemctl stop` + `sudo kill -9 <old PIDs>` + `sudo systemctl start`. But the underlying fragility remains.
+
+**Decision:** PR #452 (open) migrates the basic gates from `runs-on: [self-hosted, ...]` to `runs-on: ubuntu-latest`. The self-hosted choice was historical (#355 double-Postgres billing); every job in this repo is pure Python or Postgres-service-container, all portable to GitHub-hosted. The e2e job keeps its conditional self-hosted fallback. APAP_WEB is private; estimated CI usage is well below the 2,000 min/month free tier.
+
+**Open follow-up:** investigate whether to keep the self-hosted runner registered. The VPS is paid for; if no job uses it, the runner is dead weight. Decision deferred to the user.
+
+### See also
+
+- `docs/quality/pendientes-2026-08-06.md` — the running file the agent left for the user while out of house.
