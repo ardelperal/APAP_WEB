@@ -856,5 +856,35 @@ def test_ci_workflow_branch_name_step_is_wired() -> None:
     assert "branches: [main]" in pr_name
 
 
+def test_ci_workflow_pr_size_job_is_wired() -> None:
+    """The PR size gate must be wired in pr-size.yml (issue #442).
+
+    AGENTS.md §15.1 declares ``review_budget_lines: 400`` as a soft budget
+    enforced by PR review. Issue #442 promotes it to a CI gate so a 500-line
+    PR cannot land on main without an explicit ``size:exception`` label.
+    The wiring lives in a dedicated ``.github/workflows/pr-size.yml`` (one
+    job, ``pull_request`` only) rather than in ``ci.yml`` because the gate
+    needs the diff against the merge-base plus the labels payload — neither
+    is available to the lint/test/typecheck jobs without bloating them.
+
+    The workflow MUST invoke ``scripts/check_pr_size.py`` and read the
+    ``size:exception`` label; the script is the unit-tested entry point and
+    the label is the only acceptable override (AGENTS.md §15.6). Removing
+    either reference from the workflow is a blocked change (issue #442).
+    """
+    pr_size = (
+        REPO_ROOT / ".github" / "workflows" / "pr-size.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "scripts/check_pr_size.py" in pr_size, (
+        "pr-size.yml must invoke scripts/check_pr_size.py (issue #442, "
+        "AGENTS.md §15.1) — the script is the unit-tested gate; inlining "
+        "the budget logic in the workflow would silently bypass tests/test_pr_size.py"
+    )
+    assert "size:exception" in pr_size, (
+        "pr-size.yml must read the 'size:exception' label (AGENTS.md §15.6) — "
+        "it is the only acceptable override for the 400-line budget"
+    )
+
 
 
