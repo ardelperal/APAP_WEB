@@ -49,10 +49,10 @@ def test_solo_dos_call_sites_en_app() -> None:
 
     Issue #204 moved the auth middleware (one of the two
     ``payload.get("is_authorized"...)`` call sites) from
-    ``app/main.py`` to ``app/core/middleware.py``. Slice #420-7 moved the
-    dep-side revalidation from ``app/core/auth_dependencies.py`` to
-    ``app/core/di/auth_dependencies_di.py`` (the di-module composition
-    root). The COUNT stays 2; the FILE-LOCATION SET shifts by one entry.
+    ``app/main.py`` to ``app/core/middleware.py``. Issue #430 then moved the
+    dep-side revalidation from ``app/core/di/auth_dependencies_di.py`` to
+    ``app/core/di/auth_dependencies_session_di.py``. The COUNT stays 2; the
+    FILE-LOCATION SET shifts by one entry.
 
     The regex matches the call-site shape so docstring mentions don't
     produce false positives. The PR-1A linter (Detector 2) pins the same
@@ -67,16 +67,11 @@ def test_solo_dos_call_sites_en_app() -> None:
         if pat.search(line)
     ]
     assert len(matches) == 2, f"expected 2 call sites, got {len(matches)}: {matches}"
-    # Issue #204: call sites are in middleware.py (auth chain) and
-    # auth_dependencies.py (the dep-side revalidation). Previously both
-    # lived in app/main.py; one moved to app/core/middleware.py.
-    # Slice #420-7 moved the dep-side call site to the di module
-    # composition root (app/core/di/auth_dependencies_di.py). The shim
-    # at app/core/auth_dependencies.py is a re-export; the source-level
-    # default-deny check lives in the di module.
+    # Issue #430 moved the dependency-side default-deny check into the
+    # session DI sibling while the public DI module keeps re-exporting it.
     assert {m[0] for m in matches} == {
         "app/core/middleware.py",
-        "app/core/di/auth_dependencies_di.py",
+        "app/core/di/auth_dependencies_session_di.py",
     }
 
 

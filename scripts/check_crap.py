@@ -46,12 +46,10 @@ class CoverageDataError(ValueError):
 #: Current-tree offenders measured with ``--emit-baseline``.
 #: RATCHET: values may only decrease and entries may only disappear.
 #:
-#: Re-baselined after the merge of PR #427 (auth-dependencies slice,
-#: commit ``41fbd2a``): ``require_authorized_user`` moved from
-#: ``app/core/auth_dependencies.py`` to its shim
-#: ``app/core/di/auth_dependencies_di.py`` (issue #420-7). The stale
-#: entry for the old location is removed; the new entry at
-#: CRAP=14.05 (current measured value) replaces it.
+#: Re-baselined after issue #430 split the auth-dependencies composition root:
+#: ``require_authorized_user`` moved to
+#: ``app/core/di/auth_dependencies_session_di.py`` and improved from CRAP=14.05
+#: to CRAP=9.01. The entry preserves the shrink-only ratchet at its new path.
 #:
 #: The ``migration/lock.py::`` entries for ``_is_process_alive_windows``
 #: (38.28) and ``check_msaccess_running`` (12.89) are platform-dependent:
@@ -60,7 +58,7 @@ class CoverageDataError(ValueError):
 #: measurements will be lower (the function is exercised there), which
 #: shows up as improvement notices — not violations.
 BASELINE_CRAP: dict[str, float] = {
-    "app/core/di/auth_dependencies_di.py::require_authorized_user": 14.05,
+    "app/core/di/auth_dependencies_session_di.py::require_authorized_user": 9.01,
     "app/core/auth_flow.py::register_auth_flow_routes.callback": 7.1,
     "app/core/csrf.py::CsrfMiddleware.dispatch": 13.33,
     "app/core/domain/auth/user.py::AuthorizedUser.from_row": 8.35,

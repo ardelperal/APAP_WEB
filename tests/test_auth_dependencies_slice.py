@@ -40,9 +40,11 @@ import pytest
 from app.core import auth_dependencies as _shim
 from app.core.data_access import InsForgeError
 from app.core.di import auth_dependencies_di as _di
+from app.core.di import auth_dependencies_session_di as _session_di
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DI_PATH = REPO_ROOT / "app" / "core" / "di" / "auth_dependencies_di.py"
+SESSION_DI_PATH = REPO_ROOT / "app" / "core" / "di" / "auth_dependencies_session_di.py"
 SHIM_PATH = REPO_ROOT / "app" / "core" / "auth_dependencies.py"
 
 NINE_PUBLIC_NAMES = (
@@ -281,8 +283,12 @@ def test_di_module_has_no_raw_sql_or_execute_sql() -> None:
     ``app.core.auth_cache`` at module level IS allowed (constraint 3's
     exception clause) — that is the facade wiring.
     """
-    source = DI_PATH.read_text(encoding="utf-8")
-    violations = _module_r04_violations(source)
+    violations: list[str] = []
+    for path in (DI_PATH, SESSION_DI_PATH):
+        source = path.read_text(encoding="utf-8")
+        violations.extend(
+            f"{path.name}: {violation}" for violation in _module_r04_violations(source)
+        )
     assert not violations, (
         f"app.core.di.auth_dependencies_di violates the R04 leak "
         f"constraint — the composition root must not bypass the service "
@@ -360,9 +366,9 @@ def set_cached_auth(monkeypatch: pytest.MonkeyPatch) -> _SetCachedAuthSpy:
     """Install a :class:`_SetCachedAuthSpy` and clear the cache.
 
     The spy is wired into both the source module
-    (``app.core.auth_cache.set_cached_auth``) and the di module's
-    local rebinding (``_di.set_cached_auth``) so the production call
-    site is observed regardless of which alias was used at import time.
+    (``app.core.auth_cache.set_cached_auth``) and the session DI module's
+    local rebinding so the production call site is observed regardless of
+    which alias was used at import time.
     Yields the spy so the test can read ``spy.call_count``.
     """
     from app.core import auth_cache as _auth_cache
@@ -371,7 +377,7 @@ def set_cached_auth(monkeypatch: pytest.MonkeyPatch) -> _SetCachedAuthSpy:
     monkeypatch.setattr(
         "app.core.auth_cache.set_cached_auth", spy
     )
-    monkeypatch.setattr(_di, "set_cached_auth", spy)
+    monkeypatch.setattr(_session_di, "set_cached_auth", spy)
     _auth_cache.invalidate_all()
     yield spy
     _auth_cache.invalidate_all()

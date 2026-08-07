@@ -362,3 +362,33 @@ slice establishes, AND applying the lazy-import `_shim()` pattern
 where the module needs to read helpers from the legacy shim. The
 shim's `import *` and the di module's lazy lookup are the two
 precedents they will copy.
+
+---
+
+## Issue #430 Addendum — 2026-08-07
+
+### Scope
+
+Split the session and backend-revalidation dependencies from
+`app/core/di/auth_dependencies_di.py` into
+`app/core/di/auth_dependencies_session_di.py` without changing the nine-symbol
+public API.
+
+### Methodology
+
+Compared exported object identity and signatures, ran the auth slice and Rule 7
+pin tests, scanned both DI files for transport leaks, and ran the full suite,
+mutation-sites, CRAP, module-size, Ruff, rules, mypy, coverage, and build gates.
+
+### Findings
+
+| Severity | Finding | Resolution |
+|---|---|---|
+| INFO | The original DI module exceeded the 250 mutation-site ceiling at 252. | Split to 124 and 92 sites; combined total reduced to 216 and the mutation baseline entry was removed. |
+| INFO | Moving `require_authorized_user` made its CRAP baseline path stale. | Moved the same shrink-only baseline to the session DI path and lowered it from 14.05 to 9.01. |
+| INFO | Redirect, default-deny, cache, logging, and import-order contracts could drift during extraction. | Existing pins were updated to scan the new seam; all behavior and object-identity assertions pass. |
+
+### Verdict
+
+**PASS** — the split reduces complexity without changing authentication,
+authorization, redirect, logging, cache, or public import behavior.

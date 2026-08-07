@@ -19,7 +19,7 @@ import tokenize
 from collections import defaultdict
 from pathlib import Path
 
-BASELINE_JSCPD_PCT = 1.88  # measured on the PR #1 foundation tree (Python 3.14 CI runner)
+BASELINE_JSCPD_PCT = 1.72  # lowered by the issue #430 auth-dependencies split
 SCAN_DIRS = ("app", "migration", "scripts")
 MIN_CLONE_TOKENS = 50
 _MIN_CLONE_GROUP_MEMBERS = 2

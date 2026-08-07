@@ -45,10 +45,11 @@ import pytest
 
 
 def _require_authorized_user_source() -> str:
-    """Return the verbatim source of ``require_authorized_user``."""
+    """Return the auth guard and redirect-helper source."""
     from app.core.auth_dependencies import require_authorized_user
+    from app.core.di.auth_dependencies_session_di import _deny
 
-    return inspect.getsource(require_authorized_user)
+    return inspect.getsource(require_authorized_user) + inspect.getsource(_deny)
 
 
 def test_uses_redirectresponse_not_http_exception_in_require_authorized_user() -> None:
