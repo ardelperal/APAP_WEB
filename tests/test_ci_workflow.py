@@ -833,8 +833,28 @@ def test_mutation_baseline_marks_adopciones_as_awaiting_acquisition() -> None:
     print(
         "\nmutation-baseline.json[awaiting_acquisition]"
         "[app/modules/adopciones/service.py] = "
-        f"{since_str} (age: {age} days, grace: {GRACE_PERIOD_DAYS})"
+         f"{since_str} (age: {age} days, grace: {GRACE_PERIOD_DAYS})"
     )
+
+
+def test_ci_workflow_branch_name_step_is_wired() -> None:
+    """The branch-name gate must be wired in pr-name.yml (issue #441).
+
+    AGENTS.md §15.2 declares the <type>/<issue>-<slug> naming convention.
+    A convention that lives only in docs is §32.P3 (rule declared without a
+    gate). The separate pr-name workflow validates the head ref against
+    scripts/check_branch_name.py on every pull_request; removing the
+    workflow or the step is a blocked change.
+    """
+    pr_name = (REPO_ROOT / ".github" / "workflows" / "pr-name.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "scripts/check_branch_name.py" in pr_name
+    assert "github.head_ref" in pr_name
+    # The gate fires on every PR opened against main.
+    assert "pull_request:" in pr_name
+    assert "branches: [main]" in pr_name
+
 
 
 
