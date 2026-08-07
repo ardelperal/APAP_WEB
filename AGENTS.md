@@ -319,7 +319,7 @@ Enforcement: PR review. If a change to `.gitignore` would silently re-ignore `.c
 
 ### 15. Merge workflow — pre-MVP single-branch policy + post-MVP revert path
 
-This project is **pre-MVP**. The default rule is: **all work lands on `main`, every non-`main` branch is deleted immediately after its merge, and at the end of each merge cycle the only branch left standing is `main`.** There is no long-lived `staging` branch in pre-MVP. When the user declares MVP reached, the workflow reverts to the standard `staging` + UAT gate described in §"Post-MVP revert" below.
+This project is **pre-MVP**. The default rule is: **all work lands on `main`; merged branches are retained with `<type>/<issue>-<slug>` names (§15.2), not deleted, so a fork inherits the full branch history and live/dead refs are distinguishable at a glance.** There is no long-lived `staging` branch in pre-MVP. When the user declares MVP reached, the workflow reverts to the standard `staging` + UAT gate described in §"Post-MVP revert" below.
 
 #### 15.1 Pre-MVP gate — all must be true before merging to `main`
 
@@ -328,12 +328,25 @@ This project is **pre-MVP**. The default rule is: **all work lands on `main`, ev
 3. **Diff is reviewable.** A single PR diff should stay under the `review_budget_lines: 400` (orchestrator default). If a feature is larger, split into chained PRs using the `chained-pr` skill — never blow up main with a single oversized merge.
 4. **No `--force`, no history rewrite.** Merge with `--no-ff` to keep the feature commit visible; never `git push --force` to `main`; never rebase already-shipped commits.
 
-#### 15.2 Pre-MVP branch lifecycle
+#### 15.2 Pre-MVP branch lifecycle — retain merged branches, name them `<type>/<issue>-<slug>` (issue #440)
 
-- Work happens on short-lived feature branches off `main`. Names follow conventional commits' scope: `feat/<scope>`, `fix/<scope>`, `refactor/<scope>`, `docs/<scope>`, `ci/<scope>`, `test/<scope>`.
-- After the PR merges to `main` AND CI is green: `git branch -d <branch>` locally, then `git push origin --delete <branch>` (only if the remote allows it and no one else uses it).
-- **Never** delete `main`. **Never** create or persist a `staging` branch in pre-MVP — that contradicts the single-branch policy. If `staging` already exists from before this rule was in force, migrate its commits into `main` first, then `git branch -D staging && git push origin --delete staging`.
-- After every merge cycle, the only branch left standing is `main`. Anything else is a leak.
+Merged branches are **retained**, not deleted. Rationale: a fork inherits more value with the full branch history, and abandoned/unmerged branches are otherwise lost outright. The user's decision on 2026-08-06 made retention the policy.
+
+The counter-argument is a factual note that has to live next to the rule so nobody "re-optimises" it back to deletion: deleting a branch ref never deleted its commits. With `--no-ff` (already required by §15.1) they stay in `main`'s history under the merge commit, and GitHub retains `refs/pull/<n>/head` permanently. What deletion actually cost was the **named pointer**, `git log --graph` readability, and any **unmerged** branch. So the benefit of retention is narrower than it looks, while the cost — dozens of dead refs indistinguishable from live ones — is immediate. **Naming is what makes the policy viable**, not a nicety.
+
+**Naming convention.** Branch names MUST follow `<type>/<issue>-<slug>`:
+
+- `<type>` is one of `feat | fix | refactor | docs | ci | test`.
+- `<issue>` is the GitHub issue number the branch resolves (no leading `#`).
+- `<slug>` is lowercase ASCII kebab-case, `[a-z0-9-]+`.
+
+Examples: `feat/431-mutation-gate`, `fix/429-integration-job`, `refactor/437-slice-boundary`. The issue number is the point — a dead branch must explain itself in two years and link to its issue, which links to its PR.
+
+**`archive/` rename prefix.** Abandoned branches — superseded, declined, or otherwise retired — MUST be renamed with the `archive/` prefix before being left behind (`git branch -m archive/<old-name>`). Live and dead are distinguishable at a glance, not by reading the last commit.
+
+**Carve-outs.** `main` is the only branch exempt from the convention. `staging` does not exist in pre-MVP and is recreated at the §15.4 MVP flip — that gate is unchanged by this rule. Branches that pre-date the rename live in a shrink-only allowlist inside the #441 enforcement script; entries are removed only when the branch is renamed into compliance or deleted. Adding to the allowlist is a one-shot calibration with explicit justification, never routine.
+
+**Enforcement** lands in #441 (a CI branch-name gate). Pinned by `tests/test_ci_workflow.py::test_ci_workflow_lint_job_runs_branch_name_gate` once that PR lands. Until #441 ships, the convention is enforced by PR review at merge time. Refs #436.
 
 #### 15.3 Staging-only pre-push hook — status on this repo
 
