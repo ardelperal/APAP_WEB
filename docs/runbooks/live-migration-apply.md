@@ -10,16 +10,16 @@
 
 | Sección | Propósito |
 |---|---|
-| Cuándo abrir este runbook | Disparadores en terminal del operador o en registros CI |
-| Lista de comprobación previa | Requisitos del entorno y de credenciales |
-| Pasos de despliegue | Secuencia dry-run, apply real y verificación |
-| Verificación | Códigos de salida, drift, eventos auditados y archivos escritos |
-| Reversión | Reversión por categoría de salida |
+| When to trigger | Disparadores en terminal del operador o en registros CI |
+| Pre-deploy checklist | Requisitos del entorno y de credenciales |
+| Deploy steps | Secuencia dry-run, apply real y verificación |
+| Verification | Códigos de salida, drift, eventos auditados y archivos escritos |
+| Rollback | Reversión por categoría de salida |
 | PR4b — Almacenamiento de fotos y display autenticado | Capa de fotos privadas sobre el pipeline de apply |
 | Dirección inversa (PR6 / M2) | Aplicador simétrico web → legacy |
 | Escalada | Procedimiento cuando el runbook no resuelve el incidente |
 
-## Cuándo abrir este runbook
+## When to trigger
 
 Abra este runbook cuando aparezca alguna de las siguientes señales en el terminal del operador o en los registros CI:
 
@@ -35,7 +35,7 @@ NO use este runbook para:
 - Bootstrap M0 / shadow-table / bucket privado de infraestructura — consulte `docs/runbooks/live-migration-m0-bootstrap.md`.
 - Dirección inversa (web → legacy) — fuera del alcance de PR3; vea el PR6 de seguimiento.
 
-## Lista de comprobación previa
+## Pre-deploy checklist
 
 Antes de ejecutar `apap-migrate apply` por primera vez en una estación del operador, todos los puntos siguientes DEBEN verificarse. Cada punto es una compuerta dura: cualquier fallo aborta el apply con un error categórico y una referencia estable al runbook.
 
@@ -49,7 +49,7 @@ Antes de ejecutar `apap-migrate apply` por primera vez en una estación del oper
 - [ ] **`APAP_LEGACY_ACCDB_PATH`** apunta al `.accdb` legado con acceso de lectura. La variable se documenta en `migration/legacy_access_client.py`.
 - [ ] **Un directorio de origen estable**: el `.accdb` legado y el directorio de fotos se mantienen estables (sin ediciones concurrentes) durante toda la duración del apply. El snapshot escrito al inicio del apply sella sus huellas SHA-256; cualquier cambio posterior aborta el apply (detección de drift, véase Verificación §"Drift").
 
-## Pasos de despliegue
+## Deploy steps
 
 El pipeline de apply es un único comando. El flujo recomendado es:
 
@@ -78,7 +78,7 @@ El pipeline de apply es un único comando. El flujo recomendado es:
 
 4. **Verifique** (véase Verificación) antes de ejecutar otro apply.
 
-## Verificación
+## Verification
 
 ### Códigos de salida (vocabulario cerrado, coincide con la salida del CLI)
 
@@ -139,7 +139,7 @@ Los campos `accdb_sha256_changed`, `photos_dir_sha256_changed`, `photos_file_cou
 - **Ninguna ruta de sistema de archivos sin procesar** (por ejemplo `C:\Users\…`, `/var/…`, `/tmp/…`, `/home/…`) aparece en el flujo del operador. El campo `detail` de la excepción puede contener contexto interno, pero el CLI sólo emite la razón categórica.
 - **Ninguna carga útil de excepción sin procesar** (por ejemplo fragmentos SQL completos, tracebacks pyodbc completos) aparece en el flujo del operador. Los operadores ven una línea categórica estable; el detalle verboso vive en los registros estructurados a discreción del operador.
 
-## Reversión
+## Rollback
 
 La disciplina de reversión depende de si el apply tuvo éxito o se abortó.
 
