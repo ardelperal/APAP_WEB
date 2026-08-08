@@ -1,163 +1,185 @@
 # APAP_WEB
 
-Web application for APAP (Asociación para la Atención de Personas con Autismo y otros Trastornos del Desarrollo): intake, foster network, adoptions, and clinical history for sheltered animals, plus the volunteer registry that runs the program. Built on FastAPI + Jinja2 + Tailwind CSS v4 against an InsForge-managed PostgreSQL backend, deployed to Coolify.
+APAP_WEB reemplaza el Access/VBA legacy de APAP con una aplicación web server-rendered para la gestión de animales, voluntarios y operaciones del refugio, construida sobre FastAPI + Jinja2 + InsForge y desplegada en Coolify.
 
-> **Status:** pre-MVP, single-branch workflow. All work lands on `main` (see [`AGENTS.md`](AGENTS.md) §15).
-> **Python:** 3.11+. **CI:** GitHub Actions (`ci / lint`, `ci / test`, `ci / build`, conditional `ci / e2e` and `ci / deploy`).
-
----
-
-## What is APAP_WEB
-
-APAP_WEB is the server-rendered web application that replaces APAP's legacy Microsoft Access / VBA tool for animal-shelter operations. The legacy app runs on a single workstation, stores everything in DAO, and has accumulated technical debt that no single rewrite can ignore if it wants to keep the team's day-to-day workflows intact. The web rewrite has three anchors:
-
-1. **Functional superset of the legacy (P1 fidelity premise, [`docs/proceso.md`](docs/proceso.md) §0).** Every legacy capability the team uses today — intake, foster assignment, adoption tracking, health acts, transfers (cesiones), the volunteer registry with role mappings, the catalog fields seeded from Access — is either preserved bit-for-bit or replaced by a documented equivalent in [`docs/decisiones-proyecto.md`](docs/decisiones-proyecto.md). Gaps discovered during the work are tracked as `type:bug` issues with the `gap:legacy` label, never silently ignored.
-2. **Allowlisted web access through Google OAuth.** Authentication is delegated to Google (fronted by InsForge's hosted OAuth proxy), authorization is an allowlist (`usuarios_autorizados`) checked against the authoritative store on every request (cached for `APAP_AUTH_CACHE_TTL_SECONDS`, default 300s, so a deactivation takes effect inside that window). There is no anonymous access to anything beyond `/healthz`, `/login`, `/auth/google`, `/auth/callback`, `/logout`, and `/static`.
-3. **Server-rendered, minimal-JS, audit-friendly.** Jinja2 templates, Tailwind CSS v4 (CSS-first, no `tailwind.config.js`), one `httpx` client per request to InsForge. Pages are HTML; HTMX-style progressive enhancement is the intended direction but the current surface is mostly full-page reloads. Every state-changing action goes through CSRF middleware and emits a structured `log_safe(...)` event with 12-field PII redaction.
-
-The application's authoritative contract for the rewrite is captured in three docs: [`docs/roadmap.md`](docs/roadmap.md) (feature phases and current status), [`docs/architecture-insforge-stack.md`](docs/architecture-insforge-stack.md) (stack decisions), and [`docs/proceso.md`](docs/proceso.md) (how to take an issue from open to merged-and-closed with evidence). This README points at them rather than duplicating their content.
+[Quick Navigation](#quick-navigation) · [Roadmap](docs/roadmap.md) · [Proceso](docs/proceso.md) · [Arquitectura](docs/architecture-insforge-stack.md) · [Reglas del repo](AGENTS.md)
 
 ---
 
-## Features shipped today
+## Quick Navigation
 
-The features below are live on `main` (2026-07-05). Each entry references the GitHub issue that delivered it (cross-checked against `app/modules/<area>/` and the closed-issue list).
+| Sección | Para qué |
+|---|---|
+| [¿Qué es APAP_WEB?](#qué-es-apap_web) | Producto, anclas y audiencia. |
+| [Features en producción](#features-en-producción) | Lo que ya corre en `main` por área de dominio. |
+| [Pendiente (no en producción)](#pendiente-no-en-producción) | Roadmap abierto, agrupado por fase. |
+| [Stack técnico](#stack-técnico) | Lenguaje, framework, backend, despliegue. |
+| [Arquitectura](#arquitectura) | Diagrama request path browser → InsForge. |
+| [Estructura del repo](#estructura-del-repo) | Carpetas y módulos a nivel de superficie. |
+| [Quick start](#quick-start) | Clonar, venv, Tailwind, dev server. |
+| [Configuración](#configuración) | Variables de entorno (`APAP_*`). |
+| [Workflow de desarrollo](#workflow-de-desarrollo) | TDD, CodeGraph, gates locales, PR, revisión. |
+| [CI/CD](#cicd) | Jobs de `.github/workflows/ci.yml` y despliegue. |
+| [Seguridad](#seguridad) | Defensa en profundidad anclada en `AGENTS.md`. |
+| [Índice de documentación](#índice-de-documentación) | Dónde mirar para cada pregunta. |
 
-### Authentication & session
+---
 
-- **Google OAuth 2.0 via InsForge's hosted proxy, with PKCE.** `/login` renders the APAP login page; `/auth/google` mints the PKCE pair and bounces the user to Google; `/auth/callback` exchanges the temporary `insforge_code` (or the legacy `code=...`) for an InsForge JWT and issues a signed session cookie. ([Fase 2 — #16](https://github.com/ardelperal/APAP_WEB/issues/16); callback-loop fix #125, logout fix #124)
-- **Per-request authorization revalidation.** The session cookie carries identity only; `require_authorized_user` re-checks `usuarios_autorizados` (cached per `APAP_AUTH_CACHE_TTL_SECONDS`). Deactivating a user in `/admin` takes effect inside the TTL window instead of waiting up to 7 days for the cookie to expire. (#143, hardening follow-ups #144, #145)
-- **CSRF middleware on every POST/PUT/PATCH/DELETE.** (`CsrfMiddleware`, registered after the static-files mount, before the auth middleware.) Tokens are issued into the session at login, validated via the `X-CSRFToken` header (HTMX/fetch) or the `csrf_token` form field (traditional POSTs), and surface a `csrf.disabled` warning when the `APAP_CSRF_ENABLED` feature flag rolls the middleware off.
-- **Session cookies** are signed (`itsdangerous.URLSafeTimedSerializer`), `HttpOnly`, `Secure`, `SameSite=Strict` (the PKCE cookie used during the OAuth bounce is `SameSite=Lax` so Google can return to `/auth/callback`). Session rotation & deactivation follow [`docs/runbooks/cookie-rotation.md`](docs/runbooks/cookie-rotation.md).
+## ¿Qué es APAP_WEB?
 
-### Domain modules (`app/modules/`)
+APAP_WEB es la reescritura web de la herramienta interna que APAP (Asociación para la Atención de Personas con Autismo y otros Trastornos del Desarrollo) usa para operar el refugio de animales. La versión legacy corre en Microsoft Access / VBA sobre un único puesto, almacena todo en DAO y arrastra una deuda técnica que ninguna reescritura puede ignorar si quiere mantener los flujos diarios del equipo.
 
-| Module | What it does | Shipped by |
+La reescritura se sostiene sobre tres anclas:
+
+1. **Superset funcional del legacy (premisa P1 de fidelidad).** Cada capacidad del Access que el equipo usa —intake, asignación de casas de acogida, adopciones, actos sanitarios, cesiones, registro de voluntarios con mapeo de roles, catálogos sembrados desde Access— se conserva bit a bit o se reemplaza por un equivalente documentado en [`docs/decisiones-proyecto.md`](docs/decisiones-proyecto.md). Las brechas descubiertas durante el trabajo se tratan como `type:bug` con label `gap:legacy`, nunca como omisión silenciosa.
+2. **Acceso allowlisted por Google OAuth.** La autenticación la delega Google (proxy OAuth de InsForge); la autorización es una allowlist en `usuarios_autorizados`, revisada contra la fuente autoritativa en cada request (con caché de `APAP_AUTH_CACHE_TTL_SECONDS`, 300s por defecto; una desactivación surte efecto dentro de esa ventana). Solo `/healthz`, `/login`, `/auth/google`, `/auth/callback`, `/logout` y `/static` quedan fuera del allowlist.
+3. **Server-rendered, JS mínimo, auditable.** Plantillas Jinja2, Tailwind v4 CSS-first (sin `tailwind.config.js`), un cliente `httpx` por request hacia InsForge. Toda acción que cambia estado pasa por el middleware CSRF y emite un evento estructurado `log_safe(...)` con redacción automática de 12 campos de PII.
+
+El contrato autoritativo de la reescritura vive en tres documentos, que el README enlaza y nunca duplica:
+
+- [`docs/roadmap.md`](docs/roadmap.md) — fases del producto y estado actual.
+- [`docs/architecture-insforge-stack.md`](docs/architecture-insforge-stack.md) — decisiones de stack, reglas InsForge, target de despliegue.
+- [`docs/proceso.md`](docs/proceso.md) — cómo llevar una issue de `open` a `closed` con evidencia.
+
+---
+
+## Features en producción
+
+Los features listados están vivos en `main`. Cada fila referencia la issue que los entregó. Para detalle por módulo, ver [CODEBASE-GUIDE](docs/CODEBASE-GUIDE.md) (Tier 2 de #464 — pendiente de crear; mientras tanto, la estructura de `app/modules/` y los issues listados son la fuente autoritativa de qué hace cada módulo).
+
+### Autenticación y sesión
+
+| Feature | Issue / PR |
+|---|---|
+| Google OAuth 2.0 vía proxy InsForge, con PKCE (`/login` → `/auth/google` → `/auth/callback`). | #16, fix loop #125, logout fix #124 |
+| Re-validación de autorización por request contra `usuarios_autorizados`, con caché TTL configurable. | #143, follow-ups #144, #145 |
+| Middleware CSRF (`CsrfMiddleware`) sobre cada POST/PUT/PATCH/DELETE, con tokens vinculados a la sesión. | §10 de AGENTS.md |
+| Cookies de sesión firmadas (`itsdangerous`), `HttpOnly`, `Secure`, `SameSite=Strict`; cookie PKCE en `Lax` para el rebote OAuth. | [`docs/runbooks/cookie-rotation.md`](docs/runbooks/cookie-rotation.md) |
+
+### Módulos de dominio (`app/modules/`)
+
+| Módulo | Qué hace | Issues |
 |---|---|---|
-| `animals` | CRUD on `animales` with Access-required fields enforced (`nombre`, `especie`, `fecha_alta`, `chip`, `sexo`, `estado`); list + paginated search; soft-delete preserves FK history; append-only `animal_lifecycle_events` table for the timeline slice shipped with the CRUD. | #28, #31, #67–68, #70–81, #129 |
-| `voluntarios` | Volunteer registry. CRUD with validators on core fields; soft-delete (`deactivate_voluntario`) preserves FK history. The active-voluntario check used by other modules lives in the consumer (e.g. `_validate_voluntario_activo` is enforced inside `acogidas` per FOSTER-02). | #34, #82–86 |
-| `entradas` | Animal intake. Single + batch API (`/entradas`, `/entradas/batch`); staging + atomic commit CTE for batches; origin/motive routes through `catalogos_origenes` / `catalogos_motivos`; cesión-by-owner workflow with separate contract. | #87–89, #40–42, #65 |
-| `foster` | Foster network. `casas_acogida` with capacity and preferred species (FOSTER-01); the `foster_capacity_overrides` audit log (FOSTER-03) when the species gate or capacity advisory is overridden by an operator; `asignar` / `overrides` sub-routers behind the capacity gate + species preference. | #43, #45 (with #44 contributing the FK column) |
-| `acogidas` | Stay-of-foster records on top of `casas_acogida` and `voluntarios` (FK-structured `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` per FOSTER-02); `close_acogida` (lifecycle event) vs `delete_acogida` (soft-delete) separation; helpers `compute_duracion` and `is_active`. | #44 |
-| `adopciones` | Adoption CRUD with FKs to `animales` + `voluntarios` + `entradas`; conflict detection on the `(animal_id, fecha_adopcion)` natural key; soft-delete preserves history; `tipo_adopcion` enum (regular, preadopcion, …). | #47 |
-| `sanidad` | Clinical-history acts (`actuacion_sanitaria`) with the D-24 date validation: ISO format, not future, not earlier than `animales.fecha_alta` (with the documented legacy-NULL exemption). | #50 |
-| `cesiones` | Owner transfers (cesión) tied to an `entrada_origen_id`. Used as the entry path for the "owner hands the animal to APAP" workflow. | #41 |
+| `animals` | CRUD sobre `animales` con campos obligatorios Access; búsqueda paginada; soft-delete preserva historial; tabla append-only `animal_lifecycle_events`. | #28, #31, #67–68, #70–81, #129 |
+| `voluntarios` | Registro de voluntarios con validación de campos núcleo; soft-delete preserva FK. | #34, #82–86 |
+| `entradas` | Intake de animales (single + batch API); CTE atómico para batches; flujo de cesión por dueño. | #87–89, #40–42, #65 |
+| `foster` | Red de casas de acogida con capacidad y especie preferida; `foster_capacity_overrides` audita cada excepción operativa. | #43, #45 (#44 aporta la FK) |
+| `acogidas` | Estancias de acogida con FK estructurada a `casas_acogida` y `voluntarios`; helpers `compute_duracion` e `is_active`. | #44 |
+| `adopciones` | CRUD con FKs a `animales` + `voluntarios` + `entradas`; detección de conflicto por clave natural `(animal_id, fecha_adopcion)`. | #47 |
+| `sanidad` | Actos clínicos (`actuacion_sanitaria`) con validación D-24 (ISO, no futura, no anterior a `fecha_alta`). | #50 |
+| `cesiones` | Transferencias de dueño atadas a `entrada_origen_id`. | #41 |
 
-Cross-module:
+### Catálogos y panel admin
 
-- **5 reference-data catalogs** (`catalogos_origenes`, `catalogos_motivos`, `catalogos_pruebas`, `catalogos_periodicidad`, `catalogos_tipos_contrato`), seeded from Access and refreshed idempotently with `INSERT ... ON CONFLICT DO NOTHING`. (#65 / CATALOG-01, which subsumes the catalog portion of #42 / INTAKE-04).
-- **Admin panel** at `/admin` for the `developer` role: list users, add user by email + role, deactivate. Built on `require_developer_user_redirect` so the role check happens once in the dependency rather than in every handler. (#146)
-- **RBAC** across the four roles (`reader`, `key_user`, `writer`, `developer`); `writer` enforced per route via `require_writer_user`. #144 closes the gap where a `reader` could write to every module; #146 cleans the same shape on the admin handler; role literals are consolidated onto `app.core.auth.Rol`.
-- **Mobile-aware UI.** `UADetectionMiddleware` classifies each request by User-Agent and renders through `base.html` (desktop) or `base_mobile.html`; nav layout regression sentinel keeps the 1280 px / 375 px viewports usable. (#148, #147)
-- **Structured logging with `log_safe`.** All log emission in `app/` goes through `app/core/logging.py::log_safe`, which scrubs a closed 12-field list (`email`, `session_token`, `jwt`, `oauth_code`, `pkce_verifier`, `csrf_token`, `pkce_challenge`, `authorization`, `cookie`, `referer`, `ip_address`, `x_forwarded_for`) before the JSON handler writes to stdout.
+- **5 catálogos de referencia** (`catalogos_origenes`, `catalogos_motivos`, `catalogos_pruebas`, `catalogos_periodicidad`, `catalogos_tipos_contrato`), sembrados desde Access vía `INSERT ... ON CONFLICT DO NOTHING` idempotente. (#65 / CATALOG-01).
+- **Panel `/admin`** para el rol `developer`: listar usuarios, alta por email + rol, desactivación. Construido sobre `require_developer_user_redirect`. (#146).
 
-### Operations & dev-loop
+### Logging y operación
 
-- **Schema bootstrap on cold start.** The FastAPI `lifespan` runs, in order, `configure_logging` → `ensure_schema_and_seed` (creates `usuarios_autorizados` and seeds `APAP_INITIAL_ADMIN_EMAIL` if set) → `ensure_catalogs` (#65) → `ensure_domain_schema` (animal / voluntario / role / foster / adoption / health tables in dependency order) → `apply_sql_migrations` (versioned DDL from `app/core/migration/sql/`). All five steps are idempotent and fail-fast.
-- **Per-user authorization cache.** `app/core/auth_cache.py` wraps the per-request `SELECT usuarios_autorizados` so request handlers don't fan-out the query (default TTL 300s, controlled by `APAP_AUTH_CACHE_TTL_SECONDS`).
-- **`scripts/check_rules.py`** enforces project-wide linters as part of the local validation gate: APAP003 ban on `logger.*` chained calls in `app/`, `print(...)` ban, CSRF middleware registration, `SameSite=Strict` enforcement, helper coverage gate via `scripts/pytest_plugin/coverage_gate.py`. Run via `make check-rules`.
+- **Logging estructurado con `log_safe`.** Toda emisión de logs bajo `app/` pasa por [`app/core/logging.py::log_safe`](app/core/logging.py), que redacta una lista cerrada de 12 campos (`email`, `session_token`, `jwt`, `oauth_code`, `pkce_verifier`, `csrf_token`, `pkce_challenge`, `authorization`, `cookie`, `referer`, `ip_address`, `x_forwarded_for`) antes de escribir el JSON a stdout.
+- **Schema bootstrap en cold start.** El `lifespan` ejecuta en orden: `configure_logging` → `ensure_schema_and_seed` → `ensure_catalogs` (#65) → `ensure_domain_schema` → `apply_sql_migrations`. Cada paso es idempotente y falla rápido.
+- **Linter de reglas del proyecto** vía `scripts/check_rules.py` (Detector 5–8: ban de `logger.*` y `print(...)` en `app/`, registro de CSRF middleware, `SameSite=Strict`). Se corre con `make check-rules`.
 
 ---
 
-## Planned (not yet shipped)
+## Pendiente (no en producción)
 
-The roadmap (Fases 3–7) is fully laid out in [`docs/roadmap.md`](docs/roadmap.md) §3 with issue numbers and dependency state. Highlights of what is currently open against `main`, by area:
+El roadmap completo (Fases 3–7 + transversales) vive en [`docs/roadmap.md`](docs/roadmap.md) §3 con estado de cada fase, números de issue y referencia al change de OpenSpec. Resumen de lo abierto contra `main`:
 
-- **Volunteers**: VOL-02..05 — `roles_voluntario` junction table with role validation, fuzzy dedup pipeline, name/DNI FK migration, active validation gate (#35–#38).
-- **Foster**: FOSTER-04 material assignment to stays; follow-up to move `record_override` inside the `create_acogida` transaction so the audit row and the create commit atomically (#46, #142).
-- **Adoptions**: ADOPT-03 4-state follow-up state machine (#49). ADOPT-02 (#48) cancelled for invalid legacy provenance — see `openspec/changes/correct-preadoption-legacy-provenance/`.
-- **Health**: HEALTH-02..06 — batch import, summary API (`ActuacionSanitaria` roll-up per test type), therapies CRUD, periodicity engine, prueba-catalog migration (#51–#55).
-- **Animal lifecycle**: state resolver mirroring `DameSituacion()`, schema for the append-only `estado_actual_animal` cache, search API, chip-change cascade (#29, #30, #33, #69).
-- **Documents & reports**: DOC-01..04 contract-PDF generation, signed-upload registration, polymorphic attachments, legacy-to-object-storage migration; REPORT-01..05 parameterized query builder, server-side execution with PDF/Excel export, quarterly report, notification engine, live dashboard counters (#56–#64).
-- **RBAC-01**: full RBAC matrix at the API layer (#66).
-- **Foundation UX/UI design system** (#6) and **task engine** (#7) as transversal slices.
-- **Documentation translations** to castellano per [`docs/roadmap.md`](docs/roadmap.md) §8 (`docs/architecture-insforge-stack.md`, `docs/development.md`, and the `docs/discovery/*.md` still in English).
+- **Voluntarios** — VOL-02..05: junction `roles_voluntario`, pipeline de dedup fuzzy, migración FK nombre/DNI, gate de activo (#35–#38).
+- **Foster** — FOSTER-04 asignación de material a estancias; atomicidad `record_override` ↔ `create_acogida` (#46, #142).
+- **Adopciones** — ADOPT-03 state machine de 4 estados (#49). ADOPT-02 (#48) cancelada por defecto legacy — ver `openspec/changes/correct-preadoption-legacy-provenance/`.
+- **Sanidad** — HEALTH-02..06: batch import, API resumen, terapias CRUD, motor de periodicidad, migración de pruebas (#51–#55).
+- **Lifecycle animal** — state resolver estilo `DameSituacion()`, schema `estado_actual_animal`, API de búsqueda, cascada de cambio de chip (#29, #30, #33, #69).
+- **Documentos e informes** — DOC-01..04 (PDFs contractuales, registro de uploads firmados, adjuntos polimórficos, migración legacy → object storage); REPORT-01..05 (constructor de queries parametrizado, ejecución server-side con export PDF/Excel, informe trimestral, motor de notificaciones, dashboard de contadores en vivo) (#56–#64).
+- **RBAC** — matriz completa de permisos a nivel de API (#66).
+- **Foundation UX/UI** (#6) y **motor de tareas** (#7) como transversales.
 
-For the full picture — every open issue by area, every issue still to be opened, and the cross-references to discovery/legacy/decision docs — see [`docs/roadmap.md`](docs/roadmap.md) §3 (per-phase status), §4 (open issues), §5 (issues yet to be opened), and §6 (doc index).
+Para el detalle — issues abiertas por área, issues pendientes de crear, referencias cruzadas a discovery / legacy / decisiones — ver [`docs/roadmap.md`](docs/roadmap.md) §3 (estado por fase), §4 (abiertas), §5 (por abrir), §6 (índice de docs).
 
 ---
 
-## Tech stack
+## Stack técnico
 
-Pinned per [`docs/architecture-insforge-stack.md`](docs/architecture-insforge-stack.md) and `pyproject.toml`. Runtime deps lift the floor; production runs whatever the latest stable line is.
+Pinned por [`docs/architecture-insforge-stack.md`](docs/architecture-insforge-stack.md) y `pyproject.toml`. El runtime levanta el suelo; producción corre la última línea estable.
 
-| Area | Decision | Notes |
+| Área | Decisión | Notas |
 |---|---|---|
-| Language | Python 3.11+ | `requires-python = ">=3.11"` |
-| Web framework | FastAPI (BFF) | Application boundary; owns routing, validation, business rules, authorization |
-| ASGI server | Uvicorn (`uvicorn[standard]`) | Dev and production entrypoint |
-| Templates | Jinja2 | Server-rendered pages; one `app/templates/<module>/` per domain |
-| Data validation / settings | Pydantic 2.13+ + `pydantic-settings` | Single source of truth for env-var parsing in `app/core/config.py` |
-| HTTP client | httpx (sync `Client` per request via `InsForgeClient`) | One client per request lifecycle, closed via `get_insforge_client_dep` yield/finally |
-| Session signing | itsdangerous `URLSafeTimedSerializer` | One process-cached secret, see [`docs/runbooks/cookie-rotation.md`](docs/runbooks/cookie-rotation.md) |
-| Auth | Google OAuth 2.0 via InsForge-hosted proxy, PKCE | `/login` → `/auth/google` → `/auth/callback` → signed cookie |
-| Form parsing | python-multipart | Required for form/file parsing in FastAPI |
-| Styling | Tailwind CSS v4 (CSS-first, no `tailwind.config.js`) | Compiled once at build (Node 20 stage) into `app/static/css/output.css` |
-| Managed backend | InsForge (PostgreSQL + PostgREST + Storage + Functions + Realtime + Auth) | Reached over HTTP from `app/core/insforge.py` |
-| Code intelligence | CodeGraph (`@aroman22/codegraph-vba` + MCP `codegraph_explore`) | See [`AGENTS.md`](AGENTS.md) §14 |
-| Testing | pytest + pytest-cov | TDD with red → green → refactor discipline per [`docs/proceso.md`](docs/proceso.md) §4; the concurrent volunteer test requires `APAP_E2E_BASE_URL` and is deselected in CI/local |
-| Lint | Ruff (`ruff check .`) | Plus the project detectors in `scripts/check_rules.py` |
-| Build | `python -m build` (hatchling backend) | Wheel produced for the deploy webhook job |
-| Container | Multi-stage Dockerfile (Node 20 for Tailwind, Python 3.11-slim for runtime) | Build-verified by `ci / build` |
-| Hosting | Coolify on a project VPS | Auto-deploy via signed webhook on `push: main` |
+| Lenguaje | Python 3.11+ | `requires-python = ">=3.11"` |
+| Framework web | FastAPI (BFF) | Application boundary: routing, validación, reglas de negocio, autorización. |
+| Servidor ASGI | Uvicorn (`uvicorn[standard]`) | Entrypoint de dev y producción. |
+| Templates | Jinja2 | Páginas server-rendered; una carpeta `app/templates/<módulo>/` por dominio. |
+| Validación y settings | Pydantic 2.13+ + `pydantic-settings` | Single source of truth para env vars en [`app/core/config.py`](app/core/config.py). |
+| Cliente HTTP | httpx (sync `Client` por request vía `InsForgeClient`) | Un cliente por request, cerrado vía `yield`/`finally` en `get_insforge_client_dep`. |
+| Firma de sesión | itsdangerous `URLSafeTimedSerializer` | Un secreto cacheado por proceso; rotación en [`docs/runbooks/cookie-rotation.md`](docs/runbooks/cookie-rotation.md). |
+| Auth | Google OAuth 2.0 vía proxy InsForge, PKCE | `/login` → `/auth/google` → `/auth/callback` → cookie firmada. |
+| Parsing de forms | python-multipart | Requerido por FastAPI para forms y files. |
+| Estilos | Tailwind CSS v4 (CSS-first, sin `tailwind.config.js`) | Compilado en build (etapa Node 20) a `app/static/css/output.css`. |
+| Backend gestionado | InsForge (PostgreSQL + PostgREST + Storage + Functions + Realtime + Auth) | Accedido por HTTP desde [`app/core/insforge.py`](app/core/insforge.py). |
+| Inteligencia de código | CodeGraph (`@aroman22/codegraph-vba` + MCP `codegraph_explore`) | [`AGENTS.md`](AGENTS.md) §14. |
+| Tests | pytest + pytest-cov | TDD red → green → refactor ([`docs/proceso.md`](docs/proceso.md) §4). El test concurrente de voluntarios requiere `APAP_E2E_BASE_URL` y se deselecciona en CI/local. |
+| Lint | Ruff (`ruff check .`) | Más los detectores propios en [`scripts/check_rules.py`](scripts/check_rules.py). |
+| Build | `python -m build` (backend hatchling) | Wheel consumido por el job `deploy` del webhook. |
+| Container | Multi-stage Dockerfile (Node 20 para Tailwind, Python 3.11-slim para runtime) | Build verificado por `ci / build`. |
+| Hosting | Coolify sobre VPS del proyecto | Auto-deploy vía webhook firmado al `push: main`. |
 
-The InsForge SDK is intentionally not used: there is no `@insforge/sdk` JS bundle in this repo, and there is no Node frontend. The Python `InsForgeClient` in `app/core/insforge.py` talks to the InsForge REST endpoints (`/api/database/advance/rawsql`, `/api/auth/oauth/exchange`, etc.).
+El SDK `@insforge/sdk` no se usa: no hay bundle JS en este repo ni frontend Node. El `InsForgeClient` en Python habla con los endpoints REST de InsForge (`/api/database/advance/rawsql`, `/api/auth/oauth/exchange`, etc.).
 
 ---
 
-## Architecture
+## Arquitectura
 
 ```text
-+------------------ browser -------------------+
-| HTML + Tailwind v4 (+ minimal htmx over time) |
-+---------------------+------------------------+
-                      | session cookie (SameSite=Strict, signed)
-                      v
-+---------------- FastAPI / Uvicorn -----------------+
-|  UADetectionMiddleware  (UA -> is_mobile)          |
-|  CsrfMiddleware         (POST/PUT/PATCH/DELETE)    |
-|  protect_user_facing_routes (cookie -> /login)     |
-|  require_authorized_user (per-request, cached)    |
-|  routes (app/main.py + app/modules/<area>/routes.py)|
-|  services (app/modules/<area>/service.py)         |
-+---------------------+-----------------------------+
-                      | httpx.Client (per request, bearer service key)
-                      v
++--------------------- browser ---------------------+
+| HTML + Tailwind v4 (+ htmx mínimo cuando aplique) |
++----------------------+---------------------------+
+                       | session cookie (SameSite=Strict, signed)
+                       v
++----------------- FastAPI / Uvicorn ----------------+
+| UADetectionMiddleware      (UA -> is_mobile)        |
+| CsrfMiddleware             (POST/PUT/PATCH/DELETE)  |
+| protect_user_facing_routes (cookie -> /login)       |
+| require_authorized_user    (per-request, cached)    |
+| routes (app/main.py + app/modules/<area>/routes.py)|
+| services (app/modules/<area>/service.py)           |
++----------------------+-----------------------------+
+                       | httpx.Client (per request, bearer service key)
+                       v
 +---------------- InsForge (managed) ----------------+
-|  PostgreSQL (advance/rawsql)                       |
-|  Auth (Google OAuth hosted proxy, /auth/oauth/*)   |
-|  Storage (object storage, used in Fase 7)          |
+| PostgreSQL (advance/rawsql)                         |
+| Auth (Google OAuth hosted proxy, /auth/oauth/*)    |
+| Storage (object storage, en uso desde Fase 7)      |
 +----------------------------------------------------+
 ```
 
-The full layered contract is documented in [`docs/architecture-insforge-stack.md`](docs/architecture-insforge-stack.md) (stack choices, InsForge usage rules, MCP tools used for infra), with auth and authorization details in §"Authentication and authorization".
+El contrato por capas detallado vive en [`docs/architecture-insforge-stack.md`](docs/architecture-insforge-stack.md) (stack, reglas InsForge, herramientas MCP para infra), con detalle de auth y autorización en §"Authentication and authorization".
 
 ---
 
-## Project structure
+## Estructura del repo
 
-The project's actual layout (paths verified by `ls`, not the aspirational tree in `docs/architecture-insforge-stack.md`):
+Layout real (paths verificados por `ls`, no el árbol aspiracional de `architecture-insforge-stack.md`):
 
 ```text
 APAP_WEB/
   app/
     main.py                      # FastAPI factory, lifespan, top-level routes
-    core/                        # cross-cutting infrastructure (no domain rules)
-      config.py                  # Pydantic-settings (env-prefixed APAP_*)
-      auth.py                    # InsForge-side auth + usuarios_autorizados
+    core/                        # infra transversal (sin reglas de dominio)
+      config.py                  # Pydantic-settings (prefijo APAP_*)
+      auth.py                    # auth InsForge + usuarios_autorizados
       auth_dependencies.py       # require_authorized_user, _writer, _developer, ...
-      auth_cache.py              # TTL cache for per-request authorization (issue #143)
-      csrf.py                    # CsrfMiddleware + session-bound tokens
-      session.py                 # signed-cookie read/write/clear
-      pkce.py                    # PKCE pair mint
+      auth_cache.py              # caché TTL para autorización por request (#143)
+      csrf.py                    # CsrfMiddleware + tokens por sesión
+      session.py                 # lectura/escritura/borrado de cookie firmada
+      pkce.py                    # par PKCE
       insforge.py                # InsForgeClient + OAuth exchange + execute_sql
-      logging.py                 # log_safe + 12-field redaction
+      logging.py                 # log_safe + redacción de 12 campos
       middleware.py              # UADetectionMiddleware + base context processor
-      ua.py                      # is_mobile(UA) classification
-      catalogs.py                # 5 reference-data catalogs (#65)
-      domain.py                  # ensure_domain_schema (the SQL of the app)
-      migration/                 # versioned DDL runner + reconcile CLI
-    modules/                     # one folder per domain area
+      ua.py                      # clasificación is_mobile(UA)
+      catalogs.py                # 5 catálogos de referencia (#65)
+      domain.py                  # ensure_domain_schema (SQL del producto)
+      migration/                 # runner de DDL versionado + CLI reconcile
+    modules/                     # una carpeta por área de dominio
       animals/                   # routes.py + service.py (+ forms.py)
       voluntarios/               # routes.py + service.py
       entradas/                  # routes.py + service.py + batch_routes.py + batch_service.py
@@ -166,32 +188,31 @@ APAP_WEB/
       cesiones/                  # routes.py + service.py
       adopciones/                # routes.py + service.py
       sanidad/                   # routes.py + service.py
-    templates/                   # Jinja2 templates (base.html, base_mobile.html, login.html,
+    templates/                   # Jinja2 (base.html, base_mobile.html, login.html,
                                 # unauthorized.html, index.html, admin.html,
                                 # <module>/{list,form,detail}.html)
-    static/css/output.css        # Tailwind v4 compiled output
-  tests/                         # pytest suite (TDD per docs/proceso.md §4)
-    e2e/                         # Playwright suite (separate CI job)
+    static/css/output.css        # Salida compilada de Tailwind v4
+  tests/                         # suite pytest (TDD per docs/proceso.md §4)
+    e2e/                         # Playwright (job CI separado)
   scripts/
-    check_rules.py               # project-specific detectors
-    check_audit_and_runbook.py   # docs/PR aid
-    coolify_webhook.py           # HMAC-signed Coolify deploy trigger
-    dev_server_no_lifespan.py    # CI/dev start without InsForge bootstrap
-    pytest_plugin/               # coverage_gate.py + custom linter fixtures
-    ruff_plugin/                 # APAP001 lint plugin
-  docs/                          # canonical documentation (see "Documentation index")
-  tailwindcss/                   # Node-side Tailwind source + @tailwindcss/cli
-  openspec/                      # SDD change workspace (when used)
-  .github/workflows/ci.yml       # CI pipeline
-  Dockerfile                     # multi-stage build (Node 20 + Python 3.11-slim)
-  pyproject.toml                 # project metadata + runtime deps; readme = docs/setup.md
-  AGENTS.md                      # agent rules (orchestrator discipline, security baseline,
-                                # code-quality rules, merge workflow)
-  docs/proceso.md                # operational playbook (pre-flight → issue → TDD → merge → close)
-  docs/setup.md                  # local setup walkthrough
-  docs/roadmap.md                # live feature roadmap
+    check_rules.py               # detectores propios
+    check_audit_and_runbook.py   # ayuda de docs/PR
+    coolify_webhook.py           # trigger de deploy Coolify con HMAC
+    dev_server_no_lifespan.py    # arranque CI/dev sin bootstrap de InsForge
+    pytest_plugin/               # coverage_gate.py + fixtures de linter
+    ruff_plugin/                 # plugin APAP001
+  docs/                          # documentación canónica (ver §"Índice de documentación")
+  tailwindcss/                   # fuente Tailwind en Node + @tailwindcss/cli
+  openspec/                      # workspace SDD
+  .github/workflows/ci.yml       # pipeline CI
+  Dockerfile                     # multi-stage (Node 20 + Python 3.11-slim)
+  pyproject.toml                 # metadata + deps runtime
+  AGENTS.md                      # reglas del repo para IAs (33 secciones)
+  docs/proceso.md                # playbook operativo (preflight → issue → TDD → merge → close)
+  docs/setup.md                  # setup local por desarrollador
+  docs/roadmap.md                # hoja de ruta viva
   docs/architecture-insforge-stack.md
-  docs/decisiones-proyecto.md    # formal decision register
+  docs/decisiones-proyecto.md    # registro formal de decisiones
 ```
 
 ---
@@ -203,8 +224,8 @@ git clone https://github.com/ardelperal/APAP_WEB.git
 cd APAP_WEB
 
 python -m venv .venv
-.venv\Scripts\Activate.ps1            # PowerShell
-# source .venv/bin/activate           # POSIX shell
+.venv\Scripts\Activate.ps1                # PowerShell
+# source .venv/bin/activate               # POSIX
 python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
 
@@ -213,169 +234,130 @@ npm install
 npx @tailwindcss/cli -i ./styles/app.css -o ../app/static/css/output.css --minify
 cd ..
 
-# Copy and edit secrets
+# Copiar y editar secretos
 Copy-Item opencode.json.example opencode.json     # PowerShell
 # cp opencode.json.example opencode.json          # POSIX
 
-# Start the dev server (uvicorn with --reload on 127.0.0.1:8000)
+# Arrancar dev server (uvicorn con --reload en 127.0.0.1:8000)
 .venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-Open <http://127.0.0.1:8000/healthz> for the JSON health probe, or `/login` once you've set `APAP_GOOGLE_CLIENT_ID` / `APAP_GOOGLE_CLIENT_SECRET`. The full walkthrough — including the InsForge MCP setup, secrets management, and the `make run` shortcut — lives in [`docs/setup.md`](docs/setup.md).
+Abrir <http://127.0.0.1:8000/healthz> para el JSON health probe, o `/login` una vez configurados `APAP_GOOGLE_CLIENT_ID` y `APAP_GOOGLE_CLIENT_SECRET`. Walkthrough completo — setup del MCP de InsForge, gestión de secretos, atajo `make run` — en [`docs/setup.md`](docs/setup.md).
 
 ---
 
-## Configuration
+## Configuración
 
-All runtime configuration is read from environment variables (or `.env`) with the `APAP_` prefix. Defaults exist for local development so the app boots without secrets, but **production must override every value listed below except `APAP_LOG_LEVEL` and `APAP_AUTH_CACHE_TTL_SECONDS`**. The single source of truth is `app/core/config.py` (`Settings`) — if this table and the code disagree, the code wins (per the P3 doc-reflects-code premise in [`docs/proceso.md`](docs/proceso.md) §0).
+Toda la configuración runtime se lee de variables de entorno (o `.env`) con prefijo `APAP_`. Existen defaults para desarrollo local que permiten arrancar sin secretos; **producción debe override cada valor marcado como requerido**. La single source of truth es [`app/core/config.py`](app/core/config.py) (`Settings`): si esta tabla y el código divergen, gana el código (premisa P3 de `docs/proceso.md` §0).
 
-| Variable | Purpose | Required in prod |
+| Variable | Propósito | Requerido en prod |
 |---|---|---|
-| `APAP_INSFORGE_URL` | InsForge base URL (PostgREST-compatible). | yes |
-| `APAP_INSFORGE_SERVICE_KEY` | Privileged service key for admin SQL (schema bootstrap, catalog seed, user mgmt). Never expose to the browser. | yes |
-| `APAP_INSFORGE_ANON_KEY` | Anonymous JWT for client-side use; not used by the server today. | optional |
-| `APAP_GOOGLE_CLIENT_ID` | Google OAuth client id. | yes |
-| `APAP_GOOGLE_CLIENT_SECRET` | Google OAuth client secret. | yes |
-| `APAP_GOOGLE_REDIRECT_URI` | OAuth callback registered with Google; must match exactly (e.g. `https://apap.romancaba.com/auth/callback` in prod). | yes |
-| `APAP_INITIAL_ADMIN_EMAIL` | Email pre-seeded as the first `developer` in `usuarios_autorizados` on first boot. Empty = no seed. | recommended on first deploy |
-| `APAP_SESSION_SECRET` | HMAC secret used by `itsdangerous` to sign session cookies. **Rotate to force a system-wide logout** — see [`docs/runbooks/cookie-rotation.md`](docs/runbooks/cookie-rotation.md). | yes |
-| `APAP_AUTH_CACHE_TTL_SECONDS` | Per-request authorization cache TTL in seconds. Default `300`. Lower for stricter revocation latency at the cost of an extra SELECT per request. `0` disables the cache. | optional |
-| `APAP_CSRF_ENABLED` | Feature flag for `CsrfMiddleware`. Default `true`. Set to `false` only for emergency rollback during an incident — emits a `csrf.disabled` log event per request. | keep `true` |
-| `APAP_LOG_LEVEL` | Root level for the JSON stdout handler. Default `INFO`. Unknown values fall back to `INFO` at runtime. | optional |
-| `APAP_DEBUG` | Toggle debug-only behavior. Default `false`. | optional |
+| `APAP_INSFORGE_URL` | URL base de InsForge (PostgREST-compatible). | sí |
+| `APAP_INSFORGE_SERVICE_KEY` | Service key con privilegios para admin SQL (schema bootstrap, seed de catálogos, gestión de usuarios). Nunca exponer al browser. | sí |
+| `APAP_INSFORGE_ANON_KEY` | JWT anónimo para uso cliente; el servidor no la usa hoy. | opcional |
+| `APAP_GOOGLE_CLIENT_ID` | OAuth client id de Google. | sí |
+| `APAP_GOOGLE_CLIENT_SECRET` | OAuth client secret de Google. | sí |
+| `APAP_GOOGLE_REDIRECT_URI` | Callback OAuth registrado en Google; debe coincidir exacto (ej. `https://apap.romancaba.com/auth/callback` en prod). | sí |
+| `APAP_INITIAL_ADMIN_EMAIL` | Email pre-sembrado como primer `developer` en `usuarios_autorizados` en el primer arranque. Vacío = no siembra. | recomendado en primer deploy |
+| `APAP_SESSION_SECRET` | Secreto HMAC usado por `itsdangerous` para firmar las cookies de sesión. **Rotar fuerza un logout global** — [`docs/runbooks/cookie-rotation.md`](docs/runbooks/cookie-rotation.md). | sí |
+| `APAP_AUTH_CACHE_TTL_SECONDS` | TTL en segundos del caché de autorización por request. Default `300`. Bajar para revocación más estricta a costa de un SELECT extra por request. `0` desactiva el caché. | opcional |
+| `APAP_CSRF_ENABLED` | Feature flag de `CsrfMiddleware`. Default `true`. Pasar a `false` solo en rollback de incidente — emite `csrf.disabled` por request. | mantener `true` |
+| `APAP_LOG_LEVEL` | Nivel raíz del handler JSON a stdout. Default `INFO`. Valores desconocidos caen a `INFO` en runtime. | opcional |
+| `APAP_DEBUG` | Toggle de comportamiento debug-only. Default `false`. | opcional |
 
-For the operator procedure to rotate `APAP_SESSION_SECRET` (when to rotate, pre-deploy checklist, Coolify steps, verification, rollback), see [`docs/runbooks/cookie-rotation.md`](docs/runbooks/cookie-rotation.md).
+Procedimiento de rotación de `APAP_SESSION_SECRET` (cuándo rotar, pre-deploy checklist, pasos en Coolify, verificación, rollback) en [`docs/runbooks/cookie-rotation.md`](docs/runbooks/cookie-rotation.md).
 
 ---
 
-## Development workflow
+## Workflow de desarrollo
 
-The end-to-end playbook lives in [`docs/proceso.md`](docs/proceso.md). Highlights that the README needs to surface:
+El playbook end-to-end vive en [`docs/proceso.md`](docs/proceso.md). Highlights que el README necesita anclar:
 
-- **TDD by default.** Red → green → refactor. Tests come first for every `type:bug`, `type:feature`, and `type:refactor`; docs and pure-ops changes are exempt. ([`docs/proceso.md`](docs/proceso.md) §4)
-- **Use CodeGraph before reading source.** `codegraph_explore` (MCP) and `codegraph explore` (CLI) are Read-equivalent; reach for `Read`/`Grep`/`Glob` only to confirm a detail codegraph didn't cover. ([`AGENTS.md`](AGENTS.md) §14)
-- **Local validation gate** before commit + push (run from the repo root):
+- **TDD por defecto.** Red → green → refactor. Los tests van primero en `type:bug`, `type:feature` y `type:refactor`; `type:docs` y ops puros están exentos. ([`docs/proceso.md`](docs/proceso.md) §4).
+- **CodeGraph antes de leer fuente.** `codegraph_explore` (MCP) y `codegraph explore` (CLI) son Read-equivalent; usar `Read`/`Grep`/`Glob` solo para confirmar un detalle que codegraph no cubrió. ([`AGENTS.md`](AGENTS.md) §14).
+- **Gate de validación local** antes de commit + push (desde la raíz del repo):
 
   ```bash
-  # Pytest, with deprecations as errors (per pyproject.toml addopts).
-  # deselects the PG-requiring concurrent test; CI runs with the same flags.
   python -m pytest -W error::DeprecationWarning \
       --ignore=tests/e2e \
       --deselect tests/test_voluntarios_concurrent.py
 
   ruff check .
   python -m build
-  python scripts/check_rules.py
+  python scripts/check_rules.py .
   ```
 
-- **CodeGraph sessions** start with `codegraph status .` and confirm `[OK] Index is up to date` + a live daemon; run `codegraph sync .` once after creating a brand-new top-level directory (do not re-`init`).
-- **Commit & PR conventions.** Conventional Commits in English; PR with `Closes #N` or `Refs #N`; PR under the 400-line review budget by default (use the `chained-pr` skill to slice larger work); review lenses (`code-review-expert`, mandatory `judgment-day` for high-stakes diffs) per [`AGENTS.md`](AGENTS.md) §17.
-- **Single-branch pre-MVP.** All work targets `main`; non-`main` branches are deleted after merge. Post-MVP reverts to the staging + UAT channel — see [`AGENTS.md`](AGENTS.md) §15.4 for the procedure.
-- **Helper coverage gate.** Anything matching `_row_to_*` or in `CRITICAL_HELPERS` must hold 100% line coverage; `scripts/pytest_plugin/coverage_gate.py` fails the build otherwise. ([`AGENTS.md`](AGENTS.md) §11)
-- **Logging discipline.** All log emission in `app/` goes through `log_safe(event, **fields)`; direct `logger.*` and `print(...)` in `app/` are banned by `scripts/check_rules.py`. ([`AGENTS.md`](AGENTS.md) §9)
-- **CSRF discipline.** Every form template renders `<input type="hidden" name="csrf_token" value="{{ csrf_token }}">` in every `<form method="post">`; CSRF middleware is the gate. ([`AGENTS.md`](AGENTS.md) §10)
+- **Sesiones de CodeGraph** arrancan con `codegraph status .` y confirman `[OK] Index is up to date` + un daemon vivo; correr `codegraph sync .` una vez tras crear un directorio top-level nuevo (no re-`init`).
+- **Convenciones de commit y PR.** Conventional Commits en inglés; PR con `Closes #N` o `Refs #N`; PR bajo el presupuesto de revisión de 400 líneas (usar el skill `chained-pr` para trocear cuando se supere); review lenses (`code-review-expert` obligatorio cada slice, `judgment-day` adicional en diffs de alto riesgo) según [`AGENTS.md`](AGENTS.md) §17.
+- **Pre-MVP single-branch.** Todo el trabajo va a `main`; las ramas no-`main` se borran tras merge. Post-MVP se revierte a `staging` + canal UAT — [`AGENTS.md`](AGENTS.md) §15.4.
+- **Gate de cobertura de helpers.** Cualquier función que matchee `_row_to_*` o esté en `CRITICAL_HELPERS` debe tener 100% de cobertura de línea; [`scripts/pytest_plugin/coverage_gate.py`](scripts/pytest_plugin/coverage_gate.py) falla el build si no. ([`AGENTS.md`](AGENTS.md) §11).
+- **Disciplina de logging.** Toda emisión de log bajo `app/` pasa por `log_safe(event, **fields)`; `logger.*` y `print(...)` están baneados por [`scripts/check_rules.py`](scripts/check_rules.py). ([`AGENTS.md`](AGENTS.md) §9).
+- **Disciplina de CSRF.** Cada template de form renderiza `<input type="hidden" name="csrf_token" value="{{ csrf_token }}">` en todo `<form method="post">`; el middleware CSRF es el gate. ([`AGENTS.md`](AGENTS.md) §10).
 
 ---
 
 ## CI/CD
 
-The pipeline is `.github/workflows/ci.yml` with five jobs:
+Pipeline en `.github/workflows/ci.yml` con cinco jobs:
 
-| Job | Trigger | What it does |
+| Job | Trigger | Qué hace |
 |---|---|---|
-| `lint` | PR + push to `main`/`staging`, manual | `ruff check .`; secret-leak grep over `.github/` |
-| `test` | PR + push, after `lint` | `pytest -W error::DeprecationWarning --ignore=tests/e2e --deselect tests/test_voluntarios_concurrent.py` |
-| `build` | after `test` | `python -m build` (hatchling wheel) |
-| `e2e` | after `build`, only when `APAP_OAUTH_CLIENT_ID != ''` | boots the dev server with the lifespan off and runs Playwright |
-| `deploy` | `push: main` only, after lint/test/build, **skipped on merge commits** | signs and POSTs the Coolify webhook (HMAC SHA-256 with `COOLIFY_WEBHOOK_SECRET`) |
+| `lint` | PR + push a `main`/`staging`, manual | `ruff check .`; grep de secret-leak sobre `.github/`. |
+| `typecheck` | PR + push a `main`/`staging`, manual | `python -m mypy` con flags de `[tool.mypy]` en `pyproject.toml` (alcance y opciones son single source of truth). |
+| `test` | PR + push, tras `lint` | `pytest -W error::DeprecationWarning --ignore=tests/e2e --deselect tests/test_voluntarios_concurrent.py` con cobertura `--cov-fail-under=80` y `coverage.json` para el gate `CRITICAL_HELPERS`. |
+| `build` | tras `test` | `python -m build` (wheel hatchling). |
+| `e2e` | tras `build`, solo si `APAP_OAUTH_CLIENT_ID != ''` | Arranca dev server sin lifespan y corre Playwright. |
+| `deploy` | `push: main` solo, tras lint/test/build, **skipped en merge commits** | Firma y POST al webhook de Coolify (HMAC SHA-256 con `COOLIFY_WEBHOOK_SECRET`). |
 
-The `e2e` and `deploy` jobs are conditional: `e2e` skips when the e2e/ tree is absent or OAuth env vars are missing; `deploy` skips on merge commits (a push triggered by merging a PR is not a real "deploy this change" event) and skips when `COOLIFY_WEBHOOK_URL` is unset.
+Los jobs `e2e` y `deploy` son condicionales: `e2e` se salta cuando el árbol `e2e/` está ausente o cuando faltan env vars OAuth; `deploy` se salta en merge commits (un push disparado por merge de PR no es un evento "deploy this change") y cuando `COOLIFY_WEBHOOK_URL` no está seteada.
 
-The `deploy` job delegates the HMAC signing to `scripts/coolify_webhook.py`, which the test suite covers end-to-end; production and CI share the same code path.
+El job `deploy` delega la firma HMAC a [`scripts/coolify_webhook.py`](scripts/coolify_webhook.py), cubierto end-to-end por la suite de tests; producción y CI comparten el mismo code path.
 
-For the full pipeline contract, see the comment block at the top of [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
-
----
-
-## Deployment
-
-Two paths, both targeting the same Coolify application (`apap-web`, fqdn `apap.romancaba.com`):
-
-1. **Automatic on push to `main`.** The `ci / deploy` job calls `scripts/coolify_webhook.py`, which signs the payload with HMAC-SHA-256 against `COOLIFY_WEBHOOK_SECRET` and POSTs `COOLIFY_WEBHOOK_URL`. Coolify pulls `ardelperal/APAP_WEB:main`, runs the multi-stage Dockerfile (Node 20 to compile Tailwind, Python 3.11-slim as runtime), and ships the container.
-2. **Manual.** Operators can deploy by triggering the Coolify `apap-web` application directly from the Coolify UI; useful during incidents or when the webhook secret is being rotated.
-
-The Docker image builds Tailwind inside the Node stage so `app/static/css/output.css` is always in sync with `tailwindcss/styles/app.css` at the moment of release. Secrets (`APAP_*`, `COOLIFY_*`) live in Coolify's environment-variable store and never in the repository.
-
-For the full deployment target diagram and InsForge / Coolify integration, see [`docs/architecture-insforge-stack.md`](docs/architecture-insforge-stack.md).
+Para el contrato completo del pipeline, ver el bloque de comentario al tope de [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 ---
 
-## Security posture
+## Seguridad
 
-APAP_WEB follows a defense-in-depth model anchored in [`AGENTS.md`](AGENTS.md) rules 1–17 plus the cross-project web-security-quality-baseline.
+APAP_WEB sigue un modelo de defensa en profundidad anclado en [`AGENTS.md`](AGENTS.md) reglas §1–§17 más la `web-security-quality-baseline` cross-project.
 
-- **Authorization re-validated per request.** The signed session cookie carries identity only; the `require_authorized_user` dependency re-checks `usuarios_autorizados` (cached for `APAP_AUTH_CACHE_TTL_SECONDS`), so deactivating a user takes effect inside the TTL window instead of waiting up to 7 days for the cookie to expire. ([AGENTS.md](AGENTS.md) §1; web-security-baseline rule 1)
-- **Every declared role is enforced at the route layer.** `reader` cannot write (per-route `require_writer_user`), `developer` is the only role allowed on `/admin` (`require_developer_user_redirect`), and consolidation onto `app.core.auth.Rol` keeps role literals out of handler code. (web-security-baseline rules 2, 7)
-- **CSRF defense-in-depth.** `CsrfMiddleware` validates a session-bound CSRF token on every POST/PUT/PATCH/DELETE (via `X-CSRFToken` header or the `csrf_token` form field). Every form template renders `<input type="hidden" name="csrf_token" value="{{ csrf_token }}">`. AGENTS §10 documents the exact contract.
-- **Session cookies** are `HttpOnly`, `Secure`, `SameSite=Strict` and signed with `itsdangerous`. The PKCE cookie used during the OAuth bounce is `SameSite=Lax` so Google's top-level redirect can read it.
-- **Logging redaction.** Every log call goes through `app.core.logging.log_safe`, which scrubs a closed 12-field list (email, session_token, jwt, oauth_code, pkce_verifier, csrf_token, pkce_challenge, authorization, cookie, referer, ip_address, x_forwarded_for) before the JSON handler writes to stdout. AGENTS §9 + `scripts/check_rules.py` ban direct `logger.*` and `print(...)` in `app/`.
-- **Insecure defaults fail fast in production.** `Settings` uses a non-empty placeholder for `session_secret` so dev works out of the box; production deploys override the value via Coolify env vars. `tests/test_config.py` pins the contract.
-- **HTTP client lifecycle.** `InsForgeClient` is constructed per request and closed via the `yield`/`finally` shape of `get_insforge_client_dep`, so a single shared `httpx.Client` lifecycle is owned by the request scope.
-- **Rate limiting** on the login, OAuth callback, and admin endpoints is part of the rollout plan (in the security baseline as rule 5) and lands with the staging hardening slice.
-- **Security headers** (`CSP`, `X-Frame-Options`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, and `HSTS` behind TLS) ship with the security-headers middleware slice; today's stack is still iterating on them (see [`docs/audits/`](docs/audits/) for past audits).
-- **Secrets in env vars only.** Never committed. `opencode.json` carries the InsForge admin key and is `.gitignore`d; `scripts/check_rules.py` and `tests/test_ci_workflow.py` enforce the boundary.
-- **Audit coverage.** Each sensitive slice — auth deactivation, OAuth callback cookies, XSS allowlist, RBAC enforcement, mobile nav overflow, health CRUD — has its own audit doc in `docs/audits/` (e.g. `auth-revalidation-2026-Q3.md`, `rbac-enforcement-2026-Q3.md`, `xss-audit-2026-Q2.md`). New sensitive changes MUST add or update an audit per [`AGENTS.md`](AGENTS.md) §12.
+- **Autorización re-validada por request.** La cookie firmada lleva identidad; la dependencia `require_authorized_user` re-consulta `usuarios_autorizados` (con caché `APAP_AUTH_CACHE_TTL_SECONDS`), así una desactivación surte efecto dentro de la ventana TTL en vez de esperar hasta 7 días a que la cookie expire. ([AGENTS.md](AGENTS.md) §1; web-security-baseline rule 1).
+- **Cada rol declarado se enforce a nivel de route.** `reader` no puede escribir (vía `require_writer_user` por route), `developer` es el único rol permitido en `/admin` (`require_developer_user_redirect`), y la consolidación sobre `app.core.auth.Rol` saca los literales de rol del código de los handlers. (web-security-baseline rules 2, 7).
+- **CSRF en profundidad.** `CsrfMiddleware` valida un token vinculado a la sesión en cada POST/PUT/PATCH/DELETE (vía header `X-CSRFToken` o campo `csrf_token` del form). Todo template de form renderiza `<input type="hidden" name="csrf_token" value="{{ csrf_token }}">`. Contrato en AGENTS §10.
+- **Cookies de sesión** con `HttpOnly`, `Secure`, `SameSite=Strict`, firmadas con `itsdangerous`. La cookie PKCE durante el rebote OAuth va en `SameSite=Lax` para que el redirect top-level de Google pueda leerla.
+- **Redacción de logs.** Toda llamada de log pasa por `app.core.logging.log_safe`, que redacta una lista cerrada de 12 campos (`email`, `session_token`, `jwt`, `oauth_code`, `pkce_verifier`, `csrf_token`, `pkce_challenge`, `authorization`, `cookie`, `referer`, `ip_address`, `x_forwarded_for`) antes de que el handler JSON escriba a stdout. AGENTS §9 + `scripts/check_rules.py` banean `logger.*` y `print(...)` directos en `app/`.
+- **Defaults inseguros fallan rápido en producción.** `Settings` usa un placeholder no vacío para `session_secret` que permite desarrollo local; los deploys de producción lo overridean vía env vars en Coolify. `tests/test_config.py` pinea el contrato.
+- **Ciclo de vida del cliente HTTP.** `InsForgeClient` se construye por request y se cierra vía la forma `yield`/`finally` de `get_insforge_client_dep`, así un único `httpx.Client` queda atado al scope del request.
+- **Rate limiting** sobre login, OAuth callback y endpoints admin está en el rollout (rule 5 de la security baseline) y aterriza con el slice de hardening de staging.
+- **Headers de seguridad** (`CSP`, `X-Frame-Options`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `HSTS` tras TLS) llegan con el slice del middleware de security headers; el stack actual sigue iterándolos (ver [`docs/audits/`](docs/audits/) para auditorías previas).
+- **Secretos solo en env vars.** Nunca commiteados. `opencode.json` carga la admin key de InsForge y está `.gitignore`d; `scripts/check_rules.py` y `tests/test_ci_workflow.py` enforce el límite.
+- **Cobertura de auditoría.** Cada slice sensible — desactivación de auth, cookies de callback OAuth, allowlist XSS, enforce RBAC, overflow de nav móvil, CRUD sanitario — tiene su propio doc de auditoría en `docs/audits/` (ej. `auth-revalidation-2026-Q3.md`, `rbac-enforcement-2026-Q3.md`, `xss-audit-2026-Q2.md`). Los cambios sensibles nuevos deben añadir o actualizar una auditoría según AGENTS §12.
 
-For the cross-project web security & quality baseline that drives these rules, see the `web-security-quality-baseline` block in [`AGENTS.md`](AGENTS.md) (rules 1–10).
-
----
-
-## Documentation index
-
-- **Project docs** (under `docs/`)
-  - [`docs/roadmap.md`](docs/roadmap.md) — live feature roadmap (Fases 0–7 + transversales)
-  - [`docs/architecture-insforge-stack.md`](docs/architecture-insforge-stack.md) — stack, InsForge usage rules, deployment target
-  - [`docs/proceso.md`](docs/proceso.md) — operational playbook by issue (pre-flight → close-with-evidence)
-  - [`docs/setup.md`](docs/setup.md) — local setup walkthrough (developer)
-  - [`docs/decisiones-proyecto.md`](docs/decisiones-proyecto.md) — formal decision register (D-01–D-41)
-  - [`docs/development.md`](docs/development.md) — local development commands (legacy doc, pending translation to castellano)
-  - [`docs/design-tokens-apap-actual.md`](docs/design-tokens-apap-actual.md) — inherited design tokens from the legacy
-  - [`docs/hardening-2026-q2-rule-history.md`](docs/hardening-2026-q2-rule-history.md) — resolved conflict tracker from the Q2 hardening chain
-- **Discovery** (domain analysis in [`docs/discovery/`](docs/discovery/))
-  - [`README.md`](docs/discovery/README.md) — master index
-  - [`business-feature-map.md`](docs/discovery/business-feature-map.md), [`feature-01..04-*.md`](docs/discovery/), [`data-model-notes.md`](docs/discovery/data-model-notes.md), [`state-machines.md`](docs/discovery/state-machines.md), and the rest per [`docs/roadmap.md`](docs/roadmap.md) §6.
-- **Legacy analysis** (do not clone; consult for parity reasoning only) — [`docs/legacy-health-ui-workflow.md`](docs/legacy-health-ui-workflow.md), [`docs/legacy-initial-dashboard.md`](docs/legacy-initial-dashboard.md), [`docs/legacy-signed-contract-flow.md`](docs/legacy-signed-contract-flow.md), [`docs/legacy-volunteer-roles.md`](docs/legacy-volunteer-roles.md), [`docs/legacy-lifecycle-transition-rules.md`](docs/legacy-lifecycle-transition-rules.md).
-- **Audits** in [`docs/audits/`](docs/audits/) — per-sensitivity-slice audit reports (`xss-audit-2026-Q2.md`, `auth-revalidation-2026-Q3.md`, `rbac-enforcement-2026-Q3.md`, `health-data-crud-audit-2026-Q3.md`, `auth-dependencies-audit-2026-Q2.md`, `oauth-callback-cookie-audit-2026-Q2.md`, plus the mobile-menu screenshots).
-- **Runbooks** in [`docs/runbooks/`](docs/runbooks/) — operator playbooks (cookie rotation, etc.).
-- **Project root rules**
-  - [`AGENTS.md`](AGENTS.md) — agent instruction file (project rules 1–17: code quality, security baseline, merge workflow, orchestrator discipline).
-- **SDD** in [`openspec/changes/`](openspec/changes/) — historical and active SDD changes (config in `openspec/config.yaml`).
+Para la baseline cross-project de web security & quality que sostiene estas reglas, ver el bloque `web-security-quality-baseline` en [`AGENTS.md`](AGENTS.md).
 
 ---
 
-## Roadmap and contributing
+## Índice de documentación
 
-The roadmap, including Fases 0 (CI/CD), 1 (skeleton), 2 (auth), the in-flight Fases 5/6 (intake, foster, adopciones, sanidad), and the upcoming Fases 5c / 6 / 7 (DOC, REPORT, RBAC, dashboards, task engine), is in [`docs/roadmap.md`](docs/roadmap.md) §3–§5.
-
-Contributions flow through the operational playbook in [`docs/proceso.md`](docs/proceso.md):
-
-1. Pick a GitHub issue from [`docs/roadmap.md`](docs/roadmap.md) §4 (open) or §5 (to-be-opened), or open a new one with the right `type:*` label.
-2. Read the relevant [`docs/discovery/`](docs/discovery/) doc + [`docs/decisiones-proyecto.md`](docs/decisiones-proyecto.md) (P1 fidelity premise is non-negotiable — see [`docs/proceso.md`](docs/proceso.md) §0).
-3. Branch from `main` with a conventional scope (`feat/<area>`, `fix/<area>`, `refactor/<area>`, `docs/<area>`, `test/<area>`, `chore/<area>`, `ci/<area>`); keep the diff under the 400-line review budget — split with `chained-pr` if not.
-4. TDD strictly: red test → minimal green impl → refactor with green tests (TDD exempt for `type:docs` and pure ops).
-5. Run the local validation gate (§"Development workflow" above). When green, push and open the PR with `Closes #N` in the body.
-6. After CI is green and the user has reviewed, merge to `main`. Close the issue with a comment that names both the implementation commit SHA(s) and the test module path that proves compliance (the cross-project `github-issue-closure-traceability` rule).
-7. Update the roadmap in the same session (per [`docs/roadmap.md`](docs/roadmap.md) §9): remove from §4, refresh §3 if the phase state changed.
-
-Review lenses (anchored to the skill registry):
-
-- `code-review-expert` runs on every slice.
-- `judgment-day` runs IN ADDITION on high-stakes diffs (auth, sessions, CSRF, PII, security gates, migration / raw SQL writes, seed scripts). See [`AGENTS.md`](AGENTS.md) §17.2.
-
-The orchestrator (the agent reading `AGENTS.md` directly) coordinates and delegates; sub-agents do the writes. AGENTS.md §17 documents the boundary.
+| Documento | Para qué |
+|---|---|
+| [`docs/roadmap.md`](docs/roadmap.md) | Hoja de ruta viva (Fases 0–7 + transversales). |
+| [`docs/architecture-insforge-stack.md`](docs/architecture-insforge-stack.md) | Stack, reglas InsForge, target de despliegue. |
+| [`docs/proceso.md`](docs/proceso.md) | Playbook operativo por issue (preflight → cierre con evidencia). |
+| [`docs/setup.md`](docs/setup.md) | Setup local por desarrollador. |
+| [`docs/decisiones-proyecto.md`](docs/decisiones-proyecto.md) | Registro formal de decisiones (D-01–D-41). |
+| [`docs/development.md`](docs/development.md) | Comandos de desarrollo local (legacy, pendiente de traducir). |
+| [`docs/design-tokens-apap-actual.md`](docs/design-tokens-apap-actual.md) | Tokens de diseño heredados del legacy. |
+| [`docs/hardening-2026-q2-rule-history.md`](docs/hardening-2026-q2-rule-history.md) | Tracker resuelto de conflictos del Q2 hardening. |
+| `docs/discovery/` | Análisis de dominio: índice maestro en [`docs/discovery/README.md`](docs/discovery/README.md), con `business-feature-map.md`, `feature-01..04-*.md`, `data-model-notes.md`, `state-machines.md`. |
+| `docs/legacy-*.md` | Análisis del legacy Access (no clonar UX; consultar solo para razonar paridad). |
+| `docs/audits/` | Auditorías por slice sensible. |
+| `docs/runbooks/` | Runbooks de operador (rotación de cookie, multi-worker auth cache). |
+| [`AGENTS.md`](AGENTS.md) | Reglas del repo para IAs (33 secciones: code quality, seguridad, workflow de merge, disciplina del orquestador). |
+| `openspec/changes/` | Cambios SDD históricos y activos (config en `openspec/config.yaml`). |
 
 ---
 
-## License
+## Licencia
 
-Proprietary. © APAP.
+Propietaria. © APAP.
