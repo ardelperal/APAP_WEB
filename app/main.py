@@ -58,6 +58,7 @@ from app.core.auth_flow import register_auth_flow_routes
 from app.core.catalogs import ensure_catalogs
 from app.core.csrf import csrf_token_context_processor
 from app.core.dashboard_data import DASHBOARD_PENDING_CARDS, DASHBOARD_SHORTCUTS
+from app.core.di.insforge_error_handler_di import get_insforge_error_handler_port
 from app.core.domain import ensure_domain_schema
 from app.core.insforge import InsForgeClient
 from app.core.insforge_error_handler import register_insforge_error_handler
@@ -257,4 +258,6 @@ app = create_app()
 # §32.P4 (issues #277, #278): register a global handler that converts
 # any unhandled InsForgeError into a non-leaking 502. Lives in its own
 # module so the §21 700-line budget on ``app/main.py`` stays intact.
-register_insforge_error_handler(app)
+# Slice #420: the handler now receives the translation port via DI
+# (the adapter is the only file that imports InsForgeError).
+register_insforge_error_handler(app, get_insforge_error_handler_port())

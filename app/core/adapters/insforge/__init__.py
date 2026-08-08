@@ -42,6 +42,9 @@ from app.core.adapters.insforge.auth_insforge_adapter import (
 from app.core.adapters.insforge.catalogos_insforge_adapter import (
     InsForgeCatalogosAdapter,
 )
+from app.core.adapters.insforge.insforge_error_handler_insforge_adapter import (
+    InsForgeErrorTranslation,
+)
 from app.core.adapters.insforge.oauth_insforge_adapter import (
     InsForgeOAuthAdapter,
 )
@@ -52,6 +55,7 @@ from app.core.adapters.insforge.schema_bootstrap_insforge_adapter import (
 __all__ = [
     "InsForgeAuthUsersAdapter",
     "InsForgeCatalogosAdapter",
+    "InsForgeErrorTranslation",
     "InsForgeOAuthAdapter",
     "InsForgeSchemaBootstrapAdapter",
 ]
