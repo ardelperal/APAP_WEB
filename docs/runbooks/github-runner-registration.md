@@ -1,102 +1,90 @@
-# GitHub Self-Hosted Runner Registration (issue #223)
+[← Back to README](../../README.md)
 
-This runbook documents how to register, verify, and decommission the dedicated
-Oracle ARM64 self-hosted runner that runs the `e2e` job in
-`.github/workflows/ci.yml` and the full `e2e (self-hosted)` workflow
-(`.github/workflows/e2e-self-hosted.yml`).
+# github-runner-registration.md
 
-The runner lives on the Oracle ARM64 VPS that also hosts Cadete. It is
-**strictly isolated** from Cadete: separate runner directory, separate
-systemd unit, no shared credentials, no sudo access.
+Este runbook es el procedimiento del operador para registrar, verificar y dar de baja el runner auto-hospedado Oracle ARM64 del job `e2e` y el workflow `e2e (self-hosted)`. Aplica al issue #223.
 
----
+## Quick Navigation
 
-## Current production state
-
-| Property | Confirmed value |
+| Sección | Propósito |
 |---|---|
-| Runner user | `ubuntu` (not root, not github-actions) |
-| Runner root directory | `/home/ubuntu/github-runner/apap-web/` |
-| Systemd unit | `github-runner-apap-web.service` |
-| Labels (exact, required) | `self-hosted`, `Linux`, `ARM64`, `apap`, `oracle` |
-| Runner group | `Default` (repository-scoped) |
-| Architecture | Oracle ARM64 (Ampere Altra) |
-| GitHub repo | `ardelperal/APAP_WEB` |
+| Estado actual de producción | Tabla de propiedades confirmadas del runner |
+| Cuándo abrir este runbook | Disparadores que justifican la apertura del runbook |
+| Lista de comprobación previa | Verificaciones de conectividad, token y aislamiento respecto a Cadete |
+| Pasos de despliegue | Procedimiento de registro, configuración y verificación |
+| Diagnóstico del runner | Comprobaciones cuando el runner aparece Offline |
+| Recuperación tras reinicio | Procedimiento tras un reboot de la VPS |
+| Baja y reversión | Procedimiento para eliminar el runner |
+| Secretos y credenciales | Variables de GitHub requeridas y opcionales |
 
----
+## Estado actual de producción
 
-## When to trigger
+| Propiedad | Valor confirmado |
+|---|---|
+| Usuario del runner | `ubuntu` (no root, no github-actions) |
+| Directorio raíz del runner | `/home/ubuntu/github-runner/apap-web/` |
+| Unidad systemd | `github-runner-apap-web.service` |
+| Etiquetas (exactas, obligatorias) | `self-hosted`, `Linux`, `ARM64`, `apap`, `oracle` |
+| Grupo del runner | `Default` (con ámbito de repositorio) |
+| Arquitectura | Oracle ARM64 (Ampere Altra) |
+| Repositorio GitHub | `ardelperal/APAP_WEB` |
 
-Use this runbook when:
+El runner vive en la VPS Oracle ARM64 que también aloja Cadete. Se mantiene **estrictamente aislado** de Cadete: directorio de runner separado, unidad systemd separada, sin credenciales compartidas, sin acceso sudo.
 
-- Provisioning a **new** self-hosted runner for the first time.
-- Verifying an **existing** runner after a VPS reboot.
-- Re-registering a runner after the VPS hostname or IP changes.
-- **Decommissioning** the runner (e.g. before a VPS rebuild).
-- Running the weekly smoke-test schedule (`e2e (self-hosted)` workflow).
+## Cuándo abrir este runbook
 
----
+Abra este runbook en las siguientes situaciones:
 
-## Pre-deploy checklist
+- Aprovisionamiento de un **runner** auto-hospedado nuevo por primera vez.
+- Verificación de un **runner existente** tras un reinicio de la VPS.
+- Re-registro del runner tras un cambio de hostname o IP de la VPS.
+- **Baja** del runner (por ejemplo, antes de una reconstrucción de la VPS).
+- Ejecución de la programación semanal de smoke-test (workflow `e2e (self-hosted)`).
 
-Before registering or re-registering:
+## Lista de comprobación previa
 
-- [ ] Confirm you have a working SSH connection to the Oracle ARM64 VPS as
-      `ubuntu` (the sudo-capable admin user).
-- [ ] Confirm the VPS is reachable from GitHub Actions (no VPN, no firewall
-      blocking port 443 outbound to `github.com`).
-- [ ] Retrieve the **runner registration token** from GitHub:
-      `Settings → Actions → Runners → New self-hosted runner → copy the
-      registration command (contains the token)`.
-      The token is short-lived; complete registration within 30 minutes.
-- [ ] Confirm no other runner on this VPS uses the same runner directory
-      (`/home/ubuntu/github-runner/apap-web/`). Sharing the directory between
-      runners causes job-assignment conflicts.
-- [ ] Confirm the Cadete runner directory is untouched:
-      `ls /home/ubuntu/github-runner/cadete/` exists and its unit is
-      `github-runner-cadete.service`. **Never reuse Cadete's directory or unit.**
-- [ ] Verify `python3 --version` on the VPS returns Python >= 3.11 (matches
-      the `python-version-file: pyproject.toml` in ci.yml).
-- [ ] Confirm `playwright install chromium` has been run at least once on the
-      runner user account (or that the e2e job installs it at runtime — it does,
-      so this is optional).
+Antes de registrar o re-registrar:
 
----
+- [ ] Confirme que dispone de una conexión SSH funcional a la VPS Oracle ARM64 como `ubuntu` (el usuario administrador con sudo).
+- [ ] Confirme que la VPS es alcanzable desde GitHub Actions (sin VPN, sin firewall que bloquee el puerto 443 saliente hacia `github.com`).
+- [ ] Obtenga el **token de registro del runner** desde GitHub: `Settings → Actions → Runners → New self-hosted runner → copie el comando de registro (contiene el token)`. El token es de corta duración; complete el registro en menos de treinta minutos.
+- [ ] Confirme que ningún otro runner en esta VPS usa el mismo directorio de runner (`/home/ubuntu/github-runner/apap-web/`). Compartir el directorio entre runners provoca conflictos en la asignación de jobs.
+- [ ] Confirme que el directorio del runner de Cadete permanece intacto: `ls /home/ubuntu/github-runner/cadete/` existe y su unidad es `github-runner-cadete.service`. **Nunca reutilice el directorio ni la unidad de Cadete.**
+- [ ] Verifique que `python3 --version` en la VPS devuelve Python >= 3.11 (coincide con `python-version-file: pyproject.toml` en ci.yml).
+- [ ] Confirme que `playwright install chromium` se ha ejecutado al menos una vez en la cuenta del usuario del runner (o que el job e2e lo instala en tiempo de ejecución — lo hace, por lo que este punto es opcional).
 
-## Registration steps
+## Pasos de despliegue
 
-### 1. SSH into the VPS
+### 1. Conexión SSH a la VPS
 
 ```bash
 ssh ubuntu@<vps-ip-or-hostname>
 ```
 
-### 2. Create the runner directory
+### 2. Creación del directorio del runner
 
 ```bash
 sudo mkdir -p /home/ubuntu/github-runner/apap-web
 sudo chown ubuntu:ubuntu /home/ubuntu/github-runner/apap-web
-# Verify separation from Cadete
+# Verifique la separación respecto a Cadete
 ls /home/ubuntu/github-runner/
-# Expected output: cadete/  apap-web/
+# Salida esperada: cadete/  apap-web/
 ```
 
-### 3. Download the GitHub Actions runner
+### 3. Descarga del runner de GitHub Actions
 
 ```bash
 cd /home/ubuntu/github-runner/apap-web
-# Download the latest linux-arm64 release (check https://github.com/actions/runner/releases)
+# Descargue la última versión linux-arm64 (consulte https://github.com/actions/runner/releases)
 curl -L -o actions-runner-linux-arm64-latest.tar.gz \
   https://github.com/actions/runner/releases/download/v2.323.0/actions-runner-linux-arm64-2.323.0.tar.gz
 tar xzf actions-runner-linux-arm64-latest.tar.gz --strip-components=1
 rm actions-runner-linux-arm64-latest.tar.gz
 ```
 
-> **Note:** Replace `v2.323.0` with the current release version from
-> `https://github.com/actions/runner/releases`. The ARM64 binary is
-> `actions-runner-linux-arm64-<version>.tar.gz`.
+> **Nota:** Reemplace `v2.323.0` por la versión vigente en `https://github.com/actions/runner/releases`. El binario ARM64 es `actions-runner-linux-arm64-<version>.tar.gz`.
 
-### 4. Configure the runner
+### 4. Configuración del runner
 
 ```bash
 cd /home/ubuntu/github-runner/apap-web
@@ -110,114 +98,98 @@ cd /home/ubuntu/github-runner/apap-web
   --replace
 ```
 
-Key flags:
-- `--labels`: must include **all five** labels exactly as shown.
-  GitHub Actions matches jobs to runners by label; partial matches do **not** work.
-- `--replace`: use only when re-registering an existing runner (e.g. after token
-  expiry). It removes the old registration and re-registers with the new token.
-- `--unattended`: prevents interactive prompts (safe for systemd use).
+Banderas clave:
 
-### 5. Install and enable the systemd service
+- `--labels`: debe incluir **las cinco** etiquetas exactamente como se muestran. GitHub Actions asocia jobs a runners por etiqueta; las coincidencias parciales **no** funcionan.
+- `--replace`: use sólo al re-registrar un runner existente (por ejemplo, tras la expiración del token). Elimina el registro antiguo y vuelve a registrar con el token nuevo.
+- `--unattended`: evita las preguntas interactivas (seguro para uso con systemd).
+
+### 5. Instalación y habilitación del servicio systemd
 
 ```bash
 sudo ./svc.sh install ubuntu
 sudo ./svc.sh start
 ```
 
-Verify:
+Verifique:
 
 ```bash
 systemctl status github-runner-apap-web.service
-# Expected: active (running)
+# Esperado: active (running)
 sudo journalctl -u github-runner-apap-web.service -f --since "2 minutes ago"
 ```
 
-### 6. Verify the runner appears in GitHub
+### 6. Verificación de que el runner aparece en GitHub
 
-1. Go to `https://github.com/ardelperal/APAP_WEB → Settings → Actions → Runners`.
-2. Confirm the runner `apap-web` appears under **Self-hosted runners** with
-   all five labels and status **Idle** (or **Online** if a job just ran).
-3. If status is **Offline**, check `journalctl` on the VPS and the
-   `runner diagnostics` section below.
+1. Vaya a `https://github.com/ardelperal/APAP_WEB → Settings → Actions → Runners`.
+2. Confirme que el runner `apap-web` aparece bajo **Self-hosted runners** con las cinco etiquetas y el estado **Idle** (u **Online** si un job acaba de ejecutarse).
+3. Si el estado es **Offline**, consulte la sección de diagnóstico del runner más abajo.
 
-### 7. Run the connectivity check script
+### 7. Ejecución del script de comprobación de conectividad
 
-From your **local machine** (not the VPS):
+Desde su **máquina local** (no la VPS):
 
 ```bash
 ./scripts/check-runner.ps1 -RunnerUrl "https://github.com/ardelperal/APAP_WEB" -Labels "self-hosted,Linux,ARM64,apap,oracle"
 ```
 
-Expected output: runner is reachable, has the expected labels, and is in
-**Idle** or **Online** state.
+Salida esperada: el runner es alcanzable, tiene las etiquetas esperadas y se encuentra en estado **Idle** u **Online**.
 
----
+## Diagnóstico del runner
 
-## Runner diagnostics
+Si el runner aparece **Offline** en GitHub:
 
-If the runner shows **Offline** in GitHub:
-
-### On the VPS
+### En la VPS
 
 ```bash
-# Check service status
+# Compruebe el estado del servicio
 systemctl status github-runner-apap-web.service
 
-# View recent logs
+# Vea los registros recientes
 sudo journalctl -u github-runner-apap-web.service -n 50 --no-pager
 
-# Check runner process
+# Compruebe el proceso del runner
 ps aux | grep '[g]ithub-runner'
 
-# Check network reachability
+# Compruebe la accesibilidad de red
 curl -s --max-time 10 https://github.com
 curl -s --max-time 10 https://objects.githubusercontent.com
 ```
 
-### Common fixes
+### Correcciones habituales
 
-**Token expired**: Re-register using `config.sh --replace` with a fresh token.
+**Token expirado**: re-registre con `config.sh --replace` y un token nuevo.
 
-**Port 443 blocked outbound**: Configure the VPS firewall to allow outbound
-TCP 443 to `github.com` and `objects.githubusercontent.com`.
+**Puerto 443 bloqueado saliente**: configure el firewall de la VPS para permitir TCP 443 saliente hacia `github.com` y `objects.githubusercontent.com`.
 
-**Runner directory conflict**: If Cadete's runner is also pointing to
-`/home/ubuntu/github-runner/apap-web/`, its jobs will steal this runner's
-assignments. Ensure Cadete's `run.sh` or `svc.sh` points to a different
-directory (`/home/ubuntu/github-runner/cadete/`).
+**Conflicto de directorio del runner**: si el runner de Cadete también apunta a `/home/ubuntu/github-runner/apap-web/`, sus jobs robarán las asignaciones de este runner. Asegúrese de que el `run.sh` o `svc.sh` de Cadete apunta a un directorio distinto (`/home/ubuntu/github-runner/cadete/`).
 
----
+## Recuperación tras reinicio
 
-## Reboot recovery
-
-The systemd service is configured to start automatically after reboot
-(` WantedBy=multi-user.target` via `./svc.sh install`). To verify:
+El servicio systemd está configurado para arrancar automáticamente tras un reinicio (`WantedBy=multi-user.target` mediante `./svc.sh install`). Para verificar:
 
 ```bash
-# Simulate a reboot
+# Simule un reinicio
 ssh ubuntu@<vps-ip> "sudo systemctl restart github-runner-apap-web.service"
-# Wait 10 seconds
+# Espere diez segundos
 sleep 10
-# Check status
+# Compruebe el estado
 ssh ubuntu@<vps-ip> "systemctl status github-runner-apap-web.service"
-# Verify runner is online in GitHub Settings → Actions → Runners
+# Verifique que el runner está en línea en GitHub Settings → Actions → Runners
 ```
 
-If the runner does **not** come back online after a real VPS reboot:
+Si el runner **no** vuelve a estar en línea tras un reinicio real de la VPS:
 
-1. SSH into the VPS.
-2. Check `systemctl status github-runner-apap-web.service`.
-3. If the service is failed, re-run `./svc.sh install && ./svc.sh start`.
-4. If the process is running but GitHub shows Offline, the registration token
-   may have expired — re-register with `config.sh --replace`.
+1. Conéctese por SSH a la VPS.
+2. Compruebe `systemctl status github-runner-apap-web.service`.
+3. Si el servicio está fallido, re-ejecute `./svc.sh install && ./svc.sh start`.
+4. Si el proceso está en ejecución pero GitHub muestra Offline, el token de registro puede haber expirado — re-registre con `config.sh --replace`.
 
----
+## Baja y reversión
 
-## Deregistration / rollback
+Para eliminar el runner de forma permanente (por ejemplo, antes de una reconstrucción de la VPS):
 
-To permanently remove the runner (e.g. before a VPS rebuild):
-
-### On the VPS
+### En la VPS
 
 ```bash
 cd /home/ubuntu/github-runner/apap-web
@@ -227,54 +199,41 @@ cd ..
 sudo rm -rf /home/ubuntu/github-runner/apap-web
 ```
 
-### In GitHub
+### En GitHub
 
-1. Go to `https://github.com/ardelperal/APAP_WEB → Settings → Actions → Runners`.
-2. Find the `apap-web` runner.
-3. Click the ellipsis menu → **Remove runner**.
-   This removes the runner from GitHub's registry and prevents stale
-   job assignments.
+1. Vaya a `https://github.com/ardelperal/APAP_WEB → Settings → Actions → Runners`.
+2. Localice el runner `apap-web`.
+3. Pulse el menú de elipsis → **Remove runner**. Esta acción elimina el runner del registro de GitHub e impide asignaciones de jobs obsoletas.
 
-### After deregistration
+### Tras la baja
 
-- The `ci.yml` e2e job will automatically fall back to `ubuntu-latest`
-  because `APAP_SELF_HOSTED_E2E_ENABLED` will no longer route jobs to the
-  now-nonexistent self-hosted runner. No YAML change is needed.
-- The `e2e-self-hosted.yml` workflow will skip all its jobs silently
-  (its `if` condition checks `vars.APAP_SELF_HOSTED_E2E_ENABLED != ''`).
+- El job e2e en `ci.yml` volverá automáticamente a `ubuntu-latest` porque `APAP_SELF_HOSTED_E2E_ENABLED` ya no enrutará jobs al runner auto-hospedado inexistente. No se requiere cambio de YAML.
+- El workflow `e2e-self-hosted.yml` saltará todos sus jobs silenciosamente (su condición `if` verifica `vars.APAP_SELF_HOSTED_E2E_ENABLED != ''`).
 
----
+## Secretos y credenciales
 
-## Secrets and credentials
+El runner **no requiere secretos adicionales** más allá de lo que el job e2e ya necesita:
 
-The runner requires **no additional secrets** beyond what the e2e job already
-needs:
-
-| Secret / Variable | Already exists | Used for |
+| Secreto / Variable | ¿Existe ya? | Uso |
 |---|---|---|
-| `APAP_OAUTH_CLIENT_ID` | Yes (repository variable) | OAuth gate in ci.yml e2e job |
-| `APAP_GOOGLE_CLIENT_SECRET` | Yes (repository secret) | OAuth flow in e2e tests |
-| `APAP_SELF_HOSTED_E2E_ENABLED` | No — **create it** | Controls `runs-on` in ci.yml e2e job |
+| `APAP_OAUTH_CLIENT_ID` | Sí (variable de repositorio) | Compuerta OAuth en el job e2e de ci.yml |
+| `APAP_GOOGLE_CLIENT_SECRET` | Sí (secreto de repositorio) | Flujo OAuth en pruebas e2e |
+| `APAP_SELF_HOSTED_E2E_ENABLED` | No — **créela** | Controla `runs-on` en el job e2e de ci.yml |
 
-### Creating `APAP_SELF_HOSTED_E2E_ENABLED`
+### Creación de `APAP_SELF_HOSTED_E2E_ENABLED`
 
-In GitHub: `Settings → Actions → Variables → New variable`:
+En GitHub: `Settings → Actions → Variables → New variable`:
 
 - **Name**: `APAP_SELF_HOSTED_E2E_ENABLED`
-- **Value**: `1` (any non-empty string enables the self-hosted runner)
+- **Value**: `1` (cualquier cadena no vacía habilita el runner auto-hospedado)
 - **Description**: `Enables the self-hosted Oracle ARM64 runner for the e2e job (issue #223)`
 
-> Without this variable, the e2e job in `ci.yml` falls back to `ubuntu-latest`
-> (backwards compatible). Set it to `1` only after the runner is confirmed
-> online.
+> Sin esta variable, el job e2e en `ci.yml` vuelve a `ubuntu-latest` (compatible hacia atrás). Fíjela en `1` sólo después de confirmar que el runner está en línea.
 
----
+## Documentos relacionados
 
-## Cross-reference
-
-- `.github/workflows/ci.yml` — `e2e` job with conditional `runs-on`
-- `.github/workflows/e2e-self-hosted.yml` — dedicated self-hosted workflow
-- `scripts/check-runner.ps1` — runner connectivity check
-- `AGENTS.md` §15.1 — pre-MVP CI gate (lint, typecheck, test, build only;
-  e2e remains optional in pre-MVP)
-- `vps-oracle` IaC repository — provisioning code for the VPS itself
+- `.github/workflows/ci.yml` — job `e2e` con `runs-on` condicional.
+- `.github/workflows/e2e-self-hosted.yml` — workflow dedicado al runner auto-hospedado.
+- `scripts/check-runner.ps1` — comprobación de conectividad del runner.
+- `AGENTS.md` §15.1 — compuerta CI pre-MVP (lint, typecheck, test, build sólo; e2e sigue siendo opcional en pre-MVP).
+- Repositorio IaC `vps-oracle` — código de aprovisionamiento de la propia VPS.

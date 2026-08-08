@@ -1,126 +1,119 @@
-# Auth Cache Multi-Worker Runbook (issue #287)
+[← Back to README](../../README.md)
 
-APAP_WEB now supports one authorization-cache backend: the worker-local
-`in_process` cache. This resolves the old Redis selector, which was configurable
-but never implemented. `APAP_AUTH_CACHE_BACKEND=redis` and every unknown value
-now fail settings validation during application startup, before traffic is
-served.
+# auth-cache-multi-worker.md
 
-## Current production state
+Este runbook cubre la evolución de la caché de autorización entre un worker único y multi-worker. Sólo se soporta `in_process`; cualquier otro valor falla en el arranque. Aplica al issue #287.
 
-Confirmed on 2026-07-25 from the live Coolify application details and the
-repository Dockerfile:
+## Quick Navigation
 
-| Setting | Confirmed value |
+| Sección | Propósito |
 |---|---|
-| Coolify application | `apap-web` |
+| Cuándo abrir este runbook | Disparadores que justifican la apertura del runbook |
+| Estado actual de producción | Tabla de propiedades confirmadas del despliegue en Coolify |
+| Lista de comprobación previa | Verificaciones de configuración previas al escalado |
+| Pasos de despliegue | Procedimiento para uno o varios workers/replicas |
+| Verificación | Señales de éxito: healthz, procesos y registros de arranque |
+| Reversión | Vuelta al worker único con TTL positiva |
+
+## Cuándo abrir este runbook
+
+Abra este runbook en las siguientes situaciones:
+
+- Antes de añadir `--workers N` con `N > 1`.
+- Antes de incrementar el número de replicas de la aplicación Coolify por encima de uno.
+- Cuando un usuario desactivado permanece autorizado en otro worker.
+- Cuando se modifiquen `APAP_AUTH_CACHE_TTL_SECONDS` o `APAP_AUTH_CACHE_BACKEND`.
+
+## Estado actual de producción
+
+Confirmado el 2026-07-25 a partir de los detalles de la aplicación en Coolify y del Dockerfile del repositorio:
+
+| Propiedad | Valor confirmado |
+|---|---|
+| Aplicación en Coolify | `apap-web` |
 | Build pack | `dockerfile` |
-| Coolify start-command override | none (`start_command=null`) |
-| Application replicas | 1 (`swarm_replicas=1`) |
-| Image command | `uvicorn app.main:app --host 0.0.0.0 --port 8000` |
-| Uvicorn `--workers` argument | absent |
-| Effective auth-cache scope today | one process, one cache |
+| Override de `start-command` en Coolify | ninguno (`start_command=null`) |
+| Replicas de la aplicación | 1 (`swarm_replicas=1`) |
+| Comando de la imagen | `uvicorn app.main:app --host 0.0.0.0 --port 8000` |
+| Argumento `--workers` de Uvicorn | ausente |
+| Alcance efectivo de la caché de auth hoy | un proceso, una caché |
 
-The current deployment therefore does not need cross-worker invalidation.
-`invalidate_auth(email)` invalidates the only process-local cache immediately.
-The semantics remain worker-local: adding workers or replicas creates independent
-caches, each of which can retain a verdict until its TTL expires.
+El despliegue actual, por tanto, no requiere invalidación entre workers. `invalidate_auth(email)` invalida inmediatamente la única caché local al proceso. La semántica sigue siendo local al worker: añadir workers o replicas crea cachés independientes, cada una capaz de retener un veredicto hasta que expire su TTL.
 
-## When to trigger
+## Lista de comprobación previa
 
-Use this runbook:
+- [ ] Confirme que la aplicación Coolify en vivo sigue teniendo una sola replica.
+- [ ] Confirme que ningún override de `start-command` añade `--workers`.
+- [ ] Confirme que `APAP_AUTH_CACHE_BACKEND` no está fijado o es exactamente `in_process`.
+- [ ] Si el destino tiene varios workers o replicas, fije `APAP_AUTH_CACHE_TTL_SECONDS=0` antes de escalar.
+- [ ] Registre el número previo de workers, el número previo de replicas, el valor previo del backend y el TTL previo.
+- [ ] Confirme que el aumento previsto de consultas resulta aceptable cuando el TTL es cero: una consulta `SELECT` de autorización por cada petición autenticada.
 
-- before adding `--workers N` where `N > 1`;
-- before increasing the Coolify application replica count above 1;
-- when a deactivated user remains authorized on another worker;
-- when changing `APAP_AUTH_CACHE_TTL_SECONDS` or
-  `APAP_AUTH_CACHE_BACKEND`.
+## Pasos de despliegue
 
-## Pre-deploy checklist
+### Mantener el despliegue actual de un solo worker
 
-- [ ] Confirm the live Coolify application still has one replica.
-- [ ] Confirm no start-command override adds `--workers`.
-- [ ] Confirm `APAP_AUTH_CACHE_BACKEND` is unset or exactly `in_process`.
-- [ ] If the target has multiple workers or replicas, set
-      `APAP_AUTH_CACHE_TTL_SECONDS=0` before scaling.
-- [ ] Record the previous worker count, replica count, backend value, and TTL.
-- [ ] Confirm the expected query increase is acceptable when TTL is zero: one
-      authorization `SELECT` per authenticated request.
+1. Deje el número de replicas en Coolify en uno.
+2. Deje el override de `start-command` vacío para que el `CMD` del Dockerfile conserve su autoridad.
+3. Retire `APAP_AUTH_CACHE_BACKEND` o fíjelo en `in_process`.
+4. Mantenga el TTL elegido (300 por defecto).
+5. Redespliegue y complete la verificación siguiente.
 
-## Deploy steps
+### Escalar a múltiples workers o replicas
 
-### Keep the current single-worker deployment
+1. Fije `APAP_AUTH_CACHE_TTL_SECONDS=0` en Coolify y guárdelo.
+2. Asegúrese de que `APAP_AUTH_CACHE_BACKEND` no está fijado o vale `in_process`.
+3. Redespliegue con TTL cero mientras la aplicación sigue teniendo un solo worker.
+4. Incremente el número de workers de Uvicorn o el número de replicas de Coolify.
+5. Redespliegue de nuevo y complete la verificación siguiente.
 
-1. Leave the Coolify replica count at 1.
-2. Leave the application start-command override empty so the Dockerfile `CMD`
-   remains authoritative.
-3. Remove `APAP_AUTH_CACHE_BACKEND` or set it to `in_process`.
-4. Keep the chosen TTL (`300` by default).
-5. Redeploy and complete the verification below.
+El TTL cero invalida cada consulta a la caché, de modo que cada petición autenticada consulta `usuarios_autorizados`. Esto preserva la revocación inmediata entre workers independientes sin reivindicar invalidación para todo el clúster.
 
-### Scale to multiple workers or replicas
+## Verificación
 
-1. Set `APAP_AUTH_CACHE_TTL_SECONDS=0` in Coolify and save it.
-2. Ensure `APAP_AUTH_CACHE_BACKEND` is unset or `in_process`.
-3. Redeploy with TTL zero while the application still has one worker.
-4. Increase the Uvicorn worker count or Coolify replica count.
-5. Redeploy again and complete the verification below.
+1. Confirme que el despliegue está sano:
 
-TTL zero makes every cache lookup stale, so each authenticated request consults
-`usuarios_autorizados`. This preserves immediate revocation across independent
-workers without claiming cluster-wide invalidation.
+    ```bash
+    curl --fail --silent https://apap.romancaba.com/healthz
+    ```
 
-## Verification
+2. En Coolify, confirme que el estado de la aplicación es `running:healthy`, que el número previsto de replicas está activo y que el override de `start-command` coincide con el plan.
+3. Dentro del contenedor de la aplicación, inspeccione los argumentos del proceso Uvicorn:
 
-1. Confirm the deploy is healthy:
+    ```bash
+    ps -ef | grep '[u]vicorn'
+    ```
 
-   ```bash
-   curl --fail --silent https://apap.romancaba.com/healthz
-   ```
+    Para el despliegue actual, espere un único proceso Uvicorn sin `--workers`.
 
-2. In Coolify, confirm the application status is `running:healthy`, the intended
-   replica count is active, and the start-command override matches the plan.
-3. In the application container, inspect the Uvicorn process arguments:
+4. Confirme que los registros de arranque no contienen errores de validación de Pydantic para `auth_cache_backend`.
+5. Para un despliegue multi-worker, desactive un usuario de prueba y envíe peticiones autenticadas a través de conexiones repetidas con balanceo de carga. Con TTL cero, cada petición posterior a la desactivación debe denegarse tras finalizar la petición en vuelo.
 
-   ```bash
-   ps -ef | grep '[u]vicorn'
-   ```
-
-   For the current deployment, expect one Uvicorn process without `--workers`.
-4. Confirm startup logs contain no Pydantic validation error for
-   `auth_cache_backend`.
-5. For a multi-worker deployment, deactivate a test user and send authenticated
-   requests across repeated load-balanced connections. With TTL zero, every
-   request after deactivation must be denied after the in-flight request ends.
-
-A local startup guard can be checked without deploying:
+Una guarda de arranque local puede comprobarse sin desplegar:
 
 ```bash
 APAP_AUTH_CACHE_BACKEND=redis python -c "from app.core.config import get_settings; get_settings()"
 ```
 
-Expected: non-zero exit with a validation error naming `auth_cache_backend`.
-The app must never start and then fail with `NotImplementedError` on a request.
+Resultado esperado: salida no cero con un error de validación que nombre `auth_cache_backend`. La aplicación no debe arrancar y luego fallar con `NotImplementedError` en una petición.
 
-## Rollback
+## Reversión
 
-If TTL zero causes unacceptable query load:
+Si el TTL cero provoca una carga de consultas inaceptable:
 
-1. Reduce the deployment to one Uvicorn worker and one Coolify replica first.
-2. Restore the previous positive `APAP_AUTH_CACHE_TTL_SECONDS` value.
-3. Ensure `APAP_AUTH_CACHE_BACKEND` remains unset or `in_process`.
-4. Redeploy.
-5. Re-run the health and process-count checks.
+1. Reduzca primero el despliegue a un solo worker de Uvicorn y a una sola replica de Coolify.
+2. Restaure el valor positivo previo de `APAP_AUTH_CACHE_TTL_SECONDS`.
+3. Asegúrese de que `APAP_AUTH_CACHE_BACKEND` sigue sin fijarse o vale `in_process`.
+4. Redespliegue.
+5. Vuelva a ejecutar las comprobaciones de salud y de número de procesos.
 
-Do not restore a positive TTL while multiple workers remain active unless the
-per-worker staleness window is explicitly accepted. There is no persistent cache
-state to clean up; every deploy starts the process-local cache empty.
+No restaure un TTL positivo mientras varios workers permanezcan activos, salvo que la ventana de obsolescencia por worker se acepte explícitamente. No existe estado persistente de caché que limpiar; cada despliegue arranca la caché local al proceso vacía.
 
-## Related
+## Documentos relacionados
 
-- `app/core/auth_cache.py` — worker-local cache, generation guard, and facades.
-- `app/core/config.py` — TTL plus the `in_process` compatibility guard.
-- `AGENTS.md` §29 — deployment contract.
-- `docs/audits/auth-cache-in-process-audit-2026-Q3.md` — #287 security audit.
-- `tests/test_auth_cache_backend.py` — backend and settings contracts.
-- `tests/test_lifespan.py` — startup rejection for stale Redis configuration.
+- `app/core/auth_cache.py` — caché local al worker, guarda de generación y fachadas.
+- `app/core/config.py` — TTL y guarda de compatibilidad `in_process`.
+- `AGENTS.md` §29 — contrato de despliegue de la caché de autorización.
+- `docs/audits/auth-cache-in-process-audit-2026-Q3.md` — auditoría de seguridad del #287.
+- `tests/test_auth_cache_backend.py` — contratos de backend y de configuración.
+- `tests/test_lifespan.py` — rechazo en arranque para configuración Redis obsoleta.

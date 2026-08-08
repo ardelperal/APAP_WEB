@@ -1,24 +1,32 @@
-# Startup Config Validation Runbook (issue #275)
+[← Back to README](../../README.md)
 
-APAP_WEB now validates critical secrets at startup: `APAP_SESSION_SECRET`
-must be at least 32 characters and not the published development placeholder,
-and `APAP_INSFORGE_SERVICE_KEY` must be non-empty. The validation gate
-runs in the FastAPI lifespan **before** any InsForge connection is opened,
-so a misconfigured deploy fails fast rather than silently signing sessions
-with a known-secret placeholder.
+# startup-config-validation.md
 
-## When to trigger
+Este runbook es el procedimiento del operador para diagnosticar y recuperar un fallo de validación de configuración de inicio. El sistema valida secretos críticos en el arranque. Aplica al issue #275.
 
-Use this runbook:
+## Quick Navigation
 
-- before a first production deployment;
-- after rotating `APAP_SESSION_SECRET` or `APAP_INSFORGE_SERVICE_KEY`;
-- when a deploy fails with `StartupConfigError` in the application logs;
-- before adding `APAP_DEBUG=true` to a production environment (do not do this).
+| Sección | Propósito |
+|---|---|
+| Cuándo abrir este runbook | Disparadores que justifican la apertura del runbook |
+| Qué observa el operador cuando falla el despliegue | Salida de registros esperada en el fallo |
+| Lista de comprobación previa | Verificaciones de secretos y banderas antes del despliegue |
+| Pasos de despliegue | Generación del secreto y configuración en Coolify |
+| Verificación | Señales de éxito: healthz 200, ausencia de `startup.config_invalid` |
+| Reversión | Restauración de valores anteriores y advertencia de seguridad |
 
-## What the operator sees when the deploy fails
+## Cuándo abrir este runbook
 
-The application logs (JSON, stdout) contain an entry like:
+Abra este runbook en las siguientes situaciones:
+
+- Antes del primer despliegue a producción.
+- Tras rotar `APAP_SESSION_SECRET` o `APAP_INSFORGE_SERVICE_KEY`.
+- Cuando un despliegue falla con `StartupConfigError` en los registros de la aplicación.
+- Antes de añadir `APAP_DEBUG=true` a un entorno de producción (no lo haga).
+
+## Qué observa el operador cuando falla el despliegue
+
+Los registros de la aplicación (JSON, stdout) contienen una entrada como la siguiente:
 
 ```json
 {
@@ -32,7 +40,7 @@ The application logs (JSON, stdout) contain an entry like:
 }
 ```
 
-followed by a Python traceback ending with:
+seguida de un traceback de Python que termina con:
 
 ```
 app.core.config.StartupConfigError: startup config error: APAP_SESSION_SECRET
@@ -40,84 +48,74 @@ is invalid (reason=placeholder); set a real value via the env var (or
 APAP_DEBUG=true to bypass in local dev)
 ```
 
-The application does not start. The health probe (`/healthz`) returns 503
-or times out.
+La aplicación no arranca. El health probe (`/healthz`) devuelve 503 o excede el tiempo de espera.
 
-## Pre-deploy checklist
+## Lista de comprobación previa
 
-- [ ] `APAP_INSFORGE_SERVICE_KEY` is set to the real InsForge service key
-      (not the empty default).
-- [ ] `APAP_SESSION_SECRET` is set to a random string of **at least 32 characters**.
-- [ ] `APAP_DEBUG` is **not** set to `true` in the production environment.
-- [ ] You have tested the secret generation snippet below locally.
+- [ ] `APAP_INSFORGE_SERVICE_KEY` está fijado al valor real del service key de InsForge (no al valor por defecto vacío).
+- [ ] `APAP_SESSION_SECRET` está fijado a una cadena aleatoria de **al menos treinta y dos caracteres**.
+- [ ] `APAP_DEBUG` **no** está fijado a `true` en el entorno de producción.
+- [ ] Ha probado localmente el fragmento de generación de secretos de la sección siguiente.
 
-## Deploy steps
+## Pasos de despliegue
 
-### Generate a safe secret
+### Generar un secreto seguro
 
 ```bash
 python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
-This prints a cryptographically random 32-character (256-bit) string.
-Copy the output and set it as the value of `APAP_SESSION_SECRET`.
+El comando imprime una cadena criptográficamente aleatoria de treinta y dos caracteres (256 bits). Copie la salida y asígnela como valor de `APAP_SESSION_SECRET`.
 
-### Set secrets in Coolify
+### Configurar secretos en Coolify
 
-1. Open the Coolify application dashboard for `apap-web`.
-2. Navigate to **Environment variables**.
-3. Add or update `APAP_INSFORGE_SERVICE_KEY` with the real service key
-   from the InsForge dashboard.
-4. Add or update `APAP_SESSION_SECRET` with the generated secret.
-5. Save and trigger a new deployment.
+1. Abra el panel de la aplicación Coolify para `apap-web`.
+2. Navegue a **Environment variables**.
+3. Añada o actualice `APAP_INSFORGE_SERVICE_KEY` con el service key real desde el panel de InsForge.
+4. Añada o actualice `APAP_SESSION_SECRET` con el secreto generado.
+5. Guarde y dispare un nuevo despliegue.
 
-## Verification
+## Verificación
 
-1. Confirm the deploy is healthy:
+1. Confirme que el despliegue está sano:
 
-   ```bash
-   curl --fail --silent https://apap.romancaba.com/healthz
-   ```
+    ```bash
+    curl --fail --silent https://apap.romancaba.com/healthz
+    ```
 
-   Expected: `{"status":"ok","app":"APAP_WEB"}` with exit code 0.
+    Resultado esperado: `{"status":"ok","app":"APAP_WEB"}` con código de salida 0.
 
-2. Inspect the startup log for the validation event:
+2. Inspeccione el registro de inicio en busca del evento de validación:
 
-   ```bash
-   # If your aggregator captures stdout JSON:
-   grep "startup.config_invalid" /path/to/app.log
-   # Should show: env_var="APAP_SESSION_SECRET", reason="placeholder" NOT present
-   ```
+    ```bash
+    # Si su agregador captura el JSON de stdout:
+    grep "startup.config_invalid" /ruta/a/app.log
+    # Debe mostrar: env_var="APAP_SESSION_SECRET", reason="placeholder" NO presente
+    ```
 
-3. A local startup guard can be verified without deploying:
+3. La guarda de inicio puede verificarse localmente sin desplegar:
 
-   ```bash
-   APAP_SESSION_SECRET="dev-only-change-me-in-production" \
-     APAP_INSFORGE_SERVICE_KEY="ik_real_key" \
-     python -c "from app.main import create_app; create_app()"
-   ```
+    ```bash
+    APAP_SESSION_SECRET="dev-only-change-me-in-production" \
+      APAP_INSFORGE_SERVICE_KEY="ik_real_key" \
+      python -c "from app.main import create_app; create_app()"
+    ```
 
-   Expected: non-zero exit with `StartupConfigError: ... reason=placeholder`.
+    Resultado esperado: salida no cero con `StartupConfigError: ... reason=placeholder`.
 
-## Rollback
+## Reversión
 
-If a previous working deployment used an empty `APAP_INSFORGE_SERVICE_KEY`
-or the placeholder `APAP_SESSION_SECRET`:
+Si un despliegue funcional previo utilizaba `APAP_INSFORGE_SERVICE_KEY` vacío o el placeholder `APAP_SESSION_SECRET`:
 
-1. Restore the previous values in Coolify environment variables.
-2. Redeploy.
-3. Confirm `curl https://apap.romancaba.com/healthz` returns 200.
+1. Restaure los valores anteriores en las variables de entorno de Coolify.
+2. Redespliegue.
+3. Confirme que `curl https://apap.romancaba.com/healthz` devuelve 200.
 
-**Warning**: A rollback to the placeholder secret means every session cookie
-is signed with a value published in the repository. Any reader of the repo
-could forge a session cookie. Prioritise setting a real secret and redeploy
-rather than rolling back unless an incident is in progress.
+> **Advertencia**: una reversión al secreto placeholder implica que cada cookie de sesión queda firmada con un valor publicado en el repositorio. Cualquier lector del repositorio podría forjar una cookie de sesión. Priorice asignar un secreto real y redesplegar antes que revertir, salvo que exista un incidente en curso.
 
-## Related
+## Documentos relacionados
 
-- `app/core/config.py` — `StartupConfigError`, `_validate_secrets`, and
-  `_PLACEHOLDER_SESSION_SECRET`.
-- `app/main.py` — lifespan wiring: validator called between
-  `configure_logging` and `InsForgeClient`.
-- `docs/audits/secret-startup-validation-2026-Q3.md` — security audit.
-- `AGENTS.md` §32.P2 — the anti-pattern this runbook closes.
+- `app/core/config.py` — `StartupConfigError` (línea 40), `_validate_secrets` y `_PLACEHOLDER_SESSION_SECRET` (línea 37).
+- `app/main.py` — cableado del `lifespan`: el validador se invoca entre `configure_logging` y `InsForgeClient`.
+- `docs/audits/secret-startup-validation-2026-Q3.md` — auditoría de seguridad.
+- `AGENTS.md` §32.P2 — anti-patrón que este runbook cierra (valores por defecto inseguros pero que arrancan).

@@ -1,61 +1,49 @@
-# Auth Email Normalization Runbook (issue #277 + #278)
+[← Back to README](../../README.md)
 
-`fix/issue-277-278-ghost-users` closes two defects at the auth boundary:
+# auth-email-normalization.md
 
-- **#277** — `admin_add_user` raised an unhandled `InsForgeError` (500) when a
-  duplicate email slipped past the pre-insert check; the route now surfaces the
-  duplicate (or any other validation failure) back to the admin page as a
-  flash message.
-- **#278** — emails were compared case-sensitively against
-  `usuarios_autorizados.email`, so `Maria.Lopez@Example.COM` and
-  `maria.lopez@example.com` were two distinct users (the *ghost user*
-  anti-pattern). Every auth boundary now passes through
-  `app.core.auth_helpers.normalize_email` (strip + lowercase), the per-email
-  cache key is case-folded, and `invalidate_auth` sweeps all case variants.
+Este runbook cubre la deduplicación de `usuarios_autorizados` tras `fix/issue-277-278-ghost-users`. Aplica a los issues #277 y #278.
 
-The application code is already shipped; this runbook covers the **operator
-follow-up** for any rows that already exist in `usuarios_autorizados` with
-mixed casing.
+## Quick Navigation
 
-## When to trigger
+| Sección | Propósito |
+|---|---|
+| Cuándo abrir este runbook | Disparadores que justifican la apertura del runbook |
+| Qué observa el operador | Síntomas y SQL de detección de duplicados |
+| Lista de comprobación previa | Verificaciones previas y captura de instantáneas |
+| Pasos de despliegue | Procedimiento de deduplicación sobre la base de datos |
+| Procedimiento de dedupe | Reglas detalladas para resolver cada grupo duplicado |
+| Verificación | Señales de éxito tras la deduplicación |
+| Reversión | Recuperación desde la instantánea pre-cambios |
 
-Run this runbook:
+## Cuándo abrir este runbook
 
-- **after** deploying `fix/issue-277-278-ghost-users` to production;
-- **before** the next backup restore (so the new code reads from clean data);
-- whenever a user reports "I can't log in" and you suspect their email was
-  inserted twice with different casing by the legacy code path;
-- as a one-shot hygiene pass: even if no users are currently broken, the
-  ghost rows will eventually surface as duplicate-render glitches in the admin
-  panel (the `LIST_USERS_SQL` ORDER BY shows both variants).
+Abra este runbook:
 
-This is a one-time migration for each environment. After it completes, the new
-code prevents new ghosts from being created.
+- **Después** de desplegar `fix/issue-277-278-ghost-users` en producción.
+- **Antes** de la siguiente restauración de copia de seguridad (para que el código nuevo lea datos limpios).
+- Cuando un usuario reporta "no puedo iniciar sesión" y sospecha que su correo se insertó dos veces con mayúsculas distintas por la ruta de código legada.
+- Como pasada de higiene única: aunque ningún usuario esté roto, las filas fantasma terminarán por aflorar como glitches de renderizado duplicado en el panel de administración (el `ORDER BY` de `LIST_USERS_SQL` muestra ambas variantes).
 
-## What the operator sees
+Esta migración es única por entorno. Tras completarse, el nuevo código impide la creación de nuevos fantasmas.
 
-The pre-fix behaviour let `usuarios_autorizados` accumulate rows whose
-`email` columns differ only in case. The new code treats them as duplicates of
-the canonical lowercased form, so an admin who tries to re-add `John@Example.com`
-will hit the "email already authorized" flash even though the table holds
-`john@example.com`.
+## Qué observa el operador
 
-The duplicate-detection SQL is the canonical way to find these rows before any
-new write lands:
+El comportamiento previo al arreglo permitió que `usuarios_autorizados` acumulara filas cuyas columnas `email` diferían sólo en mayúsculas. El nuevo código las trata como duplicados de la forma canónica en minúsculas, de modo que un administrador que intente volver a añadir `John@Example.com` recibirá el flash "email already authorized" aun cuando la tabla contenga `john@example.com`.
+
+El SQL de detección de duplicados es la forma canónica de encontrar estas filas antes de que aterrice cualquier escritura nueva:
 
 ```sql
--- Find rows where the lowercased email appears more than once (mixed-case duplicates)
+-- Encuentra filas donde el correo en minúsculas aparece más de una vez (duplicados con mezcla de mayúsculas y minúsculas)
 SELECT LOWER(email) AS normalized, COUNT(*) AS n, array_agg(email) AS variants
 FROM public.usuarios_autorizados
 GROUP BY LOWER(email)
 HAVING COUNT(*) > 1;
 ```
 
-A clean table returns **zero rows**. Any row this query returns is a ghost
-group that the new code would either silently shadow or reject on the next
-add.
+Una tabla limpia devuelve **cero filas**. Cualquier fila devuelta por esta consulta es un grupo fantasma que el nuevo código o bien silenciará o bien rechazará en la próxima adición.
 
-If your Postgres role does not have `array_agg`, the equivalent without it is:
+Si su rol de Postgres no dispone de `array_agg`, el equivalente sin ella es:
 
 ```sql
 SELECT LOWER(email) AS normalized, COUNT(*) AS n,
@@ -65,179 +53,122 @@ GROUP BY LOWER(email)
 HAVING COUNT(*) > 1;
 ```
 
-## Pre-deploy checklist
+## Lista de comprobación previa
 
-- [ ] Read this runbook end-to-end.
-- [ ] Notify the team in `#apap-ops` that the dedupe migration is about to
-      happen; capture who is on call.
-- [ ] Have the duplicate-detection SQL above ready to paste into
-      `psql` / the InsForge query surface.
-- [ ] Confirm you can read `usuarios_autorizados` with the operator role that
-      will run the dedupe.
-- [ ] Confirm the deployed commit hash for `fix/issue-277-278-ghost-users`
-      includes `f41e717` (or a successor) — see `git log --oneline main`.
-- [ ] Decide the rename target for losing rows in each duplicate group (see
-      step 2 of the dedupe procedure below).
-- [ ] Snapshot the table before the dedupe so the migration is reversible:
+- [ ] Ha leído este runbook por completo.
+- [ ] Ha notificado al equipo en `#apap-ops` que la migración de deduplicación está a punto de ocurrir; registre quién está de guardia.
+- [ ] Tiene el SQL de detección de duplicados anterior listo para pegar en `psql` o en la superficie de consultas de InsForge.
+- [ ] Confirma que puede leer `usuarios_autorizados` con el rol del operador que ejecutará la dedupe.
+- [ ] Confirma que el commit desplegado de `fix/issue-277-278-ghost-users` incluye `f41e717` (o un sucesor) — véase `git log --oneline main`.
+- [ ] Decide el renombramiento objetivo de las filas perdedoras en cada grupo de duplicados (véase paso 2 del procedimiento de dedupe).
+- [ ] Tome una instantánea de la tabla antes de la dedupe para que la migración sea reversible:
 
       ```sql
       CREATE TABLE usuarios_autorizados__pre_email_dedupe AS
       SELECT * FROM public.usuarios_autorizados;
       ```
 
-## Deploy steps
+## Pasos de despliegue
 
-1. **Confirm the code is already on `main`.** This runbook does not deploy
-   anything; `fix/issue-277-278-ghost-users` merged to `main` as PR #308 and
-   the Coolify deploy job (gated on `ci.yml`) picks it up automatically. The
-   first thing the runbook expects is that the running pod already has commit
-   `f41e717` (or a successor). If not, merge via CI first:
+1. **Confirme que el código ya está en `main`.** Este runbook no despliega nada; `fix/issue-277-278-ghost-users` se fusionó a `main` como PR #308 y el job de despliegue en Coolify (limitado por `ci.yml`) lo recoge automáticamente. Lo primero que espera el runbook es que el pod en ejecución ya tenga el commit `f41e717` (o un sucesor). Si no, fusione primero a través de CI:
 
-   ```bash
-   git fetch origin
-   git log --oneline origin/main | head -5
-   ```
+    ```bash
+    git fetch origin
+    git log --oneline origin/main | head -5
+    ```
 
-   The commit subject you want is
-   `feat(auth): normalize_email helper + add_authorized_user validation + cache case-folding + admin error rendering (issue #277, #278)`.
+    El subject del commit buscado es
+    `feat(auth): normalize_email helper + add_authorized_user validation + cache case-folding + admin error rendering (issue #277, #278)`.
 
-2. **Run the duplicate-detection SQL** (from §"What the operator sees") against
-   the production table. Capture the output as
-   `users_ghost_groups_pre_dedupe.csv` for the audit trail.
+2. **Ejecute el SQL de detección de duplicados** (de la sección anterior) contra la tabla de producción. Capture la salida como `users_ghost_groups_pre_dedupe.csv` para el rastro de auditoría.
 
-3. **Execute the dedupe procedure** (§"Dedupe procedure" below).
+3. **Ejecute el procedimiento de dedupe** (sección siguiente).
 
-4. **Re-run the duplicate-detection SQL**. It must return zero rows.
+4. **Vuelva a ejecutar el SQL de detección de duplicados.** Debe devolver cero filas.
 
-5. **Verify the application** (§"Verification" below).
+5. **Verifique la aplicación** (sección Verificación).
 
-## Dedupe procedure
+## Procedimiento de dedupe
 
-For every group the duplicate-detection SQL returns:
+Para cada grupo que devuelva el SQL de detección de duplicados:
 
-1. **Run the duplicate-detection SQL above** and capture the group list.
+1. **Ejecute el SQL de detección de duplicados anterior** y capture la lista de grupos.
 
-2. **For each duplicate group, manually decide which row to keep.** Typical
-   heuristics, in order of preference:
-   - The row the user actually uses to log in (their live `email`).
-   - The most recently active row (use `fecha_alta` + any `last_login` evidence
-     the admin panel exposes).
-   - The oldest row if neither side has activity signal (preserve the audit
-     trail of who was added first).
+2. **Para cada grupo duplicado, decida manualmente qué fila conservar.** Heurísticas habituales, en orden de preferencia:
+    - La fila que el usuario realmente utiliza para iniciar sesión (su `email` vivo).
+    - La fila activa más recientemente (use `fecha_alta` y cualquier evidencia de `last_login` que exponga el panel de administración).
+    - La fila más antigua si ninguno de los lados tiene señal de actividad (preserva el rastro de auditoría de quién se añadió primero).
 
-   Document the choice in the migration log so the audit can trace it back.
+    Documente la elección en el registro de migración para que la auditoría pueda rastrearla.
 
-3. **Update the loser's email** to a unique placeholder that can never match
-   the canonical form:
+3. **Actualice el correo del perdedor** a un marcador de posición único que jamás pueda coincidir con la forma canónica:
 
-   ```sql
-   -- For each losing row in group <N>
-   UPDATE public.usuarios_autorizados
-   SET email = 'disabled + ' || to_char(now() AT TIME ZONE 'UTC',
+    ```sql
+    -- Para cada fila perdedora en el grupo <N>
+    UPDATE public.usuarios_autorizados
+    SET email = 'disabled + ' || to_char(now() AT TIME ZONE 'UTC',
                                        'YYYY-MM-DD"T"HH24:MI:SS"Z"') || '@archive.local'
-   WHERE id = '<loser-uuid>';
-   ```
+    WHERE id = '<loser-uuid>';
+    ```
 
-   The `disabled + <timestamp>@archive.local` form is intentional:
-   - `disabled + ...` keeps the row visible to the operator as a tombstone.
-   - The `@archive.local` TLD guarantees no real client could ever resolve it,
-     so the cache cannot accidentally re-attach the loser to a future live
-     user.
-   - The timestamp disambiguates if you run the dedupe again.
+    La forma `disabled + <timestamp>@archive.local` es deliberada:
+    - `disabled + ...` mantiene la fila visible para el operador como lápida.
+    - El TLD `@archive.local` garantiza que ningún cliente real pueda resolverla, de modo que la caché no pueda volver a adjuntar al perdedor a un futuro usuario vivo.
+    - La marca temporal desambigua si vuelve a ejecutar la dedupe.
 
-   If the table has a UNIQUE constraint on `email`, the placeholder must be
-   unique per row. The timestamp above already guarantees that.
+    Si la tabla cuenta con una restricción UNIQUE sobre `email`, el marcador de posición debe ser único por fila. La marca temporal anterior ya lo garantiza.
 
-4. **Re-run the duplicate-detection SQL.** It must return **zero rows**.
+4. **Vuelva a ejecutar el SQL de detección de duplicados.** Debe devolver **cero filas**.
 
-5. **After all duplicates are resolved, the normal migration is complete.** The
-   new code (already deployed) now sees a clean canonical table. No further
-   manual steps are required.
+5. **Tras resolver todos los duplicados, la migración normal está completa.** El nuevo código (ya desplegado) ve ahora una tabla canónica limpia. No se requieren pasos manuales posteriores.
 
-If a duplicate group is genuinely two distinct users (e.g. a typo created two
-real accounts), keep both rows and rename the loser to a real alternative
-address owned by that person instead of the tombstone form. The new code will
-accept both rows as long as their lowercased forms are unique.
+Si un grupo duplicado representa genuinamente a dos usuarios distintos (por ejemplo, un typo creó dos cuentas reales), conserve ambas filas y renombre al perdedor a una dirección alternativa real de la que esa persona sea titular, en lugar de la forma de lápida. El nuevo código aceptará ambas filas en tanto sus formas en minúsculas sean únicas.
 
-## Verification
+## Verificación
 
-1. **Duplicate-detection SQL returns zero rows:**
+1. **El SQL de detección de duplicados devuelve cero filas:**
 
-   ```sql
-   SELECT LOWER(email) AS normalized, COUNT(*) AS n, array_agg(email) AS variants
-   FROM public.usuarios_autorizados
-   GROUP BY LOWER(email)
-   HAVING COUNT(*) > 1;
-   ```
+    ```sql
+    SELECT LOWER(email) AS normalized, COUNT(*) AS n, array_agg(email) AS variants
+    FROM public.usuarios_autorizados
+    GROUP BY LOWER(email)
+    HAVING COUNT(*) > 1;
+    ```
 
-   Expected: 0 rows.
+    Resultado esperado: 0 filas.
 
-2. **Application health check:**
+2. **Comprobación de salud de la aplicación:**
 
-   ```bash
-   curl --fail --silent https://apap.romancaba.com/healthz
-   ```
+    ```bash
+    curl --fail --silent https://apap.romancaba.com/healthz
+    ```
 
-   Expected: `{"status":"ok"}` (or whatever the existing `/healthz` payload is).
+    Resultado esperado: `{"status":"ok"}` (o la carga útil existente de `/healthz`).
 
-3. **Admin panel renders without ghost rows.** Log in as a developer-role user,
-   navigate to `/admin`, and confirm the user table shows each email once at
-   its canonical (lowercased) form. If any row still shows mixed casing, the
-   dedupe missed a group — re-run the detection SQL.
+3. **El panel de administración renderiza sin filas fantasma.** Inicie sesión como un usuario con rol developer, navegue a `/admin` y confirme que la tabla de usuarios muestra cada correo una sola vez en su forma canónica (en minúsculas). Si alguna fila sigue mostrando mezcla de mayúsculas, la dedupe omitió un grupo — vuelva a ejecutar el SQL de detección.
 
-4. **Re-add test:** pick one of the tombstoned loser rows in the admin panel,
-   confirm the form rejects re-adding the original email with a flash error
-   (`email already authorized: <canonical>`), and that re-adding a NEW email
-   for the same person succeeds.
+4. **Prueba de re-adición:** elija una de las filas perdedoras con lápida en el panel de administración. Confirme que el formulario rechaza volver a añadir el correo original con un flash de error (`email already authorized: <canonical>`). Confirme también que re-añadir un correo NUEVO para la misma persona funciona.
 
-5. **Cache smoke check (optional):** in the running pod, hit
-   `GET /admin/users` twice in quick succession and inspect the application
-   logs for one `auth.cache_hit` per email per TTL window — `invalidate_auth`
-   was called on the loser during the dedupe, so its next request should miss
-   and re-fetch.
+5. **Comprobación rápida de la caché (opcional):** en el pod en ejecución, golpee `GET /admin/users` dos veces en rápida sucesión. Inspeccione los registros de la aplicación en busca de un `auth.cache_hit` por correo por ventana TTL. `invalidate_auth` se invocó sobre el perdedor durante la dedupe, de modo que su siguiente petición debe fallar la caché y reconsultar.
 
-## Rollback
+## Reversión
 
-The application change is **non-destructive**: PR #308 only changes how the
-app *reads* and *writes* the table — it does not mutate existing rows on its
-own. Reverting the code leaves the table in whatever state the dedupe left it.
+El cambio de aplicación es **no destructivo**: PR #308 sólo cambia cómo la aplicación *lee* y *escribe* la tabla — no muta filas existentes por sí mismo. Revertir el código deja la tabla en el estado que haya dejado la dedupe.
 
-- **If you have not yet run the dedupe:** rollback is a no-op. Revert the
-  deploy and the table is untouched.
-- **If you have run the dedupe:** the tombstoned losers (`disabled +
-  <timestamp>@archive.local`) are recoverable from the
-  `usuarios_autorizados__pre_email_dedupe` snapshot you created in §"Pre-deploy
-  checklist". The recovery is a `pg_dump`/`pg_restore` of the snapshot, or a
-  per-row `UPDATE` if the snapshot is large. The application does not need a
-  code rollback in either case — it tolerates both old and new states
-  identically.
+- **Si aún no ejecutó la dedupe:** la reversión es un no-op. Revierta el despliegue y la tabla queda intacta.
+- **Si ejecutó la dedupe:** los perdedores con lápida (`disabled + <timestamp>@archive.local`) son recuperables desde la instantánea `usuarios_autorizados__pre_email_dedupe` creada en la lista de comprobación previa. La recuperación consiste en un `pg_dump`/`pg_restore` de la instantánea, o un `UPDATE` por fila si la instantánea es grande. La aplicación no necesita una reversión de código en ningún caso — tolera de forma idéntica los estados antiguo y nuevo.
 
-If the deploy itself must be rolled back (rare — only if the new code regresses
-an unrelated path), use the standard Coolify redeploy workflow against the
-previous `main` HEAD. The migration lock is a thing you hold during the
-dedupe (§"Pre-deploy checklist" snapshot), not during the code deploy.
+Si el despliegue en sí mismo debe revertirse (poco frecuente — sólo si el código nuevo regresa en una ruta no relacionada), use el flujo estándar de redespliegue en Coolify contra el HEAD previo de `main`. El lock de migración es algo que se mantiene durante la dedupe (instantánea en la lista de comprobación previa), no durante el despliegue de código.
 
-## Related
+## Documentos relacionados
 
-- `app/core/auth_helpers.py` — `normalize_email` + `validate_email_format`
-  (single source of truth, AGENTS.md §4 + §25).
-- `app/core/auth.py` — `add_authorized_user` pre-check + defense-in-depth
-  `InsForgeError` mapping (issue #277) and `normalize_email` plumbing
-  (issue #278).
-- `app/core/auth_cache.py` — `invalidate_auth` case-variant sweep
-  (`_case_variants`) and case-folded cache key (issue #278).
-- `app/core/admin_helpers.py` — flash-message helpers `_pop_flash` /
-  `_redirect_with_flash` (issue #277).
-- `app/main.py` — `admin_add_user` handler with `_add_user_or_error` and the
-  post-success render path.
-- `tests/test_auth.py`, `tests/test_auth_cache.py`, `tests/test_auth_helpers.py`,
-  `tests/test_admin.py` — TDD safety net.
-- `docs/audits/ghost-users-audit-2026-Q3.md` — defect audit for #277 + #278.
-- `docs/runbooks/auth-cache-multi-worker.md` — companion runbook for the
-  cache worker-scope semantics that issue #278 interacts with.
-- Issues: #277 (partial exception handling — §32.P4), #278 (perimeter
-  blindness — §32.P1 example).
-- AGENTS.md §4 (one source of truth per domain concept), §12 (audit doc
-  requirement), §13 (runbook requirement), §25 (no duplicated helper
-  functions), §32.P1 (perimeter blindness), §32.P4 (partial exception
-  handling).
+- `app/core/auth_helpers.py` — `normalize_email` (línea 14) y `validate_email_format` (única fuente de verdad, AGENTS.md §4 + §25).
+- `app/core/auth.py` — pre-chequeo `add_authorized_user` y mapeo de `InsForgeError` como defensa en profundidad (issue #277) y fontanería `normalize_email` (issue #278).
+- `app/core/auth_cache.py` — barrido de variantes de mayúsculas de `invalidate_auth` (`_case_variants`) y clave de caché con case-folding (issue #278).
+- `app/core/admin_helpers.py` — auxiliares de mensaje flash `_pop_flash` y `_redirect_with_flash` (issue #277).
+- `app/main.py` — handler `admin_add_user` con `_add_user_or_error` y la ruta de renderizado tras éxito.
+- `tests/test_auth.py`, `tests/test_auth_cache.py`, `tests/test_auth_helpers.py`, `tests/test_admin.py` — red de seguridad TDD.
+- `docs/audits/ghost-users-audit-2026-Q3.md` — auditoría de defectos para #277 + #278.
+- `docs/runbooks/auth-cache-multi-worker.md` — runbook complementario para la semántica de caché con ámbito de worker con la que interactúa el issue #278.
+- Issues: #277 (manejo parcial de excepciones — §32.P4), #278 (cegamiento del perímetro — ejemplo §32.P1).
+- `AGENTS.md` §4 (una única fuente de verdad por concepto de dominio), §12 (requisito de documento de auditoría), §13 (requisito de runbook), §25 (sin funciones auxiliares duplicadas), §32.P1 (cegamiento del perímetro), §32.P4 (manejo parcial de excepciones).

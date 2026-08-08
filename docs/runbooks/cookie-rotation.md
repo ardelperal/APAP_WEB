@@ -1,88 +1,108 @@
-# Session Secret Rotation Runbook
+[← Back to README](../../README.md)
 
-## Purpose
+# cookie-rotation.md
 
-Rotar `APAP_SESSION_SECRET` invalida TODAS las sesiones activas a la vez. Es
-la unica primitiva que produce un force-logout completo y atomico, y la
-remediacion operativa del PR-3 de hardening-2026-q2 para cookies pre-fix
-(aquellas firmadas antes de que `/auth/callback` escribiera el flag
-`is_authorized`).
+Este runbook cubre la rotación de `APAP_SESSION_SECRET`. La rotación invalida todas las sesiones activas a la vez y es la única primitiva de cierre completo y atómico. Aplica al PR-3.
 
-El flip del default a `False` en `payload.get("is_authorized", ...)` (PR-3)
-cierra la ventana contra futuras regresiones, pero NO remedia cookies
-pre-fix ya en vuelo. Esas siguen siendo validas hasta su expiracion
-(max_age = 7 dias) o hasta rotar el secret.
+## Quick Navigation
 
-## When to rotate
+| Sección | Propósito |
+|---|---|
+| Cuándo abrir este runbook | Disparadores que justifican una rotación del secreto |
+| Lista de comprobación previa | Restricciones operativas antes de ejecutar la rotación |
+| Pasos de despliegue | Procedimiento en staging y producción con verificación inmediata |
+| Verificación | Señales de éxito: 200 en healthz, 302 con cookie pre-rotación, caída de `BadSignature` |
+| Reversión | Restauración del valor anterior del secreto |
 
-- **Incidente de seguridad**: sospecha de compromiso del secret o
-  revocacion urgente.
-- **Rotacion programada**: politica periodica (e.g. trimestral).
-- **Post-deploy de PR-3**: tras mergear el flip, rotar el secret invalida
-  todas las cookies pre-fix restantes.
-- **Rotacion automatica del proveedor**: si Coolify rota el secret por
-  politica automatica, tratar como rotacion normal.
+## Cuándo abrir este runbook
 
-## Pre-deploy checklist
+Abra este runbook en las siguientes situaciones:
 
-- [ ] Ventana de bajo trafico confirmada (fin de semana o 03:00-05:00 CET).
-- [ ] Comunicacion enviada >=24h antes (email + status banner).
-- [ ] Valor actual de `APAP_SESSION_SECRET` capturado (Coolify → Environment).
-- [ ] Backup de `usuarios_autorizados` tomado (`pg_dump` o equivalente).
-- [ ] Nuevo secret generado (comando abajo).
-- [ ] Plan de rollback revisado (valor anterior accesible).
+- **Incidente de seguridad**: sospecha de compromiso del secreto o revocación urgente.
+- **Rotación programada**: política periódica (por ejemplo, trimestral).
+- **Post-fusión del PR-3**: tras fusionar el cambio de `payload.get("is_authorized", ...)` al valor `False`, la rotación invalida las cookies pre-fix que aún estén vigentes.
+- **Rotación automática del proveedor**: si Coolify rota el secreto por política automática, trátela como una rotación normal.
 
-## Generate a new secret
+## Lista de comprobación previa
+
+Antes de ejecutar la rotación, verifique los siguientes puntos:
+
+- [ ] Ventana de bajo tráfico confirmada (fin de semana o 03:00–05:00 CET).
+- [ ] Comunicación enviada con al menos veinticuatro horas de antelación (correo electrónico y banner de estado).
+- [ ] Valor actual de `APAP_SESSION_SECRET` capturado desde Coolify → Environment.
+- [ ] Copia de seguridad de `usuarios_autorizados` realizada (`pg_dump` o equivalente).
+- [ ] Nuevo secreto generado con el comando de la sección siguiente.
+- [ ] Plan de reversión revisado: el valor anterior debe permanecer accesible.
+
+## Pasos de despliegue
+
+### Generar un nuevo secreto
 
 ```bash
 python -c "import secrets; print(secrets.token_urlsafe(64))"
 ```
 
-Salida: cadena de ~86 caracteres `[A-Za-z0-9_-]`. Ese es el nuevo valor.
+La salida es una cadena de aproximadamente ochenta y seis caracteres del alfabeto `[A-Za-z0-9_-]`. Ese es el nuevo valor.
 
-## Deploy steps (staging first)
+### Despliegue en staging primero
 
-SIEMPRE staging antes que produccion. La rotacion es destructiva.
+**Ejecute siempre staging antes que producción.** La rotación es destructiva.
 
 1. Coolify → Application → Environment → editar `APAP_SESSION_SECRET`.
-2. Click "Save" + "Redeploy" (atomic, recreate strategy).
-3. Esperar al contenedor; logs muestran "Application startup complete".
+2. Pulse **Save** y **Redeploy** (estrategia atómica de recreación).
+3. Espere al contenedor; los registros muestran `Application startup complete`.
 
-Verificar:
+Verifique inmediatamente:
 
 ```bash
-curl -i https://staging.apap.local/healthz         # 200 OK en <60s
+curl -i https://staging.apap.local/healthz         # 200 OK en menos de 60 s
 curl -i https://staging.apap.local/                 # 302 /login
 curl -i -b "apap_session=<cookie-pre-rotacion>" \
      https://staging.apap.local/                   # 302 /login
 ```
 
-Monitorear logs ~5 min: la tasa de `BadSignature` debe ESPIGAR al
-principio y DECAER a cero. Si no decae, detener la rotacion.
+Monitorice los registros durante cinco minutos. La tasa de `BadSignature` debe **picar** al principio y **decaer** a cero. Si no decae, detenga la rotación.
 
-## Production
+### Despliegue en producción
 
-Repetir los pasos en produccion. Tiempo de disrupcion esperado: ~30s de
-503 mientras los workers reinician; sesiones activas se pierden.
+Repita los pasos anteriores en producción. Tiempo de disrupción esperado: aproximadamente treinta segundos de 503 mientras los workers se reinician. Las sesiones activas se pierden.
 
-## Rollback
+## Verificación
 
-Si falla o causa problemas:
+Tras la rotación, valide lo siguiente:
 
-1. Coolify → Environment → restaurar `APAP_SESSION_SECRET` al valor
-   anterior (capturado en el checklist).
-2. Click "Redeploy".
-3. Verificar con los probes del deploy step.
+1. El endpoint de salud responde 200:
 
-Efectos: las cookies firmadas con el secret ANTERIOR vuelven a
-verificar. Los usuarios que se loguearon DURANTE la ventana de
-rotacion deberan re-loggearse (esos cookies se firmaron con el secret
-nuevo, ahora revocado). NO hay perdida de datos.
+    ```bash
+    curl --fail --silent https://apap.romancaba.com/healthz
+    ```
 
-## Related
+    Resultado esperado: `{"status":"ok","app":"APAP_WEB"}` con código de salida 0.
 
-- `app/core/session.py` — `read_session` / `write_session` (la primitiva).
+2. La inspección de los registros de inicio muestra el evento de validación:
+
+    ```bash
+    grep "startup.config_invalid" /ruta/a/app.log
+    ```
+
+    El evento `startup.config_invalid` con `env_var="APAP_SESSION_SECRET"` y `reason="placeholder"` **no debe aparecer**.
+
+3. La monitorización durante cinco minutos tras el reinicio muestra la curva esperada de `BadSignature` (pico inicial seguido de caída a cero).
+
+## Reversión
+
+Si la rotación falla o causa problemas:
+
+1. Coolify → Environment → restaurar `APAP_SESSION_SECRET` al valor anterior capturado en la lista de comprobación previa.
+2. Pulse **Redeploy**.
+3. Verifique con los mismos probes de la sección de despliegue.
+
+Efectos de la reversión: las cookies firmadas con el secreto anterior vuelven a verificar correctamente. Los usuarios que iniciaron sesión **durante** la ventana de rotación deberán volver a iniciar sesión, ya que esas cookies se firmaron con el secreto nuevo, ahora revocado. No se produce pérdida de datos.
+
+## Documentos relacionados
+
+- `app/core/session.py` — primitivas `read_session` y `write_session`.
 - `app/main.py` — middleware `protect_user_facing_routes`.
 - `app/core/auth_dependencies.py` — `require_authorized_user`.
-- `AGENTS.md` Rule 6 — defaults deny, not permit.
-- `tests/test_session_rotation.py` — las primitivas que el runbook aprovecha.
+- `AGENTS.md` §6 — seguridad por defecto restrictivo.
+- `tests/test_session_rotation.py` — primitivas que el runbook aprovecha.
