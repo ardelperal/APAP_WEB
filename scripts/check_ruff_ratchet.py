@@ -62,7 +62,13 @@ BASELINE: dict[str, int] = {
     "ARG001": 46,
     "ARG002": 3,
     "C901": 18,
-    "ERA001": 4,
+    # ERA001 fue retirado del baseline al completarse el triaje del issue #390
+    # (4 -> 0 con los 4 sitios de ``app/`` y ``scripts/`` en este PR). Todos
+    # resultaron categoria (a): comentarios de seccion / branch label que ruff
+    # interpreto como codigo comentado y se reformularon a lenguaje natural.
+    # La entrada se ELIMINA en vez de ponerse a 0 para que un ERA001 nuevo
+    # caiga en la rama de regla desconocida y falle: un sitio sin triar debe
+    # parar el CI, no consumir una cuota.
     "N802": 1,
     "N803": 5,
     "N806": 2,

@@ -209,7 +209,7 @@ def asignar_submit(  # noqa: PLR0913  # 2 Form fields + 4 fixed deps; form model
             status_code=status.HTTP_303_SEE_OTHER,
         )
 
-    # decision.decision == "admit_with_warning"
+    # Handle the admit_with_warning branch.
     motivo_clean = (motivo or "").strip()
     if not motivo_clean:
         return _render_asignar_form(

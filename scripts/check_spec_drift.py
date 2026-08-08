@@ -47,7 +47,7 @@ class Drift:
 # Markdown parsing
 # ---------------------------------------------------------------------------
 
-# Matches: "- [x] ..." or "- [ ] ..."
+# Matches markdown checkbox lines (checked or unchecked).
 _CHECKBOX_RE = re.compile(r"^(\s*)-\s*\[([ xX])\]\s*(.*)$")
 # Backtick-quoted code references
 _BACKTICK_REF_RE = re.compile(r"`([^`]+)`")

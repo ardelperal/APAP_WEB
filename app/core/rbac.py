@@ -104,7 +104,7 @@ class Permission(StrEnum):
     READ_CESIONES = "read:cesiones"
     WRITE_CESIONES = "write:cesiones"
 
-    # Materiales (catalog)
+    # Materiales: catalog resource
     READ_MATERIALES = "read:materiales"
     WRITE_MATERIALES = "write:materiales"
 
