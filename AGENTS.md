@@ -693,6 +693,8 @@ Enforcement: PR review. A PR that adds a service with inline SQL mixed into vali
 
 Every feature slice that adds or changes UI (routes rendering templates, forms, HTMX interactions) MUST add or update at least one Playwright E2E flow under `tests/e2e/`. Backend-only slices (services, migration, scripts) are exempt. The E2E suite is the only net that catches template/route/CSRF wiring regressions that unit tests structurally cannot see.
 
+**QA-through-UI only.** Verification of any UI-facing feature slice MUST go through the existing Playwright E2E suite under `tests/e2e/` (or an equivalent in-tree browser test). QA via the Python shell, direct DB inspection, or `curl` against a running server is NOT a substitute and MUST NOT be presented as such in PR descriptions, runbooks, or status reports.
+
 The CI `e2e` job is currently skipped when `APAP_OAUTH_CLIENT_ID` is not configured (see `.github/workflows/ci.yml`). Once OAuth secrets exist in CI, the job stops being optional and becomes a required check (tracked in issue #206) — do not add new reasons to skip it.
 
 Enforcement: PR review. A PR whose diff touches `templates/` or adds/changes a UI route without touching `tests/e2e/` must justify the exemption explicitly in the PR description or be blocked.
