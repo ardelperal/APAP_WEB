@@ -354,7 +354,15 @@ def check_tree(
     return violations, notices
 
 
+def _pin_output_encoding() -> None:
+    """Pin stdout/stderr to UTF-8: output must not depend on the locale (issue #488)."""
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+
+
 def main(argv: list[str] | None = None) -> int:
+    _pin_output_encoding()
     args = sys.argv[1:] if argv is None else argv
     root = Path(args[0]).resolve() if args else Path(__file__).resolve().parents[1]
 
