@@ -20,14 +20,22 @@ from __future__ import annotations
 
 from app.core.ports.auth_port import AuthUsersPort
 from app.core.ports.catalogos_port import CatalogosPort
+from app.core.ports.insforge_error_handler_port import (
+    ErrorTranslationPort,
+    ErrorUserResponse,
+    TranslatableError,
+)
 from app.core.ports.oauth_port import OAuthPort, OAuthUser
 from app.core.ports.schema_bootstrap_port import SchemaBootstrapPort, SqlStatement
 
 __all__ = [
     "AuthUsersPort",
     "CatalogosPort",
+    "ErrorTranslationPort",
+    "ErrorUserResponse",
     "OAuthPort",
     "OAuthUser",
     "SchemaBootstrapPort",
     "SqlStatement",
+    "TranslatableError",
 ]
