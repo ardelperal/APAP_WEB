@@ -1,49 +1,41 @@
-# Review Authority Inventory Cleanup Audit Report — 2026 Q3
+[← Back to README](../../README.md)
 
-**Audit slice**: `fix/issue-198-review-authority-inventory`
-**Branch**: `fix/issue-198-review-authority-inventory` (cut from `main`, commit f237c55)
-**PR**: (pending open)
-**Date**: 2026-07-30
-**Auditor**: AI-assisted audit (operational CLI investigation)
-**Motivation**: Issue #198 — `gentle-ai review` authority inventory showed corrupted
-entries preventing the validate gate from passing. Pre-MVP merge gate is CI per
-user directive 2026-07-18.
-**Spec**: Issue #198 acceptance criteria + gentle-ai CLI operational investigation
-**Design**: gentle-ai review CLI (v2.2.0) command surface
+# review-authority-inventory-cleanup-2026-Q3.md
 
----
+This audit documents the scope, methodology, findings, and verdict for the audit listed in the title. Esta auditoría documenta el alcance, la metodología, los hallazgos y el veredicto del corte de limpieza del inventario de review-authority del CLI `gentle-ai` (issue #198), ejecutado en 2026 Q3.
 
-## Verdict
-
-**CONDITIONAL PASS** — inventory `authoritative: true, complete: true` achieved;
-8 pristine reviewing entries successfully abandoned. Three non-terminal entries
-(`active/correction_required` × 1, `active/validating` × 2) **cannot be resolved in
-pre-MVP** due to corrupted reviewer artifacts and no available CLI command to
-force-quarantine them. This is a known limitation, not a regression.
-
-| Severity | Count | Blocker? |
-|----------|-------|----------|
-| Critical | 0 | n/a |
-| High | 0 | n/a |
-| Medium | 1 | No — pre-MVP CI gate remains operative |
-| Low (informational) | 0 | n/a |
-
----
+| Sección | Descripción |
+|---|---|
+| [Scope](#scope) | Inventario de review-authority y comandos del CLI. |
+| [Methodology](#methodology) | Procedimiento operator aplicado para restaurar el inventario. |
+| [Findings](#findings) | Severidad, título, forma y detalle de cada hallazgo. |
+| [Verdict](#verdict) | Estado final del inventario y del gate de revisión. |
+| [References](#references) | Ficheros creados, comandos ejecutados e issue relacionado. |
 
 ## Scope
 
-### Files created (this PR)
+| Item | Value |
+|---|---|
+| Audit slice | `fix/issue-198-review-authority-inventory` |
+| Branch | `fix/issue-198-review-authority-inventory` (cortada de `main`, commit `f237c55`) |
+| PR | pendiente de apertura |
+| Fecha | 2026-07-30 |
+| Auditor | AI-assisted audit (investigación operativa del CLI) |
+| Motivación | Issue #198 — el inventario de authority del CLI `gentle-ai review` mostraba entradas corruptas que impedían pasar el validate gate. El gate CI pre-MVP es operativo por directiva del usuario del 2026-07-18 |
+| Spec | Criterios de aceptación del issue #198 + investigación operativa del CLI `gentle-ai` |
+| Design | Superficie de comandos del CLI `gentle-ai review` (v2.2.0) |
 
-| File | Summary |
-|------|---------|
-| `docs/runbooks/review-authority-recovery.md` | Step-by-step runbook for diagnosing and cleaning up stuck inventory entries |
-| `docs/audits/review-authority-inventory-cleanup-2026-Q3.md` | This audit document |
-| `scripts/review-status-check.ps1` | PowerShell helper that wraps `gentle-ai review status --cwd .` and exits 0 only when `authoritative -and complete -and status -eq "complete"` |
+### Ficheros creados
 
-No `app/` or `migration/` Python code was modified. This is an operational
-inventory fix, not a code change.
+| Fichero | Resumen |
+|---|---|
+| `docs/runbooks/review-authority-recovery.md` | Runbook paso a paso para diagnosticar y limpiar entradas stuck del inventario |
+| `docs/audits/review-authority-inventory-cleanup-2026-Q3.md` | Este documento de auditoría |
+| `scripts/review-status-check.ps1` | Helper PowerShell que envuelve `gentle-ai review status --cwd .` y sale 0 solo cuando `authoritative -and complete -and status -eq "complete"` |
 
-### gentle-ai CLI inventory state (before)
+No se modificó código Python en `app/` o `migration/`. Es un fix operativo del inventario, no un cambio de código.
+
+### Estado del inventario del CLI `gentle-ai` (antes)
 
 ```
 authoritative: false
@@ -56,11 +48,9 @@ entries:
   compact-v2 review-82be34642fcce91d: state=reviewing, status=active
 ```
 
-Reported in issue #198: `gentle-ai review validate --gate <gate>` returned
-`result: invalidated, reason: "complete review authority inventory is unavailable or
-corrupted"`.
+Reportado en el issue #198: `gentle-ai review validate --gate <gate>` devolvía `result: invalidated, reason: "complete review authority inventory is unavailable or corrupted"`.
 
-### gentle-ai CLI inventory state (after operational fix — 2026-07-30)
+### Estado del inventario del CLI `gentle-ai` (después del fix operativo, 2026-07-30)
 
 ```
 authoritative: true
@@ -72,88 +62,36 @@ Entry state breakdown:
   historical-pre-receipt/approved: 2  (legacy-v1, semi-terminal)
   recovered/approved: 1       (terminal)
   superseded/approved: 1       (terminal)
-  active/correction_required: 1  (KNOWN LIMITATION — see §Findings)
-  active/validating: 2        (KNOWN LIMITATION — see §Findings)
+  active/correction_required: 1  (KNOWN LIMITATION — ver Findings)
+  active/validating: 2        (KNOWN LIMITATION — ver Findings)
 ```
 
-`validate --gate pre-push --base-ref origin/main` now returns `allow` (empty
-publication range — nothing to push from this worktree). Without `--base-ref`,
-returns `invalidated` with reason `"review-driven development is disabled and no
-receipt governs this candidate"` — this is **expected in pre-MVP** (RDD off,
-CI gate operative).
-
----
+`validate --gate pre-push --base-ref origin/main` ahora devuelve `allow` (publication range vacío — nada que pushear desde este worktree). Sin `--base-ref`, devuelve `invalidated` con razón `"review-driven development is disabled and no receipt governs this candidate"` — esto es esperado en pre-MVP (RDD off, gate CI operativo).
 
 ## Methodology
 
-1. **Diagnostic runs** — executed `gentle-ai review status`, `inspect-authority`,
-   `repair --preflight`, and `validate` commands to map the current state.
-2. **RDD mode investigation** — discovered `rdd_mode: off` globally; enabled
-   temporarily to allow `abandon` operations, then restored to `off`.
-3. **Entry cleanup** — abandoned 8 pristine `reviewing` entries using
-   `gentle-ai review abandon` with per-entry maintainer authorization.
-4. **Non-terminal entry analysis** — attempted `abandon` (refused: not pristine),
-   `reclaim` (refused: holds authoritative artifact), `reopen-results --prepare`
-   (fails: reviewer artifact unreadable), `repair-legacy-alias` (not applicable
-   — wrong diagnostic type).
-5. **Legacy entry analysis** — confirmed two legacy-v1 entries are in
-   `historical-pre-receipt` state (semi-terminal; no further action available
-   in pre-MVP).
-
----
+1. Runs de diagnóstico: ejecución de `gentle-ai review status`, `inspect-authority`, `repair --preflight` y `validate` para mapear el estado actual.
+2. Investigación del modo RDD: descubrimiento de `rdd_mode: off` global; activación temporal para permitir operaciones `abandon`, luego restauración a `off`.
+3. Limpieza de entradas: abandono de 8 entradas `reviewing` pristine usando `gentle-ai review abandon` con autorización por entrada del maintainer.
+4. Análisis de entradas non-terminal: intento de `abandon` (rechazado: no pristine), `reclaim` (rechazado: holds authoritative artifact), `reopen-results --prepare` (falla: reviewer artifact unreadable), `repair-legacy-alias` (no aplicable — tipo de diagnóstico incorrecto).
+5. Análisis de entradas legacy: confirmación de que dos entradas legacy-v1 están en `historical-pre-receipt` (semi-terminal; no hay más acción disponible en pre-MVP).
 
 ## Findings
 
-### Finding 1 — Inventory health restored (Medium, non-blocking)
+| Severity | Title | Form | Details |
+|---|---|---|---|
+| MEDIUM | Salud del inventario restaurada | fixed | El inventario ahora muestra `authoritative: true, complete: true`. Ocho entradas `reviewing` pristine se abandonaron con éxito. El comando `validate` devuelve `allow` cuando se le pasa `--base-ref` explícito. No bloquea: el gate CI pre-MVP es operativo independientemente del estado del inventario de review. |
+| MEDIUM | Tres entradas non-terminal no se pueden resolver en pre-MVP | deferred | Una entrada `active/correction_required` y dos `active/validating` permanecen. No se pueden abandonar (no pristine), no se pueden reclamar (hold authoritative artifacts) y `reopen-results --prepare` falla con "reviewer artifact is unreadable or outside the native size bound" — los artefactos preservados del reviewer están corruptos o faltan. Causa raíz: los artefactos del reviewer para estas entradas están ausentes del object store de git o están corruptos. Sin artefactos legibles, ningún comando del CLI puede mover estas entradas a un estado terminal. El CLI `gentle-ai review` no tiene force-quarantine path para esta forma específica. Workaround: tratar `authoritative: true, complete: true, status: active` como estado limpio aceptable en pre-MVP. La resolución completa requiere un fix del CLI `gentle-ai` o que el reviewer vuelva a ejecutar el ciclo de revisión completo. |
+| INFO | Entradas legacy-v1 en `historical-pre-receipt` | deferred | Dos entradas legacy-v1 (`issue-175-pr1-live-migration-runtime-boundary-4068774`, `issue-48-correct-preadoption-3ddf9d1`) están en `historical-pre-receipt`. `quarantine-legacy` solo acepta el diagnóstico `malformed historical findings-freeze`, que no encaja con el de estas entradas. Son efectivamente terminales en pre-MVP. No bloquea. |
 
-**Description**: The inventory now shows `authoritative: true, complete: true`.
-Eight pristine `reviewing` entries were successfully abandoned. The `validate`
-command returns `allow` when provided with an explicit `--base-ref` (empty
-publication range — worktree is at same commit as `origin/main`).
+## Verdict
 
-**Blocker**: No. Pre-MVP CI gate is operative regardless of review inventory
-state.
+PASS condicional: el inventario alcanzó `authoritative: true, complete: true`. Ocho entradas `reviewing` pristine se abandonaron con éxito. Tres entradas non-terminal (`active/correction_required` × 1, `active/validating` × 2) no pueden resolverse en pre-MVP por artefactos corruptos del reviewer y por la ausencia de un comando CLI de force-quarantine para esa forma específica. Es una limitación conocida, no una regresión.
 
-**Resolution**: Operational cleanup via `gentle-ai review abandon` completed
-successfully for 8 entries.
+## Comandos operativos ejecutados
 
-### Finding 2 — Three non-terminal entries cannot be resolved in pre-MVP (Medium)
-
-**Description**: One `active/correction_required` and two `active/validating` entries
-remain. They cannot be abandoned (not pristine), cannot be reclaimed (hold
-authoritative artifacts), and `reopen-results --prepare` fails with
-"reviewer artifact is unreadable or outside the native size bound" — the
-preserved lens result artifacts are corrupted/missing.
-
-**Root cause**: The reviewer artifacts for these entries are either missing from
-the git object store or corrupted. Without readable artifacts, no CLI command can
-move these entries to a terminal state. The `gentle-ai review` CLI has no
-force-quarantine path for this specific shape.
-
-**Workaround**: These entries do not block CI. Treat
-`authoritative: true, complete: true, status: active` as the acceptable clean
-state in pre-MVP. Full resolution requires either a gentle-ai CLI fix or a
-reviewer re-running the full review cycle.
-
-**Blocker**: No.
-
-### Finding 3 — Legacy-v1 entries in historical-pre-receipt (informational)
-
-**Description**: Two legacy-v1 entries
-(`issue-175-pr1-live-migration-runtime-boundary-4068774`,
-`issue-48-correct-preadoption-3ddf9d1`) are in `historical-pre-receipt` state.
-`quarantine-legacy` only accepts the `malformed historical findings-freeze`
-diagnostic, which does not match these entries' diagnostic. They are effectively
-terminal in pre-MVP.
-
-**Blocker**: No.
-
----
-
-## Operational Commands Run
-
-| Command | Entry | Result |
-|---------|-------|--------|
+| Comando | Entrada | Resultado |
+|---|---|---|
 | `gentle-ai review abandon` | `review-5d0eb7dc371147d1` | committed → quarantine |
 | `gentle-ai review abandon` | `review-0d3d56708d98200c` | committed → quarantine |
 | `gentle-ai review abandon` | `review-4ede25579eedc141` | committed → quarantine |
@@ -163,26 +101,11 @@ terminal in pre-MVP.
 | `gentle-ai review abandon` | `review-b703d2e079b3b37e` | committed → quarantine |
 | `gentle-ai review abandon` | `review-f00cb5ddf32a7dc1` | committed → quarantine |
 
-Abandon operations moved 8 entries from `active/reviewing` to quarantine under
-`.git/gentle-ai/review-transactions/quarantine/`.
+Las operaciones de abandon movieron 8 entradas de `active/reviewing` a quarantine bajo `.git/gentle-ai/review-transactions/quarantine/`.
 
----
-
-## Acceptance Criteria vs. Delivered
-
-| Criterion | Status | Note |
-|---|---|---|
-| `authoritative: true` | ✅ Met | `authoritative: true` post-cleanup |
-| `complete: true` | ✅ Met | `complete: true` post-cleanup |
-| `status: complete` | ❌ Not met | `status: active`; 3 non-terminal entries block `complete`. Pre-MVP limitation. |
-| `validate` no longer returns `invalidated` | ⚠️ Partial | `validate --base-ref origin/main` returns `allow`. Without `--base-ref` (no remote tracking) returns `invalidated: RDD disabled`. Pre-MVP CI gate is operative. |
-| No regressions to shipped receipts | ✅ Met | Audit trail preserved via `--disposition scope_changed` on recovered entries; abandoned entries moved to quarantine (not deleted). |
-
----
-
-## Related
+## References
 
 - Issue #198: <https://github.com/ardelperal/APAP_WEB/issues/198>
 - `docs/runbooks/review-authority-recovery.md` — runbook
-- `scripts/review-status-check.ps1` — status verification helper
-- gentle-ai CLI v2.2.0, `gentle-ai review` command surface
+- `scripts/review-status-check.ps1` — helper de verificación de estado
+- CLI `gentle-ai` v2.2.0, superficie de comandos `gentle-ai review`
