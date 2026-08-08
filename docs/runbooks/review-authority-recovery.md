@@ -1,67 +1,61 @@
-# Review Authority Inventory Recovery Runbook (issue #198)
+[← Back to README](../../README.md)
 
-Covers diagnosis and recovery of the `gentle-ai review` authority inventory when
-entries are stuck in non-terminal states or the inventory reports
-`authoritative: false / complete: false / status: invalid`.
+# review-authority-recovery.md
 
-## Background
+Este runbook cubre el diagnóstico y la recuperación del inventario de autoridades de `gentle-ai review` cuando las entradas quedan en estados no terminales. Aplica al issue #198.
 
-APAP_WEB runs in **pre-MVP single-branch mode** (`rdd_mode: off` globally).
-The pre-MVP merge gate is **CI** (per user directive, 2026-07-18: "no reviewers
-in pipeline"). The `gentle-ai review` CLI maintains a compact-v2 authority
-inventory in the shared Git common directory (`.git/gentle-ai/review-transactions/`).
+## Quick Navigation
 
-Inventory state lives in the **`00_main` worktree's git store** — all worktrees
-share the same `.git` via `git worktree`. Operations from any worktree mutate the
-same inventory.
+| Sección | Propósito |
+|---|---|
+| Cuándo abrir este runbook | Disparadores que justifican la apertura del runbook |
+| Diagnóstico previo al vuelo | Inspección del inventario y del modo RDD |
+| Limpieza de entradas `reviewing` | Procedimiento para abandonar entradas limpias |
+| Tratamiento de entradas legacy-v1 | Procedimiento de cuarentena para entradas pre-receipt |
+| Validación tras la limpieza | Verificación del estado del inventario |
+| Limitaciones conocidas | Estados sin camino de resolución en pre-MVP |
+| Reversión | Reversión a través del registro de cuarentena |
 
----
+## Cuándo abrir este runbook
 
-## When to Trigger
+Abra este runbook en las siguientes situaciones:
 
-Run this runbook when:
+- `gentle-ai review status --cwd .` devuelve `authoritative: false` o `status: invalid`.
+- `gentle-ai review validate --gate <gate> --cwd .` devuelve `result: invalidated, reason: "complete review authority inventory is unavailable or corrupted"`.
+- Aparecen entradas con `state: reviewing` o `state: correction_required` que nunca progresan y bloquean `status: complete`.
 
-- `gentle-ai review status --cwd .` returns `authoritative: false` or
-  `status: invalid`.
-- `gentle-ai review validate --gate <gate> --cwd .` returns
-  `result: invalidated, reason: "complete review authority inventory is unavailable
-  or corrupted"`.
-- Entries appear with `state: reviewing` or `state: correction_required` that
-  never progress and block `status: complete`.
+## Contexto
 
----
+APAP_WEB se ejecuta en **modo de rama única pre-MVP** (`rdd_mode: off` globalmente). La compuerta de fusión pre-MVP es **CI** (por directiva del usuario, 2026-07-18: "no reviewers in pipeline"). El CLI `gentle-ai review` mantiene un inventario de autoridades compact-v2 en el directorio Git común compartido (`.git/gentle-ai/review-transactions/`).
 
-## Pre-Flight Diagnosis
+El estado del inventario vive en el **almacén Git del worktree `00_main`** — todos los worktrees comparten el mismo `.git` mediante `git worktree`. Las operaciones desde cualquier worktree mutan el mismo inventario.
+
+## Diagnóstico previo al vuelo
 
 ```powershell
-# 1. Check overall inventory health
+# 1. Compruebe el estado general del inventario
 gentle-ai review status --cwd .
 
-# 2. Check RDD mode (must be "off" in pre-MVP)
+# 2. Compruebe el modo RDD (debe ser "off" en pre-MVP)
 gentle-ai review mode status --cwd .
 
-# 3. Check for entry-level diagnostics
+# 3. Compruebe los diagnósticos a nivel de entrada
 gentle-ai review inspect-authority --cwd .
 
-# 4. Try repair preflight
+# 4. Intente la preflight de reparación
 gentle-ai review repair --preflight --cwd .
 ```
 
-Expected pre-MVP state:
-- `authoritative: true, complete: true, status: active` (acceptable;
-  `status: complete` requires all entries in terminal states — see Known
-  Limitations below).
+Estado esperado en pre-MVP:
+
+- `authoritative: true, complete: true, status: active` (aceptable; `status: complete` requiere todas las entradas en estados terminales — véase Limitaciones conocidas más abajo).
 - `repair --preflight` → `status: unsupported, eligible_candidates: 0`.
 
----
+## Limpieza de entradas `reviewing` atascadas
 
-## Cleanup Recipe for Stuck `reviewing` Entries
+Las entradas en `state: reviewing` sin resultados de lente capturados son **prístinas** y pueden abandonarse. Una entrada abandonada pasa a cuarentena; el conteo de entradas del inventario disminuye.
 
-Entries in `state: reviewing` with no captured lens results are **pristine** and
-can be abandoned. An abandoned entry moves to quarantine; the inventory entry count
-decreases.
-
-### Identify Reviewing Entries
+### Identificación de entradas en revisión
 
 ```powershell
 $status = gentle-ai review status --cwd . | ConvertFrom-Json
@@ -69,9 +63,9 @@ $status.entries | Where-Object { $_.state -eq 'reviewing' } |
   Select-Object lineage_id, revision, snapshot_identity
 ```
 
-### Abandon Each Entry
+### Abandono de cada entrada
 
-Authorization template (6-line LF-only, no trailing newline):
+Plantilla de autorización (seis líneas LF-only, sin nueva línea final):
 
 ```
 gentle-ai.review-abandon-authorization/v1
@@ -82,7 +76,7 @@ actor=<actor>
 reason=<reason>
 ```
 
-Example PowerShell helper:
+Auxiliar de PowerShell de ejemplo:
 
 ```powershell
 function Abandon-ReviewingEntry {
@@ -108,15 +102,11 @@ reason=$Reason
 }
 ```
 
----
+## Tratamiento de entradas legacy-v1
 
-## Legacy-v1 Entry Handling
+Las entradas legacy-v1 (IDs de linaje `issue-*-*`) con `status: historical-pre-receipt` ya están en estado semiterminal. **No** bloquean `status: complete`.
 
-Legacy-v1 entries (`issue-*-*` lineage IDs) with `status: historical-pre-receipt`
-are already in a semi-terminal state. They do **not** block `status: complete`.
-
-If they show `status: invalid` with diagnostic "terminal legacy authority is
-missing its receipt", use `quarantine-legacy` with the exact diagnostic:
+Si muestran `status: invalid` con el diagnóstico "terminal legacy authority is missing its receipt", use `quarantine-legacy` con el diagnóstico exacto:
 
 ```powershell
 gentle-ai review quarantine-legacy `
@@ -135,78 +125,56 @@ actor=andres
 reason=issue-198"
 ```
 
-Note: `quarantine-legacy` only accepts the diagnostic
-`malformed historical findings-freeze`. For entries already in
-`historical-pre-receipt` state, no further action is needed.
+Nota: `quarantine-legacy` sólo acepta el diagnóstico `malformed historical findings-freeze`. Para las entradas que ya se encuentran en estado `historical-pre-receipt`, no se requiere acción adicional.
 
----
-
-## Validate After Cleanup
+## Validación tras la limpieza
 
 ```powershell
-# For a worktree without remote tracking, provide --base-ref explicitly:
+# Para un worktree sin seguimiento remoto, proporcione --base-ref explícitamente:
 gentle-ai review validate --gate pre-push --base-ref origin/main --cwd .
 
-# Expected in pre-MVP (empty publication range — nothing to push):
+# Esperado en pre-MVP (rango de publicación vacío: nada que empujar):
 # { "result": "allow", "allowed": true, "reason": "the publication range is empty" }
 
-# If the branch has commits ahead of origin/main:
+# Si la rama tiene commits por delante de origin/main:
 gentle-ai review validate --gate pre-push --base-ref origin/main --cwd .
 ```
 
-In pre-MVP, `validate` returns `result: invalidated` with reason
-`"review-driven development is disabled and no receipt governs this candidate"`
-when no `--base-ref` is provided and the worktree has no remote tracking. This is
-**expected behaviour** — the pre-MVP gate is CI, not review receipts.
+En pre-MVP, `validate` devuelve `result: invalidated` con la razón `"review-driven development is disabled and no receipt governs this candidate"` cuando no se proporciona `--base-ref` y el worktree no tiene seguimiento remoto. Este comportamiento **es esperado**: la compuerta pre-MVP es CI, no recibos de revisión.
 
----
+## Limitaciones conocidas
 
-## Known Limitations
+### `status: active` en lugar de `status: complete`
 
-### `status: active` instead of `status: complete`
+El inventario puede mostrar `authoritative: true, complete: true, status: active` incluso después de la limpieza. `status: complete` requiere que **todas** las entradas estén en estados terminales (`approved`, `invalidated`, `superseded`, `quarantined`). Tres formas de entrada no tienen camino de resolución en pre-MVP porque requieren participación de un revisor:
 
-The inventory may show `authoritative: true, complete: true, status: active`
-even after cleanup. `status: complete` requires **all entries** to be in terminal
-states (`approved`, `invalidated`, `superseded`, `quarantined`). Three entry
-shapes currently have **no resolution path in pre-MVP** because they require
-reviewer participation:
-
-| Shape | Count | Blocker |
+| Forma | Conteo | Bloqueo |
 |---|---|---|
-| `active/correction_required` | 1 | `reopen-results` fails: "reviewer artifact is unreadable or outside the native size bound" — the preserved lens result artifact is corrupted/missing. No CLI command quarantines this shape today. |
-| `active/validating` | 2 | Same corrupted-artifact issue; `reopen-results --prepare` fails identically. |
+| `active/correction_required` | 1 | `reopen-results` falla: "reviewer artifact is unreadable or outside the native size bound" — el artefacto preservado del resultado de la lente está corrupto o ausente. Ningún comando del CLI pone en cuarentena esta forma hoy. |
+| `active/validating` | 2 | Mismo problema de artefacto corrupto; `reopen-results --prepare` falla idénticamente. |
 
-These entries cannot be abandoned (they are not pristine) and cannot be disposed
-(no usable lens result to dispose). They remain as known limitations until:
+Estas entradas no pueden abandonarse (no son prístinas) ni disponerse (no existe un resultado de lente utilizable que disponer). Permanecen como limitaciones conocidas hasta que:
 
-1. The gentle-ai CLI ships a command to force-quarantine entries with corrupted
-   artifacts, **or**
-2. A reviewer re-runs the review end-to-end, producing fresh artifacts.
+1. El CLI gentle-ai publique un comando para poner en cuarentena forzada entradas con artefactos corruptos, **o**
+2. Un revisor vuelva a ejecutar la revisión de extremo a extremo, produciendo artefactos nuevos.
 
-**Pre-MVP workaround**: treat `status: active` with `authoritative: true,
-complete: true` as the acceptable clean state. CI gates remain operative.
+**Workaround pre-MVP**: trate `status: active` con `authoritative: true, complete: true` como el estado limpio aceptable. Las compuertas de CI siguen operativas.
 
----
+## Reversión
 
-## Rollback
+Las operaciones de abandono son **terminales e idempotentes**: reejecutar el abandono sobre una entrada ya en cuarentena converge sin error. No existe reversión para un abandono ya comprometido; la entrada permanece en cuarentena.
 
-Abandon operations are **terminal and idempotent** — re-running abandon on an
-already-quarantined entry converges without error. There is no rollback for a
-committed abandon; the entry stays in quarantine.
-
-To inspect quarantine:
+Para inspeccionar la cuarentena:
 
 ```powershell
-# Quarantine paths are under the shared .git directory:
+# Las rutas de cuarentena viven bajo el directorio .git compartido:
 # .git/gentle-ai/review-transactions/quarantine/<lineage_id>-<timestamp>/
 ```
 
----
+## Documentos relacionados
 
-## Related
-
-- `gentle-ai review mode` — enable/disable RDD; `off` is correct for pre-MVP.
-- `gentle-ai review repair --preflight` — classify inventory health.
-- `gentle-ai review inspect-authority` — deep inventory inspection.
-- `docs/audits/review-authority-inventory-cleanup-2026-Q3.md` — audit doc.
-- Issue #198: <https://github.com/ardelperal/APAP_WEB/issues/198>
+- `gentle-ai review mode` — activa/desactiva RDD; `off` es correcto en pre-MVP.
+- `gentle-ai review repair --preflight` — clasifica la salud del inventario.
+- `gentle-ai review inspect-authority` — inspección profunda del inventario.
+- `docs/audits/review-authority-inventory-cleanup-2026-Q3.md` — documento de auditoría.
+- Issue #198: https://github.com/ardelperal/APAP_WEB/issues/198

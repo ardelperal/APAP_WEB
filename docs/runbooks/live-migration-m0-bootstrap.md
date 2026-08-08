@@ -1,127 +1,101 @@
-# Live Migration M0 Bootstrap Runbook
+[← Back to README](../../README.md)
 
-## When to trigger
+# live-migration-m0-bootstrap.md
 
-Run this before the first live-data migration apply in the `live-data-migration-sandbox` chain, and after any operator rollback that deletes `web_only_feature_shadow` or the `apap-photos` bucket.
+Este runbook es el procedimiento del operador para preparar la infraestructura mínima previa a la primera migración de datos en vivo en la cadena `live-data-migration-sandbox`. Aplica al PR2/M0.
 
-## Pre-deploy checklist
+## Quick Navigation
 
-- Code tests for PR2 are green; do not run this against InsForge as part of ordinary pytest.
-- `APAP_INSFORGE_URL` points to the intended APAP backend.
-- `APAP_INSFORGE_SERVICE_KEY` is available only in the operator shell, never committed.
-- You are not running a real data import in this work unit; this step only prepares/checks infrastructure.
+| Sección | Propósito |
+|---|---|
+| Cuándo abrir este runbook | Disparadores que justifican la apertura del runbook |
+| Lista de comprobación previa | Verificaciones de credenciales y ámbito del trabajo |
+| Pasos de despliegue | Checkpoint de sólo lectura y creación privada del bucket |
+| Verificación | Estado `isPublic=false` y pruebas de shadow state |
+| Reversión | Alternativas no destructivas frente a las destructivas de último recurso |
 
-## Deploy steps
+## Cuándo abrir este runbook
 
-1. Read-only checkpoint:
+Abra este runbook antes de la primera ejecución de migración de datos en vivo en la cadena `live-data-migration-sandbox`. Ábralo también tras cualquier reversión que haya eliminado `web_only_feature_shadow` o el bucket `apap-photos`.
 
-   ```bash
-   python -m migration ensure-bucket apap-photos --check-only
-   ```
+## Lista de comprobación previa
 
-   Expected private-state output:
+- Las pruebas de código del PR2 pasan en verde; no ejecute este runbook contra InsForge como parte del pytest ordinario.
+- `APAP_INSFORGE_URL` apunta al backend APAP previsto.
+- `APAP_INSFORGE_SERVICE_KEY` está disponible sólo en el shell del operador, nunca en el repositorio.
+- No se está ejecutando una importación real de datos en esta unidad de trabajo; este paso sólo prepara y verifica infraestructura.
 
-   ```text
-   bucket=apap-photos status=exists isPublic=false
-   ```
+## Pasos de despliegue
 
-2. If the bucket is missing and the operator approves infrastructure mutation, create it private:
+1. **Checkpoint de sólo lectura:**
 
-   ```bash
-   python -m migration ensure-bucket apap-photos
-   ```
+    ```bash
+    python -m migration ensure-bucket apap-photos --check-only
+    ```
 
-   Expected output:
+    Salida esperada del estado privado:
 
-   ```text
-   bucket=apap-photos status=created isPublic=false
-   ```
+    ```text
+    bucket=apap-photos status=exists isPublic=false
+    ```
 
-3. Do not run a real apply in this PR2 work unit. The first later non-check-only `python -m migration apply ...` run will ensure `web_only_feature_shadow` before acquiring the migration lock and before reading legacy rows. If an operator chooses to pre-create the table separately, use the DDL in `migration/shadow_state.py`, record the checkpoint, and keep the rollback below available.
+2. **Si el bucket no existe y el operador aprueba la mutación de infraestructura**, créelo como privado:
 
-## Verification
+    ```bash
+    python -m migration ensure-bucket apap-photos
+    ```
 
-- The command output must include `isPublic=false`.
-- If the command returns `bucket_public_violation`, stop. Do not apply data. Recreate the bucket as private through the InsForge infrastructure tool and re-run the read-only checkpoint.
-- If the command returns `bucket_visibility_unknown`, stop. Use the InsForge MCP `list-buckets` infrastructure tool to verify visibility before continuing.
-- `python -m pytest tests/migration/test_shadow_state.py tests/migration/test_bucket_invariant.py -v` must pass locally without real backend access.
+    Salida esperada:
 
-## Rollback
+    ```text
+    bucket=apap-photos status=created isPublic=false
+    ```
 
-> **Destructive actions in this section are last-resort.** They discard
-> durable artifacts that the operator and audit trail depend on. Do NOT
-> use them as the default rollback path. Prefer the non-destructive
-> alternatives first; if a destructive step is unavoidable, the
-> preconditions below MUST be met and recorded before the operator
-> runs the command.
+3. **No ejecute una aplicación real en esta unidad de trabajo PR2.** La siguiente ejecución no-de-check-only de `python -m migration apply …` se encargará de asegurar `web_only_feature_shadow` antes de adquirir el lock de migración y antes de leer filas legadas. Si un operador elige pre-crear la tabla por separado, use la DDL en `migration/shadow_state.py`, registre el checkpoint y conserve la reversión siguiente disponible.
 
-### Non-destructive alternatives (preferred)
+## Verificación
 
-- **Shadow-state disable instead of `DROP TABLE`:** keep the
-  `web_only_feature_shadow` table and the divergence/audit history
-  intact. Stop future `apply` runs by clearing
-  `migration.lock_snapshot.json` (if any) and using
-  `APAP_MIGRATION_DIR` overrides to point the next apply at a no-op
-  destination; the table continues to record audit history for the
-  legacy side. This is the default rollback when the table contains
-  rows.
-- **Bucket quarantine instead of `delete-bucket`:** keep the bucket
-  objects in place and prevent new uploads by removing the InsForge
-  service role permission for the bucket. Existing photos stay
-  available to authenticated reads; the audit trail stays intact.
-- **CLI checkpoint-only mode** (`python -m migration ensure-bucket
-  apap-photos --check-only`) is a non-mutating operator tool. Run it
-  to verify state without writing.
+- La salida del comando debe incluir `isPublic=false`.
+- Si el comando devuelve `bucket_public_violation`, deténgase. No aplique datos. Recree el bucket como privado mediante la herramienta de infraestructura de InsForge y reejecute el checkpoint de sólo lectura.
+- Si el comando devuelve `bucket_visibility_unknown`, deténgase. Use la herramienta MCP `list-buckets` de InsForge para verificar la visibilidad antes de continuar.
+- `python -m pytest tests/migration/test_shadow_state.py tests/migration/test_bucket_invariant.py -v` debe pasar localmente sin acceso al backend real.
 
-### Destructive rollback (last resort)
+## Reversión
 
-#### `DROP TABLE web_only_feature_shadow`
+> **Las acciones destructivas en esta sección son de último recurso.** Descartan artefactos duraderos de los que dependen el operador y el rastro de auditoría. NO las use como camino de reversión por defecto. Prefiera las alternativas no destructivas en primer lugar; si un paso destructivo es inevitable, los precondiciones siguientes DEBEN cumplirse y registrarse antes de que el operador ejecute el comando.
 
-- **Effect:** destructive of the divergence/audit history for every
-  pending `needs_review` row. Once the rows are dropped, the operator
-  loses the source/target hash evidence and the manual reconciliation
-  workflow that PR5/PR6 rely on.
-- **Preconditions (MUST be true before the operator runs the
-  command):**
-  1. A verified backup/export of the table (e.g. `pg_dump --table
-     web_only_feature_shadow`) is stored outside the affected InsForge
-     database and the path is recorded in the operator ticket.
-  2. `SELECT COUNT(*) FROM web_only_feature_shadow WHERE
-     reconciliation_status IN ('pending', 'needs_review')` returns
-     `0`, OR the operator has recorded an explicit sign-off in the
-     ticket explaining why losing the rows is acceptable.
-  3. No in-flight migration depends on the table (no active
-     `migration.lock`; no open `apply`/`reconcile` run).
-- **Do NOT use `TRUNCATE` as a "safer" alternative.** `TRUNCATE` does
-  not call the rollback transaction; it permanently removes all rows
-  without per-row logging, which is exactly what the
-  verified-backup/empty-proof preconditions are designed to prevent.
-  If a destructive reset is required, the operator MUST use `DROP
-  TABLE` together with the verified backup.
+### Alternativas no destructivas (preferidas)
 
-#### `delete-bucket apap-photos`
+- **Desactivación de shadow state en lugar de `DROP TABLE`:** mantenga la tabla `web_only_feature_shadow` y el historial de divergencia/auditoría intactos. Detenga futuras ejecuciones de `apply` borrando `migration.lock_snapshot.json` (si existe) y usando los overrides de `APAP_MIGRATION_DIR` para apuntar la siguiente ejecución de `apply` a un destino no-op. La tabla continúa registrando el historial de auditoría para el lado legado. Esta es la reversión por defecto cuando la tabla contiene filas.
+- **Cuarentena del bucket en lugar de `delete-bucket`:** mantenga los objetos del bucket en su sitio y evite nuevas subidas eliminando el permiso del rol de servicio de InsForge para el bucket. Las fotografías existentes permanecen disponibles para lecturas autenticadas; el rastro de auditoría permanece intacto.
+- **Modo checkpoint-only del CLI** (`python -m migration ensure-bucket apap-photos --check-only`) es una herramienta no mutante del operador. Ejecútelo para verificar el estado sin escribir.
 
-- **Effect:** destructive of every uploaded photo currently stored
-  under the bucket, including any data already referenced by
-  `animales.nombrefoto` in the web DB. The `GET /animales/{animal_id}
-  /foto` route will fall back to placeholder bytes for every row
-  whose object key disappears.
-- **Preconditions (MUST be true before the operator runs the
-  command):**
-  1. A verified export of the bucket contents (InsForge storage
-     download or equivalent) is stored outside the affected InsForge
-     deployment and the path is recorded in the operator ticket.
-  2. `apap-photos` is empty (`apap-photos` object count = 0) OR the
-     operator has recorded an explicit sign-off in the ticket
-     explaining why losing the uploaded photos is acceptable.
-  3. No in-flight migration depends on the bucket (no active
-     `apply`/`reconcile` run referencing the bucket).
-- **Never replace the bucket with a public bucket.** The PR2 private
-  invariant (`isPublic=false`) is a hard privacy contract; rebuilding
-  the bucket as public is rejected by the bootstrap fail-closed check.
+### Reversión destructiva (último recurso)
 
-### Code rollback (no data effect)
+**`DROP TABLE web_only_feature_shadow`**
 
-Revert the PR2 commit. This removes the CLI checkpoint, bucket
-bootstrap wiring, and tests without touching unrelated migration
-slices or any live InsForge state.
+- **Efecto**: destructivo del historial de divergencia/auditoría para cada fila pendiente en `needs_review`. Una vez eliminadas las filas, el operador pierde la evidencia de hashes de origen/destino y el flujo de conciliación manual del que dependen PR5/PR6.
+- **Precondiciones (DEBEN cumplirse antes de que el operador ejecute el comando):**
+    1. Una copia de seguridad verificada de la tabla (por ejemplo, `pg_dump --table web_only_feature_shadow`) se almacena fuera de la base de datos InsForge afectada y la ruta queda registrada en el ticket del operador.
+    2. `SELECT COUNT(*) FROM web_only_feature_shadow WHERE reconciliation_status IN ('pending', 'needs_review')` devuelve `0`, O el operador ha registrado una aprobación explícita en el ticket explicando por qué la pérdida de filas resulta aceptable.
+    3. Ninguna migración en curso depende de la tabla (sin `migration.lock` activo; sin ejecuciones abiertas de `apply`/`reconcile`).
+- **NO use `TRUNCATE` como alternativa "más segura".** `TRUNCATE` no participa de la transacción de reversión; elimina permanentemente todas las filas sin registro por fila, que es exactamente lo que las precondiciones de copia verificada y prueba de vacío están diseñadas para impedir. Si se requiere un reinicio destructivo, el operador DEBE usar `DROP TABLE` junto con la copia verificada.
+
+**`delete-bucket apap-photos`**
+
+- **Efecto**: destructivo de cada fotografía cargada actualmente bajo el bucket, incluyendo los datos ya referenciados por `animales.nombrefoto` en la base de datos web. La ruta `GET /animales/{animal_id}/foto` recurrirá a bytes de placeholder para cada fila cuya clave de objeto desaparezca.
+- **Precondiciones (DEBEN cumplirse antes de que el operador ejecute el comando):**
+    1. Una exportación verificada del contenido del bucket (descarga desde InsForge Storage o equivalente) se almacena fuera del despliegue InsForge afectado y la ruta queda registrada en el ticket del operador.
+    2. `apap-photos` está vacío (recuento de objetos en `apap-photos` igual a 0) O el operador ha registrado una aprobación explícita en el ticket explicando por qué la pérdida de las fotografías resulta aceptable.
+    3. Ninguna migración en curso depende del bucket (sin ejecuciones activas de `apply`/`reconcile` que referencien el bucket).
+- **Nunca reemplace el bucket por un bucket público.** La invariante privada de PR2 (`isPublic=false`) es un contrato estricto de privacidad; reconstruir el bucket como público queda rechazado por la comprobación fail-closed del bootstrap.
+
+### Reversión de código (sin efecto sobre los datos)
+
+Revierta el commit de PR2. Esta operación elimina el checkpoint del CLI, el cableado del bootstrap del bucket y las pruebas, sin tocar porciones de migración no relacionadas ni estado vivo de InsForge.
+
+## Documentos relacionados
+
+- `migration/shadow_state.py` — DDL de `web_only_feature_shadow` y semillas.
+- `migration/photo_migration.py` — flujo de subida de fotografías ejecutado por el pass de `animal`.
+- `AGENTS.md` §18 — exclusión mutua web ↔ legacy y sincronización obligatoria.

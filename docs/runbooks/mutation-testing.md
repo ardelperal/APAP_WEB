@@ -1,90 +1,90 @@
-# Runbook — mutation testing gate
+[← Back to README](../../README.md)
 
-Issue #431 (PR #2 of `quality-gates-expansion`). Companion to
-`scripts/check_mutation.py` and `docs/quality/cosmic-ray.toml`.
+# mutation-testing.md
 
-## When to trigger
+Este runbook cubre el gate de mutation testing basado en cosmic-ray. Aplica al PR #2 de `quality-gates-expansion` (#431).
 
-- A nightly/weekly scheduled CI run (once TASK-2.6 wires the job).
-- Manually, before strengthening the tests of a module in the target set.
-- After adding a module to the target set, to acquire its baseline entry.
+## Quick Navigation
 
-Never on a pull request. A cosmic-ray session over the pilot module is ~233
-mutants; the gate is a trend instrument, not a per-PR check.
+| Sección | Propósito |
+|---|---|
+| Cuándo abrir este runbook | Disparadores que justifican una sesión de mutation testing |
+| Lista de comprobación previa | Restricciones de plataforma y de baseline antes de empezar |
+| Pasos de despliegue | Secuencia exacta para adquirir o refrescar la baseline |
+| Verificación | Lectura del resultado de `check_mutation.py` y de la tabla de fallos |
+| Reversión | Desactivación del gate sin pérdida de estado |
 
-## Pre-flight checklist
+## Cuándo abrir este runbook
 
-1. **You are on Linux.** This is not a preference. cosmic-ray 8.4.6 returns
-   `INCOMPETENT` for 100% of mutants on native Windows — measured 27/27 on a
-   12-line control module and 233/233 on `migration/derivation.py` — while
-   `cr-rate` reports a passing `0.00` for exactly those sessions. `mutmut`
-   3.7.0 refuses to start on Windows outright (upstream issue boxed/mutmut#397).
-   On a Windows workstation, use WSL:
+Abra este runbook en las siguientes situaciones:
 
-   ```bash
-   wsl -d Ubuntu-22.04
-   ```
+- Una ejecución programada nocturna o semanal del CI (cuando TASK-2.6 conecte el job).
+- De forma manual, antes de reforzar las pruebas de un módulo del conjunto objetivo.
+- Tras añadir un módulo al conjunto objetivo, para adquirir su entrada de baseline.
+- Antes de fusionar un PR que modifique `scripts/check_mutation.py` o `docs/quality/cosmic-ray.toml`.
 
-2. **The test command resolves without a shell.** cosmic-ray spawns its worker
-   with no shell, so a bare `python` may not resolve. If
-   `cosmic-ray baseline docs/quality/cosmic-ray.toml` prints an error block,
-   substitute an absolute interpreter path in `test-command` before going
-   further.
+**Nunca** ejecute el gate dentro de un pull request. Una sesión de cosmic-ray sobre el módulo piloto genera aproximadamente 233 mutantes. El gate mide tendencia, no calidad por commit.
 
-3. **The unmutated suite is green.** `cosmic-ray baseline` must print nothing.
-   A failing baseline makes every subsequent result meaningless.
+## Lista de comprobación previa
 
-## Acquiring or refreshing the baseline
+1. **El sistema operativo es Linux.** cosmic-ray 8.4.6 devuelve `INCOMPETENT` para el 100 % de los mutantes en Windows nativo — medido en 27 de 27 sobre un módulo de control de doce líneas y en 233 de 233 sobre `migration/derivation.py`. Mientras tanto, `cr-rate` reporta un `0.00` aprobatorio exactamente para esas sesiones. `mutmut` 3.7.0 rechaza arrancar en Windows (issue upstream boxed/mutmut#397). Sobre una estación Windows, use WSL:
+
+    ```bash
+    wsl -d Ubuntu-22.04
+    ```
+
+2. **El comando de prueba resuelve sin shell.** cosmic-ray lanza su worker sin shell, por lo que un `python` sin ruta absoluta puede no resolver. Si `cosmic-ray baseline docs/quality/cosmic-ray.toml` imprime un bloque de error, sustituya por una ruta absoluta del intérprete en `test-command` antes de continuar.
+
+3. **La suite sin mutar pasa en verde.** `cosmic-ray baseline` debe imprimir nada. Una baseline fallida invalida todo resultado posterior.
+
+## Pasos de despliegue
+
+Adquiera o refresque la baseline con la siguiente secuencia:
 
 ```bash
-export PYTHONHASHSEED=0                     # determinism (TASK-2.1, W-5)
+export PYTHONHASHSEED=0                     # determinismo (TASK-2.1, W-5)
 cosmic-ray init docs/quality/cosmic-ray.toml mutation.sqlite
 cr-filter-operators mutation.sqlite docs/quality/cosmic-ray.toml
 cosmic-ray exec docs/quality/cosmic-ray.toml mutation.sqlite
 python scripts/check_mutation.py mutation.sqlite --emit-baseline
 ```
 
-**Never skip `cr-filter-operators`.** It excludes mutations of the `|` in PEP
-604 type annotations, which no test can kill because `from __future__ import
-annotations` stops annotations from ever evaluating. On the first pilot run
-those accounted for 66 of 104 reported survivors — 63% of the score was noise
-that would have been frozen into the baseline as if it were real debt.
+**Nunca omita `cr-filter-operators`.** Esta herramienta excluye las mutaciones del operador `|` en las anotaciones de tipo PEP 604, que ninguna prueba puede matar porque `from __future__ import annotations` evita la evaluación. En la primera sesión piloto estas mutaciones supusieron 66 de 104 supervivientes reportados. El 63 % de la métrica era ruido que se habría congelado en la baseline como si fuera deuda real.
 
-`--worker-count=1` from TASK-2.1 does **not** exist: `cosmic-ray exec` 8.4.6
-takes no such option and its `local` distributor is already sequential.
+`--worker-count=1` de TASK-2.1 **no existe**: `cosmic-ray exec` 8.4.6 no acepta esa opción y su distribuidor `local` ya es secuencial.
 
-Write the emitted JSON into `docs/quality/mutation-baseline.json` under a
-`modules` key, and record in the PR body **which platform and runner** produced
-it. A baseline acquired anywhere other than the CI Linux runner is not
-admissible.
+Guarde el JSON emitido en `docs/quality/mutation-baseline.json` bajo una clave `modules`, y registre en el cuerpo del PR **qué plataforma y runner** lo produjo. Una baseline adquirida fuera del runner Linux de CI no es admisible.
 
-## Verification
+## Verificación
+
+Ejecute el wrapper para evaluar la sesión:
 
 ```bash
 python scripts/check_mutation.py mutation.sqlite
 ```
 
-Exit code 0 with `check_mutation: OK` is the pass condition.
+La condición de aprobado es código de salida 0 con el mensaje `check_mutation: OK`.
 
-## How to read a failure
+### Lectura de un fallo
 
-| Message | Meaning | Action |
+| Mensaje | Significado | Acción |
 |---|---|---|
-| `came back INCOMPETENT, above the 20% ceiling` | The runner is broken, not the code. Almost always: the session was produced on Windows. | Re-run on Linux. Do **not** adjust the ceiling. |
-| `0/N mutants were killed` | The suite never ran against mutated code. | Check `cosmic-ray baseline` and the `test-command`. |
-| `session is incomplete` | `cosmic-ray exec` was interrupted. | Re-run `exec`; the session resumes. |
-| `grew beyond its baseline` | Real regression: a change added surviving mutants. | Strengthen the tests, or justify and re-baseline explicitly in the PR. |
-| `no baseline entry` | A module entered the target set without being pinned. | Add its entry via `--emit-baseline` in the same PR. |
-| `stale baseline entry` | A pinned module left the target set or was renamed. | Remove or update the entry. |
+| `came back INCOMPETENT, above the 20% ceiling` | El runner está roto, no el código. Casi siempre: la sesión se produjo en Windows. | Reejecute sobre Linux. **No** ajuste el techo. |
+| `0/N mutants were killed` | La suite nunca corrió contra código mutado. | Revise `cosmic-ray baseline` y `test-command`. |
+| `session is incomplete` | `cosmic-ray exec` se interrumpió. | Reejecute `exec`; la sesión se reanuda. |
+| `grew beyond its baseline` | Regresión real: un cambio añadió mutantes supervivientes. | Refuerce las pruebas, o justifique y re-baserline explícitamente en el PR. |
+| `no baseline entry` | Un módulo entró al conjunto objetivo sin pinear. | Añada su entrada vía `--emit-baseline` en el mismo PR. |
+| `stale baseline entry` | Un módulo pineado salió del conjunto objetivo o cambió de nombre. | Elimine o actualice la entrada. |
 
-The first two rows are the reason this wrapper exists. `cr-rate --fail-over N`
-cannot distinguish them from a perfect score — it reports `0.00` and exits 0 in
-both cases. Verified end to end on 2026-08-06: on the broken Windows session,
-`cr-rate --fail-over 20` exits 0 while `scripts/check_mutation.py` exits 1.
+Las dos primeras filas son la razón de ser de este wrapper. `cr-rate --fail-over N` no las distingue de una puntuación perfecta: reporta `0.00` y sale con 0 en ambos casos. Verificado de extremo a extremo el 2026-08-06: sobre la sesión rota de Windows, `cr-rate --fail-over 20` sale con 0 mientras que `scripts/check_mutation.py` sale con 1.
 
-## Rollback
+## Reversión
 
-The gate is read-only over a session database and touches no application code.
-To disable it, remove the CI step; there is no state to unwind. Deleting
-`docs/quality/mutation-baseline.json` makes the gate fail closed
-(`baseline not found`) rather than silently pass — that is intentional.
+El gate es de sólo lectura sobre la base de datos de la sesión y no toca código de aplicación. Para desactivarlo, retire el paso del CI; no existe estado que deshacer. Eliminar `docs/quality/mutation-baseline.json` provoca que el gate falle cerrado (`baseline not found`) en lugar de aprobar silenciosamente. Ese comportamiento es deliberado.
+
+## Documentos relacionados
+
+- Issue #431 — gate de mutation testing como PR #2 de `quality-gates-expansion`.
+- `scripts/check_mutation.py` — wrapper que distingue `INCOMPETENT` de `0/N killed`.
+- `docs/quality/cosmic-ray.toml` — configuración de operadores y módulos objetivo.
+- `docs/quality/mutation-baseline.json` — baseline pineada (adquirida sólo en runner Linux).
