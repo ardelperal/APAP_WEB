@@ -1,395 +1,210 @@
-# Auth Dependencies Audit — 2026 Q2
+[← Back to README](../../README.md)
 
-**Scope**: every public function in `app/core/auth_dependencies.py`
-**Method**: code review + codegraph caller analysis + existing-test coverage check + pre-slice form audit
-**Date**: 2026-06-27
-**Verdict**: **PASS** — auth_dependencies.py is currently compliant with the rules
-in scope (Rule 6 fixed in PR-3, Rule 7 already correct per current code;
-SB-3 verified `PUBLIC_PATHS` includes `/auth/callback`). The single HIGH
-finding is the absence of CSRF defense, addressed in PR-5B.
+# auth-dependencies-audit-2026-Q2.md
 
----
+This audit documents the scope, methodology, findings, and verdict for the audit listed in the title. Esta auditoría documenta el alcance, la metodología, los hallazgos y el veredicto de la revisión de cada función pública de `app/core/auth_dependencies.py` ejecutada en 2026 Q2, con addenda posteriores para issues #226, #229, slice #420-7 e issue #430.
+
+| Sección | Descripción |
+|---|---|
+| [Scope](#scope) | Funciones públicas y callers de `app/core/auth_dependencies.py`. |
+| [Methodology](#methodology) | Procedimiento aplicado para auditar las cuatro funciones. |
+| [Findings](#findings) | Severidad, título, forma y detalle de cada hallazgo. |
+| [Verdict](#verdict) | Estado final de cumplimiento de las reglas. |
+| [References](#references) | Spec, design, tasks y PRs relacionados. |
 
 ## Scope
 
 | Item | Value |
 |---|---|
-| File audited | `app/core/auth_dependencies.py` |
-| Lines audited | 142 |
-| Public functions | 4 (`get_insforge_client_dep`, `get_current_user_optional`, `return_early_if_response`, `require_authorized_user`) |
-| Cross-references | `app/main.py` (middleware + `_redirect` helper), `app/core/session.py` (`read_session`, `session_cookie_name`), `app/core/csrf.py` (PR-5B, planned) |
-| Auditors | `sdd-apply` PR-5A on `hardening-2026-q2/slice-5a-audit-doc` from `staging` (bd8a98e) |
+| Fichero auditado | `app/core/auth_dependencies.py` |
+| Líneas auditadas | 142 |
+| Funciones públicas | 4 (`get_insforge_client_dep`, `get_current_user_optional`, `return_early_if_response`, `require_authorized_user`) |
+| Cross-references | `app/main.py` (middleware + helper `_redirect`), `app/core/session.py` (`read_session`, `session_cookie_name`), `app/core/csrf.py` (PR-5B, planificado) |
+| Auditores | `sdd-apply` PR-5A sobre `hardening-2026-q2/slice-5a-audit-doc` desde `staging` (bd8a98e) |
+| Fecha | 2026-06-27 |
+
+### Funciones auditadas
+
+### `get_insforge_client_dep()` — línea 40
+
+| Aspecto | Detalle |
+|---|---|
+| Firma | `def get_insforge_client_dep():` (sin anotación, generator) |
+| Retorno | `Iterator[InsForgeClient]` (implícito) |
+| Callers | 5 sitios en `app/modules/{animals,entradas,voluntarios}/routes.py`; tests vía `app.dependency_overrides[...]` |
+| Cobertura | Indirecta — ejercida por cada test de ruta que use `app.dependency_overrides` |
+| Hallazgos | Falta anotación de tipo de retorno (LOW-2); contrato de gestión de recursos correcto |
+| Oportunidades de consolidación | Ninguna — responsabilidad única (ciclo de vida del cliente por request) |
+
+### `get_current_user_optional(request: Request) -> dict | None` — línea 68
+
+| Aspecto | Detalle |
+|---|---|
+| Firma | `def get_current_user_optional(request: Request) -> dict \| None` |
+| Retorno | dict del payload de sesión, o `None` si la cookie falta o es inválida |
+| Callers | `require_authorized_user` (línea 110), `app/main.py:208` (ruta `/unauthorized`) |
+| Cobertura | Cubierta indirectamente vía tests de `require_authorized_user` + test de ruta `/unauthorized` |
+| Hallazgos | Ninguno funcional |
+| Oportunidades de consolidación | HIGH PRIORITY para PR-5B — el futuro `CsrfMiddleware.dispatch` en `app/core/csrf.py` replicará este patrón exacto de lectura de cookie y decodificación. Extraer `read_session_payload(request) -> dict \| None` y que ambos lo llamen. Rastreado como MEDIUM-1 (la extracción es mayor que un fix de una línea; se ata al finding de "triple duplication" de abajo). |
+
+### `return_early_if_response(value: object) -> Response | None` — línea 83
+
+| Aspecto | Detalle |
+|---|---|
+| Firma | `def return_early_if_response(value: object) -> Response \| None` |
+| Retorno | el valor si es `Response`; en otro caso `None` |
+| Callers | `app/main.py:193`, `app/main.py:343`; no usado por rutas de módulo (que aún esperan que `user` sea dict y usan otros patrones) |
+| Cobertura | Indirecta (cubierta por tests de ruta que ejercen el auth guard) |
+| Hallazgos | MEDIUM-1 — el tipo del parámetro `object` es demasiado amplio. Los únicos callers pasan `Response \| dict`; tighten a `Response \| dict` captura el misuse en tiempo de type-check y hace explícita la intención del helper. Toca los callers en `app/main.py` (2 sitios). |
+| Oportunidades de consolidación | Ninguna — helper leaf, responsabilidad única |
+
+### `require_authorized_user(request, payload=Depends(get_current_user_optional)) -> Response | dict` — línea 108
+
+| Aspecto | Detalle |
+|---|---|
+| Firma | `def require_authorized_user(request: Request, payload: dict \| None = Depends(get_current_user_optional)) -> Response \| dict` |
+| Retorno | `RedirectResponse` (sin sesión o sin autorización) o dict del payload (autorizado) |
+| Callers | 23 usos en producción repartidos en `app/main.py` (4 sitios), `app/modules/animals/routes.py` (7), `app/modules/entradas/routes.py` (7), `app/modules/voluntarios/routes.py` (5) |
+| Cobertura | Directa: `tests/test_auth_dependencies.py::test_require_authorized_user_default_false`, `::test_pre_fix_cookie_redirects_to_unauthorized`. Indirecta: tests de ruta en `tests/test_animals_routes_redirects.py`, `tests/test_entradas_routes.py`, `tests/test_auth_session_is_authorized.py` |
+| Hallazgos | Cumple Regla 7: devuelve `RedirectResponse` (no `HTTPException`); default-flip a `False` confirmado (PR-3); docstring ya explica el linaje de Regla 6 + Regla 7 |
+| Oportunidades de consolidación | LOW-1 (triple duplication) — el middleware en `app/main.py:147-175` (`protect_user_facing_routes`) TAMBIÉN lee la cookie de sesión, decodifica el payload y comprueba `is_authorized`. Tras PR-5B, `CsrfMiddleware` será una tercera copia de este patrón. Las copias en el middleware no pueden importar esta dependency (corren antes de la dep injection de FastAPI), así que la consolidación debe ser un leaf helper (`read_session_payload(request)`) al que los tres llamen. Rastreado como MEDIUM-2 porque cruza límites de fichero y se beneficia de hacerse junto con `CsrfMiddleware` de PR-5B (el nuevo call site es el motivador más fuerte). |
 
 ## Methodology
 
-1. **Read** every line of `app/core/auth_dependencies.py` and the 4 caller files
-   (`app/main.py`, `app/modules/animals/routes.py`, `app/modules/entradas/routes.py`,
-   `app/modules/voluntarios/routes.py`).
-2. **codegraph_explore** for cross-file caller analysis (blast radius per symbol).
-3. **Existing test coverage check** — read `tests/test_auth_dependencies.py`,
-   `tests/test_auth_session_is_authorized.py`, `tests/test_middleware_is_authorized.py`,
-   `tests/test_animals_routes_redirects.py` to confirm Rule 7 behavior is pinned.
-4. **Static grep audit** — confirm `HTTPException(status_code=302` returns 0
-   matches in `app/`.
-5. **Pre-slice form audit** (per round-2 fix `REG-S-2`) — enumerate all
-   `<form method="post">` in `app/templates/`, count, map to handler routes,
-   confirm none currently carry `<input type="hidden" name="csrf_token">`.
-   Captured as the starting state for PR-5B's
-   `tests/test_all_post_forms_have_csrf_input.py`.
+1. **Lectura** de cada línea de `app/core/auth_dependencies.py` y de los 4 ficheros caller (`app/main.py`, `app/modules/animals/routes.py`, `app/modules/entradas/routes.py`, `app/modules/voluntarios/routes.py`).
+2. **codegraph_explore** para análisis de callers cross-file (blast radius por símbolo).
+3. **Comprobación de cobertura de tests existente** — lectura de `tests/test_auth_dependencies.py`, `tests/test_auth_session_is_authorized.py`, `tests/test_middleware_is_authorized.py`, `tests/test_animals_routes_redirects.py` para confirmar que el comportamiento de la Regla 7 está pineado.
+4. **Static grep audit** — confirmación de que `HTTPException(status_code=302` devuelve 0 coincidencias en `app/`.
+5. **Pre-slice form audit** (per round-2 fix `REG-S-2`) — enumeración de todos los `<form method="post">` en `app/templates/`, conteo, mapeo a las rutas handler, confirmación de que ninguno lleva actualmente `<input type="hidden" name="csrf_token">`. Capturado como estado inicial para `tests/test_all_post_forms_have_csrf_input.py` de PR-5B.
 
----
+### Pre-slice form audit (per round-2 fix REG-S-2)
 
-## Functions
+Grep de `<form method="post">` en `app/templates/`:
 
-### `get_insforge_client_dep()` — line 40
-
-| Aspect | Detail |
-|---|---|
-| **Signature** | `def get_insforge_client_dep():` (no annotation, generator) |
-| **Returns** | `Iterator[InsForgeClient]` (implicit) |
-| **Callers** | 5 sites in `app/modules/{animals,entradas,voluntarios}/routes.py`; tests via `app.dependency_overrides[...]` |
-| **Test coverage** | Indirect — exercised by every route test that uses `app.dependency_overrides` |
-| **Findings** | Missing return type annotation (LOW-2); resource-management contract correct |
-| **Consolidation opportunities** | None — single responsibility (per-request client lifecycle) |
-
-### `get_current_user_optional(request: Request) -> dict | None` — line 68
-
-| Aspect | Detail |
-|---|---|
-| **Signature** | `def get_current_user_optional(request: Request) -> dict \| None` |
-| **Returns** | session payload dict, or `None` if cookie missing/invalid |
-| **Callers** | `require_authorized_user` (line 110), `app/main.py:208` (`/unauthorized` route) |
-| **Test coverage** | Covered indirectly via `require_authorized_user` tests + `/unauthorized` route test |
-| **Findings** | None functional |
-| **Consolidation opportunities** | HIGH PRIORITY for PR-5B — the future `CsrfMiddleware.dispatch` in `app/core/csrf.py` will replicate this exact read-cookie-and-decode pattern. Extract `read_session_payload(request) -> dict \| None` and have both call it. Tracked as **MEDIUM-1** (extraction is larger than a one-line fix; ties into the "triple duplication" finding below). |
-
-### `return_early_if_response(value: object) -> Response | None` — line 83
-
-| Aspect | Detail |
-|---|---|
-| **Signature** | `def return_early_if_response(value: object) -> Response \| None` |
-| **Returns** | the value if it's a `Response`; otherwise `None` |
-| **Callers** | `app/main.py:193`, `app/main.py:343`; not used by module routes (which still expect `user` to be a dict and use other patterns) |
-| **Test coverage** | Indirect (covered by route tests that exercise the auth guard) |
-| **Findings** | **MEDIUM-1** — parameter type `object` is overly broad. The only callers pass `Response \| dict`; tightening to `Response \| dict` catches misuse at type-check time and makes the helper's purpose explicit. Touches callers in `app/main.py` (2 sites). |
-| **Consolidation opportunities** | None — leaf helper, single responsibility |
-
-### `require_authorized_user(request, payload=Depends(get_current_user_optional)) -> Response | dict` — line 108
-
-| Aspect | Detail |
-|---|---|
-| **Signature** | `def require_authorized_user(request: Request, payload: dict \| None = Depends(get_current_user_optional)) -> Response \| dict` |
-| **Returns** | `RedirectResponse` (no session OR not authorized) or payload dict (authorized) |
-| **Callers** | 23 production usages across `app/main.py` (4 sites), `app/modules/animals/routes.py` (7), `app/modules/entradas/routes.py` (7), `app/modules/voluntarios/routes.py` (5) |
-| **Test coverage** | Direct: `tests/test_auth_dependencies.py::test_require_authorized_user_default_false`, `::test_pre_fix_cookie_redirects_to_unauthorized`. Indirect: route tests in `tests/test_animals_routes_redirects.py`, `tests/test_entradas_routes.py`, `tests/test_auth_session_is_authorized.py` |
-| **Findings** | Rule 7 compliant: returns `RedirectResponse` (not `HTTPException`); default-flip to `False` confirmed (PR-3); docstring already explains Rule 6 + Rule 7 lineage |
-| **Consolidation opportunities** | **LOW-1** (triple duplication) — the middleware in `app/main.py:147-175` (`protect_user_facing_routes`) ALSO reads the session cookie, decodes the payload, and checks `is_authorized`. After PR-5B, `CsrfMiddleware` will be a third copy of this same pattern. The middleware copies can't import this dependency (they run before FastAPI's dep injection), so the consolidation must be a leaf helper (`read_session_payload(request)`) that all three call. Tracked as **MEDIUM-2** because it crosses file boundaries and benefits from being done together with PR-5B's `CsrfMiddleware` (the new call site is the strongest motivator). |
-
----
-
-## Findings
-
-| # | Severity | Location | Description | Current behavior | Proposed resolution | Status |
-|---|---|---|---|---|---|---|
-| F-1 | **HIGH** | `app/core/auth_dependencies.py` + `app/main.py` (cookies) + 8 templates | **No CSRF defense** on any POST form. A stolen or replayed `apap_session` cookie (e.g. via XSS, log leak) lets an attacker impersonate the user in POSTs to all 10 handlers. | `apap_session` and `apap_pkce` cookies carry `samesite="lax"` (app/main.py:261, :307). No token validation. | **PR-5B** — implement `app/core/csrf.py::CsrfMiddleware`, set `samesite="strict"`, inject `<input type="hidden" name="csrf_token">` into all 8 form templates. Spec REQ-AH-5 through REQ-AH-10. | **TRACKED** — PR-5B (this change's next slice) |
-| F-2 | **MEDIUM** | `app/core/auth_dependencies.py:83` (`return_early_if_response`) | Parameter typed `object`; should be `Response \| dict` for type-safety. Currently the helper accepts anything and only checks `isinstance(value, Response)`. | Helper accepts any value; misuse surfaces as runtime `AttributeError` only when the caller tries to treat the response as a dict. | Tighten annotation to `Response \| dict`; update the 2 call sites in `app/main.py` to pass only `Response \| dict`. Pure type tightening, no behavior change. | **FOLLOW-UP #1** — to open after PR-5B merges |
-| F-3 | **MEDIUM** | `app/core/auth_dependencies.py` + `app/main.py:147-175` + `app/core/csrf.py` (planned) | Triple duplication of "read session cookie + decode payload" pattern. Same 4-line snippet copy-pasted across three locations. | Each call site reads `request.cookies.get(session_cookie_name())`, calls `read_session(token, secret=...)`, returns `None` or dict. | Extract leaf helper `read_session_payload(request) -> dict \| None` in `app/core/auth_dependencies.py` (or `app/core/session.py`); have `get_current_user_optional`, `protect_user_facing_routes` middleware, and `CsrfMiddleware` call it. **Best done together with PR-5B** since that's when the third copy appears. | **FOLLOW-UP #2** — to open after PR-5B merges (or co-shipped with PR-5B as a small extra commit) |
-| F-4 | **MEDIUM** | `app/core/auth_dependencies.py:40` (`get_insforge_client_dep`) | Missing return type annotation on the generator (should be `Iterator[InsForgeClient]`). | Type checkers (mypy/pyright) treat return type as `Any`; downstream type inference degrades. | Add `from collections.abc import Iterator` and annotate as `Iterator[InsForgeClient]`. One-line change, zero behavior delta. | **FOLLOW-UP #1** (bundle with F-2) — same follow-up issue |
-| F-5 | **LOW** | `app/main.py:115` (`_redirect`) | Local helper `def _redirect(path: str) -> RedirectResponse: return RedirectResponse(url=path, status_code=302)`. Redundant with `RedirectResponse(url=path, status_code=302)` inline usage (3 sites in `auth_dependencies.py`). | Two ways to spell the same redirect. Mild cognitive cost. | Consolidate into a single `app/core/redirects.py::redirect(path: str) -> RedirectResponse` and import from both `auth_dependencies.py` and `main.py`. Out of scope for Slice 5 (spec §Out of scope explicitly defers this). | **DOCUMENTED ONLY** — spec §"Out of scope" defers; revisit if usage grows past 5 sites |
-| F-6 | **LOW** | `app/core/auth_dependencies.py:108-141` (`require_authorized_user`) | Two near-identical `RedirectResponse` calls (lines 139, 141) with different URLs. Could be a single dispatch, but the current form is more readable. | Two early-return statements; readability OK. | Leave as-is. Mentioned for completeness. | **NO ACTION** |
-| F-7 | **LOW** | `tests/test_auth_session_is_authorized.py:52` | Test imports `require_authorized_user` from `app.modules.animals.routes` (legacy path); the canonical import is now `app.core.auth_dependencies`. Stale duplicate. | Old test still passes because `animals/routes.py` re-exports the symbol. Mild maintenance debt. | Update import to `app.core.auth_dependencies`. Trivial cleanup, deferred to a tests-cleanup pass. | **DOCUMENTED ONLY** |
-
----
-
-## Pre-slice form audit (per round-2 fix REG-S-2)
-
-### Form enumeration
-
-Grep of `<form method="post">` across `app/templates/`:
-
-| # | Template | Line | Action attribute | Maps to handler |
+| # | Plantilla | Línea | Atributo action | Mapeo al handler |
 |---|---|---|---|---|
 | 1 | `admin.html` | 19 | `/admin/users` | `app/main.py:366` (`@application.post("/admin/users")`) |
 | 2 | `admin.html` | 76 | `/admin/users/{{ u.id }}/deactivate` | `app/main.py:393` (`@application.post("/admin/users/{user_id}/deactivate")`) |
 | 3 | `animales/detail.html` | 16 | `/animales/{{ animal.id }}/delete` | `app/modules/animals/routes.py:357` |
-| 4 | `animales/form.html` | 20 | `""` (self-submit) | `app/modules/animals/routes.py:144` (create) AND `:282` (update) — same template reused |
+| 4 | `animales/form.html` | 20 | `""` (self-submit) | `app/modules/animals/routes.py:144` (create) y `:282` (update) — misma plantilla reutilizada |
 | 5 | `entradas/detail.html` | 14 | `/entradas/{{ entrada.id }}/delete` | `app/modules/entradas/routes.py:244` |
-| 6 | `entradas/form.html` | 20 | `"{{ form_action }}"` (Jinja var) | `app/modules/entradas/routes.py:103` (create) AND `:192` (update) — same template reused |
+| 6 | `entradas/form.html` | 20 | `"{{ form_action }}"` (variable Jinja) | `app/modules/entradas/routes.py:103` (create) y `:192` (update) — misma plantilla reutilizada |
 | 7 | `voluntarios/detail.html` | 11 | `/voluntarios/{{ voluntario.id }}/deactivate` | `app/modules/voluntarios/routes.py:177` |
 | 8 | `voluntarios/form.html` | 18 | `""` (self-submit) | `app/modules/voluntarios/routes.py:103` |
 
-**Counts**: 8 distinct `<form method="post">` tags, **10 POST handlers** (the two form.html files are reused for both create and update). The spec's "10 forms" refers to handlers, not form tags. The audit parametrized test (PR-5B, T-5B.20) will parametrize over the 10 handlers.
+Conteos: 8 tags `<form method="post">` distintos, **10 handlers POST** (los dos `form.html` se reutilizan para create y update). El "10 forms" de la spec se refiere a handlers, no a tags de formulario. El test parametrizado del audit (PR-5B, T-5B.20) parametrizará sobre los 10 handlers.
 
-### CSRF coverage check
+Comprobación de cobertura CSRF: grep de `csrf_token` en `app/templates/` devuelve **0 coincidencias** (confirmado). Los 8 tags de formulario son vulnerables a cross-site form submission hasta que PR-5B aterrice.
 
-Grep for `csrf_token` in `app/templates/` returns **0 matches** (confirmed). All 8 form tags are vulnerable to cross-site form submission until PR-5B lands.
+## Findings
 
-### Starting state for PR-5B
-
-When PR-5B lands and runs `pytest tests/test_all_post_forms_have_csrf_input.py`, the test will:
-
-- Iterate over the 10 handlers
-- Fetch each rendered form (via authenticated GET)
-- Assert `<input type="hidden" name="csrf_token">` is present
-
-**Before PR-5B**: 10/10 fail. This audit captures that starting state.
-
----
-
-## Resolution log
-
-| Finding | Resolution path |
-|---|---|
-| F-1 (HIGH) | PR-5B (this change's next slice) implements the CSRF middleware, SameSite=Strict cookies, and template injections. Spec REQ-AH-5..10. **Open `PR-5B` immediately after this PR-5A merges.** |
-| F-2 (MEDIUM) | Follow-up issue #1 — tighten `return_early_if_response` parameter type to `Response \| dict`. Bundle with F-4. |
-| F-3 (MEDIUM) | Follow-up issue #2 — extract `read_session_payload(request)` leaf helper to consolidate the triple duplication. **Recommended to co-ship with PR-5B** since the new `CsrfMiddleware` is the third copy; doing the extraction in PR-5B keeps the helper from being added before its callers. |
-| F-4 (MEDIUM) | Follow-up issue #1 (same as F-2) — add `Iterator[InsForgeClient]` annotation to `get_insforge_client_dep`. |
-| F-5 (LOW) | Documented. Spec §"Out of scope" defers `app/core/redirects.py` extraction. Revisit if usage exceeds 5 sites. |
-| F-6 (LOW) | No action. |
-| F-7 (LOW) | Documented. Trivial test import cleanup, defer. |
-
----
+| Severity | Title | Form | Details |
+|---|---|---|---|
+| HIGH | Sin defensa CSRF en ningún formulario POST | deferred (PR-5B) | Una cookie `apap_session` robada o reusada (p. ej. vía XSS, leak de log) permite a un atacante impersonar al usuario en POSTs a los 10 handlers. Comportamiento actual: `apap_session` y `apap_pkce` llevan `samesite="lax"` (app/main.py:261, :307). Sin validación de token. Mitigación: PR-5B implementa `app/core/csrf.py::CsrfMiddleware`, fija `samesite="strict"`, inyecta `<input type="hidden" name="csrf_token">` en las 8 plantillas de formulario. Spec REQ-AH-5..10. Estado: TRACKED — PR-5B (siguiente slice de este cambio). |
+| MEDIUM | Parámetro de `return_early_if_response` tipado como `object`; debería ser `Response \| dict` | deferred (FOLLOW-UP #1) | El helper acepta cualquier valor y solo comprueba `isinstance(value, Response)`. Mitigación: tighten a `Response \| dict`; actualizar los 2 call sites en `app/main.py` para que solo pasen `Response \| dict`. Tighten puro de tipos, sin cambio de comportamiento. Bundle con F-4. |
+| MEDIUM | Triple duplicación del patrón "leer cookie de sesión + decodificar payload" | deferred (FOLLOW-UP #2) | El mismo snippet de 4 líneas copy-pasted en tres ubicaciones. Mitigación: extraer leaf helper `read_session_payload(request) -> dict \| None` en `app/core/auth_dependencies.py` (o `app/core/session.py`); que `get_current_user_optional`, `protect_user_facing_routes` y `CsrfMiddleware` lo llamen. Recomendado co-shipped con PR-5B. |
+| MEDIUM | Falta anotación de tipo de retorno en `get_insforge_client_dep` | deferred (FOLLOW- #1, bundle con F-2) | El type checker trata el retorno como `Any`. Mitigación: añadir `from collections.abc import Iterator` y anotar como `Iterator[InsForgeClient]`. Cambio de una línea, delta de comportamiento cero. |
+| LOW | Helper local `_redirect` en `app/main.py:115` redundante con `RedirectResponse` inline | deferred (DOCUMENTED ONLY) | Mitigación: consolidar en `app/core/redirects.py::redirect(path: str) -> RedirectResponse` e importar desde ambos. Fuera del alcance del Slice 5 (spec §Out of scope lo difiere explícitamente). |
+| LOW | Dos llamadas casi idénticas a `RedirectResponse` en `require_authorized_user` | no action | Dos early-return; la legibilidad es OK. Sin acción. Documentado por completitud. |
+| LOW | Import legacy `from app.modules.animals.routes import require_authorized_user` en un test | deferred (DOCUMENTED ONLY) | `tests/test_auth_session_is_authorized.py:52` importa desde `app.modules.animals.routes` (camino legacy); el import canónico es `app.core.auth_dependencies`. Mitigación: actualizar import. Limpieza trivial, diferida a un pass de tests-cleanup. |
 
 ## Verdict
 
-**PASS** (with one HIGH finding tracked for PR-5B).
+PASS (con un hallazgo HIGH rastreado para PR-5B). `app/core/auth_dependencies.py` cumple actualmente con todas las reglas en alcance para este audit:
 
-`app/core/auth_dependencies.py` is currently compliant with every rule in
-scope for this audit:
+- **Regla 6** — default-deny: `payload.get("is_authorized", False)` confirmado vía `tests/test_auth_dependencies.py::test_require_authorized_user_default_false` (PR-3).
+- **Regla 7** — `RedirectResponse`, no `HTTPException`: confirmado vía static grep (`HTTPException(status_code=302` devuelve 0 coincidencias en `app/`) y pineado por el nuevo `tests/test_rule_7_compliance.py` añadido en este PR.
+- **SB-3** — `PUBLIC_PATHS` incluye `/auth/callback`: confirmado vía resolución del slice-3 (engram:14531). `/auth/callback` está en `app/main.py:63-70` dentro del conjunto public-paths.
 
-- **Rule 6** — default-deny: `payload.get("is_authorized", False)` confirmed
-  via `tests/test_auth_dependencies.py::test_require_authorized_user_default_false`
-  (PR-3).
-- **Rule 7** — `RedirectResponse`, not `HTTPException`: confirmed via static
-  grep (`HTTPException(status_code=302` returns 0 matches in `app/`) and
-  pinned by the new `tests/test_rule_7_compliance.py` added in this PR.
-- **SB-3** — `PUBLIC_PATHS` includes `/auth/callback`: confirmed via the
-  slice-3 resolution (engram:14531). `/auth/callback` is at
-  `app/main.py:63-70` in the public-paths set.
+El hallazgo HIGH único (F-1, defensa CSRF ausente) es el alcance explícito de PR-5B, que sigue inmediatamente. Los hallazgos MEDIUM se difieren a follow-up issues numerados que se abrirán tras el merge de PR-5B.
 
-The single HIGH finding (F-1, missing CSRF defense) is the explicit scope
-of PR-5B, which follows immediately. The MEDIUM findings are deferred to
-numbered follow-up issues to be opened after PR-5B merges.
+### Addenda
 
----
+### Issue #226 Addendum — 2026-07-20
 
-## Cross-references
+**Scope**: extracción estructural del enum `Rol` de `app/core/auth.py` a `app/core/roles.py` libre de dependencias, con actualización de imports en `config.py` y `auth_dependencies.py`.
 
-- Spec: `openspec/changes/hardening-2026-q2/specs/05-auth-hardening/spec.md` (REQ-AH-1..4 cover this PR; REQ-AH-5..10 cover PR-5B)
+**Methodology**: análisis de callers/impact con CodeGraph, smoke checks de orden de import, focused auth tests e inspección estática de imports de rol restantes en funciones.
+
+| Severity | Title | Form | Details |
+|---|---|---|---|
+| INFO | El import lazy previo de `Rol` enmascaraba un ciclo entre `auth.py` y `config.py` | fixed | `Rol` ahora tiene un único módulo home libre de dependencias. |
+| INFO | El import lazy de `get_user_by_email` ya no era necesario una vez eliminado el ciclo de roles | fixed | Promovido a import module-level; los focused authorization tests siguen verdes. |
+
+**Verdict**: PASS — no cambió comportamiento de autorización, valor de rol, regla default-deny, cookie, sesión, CSRF ni contrato de logging.
+
+### Issue #229 Addendum — 2026-07-20
+
+**Scope**: deduplicación de la decisión de developer-role compartida por `require_developer_user` y `require_developer_user_redirect`.
+
+**Methodology**: análisis de callers con CodeGraph, focused dependency tests, verificación de denial-log y revisión estática de default-deny y propagación de redirects.
+
+| Severity | Title | Form | Details |
+|---|---|---|---|
+| INFO | Las dos dependencias públicas repetían la misma decisión de rol y podían divergir | fixed | Un helper privado ahora posee el role check y el denial audit event. |
+| INFO | Las señales públicas de fallo difieren intencionadamente | no action | Los wrappers preservan los contratos existentes de 403 y 302 respectivamente. |
+
+**Verdict**: PASS — el acceso de developer sigue default-deny, los redirects upstream se propagan sin cambios y el denial logging continúa exclusivamente vía `log_safe`.
+
+### Slice #420-7 Addendum — 2026-08-05 (auth-dependencies)
+
+**Scope**: mover `app/core/auth_dependencies.py` (9 deps FastAPI, ~419 líneas) a `app/core/di/auth_dependencies_di.py` según el layout §33.3. Reducir el original a un re-export shim. Aplicar el fix §32.P4 sobre `InsForgeError` en `require_authorized_user` en el mismo PR. Refrescar este audit doc y añadir el pin test arquitectónico.
+
+Ficheros cambiados (5 totales — corregido del tally previo de 4):
+
+- Creado: `app/core/di/auth_dependencies_di.py` (443 líneas tras el fix de ciclo §Lazy-import helper; 510 líneas contando líneas en blanco)
+- Creado: `tests/test_auth_dependencies_slice.py` (8 átomos tras el backfill de gate-review: átomos 1–7 más átomo 8 fresh-process regression test)
+- Modificado: `app/core/auth_dependencies.py` → shim de re-export de 24 líneas tras la compactación del docstring (down from the prior 41 lines; the cycle fix did not require touching the shim)
+- Modificado: `tests/test_middleware_is_authorized.py` — actualización de source-pin location (la comprobación default-deny pre-slice vive ahora en el módulo di, no en el cuerpo del shim)
+- Modificado: `docs/audits/auth-dependencies-audit-2026-Q2.md` (este addendum)
+
+**Methodology**:
+
+1. CodeGraph caller map de los 9 símbolos: 35 ficheros consumer (corregido del 19 del design — el conteo previo era una muestra parcial; la superficie real incluye `app/core/admin_handlers.py`, `app/core/auth_flow.py`, `app/core/rbac.py`, cada `app/modules/*/routes.py` más 3 `batch_routes.py`, el cuerpo lifespan de `app/main.py` y 16 ficheros de test). El enfoque shim es transparente para todos.
+2. AST diff: el cuerpo del shim post-fix es `from app.core.di.auth_dependencies_di import *` + `from app.core.logging import log_safe` + `from app.core.session import read_session_payload` más un docstring de módulo; sin lógica. Los re-exports extra de `log_safe` / `read_session_payload` permiten que los patches `monkeypatch.setattr("app.core.auth_dependencies.log_safe", ...)` de los tests existentes se propaguen a las llamadas del módulo di (el módulo di resuelve estos nombres vía `_shim().<name>` en tiempo de llamada).
+3. Comparación de firmas: `inspect.signature()` para cada uno de los 9 nombres coincide byte a byte entre shim y módulo di (átomo 5 del pin test).
+4. Revisión §32.P4: identificado el camino de `InsForgeError` sin manejar en `require_authorized_user` → paso de revalidación → diseñado Variante A.
+5. Fix DI↔shim cycle (gate correction 1): el previo `from app.core import auth_dependencies as _shim` a nivel de módulo creaba un ciclo order-dependent. Un proceso fresh que importara el módulo di primero disparaba una carga parcial del shim; el `from app.core.di.auth_dependencies_di import *` del shim corría entonces contra el módulo di PARCIAL (los 9 símbolos públicos están definidos DESPUÉS del import shim module-level del módulo di) y el shim terminaba sin sus 9 re-exports consumer-facing. La fix reemplaza el binding module-level con un helper de lookup lazy `_shim()` dentro del módulo di — ver `:func:app.core.di.auth_dependencies_di._shim`. El shim no cambia estructuralmente; solo cambia la estrategia de import del módulo di. El fresh-process regression test `tests/test_auth_dependencies_slice.py::test_shim_exports_resolve_when_di_module_imported_first` pinea el invariante.
+6. Lazy-import cycle (#226): documentado en `decisiones-proyecto.md`; el import module-level desde `app.core.auth` no cambia. El nuevo módulo di ya NO importa el shim a nivel de módulo — busca el shim en tiempo de llamada vía `_shim()` — así que el ciclo module-level previo desaparece. Esta decisión (Opción A en observación de Engram #24065) es la forma canónica para los 11 slices de módulo que siguen.
+
+| Severity | Title | Form | Details |
+|---|---|---|---|
+| CRITICAL | §32.P4: `InsForgeError` desde `get_user_by_email` escaparía como 500 (issue #294) | fixed | Variante A en el mismo PR — `try/except InsForgeError` envuelve la única llamada `get_user_by_email(client, email)`, emite `log_safe("auth.denied", reason="db_unreachable", user_id=...)`, devuelve `RedirectResponse("/unauthorized", 302)`. El cache NO se envenena (átomo 4 negative guard vía el `call_count` de la fixture `set_cached_auth`). |
+| CRITICAL | DI↔shim cycle order-dependent module-level (gate correction 1) | fixed | Un proceso fresh que importara el módulo di primero rompía todos los paths `from app.core.auth_dependencies import <name>` de los consumers con `ImportError`. Reemplazado el module-level `from app.core import auth_dependencies as _shim` del módulo di por un helper de lookup lazy `_shim()`. Shim no cambia estructuralmente. Pineado por el nuevo átomo 8 fresh-process regression test (una invocación `subprocess` que limpia `sys.modules` y luego importa el módulo di primero). |
+| INFO | Import module-level desde `app.core.auth` (cycle #226) — convención preexistente | no action | Documentado en `decisiones-proyecto.md`; sin cambios. |
+| INFO | Constraint R04 leak, set completo (gate correction 3) | no action | El átomo 3 actualizado aplica el set completo: (a) sin palabras clave raw de SQL en literales string de código, (b) sin construcción de `InsForgeClient(...)` fuera del único sitio de fallback permitido, (c) sin acceso directo a `app.core.auth_cache` fuera del facade `get_cached_auth` / `set_cached_auth`. Pineado por el átomo 3 con el AST helper `_module_r04_violations`. |
+| INFO | Shim de 24 líneas, bien por debajo del cap de 50 líneas (gate correction 4) | no action | Sin nueva entrada `BASELINE` requerida (Regla §21). |
+| INFO | Módulo di de 443 líneas (gate correction 4) | no action | Aún dentro del presupuesto de 700 líneas (átomo 6 + Regla §21). |
+| INFO | El Protocol `AuthCacheBackend` existe pero el facade module-level `get_cached_auth` / `set_cached_auth` lo bypassea | no action | Deuda preexistente (issue #287); fuera del alcance de este slice. |
+| INFO | `app.dependency_overrides[<key>]` sigue funcionando para `get_insforge_client`, `get_insforge_client_dep`, `get_current_user_optional` | no action | El primero viene de `app.main` (sin cambios); los otros dos son re-exportados por el shim con identidad (`shim.<X> is di.<X>`, átomo 2). Sin cambios necesarios. |
+
+**Verdict**: PASS — slice migrado a `app/core/di/`, 9 firmas byte-idénticas (pin test átomo 5), fix §32.P4 en su sitio con negative guard de cache poisoning (pin test átomo 4), ningún import path de consumer roto en ninguno de los dos órdenes de import (pin test átomos 1, 2 y el nuevo átomo 8 fresh-process regression test), los 49 tests existentes pasan sin modificación, addendum del audit doc enviado.
+
+**Fuera de alcance (gate correction 4)**: los 11 slices de módulo listados en `auth-dependencies-audit-2026-Q2.md` §Out of scope (acogidas, adopciones, animals, cesiones, entradas, foster, materiales, salud, sanidad, tasks, voluntarios). Cada uno aterrizará su propio `app/core/di/<module>_di.py` siguiendo el mismo patrón shim de este slice y aplicando el patrón `_shim()` de lazy-import donde el módulo necesite leer helpers del shim legacy.
+
+### Issue #430 Addendum — 2026-08-07
+
+**Scope**: partir las dependencias de session y backend-revalidation desde `app/core/di/auth_dependencies_di.py` a `app/core/di/auth_dependencies_session_di.py` sin cambiar la API pública de los nueve símbolos.
+
+**Methodology**: comparación de identidad de objetos exportados y firmas, ejecución de los tests del slice de auth y Rule 7, escaneo de ambos ficheros DI por transport leaks, y ejecución del suite completo, mutation-sites, CRAP, module-size, Ruff, rules, mypy, coverage y build.
+
+| Severity | Title | Form | Details |
+|---|---|---|---|
+| INFO | El módulo DI original excedía el techo de 250 mutation-site en 252 | fixed | Split a 124 y 92 sitios; total combinado reducido a 216 y la entrada del mutation baseline fue retirada. |
+| INFO | Mover `require_authorized_user` dejaba stale el path del baseline CRAP | fixed | Movido el mismo baseline shrink-only al path del session DI y bajado de 14.05 a 9.01. |
+| INFO | La medición de código duplicado es sensible a la versión de Python | no action | Bajado el baseline CI-authoritative jscpd para Python 3.14 de 1.88% a 1.81%; Python 3.11 mide 1.72%. |
+| INFO | Los contratos de redirect, default-deny, cache, logging e import-order podían diverger durante la extracción | no action | Pines existentes actualizados para escanear el nuevo seam; todas las aserciones de comportamiento e identidad de objetos pasan. |
+
+**Verdict**: PASS — el split reduce complejidad sin cambiar comportamiento de autenticación, autorización, redirect, logging, cache ni import público.
+
+## References
+
+- Spec: `openspec/changes/hardening-2026-q2/specs/05-auth-hardening/spec.md` (REQ-AH-1..4 cubre este PR; REQ-AH-5..10 cubren PR-5B)
 - Design: `openspec/changes/hardening-2026-q2/design.md` §Slice 5 (PR-A subsection)
 - Tasks: `openspec/changes/hardening-2026-q2/tasks.md` T-5A.1..6
-- Related audit: `docs/audits/xss-audit-2026-Q2.md` (PR-XSS, must precede PR-5B)
-- Related PRs: PR-3 (Rule 6, merged), PR-XSS (XSS audit, OPEN #112), PR-7 (TOCTOU, OPEN #113)
-- Motivation: engram:14518 (security audit — CSRF defense-in-depth + admin endpoints), engram:14516 (rule-compliance audit)
-- SB-3 resolution: engram:14531 (design; `/auth/callback` already in `PUBLIC_PATHS`)
-
----
-
-## Issue #226 Addendum — 2026-07-20
-
-### Scope
-
-Structural extraction of the authorization `Rol` enum from `app/core/auth.py`
-to dependency-free `app/core/roles.py`, plus import updates in `config.py` and
-`auth_dependencies.py`.
-
-### Methodology
-
-CodeGraph caller/impact analysis, import-order smoke checks, focused auth tests,
-and static inspection for remaining function-local role imports.
-
-### Findings
-
-| Severity | Finding | Resolution |
-|---|---|---|
-| INFO | The prior lazy `Rol` import masked an `auth.py` / `config.py` cycle. | `Rol` now has one dependency-free module home. |
-| INFO | The lazy `get_user_by_email` import was no longer necessary once the role cycle was removed. | Promoted to a module-level import; focused authorization tests remain green. |
-
-### Verdict
-
-**PASS** — no authorization behavior, role value, default-deny rule, cookie,
-session, CSRF, or logging contract changed.
-
----
-
-## Issue #229 Addendum — 2026-07-20
-
-### Scope
-
-Deduplication of the developer-role decision shared by
-`require_developer_user` and `require_developer_user_redirect`.
-
-### Methodology
-
-CodeGraph caller analysis, focused dependency tests, denial-log verification,
-and static review of default-deny and redirect propagation paths.
-
-### Findings
-
-| Severity | Finding | Resolution |
-|---|---|---|
-| INFO | The two public dependencies repeated the same role decision and could drift. | A private helper now owns the role check and denial audit event. |
-| INFO | The public failure signals intentionally differ. | Wrappers preserve the existing 403 and 302 contracts respectively. |
-
-### Verdict
-
-**PASS** — developer access remains default-deny, upstream redirects are
-propagated unchanged, and denial logging continues through `log_safe` only.
-
----
-
-## Slice #420-7 Addendum — 2026-08-05 (auth-dependencies)
-
-### Scope
-
-Move `app/core/auth_dependencies.py` (9 FastAPI deps, ~419 lines) to
-`app/core/di/auth_dependencies_di.py` per the §33.3 layout. Reduce
-the original to a re-export shim. Apply the §32.P4 `InsForgeError`
-fix in `require_authorized_user` in the same PR. Refresh this audit
-doc and add the architectural pin test.
-
-Files changed (5 total — corrected from the prior tally of 4):
-
-- Created: `app/core/di/auth_dependencies_di.py` (443 lines after the
-  cycle-fix §Lazy-import helper; 510 lines including blank lines)
-- Created: `tests/test_auth_dependencies_slice.py` (8 atoms after
-  the gate-review backfill: atoms 1–7 plus atom 8 fresh-process
-  regression test)
-- Modified: `app/core/auth_dependencies.py` → 24-line re-export shim
-  after the docstring compaction (down from the prior 41 lines; the
-  cycle fix did not require touching the shim)
-- Modified: `tests/test_middleware_is_authorized.py` — source-pin
-  location update (the pre-slice default-deny check now lives in the
-  di module, not in the shim body)
-- Modified: `docs/audits/auth-dependencies-audit-2026-Q2.md` (this addendum)
-
-### Methodology
-
-1. **CodeGraph caller map** of the 9 symbols: 35 consumer files
-   (corrected from the design's 19 — the prior count was a partial
-   sample; the actual surface includes `app/core/admin_handlers.py`,
-   `app/core/auth_flow.py`, `app/core/rbac.py`, every
-   `app/modules/*/routes.py` plus 3 `batch_routes.py` files, the
-   `app/main.py` lifespan body, and 16 test files including
-   `tests/test_auth_dependencies.py`, `tests/test_auth_session_is_authorized.py`,
-   `tests/test_middleware_is_authorized.py`,
-   `tests/test_rbac.py`, `tests/test_rule_7_compliance.py`,
-   `tests/test_apap004_user_any.py`, the 8 module-routes test
-   files, and the 3 module-batch-routes test files). The shim
-   approach is transparent for all of them.
-2. **AST diff**: the post-fix shim body is
-   `from app.core.di.auth_dependencies_di import *` +
-   `from app.core.logging import log_safe` +
-   `from app.core.session import read_session_payload` plus a
-   module docstring; no logic. The extra `log_safe` /
-   `read_session_payload` re-exports let the existing tests'
-   `monkeypatch.setattr("app.core.auth_dependencies.log_safe", ...)`
-   patches propagate to the di module's function calls (the di
-   module resolves these names via `_shim().<name>` at call time).
-3. **Signature comparison**: `inspect.signature()` for each of the 9
-   names matches between shim and di module byte-for-byte
-   (atom 5 of the pin test).
-4. **§32.P4 review**: identified the unhandled `InsForgeError` path
-   in `require_authorized_user` → revalidation step → designed Variant A.
-5. **DI↔shim cycle fix (gate correction 1)**: the prior
-   ``from app.core import auth_dependencies as _shim`` at module
-   level created an order-dependent cycle. A fresh process that
-   imported the di module FIRST triggered a partial shim load; the
-   shim's `from app.core.di.auth_dependencies_di import *` then
-   ran against the PARTIAL di module (the 9 public symbols are
-   defined AFTER the di module's module-level shim import) and the
-   shim ended up empty of its 9 consumer-facing re-exports. The fix
-   replaces the module-level binding with a lazy lookup helper
-   ``_shim()`` inside the di module — see
-   :func:`app.core.di.auth_dependencies_di._shim`. The shim is
-   unchanged structurally; only the di module's import strategy
-   changed. The fresh-process regression test
-   ``tests/test_auth_dependencies_slice.py::test_shim_exports_resolve_when_di_module_imported_first``
-   pins the invariant.
-6. **Lazy-import cycle (#226)**: documented in
-   `decisiones-proyecto.md`; module-level import from `app.core.auth`
-   unchanged. The new di module does NOT import the shim at module
-   level anymore — it looks the shim up at call time via
-   ``_shim()`` — so the prior module-level cycle is gone. This
-   decision (Option A in engram observation #24065) is the canonical
-   shape for the 11 module slices that follow.
-
-### Findings
-
-| Severity | Finding | Resolution |
-|---|---|---|
-| CRITICAL | §32.P4: `InsForgeError` from `get_user_by_email` would escape as 500 (issue #294). | Variant A in same PR — `try/except InsForgeError` wraps the single `get_user_by_email(client, email)` call, emits `log_safe("auth.denied", reason="db_unreachable", user_id=...)`, returns `RedirectResponse("/unauthorized", 302)`. Cache is NOT poisoned (atom 4 negative guard via the `set_cached_auth` fixture's `call_count`). |
-| CRITICAL | DI↔shim order-dependent module-level cycle (gate correction 1) — a fresh process importing the di module first broke all consumer `from app.core.auth_dependencies import <name>` paths with `ImportError`. | Replaced the di module's module-level `from app.core import auth_dependencies as _shim` with a lazy lookup helper `_shim()`. Shim is unchanged structurally. Pinned by the new atom 8 fresh-process regression test (a `subprocess` invocation that clears `sys.modules` then imports the di module first). |
-| INFO | Module-level import from `app.core.auth` (cycle #226) — the pre-existing convention. | Documented in `decisiones-proyecto.md`; unchanged. |
-| INFO | R04 leak constraint, full set (gate correction 3): the prior atom 3 only checked `execute_sql` calls. The updated atom 3 enforces the complete set: (a) no raw SQL keywords in code string literals, (b) no `InsForgeClient(...)` construction outside the single permitted fallback site, (c) no direct `app.core.auth_cache` access outside the `get_cached_auth` / `set_cached_auth` facade. | Pinned by atom 3 with the `_module_r04_violations` AST helper. |
-| INFO | Shim is 24 lines, well below the 50-line cap (gate correction 4 — the prior tally said 34; the shim shrunk further after the docstring compaction). | No new `BASELINE` entry required (rule §21). |
-| INFO | Di module is 443 lines (gate correction 4 — the prior tally said 375; the bump is from the cycle fix's `_shim()` helper + the order-explanation docstring, 510 lines including blank lines). | Still within the 700-line module budget (atom 6 + rule §21). |
-| INFO | `AuthCacheBackend` Protocol exists but is bypassed by the module-level `get_cached_auth` / `set_cached_auth` facade. | Pre-existing debt (issue #287); out of scope for this slice. |
-| INFO | `app.dependency_overrides[<key>]` continues to work for `get_insforge_client`, `get_insforge_client_dep`, `get_current_user_optional`. The first is from `app.main` (unchanged); the latter two are re-exported by the shim with identity (`shim.<X> is di.<X>`, atom 2). | No change needed. |
-
-### Verdict
-
-**PASS** — slice migrated to `app/core/di/`, 9 signatures byte-identical
-(pin test atom 5), §32.P4 fix in place with the cache-poisoning
-negative guard (pin test atom 4), no consumer import path broken in
-either import order (pin test atoms 1, 2, and the new atom 8
-fresh-process regression test), all 49 existing tests in
-`tests/test_auth_dependencies.py` +
-`tests/test_auth_session_is_authorized.py` +
-`tests/test_middleware_is_authorized.py` pass without modification,
-audit doc addendum shipped.
-
-### Out of scope (gate correction 4)
-
-The 11 module slices below are explicitly out of scope for this slice
-and live behind separate PRs in the epic #420 chain:
-
-1. `acogidas`
-2. `adopciones`
-3. `animals`
-4. `cesiones`
-5. `entradas`
-6. `foster`
-7. `materiales`
-8. `salud`
-9. `sanidad`
-10. `tasks`
-11. `voluntarios`
-
-Each will land its own `app/core/di/<module>_di.py` (the
-module-slice composition root) following the same shim pattern this
-slice establishes, AND applying the lazy-import `_shim()` pattern
-where the module needs to read helpers from the legacy shim. The
-shim's `import *` and the di module's lazy lookup are the two
-precedents they will copy.
-
----
-
-## Issue #430 Addendum — 2026-08-07
-
-### Scope
-
-Split the session and backend-revalidation dependencies from
-`app/core/di/auth_dependencies_di.py` into
-`app/core/di/auth_dependencies_session_di.py` without changing the nine-symbol
-public API.
-
-### Methodology
-
-Compared exported object identity and signatures, ran the auth slice and Rule 7
-pin tests, scanned both DI files for transport leaks, and ran the full suite,
-mutation-sites, CRAP, module-size, Ruff, rules, mypy, coverage, and build gates.
-
-### Findings
-
-| Severity | Finding | Resolution |
-|---|---|---|
-| INFO | The original DI module exceeded the 250 mutation-site ceiling at 252. | Split to 124 and 92 sites; combined total reduced to 216 and the mutation baseline entry was removed. |
-| INFO | Moving `require_authorized_user` made its CRAP baseline path stale. | Moved the same shrink-only baseline to the session DI path and lowered it from 14.05 to 9.01. |
-| INFO | Duplicate-code measurement is Python-version-sensitive. | Lowered the CI-authoritative Python 3.14 jscpd baseline from 1.88% to 1.81%; Python 3.11 measures 1.72%. |
-| INFO | Redirect, default-deny, cache, logging, and import-order contracts could drift during extraction. | Existing pins were updated to scan the new seam; all behavior and object-identity assertions pass. |
-
-### Verdict
-
-**PASS** — the split reduces complexity without changing authentication,
-authorization, redirect, logging, cache, or public import behavior.
+- Audit relacionado: `docs/audits/xss-audit-2026-Q2.md` (PR-XSS, debe preceder a PR-5B)
+- PRs relacionados: PR-3 (Regla 6, mergeada), PR-XSS (XSS audit, ABIERTO #112), PR-7 (TOCTOU, ABIERTO #113)
+- Motivación: engram:14518 (audit de seguridad — CSRF defense-in-depth + admin endpoints), engram:14516 (audit de cumplimiento de reglas)
+- Resolución SB-3: engram:14531 (design; `/auth/callback` ya está en `PUBLIC_PATHS`)
+- AGENTS.md §1 (límite de capas), §5 (validación en servicio), §6 (default-deny), §7 (RedirectResponse), §11 (CRITICAL_HELPERS), §26 (lazy-import justificado), §32.P4 (partial exception handling)
+- Issues #226, #229, slice #420-7, #430

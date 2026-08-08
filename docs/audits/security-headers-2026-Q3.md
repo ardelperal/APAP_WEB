@@ -1,169 +1,91 @@
-# Security Headers Audit Report — 2026 Q3
+[← Back to README](../../README.md)
 
-**Audit slice**: `feat/issue-276-security-headers`
-**Branch**: `issue-276-security-headers` (cut from `main`)
-**PR**: (pending open)
-**Date**: 2026-07-27
-**Auditor**: AI-assisted audit (TDD + code review)
-**Motivation**: Issue #276 — HTTP security headers were absent from the entire
-application surface. This was a §32.P1 (Perimeter blindness) finding: hardening
-concentrated on internal auth mechanisms while the HTTP edge received nothing.
-**Spec**: Engram observations #21823 (proposal) + #21824 (spec, REQ-1..REQ-12)
-**Design**: Engram observation #21825 (design D1..D9)
+# security-headers-2026-Q3.md
 
----
+This audit documents the scope, methodology, findings, and verdict for the audit listed in the title. Esta auditoría documenta el alcance, la metodología, los hallazgos y el veredicto del corte que añade el middleware de cabeceras de seguridad HTTP (CSP, X-Frame-Options, nosniff, Referrer-Policy, HSTS) para cerrar el finding §32.P1 Perimeter Blindness del audit del 2026-07-25 (issue #276), ejecutado en 2026 Q3.
 
-## Verdict
-
-**PASS.** All auto-tests green (19/19), code review finds no deviations from
-the design contract, and the CSP baseline was confirmed against the live runtime.
-
-| Severity | Count | Blocker? |
-|----------|-------|----------|
-| High | **0** | n/a |
-| Medium | **0** | n/a |
-| Low (informational) | **0** | n/a |
-
----
+| Sección | Descripción |
+|---|---|
+| [Scope](#scope) | Cabeceras de seguridad HTTP y orden del middleware. |
+| [Methodology](#methodology) | Procedimiento TDD aplicado al middleware. |
+| [Findings](#findings) | Severidad, título, forma y detalle de cada hallazgo. |
+| [Verdict](#verdict) | Estado final del endurecimiento del borde HTTP. |
+| [References](#references) | Ficheros modificados, propuesta, spec y design. |
 
 ## Scope
 
-### Files modified (this PR)
+| Item | Value |
+|---|---|
+| Audit slice | `feat/issue-276-security-headers` |
+| Branch | `issue-276-security-headers` (cortada de `main`) |
+| PR | pendiente de apertura |
+| Fecha | 2026-07-27 |
+| Auditor | AI-assisted audit (TDD + code review) |
+| Motivación | Issue #276 — ausencia de cabeceras de seguridad HTTP en toda la superficie de la aplicación. Era un finding §32.P1 (Perimeter Blindness): el endurecimiento se concentraba en mecanismos internos de auth mientras el borde HTTP quedaba sin protección |
+| Spec | Observaciones de Engram #21823 (propuesta) + #21824 (spec, REQ-1..REQ-12) |
+| Design | Observación de Engram #21825 (design D1..D9) |
 
-| File | Summary |
-|------|---------|
-| `app/core/middleware.py` | Added `SecurityHeadersMiddleware` + `install_security_headers_middleware`; wired as outermost in `install_auth_middleware` |
-| `tests/test_security_headers_middleware.py` | 19 test assertions covering all 7 REQs |
-| `docs/audits/security-headers-2026-Q3.md` | This document |
+### Ficheros modificados
 
-### Middleware chain (post-middleware ordering)
+| Fichero | Resumen |
+|---|---|
+| `app/core/middleware.py` | Añadido `SecurityHeadersMiddleware` + `install_security_headers_middleware`; cableado como outermost en `install_auth_middleware` |
+| `tests/test_security_headers_middleware.py` | 19 aserciones cubriendo los 7 REQs |
+| `docs/audits/security-headers-2026-Q3.md` | Este documento |
 
-Starlette's `add_middleware` inserts at position 0, so the **last registered**
-middleware is **outermost** (reaches the response first):
+### Cadena de middleware (post-orden)
 
-| Order | Middleware | Notes |
-|-------|-----------|-------|
-| 1 (outermost) | `SecurityHeadersMiddleware` | issue #276 — adds 5 defence-in-depth headers |
-| 2 | `UADetectionMiddleware` | UA-based template selection (issue #157) |
+`add_middleware` de Starlette inserta en posición 0, así que el último middleware registrado es el más externo (alcanza la respuesta primero):
+
+| Orden | Middleware | Notas |
+|---|---|---|
+| 1 (outermost) | `SecurityHeadersMiddleware` | issue #276 — añade 5 cabeceras defense-in-depth |
+| 2 | `UADetectionMiddleware` | Selección de plantilla por UA (issue #157) |
 | 3 | `protect_user_facing_routes` | Auth guard (issue #204) |
-| 4 | `CsrfMiddleware` | CSRF token validation (issue #143) |
+| 4 | `CsrfMiddleware` | Validación de token CSRF (issue #143) |
 | 5 | `RateLimitMiddleware` | Rate limiting (issue #286) |
-| 6 (innermost) | Route handlers | Domain logic |
+| 6 (innermost) | Handlers de ruta | Lógica de dominio |
 
-Design D3: because `SecurityHeadersMiddleware` is outermost, it sees **every**
-response shape, including CSRF 403 and RateLimit 429.
-
----
+Design D3: como `SecurityHeadersMiddleware` es el más externo, ve **todas** las formas de respuesta, incluidas las 403 de CSRF y las 429 de RateLimit.
 
 ## Methodology
 
-1. **TDD (Strict TDD, RED → GREEN)** — wrote failing tests first
-   (`tests/test_security_headers_middleware.py`), confirmed 19 failures,
-   then implemented the middleware to make them pass.
+1. TDD (Strict TDD, RED → GREEN): tests fallidos primero (`tests/test_security_headers_middleware.py`), confirmación de 19 fallos, implementación del middleware para hacerlos pasar.
+2. Descubrimiento iterativo de CSP: el CSP inicial (`default-src 'self'`) provocó un warning de consola del navegador sobre URIs `data:` que no encajan con `'self'`. Se ajustó `img-src` a `'self' data:` para permitir URIs inline de tipo data (logos, sprites SVG) sin abrir fetch cross-origin. Ninguna otra directiva se relajó; cada relajación tiene una razón documentada.
+3. Test del gate de HSTS: verificación de que la cabecera `Strict-Transport-Security` se emite con `settings.debug=False` y se omite con `settings.debug=True`. El camino dev-mode se probó con monkeypatching de `get_settings()`.
+4. Verificación del orden del middleware: test explícito (`test_csrf_403_carries_security_headers`) que hace POST a `/animales` con un token CSRF incorrecto y afirma que las 5 cabeceras de seguridad están presentes en la respuesta 403, confirmando el contrato de outermost.
 
-2. **CSP iterative discovery** — the initial CSP (`default-src 'self'`) caused
-   a browser console warning about `data:` URIs not matching `'self'`.
-   Adjusted `img-src` to `'self' data:` to allow inline data URIs (logos, SVG
-   sprites) without opening cross-origin fetch. No other directives were
-   loosened; every loosening has a documented rationale.
+## Findings
 
-3. **HSTS gate tested** — verified `Strict-Transport-Security` header is
-   emitted when `settings.debug=False` and absent when `settings.debug=True`.
-   The dev-mode path was tested via monkeypatching of `get_settings()`.
-
-4. **Middleware ordering verified** — explicit test
-   (`test_csrf_403_carries_security_headers`) POSTs to `/animales` with a
-   wrong CSRF token and asserts all 5 security headers are present on the 403
-   response, confirming the outermost ordering contract.
-
----
-
-## Auto-test results
-
-| Suite | File | Total | Pass | Skip | Fail |
-|-------|------|-------|------|------|------|
-| Security headers | `tests/test_security_headers_middleware.py` | 19 | 19 | 0 | **0** |
-
----
-
-## CSP discoveries
-
-The initial CSP baseline was:
-
-```
-default-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; img-src 'self'; style-src 'self'; script-src 'self'
-```
-
-During initial deployment, browser DevTools showed a console warning:
-
-```
-Refused to load image 'data:image/svg+xml,...' because it violates the
-following Content Security Policy directive: "img-src 'self'".
-```
-
-**Root cause**: The project's templates embed SVG sprites using `data:` URIs
-(`data:image/svg+xml;base64,...`). `'self'` does not match `data:` URIs.
-
-**Resolution**: Loosened `img-src` from `'self'` to `'self' data:`.
-
-| Directive | Initial | Final | Rationale |
-|-----------|---------|-------|-----------|
-| `img-src` | `'self'` | `'self' data:` | Allow inline SVG/data URIs for logos and sprites without enabling arbitrary cross-origin images |
-
-No other directive was loosened. `default-src 'self'` remains as the fetch
-default; `script-src 'self'` remains as the script default (no `unsafe-inline`,
-no `unsafe-eval`).
-
----
-
-## Security headers summary
-
-| Header | Value | Always emitted? | Production only? |
-|--------|-------|-----------------|------------------|
-| `X-Content-Type-Options` | `nosniff` | ✅ Yes | No |
-| `X-Frame-Options` | `DENY` | ✅ Yes | No |
-| `Referrer-Policy` | `strict-origin-when-cross-origin` | ✅ Yes | No |
-| `Content-Security-Policy` | `default-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'` | ✅ Yes | No |
-| `Strict-Transport-Security` | `max-age=15552000; includeSubDomains` | No | ✅ Yes (`debug=False`) |
-
-15552000 seconds = 180 days (6 months). `includeSubDomains` ensures the HSTS
-policy applies to all subdomains.
-
----
-
-## Cross-references
-
-- **Proposal**: Engram #21823
-- **Spec**: Engram #21824 (REQ-1..REQ-12)
-- **Design**: Engram #21825 (D1..D9)
-- **Tasks**: Engram #21826 (T1..T8)
-- **Tests**: `tests/test_security_headers_middleware.py` (19 assertions)
-- **§32.P1 finding**: Perimeter blindness — auth hardening concentrated on
-  internal mechanisms; HTTP edge was unprotected
-
----
-
-## Acceptance criteria status
-
-| Criterion | Status |
-|-----------|--------|
-| [REQ-1] `X-Content-Type-Options: nosniff` on every response | ✅ 5 test assertions pass |
-| [REQ-2] `X-Frame-Options: DENY` on every response | ✅ 5 test assertions pass |
-| [REQ-3] `Referrer-Policy: strict-origin-when-cross-origin` on every response | ✅ 3 test assertions pass |
-| [REQ-4] `Content-Security-Policy` baseline on every response | ✅ 3 test assertions pass |
-| [REQ-5] `Strict-Transport-Security` in production (`debug=False`) | ✅ 2 test assertions pass |
-| [REQ-6] `Strict-Transport-Security` omitted in development (`debug=True`) | ✅ 1 test assertion documents contract |
-| [REQ-7] All headers present on CSRF 403 (outermost ordering) | ✅ 1 test assertion passes |
-| [Audit doc] `docs/audits/security-headers-2026-Q3.md` exists with scope and verdict | ✅ this document |
-
----
+| Severity | Title | Form | Details |
+|---|---|---|---|
+| INFO | `img-src` tuvo que relajarse de `'self'` a `'self' data:` | deferred | El CSP inicial provocaba el warning `Refused to load image 'data:image/svg+xml,...' because it violates the following Content Security Policy directive: "img-src 'self'"`. Causa: las plantillas del proyecto embeben sprites SVG con URIs `data:`. Resolución: relajar `img-src` para permitir SVGs y data URIs sin abrir imágenes cross-origin arbitrarias. Ninguna otra directiva se relajó. `default-src 'self'` se mantiene como fetch por defecto; `script-src 'self'` se mantiene como script por defecto (sin `unsafe-inline`, sin `unsafe-eval`). |
 
 ## Verdict
 
-**PASS.** The implementation satisfies all 7 requirements (REQ-1..REQ-7) and
-provides defence-in-depth HTTP hardening that was previously absent. The CSP
-baseline required one loosening (`img-src 'self' data:`) to accommodate the
-project's existing SVG sprite pattern; all other directives remain at the
-strictest setting.
+PASS: la implementación cumple los 7 requisitos (REQ-1..REQ-7) y aporta endurecimiento HTTP defense-in-depth que antes faltaba. El baseline de CSP requirió una relajación puntual (`img-src 'self' data:`) para acomodar el patrón de sprites SVG del proyecto; el resto de directivas permanece en el ajuste más estricto.
 
-Audited by: AI-assisted audit (MiniMax-M2.7, session 2026-07-27).
+## References
+
+| Recurso | Referencia |
+|---|---|
+| Propuesta | Engram #21823 |
+| Spec | Engram #21824 (REQ-1..REQ-12) |
+| Design | Engram #21825 (D1..D9) |
+| Tasks | Engram #21826 (T1..T8) |
+| Tests | `tests/test_security_headers_middleware.py` (19 aserciones) |
+| Finding §32.P1 | Perimeter Blindness — el endurecimiento de auth se concentraba en mecanismos internos; el borde HTTP estaba desprotegido |
+| AGENTS.md §32.P1 (Perimeter Blindness) | Criterio de revisión cumplido |
+
+### Estado de los criterios de aceptación
+
+| Criterio | Estado |
+|---|---|
+| [REQ-1] `X-Content-Type-Options: nosniff` en cada respuesta | 5 aserciones pasan |
+| [REQ-2] `X-Frame-Options: DENY` en cada respuesta | 5 aserciones pasan |
+| [REQ-3] `Referrer-Policy: strict-origin-when-cross-origin` en cada respuesta | 3 aserciones pasan |
+| [REQ-4] `Content-Security-Policy` baseline en cada respuesta | 3 aserciones pasan |
+| [REQ-5] `Strict-Transport-Security` en producción (`debug=False`) | 2 aserciones pasan |
+| [REQ-6] `Strict-Transport-Security` omitido en development (`debug=True`) | 1 aserción documenta el contrato |
+| [REQ-7] Todas las cabeceras presentes en CSRF 403 (orden outermost) | 1 aserción pasa |
+| [Audit doc] `docs/audits/security-headers-2026-Q3.md` con scope y verdict | este documento |

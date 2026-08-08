@@ -1,26 +1,16 @@
-# Auditoría: Startup Secret Validation — 2026 Q3
+[← Back to README](../../README.md)
 
-**Scope**: SECRET-01 / issue #275 — validación de `APAP_SESSION_SECRET` y
-`APAP_INSFORGE_SERVICE_KEY` en el arranque de la aplicación, rechazando el
-placeholder published y secretos menores de 32 caracteres antes de cualquier
-conexión a InsForge.
+# secret-startup-validation-2026-Q3.md
 
-**Methodology**: revisión del flujo lifespan → `_validate_secrets` →
-`StartupConfigError`; verificación de que `InsForgeClient` nunca se construye
-con configuración inválida; comprobación de que `log_safe` se emite antes del
-raise sin incluir el valor del secreto; cobertura de tests de las 7 variantes
-de validación; verificación del by-pass `debug=True`.
+This audit documents the scope, methodology, findings, and verdict for the audit listed in the title. Esta auditoría documenta el alcance, la metodología, los hallazgos y el veredicto del estudio de validación de secretos en el arranque (SECRET-01 / issue #275), que rechaza `APAP_SESSION_SECRET` con valor placeholder publicado y secretos de longitud inferior a 32 caracteres, además de `APAP_INSFORGE_SERVICE_KEY` vacío, antes de cualquier conexión a InsForge, ejecutado en 2026 Q3.
 
-**Date**: 2026-07-26
-
-**Verdict**: **PASS**. La validación de secretos vive en la capa de
-configuración, se ejecuta antes de cualquier llamada de red, emite logs
-estructurados antes de raise, y es ignorada solo con `debug=True` (gate
-explícito que no aplica en producción). La класса `StartupConfigError`
-nunca hace echo del valor del secreto. Cobertura completa de los 7 casos
-de validación y del contrato de log. El patrón §32.P2 queda cerrado.
-
----
+| Sección | Descripción |
+|---|---|
+| [Scope](#scope) | Validación de secretos en el arranque de la aplicación. |
+| [Methodology](#methodology) | Procedimiento aplicado sobre el lifespan y la configuración. |
+| [Findings](#findings) | Severidad, título, forma y detalle de cada hallazgo. |
+| [Verdict](#verdict) | Estado final de la validación en startup. |
+| [References](#references) | Ficheros revisados, pruebas y runbook. |
 
 ## Scope
 
@@ -30,37 +20,43 @@ de validación y del contrato de log. El patrón §32.P2 queda cerrado.
 | Issue | #275 |
 | Datos sensibles | `APAP_SESSION_SECRET` (HMAC cookie), `APAP_INSFORGE_SERVICE_KEY` (service key) |
 | Ficheros revisados | `app/core/config.py`, `app/main.py`, `tests/test_startup_config_validation.py`, `tests/test_lifespan.py`, `scripts/pytest_plugin/coverage_gate.py` |
-| Controles principales | `_validate_secrets` called before `InsForgeClient`, `log_safe` before raise, `StartupConfigError` no-echo, `debug=True` bypass, `_validate_secrets` in CRITICAL_HELPERS |
+| Controles principales | `_validate_secrets` invocado antes de `InsForgeClient`, `log_safe` antes de raise, `StartupConfigError` no-echo, by-pass `debug=True`, `_validate_secrets` en `CRITICAL_HELPERS` |
+| Fecha | 2026-07-26 |
+
+Fuera de alcance: el ciclo de vida de la cookie `apap_session` (gestionado por `app/core/session.py`), la validación de tokens OAuth (gestionada por `app/core/auth.py`) y la rotación operativa de secretos (cubierta por runbook).
 
 ## Methodology
 
-1. Se revisó `_validate_secrets` para verificar que valida en orden:
-   `insforge_service_key == ""` → raise; `session_secret == placeholder` →
-   raise; `len(session_secret) < 32` → raise; `debug=True` → return.
-2. Se verificó que `log_safe("startup.config_invalid", env_var=..., reason=...)`
-   se llama ANTES de cada raise, sin pasar el valor del secreto.
-3. Se verificó que `StartupConfigError` lleva `env_var` y `reason` como
-   atributos, y que el mensaje no hace echo del valor del secreto.
-4. Se verificó que la lifespan llama `_validate_secrets` DESPUÉS de
-   `configure_logging` y ANTES de `InsForgeClient(...)`, con prueba
-   de regresión que patching `InsForgeClient` y confirmando que no se
-   construye cuando la validación falla.
-5. Se confirmó que `debug=True` (default `False`) es el gate de by-pass,
-   verificado en tests.
-6. Se añadió `_validate_secrets` a `CRITICAL_HELPERS` (regla §11) en el
-   mismo PR.
-7. Se escribió runbook operator-facing y este documento de auditoría.
+1. Revisión de `_validate_secrets` para verificar que valida en orden: `insforge_service_key == ""` → raise; `session_secret == placeholder` → raise; `len(session_secret) < 32` → raise; `debug=True` → return.
+2. Verificación de que `log_safe("startup.config_invalid", env_var=..., reason=...)` se llama ANTES de cada raise, sin pasar el valor del secreto.
+3. Verificación de que `StartupConfigError` lleva `env_var` y `reason` como atributos, y de que el mensaje no hace eco del valor del secreto.
+4. Verificación de que la lifespan llama a `_validate_secrets` DESPUÉS de `configure_logging` y ANTES de `InsForgeClient(...)`, con prueba de regresión que parchea `InsForgeClient` y confirma que no se construye cuando la validación falla.
+5. Confirmación de que `debug=True` (default `False`) es el gate de by-pass, verificado en tests.
+6. Adición de `_validate_secrets` a `CRITICAL_HELPERS` (AGENTS.md §11) en el mismo PR.
+7. Redacción del runbook operator-facing y de este documento de auditoría.
 
 ## Findings
 
-| Severity | Finding | Mitigation | Status |
+| Severity | Title | Form | Details |
 |---|---|---|---|
-| CRITICAL | El `session_secret` se inicializaba con un valor placeholder publicado en el repositorio. Un lector del repo podía forjar cookies de sesión para cualquier email/rol. | `_validate_secrets` rechaza el placeholder en producción; `StartupConfigError` propagates antes de construir `InsForgeClient`. | Cerrado |
-| CRITICAL | `insforge_service_key` vacío no bloqueaba el arranque. Privileged SQL calls se hacían sin autenticación. | `_validate_secrets` rechaza `insforge_service_key == ""` antes de cualquier conexión. | Cerrado |
-| CRITICAL | No había validación de longitud mínima para `session_secret`. Un secreto corto (e.g. 8 chars) era aceptable. | `_validate_secrets` requiere `len >= 32`; `secrets.token_urlsafe(32)` en el runbook genera el mínimo seguro. | Cerrado |
-| WARNING | No había test de regresión que probara que `InsForgeClient` no se construye cuando la validación falla. | `test_lifespan_validates_secrets_before_constructing_insforge_client` patchea `InsForgeClient` y afirma que no se llama. | Cerrado |
-| WARNING | El log de validación podía incluir accidentalmente el valor del secreto si un developer pasaba el secreto a `log_safe`. | El contrato de `_validate_secrets`明确规定 never passes the secret value; `test_log_safe_payload_omits_secret_value` prueba el contrato. | Cerrado |
+| CRITICAL | `session_secret` inicializado con un valor placeholder publicado en el repositorio | fixed | Un lector del repo podía forjar cookies de sesión para cualquier email y rol. `_validate_secrets` rechaza el placeholder en producción; `StartupConfigError` se propaga antes de construir `InsForgeClient`. |
+| CRITICAL | `insforge_service_key` vacío no bloqueaba el arranque | fixed | Las llamadas SQL privilegiadas se hacían sin autenticación. `_validate_secrets` rechaza `insforge_service_key == ""` antes de cualquier conexión. |
+| CRITICAL | Sin validación de longitud mínima para `session_secret` | fixed | Un secreto corto (p. ej. 8 caracteres) era aceptable. `_validate_secrets` exige `len >= 32`; `secrets.token_urlsafe(32)` en el runbook genera el mínimo seguro. |
+| MEDIUM | Sin test de regresión que probara que `InsForgeClient` no se construye cuando la validación falla | fixed | `test_lifespan_validates_secrets_before_constructing_insforge_client` parchea `InsForgeClient` y afirma que no se llama. |
+| MEDIUM | El log de validación podía incluir accidentalmente el valor del secreto | fixed | El contrato de `_validate_secrets` prohíbe pasar el valor del secreto; `test_log_safe_payload_omits_secret_value` prueba el contrato. |
 
 ## Verdict
 
-**PASS**. La validación de secretos en startup queda alineada con las reglas del proyecto: validación en la capa de configuración (no en routes), `log_safe` como único punto de logging, `StartupConfigError` con mensaje seguro, `debug=True` como gate de dev, y tests de regresión que prueban tanto la lógica de validación como el orden de llamada en el lifespan. El riesgo residual es que un operador que active `APAP_DEBUG=true` en producción obtiene el mismo comportamiento inseguro que antes; el runbook documenta que esto es incorrecto y el default es `False` (default deny, §6). La auditoría referencia §32.P2 como el anti-patrón cerrado.
+PASS: la validación de secretos queda alineada con las reglas del proyecto. La validación vive en la capa de configuración, se ejecuta antes de cualquier llamada de red, emite logs estructurados antes de raise y solo se ignora con `debug=True` (gate explícito que no aplica en producción). La clase `StartupConfigError` nunca hace eco del valor del secreto. La cobertura cubre los siete casos de validación y el contrato de log. El anti-patrón §32.P2 queda cerrado.
+
+Riesgo residual: si un operador activa `APAP_DEBUG=true` en producción, obtiene el mismo comportamiento inseguro que antes; el runbook documenta que esto es incorrecto y el default es `False` (default-deny, AGENTS.md §6).
+
+## References
+
+- `app/core/config.py` (`_validate_secrets`, `StartupConfigError`).
+- `app/main.py` (lifespan: orden de llamadas).
+- `tests/test_startup_config_validation.py`.
+- `tests/test_lifespan.py`.
+- `scripts/pytest_plugin/coverage_gate.py` (registro de `_validate_secrets` en `CRITICAL_HELPERS`).
+- Runbook operator-facing (rotación y longitud mínima de secretos).
+- AGENTS.md §6 (default-deny), §9 (`log_safe`), §11 (`CRITICAL_HELPERS`), §32.P2 (anti-patrón cerrado).

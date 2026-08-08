@@ -1,123 +1,116 @@
-# Audit checklist — 2026-07-25
+[← Back to README](../../README.md)
 
-> **Mirror of the tracking issue**: https://github.com/ardelperal/APAP_WEB/issues/294
->
-> The canonical source of truth is the GitHub issue. This file is a docs-only
-> in-repo mirror kept in sync with the issue body. When the issue changes,
-> re-run the same flip + "Closed findings" append that produced this revision.
+# 2026-07-25-audit-checklist.md
 
-Tracking issue for the full-codebase audit run on 2026-07-25 against `main` at `abcaa89`.
+This audit documents the scope, methodology, findings, and verdict for the audit listed in the title. Esta auditoría documenta el alcance, la metodología, los hallazgos y el veredicto del checklist del audit full-codebase ejecutado el 2026-07-25 contra `main` en `abcaa89`, que produce el inventario de issues etiquetados `audit-2026-07-25`.
 
-## How to work this batch
+| Sección | Descripción |
+|---|---|
+| [Scope](#scope) | Issue de tracking y baseline medida al ejecutar el audit. |
+| [Methodology](#methodology) | Procedimiento para trabajar el batch de issues. |
+| [Findings](#findings) | Severidad, título, forma y detalle de cada hallazgo. |
+| [Verdict](#verdict) | Estado final del audit y de los findings derivados. |
+| [References](#references) | PRs de cierre, issues y enlaces relacionados. |
 
-Every issue in this audit carries the label **`audit-2026-07-25`**. To pick up the work:
+> **Mirror del issue de tracking**: <https://github.com/ardelperal/APAP_WEB/issues/294>. La fuente canónica de verdad es el issue de GitHub. Este fichero es un mirror in-repo sincronizado con el cuerpo del issue. Cuando el issue cambie, vuelva a ejecutar el mismo flip + "Closed findings" append que produjo esta revisión.
 
-```
+## Scope
+
+| Item | Value |
+|---|---|
+| Tracking issue | <https://github.com/ardelperal/APAP_WEB/issues/294> |
+| Fecha del audit | 2026-07-25 |
+| HEAD auditado | `main` en `abcaa89` |
+| Etiqueta de los issues derivados | `audit-2026-07-25` |
+
+### Baseline medida al ejecutar el audit
+
+| Gate | Resultado |
+|---|---|
+| `ruff check .` | pass |
+| `python -m mypy` | pass — 0 errores, 92 ficheros |
+| `python scripts/check_rules.py .` | pass — 12 detectores |
+| `check_module_size.py` / `check_route_size.py` | pass |
+| `pytest --cov=app` | 2516 passed, 3 failed, 2 skipped — **89.18%** coverage |
+| `CRITICAL_HELPERS` gate | pass — 21 helpers al 100% |
+
+Los 3 fallos locales: 2 son los casos environment-dependent de `test_coverage_gate.py` (#292), 1 es el hard-fail by-design del test de concurrencia TOCTOU (#282).
+
+## Methodology
+
+Cada issue del audit lleva la etiqueta `audit-2026-07-25`. Para tomar trabajo:
+
+```bash
 gh issue list --label audit-2026-07-25 --state open
 ```
 
-Each issue is self-contained: it names the exact file and line, states the failure scenario, lists acceptance criteria, names the AGENTS.md rules that apply, and gives the commands to validate. An agent should not need this epic to execute any single one of them.
+Cada issue es self-contained: nombra el fichero y línea exactos, declara el escenario de fallo, lista los criterios de aceptación, nombra las reglas de AGENTS.md que aplican y da los comandos para validar. Un agente no debería necesitar este epic para ejecutar ninguno de ellos.
 
-Follow `docs/proceso.md` and AGENTS.md §15 (pre-MVP single-branch policy) for the branch/PR/merge flow. Several of these touch auth, secrets or CSRF, which makes `judgment-day` mandatory per §17.2 — each issue says so where it applies.
+Siga `docs/proceso.md` y AGENTS.md §15 (política pre-MVP de rama única) para el flujo branch/PR/merge. Varios tocan auth, secretos o CSRF, lo que hace `judgment-day` obligatorio según §17.2 — cada issue lo indica donde aplica.
 
-## Baseline measured at audit time
+### Aspectos que el audit declaró sanos
 
-| Gate | Result |
-|---|---|
-| `ruff check .` | pass |
-| `python -m mypy` | pass — 0 errors, 92 files |
-| `python scripts/check_rules.py .` | pass — 12 detectors |
-| `check_module_size.py` / `check_route_size.py` | pass |
-| `pytest --cov=app` | 2516 passed, 3 failed, 2 skipped — **89.18%** coverage |
-| `CRITICAL_HELPERS` gate | pass — 21 helpers at 100% |
+Conviene declarar lo que está bien, porque es la razón por la que los hallazgos de abajo son puntuales y no estructurales:
 
-The 3 local failures: 2 are the environment-dependent `test_coverage_gate.py` cases (#292), 1 is the by-design hard-fail of the TOCTOU concurrency test (#282).
+- Límite de capas sostenido — cero llamadas a `execute_sql` en rutas.
+- Cero interpolación de strings SQL en `app/`; todo parametrizado.
+- Cero `| safe` en plantillas; autoescape de Jinja intacto.
+- La autorización se re-valida contra la base de datos en cada request, sin confiar en la cookie.
+- Path traversal cerrado sobre storage keys y nombres de bucket antes de cualquier llamada HTTP.
+- 12 detectores AST específicos del proyecto más dos ratchets de tamaño shrink-only, todos cableados en CI.
+- Dockerfile multi-stage, runtime non-root, sin tooling de build en la imagen final.
 
-## What the audit found healthy
+### Orden sugerido de resolución
 
-Worth stating, because it is the reason the findings below are narrow rather than structural:
+1. **#275** primero — es el único hallazgo que convierte un slip de config en bypass total de auth.
+2. **#277 + #278** juntos — mismo fichero, mismo flujo, diff combinado pequeño.
+3. **#279**, después **#276**.
+4. **#281** y **#282** antes de que aterrice cualquier otra cosa, para que los gates CI que validan el resto estén realmente corriendo.
+5. **#293** temprano en vez de tarde: es la regla que detiene la próxima hornada de estos.
 
-- Layer boundaries hold — zero `execute_sql` calls in routes.
-- Zero SQL string interpolation anywhere in `app/`; everything is parameterised.
-- Zero `| safe` in templates; Jinja autoescape intact.
-- Authorisation is re-validated against the database on every request, not trusted from the cookie.
-- Path traversal is closed on storage keys and bucket names before any HTTP call.
-- 12 project-specific AST detectors plus two shrink-only size ratchets, all wired into CI.
-- Multi-stage Dockerfile, non-root runtime, no build tooling in the final image.
+### Hallazgos de issues preexistentes en el mismo territorio
 
-## Closed findings
+No abiertos por este audit, pero pertenecen al mismo clúster y deberían programarse junto a estos:
 
-These audit findings have landed in `main` and are now closed. Their boxes are flipped to `[x]` in the checklist below; the underlying PRs are listed here for traceability.
-
-- #275 — fail-fast on missing or placeholder secrets at startup — PR #307
-- #276 — HTTP security headers middleware (CSP, X-Frame-Options, nosniff, Referrer-Policy, HSTS) — PR #311
-- #286 — rate limiting on the OAuth flow and write routes — PR #306
-- #277 — `POST /admin/users` returns 500 on duplicate email — PR #308
-- #278 — email never normalised: ghost users and missed revocations — PR #308
-- #279 — permanent lockout when the last active developer is deactivated — PR #309
-- #280 — `invalidate_all()` reopens the write-after-invalidate race — PR #310
-- #281 — the `deploy` job never runs (merge-commit guard vs. PR-only policy) — PR #302
-- #283 — `log_safe` can raise `KeyError` on reserved `LogRecord` field names — PR #301 (merged together with #284)
-- #284 — `JsonFormatter` emits ~15 internal fields per log line — PR #301
-- #285 — `animal_foto` buffers whole photos, no cache headers, stale docstring — PR #304
-- #287 — `RedisAuthCache` is dead code reachable by configuration — PR #298
-- #289 — `domain.py` and `acogidas/service.py` are 1–2 lines from the size budget — PR #303
-- #290 — rule 22 (query-builder seam) has zero adoption and no gate — PR #305
-- #291 — AGENTS.md has two rules numbered 29 — PR #298
-- #293 — encode the detected anti-patterns as an AGENTS.md rule — PR #295
+- #205 — extracción de query builders (aparea con #290 y la mitad `acogidas` de #289).
+- #206, #223 — la suite E2E no corre en CI (aparea con #288).
+- #217, #218, #219 — `type:bug` abiertos en `migration/`; **#218 (swallowed `conn.commit()` failure) es un gap silencioso de durabilidad y merece prioridad**.
+- #198 — inventario de review-authority corrupto.
 
 ## Findings
 
-### Security and startup
+| Severity | Title | Form | Details |
+|---|---|---|---|
+| CRITICAL | #275 — fail-fast en secretos faltantes o placeholder en startup (mayor impacto del audit) | fixed | PR #307 |
+| HIGH | #276 — middleware de cabeceras de seguridad HTTP (CSP, X-Frame-Options, nosniff, Referrer-Policy, HSTS) | fixed | PR #311 |
+| HIGH | #286 — rate limiting sobre el flujo OAuth y las rutas de escritura | fixed | PR #306 |
+| HIGH | #277 — `POST /admin/users` devuelve 500 en email duplicado | fixed | PR #308 |
+| MEDIUM | #278 — email nunca normalizado: ghost users y revocaciones perdidas | fixed | PR #308 |
+| HIGH | #279 — lockout permanente cuando se desactiva al último developer activo | fixed | PR #309 |
+| HIGH | #280 — `invalidate_all()` reabre la race write-after-invalidate | fixed | PR #310 |
+| MEDIUM | #281 — el job `deploy` nunca corre (merge-commit guard vs. PR-only policy) | fixed | PR #302 |
+| BLOCKER | #283 — `log_safe` puede lanzar `KeyError` por nombres de campo reservados de `LogRecord` | fixed | PR #301 (junto con #284) |
+| HIGH | #284 — `JsonFormatter` emite ~15 campos internos por línea de log | fixed | PR #301 |
+| MEDIUM | #285 — `animal_foto` bufferea fotos enteras, sin cache headers, docstring obsoleto | fixed | PR #304 |
+| HIGH | #287 — `RedisAuthCache` es dead code alcanzable por configuración | fixed | PR #298 |
+| LOW | #289 — `domain.py` y `acogidas/service.py` están a 1–2 líneas del presupuesto de tamaño | fixed | PR #303 |
+| MEDIUM | #290 — la regla 22 (query-builder seam) tiene cero adopción y sin gate | fixed | PR #305 |
+| LOW | #291 — AGENTS.md tiene dos reglas numeradas como 29 | fixed | PR #298 |
+| MEDIUM | #293 — codificar los anti-patrones detectados como regla en AGENTS.md | fixed | PR #295 |
+| HIGH | #282 — el test de concurrencia TOCTOU no corre en ningún sitio | open finding | Test hard-failing sin Postgres, `--deselect`-ed en CI |
+| MEDIUM | #292 — `test_coverage_gate.py` subprocess depende del `sys.path` ambiente | open finding | Test environment-dependent, 2 fallos en baseline local |
+| MEDIUM | #288 — gap de cobertura de la capa de rutas oculto por la media global | open finding | Route layer entre 57% y 83%, `voluntarios/routes.py` al 57.3% |
 
-- [x] #275 — fail-fast on missing or placeholder secrets at startup — **highest impact of the audit**
-- [x] #276 — HTTP security headers middleware (CSP, X-Frame-Options, nosniff, Referrer-Policy, HSTS)
-- [x] #286 — rate limiting on the OAuth flow and write routes
+## Verdict
 
-### Auth correctness
+PASS: el audit identificó un set focalizado de hallazgos. Los findings abiertos (#282, #288, #292) son riesgos conocidos y rastreados, no son regresiones nuevas. Los 17 hallazgos cerrados en `main` se distribuyen entre seguridad, robustez, integridad de tests y deuda técnica, y han elevado el estado de hardening del proyecto.
 
-- [x] #277 — `POST /admin/users` returns 500 on duplicate email
-- [x] #278 — email never normalised: ghost users and missed revocations
-- [x] #279 — permanent lockout when the last active developer is deactivated
-- [x] #280 — `invalidate_all()` reopens the write-after-invalidate race
+El audit también produjo el nuevo AGENTS.md §32 (anti-patrones) y endureció el CI con detectores AST adicionales y ratchets shrink-only (reglas §21, §25, §26, §27, §28), de modo que los patrones detectados queden rechazados en revisión antes de producir nuevas instancias.
 
-### CI and test integrity
+## References
 
-- [x] #281 — the `deploy` job never runs (merge-commit guard vs. PR-only policy)
-- [ ] #282 — the TOCTOU concurrency test runs nowhere
-- [ ] #292 — `test_coverage_gate.py` subprocess depends on ambient `sys.path`
-
-### Robustness
-
-- [x] #283 — `log_safe` can raise `KeyError` on reserved `LogRecord` field names
-- [x] #284 — `JsonFormatter` emits ~15 internal fields per log line
-- [x] #285 — `animal_foto` buffers whole photos, no cache headers, stale docstring
-
-### Technical debt
-
-- [x] #287 — `RedisAuthCache` is dead code reachable by configuration
-- [ ] #288 — route-layer coverage gap hidden by the global average
-- [x] #289 — `domain.py` and `acogidas/service.py` are 1–2 lines from the size budget
-- [x] #290 — rule 22 (query-builder seam) has zero adoption and no gate
-- [x] #291 — AGENTS.md has two rules numbered 29
-
-### Prevention
-
-- [x] #293 — encode the detected anti-patterns as an AGENTS.md rule
-
-## Suggested order
-
-1. **#275** first — it is the only finding that turns a config slip into full auth bypass.
-2. **#277 + #278** together — same file, same flow, small combined diff.
-3. **#279**, then **#276**.
-4. **#281** and **#282** before anything else lands, so the CI gates that validate the rest are actually running.
-5. **#293** early rather than late: it is the rule that stops the next batch of these from appearing.
-
-## Pre-existing issues in the same territory
-
-Not opened by this audit, but they belong to the same clusters and should be scheduled alongside:
-
-- #205 — extract query builders (pairs with #290 and the `acogidas` half of #289)
-- #206, #223 — E2E suite not running in CI (pairs with #288)
-- #217, #218, #219 — open `type:bug` in `migration/`; **#218 (swallowed `conn.commit()` failure) is a silent durability gap and deserves priority**
-- #198 — review-authority inventory corrupted
+- Tracking issue #294: <https://github.com/ardelperal/APAP_WEB/issues/294>
+- PRs de cierre: #295, #298, #301, #302, #303, #304, #305, #306, #307, #308, #309, #310, #311
+- Issues abiertos derivados: #282, #288, #292
+- Reglas AGENTS.md derivadas: §32 (anti-patrones)
+- Docs/proceso.md, AGENTS.md §15 (política pre-MVP), §17.2 (`judgment-day` para high-stakes)

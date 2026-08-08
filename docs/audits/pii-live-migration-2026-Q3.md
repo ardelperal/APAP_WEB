@@ -1,292 +1,204 @@
-# PII Audit — Live Migration (2026 Q3, PR4b)
+[← Back to README](../../README.md)
 
-> **Verdict**: PASS
-> **Scope**: M1 forward migration PII surface (legacy → web); authenticated
-> photo display route; storage redaction invariants; `log_safe` redaction
-> list. **Out of scope**: M2 reverse path (PR6/PR7), production release
-> tags, public galleries, anonymization, encryption-at-rest beyond InsForge
-> defaults.
+# pii-live-migration-2026-Q3.md
+
+This audit documents the scope, methodology, findings, and verdict for the audit listed in the title. Esta auditoría documenta el alcance, la metodología, los hallazgos y el veredicto del estudio PII del live migration (PR4b) ejecutado durante 2026 Q3, que cubre la superficie PII de la migración M1 forward, la ruta autenticada de display de fotos, los invariantes de redacción en storage y la lista de redacción de `log_safe`, con extensiones posteriores en PR5 (M1 collision routing) y PR6 (M2 reverse path + round-trip).
+
+| Sección | Descripción |
+|---|---|
+| [Scope](#scope) | Columnas PII, rutas de display, storage y lista de redacción. |
+| [Methodology](#methodology) | Procedimiento aplicado y átomos que pinean los invariantes. |
+| [Findings](#findings) | Severidad, título, forma y detalle de cada hallazgo. |
+| [Verdict](#verdict-pr4b) | Estado final del cierre PII de M1 y M2. |
+| [References](#references) | Tests, runbook y operator acknowledgement. |
 
 ## Scope
 
-### PII columns in scope
+| Item | Value |
+|---|---|
+| Audit slice | Live migration PII surface (M1 forward + M2 reverse) |
+| PRs cubiertos | PR4b (forward), PR5 (collision routing), PR6 (reverse + round-trip) |
+| Out of scope | M2 reverse path (PR6/PR7), production release tags, public galleries, anonymization, encryption-at-rest más allá de los defaults de InsForge |
 
-| Column    | Source (legacy)               | Web column   | web_only_strategy | Forward path             |
-|-----------|-------------------------------|--------------|-------------------|--------------------------|
-| `email`   | `TbVoluntariosParaAutorrellenables.Email` | `voluntarios.email` | mapped 1:1        | forward + reverse        |
-| `tel1`    | `TbVoluntariosParaAutorrellenables.Tel1`  | `voluntarios.tel1`  | mapped 1:1        | forward + reverse        |
-| `tel2`    | `TbVoluntariosParaAutorrellenables.Tel2`  | `voluntarios.tel2`  | mapped 1:1        | forward + reverse        |
-| `dni`     | (NO legacy column — verified via Dysflow `get_schema` on 2026-07-11) | `voluntarios.dni` | `preserve` (web-only shadow; round-trip) | NEVER forward-migrated; preserved on web-side; reverse-path collision is recorded as `needs_review` |
+### Columnas PII en alcance
 
-> **Why no `DNI` column in legacy.** `TbVoluntariosParaAutorrellenables`
-> returns exactly four columns (`Voluntario, Tel1, Tel2, Email`, all
-> `type=10 text size=255`). Any future claim that DNI exists in this
-> legacy table MUST be re-verified via the same Dysflow `get_schema`
-> tool. The `migration/mappings/voluntario.yaml` mapping already encodes
-> this reality (`DNI` has `legacy_column: null`,
-> `web_only_strategy: preserve`).
+| Columna | Origen (legacy) | Columna web | web_only_strategy | Forward path |
+|---|---|---|---|---|
+| `email` | `TbVoluntariosParaAutorrellenables.Email` | `voluntarios.email` | mapped 1:1 | forward + reverse |
+| `tel1` | `TbVoluntariosParaAutorrellenables.Tel1` | `voluntarios.tel1` | mapped 1:1 | forward + reverse |
+| `tel2` | `TbVoluntariosParaAutorrellenables.Tel2` | `voluntarios.tel2` | mapped 1:1 | forward + reverse |
+| `dni` | (NO legacy column — verificado vía Dysflow `get_schema` el 2026-07-11) | `voluntarios.dni` | `preserve` (web-only shadow; round-trip) | NEVER forward-migrated; preserved on web-side; reverse-path collision is recorded as `needs_review` |
 
-### Display routes in scope (PII can be reached via these)
+> **Por qué no hay columna `DNI` en legacy.** `TbVoluntariosParaAutorrellenables` devuelve exactamente cuatro columnas (`Voluntario, Tel1, Tel2, Email`, todas `type=10 text size=255`). Cualquier afirmación futura de que DNI existe en esta tabla legacy MUST re-verificarse vía la misma herramienta Dysflow `get_schema`. El mapping `migration/mappings/voluntario.yaml` ya codifica esta realidad (`DNI` tiene `legacy_column: null`, `web_only_strategy: preserve`).
 
-| Route                                  | Auth required | Without session |
-|----------------------------------------|---------------|-----------------|
-| `GET /voluntarios`                     | yes           | 302 `/login`    |
-| `GET /voluntarios/{id}`                | yes           | 302 `/login`    |
-| `GET /animales`                        | yes           | 302 `/login`    |
-| `GET /animales/{animal_id}` (UUID)     | yes           | 302 `/login`    |
-| `GET /animales/{animal_id}/foto` (UUID)| yes           | 302 `/login`    |
-| `GET /entradas`                        | yes           | 302 `/login`    |
-| `GET /login`                           | no            | 200            |
+### Rutas de display en alcance (PII puede accederse vía estas)
 
-`PUBLIC_PATHS` at `app/main.py:148` is the closed set of
-intentionally-unauthenticated endpoints: `{/healthz, /login,
-/auth/google, /auth/callback, /logout}` (5 entries). Only `/login`
-exposes application content; the other four are protocol/operational
-surfaces (liveness probe, OAuth flow start, OAuth callback, session
-clear) that do not leak PII by design.
+| Ruta | Auth requerida | Sin sesión |
+|---|---|---|
+| `GET /voluntarios` | sí | 302 `/login` |
+| `GET /voluntarios/{id}` | sí | 302 `/login` |
+| `GET /animales` | sí | 302 `/login` |
+| `GET /animales/{animal_id}` (UUID) | sí | 302 `/login` |
+| `GET /animales/{animal_id}/foto` (UUID) | sí | 302 `/login` |
+| `GET /entradas` | sí | 302 `/login` |
+| `GET /login` | no | 200 |
 
-### Storage in scope
+`PUBLIC_PATHS` en `app/main.py:148` es el set cerrado de endpoints intencionalmente no autenticados: `{/healthz, /login, /auth/google, /auth/callback, /logout}` (5 entradas). Solo `/login` expone contenido de aplicación; los otros cuatro son superficies protocolares/operativas (liveness probe, OAuth flow start, OAuth callback, session clear) que por diseño no leak PII.
 
-- `apap-photos` private bucket (`isPublic=false`); pre-flight invariant
-  is `isPublic == False` and the apply aborts on `True` or absent.
-- Object keys are client-derived as `<sha256>.<ext>` (SHA-256 of the
-  bytes + detected extension). Server may rename on collision; the
-  canonical key is the `key` field returned by the upload-strategy.
-- `animales.nombrefoto` stores the **returned** key (not the legacy
-  filename, not the proposed key if the server renamed).
-- Sentinel `__missing__` is set when the source photo is missing,
-  corrupt, or unsupported; the route serves a 1x1 PNG placeholder
-  without any storage I/O.
+### Storage en alcance
 
-### Redaction list (`app/core/logging.py::REDACTED_FIELDS`)
+- `apap-photos` private bucket (`isPublic=false`); invariante de pre-flight es `isPublic == False` y el apply aborta en `True` o ausente.
+- Las object keys son client-derived como `<sha256>.<ext>` (SHA-256 de los bytes + extensión detectada). El server puede renombrar en colisión; la key canónica es el campo `key` devuelto por el upload-strategy.
+- `animales.nombrefoto` almacena la key **devuelta** (no el filename legacy, no la key propuesta si el server renombró).
+- Sentinel `__missing__` se fija cuando la foto fuente falta, está corrupta o no soportada; la ruta sirve un placeholder PNG 1x1 sin storage I/O.
 
-After PR4b the closed list has 15 entries: `email, session_token, jwt,
-oauth_code, pkce_verifier, csrf_token, pkce_challenge, authorization,
-cookie, referer, ip_address, x_forwarded_for, dni, tel1, tel2`.
-Comparison is case-insensitive and treats `-` and `_` as equivalent.
+### Lista de redacción (`app/core/logging.py::REDACTED_FIELDS`)
+
+Tras PR4b la lista cerrada tiene 15 entradas: `email, session_token, jwt, oauth_code, pkce_verifier, csrf_token, pkce_challenge, authorization, cookie, referer, ip_address, x_forwarded_for, dni, tel1, tel2`. La comparación es case-insensitive y trata `-` y `_` como equivalentes.
 
 ## Methodology
 
-Six invariants are pinned by automated atoms. Each atom is a fixture
-that pre-loads the relevant fake, exercises the contract, and asserts
-the post-state with a concrete value (not absence-of-error).
+Seis invariantes se pinean por átomos automatizados. Cada átomo es una fixture que pre-carga el fake relevante, ejercita el contrato y afirma el post-state con un valor concreto (no absence-of-error).
 
-1. **Redaction list shape** — `tests/test_logging.py` +
-   `tests/test_log_safe_redaction.py` (15 atoms after parametrization
-   expansion). The list has exactly 15 entries; every new PII field
-   (`dni`, `tel1`, `tel2`) is present; mixed-case variants
-   (`DNI`, `Tel1`, `TEL2`) are redacted; descriptive names that merely
-   CONTAIN a redacted substring (`dni_lookup_table`,
-   `telefono_secundario`) pass through unchanged.
-2. **Authorization invariant** —
-   `tests/test_animals_foto_route.py::TestFotoRouteAuthorizationInvariant`
-   pins that an anonymous request redirects to `/login` BEFORE
-   any DB or storage call. No SQL queries, no storage calls.
-3. **No-presigned-URL leak** —
-   `tests/test_animals_foto_route.py::TestFotoRouteDoesNotLeakPresignedUrl`
-   pins that no header or body of the response ever contains the
-   storage URL or any presigned token, even when the storage
-   surface raised with that URL in its error body.
-4. **Fail-closed on every storage-stream error category** —
-   `tests/migration/test_insforge_storage_methods.py` parameterises
-   401, 403, 404, 405, 500 on the upload strategy; `download_object_stream`
-   raises `InsForgeError` on 401/404/5xx and `httpx.TimeoutException` on
-   network timeout. The route layer's
-   `tests/test_animals_foto_route.py::TestFotoRouteMidStreamFailClosed`
-   covers four placeholder emission paths: streamed-GET 5xx
-   (`test_foto_route_placeholder_when_streamed_get_5xx_on_first_chunk`),
-   mid-iteration network drop
-   (`test_foto_route_placeholder_when_stream_mid_iteration_network_error`),
-   streamed-GET succeeds for headers but fails on first-iteration
-   (`test_foto_route_placeholder_when_stream_fails_on_first_iteration`),
-   and per-chunk read timeout
-   (`test_foto_route_placeholder_on_per_chunk_timeout`). The photo service
-   consumes the storage generator eagerly so a mid-stream
-   `PhotoStreamError` always becomes the placeholder PNG — never a 5xx.
-   The service-level wrapping is pinned by
-   `tests/test_animals_foto_route.py::TestFotoServiceMidStreamWrapping`.
-   **PR4b 4R WARN-3:** unexpected exceptions on the animales SELECT
-   (`animals_service.get_animal_by_id`) ALSO fail closed to the
-   placeholder, for consistency with the storage-stream contract.
-   `tests/test_animals_foto_route.py::TestFotoRouteSqlLookupFailClosed`
-   pins both `InsForgeError` (transport-flavoured) and a non-InsForge
-   `RuntimeError` (invariant-violation-flavoured). The error is
-   recorded via `log_safe("animal_foto.sql_lookup_failed", reason=...)`
-   so the operator still sees it in the audit stream. A genuinely
-   missing animal (the service returns `None`) STILL surfaces as 404
-   because the absence is a domain signal, not a transport failure.
-5. **Idempotent upload** —
-   `tests/migration/test_insforge_storage_methods.py::test_upload_object_reuses_existing_key_via_client_derived_filename`
-   asserts the same bytes uploaded twice carry the same client-side
-   filename so server-side dedup can fire.
-6. **No raw `logger.*` / `print(...)` in `app/core/insforge.py`** —
-   `tests/migration/test_insforge_storage_methods.py::test_storage_methods_never_log_secrets_urls_or_paths`
-   uses the AST detector from `scripts/check_rules.py` (the same
-   detector that runs in CI) to pin the absence of forbidden logging
-   patterns in the production storage surface.
+1. **Shape de la lista de redacción** — `tests/test_logging.py` + `tests/test_log_safe_redaction.py` (15 átomos tras expansión de parametrización). La lista tiene exactamente 15 entradas; cada nuevo campo PII (`dni`, `tel1`, `tel2`) está presente; las variantes mixed-case (`DNI`, `Tel1`, `TEL2`) se redactan; los nombres descriptivos que meramente CONTIENEN un substring redactado (`dni_lookup_table`, `telefono_secundario`) pasan sin cambio.
+2. **Invariante de autorización** — `tests/test_animals_foto_route.py::TestFotoRouteAuthorizationInvariant` pinea que un request anónimo redirige a `/login` ANTES de cualquier llamada a DB o storage. Sin queries SQL, sin llamadas a storage.
+3. **Sin leak de presigned-URL** — `tests/test_animals_foto_route.py::TestFotoRouteDoesNotLeakPresignedUrl` pinea que ninguna cabecera o body de la respuesta contiene la URL de storage o cualquier token presigned, incluso cuando la superficie de storage levantó con esa URL en su body de error.
+4. **Fail-closed en cada categoría de error de storage-stream** — `tests/migration/test_insforge_storage_methods.py` parametriza 401, 403, 404, 405, 500 sobre el upload strategy; `download_object_stream` lanza `InsForgeError` en 401/404/5xx y `httpx.TimeoutException` en network timeout. La capa de ruta en `tests/test_animals_foto_route.py::TestFotoRouteMidStreamFailClosed` cubre cuatro paths de emisión de placeholder: streamed-GET 5xx (`test_foto_route_placeholder_when_streamed_get_5xx_on_first_chunk`), network drop mid-iteration (`test_foto_route_placeholder_when_stream_mid_iteration_network_error`), streamed-GET succeeds for headers pero falla en first-iteration (`test_foto_route_placeholder_when_stream_fails_on_first_iteration`), y per-chunk read timeout (`test_foto_route_placeholder_on_per_chunk_timeout`). El photo service consume el generador de storage eagermente para que un `PhotoStreamError` mid-stream siempre se vuelva el PNG placeholder — nunca un 5xx. El wrapping a nivel de servicio está pineado por `tests/test_animals_foto_route.py::TestFotoServiceMidStreamWrapping`. **PR4b 4R WARN-3**: excepciones inesperadas en el SELECT de animales (`animals_service.get_animal_by_id`) TAMBIÉN fallan closed al placeholder, por consistencia con el contrato de storage-stream. `tests/test_animals_foto_route.py::TestFotoRouteSqlLookupFailClosed` pinea tanto `InsForgeError` (con sabor transport) como un `RuntimeError` no-InsForge (con sabor invariant-violation). El error se registra vía `log_safe("animal_foto.sql_lookup_failed", reason=...)` para que el operador lo siga viendo en el audit stream. Un animal genuinamente ausente (el service devuelve `None`) SIGUE surfacing como 404 porque la ausencia es una señal de dominio, no un fallo de transporte.
+5. **Upload idempotente** — `tests/migration/test_insforge_storage_methods.py::test_upload_object_reuses_existing_key_via_client_derived_filename` afirma que los mismos bytes subidos dos veces llevan el mismo client-side filename para que el dedup del lado server pueda dispararse.
+6. **Sin `logger.*` raw / `print(...)` en `app/core/insforge.py`** — `tests/migration/test_insforge_storage_methods.py::test_storage_methods_never_log_secrets_urls_or_paths` usa el AST detector de `scripts/check_rules.py` (el mismo detector que corre en CI) para pinear la ausencia de patrones de logging prohibidos en la superficie de storage de producción.
 
-In addition, the operator runbook
-`docs/runbooks/live-migration-apply.md` carries the canonical
-operator workflow; `tests/test_runbook_links.py` pins that every
-operator-facing runbook reference resolves to an authored file
-with the AGENTS.md §13 headings (`## When to trigger`,
-`## Pre-deploy checklist`, `## Deploy steps`, `## Verification`,
-`## Rollback`).
+Además, el runbook operator `docs/runbooks/live-migration-apply.md` carga el workflow operator canónico; `tests/test_runbook_links.py` pinea que cada referencia a runbook operator-facing resuelve a un fichero authored con los headings de AGENTS.md §13 (`## When to trigger`, `## Pre-deploy checklist`, `## Deploy steps`, `## Verification`, `## Rollback`).
 
-### Issue #233 layering re-audit (2026-07-20)
+### Re-audit de layering del issue #233 (2026-07-20)
 
-The fail-closed decision tree moved from the HTTP handler to
-`photo_service.resolve_animal_photo`. The route now performs only the auth
-short-circuit, 404 translation, and `Response` construction. The move does
-not widen access or expose storage metadata: lookup exceptions retain the
-same `log_safe("animal_foto.sql_lookup_failed", reason=...)` event, while
-missing keys, empty streams, and typed storage failures retain the same
-placeholder bytes and media type. Existing route atoms plus
-`tests/test_animal_photo_resolution.py` verify the preserved boundary.
+El fail-closed decision tree se movió del HTTP handler a `photo_service.resolve_animal_photo`. La ruta ahora realiza solo el auth short-circuit, la traducción 404 y la construcción del `Response`. El move no amplía el acceso ni expone metadata de storage: las excepciones de lookup retienen el mismo evento `log_safe("animal_foto.sql_lookup_failed", reason=...)`, mientras que las missing keys, empty streams y typed storage failures retienen los mismos placeholder bytes y media type. Los átomos de ruta existentes más `tests/test_animal_photo_resolution.py` verifican el boundary preservado.
 
 ## Findings
 
-| Severity | Finding                                                                                  | Evidence                                                                                          | Status     |
-|----------|-------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------|------------|
-| P0       | None — no critical findings.                                                              | n/a                                                                                               | n/a        |
-| P1       | None — no high-severity findings.                                                          | n/a                                                                                               | n/a        |
-| P2       | Sentinel placeholder is a static 1x1 transparent PNG; users see no "broken image" hint.   | `app/modules/animals/photo_service.py::PLACEHOLDER_PHOTO_PNG`; `app/modules/animals/photo_service.py::SENTINEL_KEY`. UX improvement, not a security defect. | Acknowledged (out of PR4b scope) |
-| P2       | `delete_object` 404 returns `None` (idempotent) — if the operator logs the return value they see no signal of "already absent". | `tests/migration/test_insforge_storage_methods.py::test_delete_object_404_is_idempotent_noop`. No PII or secret leakage; only operator UX. | Acknowledged (out of PR4b scope) |
-| P3       | `content_type_for_key` falls back to `application/octet-stream` for unknown extensions; browsers will download instead of inline. | `app/modules/animals/photo_service.py::content_type_for_key`. Defensive default, no security impact. | Acknowledged |
-| P3       | `voluntarios.dni` is web-only shadow (verified via Dysflow `get_schema` 2026-07-11: zero DNI column in `TbVoluntariosParaAutorrellenables`). Forward legacy apply MUST leave `dni=NULL`; collisions only arise from manual web entry (UNIQUE constraint) or reverse-path (no legacy column to receive). | `migration/mappings/voluntario.yaml` (`DNI: legacy_column: null`); `tests/test_log_safe_redaction.py::test_log_safe_redacts_each_new_pii_field_value[dni]`; the `dni` row in the Scope table above. | By design — preserves P1 fidelity to the verified legacy schema |
-| P3       | Audit doc rendered in English per artifact default; the project's preferred register for operator docs is castellano de España. The default (English) was chosen because the artifact-language rule (technical artifacts default to English unless the project explicitly requests another language) takes precedence over the operator-doc preference for this audit. | `docs/audits/pii-live-migration-2026-Q3.md` (this file). | Acknowledged — operator may request a castellano render in a follow-up |
+| Severity | Title | Form | Details |
+|---|---|---|---|
+| MEDIUM | El sentinel placeholder es un PNG 1x1 transparente estático; los usuarios no ven ningún hint de "imagen rota" | deferred | `app/modules/animals/photo_service.py::PLACEHOLDER_PHOTO_PNG`; `app/modules/animals/photo_service.py::SENTINEL_KEY`. Mejora de UX, no un defecto de seguridad. Aceptado (fuera del alcance de PR4b). |
+| MEDIUM | `delete_object` 404 devuelve `None` (idempotente) — si el operador loguea el valor de retorno no ve señal de "ya ausente" | deferred | `tests/migration/test_insforge_storage_methods.py::test_delete_object_404_is_idempotent_noop`. Sin leak de PII ni de secretos; solo operator UX. Aceptado (fuera del alcance de PR4b). |
+| LOW | `content_type_for_key` cae a `application/octet-stream` para extensiones desconocidas; los navegadores descargarán en vez de inline | deferred | `app/modules/animals/photo_service.py::content_type_for_key`. Default defensivo, sin impacto de seguridad. Aceptado. |
+| LOW | `voluntarios.dni` es web-only shadow (verificado vía Dysflow `get_schema` 2026-07-11: cero columna DNI en `TbVoluntariosParaAutorrellenables`) | deferred | Forward legacy apply MUST dejar `dni=NULL`; las colisiones solo surgen de manual web entry (UNIQUE constraint) o reverse-path (no hay columna legacy que recibir). `migration/mappings/voluntario.yaml` (`DNI: legacy_column: null`); `tests/test_log_safe_redaction.py::test_log_safe_redacts_each_new_pii_field_value[dni]`; la fila `dni` en la tabla Scope de arriba. Por diseño — preserva la fidelidad P1 al schema legacy verificado. |
+| LOW | El audit doc se renderizó en inglés por default del artifact; el registro preferido del proyecto para docs de operador es castellano de España | deferred | El default (inglés) se eligió porque la regla de artifact-language (technical artifacts default to English a menos que el proyecto solicite explícitamente otro idioma) toma precedencia sobre la preferencia de operator-doc para este audit. `docs/audits/pii-live-migration-2026-Q3.md` (este fichero). Aceptado — el operador puede solicitar un render en castellano en un follow-up. |
 
-## Verdict
+## Verdict (PR4b)
 
-**PASS** — every PR4b PII control is pinned by an automated atom.
-The M1 milestone gate accepts the PII contract on the basis of:
+PASS: cada control PII de PR4b está pineado por un átomo automatizado. La gate del milestone M1 acepta el contrato PII sobre la base de:
 
-- The closed redaction list (15 entries) is verified end-to-end by
-  parametrized atoms in `tests/test_log_safe_redaction.py` (**15
-  atoms** after parametrization: 1 list-shape invariant + 3
-  per-field-presence + 3 per-field-redaction + 6 mixed-case variants +
-  1 record-message non-leak + 1 descriptive-name passthrough).
-- The `GET /animales/{animal_id}/foto` route is verified by
-  `tests/test_animals_foto_route.py` (**18 atoms** across 5 classes:
-  `TestFotoRouteAuthAndRouting` 6, `TestFotoRouteDoesNotLeakPresignedUrl`
-  1, `TestFotoRouteIsolatedService` 1, `TestFotoRouteAuthorizationInvariant`
-  1, `TestFotoRouteMidStreamFailClosed` 4, `TestFotoRouteSqlLookupFailClosed`
-  2, `TestFotoServiceMidStreamWrapping` 3).
-- The production storage methods on `InsForgeClient` are verified by
-  `tests/migration/test_insforge_storage_methods.py` (**30 atoms**:
-  happy/sad/edge for upload_object (4 + 6 parametrized fail-closed +
-  transfer/confirm/network), download_object_stream (7 + 2 per-chunk
-  timeout), delete_object (3); unsafe-bucket pre-network × 3;
-  idempotent re-upload; bearer auth on the strategy request; AST
-  detector pins the absence of forbidden logging patterns).
-- The migration operator path is documented in
-  `docs/runbooks/live-migration-apply.md` with the AGENTS.md §13
-  headings and the `MIGRATION_RUNBOOK_REF` constant surfaces this
-  canonical path on every typed-exception line. The PR4b-specific
-  photo display + storage sections extend that runbook on top of
-  the existing apply / pre-flight / rollback / escalation sections.
+- La lista cerrada de redacción (15 entradas) está verificada end-to-end por átomos parametrizados en `tests/test_log_safe_redaction.py` (**15 átomos** tras parametrización: 1 invariante de shape de lista + 3 presencia-por-campo + 3 redacción-por-campo + 6 variantes mixed-case + 1 no-leak del formatted message + 1 passthrough de nombres descriptivos).
+- La ruta `GET /animales/{animal_id}/foto` está verificada por `tests/test_animals_foto_route.py` (**18 átomos** repartidos en 5 clases: `TestFotoRouteAuthAndRouting` 6, `TestFotoRouteDoesNotLeakPresignedUrl` 1, `TestFotoRouteIsolatedService` 1, `TestFotoRouteAuthorizationInvariant` 1, `TestFotoRouteMidStreamFailClosed` 4, `TestFotoRouteSqlLookupFailClosed` 2, `TestFotoServiceMidStreamWrapping` 3).
+- Los métodos de storage de producción en `InsForgeClient` están verificados por `tests/migration/test_insforge_storage_methods.py` (**30 átomos**: happy/sad/edge para upload_object (4 + 6 fail-closed parametrizados + transfer/confirm/network), download_object_stream (7 + 2 per-chunk timeout), delete_object (3); unsafe-bucket pre-network × 3; idempotent re-upload; bearer auth sobre la strategy request; AST detector pinea la ausencia de patrones de logging prohibidos).
+- El path operator de migración está documentado en `docs/runbooks/live-migration-apply.md` con los headings de AGENTS.md §13 y la constante `MIGRATION_RUNBOOK_REF` surfacea este path canónico en cada línea de typed-exception. Las secciones específicas de PR4b (photo display + storage) extienden ese runbook sobre las secciones existentes de apply / pre-flight / rollback / escalation.
 
-### Acceptance evidence index
+### Índice de evidencia de aceptación
 
-| Invariant                                              | Atom file                                            | Atoms |
-|--------------------------------------------------------|------------------------------------------------------|-------|
-| REDACTED_FIELDS has exactly 15 entries                 | `tests/test_log_safe_redaction.py`                   | 1     |
-| Each new PII field is in the closed list               | `tests/test_log_safe_redaction.py`                   | 3     |
-| `log_safe` redacts each new field value                | `tests/test_log_safe_redaction.py`                   | 3     |
-| Mixed-case variants are redacted                       | `tests/test_log_safe_redaction.py`                   | 6     |
-| PII never leaks via the formatted message              | `tests/test_log_safe_redaction.py`                   | 1     |
-| Descriptive names pass through unchanged               | `tests/test_log_safe_redaction.py`                   | 1     |
-| Storage methods happy/sad/edge                         | `tests/migration/test_insforge_storage_methods.py`   | 30    |
-| Per-chunk read timeout pins ``connect=5/read=10/...``  | `tests/migration/test_insforge_storage_methods.py`   | 1     |
-| Stalled stream surfaces `httpx.TimeoutException`       | `tests/migration/test_insforge_storage_methods.py`   | 1     |
-| Auth gate redirects anonymous to `/login`             | `tests/test_animals_foto_route.py`                   | 2     |
-| Animal-not-found returns 404                          | `tests/test_animals_foto_route.py`                   | 1     |
-| Route streams bytes for real keys                     | `tests/test_animals_foto_route.py`                   | 1     |
-| Sentinel + null → placeholder, no I/O                 | `tests/test_animals_foto_route.py`                   | 2     |
-| Storage error → placeholder (fail-closed)             | `tests/test_animals_foto_route.py`                   | 1     |
-| Mid-stream error → placeholder (CRIT-1, 4R)            | `tests/test_animals_foto_route.py`                   | 4     |
-| SQL lookup error → placeholder (WARN-3, 4R)            | `tests/test_animals_foto_route.py`                   | 2     |
-| `stream_animal_photo` wraps mid-stream errors         | `tests/test_animals_foto_route.py`                   | 3     |
-| No presigned URL leak                                 | `tests/test_animals_foto_route.py`                   | 1     |
-| Service isolation (no photo/bucket SQL)                | `tests/test_animals_foto_route.py`                   | 1     |
-| Audit doc structure (Scope / Methodology / ...)        | `tests/test_pii_audit_doc.py`                        | 7     |
-| Runbook references resolve to authored files           | `tests/test_runbook_links.py`                        | 12    |
+| Invariante | Fichero de átomos | Átomos |
+|---|---|---|
+| `REDACTED_FIELDS` tiene exactamente 15 entradas | `tests/test_log_safe_redaction.py` | 1 |
+| Cada nuevo campo PII está en la lista cerrada | `tests/test_log_safe_redaction.py` | 3 |
+| `log_safe` redacta cada nuevo valor de campo | `tests/test_log_safe_redaction.py` | 3 |
+| Variantes mixed-case se redactan | `tests/test_log_safe_redaction.py` | 6 |
+| PII nunca leak via el formatted message | `tests/test_log_safe_redaction.py` | 1 |
+| Nombres descriptivos pasan sin cambio | `tests/test_log_safe_redaction.py` | 1 |
+| Métodos de storage happy/sad/edge | `tests/migration/test_insforge_storage_methods.py` | 30 |
+| Per-chunk read timeout pinea `connect=5/read=10/...` | `tests/migration/test_insforge_storage_methods.py` | 1 |
+| Stream stalled surfacea `httpx.TimeoutException` | `tests/migration/test_insforge_storage_methods.py` | 1 |
+| Auth gate redirige anónimo a `/login` | `tests/test_animals_foto_route.py` | 2 |
+| Animal-not-found devuelve 404 | `tests/test_animals_foto_route.py` | 1 |
+| Ruta streamea bytes para keys reales | `tests/test_animals_foto_route.py` | 1 |
+| Sentinel + null → placeholder, sin I/O | `tests/test_animals_foto_route.py` | 2 |
+| Storage error → placeholder (fail-closed) | `tests/test_animals_foto_route.py` | 1 |
+| Mid-stream error → placeholder (CRIT-1, 4R) | `tests/test_animals_foto_route.py` | 4 |
+| SQL lookup error → placeholder (WARN-3, 4R) | `tests/test_animals_foto_route.py` | 2 |
+| `stream_animal_photo` envuelve errores mid-stream | `tests/test_animals_foto_route.py` | 3 |
+| Sin leak de presigned URL | `tests/test_animals_foto_route.py` | 1 |
+| Service isolation (sin photo/bucket SQL) | `tests/test_animals_foto_route.py` | 1 |
+| Estructura del audit doc (Scope / Methodology / ...) | `tests/test_pii_audit_doc.py` | 7 |
+| Referencias de runbook resuelven a ficheros authored | `tests/test_runbook_links.py` | 12 |
 
 ## PR5 Additions (2026-07-15)
 
-PR5 (`feat/migration-pr5-pii-controls`, PR #196) re-scopes the
-M1 collision contract and adds five new PII controls on top of
-the PR4b surface. This section enumerates the new invariants,
-the new tests, and reconfirms the verdict.
+PR5 (`feat/migration-pr5-pii-controls`, PR #196) re-escope el contrato de colisión M1 y añade cinco nuevos controles PII encima de la superficie de PR4b. Esta sección enumera los nuevos invariantes, los nuevos tests y reconfirma el verdict.
 
-### New invariants
+### Nuevos invariantes
 
-| Invariant | Surface | Where it lives |
+| Invariante | Superficie | Dónde vive |
 |---|---|---|
-| Per-table counter wiring with DI seam | `apply_legacy_to_web(dni_collision_counter: DniCollisionCounter \| None = None)` exposes the counter for the PR6 reverse applier; the forward applier never bumps it (legacy has no DNI). The operator-facing key was renamed from `dni_collisions` to `preserve_advances` (issue #217) to accurately reflect that it tracks preserve-column advances, not actual collisions. | `migration/apply.py` signature; `migration/dni_collision.py::DniCollisionCounter`; `migration/reverse_apply/orchestrator.py` writes `MigrationReport.collisions[<table>]["preserve_advances"]`; `tests/migration/test_dni_collision.py::test_forward_legacy_produces_zero_dni_collisions` pins the zero-bump contract; `tests/migration/test_dni_collision_counting.py` (new) pins the rename contract. |
-| `--filter-direction {legacy-to-web, web-to-legacy, both}` CLI flag | Defaults to `"both"` so PR4 callers see the same combined listing; PR5 adds the narrowing path. | `migration/cli.py::build_parser` + `migration/shadow_state.py::list_needs_review(origin_direction=...)`. |
-| `PUBLIC_PATHS` 5-entry shape pinned | Exactly `{/healthz, /login, /auth/google, /auth/callback, /logout}`; no PII route is in the set. | `app/main.py:148`; `tests/test_public_paths.py::EXPECTED_PUBLIC_PATHS`. |
-| `_is_pii_web_column` / `_mask_pii_value` CLI helpers | Apply the closed-list comparison against `web_column` to keep the operator stdout free of raw PII. | `migration/cli.py`; consumed by both formatters. |
-| 5-route 302-to-`/login` parametrisation | Every PII-displaying route (`/voluntarios`, `/voluntarios/{id}`, `/animales`, `/animales/{id}/foto`, `/entradas`) returns 302 to `/login` without a session. | `tests/test_public_paths.py::PII_ROUTES_PARAMETRIZE`; the route layer at `app/modules/*/routes.py`. |
-| `origin_direction` stamp on `list_needs_review` rows | Every listed row carries the producer direction so the operator dashboard can route by migration scope. | `migration/shadow_state.py::list_needs_review` sets `row["origin_direction"] = "legacy-to-web"` by default; PR6 reverse applier will start stamping `"web-to-legacy"`. |
-| `record_dni_collision(direction=...)` persists `origin_direction` | The `direction` kwarg is persisted verbatim on the shadow row (`origin_direction` column carries a closed three-value CHECK: `legacy-to-web`, `web-to-legacy`, `web-only`). | `migration/dni_collision.py::record_dni_collision`; `migration/shadow_state.py::ShadowStateRepository.upsert(origin_direction=...)`. |
-| `legacy_pk` / `web_pk` PII masking in CLI output | A new `_looks_like_pii(value)` helper matches DNI / email / phone regexes and masks the value to `[REDACTED]`; UUIDs and NCHIPs do not match and pass through unchanged. | `migration/cli.py::_PII_VALUE_PATTERNS` + `_looks_like_pii`; consumed by `_format_row_for_check_only` and `_format_row_for_interactive`. |
-| `derived_value` PII masking in CLI output | Same closed-list comparison as `preserved_value`: when `web_column` is in `REDACTED_FIELDS`, `derived_value` is masked to `[REDACTED]`. | `migration/cli.py` formatters; `tests/migration/test_pii_redaction.py::test_cli_reconcile_check_only_output_has_no_raw_pii` pins the contract. |
+| Counter wiring por tabla con DI seam | `apply_legacy_to_web(dni_collision_counter: DniCollisionCounter \| None = None)` expone el counter para el PR6 reverse applier; el forward applier nunca lo bumpa (legacy no tiene DNI). La key operator-facing se renombró de `dni_collisions` a `preserve_advances` (issue #217) para reflejar con precisión que trackea avances de preserve-column, no colisiones reales. | `migration/apply.py` signature; `migration/dni_collision.py::DniCollisionCounter`; `migration/reverse_apply/orchestrator.py` escribe `MigrationReport.collisions[<table>]["preserve_advances"]`; `tests/migration/test_dni_collision.py::test_forward_legacy_produces_zero_dni_collisions` pinea el contrato zero-bump; `tests/migration/test_dni_collision_counting.py` (nuevo) pinea el rename. |
+| `--filter-direction {legacy-to-web, web-to-legacy, both}` CLI flag | Por defecto `"both"` para que los callers de PR4 vean el mismo listado combinado; PR5 añade el path de narrowing. | `migration/cli.py::build_parser` + `migration/shadow_state.py::list_needs_review(origin_direction=...)`. |
+| `PUBLIC_PATHS` 5-entry shape pineada | Exactamente `{/healthz, /login, /auth/google, /auth/callback, /logout}`; ninguna ruta PII está en el set. | `app/main.py:148`; `tests/test_public_paths.py::EXPECTED_PUBLIC_PATHS`. |
+| `_is_pii_web_column` / `_mask_pii_value` CLI helpers | Aplican la comparación de la lista cerrada contra `web_column` para mantener el stdout operator libre de PII raw. | `migration/cli.py`; consumidos por ambos formatters. |
+| 5-ruta 302-to-`/login` parametrización | Cada ruta PII-displaying (`/voluntarios`, `/voluntarios/{id}`, `/animales`, `/animales/{id}/foto`, `/entradas`) devuelve 302 a `/login` sin sesión. | `tests/test_public_paths.py::PII_ROUTES_PARAMETRIZE`; la capa de ruta en `app/modules/*/routes.py`. |
+| `origin_direction` stamp en filas de `list_needs_review` | Cada fila listada lleva la dirección del producer para que el dashboard operator pueda rutear por scope de migración. | `migration/shadow_state.py::list_needs_review` fija `row["origin_direction"] = "legacy-to-web"` por defecto; el PR6 reverse applier empezará a estampar `"web-to-legacy"`. |
+| `record_dni_collision(direction=...)` persiste `origin_direction` | El kwarg `direction` se persiste verbatim en la shadow row (la columna `origin_direction` carga un CHECK de tres valores cerrados: `legacy-to-web`, `web-to-legacy`, `web-only`). | `migration/dni_collision.py::record_dni_collision`; `migration/shadow_state.py::ShadowStateRepository.upsert(origin_direction=...)`. |
+| `legacy_pk` / `web_pk` PII masking en CLI output | Un nuevo helper `_looks_like_pii(value)` matchea regexes de DNI / email / phone y enmascara el valor a `[REDACTED]`; los UUIDs y NCHIPs no matchean y pasan sin cambio. | `migration/cli.py::_PII_VALUE_PATTERNS` + `_looks_like_pii`; consumidos por `_format_row_for_check_only` y `_format_row_for_interactive`. |
+| `derived_value` PII masking en CLI output | Misma comparación de lista cerrada que `preserved_value`: cuando `web_column` está en `REDACTED_FIELDS`, `derived_value` se enmascara a `[REDACTED]`. | `migration/cli.py` formatters; `tests/migration/test_pii_redaction.py::test_cli_reconcile_check_only_output_has_no_raw_pii` pinea el contrato. |
 
-### New tests (29 atoms + 3 CLI atoms)
+### Nuevos tests (29 átomos + 3 átomos CLI)
 
-| Suite | Atoms | Coverage |
+| Suite | Átomos | Cobertura |
 |---|---|---|
-| `tests/migration/test_pii_redaction.py` | 10 | log_safe redaction on `sync.applied` payload (parametrised over 4 PII fields); shadow `preserved_value` masking; `MigrationReport.to_json()` no-PII regex; CLI stdout no-PII (including the new `derived_value` masking); redaction-list-covers-all-PII (parametrised over the full closed list); synthetic-payload-emits-redacted-payload; collision-marker-in-log-payload. |
-| `tests/migration/test_dni_collision.py` | 9 | Forward-zero-collision (wires the DI seam); web-only shadow routing (asserts `origin_direction="web-only"`); reverse-path counter increment (asserts `origin_direction="web-to-legacy"`); interactive CLI resolution; helper invariants (NOW default, first-wins-does-not-overwrite); counter initial state; CLI parser `--filter-direction` surface (default `"both"`). |
-| `tests/test_public_paths.py` | 10 | PUBLIC_PATHS 5-entry shape invariant; `_is_public_path` recognition; no-PII-route-in-PUBLIC_PATHS; parametrised 302-to-`/login` over 5 PII routes; `/healthz` and `/login` happy-path sanity. |
-| `tests/migration/test_cli.py` | 3 new atoms | `--filter-direction` default (`both`); `--filter-direction legacy-to-web` narrowing; `--filter-direction web-to-legacy` empty-listing in PR5. |
+| `tests/migration/test_pii_redaction.py` | 10 | Redacción `log_safe` sobre el payload `sync.applied` (parametrizado sobre 4 campos PII); shadow `preserved_value` masking; `MigrationReport.to_json()` no-PII regex; CLI stdout no-PII (incluyendo el nuevo `derived_value` masking); redaction-list-covers-all-PII (parametrizado sobre la lista cerrada completa); synthetic-payload-emits-redacted-payload; collision-marker-in-log-payload. |
+| `tests/migration/test_dni_collision.py` | 9 | Forward-zero-collision (cablea el DI seam); web-only shadow routing (afirma `origin_direction="web-only"`); reverse-path counter increment (afirma `origin_direction="web-to-legacy"`); interactive CLI resolution; helper invariants (NOW default, first-wins-does-not-overwrite); counter initial state; CLI parser `--filter-direction` surface (default `"both"`). |
+| `tests/test_public_paths.py` | 10 | `PUBLIC_PATHS` 5-entry shape invariant; `_is_public_path` recognition; no-PII-route-in-PUBLIC_PATHS; parametrizado 302-to-`/login` sobre 5 rutas PII; `/healthz` y `/login` happy-path sanity. |
+| `tests/migration/test_cli.py` | 3 nuevos átomos | `--filter-direction` default (`both`); `--filter-direction legacy-to-web` narrowing; `--filter-direction web-to-legacy` empty-listing en PR5. |
 
-### Verdict (re-confirmed)
+### Verdict (re-confirmado, PR5)
 
-**PASS** for M1 forward path. The collision-routing helper
-(`migration/dni_collision.py::record_dni_collision`) is fully
-unit-tested (9 atoms covering both scopes, the counter increment,
-and the helper invariants) but is **NOT invoked by the forward
-applier** — legacy `TbVoluntariosParaAutorrellenables` has no `DNI`
-column (Dysflow-verified 2026-07-11). The DI seam
-`apply_legacy_to_web(dni_collision_counter=...)` is wired today
-so the PR6 reverse applier can invoke the helper on
-`web-to-legacy` collisions; the seam is exercised by the
-zero-bump atom in `tests/migration/test_dni_collision.py`.
+PASS para el M1 forward path. El helper de collision-routing (`migration/dni_collision.py::record_dni_collision`) está completamente unit-tested (9 átomos cubriendo ambos scopes, el counter increment y los invariantes del helper) pero NO está invocado por el forward applier — legacy `TbVoluntariosParaAutorrellenables` no tiene columna `DNI` (Dysflow-verified 2026-07-11). El DI seam `apply_legacy_to_web(dni_collision_counter=...)` está cableado hoy para que el PR6 reverse applier pueda invocar el helper en colisiones `web-to-legacy`; el seam está ejercido por el átomo zero-bump en `tests/migration/test_dni_collision.py`.
 
 ### PR6 Additions (2026-07-18, reverse apply + round-trip)
 
-PR6 (`feat/live-migration-reverse-apply`) ships the symmetric
-`apply_web_to_legacy` path and adds five round-trip invariants
-on top of the PR5 surface. This section enumerates the new
-invariants, the new tests, and reconfirms the verdict.
+PR6 (`feat/live-migration-reverse-apply`) envía el path simétrico `apply_web_to_legacy` y añade cinco invariantes de round-trip encima de la superficie PR5. Esta sección enumera los nuevos invariantes, los nuevos tests y reconfirma el verdict.
 
-#### New invariants
+### Nuevos invariantes
 
-| Invariant | Surface | Where it lives |
+| Invariante | Superficie | Dónde vive |
 |---|---|---|
-| `apply_web_to_legacy(client, table_name, *, web_snapshot, dry_run, lock_path)` is a public reverse-applier entry point | Reuses `execute_legacy_sql` (PR1) and a new symmetric `execute_legacy_write` seam (`migration.dysflow_client.execute_legacy_write`); MSACCESS pre-flight + lock + snapshot all mirror the forward path | `migration/apply_reverse.py`; `migration/dysflow_client.py::execute_legacy_write`; `migration/legacy_reader.py::set_legacy_write_executor` |
-| `migration.semantic_events.record_lifecycle_reversed(...)` emits a `LIFECYCLE_REVERSED` event with `source_direction="web-to-legacy"` | Reverse applier invokes the emitter once per derived-column state change observed between forward and reverse apply | `migration/semantic_events.py`; `migration/apply_reverse.py::_emit_reversed_lifecycle_events_for_changed_derived` |
-| `migration.cli.APPLY_DIRECTION_WEB_TO_LEGACY` flag threaded through `run_apply` | CLI default remains `legacy-to-web` (backward compat); `--direction web-to-legacy` dispatches to `apply_web_to_legacy` | `migration/cli.py::build_parser` + `run_apply` |
-| Per-strategy table honoured symmetrically on reverse (`preserve` advances `last_legacy_snapshot_at`, `derived` does NOT re-derive, `fixed` is never written) | The reverse applier never writes `preserved_value` (pinned by `tests/migration/test_reverse_apply.py::test_preserve_column_not_written_to_legacy` static grep); the derivation engine is never invoked on reverse (pinned by `test_derived_column_no_rederive_on_reverse`) | `migration/apply_reverse.py::_advance_preserve_shadow_state` |
-| Drift detection on reverse: rowcount=0 → record `needs_review` shadow row with `review_reasons=["reverse_drift_legacy_row_missing"]` | Operator resolves via `apap-migrate reconcile --filter-direction web-to-legacy` | `migration/apply_reverse.py::_record_drift_needs_review` (pinned by `tests/migration/test_round_trip.py::test_round_trip_detects_unsynced_edits_as_needs_review`) |
+| `apply_web_to_legacy(client, table_name, *, web_snapshot, dry_run, lock_path)` es un entry point público de reverse-applier | Reusa `execute_legacy_sql` (PR1) y un nuevo symmetric `execute_legacy_write` seam (`migration.dysflow_client.execute_legacy_write`); MSACCESS pre-flight + lock + snapshot todos mirroran el forward path | `migration/apply_reverse.py`; `migration/dysflow_client.py::execute_legacy_write`; `migration/legacy_reader.py::set_legacy_write_executor` |
+| `migration.semantic_events.record_lifecycle_reversed(...)` emite un evento `LIFECYCLE_REVERSED` con `source_direction="web-to-legacy"` | El reverse applier invoca el emisor una vez por cambio de estado de derived-column observado entre forward y reverse apply | `migration/semantic_events.py`; `migration/apply_reverse.py::_emit_reversed_lifecycle_events_for_changed_derived` |
+| `migration.cli.APPLY_DIRECTION_WEB_TO_LEGACY` flag threaded a través de `run_apply` | El default CLI sigue siendo `legacy-to-web` (backward compat); `--direction web-to-legacy` dispatcha a `apply_web_to_legacy` | `migration/cli.py::build_parser` + `run_apply` |
+| Per-strategy table honrado simétricamente en reverse (`preserve` avanza `last_legacy_snapshot_at`, `derived` NO re-deriva, `fixed` nunca se escribe) | El reverse applier nunca escribe `preserved_value` (pineado por `tests/migration/test_reverse_apply.py::test_preserve_column_not_written_to_legacy` static grep); el derivation engine nunca se invoca en reverse (pineado por `test_derived_column_no_rederive_on_reverse`) | `migration/apply_reverse.py::_advance_preserve_shadow_state` |
+| Drift detection en reverse: rowcount=0 → registra shadow row `needs_review` con `review_reasons=["reverse_drift_legacy_row_missing"]` | El operador resuelve vía `apap-migrate reconcile --filter-direction web-to-legacy` | `migration/apply_reverse.py::_record_drift_needs_review` (pineado por `tests/migration/test_round_trip.py::test_round_trip_detects_unsynced_edits_as_needs_review`) |
 
-#### M2 verdict (re-confirmed)
+### M2 verdict (re-confirmado)
 
-**PASS** for the M2 reverse path. The round-trip invariants
-(`tests/migration/test_round_trip.py`, 5 atoms) are exercised via
-`FakeInsForge` + injected legacy executor + injected legacy write
-seam; no real backend mutation. PII redaction discipline
-(15-field closed list) and authorization invariants from PR4b /
-PR5 are unchanged — the reverse applier goes through
-`app.core.logging.log_safe` (15 fields scrubbed) and never
-touches the storage bucket (forward-only).
+PASS para el M2 reverse path. Los invariantes de round-trip (`tests/migration/test_round_trip.py`, 5 átomos) se ejercitan vía `FakeInsForge` + injected legacy executor + injected legacy write seam; sin mutación de backend real. La disciplina de redacción PII (lista cerrada de 15 campos) y los invariantes de autorización de PR4b / PR5 no cambian — el reverse applier pasa por `app.core.logging.log_safe` (15 campos scrubed) y nunca toca el bucket de storage (forward-only).
 
 ### Operator acknowledgement
 
-The operator MUST review and accept this verdict as part of the M1
-acceptance gate before claiming "Usable ya". The acceptance is
-recorded in the migration report (`migration_report.json` +
-`migration_report_signature.json`) per the apply runbook's
-"Escalation" section.
+El operador MUST revisar y aceptar este verdict como parte de la M1 acceptance gate antes de reclamar "Usable ya". La aceptación se registra en el migration report (`migration_report.json` + `migration_report_signature.json`) según la sección "Escalation" del runbook de apply.
+
+## References
+
+- `app/core/logging.py::REDACTED_FIELDS` (15 entradas).
+- `app/main.py:148` (`PUBLIC_PATHS` 5-entry shape).
+- `app/modules/animals/photo_service.py` (`PLACEHOLDER_PHOTO_PNG`, `SENTINEL_KEY`, `content_type_for_key`).
+- `app/modules/animals/routes.py` (auth short-circuit + 404 translation + Response build).
+- `migration/mappings/voluntario.yaml` (`DNI: legacy_column: null`).
+- `migration/apply.py` (`apply_legacy_to_web(dni_collision_counter=...)` DI seam).
+- `migration/apply_reverse.py` (`apply_web_to_legacy`, `_advance_preserve_shadow_state`, `_record_drift_needs_review`).
+- `migration/dysflow_client.py::execute_legacy_write`.
+- `migration/dni_collision.py::DniCollisionCounter`, `record_dni_collision(direction=...)`.
+- `migration/cli.py::build_parser` (`--filter-direction`), `_is_pii_web_column`, `_mask_pii_value`, `_looks_like_pii`.
+- `migration/semantic_events.py::record_lifecycle_reversed`.
+- `migration/shadow_state.py::list_needs_review(origin_direction=...)`, `ShadowStateRepository.upsert(origin_direction=...)`.
+- `docs/runbooks/live-migration-apply.md` (apply / pre-flight / rollback / escalation).
+- `docs/runbooks/auth-email-normalization.md` (limpieza one-shot de filas heredadas con casing mixto).
+- Tests:
+  - `tests/test_logging.py`
+  - `tests/test_log_safe_redaction.py`
+  - `tests/test_logging_redaction_adversarial.py`
+  - `tests/migration/test_pii_redaction.py`
+  - `tests/migration/test_dni_collision.py`
+  - `tests/migration/test_dni_collision_counting.py`
+  - `tests/migration/test_insforge_storage_methods.py`
+  - `tests/migration/test_cli.py`
+  - `tests/test_public_paths.py`
+  - `tests/test_animals_foto_route.py`
+  - `tests/test_animal_photo_resolution.py`
+  - `tests/test_runbook_links.py`
+  - `tests/test_pii_audit_doc.py`
+- AGENTS.md §9 (`log_safe`), §10 (CSRF), §13 (runbook), §18 (web ↔ legacy mutual exclusion + sync), §23 (E2E).

@@ -52,16 +52,17 @@ def test_audit_doc_has_findings_section_with_severity_table(
 ) -> None:
     """The audit doc MUST carry a ``## Findings`` heading + a severity table.
 
-    The severity table is the spec requirement: operators grep the
-    severity column for ``P0`` / ``P1`` / ``P2`` / ``P3`` to find
-    gating findings. A regression that drops the column would
-    silently reduce the audit to prose.
+    The severity table is the spec requirement per the
+    ``documentation-alan-style`` template (issue #464 Tier 2): the
+    Severity column uses one of ``BLOCKER`` / ``CRITICAL`` / ``HIGH``
+    / ``MEDIUM`` / ``LOW`` / ``INFO`` and operators grep the column
+    to find gating findings. A regression that drops the column
+    would silently reduce the audit to prose.
     """
     assert re.search(r"^##\s+Findings\b", audit_doc_text, re.MULTILINE), (
         "audit doc missing '## Findings' heading"
     )
-    # The findings table MUST expose all four severity levels as
-    # rows so the operator can grep them.
+    # The findings table MUST expose the Severity column header.
     findings_idx = audit_doc_text.find("## Findings")
     after_findings = audit_doc_text[findings_idx:]
     next_h2 = re.search(r"^##\s+", after_findings[10:], re.MULTILINE)
@@ -70,10 +71,11 @@ def test_audit_doc_has_findings_section_with_severity_table(
         if next_h2 is None
         else after_findings[: next_h2.start() + 10]
     )
-    for severity in ("P0", "P1", "P2", "P3"):
-        assert re.search(rf"\b{severity}\b", findings_section), (
-            f"audit doc Findings section missing severity level {severity}"
-        )
+    # The Severity column header MUST be present (the column name is
+    # the contract; the exact severity labels per row vary per audit).
+    assert re.search(r"\|\s*Severity\s*\|", findings_section), (
+        "audit doc Findings section missing 'Severity' column header"
+    )
 
 
 def test_audit_doc_has_verdict_pass(audit_doc_text: str) -> None:
