@@ -16,7 +16,7 @@ ALLOWLIST: frozenset[str] = frozenset({
 })
 
 _PATTERN = re.compile(
-    r"^(?:(feat|fix|refactor|docs|ci|test)/[0-9]+-[a-z0-9-]+|archive/.+|main)$"
+    r"^(?:(chore|feat|fix|perf|refactor|docs|ci|test)/[0-9]+-[a-z0-9-]+|archive/.+|main)$"
 )
 
 
@@ -29,7 +29,7 @@ def check(head_ref: str) -> tuple[list[str], list[str]]:
     example = "feat/441-branch-name-gate"
     return [
         f"{head_ref}: branch name must match the pattern (AGENTS.md §15.2, #441). "
-        f"Expected shape: <type>/<issue>-<slug> where <type> ∈ {{feat|fix|refactor|docs|ci|test}}. "
+        f"Expected shape: <type>/<issue>-<slug> where <type> ∈ {{chore|feat|fix|perf|refactor|docs|ci|test}}. "
         f"Example: {example}"
     ], []
 

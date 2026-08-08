@@ -7,8 +7,10 @@ from scripts.check_branch_name import ALLOWLIST, check
 
 
 @pytest.mark.parametrize("name", [
+    "chore/464-preflight-cleanup",
     "feat/441-branch-name-gate",
     "fix/123-short",
+    "perf/123-some-perf",
     "refactor/9999-something-long-here",
     "docs/12-x",
     "ci/1-a",
