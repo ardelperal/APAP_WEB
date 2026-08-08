@@ -515,7 +515,7 @@ def validate_causal_pair(
             )
         return
 
-    # event_type_member == FOSTER_CLOSED_BY_ADOPTION
+    # Branch for the FOSTER_CLOSED_BY_ADOPTION case (the only remaining type).
     if (
         adoption_started_ts is not None
         and adoption_started_ts < timestamp_str

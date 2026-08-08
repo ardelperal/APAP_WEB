@@ -92,14 +92,19 @@ def test_compare_notices_an_improvement_without_failing() -> None:
 
 
 def test_compare_treats_a_rule_dropping_to_zero_as_an_improvement() -> None:
-    """A tracked rule reaching zero is an improvement, not an error."""
+    """A tracked rule reaching zero is an improvement, not an error.
+
+    ERA001 was retired in PR resolving issue #390 (4 -> 0 offenders).
+    The test now exercises the same scenario with ARG001, the largest
+    remaining baseline, so the behaviour stays under test.
+    """
     counts = Counter(BASELINE)
-    del counts["ERA001"]
+    del counts["ARG001"]
 
     violations, notices = compare(counts)
 
     assert violations == []
-    assert any("ERA001" in n for n in notices)
+    assert any("ARG001" in n for n in notices)
 
 
 def test_run_ruff_reports_an_error_for_a_missing_scope() -> None:
