@@ -23,7 +23,7 @@ These skills are **mandatory** — load them before any work in their scope:
 | Skill | Mandatory for |
 |---|---|
 | **`agents-md-pattern`** | **Any** change to `AGENTS.md` itself (must follow Gentleman-Programming pattern). |
-| **`branch-pr`** | **Any** commit, PR creation, or merge to `main`. Conventional commits, PR pequeño y reversible, `--squash --delete-branch`. |
+| **`branch-pr`** | **Any** commit, PR creation, or merge to `main`. Conventional commits, PR pequeño y reversible. Merge with `--no-ff` per §15.4 and **without** `--delete-branch`: the remote ref is retained, the local worktree is removed (§15.2). |
 | **`code-review-expert`** | **Any** subagent-driven slice landing on `main` (mandatory review lens per §17.2). |
 | **`judgment-day`** | **Any** high-stakes diff (auth, secrets, CSRF, PII, migrations, raw SQL). |
 | **`documentation-patterns`** | **Any** doc writing or refactor (format, tone, structure, single-source-of-truth). |
@@ -384,9 +384,11 @@ This project is **pre-MVP**. The default rule is: **all work lands on `main`, ev
 #### 15.2 Pre-MVP branch lifecycle
 
 - Work happens on short-lived feature branches off `main`. Names follow conventional commits' scope: `feat/<scope>`, `fix/<scope>`, `refactor/<scope>`, `docs/<scope>`, `ci/<scope>`, `test/<scope>`.
-- After the PR merges to `main` AND CI is green: `git branch -d <branch>` locally, then `git push origin --delete <branch>` (only if the remote allows it and no one else uses it).
-- **Never** delete `main`. **Never** create or persist a `staging` branch in pre-MVP — that contradicts the single-branch policy. If `staging` already exists from before this rule was in force, migrate its commits into `main` first, then `git branch -D staging`. The remote `staging` ref is retained (no `git push origin --delete`) per §15.2 retention policy — a human can clean it up manually if they want.
-- After every merge cycle, the only branch left standing is `main`. Anything else is a leak.
+- **The remote branch is retained after merge.** Never pass `--delete-branch` to `gh pr merge`, never run `git push origin --delete <branch>` or `git push origin :<branch>`, and never ask `gh` to clean up the ref on merge, close, or reopen. The PR is the merge artifact; the remote branch is the history, and other contributors, forks and cached CI artifacts may reference it. This applies to every branch type, including branches already merged into `main`.
+- **The local worktree is removed after merge.** When the work happened in a git worktree and its PR has landed: `git worktree remove <path>`, then `git worktree prune`. A stale worktree costs a full checkout on disk and — the real damage — leaves an obsolete branch checked out somewhere a later session can pick up and work in the wrong place. The local branch may go with it (`git branch -d <branch>`); the remote ref stays.
+- "Clean up the branch" after a merge means the local worktree, never the remote ref.
+- **Never** delete `main`. **Never** create or persist a `staging` branch in pre-MVP — that contradicts the single-branch policy. If `staging` already exists from before this rule was in force, migrate its commits into `main` first, then `git branch -D staging`; the remote `staging` ref is retained like any other.
+- After every merge cycle the only branch checked out locally is `main`. Remote refs accumulate on purpose and are not a leak.
 
 #### 15.3 Staging-only pre-push hook — status on this repo
 
