@@ -59,9 +59,9 @@ RUFF_VERSION: str = "0.15.21"
 #: preserved — this update is a one-shot calibration, not a baseline raise.
 #: The count of violations in the codebase is UNCHANGED by this commit.
 BASELINE: dict[str, int] = {
-    "ARG001": 46,
+    "ARG001": 45,
     "ARG002": 3,
-    "C901": 18,
+    "C901": 17,
     # ERA001 fue retirado del baseline al completarse el triaje del issue #390
     # (4 -> 0 con los 4 sitios de ``app/`` y ``scripts/`` en este PR). Todos
     # resultaron categoria (a): comentarios de seccion / branch label que ruff
@@ -76,7 +76,7 @@ BASELINE: dict[str, int] = {
     "N818": 3,
     "PLR0911": 10,
     "PLR0912": 9,
-    "PLR0913": 66,
+    "PLR0913": 33,
     "PLR0915": 1,
     "PLR1714": 2,
     "PLR1730": 2,
@@ -92,7 +92,7 @@ BASELINE: dict[str, int] = {
     "S110": 4,
     "S112": 1,
     "S603": 2,
-    "S607": 2,
+    "S607": 1,
     # S608 fue retirado del baseline al completarse el triaje del issue #387
     # (65 -> 54 con los 11 sitios de ``migration/`` en el PR #422, y -> 0 con
     # los 54 de ``app/modules/``). Todos resultaron categoria (b):
@@ -106,10 +106,12 @@ BASELINE: dict[str, int] = {
     "SIM108": 5,
     "SIM114": 4,
     "SIM118": 1,
-    "SIM910": 1,
+    # SIM910 retirado del baseline al llegar a 0 (issue #390). Se ELIMINA en vez
+    # de ponerse a 0, igual que ERA001: asi un SIM910 nuevo cae en la rama de
+    # regla desconocida y para el CI en vez de consumir una cuota.
     "TRY003": 185,
     "TRY004": 10,
-    "TRY300": 3,
+    "TRY300": 1,
 }
 
 
