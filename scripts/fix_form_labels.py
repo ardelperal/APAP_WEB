@@ -305,7 +305,15 @@ def fix_template(file_path: Path, dry_run: bool = False) -> tuple[int, int]:
     return labels_fixed, controls_fixed
 
 
+def _pin_output_encoding() -> None:
+    """Pin stdout/stderr to UTF-8: output must not depend on the locale (issue #488)."""
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+
+
 def main():
+    _pin_output_encoding()
     dry_run = "--dry-run" in sys.argv
     total_labels = 0
     total_controls = 0

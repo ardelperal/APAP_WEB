@@ -108,6 +108,13 @@ def sign_and_post(
         return response.status_code
 
 
+def _pin_output_encoding() -> None:
+    """Pin stdout/stderr to UTF-8: output must not depend on the locale (issue #488)."""
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+
+
 def main() -> int:
     """CLI entry point: read env, build payload, sign and POST.
 
@@ -123,6 +130,7 @@ def main() -> int:
         GITHUB_REPOSITORY       — ``owner/repo``
         COMMIT_MESSAGE          — message of the deploy commit
     """
+    _pin_output_encoding()
     url = os.environ.get("COOLIFY_WEBHOOK_URL")  # type: ignore[name-defined]
     secret = os.environ.get("COOLIFY_WEBHOOK_SECRET")  # type: ignore[name-defined]
     if not url or not secret:

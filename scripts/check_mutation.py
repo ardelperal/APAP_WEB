@@ -39,6 +39,7 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
+import sys
 from collections.abc import Mapping
 from datetime import date
 from pathlib import Path
@@ -321,7 +322,15 @@ def _fail(messages: list[str], summary: str | None = None) -> int:
     return 1
 
 
+def _pin_output_encoding() -> None:
+    """Pin stdout/stderr to UTF-8: output must not depend on the locale (issue #488)."""
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+
+
 def main(argv: list[str] | None = None) -> int:
+    _pin_output_encoding()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("session", type=Path, help="cosmic-ray session database")
     parser.add_argument("--baseline", type=Path, default=None)

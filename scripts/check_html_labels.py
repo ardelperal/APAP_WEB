@@ -139,7 +139,15 @@ def check_file(path: Path) -> list[Finding]:
 # Main
 # -------------------------------------------------------------------
 
+def _pin_output_encoding() -> None:
+    """Pin stdout/stderr to UTF-8: output must not depend on the locale (issue #488)."""
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+
+
 def main(root: Path) -> int:
+    _pin_output_encoding()
     templates = sorted(root.rglob("*.html"))
     total_findings: list[Finding] = []
 

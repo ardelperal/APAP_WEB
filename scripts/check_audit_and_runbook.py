@@ -124,7 +124,15 @@ def _render_suggestions(audit_paths: list[Path], runbook_paths: list[Path]) -> s
     return "\n".join(lines)
 
 
+def _pin_output_encoding() -> None:
+    """Pin stdout/stderr to UTF-8: output must not depend on the locale (issue #488)."""
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+
+
 def main(argv: list[str] | None = None) -> int:
+    _pin_output_encoding()
     parser = argparse.ArgumentParser(
         description=(
             "Suggest audit-doc and runbook creation per AGENTS.md "

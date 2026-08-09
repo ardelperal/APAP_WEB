@@ -152,7 +152,15 @@ def find_drift(repo_root: Path) -> list[Drift]:
 # Entry point
 # ---------------------------------------------------------------------------
 
+def _pin_output_encoding() -> None:
+    """Pin stdout/stderr to UTF-8: output must not depend on the locale (issue #488)."""
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+
+
 def main() -> int:
+    _pin_output_encoding()
     root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path.cwd()
     drifts = find_drift(root)
 

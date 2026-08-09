@@ -34,7 +34,15 @@ def check(head_ref: str) -> tuple[list[str], list[str]]:
     ], []
 
 
+def _pin_output_encoding() -> None:
+    """Pin stdout/stderr to UTF-8: output must not depend on the locale (issue #488)."""
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+
+
 def main(argv: list[str] | None = None) -> int:
+    _pin_output_encoding()
     args = sys.argv[1:] if argv is None else argv
     if len(args) != 1:
         print("usage: check_branch_name.py <head-ref>")
