@@ -143,7 +143,7 @@ def list_animales(
 
 @router.get("/search", response_class=JSONResponse)
 def search_animales(  # noqa: PLR0913  # 9 query filters needed for the search UI; not reducible without removing features
-    request: Request,
+    _request: Request,
     user: Annotated[Response | dict, Depends(require_authorized_user)],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
     q: Annotated[str | None, Query(description="Substring match on nombre (case-insensitive). Ignored if chip is set.")] = None,
@@ -398,7 +398,7 @@ def update_animal_view(
 @router.post("/{animal_id}/delete", response_class=HTMLResponse)
 def delete_animal_view(
     animal_id: str,
-    request: Request,
+    _request: Request,
     user: Annotated[Response | dict, Depends(require_permission(Permission.DELETE_ANIMALES))],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):

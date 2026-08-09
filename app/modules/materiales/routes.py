@@ -346,7 +346,7 @@ def update_material_view(
 @router.post("/{material_id}/deactivate", response_class=HTMLResponse)
 def deactivate_material_view(
     material_id: str,
-    request: Request,
+    _request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_MATERIALES))],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):

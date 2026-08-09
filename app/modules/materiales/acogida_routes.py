@@ -314,7 +314,7 @@ def assign_material_to_estancia_view(  # noqa: PLR0913  # 2 Form fields + 5 fixe
 def remove_material_from_estancia_view(
     estancia_id: str,
     junction_id: str,
-    request: Request,
+    _request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_writer_user)],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):

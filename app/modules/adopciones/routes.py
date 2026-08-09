@@ -371,7 +371,7 @@ def update_adopcion_view(
 @router.post("/{adopcion_id}/delete", response_class=HTMLResponse)
 def delete_adopcion_view(
     adopcion_id: str,
-    request: Request,
+    _request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_ADOPCIONES))],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
