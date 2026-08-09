@@ -365,8 +365,8 @@ def apply_runner() -> Any:
                 client,
                 table_name,
                 legacy_path=legacy_path or "/dummy/legacy.accdb",
-                since=since,
-                batch_size=batch_size,
+                _since=since,
+                _batch_size=batch_size,
                 dry_run=dry_run,
                 lock_path=lock_path,
             )

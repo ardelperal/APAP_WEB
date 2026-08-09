@@ -279,7 +279,7 @@ def _evaluate_gate(
 @pytest.hookimpl(tryfirst=True)
 def pytest_terminal_summary(
     terminalreporter: Any,
-    exitstatus: int,
+    exitstatus: int,  # noqa: ARG001 - pytest plugin hook signature
     config: pytest.Config,
 ) -> None:
     """After pytest writes coverage.json, evaluate the gate and print the banner.
@@ -304,7 +304,7 @@ def pytest_terminal_summary(
 
 
 @pytest.hookimpl(trylast=True)
-def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:  # noqa: ARG001 - pytest plugin hook signature
     """Fail the pytest PROCESS when the coverage gate fails (issue #257).
 
     ``_pytest.main.wrap_session`` returns ``session.exitstatus`` as the

@@ -52,7 +52,7 @@ def _reverse_apply_one_row(
     mapping: Any,
     web_row: dict[str, Any],
     legacy_path: str,
-    legacy_columns: tuple[str, ...],
+    _legacy_columns: tuple[str, ...],
     web_table: str,
     dry_run: bool,
     legacy_by_key: dict[str, dict[str, Any]],
@@ -96,7 +96,7 @@ def _reverse_apply_one_row(
             legacy_table=mapping.legacy_table,
             legacy_payload=legacy_payload,
             natural_key=mapping.legacy_key,
-            natural_key_value=legacy_pk,
+            _natural_key_value=legacy_pk,
         )
 
         # Advance the shadow-state per-row regardless of branch.
@@ -165,7 +165,7 @@ def _reverse_apply_one_row(
         apply_reverse_shim._record_drift_needs_review(
             client=client,
             mapping=mapping,
-            web_row=web_row,
+            _web_row=web_row,
             legacy_pk=legacy_pk,
             source_hash=new_hash,
             target_hash=target_hash,
@@ -192,7 +192,7 @@ def _insert_legacy_row(
     legacy_table: str,
     legacy_payload: dict[str, Any],
     natural_key: str,
-    natural_key_value: str,
+    _natural_key_value: str,
 ) -> None:
     """INSERT a new row in legacy via the write seam."""
     safe_table = _safe_table(legacy_table)

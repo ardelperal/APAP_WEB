@@ -183,7 +183,7 @@ def voluntario_detail(
 @router.post("/{voluntario_id}/deactivate", response_class=HTMLResponse)
 def deactivate_voluntario_view(
     voluntario_id: str,
-    request: Request,
+    request: Request,  # noqa: ARG001 - FastAPI DI contract
     user: Annotated[Response | dict, Depends(require_permission(Permission.WRITE_VOLUNTARIOS))],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):

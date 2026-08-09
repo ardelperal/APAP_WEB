@@ -32,24 +32,24 @@ class TestLegacyReaderSelectGuard:
     def test_rejects_unsafe_table_name(self) -> None:
         spec = TableSpec(legacy_table=INJECTION, columns=("NCHIP",))
         with pytest.raises(ValueError, match="unsafe SQL identifier"):
-            _build_select_sql(spec, offset=0, limit=10)
+            _build_select_sql(spec, _offset=0, limit=10)
 
     def test_rejects_unsafe_column_name(self) -> None:
         spec = TableSpec(legacy_table="TbFichaAnimal", columns=(INJECTION,))
         with pytest.raises(ValueError, match="unsafe SQL identifier"):
-            _build_select_sql(spec, offset=0, limit=10)
+            _build_select_sql(spec, _offset=0, limit=10)
 
     def test_accepts_access_table_names(self) -> None:
         """The legacy side uses names like ``TbFichaAnimal``; they must pass."""
         spec = TableSpec(legacy_table="TbFichaAnimal", columns=("NCHIP", "Nombre"))
-        assert _build_select_sql(spec, offset=0, limit=50) == (
+        assert _build_select_sql(spec, _offset=0, limit=50) == (
             "SELECT TOP 50 NCHIP, Nombre FROM TbFichaAnimal"
         )
 
     def test_accepts_star_wildcard(self) -> None:
         """``reverse_apply/orchestrator.py`` passes ``columns=("*",)``."""
         spec = TableSpec(legacy_table="TbFichaAnimal", columns=("*",))
-        assert _build_select_sql(spec, offset=0, limit=50) == (
+        assert _build_select_sql(spec, _offset=0, limit=50) == (
             "SELECT TOP 50 * FROM TbFichaAnimal"
         )
 
@@ -60,7 +60,7 @@ class TestLegacyReaderSelectGuard:
             columns=("NCHIP",),
             where="FDefuncion IS NOT NULL",
         )
-        assert _build_select_sql(spec, offset=0, limit=10) == (
+        assert _build_select_sql(spec, _offset=0, limit=10) == (
             "SELECT TOP 10 NCHIP FROM TbFichaAnimal WHERE FDefuncion IS NOT NULL"
         )
 

@@ -239,7 +239,7 @@ def build_material_list(activos_solo: bool) -> tuple[str, list[Any]]:
 
 
 def build_material_update(
-    material_id: str, params: dict[str, Any]
+    _material_id: str, params: dict[str, Any]
 ) -> tuple[str, list[Any]]:
     """Partial-update builder for the catalog.
 

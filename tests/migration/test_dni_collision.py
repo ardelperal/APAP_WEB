@@ -180,7 +180,7 @@ def test_forward_legacy_produces_zero_dni_collisions(
             "voluntario",
             legacy_path=str(tmp_path / "legacy.accdb"),
             dry_run=False,
-            dni_collision_counter=counter,
+            _dni_collision_counter=counter,
         )
     finally:
         legacy_reader.set_legacy_query_executor(None)

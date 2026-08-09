@@ -236,8 +236,8 @@ def _diff_snapshots(
 
         target_row, target_pk_value = _find_target_row(
             source_pk_value=source_pk_value,
-            source_row=source_row,
-            target_rows=target_rows,
+            _source_row=source_row,
+            _target_rows=target_rows,
             target_by_pk=target_by_pk,
             mapping=mapping,
             sync_state=sync_state,
@@ -426,8 +426,8 @@ def _extract_target_pk(
 def _find_target_row(
     *,
     source_pk_value: int | str,
-    source_row: dict[str, Any],
-    target_rows: list[dict[str, Any]],
+    _source_row: dict[str, Any],
+    _target_rows: list[dict[str, Any]],
     target_by_pk: dict[str, dict[str, Any]],
     mapping: TableMapping,
     sync_state: SyncState,

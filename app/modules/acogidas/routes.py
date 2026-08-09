@@ -433,7 +433,7 @@ def update_acogida_view(
 @router.post("/{acogida_id}/close", response_class=HTMLResponse)
 def close_acogida_view(
     acogida_id: str,
-    request: Request,
+    request: Request,  # noqa: ARG001 - FastAPI DI contract
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_ACOGIDAS))],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
@@ -458,7 +458,7 @@ def close_acogida_view(
 @router.post("/{acogida_id}/delete", response_class=HTMLResponse)
 def delete_acogida_view(
     acogida_id: str,
-    request: Request,
+    request: Request,  # noqa: ARG001 - FastAPI DI contract
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_ACOGIDAS))],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):

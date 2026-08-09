@@ -168,7 +168,7 @@ def list_terapias_view(
 def new_terapia_form(
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],  # noqa: ARG001 - FastAPI DI contract
 ):
     """Empty form for a new terapia."""
     if (early := return_early_if_response(user)) is not None:
@@ -318,7 +318,7 @@ def update_terapia_view(
 @router.post("/terapias/{terapia_id}/delete", response_class=HTMLResponse)
 def delete_terapia_view(
     terapia_id: str,
-    request: Request,
+    request: Request,  # noqa: ARG001 - FastAPI DI contract
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
@@ -388,7 +388,7 @@ def list_recomendaciones_view(
 @router.post("/terapias/{terapia_id}/recomendaciones", response_class=HTMLResponse)
 def create_recomendacion_view(
     terapia_id: str,
-    request: Request,
+    request: Request,  # noqa: ARG001 - FastAPI DI contract
     form: Annotated[RecomendacionForm, Form()],
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
@@ -435,7 +435,7 @@ def create_recomendacion_view(
 @router.patch("/recomendaciones/{recomendacion_id}", response_class=HTMLResponse)
 def complete_recomendacion_view(
     recomendacion_id: str,
-    request: Request,
+    request: Request,  # noqa: ARG001 - FastAPI DI contract
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
@@ -473,7 +473,7 @@ def complete_recomendacion_view(
 @router.delete("/recomendaciones/{recomendacion_id}", response_class=HTMLResponse)
 def delete_recomendacion_view(
     recomendacion_id: str,
-    request: Request,
+    request: Request,  # noqa: ARG001 - FastAPI DI contract
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):

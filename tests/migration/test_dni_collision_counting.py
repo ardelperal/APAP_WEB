@@ -104,7 +104,7 @@ def test_100_row_no_edit_round_trip_reports_preserve_advances(
             "voluntario",
             legacy_path=str(tmp_path / "legacy.accdb"),
             dry_run=False,
-            dni_collision_counter=counter,
+            _dni_collision_counter=counter,
         )
         assert forward_result is not None
         assert counter.value == 0

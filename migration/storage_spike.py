@@ -202,7 +202,7 @@ def probe_download_strategy(
     )
 
 
-def missing_credentials_result(storage_path: str) -> StorageProbeResult:
+def missing_credentials_result(_storage_path: str) -> StorageProbeResult:
     """Build blocked evidence when operator env is unavailable."""
     return _result(
         {

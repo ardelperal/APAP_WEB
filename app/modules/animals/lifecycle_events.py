@@ -182,7 +182,7 @@ def _coerce_event_type(value: Any) -> LifecycleEventType:
 def _validate_required_fields(
     *,
     animal_id: str,
-    event_type: LifecycleEventType,
+    _event_type: LifecycleEventType,
     event_timestamp: str,
     created_by: str,
 ) -> None:

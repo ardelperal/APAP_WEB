@@ -242,7 +242,7 @@ def set_legacy_write_executor(executor: LegacyWriteExecutor | None) -> None:
     _legacy_write_executor = executor
 
 
-def _build_select_sql(spec: TableSpec, offset: int, limit: int) -> str:
+def _build_select_sql(spec: TableSpec, _offset: int, limit: int) -> str:
     """Construye un ``SELECT TOP n`` compatible con Access.
 
     Access NO soporta ``LIMIT`` — usamos ``TOP n``. El ``offset`` NO se

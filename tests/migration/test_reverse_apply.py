@@ -732,7 +732,7 @@ def test_drift_detection_on_rowcount_zero_records_needs_review(tmp_path: Path) -
             mapping=mapping,
             web_row={},
             legacy_path=str(tmp_path / "legacy.accdb"),
-            legacy_columns=("Voluntario",),
+            _legacy_columns=("Voluntario",),
             web_table="voluntarios",
             dry_run=False,
             legacy_by_key={},
@@ -745,7 +745,7 @@ def test_drift_detection_on_rowcount_zero_records_needs_review(tmp_path: Path) -
             mapping=mapping,
             web_row={"Voluntario": "alice", "Email": "new@x"},
             legacy_path=str(tmp_path / "legacy.accdb"),
-            legacy_columns=tuple(
+            _legacy_columns=tuple(
                 column.legacy_column
                 for column in mapping.columns
                 if column.legacy_column
@@ -781,7 +781,7 @@ def test_case_insensitive_legacy_pk_fallback(tmp_path: Path) -> None:
         mapping=mapping,
         web_row={"Voluntario": "new"},
         legacy_path=str(tmp_path / "legacy.accdb"),
-        legacy_columns=("Voluntario",),
+        _legacy_columns=("Voluntario",),
         web_table="voluntarios",
         dry_run=True,
         legacy_by_key={"other": {"Voluntario": "other"}},
@@ -800,7 +800,7 @@ def test_case_insensitive_legacy_pk_fallback(tmp_path: Path) -> None:
             mapping=mapping,
             web_row={"Voluntario": "alice", "Email": "new@x"},
             legacy_path=str(tmp_path / "legacy.accdb"),
-            legacy_columns=("Voluntario", "Email"),
+            _legacy_columns=("Voluntario", "Email"),
             web_table="voluntarios",
             dry_run=False,
             legacy_by_key={
@@ -850,7 +850,7 @@ def test_lifecycle_reversed_emitted_on_state_change(
             "current_state": "Acogida",
         },
         legacy_path=str(tmp_path / "legacy.accdb"),
-        legacy_columns=("NCHIP", "NombreAnimal"),
+        _legacy_columns=("NCHIP", "NombreAnimal"),
         web_table="animales",
         dry_run=False,
         legacy_by_key={"001": {"NCHIP": "001", "NombreAnimal": "Rex"}},
@@ -880,7 +880,7 @@ def test_preserve_column_advanced_on_happy_path_round_trip(tmp_path: Path) -> No
             "DNI": "12345678Z",
         },
         legacy_path=str(tmp_path / "legacy.accdb"),
-        legacy_columns=("Voluntario", "Tel1", "Tel2", "Email"),
+        _legacy_columns=("Voluntario", "Tel1", "Tel2", "Email"),
         web_table="voluntarios",
         dry_run=False,
         legacy_by_key={

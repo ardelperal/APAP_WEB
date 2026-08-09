@@ -88,7 +88,7 @@ def _record_drift_needs_review(
     *,
     client: _InsForgeLike,
     mapping: Any,
-    web_row: dict[str, Any],
+    _web_row: dict[str, Any],
     legacy_pk: str,
     source_hash: str,
     target_hash: str,

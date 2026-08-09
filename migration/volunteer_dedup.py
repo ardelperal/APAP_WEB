@@ -338,7 +338,7 @@ def _build_clusters(
     refs: Sequence[VolunteerRef],
     uf: _UnionFind,
     *,
-    threshold: int,
+    _threshold: int,
 ) -> list[list[int]]:
     """Materialise the union-find into ``{root: [index, ...]}`` buckets.
 
@@ -383,7 +383,7 @@ def _cluster_decision(
     group: list[int],
     refs: Sequence[VolunteerRef],
     *,
-    threshold: int,
+    _threshold: int,
 ) -> tuple[Decision, Reason, float | None]:
     """Classify a cluster as ``auto_merged`` / ``needs_review`` / ``unique``.
 
@@ -477,7 +477,7 @@ def dedup_volunteers(
     for i, j in _fuzzy_candidate_pairs(refs, threshold=fuzzy_threshold):
         uf.union(i, j)
 
-    raw_clusters = _build_clusters(refs, uf, threshold=fuzzy_threshold)
+    raw_clusters = _build_clusters(refs, uf, _threshold=fuzzy_threshold)
 
     # Materialise each raw cluster into a ``MergedCluster``. The
     # DNI-collision check runs INSIDE this loop so an
@@ -509,7 +509,7 @@ def dedup_volunteers(
                 )
             continue
         decision, reason, confidence = _cluster_decision(
-            group, refs, threshold=fuzzy_threshold
+            group, refs, _threshold=fuzzy_threshold
         )
         if decision == "unique":
             unique_count += 1

@@ -309,14 +309,14 @@ def apply_legacy_to_web(
     table_name: str,
     *,
     legacy_path: str,
-    since: datetime | None = None,
-    batch_size: int = 100,
+    _since: datetime | None = None,
+    _batch_size: int = 100,
     dry_run: bool = False,
     lock_path: Path | None = None,
     snapshot_path: Path | None = None,
     partial_path: Path | None = None,
     photos_dir_path: Path | str | None = None,
-    dni_collision_counter: DniCollisionCounter | None = None,
+    _dni_collision_counter: DniCollisionCounter | None = None,
 ) -> ApplyResult:
     """Bulk-apply legacy rows for one table into the InsForge web DB.
 

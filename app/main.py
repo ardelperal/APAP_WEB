@@ -244,7 +244,7 @@ def _register_unauthorized_handler(app: FastAPI, templates, settings) -> None:
     @app.get("/unauthorized", response_class=HTMLResponse)
     def unauthorized(
         request: Request,
-        current_user: Annotated[dict | None, Depends(get_current_user_optional)],
+        current_user: Annotated[dict | None, Depends(get_current_user_optional)],  # noqa: ARG001 - FastAPI DI contract
     ):
         return templates.TemplateResponse(
             request=request,

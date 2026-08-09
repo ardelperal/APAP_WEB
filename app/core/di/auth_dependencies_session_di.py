@@ -46,7 +46,7 @@ def get_current_user_optional(request: Request) -> dict | None:
 
 
 def require_authorized_user(
-    request: Request,
+    request: Request,  # noqa: ARG001 - FastAPI DI contract
     payload: dict | None = Depends(get_current_user_optional),
     client: InsForgeClient = Depends(get_insforge_client_dep),
 ) -> Response | dict:

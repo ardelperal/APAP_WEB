@@ -316,7 +316,7 @@ def update_casa_acogida_view(
 @router.post("/{casa_id}/delete", response_class=HTMLResponse)
 def delete_casa_acogida_view(
     casa_id: str,
-    request: Request,
+    request: Request,  # noqa: ARG001 - FastAPI DI contract
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_CASAS_ACOGIDA))],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):

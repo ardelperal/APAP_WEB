@@ -431,7 +431,7 @@ def test_apply_web_to_legacy_does_not_emit_sync_applied_on_commit_failure(
                 mapping=mapping,
                 web_row={"voluntario": "alice", "email": "new@x"},
                 legacy_path=str(tmp_path / "legacy.accdb"),
-                legacy_columns=tuple(
+                _legacy_columns=tuple(
                     c.legacy_column
                     for c in mapping.columns
                     if c.legacy_column

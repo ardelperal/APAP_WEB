@@ -496,7 +496,7 @@ def update_actuacion_view(
 @router.post("/{actuacion_id}/delete", response_class=HTMLResponse)
 def delete_actuacion_view(
     actuacion_id: str,
-    request: Request,
+    request: Request,  # noqa: ARG001 - FastAPI DI contract
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
