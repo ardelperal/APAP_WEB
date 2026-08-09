@@ -1122,7 +1122,7 @@ def _check_integration_test_coverage(repo_root: Path) -> list[Violation]:
     return violations
 
 
-def _check_apap004_any_auth_dep(path: Path, tree: ast.AST) -> list[Violation]:
+def _check_apap004_any_auth_dep(path: Path, _tree: ast.AST) -> list[Violation]:
     """Detector 14 — APAP004.
 
     Flags ``user: Any`` in FastAPI route handler parameters. The ``Any``
@@ -1210,7 +1210,7 @@ def _check_print_in_app(path: Path, tree: ast.AST) -> list[Violation]:
 
 
 def _check_csrf_middleware_registered(
-    path: Path, tree: ast.AST
+    path: Path, _tree: ast.AST
 ) -> list[Violation]:
     """Detector 7 — Rule 10.
 
@@ -1298,7 +1298,7 @@ def _find_repo_root(path: Path) -> Path:
 
 
 def _check_csrf_samesite_strict(
-    path: Path, tree: ast.AST
+    path: Path, _tree: ast.AST
 ) -> list[Violation]:
     """Detector 8 — Rule 10.
 
