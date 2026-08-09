@@ -22,9 +22,7 @@ WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 
 
 def _load_checker():
-    spec = importlib.util.spec_from_file_location(
-        "check_migration_boundaries", CHECKER_PATH
-    )
+    spec = importlib.util.spec_from_file_location("check_migration_boundaries", CHECKER_PATH)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -119,9 +117,7 @@ def test_classifier_matches_documented_classes() -> None:
     for stem in access_samples:
         assert checker.classify_file(f"migration/{stem}") == "access-bound", stem
     for stem in orchestration_samples:
-        assert (
-            checker.classify_file(f"migration/{stem}") == "orchestration"
-        ), stem
+        assert checker.classify_file(f"migration/{stem}") == "orchestration", stem
 
 
 # ---------------------------------------------------------------------------
@@ -156,9 +152,7 @@ def test_pure_module_must_not_import_app(tmp_path: Path) -> None:
     _tree(
         tmp_path,
         {
-            "migration/pure_thing.py": (
-                "from app.core.data_access import SqlExecutor\n"
-            ),
+            "migration/pure_thing.py": ("from app.core.data_access import SqlExecutor\n"),
         },
     )
     original = set(checker.PURE_FILENAMES)
@@ -228,9 +222,7 @@ def test_pure_module_may_import_intra_migration(tmp_path: Path) -> None:
         tmp_path,
         {
             "migration/derivation.py": "",
-            "migration/pure_user.py": (
-                "from migration.derivation import DerivationResult\n"
-            ),
+            "migration/pure_user.py": ("from migration.derivation import DerivationResult\n"),
         },
     )
     original = set(checker.PURE_FILENAMES)
@@ -254,9 +246,7 @@ def test_access_bound_module_must_not_import_app(tmp_path: Path) -> None:
     _tree(
         tmp_path,
         {
-            "migration/legacy_access_client.py": (
-                "from app.core.insforge import InsForgeClient\n"
-            ),
+            "migration/legacy_access_client.py": ("from app.core.insforge import InsForgeClient\n"),
         },
     )
     original = set(checker.ACCESS_BOUND_FILENAMES)
@@ -305,9 +295,7 @@ def test_orchestration_module_must_not_import_app_modules(tmp_path: Path) -> Non
     _tree(
         tmp_path,
         {
-            "migration/cli.py": (
-                "from app.modules.animals import get_animal_by_id\n"
-            ),
+            "migration/cli.py": ("from app.modules.animals import get_animal_by_id\n"),
         },
     )
 
@@ -361,14 +349,13 @@ def test_module_without_test_is_a_violation(tmp_path: Path) -> None:
         "uncovered.py": ("tests/migration/test_uncovered.py",),
     }
     try:
-        # Re-point TEST_SEARCH_DIRS at the synthetic tree so the helper
-        # reads from the right tests dir.
-        original_dirs = checker.TEST_SEARCH_DIRS
-        checker.TEST_SEARCH_DIRS = ("tests/migration",)
-        try:
-            results = checker._check_tests_per_module(tmp_path)
-        finally:
-            checker.TEST_SEARCH_DIRS = original_dirs
+        # No TEST_SEARCH_DIRS patch here: `_check_tests_per_module` takes the mapping as an
+        # argument and passes each entry's test paths straight to `_module_referenced_in_test`,
+        # so nothing in the production path ever reads that constant. The patch this block used
+        # to perform was a no-op; scoping to the synthetic tree comes entirely from
+        # REQUIRED_TESTS_FOR_MODULE above. Surfaced by the #490 split, which moved the constant
+        # out of the checker's namespace and turned the dead patch into an AttributeError.
+        results = checker._check_tests_per_module(tmp_path)
     finally:
         checker.REQUIRED_TESTS_FOR_MODULE = original
 
@@ -391,12 +378,9 @@ def test_module_with_test_is_not_a_violation(tmp_path: Path) -> None:
         "covered.py": ("tests/migration/test_covered.py",),
     }
     try:
-        original_dirs = checker.TEST_SEARCH_DIRS
-        checker.TEST_SEARCH_DIRS = ("tests/migration",)
-        try:
-            results = checker._check_tests_per_module(tmp_path)
-        finally:
-            checker.TEST_SEARCH_DIRS = original_dirs
+        # See the sibling test: patching TEST_SEARCH_DIRS was a no-op, since
+        # `_check_tests_per_module` reads the test paths from the mapping above.
+        results = checker._check_tests_per_module(tmp_path)
     finally:
         checker.REQUIRED_TESTS_FOR_MODULE = original
 
@@ -414,18 +398,14 @@ def test_baselined_violation_passes_and_new_one_fails(tmp_path: Path) -> None:
     _tree(
         tmp_path,
         {
-            "migration/pure_debt.py": (
-                "from app.core.data_access import SqlExecutor\n"
-            ),
+            "migration/pure_debt.py": ("from app.core.data_access import SqlExecutor\n"),
         },
     )
     original = set(checker.PURE_FILENAMES)
     checker.PURE_FILENAMES = frozenset(original | {"pure_debt.py"})
     key = "migration/pure_debt.py -> app.core.data_access [pure-imports]"
     try:
-        violations, notices = _run_imports_only(
-            tmp_path, checker, baseline={key: "known debt"}
-        )
+        violations, notices = _run_imports_only(tmp_path, checker, baseline={key: "known debt"})
         assert violations == []
         assert notices == []
     finally:
@@ -436,17 +416,14 @@ def test_baselined_violation_passes_and_new_one_fails(tmp_path: Path) -> None:
         tmp_path,
         {
             "migration/pure_debt.py": (
-                "from app.core.data_access import SqlExecutor\n"
-                "import sqlalchemy\n"
+                "from app.core.data_access import SqlExecutor\nimport sqlalchemy\n"
             ),
         },
     )
     original = set(checker.PURE_FILENAMES)
     checker.PURE_FILENAMES = frozenset(original | {"pure_debt.py"})
     try:
-        violations, _notices = _run_imports_only(
-            tmp_path, checker, baseline={key: "known debt"}
-        )
+        violations, _notices = _run_imports_only(tmp_path, checker, baseline={key: "known debt"})
     finally:
         checker.PURE_FILENAMES = frozenset(original)
 
@@ -459,9 +436,7 @@ def test_stale_baseline_entry_is_reported_as_a_notice(tmp_path: Path) -> None:
     violations, notices = _run_imports_only(
         tmp_path,
         checker,
-        baseline={
-            "migration/gone.py -> sqlalchemy [pure-imports]": "no longer a violation"
-        },
+        baseline={"migration/gone.py -> sqlalchemy [pure-imports]": "no longer a violation"},
     )
 
     assert violations == []
@@ -484,9 +459,7 @@ def test_emit_baseline_prints_violations_and_exits_zero(tmp_path: Path, capsys) 
     _tree(
         tmp_path,
         {
-            "migration/apply.py": (
-                "from app.modules.animals import get_animal_by_id\n"
-            ),
+            "migration/apply.py": ("from app.modules.animals import get_animal_by_id\n"),
         },
     )
 
@@ -514,9 +487,7 @@ def test_ci_workflow_lint_job_runs_migration_boundaries_gate() -> None:
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
 
     lint_job_start = workflow.index("\n  lint:")
-    lint_job = workflow[
-        lint_job_start : workflow.index("\n  security:", lint_job_start)
-    ]
+    lint_job = workflow[lint_job_start : workflow.index("\n  security:", lint_job_start)]
     executable = "\n".join(
         line for line in lint_job.splitlines() if not line.lstrip().startswith("#")
     )
