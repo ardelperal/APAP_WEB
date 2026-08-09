@@ -318,7 +318,7 @@ def update_terapia_view(
 @router.post("/terapias/{terapia_id}/delete", response_class=HTMLResponse)
 def delete_terapia_view(
     terapia_id: str,
-    request: Request,
+    _request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
@@ -388,7 +388,7 @@ def list_recomendaciones_view(
 @router.post("/terapias/{terapia_id}/recomendaciones", response_class=HTMLResponse)
 def create_recomendacion_view(
     terapia_id: str,
-    request: Request,
+    _request: Request,
     form: Annotated[RecomendacionForm, Form()],
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
@@ -435,7 +435,7 @@ def create_recomendacion_view(
 @router.patch("/recomendaciones/{recomendacion_id}", response_class=HTMLResponse)
 def complete_recomendacion_view(
     recomendacion_id: str,
-    request: Request,
+    _request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
@@ -473,7 +473,7 @@ def complete_recomendacion_view(
 @router.delete("/recomendaciones/{recomendacion_id}", response_class=HTMLResponse)
 def delete_recomendacion_view(
     recomendacion_id: str,
-    request: Request,
+    _request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):

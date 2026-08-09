@@ -41,15 +41,16 @@ async def test_every_route_returns_dependency_response_without_domain_work(
     for route in route_module.router.routes:
         kwargs: dict[str, object] = {"user": early}
         param_names = {
-            parameter.name
-            for parameter in inspect.signature(route.endpoint).parameters.values()
+            parameter.name for parameter in inspect.signature(route.endpoint).parameters.values()
         }
         if "client" in param_names:
             kwargs["client"] = Mock()
         for parameter in inspect.signature(route.endpoint).parameters.values():
             if parameter.default is not inspect.Parameter.empty:
                 continue
-            if parameter.name in ("request", "user", "client"):
+            # `_request` is the same parameter under the name handlers use when they
+            # never read it (issue #390); it must still receive a request-shaped mock.
+            if parameter.name in ("request", "_request", "user", "client"):
                 kwargs.setdefault(parameter.name, Mock())
                 continue
             if parameter.name.endswith("_id"):
@@ -165,17 +166,21 @@ def test_voluntario_detail_returns_404_when_missing(
 
 
 @pytest.mark.parametrize(
-    ("handler", "service_name"),
+    ("handler", "service_name", "request_kwarg"),
     (
-        (animal_routes.animal_detail, "get_animal_by_id"),
-        (animal_routes.edit_animal_form, "get_animal_by_id"),
-        (animal_routes.delete_animal_view, "delete_animal"),
+        (animal_routes.animal_detail, "get_animal_by_id", "request"),
+        (animal_routes.edit_animal_form, "get_animal_by_id", "request"),
+        # delete_animal_view never reads the request, so its parameter is named
+        # `_request` (issue #390). FastAPI injects it by type either way; this
+        # test calls the handler directly, so it has to name it correctly.
+        (animal_routes.delete_animal_view, "delete_animal", "_request"),
     ),
 )
 def test_animal_routes_return_404_for_missing_resource(
     monkeypatch: pytest.MonkeyPatch,
     handler,
     service_name: str,
+    request_kwarg: str,
 ) -> None:
     """Detail, edit, and delete expose the same missing-resource contract."""
     monkeypatch.setattr(
@@ -187,9 +192,9 @@ def test_animal_routes_return_404_for_missing_resource(
     with pytest.raises(HTTPException) as exc_info:
         handler(
             animal_id="missing",
-            request=Mock(),
             user={"user_id": "writer-1"},
             client=Mock(),
+            **{request_kwarg: Mock()},
         )
 
     assert exc_info.value.status_code == 404

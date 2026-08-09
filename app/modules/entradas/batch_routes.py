@@ -250,7 +250,7 @@ def commit_batch_view(
 @router.post("/{batch_id}/cancel", response_class=HTMLResponse)
 def cancel_batch_view(
     batch_id: str,
-    request: Request,
+    _request: Request,
     user: Annotated[Response | dict, Depends(require_writer_user)],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
 ):
