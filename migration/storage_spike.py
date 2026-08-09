@@ -645,7 +645,9 @@ def _body_value_shape(key: Any, value: Any) -> str:
 
 
 def _looks_like_url(value: Any) -> bool:
-    return isinstance(value, str) and value.startswith(("http://", "https://"))
+    """Inspect JSON payload values for http/https URL scheme prefixes (structural triage)."""
+    return isinstance(value, str) and value.startswith(("http://", "https://"))  # noqa: S5332
+
 
 
 def _type_name(value: Any) -> str:
