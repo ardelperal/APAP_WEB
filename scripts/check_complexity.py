@@ -1,21 +1,26 @@
-"""Cyclomatic complexity (CC) ratchet for high-risk functions.
+"""Cyclomatic complexity (CC) ceiling for every function in the codebase.
 
-AGENTS.md rule 21 + issues #336 and #332: ``create_app`` and
-``apply_web_to_legacy`` must stay at CC <= 15.
-The ratchet is shrink-only: the budget may only decrease, never increase.
+Every function under ``SCAN_DIRS`` is measured against the same absolute ceiling. The ceiling is
+absolute rather than a top-N ranking: under top-N the verdict on one function depends on the
+complexity of unrelated functions, so identical code passes or fails depending on its neighbours.
 
-CC is computed via a stdlib-only AST walker (no external dependency on
-radon). The walker counts decision points: if/elif/while/for/except/and/or/
-ternary/comprehension/assert.
+``BASELINE_CC`` is a shrink-only ratchet of tolerated offenders: entries may only decrease, a
+function that grows past its entry fails, and a function with no entry must be under ``MAX_CC``.
+
+Methods and closures are measured as their own entries, and their decision points are excluded
+from the enclosing function — folding them in would make a parent depend on its children and
+would count the same branch twice.
+
+Until 2026-08-08 this gate iterated ``BASELINE_CC`` and so measured 2 of 901 functions; see
+issue #486 for the evidence and the nine offenders that scoping it correctly surfaced.
 
 Usage::
 
     python scripts/check_complexity.py [root]
+    python scripts/check_complexity.py [root] --emit-baseline
 
 ``root`` defaults to the repository root (the parent of ``scripts/``).
 Exit code 0 when clean, 1 on any violation. Stdlib-only, deterministic.
-
-Run locally before pushing; CI should run it in the ``lint`` job.
 
 Issues: #336 (create_app), #332 (apply_web_to_legacy)
 """
@@ -26,27 +31,45 @@ import ast
 import sys
 from pathlib import Path
 
-#: Hard CC budget per function.
+#: Hard CC budget per function. Absolute and global — never a top-N selection.
 MAX_CC = 15
 
-#: (file_path_relative_to_root, function_simple_name) -> baseline CC.
-#: RATCHET: may only decrease; no entry may be added.
-#: Values are the measured CC AFTER the refactor (issue #336 for create_app,
-#: issue #332 for apply_web_to_legacy). radon's explicit `-s` score for the
-#: post-refactor apply_web_to_legacy is 14 (was 57 pre-refactor); the AST
-#: walker reports 13 — the ratchet compares AST counts so the value is the
-#: AST measurement.
+#: Directories walked by the gate. Mirrors ``scripts/check_mutation_sites.py``.
+SCAN_DIRS = ("app", "migration")
+
+#: Directory names skipped anywhere in a path.
+EXCLUDED_PARTS = frozenset({"__pycache__", ".venv", "venv", "build", "dist", "node_modules"})
+
+#: (file_path_relative_to_root, qualified_function_name) -> baseline CC.
+#: RATCHET: entries may only decrease or disappear; never add headroom.
+#: Generate additions with ``--emit-baseline`` rather than by hand.
+#:
+#: The nine entries below `create_app` are pre-existing debt surfaced the first time this gate
+#: measured the whole codebase (2026-08-08). They are recorded, not accepted: the ratchet means
+#: no NEW function may exceed the budget and none of these may grow. `derive_estado_actual_animal`
+#: at CC=31 and `_diff_snapshots` at CC=29 are the two worth attacking first.
 BASELINE_CC: dict[tuple[str, str], int] = {
     ("app/main.py", "create_app"): 1,  # issue #336 refactor — extracted closures
+    ("app/modules/animals/routes.py", "_animal_to_form_data"): 25,
+    ("app/modules/entradas/batch_routes.py", "stage_batch_view"): 17,
+    ("migration/apply.py", "apply_legacy_to_web"): 19,
+    ("migration/cli_apply_reverse.py", "run_apply"): 21,
+    ("migration/derivation.py", "derive_estado_actual_animal"): 31,
+    ("migration/diff_engine.py", "_diff_snapshots"): 29,
+    ("migration/reconcile.py", "_build_derived_inputs"): 16,
+    ("migration/reconcile.py", "post_apply_diff"): 18,
+    ("migration/reporting.py", "MigrationReport.to_markdown"): 20,
     (
         "migration/reverse_apply/orchestrator.py",
         "apply_web_to_legacy",
     ): 13,  # issue #332 refactor — extracted helpers (was CC=57)
 }
 
+_FUNCTION_NODES = (ast.FunctionDef, ast.AsyncFunctionDef)
+
 
 def _count_decision_points(node: ast.AST) -> int:
-    """Return the number of decision points under ``node``.
+    """Return the number of decision points owned by ``node``.
 
     CC starts at 1 and we add 1 for each:
       - if/elif (each branch)
@@ -57,10 +80,15 @@ def _count_decision_points(node: ast.AST) -> int:
       - comprehension (List/Dict/Set/Generator)
       - assert
 
-    Skipping walrus (NamedExpr) on purpose: it doesn't branch.
+    Skipping walrus (NamedExpr) on purpose: it doesn't branch. Nested functions and classes are
+    skipped too — they are measured as their own entries.
     """
     count = 0
-    for child in ast.walk(node):
+    stack: list[ast.AST] = list(ast.iter_child_nodes(node))
+    while stack:
+        child = stack.pop()
+        if isinstance(child, (*_FUNCTION_NODES, ast.ClassDef)):
+            continue
         if isinstance(child, (ast.If, ast.IfExp)):
             count += 1
         elif isinstance(child, (ast.For, ast.AsyncFor, ast.While)):
@@ -68,100 +96,119 @@ def _count_decision_points(node: ast.AST) -> int:
         elif isinstance(child, ast.ExceptHandler):
             count += 1
         elif isinstance(child, ast.BoolOp):
-            # `a and b and c` has 2 decision points (b, c); single operand
-            # like `a and b` has 1.
+            # `a and b and c` has 2 decision points (b, c); `a and b` has 1.
             count += max(0, len(child.values) - 1)
         elif isinstance(child, (ast.ListComp, ast.DictComp, ast.SetComp, ast.GeneratorExp)):
             count += 1
         elif isinstance(child, ast.Assert):
             count += 1
+        stack.extend(ast.iter_child_nodes(child))
     return count
 
 
-def _function_cc(tree: ast.AST, func_name: str) -> int | None:
-    """Find the top-level function ``func_name`` in ``tree`` and return its CC.
+def _walk_functions(node: ast.AST, prefix: str = ""):
+    """Yield ``(qualified_name, node)`` for every function, including methods and closures."""
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, _FUNCTION_NODES):
+            qualified = f"{prefix}{child.name}"
+            yield qualified, child
+            yield from _walk_functions(child, prefix=f"{qualified}.")
+        elif isinstance(child, ast.ClassDef):
+            yield from _walk_functions(child, prefix=f"{prefix}{child.name}.")
+        else:
+            yield from _walk_functions(child, prefix=prefix)
 
-    Only top-level (module-level) functions are considered. Returns ``None``
-    if the function is not defined at the top level.
+
+def iter_source_files(root: Path) -> list[Path]:
+    files: list[Path] = []
+    for scan_dir in SCAN_DIRS:
+        base = root / scan_dir
+        if not base.is_dir():
+            continue
+        for path in sorted(base.rglob("*.py")):
+            if EXCLUDED_PARTS.intersection(path.parts):
+                continue
+            files.append(path)
+    return files
+
+
+def measure(root: Path) -> tuple[dict[tuple[str, str], int], list[str]]:
+    """Measure every function. Returns ``({(file_rel, qualified): cc}, errors)``.
+
+    A file that cannot be read or parsed is an error, never a silent skip: a gate that quietly
+    drops what it cannot inspect reports the codebase as clean for the part nobody looked at.
     """
-    for node in tree.body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == func_name:
-            return 1 + _count_decision_points(node)
-    return None
+    measured: dict[tuple[str, str], int] = {}
+    errors: list[str] = []
+    for path in iter_source_files(root):
+        file_rel = str(path.relative_to(root)).replace("\\", "/")
+        try:
+            source = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            errors.append(f"{file_rel}: cannot read ({exc})")
+            continue
+        try:
+            tree = ast.parse(source, filename=str(path))
+        except SyntaxError as exc:
+            errors.append(f"{file_rel}: syntax error ({exc})")
+            continue
+        for qualified, node in _walk_functions(tree):
+            measured[(file_rel, qualified)] = 1 + _count_decision_points(node)
+    return measured, errors
 
 
-def check_one_function(
-    root: Path,
-    file_rel: str,
-    func_name: str,
-) -> tuple[list[str], list[str]]:
-    """Check CC of one function against the budget.
+def check_complexity(root: Path) -> tuple[list[str], list[str]]:
+    """Check CC of every measured function against the budget.
 
     Returns (violations, notices).
     """
-    target = root / file_rel
-    if not target.exists():
-        return [f"{target}: file not found"], []
-
-    try:
-        source = target.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError) as exc:
-        return [f"{file_rel}: cannot read ({exc})"], []
-
-    try:
-        tree = ast.parse(source, filename=str(target))
-    except SyntaxError as exc:
-        return [f"{file_rel}: syntax error ({exc})"], []
-
-    key = (file_rel, func_name)
-    cc = _function_cc(tree, func_name)
-
-    violations: list[str] = []
+    measured, errors = measure(root)
+    violations: list[str] = list(errors)
     notices: list[str] = []
 
-    if cc is None:
-        violations.append(
-            f"{file_rel}::{func_name}: could not find top-level function"
-        )
-        return violations, notices
+    for key in sorted(measured):
+        file_rel, func_name = key
+        cc = measured[key]
+        baseline = BASELINE_CC.get(key)
+        full_name = f"{file_rel}::{func_name}"
+        if baseline is not None and cc > baseline:
+            violations.append(
+                f"{full_name}: CC={cc}, exceeds baseline of {baseline} "
+                f"(ratchet: CC may only decrease)"
+            )
+        elif baseline is None and cc > MAX_CC:
+            violations.append(
+                f"{full_name}: CC={cc}, exceeds hard budget of {MAX_CC} (AGENTS.md rule 21)"
+            )
+        elif baseline is not None and cc < baseline:
+            notices.append(
+                f"{full_name}: CC={cc}, below baseline of {baseline} — "
+                f"update BASELINE_CC to lock in the improvement"
+            )
 
-    baseline = BASELINE_CC.get(key, None)
-    full_name = f"{file_rel}::{func_name}"
-    if baseline is not None and cc > baseline:
-        violations.append(
-            f"{full_name}: CC={cc}, exceeds baseline of {baseline} "
-            f"(ratchet: CC may only decrease)"
-        )
-    elif cc > MAX_CC:
-        violations.append(
-            f"{full_name}: CC={cc}, exceeds hard budget of {MAX_CC} "
-            f"(AGENTS.md rule 21 + issues #336, #332)"
-        )
-    elif baseline is not None and cc < baseline:
-        notices.append(
-            f"{full_name}: CC={cc}, below baseline of {baseline} — "
-            f"update BASELINE_CC to lock in the improvement"
-        )
-    else:
-        notices.append(f"{full_name}: CC={cc} — within budget")
+    for key in sorted(BASELINE_CC):
+        if key not in measured:
+            violations.append(
+                f"{key[0]}::{key[1]}: in BASELINE_CC but no such function was found — "
+                f"remove the entry or fix the path"
+            )
 
     return violations, notices
 
 
-def check_complexity(root: Path) -> tuple[list[str], list[str]]:
-    """Check CC of all tracked functions against the budget.
+def render_baseline(root: Path) -> str:
+    """Emit a BASELINE_CC block for the current offenders.
 
-    Returns (violations, notices).
+    A ratchet with dozens of entries never gets adopted if it has to be typed by hand.
     """
-    all_violations: list[str] = []
-    all_notices: list[str] = []
-
-    for (file_rel, func_name) in BASELINE_CC:
-        viol, notices = check_one_function(root, file_rel, func_name)
-        all_violations.extend(viol)
-        all_notices.extend(notices)
-
-    return all_violations, all_notices
+    measured, _ = measure(root)
+    lines = ["BASELINE_CC: dict[tuple[str, str], int] = {"]
+    for key in sorted(measured):
+        cc = measured[key]
+        if cc > MAX_CC or key in BASELINE_CC:
+            lines.append(f'    ("{key[0]}", "{key[1]}"): {cc},')
+    lines.append("}")
+    return "\n".join(lines)
 
 
 def _pin_output_encoding() -> None:
@@ -173,8 +220,15 @@ def _pin_output_encoding() -> None:
 
 def main(argv: list[str] | None = None) -> int:
     _pin_output_encoding()
-    args = sys.argv[1:] if argv is None else argv
+    args = list(sys.argv[1:] if argv is None else argv)
+    emit_baseline = "--emit-baseline" in args
+    if emit_baseline:
+        args.remove("--emit-baseline")
     root = Path(args[0]).resolve() if args else Path(__file__).resolve().parents[1]
+
+    if emit_baseline:
+        print(render_baseline(root))
+        return 0
 
     violations, notices = check_complexity(root)
 
@@ -186,10 +240,11 @@ def main(argv: list[str] | None = None) -> int:
     if violations:
         print(
             f"check_complexity: {len(violations)} violation(s). "
-            f"CC budget: {MAX_CC} (AGENTS.md rule 21 + issues #336, #332)."
+            f"CC budget: {MAX_CC} (AGENTS.md rule 21)."
         )
         return 1
-    print("check_complexity: OK")
+    measured, _ = measure(root)
+    print(f"check_complexity: OK ({len(measured)} function(s) measured, budget CC<={MAX_CC})")
     return 0
 
 
