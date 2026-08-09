@@ -20,12 +20,10 @@ SCRIPTS_DIR = REPO_ROOT / "scripts"
 
 #: Scripts with no output to pin.
 #:
-#: `check_migration_boundaries.py` is exempt for a different and worse reason: at 699 lines it
-#: sits one line under the 700-line module cap, so the 8-line pin cannot fit. It is the same
-#: shape as issue #203 (`app/main.py` at 699/700) — a module with no headroom cannot receive a
-#: fix. Split it, then delete this exemption; until then that one gate still crashes on a
-#: non-UTF-8 console.
-EXEMPT = frozenset({"dev_server_no_lifespan.py", "check_migration_boundaries.py"})
+#: `check_migration_boundaries.py` was exempt here until #490: at 699 lines against the 700-line
+#: cap it had no room for the 8-line pin. Splitting its policy tables out took it to 543 and the
+#: exemption is gone, so every printing gate is covered again.
+EXEMPT = frozenset({"dev_server_no_lifespan.py"})
 
 
 def _printing_scripts() -> list[Path]:
