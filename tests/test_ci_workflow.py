@@ -6,10 +6,40 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+#: Deploy lives in its own workflow so a merge does not re-run ci.yml just to
+#: satisfy its `needs`. The deploy guards moved here with it.
+DEPLOY_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "deploy.yml"
 MAKEFILE_PATH = REPO_ROOT / "Makefile"
 CHECK_RULES_SCRIPT_PATH = REPO_ROOT / "scripts" / "check_rules.py"
 BRANCH_PROTECTION_PATH = REPO_ROOT / ".github" / "branch-protection.md"
 DEVELOPMENT_GUIDE_PATH = REPO_ROOT / "docs" / "development.md"
+
+
+def _trigger_lines(workflow: str) -> dict[str, str]:
+    """Map each top-level trigger under ``on:`` to the text of its block.
+
+    Deliberately string-based, like every other assertion in this file: pyyaml
+    lives in the ``etl`` extra, not in ``dev``, so a yaml import here would pass
+    locally and fail in the CI test job.
+    """
+    blocks: dict[str, str] = {}
+    current: str | None = None
+    inside = False
+    for line in workflow.splitlines():
+        if line.startswith("on:"):
+            inside = True
+            continue
+        if inside and line and not line.startswith((" ", "\t", "#")):
+            break  # next top-level key ends the on: block
+        if not inside or not line.strip() or line.lstrip().startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip())
+        if indent == 2:
+            current = line.strip()
+            blocks[current] = ""
+        elif current is not None:
+            blocks[current] += line.strip() + "\n"
+    return blocks
 
 
 def _make_target_command(target: str) -> str:
@@ -84,7 +114,6 @@ def test_ci_workflow_does_not_include_diagnostic_secret_leak_scan() -> None:
 
     assert "Diagnostic secret-leak scan" not in workflow
     assert "grep -rE '(http://|https://|sk-|ghp_)[A-Za-z0-9]+'" not in workflow
-
 
 
 def test_branch_protection_note_lists_required_ci_checks() -> None:
@@ -180,9 +209,9 @@ def test_ci_workflow_runs_postgres_toctou_regression_in_test_job() -> None:
 
 def test_postgres_toctou_contract_uses_test_dsn_not_http_base_url() -> None:
     """The PostgreSQL integration test must not overload the HTTP E2E contract."""
-    concurrency_test = (
-        REPO_ROOT / "tests" / "test_voluntarios_concurrent.py"
-    ).read_text(encoding="utf-8")
+    concurrency_test = (REPO_ROOT / "tests" / "test_voluntarios_concurrent.py").read_text(
+        encoding="utf-8"
+    )
     guide = DEVELOPMENT_GUIDE_PATH.read_text(encoding="utf-8")
 
     assert "APAP_TEST_POSTGRES_DSN" in concurrency_test
@@ -239,9 +268,7 @@ def test_ci_workflow_lint_job_runs_check_rules_gate(tmp_path: Path) -> None:
         "csrf_samesite_strict",
     }
     missing_rule_ids = {
-        rule_id
-        for rule_id in expected_rule_ids
-        if f": {rule_id}:" not in result.stdout
+        rule_id for rule_id in expected_rule_ids if f": {rule_id}:" not in result.stdout
     }
     assert result.returncode == 1 and not missing_rule_ids, (
         "The make check-rules recipe must activate Detectors 5-8 from the "
@@ -350,7 +377,7 @@ def _extract_deploy_section(workflow: str) -> str:
     remaining = workflow[after_deploy_newline:]
     # Find the next top-level job: ``\n  <word>:`` (newline + 2 spaces + name + colon)
     next_job_match = re.search(r"\n  [a-zA-Z_]+:", remaining)
-    return remaining[:next_job_match.start()] if next_job_match else remaining
+    return remaining[: next_job_match.start()] if next_job_match else remaining
 
 
 def _parse_if_clauses(if_expr: str) -> list[tuple[str, str | None]]:
@@ -375,9 +402,7 @@ def _parse_if_clauses(if_expr: str) -> list[tuple[str, str | None]]:
     return clauses
 
 
-def _evaluate_if_clauses(
-    clauses: list[tuple[str, str | None]], payload: dict[str, object]
-) -> bool:
+def _evaluate_if_clauses(clauses: list[tuple[str, str | None]], payload: dict[str, object]) -> bool:
     """Evaluate a list of (key, value) equality clauses against a payload dict.
 
     GitHub Actions expressions use ``github.<path>`` syntax
@@ -402,91 +427,93 @@ def _evaluate_if_clauses(
     return True
 
 
-def test_ci_workflow_defines_deploy_job_with_gating() -> None:
-    """CD-01: deploy job exists, runs only on push to main, depends on lint+typecheck+test+integration+build.
+def test_deploy_workflow_gates_on_evidence() -> None:
+    """CD-01: deploy exists in its own workflow and runs only on proven evidence.
 
-    The only acceptable gating expression is exactly
-    ``github.event_name == 'push' && github.ref == 'refs/heads/main'``.
-    The dead ``github.event.pull_request == null`` clause must not appear
-    (it is always null on a push event and was hiding the real bug).
+    Deploy moved out of ci.yml so a merge stops paying for CI twice: ci.yml ran
+    on push to main solely because the five heavy jobs were `needs` of deploy,
+    re-testing a tree the pull_request run had already proven. deploy.yml looks
+    that evidence up instead.
+
+    The gating moved with it. Deploy no longer depends on jobs at all; it depends
+    on the `evidence` job having found a green ci run for the merged head.
     """
-    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    workflow = DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8")
 
     assert "  deploy:" in workflow
     assert "  name: deploy" in workflow
-    # needs must reference the five required jobs (typecheck added by
-    # issue #201; integration added by issue #329).
-    assert "needs: [lint, typecheck, test, integration, build]" in workflow
-
-    # Extract the job-level if: clause
-    if_clause = _extract_deploy_job_if_clause(workflow)
-
-    # Must be exactly the clean two-clause form — no pull_request == null
-    assert (
-        if_clause == "if: github.event_name == 'push' && github.ref == 'refs/heads/main'"
-    ), f"deploy job if: must be exactly the push-to-main predicate; got: {if_clause!r}"
-
-    # The dead pull_request == null clause must not appear anywhere in the deploy job
-    deploy_section = _extract_deploy_section(workflow)
-    assert (
-        "pull_request == null" not in deploy_section
-    ), "deploy job must not contain 'pull_request == null' — that clause is dead code on push events"
-
-    # The merge-commit skip block must also be absent
-    assert (
-        'grep -q "^Merge pull request #' not in deploy_section
-    ), "deploy job must not contain the merge-commit skip block"
-
-
-def test_ci_workflow_deploy_runs_on_main_push() -> None:
-    """CD-01 D4: the deploy job's if: evaluates True for a push to main.
-
-    Under pre-MVP policy (AGENTS.md §15.2) every change lands via PR merge,
-    so a push to main IS the deployable event. The if: must select it and
-    must not have a merge-commit skip guard inside the run block.
-    """
-    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
-
-    if_clause = _extract_deploy_job_if_clause(workflow)
-    clauses = _parse_if_clauses(if_clause)
-
-    # GitHub context structure: github.event_name (e.g. "push"),
-    # github.ref (e.g. "refs/heads/main"), github.event.pull_request (null on push).
-    # The payload mirrors this as {"event": {"name": ..., "pull_request": ...}, "ref": ...}
-    push_to_main_payload: dict[str, object] = {
-        "event": {"name": "push", "pull_request": None},
-        "ref": "refs/heads/main",
-    }
-    assert _evaluate_if_clauses(clauses, push_to_main_payload), (
-        f"deploy job if: {if_clause!r} must evaluate True for push to main"
+    assert "needs: [evidence]" in workflow
+    assert "if: needs.evidence.outputs.verified == 'true'" in workflow, (
+        "deploy must run only when the evidence job proved the tree was verified"
     )
 
-    # The deploy job's run steps must NOT contain the merge-commit skip block
-    deploy_section = _extract_deploy_section(workflow)
-    assert (
-        'grep -q "^Merge pull request #' not in deploy_section
-    ), "deploy job run steps must not contain the merge-commit skip guard"
+    # The historical failure modes must stay absent (see the deploy job comment
+    # in git history: a merge-commit skip block once cancelled every deploy).
+    assert "pull_request == null" not in workflow
+    assert 'grep -q "^Merge pull request #' not in workflow
 
 
-def test_ci_workflow_deploy_skips_on_pr() -> None:
-    """CD-01 D5: the deploy job's if: evaluates False for a pull_request event.
+def test_deploy_workflow_runs_on_main_push() -> None:
+    """CD-01 D4: a push to main is the deployable event.
 
-    A pull_request event must not trigger the deploy job, even if the PR
-    targets main. The if: must be a pure push-to-main predicate.
+    Under pre-MVP policy (AGENTS.md §15.2) every change lands via PR merge, so
+    the push to main IS the trigger. This is now a workflow-level trigger rather
+    than a job-level `if:`, which is a stronger statement: the job cannot fire on
+    an event the workflow does not listen to.
     """
-    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    triggers = _trigger_lines(DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8"))
 
-    if_clause = _extract_deploy_job_if_clause(workflow)
-    clauses = _parse_if_clauses(if_clause)
-
-    # PR event: github.event_name = "pull_request", github.event.pull_request is a dict
-    pr_payload: dict[str, object] = {
-        "event": {"name": "pull_request", "pull_request": {"number": 42}},
-        "ref": "refs/heads/main",
-    }
-    assert not _evaluate_if_clauses(clauses, pr_payload), (
-        f"deploy job if: {if_clause!r} must evaluate False for pull_request event"
+    assert "push:" in triggers, "deploy.yml must listen to push"
+    assert "branches: [main]" in triggers["push:"], (
+        f"deploy.yml must deploy main and nothing else; got {triggers['push:']!r}"
     )
+
+
+def test_deploy_workflow_cannot_fire_on_a_pull_request() -> None:
+    """CD-01 D5: a pull_request event must never reach deploy.
+
+    Previously this was a predicate on the job's `if:` and had to be parsed and
+    evaluated to be trusted. Now it is structural: the workflow does not declare
+    a pull_request trigger, so no `if:` can be got wrong. That closes the failure
+    mode this test was written for.
+    """
+    triggers = _trigger_lines(DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8"))
+
+    assert "pull_request:" not in triggers, (
+        "deploy.yml must not listen to pull_request — a PR must never deploy"
+    )
+
+
+def test_ci_workflow_no_longer_runs_on_main_push() -> None:
+    """The duplicate run is gone: ci.yml does not fire on a push to main.
+
+    Measured 2026-08-09: every merge triggered a second full ci run costing ~8
+    billed minutes, existing only to satisfy deploy's `needs`. With deploy moved
+    out, that reason is gone. The pull_request run remains the gate.
+    """
+    triggers = _trigger_lines(WORKFLOW_PATH.read_text(encoding="utf-8"))
+
+    assert "main" not in triggers["push:"], (
+        "ci.yml must not re-run on push to main; deploy.yml consumes the "
+        "pull_request run's evidence instead"
+    )
+    assert "main" in triggers["pull_request:"], (
+        "the pull_request run is now the only gate for main and must stay"
+    )
+
+
+def test_deploy_workflow_refuses_an_unverified_tree() -> None:
+    """No evidence, no deploy — and loudly.
+
+    The evidence job fails closed on every uncertain path: a direct push with no
+    merge parent, a base that moved between the PR run and the merge, or a merged
+    head with no green ci run. Silence there would deploy an untested tree.
+    """
+    workflow = DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8")
+
+    assert "Refuse to deploy an unverified tree" in workflow
+    assert "verified != 'true'" in workflow
+    assert "exit 1" in workflow
 
 
 def test_ci_workflow_deploy_job_calls_coolify_webhook() -> None:
@@ -501,7 +528,7 @@ def test_ci_workflow_deploy_job_calls_coolify_webhook() -> None:
     the prod and test paths share the same code). The workflow just
     sets the env vars and shells out to that module.
     """
-    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    workflow = DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8")
 
     assert "Trigger Coolify webhook" in workflow
     assert "secrets.COOLIFY_WEBHOOK_URL" in workflow
@@ -514,7 +541,7 @@ def test_ci_workflow_deploy_job_calls_coolify_webhook() -> None:
     assert "python - <<'PY'" not in workflow
     assert "urllib.request.urlopen" not in workflow
     # A bare unsigned curl is no longer acceptable.
-    assert "curl -fsS -X POST \"$COOLIFY_WEBHOOK_URL\"" not in workflow
+    assert 'curl -fsS -X POST "$COOLIFY_WEBHOOK_URL"' not in workflow
 
 
 def test_ci_workflow_missing_webhook_secret_is_a_failure() -> None:
@@ -526,7 +553,7 @@ def test_ci_workflow_missing_webhook_secret_is_a_failure() -> None:
     would reject every payload. Loud fail at CI beats silent fail at
     the healthcheck-driven rollback.
     """
-    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    workflow = DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8")
 
     # The deploy step must check the secret specifically (not just the
     # URL) and emit a ``::error::`` annotation with a clear message,
@@ -545,7 +572,7 @@ def test_ci_workflow_payload_shape_matches_coolify_expectation() -> None:
     pinned by tests/test_coolify_webhook.py::test_build_push_payload_includes_required_keys.
     The workflow just sets the env vars that the module reads.
     """
-    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    workflow = DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8")
 
     # The workflow must forward the env vars the module needs to build
     # the payload (ref, sha, repository, commit message).
@@ -558,9 +585,7 @@ def test_ci_workflow_payload_shape_matches_coolify_expectation() -> None:
 def _job_executable(workflow: str, start: str, end: str) -> str:
     start_index = workflow.index(start)
     section = workflow[start_index : workflow.index(end, start_index)]
-    return "\n".join(
-        line for line in section.splitlines() if not line.lstrip().startswith("#")
-    )
+    return "\n".join(line for line in section.splitlines() if not line.lstrip().startswith("#"))
 
 
 def test_ci_workflow_lint_job_runs_jscpd_gate() -> None:
@@ -617,8 +642,6 @@ def test_ci_workflow_test_job_runs_crap_gate() -> None:
     assert test_job.index("python scripts/check_crap.py") > test_job.index(
         "python -m pytest -W error::DeprecationWarning"
     )
-
-
 
 
 def test_ci_workflow_test_job_excludes_insforge_adapter() -> None:
@@ -857,7 +880,7 @@ def test_mutation_baseline_marks_adopciones_as_awaiting_acquisition() -> None:
     print(
         "\nmutation-baseline.json[awaiting_acquisition]"
         "[app/modules/adopciones/service.py] = "
-         f"{since_str} (age: {age} days, grace: {GRACE_PERIOD_DAYS})"
+        f"{since_str} (age: {age} days, grace: {GRACE_PERIOD_DAYS})"
     )
 
 
@@ -870,9 +893,7 @@ def test_ci_workflow_branch_name_step_is_wired() -> None:
     scripts/check_branch_name.py on every pull_request; removing the
     workflow or the step is a blocked change.
     """
-    pr_name = (REPO_ROOT / ".github" / "workflows" / "pr-name.yml").read_text(
-        encoding="utf-8"
-    )
+    pr_name = (REPO_ROOT / ".github" / "workflows" / "pr-name.yml").read_text(encoding="utf-8")
     assert "scripts/check_branch_name.py" in pr_name
     assert "github.head_ref" in pr_name
     # The gate fires on every PR opened against main.
@@ -896,9 +917,7 @@ def test_ci_workflow_pr_size_job_is_wired() -> None:
     the label is the only acceptable override (AGENTS.md §15.6). Removing
     either reference from the workflow is a blocked change (issue #442).
     """
-    pr_size = (
-        REPO_ROOT / ".github" / "workflows" / "pr-size.yml"
-    ).read_text(encoding="utf-8")
+    pr_size = (REPO_ROOT / ".github" / "workflows" / "pr-size.yml").read_text(encoding="utf-8")
 
     assert "scripts/check_pr_size.py" in pr_size, (
         "pr-size.yml must invoke scripts/check_pr_size.py (issue #442, "
@@ -909,6 +928,3 @@ def test_ci_workflow_pr_size_job_is_wired() -> None:
         "pr-size.yml must read the 'size:exception' label (AGENTS.md §15.6) — "
         "it is the only acceptable override for the 400-line budget"
     )
-
-
-

@@ -1,0 +1,135 @@
+name: deploy
+
+# Deploy lives outside ci.yml so that a merge does not pay for CI twice.
+#
+# Before this split, ci.yml ran on `pull_request` AND on `push: main`. The push
+# run re-executed lint, typecheck, test, integration and build for one reason:
+# they were `needs` of the deploy job. Measured on 2026-08-09, that second run
+# cost ~8 billed minutes per merge while testing, in the normal case, a tree the
+# pull_request run had already proven green.
+#
+# The evidence, not the re-run, is what deploy actually needs. This workflow
+# looks for the successful ci.yml run of the merged branch head and deploys on
+# that. It never deploys without evidence: no green run, no deploy, loudly.
+#
+# Why not an `if:` inside ci.yml (issue #495-adjacent discussion): letting deploy
+# tolerate skipped prerequisites requires `always()`, which defeats
+# tests/test_ci_workflow.py::test_ci_workflow_deploy_skips_on_pr — a guard
+# written after a conditional in this very job "cancelled every intended
+# deploy". Moving deploy out keeps that guard intact and pure.
+
+on:
+  push:
+    branches: [main]
+  # Manual escape hatch: re-deploy the current main without a new commit.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  evidence:
+    name: evidence
+    runs-on: ubuntu-latest
+    outputs:
+      verified: ${{ steps.check.outputs.verified }}
+      source: ${{ steps.check.outputs.source }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Find the green ci run that proved this tree
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          verified=false
+          source="none"
+
+          # A merge commit has two parents; ^2 is the branch that was merged and
+          # is the head the pull_request run tested.
+          if head2=$(git rev-parse --verify -q 'HEAD^2'); then
+            tree_merged=$(git rev-parse 'HEAD^{tree}')
+            tree_branch=$(git rev-parse "${head2}^{tree}")
+            if [ "$tree_merged" = "$tree_branch" ]; then
+              green=$(gh api \
+                "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${head2}&status=success" \
+                --jq '[.workflow_runs[] | select(.event == "pull_request")] | length' 2>/dev/null || echo 0)
+              if [ "${green:-0}" -gt 0 ]; then
+                verified=true
+                source="ci run for ${head2:0:8} (${green} green)"
+              else
+                source="no green ci run for merged head ${head2:0:8}"
+              fi
+            else
+              # main moved between the pull_request run and the merge, so the
+              # deployed tree is one nothing has tested.
+              source="main moved: merged tree differs from the branch tree"
+            fi
+          else
+            source="not a merge commit (direct push or manual dispatch)"
+          fi
+
+          echo "verified=${verified}" >> "$GITHUB_OUTPUT"
+          echo "source=${source}" >> "$GITHUB_OUTPUT"
+          echo "::notice::deploy evidence: ${source} -> verified=${verified}"
+
+      - name: Refuse to deploy an unverified tree
+        if: steps.check.outputs.verified != 'true'
+        run: |
+          echo "::error::Refusing to deploy: ${{ steps.check.outputs.source }}."
+          echo "::error::Run ci.yml against this ref and merge through a PR (AGENTS.md 15.2),"
+          echo "::error::or dispatch ci.yml manually and re-run this workflow once it is green."
+          exit 1
+
+  deploy:
+    name: deploy
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle]
+    needs: [evidence]
+    if: needs.evidence.outputs.verified == 'true'
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: pyproject.toml
+
+      - name: Install runtime dependencies for the webhook signer
+        # ``scripts/coolify_webhook.py`` imports httpx for the actual
+        # POST (so the same code path runs in CI tests and production).
+        # Without this, the deploy step fails with
+        # ``ModuleNotFoundError: No module named 'httpx'`` on a clean
+        # ubuntu-latest runner.
+        run: python -m pip install httpx itsdangerous
+
+      - name: Trigger Coolify webhook
+        env:
+          COOLIFY_WEBHOOK_URL: ${{ secrets.COOLIFY_WEBHOOK_URL }}
+          COOLIFY_WEBHOOK_SECRET: ${{ secrets.COOLIFY_WEBHOOK_SECRET }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          # Skip if the webhook URL is not configured (deploy is optional
+          # in pre-MVC; the operator may deploy manually). Loud fail on
+          # missing webhook SECRET — without it the signature cannot be
+          # computed and Coolify would 401 the payload silently.
+          if [ -z "$COOLIFY_WEBHOOK_URL" ]; then
+            echo "::notice::COOLIFY_WEBHOOK_URL secret is not configured. Skipping deploy step. Set it in Settings → Secrets → Actions to enable automatic deploys."
+            exit 0
+          fi
+          if [ -z "$COOLIFY_WEBHOOK_SECRET" ]; then
+            echo "::error::COOLIFY_WEBHOOK_SECRET secret is not configured. Set it in Settings → Secrets → Actions before merging to main."
+            exit 1
+          fi
+          # Delegate the HMAC signing + POST to a unit-tested module.
+          # Production and test paths share the same code (pinned by
+          # tests/test_coolify_webhook.py).
+          python scripts/coolify_webhook.py
