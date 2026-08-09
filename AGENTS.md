@@ -14,7 +14,7 @@ When working on this project, load the relevant skill(s) BEFORE writing any code
 2. Load the skill by reading the SKILL.md file at the listed path (via `read` tool or symlink)
 3. Follow ALL patterns and rules from the loaded skill
 4. Multiple skills can apply simultaneously
-5. When in doubt, prefer the more specific skill (e.g. `codebase-guide` over `documentation-patterns` for maintainer docs)
+5. When in doubt, prefer the more specific skill (e.g. `apap-merge-workflow` over `branch-pr` for merge policy)
 
 ## Mandatory skills
 
@@ -22,11 +22,10 @@ These skills are **mandatory** — load them before any work in their scope:
 
 | Skill | Mandatory for |
 |---|---|
-| **`agents-md-pattern`** | **Any** change to `AGENTS.md` itself (must follow Gentleman-Programming pattern). |
+| **`documentation-alan-style`** | **Any** document written or revised — `README`, this `AGENTS.md`, `DOCS`, `CODEBASE-GUIDE`, `CONTRIBUTING`, `CHANGELOG`, epics, walkthroughs. Instantiate the template from its `references/templates/`; never re-derive the shape from prose. |
 | **`branch-pr`** | **Any** commit, PR creation, or merge to `main`. Conventional commits, PR pequeño y reversible. Merge with `--no-ff` per §15.4 and **without** `--delete-branch`: the remote ref is retained, the local worktree is removed (§15.2). |
 | **`code-review-expert`** | **Any** subagent-driven slice landing on `main` (mandatory review lens per §17.2). |
 | **`judgment-day`** | **Any** high-stakes diff (auth, secrets, CSRF, PII, migrations, raw SQL). |
-| **`documentation-patterns`** | **Any** doc writing or refactor (format, tone, structure, single-source-of-truth). |
 
 ## Project-context skills (este repo)
 
@@ -52,13 +51,14 @@ These skills are **mandatory** — load them before any work in their scope:
 | `codegraph-usage` | Working with codegraph MCP/CLI (rule 14). | Gentleman-Programming |
 | `code-review-expert` | Every subagent-driven slice (mandatory review lens). | Gentleman-Programming |
 | `judgment-day` | High-stakes diffs (auth, secrets, migrations). | Gentleman-Programming |
-| `documentation-patterns` | Writing or refactoring docs. | Gentleman-Programming (adapted) |
+| `documentation-alan-style` | Writing or refactoring any document. Supersedes `documentation-patterns`, `codebase-guide`, `agents-md-pattern` and `docs-index`, all deprecated until 2026-10-07. | DysTelefonica/team-skills |
+| `cognitive-doc-design` | Reducing cognitive load in a doc (reading paths, layering). Complements the above; does not replace it. | Gentleman-Programming |
 | `branch-pr` | Any PR creation or merge. | Gentleman-Programming |
 | `skill-creator` | Creating new skills following the pattern. | Gentleman-Programming |
 
 ## Reinforcement
 
-Si una IA está escribiendo código o docs en este repo sin cargar las skills relevantes, está trabajando a ciegas. Las skills son el single source of truth para "cómo se hace X en este proyecto". **Cargá primero, escribí después**. Si una IA escribe una doc sin haber cargado `documentation-patterns`, **la doc será rechazada en review** — el formato no cumplirá con el patrón del repo.
+Si una IA está escribiendo código o docs en este repo sin cargar las skills relevantes, está trabajando a ciegas. Las skills son el single source of truth para "cómo se hace X en este proyecto". **Cargá primero, escribí después**. Si una IA escribe una doc sin haber cargado `documentation-alan-style`, **la doc será rechazada en review** — el formato no cumplirá con el patrón del repo. Esa skill trae plantillas por tipo de documento: se instancia la plantilla, no se reconstruye el formato leyendo prosa. Un formato descrito en prosa produce un documento distinto cada vez que se lee; una plantilla produce uno.
 
 Las reglas específicas del proyecto (33+ secciones que siguen a partir de §1) NO están en skills — son reglas de arquitectura, seguridad, y operación específicas de APAP_WEB. Se mantienen en este AGENTS.md porque son no externalizables a un solo skill. Si crece el AGENTS.md a > 1500 líneas, considerar extraer secciones a skills dedicadas.
 
