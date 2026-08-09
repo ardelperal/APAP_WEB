@@ -59,8 +59,8 @@ RUFF_VERSION: str = "0.15.21"
 #: preserved — this update is a one-shot calibration, not a baseline raise.
 #: The count of violations in the codebase is UNCHANGED by this commit.
 BASELINE: dict[str, int] = {
-    "ARG001": 30,
-    "ARG002": 3,
+    "ARG001": 25,
+    "ARG002": 2,
     "C901": 17,
     # ERA001 fue retirado del baseline al completarse el triaje del issue #390
     # (4 -> 0 con los 4 sitios de ``app/`` y ``scripts/`` en este PR). Todos

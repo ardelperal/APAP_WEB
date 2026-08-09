@@ -206,7 +206,7 @@ class APAP004Visitor(ast.NodeVisitor):
 
     visit_AsyncFunctionDef = visit_FunctionDef
 
-    def _check_any_user(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+    def _check_any_user(self, _node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
         src_lines: list[str] = []
         try:
             src = self.file.read_text(encoding="utf-8")
