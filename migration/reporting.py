@@ -199,108 +199,137 @@ class MigrationReport:
           reportes pre-PR3.
         - Footer con timestamps y duración.
         """
-        lines: list[str] = []
-        lines.append("# Migration Report")
-        lines.append("")
-        lines.append(f"- **Direction**: `{self.direction}`")
-        lines.append(f"- **Mode**: `{self.mode}`")
-        lines.append(f"- **Dry run**: `{self.dry_run}`")
-        lines.append(f"- **Applied**: `{self.applied}`")
-        lines.append("")
+        sections = [
+            self._md_header(),
+            self._md_metrics(),
+            self._md_conflicts(),
+            self._md_reconciliation(),
+            self._md_source_identity(),
+            self._md_timing(),
+        ]
+        return "".join(sections)
 
-        # Metrics
+    def _md_header(self) -> str:
+        """Header con direction/mode/dry_run/applied."""
+        lines = [
+            "# Migration Report",
+            "",
+            f"- **Direction**: `{self.direction}`",
+            f"- **Mode**: `{self.mode}`",
+            f"- **Dry run**: `{self.dry_run}`",
+            f"- **Applied**: `{self.applied}`",
+            "",
+        ]
+        return "\n".join(lines)
+
+    def _md_metrics(self) -> str:
+        """Metrics table: INSERTs/UPDATEs/DELETEs/NOOPs + conflicts."""
         ins = sum(1 for d in self.diffs if d.op == "INSERT")
         upd = sum(1 for d in self.diffs if d.op == "UPDATE")
         dele = sum(1 for d in self.diffs if d.op == "DELETE")
         noop = sum(1 for d in self.diffs if d.op == "NOOP")
         total = ins + upd + dele + noop
-        lines.append("## Metrics")
-        lines.append("")
-        lines.append("| Op | Count |")
-        lines.append("|---|---|")
-        lines.append(f"| INSERT | {ins} |")
-        lines.append(f"| UPDATE | {upd} |")
-        lines.append(f"| DELETE | {dele} |")
-        lines.append(f"| NOOP | {noop} |")
-        lines.append(f"| Conflict | {len(self.conflicts)} |")
-        lines.append(f"| Total | {total} |")
-        lines.append("")
+        lines = [
+            "## Metrics",
+            "",
+            "| Op | Count |",
+            "|---|---|",
+            f"| INSERT | {ins} |",
+            f"| UPDATE | {upd} |",
+            f"| DELETE | {dele} |",
+            f"| NOOP | {noop} |",
+            f"| Conflict | {len(self.conflicts)} |",
+            f"| Total | {total} |",
+            "",
+        ]
+        return "\n".join(lines)
 
-        # Conflicts table (only if any)
-        if self.conflicts:
-            lines.append("## Conflicts")
+    def _md_conflicts(self) -> str:
+        """Conflicts table — empty string when there are no conflicts."""
+        if not self.conflicts:
+            return ""
+        lines = [
+            "## Conflicts",
+            "",
+            "| Table | Key | Reason |",
+            "|---|---|---|",
+        ]
+        for c in self.conflicts:
+            lines.append(f"| {c.table} | {c.key} | {c.reason} |")
+        lines.append("")
+        return "\n".join(lines)
+
+    def _md_reconciliation(self) -> str:
+        """Reconciliation summary — empty string when not attached by applier."""
+        if self.reconciliation_summary is None:
+            return ""
+        rs = self.reconciliation_summary
+        lines = [
+            "## Reconciliation",
+            "",
+            "| Status | Count |",
+            "|---|---|",
+            f"| Matched | {rs.matched} |",
+            f"| Divergent | {rs.divergent} |",
+            f"| Needs review | {rs.needs_review} |",
+            "",
+        ]
+        return "\n".join(lines)
+
+    def _md_source_identity(self) -> str:
+        """Source identity tables — empty string when none of the fields are populated.
+
+        Keeps the pre-PR3 markdown shape unchanged for callers that don't set
+        the new fields (backward-compat).
+        """
+        if not (self.counts or self.source_hashes or self.collisions):
+            return ""
+        lines = ["## Source Identity", ""]
+        if self.counts:
+            lines.append("### Counts")
             lines.append("")
-            lines.append("| Table | Key | Reason |")
+            lines.append("| Table | count_legacy | count_web |")
             lines.append("|---|---|---|")
-            for c in self.conflicts:
-                lines.append(f"| {c.table} | {c.key} | {c.reason} |")
+            for table_name, table_counts in self.counts.items():
+                lines.append(
+                    f"| {table_name} | "
+                    f"{table_counts.get('count_legacy', '')} | "
+                    f"{table_counts.get('count_web', '')} |"
+                )
             lines.append("")
-
-        # Reconciliation summary (PR 4/6). Emitted only when the applier
-        # attached one (i.e. the ``post_apply_diff`` hook ran). When the
-        # field is ``None`` we omit the section so MIGRATION-01 PR 1–3
-        # reports stay clean (the hook didn't exist when those runs
-        # happened).
-        if self.reconciliation_summary is not None:
-            rs = self.reconciliation_summary
-            lines.append("## Reconciliation")
+        if self.source_hashes:
+            lines.append("### Source hashes")
             lines.append("")
-            lines.append("| Status | Count |")
+            lines.append("| Table | sha256 |")
             lines.append("|---|---|")
-            lines.append(f"| Matched | {rs.matched} |")
-            lines.append(f"| Divergent | {rs.divergent} |")
-            lines.append(f"| Needs review | {rs.needs_review} |")
+            for table_name, sha in self.source_hashes.items():
+                lines.append(f"| {table_name} | `{sha}` |")
             lines.append("")
-
-        # Source identity (PR3/M1). Emitted only when at least one of
-        # the three source-identity fields has content. Keeps the
-        # pre-PR3 markdown shape unchanged for callers that don't set
-        # the new fields (backward-compat).
-        if self.counts or self.source_hashes or self.collisions:
-            lines.append("## Source Identity")
+        if self.collisions:
+            lines.append("### Collisions")
             lines.append("")
-            if self.counts:
-                lines.append("### Counts")
-                lines.append("")
-                lines.append("| Table | count_legacy | count_web |")
-                lines.append("|---|---|---|")
-                for table_name, table_counts in self.counts.items():
-                    lines.append(
-                        f"| {table_name} | "
-                        f"{table_counts.get('count_legacy', '')} | "
-                        f"{table_counts.get('count_web', '')} |"
-                    )
-                lines.append("")
-            if self.source_hashes:
-                lines.append("### Source hashes")
-                lines.append("")
-                lines.append("| Table | sha256 |")
-                lines.append("|---|---|")
-                for table_name, sha in self.source_hashes.items():
-                    lines.append(f"| {table_name} | `{sha}` |")
-                lines.append("")
-            if self.collisions:
-                lines.append("### Collisions")
-                lines.append("")
-                lines.append("| Table | key | count |")
-                lines.append("|---|---|---|")
-                for table_name, counters in self.collisions.items():
-                    for key, value in counters.items():
-                        lines.append(f"| {table_name} | {key} | {value} |")
-                lines.append("")
+            lines.append("| Table | key | count |")
+            lines.append("|---|---|---|")
+            for table_name, counters in self.collisions.items():
+                for key, value in counters.items():
+                    lines.append(f"| {table_name} | {key} | {value} |")
+            lines.append("")
+        return "\n".join(lines)
 
-        # Footer
-        lines.append("## Timing")
-        lines.append("")
-        lines.append(f"- **Started at**: `{self.started_at.isoformat()}`")
-        lines.append(f"- **Finished at**: `{self.finished_at.isoformat()}`")
-        lines.append(f"- **Duration**: `{self.duration_seconds:.3f}s`")
+    def _md_timing(self) -> str:
+        """Footer with timestamps, duration, and optional backup/error."""
+        lines = [
+            "## Timing",
+            "",
+            f"- **Started at**: `{self.started_at.isoformat()}`",
+            f"- **Finished at**: `{self.finished_at.isoformat()}`",
+            f"- **Duration**: `{self.duration_seconds:.3f}s`",
+        ]
         if self.backup_path:
             lines.append(f"- **Backup**: `{self.backup_path}`")
         if self.error:
             lines.append(f"- **Error**: `{self.error}`")
-
-        return "\n".join(lines) + "\n"
+        return "\n".join(lines)
 
 
 # --- helpers --------------------------------------------------------------
