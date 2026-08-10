@@ -978,8 +978,7 @@ def _is_route_file(path: Path, repo_root: Path) -> bool:
         name = relative.parts[-1]
         return (
             name.startswith("routes")
-            or name == "batch_routes.py"
-            or name == "assignment_routes.py"
+            or name in {"batch_routes.py", "assignment_routes.py"}
         )
     return False
 
