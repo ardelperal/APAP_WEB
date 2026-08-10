@@ -121,11 +121,10 @@ def measure_total_coverage(
 ) -> DocstringStats:
     """Return a single combined DocstringStats across all three definition types."""
     mod, cls, fn = measure_docstrings(root)
-    combined = DocstringStats(
+    return DocstringStats(
         total=mod.total + cls.total + fn.total,
         documented=mod.documented + cls.documented + fn.documented,
     )
-    return combined
 
 
 # ── CLI ─────────────────────────────────────────────────────────────────────
