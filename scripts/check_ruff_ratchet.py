@@ -60,7 +60,7 @@ RUFF_VERSION: str = "0.15.21"
 #: The count of violations in the codebase is UNCHANGED by this commit.
 BASELINE: dict[str, int] = {
     "ARG001": 25,
-    "C901": 17,
+    "C901": 16,
     # ERA001 fue retirado del baseline al completarse el triaje del issue #390
     # (4 -> 0 con los 4 sitios de ``app/`` y ``scripts/`` en este PR). Todos
     # resultaron categoria (a): comentarios de seccion / branch label que ruff
@@ -82,7 +82,7 @@ BASELINE: dict[str, int] = {
     "N815": 2,
     "N818": 3,
     "PLR0911": 10,
-    "PLR0912": 9,
+    "PLR0912": 8,
     "PLR0913": 33,
     # PLR0915 fue retirado del baseline al completarse el triaje del issue #390
     # (1 -> 0). El sitio era ``MigrationReport.to_markdown`` en
