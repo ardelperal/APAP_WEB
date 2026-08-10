@@ -37,19 +37,24 @@ def _job(name: str, next_name: str) -> str:
     )
 
 
-def test_security_job_runs_on_github_hosted_ubuntu_latest() -> None:
-    """The scanners run on GitHub-hosted ``ubuntu-latest``.
+def test_security_job_runs_on_pinned_ubuntu_lts() -> None:
+    """The scanners run on GitHub-hosted ``ubuntu-24.04`` (a pinned LTS label).
 
     PR #452 migrated the basic CI gates (lint, typecheck, test, integration,
     build, security) from the project's own self-hosted runner
-    (``[self-hosted, Linux, ARM64, apap, oracle]``) to ``ubuntu-latest``. The
-    self-hosted Oracle ARM64 VPS has chronic session-renewal problems that
-    cause flapping jobs and queue stalls, so per AGENTS.md §15 the basic gates
-    now run on GitHub-hosted infrastructure; the self-hosted runner is kept
-    only as a fallback for the E2E job (``vars.APAP_SELF_HOSTED_E2E_ENABLED``).
+    (``[self-hosted, Linux, ARM64, apap, oracle]``) to ``ubuntu-latest``.
+    PR #508 (deterministic-quality-harness v1.5 Rule 15) pinned that further
+    to ``ubuntu-24.04`` — tags mutate silently, so the runner must be an
+    exact LTS label rather than a moving ``ubuntu-latest``. The self-hosted
+    Oracle ARM64 VPS has chronic session-renewal problems that cause flapping
+    jobs and queue stalls, so per AGENTS.md §15 the basic gates now run on
+    GitHub-hosted infrastructure; the self-hosted runner is kept only as a
+    fallback for the E2E job (``vars.APAP_SELF_HOSTED_E2E_ENABLED``).
     """
     job = _job("security", "security-deep")
-    assert "runs-on: ubuntu-latest" in job
+    assert "runs-on: ubuntu-24.04" in job, (
+        "security job must run on a pinned LTS runner label, not ubuntu-latest"
+    )
 
 
 def test_security_job_runs_pip_audit() -> None:
