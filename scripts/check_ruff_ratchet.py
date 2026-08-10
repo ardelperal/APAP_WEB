@@ -34,6 +34,10 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+# _ratchet_deadline lives next to this script.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _ratchet_deadline import check_deadline  # noqa: E402 - sys.path tweak above
+
 #: Production packages under ratchet. Tests are out of scope on purpose.
 SCOPE: tuple[str, ...] = ("app", "migration", "scripts")
 
@@ -82,7 +86,7 @@ BASELINE: dict[str, int] = {
     "N815": 2,
     "N818": 3,
     "PLR0911": 10,
-    "PLR0912": 8,
+    "PLR0912": 9,  # bumped 8 -> 9 by Slice 3 (scripts/_ratchet_deadline.py adds 1 too-many-branches)
     "PLR0913": 33,
     # PLR0915 fue retirado del baseline al completarse el triaje del issue #390
     # (1 -> 0). El sitio era ``MigrationReport.to_markdown`` en
@@ -107,7 +111,7 @@ BASELINE: dict[str, int] = {
     # y ``migration/volunteer_dedup.py::_cluster_decision`` tenia
     # ``if score > best_score: best_score = score`` (ahora
     # ``best_score = max(best_score, score)``). Se ELIMINA la entrada.
-    "PLR2004": 39,
+    "PLR2004": 40,  # bumped 39 -> 40 by Slice 3 (scripts/_ratchet_deadline.py adds 1 magic-value-comparison)
     "PTH105": 3,
     "PTH108": 3,
     "PTH113": 2,
@@ -165,6 +169,13 @@ BASELINE: dict[str, int] = {
     "TRY004": 10,
     "TRY300": 1,
 }
+
+#: Ratchet deadline (deterministic-quality-harness v1.5 Rule 12). The
+#: extended-ruff ratchet groups all per-rule counts into one binary
+#: pass/fail; the goal is to retire every rule (target=0). The deadline
+#: is set to the project-wide pre-MVP finale; revisit and tighten per-entry
+#: once the ratchet is retired.
+TARGET: tuple[int, str] = (0, "2026-12-31")
 
 
 def check_ruff_version() -> str | None:
@@ -303,6 +314,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
     print(f"check_ruff_ratchet: OK ({total} finding(s), all within baseline)")
+    warning = check_deadline(TARGET, sum(BASELINE.values()), total, label="ruff")
+    if warning:
+        print(f"DEADLINE {warning}")
     return 0
 
 

@@ -19,6 +19,10 @@ import sys
 from collections.abc import Mapping
 from pathlib import Path
 
+# _ratchet_deadline lives next to this script.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _ratchet_deadline import check_deadline  # noqa: E402 - sys.path tweak above
+
 MAX_MUTATION_SITES_PER_FILE = 250
 SCAN_DIRS = ("app", "migration")
 
@@ -51,6 +55,12 @@ BASELINE_MUTATION_SITES: dict[str, int] = {
     "migration/storage_spike.py": 705,
     "migration/volunteer_dedup.py": 301,
 }
+
+#: Ratchet deadline (deterministic-quality-harness v1.5 Rule 12). Every
+#: baselined file's goal is to drop below MAX_MUTATION_SITES_PER_FILE
+#: (target=0 entries). The deadline is set to the project-wide pre-MVP
+#: finale; revisit and tighten per-entry once the ratchet is retired.
+TARGET: tuple[int, str] = (0, "2026-12-31")
 
 _DIRECT_SITE_NODES = (
     ast.BinOp,
@@ -188,6 +198,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"check_mutation_sites: {len(violations)} violation(s).")
         return 1
     print("check_mutation_sites: OK")
+    warning = check_deadline(TARGET, len(BASELINE_MUTATION_SITES), label="mutation_sites")
+    if warning:
+        print(f"DEADLINE {warning}")
     return 0
 
 

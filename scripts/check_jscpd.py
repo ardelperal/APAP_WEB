@@ -19,7 +19,16 @@ import tokenize
 from collections import defaultdict
 from pathlib import Path
 
+# _ratchet_deadline lives next to this script.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _ratchet_deadline import check_deadline  # noqa: E402 - sys.path tweak above
+
 BASELINE_JSCPD_PCT = 1.81  # lowered by issue #430; measured on Python 3.14 CI
+
+#: Ratchet deadline (deterministic-quality-harness v1.5 Rule 12). The jscpd
+#: duplicate-percentage ceiling is a single float; the goal is 0%. The deadline
+#: is set to the project-wide pre-MVP finale.
+TARGET: tuple[float, str] = (0.0, "2026-12-31")
 SCAN_DIRS = ("app", "migration", "scripts")
 MIN_CLONE_TOKENS = 50
 _MIN_CLONE_GROUP_MEMBERS = 2
@@ -232,12 +241,18 @@ def main(argv: list[str] | None = None) -> int:
         print(f"FAIL: {violation}")
     if violations:
         print(f"check_jscpd: {len(violations)} violation(s).")
+        warning = check_deadline(TARGET, BASELINE_JSCPD_PCT, label="jscpd")
+        if warning:
+            print(f"DEADLINE {warning}")
         return 1
     percentage, _regions = measure_tree(root)
     print(
         f"check_jscpd: OK: {percentage:.2f}% <= "
         f"{BASELINE_JSCPD_PCT:.2f}% baseline"
     )
+    warning = check_deadline(TARGET, BASELINE_JSCPD_PCT, label="jscpd")
+    if warning:
+        print(f"DEADLINE {warning}")
     return 0
 
 

@@ -31,6 +31,10 @@ import ast
 import sys
 from pathlib import Path
 
+# _ratchet_deadline lives next to this script.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _ratchet_deadline import check_deadline  # noqa: E402 - sys.path tweak above
+
 #: Hard CC budget per function. Absolute and global — never a top-N selection.
 MAX_CC = 15
 
@@ -64,6 +68,12 @@ BASELINE_CC: dict[tuple[str, str], int] = {
         "apply_web_to_legacy",
     ): 13,  # issue #332 refactor — extracted helpers (was CC=57)
 }
+
+#: Ratchet deadline (deterministic-quality-harness v1.5 Rule 12). Every
+#: baselined function's goal is to shrink below MAX_CC (target=0 entries).
+#: The deadline is set to the project-wide pre-MVP finale; revisit and tighten
+#: per-entry once the ratchet is retired.
+TARGET: tuple[int, str] = (0, "2026-12-31")
 
 _FUNCTION_NODES = (ast.FunctionDef, ast.AsyncFunctionDef)
 
@@ -245,6 +255,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     measured, _ = measure(root)
     print(f"check_complexity: OK ({len(measured)} function(s) measured, budget CC<={MAX_CC})")
+    warning = check_deadline(TARGET, len(BASELINE_CC), label="complexity")
+    if warning:
+        print(f"DEADLINE {warning}")
     return 0
 
 

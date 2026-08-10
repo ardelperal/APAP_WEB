@@ -30,6 +30,10 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+# _ratchet_deadline lives next to this script.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _ratchet_deadline import check_deadline  # noqa: E402 - sys.path tweak above
+
 # ── Tunables ────────────────────────────────────────────────────────────────
 
 # Directories subject to the coverage check.
@@ -40,6 +44,11 @@ SCAN_DIRS = ("app", "migration", "scripts")
 # If you improve coverage, update this constant in the same PR that
 # added the docstrings.
 BASELINE_COVERAGE_FLOOR = 73.0
+
+#: Ratchet deadline (deterministic-quality-harness v1.5 Rule 12). The
+#: docstring-coverage floor is a single ceiling; the goal is 100%. The
+#: deadline is set to the project-wide pre-MVP finale.
+TARGET: tuple[float, str] = (100.0, "2026-12-31")
 
 
 # ── Data model ──────────────────────────────────────────────────────────────
@@ -162,6 +171,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     print(f"\nOK: coverage {coverage:.2f}% is at or above floor {floor:.1f}%.")
+    warning = check_deadline(TARGET, floor, coverage, label="docstring_coverage")
+    if warning:
+        print(f"DEADLINE {warning}")
     return 0
 
 
