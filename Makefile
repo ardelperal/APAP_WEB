@@ -18,13 +18,21 @@ TAILWIND_DIR ?= tailwindcss
 TAILWIND_INPUT ?= $(TAILWIND_DIR)/styles/app.css
 TAILWIND_OUTPUT ?= app/static/css/output.css
 
-.PHONY: help install dev test lint typecheck check-rules check-layers mutation build all clean css css-watch serve run
+.PHONY: help install dev test test-ci lint typecheck verify \
+        check-rules check-module-size check-route-size check-layers \
+        check-slice-completeness check-migration-boundaries \
+        check-docstring-coverage check-complexity check-ruff-ratchet \
+        check-vulture-guard check-jscpd check-mutation-sites \
+        check-import-cycles check-crap \
+        mutation build all clean css css-watch serve run
 
 help:
 	@echo "APAP make targets:"
 	@echo "  install      - Install runtime + dev deps into the active Python (.venv)"
 	@echo "  dev          - Same as install (kept for backwards compat)"
-	@echo "  test         - Run pytest with deprecation strictness"
+	@echo "  verify       - THE green-PR gate: every gate ci.yml runs on a pull request"
+	@echo "  test         - Run pytest with deprecation strictness (fast inner loop)"
+	@echo "  test-ci      - Run pytest exactly as the CI test job does (coverage floor)"
 	@echo "  lint         - Run ruff check on the repo"
 	@echo "  typecheck    - Run mypy over app/ + migration/ (scope in pyproject [tool.mypy])"
 	@echo "  check-rules  - Run the AST-based AGENTS.md rule linter (scripts/check_rules.py)"
@@ -34,8 +42,11 @@ help:
 	@echo "  css-watch    - Run Tailwind v4 in watch mode (dev)"
 	@echo "  serve        - Run uvicorn against app.main:app on 127.0.0.1:8000"
 	@echo "  run          - css + serve (one-shot local preview)"
-	@echo "  all          - css + test + lint + typecheck (the green-PR gate)"
+	@echo "  all          - css + verify (build the bundle, then run the gate)"
 	@echo "  clean        - Remove build artifacts and tool caches"
+	@echo ""
+	@echo "  Run 'make verify' before opening a PR. Its gate list is pinned to"
+	@echo "  ci.yml by tests/test_ci_workflow.py::test_make_verify_covers_every_ci_gate."
 
 install:
 	$(PIP) install -e ".[dev]"
@@ -78,8 +89,99 @@ check-rules:
 # dependency direction, inner-layer purity, vertical-slice boundaries.
 # The 53 pre-existing violations live in a shrink-only BASELINE measured
 # against main @41fbd2a. CI runs it in the lint job.
+#
+# No positional argument, matching the CI step exactly. The script falls
+# back to ``Path(__file__).parents[1]`` (the repo root) when argv is
+# empty, so dropping the ``.`` changes nothing about what is scanned and
+# removes one more place where local and CI invocations could diverge.
 check-layers:
-	$(PYTHON) scripts/check_layers.py .
+	$(PYTHON) scripts/check_layers.py
+
+# --- Remaining CI lint-job gates (issue #504) -------------------------
+#
+# One target per gate, in the order ci.yml runs them. They existed only
+# as workflow steps until #504: `make all` was documented as "the gate"
+# while running four of seventeen, so a green local run said nothing
+# about a pull request. Each recipe below is the CI step verbatim.
+#
+# Adding a gate to ci.yml without adding it here fails
+# tests/test_ci_workflow.py::test_make_verify_covers_every_ci_gate.
+
+check-module-size:
+	$(PYTHON) scripts/check_module_size.py
+
+check-route-size:
+	$(PYTHON) scripts/check_route_size.py
+
+check-slice-completeness:
+	$(PYTHON) scripts/check_slice_completeness.py
+
+check-migration-boundaries:
+	$(PYTHON) scripts/check_migration_boundaries.py
+
+check-docstring-coverage:
+	$(PYTHON) scripts/check_docstring_coverage.py
+
+check-complexity:
+	$(PYTHON) scripts/check_complexity.py
+
+check-ruff-ratchet:
+	$(PYTHON) scripts/check_ruff_ratchet.py
+
+check-vulture-guard:
+	$(PYTHON) scripts/check_vulture_guard.py
+
+check-jscpd:
+	$(PYTHON) scripts/check_jscpd.py
+
+check-mutation-sites:
+	$(PYTHON) scripts/check_mutation_sites.py
+
+check-import-cycles:
+	$(PYTHON) scripts/check_import_cycles.py
+
+# check-crap — runs in the CI `test` job, not `lint`: the CRAP score is
+# a function of complexity AND coverage, so it needs coverage.json from
+# the pytest run above it. Depends on test-ci for exactly that reason.
+check-crap: test-ci
+	$(PYTHON) scripts/check_crap.py
+
+# test-ci — the CI `test` job's pytest invocation, verbatim. Separate
+# from `test` on purpose: `test` stays the fast inner loop (no coverage
+# instrumentation), `test-ci` is what a pull request is actually judged
+# by. The e2e and integration suites are excluded here exactly as they
+# are in CI; integration has its own job with a Postgres service.
+test-ci:
+	$(PYTEST) -W error::DeprecationWarning \
+		--ignore=tests/e2e \
+		--ignore=tests/integration \
+		--cov=app \
+		--cov=migration \
+		--cov-report=json \
+		--cov-report=term \
+		--cov-fail-under=85
+
+# verify — THE definition of green (issue #504).
+#
+# One command that runs every gate ci.yml applies to a pull request, in
+# CI's order: the lint job, then typecheck, then test + the CRAP ratchet
+# that consumes its coverage.json. If this passes locally and the branch
+# is up to date with main, CI has nothing left to discover.
+#
+# Deliberately NOT included, because they cannot run on a developer
+# workstation and are not per-PR gates:
+#   - `mutation`   weekly schedule, Linux-only (cosmic-ray), own job
+#   - `security`   Docker-based scanners (gitleaks, trivy)
+#   - `integration` needs a live Postgres service container
+#   - `e2e`        needs Playwright + configured OAuth
+#
+# Pinned by tests/test_ci_workflow.py::test_make_verify_covers_every_ci_gate.
+verify: lint check-rules check-module-size check-route-size check-layers \
+        check-slice-completeness check-migration-boundaries \
+        check-docstring-coverage check-complexity check-ruff-ratchet \
+        check-vulture-guard check-jscpd check-mutation-sites \
+        check-import-cycles typecheck check-crap
+	@echo "verify: all CI pull-request gates passed."
 
 # mutation — issue #431. Runs the cosmic-ray session for the curated target
 # set in docs/quality/cosmic-ray.toml and gates it with the ratchet.
@@ -120,7 +222,12 @@ serve:
 
 run: css serve
 
-all: css test lint typecheck
+# all — kept for backwards compatibility with docs and muscle memory.
+# It used to be `css test lint typecheck`, which was documented as "the
+# green-PR gate" while running four of the seventeen gates CI applies
+# (issue #504). It now delegates to `verify`, so the promise the name
+# always made is finally true.
+all: css verify
 
 clean:
 	rm -rf build/ dist/ .pytest_cache/ .ruff_cache/ .coverage htmlcov/

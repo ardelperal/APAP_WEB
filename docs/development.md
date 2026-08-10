@@ -255,13 +255,29 @@ El directorio `dist/` está en `.gitignore`. Se puede borrar entre builds; el ta
 
 ## Paso 8 — Ejecutar la verja verde de PR
 
-`make all` es el comando que refleja la CI en una pull request: corre `make css`, `make test` y `make lint` en secuencia.
+`make verify` es el comando que refleja la CI en una pull request. Corre, en el mismo orden que `ci.yml`, los trece gates del job `lint`, luego `mypy`, luego pytest con el piso de cobertura y el ratchet de CRAP:
 
 ```bash
-make all
+make verify
 ```
 
-Una corrida en verde es la señal local de que la PR está lista para revisión.
+Una corrida en verde, sobre una rama al día con `main`, es la señal local de que la PR está lista para revisión: la CI no tiene nada más que descubrir.
+
+`make all` es `make css` + `make verify`, para cuando además hace falta recompilar el bundle de Tailwind.
+
+Lo que `verify` **no** corre, porque no se puede reproducir en una máquina de desarrollo:
+
+| Job | Por qué queda fuera | Cómo correrlo |
+|---|---|---|
+| `mutation` | cosmic-ray es Linux-only y tarda; corre en un schedule semanal | `make mutation` (bajo WSL) |
+| `security` / `security-deep` | gitleaks y trivy corren en Docker | por CI |
+| `integration` | necesita un Postgres real | `pytest -m integration` con `APAP_TEST_POSTGRES_DSN` |
+| `e2e` | necesita Playwright y OAuth configurado | ver la sección de E2E más abajo |
+
+> La lista de gates de `verify` está clavada a `ci.yml` por
+> `tests/test_ci_workflow.py::test_make_verify_covers_every_ci_gate`. Agregar un gate
+> al workflow sin agregarlo al `Makefile` rompe ese test. Es a propósito: es lo único
+> que mantiene las dos listas iguales con el tiempo.
 
 ## Workflow de CI y futuro hook E2E
 

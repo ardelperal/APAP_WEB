@@ -1,3 +1,4 @@
+import re
 import shlex
 import subprocess
 import sys
@@ -927,4 +928,166 @@ def test_ci_workflow_pr_size_job_is_wired() -> None:
     assert "size:exception" in pr_size, (
         "pr-size.yml must read the 'size:exception' label (AGENTS.md §15.6) — "
         "it is the only acceptable override for the 400-line budget"
+    )
+
+
+# --- make verify <-> ci.yml parity (issue #504) ------------------------
+#
+# Every other meta-test in this file pins ONE gate to ONE workflow step.
+# The pair below pins the SET: whatever ci.yml gates a pull request on
+# must be reachable from `make verify`. Without it, the seventeenth gate
+# gets a CI step and never gets a Makefile target, and `make verify`
+# quietly goes back to being a subset — the exact drift #504 closed.
+
+#: Expanded so a recipe can be compared against a CI ``run:`` line.
+_MAKE_VARIABLES = {
+    "$(PYTHON)": "python",
+    "$(PIP)": "python -m pip",
+    "$(RUFF)": "ruff",
+    "$(MYPY)": "python -m mypy",
+    "$(PYTEST)": "python -m pytest",
+}
+
+
+def _parse_makefile() -> dict[str, tuple[list[str], list[str]]]:
+    """Parse the Makefile into ``{target: (prerequisites, recipe lines)}``.
+
+    Deliberately minimal — just enough to walk the ``verify`` dependency
+    graph. Backslash continuations are joined first so a wrapped
+    prerequisite list reads as one logical line; variable assignments,
+    comments and ``.PHONY`` are skipped.
+    """
+    logical: list[str] = []
+    for line in MAKEFILE_PATH.read_text(encoding="utf-8").splitlines():
+        if logical and logical[-1].endswith("\\"):
+            logical[-1] = logical[-1].removesuffix("\\").rstrip() + " " + line.strip()
+        else:
+            logical.append(line)
+
+    targets: dict[str, tuple[list[str], list[str]]] = {}
+    current: str | None = None
+    for line in logical:
+        if line.startswith("\t"):
+            if current is not None:
+                targets[current][1].append(line.strip())
+            continue
+        stripped = line.strip()
+        head = stripped.partition(":")[0]
+        if not stripped or stripped.startswith(("#", ".")) or ":" not in stripped or " " in head:
+            current = None
+            continue
+        current = head.strip()
+        targets[current] = (stripped.partition(":")[2].split(), [])
+    return targets
+
+
+def _verify_recipe_blob() -> str:
+    """Every command reachable from ``make verify``, variables expanded."""
+    targets = _parse_makefile()
+    seen: set[str] = set()
+    commands: list[str] = []
+
+    def walk(name: str) -> None:
+        if name in seen or name not in targets:
+            return
+        seen.add(name)
+        prerequisites, recipe = targets[name]
+        for prerequisite in prerequisites:
+            walk(prerequisite)
+        commands.extend(recipe)
+
+    walk("verify")
+    blob = "\n".join(commands)
+    for variable, expansion in _MAKE_VARIABLES.items():
+        blob = blob.replace(variable, expansion)
+    return blob
+
+
+def _ci_pull_request_gate_scripts() -> list[str]:
+    """The ``scripts/check_*.py`` gates ci.yml applies to a pull request.
+
+    Scoped to the ``lint`` and ``test`` jobs on purpose: those are the two
+    that run on every PR and whose gates a developer can reproduce on a
+    workstation. ``mutation`` (weekly, Linux-only), ``security`` (Docker),
+    ``integration`` (Postgres service) and ``e2e`` (Playwright) are out of
+    scope for ``make verify`` and documented as such in the Makefile.
+    """
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    executable = "\n".join(
+        (
+            _job_executable(workflow, "\n  lint:", "\n  security:"),
+            _job_executable(workflow, "\n  test:", "\n  integration:"),
+        )
+    )
+    return list(dict.fromkeys(re.findall(r"scripts/check_\w+\.py", executable)))
+
+
+def test_make_verify_covers_every_ci_gate() -> None:
+    """``make verify`` must run every gate a pull request is judged by.
+
+    Issue #504. Before this, ``make all`` was documented in
+    docs/development.md as "el comando que refleja la CI" while running
+    four of seventeen gates: a green local run said nothing about CI, so
+    the real contract lived in ci.yml and no single command expressed it.
+
+    This is the ratchet on the harness itself. Adding a gate to ci.yml
+    without adding a Makefile target for it fails here — which is the
+    only reason the two lists will still match a year from now.
+    """
+    blob = _verify_recipe_blob()
+
+    missing = [script for script in _ci_pull_request_gate_scripts() if script not in blob]
+    assert not missing, (
+        f"ci.yml gates a pull request on {missing}, but `make verify` never runs "
+        "them. Add a target per gate to the Makefile and list it in the `verify` "
+        "prerequisites, in the same order ci.yml runs it (issue #504)."
+    )
+
+    assert "ruff check ." in blob, "make verify must run `ruff check .` — the CI lint job does"
+    assert "python -m mypy" in blob, (
+        "make verify must run mypy — the CI typecheck job does (AGENTS.md rule 24)"
+    )
+    assert "--cov-fail-under=85" in blob, (
+        "make verify must run pytest with the CI coverage floor; a local run without "
+        "--cov-fail-under passes on a tree CI would reject (issue #199/#331)"
+    )
+
+
+def test_make_verify_excludes_the_jobs_a_workstation_cannot_run() -> None:
+    """``verify`` must stay runnable on a developer machine.
+
+    The exclusions are a design decision, not an oversight, so they are
+    pinned: folding cosmic-ray into ``verify`` would make the gate
+    Linux-only and multi-hour, and folding the Docker scanners in would
+    make it fail on any machine without a daemon. Both have their own
+    jobs. If one of them ever becomes cheap enough to include, deleting
+    this test is the deliberate act that records the decision.
+    """
+    blob = _verify_recipe_blob()
+
+    assert "cosmic-ray" not in blob, (
+        "make verify must not run the mutation session — it is Linux-only and lives "
+        "in its own weekly job (see the `mutation` target)"
+    )
+    assert "scripts/check_mutation.py" not in blob, (
+        "scripts/check_mutation.py gates the cosmic-ray session, not a pull request"
+    )
+    assert "docker run" not in blob, (
+        "make verify must not require Docker — gitleaks and trivy live in the "
+        "`security` job"
+    )
+
+
+def test_development_guide_points_at_make_verify() -> None:
+    """The guide must name the command that actually mirrors CI (issue #504).
+
+    docs/development.md is where a new contributor learns what to run
+    before opening a PR. While it named ``make all``, it was teaching a
+    four-gate subset as if it were the seventeen-gate contract.
+    """
+    guide = DEVELOPMENT_GUIDE_PATH.read_text(encoding="utf-8")
+
+    assert "make verify" in guide, (
+        "docs/development.md must document `make verify` as the pre-PR command "
+        "(issue #504)"
     )
