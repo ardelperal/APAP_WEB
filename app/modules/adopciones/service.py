@@ -95,7 +95,7 @@ def _next_estado(
     next_states = _VALID_TRANSITIONS.get(current, {})
     next_estado = next_states.get(action)
     if next_estado is None:
-        valid = ", ".join(a.value for a in next_states.keys()) or "none"
+        valid = ", ".join(a.value for a in next_states) or "none"
         raise ValueError(
             f"invalid transition: estado={current.value} action={action.value}, "
             f"valid actions from {current.value}: {valid}"
