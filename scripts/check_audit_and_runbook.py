@@ -70,7 +70,7 @@ def _match_prefix(path: Path, prefixes: tuple[str, ...]) -> bool:
 
 def _changed_files(base_ref: str) -> list[Path]:
     """Return the list of files changed between ``base_ref`` and HEAD."""
-    result = subprocess.run(
+    result = subprocess.run(  # noqa: S603 — argv list, no shell=True, no user input
         ["git", "diff", "--name-only", base_ref, "HEAD"],
         capture_output=True,
         text=True,

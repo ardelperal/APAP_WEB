@@ -253,7 +253,7 @@ def _run_vulture(root: Path) -> tuple[list[tuple[str, int, str]], str | None]:
     targets = [str(root / part) for part in REPORT_SCOPE if (root / part).is_dir()]
     cmd = [sys.executable, "-m", "vulture", *targets]
     try:
-        proc = subprocess.run(
+        proc = subprocess.run(  # noqa: S603 — argv list, no shell=True, no user input
             cmd, capture_output=True, text=True, check=False
         )
     except OSError as exc:
