@@ -58,7 +58,7 @@ class _LockContext:
 
     def __init__(
         self,
-        client: _InsForgeLike,
+        _client: _InsForgeLike,
         lock_path: Path | None,
         *,
         dry_run: bool,
