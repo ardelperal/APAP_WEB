@@ -391,7 +391,7 @@ def _cluster_decision(
     (b) whether the pre-passes already unioned these refs, and
     (c) the highest WRatio score between any two refs in the group
     (used as the confidence value for the operator UI).
-    """
+"""
     if len(group) == 1:
         return ("unique", "unique", None)
 
@@ -406,10 +406,9 @@ def _cluster_decision(
                 _strip_accents(_normalise_name(refs[i].name)),
                 _strip_accents(_normalise_name(refs[j].name)),
             )
-            if score > best_score:
-                best_score = score
+            best_score = max(best_score, score)
 
-# Determine which heuristic triggered the merge. Priority order:
+    # Determine which heuristic triggered the merge. Priority order:
     # DNI > exact-name > fuzzy.
     dni_buckets = _cluster_by_dni(refs)
     dni_intersects = False

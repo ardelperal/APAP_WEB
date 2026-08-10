@@ -174,7 +174,7 @@ def is_missing_nombrefoto(nombrefoto: Any) -> bool:
         return True
     if not isinstance(nombrefoto, str):
         return True
-    return nombrefoto == "" or nombrefoto == SENTINEL_KEY
+    return nombrefoto in ("", SENTINEL_KEY)
 
 
 def stream_animal_photo(

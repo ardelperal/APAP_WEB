@@ -529,22 +529,22 @@ def check_msaccess_running() -> list[int]:
     try:
         attrs = ["pid", "name"]
         for proc in psutil_obj.process_iter(attrs):
+            # psutil 5.9+ expone ``proc.info`` como un dict-like
+            # ``Mapping`` con las keys pedidas en ``attrs``. La
+            # firma exacta varía entre versiones (algunas
+            # requieren ``proc.info(attrs)``, otras tienen
+            # ``proc.info`` como atributo directo); soportamos
+            # ambos formatos para mantener compatibilidad con
+            # mocks de tests y versiones más viejas.
             try:
-                # psutil 5.9+ expone ``proc.info`` como un dict-like
-                # ``Mapping`` con las keys pedidas en ``attrs``. La
-                # firma exacta varía entre versiones (algunas
-                # requieren ``proc.info(attrs)``, otras tienen
-                # ``proc.info`` como atributo directo); soportamos
-                # ambos formatos para mantener compatibilidad con
-                # mocks de tests y versiones más viejas.
                 info_obj = proc.info
                 if callable(info_obj):
                     info_dict = info_obj(attrs)
                 else:
                     info_dict = info_obj
                 name = (info_dict.get("name") or "").upper()
-            except Exception:  # noqa: BLE001 — proceso murió durante iter
-                continue
+            except Exception:  # proceso murió durante iter
+                name = None
             if name == "MSACCESS.EXE":
                 pid = info_dict.get("pid")
                 if isinstance(pid, int):

@@ -146,22 +146,19 @@ class InProcessRateLimitBackend:
                         retry_after=None,
                     ),
                 )
-            else:
-                # Rejected — window is full
-                reset_at = times[0] + window_seconds
-                retry_after = int(reset_at - now)
-                if retry_after < 1:
-                    retry_after = 1
-                return (
-                    False,
-                    RetryInfo(
-                        allowed=False,
-                        limit=limit,
-                        remaining=0,
-                        reset_at=reset_at,
-                        retry_after=retry_after,
-                    ),
-                )
+            # Rejected — window is full
+            reset_at = times[0] + window_seconds
+            retry_after = max(int(reset_at - now), 1)
+            return (
+                False,
+                RetryInfo(
+                    allowed=False,
+                    limit=limit,
+                    remaining=0,
+                    reset_at=reset_at,
+                    retry_after=retry_after,
+                ),
+            )
 
 
 # --- Identity resolution -----------------------------------------------------

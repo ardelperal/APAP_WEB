@@ -60,8 +60,7 @@ RUFF_VERSION: str = "0.15.21"
 #: The count of violations in the codebase is UNCHANGED by this commit.
 BASELINE: dict[str, int] = {
     "ARG001": 25,
-    "ARG002": 2,
-    "C901": 17,
+    "C901": 16,
     # ERA001 fue retirado del baseline al completarse el triaje del issue #390
     # (4 -> 0 con los 4 sitios de ``app/`` y ``scripts/`` en este PR). Todos
     # resultaron categoria (a): comentarios de seccion / branch label que ruff
@@ -69,28 +68,71 @@ BASELINE: dict[str, int] = {
     # La entrada se ELIMINA en vez de ponerse a 0 para que un ERA001 nuevo
     # caiga en la rama de regla desconocida y falle: un sitio sin triar debe
     # parar el CI, no consumir una cuota.
+    # ARG002 fue retirado del baseline al completarse el triaje del issue #390
+    # (2 -> 0 con los 2 sitios de ``migration/apply.py`` y
+    # ``migration/reverse_apply/lock_context.py``). Ambos eran argumentos
+    # ``client`` no usados en ``_LockContext.__init__`` (se aceptaban por
+    # simetría con el constructor forward pero el cuerpo no los consumía).
+    # Renombrados a ``_client`` para silenciar el checker sin perder la
+    # firma pública. Se ELIMINA la entrada por la misma razón que ERA001:
+    # un ARG002 nuevo debe caer en la rama de regla desconocida y fallar.
     "N802": 1,
     "N803": 5,
     "N806": 2,
     "N815": 2,
     "N818": 3,
     "PLR0911": 10,
-    "PLR0912": 9,
+    "PLR0912": 8,
     "PLR0913": 33,
-    "PLR0915": 1,
-    "PLR1714": 2,
-    "PLR1730": 2,
+    # PLR0915 fue retirado del baseline al completarse el triaje del issue #390
+    # (1 -> 0). El sitio era ``MigrationReport.to_markdown`` en
+    # ``migration/reporting.py`` con 75 statements en una sola función. Se
+    # dividió en 6 helpers privados (``_md_header``, ``_md_metrics``,
+    # ``_md_conflicts``, ``_md_reconciliation``, ``_md_source_identity``,
+    # ``_md_timing``) y la función pública ahora solo orquesta las
+    # secciones. Se ELIMINA la entrada: un PLR0915 nuevo debe fallar el
+    # CI en vez de consumir cuota.
+    # PLR1714 fue retirado del baseline al completarse el triaje del issue #390
+    # (2 -> 0). Sitios: ``MigrationReport.to_markdown`` ya no aplica (la
+    # refactorización de PLR0915 lo cubre); los dos restantes eran
+    # comparaciones múltiples contra el mismo operando. ``photo_service.py``
+    # mezclaba ``== ""`` y ``== SENTINEL_KEY`` (ahora
+    # ``in ("", SENTINEL_KEY)``) y ``check_rules.py::Detector 12`` mezclaba
+    # ``startswith`` y dos ``==`` (ahora ``startswith`` y
+    # ``in {"batch_routes.py", "assignment_routes.py"}``). Se ELIMINA la
+    # entrada: un PLR1714 nuevo debe fallar.
+    # PLR1730 fue retirado del baseline al completarse el triaje del issue #390
+    # (2 -> 0). Sitios: ``app/core/rate_limit.py::hit`` tenia
+    # ``if retry_after < 1: retry_after = 1`` (ahora ``max(int(reset_at - now), 1)``)
+    # y ``migration/volunteer_dedup.py::_cluster_decision`` tenia
+    # ``if score > best_score: best_score = score`` (ahora
+    # ``best_score = max(best_score, score)``). Se ELIMINA la entrada.
     "PLR2004": 39,
     "PTH105": 3,
     "PTH108": 3,
     "PTH113": 2,
     "PTH123": 2,
-    "RET504": 1,
-    "RET505": 1,
+    # RET504 fue retirado del baseline al completarse el triaje del issue #390
+    # (1 -> 0). Sitio: ``measure_total_coverage`` en
+    # ``scripts/check_docstring_coverage.py`` hacia ``combined = DocstringStats(...)``
+    # seguido de ``return combined``. Ahora retorna directamente la
+    # expresión. Se ELIMINA la entrada.
+    # RET505 fue retirado del baseline al completarse el triaje del issue #390
+    # (1 -> 0). Sitio: ``InProcessRateLimitBackend.hit`` en
+    # ``app/core/rate_limit.py`` tenia un ``else`` después de un ``return``
+    # en la rama ``if len(times) < limit``. El else se eliminó y su cuerpo
+    # quedó al nivel del if padre (el return de la rama allowed hace que
+    # el flujo caiga al resto solo cuando el bucket está lleno). Se
+    # ELIMINA la entrada.
     "S101": 5,
     "S105": 3,
     "S110": 4,
-    "S112": 1,
+    # S112 fue retirado del baseline al completarse el triaje del issue #390
+    # (1 -> 0). Sitio: ``check_msaccess_running`` en ``migration/lock.py``
+    # usaba ``try/except Exception: continue`` para absorber procesos
+    # que mueren durante ``psutil.process_iter``. Se reemplazó por
+    # ``contextlib.suppress(Exception)`` envolviendo todo el cuerpo del
+    # bucle, eliminando la variable ``continue``. Se ELIMINA la entrada.
     "S603": 2,
     "S607": 1,
     # S608 fue retirado del baseline al completarse el triaje del issue #387
@@ -105,7 +147,11 @@ BASELINE: dict[str, int] = {
     "SIM105": 14,
     "SIM108": 5,
     "SIM114": 4,
-    "SIM118": 1,
+    # SIM118 fue retirado del baseline al completarse el triaje del issue #390
+    # (1 -> 0). Sitio: ``_next_estado`` en
+    # ``app/modules/adopciones/service.py`` itaba ``next_states.keys()``;
+    # ``dict.keys()`` en una iteración es redundante — basta con iterar el
+    # dict directamente. Se ELIMINA la entrada.
     # SIM910 retirado del baseline al llegar a 0 (issue #390). Se ELIMINA en vez
     # de ponerse a 0, igual que ERA001: asi un SIM910 nuevo cae en la rama de
     # regla desconocida y para el CI en vez de consumir una cuota.
