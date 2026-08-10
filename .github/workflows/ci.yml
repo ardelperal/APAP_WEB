@@ -25,7 +25,7 @@ permissions:
 jobs:
   lint:
     name: lint
-    # Run on GitHub-hosted `ubuntu-latest` (not the project-owned self-hosted
+    # Run on GitHub-hosted `ubuntu-24.04` (not the project-owned self-hosted
     # runner). Rationale: every basic gate job is pure Python (ruff, pytest,
     # pip-audit, gitleaks, mypy, build) plus a CI-provided Postgres service
     # container for integration — none of it needs Oracle ARM64. The
@@ -36,15 +36,15 @@ jobs:
     # queued against an "online, idle" runner that never picks them up
     # (see docs/quality/pendientes-2026-08-06.md). GitHub-hosted runners
     # are the durable default. The e2e job keeps its conditional
-    # `APAP_SELF_HOSTED_E2E_ENABLED` / ubuntu-latest fallback (Playwright
+    # `APAP_SELF_HOSTED_E2E_ENABLED` / ubuntu-24.04 fallback (Playwright
     # + Chromium are installed on either).
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
           python-version-file: pyproject.toml
           cache: pip
@@ -216,15 +216,15 @@ jobs:
     # that cost per pull request slows the loop for nothing while the MVP is
     # still being built.
     #
-    # GitHub-hosted `ubuntu-latest` has Docker for the gitleaks image scan.
-    runs-on: ubuntu-latest
+    # GitHub-hosted `ubuntu-24.04` has Docker for the gitleaks image scan.
+    runs-on: ubuntu-24.04
     needs: lint
     steps:
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
           python-version-file: pyproject.toml
           cache: pip
@@ -321,10 +321,10 @@ jobs:
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           # Full history — the whole point of this scan is the commits that
           # `dir` mode in the `security` job cannot see.
@@ -373,13 +373,13 @@ jobs:
     # `cr-rate` still reports a passing 0.00 — measured 27/27 on a control
     # module and 233/233 on migration/derivation.py. The gate requires Linux
     # (cosmic-ray 8.4.6 is broken on native Windows — issue #431 Finding 1).
-    # GitHub-hosted `ubuntu-latest` is Linux; developers reproduce through WSL
+    # GitHub-hosted `ubuntu-24.04` is Linux; developers reproduce through WSL
     # per docs/runbooks/mutation-testing.md.
     if: >-
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       # TASK-2.1 (W-5) determinism mitigation. The companion `--worker-count=1`
       # from that task does NOT exist in cosmic-ray 8.4.6: `cosmic-ray exec`
@@ -388,10 +388,10 @@ jobs:
       PYTHONHASHSEED: "0"
     steps:
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
           python-version-file: pyproject.toml
           cache: pip
@@ -437,7 +437,7 @@ jobs:
         # The session database is the evidence behind the number. Kept so a
         # baseline change can be audited without re-running the job.
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: mutation-session
           path: mutation.sqlite
@@ -447,13 +447,13 @@ jobs:
   typecheck:
     name: typecheck
     # See lint job for the runs-on rationale.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
           python-version-file: pyproject.toml
           cache: pip
@@ -477,11 +477,11 @@ jobs:
     # though it now uses pytest.skip when no DSN — see #282 fix). The
     # service container is provided by GitHub Actions at no additional
     # cost on the standard pool.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: lint
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
         env:
           POSTGRES_USER: postgres
           POSTGRES_DB: apap_test
@@ -497,10 +497,10 @@ jobs:
       APAP_TEST_POSTGRES_DSN: postgresql://postgres@127.0.0.1:5432/apap_test
     steps:
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
           python-version-file: pyproject.toml
           cache: pip
@@ -553,7 +553,7 @@ jobs:
 
   integration:
     name: integration
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: lint
     # Issue #329: integration tests execute every exported query function
     # from app/modules/*/queries.py against a real Postgres engine.
@@ -562,7 +562,7 @@ jobs:
     # The Postgres service container supplies APAP_TEST_POSTGRES_DSN.
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
         env:
           POSTGRES_USER: postgres
           POSTGRES_DB: apap_test
@@ -578,10 +578,10 @@ jobs:
       APAP_TEST_POSTGRES_DSN: postgresql://postgres@127.0.0.1:5432/apap_test
     steps:
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
           python-version-file: pyproject.toml
           cache: pip
@@ -611,14 +611,14 @@ jobs:
 
   build:
     name: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [test, integration]
     steps:
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
           python-version-file: pyproject.toml
           cache: pip
@@ -631,10 +631,10 @@ jobs:
 
   e2e:
     name: e2e
-    # Self-hosted runner: Oracle ARM64 VPS. Falls back to ubuntu-latest when
+    # Self-hosted runner: Oracle ARM64 VPS. Falls back to ubuntu-24.04 when
     # APAP_SELF_HOSTED_E2E_ENABLED is not set (e.g. forks, local dev CI).
     # Issue #223.
-    runs-on: ${{ vars.APAP_SELF_HOSTED_E2E_ENABLED && '[self-hosted, Linux, ARM64, apap, oracle]' || 'ubuntu-latest' }}
+    runs-on: ${{ vars.APAP_SELF_HOSTED_E2E_ENABLED && '[self-hosted, Linux, ARM64, apap, oracle]' || 'ubuntu-24.04' }}
     needs: build
     # The e2e suite spins up the FastAPI server and runs Playwright
     # against it. The /login handler returns 503 when Google OAuth env
@@ -645,10 +645,10 @@ jobs:
     if: ${{ vars.APAP_OAUTH_CLIENT_ID != '' }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
           python-version-file: pyproject.toml
           cache: pip
