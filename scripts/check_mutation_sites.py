@@ -45,7 +45,7 @@ BASELINE_MUTATION_SITES: dict[str, int] = {
     "migration/lock.py": 268,  # Re-baselined after Path A refactor of acquire_lock (issue #420 / PR #452). The 4-helper split grew the file by 9 sites (function defs + docstrings) but reduced the per-function CRAP from 26.54 to 1.00 (grade A).
     "migration/lock_snapshot.py": 287,
     "migration/reconcile.py": 453,
-    "migration/reporting.py": 258,  # Re-baselined after PLR0915 split of MigrationReport.to_markdown into 6 section helpers (issue #390). Net: -9 mutation sites (the consolidated string-table lines moved out of the long function).
+    "migration/reporting.py": 257,  # Re-baselined after PLR0915 split of MigrationReport.to_markdown into 6 section helpers (issue #390). Net: -9 mutation sites (the consolidated string-table lines moved out of the long function). Further shrinkage after the _md_source_identity CRAP split into 3 sub-helpers (_md_counts_table/_md_source_hashes_table/_md_collisions_table): net -1 site (f-string JoinedStr avoids 4 inline list literals per helper).
     "migration/reverse_apply/orchestrator.py": 254,
     "migration/semantic_events.py": 304,
     "migration/storage_spike.py": 705,

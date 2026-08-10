@@ -224,22 +224,43 @@ class MigrationReport:
 
     def _md_metrics(self) -> str:
         """Metrics table: INSERTs/UPDATEs/DELETEs/NOOPs + conflicts."""
-        ins = sum(1 for d in self.diffs if d.op == "INSERT")
-        upd = sum(1 for d in self.diffs if d.op == "UPDATE")
-        dele = sum(1 for d in self.diffs if d.op == "DELETE")
-        noop = sum(1 for d in self.diffs if d.op == "NOOP")
-        total = ins + upd + dele + noop
+        return self._md_metrics_table(self._md_metric_counts())
+
+    def _md_metric_counts(self) -> dict[str, int]:
+        """Per-op counters plus conflicts and total.
+
+        Returns ``{"INSERT": N, "UPDATE": N, "DELETE": N, "NOOP": N,
+        "Conflict": N, "Total": N}``. ``Total`` excludes conflicts to keep
+        the count focused on diff rows.
+        """
+        counts: dict[str, int] = {
+            "INSERT": 0,
+            "UPDATE": 0,
+            "DELETE": 0,
+            "NOOP": 0,
+        }
+        for d in self.diffs:
+            if d.op in counts:
+                counts[d.op] += 1
+        counts["Conflict"] = len(self.conflicts)
+        counts["Total"] = (
+            counts["INSERT"] + counts["UPDATE"] + counts["DELETE"] + counts["NOOP"]
+        )
+        return counts
+
+    def _md_metrics_table(self, counts: dict[str, int]) -> str:
+        """Render the metrics table given a counts dict from :meth:`_md_metric_counts`."""
         lines = [
             "## Metrics",
             "",
             "| Op | Count |",
             "|---|---|",
-            f"| INSERT | {ins} |",
-            f"| UPDATE | {upd} |",
-            f"| DELETE | {dele} |",
-            f"| NOOP | {noop} |",
-            f"| Conflict | {len(self.conflicts)} |",
-            f"| Total | {total} |",
+            f"| INSERT | {counts['INSERT']} |",
+            f"| UPDATE | {counts['UPDATE']} |",
+            f"| DELETE | {counts['DELETE']} |",
+            f"| NOOP | {counts['NOOP']} |",
+            f"| Conflict | {counts['Conflict']} |",
+            f"| Total | {counts['Total']} |",
             "",
         ]
         return "\n".join(lines)
@@ -279,42 +300,58 @@ class MigrationReport:
     def _md_source_identity(self) -> str:
         """Source identity tables — empty string when none of the fields are populated.
 
-        Keeps the pre-PR3 markdown shape unchanged for callers that don't set
-        the new fields (backward-compat).
+        The three sub-tables are emitted by :meth:`_md_counts_table`,
+        :meth:`_md_source_hashes_table` and :meth:`_md_collisions_table`;
+        this method only concatenates them under a single ``## Source
+        Identity`` header so each sub-table can be tested independently.
+        Keeps the pre-PR3 markdown shape unchanged for callers that don't
+        set the new fields (backward-compat).
         """
-        if not (self.counts or self.source_hashes or self.collisions):
+        sections = (
+            self._md_counts_table(),
+            self._md_source_hashes_table(),
+            self._md_collisions_table(),
+        )
+        body = "\n".join(s for s in sections if s)
+        if not body:
             return ""
-        lines = ["## Source Identity", ""]
-        if self.counts:
-            lines.append("### Counts")
-            lines.append("")
-            lines.append("| Table | count_legacy | count_web |")
-            lines.append("|---|---|---|")
-            for table_name, table_counts in self.counts.items():
-                lines.append(
-                    f"| {table_name} | "
-                    f"{table_counts.get('count_legacy', '')} | "
-                    f"{table_counts.get('count_web', '')} |"
-                )
-            lines.append("")
-        if self.source_hashes:
-            lines.append("### Source hashes")
-            lines.append("")
-            lines.append("| Table | sha256 |")
-            lines.append("|---|---|")
-            for table_name, sha in self.source_hashes.items():
-                lines.append(f"| {table_name} | `{sha}` |")
-            lines.append("")
-        if self.collisions:
-            lines.append("### Collisions")
-            lines.append("")
-            lines.append("| Table | key | count |")
-            lines.append("|---|---|---|")
-            for table_name, counters in self.collisions.items():
-                for key, value in counters.items():
-                    lines.append(f"| {table_name} | {key} | {value} |")
-            lines.append("")
-        return "\n".join(lines)
+        return "## Source Identity\n\n" + body
+
+    def _md_counts_table(self) -> str:
+        if not self.counts:
+            return ""
+        body = "\n".join(
+            f"| {t} | {c.get('count_legacy', '')} | {c.get('count_web', '')} |"
+            for t, c in self.counts.items()
+        )
+        return (
+            f"### Counts\n\n| Table | count_legacy | count_web |\n"
+            f"|---|---|---|\n{body}\n"
+        )
+
+    def _md_source_hashes_table(self) -> str:
+        if not self.source_hashes:
+            return ""
+        body = "\n".join(
+            f"| {t} | `{sha}` |" for t, sha in self.source_hashes.items()
+        )
+        return (
+            f"### Source hashes\n\n| Table | sha256 |\n"
+            f"|---|---|\n{body}\n"
+        )
+
+    def _md_collisions_table(self) -> str:
+        if not self.collisions:
+            return ""
+        body = "\n".join(
+            f"| {t} | {k} | {v} |"
+            for t, counters in self.collisions.items()
+            for k, v in counters.items()
+        )
+        return (
+            f"### Collisions\n\n| Table | key | count |\n"
+            f"|---|---|---|\n{body}\n"
+        )
 
     def _md_timing(self) -> str:
         """Footer with timestamps, duration, and optional backup/error."""
