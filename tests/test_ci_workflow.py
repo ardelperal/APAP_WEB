@@ -609,6 +609,27 @@ def test_ci_workflow_lint_job_runs_mutation_sites_gate() -> None:
     )
 
 
+def test_ci_workflow_lint_job_runs_quality_report_aggregator() -> None:
+    """The lint job must aggregate the per-gate indicator envelopes (Rule 16).
+
+    Every gate that emits ``--emit-envelope quality/<gate>.json`` feeds the
+    aggregator ``scripts/quality_report.py quality``, which renders a Markdown
+    summary into ``$GITHUB_STEP_SUMMARY``. Removing the aggregator step is a
+    blocked change per Rule 16.
+    """
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    executable = _job_executable(workflow, "\n  lint:", "\n  security:")
+    assert "scripts/quality_report.py" in executable, (
+        "lint job must invoke scripts/quality_report.py so the per-gate "
+        "indicator envelopes produced by --emit-envelope are aggregated and "
+        "rendered into the GitHub step summary (Rule 16, issue #516)."
+    )
+    assert "GITHUB_STEP_SUMMARY" in executable, (
+        "the aggregator's Markdown summary must be appended to "
+        "$GITHUB_STEP_SUMMARY so reviewers see it on every PR."
+    )
+
+
 def test_ci_workflow_lint_job_runs_import_cycle_detector() -> None:
     """Issue #443: the CI ``lint`` job must gate on the cycle detector.
 
@@ -1050,6 +1071,10 @@ def test_make_verify_covers_every_ci_gate() -> None:
     assert "--cov-fail-under=85" in blob, (
         "make verify must run pytest with the CI coverage floor; a local run without "
         "--cov-fail-under passes on a tree CI would reject (issue #199/#331)"
+    )
+    assert "scripts/quality_report.py" in blob, (
+        "make verify must run scripts/quality_report.py — the CI aggregator step does "
+        "(deterministic-quality-harness v1.5 Rule 16; issue #516)."
     )
 
 

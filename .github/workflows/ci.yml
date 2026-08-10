@@ -228,6 +228,18 @@ jobs:
         # test_ci_workflow_lint_job_runs_workflow_gate.
         run: python scripts/check_workflows.py
 
+      - name: Aggregate per-gate indicator envelopes (deterministic-quality-harness v1.5 Rule 16)
+        # Reads every ``quality/<gate>.json`` written by the gates above and
+        # renders a Markdown summary into the GitHub step summary, where
+        # reviewers see it on every PR. New gates that omit ``--emit-envelope``
+        # are reported as not-migrated by the aggregator (no CI failure yet).
+        # The directory is gitignored (see .gitignore); this step creates it
+        # on the fly. Pinned by tests/test_ci_workflow.py::
+        # test_ci_workflow_lint_job_runs_quality_report_aggregator.
+        run: |
+          mkdir -p quality
+          python scripts/quality_report.py quality >> "$GITHUB_STEP_SUMMARY"
+
   security:
     name: security
     # Issue #381. Light scanners only — these run on every PR and must stay
