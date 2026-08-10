@@ -44,6 +44,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+# _ratchet_deadline lives next to this script. The CI runner invokes scripts
+# as ``python scripts/check_*.py`` so the parent directory is the cwd, not on
+# sys.path. Add it explicitly.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _ratchet_deadline import check_deadline  # noqa: E402 - sys.path tweak above
+
 #: Packages vulture scans for *candidates*.  ``tests`` is deliberately absent:
 #: a pytest fixture is referenced by parameter name, a module-level constant by
 #: import, and neither reads as a use to any static scanner.  Reporting dead
@@ -80,6 +86,13 @@ _PROTECTED_NAMES: frozenset[str] = frozenset({
 #: Every value may only decrease.  Raising the baseline requires an
 #: explicit rationale in the same commit (the ratchet never relaxes).
 BASELINE: int = 3
+
+#: Ratchet deadline (deterministic-quality-harness v1.5 Rule 12). Every
+#: ratchet records its target value and target date. The vulture guard
+#: tracks confirmed-dead symbols; the goal is to retire every baselined
+#: name (target=0). The deadline is set to the project-wide pre-MVP
+#: finale; revisit and tighten per-entry once the ratchet is retired.
+TARGET: tuple[int, str] = (0, "2026-12-31")
 
 
 def collect_referenced_names(root: Path) -> set[str]:
@@ -325,6 +338,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"check_vulture_guard: OK ({count} confirmed-dead symbol(s), within BASELINE of {BASELINE})")
     if count < BASELINE:
         print(f"  NOTE: {BASELINE - count} below BASELINE — update BASELINE to lock in the improvement")
+    warning = check_deadline(TARGET, BASELINE, count, label="vulture")
+    if warning:
+        print(f"  DEADLINE {warning}")
     return 0
 
 

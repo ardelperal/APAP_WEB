@@ -49,6 +49,10 @@ import sys
 from collections.abc import Mapping
 from pathlib import Path
 
+# _ratchet_deadline lives next to this script.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _ratchet_deadline import check_deadline  # noqa: E402 - sys.path tweak above
+
 #: Hard budget for any NEW route handler. Calibrated against the real
 #: distribution measured on 2026-07-20: median handler is 22 lines,
 #: mean ~32; the vast majority sit at 10-30 lines. 50 sits just above
@@ -107,6 +111,12 @@ BASELINE: dict[str, int] = {
     "app/modules/adopciones/routes.py::create_adopcion_view": 59,
     "app/modules/adopciones/routes.py::update_adopcion_view": 53,
 }
+
+#: Ratchet deadline (deterministic-quality-harness v1.5 Rule 12). Every
+#: baselined handler's goal is to shrink below MAX_LINES (target=0 entries).
+#: The deadline is set to the project-wide pre-MVP finale; revisit and tighten
+#: per-entry once the ratchet is retired.
+TARGET: tuple[int, str] = (0, "2026-12-31")
 
 #: Handlers that exceed MAX_FORM_PARAMS (8) when issue #337 was opened
 #: (measured at commit ``adb83c5``). Values are the exact Form param
@@ -381,6 +391,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
     print("check_route_size: OK")
+    warning = check_deadline(TARGET, len(BASELINE), label="route_size")
+    if warning:
+        print(f"DEADLINE {warning}")
     return 0
 
 

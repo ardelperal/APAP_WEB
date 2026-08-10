@@ -27,6 +27,10 @@ import sys
 from collections.abc import Mapping
 from pathlib import Path
 
+# _ratchet_deadline lives next to this script.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _ratchet_deadline import check_deadline  # noqa: E402 - sys.path tweak above
+
 #: Hard budget for any new module under SCAN_DIRS.
 MAX_LINES = 700
 
@@ -47,6 +51,12 @@ BASELINE: dict[str, int] = {
     "migration/apply.py": 869,
     "migration/reconcile.py": 976,
 }
+
+#: Ratchet deadline (deterministic-quality-harness v1.5 Rule 12). Every
+#: baselined module's goal is to shrink below MAX_LINES (target=0 entries).
+#: The deadline is set to the project-wide pre-MVP finale; revisit and tighten
+#: per-entry once the ratchet is retired.
+TARGET: tuple[int, str] = (0, "2026-12-31")
 
 
 def count_lines(path: Path) -> int:
@@ -153,6 +163,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
     print("check_module_size: OK")
+    warning = check_deadline(TARGET, len(BASELINE), label="module_size")
+    if warning:
+        print(f"DEADLINE {warning}")
     return 0
 
 

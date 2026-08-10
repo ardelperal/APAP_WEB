@@ -24,8 +24,12 @@ import json
 import sys
 from collections.abc import Mapping
 from pathlib import Path
+
+# _ratchet_deadline lives next to this script.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from typing import Any
 
+from _ratchet_deadline import check_deadline  # noqa: E402 - sys.path tweak above
 from radon.complexity import cc_visit
 from radon.raw import analyze
 from radon.visitors import Function
@@ -189,6 +193,12 @@ BASELINE_CRAP: dict[str, float] = {
     "migration/volunteer_dedup.py::_cluster_decision": 11.0,
     "migration/volunteer_dedup.py::dedup_volunteers": 14.0,
 }
+
+#: Ratchet deadline (deterministic-quality-harness v1.5 Rule 12). Every
+#: baselined function's goal is to drop below MAX_CRAP_SCORE (target=0 entries).
+#: The deadline is set to the project-wide pre-MVP finale; revisit and tighten
+#: per-entry once the ratchet is retired.
+TARGET: tuple[int, str] = (0, "2026-12-31")
 
 
 def _iter_python_files(root: Path) -> list[Path]:
@@ -430,6 +440,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     if not notices:
         print("check_crap: OK")
+    warning = check_deadline(TARGET, len(BASELINE_CRAP), label="crap")
+    if warning:
+        print(f"DEADLINE {warning}")
     return 0
 
 
