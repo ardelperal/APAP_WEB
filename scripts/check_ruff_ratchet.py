@@ -133,7 +133,13 @@ BASELINE: dict[str, int] = {
     # que mueren durante ``psutil.process_iter``. Se reemplazó por
     # ``contextlib.suppress(Exception)`` envolviendo todo el cuerpo del
     # bucle, eliminando la variable ``continue``. Se ELIMINA la entrada.
-    "S603": 2,
+    # S603 fue retirado del baseline al completarse el triaje de la issue #506
+    # (2 -> 0 con los 2 sitios de ``scripts/check_audit_and_runbook.py`` y
+    # ``scripts/check_vulture_guard.py``). Ambos son safe argv-list subprocess
+    # calls (sin ``shell=True``, sin input de usuario), silenciados con la
+    # suppression inline S603 + comentario de rationale. Se ELIMINA la entrada
+    # por la misma razón que ERA001: un S603 nuevo debe caer en la rama de
+    # regla desconocida y fallar.
     "S607": 1,
     # S608 fue retirado del baseline al completarse el triaje del issue #387
     # (65 -> 54 con los 11 sitios de ``migration/`` en el PR #422, y -> 0 con
