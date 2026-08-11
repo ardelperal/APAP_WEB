@@ -19,6 +19,19 @@ on:
   schedule:
     - cron: "17 6 * * 1"
 
+# FIFO per branch, never cancelling (issue #530). The pool has ONE eligible
+# runner and a runner executes one job at a time, so two runs of the same branch
+# do not overlap — they interleave, and neither finishes early. A full run is
+# ~411s of measured work; discarding one to a force-push throws that away and
+# starts over.
+#
+# cancel-in-progress: true is the right default on GitHub-hosted runners, where
+# capacity is elastic and a cancelled run costs nothing scarce. Here it cancels
+# work that already consumed the only runner we have.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 

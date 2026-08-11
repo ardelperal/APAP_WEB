@@ -24,6 +24,15 @@ on:
   # Manual escape hatch: re-deploy the current main without a new commit.
   workflow_dispatch:
 
+# Issue #530. cancel-in-progress: false is not a preference here, it is a safety
+# requirement: cancelling a deploy mid-flight can leave the target half-updated,
+# and this job calls a Coolify webhook that has no transaction around it. A
+# second deploy waits for the first to finish. `github.ref` is always main for
+# the push trigger, so the group is effectively one lane.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
   actions: read

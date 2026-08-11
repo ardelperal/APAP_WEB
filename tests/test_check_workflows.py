@@ -249,6 +249,53 @@ def test_every_repository_docker_job_checks_the_daemon_first() -> None:
     assert scanned > 0
 
 
+_FIFO_CONCURRENCY = """\
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  lint:
+    runs-on: [self-hosted]
+    timeout-minutes: 15
+    steps:
+      - run: true
+"""
+
+
+def test_fifo_concurrency_is_accepted() -> None:
+    assert check_workflows.check_concurrency(_FIFO_CONCURRENCY, "ci.yml") == []
+
+
+def test_missing_concurrency_group_is_a_violation() -> None:
+    """Issue #530: without a group, two pushes compete for the one runner."""
+    without = _FIFO_CONCURRENCY.split("jobs:", 1)[1]
+    violations = check_workflows.check_concurrency("jobs:" + without, "ci.yml")
+
+    assert len(violations) == 1
+    assert "no concurrency group" in violations[0]
+
+
+def test_cancel_in_progress_true_is_a_violation() -> None:
+    """Cancelling discards work that already consumed the only runner.
+
+    The elastic-capacity default is wrong here, and for deploy it is unsafe: the
+    Coolify webhook has no transaction around it, so a cancelled deploy can leave
+    the target half-updated.
+    """
+    cancelling = _FIFO_CONCURRENCY.replace("cancel-in-progress: false", "cancel-in-progress: true")
+    violations = check_workflows.check_concurrency(cancelling, "deploy.yml")
+
+    assert len(violations) == 1
+    assert "cancel-in-progress: false" in violations[0]
+
+
+def test_every_repository_workflow_declares_fifo_concurrency() -> None:
+    violations, scanned = check_workflows.check(WORKFLOW_DIR)
+
+    assert violations == []
+    assert scanned > 0
+
+
 def test_repository_workflows_are_all_parseable() -> None:
     """The live tree must stay clean, or a required check can vanish unnoticed."""
     violations, scanned = check_workflows.check(WORKFLOW_DIR)

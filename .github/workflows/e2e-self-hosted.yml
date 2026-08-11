@@ -22,6 +22,14 @@ on:
     # removed by GitHub.
     - cron: "0 6 * * 1"
 
+# Issue #530. Both triggers are manual or scheduled, so the pile-up this prevents
+# is a delayed cron landing on top of a dispatch. Cancelling is worse than
+# waiting: this workflow exists partly to keep the runner warm, and a cancelled
+# run proves nothing about it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 

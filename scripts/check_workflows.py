@@ -1,4 +1,4 @@
-"""Workflow-file gate: four ways a workflow stops protecting anything.
+"""Workflow-file gate: five ways a workflow stops protecting anything.
 
 **Duplicate mapping keys (issue #523).** A workflow whose YAML does not parse
 never becomes a red check. GitHub records a `startup_failure` run and the check
@@ -17,6 +17,10 @@ a port on the runner host. One runner serialises the jobs, so nothing collides
 and the defect stays invisible; a second runner turns it into two branches
 sharing one database, which passes.
 
+**No concurrency group (issue #530).** A second push runs alongside the
+first and both compete for the single eligible runner, and
+``cancel-in-progress: true`` would discard work that already consumed it.
+
 **Unchecked Docker (issue #531).** `docker run` against a wedged daemon
 BLOCKS rather than failing, so the job goes silent until its timeout. The
 guard must be wrapped in ``timeout``, or it hangs the same way it is meant
@@ -28,7 +32,7 @@ single-runner pool that would have held the queue for six hours had nobody been
 watching. Every job must state its own budget. This check parses properly with
 PyYAML, which #526 moved into the ``dev`` extra precisely so the gates may.
 
-All four checks prove they scanned something, per Hard Rule 18: zero workflow files
+All five checks prove they scanned something, per Hard Rule 18: zero workflow files
 found is a failure, not a pass.
 """
 from __future__ import annotations
@@ -197,6 +201,34 @@ def check_service_ports(text: str, label: str) -> list[str]:
     return violations
 
 
+def check_concurrency(text: str, label: str) -> list[str]:
+    """Return violations when a workflow declares no FIFO concurrency group.
+
+    The pool has one eligible runner and a runner executes one job at a time, so
+    two runs of a branch interleave rather than overlap and neither finishes
+    early. ``cancel-in-progress: true`` is the right default where capacity is
+    elastic; here it discards work that already consumed the only runner.
+    """
+    workflow = yaml.safe_load(text)
+    if not isinstance(workflow, dict):
+        return []
+    concurrency = workflow.get("concurrency")
+    if not isinstance(concurrency, dict) or not concurrency.get("group"):
+        return [
+            f"{label}: declares no concurrency group, so a second push runs "
+            f"alongside the first and both compete for the single runner "
+            f"(issue #530)."
+        ]
+    if concurrency.get("cancel-in-progress") is not False:
+        return [
+            f"{label}: concurrency must set cancel-in-progress: false. "
+            f"Cancelling discards a run that already consumed the only runner "
+            f"in the pool, and for deploy it can leave the target half-updated "
+            f"(issue #530)."
+        ]
+    return []
+
+
 def _step_scripts(job: dict) -> list[str]:
     """The ``run:`` body of each step in order; steps without one contribute ''."""
     return [str(step.get("run") or "") for step in (job.get("steps") or []) if isinstance(step, dict)]
@@ -250,6 +282,7 @@ def check(workflow_dir: Path = WORKFLOW_DIR) -> tuple[list[str], int]:
             violations.extend(check_timeouts(text, label))
             violations.extend(check_service_ports(text, label))
             violations.extend(check_docker_preflight(text, label))
+            violations.extend(check_concurrency(text, label))
     return violations, len(paths)
 
 
@@ -285,7 +318,7 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"check_workflows: OK ({scanned} workflow files, no duplicate keys, "
         f"every job has a timeout, no pinned service ports, docker is checked "
-        f"before use)"
+        f"before use, FIFO concurrency)"
     )
     return 0
 

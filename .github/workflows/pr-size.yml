@@ -2,6 +2,11 @@ name: pr-size
 on:
   pull_request:
     branches: [main]
+# See ci.yml for the cancel-in-progress rationale (issue #530).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   pr-size:
     name: pr-size
