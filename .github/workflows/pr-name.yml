@@ -1,9 +1,8 @@
 name: pr-name
 on:
   pull_request:
-    branches: [main]
 # See ci.yml for the cancel-in-progress rationale (issue #530). These gates take
-# seconds, so cancellation would cost little — uniformity is the point: one rule
+# seconds, so cancellation would cost little - uniformity is the point: one rule
 # for the whole repository is easier to keep true than a per-workflow judgement.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
