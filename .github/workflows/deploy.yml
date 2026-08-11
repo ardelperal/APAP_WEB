@@ -31,7 +31,7 @@ permissions:
 jobs:
   evidence:
     name: evidence
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
     outputs:
       verified: ${{ steps.check.outputs.verified }}
       source: ${{ steps.check.outputs.source }}
@@ -88,7 +88,7 @@ jobs:
 
   deploy:
     name: deploy
-    runs-on: [self-hosted, Linux, ARM64, apap, oracle]
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
     needs: [evidence]
     if: needs.evidence.outputs.verified == 'true'
     steps:

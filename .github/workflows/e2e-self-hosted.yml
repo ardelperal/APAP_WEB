@@ -29,7 +29,7 @@ jobs:
   e2e-self-hosted:
     name: e2e (self-hosted)
     # Require the exact label set provisioned per docs/runbooks/github-runner-registration.md
-    runs-on: [self-hosted, Linux, ARM64, apap, oracle]
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
     # Skip entirely when APAP_OAUTH_CLIENT_ID is not configured — same guard
     # as ci.yml's e2e job. Also gate on the explicit self-hosted flag so
     # this workflow is never confused with ubuntu-latest runs.

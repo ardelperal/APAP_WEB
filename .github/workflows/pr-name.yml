@@ -5,10 +5,17 @@ on:
 jobs:
   branch-name:
     name: branch-name
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
     steps:
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+
+      # The GitHub-hosted image came with a Python. This runner image does not,
+      # so every `python scripts/...` here exited 127 the moment the job moved.
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12.11"
       - name: Validate head branch name
         env:
           HEAD_REF: ${{ github.head_ref }}

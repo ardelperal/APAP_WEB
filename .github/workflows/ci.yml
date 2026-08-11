@@ -25,20 +25,26 @@ permissions:
 jobs:
   lint:
     name: lint
-    # Run on GitHub-hosted `ubuntu-24.04` (not the project-owned self-hosted
-    # runner). Rationale: every basic gate job is pure Python (ruff, pytest,
-    # pip-audit, gitleaks, mypy, build) plus a CI-provided Postgres service
-    # container for integration — none of it needs Oracle ARM64. The
-    # self-hosted runner was chosen historically (#355, double-Postgres
-    # billing) but the project has since isolated the integration job into
-    # a single ci-only service container (§34 evidence). The self-hosted
-    # runner has been developing session-renewal problems that leave jobs
-    # queued against an "online, idle" runner that never picks them up
-    # (see docs/quality/pendientes-2026-08-06.md). GitHub-hosted runners
-    # are the durable default. The e2e job keeps its conditional
-    # `APAP_SELF_HOSTED_E2E_ENABLED` / ubuntu-24.04 fallback (Playwright
-    # + Chromium are installed on either).
-    runs-on: ubuntu-24.04
+    # Runs on the project-owned self-hosted runner (issue #518), reversing the
+    # earlier move to GitHub-hosted `ubuntu-24.04`. That earlier rationale —
+    # every basic gate is pure Python, so nothing here needs Oracle ARM64 — is
+    # still true; what changed is the bill. The account exhausted its free
+    # Actions minutes, and AGENTS.md forbids merging on red CI, so a hosted
+    # pool that will not run the jobs is not a durable default at any technical
+    # merit. The `noble` label pins the job to apap-coolify-noble
+    # (ghcr.io/actions/actions-runner:latest, Ubuntu 24.04); the older
+    # apap-web-oracle-arm64 runner lacks it and will not match.
+    #
+    # The session-renewal problem recorded in
+    # docs/quality/pendientes-2026-08-06.md — jobs queued against an "online,
+    # idle" runner that never picks them up — is the known risk this trades
+    # for. The e2e job keeps its conditional `APAP_SELF_HOSTED_E2E_ENABLED` /
+    # ubuntu-24.04 fallback (Playwright + Chromium are installed on either).
+    #
+    # This runner image ships no Python, unlike the GitHub-hosted image: every
+    # job that runs `python scripts/...` must install one explicitly, or it
+    # exits 127 in ten seconds.
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
     steps:
       - name: Check out repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
@@ -216,8 +222,12 @@ jobs:
     # that cost per pull request slows the loop for nothing while the MVP is
     # still being built.
     #
-    # GitHub-hosted `ubuntu-24.04` has Docker for the gitleaks image scan.
-    runs-on: ubuntu-24.04
+    # noble label restricts the job to the apap-coolify-noble runner
+    # (ghcr.io/actions/actions-runner:latest, Ubuntu 24.04 Noble), which
+    # has Docker-in-Docker and a real postgres service container. The
+    # older apap-web-oracle-arm64 runner (Ubuntu 20.04) lacks Docker
+    # and the noble label so it does NOT match these jobs.
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
     needs: lint
     steps:
       - name: Check out repository
@@ -294,10 +304,48 @@ jobs:
         #
         # Image pinned by digest (AGENTS.md digest-pinning rule, issue #338) so
         # the gate cannot change under us.
+        #
+        # `-v` and the byte check are issue #519: two holes in one step.
+        #
+        # Without `-v`, a hit ends the job at "leaks found: 2" — no file, no line,
+        # no rule, no fingerprint. A gate that reports a count with no subject does
+        # not produce a correction, it produces a retreat.
+        #
+        # The byte check matters more, and it matters BECAUSE of this branch. On a
+        # runner that is itself a container talking to the host daemon through the
+        # socket, `-v "$PWD:/repo"` mounts a host path that does not exist: Docker
+        # creates an empty directory and gitleaks calls it clean. Observed in
+        # access2web-blueprint on this exact digest — "scanned ~0 bytes (0) in
+        # 1.99ms / no leaks found", green. trivy, on the same broken mount, failed
+        # loudly: it looks for one named file, while gitleaks walks a tree and an
+        # empty tree has no secrets in it. Hard Rule 18 — clean and did-not-run must
+        # never share a verdict.
         run: |
+          set -euo pipefail
+
           docker run --rm -v "$PWD:/repo" -w /repo \
             zricethezav/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
-            dir . --redact --no-banner --exit-code 1
+            dir . --redact --no-banner -v --exit-code 1 2>&1 | tee /tmp/gitleaks.log
+          status=${PIPESTATUS[0]}
+
+          scanned=$(grep -oE 'scanned ~[0-9]+ bytes' /tmp/gitleaks.log | grep -oE '[0-9]+' | head -1)
+          if [ -z "${scanned:-}" ]; then
+            echo "::error::gitleaks did not report how many bytes it scanned; verdict not trusted."
+            exit 1
+          fi
+          if [ "$scanned" -lt "$GITLEAKS_MIN_BYTES" ]; then
+            echo "::error::gitleaks scanned $scanned bytes, below the $GITLEAKS_MIN_BYTES minimum."
+            echo "That is a scan that did not happen, not a clean tree. Check that the workspace"
+            echo "is visible to the Docker daemon (host path == container path)."
+            exit 1
+          fi
+          echo "gitleaks: $scanned bytes inspected"
+          exit "$status"
+        env:
+          # Far below the real tree size on purpose: this separates "scanned nothing"
+          # from "scanned". It is not a size policy — the repository grows, and a
+          # tight margin would turn into noise nobody reads.
+          GITLEAKS_MIN_BYTES: "1000000"
 
       - name: Scan Dockerfile for misconfiguration
         # Issue #381. Config-only scan: fast, no image pull, no vulnerability
@@ -321,7 +369,7 @@ jobs:
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
     steps:
       - name: Check out repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
@@ -331,10 +379,32 @@ jobs:
           fetch-depth: 0
 
       - name: Scan full git history for secrets
+        #
+        # Same liveness contract as the working-tree scan (#519), with the indicator
+        # that fits this mode: `detect` walks commits, so an empty history is what
+        # "did not run" looks like here — and it reports clean just as convincingly
+        # as a scan over ten thousand commits.
         run: |
+          set -euo pipefail
+
+          commits=$(git rev-list --count HEAD)
+          if [ "$commits" -lt 2 ]; then
+            echo "::error::only $commits commit(s) available; a full-history scan needs history."
+            echo "checkout must run with fetch-depth: 0."
+            exit 1
+          fi
+
           docker run --rm -v "$PWD:/repo" -w /repo \
             zricethezav/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
-            detect --source=. --redact --no-banner --exit-code 1
+            detect --source=. --redact --no-banner -v --exit-code 1 2>&1 | tee /tmp/gitleaks-history.log
+          status=${PIPESTATUS[0]}
+
+          if ! grep -qE 'scanned ~[0-9]+ bytes' /tmp/gitleaks-history.log; then
+            echo "::error::gitleaks reported no scan volume over $commits commits; verdict not trusted."
+            exit 1
+          fi
+          echo "gitleaks: history scan over $commits commits"
+          exit "$status"
 
       - name: Scan pinned base images for known vulnerabilities
         # The `build` job produces a wheel, not a container image, so there is
@@ -379,7 +449,7 @@ jobs:
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
     env:
       # TASK-2.1 (W-5) determinism mitigation. The companion `--worker-count=1`
       # from that task does NOT exist in cosmic-ray 8.4.6: `cosmic-ray exec`
@@ -447,7 +517,7 @@ jobs:
   typecheck:
     name: typecheck
     # See lint job for the runs-on rationale.
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
     steps:
       - name: Check out repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
@@ -473,11 +543,11 @@ jobs:
   test:
     name: test
     # See lint job for the runs-on rationale. The test job keeps its
-    # Postgres service container (test_voluntarios_concurrent.py needs it,
-    # though it now uses pytest.skip when no DSN — see #282 fix). The
-    # service container is provided by GitHub Actions at no additional
-    # cost on the standard pool.
-    runs-on: ubuntu-24.04
+    # noble label restricts the job to the apap-coolify-noble runner
+    # which provides the real postgres service container. The older
+    # apap-web-oracle-arm64 runner (Ubuntu 20.04) lacks the noble
+    # label and is not in the noble pool.
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
     needs: lint
     services:
       postgres:
@@ -494,7 +564,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      APAP_TEST_POSTGRES_DSN: postgresql://postgres@127.0.0.1:5432/apap_test
+      APAP_TEST_POSTGRES_DSN: postgresql://postgres@host.docker.internal:5432/apap_test
     steps:
       - name: Check out repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
@@ -553,7 +623,7 @@ jobs:
 
   integration:
     name: integration
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
     needs: lint
     # Issue #329: integration tests execute every exported query function
     # from app/modules/*/queries.py against a real Postgres engine.
@@ -575,7 +645,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      APAP_TEST_POSTGRES_DSN: postgresql://postgres@127.0.0.1:5432/apap_test
+      APAP_TEST_POSTGRES_DSN: postgresql://postgres@host.docker.internal:5432/apap_test
     steps:
       - name: Check out repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
@@ -611,7 +681,7 @@ jobs:
 
   build:
     name: build
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
     needs: [test, integration]
     steps:
       - name: Check out repository
@@ -634,7 +704,18 @@ jobs:
     # Self-hosted runner: Oracle ARM64 VPS. Falls back to ubuntu-24.04 when
     # APAP_SELF_HOSTED_E2E_ENABLED is not set (e.g. forks, local dev CI).
     # Issue #223.
-    runs-on: ${{ vars.APAP_SELF_HOSTED_E2E_ENABLED && '[self-hosted, Linux, ARM64, apap, oracle]' || 'ubuntu-24.04' }}
+    # Was a conditional whose fallback was ubuntu-24.04. Two reasons it is gone.
+    #
+    # The fallback is dead: GitHub-hosted jobs on this account do not start at all
+    # ("recent account payments have failed", runner_id=0, no steps, failure in
+    # seconds), which is what this whole branch exists to work around.
+    #
+    # And the expression produced a STRING, `'[self-hosted, Linux, ARM64, apap,
+    # oracle]'`, not a list. A string is matched as one literal label, so the job
+    # would queue forever waiting for a runner named after the whole bracketed
+    # phrase rather than fail — and a job that queues is harder to notice than a
+    # job that fails.
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
     needs: build
     # The e2e suite spins up the FastAPI server and runs Playwright
     # against it. The /login handler returns 503 when Google OAuth env
