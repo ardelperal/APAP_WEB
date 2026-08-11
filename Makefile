@@ -23,7 +23,7 @@ TAILWIND_OUTPUT ?= app/static/css/output.css
         check-slice-completeness check-migration-boundaries \
         check-docstring-coverage check-complexity check-ruff-ratchet \
         check-vulture-guard check-jscpd check-mutation-sites \
-        check-import-cycles check-crap \
+        check-import-cycles check-workflows check-crap \
         mutation build all clean css css-watch serve run
 
 help:
@@ -140,6 +140,11 @@ check-mutation-sites:
 check-import-cycles:
 	$(PYTHON) scripts/check_import_cycles.py
 
+# check-workflows — issue #523. Protects the gates themselves: a workflow
+# whose YAML does not parse vanishes from the PR rollup instead of failing.
+check-workflows:
+	$(PYTHON) scripts/check_workflows.py
+
 # check-crap — runs in the CI `test` job, not `lint`: the CRAP score is
 # a function of complexity AND coverage, so it needs coverage.json from
 # the pytest run above it. Depends on test-ci for exactly that reason.
@@ -180,7 +185,7 @@ verify: lint check-rules check-module-size check-route-size check-layers \
         check-slice-completeness check-migration-boundaries \
         check-docstring-coverage check-complexity check-ruff-ratchet \
         check-vulture-guard check-jscpd check-mutation-sites \
-        check-import-cycles typecheck check-crap
+        check-import-cycles check-workflows typecheck check-crap
 	@echo "verify: all CI pull-request gates passed."
 
 # mutation — issue #431. Runs the cosmic-ray session for the curated target
