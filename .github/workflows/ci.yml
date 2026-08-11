@@ -25,19 +25,25 @@ permissions:
 jobs:
   lint:
     name: lint
-    # Run on GitHub-hosted `ubuntu-24.04` (not the project-owned self-hosted
-    # runner). Rationale: every basic gate job is pure Python (ruff, pytest,
-    # pip-audit, gitleaks, mypy, build) plus a CI-provided Postgres service
-    # container for integration — none of it needs Oracle ARM64. The
-    # self-hosted runner was chosen historically (#355, double-Postgres
-    # billing) but the project has since isolated the integration job into
-    # a single ci-only service container (§34 evidence). The self-hosted
-    # runner has been developing session-renewal problems that leave jobs
-    # queued against an "online, idle" runner that never picks them up
-    # (see docs/quality/pendientes-2026-08-06.md). GitHub-hosted runners
-    # are the durable default. The e2e job keeps its conditional
-    # `APAP_SELF_HOSTED_E2E_ENABLED` / ubuntu-24.04 fallback (Playwright
-    # + Chromium are installed on either).
+    # Runs on the project-owned self-hosted runner (issue #518), reversing the
+    # earlier move to GitHub-hosted `ubuntu-24.04`. That earlier rationale —
+    # every basic gate is pure Python, so nothing here needs Oracle ARM64 — is
+    # still true; what changed is the bill. The account exhausted its free
+    # Actions minutes, and AGENTS.md forbids merging on red CI, so a hosted
+    # pool that will not run the jobs is not a durable default at any technical
+    # merit. The `noble` label pins the job to apap-coolify-noble
+    # (ghcr.io/actions/actions-runner:latest, Ubuntu 24.04); the older
+    # apap-web-oracle-arm64 runner lacks it and will not match.
+    #
+    # The session-renewal problem recorded in
+    # docs/quality/pendientes-2026-08-06.md — jobs queued against an "online,
+    # idle" runner that never picks them up — is the known risk this trades
+    # for. The e2e job keeps its conditional `APAP_SELF_HOSTED_E2E_ENABLED` /
+    # ubuntu-24.04 fallback (Playwright + Chromium are installed on either).
+    #
+    # This runner image ships no Python, unlike the GitHub-hosted image: every
+    # job that runs `python scripts/...` must install one explicitly, or it
+    # exits 127 in ten seconds.
     runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
     steps:
       - name: Check out repository
