@@ -1,4 +1,4 @@
-"""Workflow-file gate: three ways a workflow stops protecting anything.
+"""Workflow-file gate: four ways a workflow stops protecting anything.
 
 **Duplicate mapping keys (issue #523).** A workflow whose YAML does not parse
 never becomes a red check. GitHub records a `startup_failure` run and the check
@@ -17,13 +17,18 @@ a port on the runner host. One runner serialises the jobs, so nothing collides
 and the defect stays invisible; a second runner turns it into two branches
 sharing one database, which passes.
 
+**Unchecked Docker (issue #531).** `docker run` against a wedged daemon
+BLOCKS rather than failing, so the job goes silent until its timeout. The
+guard must be wrapped in ``timeout``, or it hangs the same way it is meant
+to prevent.
+
 **Missing job timeouts (issue #529).** GitHub's default is 360 minutes. On
 2026-08-11 three jobs sat queued against a wedged self-hosted runner; with a
 single-runner pool that would have held the queue for six hours had nobody been
 watching. Every job must state its own budget. This check parses properly with
 PyYAML, which #526 moved into the ``dev`` extra precisely so the gates may.
 
-All three checks prove they scanned something, per Hard Rule 18: zero workflow files
+All four checks prove they scanned something, per Hard Rule 18: zero workflow files
 found is a failure, not a pass.
 """
 from __future__ import annotations
@@ -192,6 +197,42 @@ def check_service_ports(text: str, label: str) -> list[str]:
     return violations
 
 
+def _step_scripts(job: dict) -> list[str]:
+    """The ``run:`` body of each step in order; steps without one contribute ''."""
+    return [str(step.get("run") or "") for step in (job.get("steps") or []) if isinstance(step, dict)]
+
+
+def check_docker_preflight(text: str, label: str) -> list[str]:
+    """Return one violation per job that reaches ``docker run`` with no live daemon check.
+
+    A wedged daemon makes ``docker run`` block rather than fail, so the job goes
+    silent until its timeout. The check must be wrapped in ``timeout``: a bare
+    ``docker info`` hangs the same way, and a preflight that can hang is not one.
+    """
+    workflow = yaml.safe_load(text)
+    if not isinstance(workflow, dict):
+        return []
+    violations: list[str] = []
+    for name, job in (workflow.get("jobs") or {}).items():
+        if not isinstance(job, dict):
+            continue
+        scripts = _step_scripts(job)
+        first_run = next((i for i, s in enumerate(scripts) if "docker run" in s), None)
+        if first_run is None:
+            continue
+        guarded = any(
+            "docker info" in script and "timeout" in script for script in scripts[:first_run]
+        )
+        if not guarded:
+            violations.append(
+                f"{label}: job '{name}' reaches `docker run` with no preceding "
+                f"`timeout <n> docker info` check. A wedged daemon then blocks "
+                f"instead of failing, and the job goes silent until its timeout "
+                f"(issue #531)."
+            )
+    return violations
+
+
 def check(workflow_dir: Path = WORKFLOW_DIR) -> tuple[list[str], int]:
     """Return (violations, files scanned) for every workflow in ``workflow_dir``."""
     violations: list[str] = []
@@ -208,6 +249,7 @@ def check(workflow_dir: Path = WORKFLOW_DIR) -> tuple[list[str], int]:
         if not duplicates:
             violations.extend(check_timeouts(text, label))
             violations.extend(check_service_ports(text, label))
+            violations.extend(check_docker_preflight(text, label))
     return violations, len(paths)
 
 
@@ -242,7 +284,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     print(
         f"check_workflows: OK ({scanned} workflow files, no duplicate keys, "
-        f"every job has a timeout, no pinned service ports)"
+        f"every job has a timeout, no pinned service ports, docker is checked "
+        f"before use)"
     )
     return 0
 
