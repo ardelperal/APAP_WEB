@@ -24,6 +24,7 @@ TAILWIND_OUTPUT ?= app/static/css/output.css
         check-docstring-coverage check-complexity check-ruff-ratchet \
         check-vulture-guard check-jscpd check-mutation-sites \
         check-import-cycles check-workflows check-crap \
+        quality-report \
         mutation build all clean css css-watch serve run
 
 help:
@@ -108,7 +109,7 @@ check-layers:
 # tests/test_ci_workflow.py::test_make_verify_covers_every_ci_gate.
 
 check-module-size:
-	$(PYTHON) scripts/check_module_size.py
+	$(PYTHON) scripts/check_module_size.py --emit-envelope quality/module_size.json
 
 check-route-size:
 	$(PYTHON) scripts/check_route_size.py
@@ -185,7 +186,7 @@ verify: lint check-rules check-module-size check-route-size check-layers \
         check-slice-completeness check-migration-boundaries \
         check-docstring-coverage check-complexity check-ruff-ratchet \
         check-vulture-guard check-jscpd check-mutation-sites \
-        check-import-cycles check-workflows typecheck check-crap
+        check-import-cycles check-workflows typecheck check-crap quality-report
 	@echo "verify: all CI pull-request gates passed."
 
 # mutation — issue #431. Runs the cosmic-ray session for the curated target
@@ -226,6 +227,15 @@ serve:
 	$(UVICORN) app.main:app --host 127.0.0.1 --port 8000 --reload
 
 run: css serve
+
+# quality-report — aggregate per-gate indicator envelopes (Rule 16). Reads
+# ``quality/<gate>.json`` (produced by the individual ``--emit-envelope``
+# args in this Makefile) and renders a Markdown table on stdout. CI pipes
+# the output into ``$GITHUB_STEP_SUMMARY`` so reviewers see one summary
+# alongside each PR.
+quality-report:
+	@mkdir -p quality
+	$(PYTHON) scripts/quality_report.py quality
 
 # all — kept for backwards compatibility with docs and muscle memory.
 # It used to be `css test lint typecheck`, which was documented as "the

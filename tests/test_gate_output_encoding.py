@@ -37,22 +37,59 @@ def _printing_scripts() -> list[Path]:
     return scripts
 
 
+PIN = "_pin_output_encoding"
+
+
+def _declared_helper(tree: ast.Module) -> ast.FunctionDef | None:
+    """The module's own pin helper, if it declares one."""
+    return next(
+        (node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == PIN),
+        None,
+    )
+
+
+def _imported_helper(tree: ast.Module) -> ast.FunctionDef | None:
+    """The pin helper a module imports instead of declaring, resolved to its source.
+
+    Slice 5 (#516) moved the pin into ``scripts/_quality_envelope.py`` so the envelope writers
+    could share one copy, and ``scripts/quality_report.py`` imports it from there. The contract
+    is that the pin RUNS before ``main()`` prints, not that its body is pasted into every gate,
+    so an import satisfies it — and the module it comes from is then held to exactly the same
+    ``reconfigure`` check below. Resolution is restricted to ``scripts/``: an import from
+    anywhere else is not a pin this test can vouch for.
+    """
+    for node in tree.body:
+        if not isinstance(node, ast.ImportFrom) or node.level != 0 or not node.module:
+            continue
+        if not any(alias.name == PIN for alias in node.names):
+            continue
+        origin = SCRIPTS_DIR / f"{node.module}.py"
+        if not origin.is_file():
+            return None
+        return _declared_helper(ast.parse(origin.read_text(encoding="utf-8")))
+    return None
+
+
+def _reconfigured_streams(helper: ast.FunctionDef) -> set[str]:
+    """The streams ``helper`` calls ``.reconfigure()`` on."""
+    return {
+        node.func.value.attr
+        for node in ast.walk(helper)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "reconfigure"
+        and isinstance(node.func.value, ast.Attribute)
+    }
+
+
 def _pins_output_encoding(source: str) -> bool:
-    """True when the module defines the pin and ``main()`` calls it.
+    """True when the pin reaches ``main()`` and really reconfigures both streams.
 
     The pin lives in a helper rather than inline in ``main()`` on purpose: an inline ``if`` adds
     a branch to every entry point, and doing that to 22 gates pushed one of them past the
     PLR0912 branch ceiling that ``scripts/check_ruff_ratchet.py`` tracks. The ratchet was right.
     """
     tree = ast.parse(source)
-    helper = next(
-        (
-            node
-            for node in tree.body
-            if isinstance(node, ast.FunctionDef) and node.name == "_pin_output_encoding"
-        ),
-        None,
-    )
     main = next(
         (
             node
@@ -61,23 +98,18 @@ def _pins_output_encoding(source: str) -> bool:
         ),
         None,
     )
-    if helper is None or main is None:
+    if main is None:
         return False
-    reconfigured = {
-        node.func.value.attr
-        for node in ast.walk(helper)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "reconfigure"
-        and isinstance(node.func.value, ast.Attribute)
-    }
     called = any(
-        isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id == "_pin_output_encoding"
+        isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == PIN
         for node in ast.walk(main)
     )
-    return called and {"stdout", "stderr"} <= reconfigured
+    if not called:
+        return False
+    helper = _declared_helper(tree) or _imported_helper(tree)
+    if helper is None:
+        return False
+    return {"stdout", "stderr"} <= _reconfigured_streams(helper)
 
 
 def test_every_printing_gate_pins_its_output_encoding():
@@ -93,6 +125,51 @@ def test_every_printing_gate_pins_its_output_encoding():
 def test_at_least_one_gate_is_covered():
     """Guard the guard: an empty scan must never read as a pass."""
     assert len(_printing_scripts()) >= 15
+
+
+def test_pin_imported_from_the_shared_scripts_module_is_accepted():
+    """#516 moved the pin into ``scripts/_quality_envelope.py``; importing it still counts."""
+    source = (
+        "from _quality_envelope import _pin_output_encoding\n"
+        "def main():\n"
+        "    _pin_output_encoding()\n"
+        "    print('x')\n"
+    )
+
+    assert _pins_output_encoding(source)
+
+
+def test_calling_a_pin_that_is_neither_declared_nor_imported_is_rejected():
+    """A bare call proves nothing — the helper has to exist somewhere this test can read."""
+    source = "def main():\n    _pin_output_encoding()\n    print('x')\n"
+
+    assert not _pins_output_encoding(source)
+
+
+def test_pin_imported_from_outside_scripts_is_rejected():
+    """Resolution stops at ``scripts/``: an unreadable origin is not a vouched-for pin."""
+    source = (
+        "from somewhere_else import _pin_output_encoding\n"
+        "def main():\n"
+        "    _pin_output_encoding()\n"
+        "    print('x')\n"
+    )
+
+    assert not _pins_output_encoding(source)
+
+
+def test_helper_that_pins_only_stdout_is_rejected():
+    """Both streams or neither: a violation printed to stderr crashes just as hard."""
+    source = (
+        "import sys\n"
+        "def _pin_output_encoding():\n"
+        "    sys.stdout.reconfigure(encoding='utf-8')\n"
+        "def main():\n"
+        "    _pin_output_encoding()\n"
+        "    print('x')\n"
+    )
+
+    assert not _pins_output_encoding(source)
 
 
 def test_branch_name_gate_reports_instead_of_crashing_under_a_narrow_locale():
