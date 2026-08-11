@@ -1,27 +1,33 @@
-"""Workflow-file gate: a duplicate mapping key is a silent CI outage (issue #523).
+"""Workflow-file gate: two ways a workflow stops protecting anything.
 
-A workflow whose YAML does not parse never becomes a red check. GitHub records a
-`startup_failure` run and the check simply never appears in the pull request's
-status rollup, so the branch reads as green while a required gate did not run.
-That is exactly how `pr-size` disappeared on PR #522: a step was inserted
-between `uses: actions/checkout` and its `with:` block, leaving two `with:`
-keys in one step.
+**Duplicate mapping keys (issue #523).** A workflow whose YAML does not parse
+never becomes a red check. GitHub records a `startup_failure` run and the check
+simply never appears in the pull request's status rollup, so the branch reads as
+green while a required gate did not run. That is exactly how `pr-size`
+disappeared on PR #522: a step was inserted between `uses: actions/checkout` and
+its `with:` block, leaving two `with:` keys in one step.
 
-`yaml.safe_load` would NOT have caught it — PyYAML accepts duplicate keys and
-keeps the last one. PyYAML is also unavailable here: it ships in the ``etl``
-extra, not ``dev``, so the lint job has no yaml import (the same constraint the
-string-based assertions in tests/test_ci_workflow.py work under). This gate is
-therefore a stdlib indentation scanner over the block-mapping subset these
-workflow files actually use, not a general YAML parser.
+`yaml.safe_load` would NOT have caught that one — PyYAML accepts duplicate keys
+and keeps the last. So this check stays a stdlib indentation scanner over the
+block-mapping subset these files actually use, and it runs FIRST: a file that
+does not parse deterministically has nothing else worth asserting about it.
 
-Like the gitleaks liveness fix (#519, PR #521), it also proves it scanned
-something: zero workflow files found is a failure, not a pass.
+**Missing job timeouts (issue #529).** GitHub's default is 360 minutes. On
+2026-08-11 three jobs sat queued against a wedged self-hosted runner; with a
+single-runner pool that would have held the queue for six hours had nobody been
+watching. Every job must state its own budget. This check parses properly with
+PyYAML, which #526 moved into the ``dev`` extra precisely so the gates may.
+
+Both checks prove they scanned something, per Hard Rule 18: zero workflow files
+found is a failure, not a pass.
 """
 from __future__ import annotations
 
 import sys
 from collections.abc import Iterator
 from pathlib import Path
+
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_DIR = REPO_ROOT / ".github" / "workflows"
@@ -134,6 +140,25 @@ def check_text(text: str, label: str) -> list[str]:
     return violations
 
 
+def check_timeouts(text: str, label: str) -> list[str]:
+    """Return one violation per job in ``text`` that states no ``timeout-minutes``.
+
+    Only reached for files that already passed the duplicate-key scan, so
+    ``yaml.safe_load`` here is parsing something known to be unambiguous.
+    """
+    workflow = yaml.safe_load(text)
+    if not isinstance(workflow, dict):
+        return []
+    jobs = workflow.get("jobs") or {}
+    return [
+        f"{label}: job '{name}' declares no timeout-minutes — GitHub then applies "
+        f"its 360-minute default, so a wedged runner holds the queue for six "
+        f"hours instead of failing (issue #529)."
+        for name, job in jobs.items()
+        if isinstance(job, dict) and job.get("timeout-minutes") is None
+    ]
+
+
 def check(workflow_dir: Path = WORKFLOW_DIR) -> tuple[list[str], int]:
     """Return (violations, files scanned) for every workflow in ``workflow_dir``."""
     violations: list[str] = []
@@ -142,7 +167,13 @@ def check(workflow_dir: Path = WORKFLOW_DIR) -> tuple[list[str], int]:
         label = path.name
         if path.is_relative_to(REPO_ROOT):
             label = path.relative_to(REPO_ROOT).as_posix()
-        violations.extend(check_text(path.read_text(encoding="utf-8"), label))
+        text = path.read_text(encoding="utf-8")
+        duplicates = check_text(text, label)
+        violations.extend(duplicates)
+        # A file whose keys are ambiguous cannot be reasoned about further: the
+        # parser below would silently pick one of the colliding values.
+        if not duplicates:
+            violations.extend(check_timeouts(text, label))
     return violations, len(paths)
 
 
@@ -175,7 +206,10 @@ def main(argv: list[str] | None = None) -> int:
         # Liveness: a gate that scanned nothing has proven nothing (#519).
         print(f"FAIL {workflow_dir}: no workflow files found — the gate scanned nothing")
         return 1
-    print(f"check_workflows: OK ({scanned} workflow files, no duplicate keys)")
+    print(
+        f"check_workflows: OK ({scanned} workflow files, no duplicate keys, "
+        f"every job has a timeout)"
+    )
     return 0
 
 

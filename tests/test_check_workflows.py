@@ -92,6 +92,49 @@ jobs:
     assert check_workflows.check_text(text, "ci.yml") == []
 
 
+_JOB_WITHOUT_TIMEOUT = """\
+jobs:
+  lint:
+    runs-on: [self-hosted]
+    timeout-minutes: 15
+    steps:
+      - run: true
+  test:
+    runs-on: [self-hosted]
+    steps:
+      - run: true
+"""
+
+
+def test_job_without_a_timeout_is_a_violation() -> None:
+    """Issue #529: an unstated budget is GitHub's 360-minute default."""
+    violations = check_workflows.check_timeouts(_JOB_WITHOUT_TIMEOUT, "ci.yml")
+
+    assert len(violations) == 1
+    assert "job 'test'" in violations[0]
+    assert "360-minute" in violations[0]
+
+
+def test_every_repository_job_states_a_timeout() -> None:
+    """The live tree must stay covered: 360 minutes is never the intended budget."""
+    violations, scanned = check_workflows.check(WORKFLOW_DIR)
+
+    assert violations == []
+    assert scanned > 0
+
+
+def test_a_duplicate_key_suppresses_the_timeout_check_for_that_file() -> None:
+    """Ordering rule: an ambiguous file is reported, not parsed further.
+
+    ``yaml.safe_load`` would silently keep one of two colliding values, so any
+    conclusion drawn past that point is arbitrary. The duplicate is the finding.
+    """
+    ambiguous = _ORPHANED_WITH.replace("  pr-size:\n", "  pr-size:\n    timeout-minutes: 5\n")
+    violations = check_workflows.check_text(ambiguous, "pr-size.yml")
+
+    assert any("duplicate key" in violation for violation in violations)
+
+
 def test_repository_workflows_are_all_parseable() -> None:
     """The live tree must stay clean, or a required check can vanish unnoticed."""
     violations, scanned = check_workflows.check(WORKFLOW_DIR)
