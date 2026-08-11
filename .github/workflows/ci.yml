@@ -214,6 +214,20 @@ jobs:
         # tests/test_import_cycles.py.
         run: python scripts/check_import_cycles.py
 
+      - name: Run workflow-file gate (issue #523)
+        # Issue #523 - removing this step is a blocked change. Every gate above
+        # protects application code; this one protects the gates themselves. A
+        # workflow whose YAML does not parse never turns red: GitHub records a
+        # `startup_failure` and the check vanishes from the PR rollup entirely,
+        # so the branch reads green while a required gate never ran. That is how
+        # `pr-size` disappeared on PR #522 - a step inserted between
+        # `uses: actions/checkout` and its `with:` block left two `with:` keys in
+        # one step. Note `yaml.safe_load` would not have caught it (PyYAML keeps
+        # the last duplicate), and pyyaml is in the `etl` extra anyway, so the
+        # gate is a stdlib scanner. Pinned by tests/test_check_workflows.py::
+        # test_ci_workflow_lint_job_runs_workflow_gate.
+        run: python scripts/check_workflows.py
+
   security:
     name: security
     # Issue #381. Light scanners only — these run on every PR and must stay
