@@ -216,8 +216,12 @@ jobs:
     # that cost per pull request slows the loop for nothing while the MVP is
     # still being built.
     #
-    # GitHub-hosted `ubuntu-24.04` has Docker for the gitleaks image scan.
-    runs-on: [self-hosted, Linux, ARM64, apap, oracle]
+    # `noble` label restricts the job to the apap-coolify-noble runner
+    # (ghcr.io/actions/actions-runner:latest, Ubuntu 24.04 Noble), which
+    # has Docker-in-Docker and a real postgres service container. The
+    # older `apap-web-oracle-arm64` runner (Ubuntu 20.04) lacks Docker
+    # and the noble label so it does NOT match these jobs.
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
     needs: lint
     steps:
       - name: Check out repository
@@ -321,7 +325,7 @@ jobs:
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.ref, 'refs/tags/')
-    runs-on: [self-hosted, Linux, ARM64, apap, oracle]
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
     steps:
       - name: Check out repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
@@ -473,11 +477,11 @@ jobs:
   test:
     name: test
     # See lint job for the runs-on rationale. The test job keeps its
-    # Postgres service container (test_voluntarios_concurrent.py needs it,
-    # though it now uses pytest.skip when no DSN — see #282 fix). The
-    # service container is provided by GitHub Actions at no additional
-    # cost on the standard pool.
-    runs-on: [self-hosted, Linux, ARM64, apap, oracle]
+    # `noble` label restricts the job to the apap-coolify-noble runner
+    # which provides the real postgres service container. The older
+    # `apap-web-oracle-arm64` runner (Ubuntu 20.04) lacks the noble
+    label and is not in the noble pool.
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
     needs: lint
     services:
       postgres:
@@ -553,7 +557,7 @@ jobs:
 
   integration:
     name: integration
-    runs-on: [self-hosted, Linux, ARM64, apap, oracle]
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
     needs: lint
     # Issue #329: integration tests execute every exported query function
     # from app/modules/*/queries.py against a real Postgres engine.
