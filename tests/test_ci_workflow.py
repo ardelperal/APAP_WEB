@@ -204,7 +204,15 @@ def test_ci_workflow_runs_postgres_toctou_regression_in_test_job() -> None:
     assert "services:" in test_job
     assert "postgres:" in test_job
     assert "POSTGRES_DB: apap_test" in test_job
-    assert "APAP_TEST_POSTGRES_DSN:" in test_job
+    # The DSN moved out of the job-level `env:` block in #532: the `job` context
+    # that carries the assigned host port is not available there, so it is built
+    # in a step and exported through $GITHUB_ENV instead.
+    assert "APAP_TEST_POSTGRES_DSN=" in test_job
+    assert "job.services.postgres.ports['5432']" in test_job
+    # And it must refuse to proceed on an unresolved port rather than hand the
+    # suite a DSN that cannot connect — tests/test_voluntarios_concurrent.py
+    # would pytest.skip() on that, which reads as a pass.
+    assert 'if [ -z "$POSTGRES_HOST_PORT" ]' in test_job
     assert "--deselect tests/test_voluntarios_concurrent.py" not in executable
 
 

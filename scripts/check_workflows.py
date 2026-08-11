@@ -1,4 +1,4 @@
-"""Workflow-file gate: two ways a workflow stops protecting anything.
+"""Workflow-file gate: three ways a workflow stops protecting anything.
 
 **Duplicate mapping keys (issue #523).** A workflow whose YAML does not parse
 never becomes a red check. GitHub records a `startup_failure` run and the check
@@ -12,13 +12,18 @@ and keeps the last. So this check stays a stdlib indentation scanner over the
 block-mapping subset these files actually use, and it runs FIRST: a file that
 does not parse deterministically has nothing else worth asserting about it.
 
+**Fixed host ports on service containers (issue #532).** ``5432:5432`` reserves
+a port on the runner host. One runner serialises the jobs, so nothing collides
+and the defect stays invisible; a second runner turns it into two branches
+sharing one database, which passes.
+
 **Missing job timeouts (issue #529).** GitHub's default is 360 minutes. On
 2026-08-11 three jobs sat queued against a wedged self-hosted runner; with a
 single-runner pool that would have held the queue for six hours had nobody been
 watching. Every job must state its own budget. This check parses properly with
 PyYAML, which #526 moved into the ``dev`` extra precisely so the gates may.
 
-Both checks prove they scanned something, per Hard Rule 18: zero workflow files
+All three checks prove they scanned something, per Hard Rule 18: zero workflow files
 found is a failure, not a pass.
 """
 from __future__ import annotations
@@ -159,6 +164,34 @@ def check_timeouts(text: str, label: str) -> list[str]:
     ]
 
 
+def check_service_ports(text: str, label: str) -> list[str]:
+    """Return one violation per service container bound to a fixed host port.
+
+    ``5432:5432`` reserves a port on the runner host. With one runner in the pool
+    the jobs serialise and nothing collides, so the defect is invisible and CI
+    stays green. Add a second runner and two concurrent jobs either fail to bind
+    or share one database across two branches — and the second outcome passes.
+    Publishing the container port alone (``- 5432``) lets Docker choose.
+    """
+    workflow = yaml.safe_load(text)
+    if not isinstance(workflow, dict):
+        return []
+    violations: list[str] = []
+    for name, job in (workflow.get("jobs") or {}).items():
+        if not isinstance(job, dict):
+            continue
+        for service, spec in (job.get("services") or {}).items():
+            for port in (spec or {}).get("ports") or []:
+                if ":" not in str(port):
+                    continue
+                violations.append(
+                    f"{label}: job '{name}' service '{service}' pins host port "
+                    f"'{port}'. Publish the container port alone and read the "
+                    f"assigned one from job.services.{service}.ports (issue #532)."
+                )
+    return violations
+
+
 def check(workflow_dir: Path = WORKFLOW_DIR) -> tuple[list[str], int]:
     """Return (violations, files scanned) for every workflow in ``workflow_dir``."""
     violations: list[str] = []
@@ -174,6 +207,7 @@ def check(workflow_dir: Path = WORKFLOW_DIR) -> tuple[list[str], int]:
         # parser below would silently pick one of the colliding values.
         if not duplicates:
             violations.extend(check_timeouts(text, label))
+            violations.extend(check_service_ports(text, label))
     return violations, len(paths)
 
 
@@ -208,7 +242,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     print(
         f"check_workflows: OK ({scanned} workflow files, no duplicate keys, "
-        f"every job has a timeout)"
+        f"every job has a timeout, no pinned service ports)"
     )
     return 0
 

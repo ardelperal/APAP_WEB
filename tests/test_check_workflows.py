@@ -135,6 +135,57 @@ def test_a_duplicate_key_suppresses_the_timeout_check_for_that_file() -> None:
     assert any("duplicate key" in violation for violation in violations)
 
 
+_PINNED_SERVICE_PORT = """\
+jobs:
+  test:
+    runs-on: [self-hosted]
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres@sha256:abc
+        ports:
+          - 5432:5432
+    steps:
+      - run: true
+"""
+
+
+def test_fixed_host_port_on_a_service_is_a_violation() -> None:
+    """Issue #532: a pinned host port is a collision waiting for a second runner."""
+    violations = check_workflows.check_service_ports(_PINNED_SERVICE_PORT, "ci.yml")
+
+    assert len(violations) == 1
+    assert "pins host port '5432:5432'" in violations[0]
+    assert "job.services.postgres.ports" in violations[0]
+
+
+def test_container_port_alone_is_accepted() -> None:
+    """Publishing only the container port is the shape that scales."""
+    dynamic = _PINNED_SERVICE_PORT.replace("          - 5432:5432\n", "          - 5432\n")
+
+    assert check_workflows.check_service_ports(dynamic, "ci.yml") == []
+
+
+def test_no_repository_service_pins_a_host_port() -> None:
+    """The live tree must stay collision-free, or the pool cannot grow."""
+    violations, scanned = check_workflows.check(WORKFLOW_DIR)
+
+    assert violations == []
+    assert scanned > 0
+
+
+def test_postgres_dsn_is_not_hardcoded_to_5432() -> None:
+    """The DSN must follow the assigned port, not assume the canonical one.
+
+    A DSN frozen at 5432 while the service publishes a random port connects to
+    whatever else happens to hold 5432 on the host — or to nothing.
+    """
+    workflow = CI_WORKFLOW_PATH.read_text(encoding="utf-8")
+
+    assert "host.docker.internal:5432" not in workflow
+    assert "job.services.postgres.ports['5432']" in workflow
+
+
 def test_repository_workflows_are_all_parseable() -> None:
     """The live tree must stay clean, or a required check can vanish unnoticed."""
     violations, scanned = check_workflows.check(WORKFLOW_DIR)
