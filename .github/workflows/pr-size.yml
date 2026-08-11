@@ -5,7 +5,7 @@ on:
 jobs:
   pr-size:
     name: pr-size
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle]
     steps:
       - name: Check out repository
         uses: actions/checkout@v5

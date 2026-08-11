@@ -31,7 +31,7 @@ permissions:
 jobs:
   evidence:
     name: evidence
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle]
     outputs:
       verified: ${{ steps.check.outputs.verified }}
       source: ${{ steps.check.outputs.source }}

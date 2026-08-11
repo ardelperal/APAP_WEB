@@ -15,6 +15,7 @@ import re
 from pathlib import Path
 
 import pytest
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
@@ -37,23 +38,36 @@ def _job(name: str, next_name: str) -> str:
     )
 
 
-def test_security_job_runs_on_pinned_ubuntu_lts() -> None:
-    """The scanners run on GitHub-hosted ``ubuntu-24.04`` (a pinned LTS label).
+def test_security_job_runs_on_an_exact_runner() -> None:
+    """The scanners run on an exact runner label. Which one has changed twice.
 
-    PR #452 migrated the basic CI gates (lint, typecheck, test, integration,
-    build, security) from the project's own self-hosted runner
-    (``[self-hosted, Linux, ARM64, apap, oracle]``) to ``ubuntu-latest``.
-    PR #508 (deterministic-quality-harness v1.5 Rule 15) pinned that further
-    to ``ubuntu-24.04`` — tags mutate silently, so the runner must be an
-    exact LTS label rather than a moving ``ubuntu-latest``. The self-hosted
-    Oracle ARM64 VPS has chronic session-renewal problems that cause flapping
-    jobs and queue stalls, so per AGENTS.md §15 the basic gates now run on
-    GitHub-hosted infrastructure; the self-hosted runner is kept only as a
-    fallback for the E2E job (``vars.APAP_SELF_HOSTED_E2E_ENABLED``).
+    PR #452 moved the basic gates off the self-hosted VPS to ``ubuntu-latest``, because
+    the runner had chronic session-renewal problems that stalled queues. PR #508 pinned
+    that to ``ubuntu-24.04`` for Hard Rule 15. This branch moves them back, and not as a
+    preference: GitHub-hosted jobs on this account no longer start at all —
+
+        The job was not started because recent account payments have failed or your
+        spending limit needs to be increased.
+
+    — arriving as ``runner_id=0``, no steps executed, failure in two seconds. A pinned
+    hosted label that cannot be scheduled is not a gate.
+
+    What survives every one of those reversals is the rule itself: the label must be
+    exact. `[self-hosted, Linux, ARM64, apap, oracle]` names one specific machine, which
+    satisfies that; what it costs is that a VPS accumulates state a hosted image would
+    not, and that is the trade being made knowingly.
+
+    Floating labels across ALL workflows are covered by
+    test_no_workflow_runs_on_a_floating_runner — this one only pins the security job's
+    own runner, which is what it has always done.
     """
     job = _job("security", "security-deep")
-    assert "runs-on: ubuntu-24.04" in job, (
-        "security job must run on a pinned LTS runner label, not ubuntu-latest"
+    assert "self-hosted" in job, (
+        "security job must run on the self-hosted runner: the hosted pool cannot "
+        "schedule jobs on this account (issue #519)"
+    )
+    assert "ubuntu-latest" not in job, (
+        "security job must not run on a floating label (Hard Rule 15)"
     )
 
 
@@ -154,3 +168,92 @@ def test_gitleaksignore_does_not_quote_the_flagged_values() -> None:
     text = GITLEAKSIGNORE_PATH.read_text(encoding="utf-8")
     assert "ik_test_service" not in text
     assert "abc123def456" not in text
+
+
+def test_secret_scan_proves_it_scanned_something() -> None:
+    """Hard Rule 18: a zero-byte scan is not a clean tree.
+
+    On a runner that is itself a container talking to the host daemon through the
+    socket, `docker run -v "$PWD:/repo"` mounts a host path that does not exist. Docker
+    creates an empty directory, gitleaks walks it, and reports:
+
+        INF scanned ~0 bytes (0) in 1.99ms
+        INF no leaks found
+
+    Green. Observed in access2web-blueprint on this exact digest and command.
+
+    The mount is a deployment concern and gets fixed there. This pins the other half:
+    that the gate cannot reach that verdict again whatever the cause — a bad -v, a wrong
+    working-directory, a checkout that failed quietly, an over-broad allowlist.
+
+    Note which scanner caught it and which did not. trivy, given the identical broken
+    mount, failed loudly because it looks for one named file. gitleaks passed because it
+    walks a tree, and an empty tree has no secrets in it. Any gate that inspects a SET
+    treats the empty set as success unless someone teaches it otherwise.
+    """
+    security = _job("security", "security-deep")
+
+    assert "GITLEAKS_MIN_BYTES" in security, (
+        "the secret scan must check how many bytes it inspected before accepting its "
+        "verdict (issue #519, Hard Rule 18)"
+    )
+    assert "scanned ~" in security, (
+        "the liveness proof must read the volume gitleaks itself reports, not infer it"
+    )
+
+
+def test_secret_scan_names_its_findings() -> None:
+    """A count with no subject produces a retreat, not a correction (issue #519).
+
+    Without `-v`, a hit ends the job at "leaks found: 2": no file, no line, no rule, no
+    fingerprint. In access2web-blueprint that silence is what made "simplify the
+    workflow" and "revert" look like the reasonable next steps — neither of which
+    touches the finding. The fingerprint `-v` prints is also exactly what
+    `.gitleaksignore` takes, so recording an exception stops requiring a local rerun.
+    """
+    security = _job("security", "security-deep")
+    assert "--redact --no-banner -v" in security, (
+        "the secret scan must run with -v so a finding arrives with file, line, rule "
+        "and fingerprint"
+    )
+
+
+def test_full_history_scan_proves_it_had_history() -> None:
+    """The same contract for `detect`, with the indicator that fits it.
+
+    `detect` walks commits, so an empty history is what "did not run" looks like in this
+    mode — and a scan over zero commits reports clean just as convincingly as one over
+    ten thousand.
+    """
+    deep = _workflow()
+    assert "rev-list --count" in deep, (
+        "the full-history scan must prove it had history to walk before trusting its "
+        "verdict (issue #519)"
+    )
+
+
+def test_no_workflow_runs_on_a_floating_runner() -> None:
+    """Hard Rule 15, across every workflow rather than one job (issue #520).
+
+    Four workflows sat on `ubuntu-latest` for as long as they have existed — deploy,
+    pr-name, pr-size, insforge-keep-alive — while the only runner check in this
+    repository looked at the `security` job alone and stayed green throughout. A pin
+    that covers one job of six workflows is a pin of that job, not of the rule.
+
+    Each label is checked on its own, and that detail is load-bearing: `runs-on` is a
+    scalar for a hosted runner and a LIST for a self-hosted one. Asking whether
+    `str(value).endswith("-latest")` stops being able to fail the moment the first list
+    appears, because a list ends in `]` — including `[self-hosted, ubuntu-latest]`.
+    Since this repository has just moved to self-hosted labels, a check written the
+    other way would have been born disarmed.
+    """
+    offenders: list[str] = []
+    for path in sorted((REPO_ROOT / ".github" / "workflows").glob("*.yml")):
+        workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+        for name, job in (workflow.get("jobs") or {}).items():
+            runs_on = job.get("runs-on", "")
+            labels = runs_on if isinstance(runs_on, list) else [runs_on]
+            for label in labels:
+                if str(label).endswith("-latest"):
+                    offenders.append(f"{path.name}::{name} -> {label}")
+    assert not offenders, f"jobs on a floating runner label: {offenders}"
