@@ -25,7 +25,6 @@
 #
 # Candidates for the next slices, by measured density:
 #   app/core/insforge.py                 112 sites / 690 LOC  (16.2)
-#   app/modules/animals/queries.py        65 sites / 238 LOC  (27.3)
 #
 # NOT candidates: the other `queries.py` modules. They are almost entirely SQL
 # string constants, which no mainstream Python mutation engine mutates by
@@ -51,12 +50,13 @@
 module-path = [
     "app/core/insforge.py",
     "app/modules/adopciones/service.py",
+    "app/modules/animals/queries.py",
     "migration/derivation.py",
     "migration/diff_engine.py",
 ]
 timeout = 60.0
 excluded-modules = []
-test-command = "python -m pytest tests/test_adopciones.py tests/test_adopciones_queries.py tests/test_adopciones_routes.py tests/test_derivation.py tests/test_derivation_11cases.py tests/test_insforge.py tests/test_migration.py::TestDiffEngine -x -q --no-cov -p no:cacheprovider -o addopts=''"
+test-command = "python -m pytest tests/test_adopciones.py tests/test_adopciones_queries.py tests/test_adopciones_routes.py tests/test_animals_queries.py tests/test_derivation.py tests/test_derivation_11cases.py tests/test_insforge.py tests/test_migration.py::TestDiffEngine -x -q --no-cov -p no:cacheprovider -o addopts=''"
 
 [cosmic-ray.distributor]
 name = "local"
