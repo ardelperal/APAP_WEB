@@ -38,7 +38,7 @@ jobs:
     # are the durable default. The e2e job keeps its conditional
     # `APAP_SELF_HOSTED_E2E_ENABLED` / ubuntu-24.04 fallback (Playwright
     # + Chromium are installed on either).
-    runs-on: [self-hosted, Linux, ARM64, apap, oracle]
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
     steps:
       - name: Check out repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
@@ -443,7 +443,7 @@ jobs:
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.ref, 'refs/tags/')
-    runs-on: [self-hosted, Linux, ARM64, apap, oracle]
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
     env:
       # TASK-2.1 (W-5) determinism mitigation. The companion `--worker-count=1`
       # from that task does NOT exist in cosmic-ray 8.4.6: `cosmic-ray exec`
@@ -511,7 +511,7 @@ jobs:
   typecheck:
     name: typecheck
     # See lint job for the runs-on rationale.
-    runs-on: [self-hosted, Linux, ARM64, apap, oracle]
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
     steps:
       - name: Check out repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
@@ -558,7 +558,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      APAP_TEST_POSTGRES_DSN: postgresql://postgres@127.0.0.1:5432/apap_test
+      APAP_TEST_POSTGRES_DSN: postgresql://postgres@host.docker.internal:5432/apap_test
     steps:
       - name: Check out repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
@@ -639,7 +639,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      APAP_TEST_POSTGRES_DSN: postgresql://postgres@127.0.0.1:5432/apap_test
+      APAP_TEST_POSTGRES_DSN: postgresql://postgres@host.docker.internal:5432/apap_test
     steps:
       - name: Check out repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
@@ -675,7 +675,7 @@ jobs:
 
   build:
     name: build
-    runs-on: [self-hosted, Linux, ARM64, apap, oracle]
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
     needs: [test, integration]
     steps:
       - name: Check out repository
@@ -709,7 +709,7 @@ jobs:
     # would queue forever waiting for a runner named after the whole bracketed
     # phrase rather than fail — and a job that queues is harder to notice than a
     # job that fails.
-    runs-on: [self-hosted, Linux, ARM64, apap, oracle]
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
     needs: build
     # The e2e suite spins up the FastAPI server and runs Playwright
     # against it. The /login handler returns 503 when Google OAuth env

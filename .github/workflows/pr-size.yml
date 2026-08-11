@@ -5,7 +5,7 @@ on:
 jobs:
   pr-size:
     name: pr-size
-    runs-on: [self-hosted, Linux, ARM64, apap, oracle]
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
     steps:
       - name: Check out repository
         uses: actions/checkout@v5

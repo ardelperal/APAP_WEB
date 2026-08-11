@@ -29,7 +29,7 @@ permissions:
 jobs:
   keepalive:
     name: keepalive
-    runs-on: [self-hosted, Linux, ARM64, apap, oracle]
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
     steps:
       - name: Ping InsForge with SELECT 1
         # The job default is 360 minutes; one curl call should never
