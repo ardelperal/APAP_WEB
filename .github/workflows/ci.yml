@@ -294,10 +294,47 @@ jobs:
         #
         # Image pinned by digest (AGENTS.md digest-pinning rule, issue #338) so
         # the gate cannot change under us.
+        #
+        # `-v` and the byte check are issue #519: two holes in one step.
+        #
+        # Without `-v`, a hit ends the job at "leaks found: 2" — no file, no line,
+        # no rule, no fingerprint. A gate that reports a count with no subject does
+        # not produce a correction, it produces a retreat.
+        #
+        # The byte check matters more. On a runner that is itself a container talking
+        # to the host daemon through the socket, `-v "$PWD:/repo"` mounts a host path
+        # that does not exist: Docker creates an empty directory and gitleaks calls it
+        # clean. Observed in access2web-blueprint on this exact digest and command —
+        # "scanned ~0 bytes (0) in 1.99ms / no leaks found", green. trivy, on the same
+        # broken mount, failed loudly: it looks for one named file, while gitleaks
+        # walks a tree and an empty tree has no secrets in it. Hard Rule 18 — clean
+        # and did-not-run must never share a verdict.
         run: |
+          set -euo pipefail
+
           docker run --rm -v "$PWD:/repo" -w /repo \
             zricethezav/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
-            dir . --redact --no-banner --exit-code 1
+            dir . --redact --no-banner -v --exit-code 1 2>&1 | tee /tmp/gitleaks.log
+          status=${PIPESTATUS[0]}
+
+          scanned=$(grep -oE 'scanned ~[0-9]+ bytes' /tmp/gitleaks.log | grep -oE '[0-9]+' | head -1)
+          if [ -z "${scanned:-}" ]; then
+            echo "::error::gitleaks did not report how many bytes it scanned; verdict not trusted."
+            exit 1
+          fi
+          if [ "$scanned" -lt "$GITLEAKS_MIN_BYTES" ]; then
+            echo "::error::gitleaks scanned $scanned bytes, below the $GITLEAKS_MIN_BYTES minimum."
+            echo "That is a scan that did not happen, not a clean tree. Check that the workspace"
+            echo "is visible to the Docker daemon (host path == container path)."
+            exit 1
+          fi
+          echo "gitleaks: $scanned bytes inspected"
+          exit "$status"
+        env:
+          # Far below the real tree size on purpose: this separates "scanned nothing"
+          # from "scanned". It is not a size policy — the repository grows, and a
+          # tight margin would turn into noise nobody reads.
+          GITLEAKS_MIN_BYTES: "1000000"
 
       - name: Scan Dockerfile for misconfiguration
         # Issue #381. Config-only scan: fast, no image pull, no vulnerability
@@ -331,10 +368,32 @@ jobs:
           fetch-depth: 0
 
       - name: Scan full git history for secrets
+        #
+        # Same liveness contract as the working-tree scan (#519), with the indicator
+        # that fits this mode: `detect` walks commits, so an empty history is what
+        # "did not run" looks like here — and it reports clean just as convincingly
+        # as a scan over ten thousand commits.
         run: |
+          set -euo pipefail
+
+          commits=$(git rev-list --count HEAD)
+          if [ "$commits" -lt 2 ]; then
+            echo "::error::only $commits commit(s) available; a full-history scan needs history."
+            echo "checkout must run with fetch-depth: 0."
+            exit 1
+          fi
+
           docker run --rm -v "$PWD:/repo" -w /repo \
             zricethezav/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
-            detect --source=. --redact --no-banner --exit-code 1
+            detect --source=. --redact --no-banner -v --exit-code 1 2>&1 | tee /tmp/gitleaks-history.log
+          status=${PIPESTATUS[0]}
+
+          if ! grep -qE 'scanned ~[0-9]+ bytes' /tmp/gitleaks-history.log; then
+            echo "::error::gitleaks reported no scan volume over $commits commits; verdict not trusted."
+            exit 1
+          fi
+          echo "gitleaks: history scan over $commits commits"
+          exit "$status"
 
       - name: Scan pinned base images for known vulnerabilities
         # The `build` job produces a wheel, not a container image, so there is

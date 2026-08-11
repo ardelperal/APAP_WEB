@@ -154,3 +154,65 @@ def test_gitleaksignore_does_not_quote_the_flagged_values() -> None:
     text = GITLEAKSIGNORE_PATH.read_text(encoding="utf-8")
     assert "ik_test_service" not in text
     assert "abc123def456" not in text
+
+
+def test_secret_scan_proves_it_scanned_something() -> None:
+    """Hard Rule 18: a zero-byte scan is not a clean tree.
+
+    On a runner that is itself a container talking to the host daemon through the
+    socket, `docker run -v "$PWD:/repo"` mounts a host path that does not exist. Docker
+    creates an empty directory, gitleaks walks it, and reports:
+
+        INF scanned ~0 bytes (0) in 1.99ms
+        INF no leaks found
+
+    Green. Observed in access2web-blueprint on this exact digest and command.
+
+    The mount is a deployment concern and gets fixed there. This pins the other half:
+    that the gate cannot reach that verdict again whatever the cause — a bad -v, a wrong
+    working-directory, a checkout that failed quietly, an over-broad allowlist.
+
+    Note which scanner caught it and which did not. trivy, given the identical broken
+    mount, failed loudly because it looks for one named file. gitleaks passed because it
+    walks a tree, and an empty tree has no secrets in it. Any gate that inspects a SET
+    treats the empty set as success unless someone teaches it otherwise.
+    """
+    security = _job("security", "security-deep")
+
+    assert "GITLEAKS_MIN_BYTES" in security, (
+        "the secret scan must check how many bytes it inspected before accepting its "
+        "verdict (issue #519, Hard Rule 18)"
+    )
+    assert "scanned ~" in security, (
+        "the liveness proof must read the volume gitleaks itself reports, not infer it"
+    )
+
+
+def test_secret_scan_names_its_findings() -> None:
+    """A count with no subject produces a retreat, not a correction (issue #519).
+
+    Without `-v`, a hit ends the job at "leaks found: 2": no file, no line, no rule, no
+    fingerprint. In access2web-blueprint that silence is what made "simplify the
+    workflow" and "revert" look like the reasonable next steps — neither of which
+    touches the finding. The fingerprint `-v` prints is also exactly what
+    `.gitleaksignore` takes, so recording an exception stops requiring a local rerun.
+    """
+    security = _job("security", "security-deep")
+    assert "--redact --no-banner -v" in security, (
+        "the secret scan must run with -v so a finding arrives with file, line, rule "
+        "and fingerprint"
+    )
+
+
+def test_full_history_scan_proves_it_had_history() -> None:
+    """The same contract for `detect`, with the indicator that fits it.
+
+    `detect` walks commits, so an empty history is what "did not run" looks like in this
+    mode — and a scan over zero commits reports clean just as convincingly as one over
+    ten thousand.
+    """
+    deep = _workflow()
+    assert "rev-list --count" in deep, (
+        "the full-history scan must prove it had history to walk before trusting its "
+        "verdict (issue #519)"
+    )
