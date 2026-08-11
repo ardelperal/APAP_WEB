@@ -306,6 +306,25 @@ jobs:
             --ignore-vuln PYSEC-2026-2875 \
             --ignore-vuln PYSEC-2026-2876
 
+      - name: Verify the Docker daemon answers before relying on it
+        # Issue #531 — removing this step is a blocked change. `docker run`
+        # against a wedged daemon BLOCKS: it does not fail, and it prints
+        # nothing. Before #529 that meant a 360-minute silence; now it means a
+        # job that burns its whole timeout to tell us nothing useful.
+        #
+        # This runner shares /var/run/docker.sock with the host daemon, which
+        # also serves Coolify, Engram, AdGuard, Vaultwarden and two other
+        # Actions runners. A wedged daemon here is plausible, not theoretical.
+        #
+        # The `timeout` is the load-bearing part, not `docker info`: an
+        # unwrapped `docker info` hangs exactly like the `docker run` it is
+        # supposed to protect, and a preflight that can hang is not a preflight.
+        run: |
+          if ! timeout 30 docker info >/dev/null 2>&1; then
+            echo "::error::Docker daemon is not answering on this runner; failing fast instead of hanging." >&2
+            exit 1
+          fi
+
       - name: Scan working tree for secrets
         # Issue #381. `dir` mode, not `detect`: filesystem scanning does not
         # depend on git plumbing, so it behaves identically here, in a linked
@@ -406,6 +425,17 @@ jobs:
           # Full history — the whole point of this scan is the commits that
           # `dir` mode in the `security` job cannot see.
           fetch-depth: 0
+
+      - name: Verify the Docker daemon answers before relying on it
+        # Issue #531 — see the sibling step in the `security` job. This job needs
+        # it more: `trivy image` pulls hundred-megabyte base images, so a
+        # `docker run` that never answers is indistinguishable from one that is
+        # merely slow, and this job carries the largest timeout budget to burn.
+        run: |
+          if ! timeout 30 docker info >/dev/null 2>&1; then
+            echo "::error::Docker daemon is not answering on this runner; failing fast instead of hanging." >&2
+            exit 1
+          fi
 
       - name: Scan full git history for secrets
         #

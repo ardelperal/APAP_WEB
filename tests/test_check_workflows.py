@@ -186,6 +186,69 @@ def test_postgres_dsn_is_not_hardcoded_to_5432() -> None:
     assert "job.services.postgres.ports['5432']" in workflow
 
 
+_DOCKER_WITHOUT_PREFLIGHT = """\
+jobs:
+  security:
+    runs-on: [self-hosted]
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@sha
+      - name: Scan
+        run: docker run --rm scanner
+"""
+
+
+def test_docker_run_without_a_preflight_is_a_violation() -> None:
+    """Issue #531: an unchecked daemon turns a scan into a silent stall."""
+    violations = check_workflows.check_docker_preflight(_DOCKER_WITHOUT_PREFLIGHT, "ci.yml")
+
+    assert len(violations) == 1
+    assert "job 'security'" in violations[0]
+    assert "docker info" in violations[0]
+
+
+def test_preflight_without_timeout_does_not_count() -> None:
+    """A bare `docker info` hangs exactly like the `docker run` it guards.
+
+    This is the whole reason the check looks for `timeout` and not merely for the
+    string `docker info`: an unwrapped guard is indistinguishable from no guard
+    in the failure it is supposed to catch.
+    """
+    bare = _DOCKER_WITHOUT_PREFLIGHT.replace(
+        "      - name: Scan\n",
+        "      - name: Preflight\n        run: docker info >/dev/null\n      - name: Scan\n",
+    )
+
+    assert check_workflows.check_docker_preflight(bare, "ci.yml") != []
+
+
+def test_timeout_wrapped_preflight_is_accepted() -> None:
+    guarded = _DOCKER_WITHOUT_PREFLIGHT.replace(
+        "      - name: Scan\n",
+        "      - name: Preflight\n        run: timeout 30 docker info >/dev/null\n      - name: Scan\n",
+    )
+
+    assert check_workflows.check_docker_preflight(guarded, "ci.yml") == []
+
+
+def test_preflight_after_the_docker_run_does_not_count() -> None:
+    """Order matters: a guard that runs afterwards protects nothing."""
+    late = _DOCKER_WITHOUT_PREFLIGHT + (
+        "      - name: Preflight\n        run: timeout 30 docker info >/dev/null\n"
+    )
+
+    assert check_workflows.check_docker_preflight(late, "ci.yml") != []
+
+
+def test_every_repository_docker_job_checks_the_daemon_first() -> None:
+    """The live tree must stay guarded: this runner shares the host daemon."""
+    violations, scanned = check_workflows.check(WORKFLOW_DIR)
+
+    assert violations == []
+    assert scanned > 0
+
+
 def test_repository_workflows_are_all_parseable() -> None:
     """The live tree must stay clean, or a required check can vanish unnoticed."""
     violations, scanned = check_workflows.check(WORKFLOW_DIR)
