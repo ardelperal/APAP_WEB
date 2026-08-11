@@ -45,6 +45,7 @@ jobs:
     # job that runs `python scripts/...` must install one explicitly, or it
     # exits 127 in ten seconds.
     runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
+    timeout-minutes: 15
     steps:
       - name: Check out repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
@@ -254,6 +255,7 @@ jobs:
     # older apap-web-oracle-arm64 runner (Ubuntu 20.04) lacks Docker
     # and the noble label so it does NOT match these jobs.
     runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
+    timeout-minutes: 15
     needs: lint
     steps:
       - name: Check out repository
@@ -396,6 +398,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.ref, 'refs/tags/')
     runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
+    timeout-minutes: 45
     steps:
       - name: Check out repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
@@ -476,6 +479,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.ref, 'refs/tags/')
     runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
+    timeout-minutes: 75
     env:
       # TASK-2.1 (W-5) determinism mitigation. The companion `--worker-count=1`
       # from that task does NOT exist in cosmic-ray 8.4.6: `cosmic-ray exec`
@@ -544,6 +548,7 @@ jobs:
     name: typecheck
     # See lint job for the runs-on rationale.
     runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
+    timeout-minutes: 10
     steps:
       - name: Check out repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
@@ -574,6 +579,7 @@ jobs:
     # apap-web-oracle-arm64 runner (Ubuntu 20.04) lacks the noble
     # label and is not in the noble pool.
     runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
+    timeout-minutes: 20
     needs: lint
     services:
       postgres:
@@ -650,6 +656,7 @@ jobs:
   integration:
     name: integration
     runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
+    timeout-minutes: 15
     needs: lint
     # Issue #329: integration tests execute every exported query function
     # from app/modules/*/queries.py against a real Postgres engine.
@@ -708,6 +715,7 @@ jobs:
   build:
     name: build
     runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
+    timeout-minutes: 10
     needs: [test, integration]
     steps:
       - name: Check out repository
@@ -742,6 +750,7 @@ jobs:
     # phrase rather than fail — and a job that queues is harder to notice than a
     # job that fails.
     runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
+    timeout-minutes: 20
     needs: build
     # The e2e suite spins up the FastAPI server and runs Playwright
     # against it. The /login handler returns 503 when Google OAuth env

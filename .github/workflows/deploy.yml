@@ -32,6 +32,7 @@ jobs:
   evidence:
     name: evidence
     runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
+    timeout-minutes: 10
     outputs:
       verified: ${{ steps.check.outputs.verified }}
       source: ${{ steps.check.outputs.source }}
@@ -89,6 +90,7 @@ jobs:
   deploy:
     name: deploy
     runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
+    timeout-minutes: 15
     needs: [evidence]
     if: needs.evidence.outputs.verified == 'true'
     steps:
