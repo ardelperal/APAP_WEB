@@ -95,6 +95,13 @@ dev = [
     # up [etl]; the dedup is now a runtime dep of the migration CLI,
     # not an opt-in operator extra.
     "rapidfuzz>=3.0",
+    # pyyaml is an [etl] runtime dep, but tests/test_security_scanning.py parses
+    # the workflow files with it to enforce Hard Rule 15 — and CI installs only
+    # [dev]. It reached the test job as a transitive dep of djlint, libcst and
+    # xenon, none of which promises to keep carrying it; the day one drops it,
+    # that file fails at collection and takes the runner gate down with it.
+    # Declared here so the test job depends on what it actually imports (#526).
+    "pyyaml>=6.0",
 ]
 # ETL one-time: only operator machines that run ``python -m migration``
 # need these. Installed with ``pip install '.[etl]'`` on demand.
