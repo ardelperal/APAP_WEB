@@ -216,10 +216,10 @@ jobs:
     # that cost per pull request slows the loop for nothing while the MVP is
     # still being built.
     #
-    # `noble` label restricts the job to the apap-coolify-noble runner
+    # noble label restricts the job to the apap-coolify-noble runner
     # (ghcr.io/actions/actions-runner:latest, Ubuntu 24.04 Noble), which
     # has Docker-in-Docker and a real postgres service container. The
-    # older `apap-web-oracle-arm64` runner (Ubuntu 20.04) lacks Docker
+    # older apap-web-oracle-arm64 runner (Ubuntu 20.04) lacks Docker
     # and the noble label so it does NOT match these jobs.
     runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
     needs: lint
@@ -477,10 +477,10 @@ jobs:
   test:
     name: test
     # See lint job for the runs-on rationale. The test job keeps its
-    # `noble` label restricts the job to the apap-coolify-noble runner
+    # noble label restricts the job to the apap-coolify-noble runner
     # which provides the real postgres service container. The older
-    # `apap-web-oracle-arm64` runner (Ubuntu 20.04) lacks the noble
-    label and is not in the noble pool.
+    # apap-web-oracle-arm64 runner (Ubuntu 20.04) lacks the noble
+    # label and is not in the noble pool.
     runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
     needs: lint
     services:
