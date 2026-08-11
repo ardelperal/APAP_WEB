@@ -525,6 +525,78 @@ def test_deploy_workflow_refuses_an_unverified_tree() -> None:
     assert "exit 1" in workflow
 
 
+def test_deploy_evidence_step_does_not_silently_coerce_gh_api_errors() -> None:
+    """§32.P7 / issue #533: a gh api failure must not coerce to zero.
+
+    The pre-fix evidence step ran ``gh api ... 2>/dev/null || echo 0``, so a
+    network / auth / parse failure was indistinguishable from a legitimate
+    "no green ci run" result. Both produced ``verified=false``; the
+    ``deploy`` job then evaluated ``needs.evidence.outputs.verified ==
+    'true'`` to false and was skipped. Production deploys stayed silent for
+    four merges (#517, #522, #524, #528, all on 2026-08-11).
+
+    The fix MUST surface the error: a failing ``gh api`` MUST emit a
+    ``::error::`` annotation AND a non-zero step exit, so the deploy job's
+    skipped state is never the only signal that the merge did not deploy.
+    """
+    workflow = DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8")
+
+    # The exact silent-skip pattern documented in issue #533. Returning this
+    # string to the evidence step re-introduces the four-merge silent-skip
+    # class of bug; the regression guard is the string itself, scoped to
+    # the evidence step so a comment or an unrelated stderr capture does
+    # not trigger a false positive.
+    evidence_block = _evidence_step_executable(workflow)
+    assert "2>/dev/null || echo 0" not in evidence_block, (
+        "deploy.yml evidence step must not coerce gh api failures to 0 with "
+        "`2>/dev/null || echo 0`. A gh api error and a legitimate zero-result "
+        "must not share the same exit path (issue #533, AGENTS.md §32.P7)."
+    )
+
+    # The API call must still be there — removing it entirely would also
+    # defeat the gate. This is the structural half of the guard: the
+    # lookup exists AND its failure is loud.
+    assert "gh api" in workflow, (
+        "deploy.yml evidence step must still query the GitHub API for the "
+        "green ci run that proved the merged tree."
+    )
+
+    # Extract the executable (non-comment) lines of the evidence step's
+    # ``run:`` block so the assertions below are scoped to the step that
+    # actually owns the API call. The pre-fix block ends the run with
+    # ``echo "::notice::deploy evidence: ..."`` and never ``exit 1``s on
+    # its own; the post-fix block must ``exit 1`` on the gh api error
+    # path so the failure surfaces as a step-level failure, not as the
+    # deploy job's skipped state.
+    assert evidence_block.count("exit 1") >= 1, (
+        "evidence step must exit non-zero when the gh api call fails. "
+        f"Found {evidence_block.count('exit 1')} `exit 1` in the step's "
+        "executable block; the API-error path needs at least one "
+        "(issue #533)."
+    )
+    # The API-error annotation MUST mention the gh api lookup so the log
+    # makes the failure mode unambiguous (API failure vs. missing PR run).
+    assert "::error::" in evidence_block, (
+        "evidence step must emit a `::error::` annotation on the API "
+        "error path; the operator reading the failure log must see why "
+        "the gate tripped."
+    )
+
+
+def _evidence_step_executable(workflow: str) -> str:
+    """Return the non-comment lines of the evidence step's ``run:`` block.
+
+    The block ends at the next sibling ``- name:`` (the start of the
+    Refuse-to-deploy step). Block scalars (``run: |``) are preserved as-is;
+    only leading ``#`` lines are stripped, which is enough for this gate.
+    """
+    start = workflow.index("Find the green ci run")
+    end_marker = "\n      - name:"
+    end = workflow.index(end_marker, start + 1)
+    section = workflow[start:end]
+    return "\n".join(line for line in section.splitlines() if not line.lstrip().startswith("#"))
+
+
 def test_ci_workflow_deploy_job_calls_coolify_webhook() -> None:
     """CD-01: deploy job hits the Coolify manual github webhook.
 

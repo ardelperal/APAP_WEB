@@ -60,15 +60,30 @@ jobs:
           verified=false
           source="none"
 
+          # Capture gh api stderr so we can surface it on failure. The pre-fix
+          # implementation ran `gh api ... 2>/dev/null || echo 0`, so a
+          # network / auth / parse failure was indistinguishable from a
+          # legitimate zero-result and the `deploy` job was silently skipped.
+          # Issue #533 / AGENTS.md §32.P7: fail loud instead.
+          gh_err="$(mktemp)"
+          trap 'rm -f "$gh_err"' EXIT
+
           # A merge commit has two parents; ^2 is the branch that was merged and
           # is the head the pull_request run tested.
           if head2=$(git rev-parse --verify -q 'HEAD^2'); then
             tree_merged=$(git rev-parse 'HEAD^{tree}')
             tree_branch=$(git rev-parse "${head2}^{tree}")
             if [ "$tree_merged" = "$tree_branch" ]; then
-              green=$(gh api \
+              if ! green=$(gh api \
                 "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${head2}&status=success" \
-                --jq '[.workflow_runs[] | select(.event == "pull_request")] | length' 2>/dev/null || echo 0)
+                --jq '[.workflow_runs[] | select(.event == "pull_request")] | length' \
+                2>"$gh_err"); then
+                err_msg=$(cat "$gh_err" 2>/dev/null || echo "(no stderr captured)")
+                echo "::error::gh api lookup for head ${head2:0:8} failed (gh exit $?). Cannot verify the deploy tree — refusing to silently skip deploy."
+                echo "::error::gh api stderr: ${err_msg}"
+                echo "::error::Investigate (e.g., gh auth status, network, or GitHub API outage) and re-run this workflow once the API is reachable."
+                exit 1
+              fi
               if [ "${green:-0}" -gt 0 ]; then
                 verified=true
                 source="ci run for ${head2:0:8} (${green} green)"
