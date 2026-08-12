@@ -58,6 +58,55 @@ def test_db_label_to_estado_round_trips_every_mapped_label(
     assert queries.DB_LABEL_TO_ESTADO[db_label] == api_estado
 
 
+# ---------------------------------------------------------------------------
+# DB_LABEL_TO_ESTADO — pin tests for LIFECYCLE-03 PR-C
+# ---------------------------------------------------------------------------
+# These pin the corrected (canonical accented, 5-variant Fallecido) spelling
+# after the defect fix in C4. Both tests FAIL today — the current spelling
+# at ``app/modules/animals/queries.py:45`` is accent-less and the
+# ``fallecido`` key is collapsed to ``"Fallecido (Albergue)"`` for every
+# death. The pin below is what the cascade (PR-A) writes to
+# ``animal_current_state.current_state`` and what the CHECK constraint at
+# ``app/core/domain_lifecycle.py:147-156`` allows.
+
+
+def test_db_label_to_estado_uses_accented_pendiente_nueva_situacion() -> None:
+    """Pin #9: ``_ESTADO_DB_LABEL['pendiente_nueva_situacion']`` carries
+    the accented ``"Pendiente de Nueva Situación"`` (with acute) — the
+    canonical form enforced by the ``animal_current_state`` CHECK constraint
+    and the cascade output. Mirrors ``migration/derivation.py:62``.
+    """
+    assert queries._ESTADO_DB_LABEL["pendiente_nueva_situacion"] == (
+        "Pendiente de Nueva Situación"
+    )
+
+
+def test_db_label_to_estado_lists_all_fallecido_variants() -> None:
+    """Pin #10: the 5 ``Fallecido (X)`` CHECK-allowed variants each map
+    to their own API key (``fallecido_albergue``, ``fallecido_acogida``,
+    ``fallecido_adoptado``, ``fallecido_entregado``, ``fallecido_desconocido``).
+    The previous collapsed ``fallecido`` key only carried
+    ``"Fallecido (Albergue)"`` — a fidelity bug.
+    """
+    expected_variants = {
+        "fallecido_albergue": "Fallecido (Albergue)",
+        "fallecido_acogida": "Fallecido (Acogida)",
+        "fallecido_adoptado": "Fallecido (Adoptado)",
+        "fallecido_entregado": "Fallecido (Entregado)",
+        "fallecido_desconocido": "Fallecido (Desconocido)",
+    }
+    for api_key, db_label in expected_variants.items():
+        assert queries._ESTADO_DB_LABEL[api_key] == db_label, (
+            f"_ESTADO_DB_LABEL[{api_key!r}] must be {db_label!r}; "
+            f"got {queries._ESTADO_DB_LABEL.get(api_key)!r}"
+        )
+    # The legacy collapsed key must NOT exist any more — the bug being fixed.
+    assert "fallecido" not in queries._ESTADO_DB_LABEL, (
+        "Collapsed 'fallecido' key is the P1 fidelity bug; use the 5 "
+        "variant keys (fallecido_albergue, ..., fallecido_desconocido)"
+    )
+
+
 def test_db_label_to_estado_returns_none_for_unmapped_label() -> None:
     """Unknown DB labels must NOT silently coerce to a real estado.
 
