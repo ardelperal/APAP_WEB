@@ -65,7 +65,7 @@ class CoverageDataError(ValueError):
 BASELINE_CRAP: dict[str, float] = {
     "app/core/di/auth_dependencies_session_di.py::require_authorized_user": 9.01,
     "app/core/auth_flow.py::register_auth_flow_routes.callback": 7.1,
-    "app/core/csrf.py::CsrfMiddleware.dispatch": 13.0,
+    "app/core/csrf.py::CsrfMiddleware.dispatch": 13.33,
     "app/core/domain/auth/user.py::AuthorizedUser.from_row": 8.35,
     "app/core/insforge_error_translation.py::_classify_409_body": 10.54,
     "app/core/insforge_error_translation.py::translate_post_error": 6.04,
