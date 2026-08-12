@@ -558,40 +558,101 @@ jobs:
         # evaluate. On the first pilot run those were 66 of 104 reported
         # survivors -- 63% of the score was noise. Dropping this step
         # silently inflates every baseline.
+        #
+        # Issue #545: switched from the serial `local` distributor to the
+        # `http` distributor with 4 workers on Unix domain sockets. The
+        # previous shape was a plain `for work_item in pending_work:` loop
+        # (verified at cosmic_ray/distribution/local.py:26 in 8.7.0,
+        # unchanged from 8.4.6) -- one core busy while the rest of the host
+        # sat idle. The issue body measured 3111 s on this host's 4 vCPU.
+        # Four workers match the host's core count; wall-clock approaches
+        # the slowest single mutant rather than the sum.
+        #
+        # Workers are NOT spawned by `cosmic-ray exec` itself -- `cr-http-workers`
+        # is the supervisor that owns them. It clones the repo per worker
+        # (avoiding filesystem contention between workers mutating the same
+        # file) and waits forever for them, so we background it and kill it
+        # after `cosmic-ray exec` finishes. Killing the supervisor cascades
+        # SIGTERM to every spawned worker process.
+        #
+        # The worker URLs are re-pointed at a per-run temp directory by
+        # `scripts/cosmic_ray_run_config.render_config` before any cosmic-ray
+        # command runs. Unix domain sockets (--path) instead of TCP ports
+        # avoid the port-collision surface flagged in #532: two mutation jobs
+        # landing on the same host at once (scheduled run on `main` plus a
+        # manual dispatch on a feature branch) would otherwise step on each
+        # other's loopback ports. The per-run dir keyed by $GITHUB_RUN_ID
+        # keeps two concurrent jobs from ever sharing a path.
+        #
+        # `timeout = 60.0` is unchanged from the serial setup. Under 4-way
+        # CPU contention a mutant that today dies in ~3 s could push past
+        # 60 s and surface as INCOMPETENT. `scripts/check_mutation.py`
+        # aborts above the 20 % INCOMPETENT ceiling, so the first run's
+        # verdict is the read; raising `timeout` is a single follow-up PR if
+        # the ceiling trips.
+        #
+        # `cosmic-ray exec` prints nothing for the duration it runs, so the
+        # log gives a human no way to tell working from hung -- and this
+        # job was cancelled by hand four times in two days for exactly that
+        # reason (issue #543). The heartbeat below carries no information
+        # about the mutants; it only proves the process is alive, which is
+        # the question being asked. Counting mutants would mean querying the
+        # sqlite while cosmic-ray holds it, and a locked database is a worse
+        # outcome than a quiet log.
         run: |
           set -euo pipefail
+
+          # Per-run socket directory. The actual paths cosmic-ray will
+          # dispatch against live under here, and `render_config` writes
+          # a copy of the committed cosmic-ray.toml that points at them.
+          RUN_DIR="/tmp/apap-cosmic-ray-${GITHUB_RUN_ID}"
+          mkdir -p "$RUN_DIR"
+
+          python scripts/cosmic_ray_run_config.py render \
+              --template docs/quality/cosmic-ray.toml \
+              --run-dir "$RUN_DIR" \
+              --output "$RUN_DIR/cosmic-ray.toml"
+
           rm -f mutation.sqlite
-          cosmic-ray init docs/quality/cosmic-ray.toml mutation.sqlite
-          cr-filter-operators mutation.sqlite docs/quality/cosmic-ray.toml
-          # ~52 minutes here is NORMAL, and nothing hangs: cosmic-ray.toml sets
-          # `timeout = 60.0` so a runaway mutant is bounded, and
-          # scripts/check_mutation.py rejects a session with more than 20%
-          # INCOMPETENT results, which is the false-green this job could otherwise
-          # produce. The duration comes from the distributor: `name = "local"` is a
-          # plain `for work_item in pending_work` loop with no concurrency
-          # primitives (verified in the installed cosmic_ray/distribution/local.py),
-          # so mutants run one at a time on one core while the other three sit
-          # idle. Parallelising it means the `http` distributor and is tracked
-          # separately — not something to change blind, since cosmic-ray cannot be
-          # exercised on a Windows workstation.
-          #
-          # `cosmic-ray exec` prints nothing for the ~52 minutes it runs, so the
-          # log gives a human no way to tell working from hung — and this job was
-          # cancelled by hand four times in two days for exactly that reason
-          # (issue #543). The heartbeat below carries no information about the
-          # mutants; it only proves the process is alive, which is the question
-          # being asked. Counting mutants would mean querying the sqlite while
-          # cosmic-ray holds it, and a locked database is a worse outcome than a
-          # quiet log.
-          cosmic-ray exec docs/quality/cosmic-ray.toml mutation.sqlite &
+          cosmic-ray init "$RUN_DIR/cosmic-ray.toml" mutation.sqlite
+          cr-filter-operators mutation.sqlite "$RUN_DIR/cosmic-ray.toml"
+
+          # Spawn the worker supervisor in the background. It clones the
+          # repo (depth=1) into its own temp dir per worker, starts a
+          # `cosmic-ray http-worker --path <sock>` inside each clone, and
+          # blocks waiting for them. We kill it after `cosmic-ray exec`
+          # finishes so the workflow exits cleanly.
+          cr-http-workers "$RUN_DIR/cosmic-ray.toml" "$GITHUB_WORKSPACE" &
+          WPID=$!
+
+          # Workers need time to clone the repo + bind their sockets. 30 s
+          # is a generous budget on the apap-coolify-noble runner; the
+          # actual measured time is sub-second, but the budget here exists
+          # to surface a hung clone as a clear failure rather than a
+          # 60-minute cosmic-ray exec that goes nowhere.
+          sleep 30
+
+          cosmic-ray exec "$RUN_DIR/cosmic-ray.toml" mutation.sqlite &
           CR_PID=$!
           while kill -0 "$CR_PID" 2>/dev/null; do
             sleep 120
-            echo "::notice::mutation session still running (${SECONDS}s elapsed; ~3200s is normal on this runner)"
+            echo "::notice::mutation session still running (${SECONDS}s elapsed; ~1300-1700s is normal with 4 workers)"
           done
           # `wait` yields the session's exit status, so `set -e` still fails the
           # job on a real cosmic-ray error. Backgrounding does not soften the gate.
           wait "$CR_PID"
+
+          # Tear down the worker supervisor. The workers are its children; a
+          # SIGTERM here kills the supervisor's asyncio loop and lets the
+          # workers exit on their own aiohttp shutdown handler. If a worker
+          # hangs, the GitHub Actions job timeout (120 minutes) still reaps it.
+          kill -TERM "$WPID" 2>/dev/null || true
+          wait "$WPID" 2>/dev/null || true
+
+          # Best-effort cleanup of the per-run dir. If anything below fails
+          # the dir will be reaped by the runner's tmpfs eviction, so this
+          # is hygiene, not a correctness gate.
+          rm -rf "$RUN_DIR"
 
       - name: Enforce the mutation ratchet (issue #431)
         # Removing this step is a blocked change, and replacing it with
