@@ -9,10 +9,22 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
-from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from typing import Any
+
+from app.modules.lifecycle.domain.constants import (
+    _VALID_PRE_DEATH_STATES,
+    PRE_DEATH_STATE_DESCONOCIDO,
+    STATE_ACOGIDA,
+    STATE_ADOPTADO,
+    STATE_ALBERGUE,
+    STATE_ENTREGADO,
+    STATE_INCOHERENTE,
+    STATE_PENDIENTE_ENTRADA,
+    STATE_PENDIENTE_NUEVA_SITUACION,
+)
+from app.modules.lifecycle.domain.result import DerivationResult
 
 
 class DerivationKind(StrEnum):
@@ -27,45 +39,6 @@ class DerivationKind(StrEnum):
     INCOHERENTE = "incoherente"
 
 
-STATE_PENDIENTE_ENTRADA = "Pendiente de Entrada"
-STATE_PENDIENTE_NUEVA_SITUACION = "Pendiente de Nueva Situación"
-STATE_ALBERGUE = "Albergue"
-STATE_ACOGIDA = "Acogida"
-STATE_ADOPTADO = "Adoptado"
-STATE_ENTREGADO = "Entregado"
-STATE_INCOHERENTE = "Incoherente"
-STATE_FALLECIDO_ALBERGUE = "Fallecido (Albergue)"
-STATE_FALLECIDO_ACOGIDA = "Fallecido (Acogida)"
-STATE_FALLECIDO_ADOPTADO = "Fallecido (Adoptado)"
-STATE_FALLECIDO_ENTREGADO = "Fallecido (Entregado)"
-STATE_FALLECIDO_DESCONOCIDO = "Fallecido (Desconocido)"
-
-_VALID_PRE_DEATH_STATES: frozenset[str] = frozenset(
-    {STATE_ALBERGUE, STATE_ACOGIDA, STATE_ADOPTADO, STATE_ENTREGADO}
-)
-PRE_DEATH_STATE_DESCONOCIDO = "Desconocido"
-
-
-@dataclass(frozen=True, slots=True)
-class DerivationResult:
-    """Output of :func:`calculate_state`.
-
-    ``state`` is the CHECK-enforced string written to
-    ``animal_current_state.current_state``. ``pre_death_state`` is set
-    only when ``kind`` is ``FALLECIDO`` (one of Albergue/Acogida/
-    Adoptado/Entregado or Desconocido). ``active_*_id`` carry the
-    legacy PK of the placement that produced the active state; all
-    three are ``None`` for terminal states and Incoherente.
-    """
-
-    state: str
-    kind: DerivationKind
-    pre_death_state: str | None = None
-    active_intake_id: str | None = None
-    active_foster_id: str | None = None
-    active_adoption_id: str | None = None
-
-
 def calculate_state(
     ficha: dict[str, Any] | None,
     entradas: Iterable[dict[str, Any]],
@@ -77,8 +50,8 @@ def calculate_state(
     Replicates the VBA ``DameSituacion()`` priority cascade. ``ficha``
     may be ``None`` (treated as empty dict). Each priority level is
     evaluated in order by a dedicated helper; the orchestrator here
-    stays linear (CC ≤ 5) to respect AGENTS.md §21 (700-line module /
-    cyclomatic-complexity budgets).
+    stays linear (CC ≤ 5) to respect AGENTS.md §21 (cyclomatic-complexity
+    budgets).
     """
     ficha = ficha if ficha is not None else {}
     entradas_list = list(entradas)
@@ -133,7 +106,7 @@ def _resolve_no_active_state(entradas_list: list[dict[str, Any]]) -> DerivationR
             state=STATE_PENDIENTE_ENTRADA,
             kind=DerivationKind.PENDIENTE_ENTRADA,
         )
-    if _latest_FEntregaAPropietario(entradas_list) is None:
+    if _latest_FEntregaAPropietario(entradas_list) is None:  # noqa: N802 — legacy field name
         return DerivationResult(
             state=STATE_PENDIENTE_NUEVA_SITUACION,
             kind=DerivationKind.PENDIENTE_NUEVA_SITUACION,
@@ -264,18 +237,5 @@ def _resolve_pre_death_state(ficha: dict[str, Any]) -> str:
 __all__ = [
     "DerivationKind",
     "DerivationResult",
-    "PRE_DEATH_STATE_DESCONOCIDO",
-    "STATE_ACOGIDA",
-    "STATE_ADOPTADO",
-    "STATE_ALBERGUE",
-    "STATE_ENTREGADO",
-    "STATE_FALLECIDO_ACOGIDA",
-    "STATE_FALLECIDO_ADOPTADO",
-    "STATE_FALLECIDO_ALBERGUE",
-    "STATE_FALLECIDO_DESCONOCIDO",
-    "STATE_FALLECIDO_ENTREGADO",
-    "STATE_INCOHERENTE",
-    "STATE_PENDIENTE_ENTRADA",
-    "STATE_PENDIENTE_NUEVA_SITUACION",
     "calculate_state",
 ]
