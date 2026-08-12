@@ -115,7 +115,7 @@ ON CONFLICT (animal_id, event_type, event_timestamp) DO NOTHING
 DEFAULT_CREATED_BY = "lifecycle.close_all_on_death"
 
 
-def _close_event(
+def _close_event(  # noqa: PLR0913 - lifecycle event has 7 distinct fields
     executor: SqlExecutor,
     *,
     animal_id: str,

@@ -52,7 +52,7 @@ from enum import StrEnum
 from typing import Any, Final
 
 from app.core.data_access import SqlExecutor
-from app.modules.lifecycle.di.lifecycle_di import build_lifecycle_port
+from app.modules.lifecycle import build_lifecycle_port
 
 # --- enums ----------------------------------------------------------------
 

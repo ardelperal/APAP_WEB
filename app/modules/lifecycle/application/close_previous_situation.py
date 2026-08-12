@@ -65,7 +65,7 @@ ON CONFLICT (animal_id, event_type, event_timestamp) DO NOTHING
 """
 
 
-class UnknownSituationCategory(ValueError):
+class UnknownSituationCategoryError(ValueError):
     """Raised when ``category`` is not one of ``INTAKE`` / ``FOSTER`` / ``ADOPTION``.
 
     The set is closed (see ``CLOSING_EVENT_BY_CATEGORY``); a typo or
@@ -73,6 +73,11 @@ class UnknownSituationCategory(ValueError):
     must surface as a domain error rather than silently emit the
     wrong event type.
     """
+    #: Backwards-compat alias for the previous class name. The
+    #: N818 lint rule required renaming to ``Error`` suffix; the
+    #: alias lets callers that imported the old name continue to
+    #: work until they migrate.
+    #: (No alias emitted; the rename is intentional.)
 
     def __init__(self, category: str) -> None:
         super().__init__(
@@ -82,7 +87,7 @@ class UnknownSituationCategory(ValueError):
         self.category = category
 
 
-def close_previous_situation(
+def close_previous_situation(  # noqa: PLR0913 - situation transition needs category + lineage + 2 source refs + actor
     executor: SqlExecutor,
     animal_id: str,
     category: str,
@@ -139,7 +144,7 @@ def close_previous_situation(
     """
     event_type = CLOSING_EVENT_BY_CATEGORY.get(category)
     if event_type is None:
-        raise UnknownSituationCategory(category)
+        raise UnknownSituationCategoryError(category)
 
     timestamp_str = (
         event_timestamp.isoformat()
@@ -164,6 +169,6 @@ def close_previous_situation(
 __all__ = [
     "CLOSING_EVENT_BY_CATEGORY",
     "DEFAULT_CREATED_BY",
-    "UnknownSituationCategory",
+    "UnknownSituationCategoryError",
     "close_previous_situation",
 ]

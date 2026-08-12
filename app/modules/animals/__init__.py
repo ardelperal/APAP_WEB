@@ -34,20 +34,12 @@ from app.modules.animals.lifecycle_events import (
     validate_causal_pair as validate_lifecycle_causal_pair,
 )
 from app.modules.animals.service import get_animal_by_id
-from app.modules.lifecycle.application.calculate_animal_state import (
-    calculate_animal_state,
-)
-from app.modules.lifecycle.application.can_delete_animal import (
+from app.modules.lifecycle import (
     CanDeleteResult,
+    calculate_animal_state,
     can_delete_animal,
-)
-from app.modules.lifecycle.application.close_all_on_death import (
     close_all_on_death,
-)
-from app.modules.lifecycle.application.close_previous_situation import (
     close_previous_situation,
-)
-from app.modules.lifecycle.application.persist_animal_state import (
     persist_animal_state,
 )
 
