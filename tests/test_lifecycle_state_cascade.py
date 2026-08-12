@@ -9,10 +9,7 @@ produce the same output for each case.
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
-
 
 CASES: list[tuple[str, dict[str, object], list[dict[str, object]], list[dict[str, object]], list[dict[str, object]], str]] = [
     (
