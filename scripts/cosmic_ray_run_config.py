@@ -88,10 +88,10 @@ def render_config(
         The path to the per-run config file (i.e. ``run_dir/cosmic-ray.toml``).
     """
     if worker_count < 1:
-        raise ValueError(f"worker_count must be >= 1, got {worker_count}")
+        raise ValueError(f"worker_count must be >= 1, got {worker_count}")  # noqa: TRY003 — operator-facing diagnostic
     run_dir = Path(run_dir)
     if not run_dir.is_dir():
-        raise FileNotFoundError(f"run_dir does not exist: {run_dir}")
+        raise FileNotFoundError(f"run_dir does not exist: {run_dir}")  # noqa: TRY003 — operator-facing diagnostic
 
     template = toml.loads(template_path.read_text(encoding="utf-8"))
     cosmic_ray = template.setdefault("cosmic-ray", {})
@@ -145,7 +145,7 @@ def summarise_session(session_db: Path) -> dict[str, int]:
     operator can read off whether the 20 % ceiling is at risk.
     """
     if not session_db.exists():
-        raise FileNotFoundError(f"session database missing: {session_db}")
+        raise FileNotFoundError(f"session database missing: {session_db}")  # noqa: TRY003 — operator-facing diagnostic
     query = """
         SELECT wr.test_outcome AS test_outcome,
                wr.worker_outcome AS worker_outcome
@@ -192,9 +192,7 @@ def is_session_healthy(summary: dict[str, int], *, incompetent_ceiling: float = 
         return False
     if summary["incompetent"] / total > incompetent_ceiling:
         return False
-    if summary["killed"] == 0:
-        return False
-    return True
+    return summary["killed"] != 0
 
 
 __all__ = [
@@ -274,7 +272,7 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     if args.command == "render":
         return _render_command(args)
-    raise SystemExit(f"unknown command: {args.command!r}")
+    raise SystemExit(f"unknown command: {args.command!r}")  # noqa: TRY003 — argparse subparsers reject unknown commands upstream
 
 
 if __name__ == "__main__":

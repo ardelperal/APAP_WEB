@@ -103,8 +103,8 @@ def _spawn_workers_supervisor(
     # process group, so an accidental Ctrl-C in the parent does not
     # orphan them -- teardown kills by explicit PID, not by signal
     # propagation that might miss a half-spawned worker.
-    return subprocess.Popen(
-        ["cr-http-workers", str(rendered_config), str(repo_root)],
+    return subprocess.Popen(  # noqa: S603 — argv list, no shell=True, no user input
+        ["cr-http-workers", str(rendered_config), str(repo_root)],  # noqa: S607 — PATH-resolved binary, argv form
         stdout=log_fh,
         stderr=subprocess.STDOUT,
         start_new_session=True,
@@ -135,7 +135,7 @@ def _run_cosmic_ray(
 ) -> int:
     """Run a cosmic-ray command and surface its exit code; fail loud on non-zero."""
     _eprint(f"$ {' '.join(cmd)}")
-    completed = subprocess.run(cmd, check=False, timeout=timeout_s)
+    completed = subprocess.run(cmd, check=False, timeout=timeout_s)  # noqa: S603 — argv list, no shell=True, no user input
     if completed.returncode != 0:
         _eprint(
             f"FAIL: {' '.join(cmd[:2])} exited {completed.returncode}; "
@@ -174,8 +174,7 @@ def _format_summary(
     return "\n".join(lines)
 
 
-def main(argv: list[str] | None = None) -> int:
-    _require_linux()
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--config",
@@ -214,7 +213,58 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Leave the session database on disk after the run for inspection.",
     )
-    args = parser.parse_args(argv)
+    return parser
+
+
+def _run_session(
+    rendered_config: Path,
+    session_path: Path,
+    *,
+    timeout_s: float = 7200.0,
+) -> tuple[int, float]:
+    """Drive ``init / filter / exec`` against the rendered config; return (exit, wall-clock s)."""
+    rc = _run_cosmic_ray(
+        ["cosmic-ray", "init", str(rendered_config), str(session_path)],
+    )
+    if rc != 0:
+        return rc, 0.0
+    rc = _run_cosmic_ray(
+        ["cr-filter-operators", str(session_path), str(rendered_config)],
+    )
+    if rc != 0:
+        return rc, 0.0
+    started = time.monotonic()
+    rc = _run_cosmic_ray(
+        ["cosmic-ray", "exec", str(rendered_config), str(session_path)],
+        timeout_s=timeout_s,
+    )
+    return rc, time.monotonic() - started
+
+
+def _teardown(
+    supervisor: subprocess.Popen[bytes],
+    session_path: Path,
+    run_dir: Path,
+    *,
+    owns_run_dir: bool,
+    keep_session: bool,
+) -> None:
+    _stop_workers_supervisor(supervisor)
+    if session_path.exists() and not keep_session:
+        try:
+            session_path.unlink()
+        except OSError as exc:
+            _eprint(f"warning: could not remove {session_path}: {exc}")
+    if owns_run_dir:
+        shutil.rmtree(run_dir, ignore_errors=True)
+    else:
+        # Leave the dir behind so the operator can inspect logs.
+        _eprint(f"per-run artifacts left at: {run_dir}")
+
+
+def main(argv: list[str] | None = None) -> int:
+    _require_linux()
+    args = _build_parser().parse_args(argv)
 
     config_path = args.config.resolve()
     if not config_path.exists():
@@ -254,24 +304,7 @@ def main(argv: list[str] | None = None) -> int:
         # cosmic-ray exec that goes nowhere.
         time.sleep(15)
 
-        rc = _run_cosmic_ray(
-            ["cosmic-ray", "init", str(rendered), str(session_path)],
-        )
-        if rc != 0:
-            return rc
-
-        rc = _run_cosmic_ray(
-            ["cr-filter-operators", str(session_path), str(rendered)],
-        )
-        if rc != 0:
-            return rc
-
-        started = time.monotonic()
-        rc = _run_cosmic_ray(
-            ["cosmic-ray", "exec", str(rendered), str(session_path)],
-            timeout_s=7200.0,
-        )
-        wall_clock_s = time.monotonic() - started
+        rc, wall_clock_s = _run_session(rendered, session_path)
         if rc != 0:
             return rc
 
@@ -284,7 +317,6 @@ def main(argv: list[str] | None = None) -> int:
                 serial_baseline_s=args.serial_baseline_s,
             )
         )
-
         if not is_session_healthy(summary):
             _eprint(
                 "FAIL: session is not healthy (see summary above; check "
@@ -293,17 +325,13 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         return 0
     finally:
-        _stop_workers_supervisor(supervisor)
-        if session_path.exists() and not args.keep_session:
-            try:
-                session_path.unlink()
-            except OSError as exc:
-                _eprint(f"warning: could not remove {session_path}: {exc}")
-        if owns_run_dir:
-            shutil.rmtree(run_dir, ignore_errors=True)
-        else:
-            # Leave the dir behind so the operator can inspect logs.
-            _eprint(f"per-run artifacts left at: {run_dir}")
+        _teardown(
+            supervisor,
+            session_path,
+            run_dir,
+            owns_run_dir=owns_run_dir,
+            keep_session=args.keep_session,
+        )
 
 
 if __name__ == "__main__":
