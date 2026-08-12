@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import sqlite3
+import sys
 from pathlib import Path
 
 DEFAULT_WORKER_COUNT = 4
@@ -242,8 +243,6 @@ def read_worker_urls(rendered_config: Path) -> list[str]:
     serve, but the list-of-strings shape is small enough that a regex
     on ``worker-urls = [ ... ]`` is the simpler path.
     """
-    import re
-
     in_block = False
     urls: list[str] = []
     for raw_line in rendered_config.read_text(encoding="utf-8").splitlines():
@@ -345,7 +344,7 @@ def _pin_output_encoding() -> None:
     ``ast.Attribute`` chains, so this body has to keep both stream
     names spelled out rather than collapsing them through a loop.
     """
-    if hasattr(sys.stdout, "reconfigure"):
+    if hasattr(sys.stdout, "reconfigure"):  # noqa: F821 — sys is imported at module scope
         sys.stdout.reconfigure(encoding="utf-8")
         sys.stderr.reconfigure(encoding="utf-8")
 
