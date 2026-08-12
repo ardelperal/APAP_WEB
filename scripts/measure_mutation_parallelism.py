@@ -102,6 +102,18 @@ def _require_linux() -> None:
     raise SystemExit(1)
 
 
+def _repo_root() -> Path:
+    """Return the repository root this script ships under.
+
+    ``cr-http-workers`` needs the repo URL/path to clone for each
+    worker; deriving it from ``Path.cwd()`` is unsafe because the
+    operator may have invoked the script from elsewhere. ``__file__``
+    lives at ``<repo>/scripts/measure_mutation_parallelism.py``, so the
+    parent-of-parent is the repo root by construction.
+    """
+    return Path(__file__).resolve().parent.parent
+
+
 def _spawn_workers_supervisor(
     rendered_config: Path,
     repo_root: Path,
@@ -314,7 +326,11 @@ def main(argv: list[str] | None = None) -> int:
     _eprint(f"rendered per-run config: {rendered}")
     _eprint(f"started cr-http-workers with {args.workers} workers on {run_dir}")
 
-    supervisor = _spawn_workers_supervisor(rendered, Path.cwd(), log_dir / "cr-http-workers.log")
+    supervisor = _spawn_workers_supervisor(
+        rendered,
+        _repo_root(),
+        log_dir / "cr-http-workers.log",
+    )
     try:
         # cr-http-workers needs time to clone the repo and bind each worker.
         # We give a fixed 15 s budget; on a healthy runner this is way more
