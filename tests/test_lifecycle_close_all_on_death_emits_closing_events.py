@@ -14,8 +14,6 @@ in ``tests/test_lifecycle_slice.py::test_lifecycle_insforge_adapter_implements_l
 """
 from __future__ import annotations
 
-import json
-
 import pytest
 
 

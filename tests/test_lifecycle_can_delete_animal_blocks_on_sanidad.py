@@ -44,7 +44,7 @@ class _FakeSqlExecutor:
             raise RuntimeError(f"relation {self._table_error!r} does not exist")
         for table, count in self._counts.items():
             if f"FROM {table.upper()}" in normalized or (
-                f"FROM {table}" in query and not f"FROM {table}_" in query
+                f"FROM {table}" in query and f"FROM {table}_" not in query
             ):
                 return [{"count": count}] if "COUNT" in normalized else []
         return []
