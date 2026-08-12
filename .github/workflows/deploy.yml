@@ -66,9 +66,29 @@ jobs:
             tree_merged=$(git rev-parse 'HEAD^{tree}')
             tree_branch=$(git rev-parse "${head2}^{tree}")
             if [ "$tree_merged" = "$tree_branch" ]; then
-              green=$(gh api \
-                "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${head2}&status=success" \
-                --jq '[.workflow_runs[] | select(.event == "pull_request")] | length' 2>/dev/null || echo 0)
+              # curl + jq, not `gh` (issue #533). The GitHub-hosted image shipped
+              # the gh CLI; this runner image does not, so `gh api` exited 127 and
+              # the old `2>/dev/null || echo 0` turned that into green=0 — an
+              # answer indistinguishable from "this tree was never proven". Every
+              # merge since d38b748 refused to deploy for that reason, quietly.
+              #
+              # So a failed query is now a FAILED STEP, never a verdict. There are
+              # three outcomes here and they must stay three: the query broke, the
+              # tree has no green run, or it has one.
+              body=$(mktemp)
+              code=$(curl -sS -o "$body" -w '%{http_code}' --max-time 30 \
+                -H "Authorization: Bearer ${GH_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${head2}&status=success" \
+              ) || code=000
+              if [ "$code" != "200" ]; then
+                echo "::error::the evidence query itself failed (HTTP ${code}). Refusing to"
+                echo "::error::report that as 'no green ci run' — a broken lookup is not evidence"
+                echo "::error::of a broken tree (issue #533)."
+                exit 1
+              fi
+              green=$(jq '[.workflow_runs[] | select(.event == "pull_request")] | length' "$body")
               if [ "${green:-0}" -gt 0 ]; then
                 verified=true
                 source="ci run for ${head2:0:8} (${green} green)"

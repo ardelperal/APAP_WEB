@@ -296,6 +296,89 @@ def test_every_repository_workflow_declares_fifo_concurrency() -> None:
     assert scanned > 0
 
 
+_USES_GH = """\
+jobs:
+  evidence:
+    runs-on: [self-hosted]
+    timeout-minutes: 10
+    steps:
+      - name: Look for evidence
+        run: |
+          green=$(gh api "repos/x/y/actions/runs" --jq '.total_count' 2>/dev/null || echo 0)
+"""
+
+
+def test_invoking_gh_is_a_violation() -> None:
+    """Issue #533: the runner image has no gh, so this exits 127."""
+    violations = check_workflows.check_absent_commands(_USES_GH, "deploy.yml")
+
+    assert len(violations) == 1
+    assert "job 'evidence'" in violations[0]
+    assert "curl + jq" in violations[0]
+
+
+def test_gh_named_only_in_a_comment_is_not_a_violation() -> None:
+    """The comment explaining the replaced command must not read as the offence.
+
+    deploy.yml documents the `gh api` it stopped using. A scan that reads comments
+    reports the explanation, which trains people to delete explanations.
+    """
+    documented = """\
+jobs:
+  evidence:
+    runs-on: [self-hosted]
+    timeout-minutes: 10
+    steps:
+      - name: Look for evidence
+        run: |
+          # Replaced `gh api` with curl: the runner image ships no gh (#533).
+          code=$(curl -sS -o body -w '%{http_code}' https://api.github.com/x)
+          green=$(jq '.total_count' body)
+"""
+
+    assert check_workflows.check_absent_commands(documented, "deploy.yml") == []
+
+
+def test_a_word_ending_in_gh_is_not_a_violation() -> None:
+    """`through`, `high`, `enough` must not match the `gh` invocation pattern."""
+    prose = """\
+jobs:
+  build:
+    runs-on: [self-hosted]
+    timeout-minutes: 10
+    steps:
+      - run: echo "merge through a PR when coverage is high enough"
+"""
+
+    assert check_workflows.check_absent_commands(prose, "ci.yml") == []
+
+
+def test_no_repository_workflow_invokes_an_absent_command() -> None:
+    violations, scanned = check_workflows.check(WORKFLOW_DIR)
+
+    assert violations == []
+    assert scanned > 0
+
+
+def test_deploy_evidence_separates_a_broken_query_from_an_unproven_tree() -> None:
+    """The defect was not the missing gh — it was collapsing three answers into two.
+
+    A lookup that fails must fail the step. Reporting it as "no green ci run"
+    blocks the deploy with a message that sends you to look at the wrong thing.
+    """
+    deploy = (REPO_ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
+    # Strip comments before asserting an absence: this file documents the
+    # `|| echo 0` it removed, and the explanation is not the defect. Missing this
+    # is how a test starts demanding that people delete their reasoning.
+    executable = "\n".join(
+        line for line in deploy.splitlines() if not line.strip().startswith("#")
+    )
+
+    assert '"$code" != "200"' in executable
+    assert "the evidence query itself failed" in executable
+    assert "|| echo 0" not in executable
+
+
 def test_repository_workflows_are_all_parseable() -> None:
     """The live tree must stay clean, or a required check can vanish unnoticed."""
     violations, scanned = check_workflows.check(WORKFLOW_DIR)
