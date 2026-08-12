@@ -2,8 +2,10 @@
 #
 # CURATED TARGET SET -- one module per PR, each pinned in
 # `mutation-baseline.json`. cosmic-ray accepts `module-path` as a string OR a
-# list of strings (verified at cosmic_ray/cli.py:92); we use the list form so
-# the pilot and the second slice share a session.
+# list of strings (verified at cosmic_ray/cli.py:106 in 8.7.0; the same
+# branch was at line 92 in 8.4.6 -- revalidated when the pin moved to 8.7.0,
+# issue #545); we use the list form so the pilot and the second slice share
+# a session.
 #
 # The accepted design (TASK-2.2) specified `module-path = "app"`. Measurement
 # on 2026-08-06 rejected that: `app/` + `migration/` hold 3579 mutable AST
@@ -41,9 +43,9 @@
 #
 # The test-command is shared across every target module: cosmic-ray executes
 # the same command for every mutant regardless of which file it came from
-# (verified at cosmic_ray/commands/execute.py:49 -- `config.test_command` is
-# not per-module). The command must therefore include every target's tests,
-# not just the pilot's.
+# (verified at cosmic_ray/commands/execute.py:49 -- unchanged between 8.4.6
+# and 8.7.0, revalidated for issue #545). The command must therefore include
+# every target's tests, not just the pilot's.
 
 [cosmic-ray]
 module-path = [
@@ -58,7 +60,48 @@ excluded-modules = []
 test-command = "python -m pytest tests/test_adopciones.py tests/test_adopciones_queries.py tests/test_adopciones_routes.py tests/test_animals_queries.py tests/test_derivation.py tests/test_derivation_11cases.py tests/test_insforge.py tests/test_migration.py::TestDiffEngine -x -q --no-cov -p no:cacheprovider -o addopts=''"
 
 [cosmic-ray.distributor]
-name = "local"
+name = "http"
+
+# `http` distributor dispatches each mutation to one of the worker URLs
+# below, instead of running mutants one at a time in the same process
+# (issue #545). The `local` distributor is a plain
+# `for work_item in pending_work:` loop with no concurrency primitives
+# (verified at cosmic_ray/distribution/local.py:26 in 8.7.0, unchanged from
+# 8.4.6) -- one core busy while the rest of the host sat idle. The 4
+# workers here match the 4 vCPU of the apap-coolify-noble runner documented
+# in `.github/workflows/ci.yml` (the issue body measured the serial run
+# on that same host).
+#
+# Worker URLs use Unix domain sockets rather than TCP ports to avoid the
+# port-collision surface flagged in #532: two mutation jobs landing on the
+# same host at once -- a scheduled run on `main` plus a manual dispatch on
+# a feature branch -- would otherwise step on each other's loopback ports.
+# Unix sockets are filesystem-bound; the CI step writes the actual paths
+# to a per-run temp directory keyed by `$GITHUB_RUN_ID` so concurrent runs
+# cannot collide on the same path. The committed `w1.sock`...`w4.sock`
+# strings below are the *shape* of the list -- the actual paths are
+# substituted at session start (see the `Run the mutation session` step in
+# `.github/workflows/ci.yml` and `scripts/cosmic_ray_run_config.py`).
+#
+# The workers are NOT started by cosmic-ray itself: `cr-http-workers`
+# (registered as a console-script by cosmic-ray's `pyproject.toml`) brings
+# up `cosmic-ray http-worker --path <sock>` processes in independent git
+# clones (one clone per worker -- avoids the filesystem race when two
+# workers mutate the same file concurrently) and waits forever for them.
+# The CI step backgrounds it, runs `cosmic-ray exec`, then kills it.
+#
+# Under 4-way CPU contention a mutant that today dies in ~3s could push
+# past the 60s `timeout` above and surface as INCOMPETENT rather than
+# KILLED. `scripts/check_mutation.py` aborts above the 20% INCOMPETENT
+# ceiling, so the first run's verdict is the read; bumping `timeout` is
+# the lever if the run goes over 20% INCOMPETENT -- a single follow-up PR.
+[cosmic-ray.distributor.http]
+worker-urls = [
+    "unix:///tmp/apap-cosmic-ray/w1.sock",
+    "unix:///tmp/apap-cosmic-ray/w2.sock",
+    "unix:///tmp/apap-cosmic-ray/w3.sock",
+    "unix:///tmp/apap-cosmic-ray/w4.sock",
+]
 
 # Equivalent-mutant filter. Applied with `cr-filter-operators` between `init`
 # and `exec`; matching mutants are recorded as worker_outcome = SKIPPED and
