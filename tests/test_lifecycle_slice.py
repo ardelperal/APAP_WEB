@@ -199,6 +199,134 @@ def test_lifecycle_insforge_queries_return_sql_params_tuples(
     )
 
 
+# ---------------------------------------------------------------------------
+# PR-C pins — migration redirect + boundary amendment + REMOVED-symbol pin
+# (LIFECYCLE-03 PR-C). All FAIL until C7 (lifecycle_events rewrite) and C8
+# (migration thin wrapper + boundary allowlist amendment) land.
+# ---------------------------------------------------------------------------
+
+
+def test_migration_derivation_imports_domain_cascade() -> None:
+    """Pin #7: ``migration/derivation.py`` MUST import the domain cascade
+    from ``app.modules.lifecycle.domain.animal_state`` so the two
+    implementations cannot drift (AGENTS.md §22 single-seam rule).
+
+    The legacy migration code previously carried its own copy of the
+    DameSituacion cascade. The PR-C redirect imports the pure domain
+    function (``calculate_state``) so any future fix to the cascade
+    flows to both surfaces automatically. Falls back to ``from
+    app.modules.lifecycle.domain import ...`` for the older import shape.
+    """
+    tree = _read("migration/derivation.py")
+    found = False
+    for _kind, module, name in _imports(tree):
+        if module and module == "app.modules.lifecycle.domain.animal_state":
+            found = True
+            break
+        if module and module == "app.modules.lifecycle.domain" and name in {
+            "calculate_state",
+            "DerivationKind",
+            "DerivationResult",
+        }:
+            found = True
+            break
+    assert found, (
+        "migration/derivation.py must import from "
+        "app.modules.lifecycle.domain.animal_state (PR-C redirect); "
+        "found only duplicate cascade logic in the migration layer."
+    )
+
+
+def test_migration_boundary_allowlist_entry_exists_with_rationale() -> None:
+    """Pin #11: ``scripts/migration_boundaries_policy.py`` defines a
+    ``PURE_ALLOWED_SUBPACKAGES`` (or equivalent) tuple that contains
+    ``app.modules.lifecycle.domain`` with a rationale comment above
+    the entry explaining the domain-as-source-of-truth direction.
+    """
+    src = pathlib.Path("scripts/migration_boundaries_policy.py")
+    assert src.exists(), "policy file must exist for the migration-boundary gate"
+    text = src.read_text(encoding="utf-8")
+    assert "PURE_ALLOWED_SUBPACKAGES" in text, (
+        "scripts/migration_boundaries_policy.py must define "
+        "PURE_ALLOWED_SUBPACKAGES for the migration-boundary gate"
+    )
+    assert "app.modules.lifecycle.domain" in text, (
+        "PURE_ALLOWED_SUBPACKAGES must contain 'app.modules.lifecycle.domain'"
+    )
+    tree = ast.parse(text)
+    allowlist_value: object | None = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == (
+                    "PURE_ALLOWED_SUBPACKAGES"
+                ):
+                    allowlist_value = ast.literal_eval(node.value)
+                    break
+            if allowlist_value is not None:
+                break
+    assert allowlist_value is not None, (
+        "PURE_ALLOWED_SUBPACKAGES must be assigned a literal tuple/list"
+    )
+    assert isinstance(allowlist_value, (tuple, list))
+    normalized = tuple(str(x) for x in allowlist_value)
+    assert "app.modules.lifecycle.domain" in normalized, (
+        f"PURE_ALLOWED_SUBPACKAGES must contain "
+        f"'app.modules.lifecycle.domain'; got {normalized}"
+    )
+    # The rationale comment must be on the line just above the assignment
+    # or inside the same logical block — the linter picks it up too.
+    lines = text.splitlines()
+    for idx, line in enumerate(lines):
+        if "PURE_ALLOWED_SUBPACKAGES" in line and "=" in line:
+            preceding = lines[idx - 1] if idx > 0 else ""
+            assert "#" in preceding, (
+                "PURE_ALLOWED_SUBPACKAGES must carry a rationale comment "
+                "on the line above the assignment explaining why the "
+                "domain layer is allowlisted (PR-C §33 / Q6)."
+            )
+            return
+
+
+def test_simplified_direct_map_removed_from_lifecycle_events() -> None:
+    """Pin (C10 / REMOVED requirement): the simplified direct
+    ``_EVENT_TYPE_TO_STATE`` map and ``_compute_current_state_from_events``
+    function MUST be deleted from ``app/modules/animals/lifecycle_events.py``.
+
+    The simplified map is the P1 fidelity gap: it does not apply the
+    priority cascade, the ``FEntregaAPropietario`` rule, the
+    multi-category conflict branch, or the pre-death parenthetical
+    resolution. PR-C rewires ``actualizar_estado_animal`` to call the
+    domain ``calculate_animal_state`` via the DI composition root
+    (``app.modules.lifecycle.di.lifecycle_di.build_lifecycle_port``).
+    """
+    tree = _read("app/modules/animals/lifecycle_events.py")
+    names: set[str] = set()
+    for _kind, _module, name in _imports(tree):
+        # Top-level `import X` names land in ``name`` directly.
+        if name:
+            names.add(name)
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            names.add(node.name)
+        elif isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    names.add(target.id)
+                elif isinstance(target, ast.Tuple):
+                    for elt in target.elts:
+                        if isinstance(elt, ast.Name):
+                            names.add(elt.id)
+    assert "_compute_current_state_from_events" not in names, (
+        "_compute_current_state_from_events must be removed (PR-C REMOVED "
+        "requirement); the simplified direct map is the P1 fidelity gap."
+    )
+    assert "_EVENT_TYPE_TO_STATE" not in names, (
+        "_EVENT_TYPE_TO_STATE must be removed (PR-C REMOVED requirement); "
+        "the simplified direct map is the P1 fidelity gap."
+    )
+
+
 def test_lifecycle_insforge_adapter_implements_lifecycle_port() -> None:
     """Pin #2 + #6: ``InsForgeLifecycleAdapter`` is a real
     ``LifecyclePort`` implementation — ``isinstance`` against the
