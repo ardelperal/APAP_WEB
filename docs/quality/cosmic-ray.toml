@@ -24,7 +24,6 @@
 # enforces a 14-day grace period on `awaiting_acquisition` entries.
 #
 # Candidates for the next slices, by measured density:
-#   app/core/insforge.py                 112 sites / 690 LOC  (16.2)
 #
 # NOT candidates: the other `queries.py` modules. They are almost entirely SQL
 # string constants, which no mainstream Python mutation engine mutates by
