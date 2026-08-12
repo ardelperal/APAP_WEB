@@ -216,10 +216,16 @@ def _legacy_pk_as_str(row: dict[str, Any], field: str) -> str | None:
     return None if raw is None else str(raw)
 
 
-def _latest_FEntregaAPropietario(
+def _latest_FEntregaAPropietario(  # noqa: N802 — legacy field name; see migration/derivation.py:311 baseline
     entradas: list[dict[str, Any]],
 ) -> dict[str, Any] | None:
-    """Latest entrada (by ``IDEntrada`` desc) with ``FEntregaAPropietario`` set."""
+    """Latest entrada (by ``IDEntrada`` desc) with ``FEntregaAPropietario`` set.
+
+    The uppercase name matches the legacy Access/VBA field
+    (``FEntregaAPropietario``) for code-to-spec traceability — see
+    ``migration/derivation.py::derive_estado_actual_animal`` for the
+    canonical implementation.
+    """
     with_date = [e for e in entradas if _is_date(e.get("FEntregaAPropietario"))]
     if not with_date:
         return None
