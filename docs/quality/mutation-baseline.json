@@ -47,6 +47,7 @@
   "awaiting_acquisition": {
     "app/modules/adopciones/service.py": "2026-08-06",
     "app/core/insforge.py": "2026-08-08",
+    "app/modules/animals/queries.py": "2026-08-11",
     "migration/diff_engine.py": "2026-08-07"
   }
 }
