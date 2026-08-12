@@ -257,3 +257,76 @@ def test_no_workflow_runs_on_a_floating_runner() -> None:
                 if str(label).endswith("-latest"):
                     offenders.append(f"{path.name}::{name} -> {label}")
     assert not offenders, f"jobs on a floating runner label: {offenders}"
+
+
+_SHA_PIN = re.compile(r"^[0-9a-f]{40}$")
+
+
+def test_no_workflow_uses_a_floating_action_ref() -> None:
+    """Hard Rule 15, action side: every external ``uses:`` is pinned to a 40-hex SHA (issue #527).
+
+    #520 closed the runner half of the rule — every ``runs-on`` is exact, and
+    the gate above watches every workflow rather than one job. The action half
+    was left open: five third-party action refs in deploy.yml and
+    e2e-self-hosted.yml rode moving tags (``@v5`` / ``@v6``) with nothing
+    watching them. A tag is third-party code that can change under the workflow
+    between two runs that are otherwise identical, and deploy.yml is the file
+    that talks to production. The structural defect is the absence of a gate,
+    not the absence of a pin: a rule without enforcement erodes.
+
+    The contract the gate enforces:
+
+    * **External third-party actions** (``owner/repo@ref``) must be pinned to
+      exactly 40 lowercase hex characters — a commit SHA. Tags (``@v5``),
+      branches (``@main``), and any other ref shape fail the gate.
+    * **Local actions** (``./...``) and **container actions** (``docker://...``)
+      are out of scope by construction: the SHA regex cannot match either
+      shape, so they pass without a per-file allowlist. The gate stays
+      generic — adding a new workflow, a new local action, or a new
+      ``docker://`` step never requires editing this test.
+    * **Liveness (Hard Rule 18).** An empty scan — zero ``uses:`` keys found
+      across every workflow — fails the gate. A check that scanned nothing
+      has proven nothing; "did not run" must never score as "clean".
+    * **No trailing junk.** GitHub treats the entire ``uses:`` value as the
+      ref, so an inline ``# v5`` after the SHA parses as part of the ref and
+      breaks the pin. PyYAML strips YAML comments at parse time, so the
+      regex sees only the SHA; a malformed value that survives parsing is
+      rejected because its ref portion fails the 40-hex match.
+
+    The SHAs to use are the ones already resolved on main for the same actions
+    in ci.yml, pr-name.yml, and pr-size.yml. Issue #527 names them explicitly;
+    the pinner's job is to copy those values into the offending workflows.
+    This test asserts on the SHAPE, not on the value — a future maintainer
+    who re-resolves the SHA for a legitimate reason (e.g. upstream re-tag) does
+    not have to touch this test as long as the new ref is also a 40-hex SHA.
+    """
+    offenders: list[str] = []
+    scanned_uses = 0
+    for path in sorted((REPO_ROOT / ".github" / "workflows").glob("*.yml")):
+        workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+        for job_name, job in (workflow.get("jobs") or {}).items():
+            for step in (job.get("steps") or []):
+                if not isinstance(step, dict):
+                    continue
+                uses = step.get("uses")
+                if not isinstance(uses, str) or not uses:
+                    continue
+                scanned_uses += 1
+                # Local actions (`./...`) and `docker://` actions are not
+                # third-party action refs. They have no `@`-separated commit,
+                # so the SHA regex cannot match them and they pass without a
+                # special case. This is the "no brittle allowlist" property.
+                action_part, sep, ref = uses.rpartition("@")
+                if not sep or not _SHA_PIN.match(ref):
+                    offenders.append(
+                        f"{path.name}::{job_name}: uses '{uses}' "
+                        f"is not pinned to a 40-hex SHA"
+                    )
+    assert scanned_uses > 0, (
+        "no `uses:` keys found across any workflow — the gate scanned nothing. "
+        "Either every workflow lost its action refs (rule regression) or the "
+        "scan path broke (Hard Rule 18)."
+    )
+    assert not offenders, (
+        f"floating action refs (must be owner/repo@<40-hex SHA>): {offenders}"
+    )
