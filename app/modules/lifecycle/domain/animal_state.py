@@ -75,7 +75,10 @@ def calculate_state(
     """Pure derivation of an animal's current state from 4 collections.
 
     Replicates the VBA ``DameSituacion()`` priority cascade. ``ficha``
-    may be ``None`` (treated as empty dict).
+    may be ``None`` (treated as empty dict). Each priority level is
+    evaluated in order by a dedicated helper; the orchestrator here
+    stays linear (CC ≤ 5) to respect AGENTS.md §21 (700-line module /
+    cyclomatic-complexity budgets).
     """
     ficha = ficha if ficha is not None else {}
     entradas_list = list(entradas)
@@ -84,32 +87,66 @@ def calculate_state(
     active_adoptions = [d for d in adopciones if _is_null(d.get("FDevolucion"))]
     has_death = _is_date(ficha.get("FDefuncion"))
 
-    # P1 — Incoherente (multi-category, multiple-in-category, or death+active)
-    if (
+    # P1 — Incoherente (multi-category, multiple-in-category, or death+active).
+    if _is_incoherente(active_intakes, active_fosters, active_adoptions, has_death):
+        return DerivationResult(
+            state=STATE_INCOHERENTE, kind=DerivationKind.INCOHERENTE
+        )
+
+    # P2 — No active, no death.
+    if not has_death and not active_intakes and not active_fosters and not active_adoptions:
+        return _resolve_no_active_state(entradas_list)
+
+    # P3 / P4 / P5 — single active placement.
+    single = _resolve_single_active(active_intakes, active_fosters, active_adoptions)
+    if single is not None:
+        return single
+
+    # P6 — Death (the only remaining branch once P1-P5 have all fallen through).
+    if has_death:
+        return _format_fallecido_result(ficha)
+
+    # Defensive fallback (VBA defaults to "needs operator review").
+    return DerivationResult(state=STATE_INCOHERENTE, kind=DerivationKind.INCOHERENTE)
+
+
+def _is_incoherente(
+    active_intakes: list[dict[str, Any]],
+    active_fosters: list[dict[str, Any]],
+    active_adoptions: list[dict[str, Any]],
+    has_death: bool,
+) -> bool:
+    """P1 conflict detection: multi-category, multiple-in-category, or death+active."""
+    return bool(
         len(active_intakes) > 1
         or len(active_fosters) > 1
         or len(active_adoptions) > 1
         or _has_cross_category(active_intakes, active_fosters, active_adoptions)
         or (has_death and (active_intakes or active_fosters or active_adoptions))
-    ):
-        return DerivationResult(state=STATE_INCOHERENTE, kind=DerivationKind.INCOHERENTE)
+    )
 
-    # P2 — No active, no death
-    if not has_death and not active_intakes and not active_fosters and not active_adoptions:
-        if not entradas_list:
-            return DerivationResult(
-                state=STATE_PENDIENTE_ENTRADA,
-                kind=DerivationKind.PENDIENTE_ENTRADA,
-            )
-        latest_with_propietario = _latest_FEntregaAPropietario(entradas_list)
-        if latest_with_propietario is None:
-            return DerivationResult(
-                state=STATE_PENDIENTE_NUEVA_SITUACION,
-                kind=DerivationKind.PENDIENTE_NUEVA_SITUACION,
-            )
-        return DerivationResult(state=STATE_ENTREGADO, kind=DerivationKind.ENTREGADO)
 
-    # P3 / P4 / P5 — single active placement
+def _resolve_no_active_state(entradas_list: list[dict[str, Any]]) -> DerivationResult:
+    """P2 resolution: no actives, no death — choose Pendiente / Entregado."""
+    if not entradas_list:
+        return DerivationResult(
+            state=STATE_PENDIENTE_ENTRADA,
+            kind=DerivationKind.PENDIENTE_ENTRADA,
+        )
+    if _latest_FEntregaAPropietario(entradas_list) is None:
+        return DerivationResult(
+            state=STATE_PENDIENTE_NUEVA_SITUACION,
+            kind=DerivationKind.PENDIENTE_NUEVA_SITUACION,
+        )
+    return DerivationResult(state=STATE_ENTREGADO, kind=DerivationKind.ENTREGADO)
+
+
+def _resolve_single_active(
+    active_intakes: list[dict[str, Any]],
+    active_fosters: list[dict[str, Any]],
+    active_adoptions: list[dict[str, Any]],
+) -> DerivationResult | None:
+    """P3/P4/P5 resolution: exactly one active placement drives the state."""
     if len(active_intakes) == 1:
         intake = active_intakes[0]
         return DerivationResult(
@@ -131,18 +168,17 @@ def calculate_state(
             kind=DerivationKind.ADOPTADO,
             active_adoption_id=_legacy_pk_as_str(adoption, "IDAdopcion"),
         )
+    return None
 
-    # P6 — Death
-    if has_death:
-        pre = _resolve_pre_death_state(ficha)
-        return DerivationResult(
-            state=f"Fallecido ({pre})",
-            kind=DerivationKind.FALLECIDO,
-            pre_death_state=pre,
-        )
 
-    # Defensive fallback (VBA defaults to "needs operator review").
-    return DerivationResult(state=STATE_INCOHERENTE, kind=DerivationKind.INCOHERENTE)
+def _format_fallecido_result(ficha: dict[str, Any]) -> DerivationResult:
+    """P6 resolution: assemble the ``Fallecido ({pre})`` result."""
+    pre = _resolve_pre_death_state(ficha)
+    return DerivationResult(
+        state=f"Fallecido ({pre})",
+        kind=DerivationKind.FALLECIDO,
+        pre_death_state=pre,
+    )
 
 
 def _is_null(value: Any) -> bool:
