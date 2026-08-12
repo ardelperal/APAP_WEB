@@ -40,14 +40,35 @@ class Sexo(StrEnum):
 
 # Mapping from API snake_case estado values to DB Spanish labels.
 # Single source of truth per AGENTS.md §4.
+#
+# Canonical spelling (LIFECYCLE-03 PR-C MODIFIED Requirement
+# ``animal-state-db-label-spelling``):
+#
+# - ``pendiente_nueva_situacion`` carries the accented
+#   ``"Pendiente de Nueva Situación"`` (with acute) — matches the
+#   ``animal_current_state`` CHECK constraint at
+#   ``app/core/domain_lifecycle.py:149`` and the cascade output at
+#   ``app/modules/lifecycle/domain/constants.py:17``.
+# - ``fallecido`` is split into the 5 CHECK-allowed variants
+#   (``fallecido_albergue`` … ``fallecido_desconocido``). The previous
+#   collapsed ``fallecido`` key that mapped every death to
+#   ``"Fallecido (Albergue)"`` was the P1 fidelity gap: the cascade
+#   writes 5 distinct strings to ``animal_current_state.current_state``
+#   (one per pre-death state + ``Desconocido``), and a search filter
+#   that collapsed them to one DB label silently undercounted the
+#   REPORT-05 dashboard counters.
 _ESTADO_DB_LABEL: dict[str, str] = {
     "pendiente_entrada": "Pendiente de Entrada",
-    "pendiente_nueva_situacion": "Pendiente de Nueva Situacion",
+    "pendiente_nueva_situacion": "Pendiente de Nueva Situación",
     "albergue": "Albergue",
     "acogida": "Acogida",
     "adoptado": "Adoptado",
     "entregado": "Entregado",
-    "fallecido": "Fallecido (Albergue)",
+    "fallecido_albergue": "Fallecido (Albergue)",
+    "fallecido_acogida": "Fallecido (Acogida)",
+    "fallecido_adoptado": "Fallecido (Adoptado)",
+    "fallecido_entregado": "Fallecido (Entregado)",
+    "fallecido_desconocido": "Fallecido (Desconocido)",
     "incoherente": "Incoherente",
 }
 

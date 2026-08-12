@@ -35,12 +35,16 @@ from app.modules.animals import queries
     ("db_label", "api_estado"),
     [
         ("Pendiente de Entrada", "pendiente_entrada"),
-        ("Pendiente de Nueva Situacion", "pendiente_nueva_situacion"),
+        ("Pendiente de Nueva Situación", "pendiente_nueva_situacion"),
         ("Albergue", "albergue"),
         ("Acogida", "acogida"),
         ("Adoptado", "adoptado"),
         ("Entregado", "entregado"),
-        ("Fallecido (Albergue)", "fallecido"),
+        ("Fallecido (Albergue)", "fallecido_albergue"),
+        ("Fallecido (Acogida)", "fallecido_acogida"),
+        ("Fallecido (Adoptado)", "fallecido_adoptado"),
+        ("Fallecido (Entregado)", "fallecido_entregado"),
+        ("Fallecido (Desconocido)", "fallecido_desconocido"),
         ("Incoherente", "incoherente"),
     ],
 )
@@ -124,7 +128,10 @@ def test_valid_estados_matches_db_label_mapping_keys() -> None:
 
     ``VALID_ESTADOS`` is derived from the same dict the reverse map is
     built from, so adding a label requires no second list. This test
-    pins that single-source-of-truth invariant.
+    pins that single-source-of-truth invariant. The 5 ``fallecido_<x>``
+    variants are exposed as separate API keys after the LIFECYCLE-03
+    PR-C defect fix (C4) so REPORT-05 dashboard counters see every
+    pre-death state individually instead of collapsed to one.
     """
     assert queries.VALID_ESTADOS == frozenset(
         {
@@ -134,7 +141,11 @@ def test_valid_estados_matches_db_label_mapping_keys() -> None:
             "acogida",
             "adoptado",
             "entregado",
-            "fallecido",
+            "fallecido_albergue",
+            "fallecido_acogida",
+            "fallecido_adoptado",
+            "fallecido_entregado",
+            "fallecido_desconocido",
             "incoherente",
         }
     )
@@ -494,7 +505,7 @@ def test_build_animal_count_combined_filters_pin_param_order() -> None:
             chip="941000000000001",
             especie="FELINA",
             sexo="H",
-            estado="fallecido",
+            estado="fallecido_albergue",
             fecha_alta_since="2026-01-01",
             fecha_alta_until="2026-12-31",
         )
