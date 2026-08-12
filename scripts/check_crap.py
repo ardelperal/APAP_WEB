@@ -65,7 +65,7 @@ class CoverageDataError(ValueError):
 BASELINE_CRAP: dict[str, float] = {
     "app/core/di/auth_dependencies_session_di.py::require_authorized_user": 9.01,
     "app/core/auth_flow.py::register_auth_flow_routes.callback": 7.1,
-    "app/core/csrf.py::CsrfMiddleware.dispatch": 13.33,
+    "app/core/csrf.py::CsrfMiddleware.dispatch": 13.00,
     "app/core/domain/auth/user.py::AuthorizedUser.from_row": 8.35,
     "app/core/insforge_error_translation.py::_classify_409_body": 10.54,
     "app/core/insforge_error_translation.py::translate_post_error": 6.04,
@@ -161,7 +161,7 @@ BASELINE_CRAP: dict[str, float] = {
     "migration/cli_volunteer_dedup.py::_parse_input": 12.67,
     "migration/cli_volunteer_dedup.py::run_volunteer_dedup": 10.74,
     "migration/derivation.py::compare_derived_to_stored": 6.0,
-    "migration/derivation.py::derive_estado_actual_animal": 34.03,
+    "migration/derivation.py::derive_estado_actual_animal": 1.0,
     "migration/diff_engine.py::_diff_snapshots": 29.08,
     "migration/diff_engine.py::_find_target_row": 9.06,
     "migration/diff_engine.py::_index_target": 7.01,
