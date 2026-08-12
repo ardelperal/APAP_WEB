@@ -46,6 +46,16 @@ REASON_TERAPIA_ROW: Final[str] = "terapia_row"
 REASON_TERAPIAS_TABLE_MISSING: Final[str] = "terapias_table_missing"
 
 
+#: Mapping from a health/therapy table to the missing-table reason
+#: constant. Tables not listed here (entradas / acogidas / adopciones)
+#: are part of the bootstrap; a missing one is a config error that
+#: must surface, not a deletability verdict.
+_MISSING_REASON_BY_TABLE: Final[dict[str, str]] = {
+    "actuaciones_sanitarias": REASON_SANIDAD_TABLE_MISSING,
+    "terapias": REASON_TERAPIAS_TABLE_MISSING,
+}
+
+
 #: The table check schedule. Order matters — the first non-empty
 #: table's reason wins. Lifecycle tables come first (the most common
 #: reason an animal is not deletable is that it has an active
@@ -102,6 +112,29 @@ def _is_missing_table_error(exc: BaseException) -> bool:
     return any(marker in message for marker in _MISSING_TABLE_ERROR_MARKERS)
 
 
+def _count_from_rows(rows: list[dict[str, object]] | None) -> int:
+    """Return the ``COUNT(*)`` value from the first row, or 0 if none.
+
+    The use case issues ``SELECT COUNT(*) AS count ...`` against each
+    inspected table; an empty row list means zero rows were found.
+    """
+    if not rows:
+        return 0
+    return int(rows[0].get("count") or 0)  # type: ignore[call-overload]
+
+
+def _classify_missing_table_error(exc: BaseException, table: str) -> str | None:
+    """Return the missing-table reason constant for ``table``, or None.
+
+    Returns None when the exception is not a missing-table error
+    (caller re-raises) or when ``table`` is a bootstrap table whose
+    absence is a config error rather than a deletability verdict.
+    """
+    if not _is_missing_table_error(exc):
+        return None
+    return _MISSING_REASON_BY_TABLE.get(table)
+
+
 def can_delete_animal(executor: SqlExecutor, animal_id: str) -> CanDeleteResult:
     """Return :class:`CanDeleteResult` for the animal.
 
@@ -133,17 +166,14 @@ def can_delete_animal(executor: SqlExecutor, animal_id: str) -> CanDeleteResult:
         try:
             rows = executor.execute_sql(sql, [animal_id])
         except Exception as exc:  # noqa: BLE001 — transport-agnostic guard
-            if not _is_missing_table_error(exc):
+            missing_reason = _classify_missing_table_error(exc, table)
+            if missing_reason is None:
+                # Either a non-missing-table SQL error, or a missing
+                # bootstrap table (entradas / acogidas / adopciones)
+                # — both are operator-facing config errors. Re-raise.
                 raise
-            if table == "actuaciones_sanitarias":
-                return CanDeleteResult(can_delete=False, reason=REASON_SANIDAD_TABLE_MISSING)
-            if table == "terapias":
-                return CanDeleteResult(can_delete=False, reason=REASON_TERAPIAS_TABLE_MISSING)
-            # Other tables (entradas / acogidas / adopciones) are part
-            # of the bootstrap; a missing one is a config error, not a
-            # deletability verdict. Re-raise so the operator sees it.
-            raise
-        if rows and int(rows[0].get("count", 0) or 0) > 0:
+            return CanDeleteResult(can_delete=False, reason=missing_reason)
+        if _count_from_rows(rows) > 0:
             return CanDeleteResult(can_delete=False, reason=row_reason)
 
     return CanDeleteResult(can_delete=True, reason=None)

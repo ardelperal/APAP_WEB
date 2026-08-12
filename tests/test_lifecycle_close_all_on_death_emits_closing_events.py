@@ -232,5 +232,92 @@ def test_close_all_on_death_passes_animal_id_to_every_insert() -> None:
     )
 
 
+def test_close_all_on_death_coerces_datetime_to_isoformat() -> None:
+    """``event_timestamp`` accepts ``datetime`` and serialises via ``.isoformat()``.
+
+    Mirrors the equivalent branch in ``close_previous_situation`` —
+    the use-case signature is ``str | datetime`` so callers can pass
+    a parsed DB timestamp without manual conversion.
+    """
+    from datetime import datetime
+
+    from app.modules.lifecycle.application.close_all_on_death import (
+        close_all_on_death,
+    )
+
+    executor = _FakeSqlExecutor()
+    close_all_on_death(
+        executor,
+        animal_id="animal-uuid-7",
+        event_timestamp=datetime(2026, 8, 1, 12, 30, 0),
+    )
+    inserts = [
+        params
+        for sql, params in executor.calls
+        if "INSERT INTO animal_lifecycle_events" in sql
+    ]
+    assert inserts[0][2] == "2026-08-01T12:30:00", (
+        f"datetime must be serialised via isoformat; got {inserts[0][2]!r}"
+    )
+
+
+def test_close_all_on_death_persists_metadata_on_death_event() -> None:
+    """``metadata`` is JSON-serialised onto the ``DEATH_RECORDED`` event.
+
+    The use case accepts an optional JSON dict for caller-specific
+    context (operator notes, causa de defunción, etc.). When passed,
+    it lands on the death event as a serialised JSON string; when
+    omitted it is ``NULL``.
+    """
+    import json
+
+    from app.modules.lifecycle.application.close_all_on_death import (
+        close_all_on_death,
+    )
+
+    executor = _FakeSqlExecutor()
+    close_all_on_death(
+        executor,
+        animal_id="animal-uuid-8",
+        event_timestamp="2026-08-01T00:00:00Z",
+        metadata={"causa": "eutanasia", "observaciones": "Tumor terminal"},
+    )
+    inserts = [
+        params
+        for sql, params in executor.calls
+        if "INSERT INTO animal_lifecycle_events" in sql
+    ]
+    # First insert is the DEATH_RECORDED event — it carries the metadata
+    # payload (closing events do not, per the use-case contract).
+    assert json.loads(inserts[0][3]) == {
+        "causa": "eutanasia",
+        "observaciones": "Tumor terminal",
+    }, f"metadata must round-trip via JSON; got {inserts[0][3]!r}"
+
+
+def test_close_all_on_death_with_no_metadata_uses_null() -> None:
+    """When ``metadata`` is omitted, the death event stores ``NULL``.
+
+    Distinct from the metadata-present test above — pins the no-metadata
+    branch so the JSON-serialisation guard is exercised both ways.
+    """
+    from app.modules.lifecycle.application.close_all_on_death import (
+        close_all_on_death,
+    )
+
+    executor = _FakeSqlExecutor()
+    close_all_on_death(
+        executor, animal_id="animal-uuid-9", event_timestamp="2026-08-01T00:00:00Z"
+    )
+    inserts = [
+        params
+        for sql, params in executor.calls
+        if "INSERT INTO animal_lifecycle_events" in sql
+    ]
+    assert inserts[0][3] is None, (
+        f"no metadata must serialise to SQL NULL; got {inserts[0][3]!r}"
+    )
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

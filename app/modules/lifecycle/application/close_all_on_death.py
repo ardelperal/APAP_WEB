@@ -141,6 +141,42 @@ def _close_event(  # noqa: PLR0913 - lifecycle event has 7 distinct fields
     )
 
 
+def _close_active_placements(  # noqa: PLR0913 - placement kind + event shape + lineage are 8 distinct parameters
+    executor: SqlExecutor,
+    *,
+    sql: str,
+    animal_id: str,
+    event_type: str,
+    event_timestamp: str,
+    caused_by_event_id: str,
+    source_entity_type: str,
+    id_column: str,
+    created_by: str,
+) -> None:
+    """Emit one closing event for every active placement of one kind.
+
+    The placement tables (``entradas`` / ``acogidas`` / ``adopciones``)
+    share the same active-row shape and the same closing-event shape;
+    only the source SQL, the closing event type, the source-entity
+    type, and the row id column differ. Folding the three near-identical
+    loop bodies from ``close_all_on_death`` into one helper keeps the
+    use case focused on orchestration (and CRAP-grade A per the
+    quality-gates ratchet).
+    """
+    rows = executor.execute_sql(sql, [animal_id])
+    for row in rows:
+        _close_event(
+            executor,
+            animal_id=animal_id,
+            event_type=event_type,
+            event_timestamp=event_timestamp,
+            caused_by_event_id=caused_by_event_id,
+            source_entity_type=source_entity_type,
+            source_entity_id=str(row[id_column]),
+            created_by=created_by,
+        )
+
+
 def close_all_on_death(
     executor: SqlExecutor,
     animal_id: str,
@@ -214,49 +250,39 @@ def close_all_on_death(
     # a closing event that points at the death via caused_by_event_id.
     # The cascade will re-derive the state on the next read; the
     # closing events are the only thing that needs to be emitted here.
-    active_intakes = executor.execute_sql(_SELECT_ACTIVE_INTAKES_SQL, [animal_id])
-    for row in active_intakes:
-        intake_id = str(row["IDEntrada"])
-        _close_event(
-            executor,
-            animal_id=animal_id,
-            event_type="INTAKE_CLOSED_BY_DEATH",
-            event_timestamp=timestamp_str,
-            caused_by_event_id=death_event_id,
-            source_entity_type="entradas",
-            source_entity_id=intake_id,
-            created_by=created_by,
-        )
-
-    active_fosters = executor.execute_sql(_SELECT_ACTIVE_FOSTERS_SQL, [animal_id])
-    for row in active_fosters:
-        foster_id = str(row["IDAcogida"])
-        _close_event(
-            executor,
-            animal_id=animal_id,
-            event_type="FOSTER_CLOSED_BY_DEATH",
-            event_timestamp=timestamp_str,
-            caused_by_event_id=death_event_id,
-            source_entity_type="acogidas",
-            source_entity_id=foster_id,
-            created_by=created_by,
-        )
-
-    active_adoptions = executor.execute_sql(
-        _SELECT_ACTIVE_ADOPTIONS_SQL, [animal_id]
+    _close_active_placements(
+        executor,
+        sql=_SELECT_ACTIVE_INTAKES_SQL,
+        animal_id=animal_id,
+        event_type="INTAKE_CLOSED_BY_DEATH",
+        event_timestamp=timestamp_str,
+        caused_by_event_id=death_event_id,
+        source_entity_type="entradas",
+        id_column="IDEntrada",
+        created_by=created_by,
     )
-    for row in active_adoptions:
-        adoption_id = str(row["IDAdopcion"])
-        _close_event(
-            executor,
-            animal_id=animal_id,
-            event_type="ADOPTION_CLOSED_BY_DEATH",
-            event_timestamp=timestamp_str,
-            caused_by_event_id=death_event_id,
-            source_entity_type="adopciones",
-            source_entity_id=adoption_id,
-            created_by=created_by,
-        )
+    _close_active_placements(
+        executor,
+        sql=_SELECT_ACTIVE_FOSTERS_SQL,
+        animal_id=animal_id,
+        event_type="FOSTER_CLOSED_BY_DEATH",
+        event_timestamp=timestamp_str,
+        caused_by_event_id=death_event_id,
+        source_entity_type="acogidas",
+        id_column="IDAcogida",
+        created_by=created_by,
+    )
+    _close_active_placements(
+        executor,
+        sql=_SELECT_ACTIVE_ADOPTIONS_SQL,
+        animal_id=animal_id,
+        event_type="ADOPTION_CLOSED_BY_DEATH",
+        event_timestamp=timestamp_str,
+        caused_by_event_id=death_event_id,
+        source_entity_type="adopciones",
+        id_column="IDAdopcion",
+        created_by=created_by,
+    )
 
     return death_event_id
 

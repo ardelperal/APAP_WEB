@@ -212,5 +212,50 @@ def test_can_delete_animal_returns_terapias_table_missing_when_table_absent() ->
     assert result.reason == "terapias_table_missing"
 
 
+def test_can_delete_animal_reraises_on_non_missing_table_error() -> None:
+    """SQL errors that are NOT missing-table errors re-raise.
+
+    The use case translates relation-not-found errors into
+    ``<table>_table_missing`` reasons; every other SQL error must
+    surface to the caller as an exception so transport / programming
+    bugs are not masked as a "non-deletable" verdict.
+    """
+    from app.modules.lifecycle.application.can_delete_animal import (
+        can_delete_animal,
+    )
+
+    class _RaisingSqlExecutor:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def execute_sql(self, query: str, params: list | None = None) -> list:
+            self.calls += 1
+            raise RuntimeError("connection refused: not a missing-table error")
+
+    executor = _RaisingSqlExecutor()
+    with pytest.raises(RuntimeError, match="connection refused"):
+        can_delete_animal(executor, "animal-uuid-9")
+    assert executor.calls == 1, "use case must stop at the first failing table"
+
+
+def test_can_delete_animal_reraises_when_bootstrap_table_is_missing() -> None:
+    """Missing bootstrap table (entradas) re-raises — config error, not a verdict.
+
+    ``entradas`` / ``acogidas`` / ``adopciones`` are part of the
+    bootstrap. A missing one is a config error that must surface to
+    the operator, never a deletability verdict.
+    """
+    from app.modules.lifecycle.application.can_delete_animal import (
+        can_delete_animal,
+    )
+
+    executor = _FakeSqlExecutor(
+        counts={},
+        table_error="entradas",
+    )
+    with pytest.raises(RuntimeError, match="does not exist"):
+        can_delete_animal(executor, "animal-uuid-10")
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
