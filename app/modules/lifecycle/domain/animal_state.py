@@ -1,20 +1,8 @@
 """Pure-domain port of the legacy Access/VBA ``DameSituacion()`` cascade.
 
-LIFECYCLE-03 (issue #33) PR-A. Replicates the 6-level priority cascade
-as a pure Python function so it can be reused by both the migration
-layer (redirected in PR-C) and the web app's lifecycle writer
-(rewired in PR-C). No I/O, no transport imports (AGENTS.md §31/§33.4).
-
-Priority cascade:
-  P1 Incoherente (multi-category active OR death + any active).
-  P2 No active, no death -> Pendiente / Entregado.
-  P3 Single active intake -> Albergue.
-  P4 Single active foster -> Acogida.
-  P5 Single active adoption -> Adoptado.
-  P6 Death -> Fallecido (pre_death_state).
-
-The 11 parametrized cases in tests/test_lifecycle_state_cascade.py
-freeze this contract.
+LIFECYCLE-03 (issue #33) PR-A. 6-level priority cascade, no I/O, no
+transport imports (AGENTS.md §31/§33.4). The 11 parametrized cases in
+``tests/test_lifecycle_state_cascade.py`` freeze this contract.
 """
 
 from __future__ import annotations
@@ -28,12 +16,7 @@ from typing import Any
 
 
 class DerivationKind(StrEnum):
-    """Categorical kind of the derived state.
-
-    Decoupled from the user-facing state string so callers can switch
-    on category without parsing the localised string.
-    """
-
+    """Categorical kind of the derived state (decoupled from the user-facing string)."""
     PENDIENTE_ENTRADA = "pendiente_entrada"
     PENDIENTE_NUEVA_SITUACION = "pendiente_nueva_situacion"
     ALBERGUE = "albergue"
@@ -58,14 +41,8 @@ STATE_FALLECIDO_ENTREGADO = "Fallecido (Entregado)"
 STATE_FALLECIDO_DESCONOCIDO = "Fallecido (Desconocido)"
 
 _VALID_PRE_DEATH_STATES: frozenset[str] = frozenset(
-    {
-        STATE_ALBERGUE,
-        STATE_ACOGIDA,
-        STATE_ADOPTADO,
-        STATE_ENTREGADO,
-    }
+    {STATE_ALBERGUE, STATE_ACOGIDA, STATE_ADOPTADO, STATE_ENTREGADO}
 )
-
 PRE_DEATH_STATE_DESCONOCIDO = "Desconocido"
 
 
@@ -73,16 +50,12 @@ PRE_DEATH_STATE_DESCONOCIDO = "Desconocido"
 class DerivationResult:
     """Output of :func:`calculate_state`.
 
-    ``state`` is the literal value the spec writes to
-    ``animal_current_state.current_state`` (matches the CHECK constraint
-    in ``app/core/domain_lifecycle.py``). ``kind`` is the categorical
-    enum used for branching in callers.
-
-    ``pre_death_state`` is populated only when ``kind`` is ``FALLECIDO``
-    (one of ``Albergue``, ``Acogida``, ``Adoptado``, ``Entregado``, or
-    ``Desconocido``). ``active_*_id`` carry the legacy PK of the
-    placement that produced the active state; all three are ``None``
-    for terminal states and Incoherente.
+    ``state`` is the CHECK-enforced string written to
+    ``animal_current_state.current_state``. ``pre_death_state`` is set
+    only when ``kind`` is ``FALLECIDO`` (one of Albergue/Acogida/
+    Adoptado/Entregado or Desconocido). ``active_*_id`` carry the
+    legacy PK of the placement that produced the active state; all
+    three are ``None`` for terminal states and Incoherente.
     """
 
     state: str
@@ -102,18 +75,13 @@ def calculate_state(
     """Pure derivation of an animal's current state from 4 collections.
 
     Replicates the VBA ``DameSituacion()`` priority cascade. ``ficha``
-    may be ``None`` — the function treats it as an empty dict and
-    falls through to the no-active no-death branch, returning
-    ``Pendiente de Entrada`` if there are no ``entradas`` either.
+    may be ``None`` (treated as empty dict).
     """
     ficha = ficha if ficha is not None else {}
     entradas_list = list(entradas)
-    acogidas_list = list(acogidas)
-    adopciones_list = list(adopciones)
-
     active_intakes = [e for e in entradas_list if _is_null(e.get("FSalida"))]
-    active_fosters = [a for a in acogidas_list if _is_null(a.get("FFinal"))]
-    active_adoptions = [d for d in adopciones_list if _is_null(d.get("FDevolucion"))]
+    active_fosters = [a for a in acogidas if _is_null(a.get("FFinal"))]
+    active_adoptions = [d for d in adopciones if _is_null(d.get("FDevolucion"))]
     has_death = _is_date(ficha.get("FDefuncion"))
 
     # P1 — Incoherente (multi-category, multiple-in-category, or death+active)
@@ -173,8 +141,7 @@ def calculate_state(
             pre_death_state=pre,
         )
 
-    # Defensive fallback: cascade above covers every input; defaults to
-    # "needs operator review" to match VBA behaviour on edge cases.
+    # Defensive fallback (VBA defaults to "needs operator review").
     return DerivationResult(state=STATE_INCOHERENTE, kind=DerivationKind.INCOHERENTE)
 
 
@@ -210,20 +177,13 @@ def _has_cross_category(
 def _legacy_pk_as_str(row: dict[str, Any], field: str) -> str | None:
     """Return the legacy primary key as ``str`` (or ``None`` when missing)."""
     raw = row.get(field)
-    if raw is None:
-        return None
-    return str(raw)
+    return None if raw is None else str(raw)
 
 
 def _latest_FEntregaAPropietario(
     entradas: list[dict[str, Any]],
 ) -> dict[str, Any] | None:
-    """Return the latest entrada (by ``IDEntrada`` desc) with
-    ``FEntregaAPropietario`` set, or ``None`` if no entrada carries it.
-
-    Mirrors ``DameUltimaFEntregaAPropietario`` in
-    ``Funciones Generales.bas:1639-1665``.
-    """
+    """Latest entrada (by ``IDEntrada`` desc) with ``FEntregaAPropietario`` set."""
     with_date = [e for e in entradas if _is_date(e.get("FEntregaAPropietario"))]
     if not with_date:
         return None
@@ -231,10 +191,9 @@ def _latest_FEntregaAPropietario(
 
 
 # Captures the inner state of a derived "Fallecido (X)" string. Used by
-# ``_resolve_pre_death_state`` to make the helper idempotent against a
+# ``_resolve_pre_death_state`` to keep the helper idempotent against a
 # cached ``Situacion`` that already carries a previously derived
-# Fallecido string (VBA prioridad 6 — ``lifecycle-state-resolver-extraction.md``
-# §10 Challenge #1).
+# Fallecido string (VBA prioridad 6).
 _FALLECIDO_PARENTHETICAL_RE = re.compile(r"^Fallecido \((.+)\)$")
 
 
@@ -242,25 +201,19 @@ def _resolve_pre_death_state(ficha: dict[str, Any]) -> str:
     """Compute the parenthetical for a ``Fallecido ({pre})`` state.
 
     Mirrors ``DameSituacion`` priority 6:
-
-      - If ``UltimoEstadoAntesDeFallecido`` is empty AND ``Situacion``
-        does NOT already contain ``Fallecido``, returns ``Desconocido``.
-      - If ``Situacion`` already carries ``Fallecido ({X})`` (the cache
-        was overwritten by a previous apply), parses out ``X`` so the
-        caller wraps it exactly once — idempotence rule, MUST NOT nest
-        to ``Fallecido (Fallecido (X))``.
-      - If ``UltimoEstadoAntesDeFallecido`` is set but not one of the
-        four active states, falls back to ``Desconocido``.
+      - empty ``UltimoEstadoAntesDeFallecido`` + no Fallecido in cache
+        -> Desconocido;
+      - cache already carries ``Fallecido ({X})`` -> parse out ``X`` so
+        the wrapper does not nest to ``Fallecido (Fallecido (X))``;
+      - non-empty but invalid -> fall back to Desconocido.
     """
     pre = ficha.get("UltimoEstadoAntesDeFallecido") or ""
     situacion_anterior = ficha.get("Situacion") or ""
-
     if pre == "":
         if "Fallecido" not in situacion_anterior:
             return PRE_DEATH_STATE_DESCONOCIDO
         match = _FALLECIDO_PARENTHETICAL_RE.match(situacion_anterior)
         return match.group(1) if match is not None else PRE_DEATH_STATE_DESCONOCIDO
-
     if pre not in _VALID_PRE_DEATH_STATES:
         return PRE_DEATH_STATE_DESCONOCIDO
     return pre
