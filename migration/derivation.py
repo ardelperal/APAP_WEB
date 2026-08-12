@@ -58,7 +58,6 @@ from app.modules.lifecycle.domain.animal_state import (
 )
 from migration.reconcile import ReconciliationStatus
 
-
 # --- State value constants -----------------------------------------------
 #
 # Re-exported from the domain so the comparator and downstream callers

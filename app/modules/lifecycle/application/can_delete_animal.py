@@ -34,7 +34,6 @@ from typing import Final
 
 from app.core.data_access import SqlExecutor
 
-
 #: Reason constants for ``CanDeleteResult``. The set is closed
 #: (AGENTS.md §4 — one source of truth per domain concept); adding a
 #: new table means adding a member here AND extending ``_TABLE_CHECKS``.

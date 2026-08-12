@@ -32,7 +32,6 @@ from typing import Final
 
 from app.core.data_access import SqlExecutor
 
-
 #: Mapping from the situation category to the matching closing event.
 #: The set is closed — adding a new transition means both adding a
 #: member here AND extending the ``animal_lifecycle_events`` CHECK

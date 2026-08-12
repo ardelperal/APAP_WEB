@@ -36,7 +36,6 @@ from typing import Any
 
 from app.core.data_access import SqlExecutor
 
-
 # Active placements are the same projections the cascade adapter
 # reads (app/modules/lifecycle/adapters/insforge/lifecycle_insforge_queries.py).
 # Inlined here because the close use case is application-layer per
