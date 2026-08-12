@@ -21,17 +21,12 @@ from datetime import datetime
 
 import pytest
 
-from app.modules.lifecycle.domain import animal_state
 from app.modules.lifecycle.domain.animal_state import (
-    DerivationKind,
-    DerivationResult,
-    STATE_INCOHERENTE,
     _has_cross_category,
     _is_incoherente,
     _is_null,
     _resolve_pre_death_state,
 )
-
 
 # ---------------------------------------------------------------------------
 # _is_null — covered in isolation so the cascade-level test suite doesn't have
