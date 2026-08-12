@@ -146,17 +146,21 @@ def test_lifecycle_application_and_di_have_no_insforge_import(module_path: str) 
 )
 def test_lifecycle_application_di_source_files_no_insforge_import(module_path: str) -> None:
     """Companion to the package-init pin: scan the source files inside
-    application/ and di/ that may grow over PR-B. Empty __init__ is a
-    no-op so this skips gracefully when the file holds no statements;
-    a future PR that adds an InsForge import here fails the pin
-    immediately.
+    application/ and di/ that may grow over PR-B. The pin forbids the
+    transport client (``app.core.insforge``) only — ``di/`` is allowed
+    to import the concrete ``InsForgeLifecycleAdapter`` from the slice's
+    own ``app.modules.lifecycle.adapters`` package per AGENTS.md §33.4
+    (the composition root is the one place that knows both the
+    Protocol and the concrete adapter). Empty __init__ is a no-op so
+    this skips gracefully when the file holds no statements.
     """
     tree = _read(module_path)
-    for _kind, module, name in _imports(tree):
-        full = f"{module}.{name}" if module else name
-        assert "InsForge" not in full, (
-            f"{module_path}: application/di source must not import "
-            f"transport type {full!r}"
+    for _kind, module, _name in _imports(tree):
+        # Only the transport client (app.core.insforge) is forbidden.
+        # Intra-slice imports of the concrete adapter are allowed in di/.
+        assert not (module and module.startswith("app.core.insforge")), (
+            f"{module_path}: application/di layer must not import the "
+            f"transport client (AGENTS.md §33.4); found import of '{module}'"
         )
 
 
