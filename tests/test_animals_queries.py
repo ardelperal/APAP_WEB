@@ -35,12 +35,16 @@ from app.modules.animals import queries
     ("db_label", "api_estado"),
     [
         ("Pendiente de Entrada", "pendiente_entrada"),
-        ("Pendiente de Nueva Situacion", "pendiente_nueva_situacion"),
+        ("Pendiente de Nueva Situación", "pendiente_nueva_situacion"),
         ("Albergue", "albergue"),
         ("Acogida", "acogida"),
         ("Adoptado", "adoptado"),
         ("Entregado", "entregado"),
-        ("Fallecido (Albergue)", "fallecido"),
+        ("Fallecido (Albergue)", "fallecido_albergue"),
+        ("Fallecido (Acogida)", "fallecido_acogida"),
+        ("Fallecido (Adoptado)", "fallecido_adoptado"),
+        ("Fallecido (Entregado)", "fallecido_entregado"),
+        ("Fallecido (Desconocido)", "fallecido_desconocido"),
         ("Incoherente", "incoherente"),
     ],
 )
@@ -56,6 +60,55 @@ def test_db_label_to_estado_round_trips_every_mapped_label(
     response.
     """
     assert queries.DB_LABEL_TO_ESTADO[db_label] == api_estado
+
+
+# ---------------------------------------------------------------------------
+# DB_LABEL_TO_ESTADO — pin tests for LIFECYCLE-03 PR-C
+# ---------------------------------------------------------------------------
+# These pin the corrected (canonical accented, 5-variant Fallecido) spelling
+# after the defect fix in C4. Both tests FAIL today — the current spelling
+# at ``app/modules/animals/queries.py:45`` is accent-less and the
+# ``fallecido`` key is collapsed to ``"Fallecido (Albergue)"`` for every
+# death. The pin below is what the cascade (PR-A) writes to
+# ``animal_current_state.current_state`` and what the CHECK constraint at
+# ``app/core/domain_lifecycle.py:147-156`` allows.
+
+
+def test_db_label_to_estado_uses_accented_pendiente_nueva_situacion() -> None:
+    """Pin #9: ``_ESTADO_DB_LABEL['pendiente_nueva_situacion']`` carries
+    the accented ``"Pendiente de Nueva Situación"`` (with acute) — the
+    canonical form enforced by the ``animal_current_state`` CHECK constraint
+    and the cascade output. Mirrors ``migration/derivation.py:62``.
+    """
+    assert queries._ESTADO_DB_LABEL["pendiente_nueva_situacion"] == (
+        "Pendiente de Nueva Situación"
+    )
+
+
+def test_db_label_to_estado_lists_all_fallecido_variants() -> None:
+    """Pin #10: the 5 ``Fallecido (X)`` CHECK-allowed variants each map
+    to their own API key (``fallecido_albergue``, ``fallecido_acogida``,
+    ``fallecido_adoptado``, ``fallecido_entregado``, ``fallecido_desconocido``).
+    The previous collapsed ``fallecido`` key only carried
+    ``"Fallecido (Albergue)"`` — a fidelity bug.
+    """
+    expected_variants = {
+        "fallecido_albergue": "Fallecido (Albergue)",
+        "fallecido_acogida": "Fallecido (Acogida)",
+        "fallecido_adoptado": "Fallecido (Adoptado)",
+        "fallecido_entregado": "Fallecido (Entregado)",
+        "fallecido_desconocido": "Fallecido (Desconocido)",
+    }
+    for api_key, db_label in expected_variants.items():
+        assert queries._ESTADO_DB_LABEL[api_key] == db_label, (
+            f"_ESTADO_DB_LABEL[{api_key!r}] must be {db_label!r}; "
+            f"got {queries._ESTADO_DB_LABEL.get(api_key)!r}"
+        )
+    # The legacy collapsed key must NOT exist any more — the bug being fixed.
+    assert "fallecido" not in queries._ESTADO_DB_LABEL, (
+        "Collapsed 'fallecido' key is the P1 fidelity bug; use the 5 "
+        "variant keys (fallecido_albergue, ..., fallecido_desconocido)"
+    )
 
 
 def test_db_label_to_estado_returns_none_for_unmapped_label() -> None:
@@ -75,7 +128,10 @@ def test_valid_estados_matches_db_label_mapping_keys() -> None:
 
     ``VALID_ESTADOS`` is derived from the same dict the reverse map is
     built from, so adding a label requires no second list. This test
-    pins that single-source-of-truth invariant.
+    pins that single-source-of-truth invariant. The 5 ``fallecido_<x>``
+    variants are exposed as separate API keys after the LIFECYCLE-03
+    PR-C defect fix (C4) so REPORT-05 dashboard counters see every
+    pre-death state individually instead of collapsed to one.
     """
     assert queries.VALID_ESTADOS == frozenset(
         {
@@ -85,7 +141,11 @@ def test_valid_estados_matches_db_label_mapping_keys() -> None:
             "acogida",
             "adoptado",
             "entregado",
-            "fallecido",
+            "fallecido_albergue",
+            "fallecido_acogida",
+            "fallecido_adoptado",
+            "fallecido_entregado",
+            "fallecido_desconocido",
             "incoherente",
         }
     )
@@ -445,7 +505,7 @@ def test_build_animal_count_combined_filters_pin_param_order() -> None:
             chip="941000000000001",
             especie="FELINA",
             sexo="H",
-            estado="fallecido",
+            estado="fallecido_albergue",
             fecha_alta_since="2026-01-01",
             fecha_alta_until="2026-12-31",
         )

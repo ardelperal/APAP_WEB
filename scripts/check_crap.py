@@ -160,7 +160,6 @@ BASELINE_CRAP: dict[str, float] = {
     "migration/cli_volunteer_dedup.py::_format_summary": 7.0,
     "migration/cli_volunteer_dedup.py::_parse_input": 12.67,
     "migration/cli_volunteer_dedup.py::run_volunteer_dedup": 10.74,
-    "migration/derivation.py::_resolve_pre_death_state": 8.23,
     "migration/derivation.py::compare_derived_to_stored": 6.0,
     "migration/derivation.py::derive_estado_actual_animal": 34.03,
     "migration/diff_engine.py::_diff_snapshots": 29.08,
