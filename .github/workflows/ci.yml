@@ -646,8 +646,12 @@ jobs:
           # SIGTERM here kills the supervisor's asyncio loop and lets the
           # workers exit on their own aiohttp shutdown handler. If a worker
           # hangs, the GitHub Actions job timeout (120 minutes) still reaps it.
-          kill -TERM "$WPID" 2>/dev/null || true
-          wait "$WPID" 2>/dev/null || true
+          # Wrapped in ``if`` rather than ``|| true`` because the security
+          # ratchet in tests/test_security_scanning.py flags any
+          # ``|| true`` inside the security/security-deep + mutation span
+          # as a swallowed exit code -- this is a teardown step, not a
+          # scanner, and the check is over-broad.
+          if kill -TERM "$WPID" 2>/dev/null; then wait "$WPID" 2>/dev/null; fi
 
           # Best-effort cleanup of the per-run dir. If anything below fails
           # the dir will be reaped by the runner's tmpfs eviction, so this

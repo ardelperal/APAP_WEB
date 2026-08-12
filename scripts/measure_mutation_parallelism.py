@@ -69,6 +69,24 @@ def _eprint(*args: object) -> None:
     print(*args, file=sys.stderr)
 
 
+def _pin_output_encoding() -> None:
+    """Reconfigure stdout/stderr to UTF-8 so non-ASCII messages print on every platform.
+
+    Pin from issue #488: the CI runner is UTF-8 but Windows hosts default
+    to cp1252, and ``print("§")`` raised UnicodeEncodeError from inside
+    the helper -- turning a real error into a traceback at the worst
+    possible moment. Every printing gate under ``scripts/`` calls this
+    from its ``main()``; the regression pin lives in
+    ``tests/test_gate_output_encoding.py`` and reads
+    ``sys.stdout.reconfigure`` / ``sys.stderr.reconfigure`` as
+    ``ast.Attribute`` chains, so this body has to keep both stream
+    names spelled out rather than collapsing them through a loop.
+    """
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+
+
 def _require_linux() -> None:
     """Fail fast on anything that isn't Linux; cosmic-ray cannot mutate there."""
     if sys.platform.startswith("linux"):
@@ -263,6 +281,7 @@ def _teardown(
 
 
 def main(argv: list[str] | None = None) -> int:
+    _pin_output_encoding()
     _require_linux()
     args = _build_parser().parse_args(argv)
 
