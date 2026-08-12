@@ -1,4 +1,4 @@
-"""Workflow-file gate: five ways a workflow stops protecting anything.
+"""Workflow-file gate: six ways a workflow stops protecting anything.
 
 **Duplicate mapping keys (issue #523).** A workflow whose YAML does not parse
 never becomes a red check. GitHub records a `startup_failure` run and the check
@@ -17,6 +17,11 @@ a port on the runner host. One runner serialises the jobs, so nothing collides
 and the defect stays invisible; a second runner turns it into two branches
 sharing one database, which passes.
 
+**A command the runner does not have (issue #533).** The hosted image shipped
+the `gh` CLI and this one does not, so `gh api` exits 127. `deploy.yml` hid
+that behind ``2>/dev/null || echo 0`` and every merge from d38b748 onward
+silently refused to deploy, reporting a broken lookup as an unproven tree.
+
 **No concurrency group (issue #530).** A second push runs alongside the
 first and both compete for the single eligible runner, and
 ``cancel-in-progress: true`` would discard work that already consumed it.
@@ -32,11 +37,12 @@ single-runner pool that would have held the queue for six hours had nobody been
 watching. Every job must state its own budget. This check parses properly with
 PyYAML, which #526 moved into the ``dev`` extra precisely so the gates may.
 
-All five checks prove they scanned something, per Hard Rule 18: zero workflow files
+All six checks prove they scanned something, per Hard Rule 18: zero workflow files
 found is a failure, not a pass.
 """
 from __future__ import annotations
 
+import re
 import sys
 from collections.abc import Iterator
 from pathlib import Path
@@ -201,6 +207,54 @@ def check_service_ports(text: str, label: str) -> list[str]:
     return violations
 
 
+#: Commands the GitHub-hosted images provide and this runner image does not.
+#: Each one exits 127 here, and a step that swallows that turns it into a verdict.
+_ABSENT_ON_RUNNER = ("gh",)
+
+_INVOCATION = "|".join(_ABSENT_ON_RUNNER)
+_INVOKES_ABSENT = re.compile(rf"(?:^|[|&;(`$]|\s)(?:{_INVOCATION})\s", re.MULTILINE)
+
+
+def _executable_lines(script: str) -> str:
+    """``script`` with comment-only lines removed.
+
+    Comments in these workflows explain the very commands they must not invoke —
+    the deploy evidence step documents the `gh api` it replaced — so a scan that
+    reads them reports the explanation as the offence.
+    """
+    return "\n".join(
+        line for line in script.splitlines() if not line.strip().startswith("#")
+    )
+
+
+def check_absent_commands(text: str, label: str) -> list[str]:
+    """Return one violation per step invoking a command this runner does not have.
+
+    The GitHub-hosted image shipped the `gh` CLI; the actions-runner image does
+    not. `deploy.yml` called `gh api` behind `2>/dev/null || echo 0`, so the 127
+    became `green=0` — "this tree was never proven" — and every merge from
+    d38b748 onward refused to deploy without saying why (issue #533). Use
+    `curl` + `jq`, both of which are present.
+    """
+    workflow = yaml.safe_load(text)
+    if not isinstance(workflow, dict):
+        return []
+    violations: list[str] = []
+    for name, job in (workflow.get("jobs") or {}).items():
+        if not isinstance(job, dict):
+            continue
+        for script in _step_scripts(job):
+            if _INVOKES_ABSENT.search(_executable_lines(script)):
+                violations.append(
+                    f"{label}: job '{name}' invokes a command the self-hosted "
+                    f"runner does not provide ({', '.join(_ABSENT_ON_RUNNER)}). "
+                    f"It exits 127, and a step that defaults on failure turns "
+                    f"that into a verdict. Use curl + jq (issue #533)."
+                )
+                break
+    return violations
+
+
 def check_concurrency(text: str, label: str) -> list[str]:
     """Return violations when a workflow declares no FIFO concurrency group.
 
@@ -283,6 +337,7 @@ def check(workflow_dir: Path = WORKFLOW_DIR) -> tuple[list[str], int]:
             violations.extend(check_service_ports(text, label))
             violations.extend(check_docker_preflight(text, label))
             violations.extend(check_concurrency(text, label))
+            violations.extend(check_absent_commands(text, label))
     return violations, len(paths)
 
 
@@ -318,7 +373,7 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"check_workflows: OK ({scanned} workflow files, no duplicate keys, "
         f"every job has a timeout, no pinned service ports, docker is checked "
-        f"before use, FIFO concurrency)"
+        f"before use, FIFO concurrency, no absent commands)"
     )
     return 0
 
