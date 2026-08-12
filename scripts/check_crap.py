@@ -65,14 +65,14 @@ class CoverageDataError(ValueError):
 BASELINE_CRAP: dict[str, float] = {
     "app/core/di/auth_dependencies_session_di.py::require_authorized_user": 9.01,
     "app/core/auth_flow.py::register_auth_flow_routes.callback": 7.1,
-    "app/core/csrf.py::CsrfMiddleware.dispatch": 13.33,
+    "app/core/csrf.py::CsrfMiddleware.dispatch": 13.0,
     "app/core/domain/auth/user.py::AuthorizedUser.from_row": 8.35,
     "app/core/insforge_error_translation.py::_classify_409_body": 10.54,
     "app/core/insforge_error_translation.py::translate_post_error": 6.04,
     "app/core/logging.py::JsonFormatter.format": 6.2,
     "app/core/logging.py::RedactionFilter.filter": 7.0,
     "app/core/middleware.py::install_auth_middleware.protect_user_facing_routes": 6.0,
-    "app/core/rate_limit.py::InProcessRateLimitBackend.hit": 8.12,
+    "app/core/rate_limit.py::InProcessRateLimitBackend.hit": 7.04,
     "app/core/rate_limit.py::_extract_identity": 7.02,
     "app/core/rate_limit_middleware.py::RateLimitMiddleware.dispatch": 15.16,
     "app/core/rbac.py::require_permission.checker": 13.15,
@@ -174,7 +174,7 @@ BASELINE_CRAP: dict[str, float] = {
     "migration/legacy_access_client.py::execute_legacy_write": 10.98,
     "migration/legacy_reader.py::load_legacy_snapshot_batched": 6.01,
     "migration/lock.py::LockInfo.from_json": 7.39,
-    "migration/lock.py::_is_process_alive": 20.27,
+    "migration/lock.py::_is_process_alive": 8.25,
     "migration/lock.py::_is_process_alive_windows": 38.28,
     "migration/lock.py::check_msaccess_running": 12.89,
     "migration/lock_snapshot.py::Snapshot.from_json": 6.4,
@@ -184,7 +184,7 @@ BASELINE_CRAP: dict[str, float] = {
     "migration/reconcile.py::_reconcile_column": 11.17,
     "migration/reconcile.py::_resolve_animal_id": 6.56,
     "migration/reconcile.py::post_apply_diff": 19.5,
-    "migration/reporting.py::MigrationReport.to_markdown": 50.43,
+    "migration/reporting.py::MigrationReport.to_markdown": 1.0,
     "migration/reverse_apply/io_helpers.py::_case_insensitive_get": 7.01,
     "migration/reverse_apply/lifecycle.py::_emit_reversed_lifecycle_events_for_changed_derived": 14.34,
     "migration/reverse_apply/orchestrator.py::_load_legacy_snapshot": 6.01,
@@ -207,7 +207,7 @@ BASELINE_CRAP: dict[str, float] = {
     "migration/sync_state.py::_sync_state_from_raw": 12.2,
     "migration/volunteer_dedup.py::MergedCluster.__post_init__": 13.62,
     "migration/volunteer_dedup.py::VolunteerRef.__post_init__": 16.11,
-    "migration/volunteer_dedup.py::_cluster_decision": 11.0,
+    "migration/volunteer_dedup.py::_cluster_decision": 10.0,
     "migration/volunteer_dedup.py::dedup_volunteers": 14.0,
 }
 
@@ -376,6 +376,51 @@ def _check_stale_baseline(
     return violations, notices
 
 
+def check_baseline_exactness(
+    measured: Mapping[str, float],
+    baseline: Mapping[str, float],
+) -> tuple[list[str], list[str]]:
+    """Complement the ratchet with the strict-equality contract.
+
+    The ratchet (``_check_measured_scores`` + ``_check_stale_baseline``)
+    surfaces regressions and missing offenders as violations and
+    improvements as notices. That is the right shape during active work:
+    a function improving should not block a commit, only encourage a
+    follow-up baseline refresh.
+
+    ``check_baseline_exactness`` upgrades the *contract* to a stricter one:
+    every baseline entry must correspond to a function whose score
+    matches the baseline value. Improvements become violations so the
+    exact-equality invariant can never drift silently. The contract was
+    previously codified as a stand-alone pytest assertion that always
+    skipped in CI because ``coverage.json`` is written by
+    ``pytest --cov-report=json`` only at session end (issue #540).
+    Moving it here lets the CI ``test`` job run it against the freshly
+    written ``coverage.json`` immediately after pytest.
+
+    This function complements rather than duplicates the ratchet:
+
+    * regressions / new offenders / stale entries — already caught above.
+    * improvements (``measured < baseline``) — promoted from NOTICE to
+      VIOLATION here, so a missed ``--emit-baseline`` lands as a hard
+      CI failure instead of a quiet drift.
+
+    Returns ``(violations, notices)``. Notices are reserved for future
+    use; today every drift is a violation by design.
+    """
+    violations: list[str] = []
+    for key, budget in baseline.items():
+        if key not in measured:
+            continue  # stale entry, handled by _check_stale_baseline
+        actual = measured[key]
+        if actual < budget:
+            violations.append(
+                f"{key}: CRAP={actual:.2f}, improved below its baseline of "
+                f"{budget:.2f}; update BASELINE_CRAP to lock in the new score."
+            )
+    return violations, []
+
+
 def check_tree(
     root: Path,
     *,
@@ -402,7 +447,13 @@ def check_tree(
         measured,
         baseline,
     )
-    return violations + stale_violations, notices + stale_notices
+    exactness_violations, exactness_notices = check_baseline_exactness(
+        measured, baseline
+    )
+    return (
+        violations + stale_violations + exactness_violations,
+        notices + stale_notices + exactness_notices,
+    )
 
 
 def _emit_baseline(root: Path) -> int:
