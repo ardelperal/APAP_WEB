@@ -40,9 +40,12 @@ def build_lifecycle_port(executor: SqlExecutor) -> LifecyclePort:
         ) -> LifecyclePort:
             return build_lifecycle_port(executor)
 
-    PR-C's callsite rewrites will reach this factory through
-    ``app.modules.animals.lifecycle_events`` once the
-    ``_compute_current_state_from_events`` removal lands.
+    PR-C's callsite rewrites reach this factory through
+    ``app.modules.animals.lifecycle_events.actualizar_estado_animal``
+    which builds the port per request and delegates to the domain
+    cascade. The simplified ``_EVENT_TYPE_TO_STATE`` map that lived
+    in lifecycle_events.py before LIFECYCLE-03 PR-C was the P1
+    fidelity gap; it is replaced by this wired cascade.
     """
     return InsForgeLifecycleAdapter(executor)
 

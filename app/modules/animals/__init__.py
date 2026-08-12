@@ -11,6 +11,14 @@ paths directly. The module currently exports:
   animal lifecycle event log + the D-23 causal-pair rule. Routes that
   emit lifecycle events will go through these rather than writing SQL
   directly (AGENTS.md §1 + §22).
+- :func:`calculate_animal_state` + :func:`persist_animal_state` +
+  :func:`close_all_on_death` + :func:`close_previous_situation` +
+  :func:`can_delete_animal` — the LIFECYCLE-03 (issue #33) lifecycle
+  use cases that compose the domain cascade (PR-A + PR-B) with the
+  close/can_delete primitives added in PR-C. Re-exported here so
+  consumers can route through ``app.modules.animals`` without
+  importing the slice's internal submodules directly
+  (AGENTS.md §27 public-API rule).
 """
 
 from app.modules.animals.lifecycle_events import (
@@ -26,13 +34,35 @@ from app.modules.animals.lifecycle_events import (
     validate_causal_pair as validate_lifecycle_causal_pair,
 )
 from app.modules.animals.service import get_animal_by_id
+from app.modules.lifecycle.application.calculate_animal_state import (
+    calculate_animal_state,
+)
+from app.modules.lifecycle.application.can_delete_animal import (
+    CanDeleteResult,
+    can_delete_animal,
+)
+from app.modules.lifecycle.application.close_all_on_death import (
+    close_all_on_death,
+)
+from app.modules.lifecycle.application.close_previous_situation import (
+    close_previous_situation,
+)
+from app.modules.lifecycle.application.persist_animal_state import (
+    persist_animal_state,
+)
 
 __all__ = [
     "CORE_EVENT_TYPES",
+    "CanDeleteResult",
     "CausalPairViolation",
     "LifecycleEventType",
     "SUPPORTING_EVENT_TYPES",
+    "calculate_animal_state",
+    "can_delete_animal",
+    "close_all_on_death",
+    "close_previous_situation",
     "get_animal_by_id",
+    "persist_animal_state",
     "record_lifecycle_event",
     "validate_lifecycle_causal_pair",
 ]

@@ -21,6 +21,13 @@ Public API (consumed by routes in future PRs and by the migration
   natural key. Idempotent at the DB level — a retry of the same
   logical event (same ``animal_id`` + same ``event_type`` + same
   ``event_timestamp``) collapses to a single row.
+- :func:`actualizar_estado_animal`: re-derive the animal's current
+  state via the lifecycle slice's domain cascade and upsert the
+  cache row. Wired to :func:`app.modules.lifecycle.di.lifecycle_di.build_lifecycle_port`
+  per AGENTS.md §33.4 — the simplified ``_EVENT_TYPE_TO_STATE`` map
+  that lived here before LIFECYCLE-03 PR-C was the P1 fidelity gap
+  (see REMOVED Requirement ``animal-state-simplified-direct-map`` at
+  ``openspec/changes/lifecycle-state-resolver-33/specs/lifecycle/spec.md:248``).
 - :func:`validate_causal_pair`: pure pre-flight check that raises
   :class:`CausalPairViolation` when the D-23 pair would be violated
   by an upcoming write. The check is scoped to the pair
@@ -45,6 +52,7 @@ from enum import StrEnum
 from typing import Any, Final
 
 from app.core.data_access import SqlExecutor
+from app.modules.lifecycle.di.lifecycle_di import build_lifecycle_port
 
 # --- enums ----------------------------------------------------------------
 
@@ -261,72 +269,6 @@ ON CONFLICT (animal_id) DO UPDATE SET
     reconciliation_status = 'pending'
 """
 
-# SELECT to get the latest event for an animal (used by
-# _compute_current_state_from_events).
-_SELECT_LATEST_EVENT_SQL = """
-SELECT id, event_type, event_timestamp
-FROM animal_lifecycle_events
-WHERE animal_id = $1
-ORDER BY event_timestamp DESC
-LIMIT 1
-"""
-
-
-# --- state derivation (simplified — see docs/discovery/lifecycle-state-resolver.md) ---
-
-# Mapping from event type to the derived current_state value.
-# This is a simplified derivation; the full state machine is tracked in
-# the discovery doc (pending: lifecycle-state-resolver-extraction.md).
-_EVENT_TYPE_TO_STATE: dict[str, str] = {
-    LifecycleEventType.INTAKE_STARTED.value: "Pendiente de Entrada",
-    LifecycleEventType.INTAKE_COMPLETED.value: "Albergue",
-    LifecycleEventType.FOSTER_STARTED.value: "Acogida",
-    LifecycleEventType.FOSTER_RETURNED.value: "Acogida",
-    LifecycleEventType.ADOPTION_STARTED.value: "Adoptado",
-    LifecycleEventType.ADOPTION_RETURNED.value: "Acogida",
-    LifecycleEventType.OWNER_RETURNED.value: "Entregado",
-    LifecycleEventType.DEATH_RECORDED.value: "Fallecido (Albergue)",
-    LifecycleEventType.STATE_CORRECTION.value: "Pendiente de Nueva Situacion",
-    LifecycleEventType.CHIP_CHANGED.value: "Pendiente de Nueva Situacion",
-    LifecycleEventType.INTAKE_REOPENED.value: "Albergue",
-    LifecycleEventType.FOSTER_REOPENED.value: "Acogida",
-    LifecycleEventType.ADOPTION_REOPENED.value: "Adoptado",
-    # FOSTER_CLOSED_BY_ADOPTION is not a terminal state; it is
-    # always followed by ADOPTION_STARTED so it maps to the same
-    # state as ADOPTION_STARTED.
-    LifecycleEventType.FOSTER_CLOSED_BY_ADOPTION.value: "Adoptado",
-}
-
-
-def _compute_current_state_from_events(
-    client: SqlExecutor,
-    animal_id: str,
-) -> tuple[str, str | None]:
-    """Derive the current_state for an animal from its event log.
-
-    Returns a tuple of (current_state, latest_event_id). If the animal
-    has no events, returns ('Pendiente de Entrada', None).
-    """
-    rows = client.execute_sql(
-        _SELECT_LATEST_EVENT_SQL,
-        [animal_id],
-    )
-    if not rows:
-        return ("Pendiente de Entrada", None)
-
-    latest = rows[0]
-    event_type = latest.get("event_type", "")
-    latest_event_id = str(latest["id"]) if latest.get("id") else None
-
-    # FOSTER_CLOSED_BY_ADOPTION is a transitional state: it triggers
-    # ADOPTION_STARTED to follow. We derive 'Adoptado' here so the
-    # cache reflects the final state rather than the transitional one.
-    # The actual state machine is in the discovery doc.
-    state = _EVENT_TYPE_TO_STATE.get(
-        event_type, "Pendiente de Nueva Situacion"
-    )
-    return (state, latest_event_id)
-
 
 # --- public API -----------------------------------------------------------
 
@@ -335,32 +277,34 @@ def actualizar_estado_animal(
     client: SqlExecutor,
     *,
     animal_id: str,
-    current_state: str | None = None,
-    active_event_id: str | None = None,
 ) -> None:
-    """Update the ``animal_current_state`` cache row for an animal.
+    """Re-derive and persist the animal's current state via the domain cascade.
 
-    This function is called by ``record_event`` after a lifecycle event
-    is successfully inserted. It upserts the cache row so subsequent
-    reads of the animal's state are O(1) without scanning the event log.
+    Called by :func:`record_event` after a lifecycle event is
+    successfully inserted. The function builds the slice's
+    :class:`~app.modules.lifecycle.ports.lifecycle_port.LifecyclePort`
+    via :func:`app.modules.lifecycle.di.lifecycle_di.build_lifecycle_port`,
+    asks it for the current ``DerivationResult`` (which runs the full
+    P1-P6 priority cascade — see
+    ``app/modules/lifecycle/domain/animal_state.py::calculate_state``),
+    and persists the result to ``animal_current_state``.
 
-    The ``current_state`` and ``active_event_id`` are derived from the
-    event log by :func:`_compute_current_state_from_events` before this
-    function is called. The caller may also pass them explicitly if
-    already known.
+    The previous implementation used a simplified
+    ``_EVENT_TYPE_TO_STATE`` map that mapped the latest event type
+    directly to a state without applying the cascade. That map was
+    the P1 fidelity gap (see REMOVED Requirement
+    ``animal-state-simplified-direct-map`` at
+    ``openspec/changes/lifecycle-state-resolver-33/specs/lifecycle/spec.md:248``).
+    LIFECYCLE-03 PR-C deletes the simplified map and wires the
+    domain cascade via DI instead.
 
-    Idempotent: ``ON CONFLICT (animal_id) DO UPDATE`` means re-running
-    this for the same animal simply updates the row to the latest values.
+    Idempotent: the port's ``persist_animal_state`` uses
+    ``ON CONFLICT (animal_id) DO UPDATE`` so re-running this for the
+    same animal simply updates the cache row.
     """
-    if current_state is None:
-        current_state, active_event_id = _compute_current_state_from_events(
-            client, animal_id
-        )
-
-    client.execute_sql(
-        _UPSERT_CACHE_SQL,
-        [animal_id, current_state, active_event_id],
-    )
+    port = build_lifecycle_port(client)
+    result = port.calculate_state(animal_id)
+    port.persist_animal_state(animal_id, result)
 
 
 def record_event(  # noqa: PLR0913  # domain event recorder; 10 keyword-only args are all distinct domain fields
