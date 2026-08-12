@@ -86,4 +86,12 @@ SOUL.md
 # and aggregated by `python scripts/quality_report.py quality` (CI step
 # summary). The directory is empty until the first CI run after this entry;
 # keeping it out of git keeps the repo free of build artifacts.
-quality/
+#
+# The leading `/` anchors the pattern to the repo root. Without it, git
+# also matches a `quality/` directory at any depth, which would silently
+# exclude the tracked `docs/quality/` tree introduced for issue #434.
+# Tracked files are not actually ignored by git, but `git add` and other
+# plumbing treat them as ignored and demand `-f`, which is exactly the
+# regression this entry caused.
+# quality/  # removed in favor of the anchored rule below
+/quality/
