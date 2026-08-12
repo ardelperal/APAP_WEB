@@ -1062,6 +1062,44 @@ def test_pr_size_uses_event_base_ref_not_origin_main() -> None:
     )
 
 
+def test_pr_size_base_fetch_does_not_shallow_the_repository() -> None:
+    """Issue #525: the base fetch must not carry ``--depth``.
+
+    A shallow fetch marks the WHOLE repository shallow — verified locally, where
+    ``git fetch --no-tags --depth=1 origin main`` flipped
+    ``rev-parse --is-shallow-repository`` from false to true on a complete clone.
+    From then on ``merge-base`` can only see back to the boundary.
+
+    That fails in the one place this step exists to serve. On a PR against main
+    the boundary usually still contains the common ancestor, so it passes; on a
+    chained PR the ancestor is further back, ``merge-base`` returns nothing, and
+    the step exits 1 — a gate that breaks precisely on the case it was written
+    for, while looking correct on every ordinary PR.
+
+    The checkout above already uses ``fetch-depth: 0``, which populates
+    ``refs/remotes/origin/*`` for every branch (62 refs on this repository), so
+    the fetch is a safety net for a base created after checkout, not the source
+    of the ref.
+    """
+    pr_size = (REPO_ROOT / ".github" / "workflows" / "pr-size.yml").read_text(
+        encoding="utf-8"
+    )
+    executable = "\n".join(
+        line for line in pr_size.splitlines() if not line.lstrip().startswith("#")
+    )
+
+    fetches = [line for line in executable.splitlines() if "git fetch" in line]
+
+    assert fetches, "pr-size.yml no longer fetches the base ref at all"
+    for line in fetches:
+        assert "--depth" not in line, (
+            f"pr-size.yml shallow-fetches the base ref ({line.strip()!r}). That "
+            f"marks the repository shallow and leaves merge-base unable to reach "
+            f"the common ancestor of a chained PR (issue #525)."
+        )
+    assert "fetch-depth: 0" in pr_size
+
+
 @pytest.mark.parametrize(
     "base_branch,expected_delta",
     [

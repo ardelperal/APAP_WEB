@@ -44,7 +44,20 @@ jobs:
             echo "::error::BASE_REF is empty; \${{ github.base_ref }} was not provided."
             exit 1
           fi
-          git fetch --no-tags --depth=1 origin "$BASE_REF"
+          # NOT --depth=1. A shallow fetch marks the WHOLE repository shallow,
+          # and then `merge-base` can only see back as far as the boundary. On a
+          # PR against main that boundary usually still contains the common
+          # ancestor, so it passes — but on a CHAINED PR, the case this step
+          # exists for, the ancestor is further back and merge-base returns
+          # nothing. The step would fail exactly where it is needed. Verified:
+          # `git fetch --depth=1` flips `rev-parse --is-shallow-repository` to
+          # true on a complete clone.
+          #
+          # The checkout above already used fetch-depth: 0, which populates
+          # refs/remotes/origin/* for every branch, so origin/$BASE_REF normally
+          # exists before this runs. This fetch only covers a base branch created
+          # after the checkout, and must stay unshallow to be harmless.
+          git fetch --no-tags origin "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
           BASE=$(git merge-base "origin/$BASE_REF" HEAD)
           if [ -z "$BASE" ]; then
             echo "::error::merge-base origin/$BASE_REF HEAD produced no SHA."
