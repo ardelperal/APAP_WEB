@@ -1,7 +1,6 @@
 name: pr-size
 on:
   pull_request:
-    branches: [main]
 # See ci.yml for the cancel-in-progress rationale (issue #530).
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -28,14 +27,50 @@ jobs:
 
       - name: Compute diff against merge-base
         id: diff
+        # Issue #525: the comparison base must come from the event's
+        # ``github.base_ref``, not the hardcoded ``origin/main``. A
+        # chained or stacked PR whose base is a feature branch used
+        # to inherit the base PR's diff on top of its own (a #524 PR
+        # showed 329 actual / 634 reported). The fix fetches the named
+        # ref into the runner (the events payload carries only the
+        # head SHA, not the base ref), then computes the merge-base
+        # against the fetched ref with the value quoted to handle
+        # branch names carrying shell metacharacters. Empty or
+        # unresolvable ref fails loudly instead of falling back to
+        # main — quiet fallback is exactly the regression this step
+        # is meant to catch.
         run: |
-          BASE=$(git merge-base origin/main HEAD)
+          if [ -z "$BASE_REF" ]; then
+            echo "::error::BASE_REF is empty; \${{ github.base_ref }} was not provided."
+            exit 1
+          fi
+          # NOT --depth=1. A shallow fetch marks the WHOLE repository shallow,
+          # and then `merge-base` can only see back as far as the boundary. On a
+          # PR against main that boundary usually still contains the common
+          # ancestor, so it passes — but on a CHAINED PR, the case this step
+          # exists for, the ancestor is further back and merge-base returns
+          # nothing. The step would fail exactly where it is needed. Verified:
+          # `git fetch --depth=1` flips `rev-parse --is-shallow-repository` to
+          # true on a complete clone.
+          #
+          # The checkout above already used fetch-depth: 0, which populates
+          # refs/remotes/origin/* for every branch, so origin/$BASE_REF normally
+          # exists before this runs. This fetch only covers a base branch created
+          # after the checkout, and must stay unshallow to be harmless.
+          git fetch --no-tags origin "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
+          BASE=$(git merge-base "origin/$BASE_REF" HEAD)
+          if [ -z "$BASE" ]; then
+            echo "::error::merge-base origin/$BASE_REF HEAD produced no SHA."
+            exit 1
+          fi
           ADDED=$(git diff --shortstat "$BASE"...HEAD | awk '{print $4}')
           DELETED=$(git diff --shortstat "$BASE"...HEAD | awk '{print $6}')
           if [ -z "$ADDED" ]; then ADDED=0; fi
           if [ -z "$DELETED" ]; then DELETED=0; fi
           TOTAL=$((ADDED + DELETED))
           echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
+        env:
+          BASE_REF: ${{ github.base_ref }}
 
       - name: Enforce 400-line budget (AGENTS.md §15.1)
         env:
