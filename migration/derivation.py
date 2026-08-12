@@ -1,63 +1,72 @@
 """Derivation engine for ``animal_current_state``.
 
-PR 2 of ``web-only-feature-preservation``. Replicates the VBA
-``DameSituacion()`` priority cascade as a pure Python function so the
-web DB can compute an animal's current state from the legacy tables
-without round-tripping back to Access.
+Thin wrapper around the lifecycle slice's domain cascade
+(``app.modules.lifecycle.domain.animal_state.calculate_state``).
+The migration layer used to carry its own copy of the VBA
+``DameSituacion()`` priority cascade; LIFECYCLE-03 (issue #33) PR-C
+redirects the migration layer to import the pure domain function so
+the two implementations cannot drift (AGENTS.md §22 single-seam rule).
 
-The implementation matches
-``docs/discovery/lifecycle-state-resolver-extraction.md`` §3
-step-by-step. The 11 parametrized cases (tasks.md T2.3) come from §4.
+The migration layer's contract is unchanged: ``derive_estado_actual_animal``
+takes the 4 legacy-shape collections (``tb_ficha``, ``tb_entradas``,
+``tb_acogidas``, ``tb_adopciones``) and returns a ``DerivationResult``
+carrying the derived state string + the categorical kind + the active
+placement IDs (legacy PKs). The domain function consumes the same
+field names (``FSalida`` / ``FFinal`` / ``FDevolucion`` /
+``FDefuncion`` / ``UltimoEstadoAntesDeFallecido``), so no
+``_legacy_to_web_row`` mapper is needed — the projection happens in
+the InsForge adapter's SQL (``entradas.id AS "IDEntrada"`` etc.) and
+the migration layer reads the legacy-shape rows directly.
 
-The function is PURE: it does not read from the DB, does not write
-events, and has no side effects. The applier (PR 4) is responsible for
-plumbing the four legacy collections into the call and for persisting
-the resulting ``DerivationResult`` into ``animal_current_state``.
-
-Companion comparator ``compare_derived_to_stored`` implements the
+The companion comparator ``compare_derived_to_stored`` implements the
 post-application Q2 rule (matched / divergent / needs_review /
-pending) and is the building block the applier hook (PR 4) uses to
-populate ``animal_current_state.reconciliation_status``.
+pending) and is the building block the applier hook uses to populate
+``animal_current_state.reconciliation_status``.
+
+Permission to import the domain layer is granted by the
+``PURE_ALLOWED_SUBPACKAGES`` allowlist in
+``scripts/migration_boundaries_policy.py`` — the domain is pure
+(Protocol-typed, no I/O, no transport), and the import is symmetric
+with the existing ``app.core.data_access.SqlExecutor`` Protocol-import
+pattern at line 50-51 of that same file.
+
+Re-exports
+----------
+
+``DerivationKind`` and ``DerivationResult`` are re-exported from the
+domain so existing migration callers (``reconcile.py``,
+``semantic_events.py``, the 11-case regression suite, etc.) continue
+to import them from ``migration.derivation`` without change. The
+domain's ``DerivationResult`` is structurally compatible (same field
+names + defaults); only the static ``kind`` annotation differs
+(``DerivationKind`` locally vs ``object`` in the domain to avoid a
+module-load cycle). The migration's ``compare_derived_to_stored``
+reads ``derived.state`` (a ``str``) so the annotation change is
+invisible at runtime.
 """
 
 from __future__ import annotations
 
-import re
 from collections.abc import Iterable
-from dataclasses import dataclass
 from datetime import datetime
-from enum import StrEnum
 from typing import Any
 
+from app.modules.lifecycle.domain.animal_state import (
+    DerivationKind,
+    DerivationResult,
+    calculate_state,
+)
 from migration.reconcile import ReconciliationStatus
-
-
-class DerivationKind(StrEnum):
-    """Categorical kind of the derived state.
-
-    Decoupled from the user-facing state string so callers can switch
-    on category without parsing the localised string. The state string
-    (``DerivationResult.state``) is what the spec writes to
-    ``animal_current_state.current_state`` and is constrained by the
-    CHECK enum in ``app/core/domain.py``.
-    """
-
-    PENDIENTE_ENTRADA = "pendiente_entrada"
-    PENDIENTE_NUEVA_SITUACION = "pendiente_nueva_situacion"
-    ALBERGUE = "albergue"
-    ACOGIDA = "acogida"
-    ADOPTADO = "adoptado"
-    ENTREGADO = "entregado"
-    FALLECIDO = "fallecido"
-    INCOHERENTE = "incoherente"
 
 
 # --- State value constants -----------------------------------------------
 #
-# Centralised so the comparator and the applier (PR 4) reference the
-# same canonical strings. Mirrors the CHECK enum in
-# ``app/core/domain.py::ANIMAL_CURRENT_STATE_CREATE_TABLE_SQL``.
-
+# Re-exported from the domain so the comparator and downstream callers
+# can keep importing them from ``migration.derivation``. The full set
+# (including the 5 ``STATE_FALLECIDO_*`` variants) is in the domain's
+# ``constants.py``; the migration layer only references the 8 core
+# states plus ``STATE_FALLECIDO_DESCONOCIDO`` (used by older code
+# paths that hard-coded the parenthetical).
 STATE_PENDIENTE_ENTRADA = "Pendiente de Entrada"
 STATE_PENDIENTE_NUEVA_SITUACION = "Pendiente de Nueva Situación"
 STATE_ALBERGUE = "Albergue"
@@ -66,38 +75,6 @@ STATE_ADOPTADO = "Adoptado"
 STATE_ENTREGADO = "Entregado"
 STATE_INCOHERENTE = "Incoherente"
 STATE_FALLECIDO_DESCONOCIDO = "Fallecido (Desconocido)"
-
-_VALID_PRE_DEATH_STATES = frozenset(
-    {STATE_ALBERGUE, STATE_ACOGIDA, STATE_ADOPTADO, STATE_ENTREGADO}
-)
-
-
-@dataclass(frozen=True, slots=True)
-class DerivationResult:
-    """Output of ``derive_estado_actual_animal``.
-
-    ``state`` is the literal value the spec writes to
-    ``animal_current_state.current_state`` (matches the CHECK constraint
-    in ``app/core/domain.py``). ``kind`` is the categorical enum used
-    for branching in the comparator and the CLI.
-
-    ``pre_death_state`` is populated only when ``kind`` is
-    ``FALLECIDO``; it carries the ``UltimoEstadoAntesDeFallecido``
-    value (one of ``Albergue``, ``Acogida``, ``Adoptado``, ``Entregado``)
-    or ``"Desconocido"`` when the legacy record lacks it.
-
-    ``active_intake_id``, ``active_foster_id``, ``active_adoption_id``
-    carry the legacy PKs of the records that produced the active
-    placement (exactly one is set for Albergue / Acogida / Adoptado;
-    all three are ``None`` for terminal states and Incoherente).
-    """
-
-    state: str
-    kind: DerivationKind
-    pre_death_state: str | None = None
-    active_intake_id: str | None = None
-    active_foster_id: str | None = None
-    active_adoption_id: str | None = None
 
 
 # --- Derivation entry point ----------------------------------------------
@@ -111,8 +88,15 @@ def derive_estado_actual_animal(
 ) -> DerivationResult:
     """Pure derivation of an animal's current state from 4 legacy collections.
 
-    Implements the priority cascade from
-    ``lifecycle-state-resolver-extraction.md §3``:
+    Thin wrapper around
+    :func:`app.modules.lifecycle.domain.animal_state.calculate_state`.
+    The function preserves the migration layer's pre-PR-C public
+    contract (same name, same signature, same return type) so the 11
+    parametrized cases in ``tests/test_derivation_11cases.py`` and
+    the callers in ``migration/reconcile.py`` +
+    ``migration/semantic_events.py`` continue to work unchanged.
+
+    The domain function implements the P1-P6 priority cascade:
 
       P1 — Incoherente (multi-category active OR death+active).
       P2 — No active, no death → Pendiente / Entregado.
@@ -121,114 +105,18 @@ def derive_estado_actual_animal(
       P5 — Single active adoption → Adoptado.
       P6 — Death → Fallecido (pre_death_state).
 
-    The function is deterministic for a given input. ``tb_ficha`` may
-    be ``None`` (animal record not yet loaded) — the function treats
-    it as an empty dict and falls through to the no-active no-death
-    branch, returning ``Pendiente de Entrada`` if there are no
-    ``tb_entradas`` either.
+    The function is deterministic for a given input. ``tb_ficha``
+    may be ``None`` (animal record not yet loaded) — the domain
+    cascade treats it as an empty dict and falls through to the
+    no-active no-death branch, returning ``Pendiente de Entrada``
+    if there are no ``tb_entradas`` either.
     """
-    ficha = tb_ficha or {}
-    entradas = list(tb_entradas)
-    acogidas = list(tb_acogidas)
-    adopciones = list(tb_adopciones)
-
-    has_death = _is_date(ficha.get("FDefuncion"))
-
-    active_intakes = [e for e in entradas if _is_null(e.get("FSalida"))]
-    active_fosters = [a for a in acogidas if _is_null(a.get("FFinal"))]
-    active_adoptions = [d for d in adopciones if _is_null(d.get("FDevolucion"))]
-
-    # --- P1: Incoherente (conflict detection) -------------------------
-    #
-    # VBA priority 1: any combination of cross-category active records
-    # OR death + any active record → Incoherente. Also fires on
-    # multiple active records within a single category (legacy signals
-    # this with a `#` separator in the IDs; we detect it by length).
-
-    multiple_in_same_category = (
-        len(active_intakes) > 1 or len(active_fosters) > 1 or len(active_adoptions) > 1
+    return calculate_state(
+        ficha=tb_ficha,
+        entradas=tb_entradas,
+        acogidas=tb_acogidas,
+        adopciones=tb_adopciones,
     )
-    cross_category = (
-        (active_intakes and (active_fosters or active_adoptions))
-        or (active_fosters and (active_intakes or active_adoptions))
-        or (active_adoptions and (active_intakes or active_fosters))
-    )
-    death_plus_active = has_death and (active_intakes or active_fosters or active_adoptions)
-
-    if multiple_in_same_category or cross_category or death_plus_active:
-        return DerivationResult(state=STATE_INCOHERENTE, kind=DerivationKind.INCOHERENTE)
-
-    # --- P2: No active, no death --------------------------------------
-    #
-    # VBA priority 2: ficha present + no FDefuncion + empty active sets
-    # → check whether the animal has ever had an intake. If never
-    # entered → Pendiente de Entrada. If entered and the latest
-    # ``FEntregaAPropietario`` is set → Entregado. Otherwise →
-    # Pendiente de Nueva Situación.
-
-    if not has_death and not active_intakes and not active_fosters and not active_adoptions:
-        if not entradas:
-            return DerivationResult(
-                state=STATE_PENDIENTE_ENTRADA,
-                kind=DerivationKind.PENDIENTE_ENTRADA,
-            )
-        latest_with_propietario = _latest_FEntregaAPropietario(entradas)
-        if latest_with_propietario is None:
-            return DerivationResult(
-                state=STATE_PENDIENTE_NUEVA_SITUACION,
-                kind=DerivationKind.PENDIENTE_NUEVA_SITUACION,
-            )
-        return DerivationResult(state=STATE_ENTREGADO, kind=DerivationKind.ENTREGADO)
-
-    # --- P3: Single active intake -------------------------------------
-    if len(active_intakes) == 1:
-        intake = active_intakes[0]
-        return DerivationResult(
-            state=STATE_ALBERGUE,
-            kind=DerivationKind.ALBERGUE,
-            active_intake_id=_legacy_pk_as_str(intake, "IDEntrada"),
-        )
-
-    # --- P4: Single active foster -------------------------------------
-    if len(active_fosters) == 1:
-        foster = active_fosters[0]
-        return DerivationResult(
-            state=STATE_ACOGIDA,
-            kind=DerivationKind.ACOGIDA,
-            active_foster_id=_legacy_pk_as_str(foster, "IDAcogida"),
-        )
-
-    # --- P5: Single active adoption -----------------------------------
-    if len(active_adoptions) == 1:
-        adoption = active_adoptions[0]
-        return DerivationResult(
-            state=STATE_ADOPTADO,
-            kind=DerivationKind.ADOPTADO,
-            active_adoption_id=_legacy_pk_as_str(adoption, "IDAdopcion"),
-        )
-
-    # --- P6: Death ----------------------------------------------------
-    #
-    # VBA priority 6: death overrides all. The parenthetical carries
-    # the ``UltimoEstadoAntesDeFallecido`` value (one of the four
-    # active states or "Desconocido" when the legacy record lacks it).
-    # The VBA also preserves an existing ``Fallecido`` string when the
-    # state was already set; we replicate that to avoid producing
-    # ``Fallecido (Fallecido (Albergue))`` if called twice.
-
-    if has_death:
-        pre = _resolve_pre_death_state(ficha)
-        return DerivationResult(
-            state=f"Fallecido ({pre})",
-            kind=DerivationKind.FALLECIDO,
-            pre_death_state=pre,
-        )
-
-    # Defensive fallback — the cascade above should cover every input.
-    # Returning ``Incoherente`` keeps the function total (no exceptions
-    # surface into the applier) and matches the VBA behaviour of
-    # defaulting to a "needs operator review" verdict on edge cases.
-    return DerivationResult(state=STATE_INCOHERENTE, kind=DerivationKind.INCOHERENTE)
 
 
 # --- Comparator (T2.2) --------------------------------------------------
@@ -269,115 +157,6 @@ def compare_derived_to_stored(
         if web_updated_at >= last_legacy_snapshot_at:
             return ReconciliationStatus.NEEDS_REVIEW
     return ReconciliationStatus.DIVERGENT
-
-
-# --- helpers -------------------------------------------------------------
-
-
-def _is_null(value: Any) -> bool:
-    """True when the value represents an empty end-date (NULL/None/``""``).
-
-    The legacy VBA check ``IsDate(FSalida) = False AND IsNull(FSalida) = True``
-    maps to Python ``None`` and the empty string in the snapshot.
-    """
-    return value is None or value == ""
-
-
-def _is_date(value: Any) -> bool:
-    """True when the value is a non-empty date.
-
-    VBA's ``IsDate()`` returns True for any non-empty date/datetime. In
-    Python we accept ``datetime`` instances and non-empty strings. A
-    numeric value is treated as a non-date so an accidental integer
-    PK never silently satisfies the death check.
-    """
-    if value is None:
-        return False
-    if isinstance(value, datetime):
-        return True
-    if isinstance(value, str):
-        return value != ""
-    return False
-
-
-def _legacy_pk_as_str(row: dict[str, Any], field: str) -> str | None:
-    """Return the legacy primary key as a ``str`` (or ``None`` when missing)."""
-    raw = row.get(field)
-    if raw is None:
-        return None
-    return str(raw)
-
-
-def _latest_FEntregaAPropietario(
-    entradas: list[dict[str, Any]],
-) -> dict[str, Any] | None:
-    """Return the latest entrada (by ``IDEntrada`` desc) with
-    ``FEntregaAPropietario`` set, or ``None`` if no entrada carries a
-    return-to-owner date.
-
-    Replicates the semantics of ``DameUltimaFEntregaAPropietario`` in
-    ``Funciones Generales.bas:1639-1665`` — the latest entry that has
-    the owner-return date set determines whether the animal is
-    ``Entregado`` (terminal) or ``Pendiente de Nueva Situación`` (still
-    awaiting placement).
-    """
-    with_date = [e for e in entradas if _is_date(e.get("FEntregaAPropietario"))]
-    if not with_date:
-        return None
-    return max(with_date, key=lambda e: e.get("IDEntrada", 0) or 0)
-
-
-# Matches a derived "Fallecido (X)" string (single level, no nesting).
-# Group 1 captures the inner state (e.g. "Albergue", "Desconocido").
-# Used by ``_resolve_pre_death_state`` to make the helper idempotent
-# against a cached ``Situacion`` that already carries a previously
-# derived Fallecido string (regla de VBA prioridad 6 — ver
-# ``lifecycle-state-resolver-extraction.md`` §10 Challenge #1).
-_FALLECIDO_PARENTHETICAL_RE = re.compile(r"^Fallecido \((.+)\)$")
-
-
-def _resolve_pre_death_state(ficha: dict[str, Any]) -> str:
-    """Compute the parenthetical for a ``Fallecido ({pre})`` state.
-
-    Mirrors the VBA logic in ``DameSituacion`` priority 6 (lines
-    1270-1284):
-
-      - If ``UltimoEstadoAntesDeFallecido`` is empty AND the previous
-        ``Situacion`` does NOT already contain ``Fallecido``, the
-        parenthetical is ``Desconocido``.
-      - If the previous ``Situacion`` already carries a single-level
-        ``Fallecido ({X})`` string (the death was registered and the
-        cache was overwritten with the derived value), parse out ``X``
-        so the caller wraps it exactly once. This is the
-        idempotence rule: re-deriving MUST NOT nest to
-        ``Fallecido (Fallecido (X))``.
-      - If ``UltimoEstadoAntesDeFallecido`` is set but is NOT one of
-        the four active states, fall back to ``Desconocido``.
-
-    The function is pure and idempotent: feeding it the same
-    ``Situacion`` cache that was previously emitted produces the
-    same pre-state, never a deeper nest.
-    """
-    pre = ficha.get("UltimoEstadoAntesDeFallecido") or ""
-    situacion_anterior = ficha.get("Situacion") or ""
-
-    if pre == "" or pre is None:
-        if "Fallecido" not in situacion_anterior:
-            return "Desconocido"
-        # Cached ``Situacion`` already carries a Fallecido ({X}) string
-        # from a previous apply. Parse out the inner state so the caller
-        # wraps it exactly once. If the cache is somehow not a clean
-        # ``Fallecido (...)`` shape (e.g. legacy typo), fall back to
-        # ``Desconocido`` instead of silently echoing the bad value.
-        match = _FALLECIDO_PARENTHETICAL_RE.match(situacion_anterior)
-        if match is not None:
-            return match.group(1)
-        return "Desconocido"
-
-    if pre not in _VALID_PRE_DEATH_STATES:
-        return "Desconocido"
-
-    return pre
 
 
 __all__ = [

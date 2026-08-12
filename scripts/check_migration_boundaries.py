@@ -54,6 +54,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from migration_boundaries_policy import (  # noqa: E402, I001 - needs the sys.path line above
     BASELINE,
     LEGACY_SUBPACKAGE,
+    PURE_ALLOWED_SUBPACKAGES,
     PURE_FILENAMES,
     PURE_FORBIDDEN_TOP_PACKAGES,
     REQUIRED_TESTS_FOR_MODULE,
@@ -114,7 +115,23 @@ PURE_FORBIDDEN_MIGRATION_PREFIXES: frozenset[str] = frozenset({LEGACY_SUBPACKAGE
 
 
 def _is_pure_violation(module: str) -> str | None:
-    """Return the rule segment ``module`` violates, or ``None``."""
+    """Return the rule segment ``module`` violates, or ``None``.
+
+    Order of checks:
+
+    1. The positive allowlist (:data:`PURE_ALLOWED_SUBPACKAGES`)
+       overrides the default ``app.*`` ban for the named subpackages.
+       ``app.modules.lifecycle.domain`` is the only entry today
+       (LIFECYCLE-03 PR-C; see
+       ``openspec/changes/lifecycle-state-resolver-33/specs/lifecycle/spec.md``
+       ADDED Requirement ``animal-state-migration-boundary-amendment``).
+    2. Top-level forbidden segments (``app``, ``psycopg``, ``httpx`` …).
+    3. Migration-internal prefixes (the legacy ``migration.legacy_``
+       subpackage).
+    """
+    for allowed in PURE_ALLOWED_SUBPACKAGES:
+        if module == allowed or module.startswith(allowed + "."):
+            return None
     top = module.split(".")[0]
     if top in PURE_FORBIDDEN_TOP_PACKAGES:
         return top

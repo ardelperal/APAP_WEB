@@ -91,6 +91,33 @@ PURE_FORBIDDEN_TOP_PACKAGES: frozenset[str] = frozenset(
     }
 )
 
+
+#: Positive allowlist of pure ``app.*`` subpackages a pure module MAY
+#: import. The default rule (AGENTS.md §33.4 / Q6 in
+#: ``openspec/changes/lifecycle-state-resolver-33/specs/lifecycle/spec.md``)
+#: forbids every ``app.*`` import; this list is the only escape hatch
+#: and is symmetric with the existing
+#: ``app.core.data_access.SqlExecutor`` Protocol-import pattern
+#: documented at line 50-51 above — the domain layer is pure
+#: (Protocol-typed, no I/O), and importing it from the migration
+#: layer is the same shape as importing a Protocol from ``app.core``.
+#:
+#: ``app.modules.lifecycle.domain`` is the only entry today: the
+#: lifecycle slice's domain cascade (``calculate_state``) is the
+#: single source of truth for the DameSituacion priority cascade;
+#: ``migration/derivation.py`` redirects to it so the two
+#: implementations cannot drift (AGENTS.md §22 single-seam rule).
+#:
+#: Adding an entry here requires a one-line rationale comment in the
+#: PR description — the checker does NOT scan this file's prose, so
+#: reviewers must enforce the rationale contract.
+PURE_ALLOWED_SUBPACKAGES = (
+    # Domain-as-source-of-truth: the lifecycle cascade lives in the
+    # app domain layer; the migration layer imports it to prevent
+    # drift between the legacy-shape replication and the web cascade.
+    "app.modules.lifecycle.domain",
+)
+
 #: Mapping ``module POSIX path`` → ``tuple of acceptable test POSIX
 #: paths``. A test file is considered to "cover" a module if it imports
 #: that module (the test file's source AST imports the module's dotted
