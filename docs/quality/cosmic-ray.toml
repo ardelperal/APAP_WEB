@@ -2,8 +2,10 @@
 #
 # CURATED TARGET SET -- one module per PR, each pinned in
 # `mutation-baseline.json`. cosmic-ray accepts `module-path` as a string OR a
-# list of strings (verified at cosmic_ray/cli.py:92); we use the list form so
-# the pilot and the second slice share a session.
+# list of strings (verified at cosmic_ray/cli.py:106 in 8.7.0; the same
+# branch was at line 92 in 8.4.6 -- revalidated when the pin moved to 8.7.0,
+# issue #545); we use the list form so the pilot and the second slice share
+# a session.
 #
 # The accepted design (TASK-2.2) specified `module-path = "app"`. Measurement
 # on 2026-08-06 rejected that: `app/` + `migration/` hold 3579 mutable AST
@@ -41,9 +43,9 @@
 #
 # The test-command is shared across every target module: cosmic-ray executes
 # the same command for every mutant regardless of which file it came from
-# (verified at cosmic_ray/commands/execute.py:49 -- `config.test_command` is
-# not per-module). The command must therefore include every target's tests,
-# not just the pilot's.
+# (verified at cosmic_ray/commands/execute.py:49 -- unchanged between 8.4.6
+# and 8.7.0, revalidated for issue #545). The command must therefore include
+# every target's tests, not just the pilot's.
 
 [cosmic-ray]
 module-path = [
@@ -58,7 +60,40 @@ excluded-modules = []
 test-command = "python -m pytest tests/test_adopciones.py tests/test_adopciones_queries.py tests/test_adopciones_routes.py tests/test_animals_queries.py tests/test_derivation.py tests/test_derivation_11cases.py tests/test_insforge.py tests/test_migration.py::TestDiffEngine -x -q --no-cov -p no:cacheprovider -o addopts=''"
 
 [cosmic-ray.distributor]
-name = "local"
+name = "http"
+
+# `http` distributor dispatches each mutation to one of the worker URLs
+# below, instead of running mutants one at a time in the same process
+# (issue #545). The `local` distributor is a plain
+# `for work_item in pending_work:` loop with no concurrency primitives
+# (verified at cosmic_ray/distribution/local.py:26 in 8.7.0, unchanged from
+# 8.4.6) -- one core busy while the rest of the host sat idle. The 4
+# workers here match the 4 vCPU of the apap-coolify-noble runner documented
+# in `.github/workflows/ci.yml` (the issue body measured the serial run
+# on that same host).
+#
+# The workers are NOT started by cosmic-ray itself: the `mutation` job in
+# `.github/workflows/ci.yml` brings up `cosmic-ray http-worker --port <N>`
+# processes in the background, captures their PIDs, and tears them down
+# after the session finishes. The fixed port range 9876-9879 is documented
+# in scripts/measure_mutation_parallelism.py; the runner is single-job
+# (ci.yml concurrency group per ref), so two mutation jobs on the same
+# host at once is not a real scenario here, unlike the dynamic-port
+# pattern used by the test service container (#532).
+#
+# Under 4-way CPU contention a mutant that today dies in ~3s could push
+# past the 60s `timeout` above and surface as INCOMPETENT rather than
+# KILLED. `scripts/check_mutation.py` aborts above the 20% INCOMPETENT
+# ceiling, so the timeout / worker-count pair is a knob the next
+# measurement will read. Bumping `timeout` is the lever if the run goes
+# over 20% INCOMPETENT -- a single follow-up PR.
+[cosmic-ray.distributor.http]
+worker-urls = [
+    "http://localhost:9876",
+    "http://localhost:9877",
+    "http://localhost:9878",
+    "http://localhost:9879",
+]
 
 # Equivalent-mutant filter. Applied with `cr-filter-operators` between `init`
 # and `exec`; matching mutants are recorded as worker_outcome = SKIPPED and

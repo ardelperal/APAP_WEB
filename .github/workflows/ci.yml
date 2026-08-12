@@ -550,6 +550,63 @@ jobs:
         # real reason (a missing pytest plugin surfaces only that way).
         run: cosmic-ray baseline docs/quality/cosmic-ray.toml
 
+      - name: Start cosmic-ray workers (issue #545)
+        # The `http` distributor dispatches each mutation to one of the
+        # worker URLs in docs/quality/cosmic-ray.toml; cosmic-ray itself
+        # does NOT start those workers -- it only connects to them. We
+        # bring up four `cosmic-ray http-worker` processes on the same
+        # loopback ports the config points at, probe each port with a TCP
+        # connect until all four answer, and write the PIDs to a file the
+        # "Stop cosmic-ray workers" step below reads. The 4-worker count
+        # matches the 4 vCPU of the apap-coolify-noble runner (issue #545
+        # body measured the serial run on this host).
+        #
+        # Port range 9876-9879 is fixed rather than dynamic: ci.yml pins
+        # one workflow run per ref via the `concurrency` group above, so
+        # two mutation jobs on the same host at once is not a real
+        # scenario here. This is unlike the dynamic-port pattern used by
+        # the test + integration service containers (#532), where two
+        # jobs on one host could overlap.
+        run: |
+          set -euo pipefail
+          WORKER_PORTS=(9876 9877 9878 9879)
+          WORKER_PIDS=()
+          : > /tmp/worker_pids.txt
+          for port in "${WORKER_PORTS[@]}"; do
+            cosmic-ray http-worker --port "$port" >"/tmp/worker-$port.log" 2>&1 &
+            pid=$!
+            WORKER_PIDS+=("$pid")
+            echo "$pid" >>/tmp/worker_pids.txt
+          done
+          echo "Started cosmic-ray workers (pids=${WORKER_PIDS[*]}) on ports ${WORKER_PORTS[*]}"
+          python - <<'PY'
+          import socket, sys, time
+
+          PORTS = (9876, 9877, 9878, 9879)
+
+
+          def can_connect(port: int) -> bool:
+              s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+              s.settimeout(1)
+              try:
+                  s.connect(("127.0.0.1", port))
+                  return True
+              except OSError:
+                  return False
+              finally:
+                  s.close()
+
+
+          for attempt in range(30):
+              up = [p for p in PORTS if can_connect(p)]
+              if len(up) == len(PORTS):
+                  print(f"all {len(PORTS)} workers up after {attempt + 1}s")
+                  sys.exit(0)
+              time.sleep(1)
+          print(f"only {len(up)}/{len(PORTS)} workers up after 30s", file=sys.stderr)
+          sys.exit(1)
+          PY
+
       - name: Run the mutation session
         # `cr-filter-operators` runs between init and exec and is not
         # optional: it excludes mutations of the `|` in PEP 604 type
@@ -563,35 +620,62 @@ jobs:
           rm -f mutation.sqlite
           cosmic-ray init docs/quality/cosmic-ray.toml mutation.sqlite
           cr-filter-operators mutation.sqlite docs/quality/cosmic-ray.toml
-          # ~52 minutes here is NORMAL, and nothing hangs: cosmic-ray.toml sets
-          # `timeout = 60.0` so a runaway mutant is bounded, and
-          # scripts/check_mutation.py rejects a session with more than 20%
-          # INCOMPETENT results, which is the false-green this job could otherwise
-          # produce. The duration comes from the distributor: `name = "local"` is a
-          # plain `for work_item in pending_work` loop with no concurrency
-          # primitives (verified in the installed cosmic_ray/distribution/local.py),
-          # so mutants run one at a time on one core while the other three sit
-          # idle. Parallelising it means the `http` distributor and is tracked
-          # separately — not something to change blind, since cosmic-ray cannot be
-          # exercised on a Windows workstation.
+          # Parallelised via the `http` distributor (issue #545): the four
+          # `cosmic-ray http-worker` processes started by the previous
+          # step accept mutations concurrently. The serial `local`
+          # distributor used to take ~52 minutes on this host while
+          # leaving three of the four vCPUs idle (issue body, 3111 s
+          # measured on 2026-08-06); with four workers wall-clock
+          # approaches the slowest single mutant rather than the sum.
+          # `timeout = 60.0` is unchanged -- under 4-way contention a
+          # mutant that today dies in ~3s could push past it and surface
+          # as INCOMPETENT. scripts/check_mutation.py aborts above the
+          # 20% INCOMPETENT ceiling, so the first run's verdict is the
+          # read; raising `timeout` is a single follow-up PR if needed.
           #
-          # `cosmic-ray exec` prints nothing for the ~52 minutes it runs, so the
-          # log gives a human no way to tell working from hung — and this job was
-          # cancelled by hand four times in two days for exactly that reason
-          # (issue #543). The heartbeat below carries no information about the
-          # mutants; it only proves the process is alive, which is the question
-          # being asked. Counting mutants would mean querying the sqlite while
-          # cosmic-ray holds it, and a locked database is a worse outcome than a
-          # quiet log.
+          # `cosmic-ray exec` prints nothing for the duration it runs, so
+          # the log gives a human no way to tell working from hung -- and
+          # this job was cancelled by hand four times in two days for
+          # exactly that reason (issue #543). The heartbeat below carries
+          # no information about the mutants; it only proves the process
+          # is alive, which is the question being asked. Counting mutants
+          # would mean querying the sqlite while cosmic-ray holds it, and
+          # a locked database is a worse outcome than a quiet log.
           cosmic-ray exec docs/quality/cosmic-ray.toml mutation.sqlite &
           CR_PID=$!
           while kill -0 "$CR_PID" 2>/dev/null; do
             sleep 120
-            echo "::notice::mutation session still running (${SECONDS}s elapsed; ~3200s is normal on this runner)"
+            echo "::notice::mutation session still running (${SECONDS}s elapsed; was ~3200s on the serial distributor)"
           done
           # `wait` yields the session's exit status, so `set -e` still fails the
           # job on a real cosmic-ray error. Backgrounding does not soften the gate.
           wait "$CR_PID"
+
+      - name: Stop cosmic-ray workers (issue #545)
+        # The `http` distributor does NOT manage the workers it dispatches
+        # to -- cosmic-ray exec just connects to the URLs in the config
+        # and walks away. Without this step the workers live on as
+        # zombies consuming the runner's loopback ports until the runner
+        # process exits. `if: always()` is load-bearing, not decorative:
+        # cosmic-ray exec may exit non-zero (timeout, INCOMPETENT ceiling,
+        # check_mutation.py failure, ...) and the workers must still come
+        # down -- leaving them up across runs is the failure mode this
+        # step exists to prevent.
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ ! -s /tmp/worker_pids.txt ]; then
+            echo "::notice::no cosmic-ray workers were started on this run; nothing to stop"
+            exit 0
+          fi
+          while read -r pid; do
+            [ -z "$pid" ] && continue
+            if kill "$pid" 2>/dev/null; then
+              echo "stopped cosmic-ray worker pid=$pid"
+            else
+              echo "::notice::cosmic-ray worker pid=$pid was not running"
+            fi
+          done </tmp/worker_pids.txt
 
       - name: Enforce the mutation ratchet (issue #431)
         # Removing this step is a blocked change, and replacing it with
