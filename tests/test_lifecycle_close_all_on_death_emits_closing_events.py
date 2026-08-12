@@ -27,6 +27,10 @@ class _FakeSqlExecutor:
     closing event type. The fake returns zero rows from the SELECT
     that lists active placements when the test says so; the test
     asserts ``calls`` against the expected INSERT sequences.
+
+    The fake also handles ``INSERT ... RETURNING id`` — it returns
+    a row with a stable synthetic id so the use case can thread
+    the new id into the closing events as ``caused_by_event_id``.
     """
 
     def __init__(
@@ -34,6 +38,7 @@ class _FakeSqlExecutor:
         active_intakes: list[dict[str, object]] | None = None,
         active_fosters: list[dict[str, object]] | None = None,
         active_adoptions: list[dict[str, object]] | None = None,
+        death_event_id: str = "death-event-uuid-1",
     ) -> None:
         self.calls: list[tuple[str, list]] = []
         self._responses: dict[str, list[dict[str, object]]] = {
@@ -41,11 +46,18 @@ class _FakeSqlExecutor:
             "FROM acogidas": list(active_fosters or []),
             "FROM adopciones": list(active_adoptions or []),
         }
+        self._death_event_id = death_event_id
+        self._returning_id_counter = 0
 
     def execute_sql(
         self, query: str, params: list | None = None
     ) -> list[dict[str, object]]:
         self.calls.append((query, list(params or [])))
+        # ``INSERT ... RETURNING id`` for the death event — return a
+        # stable synthetic id so the closing events can reference it.
+        if "INSERT INTO animal_lifecycle_events" in query and "RETURNING id" in query:
+            self._returning_id_counter += 1
+            return [{"id": f"{self._death_event_id}-#{self._returning_id_counter}"}]
         for marker, rows in self._responses.items():
             if marker in query:
                 return rows
@@ -160,6 +172,12 @@ def test_close_all_on_death_never_updates_source_tables() -> None:
 def test_close_all_on_death_attaches_death_event_id_as_caused_by() -> None:
     """Every closing event references the DEATH_RECORDED event id so the
     audit trail is traceable end-to-end.
+
+    The death event's ``caused_by_event_id`` is ``NULL`` (no prior
+    event — the death IS the trigger). The use case captures the
+    ``RETURNING id`` from the death INSERT and threads it into the
+    closing events' ``caused_by_event_id`` so the lineage is
+    queryable end-to-end.
     """
     from app.modules.lifecycle.application.close_all_on_death import (
         close_all_on_death,
@@ -167,6 +185,7 @@ def test_close_all_on_death_attaches_death_event_id_as_caused_by() -> None:
 
     executor = _FakeSqlExecutor(
         active_intakes=[{"IDEntrada": "intake-uuid-1", "FSalida": None}],
+        death_event_id="death-event-uuid-test",
     )
     close_all_on_death(
         executor, animal_id="animal-uuid-5", event_timestamp="2026-08-01T00:00:00Z"
@@ -179,10 +198,16 @@ def test_close_all_on_death_attaches_death_event_id_as_caused_by() -> None:
     assert len(inserts) == 2, f"expected 2 inserts, got {len(inserts)}"
     death_call_params = inserts[0][1]
     close_call_params = inserts[1][1]
-    death_event_id = death_call_params[3]  # caused_by_event_id is column index 3
-    assert close_call_params[3] == death_event_id, (
+    # The death event has caused_by_event_id NULL (it is the trigger).
+    assert death_call_params[3] is None, (
+        f"DEATH_RECORDED caused_by_event_id must be NULL; "
+        f"got {death_call_params[3]!r}"
+    )
+    # The closing event's caused_by_event_id references the death
+    # event id returned by the RETURNING clause.
+    assert close_call_params[3] == "death-event-uuid-test-#1", (
         f"closing event caused_by_event_id ({close_call_params[3]!r}) "
-        f"must reference the DEATH_RECORDED event id ({death_event_id!r})"
+        f"must reference the DEATH_RECORDED event id from RETURNING"
     )
 
 
