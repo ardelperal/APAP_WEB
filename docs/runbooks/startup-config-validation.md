@@ -111,7 +111,7 @@ Si un despliegue funcional previo utilizaba `APAP_INSFORGE_SERVICE_KEY` vacío o
 2. Redespliegue.
 3. Confirme que `curl https://apap.romancaba.com/healthz` devuelve 200.
 
-> **Advertencia**: una reversión al secreto placeholder implica que cada cookie de sesión queda firmada con un valor publicado en el repositorio. Cualquier lector del repositorio podría forjar una cookie de sesión. Priorice asignar un secreto real y redesplegar antes que revertir, salvo que exista un incidente en curso.
+> **Advertencia**: una reversión al secreto placeholder implica que cada cookie de sesión queda firmada con un valor publicado en el repositorio. Cualquier lector del repositorio podría forjar una cookie de sesión. Priorice asignar un secreto real y redesplegar antes que revertir, salvo que exista un incidente en curso. <!-- alantyle-ignore:ALAN004 -->
 
 ## Documentos relacionados
 

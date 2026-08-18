@@ -55,7 +55,7 @@ See `data-model-completeness.md` § "Volunteer Denormalization in Legacy" for th
 | Event log as single source of truth | A dedicated event log table stores every lifecycle event (intake, foster, adoption, return, death) with timestamps |
 | No timeline gaps | Every interval between events must have a known location/arrangement; gaps are flagged as data-quality defects |
 | Edge cases explicit | Multiple foster stays, returns to shelter, adoption returns, re-entries, and death as terminal event are all distinct timeline entries |
-| State derived from events | Current state is ALWAYS derived from the most recent event; never stored independently |
+| State derived from events | Current state is always derived from the most recent event; never stored independently |
 
 See `feature-01-animal-lifecycle.md` § "Lifecycle Event Timeline and Location Traceability" for the full requirement and migration rules.
 

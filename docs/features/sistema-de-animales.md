@@ -85,11 +85,11 @@ contrato de la función de bootstrap.
   ComunicacionARIAC, etc.).
 - La columna legacy `Situacion` no existe en el schema nuevo. Es
   derivada del event log (LIFECYCLE-SCHEMA-02), no almacenada.
-- La columna `NCHIP` es UNIQUE NOT NULL.
+- La columna `NCHIP` es UNIQUE NOT NULL. <!-- alantyle-ignore:ALAN003 -->
 - `Especie` esta restringida a `('CANINA', 'FELINA')` via CHECK.
 - `Sexo` esta restringido a `('M', 'H')` via CHECK.
-- `FNacimiento` es NOT NULL.
-- La migracion es idempotente: `CREATE TABLE IF NOT EXISTS` permite
+- `FNacimiento` es NOT NULL. <!-- alantyle-ignore:ALAN003 -->
+- La migracion es idempotente: `CREATE TABLE IF NOT EXISTS` permite <!-- alantyle-ignore:ALAN003 -->
   reiniciar la app sin errores.
 - La app arranca con el bootstrap automatico: el lifespan llama a
   `ensure_domain_schema` (junto a `ensure_schema_and_seed`) en cada
@@ -101,7 +101,7 @@ contrato de la función de bootstrap.
 |---|---|---|---|
 | Nombres de columna | CamelCase Spanish exactos del legacy (NCHIP, NombreAnimal) | snake_case English | Consistencia con el resto del schema (TbFichaAnimal del Access). Cero justificacion para renombrar. Decision asentada en issue #29. |
 | Primary key | UUID con `gen_random_uuid()` | INT autoincrement | Generacion client-side, no expone orden de creacion, portable entre entornos, suficiente densidad. |
-| `NCHIP` como identificador natural | UNIQUE NOT NULL, pero no PK | PK en `NCHIP` | El NCHIP puede ser NULL en animales recien ingresados (pre-implantacion) o cambiarse (LIFECYCLE-04). Un UUID como PK permite esto. |
+| `NCHIP` como identificador natural | UNIQUE NOT NULL, pero no PK | PK en `NCHIP` | El NCHIP puede ser NULL en animales recien ingresados (pre-implantacion) o cambiarse (LIFECYCLE-04). Un UUID como PK permite esto. | <!-- alantyle-ignore:ALAN003 -->
 | `Situacion` legacy | no incluida | Copiada como columna | Es derivada. Se calcula del event log (LIFECYCLE-SCHEMA-02 + LIFECYCLE-03). Tenerla almacenada es un anti-patron (ver `docs/discovery/feature-01-animal-lifecycle.md`). |
 | `fecha_alta` (created_at) | TIMESTAMP DEFAULT now() | NULL permitido | Necesario para auditoria y para el orden por defecto en listados. |
 | `updated_at` | TIMESTAMP DEFAULT now() | Sin tracking | Necesario para saber cuando cambia un animal. |
@@ -289,11 +289,11 @@ tests en esta feature, todos en verde.
 
 | Test | Que cubre |
 |---|---|
-| `test_animales_create_table_sql_uses_if_not_exists` | La SQL usa `IF NOT EXISTS` (idempotente). |
+| `test_animales_create_table_sql_uses_if_not_exists` | La SQL usa `IF NOT EXISTS` (idempotente). | <!-- alantyle-ignore:ALAN003 -->
 | `test_animales_create_table_sql_has_all_legacy_columns` | Las 24 columnas legacy + 4 mejoras estan presentes. Enumera cada una. |
 | `test_animales_table_does_not_store_situacion` | `Situacion` no existe (decision deliberada). |
 | `test_animales_table_enforces_especie_and_sexo_domains` | Los CHECK constraints estan en la SQL. |
-| `test_animales_NCHIP_is_unique` | `NCHIP TEXT UNIQUE NOT NULL` esta en la SQL. |
+| `test_animales_NCHIP_is_unique` | `NCHIP TEXT UNIQUE NOT NULL` esta en la SQL. | <!-- alantyle-ignore:ALAN003 -->
 | `test_voluntarios_create_table_sql_uses_if_not_exists` | Idem para voluntarios. |
 | `test_voluntarios_create_table_sql_has_all_legacy_columns` | Las 4 columnas legacy + 5 mejoras estan presentes. |
 | `test_voluntarios_email_and_DNI_are_unique` | Email y DNI son UNIQUE. |
@@ -324,18 +324,18 @@ campo `Situacion` derivado que se omite en el nuevo schema).
 
 | Legacy `TbFichaAnimal` | Nuevo `animales` | Tipo | Notas |
 |---|---|---|---|
-| `NCHIP` | `NCHIP` | TEXT UNIQUE NOT NULL | PK natural, identificador de display |
+| `NCHIP` | `NCHIP` | TEXT UNIQUE NOT NULL | PK natural, identificador de display | <!-- alantyle-ignore:ALAN003 -->
 | `TraeNChip` | `TraeNChip` | TEXT | Flag: el animal trae chip al ingreso |
 | `FIMPLANTACIONCHIP` | `FIMPLANTACIONCHIP` | DATE | Fecha de implante del chip |
-| `NombreAnimal` | `NombreAnimal` | TEXT NOT NULL | |
-| `Especie` | `Especie` | TEXT NOT NULL CHECK | CANINA / FELINA |
-| `Sexo` | `Sexo` | TEXT NOT NULL CHECK | M / H |
+| `NombreAnimal` | `NombreAnimal` | TEXT NOT NULL | | <!-- alantyle-ignore:ALAN003 -->
+| `Especie` | `Especie` | TEXT NOT NULL CHECK | CANINA / FELINA | <!-- alantyle-ignore:ALAN003 -->
+| `Sexo` | `Sexo` | TEXT NOT NULL CHECK | M / H | <!-- alantyle-ignore:ALAN003 -->
 | `Raza` | `Raza` | TEXT | |
 | `Color` | `Color` | TEXT | |
 | `Pelo` | `Pelo` | TEXT | |
 | `Tamaños` (encoding legacy) | `Tamano` | TEXT | Renombrado para corregir encoding |
 | `Caracter` | `Caracter` | TEXT | |
-| `FNacimiento` | `FNacimiento` | DATE NOT NULL | |
+| `FNacimiento` | `FNacimiento` | DATE NOT NULL | | <!-- alantyle-ignore:ALAN003 -->
 | `FDefuncion` | `FDefuncion` | DATE | |
 | `Terapia` | `Terapia` | TEXT | |
 | `Observaciones` | `Observaciones` | TEXT | |
@@ -370,9 +370,9 @@ ingles (`animals`, `volunteers`, `volunteer_roles`) y CREATEs de las
 nuevas en espanol. Las tablas estaban vacias (recien creadas en el
 ciclo #26), por lo que no hubo perdida. El orden fue:
 
-1. `DROP TABLE IF EXISTS roles_voluntario CASCADE;`
-   `DROP TABLE IF EXISTS voluntarios CASCADE;`
-   `DROP TABLE IF EXISTS animales CASCADE;`
+1. `DROP TABLE IF EXISTS roles_voluntario CASCADE;` <!-- alantyle-ignore:ALAN003 -->
+   `DROP TABLE IF EXISTS voluntarios CASCADE;` <!-- alantyle-ignore:ALAN003 -->
+   `DROP TABLE IF EXISTS animales CASCADE;` <!-- alantyle-ignore:ALAN003 -->
 2. `CREATE TABLE animales (...)` con el schema completo.
 3. `CREATE TABLE voluntarios (...)`.
 4. `CREATE TABLE roles_voluntario (...)`.

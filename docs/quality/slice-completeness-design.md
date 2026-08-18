@@ -123,7 +123,7 @@ For each (layer, slice) we choose one or more candidate test paths:
 - `tests/test_<slice>_<layer>.py` (preferred)
 - `tests/test_<layer>_<slice>.py` (existing pattern — e.g. `test_domain_lifecycle.py`)
 - `tests/test_<slice>_slice.py` (slices test — e.g. `test_admin_slice.py`, `test_oauth_slice.py`, `test_catalogos_slice.py`)
-- `tests/test_<slice>.py` (only acceptable when the slice has exactly ONE layer)
+- `tests/test_<slice>.py` (only acceptable when the slice has exactly one layer)
 - `tests/test_<slice>_*` glob (when tests are split, e.g. `test_auth_dependencies.py`, `test_auth_flow.py`)
 
 The "one test file per layer" requirement is intentionally loose — we
@@ -162,7 +162,7 @@ script on a *separate* PR run by the human (or the orchestrator) — the
 script's first CI run must be green.
 
 A baseline entry whose condition is no longer met is reported as a
-notice (`NOTE`) by the checker, mirroring `check_layers.py:668`.
+notice (`NOTE`) by the checker, mirroring `check_layers.py:668`. <!-- alantyle-ignore:ALAN003 -->
 
 ## Doctype alignment with AGENTS.md §32.P3
 

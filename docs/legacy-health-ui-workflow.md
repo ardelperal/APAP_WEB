@@ -1,4 +1,10 @@
 ---
+name: legacy-health-ui-workflow
+description: Flujo histórico de la ficha sanitaria en Access/VBA.
+license: Proprietary
+metadata:
+  author: APAP_WEB maintainers
+  version: 1.0.0
 title: "Legacy: Flujo de UI de Ficha Sanitaria"
 status: "historical"
 legacy_source: "src/forms/Form_FormFichasSanitarias*.cls + src/classes/FichaSanitaria.cls + src/classes/Animal.cls + Funciones Generales.bas (Access/VBA)"
@@ -381,9 +387,9 @@ Determina la situación actual del animal. Situaciones posibles:
 | **Albergue** | En el refugio | ✅ Permitido |
 | **Acogida** | En acogida temporal | ✅ Permitido |
 | **Adoptado** | Adoptado | ✅ Permitido (pero con nota) |
-| **Entregado** | Entregado a propietario | ⚠️ Restringido |
+| **Entregado** | Entregado a propietario | ⚠️ Restringido | <!-- alantyle-ignore:ALAN002 -->
 | **Fallecido** | Ha muerto | ❌ No permitido |
-| **Pendiente de Nueva Situación** | Entrada sin resolver | ⚠️ Verificar |
+| **Pendiente de Nueva Situación** | Entrada sin resolver | ⚠️ Verificar | <!-- alantyle-ignore:ALAN002 -->
 | **Incoherente** | Estado inconsistente | ❌ Revisar |
 
 ### 9.2. Restricciones por Situación

@@ -6,7 +6,7 @@ Business-relevant risks identified during discovery of the legacy Access/VBA sys
 
 PR3 of `live-data-migration-sandbox` locks the source-identity contract for the forward applier so a re-apply detects drift between runs.
 
-- **`migration.lock_snapshot.json`** is the durable record. Schema v1; written **AFTER the advisory lock is acquired, BEFORE the first `execute_legacy_sql` call** (per design §1 D8 / Correction J). SIGINT before the snapshot leaves no trace; SIGINT after writes the snapshot + `migration.partial_apply.json`.
+- **`migration.lock_snapshot.json`** is the durable record. Schema v1; written **after the advisory lock is acquired, before the first `execute_legacy_sql` call** (per design §1 D8 / Correction J). SIGINT before the snapshot leaves no trace; SIGINT after writes the snapshot + `migration.partial_apply.json`.
 - **Fingerprints**: SHA-256 hex of the `.accdb` bytes (`accdb_sha256`) and SHA-256 hex of the photos-directory manifest (`photos_dir_sha256` + `photos_file_count` + `photos_total_bytes`). Empty sources produce the SHA-256 of zero bytes (`EMPTY_SHA256`) deterministically so a fresh empty source matches a previous empty-source snapshot.
 - **Drift detection**: on the next apply, `detect_drift` compares the prospective snapshot against the on-disk one. Drift aborts the apply (`SourceDriftError`, CLI exit 6, reason `source_drift`) — no informational proceed, no auto-accept. The previous snapshot is preserved on disk so the operator can diff manually.
 - **Per-table hashes**: `MigrationReport.source_hashes` carries the per-table SHA-256 hex of the canonical JSON of the legacy batch (`{table_name: "<sha256 hex>"}`). Operator can review counts + hashes without opening the snapshot file.
@@ -15,7 +15,7 @@ The snapshot file is **not** a backup; it is a fingerprint. A re-apply does not 
 
 ## Collision policy (corrected)
 
-The PR3 `MigrationReport` extended `MigrationReport.collisions` (`migration/reporting.py:167`) as `dict[str, dict[str, int]]` — per-table counters, **counts only, no values**. The operator-facing detail (which PKs collided) lives in `web_only_feature_shadow` and the `conflicts` list, NEVER inside the report (per spec REQ-PII-Audit invariant).
+The PR3 `MigrationReport` extended `MigrationReport.collisions` (`migration/reporting.py:167`) as `dict[str, dict[str, int]]` — per-table counters, **counts only, no values**. The operator-facing detail (which PKs collided) lives in `web_only_feature_shadow` and the `conflicts` list, never inside the report (per spec REQ-PII-Audit invariant).
 
 **PII columns in scope for collision policy** (verified via Dysflow `get_schema` on 2026-07-11):
 
@@ -24,7 +24,7 @@ The PR3 `MigrationReport` extended `MigrationReport.collisions` (`migration/repo
 | `email` | `TbVoluntariosParaAutorrellenables.Email` | `voluntarios.email` | mapped 1:1 | forward + reverse | forward only (legacy carries Email) |
 | `tel1` | `TbVoluntariosParaAutorrellenables.Tel1` | `voluntarios.tel1` | mapped 1:1 | forward + reverse | forward only (legacy carries Tel1) |
 | `tel2` | `TbVoluntariosParaAutorrellenables.Tel2` | `voluntarios.tel2` | mapped 1:1 | forward + reverse | forward only (legacy carries Tel2) |
-| `dni`  | (no legacy column — `TbVoluntariosParaAutorrellenables` returns exactly four columns: `Voluntario, Tel1, Tel2, Email`, all `type=10 text size=255`) | `voluntarios.dni` | `preserve` (web-only shadow; round-trip) | NEVER forward-migrated; preserved on web-side; reverse-path collision is recorded as `needs_review` | web-only manual INSERT (UNIQUE constraint on `voluntarios_dni_key`) + reverse-path (no legacy column to receive) |
+| `dni`  | (no legacy column — `TbVoluntariosParaAutorrellenables` returns exactly four columns: `Voluntario, Tel1, Tel2, Email`, all `type=10 text size=255`) | `voluntarios.dni` | `preserve` (web-only shadow; round-trip) | never forward-migrated; preserved on web-side; reverse-path collision is recorded as `needs_review` | web-only manual INSERT (UNIQUE constraint on `voluntarios_dni_key`) + reverse-path (no legacy column to receive) |
 
 **Why no `DNI` column in legacy.** `TbVoluntariosParaAutorrellenables` returns exactly four columns (`Voluntario, Tel1, Tel2, Email`). Any future claim that DNI exists in this legacy table must be re-verified via the same Dysflow `get_schema` tool — anecdotal evidence from old VB6 forms or operator memory is not a substitute. The current `migration/mappings/voluntario.yaml` already encodes this reality (`DNI` has `legacy_column: null`, `web_only_strategy: preserve`).
 

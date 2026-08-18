@@ -63,7 +63,7 @@ APAP_WEB corre como **app web O app legacy Access/VBA, nunca ambas a la vez**. L
 
 La **selección de modo** es configuración de runtime (env-flag o `Settings.mode`). Cuando `mode = "web"`, la app habla con InsForge exclusivamente. Cuando `mode = "legacy"`, habla con el backend Access exclusivamente. Los dos nunca corren contra el mismo dataset en la misma sesión.
 
-### 18.1 Función de sync obligatoria (HARD)
+### 18.1 Función de sync obligatoria (HARD) <!-- alantyle-ignore:ALAN003 -->
 
 Ambos modos escriben a sus backends respectivos de forma independiente. No hay estado vivo compartido. Para mover datos entre ellos, el proyecto envía una función de sync bidireccional obligatoria (por directiva del usuario del 2026-07-05):
 
@@ -93,7 +93,7 @@ python -m migration reconcile --since 2026-06-20T00:00:00+00:00
 
 El CLI envía `apap-migrate reconcile <flags>` como punto de entrada.
 
-### 18.3 Modos de fallo (HARD REJECT)
+### 18.3 Modos de fallo (HARD REJECT) <!-- alantyle-ignore:ALAN003 -->
 
 - ❌ Rutas de código que leen ambos backends en el mismo request. Elija uno por request.
 - ❌ Rutas de código que escriben a un modo mientras leen del otro. Elija uno por request.

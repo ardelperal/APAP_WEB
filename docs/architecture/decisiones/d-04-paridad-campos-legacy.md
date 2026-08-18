@@ -6,7 +6,7 @@ El modelo `animal` (tabla y formulario) del sistema nuevo tiene paridad de campo
 
 ## Quick path
 
-- Cada campo `required=True` en TbFichaAnimal (Access) existe como `NOT NULL` o con valor por defecto válido en el modelo nuevo.
+- Cada campo `required=True` en TbFichaAnimal (Access) existe como `NOT NULL` o con valor por defecto válido en el modelo nuevo. <!-- alantyle-ignore:ALAN003 -->
 - Si falta un campo, se abre issue `type:bug gap:legacy` antes de cerrar cualquier PR del slice animal.
 - La paridad se mide por capacidad, no por tabla legacy.
 

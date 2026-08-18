@@ -20,7 +20,7 @@ Este runbook es el procedimiento del operador para recuperar una tabla `usuarios
 Abra este runbook cuando los datos locales sean lo único que se interponga entre los operadores y una tabla `usuarios_autorizados` sin desarrolladores:
 
 - El único desarrollador activo se ha desactivado (por ejemplo, clic accidental en el panel de administración antes de que el arreglo llegara a producción).
-- `ensure_schema_and_seed` ya no re-siembra porque la fila de desarrollador inactiva satisface el antiguo predicado `WHERE rol = 'developer'` (el único caso que el nuevo filtro `activo = true` aborda, pero del que **no recupera**).
+- `ensure_schema_and_seed` ya no re-siembra porque la fila de desarrollador inactiva satisface el antiguo predicado `WHERE rol = 'developer'` (el único caso que el nuevo filtro `activo = true` aborda, pero del que **no recupera**). <!-- alantyle-ignore:ALAN003 -->
 - La base de datos es accesible, pero `GET /admin` devuelve 403 o redirige a `/unauthorized` para cada correo de operador.
 - La variable de entorno `APAP_INITIAL_ADMIN_EMAIL` está fijada en Coolify pero ninguna fila de desarrollador activo existe con ese correo.
 
@@ -42,7 +42,7 @@ Antes de tocar la base de datos, confirme lo siguiente:
 - [ ] Tiene acceso administrativo de shell a InsForge/Postgres (mediante las herramientas MCP `run-raw-sql`/`get-table-schema`, o una conexión `psql` directa con las credenciales almacenadas en Coolify).
 - [ ] El despliegue Coolify en vivo está en `main` y es accesible. El SQL de recuperación apunta a la misma base de datos con la que habla la aplicación en ejecución.
 - [ ] Ningún otro operador ejecuta un bootstrap paralelo (no debe ocurrir: el arranque está limitado por el filtro de desarrollador activo; aún así, conviene confirmar que el contenedor no está en medio de un reinicio).
-- [ ] Ha tomado una copia de seguridad de la tabla `usuarios_autorizados` antes de ejecutar el INSERT manual (`SELECT * FROM public.usuarios_autorizados` a un archivo).
+- [ ] Ha tomado una copia de seguridad de la tabla `usuarios_autorizados` antes de ejecutar el INSERT manual (`SELECT * FROM public.usuarios_autorizados` a un archivo). <!-- alantyle-ignore:ALAN003 -->
 
 ## Pasos de despliegue
 

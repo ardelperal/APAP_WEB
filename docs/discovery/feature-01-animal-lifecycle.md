@@ -132,7 +132,7 @@ The timeline must represent **unbroken continuity**: for every interval between 
 | Concern | Recommendation |
 |---------|----------------|
 | Event log table | Dedicated `AnimalEventLog` table (or equivalent) with timestamp, event type, actor, location, and reference IDs |
-| State derivation | Current state is ALWAYS derived from the most recent event; never stored independently |
+| State derivation | Current state is always derived from the most recent event; never stored independently |
 | Audit trail | Every state change must be traceable to a source event in the timeline |
 | Gap detection | Background job or query that flags animals with unresolvable timeline gaps |
 

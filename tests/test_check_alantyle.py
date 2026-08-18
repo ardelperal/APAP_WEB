@@ -169,6 +169,24 @@ def test_alan003_does_not_flag_sentence_case_headings() -> None:
     assert _violations_for("ALAN003", content) == []
 
 
+@pytest.mark.parametrize(
+    "keyword",
+    ["GIVEN", "WHEN", "THEN", "AND", "DADO", "CUANDO", "ENTONCES"],
+)
+def test_alan003_accepts_openspec_scenario_markers(keyword: str) -> None:
+    """Los marcadores estructurales de escenarios no son énfasis en prosa."""
+    for marker in (keyword, f"**{keyword}**"):
+        content = f"# Title\n\n- {marker} se cumple la precondición\n"
+        assert _violations_for("ALAN003", content) == [], marker
+
+
+def test_alan003_still_flags_scenario_words_used_as_prose_emphasis() -> None:
+    """La excepción estructural no relaja las mismas palabras en prosa."""
+    content = "# Title\n\nThis happens WHEN the condition changes.\n"
+    matches = _violations_for("ALAN003", content)
+    assert [match.code for match in matches] == ["ALAN003"]
+
+
 # --- ALAN004: lenguaje ambiguo ---------------------------------------------
 
 
@@ -296,15 +314,28 @@ def test_alan007_accepts_long_paragraph_with_period() -> None:
     )
     content = f"# Title\n\n{body}\n"
     assert _violations_for("ALAN007", content) == []
-
-
 def test_alan007_does_not_flag_short_paragraphs() -> None:
     """Párrafos cortos (<= 200 chars) no disparan ALAN007."""
     content = "# Title\n\nPárrafo breve.\n\nOtro párrafo breve.\n"
     assert _violations_for("ALAN007", content) == []
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        "| Columna | Valor |\n|---|---|\n" + "| dato | valor largo |\n" * 20,
+        "\n".join(f"- Elemento estructural {index}" for index in range(30)),
+        "\n".join(f"> Línea citada {index}" for index in range(30)),
+    ],
+)
+def test_alan007_ignores_non_paragraph_markdown_blocks(body: str) -> None:
+    """Tablas, listas y citas no se concatenan como párrafos de prosa."""
+    content = f"# Title\n\n{body}\n"
+    assert _violations_for("ALAN007", content) == []
+
+
 def test_alan007_breaks_at_heading() -> None:
+
     """Un heading rompe el párrafo, así que cada sección se mide aparte."""
     long_para = "x" * 250
     content = f"# Title\n\n{long_para}\n\n## Section\n\n{long_para}.\n"
@@ -521,7 +552,7 @@ def test_expanded_whitelist_accepts_common_technical_acronyms() -> None:
         "MSACCESS MVC MVCC NASA NFKD NIE NIF NIST NLP NOSQL OCR OECD OOM OPTIONS ORM OS OSS "
         "PaaS PATCH PDF PEP PG PHI PID PII PK PKCE PNG POC POP POSIX POST PTY PUT PWA PYTHONHASHSEED PYTHONPATH QA "
         "RAG RBAC RDBMS RDD REQ REST RFC RIAC RLS ROI SAAS SDD SDK SEO SIGINT SLA SLI SLO SMTP SOA SOAP SOC SOLID SOX SPA "
-        "SSL SSH STDERR STDIN STDOUT SVG TBD TCP TDD TLD TLS TODO TOCTOU TS TSV TTL UA UAT UDP UI UK UN URI URN "
+        "SSL SSH STDERR STDIN STDOUT SVG TBD TCP TDD TLD TLS TOCTOU TS TSV TTL UA UAT UDP UI UK UN URI URN "
         "USA UTC UUID UX VBA VPN VPS WHO WIP WS WSL WSS WWW XSS YAML YYYY"
     ).split()
     for acronym in allowed:
@@ -572,8 +603,7 @@ def test_expanded_whitelist_accepts_common_technical_acronyms() -> None:
         "MEDIUM",
         "PASS",
         "PENDING",
-        # Marcadores de código (issue #572, "otros a considerar")
-        "FIXME",
+        # Marcadores técnicos heredados (issue #572)
         "XXX",
     ],
 )
@@ -628,15 +658,258 @@ def test_whitelist_v2_accepts_apap_domain_terms(acronym: str) -> None:
 
 
 def test_whitelist_v2_does_not_relax_emph_words() -> None:
-    """La whitelist v2 NO relaja las palabras genuinamente emph.
-
-    Estas son las que el issue #572 aplaza al PR editorial: viven en
-    prosa en mayúsculas como énfasis en español/inglés y deben corregirse
-    línea por línea en los docs afectados.
-    """
-    emph_words = ("NO", "MUST", "AND", "WHEN", "THEN", "GIVEN", "NOT", "IF")
+    """La whitelist final no relaja palabras genéricas usadas como énfasis."""
+    emph_words = (
+        "IF",
+        "NOT",
+        "NO",
+        "FROM",
+        "WHERE",
+        "IN",
+        "ON",
+        "OR",
+        "AND",
+        "IS",
+        "ONE",
+        "AS",
+        "BY",
+        "ONLY",
+        "NEVER",
+        "HARD",
+        "FINAL",
+        "BEFORE",
+        "AFTER",
+        "ALWAYS",
+        "ANY",
+        "NOTE",
+        "TODO",
+        "FIXME",
+        "MUST",
+        "SHALL",
+        "SHOULD",
+        "GIVEN",
+        "WHEN",
+        "THEN",
+        "DE",
+        "EN",
+        "ES",
+        "EL",
+        "LA",
+        "POR",
+        "PARA",
+    )
     for word in emph_words:
         assert word not in ACRONYM_WHITELIST, (
-            f"emph word {word!r} leaked into whitelist v2 — should be "
-            "fixed in editorial follow-up, not whitelisted"
+            f"emph word {word!r} leaked into the whitelist — fix the "
+            "document or use a selective ignore instead"
         )
+
+
+@pytest.mark.parametrize(
+    "acronym",
+    [
+        "ADD",
+        "ASC",
+        "BEGIN",
+        "BIGSERIAL",
+        "CHECK",
+        "COLUMN",
+        "COMMIT",
+        "CONSTRAINT",
+        "COUNT",
+        "DATE",
+        "DATEDIFF",
+        "DESC",
+        "DOMAIN",
+        "EXTENSION",
+        "GROUP",
+        "HAVING",
+        "ILIKE",
+        "INDEX",
+        "INNER",
+        "INT",
+        "INTEGER",
+        "INTERVAL",
+        "INTO",
+        "JOIN",
+        "LAST",
+        "LIMIT",
+        "NULLS",
+        "ORDER",
+        "ROLLBACK",
+        "SAVEPOINT",
+        "SCHEMA",
+        "SEED",
+        "SERIAL",
+        "SUM",
+        "TEXT",
+        "TIMESTAMPTZ",
+        "TRANSACTION",
+        "TRIGGER",
+        "TRUNCATE",
+        "TYPE",
+        "UNION",
+        "VIEW",
+    ],
+)
+def test_whitelist_v3_accepts_sql_db_terms(acronym: str) -> None:
+    """Los tipos y keywords SQL/DB no disparan ALAN003."""
+    assert _violations_for("ALAN003", f"# Title\n\n{acronym}\n") == []
+
+
+@pytest.mark.parametrize(
+    "acronym",
+    [
+        "ACOGIDA",
+        "ADM",
+        "ADOPTADO",
+        "ADOPTION",
+        "ALBERGUE",
+        "AVES",
+        "CANCELADA",
+        "COMPLETADA",
+        "CONTRATO",
+        "ENTREGADO",
+        "FALLECIDO",
+        "FICHERO",
+        "FIMPLANTACIONCHIP",
+        "IFI",
+        "INCOHERENTE",
+        "INTAKE",
+        "MANUAL",
+        "MATERIAL",
+        "OPERADOR",
+        "PARIDAD",
+        "PENDIENTE",
+        "PPP",
+        "PTE",
+        "READONLY",
+        "REMOVIDO",
+        "REPORTE",
+        "REPORTES",
+        "RESPONSABLE",
+        "SEGUIMIENTO",
+        "TERAPIA",
+        "TERAPIAS",
+        "VOLUNTARIOS",
+    ],
+)
+def test_whitelist_v3_accepts_apap_domain_terms(acronym: str) -> None:
+    """Los nombres del dominio APAP_WEB no disparan ALAN003."""
+    assert _violations_for("ALAN003", f"# Title\n\n{acronym}\n") == []
+
+
+@pytest.mark.parametrize(
+    "acronym",
+    [
+        "CATALOG",
+        "CP",
+        "CRIT",
+        "DD",
+        "DM",
+        "DS",
+        "ENV",
+        "EST",
+        "FE",
+        "FIDELITY",
+        "FOUNDATION",
+        "GAP",
+        "GC",
+        "HOME",
+        "IDINTAKE",
+        "IDENTRADA",
+        "IDADOPCION",
+        "IDRIAC",
+        "IDFOSTER",
+        "IDCONTRATOACOGIDA",
+        "NCONTRATOENTRADA",
+        "NCONTRATOACOGIDA",
+        "IFC",
+        "LEUC",
+        "LH",
+        "MM",
+        "REG",
+        "ROUTE",
+        "SB",
+        "SCOPE",
+        "SECRET",
+        "SERVICE",
+        "TASK",
+        "UP",
+        "WORKER",
+    ],
+)
+def test_whitelist_v3_accepts_repo_internal_terms(acronym: str) -> None:
+    """Los IDs, prefijos y nombres internos del repo no disparan ALAN003."""
+    assert _violations_for("ALAN003", f"# Title\n\n{acronym}\n") == []
+
+
+@pytest.mark.parametrize(
+    "acronym",
+    [
+        "ACQUISITION",
+        "ADDED",
+        "ADDITIONS",
+        "ADMIN",
+        "ALLOW",
+        "APPROVED",
+        "ARCHIVED",
+        "CHILD",
+        "CLOSED",
+        "DELETED",
+        "DENY",
+        "DEVELOPER",
+        "DISABLED",
+        "DONE",
+        "DORMANT",
+        "DRAFT",
+        "ENABLED",
+        "FIXED",
+        "GREEN",
+        "IMPLEMENTED",
+        "INCOMPETENT",
+        "KILLED",
+        "MERGED",
+        "OPEN",
+        "PROVISIONAL",
+        "READER",
+        "REDACTED",
+        "REFACTOR",
+        "REJECT",
+        "ROTA",
+        "SKIPPED",
+        "STACK",
+        "SUGGESTION",
+        "SUPERSEDED",
+        "TRACKED",
+        "UPDATED",
+        "WARN",
+        "WARNING",
+    ],
+)
+def test_whitelist_v3_accepts_status_role_and_change_terms(acronym: str) -> None:
+    """Los estados, roles y marcadores de cambio no disparan ALAN003."""
+    assert _violations_for("ALAN003", f"# Title\n\n{acronym}\n") == []
+
+
+@pytest.mark.parametrize(
+    "acronym",
+    [
+        "AA",
+        "CAS",
+        "CTA",
+        "FD",
+        "ISP",
+        "PERMISSIONS",
+        "RQ",
+        "SECURITY",
+        "SMS",
+        "SO",
+        "USERNAME",
+        "WCAG",
+        "YY",
+    ],
+)
+def test_whitelist_v3_accepts_specific_technical_terms(acronym: str) -> None:
+    """Las abreviaturas técnicas verificadas en el repo no disparan ALAN003."""
+    assert _violations_for("ALAN003", f"# Title\n\n{acronym}\n") == []

@@ -56,8 +56,8 @@ Records individual health events for each animal: vaccinations, deworming, steri
 
 - **Table:** `TbActuacionSanitaria`, `TbFichaAnimal`
 - **Dysflow tool:** `query_sql`
-- **Query:** `SELECT h.NCHIP, h.FechaAnotacion, f.FNacimiento, f.FDefuncion FROM TbActuacionSanitaria AS h INNER JOIN TbFichaAnimal AS f ON h.NCHIP = f.NCHIP WHERE h.FechaAnotacion < f.FNacimiento OR (f.FDefuncion IS NOT NULL and h.FechaAnotacion > f.FDefuncion)`
-- **Result:** Existing violations found in legacy data — health actions with dates BEFORE animal birth (5+ records) and AFTER animal death (5+ records). This confirms: (1) date bounds are not DB-enforced, (2) legacy application enforcement is inconsistent, (3) the web app must implement strict date validation as a service-layer rule.
+- **Query:** `SELECT h.NCHIP, h.FechaAnotacion, f.FNacimiento, f.FDefuncion FROM TbActuacionSanitaria AS h INNER JOIN TbFichaAnimal AS f ON h.NCHIP = f.NCHIP WHERE h.FechaAnotacion < f.FNacimiento OR (f.FDefuncion IS NOT NULL and h.FechaAnotacion > f.FDefuncion)` <!-- alantyle-ignore:ALAN003 -->
+- **Result:** Existing violations found in legacy data — health actions with dates before animal birth (5+ records) and after animal death (5+ records). This confirms: (1) date bounds are not DB-enforced, (2) legacy application enforcement is inconsistent, (3) the web app must implement strict date validation as a service-layer rule.
 - **Verified:** [x]
 
 ## 3.2 Health Summary
@@ -159,7 +159,7 @@ nextDue = lastActionDate + periodicityMonths
 
 - **Table:** `TbNombrePruebas`, `TbPruebasPeridicidad`, `TbFichaAnimal`
 - **Dysflow tool:** `get_schema`, `query_sql`
-- **Query:** `SELECT f.NCHIP, f.FNacimiento, f.Especie, DATEDIFF('m', f.FNacimiento, Date()) AS MonthsOld FROM TbFichaAnimal AS f WHERE f.Especie = 'CANINA' and DATEDIFF('m', f.FNacimiento, Date()) < 8`
+- **Query:** `SELECT f.NCHIP, f.FNacimiento, f.Especie, DATEDIFF('m', f.FNacimiento, Date()) AS MonthsOld FROM TbFichaAnimal AS f WHERE f.Especie = 'CANINA' and DATEDIFF('m', f.FNacimiento, Date()) < 8` <!-- alantyle-ignore:ALAN003 -->
 - **Result:** Puppy-test eligibility confirmed. "Puppy" test exists in `TbNombrePruebas` with `Especie = 'canina'`. Query found 1 dog under 8 months eligible. Formula `DATEDIFF('m', FNacimiento, Date()) < 8` works against live data. Periodicity for all tests (including Puppy) is 12 months per `TbPruebasPeridicidad`.
 - **Verified:** [x]
 

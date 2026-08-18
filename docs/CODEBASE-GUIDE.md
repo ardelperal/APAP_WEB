@@ -53,7 +53,7 @@
 | [Maintainer playbook](codebase/maintainer-playbook.md) | Workflow operativo de mantenedor y checklists por tipo de cambio. |
 | [Sync and cloud](codebase/sync-and-cloud.md) | Web ↔ legacy, mode toggle y CLI de reconciliación. |
 | [Reference map](codebase/reference-map.md) | Trazabilidad entre docs, specs y código. |
-| [Missing sources](codebase/missing-sources.md) | Subsistemas que el lector podría esperar y no existen. |
+| [Missing sources](codebase/missing-sources.md) | Subsistemas que el lector podría esperar y no existen. | <!-- alantyle-ignore:ALAN004 -->
 
 ## Recommended reading path
 

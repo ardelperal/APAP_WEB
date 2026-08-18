@@ -64,303 +64,127 @@ EXIT_OK = 0
 EXIT_VIOLATIONS = 1
 EXIT_USAGE_ERROR = 2
 
-# Acrónimos técnicos y nombres propios exentos de la regla ALAN003. La
-# skill §10 menciona HTTP, MCP y SQL como ejemplos; la lista no es cerrada.
-# Mantener las entradas en orden alfabético, sin distinguir mayúsculas.
+# Whitelist de acrónimos técnicos y nombres de dominio.
 #
-# Las entradas marcadas con el comentario ``# issue #572`` corresponden a
-# la segunda expansión de la whitelist (issue #572): SQL/DB keywords,
-# estados de severidad y status de CI, marcadores de código y términos
-# del dominio APAP_WEB (gestión de protectoras de animales). La
-# justificación completa vive en el cuerpo del issue. Las entradas
-# genuinamente emph (MUST, AND, WHEN, THEN, etc.) se arreglan en otro PR
-# porque requieren fixes editoriales uno a uno en los docs afectados.
-ACRONYM_WHITELIST: frozenset[str] = frozenset(
+# Justificación por categoría:
+#   - SQL/DB: ANSI SQL estándar, extensiones comunes y tipos de PostgreSQL.
+#   - HTTP/security: métodos, protocolos y controles de seguridad web.
+#   - Cloud/infrastructure: proveedores, redes y servicios de plataforma.
+#   - Languages/tools: formatos, runtimes, estándares y herramientas.
+#   - Quality/status: arquitectura, CI, roles y estados de revisión.
+#   - APAP_WEB domain: gestión de protectoras y nombres heredados de Access.
+#   - Repo internal: IDs, prefijos de requisitos, columnas y constantes.
+#
+# Las palabras genéricas de énfasis (IF, NOT, FROM, TODO, etc.) quedan fuera:
+# se redactan en minúsculas o se suprimen por línea con una directiva selectiva.
+_SQL_DB_WHITELIST = frozenset(
     {
-        "ACCDB",
-        "ACID",
-        "ADOPT",  # issue #572 — domain: adopción de animales
-        "ADR",
-        "AGENTS",
-        "AGI",
-        "AI",
-        "ALTER",  # issue #572 — SQL keyword
-        "AMQP",
-        "APAP",
-        "API",
-        "APM",
-        "ARG",
-        "ARIAC",
-        "ASCII",
-        "ASGI",
-        "AST",
-        "AUTOINCREMENT",  # issue #572 — SQL keyword (SQLite)
-        "AWS",
-        "AZURE",
-        "BASELINE",  # issue #572 — ratchet baseline
-        "BD",
-        "BDD",
-        "BFF",
-        "BI",
-        "BLOCKED",  # issue #572 — CI status + domain
-        "BLOCKER",
-        "BMP",
-        "BOOLEAN",  # issue #572 — SQL type
-        "CANINA",  # issue #572 — domain: especie canina
-        "CASCADE",  # issue #572 — SQL FK action
-        "CC",  # issue #572 — domain: prefijo CC.N de acceptance checklist
-        "CD",
-        "CDN",
-        "CET",
-        "CHANGELOG",
-        "CI",
-        "CIDR",
-        "CLI",
-        "CMD",
-        "CODEBASE",
-        "CODEOWNERS",
-        "COM",
-        "CONTRIBUTING",
-        "CORS",
-        "CRAP",  # issue #572 — Change Risk Anti-Patterns (CRAP index)
-        "CREATE",  # issue #572 — SQL keyword
-        "CRITICAL",  # issue #572 — severity level + domain
-        "CRUD",
-        "CSP",
-        "CSRF",
-        "CSS",
-        "CSV",
-        "CTE",
-        "DAG",
-        "DAO",
-        "DB",
-        "DDD",
-        "DDL",
-        "DEFAULT",  # issue #572 — SQL constraint
-        "DELETE",
-        "DI",
-        "DIP",
-        "DISTINCT",  # issue #572 — SQL keyword
-        "DNI",
-        "DNS",
-        "DOB",
-        "DOC",  # issue #572 — documentation
-        "DOCS",
-        "DOCX",
-        "DOM",
-        "DRF",
-        "DROP",  # issue #572 — SQL keyword (DROP TABLE/INDEX)
-        "DSN",
-        "EHR",
-        "ELT",
-        "EOL",
-        "ERD",
-        "ETL",
-        "EU",
-        "EXE",
-        "EXISTS",  # issue #572 — SQL keyword
-        "FAIL",  # issue #572 — CI status
-        "FALSE",  # issue #572 — boolean literal
-        "FAQ",
-        "FELINA",  # issue #572 — domain: especie felina
-        "FIXME",  # issue #572 — code marker
-        "FK",
-        "FOSTER",  # issue #572 — domain: acogida temporal de animal
-        "FSO",
-        "FTP",
-        "FTS",
-        "GCP",
-        "GDPR",
-        "GET",
-        "GMT",
-        "GNU",
-        "GRPC",
-        "GUID",
-        "GUIDE",
-        "HEAD",
-        "HEALTH",  # issue #572 — domain: health UI del animal
-        "HIGH",  # issue #572 — severity level
-        "HIPAA",
-        "HMAC",
-        "HSTS",
-        "HTML",
-        "HTMX",
-        "HTTP",
-        "HTTPS",
-        "HTTPX",
-        "IA",  # issue #572 — Inteligencia Artificial
-        "IaaS",
-        "ID",
-        "IEEE",
-        "IMAP",
-        "INFO",
-        "INFORGE",
-        "INSFORGE",
-        "INSERT",  # issue #572 — SQL keyword
-        "IP",
-        "ISO",
-        "JS",
-        "JSON",
-        "JSONB",
-        "JWE",
-        "JWS",
-        "JWT",
-        "K8S",
-        "KB",
-        "KPI",
-        "LF",
-        "LIFECYCLE",  # issue #572 — domain: ciclo de vida del animal
-        "LINUX",
-        "LLM",
-        "LOC",
-        "LOW",  # issue #572 — severity level
-        "LSP",
-        "LTS",
-        "MCP",
-        "MD",
-        "MEDIUM",  # issue #572 — severity level
-        "MIGRATION",  # issue #572 — domain: migración de datos legacy
-        "ML",
-        "MQTT",
-        "MSACCESS",
-        "MVC",
-        "MVCC",
-        "MVP",
-        "NASA",
-        "NCHIP",  # issue #572 — domain: número de chip veterinario
-        "NFKD",
-        "NIE",
-        "NIF",
-        "NIST",
-        "NLP",
-        "NOSQL",
-        "NOW",  # issue #572 — SQL function
-        "NULL",  # issue #572 — SQL value
-        "OCR",
-        "OECD",
-        "OK",
-        "OOM",
-        "OPENSPEC",
-        "OPTIONS",
-        "ORM",
-        "OS",
-        "OSS",
-        "PaaS",
-        "PASS",  # issue #572 — CI status
-        "PATCH",
-        "PDF",
-        "PENDING",  # issue #572 — CI status
-        "PEP",
-        "PG",
-        "PHI",
-        "PID",
-        "PII",
-        "PK",
-        "PKCE",
-        "PNG",
-        "POC",
-        "POP",
-        "POSIX",
-        "POST",
-        "PR",
-        "PROBLEMS",
-        "PTY",
-        "PUT",
-        "PWA",
-        "PYTHONHASHSEED",
-        "PYTHONPATH",
-        "QA",
-        "RAG",
-        "RBAC",
-        "RDBMS",
-        "RDD",
-        "README",
-        "RED",  # issue #572 — TDD: fase RED (red → green → refactor)
-        "REFERENCES",  # issue #572 — SQL FK clause
-        "REPORT",  # issue #572 — domain: prefijo REPORT-NN de issues
-        "REQ",
-        "REST",
-        "RESTRICT",  # issue #572 — SQL FK action
-        "RETURNING",  # issue #572 — SQL keyword (RETURNING clause)
-        "RFC",
-        "RIAC",
-        "RLS",
-        "ROI",
-        "SAAS",
-        "SALUD",  # issue #572 — domain: salud UI
-        "SDD",
-        "SDK",
-        "SELECT",  # issue #572 — SQL keyword
-        "SEO",
-        "SET",  # issue #572 — SQL keyword (ON DELETE SET NULL etc.)
-        "SHA",
-        "SIGINT",
-        "SKILL",  # issue #572 — domain: skill registry entry
-        "SLA",
-        "SLI",
-        "SLO",
-        "SMTP",
-        "SOA",
-        "SOAP",
-        "SOC",
-        "SOLID",
-        "SOX",
-        "SPA",
-        "SQL",
-        "SSH",
-        "SSL",
-        "STDERR",
-        "STDIN",
-        "STDOUT",
-        "SVG",
-        "TABLE",  # issue #572 — SQL keyword
-        "TBD",
-        "TCP",
-        "TDD",
-        "TIMESTAMP",  # issue #572 — SQL type
-        "TLD",
-        "TLS",
-        "TOC",
-        "TOCTOU",
-        "TODO",
-        "TOML",
-        "TRUE",  # issue #572 — boolean literal
-        "TS",
-        "TSV",
-        "TTL",
-        "UA",
-        "UAT",
-        "UDP",
-        "UI",
-        "UK",
-        "UN",
-        "UNIQUE",  # issue #572 — SQL constraint
-        "UPDATE",  # issue #572 — SQL keyword
-        "URI",
-        "URL",
-        "URN",
-        "USA",
-        "UTC",
-        "UTF",
-        "UUID",
-        "UX",
-        "VBA",
-        "VOL",  # issue #572 — domain: voluntario
-        "VPN",
-        "VPS",
-        "WHO",
-        "WIP",
-        "WS",
-        "WSL",
-        "WSS",
-        "WWW",
-        "XML",
-        "XSS",
-        "XX",  # issue #572 — domain: prefijo D-XX (ADR) y feature-XX-*
-        "XXX",  # issue #572 — code marker
-        "YAML",
-        "YYYY",
+        "ACCDB", "ACID", "ADD", "ALTER", "ASC", "AUTOINCREMENT", "BD",
+        "BEGIN", "BIGSERIAL", "BOOLEAN", "CASCADE", "CHECK", "COLUMN",
+        "COMMIT", "CONFLICT", "CONSTRAINT", "COUNT", "CREATE", "CTE",
+        "DAO", "DATE", "DATEDIFF", "DB", "DDL", "DEFAULT", "DELETE",
+        "DESC", "DISTINCT", "DOMAIN", "DROP", "DSN", "EXISTS",
+        "EXTENSION", "FALSE", "FK", "FTS", "GROUP", "HAVING", "ILIKE",
+        "INDEX", "INNER", "INSERT", "INT", "INTEGER", "INTERVAL", "INTO",
+        "JOIN", "JSONB", "LAST", "LIMIT", "MSACCESS", "MVCC", "NOSQL",
+        "NOW", "NULL", "NULLS", "ORDER", "ORM", "PG", "PK", "RDBMS",
+        "REFERENCES", "RESTRICT", "RETURNING", "ROLLBACK", "SAVEPOINT",
+        "SCHEMA", "SEED", "SELECT", "SERIAL", "SET", "SQL", "SUM",
+        "TABLE", "TEXT", "TIMESTAMP", "TIMESTAMPTZ", "TRANSACTION",
+        "TRIGGER", "TRUE", "TRUNCATE", "TYPE", "UNION", "UNIQUE",
+        "UPDATE", "UUID", "VIEW",
     }
+)
+
+_HTTP_SECURITY_WHITELIST = frozenset(
+    {
+        "API", "CORS", "CRUD", "CSP", "CSRF", "DNI", "GDPR", "GET",
+        "HEAD", "HIPAA", "HMAC", "HSTS", "HTTP", "HTTPS", "HTTPX", "JWE",
+        "JWS", "JWT", "NIE", "NIF", "NIST", "OPTIONS", "PATCH", "PHI",
+        "PII", "PKCE", "POST", "PUT", "RBAC", "REDACTED", "REST", "RFC",
+        "RLS", "SECURITY", "SOAP", "SSL", "TLS", "URI", "URL", "URN",
+        "USERNAME", "XSS",
+    }
+)
+
+_CLOUD_INFRASTRUCTURE_WHITELIST = frozenset(
+    {
+        "AMQP", "AWS", "AZURE", "CDN", "CIDR", "DNS", "FTP", "GCP",
+        "GRPC", "IaaS", "IMAP", "INFORGE", "INSFORGE", "IP", "K8S",
+        "MQTT", "PaaS", "SAAS", "SMTP", "SMS", "SSH", "TCP", "UDP",
+        "VPN", "VPS", "WS", "WSS", "WWW",
+    }
+)
+
+_LANGUAGE_FORMAT_TOOL_WHITELIST = frozenset(
+    {
+        "AA", "AGI", "AI", "ASCII", "ASGI", "AST", "BMP", "CAS", "CET",
+        "CLI", "CMD", "COM", "CSS", "CSV", "CTA", "DOCX", "DOM", "DRF",
+        "EHR", "ELT", "EOL", "ERD", "ETL", "EU", "EXE", "FAQ", "FD",
+        "FSO", "GMT", "GNU", "GUID", "HTML", "HTMX", "IA", "ID", "IEEE",
+        "INFO", "ISO", "JS", "JSON", "KB", "LF", "LINUX", "LLM", "LOC",
+        "LSP", "LTS", "MCP", "MD", "ML", "NASA", "NFKD", "NLP", "OCR",
+        "OECD", "OK", "OOM", "OS", "OSS", "PDF", "PEP", "PID", "PNG",
+        "POP", "POSIX", "PTY", "PWA", "PYTHONHASHSEED", "PYTHONPATH", "RQ",
+        "SDK", "SEO", "SIGINT", "SO", "SPA", "STDERR", "STDIN", "STDOUT",
+        "SVG", "TBD", "TLD", "TOML", "TS", "TSV", "TTL", "UA", "UK",
+        "UN", "USA", "UTC", "UTF", "VBA", "WCAG", "WHO", "WSL", "XML",
+        "YAML", "YYYY",
+    }
+)
+
+_QUALITY_STATUS_WHITELIST = frozenset(
+    {
+        "ACQUISITION", "ADDED", "ADDITIONS", "ADMIN", "ADR", "AGENTS",
+        "ALLOW", "APM", "APPROVED", "ARCHIVED", "ARG", "BASELINE", "BDD",
+        "BFF", "BI", "BLOCKED", "BLOCKER", "CC", "CD", "CHANGELOG", "CHILD",
+        "CI", "CLOSED", "CODEBASE", "CODEOWNERS", "CONTRIBUTING", "CRAP",
+        "CRITICAL", "DAG", "DDD", "DELETED", "DENY", "DEVELOPER", "DI",
+        "DIP", "DISABLED", "DOC", "DOCS", "DONE", "DORMANT", "DRAFT",
+        "ENABLED", "FAIL", "FIXED", "GREEN", "GUIDE", "HIGH", "IMPLEMENTED",
+        "INCOMPETENT", "ISP", "KILLED", "KPI", "LOW", "MEDIUM", "MERGED",
+        "MVC", "MVP", "OPEN", "OPENSPEC", "PASS", "PENDING", "POC", "PR",
+        "PROBLEMS", "PROVISIONAL", "QA", "RAG", "RDD", "READER", "README",
+        "RED", "REFACTOR", "REJECT", "REQ", "ROI", "ROTA", "SDD", "SHA",
+        "SKILL", "SKIPPED", "SLA", "SLI", "SLO", "SOA", "SOC", "SOLID",
+        "SOX", "STACK", "SUGGESTION", "SUPERSEDED", "TDD", "TOC", "TOCTOU",
+        "TRACKED", "UAT", "UI", "UPDATED", "UX", "WARN", "WARNING", "WIP",
+        "XX", "XXX",
+    }
+)
+
+_APAP_DOMAIN_WHITELIST = frozenset(
+    {
+        "ACOGIDA", "ADM", "ADOPT", "ADOPTADO", "ADOPTION", "ALBERGUE", "APAP",
+        "ARIAC", "AVES", "CANCELADA", "CANINA", "COMPLETADA", "CONTRATO", "CP",
+        "DOB", "ENTREGADO", "FALLECIDO", "FELINA", "FICHERO",
+        "FIMPLANTACIONCHIP", "FOSTER", "HEALTH", "IDCONTRATOACOGIDA",
+        "IDADOPCION", "IDENTRADA", "IDFOSTER", "IDINTAKE", "IDRIAC", "IFC",
+        "IFI", "INCOHERENTE", "INTAKE", "LEUC", "LH", "LIFECYCLE", "MANUAL",
+        "MATERIAL", "MIGRATION", "NCHIP", "NCONTRATOACOGIDA",
+        "NCONTRATOENTRADA", "OPERADOR", "PARIDAD", "PENDIENTE", "PPP", "PTE",
+        "READONLY", "REMOVIDO", "REPORT", "REPORTE", "REPORTES", "RESPONSABLE",
+        "RIAC", "SALUD", "SEGUIMIENTO", "TERAPIA", "TERAPIAS", "VOL",
+        "VOLUNTARIOS",
+    }
+)
+
+_REPO_INTERNAL_WHITELIST = frozenset(
+    {
+        "CATALOG", "CRIT", "DD", "DM", "DS", "ENV", "EST", "FE", "FIDELITY",
+        "FOUNDATION", "GAP", "GC", "HOME", "MM", "PERMISSIONS", "REG", "ROUTE",
+        "SB", "SCOPE", "SECRET", "SERVICE", "TASK", "UP", "WORKER", "YY",
+    }
+)
+
+ACRONYM_WHITELIST: frozenset[str] = frozenset().union(
+    _SQL_DB_WHITELIST,
+    _HTTP_SECURITY_WHITELIST,
+    _CLOUD_INFRASTRUCTURE_WHITELIST,
+    _LANGUAGE_FORMAT_TOOL_WHITELIST,
+    _QUALITY_STATUS_WHITELIST,
+    _APAP_DOMAIN_WHITELIST,
+    _REPO_INTERNAL_WHITELIST,
 )
 
 # ALAN002: code-point ranges de emojis decorativos. Cubre BMP (Misc
@@ -387,6 +211,21 @@ _EMOJI_RE = re.compile(
 # contabilizan porque no hay límite de palabra entre la letra final y
 # el dígito inicial.
 _ALLCAPS_WORD_RE = re.compile(r"\b[A-Z]{2,}\b")
+
+# Los marcadores GIVEN/WHEN/THEN (y su equivalente en castellano) son
+# estructura de escenarios OpenSpec, no énfasis en prosa. La excepción
+# exige el formato exacto de item en negrita y solo cubre el marcador;
+# cualquier otra secuencia ALL CAPS de la misma línea sigue evaluándose.
+_OPEN_SPEC_SCENARIO_RE = re.compile(
+    r"^\s*-\s+(?:\*\*(?P<bold>GIVEN|WHEN|THEN|AND|DADO|CUANDO|ENTONCES)\*\*"
+    r"|(?P<plain>GIVEN|WHEN|THEN|AND|DADO|CUANDO|ENTONCES)\b)"
+)
+
+# ALAN007 solo evalúa párrafos de prosa. Tablas, listas, citas, HTML y
+# bloques indentados son estructuras markdown independientes y no deben
+# concatenarse como si fueran un único párrafo.
+_MARKDOWN_LIST_ITEM_RE = re.compile(r"^(?:[-+*]|\d+[.)])\s")
+
 
 # ALAN004: frases ambiguas (substring case-insensitive). El conjunto
 # refleja la skill §10 más las formas coloquiales que la skill prohíbe
@@ -653,7 +492,14 @@ def _check_allcaps(
             continue
         if _line_ignored(raw, code="ALAN003"):
             continue
+        scenario = _OPEN_SPEC_SCENARIO_RE.match(raw)
+        scenario_span: tuple[int, int] | None = None
+        if scenario is not None:
+            group = "bold" if scenario.group("bold") is not None else "plain"
+            scenario_span = scenario.span(group)
         for match in _ALLCAPS_WORD_RE.finditer(raw):
+            if scenario_span is not None and match.span() == scenario_span:
+                continue
             word = match.group()
             if word in ACRONYM_WHITELIST:
                 continue
@@ -770,6 +616,16 @@ def _check_external_links(
     ]
 
 
+def _is_non_paragraph_markdown(raw: str) -> bool:
+    """Indica si una línea pertenece a una estructura que no es prosa."""
+    stripped = raw.strip()
+    if raw.startswith(("    ", "\t")):
+        return True
+    if stripped.startswith(("|", ">", "<!--", "<", "---")):
+        return True
+    return _MARKDOWN_LIST_ITEM_RE.match(stripped) is not None
+
+
 def _check_paragraphs(
     file: Path, lines: list[str], skip: set[int]
 ) -> list[Violation]:
@@ -813,6 +669,9 @@ def _check_paragraphs(
             flush()
             continue
         if stripped.startswith("#"):
+            flush()
+            continue
+        if _is_non_paragraph_markdown(raw):
             flush()
             continue
         para_lines.append((idx, raw))

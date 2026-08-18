@@ -29,7 +29,7 @@ This audit documents the scope, methodology, findings, and verdict for the audit
 | Dependencias | Ninguna añadida; `pyproject.toml` no cambia |
 | Fecha | 2026-07-26 |
 
-Fuera de alcance: OAuth, cookies, roles, autenticación, esquema de base de datos (la columna `email` sigue siendo `TEXT UNIQUE NOT NULL` y la constraint se mantiene — la normalización se aplica en el borde, no en el motor).
+Fuera de alcance: OAuth, cookies, roles, autenticación, esquema de base de datos (la columna `email` sigue siendo `TEXT UNIQUE NOT NULL` y la constraint se mantiene — la normalización se aplica en el borde, no en el motor). <!-- alantyle-ignore:ALAN003 -->
 
 ## Methodology
 

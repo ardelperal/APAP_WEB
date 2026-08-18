@@ -27,7 +27,7 @@ This audit documents the scope, methodology, findings, and verdict for the audit
 | `email` | `TbVoluntariosParaAutorrellenables.Email` | `voluntarios.email` | mapped 1:1 | forward + reverse |
 | `tel1` | `TbVoluntariosParaAutorrellenables.Tel1` | `voluntarios.tel1` | mapped 1:1 | forward + reverse |
 | `tel2` | `TbVoluntariosParaAutorrellenables.Tel2` | `voluntarios.tel2` | mapped 1:1 | forward + reverse |
-| `dni` | (no legacy column — verificado vía Dysflow `get_schema` el 2026-07-11) | `voluntarios.dni` | `preserve` (web-only shadow; round-trip) | NEVER forward-migrated; preserved on web-side; reverse-path collision is recorded as `needs_review` |
+| `dni` | (no legacy column — verificado vía Dysflow `get_schema` el 2026-07-11) | `voluntarios.dni` | `preserve` (web-only shadow; round-trip) | never forward-migrated; preserved on web-side; reverse-path collision is recorded as `needs_review` |
 
 > **Por qué no hay columna `DNI` en legacy.** `TbVoluntariosParaAutorrellenables` devuelve exactamente cuatro columnas (`Voluntario, Tel1, Tel2, Email`, todas `type=10 text size=255`). Cualquier afirmación futura de que DNI existe en esta tabla legacy must re-verificarse vía la misma herramienta Dysflow `get_schema`. El mapping `migration/mappings/voluntario.yaml` ya codifica esta realidad (`DNI` tiene `legacy_column: null`, `web_only_strategy: preserve`).
 

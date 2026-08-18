@@ -50,7 +50,7 @@ Generates and manages legal documents for various workflows. Templates are speci
 | Acogida | Foster | Foster care agreement |
 | Acogida Judicial | Foster | Judicial foster care agreement |
 | Adopción | Adoption | Adoption contract |
-| PreAdopción | Adoption | Pre-adoption agreement; runtime registry selects `CONTRATO DE ADOPCIÓN_V02.docx` (shared with Adopción, `Entorno.cls` L793); filled by `RellenarContratoPreAdopcion` (`Plantilla.cls` L620-689) — no runtime timer |
+| PreAdopción | Adoption | Pre-adoption agreement; runtime registry selects `CONTRATO DE ADOPCIÓN_V02.docx` (shared with Adopción, `Entorno.cls` L793); filled by `RellenarContratoPreAdopcion` (`Plantilla.cls` L620-689) — no runtime timer | <!-- alantyle-ignore:ALAN003 -->
 | Cesión por Propietario | Intake | Owner surrender/handoff agreement |
 | Reserva de Adopción | Adoption | Adoption reservation |
 | Entrega a Propietario | Return | Return to owner contract |
@@ -86,7 +86,7 @@ Generates and manages legal documents for various workflows. Templates are speci
 | Reserva de Adopción | Species-specific template | — | — | Reservation window |
 | Entrega a Propietario | Species-specific template | — | — | Return conditions |
 
-> The 20-day decision clause belongs to foster contracts (`Plantilla.cls`, `RellenarContratoAcogida`, L381-391), not pre-adoption. The runtime registry (`Entorno.cls` L793) selects the same `CONTRATO DE ADOPCIÓN_V02.docx` for both Adopción and PreAdopción; `RellenarContratoPreAdopcion` (`Plantilla.cls` L620-689) contains no one-month or other automatic timer.
+> The 20-day decision clause belongs to foster contracts (`Plantilla.cls`, `RellenarContratoAcogida`, L381-391), not pre-adoption. The runtime registry (`Entorno.cls` L793) selects the same `CONTRATO DE ADOPCIÓN_V02.docx` for both Adopción and PreAdopción; `RellenarContratoPreAdopcion` (`Plantilla.cls` L620-689) contains no one-month or other automatic timer. <!-- alantyle-ignore:ALAN003 -->
 
 #### Evidence Source
 
@@ -189,7 +189,7 @@ All sections broken down by:
 
 | Data point | Source table(s) | Filter |
 |------------|-----------------|--------|
-| Census (current population) | `TbAnimales` | `FDefuncion IS NULL` grouped by `Especie` |
+| Census (current population) | `TbAnimales` | `FDefuncion IS NULL` grouped by `Especie` | <!-- alantyle-ignore:ALAN003 -->
 | Intake count | `TbEntradas` | `FechaEntrada` within quarter |
 | Foster count | `TbAcogidaAnimal` | `FInicio` within quarter |
 | Adoption count | `TbAdopcion` | `FAdopcion` within quarter |

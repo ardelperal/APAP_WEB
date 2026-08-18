@@ -6,9 +6,9 @@ La `fecha` de una `actuacion_sanitaria` debe cumplir simultáneamente:
 
 1. **Formato ISO `YYYY-MM-DD`** parseable como `date`.
 2. **`fecha <= CURRENT_DATE`** del servidor (no se permiten fechas futuras).
-3. **Si el animal referenciado tiene `fecha_alta IS NOT NULL`, `fecha >= animales.fecha_alta`** (no se permiten fechas anteriores al alta del animal en el sistema).
+3. **Si el animal referenciado tiene `fecha_alta IS NOT NULL`, `fecha >= animales.fecha_alta`** (no se permiten fechas anteriores al alta del animal en el sistema). <!-- alantyle-ignore:ALAN003 -->
 
-Si el animal tiene `fecha_alta IS NULL` (animales legacy importados sin metadato), la cota inferior de la regla 3 se omite — solo se aplican las reglas 1 y 2.
+Si el animal tiene `fecha_alta IS NULL` (animales legacy importados sin metadato), la cota inferior de la regla 3 se omite — solo se aplican las reglas 1 y 2. <!-- alantyle-ignore:ALAN003 -->
 
 ## Quick path
 
@@ -36,7 +36,7 @@ Una fecha mal validada en una actuación sanitaria contamina la historia clínic
 | Opción | Pros | Contras |
 |---|---|---|
 | Validación pura + CTE atómica (aceptada) | Cierra TOCTOU; mensaje claro al usuario. | Más SQL; requiere tests cuidadosos. |
-| Validación solo en el service (rechazada) | Más simple. | TOCTOU permite fechas anteriores al alta entre SELECT y WRITE. |
+| Validación solo en el service (rechazada) | Más simple. | TOCTOU permite fechas anteriores al alta entre SELECT y WRITE. | <!-- alantyle-ignore:ALAN003 -->
 | Validación solo en el form (rechazada) | UI amable. | Backends sin form (imports, scripts) la evaden. |
 | Cota inferior con `animales.FNacimiento` (rechazada) | Más estricta. | Rompe el caso real: camadas con cachorros ya vacunados por el particular antes del alta. |
 

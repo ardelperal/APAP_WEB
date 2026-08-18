@@ -16,7 +16,7 @@ pendiente — pendiente de crear issues (uno por sub-flujo). Próximos: DOC-01..
 | 7a documentos | DOC-02 signed-upload registration | pendiente | #57 |
 | 7a documentos | DOC-03 polymorphic attachments | pendiente | #58 |
 | 7a documentos | DOC-04 legacy-to-object-storage migration | pendiente | #59 |
-| 7b TEMPLATES | `feat(templates): motor de plantillas y contratos` | pendiente | — |
+| 7b templates | `feat(templates): motor de plantillas y contratos` | pendiente | — |
 | 7c consultas | `feat(consultas): módulo Consultas + informe trimestral` | pendiente | — |
 | 7c informes | REPORT-01 parameterized query builder | pendiente | #60 |
 | 7c informes | REPORT-02 server-side execution con export PDF/Excel | pendiente | #61 |
