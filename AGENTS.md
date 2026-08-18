@@ -6,13 +6,13 @@ alwaysApply: true
 
 # APAP_WEB — Agent Skills Index
 
-APAP_WEB es una aplicación web FastAPI + HTMX + Jinja2 (Python `>=3.11`) con arquitectura por capas estricta en transición a hexagonal con slices verticales (ver [docs/codebase/architecture.md](docs/codebase/architecture.md)). Cuando trabaje en este proyecto, cargue las skills relevantes ANTES de escribir código o docs.
+APAP_WEB es una aplicación web FastAPI + HTMX + Jinja2 (Python `>=3.11`) con arquitectura por capas estricta en transición a hexagonal con slices verticales (ver [docs/codebase/architecture.md](docs/codebase/architecture.md)). Cuando trabaje en este proyecto, cargue las skills relevantes antes de escribir código o docs.
 
 ## How to use
 
 1. Revise la columna "trigger" para identificar las skills que matchean la tarea actual.
 2. Cargue la skill leyendo el `SKILL.md` indicado en la columna "path".
-3. Siga TODOS los patrones y reglas de la skill cargada.
+3. Siga todos los patrones y reglas de la skill cargada.
 4. Varias skills pueden aplicar simultáneamente; cargue cada una por su SKILL.md.
 5. En duda, prefiera la skill más específica (por ejemplo, `apap-merge-workflow` sobre `branch-pr` para política de merge).
 
@@ -55,7 +55,7 @@ APAP_WEB es una aplicación web FastAPI + HTMX + Jinja2 (Python `>=3.11`) con ar
 
 ## Backend: InsForge (accessed from Python)
 
-El backend de datos es **InsForge** (PostgreSQL + auth + storage). Este proyecto NO usa `@insforge/sdk` de TypeScript — no hay `package.json` ni frontend Node. Todo acceso al backend pasa por el cliente Python en [`app/core/insforge.py`](app/core/insforge.py). Trate InsForge como un BaaS Postgres-backed alcanzado sobre HTTP desde Python.
+El backend de datos es **InsForge** (PostgreSQL + auth + storage). Este proyecto no usa `@insforge/sdk` de TypeScript — no hay `package.json` ni frontend Node. Todo acceso al backend pasa por el cliente Python en [`app/core/insforge.py`](app/core/insforge.py). Trate InsForge como un BaaS Postgres-backed alcanzado sobre HTTP desde Python.
 
 - **Lógica de aplicación** (auth, CRUD, storage) — llame al `InsForgeClient` Python en `app/core/insforge.py`. Nunca recurra al TS SDK ni a `npm`.
 - **Infraestructura** (schema, buckets, functions, deploy) — use las herramientas MCP de InsForge: `run-raw-sql`, `get-table-schema`, `create-bucket`, `create-function`, `get-backend-metadata`.
@@ -72,7 +72,7 @@ El proyecto descansa sobre cuatro premisas no negociables. El detalle vive en lo
 
 ## Reinforcement
 
-Si una IA está escribiendo código o docs en este repo sin cargar las skills relevantes, está trabajando a ciegas. Las skills son la single source of truth para "cómo se hace X en este proyecto". **Cargá primero, escribí después**. Si una IA escribe una doc sin haber cargado `documentation-alan-style`, la doc será rechazada en review — el formato no cumplirá con el patrón del repo. Las 33 reglas operacionales del proyecto ya NO viven en este archivo; viven en `docs/codebase/`, según la tabla de Quick Navigation abajo.
+Si una IA está escribiendo código o docs en este repo sin cargar las skills relevantes, está trabajando a ciegas. Las skills son la single source of truth para "cómo se hace X en este proyecto". **Cargá primero, escribí después**. Si una IA escribe una doc sin haber cargado `documentation-alan-style`, la doc será rechazada en review — el formato no cumplirá con el patrón del repo. Las 33 reglas operacionales del proyecto ya no viven en este archivo; viven en `docs/codebase/`, según la tabla de Quick Navigation abajo.
 
 ## Quick navigation — reglas operacionales en `docs/codebase/`
 
