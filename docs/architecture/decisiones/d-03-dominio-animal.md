@@ -55,4 +55,4 @@ El legacy Access distribuía el "animal" en varias tablas (TbFichaAnimal, TbActu
 ## When this changes
 
 - Si el refugio abre una línea de trabajo "cuidado por manada" (no por animal individual), se abre una nueva ADR que justifique el cambio de pivote.
-- Si el modelo legacy tiene una capacidad que NO cuelga de Animal, se documenta como gap-of-fidelity (D-05) y se crea un ADR específico para esa capacidad.
+- Si el modelo legacy tiene una capacidad que no cuelga de Animal, se documenta como gap-of-fidelity (D-05) y se crea un ADR específico para esa capacidad.
