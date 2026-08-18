@@ -90,6 +90,29 @@ jobs:
         # test_ci_workflow_lint_job_runs_check_rules_gate.
         run: python scripts/check_rules.py .
 
+      - name: Run alan-style anti-pattern detector (issue #559, ADR d-42)
+        # Issue #559. Stdlib detector of the nine §10 anti-patterns
+        # defined by the documentation-alan-style skill. Scans the
+        # canonical doc trees (docs/, openspec/) plus the root-level
+        # files referenced from the hub-and-spoke guide. The
+        # `openspec/changes/*/specs/` glob from the issue brief does
+        # not apply here: change specs live at `openspec/changes/<name>/spec.md`
+        # directly, not under a `specs/` subdirectory, so the
+        # parent directory `openspec/changes/` covers them.
+        #
+        # `continue-on-error: true` is the rollout guard documented
+        # in ADR d-42. The repo carries pre-existing anti-patterns
+        # from the pre-alan-style era; making the step blocking on
+        # day one would convert every PR into a backlog unrelated to
+        # the change. Authors clean their files via the ignore
+        # markers or by rewriting; the flag is removed in a follow-up
+        # PR once the counter reported by `check_alantyle: OK (N
+        # archivos)` stops including violations. Parity pinned by
+        # tests/test_ci_workflow.py::
+        # test_ci_workflow_lint_job_runs_alantyle_lint.
+        continue-on-error: true
+        run: python scripts/check_alantyle.py docs/ openspec/specs/ openspec/changes/ README.md AGENTS.md DOCS.md CONTRIBUTING.md
+
       - name: Run module-size ratchet (AGENTS.md rule 21)
         # Issue #202 — removing this step is a blocked change. The
         # ratchet keeps every module under app/ and migration/ within

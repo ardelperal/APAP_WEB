@@ -86,6 +86,20 @@ typecheck:
 check-rules:
 	$(PYTHON) scripts/check_rules.py .
 
+# check-alantyle — issue #559, ADR d-42. Stdlib detector of the nine
+# §10 anti-patterns from the documentation-alan-style skill. Scans
+# the canonical doc trees (docs/, openspec/) plus the root-level files
+# referenced from the hub-and-spoke guide. The paths match the CI step
+# verbatim, so local and remote verdicts see the same set of files.
+#
+# The CI step runs with ``continue-on-error: true`` during the rollout
+# initial (ADR d-42); locally the script exits 1 on the first
+# violation so authors get the feedback without leaving their editor.
+# Operators who want the rollout-grade behaviour locally can wrap the
+# call with ``|| true``.
+check-alantyle:
+	$(PYTHON) scripts/check_alantyle.py docs/ openspec/specs/ openspec/changes/ README.md AGENTS.md DOCS.md CONTRIBUTING.md
+
 # check-layers — AGENTS.md rule 33, issue #436. The hexagonal harness:
 # dependency direction, inner-layer purity, vertical-slice boundaries.
 # The 53 pre-existing violations live in a shrink-only BASELINE measured
@@ -182,7 +196,7 @@ test-ci:
 #   - `e2e`        needs Playwright + configured OAuth
 #
 # Pinned by tests/test_ci_workflow.py::test_make_verify_covers_every_ci_gate.
-verify: lint check-rules check-module-size check-route-size check-layers \
+verify: lint check-rules check-alantyle check-module-size check-route-size check-layers \
         check-slice-completeness check-migration-boundaries \
         check-docstring-coverage check-complexity check-ruff-ratchet \
         check-vulture-guard check-jscpd check-mutation-sites \
