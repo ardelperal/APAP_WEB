@@ -147,7 +147,7 @@ Si un grupo duplicado representa genuinamente a dos usuarios distintos (por ejem
 
 3. **El panel de administración renderiza sin filas fantasma.** Inicie sesión como un usuario con rol developer, navegue a `/admin` y confirme que la tabla de usuarios muestra cada correo una sola vez en su forma canónica (en minúsculas). Si alguna fila sigue mostrando mezcla de mayúsculas, la dedupe omitió un grupo — vuelva a ejecutar el SQL de detección.
 
-4. **Prueba de re-adición:** elija una de las filas perdedoras con lápida en el panel de administración. Confirme que el formulario rechaza volver a añadir el correo original con un flash de error (`email already authorized: <canonical>`). Confirme también que re-añadir un correo NUEVO para la misma persona funciona.
+4. **Prueba de re-adición:** elija una de las filas perdedoras con lápida en el panel de administración. Confirme que el formulario rechaza volver a añadir el correo original con un flash de error (`email already authorized: <canonical>`). Confirme también que re-añadir un correo nuevo para la misma persona funciona.
 
 5. **Comprobación rápida de la caché (opcional):** en el pod en ejecución, golpee `GET /admin/users` dos veces en rápida sucesión. Inspeccione los registros de la aplicación en busca de un `auth.cache_hit` por correo por ventana TTL. `invalidate_auth` se invocó sobre el perdedor durante la dedupe, de modo que su siguiente petición debe fallar la caché y reconsultar.
 
