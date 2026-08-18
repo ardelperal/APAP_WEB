@@ -38,7 +38,7 @@ más el panel de administración que gestiona quién puede acceder.
 
 - Un usuario con email autorizado puede hacer login con Google y obtener
   una sesión activa.
-- Un usuario con email NO autorizado ve la página `/unauthorized` y no
+- Un usuario con email no autorizado ve la página `/unauthorized` y no
   recibe sesión.
 - La cookie de sesión es `HttpOnly`, `SameSite=Lax`, `Secure` en
   producción, y está firmada con `APAP_SESSION_SECRET`.
@@ -101,7 +101,7 @@ nada. Esto permite re-ejecutar el seed en cada arranque sin duplicar.
 | `get_user_by_email` | `(client, email) -> dict \| None` | Devuelve la fila activa con ese email, o `None` si no existe o está inactivo. |
 | `list_authorized_users` | `(client) -> list[dict]` | Devuelve todos los usuarios (activos e inactivos), ordenados por `fecha_alta DESC`. Usado por el panel admin. |
 | `add_authorized_user` | `(client, email, role, added_by) -> dict` | Inserta un nuevo usuario. Valida que `role` esté en `VALID_ROLES`. Devuelve la fila insertada. |
-| `deactivate_authorized_user` | `(client, user_id) -> dict \| None` | Marca `activo = false`. NO hace DELETE físico. Devuelve la fila actualizada, o `None` si el id no existe. |
+| `deactivate_authorized_user` | `(client, user_id) -> dict \| None` | Marca `activo = false`. no hace DELETE físico. Devuelve la fila actualizada, o `None` si el id no existe. |
 
 La constante `VALID_ROLES = frozenset({"developer", "admin", "key_user", "reader"})`
 es la fuente de verdad de los roles permitidos.
@@ -184,7 +184,7 @@ Total: 38 tests en esta capa, todos en verde.
 
 ## 7. Historia de migración
 
-**Esta tabla NO es target de migración desde el Access legacy.** Es una
+**Esta tabla no es target de migración desde el Access legacy.** Es una
 tabla nueva, creada para la app web. La autenticación en el Access
 legacy es completamente independiente (login de Windows + control de
 acceso por formulario VBA).
@@ -220,7 +220,7 @@ psql $DATABASE_URL -c "INSERT INTO usuarios_autorizados (email, rol) VALUES ('nu
 
 ### Cómo rotar el `APAP_SESSION_SECRET`
 
-Cambiar el valor en Coolify y reiniciar. ADVERTENCIA: invalida TODAS
+Cambiar el valor en Coolify y reiniciar. advertencia: invalida todas
 las sesiones existentes — todos los usuarios tendrán que hacer login
 de nuevo. Útil en caso de compromiso.
 
