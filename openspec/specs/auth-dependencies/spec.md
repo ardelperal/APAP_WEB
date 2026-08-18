@@ -67,7 +67,7 @@ The 11 module slices · changes to `app/main.py` or `app/routes_registry.py` (fl
 ## 5. Acceptance criteria
 - All 9 re-exports verified present in the shim (assertable).
 - Pin test denies transport-shaped leaks; runs in CI; fails on regression.
-- `tests/test_auth_dependencies.py` + `tests/test_auth_session_is_authorized.py` pass WITHOUT modification.
+- `tests/test_auth_dependencies.py` + `tests/test_auth_session_is_authorized.py` pass sin modification.
 - CI green: lint, typecheck, test, security, integration, build (per §15.1); module size `auth_dependencies_di.py` ≤ 700, shim ≤ 50, no new BASELINE.
 - Audit doc covers scope/methodology/findings/verdict per §12.
 - §32.P4 fix demonstrable: unit test forces `InsForgeError` and asserts 302 + `log_safe("auth.denied", reason="db_unreachable")`.
