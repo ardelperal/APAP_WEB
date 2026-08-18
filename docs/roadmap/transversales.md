@@ -69,7 +69,7 @@ Objetivo: backend privado InsForge poblado con datos y fotos reales del Access l
 **Invariantes no negociables:**
 
 - **Privacidad de datos y fotos**: bucket `apap-photos` con `isPublic=false`. La ruta `GET /animales/{animal_id}/foto` exige sesión válida (302 a `/login` si no autenticado), consume el stream antes de construir la respuesta para convertir fallos iniciales, mid-stream y de lookup SQL en el PNG placeholder, y nunca expone la URL presignada.
-- **M1 forward usable NO es fallback-ready**: tener M1 verde (animales, voluntarios, entradas y fotos migrados vía `apply_legacy_to_web`) NO equivale a poder volver atrás mientras el legacy siga siendo la fuente. El gate `verify-fallback-ready` (PR7) sigue siendo obligatorio.
+- **M1 forward usable no es fallback-ready**: tener M1 verde (animales, voluntarios, entradas y fotos migrados vía `apply_legacy_to_web`) no equivale a poder volver atrás mientras el legacy siga siendo la fuente. El gate `verify-fallback-ready` (PR7) sigue siendo obligatorio.
 - **TDD estricto, fixture-first, idempotente**: cada PR arranca con RED (tests antes de código) bajo `tests/migration/` y `tests/test_*.py`.
 - **Ejecución con datos reales solo tras los gates de código**: las unidades de trabajo de operador (`ensure-bucket --check-only`, `apply --check-only`, `apply`, `reconcile --check-only`, `status --photos`, `verify-fallback-ready --full`) se ejecutan exclusivamente después de que los gates de código estén verdes.
 
