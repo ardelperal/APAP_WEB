@@ -6,7 +6,7 @@
 - El home actual ya funciona como panel operativo: hero, 10 tarjetas de pendientes y 3 accesos rápidos.
 - El texto visible evita términos internos/legacy; hay tests que lo fuerzan.
 - Solo existen cuatro rutas de dominio montadas hoy: `animales`, `entradas`, `cesiones` y `voluntarios`.
-- `docs/decisiones-proyecto.md` sí existe y ya fija la base de producto/UX: APAP_WEB es un producto standalone, el home es una bandeja de pendientes, el dominio pivota sobre Animal, el idioma visible es castellano de España y la UX no debe clonar el legacy.
+- `docs/architecture/decisiones-proyecto.md` sí existe y ya fija la base de producto/UX: APAP_WEB es un producto standalone, el home es una bandeja de pendientes, el dominio pivota sobre Animal, el idioma visible es castellano de España y la UX no debe clonar el legacy.
 
 ### Áreas afectadas
 - `app/main.py` — composición del home, navegación y lista de tarjetas/accesos.
@@ -15,7 +15,7 @@
 - `app/templates/login.html` / `app/templates/unauthorized.html` / `app/templates/admin.html` — coherencia visual del sistema.
 - `app/static/css/output.css` — tokens visuales y base tipográfica actual.
 - `tests/test_pages.py` — contract tests de copy, dashboard y restricciones de lenguaje.
-- `docs/roadmap.md`, `docs/decisiones-proyecto.md`, `docs/discovery/*`, `docs/legacy-initial-dashboard.md`, `docs/legacy-volunteer-roles.md` — contexto de negocio, decisiones vigentes y referencias visuales.
+- `docs/roadmap.md`, `docs/architecture/decisiones-proyecto.md`, `docs/discovery/*`, `docs/legacy-initial-dashboard.md`, `docs/legacy-volunteer-roles.md` — contexto de negocio, decisiones vigentes y referencias visuales.
 
 ### Enfoques
 1. **Shell incremental con IA semántica de producto** — definir un sistema visual propio y extender la cáscara actual sin tocar lógica de negocio.

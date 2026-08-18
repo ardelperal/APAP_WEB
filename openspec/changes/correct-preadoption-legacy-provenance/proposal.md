@@ -41,7 +41,7 @@ Use CodeGraph evidence from `APAP_ACTUAL/src/classes/Plantilla.cls`, `APAP_ACTUA
 | Area | Impact | Description |
 |---|---|---|
 | `docs/discovery/` | Modified | Correct clauses, lifecycle, and model claims |
-| `docs/architecture-insforge-stack.md` | Reviewed/Modified | Remove any derived worker premise |
+| `docs/architecture/architecture-insforge-stack.md` | Reviewed/Modified | Remove any derived worker premise |
 | `docs/roadmap.md`, `README.md` | Modified | Cancel ADOPT-02/#48 premise |
 | `openspec/changes/adopt-02-expiry/`, Engram | Modified | Add cancellation traceability; retain evidence |
 | `C:/00repos/codigo/APAP_ACTUAL/docs/` | External | Separate PR required; no edits here |

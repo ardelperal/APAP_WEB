@@ -87,7 +87,7 @@ Legacy route → service → queries layout. SQL y parámetros viven en `app/mod
 - `docs/CODEBASE-GUIDE.md` — mapa general del repo.
 - `docs/runbooks/foster-04-materiales-unique-index-failure.md` — intervención cuando el índice parcial `estancia_materiales_active_unique` no se crea en una migración.
 - `docs/proceso.md` — playbook del proyecto (P1 fidelidad a `TbMaterial`).
-- `docs/decisiones-proyecto.md` — decisiones D-FOSTER-04.
+- `docs/architecture/decisiones-proyecto.md` — decisiones D-FOSTER-04.
 - AGENTS.md §1 (rutas sin SQL), §11 (CRITICAL_HELPERS), §22 (seam SQL/service), §33 (futuro hexagonal).
 
 ## Verification checklist

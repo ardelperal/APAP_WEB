@@ -5,7 +5,7 @@ across the legacy Access tables (``TbVoluntariosParaAutorrellenables``,
 ``TbEntradas``, ``TbAdopcion``, ``TbAcogidaAnimal``, ``TbTerapias``).
 
 Acceptance criteria pinned by these atoms (cross-ref
-``docs/decisiones-proyecto.md`` + ``docs/legacy-volunteer-roles.md`` +
+``docs/architecture/decisiones-proyecto.md`` + ``docs/legacy-volunteer-roles.md`` +
 issue #36):
 
 1. Fuzzy match collapses similar free-text names across 3+ legacy tables.

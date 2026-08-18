@@ -39,7 +39,7 @@ Aplicar el enfoque recomendado en exploración: diseño propio + shell increment
 | `app/templates/login.html`, `unauthorized.html`, `admin.html` | Modificado | Coherencia visual. |
 | `app/static/css/output.css` | Modificado | Tokens y utilidades visuales. |
 | `tests/test_pages.py` | Modificado | Contratos de copy, navegación y dashboard. |
-| `docs/decisiones-proyecto.md` | Referencia | D-01, D-02, D-10, D-11, D-12. |
+| `docs/architecture/decisiones-proyecto.md` | Referencia | D-01, D-02, D-10, D-11, D-12. |
 
 ## Riesgos
 
@@ -55,7 +55,7 @@ Revertir los commits de shell/templates/CSS/tests de la cadena `ux-ui-foundation
 
 ## Dependencias
 
-- Issue #6, `docs/legacy-initial-dashboard.md`, `docs/decisiones-proyecto.md`, `docs/discovery/*`.
+- Issue #6, `docs/legacy-initial-dashboard.md`, `docs/architecture/decisiones-proyecto.md`, `docs/discovery/*`.
 
 ## Criterios de éxito
 

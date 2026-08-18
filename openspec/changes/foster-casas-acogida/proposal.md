@@ -64,7 +64,7 @@ El issue no lo pide explícitamente pero la discovery 2.2 indica que el operador
 | Riesgo | Mitigación |
 |---|---|
 | `coche` legacy es TEXT(2) y debe ser `Sí`/`No` con tilde — riesgo de mojibake | `CHECK (coche IN ('Sí', 'No'))` con tilde; tests service cubren happy/sad path |
-| `capacidad` no existe en legacy (gap) | Mejora justificada D-FOSTER-02; documentación en `decisiones-proyecto.md` si se considera novel (en este PR lo dejamos registrado en la propuesta y el SDD) |
+| `capacidad` no existe en legacy (gap) | Mejora justificada D-FOSTER-02; documentación en `docs/architecture/decisiones-proyecto.md` si se considera novel (en este PR lo dejamos registrado en la propuesta y el SDD) |
 | Volumetría pequeña (38 casas) — riesgo de sobre-diseño | Service mínimo, sin índices especiales ni triggers; PK es suficiente |
 | Búsqueda por especie puede ser ambigua (`especie_preferente IS NULL` cuenta como match) | Documentado en D-FOSTER-04; tests cubren ambos casos |
 

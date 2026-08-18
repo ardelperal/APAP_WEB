@@ -32,7 +32,7 @@ skill_resolution: paths-injected
 
 ## Phase 3: Docs + Closeout
 
-- [ ] 3.1 Add D-24 to `docs/decisiones-proyecto.md` as a new section (formalizing the rule that was only referenced in `docs/roadmap.md`). Include: full text of the rule (3 sub-rules + legacy exemption), reference to `app/modules/sanidad/service.py::_validate_fecha_d24` and the CTE in `_INSERT_ACTUACION_SANITARIA_SQL`.
+- [ ] 3.1 Add D-24 to `docs/architecture/decisiones-proyecto.md` as a new section (formalizing the rule that was only referenced in `docs/roadmap.md`). Include: full text of the rule (3 sub-rules + legacy exemption), reference to `app/modules/sanidad/service.py::_validate_fecha_d24` and the CTE in `_INSERT_ACTUACION_SANITARIA_SQL`.
 - [ ] 3.2 Update `docs/roadmap.md`: move #50 row from §4 (pending) to §5-bis (closed) with SHA + commit subject; update `Última actualización`.
 - [ ] 3.3 Close #50 with traceability comment per `github-issue-closure-traceability` (commit SHA + test path + P1 fidelity note).
 - [ ] 3.4 Save Engram observation with SDD key `health-01-crud-actuaciones-sanitarias`, commit SHAs, target branch, and verification evidence (per `sdd-commit-traceability`).

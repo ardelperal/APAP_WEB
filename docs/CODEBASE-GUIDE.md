@@ -85,7 +85,7 @@
 | Contrato de stack InsForge | [`docs/architecture/architecture-insforge-stack.md`](architecture/architecture-insforge-stack.md) | Decisiones de stack, reglas InsForge, target de despliegue. |
 | Playbook operativo por issue | [`docs/proceso.md`](proceso.md) | De `open` a `closed` con evidencia, según §16 de AGENTS. |
 | Roadmap de fases | [`docs/roadmap.md`](roadmap.md) | Fases del producto y estado actual. |
-| Decisiones de proyecto | [`docs/decisiones-proyecto.md`](decisiones-proyecto.md) | Registro formal de divergencias con el legacy. |
+| Decisiones de proyecto | [`docs/architecture/decisiones-proyecto.md`](architecture/decisiones-proyecto.md) | Registro formal de divergencias con el legacy. |
 | Auditorías | [`docs/audits/`](audits/) | Un documento por slice sensible. |
 | Runbooks | [`docs/runbooks/`](runbooks/) | Procedimientos que exigen acción del operador. |
 | Hardening del arnés de calidad | [`docs/quality/hardening-roadmap.md`](quality/hardening-roadmap.md) | Estado de los gates automáticos. |

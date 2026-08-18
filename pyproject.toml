@@ -22,7 +22,7 @@ classifiers = [
 ]
 
 # Runtime dependencies for the APAP_WEB application skeleton (Fase 1).
-# Pinned per docs/architecture-insforge-stack.md § Stack.
+# Pinned per docs/architecture/architecture-insforge-stack.md § Stack.
 #
 # Note: the ETL one-time (reconcile, diff_engine, mappings/*.yaml,
 # shadow_state, lock, etc.) was moved to the top-level ``migration/``
@@ -144,7 +144,7 @@ only-include = ["app"]
 only-include = ["app", "tests", "docs", "pyproject.toml", "README.md", "tailwindcss"]
 
 # Pytest configuration — deprecation strictness per
-# docs/architecture-insforge-stack.md § CI/CD Quality Gate.
+# docs/architecture/architecture-insforge-stack.md § CI/CD Quality Gate.
 # Tests of the FastAPI app use ``httpx.ASGITransport`` + ``pytest-asyncio``
 # in ``asyncio_mode = "auto"`` to avoid the deprecated
 # ``starlette.testclient.TestClient`` path entirely.

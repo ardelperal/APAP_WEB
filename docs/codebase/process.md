@@ -13,7 +13,7 @@ Esta página posee la regla §16 de AGENTS: el playbook operativo de issue a mer
 
 ## Premisas no negociables
 
-- **P1 — Fidelidad al legacy Access/VBA.** Toda capacidad del legacy se conserva o se reemplaza por un equivalente documentado en [`decisiones-proyecto.md`](../decisiones-proyecto.md). Una brecha descubierta abre un issue `type:bug gap:legacy`.
+- **P1 — Fidelidad al legacy Access/VBA.** Toda capacidad del legacy se conserva o se reemplaza por un equivalente documentado en [`decisiones-proyecto.md`](../architecture/decisiones-proyecto.md). Una brecha descubierta abre un issue `type:bug gap:legacy`.
 - **P2 — Escalera de duda de dominio.** Discovery doc → decisiones-proyecto → legacy-* → Dysflow MCP sobre el binario Access. Solo `vba-access` y `access-vba-tdd` están permitidos para trabajo Access en APAP_WEB; el resto del skill set queda excluido.
 - **P3 — Los documentos reflejan el código.** Si divergen, gana el código y la doc se actualiza en la misma sesión.
 - **P4 — Pre-MVP single-branch.** Todo el trabajo aterriza en `main` directamente; `staging` se reactiva solo por declaración explícita del usuario (ver [merge-workflow.md](merge-workflow.md) §15.4).
@@ -35,7 +35,7 @@ El playbook de extremo a extremo para llevar un issue de GitHub de `open` a `mer
 ## Contributor checklist
 
 - [ ] Al iniciar una sesión que toca código o specs, leyó `docs/proceso.md` y entendió las cuatro premisas.
-- [ ] Cualquier divergencia con el legacy queda registrada en `decisiones-proyecto.md` antes de cerrar el PR.
+- [ ] Cualquier divergencia con el legacy queda registrada en [`decisiones-proyecto.md`](../architecture/decisiones-proyecto.md) antes de cerrar el PR.
 - [ ] El cierre del issue cita el SHA del commit y la ruta del test que prueba la capacidad.
 - [ ] `docs/roadmap.md` se actualiza en la misma zancada que el merge, no después.
 

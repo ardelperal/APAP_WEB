@@ -436,7 +436,7 @@ LIFECYCLE-SCHEMA-02, pendiente.)
   legacy (referencia para el diseño del ciclo de vida).
 - `docs\discovery\data-model-completeness.md` — reglas de FK,
   constraints, validaciones.
-- `docs\decisiones-proyecto.md` — decisiones de producto sobre el
+- `docs\architecture\decisiones-proyecto.md` — decisiones de producto sobre el
   dominio.
 - Issue #26 — schema inicial (ingles, primera version, reemplazado).
 - Issue #29 — verificacion field-by-field contra el Access legacy

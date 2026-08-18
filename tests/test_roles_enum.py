@@ -25,7 +25,7 @@ from app.modules.voluntarios.service import VALID_ROL_TYPES, RolVoluntario
 def test_rol_is_a_str_enum() -> None:
     """Rol exists and is a StrEnum (the source of truth)."""
     assert issubclass(Rol, StrEnum)
-    # The four roles documented in docs/decisiones-proyecto.md
+    # The four roles documented in docs/architecture/decisiones-proyecto.md
     assert {r.value for r in Rol} == {"developer", "admin", "key_user", "reader"}
 
 

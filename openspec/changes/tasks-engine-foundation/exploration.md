@@ -4,13 +4,13 @@
 - La home actual ya funciona como bandeja operativa, pero con **tarjetas estáticas** definidas en `app/main.py` (`_DASHBOARD_PENDING_CARDS` y `_DASHBOARD_SHORTCUTS`), no con un motor de tareas.
 - No existe aún una entidad o servicio de tareas en `app/`; el estado visible del dashboard se alimenta hoy de copy y navegación fijos.
 - El legado y la discovery ya separan varias fuentes de pendiente: `TbFichaAnimal` (estado e incoherencias), `TbEntradas`, `TbAdopcion`, `TbAcogidaAnimal`, `TbActuacionSanitaria`, `TbTerapias`, `TbPruebasPeridicidad`, `TbNombrePruebas`, `TbContratosAnexos` y `TbRIAC`.
-- La doc de decisiones ya fija que la home debe seguir siendo una bandeja operativa y que el motor de tareas es transversal (`docs/decisiones-proyecto.md` + `docs/roadmap.md` #7).
+- La doc de decisiones ya fija que la home debe seguir siendo una bandeja operativa y que el motor de tareas es transversal (`docs/architecture/decisiones-proyecto.md` + `docs/roadmap.md` #7).
 - El legacy muestra tres patrones distintos: **contadores** del dashboard inicial, **bandejas/colas** de seguimiento (salud, adopción, documentos) y **acciones asignables** ligadas a personas/roles.
 
 ### Áreas afectadas
 - `app/main.py` — hoy inyecta tarjetas fijas; mañana debería consumir resúmenes derivados del motor de tareas.
 - `app/modules/*` — los dominios de animal, entrada, acogida, adopción, salud, terapias, documentos y voluntarios son las fuentes reales de tarea.
-- `docs/decisiones-proyecto.md` — ya contiene la decisión de producto y debe ampliarse con la clasificación de tareas/contadores/colas.
+- `docs/architecture/decisiones-proyecto.md` — ya contiene la decisión de producto y debe ampliarse con la clasificación de tareas/contadores/colas.
 - `docs/roadmap.md` — #7 ya está registrado como slice transversal.
 - `docs/discovery/feature-01-animal-lifecycle.md` — estado derivado, timeline e incoherencias.
 - `docs/discovery/feature-02-intake-foster-adoption.md` — seguimientos de acogida/adopción y contratos.

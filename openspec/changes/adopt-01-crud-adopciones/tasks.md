@@ -33,7 +33,7 @@ skill_resolution: paths-injected
 
 - [ ] 3.1 Update `docs/roadmap.md`: remove #47 row from §4, add to §5-bis closed list with SHA + commit, update `Última actualización`.
 - [ ] 3.2 Close #47 with traceability comment per `github-issue-closure-traceability` (commit SHA + test path + P1 fidelity note).
-- [ ] 3.3 Update `decisiones-proyecto.md` if any decision in D-ADOPT-01..05 needs cross-project persistence.
+- [ ] 3.3 Update `docs/architecture/decisiones-proyecto.md` if any decision in D-ADOPT-01..05 needs cross-project persistence.
 
 ## Implementation commits
 

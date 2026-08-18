@@ -42,13 +42,14 @@ docs/mockups/
 # so `pip wheel` requires it to exist in the build context. Keep it.
 # docs/setup.md
 docs/development.md
-docs/decisiones-proyecto.md
 docs/plan-completo.md
 docs/roadmap.md
 docs/features-showcase.html
 docs/canonical-logs.md
-docs/architecture-insforge-stack.md
 docs/design-tokens-apap-actual.md
+docs/architecture/decisiones-proyecto.md
+docs/architecture/decisiones/
+docs/architecture/architecture-insforge-stack.md
 
 openspec/
 
