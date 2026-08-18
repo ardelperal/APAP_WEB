@@ -8,7 +8,7 @@ Esta página posee la definición de qué es APAP_WEB, qué no es y qué invaria
 
 | It is | Evidence in this repo |
 |---|---|
-| Reescritura web server-rendered del Access/VBA legacy de APAP | [`README.md`](../../README.md), [Arquitectura InsForge](../architecture-insforge-stack.md) |
+| Reescritura web server-rendered del Access/VBA legacy de APAP | [`README.md`](../../README.md), [Arquitectura InsForge](../architecture/architecture-insforge-stack.md) |
 | App FastAPI + Jinja2 + HTMX con datos en InsForge (PostgreSQL) | [`app/main.py`](../../app/main.py), [`app/core/insforge.py`](../../app/core/insforge.py) |
 | Proyecto hexagonal con vertical slices en migración | [`app/core/<layer>/<slice>/`](../../app/core/), [AGENTS.md](../../AGENTS.md) §33 |
 | OpenSpec-driven: cada capacidad grande se describe antes de codear | [`openspec/specs/`](../../openspec/specs/), [`openspec/changes/`](../../openspec/changes/) |

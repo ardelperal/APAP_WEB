@@ -1,9 +1,10 @@
 # Design tokens — APAP Alcalá (current site)
 
-Captured from `https://www.apap-alcala.org/quienes_somos.php` with Playwright
-on 2026-06-13 (#11910) and 2026-06-15 (#12416). These are the visual tokens of
-the **current** APAP Alcalá website. The new APAP_WEB frontend should inherit
-this palette so the brand stays recognisable.
+[Back to Codebase Guide](CODEBASE-GUIDE.md)
+
+Esta página posee los tokens visuales (color, tipografía, geometría) extraídos de la web actual de APAP Alcalá. No posee el sistema de componentes ni las decisiones de branding a futuro — esos viven en el código bajo `app/static/` y en cualquier issue `type:design`. La única fuente de verdad para la paleta en producción es este archivo.
+
+Captured from `https://www.apap-alcala.org/quienes_somos.php` with Playwright on 2026-06-13 (#11910) and 2026-06-15 (#12416). These are the visual tokens of the **current** APAP Alcalá website. The new APAP_WEB frontend should inherit this palette so the brand stays recognisable.
 
 ## Palette
 
@@ -109,3 +110,24 @@ the color/typography tokens are superseded by this file.
 - Obs #11910 — Extracted APAP website design tokens (2026-06-13)
 - Obs #12416 — Captured APAP legacy visual tokens (2026-06-15)
 - Screenshot artifact: `docs/screenshots/apap-current-quienes-somos.png` (referenced from #11910; restore from git history if missing)
+
+## Core invariants
+
+- **`@theme` se compila desde este doc**: las variables CSS en `tailwindcss/styles/app.css` reflejan las tablas de este archivo. Cambiar un hex aquí sin tocar el `@theme` deja el bundle desincronizado; cambiar el `@theme` sin tocar este doc deja la doc mintiendo.
+- **`docs/features-showcase.html` no es fuente de verdad de tokens**: es un catálogo de features; la paleta que muestra está superseded por este archivo desde el commit que introduce este doc.
+- **`primary` y `primary-dark` no se reemplazan por colores cálidos**: la marca APAP depende del azul `#0A91EB` como anclaje reconocible. Sustituirlo por verde o dorado rompe la identidad.
+- **`legacy-green` se preserva para el CTA sidebox de "Hazte socio"**: es un slot de conversión heredado; moverlo a `accent` naranja cambia el significado histórico del CTA.
+- **Geometría Bootstrap-era se mantiene**: radio de tarjeta `0.25rem`, contenedor `1170px`, spacing scale `4px`. Subir el radio a algo "moderno" rompe continuidad visual con la web actual.
+- **Captura reproducible**: los hex documentados vienen de la extracción con Playwright sobre la URL canónica. Re-capturar antes de proponer cambios; un hex sin screenshot queda como opinión.
+
+## Contributor checklist
+
+- [ ] Si añade un token nuevo, declararlo en la tabla correspondiente y reflejarlo en `@theme` en la misma sesión.
+- [ ] Si cambia un hex, cite el screenshot o el obs que lo respalda; un hex sin captura no entra.
+- [ ] Si toca `@theme` en `tailwindcss/styles/app.css`, refresque la tabla de este doc y re-capture la página afectada.
+- [ ] Si propone reemplazar la paleta, abra issue con label `type:design` y vincule este archivo como ancla de la decisión actual; no edite in-place.
+- [ ] Si descubre que un componente usa un hex fuera de este doc, abra issue de limpieza antes de añadir el hex al inventario.
+
+## Navigation
+
+Previous: [Architecture InsForge stack](architecture/architecture-insforge-stack.md) | Next: [Setup local](setup.md)

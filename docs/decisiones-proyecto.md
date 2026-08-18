@@ -74,7 +74,7 @@ Pendiente de issue #6 ("feat(ux): definir la base UX/UI de APAP"). Hasta que se 
 - **Auth**: Google OAuth vía InsForge (`exchange_insforge_oauth_code`) + allowlist en tabla `authorized_users`.
 - **Despliegue**: Coolify + Dockerfile, webhook en `push` a `main` (D-30).
 
-Detalle completo en `docs/architecture-insforge-stack.md` *(pendiente de traducir al castellano)*.
+Detalle completo en `docs/architecture/architecture-insforge-stack.md` *(pendiente de traducir al castellano)*.
 
 ### D-21. CodeGraph es el read path principal
 

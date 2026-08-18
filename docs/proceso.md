@@ -1,6 +1,8 @@
 # Proceso de trabajo por issue — APAP_WEB
 
-El proceso de APAP_WEB garantiza que cada issue llegue de `open` a `closed` preservando el superset funcional del Access legacy, con TDD estricto, trazabilidad por commit y SHA, y refresco del roadmap en la misma sesión de entrega.
+[Back to Codebase Guide](CODEBASE-GUIDE.md)
+
+El proceso de APAP_WEB garantiza que cada issue llegue de `open` a `closed` preservando el superset funcional del Access legacy, con TDD estricto, trazabilidad por commit y SHA, y refresco del roadmap en la misma sesión de entrega. No posee reglas del proyecto — esas viven en [AGENTS.md](../AGENTS.md) y se aplican en paralelo.
 
 [Quick Navigation](#quick-navigation) · [Roadmap](roadmap.md) · [AGENTS.md](../AGENTS.md) · [README](../README.md)
 
@@ -10,7 +12,7 @@ El proceso de APAP_WEB garantiza que cada issue llegue de `open` a `closed` pres
 
 | Sección | Para qué |
 |---|---|
-| [§0 Premisas fundamentales](#0-premisas-fundamentales-no-negociables) | P1–P4: fidelidad legacy, resolución de dudas, docs reflejan código, pre-MVP single-branch. |
+| [Core invariants](#core-invariants) | P1–P4: fidelidad legacy, resolución de dudas, docs reflejan código, pre-MVP single-branch. |
 | [§1 Pre-flight](#1-pre-flight-cada-sesión-cada-vez) | Comprobaciones de salud del repo al iniciar. |
 | [§2 Triaje de la issue](#2-triaje-de-la-issue) | Lectura, clasificación, refresco del roadmap, reconocimiento del dominio. |
 | [§3 OpenSpec primero](#3-openspec-primero-cambios-grandes--estructurales) | Cuándo abrir un change SDD en `openspec/changes/<name>/`. |
@@ -27,42 +29,14 @@ El proceso de APAP_WEB garantiza que cada issue llegue de `open` a `closed` pres
 
 ---
 
-## §0 Premisas fundamentales (no negociables)
+## Core invariants
 
-Estas premisas rigen **todo** lo que se haga en APAP_WEB. Si una tarea las pone en entredicho, se para y se replantea antes de seguir.
+Estas premisas rigen **todo** lo que se haga en APAP_WEB. Si una tarea las pone en entredicho, se para y se replantea antes de seguir. Los nombres son citables en review.
 
-### P1. Fidelidad al legacy: superset funcional
-
-La aplicación nueva debe poder sincronizarse con el Access/VBA legacy y preservar **el 100% de las intenciones y funcionalidades del legacy**, más las funcionalidades nuevas acordadas ([`docs/roadmap.md`](roadmap.md) §3 Fases 3–7 + transversales, y `docs/discovery/feature-XX-*.md`).
-
-- **Ni una funcionalidad menos.** Si el legacy tiene un campo, un estado, un cálculo, un atajo, un informe, un permiso, una validación, un workflow o una transición: la nueva aplicación lo conserva (o lo reemplaza por un equivalente explícitamente acordado y documentado).
-- **Las funcionalidades nuevas son aditivas** al inventario del legacy. Vienen del [roadmap](roadmap.md) §3 y de `docs/discovery/`.
-- **Si descubres que algo del legacy no está en la nueva app**, trátalo como bug del nuevo modelo. Abre issue con label `gap:legacy` en lugar de obviarlo. La trazabilidad es: cada capacidad del legacy → su representación en el modelo nuevo → su cobertura de tests.
-
-**Ejemplo:** el legacy en Access tiene un `estado_actual_animal` con transiciones complejas (`docs/legacy-lifecycle-transition-rules.md` y `docs/discovery/state-machines.md`); la nueva implementación tiene que soportar **exactamente** las mismas transiciones, más las nuevas que se acuerden para Fase 4. Un PR que introduzca un nuevo campo debe validar primero que no rompe ninguna regla del legacy para campos equivalentes.
-
-### P2. Resolución de dudas sobre el dominio
-
-Cuando algo no quede claro — modelo de datos, regla de negocio, comportamiento esperado, edge case — consultar **en este orden**:
-
-1. `docs/discovery/feature-XX-*.md` (la versión revisada y consolidada, en castellano).
-2. [`docs/decisiones-proyecto.md`](decisiones-proyecto.md) (si la duda es de producto/UX/arquitectura/proceso).
-3. `docs/legacy-<área>.md` (documentación específica del área en el legacy).
-4. **El Access directamente vía Dysflow MCP** (`projectId: apap`, `accessPath` resuelve al `.accdb` del legacy). Herramientas canónicas: `dysflow_list_tables`, `dysflow_get_schema`, `dysflow_get_relationships`, `dysflow_query_sql` (modo read), `dysflow_count_rows`, `dysflow_distinct_values`, `dysflow_compare_backends`. Diagnóstico de entorno con `dysflow_doctor`.
-
-Solo se permiten los skills **`vba-access`** y **`access-vba-tdd`**. Los demás skills de Access (`access-vba-sync`, `access-query`, `access-form-creation`, `access-sandbox`, etc.) están **excluidos** del workflow de APAP_WEB (ver [roadmap](roadmap.md) §7).
-
-Si tras las 4 capas sigue la duda: **preguntar al usuario**. No asumir equivalencias silenciosamente.
-
-### P3. Documentación refleja, código es fuente de verdad
-
-- La documentación (incluido este `docs/proceso.md` y [`docs/roadmap.md`](roadmap.md)) **refleja** el código, no al revés.
-- Si divergen, gana **el código** (sea legacy o nuevo). Actualizar la doc en la misma sesión en que se detecta la divergencia. No es opcional: [`docs/roadmap.md`](roadmap.md) §9 lo exige.
-- `decisiones-proyecto.md` es el registro de las decisiones que rompieron el molde. Cualquier "esto es distinto al legacy porque X" debe constar allí con su fecha, autor y motivo.
-
-### P4. Pre-MVP single-branch
-
-Todo va a `main` directamente. Una sola rama al final de cada ciclo de merge ([AGENTS.md](../AGENTS.md) §15.2). Reversión post-MVP en §15.4, con **Virginia** como validadora UAT. El flip de fase solo se dispara por instrucción explícita del usuario ("ya tenemos MVC" o equivalente).
+- **P1-fidelity-legacy**: la aplicación nueva debe poder sincronizarse con el Access/VBA legacy y preservar **el 100% de las intenciones y funcionalidades del legacy**, más las funcionalidades nuevas acordadas ([`docs/roadmap.md`](roadmap.md) §3 Fases 3–7 + transversales, y `docs/discovery/feature-XX-*.md`). Si el legacy tiene un campo, un estado, un cálculo, un atajo, un informe, un permiso, una validación, un workflow o una transición: la nueva aplicación lo conserva (o lo reemplaza por un equivalente explícitamente acordado y documentado). Las funcionalidades nuevas son aditivas al inventario del legacy. Si descubre que algo del legacy no está en la nueva app, trátelo como bug del nuevo modelo y abra issue con label `gap:legacy`. La trazabilidad es: cada capacidad del legacy → su representación en el modelo nuevo → su cobertura de tests. **Ejemplo:** el legacy en Access tiene un `estado_actual_animal` con transiciones complejas (`docs/legacy-lifecycle-transition-rules.md` y `docs/discovery/state-machines.md`); la nueva implementación tiene que soportar **exactamente** las mismas transiciones, más las nuevas que se acuerden para Fase 4. Un PR que introduzca un nuevo campo debe validar primero que no rompe ninguna regla del legacy para campos equivalentes.
+- **P2-domain-doubt-ladder**: cuando algo no quede claro — modelo de datos, regla de negocio, comportamiento esperado, edge case — consultar **en este orden**: (1) `docs/discovery/feature-XX-*.md` (la versión revisada y consolidada, en castellano); (2) [`docs/decisiones-proyecto.md`](decisiones-proyecto.md) (si la duda es de producto/UX/arquitectura/proceso); (3) `docs/legacy-<área>.md` (documentación específica del área en el legacy); (4) **el Access directamente vía Dysflow MCP** (`projectId: apap`, `accessPath` resuelve al `.accdb` del legacy). Herramientas canónicas: `dysflow_list_tables`, `dysflow_get_schema`, `dysflow_get_relationships`, `dysflow_query_sql` (modo read), `dysflow_count_rows`, `dysflow_distinct_values`, `dysflow_compare_backends`. Diagnóstico de entorno con `dysflow_doctor`. Solo se permiten los skills **`vba-access`** y **`access-vba-tdd`**. Los demás skills de Access (`access-vba-sync`, `access-query`, `access-form-creation`, `access-sandbox`, etc.) están **excluidos** del workflow de APAP_WEB (ver [roadmap](roadmap.md) §7). Si tras las cuatro capas sigue la duda, **preguntar al usuario**. Nunca asuma equivalencias silenciosamente.
+- **P3-docs-reflect-code**: la documentación (incluido este `docs/proceso.md` y [`docs/roadmap.md`](roadmap.md)) **refleja** el código, no al revés. Si divergen, gana **el código** (sea legacy o nuevo). Actualice la doc en la misma sesión en que detecte la divergencia — no es opcional: [`docs/roadmap.md`](roadmap.md) §9 lo exige. `decisiones-proyecto.md` es el registro de las decisiones que rompieron el molde; cualquier "esto es distinto al legacy porque X" debe constar allí con su fecha, autor y motivo.
+- **P4-pre-mvp-single-branch**: todo va a `main` directamente. Una sola rama al final de cada ciclo de merge ([AGENTS.md](../AGENTS.md) §15.2). Reversión post-MVP en §15.4, con **Virginia** como validadora UAT. El flip de fase solo se dispara por instrucción explícita del usuario ("ya tenemos MVC" o equivalente). Invertir el flujo por frases como "ya está" o "vamos cerrando" sin el keyword MVP/MVC está prohibido ([AGENTS.md](../AGENTS.md) §15.4 punto 5).
 
 ---
 
@@ -379,3 +353,18 @@ codegraph status .
 git config --get-all gentleai.stagingOnly
 git log --oneline -5 main
 ```
+
+## Contributor checklist
+
+- [ ] Al iniciar cualquier sesión que toque código o specs, lea `docs/proceso.md` y entendió las cuatro premisas.
+- [ ] Antes de abrir un PR, ejecutar `python -m pytest -W error::DeprecationWarning --ignore=tests/e2e --deselect tests/test_voluntarios_concurrent.py --cov=app --cov-report=json --cov-fail-under=80 -q` y confirmar suelo verde en local.
+- [ ] Si la issue implica nuevo campo o modelo, verificar primero el equivalente en el Access legacy (P1, §4.6) antes de escribir el test rojo.
+- [ ] Si la duda de dominio no cierra con discovery + decisiones + legacy, escalar a Dysflow MCP (P2) y, si persiste, preguntar al usuario.
+- [ ] Si la PR toca `docs/proceso.md` o `docs/roadmap.md`, abrirla como `type:docs` y citar la regla o sección que cambia.
+- [ ] Al cerrar la issue, incluir SHA del commit, path del test, trazabilidad P1 (cómo preserva el superset) y, si aplica, referencia al SDD change.
+- [ ] Al cerrar una PR, refrescar `docs/roadmap.md` en la misma sesión (quitar fila de §4, mover fase si corresponde, actualizar fecha "Última actualización").
+- [ ] Si descubre una divergencia con el legacy, abrirla como `gap:legacy` antes de continuar con la issue principal.
+
+## Navigation
+
+Previous: [Development workflow](development.md) | Next: [RBAC matrix](security/rbac-matrix.md)

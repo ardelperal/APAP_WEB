@@ -2,7 +2,7 @@
 
 [Back to Codebase Guide](../CODEBASE-GUIDE.md)
 
-Esta página posee el inventario de integraciones externas (InsForge, CodeGraph, Dysflow, Coolify, GitHub) y los límites de configuración de cada una. No posee el contrato de stack — eso es [Arquitectura InsForge](../architecture-insforge-stack.md) — ni el detalle de cada variable — eso vive en [`app/core/config.py`](../../app/core/config.py).
+Esta página posee el inventario de integraciones externas (InsForge, CodeGraph, Dysflow, Coolify, GitHub) y los límites de configuración de cada una. No posee el contrato de stack — eso es [Arquitectura InsForge](../architecture/architecture-insforge-stack.md) — ni el detalle de cada variable — eso vive en [`app/core/config.py`](../../app/core/config.py).
 
 ## Core invariants
 
@@ -41,7 +41,7 @@ Esta página posee el inventario de integraciones externas (InsForge, CodeGraph,
 
 - [ ] Si añade una variable `APAP_*`, declárela en [`app/core/config.py`](../../app/core/config.py) con su `Field(...)` y, si porta un secreto, sin default usable (§32.P2).
 - [ ] Si añade una integración nueva, agregue una fila a la tabla de integraciones con su `Purpose`, `Where configured` y `Failure mode`.
-- [ ] Si modifica el contrato con InsForge, actualice [Arquitectura InsForge](../architecture-insforge-stack.md) y la sección correspondiente en este radial en la misma sesión.
+- [ ] Si modifica el contrato con InsForge, actualice [Arquitectura InsForge](../architecture/architecture-insforge-stack.md) y la sección correspondiente en este radial en la misma sesión.
 - [ ] Si añade un runbook nuevo (rotación de secreto, acción manual de operador), declárelo en [`docs/runbooks/`](../../docs/runbooks/) según §13.
 - [ ] Si la integración toca un path sensible (auth, secretos, PII, SQL cruda), cree o actualice un doc en [`docs/audits/`](../../docs/audits/) según §12.
 

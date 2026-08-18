@@ -8,7 +8,7 @@
 
 > **Scope**: APAP_WEB es una aplicación web server-rendered (FastAPI + Jinja2 + InsForge) que reemplaza el legacy Access/VBA.
 >
-> Este doc describe las superficies externas. Las decisiones arquitectónicas viven en [docs/architecture-insforge-stack.md](docs/architecture-insforge-stack.md).
+> Este doc describe las superficies externas. Las decisiones arquitectónicas viven en [docs/architecture/architecture-insforge-stack.md](docs/architecture/architecture-insforge-stack.md).
 
 ---
 
@@ -41,7 +41,7 @@ Cada documento del repo ocupa un único rol. Este índice es la única ruta reco
 | [docs/proceso.md](docs/proceso.md) | Playbook operativo: preflight → issue → TDD → merge → cierre. |
 | [docs/setup.md](docs/setup.md) | Setup local por desarrollador. |
 | [docs/CODEBASE-GUIDE.md](docs/CODEBASE-GUIDE.md) | Overview de módulos (Tier 2 de #464, parcial). |
-| [docs/architecture-insforge-stack.md](docs/architecture-insforge-stack.md) | Stack target, reglas InsForge, despliegue. |
+| [docs/architecture/architecture-insforge-stack.md](docs/architecture/architecture-insforge-stack.md) | Stack target, reglas InsForge, despliegue. |
 | [docs/decisiones-proyecto.md](docs/decisiones-proyecto.md) | Registro formal de decisiones arquitectónicas (D-01…). |
 | [docs/audits/](docs/audits/) | Auditorías por slice sensible (CSRF, RBAC, XSS, cookies). |
 | [docs/runbooks/](docs/runbooks/) | Runbooks de operador (rotación de cookie, auth cache multi-worker). |
@@ -156,7 +156,7 @@ APAP_WEB compone varias superficies (HTTP, OAuth Google, InsForge, CSRF, rate li
 | Hoja de ruta viva | [docs/roadmap.md](docs/roadmap.md) |
 | Setup local por desarrollador | [docs/setup.md](docs/setup.md) |
 | Decisiones arquitectónicas | [docs/decisiones-proyecto.md](docs/decisiones-proyecto.md) |
-| Stack target y reglas InsForge | [docs/architecture-insforge-stack.md](docs/architecture-insforge-stack.md) |
+| Stack target y reglas InsForge | [docs/architecture/architecture-insforge-stack.md](docs/architecture/architecture-insforge-stack.md) |
 | Workflow de contribución | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Cambios por versión | [CHANGELOG.md](CHANGELOG.md) |
 | Disclosure de vulnerabilidades | [SECURITY.md](SECURITY.md) |

@@ -67,7 +67,7 @@
 
 | Si necesita... | Abra primero | Y luego consulte |
 |---|---|---|
-| Entender el producto y el target | [README](../README.md) | [Mental model](codebase/mental-model.md), [Arquitectura InsForge](architecture-insforge-stack.md) |
+| Entender el producto y el target | [README](../README.md) | [Mental model](codebase/mental-model.md), [Arquitectura InsForge](architecture/architecture-insforge-stack.md) |
 | Decidir dónde va código nuevo | [Repository map](codebase/repository-map.md) | [AGENTS.md](../AGENTS.md) §33 |
 | Añadir o cambiar una ruta o endpoint | [Interfaces](codebase/interfaces.md) | El `routes.py` del módulo afectado, [AGENTS.md](../AGENTS.md) §28 |
 | Localizar un guardarraíl o un detector | [Repository map](codebase/repository-map.md) | [AGENTS.md](../AGENTS.md) §20–§28, [Quality roadmap](quality/hardening-roadmap.md) |
@@ -82,7 +82,7 @@
 |---|---|---|
 | Producto, stack, quick start | [`README.md`](../README.md) | Punto de entrada para quien abre el repo. |
 | Reglas y guardarraíles del proyecto | [`AGENTS.md`](../AGENTS.md) | Las 33 reglas y sus detectores. |
-| Contrato de stack InsForge | [`docs/architecture-insforge-stack.md`](architecture-insforge-stack.md) | Decisiones de stack, reglas InsForge, target de despliegue. |
+| Contrato de stack InsForge | [`docs/architecture/architecture-insforge-stack.md`](architecture/architecture-insforge-stack.md) | Decisiones de stack, reglas InsForge, target de despliegue. |
 | Playbook operativo por issue | [`docs/proceso.md`](proceso.md) | De `open` a `closed` con evidencia, según §16 de AGENTS. |
 | Roadmap de fases | [`docs/roadmap.md`](roadmap.md) | Fases del producto y estado actual. |
 | Decisiones de proyecto | [`docs/decisiones-proyecto.md`](decisiones-proyecto.md) | Registro formal de divergencias con el legacy. |
@@ -106,7 +106,7 @@ Continúe con [Mental model](codebase/mental-model.md).
 - [ ] Ningún párrafo supera los doscientos caracteres.
 - [ ] Sin emojis decorativos ni marketing fluff.
 - [ ] Cada cross-reference resuelve a un archivo existente del repositorio.
-- [ ] Sin duplicación de contenido que ya vive en `README.md`, `architecture-insforge-stack.md` o `AGENTS.md`.
+- [ ] Sin duplicación de contenido que ya vive en `README.md`, `architecture/architecture-insforge-stack.md` o `AGENTS.md`.
 
 ## Navigation
 
