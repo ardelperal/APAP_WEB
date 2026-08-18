@@ -1,28 +1,36 @@
-"""Pin the QA-through-UI contract in AGENTS.md section 23."""
+"""Pin the QA-through-UI contract (rule 23) after the AGENTS.md slim refactor.
+
+Rule 23 was relocated from AGENTS.md §90 to
+``docs/codebase/quality-gates.md`` as part of #554. The contract is
+unchanged; only its home moved.
+"""
 
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-AGENTS_PATH = REPO_ROOT / "AGENTS.md"
+RULES_PATH = REPO_ROOT / "docs" / "codebase" / "quality-gates.md"
 
 
-def _section_23() -> str:
-    agents = AGENTS_PATH.read_text(encoding="utf-8")
-    start = agents.index("### 23. E2E expectation")
-    end = agents.index("\n### 24.", start)
-    return agents[start:end]
+def _rule_23() -> str:
+    rules = RULES_PATH.read_text(encoding="utf-8")
+    start = rules.index("## Regla 23")
+    end = rules.index("\n## Regla 24", start)
+    return rules[start:end]
 
 
-def test_section_23_requires_qa_through_ui_only() -> None:
-    section = _section_23()
+def test_rule_23_requires_qa_through_ui_only() -> None:
+    section = _rule_23()
 
-    assert "QA-through-UI only" in section
-    assert "Playwright E2E suite under `tests/e2e/`" in section
-    assert "Python shell, direct DB inspection, or `curl`" in section
-    assert "NOT a substitute" in section
+    assert "QA-through-UI solamente" in section
+    assert "Playwright E2E existente bajo `tests/e2e/`" in section
+    assert "shell de Python, inspección directa de DB o `curl`" in section
+    assert "NO es sustituto" in section
 
 
-def test_section_23_preserves_backend_only_exemption() -> None:
-    section = _section_23()
+def test_rule_23_preserves_backend_only_exemption() -> None:
+    section = _rule_23()
 
-    assert "Backend-only slices (services, migration, scripts) are exempt." in section
+    assert (
+        "Los slices solo-backend (services, migration, scripts) están exentos."
+        in section
+    )
