@@ -26,7 +26,7 @@ one python file under any of:
 - `app/core/di/<slice>_di.py`
 - `app/modules/<slice>/`
 
-A bare `app/core/domain/<slice>/` (domain entities only) does NOT make
+A bare `app/core/domain/<slice>/` (domain entities only) does not make
 the slice in scope — domain is always optional. The check runs only
 when there is something to wire, otherwise it would force empty
 slices to grow a port they do not need.
@@ -81,7 +81,7 @@ constructs it would still pass. The 1-line doctype-by-construction
 discount is acceptable: any slice whose adapter is *used* in `di` is
 wired, and unused adapters are caught by the linter/`vulture`.
 
-### 3. `application-adapter-free` — `application/<slice>/*.py` does NOT import a concrete adapter
+### 3. `application-adapter-free` — `application/<slice>/*.py` does not import a concrete adapter
 
 For every file under `app/core/application/<slice>/`, walk its
 imports and flag any `from app.core.adapters.insforge.<slice>_insforge_*
@@ -132,7 +132,7 @@ accept either an exact match, a `<slice>_<layer>` filename, a
 real file. The intent is "any test that exercises the layer exists",
 not "every layer has a dedicated single test module".
 
-**Failure mode (silence risk):** a test file that does NOT actually
+**Failure mode (silence risk):** a test file that does not actually
 import the layer (e.g. `tests/test_admin.py` could in principle cover
 admin delivery without importing domain). The acceptance is that the
 file's source contains an import statement targeting that layer's
