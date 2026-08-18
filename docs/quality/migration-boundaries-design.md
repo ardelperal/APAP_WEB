@@ -5,7 +5,7 @@
 **Source of the discipline.** `scripts/check_layers.py` is the precedent —
 three explicit axes over `app/`, shrink-only `BASELINE`, no rule without a
 gate (AGENTS.md §32.P3). This gate is the migration equivalent: a separate
-script (NOT extending `check_layers.py`), because the rules are different.
+script (not extending `check_layers.py`), because the rules are different.
 
 ---
 
@@ -64,7 +64,7 @@ A pure module's imports must resolve to stdlib OR to a sibling
 
 | Forbidden segment         | Why                                                                                                        |
 |---------------------------|------------------------------------------------------------------------------------------------------------|
-| `app`                     | Pure modules MUST NOT depend on the application layer. They run in the operator CLI, not in FastAPI.        |
+| `app`                     | Pure modules must not depend on the application layer. They run in the operator CLI, not in FastAPI.        |
 | `migration.legacy_*`      | Keep the Access-bound seam quarantined — a pure module that imports the legacy reader pulls Windows-only code into a Linux-CI-runnable test path. |
 | `pyodbc`, `psycopg`, `psycopg2`, `sqlalchemy`, `insforge`, `pymysql` | Third-party DB drivers. A pure module does not talk to a DB.                              |
 | `httpx`, `requests`, `aiohttp`, `urllib3` | Third-party HTTP clients. A pure module does not make outbound HTTP.                       |
@@ -80,7 +80,7 @@ both surface.
 ### 3.2 Access-bound modules — `ACCESS_BOUND_FORBIDDEN_APP_PREFIXES`
 
 Access-bound modules may import stdlib, `migration.*` siblings, and
-Access bindings (`pyodbc`, `ctypes.wintypes`, etc.). They may NOT
+Access bindings (`pyodbc`, `ctypes.wintypes`, etc.). They may not
 import from `app/` — the entire `app/` tree is forbidden. This protects
 the runtime-boundary contract (`tests/migration/test_runtime_boundary.py`)
 and keeps the Access seam free of FastAPI / InsForge coupling.
@@ -89,7 +89,7 @@ and keeps the Access seam free of FastAPI / InsForge coupling.
 
 Orchestration modules may import anything in `migration.*` and any
 `app.core.*` module (the cross-cutting infrastructure: `app.core.logging`,
-`app.core.data_access`, `app.core.insforge`). They MUST NOT import any
+`app.core.data_access`, `app.core.insforge`). They must not import any
 `app.modules.*` module — business logic is not part of the migration's
 concern, and a route handler pulling `from app.modules.animals import X`
 into the CLI would be a layering violation in the opposite direction.
@@ -199,14 +199,14 @@ The script is ≤ 700 lines (AGENTS.md §21). The baseline-acquisition +
 test + driver + 3 rule functions + classification + tests-per-module
 check fits comfortably.
 
-## 9. What this gate is NOT
+## 9. What this gate is not
 
-- **NOT** a hexagonal gate. The hexagonal refactor lives under
+- **not** a hexagonal gate. The hexagonal refactor lives under
   `app/core/` and `app/modules/`; this gate covers `migration/`, which
   has its own architecture.
-- **NOT** a runtime-boundary gate. `tests/migration/test_runtime_boundary.py`
+- **not** a runtime-boundary gate. `tests/migration/test_runtime_boundary.py`
   already pins the no-MCP-at-runtime contract; this gate is static.
-- **NOT** a coverage gate. Module-level line coverage lives in the
+- **not** a coverage gate. Module-level line coverage lives in the
   pytest coverage run; this gate checks the *structure* of imports and
   the *existence* of a test file per module.
 
