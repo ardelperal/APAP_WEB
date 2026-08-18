@@ -17,7 +17,7 @@ The animal's `Situacion` field is derived from active records across intake, fos
 
 ### Decided direction
 
-The future web model MUST store an **auditable event timeline** (lifecycle event log) as the single source of truth for an animal's history. The current state is always derived from the most recent event in this timeline. This is a mandatory stakeholder requirement, not an open question.
+The future web model must store an **auditable event timeline** (lifecycle event log) as the single source of truth for an animal's history. The current state is always derived from the most recent event in this timeline. This is a mandatory stakeholder requirement, not an open question.
 
 What remains open is the **exact schema implementation** of the event log table — whether it uses a single normalized table, an event-sourcing pattern, or a hybrid approach. This is an implementation decision, not a business-rule decision.
 
@@ -224,7 +224,7 @@ Option A (estimate from legacy) is recommended. Scan the legacy filesystem to me
 
 The legacy system stores volunteer names as free-text strings across multiple tables (`TbEntradas.VoluntarioEntrada`, `TbAdopcion.VoluntarioSeguimiento`, `TbAcogidaAnimal.VoluntarioSeguimiento1/2`, `TbAcogidaAnimal.VoluntarioAcogida`, `TbAcogidaAnimal.VoluntarioCositicasSanitarias`). There is no stable volunteer ID, no deduplication, and no single source of truth. A `TbVoluntariosParaAutorrellenables` table exists but is only a combobox fill source, not a normalized entity.
 
-The stakeholder has confirmed: the web app SHOULD have a volunteer registry analogous to the foster home registry. This is a **new feature** that changes the target ERD.
+The stakeholder has confirmed: the web app should have a volunteer registry analogous to the foster home registry. This is a **new feature** that changes the target ERD.
 
 ### Decided direction
 
@@ -235,10 +235,10 @@ Create a `Volunteer` first-class entity with stable ID. Existing free-text volun
 | # | Rule | Detail |
 |---|------|--------|
 | BR1 | **FK-only references** | No workflow may assign a volunteer unless that volunteer already exists in the Volunteer Registry. Free-text assignment is prohibited in all target tables. |
-| BR2 | **Existence + active validation** | Every create/edit workflow that assigns a volunteer MUST validate that the volunteer exists AND is active. Inactive volunteers cannot be assigned to new records. |
-| BR3 | **No physical delete** | A volunteer referenced by ANY business record (intake, foster stay, adoption, therapy, or any other operational table) MUST NOT be physically deleted. Only deactivation (soft-delete / mark inactive) is permitted. |
-| BR4 | **Historical preservation** | When a volunteer is deactivated, all historical records referencing that volunteer MUST preserve the FK relationship. The volunteer remains readable for reporting and audit trails. |
-| BR5 | **Unreferenced deletion** | A volunteer never referenced by any business record MAY be deleted, but ONLY if product explicitly decides this. Default policy: deactivation for all. |
+| BR2 | **Existence + active validation** | Every create/edit workflow that assigns a volunteer must validate that the volunteer exists and is active. Inactive volunteers cannot be assigned to new records. |
+| BR3 | **No physical delete** | A volunteer referenced by ANY business record (intake, foster stay, adoption, therapy, or any other operational table) must not be physically deleted. Only deactivation (soft-delete / mark inactive) is permitted. |
+| BR4 | **Historical preservation** | When a volunteer is deactivated, all historical records referencing that volunteer must preserve the FK relationship. The volunteer remains readable for reporting and audit trails. |
+| BR5 | **Unreferenced deletion** | A volunteer never referenced by any business record may be deleted, but ONLY if product explicitly decides this. Default policy: deactivation for all. |
 
 ### Open implementation decisions
 
