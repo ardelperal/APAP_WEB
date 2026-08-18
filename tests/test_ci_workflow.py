@@ -600,15 +600,11 @@ def _job_executable(workflow: str, start: str, end: str) -> str:
 
 
 def test_ci_workflow_lint_job_runs_alantyle_lint() -> None:
-    """Issue #559, ADR d-42: el job ``lint`` ejecuta el detector de
-    anti-patrones documentation-alan-style sobre los árboles canónicos.
+    """Issue #559, ADR d-42: ``lint`` bloquea anti-patrones alan-style.
 
-    El step se publica con ``continue-on-error: true`` durante el rollout
-    inicial (ADR d-42). Los autores de documentos preexistentes limpian
-    sus archivos por ignore markers o reescritura; la bandera se retira
-    en un PR de seguimiento cuando el contador agregado cae a cero.
-    Quitar la bandera antes de esa limpieza es la regresión que este
-    test existe para evitar.
+    El rollout terminó en issue #576. El step conserva el scope canónico,
+    ejecuta el detector entre ``check_rules`` y ``check_module_size`` y no
+    puede suavizar su exit code con ``continue-on-error``.
     """
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
     lint_job = _job_executable(workflow, "\n  lint:", "\n  security:")
@@ -617,11 +613,9 @@ def test_ci_workflow_lint_job_runs_alantyle_lint() -> None:
         "el job lint debe invocar scripts/check_alantyle.py para hacer "
         "cumplir §10 de la skill documentation-alan-style (issue #559)."
     )
-    assert "continue-on-error: true" in lint_job, (
-        "el step debe llevar continue-on-error: true durante el rollout "
-        "inicial (ADR d-42). Retirar la bandera antes de que el contador "
-        "de hallazgos llegue a cero requiere un PR de seguimiento "
-        "explícito, no un cambio silencioso."
+    assert "continue-on-error" not in lint_job, (
+        "el detector alan-style es un gate bloqueante desde issue #576; "
+        "continue-on-error ocultaría su exit code y reabriría el rollout."
     )
     # El detector debe correr después del gate AST de check_rules.py y
     # antes del ratchet de tamaño de módulo, manteniendo el orden de

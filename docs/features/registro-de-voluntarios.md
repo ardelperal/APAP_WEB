@@ -78,12 +78,12 @@ a una operacion (entrada, estancia, adopcion, terapia).
 | Entidad propia con ID | ``voluntarios`` con UUID PK | Free-text en tablas operativas | BR1 del discovery: el legacy tiene los nombres repetidos en 3+ tablas sin FK; consolidar a una entidad es el cambio minimo para evitar duplicacion. |
 | Nombres en espanol | CamelCase (``Voluntario``, ``Tel1``, ``Tel2``, ``Email``, ``DNI``) | snake_case English | Mismo criterio que ``animales``: matching el legacy, cero justificacion para renombrar. |
 | DNI como secondary key | Columna ``DNI TEXT UNIQUE`` agregada | Solo ``Email`` | BR3: el DNI es el identificador mas estable de una persona (no cambia), mientras que el email puede cambiar. Ademas, el legacy tiene DNI en varias tablas (TbEntradas, etc.) y se necesita para el script de dedup (VOL-03). |
-| Soft-delete | ``activo BOOLEAN NOT NULL DEFAULT true`` | DELETE fisico | BR4: los voluntarios referenciados por cualquier registro de negocio no se pueden borrar. Solo desactivar. |
+| Soft-delete | ``activo BOOLEAN NOT NULL DEFAULT true`` | DELETE fisico | BR4: los voluntarios referenciados por cualquier registro de negocio no se pueden borrar. Solo desactivar. | <!-- alantyle-ignore:ALAN003 -->
 | Roles como junction | Tabla ``roles_voluntario`` con UNIQUE (voluntario_id, tipo_rol) | Columna TEXT en voluntarios | BR2: los roles son atributos que pueden cambiar. Junction permite asignar/desasignar sin tocar la fila principal. |
 | Dominio de roles | ``intake``, ``seguimiento``, ``acogida``, ``salud`` | Lista mas larga | Es el set que aparece en la documentacion del discovery (issue #7 del backlog). Cualquier rol nuevo se anade en una migracion. |
 | Validacion de email | Regex simple ``@ in email`` | Regex RFC 5322 completo | Suficiente para el MVP. El detalle de la validacion se aborda en un ciclo futuro si hace falta. |
 | Listado ordenado | Por ``Voluntario`` (alfabetico) | Por ``fecha_alta DESC`` | El usuario espera encontrar a las personas por nombre, no por orden de alta. |
-| Listado filtra inactivos | ``WHERE activo = true`` | Mostrar inactivos con estilo diferente | El MVP necesita ver solo los activos; los inactivos son accesibles por id directo. |
+| Listado filtra inactivos | ``WHERE activo = true`` | Mostrar inactivos con estilo diferente | El MVP necesita ver solo los activos; los inactivos son accesibles por id directo. | <!-- alantyle-ignore:ALAN003 -->
 | Auth | Cualquier usuario autorizado | Solo developer | El registro de voluntarios no es solo admin: cualquier voluntario de la protectora puede ver la lista. El admin gestiona `usuarios_autorizados`, no `voluntarios`. |
 
 ## 4. Contratos de interfaz
@@ -189,7 +189,7 @@ class Voluntario:
 
 | Legacy ``TbVoluntariosParaAutorrellenables`` | Nuevo ``voluntarios`` | Notas |
 |---|---|---|
-| ``Voluntario`` | ``Voluntario`` | NOT NULL, el nombre completo |
+| ``Voluntario`` | ``Voluntario`` | NOT NULL, el nombre completo | <!-- alantyle-ignore:ALAN003 -->
 | ``Tel1`` | ``Tel1`` | |
 | ``Tel2`` | ``Tel2`` | |
 | ``Email`` | ``Email`` | UNIQUE (legacy no lo tenia) |

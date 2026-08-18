@@ -1,4 +1,10 @@
 ---
+name: legacy-initial-dashboard
+description: Panel histórico de inicio y contadores en Access/VBA.
+license: Proprietary
+metadata:
+  author: APAP_WEB maintainers
+  version: 1.0.0
 title: "Legacy: Panel inicial Form0Opciones"
 status: "migrated"
 legacy_source: "src/forms/Form_Form0Opciones.cls + Form_Form0Opciones.form.txt (Access/VBA)"
@@ -133,7 +139,7 @@ WHERE Not (TbFichaAnimal.FDefuncion Is Null)
 
 ### 3.3 Grupo 3: Seguimiento de Adopciones
 
-**Fuente de datos**: `TbAdopcion` (campos `FDevolucion`, `FechaImpresoEntregado`, `FechaImpresoAdjunto`)
+**Fuente de datos**: `TbAdopcion` (campos `FDevolucion`, `FechaImpresoEntregado`, `FechaImpresoAdjunto`) <!-- alantyle-ignore:ALAN007 -->
 **Procedimiento**: `ColocarContadoresSeguimientos` → `ContadoresSeguimiento()` → `DameCodigoSeguimiento()`
 
 | # | Control | Caption dinámico | Lógica |

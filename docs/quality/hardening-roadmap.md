@@ -208,7 +208,7 @@ Highest-value targets, by density:
 - **Two PRs developed in parallel out of order will silently delete each other
   on rebase.** PR #438 (hexagonal) and PR #429 (foundations) both touched
   `ci.yml`, `AGENTS.md`, `Makefile`, `pyproject.toml`. PR #438 was branched off
-  main BEFORE PR #429 existed, so it DELETED 8 files PR #429 added (`scripts/check_crap.py`,
+  main before PR #429 existed, so it DELETED 8 files PR #429 added (`scripts/check_crap.py`,
   `scripts/check_jscpd.py`, `scripts/check_mutation_sites.py`, plus 5 test files,
   `git-hooks/pre-commit`, `openspec/changes/quality-gates-expansion/tasks.md`).
   An automated rebase would have honored the deletions. Resolution: cherry-pick

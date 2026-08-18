@@ -19,7 +19,7 @@ El proceso de APAP_WEB garantiza que cada issue llegue de `open` a `closed` pres
 | [§4 TDD estricto](#4-tdd-estricto-default-para-código) | Ciclo rojo → verde → refactor; reglas para UI, Access y modelo de datos. |
 | [§5 Validación local](#5-validación-local-gate-pre-ci) | Comandos exactos del gate antes de commit + push. |
 | [§6 Merge a `main`](#6-merge-a-main-regla-151-pre-mvp) | Commit, push, PR, cierre con trazabilidad, limpieza, sync del roadmap. |
-| [§7 Triggers STOP + consulta](#7-triggers-stop--consulta) | Acciones que requieren OK explícito del usuario. |
+| [§7 Triggers stop + consulta](#7-triggers-stop--consulta) | Acciones que requieren OK explícito del usuario. |
 | [§8 Anti-patrones a evitar](#8-anti-patrones-a-evitar) | Lista cerrada de lo que está prohibido. |
 | [§9 Glosario de comandos rápidos](#9-glosario-de-comandos-rápidos) | Cheatsheet de bash para copiar y pegar. |
 
@@ -267,7 +267,7 @@ Per [`docs/roadmap.md`](roadmap.md) §9:
 
 ---
 
-## §7 Triggers STOP + consulta
+## §7 Triggers stop + consulta
 
 Cualquiera de estos requiere parada y consulta explícita al usuario:
 
@@ -280,7 +280,7 @@ Cualquiera de estos requiere parada y consulta explícita al usuario:
 | Crear nuevo dir top-level | `codegraph sync .` después ([AGENTS.md](../AGENTS.md) §14.8). |
 | Branch protection en GitHub | no sin OK explícito. |
 | Deploy secrets (`COOLIFY_WEBHOOK_URL`, `APAP_OAUTH_CLIENT_ID`) | no tocar; son del operador. |
-| Asumir equivalencia nueva↔legacy sin documentarla en `docs/architecture/decisiones-proyecto.md` | STOP; documentar primero. |
+| Asumir equivalencia nueva↔legacy sin documentarla en `docs/architecture/decisiones-proyecto.md` | stop; documentar primero. |
 | Modificar `docs/discovery/` o `docs/legacy-*` por cambio de interpretación | OK si se cita el cambio concreto; el doc se mantiene vivo. |
 
 ---

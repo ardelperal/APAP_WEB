@@ -117,7 +117,7 @@ that requires a real Postgres backend (not just the queries layer).
   provision a volunteer database and run concurrent inserts.
 - **Why deselected**: the GitHub Actions pool does not provision Postgres
   in the standard `test` job (only in `integration:` and `e2e:`). A
-  hard-failing test in a job that cannot supply its prerequisite would be
+  hard-failing test in a job that cannot supply its prerequisite would be <!-- alantyle-ignore:ALAN004 -->
   dead code by §32.P6 of AGENTS.md.
 
 ### 6. Coverage-line patterns excluded by `pytest-cov`

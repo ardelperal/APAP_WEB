@@ -1,4 +1,10 @@
 ---
+name: legacy-volunteer-roles
+description: Modelo histórico de voluntarios y roles en Access/VBA.
+license: Proprietary
+metadata:
+  author: APAP_WEB maintainers
+  version: 1.0.0
 title: "Legacy: Modelo de voluntarios"
 status: "historical"
 legacy_source: "TbVoluntariosParaAutorrellenables + Funciones Generales.bas (RegistrarVoluntarios, RellenaDatosPersonales) + Form_FormEntradaAlta.cls, Form_FormAdopcionAlta.cls, Form_FormAcogidaAlta.cls, Form_FormTerapiasAlta.cls (Access/VBA)"
@@ -197,7 +203,7 @@ El sistema tiene un mecanismo de auto-rellenado que funciona así:
 | La tabla `TbVoluntariosParaAutorrellenables` no tiene campo de tipo/rol | `Funciones Generales.bas` líneas 3084-3134 |
 | Todos los combos de voluntario usan la misma lista plana | `Form_FormEntradaAlta`, `Form_FormAdopcionAlta`, `Form_FormAcogidaAlta`, `Form_FormTerapiasAlta` |
 | `RegistrarVoluntarios` solo upserta nombre, teléfono y email | `Funciones Generales.bas` línea 3097 |
-| No hay `WHERE` o filtro por tipo de voluntario en ninguna query | Todos los formularios relevantes |
+| No hay `WHERE` o filtro por tipo de voluntario en ninguna query | Todos los formularios relevantes | <!-- alantyle-ignore:ALAN003 -->
 | La función `RellenaDatosPersonales` no verifica capacidades | `Funciones Generales.bas` líneas 3007-3083 |
 | `ResponsableAdopcion` es texto libre, no referenciable a la tabla de voluntarios | `Adopcion.cls` línea 558 |
 

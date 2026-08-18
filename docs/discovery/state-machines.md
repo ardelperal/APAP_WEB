@@ -96,7 +96,7 @@ Tracks the operational status and capacity of each registered foster home.
 
 | Rule | Detail |
 |------|--------|
-| Current count | Active foster stays (`TbAcogidaAnimal`) with `FFinal IS NULL` for the home |
+| Current count | Active foster stays (`TbAcogidaAnimal`) with `FFinal IS NULL` for the home | <!-- alantyle-ignore:ALAN003 -->
 | Max capacity | Declared on `TbAcogidaCasas` registration |
 | Species filter | Capacity check considers species preference (CANINA / FELINA) |
 | Enforcement | **Open question:** Hard block at assignment time vs. advisory only (see `open-decisions.md`) |

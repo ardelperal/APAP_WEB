@@ -30,7 +30,7 @@ El 2026-07-03 el usuario desactivó `git config gentleai.stagingOnly` específic
 
 ### §15.4 Revert post-MVP — procedimiento cuando se declara MVP
 
-Cuando el usuario señale MVP alcanzado ("ya tenemos MVC", "MVP reached", "pasamos a producción", "vamos a staging" o equivalente), ejecute este procedimiento EN ORDEN:
+Cuando el usuario señale MVP alcanzado ("ya tenemos MVC", "MVP reached", "pasamos a producción", "vamos a staging" o equivalente), ejecute este procedimiento en orden:
 
 1. **Re-active el hook staging-only en este repo.** `git config gentleai.stagingOnly true` — el hook global vuelve a actuar en los push a `main`.
 2. **Recree `staging` si falta.** `git checkout -b staging main && git push origin staging`. A partir de aquí, **todo** el trabajo posterior va a `staging`, no a `main`.

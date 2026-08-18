@@ -85,7 +85,7 @@ El applier de MIGRATION-01 debe (`must`) invocar un hook `post_apply_diff(direct
 
 #### REQ-Hook-Data: Sentinels `_stored_state` y `_web_updated_at` que el applier debe poblar en cada `Diff`
 
-Para cada `Diff` con al menos una columna `web_only_strategy: derived`, el applier de MIGRATION-01 (PR 5/6) debe (`must`) poblar dos campos sentinela en el objeto `Diff` antes de invocar `post_apply_diff`:
+Para cada `Diff` con al menos una columna `web_only_strategy: derived`, el applier de MIGRATION-01 (PR 5/6) debe (`must`) poblar dos campos sentinela en el objeto `Diff` antes de invocar `post_apply_diff`. <!-- alantyle-ignore:ALAN007 -->
 
 - **`diff._stored_state`** — el valor que la web actualmente tiene para esa columna al momento del write (`Any`). El derivation engine lo usa como input al comparador para clasificar la columna como `matched` / `divergent` / `needs_review`. Cuando el applier no puede leer el valor stored (columna nueva en web), debe (`must`) poblar `None` y el hook clasificará la columna como `PENDING`.
 - **`diff._web_updated_at`** — el timestamp de la última edición web sobre esa columna (`datetime | None`, UTC). El comparador lo usa en la regla Q2: si `web_updated_at >= last_legacy_snapshot_at` → la edición web es posterior al último snapshot legacy → `needs_review` (override manual). Cuando la columna nunca fue editada en web, debe (`must`) poblar `None`.

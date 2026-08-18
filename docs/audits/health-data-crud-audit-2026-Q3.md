@@ -25,7 +25,7 @@ This audit documents the scope, methodology, findings, and verdict for the audit
 
 ## Methodology
 
-1. Revisión del SQL de escritura para asegurar que los parámetros del `UPDATE` se enlazan como `$2..$8` después del identificador `$1`, y que la regla D-24 usa una forma SQL ejecutable con `FROM checked_animal`.
+1. Revisión del SQL de escritura para asegurar que los parámetros del `UPDATE` se enlazan como `$2..$8` después del identificador `$1`, y que la regla D-24 usa una forma SQL ejecutable con `FROM checked_animal`. <!-- alantyle-ignore:ALAN003 -->
 2. Revisión del orden de arranque para que los catálogos existan antes de crear tablas de dominio con FKs a `catalogos_pruebas` y `catalogos_tipos_contrato`.
 3. Revisión del límite de capas: las rutas de sanidad no importan helpers SQL de catálogos; delegan en `app.modules.sanidad.service`.
 4. Separación del tratamiento de errores: `ValueError` vuelve al formulario con 422; `InsForgeError` se registra con `log_safe` y devuelve respuesta 503 en los flujos de escritura afectados.
@@ -35,7 +35,7 @@ This audit documents the scope, methodology, findings, and verdict for the audit
 
 | Severity | Title | Form | Details |
 |---|---|---|---|
-| BLOCKER | `UPDATE` enlazaba columnas con placeholders incorrectos y referenciaba `checked_animal.fecha_alta` sin `FROM checked_animal` | fixed | SQL corregido y cubierto por pruebas de forma ejecutable y contrato D-24. |
+| BLOCKER | `UPDATE` enlazaba columnas con placeholders incorrectos y referenciaba `checked_animal.fecha_alta` sin `FROM checked_animal` | fixed | SQL corregido y cubierto por pruebas de forma ejecutable y contrato D-24. | <!-- alantyle-ignore:ALAN003 -->
 | BLOCKER | Un backend limpio podía fallar al crear FKs de dominio antes de las tablas de catálogo | fixed | `ensure_catalogs` se ejecuta antes de `ensure_domain_schema`; tests de lifespan actualizados. |
 | CRITICAL | La ruta importaba directamente `list_catalogos_pruebas`, saltándose la capa de servicio | fixed | Se añadió wrapper de servicio y las rutas delegan en `sanidad_service`. |
 | CRITICAL | `InsForgeError` se trataba como validación 422 o podía escapar sin control en delete | fixed | `ValueError` y `InsForgeError` tienen ramas separadas; backend caído devuelve 503 y queda logueado. |

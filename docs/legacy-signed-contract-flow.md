@@ -1,4 +1,10 @@
 ---
+name: legacy-signed-contract-flow
+description: Flujo histórico de generación y firma de contratos en Access/VBA.
+license: Proprietary
+metadata:
+  author: APAP_WEB maintainers
+  version: 1.0.0
 title: "Legacy: Flujo de contratos ParaFirma → Firmados"
 status: "historical"
 legacy_source: "src/classes/Plantilla.cls, src/classes/Anexo.cls, src/modules/Explorador.bas, src/forms/Form_FormEntradaGestion.cls, Form_FormAcogidaGestion.cls, Form_FormAdopcionesGestion.cls (Access/VBA)"
@@ -169,7 +175,7 @@ End Function
 ### 4.3 Implicaciones
 - El documento de ParaFirma **queda como borrador** después de la firma
 - El archivo Firmado **puede ser un PDF escaneado**, no necesariamente el Word original
-- El usuario podría adjuntar un archivo que **nunca estuvo en ParaFirma**
+- El usuario podría adjuntar un archivo que **nunca estuvo en ParaFirma** <!-- alantyle-ignore:ALAN004 -->
 - No hay relación forzada entre el borrador generado y el archivo anexado
 
 ---

@@ -92,8 +92,8 @@ Registered foster caregivers with their capacity and preferences.
 
 - **Table:** `TbAcogidaCasa`, `TbAcogidaAnimal`
 - **Dysflow tool:** `get_schema`, `query_sql`
-- **Query:** `SELECT IDAcogidaCasa, COUNT(*) AS ActiveStays FROM TbAcogidaAnimal WHERE FFinal IS NULL GROUP BY IDAcogidaCasa`
-- **Result:** 38 foster homes have active stays. Max active stays in a single home: 3 (IDAcogidaCasa=131). Most homes have 1–2 active stays. Capacity computation confirmed: count of rows in TbAcogidaAnimal where FFinal IS NULL, grouped by IDAcogidaCasa.
+- **Query:** `SELECT IDAcogidaCasa, COUNT(*) AS ActiveStays FROM TbAcogidaAnimal WHERE FFinal IS NULL GROUP BY IDAcogidaCasa` <!-- alantyle-ignore:ALAN003 -->
+- **Result:** 38 foster homes have active stays. Max active stays in a single home: 3 (IDAcogidaCasa=131). Most homes have 1–2 active stays. Capacity computation confirmed: count of rows in TbAcogidaAnimal where FFinal IS NULL, grouped by IDAcogidaCasa. <!-- alantyle-ignore:ALAN003 -->
 - **Verified:** [x]
 
 ### Foster stays (Acogida Animal)
@@ -196,7 +196,7 @@ These rules are **mandatory** for all intake, foster, and adoption workflows in 
 | Foster | Acogida | Foster care agreement template |
 | Judicial foster | Acogida Judicial | Judicial foster template (additional court language) |
 | Adoption | Adopción | Adoption contract template |
-| Pre-adoption | PreAdopción | `CONTRATO DE ADOPCIÓN_V02.docx` (shared template with Adopción per `Entorno.cls` L793 registry); filled by `RellenarContratoPreAdopcion` (`Plantilla.cls` L620-689) with sex-conditional sterilization text and donor data — no runtime timer |
+| Pre-adoption | PreAdopción | `CONTRATO DE ADOPCIÓN_V02.docx` (shared template with Adopción per `Entorno.cls` L793 registry); filled by `RellenarContratoPreAdopcion` (`Plantilla.cls` L620-689) with sex-conditional sterilization text and donor data — no runtime timer | <!-- alantyle-ignore:ALAN003 -->
 | Owner surrender | Cesión por Propietario | Surrender agreement template |
 | Adoption reservation | Reserva de Adopción | Reservation template |
 | Return to owner | Entrega a Propietario | Return contract template |

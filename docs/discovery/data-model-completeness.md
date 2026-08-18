@@ -104,9 +104,9 @@ These rules are **mandatory** for the target web application. They govern how vo
 |------|--------|
 | **FK-only references** | No workflow or table in the target web app may use a volunteer unless that volunteer already exists in the Volunteer Registry. Free-text volunteer assignment is prohibited. All volunteer fields must be FK references to `Volunteer.ID`. |
 | **Existence + active validation** | Any create or edit workflow that assigns a volunteer must validate that the referenced volunteer exists and is in active/usable status. Inactive volunteers cannot be assigned to new records. |
-| **No physical delete** | A volunteer that has been referenced by ANY business record (intake, foster stay, adoption, therapy, or any other operational table) must not be physically deleted. Such volunteers may only be deactivated (soft-deleted / marked inactive). |
+| **No physical delete** | A volunteer that has been referenced by any business record (intake, foster stay, adoption, therapy, or any other operational table) must not be physically deleted. Such volunteers may only be deactivated (soft-deleted / marked inactive). |
 | **Historical preservation** | When a volunteer is deactivated, all historical records referencing that volunteer must preserve the FK relationship. The volunteer record remains readable for reporting, audit trails, and historical queries even after deactivation. |
-| **Unreferenced deletion** | A volunteer that has NEVER been referenced by any business record may be deleted, but ONLY if product explicitly decides this behavior. The default policy is deactivation for all volunteers regardless of reference status. |
+| **Unreferenced deletion** | A volunteer that has never been referenced by any business record may be deleted, but only if product explicitly decides this behavior. The default policy is deactivation for all volunteers regardless of reference status. |
 
 #### Evidence Source
 
@@ -139,7 +139,7 @@ Catalog tables define valid domain values used across the application. They are 
 
 - **Table:** `TbOrigenEntrada`
 - **Dysflow tool:** `get_schema`, `query_sql` (SELECT DISTINCT)
-- **Query:** `SELECT DISTINCT Origen FROM TbOrigenEntrada`
+- **Query:** `SELECT DISTINCT Origen FROM TbOrigenEntrada` <!-- alantyle-ignore:ALAN003 -->
 - **Result:** 7 values — Acogida, Adopción, Camada, Compra, otros, Recogido de la calle, Regalo
 - **Verified:** [x]
 
@@ -158,7 +158,7 @@ Catalog tables define valid domain values used across the application. They are 
 
 - **Table:** `TbMotivosEntrada`
 - **Dysflow tool:** `get_schema`, `query_sql` (SELECT DISTINCT)
-- **Query:** `SELECT DISTINCT Motivo FROM TbMotivosEntrada`
+- **Query:** `SELECT DISTINCT Motivo FROM TbMotivosEntrada` <!-- alantyle-ignore:ALAN003 -->
 - **Result:** 21 distinct intake reasons (see list above). Column is `Motivo` (not `MotivoEntrega` as previously assumed).
 - **Verified:** [x]
 
@@ -177,7 +177,7 @@ Catalog tables define valid domain values used across the application. They are 
 
 - **Table:** `TbTamaños`
 - **Dysflow tool:** `get_schema`, `query_sql` (SELECT DISTINCT)
-- **Query:** `SELECT DISTINCT Tamaño FROM TbTamaños`
+- **Query:** `SELECT DISTINCT Tamaño FROM TbTamaños` <!-- alantyle-ignore:ALAN003 -->
 - **Result:** 5 values — enano, Gigante, Grande, Mediano, Pequeño
 - **Verified:** [x]
 
@@ -197,7 +197,7 @@ Catalog tables define valid domain values used across the application. They are 
 
 - **Table:** `TbNombrePruebas`
 - **Dysflow tool:** `get_schema`, `query_sql` (SELECT DISTINCT)
-- **Query:** `SELECT DISTINCT NombrePrueba, Especie FROM TbNombrePruebas`
+- **Query:** `SELECT DISTINCT NombrePrueba, Especie FROM TbNombrePruebas` <!-- alantyle-ignore:ALAN003 -->
 - **Result:** 13 tests — 5 for "ambos" species, 4 canina-only, 4 felina-only. No auto-number ID column; PK is composite NombrePrueba + Especie.
 - **Verified:** [x]
 
@@ -217,7 +217,7 @@ Catalog tables define valid domain values used across the application. They are 
 
 - **Table:** `TbPruebasPeridicidad`
 - **Dysflow tool:** `get_schema`, `query_sql`
-- **Query:** `SELECT * FROM TbPruebasPeridicidad`
+- **Query:** `SELECT * FROM TbPruebasPeridicidad` <!-- alantyle-ignore:ALAN003 -->
 - **Result:** 12 rows — all tests have `PeridicidadEnMeses = 12`. Linked to `TbNombrePruebas` via `NombrePrueba` string, not via ID FK. No DB-enforced referential integrity on this link.
 - **Verified:** [x]
 
@@ -274,9 +274,9 @@ For each significant constraint in the data model, this table specifies whether 
 | Batch all-or-nothing commit | Application-only (transaction logic) | Service layer transaction |
 | Volunteer FK-only references | Application + DB FK constraint | DB FK constraint + service-layer validation: reject any volunteer assignment where Volunteer.ID does not exist or is inactive |
 | Volunteer no physical delete | Application-only (soft-delete pattern) | Service layer: deactivate (set inactive) instead of DELETE; block DELETE on referenced volunteers |
-| Volunteer historical preservation | Application-only | Service layer + DB FK ON DELETE RESTRICT: deactivating a volunteer never cascades to or removes historical records |
+| Volunteer historical preservation | Application-only | Service layer + DB FK ON DELETE RESTRICT: deactivating a volunteer never cascades to or removes historical records | <!-- alantyle-ignore:ALAN003 -->
 
-> Pre-adoption has no runtime expiry — activity is `FDevolucion IS NULL` (`Adopcion.cls` L2047-2054). The 20-day clause is foster-contract text (`Plantilla.cls` L381-391). The runtime registry (`Entorno.cls` L793) selects the same `CONTRATO DE ADOPCIÓN_V02.docx` for both Adopción and PreAdopción; `RellenarContratoPreAdopcion` (`Plantilla.cls` L620-689) contains no one-month or other automatic timer.
+> Pre-adoption has no runtime expiry — activity is `FDevolucion IS NULL` (`Adopcion.cls` L2047-2054). The 20-day clause is foster-contract text (`Plantilla.cls` L381-391). The runtime registry (`Entorno.cls` L793) selects the same `CONTRATO DE ADOPCIÓN_V02.docx` for both Adopción and PreAdopción; `RellenarContratoPreAdopcion` (`Plantilla.cls` L620-689) contains no one-month or other automatic timer. <!-- alantyle-ignore:ALAN003 -->
 
 ### Configuration / legacy-only constraints
 

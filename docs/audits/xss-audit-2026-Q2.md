@@ -12,7 +12,7 @@ This audit documents the scope, methodology, findings, and verdict for the audit
 | [Verdict](#verdict) | Estado final del estudio XSS. |
 | [References](#references) | Spec, design, tests y checklist manual. |
 
-> **Estado del verdict**: PROVISIONAL PASS. La revisión manual del operador es REQUIRED post-merge. Slice 5 (Auth Hardening / CSRF middleware) puede proceder contra el verdict provisional porque los auto-tests cubren la superficie auto-detectable.
+> **Estado del verdict**: PROVISIONAL PASS. La revisión manual del operador es REQUIRED post-merge. Slice 5 (Auth Hardening / CSRF middleware) puede proceder contra el verdict provisional porque los auto-tests cubren la superficie auto-detectable. <!-- alantyle-ignore:ALAN003 -->
 
 ## Scope
 
@@ -115,7 +115,7 @@ El audit combina tres comprobaciones independientes. Un hallazgo en cualquier co
 
 ## Verdict
 
-PROVISIONAL PASS: Slice 5 (Auth Hardening / CSRF middleware) puede proceder contra el verdict provisional. El operador must completar la checklist de revisión manual post-merge para convertir PROVISIONAL PASS en FINAL PASS; cualquier hallazgo manual que marque una fila como "Fires JS = YES" degrada el verdict a FAIL y requiere `PR-04A-XSSfix` antes de que Slice 5 aterrice.
+PROVISIONAL PASS: Slice 5 (Auth Hardening / CSRF middleware) puede proceder contra el verdict provisional. El operador must completar la checklist de revisión manual post-merge para convertir PROVISIONAL PASS en FINAL PASS; cualquier hallazgo manual que marque una fila como "Fires JS = YES" degrada el verdict a FAIL y requiere `PR-04A-XSSfix` antes de que Slice 5 aterrice. <!-- alantyle-ignore:ALAN003 -->
 
 ### Estado de los criterios de aceptación
 
@@ -125,7 +125,7 @@ PROVISIONAL PASS: Slice 5 (Auth Hardening / CSRF middleware) puede proceder cont
 | [REQ-XSS-2] `tests/test_xss_audit.py` pasa verde (0 High, 0 Medium) | 151/151 pass |
 | [REQ-XSS-3] Manual review completado por revisor humano; sin hallazgos adicionales | PENDING — acción de operador requerida post-merge |
 | [REQ-XSS-4] Hallazgos Medium/Low cada uno con issue numerado | N/A — 0 hallazgos Medium/Low |
-| [REQ-XSS-5] Report con verdict claro PASS/FAIL | PROVISIONAL: PASS (FINAL pendiente de manual review) |
+| [REQ-XSS-5] Report con verdict claro PASS/FAIL | PROVISIONAL: PASS (FINAL pendiente de manual review) | <!-- alantyle-ignore:ALAN003 -->
 | [REQ-XSS-6] Grep de logger devuelve 0 coincidencias en `app/main.py` / `app/core/session.py` | 0 coincidencias (test pineado en `tests/test_xss_audit_greps.py`) |
 | Si verdict FAIL: `PR-04A-XSSfix` abierto antes de Slice 5 | N/A — verdict es PASS |
 | Si verdict PASS: este PR aterriza antes de Slice 5 | este PR es el prerequisite |
@@ -141,7 +141,7 @@ PROVISIONAL PASS: Slice 5 (Auth Hardening / CSRF middleware) puede proceder cont
 
 Suite completa tras este PR: **602 passed, 1 skipped, 0 failed.**
 
-### Checklist de revisión manual (operador — REQUIRED post-merge)
+### Checklist de revisión manual (operador — REQUIRED post-merge) <!-- alantyle-ignore:ALAN003 -->
 
 Los auto-tests cubren los patrones que el autoescape captura (`<tag>` y event handlers). La revisión de navegador cubre vectores que el autoescape no captura: JS de terceros que pueda leer el DOM, inyección de CSS en atributos, esquemas URL `data:`/`vbscript:`, ejecución dinámica de scripts vía `setTimeout`/`eval`, etc. El operador must ejecutar este checklist post-merge y añadir hallazgos a la tabla §Manual review findings.
 
@@ -198,7 +198,7 @@ no debe aparecer. (El auto-escape lo convierte a `&lt;script&gt;`.)
 | # | Plantilla | Campo | Payload | Dispara JS? | Notas |
 |---|---|---|---|---|---|
 
-Si cualquier fila muestra "Dispara JS = YES", el verdict flipea a **FAIL** y un follow-up PR (`PR-04A-XSSfix`) se requiere antes de Slice 5.
+Si cualquier fila muestra "Dispara JS = YES", el verdict flipea a **FAIL** y un follow-up PR (`PR-04A-XSSfix`) se requiere antes de Slice 5. <!-- alantyle-ignore:ALAN003 -->
 
 ## References
 

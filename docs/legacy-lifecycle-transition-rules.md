@@ -1,4 +1,10 @@
 ---
+name: legacy-lifecycle-transition-rules
+description: Reglas históricas del ciclo de vida del animal en Access/VBA.
+license: Proprietary
+metadata:
+  author: APAP_WEB maintainers
+  version: 1.0.0
 title: "Legacy: Reglas de transición del ciclo de vida del animal"
 status: "historical"
 legacy_source: "Funciones Generales.bas (DameSituacion, RegistrarSituacion, CerrarTodasLasSituacionesPorFallecimiento, AnimalBorrable) + Animal.cls + Entrada.cls + Acogida.cls + Adopcion.cls + Form_FormFichaAnimalEleccionFinSituacion.cls + Form_FormFichaAnimalFallecimiento.cls (Access/VBA)"

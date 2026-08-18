@@ -347,7 +347,7 @@ Si no tienes Docker, este paso no es necesario para desarrollar; la app funciona
 
 ## Nota sobre ramas y despliegue
 
-APAP-WEB usa `staging` como rama normal de integración. Las PRs de implementación apuntan a `staging`; `main` queda reservado para promoción/producción y solo dispara el job `deploy` cuando hay un push a `main` después de que CI pase.
+APAP_WEB usa `staging` como rama normal de integración. Las PRs de implementación apuntan a `staging`; `main` queda reservado para promoción/producción y solo dispara el job `deploy` cuando hay un push a `main` después de que CI pase.
 
 La transición completa a canal UAT está capturada como **CD-03** en el change `ci-cd-foundation` (`openspec/changes/ci-cd-foundation/`). La implementación de CD-03 está **diferida** hasta que la protectora adopte el MVC en producción. Hasta que ese trigger se dispare:
 

@@ -236,9 +236,9 @@ Create a `Volunteer` first-class entity with stable ID. Existing free-text volun
 |---|------|--------|
 | BR1 | **FK-only references** | No workflow may assign a volunteer unless that volunteer already exists in the Volunteer Registry. Free-text assignment is prohibited in all target tables. |
 | BR2 | **Existence + active validation** | Every create/edit workflow that assigns a volunteer must validate that the volunteer exists and is active. Inactive volunteers cannot be assigned to new records. |
-| BR3 | **No physical delete** | A volunteer referenced by ANY business record (intake, foster stay, adoption, therapy, or any other operational table) must not be physically deleted. Only deactivation (soft-delete / mark inactive) is permitted. |
+| BR3 | **No physical delete** | A volunteer referenced by any business record (intake, foster stay, adoption, therapy, or any other operational table) must not be physically deleted. Only deactivation (soft-delete / mark inactive) is permitted. |
 | BR4 | **Historical preservation** | When a volunteer is deactivated, all historical records referencing that volunteer must preserve the FK relationship. The volunteer remains readable for reporting and audit trails. |
-| BR5 | **Unreferenced deletion** | A volunteer never referenced by any business record may be deleted, but ONLY if product explicitly decides this. Default policy: deactivation for all. |
+| BR5 | **Unreferenced deletion** | A volunteer never referenced by any business record may be deleted, but only if product explicitly decides this. Default policy: deactivation for all. |
 
 ### Open implementation decisions
 

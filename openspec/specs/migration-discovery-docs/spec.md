@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Cross-cutting business documentation that fills gaps in APAP's existing 12 discovery docs to make them migration-ready. Covers business-only features, data model completeness, state machines, validations, reports/documents, open decisions, acceptance checklist, and migration-risk traceability. All artifacts describe WHAT the system does, not how Access implements it.
+Cross-cutting business documentation that fills gaps in APAP's existing 12 discovery docs to make them migration-ready. Covers business-only features, data model completeness, state machines, validations, reports/documents, open decisions, acceptance checklist, and migration-risk traceability. All artifacts describe what the system does, not how Access implements it. <!-- alantyle-ignore:ALAN003 -->
 
 ## Requirements
 

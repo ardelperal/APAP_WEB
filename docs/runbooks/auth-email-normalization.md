@@ -23,7 +23,7 @@ Abra este runbook:
 - **Después** de desplegar `fix/issue-277-278-ghost-users` en producción.
 - **Antes** de la siguiente restauración de copia de seguridad (para que el código nuevo lea datos limpios).
 - Cuando un usuario reporta "no puedo iniciar sesión" y sospecha que su correo se insertó dos veces con mayúsculas distintas por la ruta de código legada.
-- Como pasada de higiene única: aunque ningún usuario esté roto, las filas fantasma terminarán por aflorar como glitches de renderizado duplicado en el panel de administración (el `ORDER BY` de `LIST_USERS_SQL` muestra ambas variantes).
+- Como pasada de higiene única: aunque ningún usuario esté roto, las filas fantasma terminarán por aflorar como glitches de renderizado duplicado en el panel de administración (el `ORDER BY` de `LIST_USERS_SQL` muestra ambas variantes). <!-- alantyle-ignore:ALAN003 -->
 
 Esta migración es única por entorno. Tras completarse, el nuevo código impide la creación de nuevos fantasmas.
 

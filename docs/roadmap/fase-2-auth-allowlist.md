@@ -31,7 +31,7 @@ cerrado — Issue **#16** mergeada en `main` como `1d22349`. Login con Google OA
 
 ## Core invariants
 
-- **Allowlist única fuente de verdad**: solo los correos en `usuarios_autorizados` pasan el middleware. El seed bootstrap es idempotente (`CREATE TABLE IF not EXISTS`).
+- **Allowlist única fuente de verdad**: solo los correos en `usuarios_autorizados` pasan el middleware. El seed bootstrap es idempotente (`CREATE TABLE IF not EXISTS`). <!-- alantyle-ignore:ALAN003 -->
 - **PKCE nativo contra InsForge**: el flujo OAuth no delega a redirecciones de cliente externo; la app es la que intercambia el code por token.
 - **Rol `developer` único**: el panel `/admin` solo se monta para correos con `rol = 'developer'` en `usuarios_autorizados`.
 - **Sesión firmada con cookie `SameSite=Strict`**: cada request re-evalúa `is_authorized` y `rol` desde la cache in-process (no del payload de la cookie).

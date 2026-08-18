@@ -77,7 +77,7 @@ Abra este runbook antes de la primera ejecución de migración de datos en vivo 
 - **Efecto**: destructivo del historial de divergencia/auditoría para cada fila pendiente en `needs_review`. Una vez eliminadas las filas, el operador pierde la evidencia de hashes de origen/destino y el flujo de conciliación manual del que dependen PR5/PR6.
 - **Precondiciones (deben cumplirse antes de que el operador ejecute el comando):**
     1. Una copia de seguridad verificada de la tabla (por ejemplo, `pg_dump --table web_only_feature_shadow`) se almacena fuera de la base de datos InsForge afectada y la ruta queda registrada en el ticket del operador.
-    2. `SELECT COUNT(*) FROM web_only_feature_shadow WHERE reconciliation_status IN ('pending', 'needs_review')` devuelve `0`, O el operador ha registrado una aprobación explícita en el ticket explicando por qué la pérdida de filas resulta aceptable.
+    2. `SELECT COUNT(*) FROM web_only_feature_shadow WHERE reconciliation_status IN ('pending', 'needs_review')` devuelve `0`, O el operador ha registrado una aprobación explícita en el ticket explicando por qué la pérdida de filas resulta aceptable. <!-- alantyle-ignore:ALAN003 -->
     3. Ninguna migración en curso depende de la tabla (sin `migration.lock` activo; sin ejecuciones abiertas de `apply`/`reconcile`).
 - **no use `TRUNCATE` como alternativa "más segura".** `TRUNCATE` no participa de la transacción de reversión; elimina permanentemente todas las filas sin registro por fila, que es exactamente lo que las precondiciones de copia verificada y prueba de vacío están diseñadas para impedir. Si se requiere un reinicio destructivo, el operador debe usar `DROP TABLE` junto con la copia verificada.
 

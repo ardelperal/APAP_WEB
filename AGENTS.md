@@ -1,5 +1,10 @@
 ---
+name: apap-web-agents
 description: Agent instructions and code-quality rules for APAP_WEB (FastAPI + HTMX + InsForge backend)
+license: Proprietary
+metadata:
+  author: APAP_WEB maintainers
+  version: 1.0.0
 globs: *
 alwaysApply: true
 ---

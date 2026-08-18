@@ -59,7 +59,7 @@ The classifier is the source of truth — adding a new file under
 
 ### 3.1 Pure modules — `PURE_FORBIDDEN_TOP_PACKAGES`
 
-A pure module's imports must resolve to stdlib OR to a sibling
+A pure module's imports must resolve to stdlib OR to a sibling <!-- alantyle-ignore:ALAN003 -->
 `migration.<non-legacy>` module. Specifically forbidden:
 
 | Forbidden segment         | Why                                                                                                        |
@@ -92,7 +92,7 @@ Orchestration modules may import anything in `migration.*` and any
 `app.core.data_access`, `app.core.insforge`). They must not import any
 `app.modules.*` module — business logic is not part of the migration's
 concern, and a route handler pulling `from app.modules.animals import X`
-into the CLI would be a layering violation in the opposite direction.
+into the CLI would be a layering violation in the opposite direction. <!-- alantyle-ignore:ALAN004 -->
 
 `app.modules.*` is the single forbidden prefix. The hexagonal refactor
 will tighten this further (e.g. forbidding the concrete `InsForgeClient`
