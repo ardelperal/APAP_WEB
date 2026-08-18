@@ -158,7 +158,7 @@ Records the permanent placement of an animal with an adopter. Captures adopter i
 
 ### Volunteer Registry integration
 
-All volunteer references across intake, foster, and adoption MUST resolve to the `Volunteer` entity (see `data-model-completeness.md` § "Volunteer Denormalization in Legacy"). In legacy, volunteer names are free-text strings with no stable ID. The web app replaces these with FK relationships to the Volunteer Registry.
+All volunteer references across intake, foster, and adoption must resolve to the `Volunteer` entity (see `data-model-completeness.md` § "Volunteer Denormalization in Legacy"). In legacy, volunteer names are free-text strings with no stable ID. The web app replaces these with FK relationships to the Volunteer Registry.
 
 | Workflow | Legacy field | Target behavior |
 |----------|-------------|-----------------|
@@ -173,7 +173,7 @@ These rules are **mandatory** for all intake, foster, and adoption workflows in 
 | Rule | Workflow impact |
 |------|----------------|
 | **No free-text assignment** | Volunteer fields accept only `Volunteer.ID` FK references. Operators cannot type a volunteer name; they must select from the registry. |
-| **Active-volunteer validation** | On every create/edit of intake, foster stay, or adoption, the system validates the volunteer exists AND is active. Rejected: assignment of inactive or nonexistent volunteers. |
+| **Active-volunteer validation** | On every create/edit of intake, foster stay, or adoption, the system validates the volunteer exists and is active. Rejected: assignment of inactive or nonexistent volunteers. |
 | **No physical delete** | Volunteers referenced by any intake, foster, or adoption record cannot be deleted. Only deactivation is permitted. |
 | **Historical preservation** | Deactivating a volunteer does not affect existing intake, foster, or adoption records. The FK relationship is preserved; the volunteer remains visible in historical views and reports. |
 

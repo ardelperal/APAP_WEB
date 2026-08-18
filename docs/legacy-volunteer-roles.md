@@ -148,7 +148,7 @@ Este es el contexto más rico en campos de voluntario:
 | `FechaBaja` | Fecha de baja (activo/inactivo) |
 | `Caracteristicas` | Características del tipo de acogida |
 
-**Diferencia clave**: La casa de acogida es un **hogar** con dirección física, DNI y capacidad. Los voluntarios son **personas** que realizan tareas operativas. Un acogedor NO es necesariamente un voluntario del sistema.
+**Diferencia clave**: La casa de acogida es un **hogar** con dirección física, DNI y capacidad. Los voluntarios son **personas** que realizan tareas operativas. Un acogedor no es necesariamente un voluntario del sistema.
 
 ---
 
@@ -186,7 +186,7 @@ El sistema tiene un mecanismo de auto-rellenado que funciona así:
 4. Devuelve los datos solicitados como cadena separada por `|`
 5. El formulario rellena automáticamente los campos de teléfono/email
 
-**Importante**: Este mecanismo NO distingue roles. Si "María" aparece como voluntario de entrada, el sistema rellenará su teléfono para ese campo. Si luego aparece en una terapia, se rellenará el mismo teléfono. No hay verificación de capacidades.
+**Importante**: Este mecanismo no distingue roles. Si "María" aparece como voluntario de entrada, el sistema rellenará su teléfono para ese campo. Si luego aparece en una terapia, se rellenará el mismo teléfono. No hay verificación de capacidades.
 
 ---
 
@@ -212,7 +212,7 @@ El sistema tiene un mecanismo de auto-rellenado que funciona así:
 - No hay trazabilidad de qué roles ha desempeñado una persona
 - No hay estadísticas por tipo de voluntario
 
-### 7.2 Lo que el modelo actual NO permite
+### 7.2 Lo que el modelo actual no permite
 
 - Asignar solo voluntarios de salud a tareas sanitarias
 - Filtrar voluntarios de terapia por capacidades
@@ -239,7 +239,7 @@ Voluntario (entidad central)
 
 | Rol | Campo legacy equivalente | Descripción |
 |-----|-------------------------|-------------|
-| `ENTRADA` | `VoluntarioEntrada` | Recepción de animales |
+| `entrada` | `VoluntarioEntrada` | Recepción de animales |
 | `SEGUIMIENTO` | `VoluntarioSeguimiento1/2` | Seguimiento post-adopción/acogida |
 | `SALUD` | `VoluntarioCosasSanitarias` | Gestión de asuntos sanitarios |
 | `TERAPIA` | `Voluntario` (en TbTerapias) | Realización de terapias |

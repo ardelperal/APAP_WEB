@@ -2,7 +2,7 @@
 
 ## Decision
 
-El flag `gentleai.stagingOnly` se desactivó para APAP_WEB el 2026-07-03 (D-30, pre-MVP). El pre-push hook global sigue activo para otros proyectos. NO re-armar en pre-MVP. Re-armar solo en el flip post-MVP per [`AGENTS.md`](../../AGENTS.md) §15.4.
+El flag `gentleai.stagingOnly` se desactivó para APAP_WEB el 2026-07-03 (D-30, pre-MVP). El pre-push hook global sigue activo para otros proyectos. no re-armar en pre-MVP. Re-armar solo en el flip post-MVP per [`AGENTS.md`](../../AGENTS.md) §15.4.
 
 ## Quick path
 

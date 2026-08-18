@@ -6,7 +6,7 @@ Esta página posee la regla §10 de AGENTS verbatim: defensa CSRF por defecto, c
 
 ## Regla 10 — Defensa CSRF por defecto
 
-Toda ruta POST/PUT/DELETE/PATCH DEBE estar protegida por `CsrfMiddleware` (`app/core/csrf.py`). Toda plantilla de formulario (`templates/`) DEBE renderizar `<input type="hidden" name="csrf_token" value="{{ csrf_token }}">` en cada `<form method="post">`. El middleware valida el token por el header `X-CSRFToken` (para HTMX/fetch) o por el campo de formulario `csrf_token` (para envíos tradicionales). Las cookies de sesión y PKCE se sirven con `SameSite=Strict` — `Lax` es una regresión.
+Toda ruta POST/PUT/DELETE/PATCH debe estar protegida por `CsrfMiddleware` (`app/core/csrf.py`). Toda plantilla de formulario (`templates/`) debe renderizar `<input type="hidden" name="csrf_token" value="{{ csrf_token }}">` en cada `<form method="post">`. El middleware valida el token por el header `X-CSRFToken` (para HTMX/fetch) o por el campo de formulario `csrf_token` (para envíos tradicionales). Las cookies de sesión y PKCE se sirven con `SameSite=Strict` — `Lax` es una regresión.
 
 **Incorrecto** — formulario sin token CSRF
 

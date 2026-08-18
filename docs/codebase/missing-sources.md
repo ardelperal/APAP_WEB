@@ -2,7 +2,7 @@
 
 [Back to Codebase Guide](../CODEBASE-GUIDE.md)
 
-Esta página posee los subsistemas que el lector podría esperar y NO existen en el repositorio. La página existe porque el silencio es lo que una IA rellena inventando, y en APAP_WEB esa suposición produce código que viola §32.P1 (perimeter blindness) o §33 (slice location). No posee reglas operativas — esas viven en [AGENTS.md](../../AGENTS.md).
+Esta página posee los subsistemas que el lector podría esperar y no existen en el repositorio. La página existe porque el silencio es lo que una IA rellena inventando, y en APAP_WEB esa suposición produce código que viola §32.P1 (perimeter blindness) o §33 (slice location). No posee reglas operativas — esas viven en [AGENTS.md](../../AGENTS.md).
 
 ## Core invariants
 

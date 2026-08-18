@@ -119,7 +119,7 @@ WHERE TbRIAC.IDRIAC Is Null
 
 | # | Control | Caption dinámico | Lógica |
 |---|---------|-----------------|--------|
-| 1.3 | `lblFallecidosSinComunicacionRIAC` | "1.3. Fallecidos sin comunicar a RIAC ( N )" | `FDefuncion Is Not Null AND ComunicacionARIAC <> 'Sí'` |
+| 1.3 | `lblFallecidosSinComunicacionRIAC` | "1.3. Fallecidos sin comunicar a RIAC ( N )" | `FDefuncion Is Not Null and ComunicacionARIAC <> 'Sí'` |
 
 **SQL**:
 ```sql

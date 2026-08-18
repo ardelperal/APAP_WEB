@@ -90,7 +90,7 @@ El sistema de Ficha Sanitaria de APAP_ACTUAL gestiona el historial médico compl
 
 ### Tabla Principal: `TbActuacionSanitaria`
 
-Almacena TODOS los eventos sanitarios (una fila por evento).
+Almacena todos los eventos sanitarios (una fila por evento).
 
 | Campo | Tipo | Descripción |
 |-------|------|-------------|

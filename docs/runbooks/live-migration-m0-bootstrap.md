@@ -62,7 +62,7 @@ Abra este runbook antes de la primera ejecución de migración de datos en vivo 
 
 ## Reversión
 
-> **Las acciones destructivas en esta sección son de último recurso.** Descartan artefactos duraderos de los que dependen el operador y el rastro de auditoría. NO las use como camino de reversión por defecto. Prefiera las alternativas no destructivas en primer lugar; si un paso destructivo es inevitable, los precondiciones siguientes DEBEN cumplirse y registrarse antes de que el operador ejecute el comando.
+> **Las acciones destructivas en esta sección son de último recurso.** Descartan artefactos duraderos de los que dependen el operador y el rastro de auditoría. no las use como camino de reversión por defecto. Prefiera las alternativas no destructivas en primer lugar; si un paso destructivo es inevitable, los precondiciones siguientes deben cumplirse y registrarse antes de que el operador ejecute el comando.
 
 ### Alternativas no destructivas (preferidas)
 
@@ -75,16 +75,16 @@ Abra este runbook antes de la primera ejecución de migración de datos en vivo 
 **`DROP TABLE web_only_feature_shadow`**
 
 - **Efecto**: destructivo del historial de divergencia/auditoría para cada fila pendiente en `needs_review`. Una vez eliminadas las filas, el operador pierde la evidencia de hashes de origen/destino y el flujo de conciliación manual del que dependen PR5/PR6.
-- **Precondiciones (DEBEN cumplirse antes de que el operador ejecute el comando):**
+- **Precondiciones (deben cumplirse antes de que el operador ejecute el comando):**
     1. Una copia de seguridad verificada de la tabla (por ejemplo, `pg_dump --table web_only_feature_shadow`) se almacena fuera de la base de datos InsForge afectada y la ruta queda registrada en el ticket del operador.
     2. `SELECT COUNT(*) FROM web_only_feature_shadow WHERE reconciliation_status IN ('pending', 'needs_review')` devuelve `0`, O el operador ha registrado una aprobación explícita en el ticket explicando por qué la pérdida de filas resulta aceptable.
     3. Ninguna migración en curso depende de la tabla (sin `migration.lock` activo; sin ejecuciones abiertas de `apply`/`reconcile`).
-- **NO use `TRUNCATE` como alternativa "más segura".** `TRUNCATE` no participa de la transacción de reversión; elimina permanentemente todas las filas sin registro por fila, que es exactamente lo que las precondiciones de copia verificada y prueba de vacío están diseñadas para impedir. Si se requiere un reinicio destructivo, el operador DEBE usar `DROP TABLE` junto con la copia verificada.
+- **no use `TRUNCATE` como alternativa "más segura".** `TRUNCATE` no participa de la transacción de reversión; elimina permanentemente todas las filas sin registro por fila, que es exactamente lo que las precondiciones de copia verificada y prueba de vacío están diseñadas para impedir. Si se requiere un reinicio destructivo, el operador debe usar `DROP TABLE` junto con la copia verificada.
 
 **`delete-bucket apap-photos`**
 
 - **Efecto**: destructivo de cada fotografía cargada actualmente bajo el bucket, incluyendo los datos ya referenciados por `animales.nombrefoto` en la base de datos web. La ruta `GET /animales/{animal_id}/foto` recurrirá a bytes de placeholder para cada fila cuya clave de objeto desaparezca.
-- **Precondiciones (DEBEN cumplirse antes de que el operador ejecute el comando):**
+- **Precondiciones (deben cumplirse antes de que el operador ejecute el comando):**
     1. Una exportación verificada del contenido del bucket (descarga desde InsForge Storage o equivalente) se almacena fuera del despliegue InsForge afectado y la ruta queda registrada en el ticket del operador.
     2. `apap-photos` está vacío (recuento de objetos en `apap-photos` igual a 0) O el operador ha registrado una aprobación explícita en el ticket explicando por qué la pérdida de las fotografías resulta aceptable.
     3. Ninguna migración en curso depende del bucket (sin ejecuciones activas de `apply`/`reconcile` que referencien el bucket).

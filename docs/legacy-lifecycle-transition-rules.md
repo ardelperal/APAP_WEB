@@ -293,7 +293,7 @@ Todas las validaciones temporales están sujetas al modo estricto (`BaseEnModoEs
 ### 6.4 Fallecimiento
 - Fecha de defunción (obligatoria)
 - Opcionales: Eutanasia (Sí/No), Causa de eutanasia (enfermedad/otras causas), ComunicacionARIAC
-- **Efecto en cascada**: cierra TODAS las situaciones abiertas del animal
+- **Efecto en cascada**: cierra todas las situaciones abiertas del animal
 
 ---
 

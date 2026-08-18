@@ -30,19 +30,19 @@ Overview of business capabilities for the future web application, organized by d
 
 ## Mandatory foundation: Volunteer Registry
 
-**The future web application MUST introduce a first-class Volunteer entity** with a stable identifier. In the legacy system, volunteer names are stored as free-text strings in multiple tables (intake, adoption, foster stay, therapy) with no foreign key, no deduplication, and no single source of truth for who a volunteer is.
+**The future web application must introduce a first-class Volunteer entity** with a stable identifier. In the legacy system, volunteer names are stored as free-text strings in multiple tables (intake, adoption, foster stay, therapy) with no foreign key, no deduplication, and no single source of truth for who a volunteer is.
 
 | Principle | Requirement |
 |-----------|-------------|
 | First-class entity | `Volunteer` table with stable ID, name, contact info, active/inactive status |
-| Relationship over free-text | Tables that currently store volunteer names as text (e.g., `VoluntarioEntrada`, `VoluntarioSeguimiento`, `VoluntarioAcogida`, `VoluntarioCosasSanitarias`) MUST reference `Volunteer.ID` via FK |
+| Relationship over free-text | Tables that currently store volunteer names as text (e.g., `VoluntarioEntrada`, `VoluntarioSeguimiento`, `VoluntarioAcogida`, `VoluntarioCosasSanitarias`) must reference `Volunteer.ID` via FK |
 | Legacy deduplication | Migration must deduplicate free-text volunteer values into distinct `Volunteer` records |
 | Roles as data | Volunteer roles/capabilities (intake, follow-up, foster care, health) are modeled as attributes or a role junction table, not as separate text fields per workflow |
 | **FK-only references** | No workflow may assign a volunteer unless that volunteer already exists in the Volunteer Registry. Free-text assignment is prohibited. |
-| **Active-volunteer validation** | Every create/edit workflow that assigns a volunteer MUST validate the volunteer exists AND is active. |
-| **No physical delete** | Volunteers referenced by any business record MUST NOT be physically deleted. Only deactivation is permitted. |
-| **Historical preservation** | Deactivating a volunteer MUST preserve all historical FK relationships. The volunteer remains readable for reporting and audit trails. |
-| **Unreferenced deletion** | Unreferenced volunteers MAY be deleted only if product explicitly decides. Default policy: deactivation for all. |
+| **Active-volunteer validation** | Every create/edit workflow that assigns a volunteer must validate the volunteer exists and is active. |
+| **No physical delete** | Volunteers referenced by any business record must not be physically deleted. Only deactivation is permitted. |
+| **Historical preservation** | Deactivating a volunteer must preserve all historical FK relationships. The volunteer remains readable for reporting and audit trails. |
+| **Unreferenced deletion** | Unreferenced volunteers may be deleted only if product explicitly decides. Default policy: deactivation for all. |
 
 See `data-model-completeness.md` § "Volunteer Denormalization in Legacy" for the current state and migration impact.
 

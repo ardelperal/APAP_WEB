@@ -11,7 +11,7 @@
 > viene en ciclos siguientes. Este doc cubre lo que ya está mergeado.
 
 > **Estado de paridad con el legacy (criterio de aceptación duro):**
-> este slice **NO** ofrece aun la misma funcionalidad que el legacy.
+> este slice **no** ofrece aun la misma funcionalidad que el legacy.
 > El legacy permite crear, ver, editar, buscar y listar animales desde
 > el formulario `TbFichaAnimal` en el Access. Este slice solo crea la
 > tabla; la paridad se alcanza cuando aterricen LIFECYCLE-SERVICE-01..05
@@ -22,7 +22,7 @@
 > que falta.
 
 > **Progreso del feature LIFECYCLE-01 (paridad con el legacy):**
-> ✅ **PARIDAD ALCANZADA** (cierre de issues #31, #67, #70-#72, #75-#81
+> ✅ **PARIDAD alcanzada** (cierre de issues #31, #67, #70-#72, #75-#81
 > en commit 491bfa9). El usuario puede:
 > - **Listar** animales activos (`GET /animales`).
 > - **Ver el formulario de alta** (`GET /animales/new`).
@@ -83,7 +83,7 @@ contrato de la función de bootstrap.
   Color, Pelo, Tamano, Caracter, Terapia, Eutanasia, RazaPPP,
   Mestizo, EutanasiaOtrasCausas, EutanasiaEnfermedad,
   ComunicacionARIAC, etc.).
-- La columna legacy `Situacion` NO existe en el schema nuevo. Es
+- La columna legacy `Situacion` no existe en el schema nuevo. Es
   derivada del event log (LIFECYCLE-SCHEMA-02), no almacenada.
 - La columna `NCHIP` es UNIQUE NOT NULL.
 - `Especie` esta restringida a `('CANINA', 'FELINA')` via CHECK.
@@ -102,7 +102,7 @@ contrato de la función de bootstrap.
 | Nombres de columna | CamelCase Spanish exactos del legacy (NCHIP, NombreAnimal) | snake_case English | Consistencia con el resto del schema (TbFichaAnimal del Access). Cero justificacion para renombrar. Decision asentada en issue #29. |
 | Primary key | UUID con `gen_random_uuid()` | INT autoincrement | Generacion client-side, no expone orden de creacion, portable entre entornos, suficiente densidad. |
 | `NCHIP` como identificador natural | UNIQUE NOT NULL, pero no PK | PK en `NCHIP` | El NCHIP puede ser NULL en animales recien ingresados (pre-implantacion) o cambiarse (LIFECYCLE-04). Un UUID como PK permite esto. |
-| `Situacion` legacy | NO incluida | Copiada como columna | Es derivada. Se calcula del event log (LIFECYCLE-SCHEMA-02 + LIFECYCLE-03). Tenerla almacenada es un anti-patron (ver `docs/discovery/feature-01-animal-lifecycle.md`). |
+| `Situacion` legacy | no incluida | Copiada como columna | Es derivada. Se calcula del event log (LIFECYCLE-SCHEMA-02 + LIFECYCLE-03). Tenerla almacenada es un anti-patron (ver `docs/discovery/feature-01-animal-lifecycle.md`). |
 | `fecha_alta` (created_at) | TIMESTAMP DEFAULT now() | NULL permitido | Necesario para auditoria y para el orden por defecto en listados. |
 | `updated_at` | TIMESTAMP DEFAULT now() | Sin tracking | Necesario para saber cuando cambia un animal. |
 | `activo` para soft-delete | BOOLEAN DEFAULT true | DELETE fisico | Preserva FKs historicas. Un animal dado de baja sigue siendo referenciable desde intakes, foster stays, etc. |
@@ -272,7 +272,7 @@ tests en esta feature, todos en verde.
 - `test_create_animal_ejecuta_insert_con_parametros_esperados` — el
   INSERT contiene los 5 obligatorios en el orden correcto.
 - `test_create_animal_rechaza_Especie_invalida_antes_de_sql` — la
-  validacion corre ANTES de tocar la DB.
+  validacion corre antes de tocar la DB.
 - `test_create_animal_rechaza_Sexo_invalido_antes_de_sql`
 - `test_create_animal_rechaza_NCHIP_vacio`
 - `test_create_animal_rechaza_NombreAnimal_vacio`

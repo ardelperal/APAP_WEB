@@ -49,12 +49,12 @@ The animal's current situation (`Situacion`) is a computed state derived from ac
 
 ### Timeline and audit trail requirement
 
-Every state transition in the Animal Lifecycle machine MUST be recorded as a timestamped event in the animal's lifecycle event log. The state itself is derived from the most recent event — never stored independently.
+Every state transition in the Animal Lifecycle machine must be recorded as a timestamped event in the animal's lifecycle event log. The state itself is derived from the most recent event — never stored independently.
 
 | Principle | Rule |
 |-----------|------|
 | Event-first | A state change is only valid if it originates from a recorded event (intake, foster placement, adoption, return, death, etc.) |
-| Chronological continuity | The event log MUST represent unbroken continuity: every interval between events has a known location/arrangement |
+| Chronological continuity | The event log must represent unbroken continuity: every interval between events has a known location/arrangement |
 | Gap flagging | Timeline gaps (unknown location/arrangement for an interval) are flagged as data-quality defects for manual resolution |
 | Terminal enforcement | No events are permitted after a death/euthanasia entry in the timeline |
 | Legacy migration | Migrated records with partial or conflicting history are flagged with `legacy_gap` or `incoherente` markers |

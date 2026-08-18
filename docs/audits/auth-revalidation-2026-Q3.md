@@ -24,7 +24,7 @@ This audit documents the scope, methodology, findings, and verdict for the audit
 
 ## Methodology
 
-1. **codegraph_explore** (obligatorio, primero) sobre `require_authorized_user`, `protect_user_facing_routes`, `get_user_by_email` / `add_authorized_user` / `deactivate_authorized_user`, `Settings` y los call sites — para fijar el blast radius del nuevo dep `client` ANTES de editar.
+1. **codegraph_explore** (obligatorio, primero) sobre `require_authorized_user`, `protect_user_facing_routes`, `get_user_by_email` / `add_authorized_user` / `deactivate_authorized_user`, `Settings` y los call sites — para fijar el blast radius del nuevo dep `client` antes de editar.
 2. **Code review** de la cadena: cookie firmada → middleware (gate DB-free) → `require_authorized_user` (revalidación DB con caché TTL).
 3. **TDD estricto** (rojo → verde → refactor): 10 átomos de caché (`tests/test_auth_cache.py`), 7 átomos de la dep (`tests/test_auth_dependencies.py`), 3 átomos de invalidación (`tests/test_auth.py`), más la migración de los tests de integración de rutas.
 4. **Verificación local**: suite completa con `-W error::DeprecationWarning`, `ruff check .`, `scripts/check_rules.py app`, `python -m build`.
@@ -37,7 +37,7 @@ Se eligió la **Opción A** (caché TTL + lookup por request) sobre la Opción B
 - La **autorización** (`is_authorized` + `rol`) se re-valida contra `usuarios_autorizados` en cada request en `require_authorized_user`, con una caché TTL en proceso (`Settings.auth_cache_ttl_seconds`, default **300s = 5 min**).
 - La caché se invalida explícitamente en `add_authorized_user` (nuevo/re-alta) y `deactivate_authorized_user` (baja) por el `email` correspondiente — el `email` de la baja se toma del `RETURNING` (la baja es por `id`, la caché por `email`), sin query extra.
 - La caché es un dict en proceso protegido por `Lock`. Un reinicio de proceso (deploy) la deja vacía — esa es la invalidación de deploy. `AUTH_CACHE_KEY` es un marcador de versión de esquema de caché (documental).
-- El middleware `protect_user_facing_routes` **sigue sin tocar la DB** (primera puerta barata y determinista, default-deny `payload.get("is_authorized", False)`); la revalidación DB es un endurecimiento ADICIONAL en la dep, no un reemplazo.
+- El middleware `protect_user_facing_routes` **sigue sin tocar la DB** (primera puerta barata y determinista, default-deny `payload.get("is_authorized", False)`); la revalidación DB es un endurecimiento adicional en la dep, no un reemplazo.
 
 **Regla 1 (cero SQL en routes)**: la revalidación consulta la DB vía el service `app.core.auth.get_user_by_email`, nunca SQL crudo en la dep ni en el handler. El nuevo `client: InsForgeClient = Depends(get_insforge_client_dep)` en `require_authorized_user` está permitido porque la query se hace a través del service.
 

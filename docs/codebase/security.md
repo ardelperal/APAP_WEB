@@ -24,7 +24,7 @@ if not payload.get("is_authorized", False):
 
 ## Regla 11 — Gate de cobertura para `CRITICAL_HELPERS`
 
-Los helpers en `app/` (funciones que matchean el regex `_row_to_*` + la lista explícita `{_redirect, _render_form, _is_duplicate_error, _validate_create_params, _build_insert_params}`) DEBEN tener 100% de cobertura de líneas. Si añade un nuevo helper que contiene lógica de producto testeable, añádalo a `CRITICAL_HELPERS` en el mismo PR.
+Los helpers en `app/` (funciones que matchean el regex `_row_to_*` + la lista explícita `{_redirect, _render_form, _is_duplicate_error, _validate_create_params, _build_insert_params}`) deben tener 100% de cobertura de líneas. Si añade un nuevo helper que contiene lógica de producto testeable, añádalo a `CRITICAL_HELPERS` en el mismo PR.
 
 **Aplicación**: `scripts/pytest_plugin/coverage_gate.py` lee `coverage.json` tras pytest y falla el build si alguna entrada de `CRITICAL_HELPERS` tiene <100% de cobertura de líneas. El auto-descubrimiento de helpers vía el regex `_row_to_*` captura nuevos helpers que cumplen la convención; la lista explícita es para helpers sin regex.
 

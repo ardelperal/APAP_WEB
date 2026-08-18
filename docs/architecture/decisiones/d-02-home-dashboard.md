@@ -45,7 +45,7 @@ El Access legacy mostraba al entrar una "bandeja de pendientes" con lo que el vo
 
 - **Regla D-01**: APAP_WEB se presenta como producto, no como skin.
 - **Regla D-10**: idioma UI castellano de España.
-- **Regla D-11**: NO se replica visualmente el dashboard del Access.
+- **Regla D-11**: no se replica visualmente el dashboard del Access.
 
 ## Consequences
 

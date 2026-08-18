@@ -153,7 +153,7 @@ Users can define, save, and execute custom SQL reports.
 
 #### Migration risk
 
-The legacy system stores arbitrary SQL in the database and executes it directly. This is a significant security risk. The web app MUST implement one of:
+The legacy system stores arbitrary SQL in the database and executes it directly. This is a significant security risk. The web app must implement one of:
 1. **Curated templates:** Pre-defined report templates with parameterized inputs
 2. **Query builder:** Visual query builder that generates safe SQL
 3. **Sandboxed execution:** Validate report SQL against an allow-list of tables and operations

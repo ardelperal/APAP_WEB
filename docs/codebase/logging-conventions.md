@@ -6,7 +6,7 @@ Esta página posee la regla §9 de AGENTS verbatim: `log_safe()` es la única v�
 
 ## Regla 9 — `log_safe()` es la única llamada de logging permitida en `app/`
 
-Toda ruta de código bajo `app/` que quiera emitir un log DEBE pasar por `log_safe(event, **fields)` desde `app.core.logging`. Las llamadas directas a `logging.getLogger(__name__).{info,warning,error,debug,critical,exception}(...)` Y `print(...)` están prohibidas en `app/`. La lista de redacción (doce campos cerrados) elimina automáticamente `email, session_token, jwt, oauth_code, pkce_verifier, csrf_token, pkce_challenge, authorization, cookie, referer, ip_address, x_forwarded_for` de los payloads de log.
+Toda ruta de código bajo `app/` que quiera emitir un log debe pasar por `log_safe(event, **fields)` desde `app.core.logging`. Las llamadas directas a `logging.getLogger(__name__).{info,warning,error,debug,critical,exception}(...)` Y `print(...)` están prohibidas en `app/`. La lista de redacción (doce campos cerrados) elimina automáticamente `email, session_token, jwt, oauth_code, pkce_verifier, csrf_token, pkce_challenge, authorization, cookie, referer, ip_address, x_forwarded_for` de los payloads de log.
 
 **Incorrecto** — logger crudo o print
 

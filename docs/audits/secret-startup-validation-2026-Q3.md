@@ -28,9 +28,9 @@ Fuera de alcance: el ciclo de vida de la cookie `apap_session` (gestionado por `
 ## Methodology
 
 1. Revisión de `_validate_secrets` para verificar que valida en orden: `insforge_service_key == ""` → raise; `session_secret == placeholder` → raise; `len(session_secret) < 32` → raise; `debug=True` → return.
-2. Verificación de que `log_safe("startup.config_invalid", env_var=..., reason=...)` se llama ANTES de cada raise, sin pasar el valor del secreto.
+2. Verificación de que `log_safe("startup.config_invalid", env_var=..., reason=...)` se llama antes de cada raise, sin pasar el valor del secreto.
 3. Verificación de que `StartupConfigError` lleva `env_var` y `reason` como atributos, y de que el mensaje no hace eco del valor del secreto.
-4. Verificación de que la lifespan llama a `_validate_secrets` DESPUÉS de `configure_logging` y ANTES de `InsForgeClient(...)`, con prueba de regresión que parchea `InsForgeClient` y confirma que no se construye cuando la validación falla.
+4. Verificación de que la lifespan llama a `_validate_secrets` después de `configure_logging` y antes de `InsForgeClient(...)`, con prueba de regresión que parchea `InsForgeClient` y confirma que no se construye cuando la validación falla.
 5. Confirmación de que `debug=True` (default `False`) es el gate de by-pass, verificado en tests.
 6. Adición de `_validate_secrets` a `CRITICAL_HELPERS` (AGENTS.md §11) en el mismo PR.
 7. Redacción del runbook operator-facing y de este documento de auditoría.

@@ -24,7 +24,7 @@ def test_rule_23_requires_qa_through_ui_only() -> None:
     assert "QA-through-UI solamente" in section
     assert "Playwright E2E existente bajo `tests/e2e/`" in section
     assert "shell de Python, inspección directa de DB o `curl`" in section
-    assert "NO es sustituto" in section
+    assert "no es sustituto" in section
 
 
 def test_rule_23_preserves_backend_only_exemption() -> None:

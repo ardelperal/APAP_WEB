@@ -89,4 +89,4 @@ Evidence hash: `62f025e2df0d4fe92e61baa7cf001f34cb3eccdf525564d9ca13bc636bfdac07
 - Required auth header: `Authorization: Bearer <service_key>`
 - Decision reason: Reversible operator sentinel proved strategy auth, presigned download, three-step S3 upload confirmation, and cleanup.
 - Operator-supplied reversible sentinel evidence: S3-compatible three-step upload; `confirmRequired=true`; confirm status 201; cleanup restored object_count=0 and total=0.
-- Returned presigned URL: self-authenticating; `server-stream-only`; MUST NOT be exposed to browser/client.
+- Returned presigned URL: self-authenticating; `server-stream-only`; must not be exposed to browser/client.

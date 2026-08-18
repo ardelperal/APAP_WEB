@@ -22,7 +22,7 @@ Migration-readiness validation criteria for each feature. Each criterion is pass
 | 1.5 | Chip change cascade behavior is documented | `feature-01-animal-lifecycle.md` § "Central identity: microchip" | Pass |
 | 1.6 | Search filter behavior and scope are documented | `feature-01-animal-lifecycle.md` § "Search behavior detail" | Pass |
 | 1.7 | Business validations (chip uniqueness, birth/death date sanity) are complete | `feature-01-animal-lifecycle.md` § "Business validations" | Pass |
-| 1.8 | Legacy notes section identifies what NOT to copy | `feature-01-animal-lifecycle.md` § "Legacy notes not to copy" | Pass |
+| 1.8 | Legacy notes section identifies what not to copy | `feature-01-animal-lifecycle.md` § "Legacy notes not to copy" | Pass |
 | 1.9 | Open decision 1 (state derivation formula) has owner and deadline | `open-decisions.md` § Decision 1 | Pass |
 | 1.10 | Open decision 5 (ARIAC/RIAC scope) has owner and deadline | `open-decisions.md` § Decision 5 | Pass |
 | 1.11 | Lifecycle event timeline and location traceability requirement is documented as mandatory | `feature-01-animal-lifecycle.md` § "Lifecycle Event Timeline and Location Traceability" | Pass |
@@ -44,7 +44,7 @@ Migration-readiness validation criteria for each feature. Each criterion is pass
 | 2.5 | Adoption lifecycle (registration, follow-up, return) is documented | `feature-02-intake-foster-adoption.md` § "Adoption lifecycle" | Pass |
 | 2.6 | Contract types per workflow are documented | `feature-02-intake-foster-adoption.md` § "Contract outputs per workflow" | Pass |
 | 2.7 | Foster-to-adoption state links are documented | `feature-02-intake-foster-adoption.md` § "Foster-to-adoption state links" | Pass |
-| 2.8 | Legacy notes section identifies what NOT to copy | `feature-02-intake-foster-adoption.md` § "Legacy notes not to copy" | Pass |
+| 2.8 | Legacy notes section identifies what not to copy | `feature-02-intake-foster-adoption.md` § "Legacy notes not to copy" | Pass |
 | 2.9 | Open decision 3 (foster capacity enforcement) has owner and deadline | `open-decisions.md` § Decision 3 | Pass |
 | 2.10 | Volunteer Registry business rules (FK-only, active validation, no delete, historical preservation) are documented in Feature 02 | `feature-02-intake-foster-adoption.md` § "Volunteer assignment business rules" | Pass |
 
@@ -60,7 +60,7 @@ Migration-readiness validation criteria for each feature. Each criterion is pass
 | 3.4 | Periodicity engine inputs and calculation are documented | `feature-03-health-care.md` § "Periodicity engine" | Pass |
 | 3.5 | Therapy delete restriction is documented | `feature-03-health-care.md` § "Therapies" | Pass |
 | 3.6 | Health action duplicate prevention rule is documented | `feature-03-health-care.md` § "Validation rules" | Pass |
-| 3.7 | Legacy notes section identifies what NOT to copy | `feature-03-health-care.md` § "Legacy notes not to copy" | Pass |
+| 3.7 | Legacy notes section identifies what not to copy | `feature-03-health-care.md` § "Legacy notes not to copy" | Pass |
 | 3.8 | Open decision 2 (strict mode / date validation) has owner and deadline | `open-decisions.md` § Decision 2 | Pass |
 | 3.9 | Therapy volunteer business rules (FK-only, active validation, no delete, historical preservation) are documented in Feature 03 | `feature-03-health-care.md` § "Therapy volunteer business rules" | Pass |
 
@@ -75,7 +75,7 @@ Migration-readiness validation criteria for each feature. Each criterion is pass
 | 4.3 | Dynamic report SQL security risk is documented | `feature-04-documents-contracts-reports.md` § "Dynamic reports as business capability" | Pass |
 | 4.4 | Attachment entity links are documented | `feature-04-documents-contracts-reports.md` § "Supported entity links" | Pass |
 | 4.5 | Materials catalog uniqueness constraint is documented | `feature-04-documents-contracts-reports.md` § "Materials" | Pass |
-| 4.6 | Legacy notes section identifies what NOT to copy | `feature-04-documents-contracts-reports.md` § "Legacy notes not to copy" | Pass |
+| 4.6 | Legacy notes section identifies what not to copy | `feature-04-documents-contracts-reports.md` § "Legacy notes not to copy" | Pass |
 | 4.7 | Open decision 4 (dynamic report SQL security) has owner and deadline | `open-decisions.md` § Decision 4 | Pass |
 
 ---

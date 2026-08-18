@@ -12,17 +12,17 @@ pendiente — pendiente de crear issues (uno por sub-flujo). Próximos: DOC-01..
 
 | Sub-fase | Slice | Estado | Issue |
 |---|---|---|---|
-| 7a DOCUMENTOS | DOC-01 contract-PDF generation | pendiente | #56 |
-| 7a DOCUMENTOS | DOC-02 signed-upload registration | pendiente | #57 |
-| 7a DOCUMENTOS | DOC-03 polymorphic attachments | pendiente | #58 |
-| 7a DOCUMENTOS | DOC-04 legacy-to-object-storage migration | pendiente | #59 |
+| 7a documentos | DOC-01 contract-PDF generation | pendiente | #56 |
+| 7a documentos | DOC-02 signed-upload registration | pendiente | #57 |
+| 7a documentos | DOC-03 polymorphic attachments | pendiente | #58 |
+| 7a documentos | DOC-04 legacy-to-object-storage migration | pendiente | #59 |
 | 7b TEMPLATES | `feat(templates): motor de plantillas y contratos` | pendiente | — |
-| 7c CONSULTAS | `feat(consultas): módulo Consultas + informe trimestral` | pendiente | — |
-| 7c INFORMES | REPORT-01 parameterized query builder | pendiente | #60 |
-| 7c INFORMES | REPORT-02 server-side execution con export PDF/Excel | pendiente | #61 |
-| 7c INFORMES | REPORT-03 quarterly report | pendiente | #62 |
-| 7c INFORMES | REPORT-04 notification engine | pendiente | #63 |
-| 7c INFORMES | REPORT-05 live dashboard counters | pendiente | #64 |
+| 7c consultas | `feat(consultas): módulo Consultas + informe trimestral` | pendiente | — |
+| 7c informes | REPORT-01 parameterized query builder | pendiente | #60 |
+| 7c informes | REPORT-02 server-side execution con export PDF/Excel | pendiente | #61 |
+| 7c informes | REPORT-03 quarterly report | pendiente | #62 |
+| 7c informes | REPORT-04 notification engine | pendiente | #63 |
+| 7c informes | REPORT-05 live dashboard counters | pendiente | #64 |
 
 ## Issues abiertas relacionadas
 
@@ -55,7 +55,7 @@ pendiente — pendiente de crear issues (uno por sub-flujo). Próximos: DOC-01..
 - **Formato de subida PDF obligatorio, Word opcional**: el usuario típicamente firma y escanea a PDF.
 - **Un único contrato por tipo por entidad**: `TbContratosAnexos` con la regla "solo UN contrato por tipo por entidad" ([legacy-signed-contract-flow.md §5](../legacy-signed-contract-flow.md)).
 - **Reemplazo siempre con confirmación**: el legacy confirma antes de sobrescribir.
-- **Eliminación solo del directorio `Firmados`, nunca de `ParaFirma`**: el legacy NO toca `ParaFirma`.
+- **Eliminación solo del directorio `Firmados`, nunca de `ParaFirma`**: el legacy no toca `ParaFirma`.
 - **Informe trimestral es un módulo de primer nivel**, no un reporte embebido.
 
 ## Contributor checklist

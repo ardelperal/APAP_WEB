@@ -26,23 +26,23 @@ Abra este runbook cuando aparezca alguna de las siguientes señales en el termin
 - Un comando `apap-migrate apply` sale con **código 5** (preflight, lectura legada, o fallo de bootstrap de infraestructura), **código 6** (drift de origen), o **código 7** (interrupción de partial-apply).
 - Un evento `log_safe("apply.preflight_unavailable", reason=…)` aparece en el flujo JSON de auditoría.
 - Un archivo `migration.lock_snapshot.json` aparece bajo `<migration_dir>/`.
-- Un archivo `migration.partial_apply.json` aparece bajo `<migration_dir>/` (es **siempre** evidencia visible para el operador; PR3 NO reanuda automáticamente).
+- Un archivo `migration.partial_apply.json` aparece bajo `<migration_dir>/` (es **siempre** evidencia visible para el operador; PR3 no reanuda automáticamente).
 - El operador necesita verificar una aplicación previamente completada (comprobación de drift contra el último snapshot).
 - El `.accdb` legado se editó entre dos ejecuciones de apply y el operador quiere entender el drift.
 
-NO use este runbook para:
+no use este runbook para:
 
 - Bootstrap M0 / shadow-table / bucket privado de infraestructura — consulte `docs/runbooks/live-migration-m0-bootstrap.md`.
 - Dirección inversa (web → legacy) — fuera del alcance de PR3; vea el PR6 de seguimiento.
 
 ## Pre-deploy checklist
 
-Antes de ejecutar `apap-migrate apply` por primera vez en una estación del operador, todos los puntos siguientes DEBEN verificarse. Cada punto es una compuerta dura: cualquier fallo aborta el apply con un error categórico y una referencia estable al runbook.
+Antes de ejecutar `apap-migrate apply` por primera vez en una estación del operador, todos los puntos siguientes deben verificarse. Cada punto es una compuerta dura: cualquier fallo aborta el apply con un error categórico y una referencia estable al runbook.
 
 - [ ] **Python ≥ 3.11** instalado (`python --version`).
-- [ ] **`psutil` instalado e importable** (`python -c "import psutil; print(psutil.__version__)"`). Sin `psutil`, el preflight MSACCESS falla cerrado con `reason=psutil_missing`. El runbook documenta esto como requisito duro, NO advertencia soft-fail.
+- [ ] **`psutil` instalado e importable** (`python -c "import psutil; print(psutil.__version__)"`). Sin `psutil`, el preflight MSACCESS falla cerrado con `reason=psutil_missing`. El runbook documenta esto como requisito duro, no advertencia soft-fail.
 - [ ] **Microsoft Access Database Engine** (redistribuible) instalado (`python -c "import pyodbc; print(pyodbc.drivers())"` debe listar `Microsoft Access Driver (*.accdb)`). El ejecutor (`migration/legacy_access_client.py`) eleva `LegacyReaderError` (CLI exit 5, reason `legacy_read_failed`) si falta el driver.
-- [ ] **Microsoft Access está CERRADO** en la estación del operador. El preflight MSACCESS (`migration/lock.check_msaccess_running`) eleva `MsAccessRunningError` (CLI exit 5, reason `msaccess_running`) cuando cualquier proceso `MSACCESS.EXE` está vivo. Cierre el frontend de Access y reintente.
+- [ ] **Microsoft Access está cerrado** en la estación del operador. El preflight MSACCESS (`migration/lock.check_msaccess_running`) eleva `MsAccessRunningError` (CLI exit 5, reason `msaccess_running`) cuando cualquier proceso `MSACCESS.EXE` está vivo. Cierre el frontend de Access y reintente.
 - [ ] **El bucket privado `apap-photos` de InsForge existe** y es privado (`isPublic=false`). El bootstrap (M0) se ejecutó con éxito — consulte `docs/runbooks/live-migration-m0-bootstrap.md` para el checkpoint del operador `ensure-bucket`. Un bucket ausente o público aborta con `infra_bootstrap_failed`.
 - [ ] **`APAP_MIGRATION_DIR`** apunta a un directorio escribible para `migration.lock`, `migration.lock_snapshot.json` y `migration.partial_apply.json`. Por defecto: `./migration/`.
 - [ ] **`APAP_INSFORGE_URL`** y **`APAP_INSFORGE_SERVICE_KEY`** están fijados en el entorno del operador (o el cargador de configuración de producción los recoge). El apply necesita privilegio de service key para escribir filas en la tabla shadow y operaciones sobre el bucket.
@@ -65,7 +65,7 @@ El pipeline de apply es un único comando. El flujo recomendado es:
 
        ls $APAP_MIGRATION_DIR/migration.partial_apply.json
 
-   Si el archivo existe, la ejecución previa se interrumpió (SIGINT o crash). PR3 deliberadamente NO reanuda automáticamente. Revise la carga útil JSON (`direction`, `table_name`, `progress_applied`, `progress_total`, `reason`, `recorded_at`). Cuando esté listo:
+   Si el archivo existe, la ejecución previa se interrumpió (SIGINT o crash). PR3 deliberadamente no reanuda automáticamente. Revise la carga útil JSON (`direction`, `table_name`, `progress_applied`, `progress_total`, `reason`, `recorded_at`). Cuando esté listo:
 
        rm $APAP_MIGRATION_DIR/migration.partial_apply.json
 
@@ -94,7 +94,7 @@ El pipeline de apply es un único comando. El flujo recomendado es:
 | 6 | `source_drift` | `migration.lock_snapshot.json` no coincide con las huellas actuales del origen. | Inspeccione qué cambió en `.accdb` o en las fotos; decida y proceda. |
 | 7 | `partial_apply_interrupted` | `migration.partial_apply.json` existe de una ejecución interrumpida previa. | Revise la evidencia; `rm` el archivo; reejecute. **Sin reanudación automática.** |
 
-El CLI imprime UNA línea por error en el formato canónico:
+El CLI imprime una línea por error en el formato canónico:
 
     apap-migrate apply: status=error reason=<cat> exit=<N> runbook=docs/runbooks/live-migration-apply.md
 
@@ -102,7 +102,7 @@ Sin traceback, sin PII sin procesar (DNI/Email/Tel1/Tel2), sin rutas de sistema 
 
 ### Detección de drift (salida 6 `source_drift`)
 
-El apply escribe `migration.lock_snapshot.json` DESPUÉS de adquirir el lock y ANTES de la primera lectura legada. El snapshot registra el SHA-256 del `.accdb` y un manifiesto determinista del directorio de fotos (nombre de archivo + tamaño + SHA-256 ordenados por nombre de archivo).
+El apply escribe `migration.lock_snapshot.json` después de adquirir el lock y antes de la primera lectura legada. El snapshot registra el SHA-256 del `.accdb` y un manifiesto determinista del directorio de fotos (nombre de archivo + tamaño + SHA-256 ordenados por nombre de archivo).
 
 En la siguiente ejecución de apply, el pipeline recalcula las huellas y las compara con el snapshot en disco. **Cualquier** diferencia (hash del accdb o hash del manifiesto de fotos) aborta el apply con `source_drift` (salida 6). El operador nunca debe confiar en un apply que excede la ventana de drift.
 
@@ -115,7 +115,7 @@ Los campos `accdb_sha256_changed`, `photos_dir_sha256_changed`, `photos_file_cou
 
 ### Eventos de auditoría `log_safe` (visibles para el operador vía JSON stdout)
 
-- `apply.preflight_unavailable` — emitido cuando `check_msaccess_running` eleva. Lleva SOLO el campo `reason` categórico (`psutil_missing` o `process_iteration_failed`). Sin PIDs, sin cadenas de error, sin rutas.
+- `apply.preflight_unavailable` — emitido cuando `check_msaccess_running` eleva. Lleva solo el campo `reason` categórico (`psutil_missing` o `process_iteration_failed`). Sin PIDs, sin cadenas de error, sin rutas.
 - `sync.applied` — auditoría por fila (superficie existente de PR3).
 
 ### Archivos escritos por el apply
@@ -123,17 +123,17 @@ Los campos `accdb_sha256_changed`, `photos_dir_sha256_changed`, `photos_file_cou
 | Ruta | Ciclo de vida |
 |---|---|
 | `<migration_dir>/migration.lock` | Escrito al inicio del apply; liberado al final (éxito O error). |
-| `<migration_dir>/migration.lock_snapshot.json` | Escrito DESPUÉS del lock, ANTES de la primera lectura. Sobreescrito en cada apply real (NO en dry-run). La detección de drift lo lee en la siguiente ejecución. |
-| `<migration_dir>/migration.partial_apply.json` | Escrito en SIGINT DESPUÉS de que el snapshot ya se escribió. NO se limpia automáticamente (sin limpieza destructiva por directiva del operador). El operador DEBE revisarlo y borrarlo con `rm`. |
+| `<migration_dir>/migration.lock_snapshot.json` | Escrito después del lock, antes de la primera lectura. Sobreescrito en cada apply real (no en dry-run). La detección de drift lo lee en la siguiente ejecución. |
+| `<migration_dir>/migration.partial_apply.json` | Escrito en SIGINT después de que el snapshot ya se escribió. no se limpia automáticamente (sin limpieza destructiva por directiva del operador). El operador debe revisarlo y borrarlo con `rm`. |
 | Filas en `web_only_feature_shadow` (por divergencia) | Registradas en la tabla shadow cuando una fila web discrepa de una fila legada. El operador concilia con `apap-migrate reconcile --interactive` (fuera del alcance de PR3; superficie preexistente de PR5). |
 
-### Lo que NO se reanuda automáticamente
+### Lo que no se reanuda automáticamente
 
 - `migration.partial_apply.json` **nunca** se reanuda automáticamente. PR3 bloquea el siguiente apply con salida 7 (`partial_apply_interrupted`) hasta que el operador elimine el archivo manualmente. La reanudación automática es una tarea de seguimiento (per `tasks.md` 9.1; programada antes de la compuerta M2 fallback-ready).
 - `migration.lock_snapshot.json` **nunca** se fusiona automáticamente entre ejecuciones. Cada apply sobrescribe el snapshot previo con las huellas nuevas. El drift se detecta en la siguiente ejecución; el operador decide.
 - La configuración de bucket público **nunca** se recupera automáticamente. `bootstrap_m0_infrastructure` aborta el apply con `infra_bootstrap_failed` (salida 5) si el bucket falta o es público. El operador debe arreglar el bucket mediante el MCP de InsForge antes de reintentar.
 
-### Lo que NO se registra
+### Lo que no se registra
 
 - **Ninguna PII sin procesar** (valores de columna DNI / Email / Tel1 / Tel2) aparece en eventos `log_safe` o en la salida del CLI. La lista de redacción de PII en `app/core/logging.py` es el vocabulario cerrado.
 - **Ninguna ruta de sistema de archivos sin procesar** (por ejemplo `C:\Users\…`, `/var/…`, `/tmp/…`, `/home/…`) aparece en el flujo del operador. El campo `detail` de la excepción puede contener contexto interno, pero el CLI sólo emite la razón categórica.
@@ -153,22 +153,22 @@ El apply es **idempotente** sobre el origen: el mismo `.accdb` y el mismo direct
 
 ### Reversión tras interrupción de partial-apply (salida 7 `partial_apply_interrupted`)
 
-La ejecución previa de apply se interrumpió (SIGINT, crash, OOM o aborto iniciado por el operador). El destino puede tener ALGUNAS filas insertadas y OTRAS no. PR3 deliberadamente NO reanuda automáticamente.
+La ejecución previa de apply se interrumpió (SIGINT, crash, OOM o aborto iniciado por el operador). El destino puede tener algunas filas insertadas y otras no. PR3 deliberadamente no reanuda automáticamente.
 
-1. **NO elimine las filas del destino** sin consultar primero el registro del operador y `migration.lock_snapshot.json` (para saber qué huellas de origen estaban vigentes al inicio del apply) y `migration.partial_apply.json` (para saber hasta dónde progresó el apply).
+1. **no elimine las filas del destino** sin consultar primero el registro del operador y `migration.lock_snapshot.json` (para saber qué huellas de origen estaban vigentes al inicio del apply) y `migration.partial_apply.json` (para saber hasta dónde progresó el apply).
 2. Revise la carga útil de `migration.partial_apply.json`:
 
        jq . $APAP_MIGRATION_DIR/migration.partial_apply.json
 
    Campos: `schema_version`, `direction`, `table_name`, `progress_applied`, `progress_total` (anulable), `reason`, `recorded_at`.
 
-3. Complete las filas faltantes manualmente (psql / editor SQL) O ejecute `apap-migrate apply` de nuevo DESPUÉS de eliminar el archivo parcial (el apply es idempotente sobre búsquedas por clave natural y omite filas ya presentes).
+3. Complete las filas faltantes manualmente (psql / editor SQL) O ejecute `apap-migrate apply` de nuevo después de eliminar el archivo parcial (el apply es idempotente sobre búsquedas por clave natural y omite filas ya presentes).
 4. Una vez que el destino sea consistente con el origen, `rm $APAP_MIGRATION_DIR/migration.partial_apply.json`.
 5. **Nunca** edite `migration.partial_apply.json` a mano — el archivo sólo es parseable como JSON; las ediciones manuales producen drift en la siguiente ejecución.
 
 ### Reversión por drift (salida 6 `source_drift`)
 
-El origen cambió entre el apply previo y el actual. El destino puede ser consistente con el origen VIEJO pero inconsistente con el origen NUEVO. Opciones, en orden de preferencia:
+El origen cambió entre el apply previo y el actual. El destino puede ser consistente con el origen viejo pero inconsistente con el origen nuevo. Opciones, en orden de preferencia:
 
 1. **Investigue el drift primero.** Use los campos `accdb_sha256_changed`, `photos_dir_sha256_changed`, `photos_file_count_delta` y `photos_total_bytes_delta` en la excepción para acotar el cambio:
 
@@ -177,13 +177,13 @@ El origen cambió entre el apply previo y el actual. El destino puede ser consis
 
        # Calcule las huellas actuales manualmente (véase migration/lock_snapshot.py)
 
-   Si el cambio es intencional (por ejemplo, el operador editó el origen a propósito), reejecute el apply DESPUÉS de respaldar las filas destino que quiera preservar. El apply es idempotente sobre búsquedas por clave natural y omite filas ya presentes.
+   Si el cambio es intencional (por ejemplo, el operador editó el origen a propósito), reejecute el apply después de respaldar las filas destino que quiera preservar. El apply es idempotente sobre búsquedas por clave natural y omite filas ya presentes.
 
-2. **Si el cambio no es intencional** (por ejemplo, una escritura parcial en `.accdb`), DETÉNGASE. NO reejecute. Restaure el origen desde la copia de seguridad, luego reejecute.
+2. **Si el cambio no es intencional** (por ejemplo, una escritura parcial en `.accdb`), DETÉNGASE. no reejecute. Restaure el origen desde la copia de seguridad, luego reejecute.
 
 ### Reversión por fallo de preflight / lectura legada / bootstrap de infraestructura (salida 5)
 
-Estos fallos ocurren ANTES de escribir cualquier dato. No hay nada que revertir. Corrija el problema subyacente:
+Estos fallos ocurren antes de escribir cualquier dato. No hay nada que revertir. Corrija el problema subyacente:
 
 - `msaccess_preflight_unavailable` → `pip install psutil`.
 - `msaccess_running` → cierre Microsoft Access.
@@ -201,16 +201,16 @@ PR4b dispone la superficie de display privado de fotos sobre el pipeline de appl
 Use esta sección cuando aparezca alguna de las siguientes señales:
 
 - El bucket `apap-photos` falta O tiene `isPublic=true`; el preflight del apply aborta con `infra_bootstrap_failed` (salida 5) y el mensaje apunta a `bucket_public_violation` o `bucket_visibility_unknown`.
-- Una pasada de migración de fotos termina con `MigrationReport.warnings` cargando `photo.file_missing`, `photo.bytes_corrupt`, `photo.unsupported_ext` o `photo.dir_unreachable`. La pasada NO aborta — se escriben filas centinela `__missing__` — pero el operador quiere inspeccionar las filas afectadas.
+- Una pasada de migración de fotos termina con `MigrationReport.warnings` cargando `photo.file_missing`, `photo.bytes_corrupt`, `photo.unsupported_ext` o `photo.dir_unreachable`. La pasada no aborta — se escriben filas centinela `__missing__` — pero el operador quiere inspeccionar las filas afectadas.
 - `GET /animales/{animal_id}/foto` (UUID) devuelve 200 con bytes que parecen rotos, o devuelve 200 con el PNG de placeholder para una fila que el operador sabe que tiene una foto real.
 - El contrato 404-idempotente de `delete_object` está en duda: el operador eliminó un objeto manualmente y quiere verificar que el siguiente `apap-migrate status --photos` reporta `orphan_count=0` para esa clave.
 
 ### Lista de comprobación previa (PR4b)
 
-Además de la lista global anterior, cada operador de PR4b DEBE verificar:
+Además de la lista global anterior, cada operador de PR4b debe verificar:
 
-- [ ] **El bucket `apap-photos` existe y es privado** — verificado por `python -m migration ensure-bucket apap-photos --check-only` que devuelve `is_public=false`. Un bucket público DEBE recrearse como privado antes de reintentar cualquier operación de fotos.
-- [ ] **El spike de contrato de almacenamiento es PASS** — confirmado por `docs/discovery/storage-contract-2026-Q3.md` cargando `Verdict: PASS` y `PR4b gate: PASS`. Los endpoints canónicos pineados + cabeceras de autenticación en ese artefacto DEBEN coincidir con los métodos `upload_object`/`download`/`delete` de `app/core/insforge.py`.
+- [ ] **El bucket `apap-photos` existe y es privado** — verificado por `python -m migration ensure-bucket apap-photos --check-only` que devuelve `is_public=false`. Un bucket público debe recrearse como privado antes de reintentar cualquier operación de fotos.
+- [ ] **El spike de contrato de almacenamiento es PASS** — confirmado por `docs/discovery/storage-contract-2026-Q3.md` cargando `Verdict: PASS` y `PR4b gate: PASS`. Los endpoints canónicos pineados + cabeceras de autenticación en ese artefacto deben coincidir con los métodos `upload_object`/`download`/`delete` de `app/core/insforge.py`.
 - [ ] **InsForge en vivo alcanzable** — `python -c "import httpx; httpx.get(settings.insforge_url + '/api/storage/buckets', headers={'Authorization': f'Bearer {settings.insforge_service_key}'})"` devuelve 2xx. La accesibilidad de red es un precondición para cualquier migración o display de fotos.
 - [ ] **`APAP_INSFORGE_URL` + `APAP_INSFORGE_SERVICE_KEY`** están cargados por `app.core.config.get_settings` desde el entorno del operador. Los CLIs (`apap-migrate`, `python -m migration storage_spike`) invocan `get_settings.cache_clear()` + recarga para que el env tenga precedencia sobre cualquier `.env` obsoleto.
 - [ ] **El directorio de fotos es estable** — sin ediciones concurrentes sobre `URLDirectorioDocumentacion` durante toda la duración del apply. La detección de drift (salida 6) aborta ante cualquier cambio.
@@ -218,7 +218,7 @@ Además de la lista global anterior, cada operador de PR4b DEBE verificar:
 
 ### Pasos de despliegue (PR4b)
 
-El flujo PR4b es una migración forward que se ejecuta SOBRE el apply estándar `apap-migrate apply`. El apply emite objetos `apap-photos` como efecto colateral de la pasada de tabla `animal` (cuando `animal.yaml` carga el bloque de storage y la pasada `migration/apply.py` correspondiente se ejecuta). El flujo recomendado:
+El flujo PR4b es una migración forward que se ejecuta sobre el apply estándar `apap-migrate apply`. El apply emite objetos `apap-photos` como efecto colateral de la pasada de tabla `animal` (cuando `animal.yaml` carga el bloque de storage y la pasada `migration/apply.py` correspondiente se ejecuta). El flujo recomendado:
 
 1. **Dry-run de la pasada de fotos** — confirme los conteos antes de tocar el almacenamiento:
 
@@ -226,7 +226,7 @@ El flujo PR4b es una migración forward que se ejecuta SOBRE el apply estándar 
            --legacy-path $APAP_LEGACY_ACCDB_PATH \
            --check-only
 
-   `--check-only` NO escribe el snapshot, NO bloquea y NO emite objetos `apap-photos`. Sólo cuenta filas legadas y emite la línea `would insert=N` para revisión.
+   `--check-only` no escribe el snapshot, no bloquea y no emite objetos `apap-photos`. Sólo cuenta filas legadas y emite la línea `would insert=N` para revisión.
 
 2. **Apply real** — ejecuta el pipeline forward. La pasada de fotos se ejecuta como parte de la escritura de la tabla `animal`; las fotos por fila se suben vía `InsForgeClient.upload_object` (flujo S3-compatible de tres pasos: estrategia → transferencia → confirmación opcional). Los bytes duplicados se omiten porque el cliente propone `filename=<sha256>.<ext>` y el servidor deduplica por la clave.
 
@@ -235,10 +235,10 @@ El flujo PR4b es una migración forward que se ejecuta SOBRE el apply estándar 
 
    El CLI sale con 0 en éxito, 5/6/7 en fallos categóricos (véase la tabla global de §"Verificación" códigos de salida).
 
-3. **Verifique** — confirme invariantes del bucket y comportamiento de display ANTES de ejecutar otro apply:
+3. **Verifique** — confirme invariantes del bucket y comportamiento de display antes de ejecutar otro apply:
 
        apap-migrate status --photos
-       apap-migrate verify-storage --check-bytes     # NO en CI; spot-check del operador
+       apap-migrate verify-storage --check-bytes     # no en CI; spot-check del operador
        curl -b "$APAP_SESSION_COOKIE" \
            https://app.example/animales/<uuid>/foto -o /tmp/foto.bin
 
@@ -269,37 +269,37 @@ El flujo PR4b es una migración forward que se ejecuta SOBRE el apply estándar 
 
 | Ruta | Ciclo de vida |
 |---|---|
-| `apap-photos` (bucket InsForge) | Creado por el bootstrap M0; carga los objetos de foto. NUNCA auto-eliminado por el apply. |
+| `apap-photos` (bucket InsForge) | Creado por el bootstrap M0; carga los objetos de foto. nunca auto-eliminado por el apply. |
 | `animales.nombrefoto` (columna web) | Fijada por fila por la pasada de fotos; almacena la clave **devuelta** (el servidor puede renombrar). |
 | `migration_report.json` → `warnings` | Array de entradas `photo.<razón>` (filas centinela por fotos ausentes / corruptas / no soportadas). |
 | `migration_report.json` → `counts.apap_photos` | `{count_legacy: N, count_web: N}` (objetos vs filas que los referencian). |
 | `migration_report.json` → `source_hashes.apap-photos` | SHA-256 del manifiesto de fotos, detectado por drift en el siguiente apply. |
 
-### Lo que PR4b NO hace
+### Lo que PR4b no hace
 
-- **NO** se devuelve ninguna URL prefirmada al navegador/cliente. La ruta transmite bytes vía `httpx.Client.stream` con bearer auth; el cliente sólo ve el cuerpo de la respuesta.
-- **NO** hay configuración de bucket público. La invariante de bootstrap (`is_public=false`) se aplica pre-red y en cada ejecución de apply.
-- **NO** hay auto-limpieza de huérfanos en CI. `--cleanup-orphans` es un comando explícito del operador, nunca un paso automático.
-- **NO** hay re-hash del lado servidor de los bytes subidos. El comando `apap-migrate verify-storage --check-bytes` es un spot-check iniciado por el operador; NO está en CI.
-- **NO** hay PII en los registros. La lista de redacción de `log_safe` cuenta con quince entradas (`email`, `tel1`, `tel2`, `dni` añadidos por PR4b); cada átomo en `tests/test_log_safe_redaction.py` RED-first prueba el contrato.
+- **no** se devuelve ninguna URL prefirmada al navegador/cliente. La ruta transmite bytes vía `httpx.Client.stream` con bearer auth; el cliente sólo ve el cuerpo de la respuesta.
+- **no** hay configuración de bucket público. La invariante de bootstrap (`is_public=false`) se aplica pre-red y en cada ejecución de apply.
+- **no** hay auto-limpieza de huérfanos en CI. `--cleanup-orphans` es un comando explícito del operador, nunca un paso automático.
+- **no** hay re-hash del lado servidor de los bytes subidos. El comando `apap-migrate verify-storage --check-bytes` es un spot-check iniciado por el operador; no está en CI.
+- **no** hay PII en los registros. La lista de redacción de `log_safe` cuenta con quince entradas (`email`, `tel1`, `tel2`, `dni` añadidos por PR4b); cada átomo en `tests/test_log_safe_redaction.py` RED-first prueba el contrato.
 
 ### Reversión (PR4b)
 
 La reversión de PR4b se dispone sobre la §"Reversión" global anterior. El orden de preferencia no destructivo:
 
-1. **Desactive el display primero** — fije `app_settings.FOTO_ROUTE_ENABLED=false` (feature flag, NO enviado en PR4b) para que `GET /animales/{id}/foto` devuelva 404 en lugar de bytes. Esta es la reversión más segura en producción: el bucket queda intacto, las filas quedan intactas y los usuarios no ven imágenes rotas.
-2. **Verifique que el bucket está respaldado** — ejecute `apap-migrate status --photos > photos_before_rollback.json` ANTES de cualquier paso destructivo. El operador DEBE contar con una instantánea de `photos_before_rollback.json` (o una copia externa del bucket) antes de eliminar nada.
+1. **Desactive el display primero** — fije `app_settings.FOTO_ROUTE_ENABLED=false` (feature flag, no enviado en PR4b) para que `GET /animales/{id}/foto` devuelva 404 en lugar de bytes. Esta es la reversión más segura en producción: el bucket queda intacto, las filas quedan intactas y los usuarios no ven imágenes rotas.
+2. **Verifique que el bucket está respaldado** — ejecute `apap-migrate status --photos > photos_before_rollback.json` antes de cualquier paso destructivo. El operador debe contar con una instantánea de `photos_before_rollback.json` (o una copia externa del bucket) antes de eliminar nada.
 3. **Marque filas como centinela** — si el problema es display corrupto en lugar de almacenamiento ausente, ejecute `apap-migrate reconcile --interactive --table animales` y elija `mark sentinel` por fila. La ruta sirve entonces el placeholder sin E/S de almacenamiento.
-4. **Elimine el bucket** (último recurso, NUNCA sin respaldo) — `delete-bucket apap-photos` vía el MCP de InsForge. Tras la eliminación del bucket, `GET /animales/{id}/foto` continúa devolviendo 200 con PNG de placeholder (la ruta captura el 404 de almacenamiento y cae al fallback). Las filas `animales.nombrefoto` conservan la clave SHA-256 pero devuelven `404` en la comprobación de status del siguiente apply; el operador resuelve con `apap-migrate reconcile --interactive`.
+4. **Elimine el bucket** (último recurso, nunca sin respaldo) — `delete-bucket apap-photos` vía el MCP de InsForge. Tras la eliminación del bucket, `GET /animales/{id}/foto` continúa devolviendo 200 con PNG de placeholder (la ruta captura el 404 de almacenamiento y cae al fallback). Las filas `animales.nombrefoto` conservan la clave SHA-256 pero devuelven `404` en la comprobación de status del siguiente apply; el operador resuelve con `apap-migrate reconcile --interactive`.
 
-La reversión NUNCA es destructiva de:
+La reversión nunca es destructiva de:
 
 - El `.accdb` legado (contrato de sólo lectura).
 - Las tablas de dominio de InsForge (`animales`, `voluntarios`, `entradas`).
 - La tabla `web_only_feature_shadow` (historial de auditoría/divergencia).
 - El `migration.lock_snapshot.json` (los re-applies lo sobrescriben).
 
-`TRUNCATE web_only_feature_shadow` y `DROP TABLE web_only_feature_shadow` están explícitamente NO recomendados — destruyen el historial de divergencia y la evidencia de round-trip.
+`TRUNCATE web_only_feature_shadow` y `DROP TABLE web_only_feature_shadow` están explícitamente no recomendados — destruyen el historial de divergencia y la evidencia de round-trip.
 
 ## Dirección inversa (PR6 / M2)
 
@@ -308,7 +308,7 @@ PR6 envía el aplicador inverso simétrico de modo que el operador pueda ejecuta
 - ``migration/reverse_apply/orchestrator.py::apply_web_to_legacy`` (línea 363) es el punto de entrada. Firma: ``apply_web_to_legacy(client, table_name, *, legacy_path, web_snapshot, dry_run, lock_path, dni_collision_counter)``. (migrated: el runbook histórico citaba `migration/apply_reverse.py`; la implementación consolidada reside ahora en `migration/reverse_apply/orchestrator.py`.)
 - ``migration/legacy_reader.py::execute_legacy_write`` (línea 213) es la frontera de escritura basada en pyodbc (espejo de ``execute_legacy_sql``). Los inserts y updates devuelven ``int`` rowcount; ``0`` activa el grabador de drift. (migrated: el runbook histórico citaba `migration/legacy_access_client.py`; el seam de escritura se encuentra ahora en `migration/legacy_reader.py`.)
 - ``migration/cli_apply_reverse.py::APPLY_DIRECTION_WEB_TO_LEGACY`` bandera enhebrada a través de ``run_apply``. El valor por defecto sigue siendo ``legacy-to-web`` de modo que los llamadores de M1 permanezcan en verde.
-- La tabla per-estrategia de la spec de preservación se honra simétricamente: ``preserve`` avanza ``last_legacy_snapshot_at`` y **nunca escribe** ``preserved_value``; ``derived`` NO re-deriva; ``fixed`` es bootstrap de una sola vez y nunca se escribe en reverse.
+- La tabla per-estrategia de la spec de preservación se honra simétricamente: ``preserve`` avanza ``last_legacy_snapshot_at`` y **nunca escribe** ``preserved_value``; ``derived`` no re-deriva; ``fixed`` es bootstrap de una sola vez y nunca se escribe en reverse.
 - Detección de drift: cuando la frontera de escritura legada reporta ``rowcount == 0`` (fila de clave natural eliminada en legacy entre forward + reverse), la divergencia se registra como ``needs_review`` con ``review_reasons=["reverse_drift_legacy_row_missing"]``. El operador resuelve con ``apap-migrate reconcile --filter-direction web-to-legacy``.
 
 ### Cuándo abrir este runbook (inverso)
@@ -347,7 +347,7 @@ El apply inverso es idempotente en re-ejecución: las filas cuya carga útil map
 
 ## Escalada
 
-Si el runbook NO resuelve el incidente:
+Si el runbook no resuelve el incidente:
 
 1. Capture las líneas de salida del CLI — son el contrato categórico canónico.
 2. Capture `migration.lock_snapshot.json` + `migration.partial_apply.json` (si está presente) y el evento JSON `apply.preflight_unavailable` (si está presente) desde stdout.

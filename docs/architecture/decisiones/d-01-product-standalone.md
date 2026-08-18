@@ -2,13 +2,13 @@
 
 ## Decision
 
-APAP_WEB no es una migración de UI del Access legacy. Es una aplicación profesional, server-rendered (FastAPI + HTMX + Jinja2), usable y presentable a stakeholders, voluntarios, adoptantes y al público general. El Access legacy es la fuente de reglas, datos y workflows pero NO la fuente de UX.
+APAP_WEB no es una migración de UI del Access legacy. Es una aplicación profesional, server-rendered (FastAPI + HTMX + Jinja2), usable y presentable a stakeholders, voluntarios, adoptantes y al público general. El Access legacy es la fuente de reglas, datos y workflows pero no la fuente de UX.
 
 ## Quick path
 
 - Producto profesional = standalone, no es una skin del Access.
 - UX moderna, server-rendered, components reutilizables.
-- Datos y reglas vienen del Access vía migración; la presentación NO.
+- Datos y reglas vienen del Access vía migración; la presentación no.
 
 ## Problem statement
 
@@ -44,7 +44,7 @@ El equipo arrastraba el sesgo de tratar APAP_WEB como un clon del Access/VBA, lo
 ## Non-negotiable invariants
 
 - **Regla D-05**: fidelidad al legacy como superset funcional (ninguna capacidad se pierde).
-- **Regla D-11**: la UX del legacy NO se replica tal cual.
+- **Regla D-11**: la UX del legacy no se replica tal cual.
 - **Regla D-37**: idioma de UI en castellano de España; identificadores técnicos en inglés.
 
 ## Consequences

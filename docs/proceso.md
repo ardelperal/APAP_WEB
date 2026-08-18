@@ -119,7 +119,7 @@ git log --oneline -10 -- app/<área-relevante>/
 
 Si se crea un **directorio top-level nuevo** (`app/core/foo/`, `tests/integration/`) → `codegraph sync .` después, una vez ([AGENTS.md](../AGENTS.md) regla 14.8). No re-init, no re-index.
 
-### 2.6 Aclarar dudas ANTES de tocar código
+### 2.6 Aclarar dudas antes de tocar código
 
 Si la issue es ambigua, compleja o tiene criterios de aceptación dudosos:
 
@@ -252,7 +252,7 @@ Cerrada con evidencia (YYYY-MM-DD): commit <sha> "<subject>" cubre <one-liner>. 
 Per [AGENTS.md](../AGENTS.md) §15.2: las ramas mergeadas **se retienen**, no se borran. Lo único que se limpia es el **worktree local** (si se creó específicamente para sacar la PR):
 
 - Si la rama se trabajó en un worktree (`git worktree add ...`): `git worktree remove --force <path>`.
-- Si la rama NO se trabajó en un worktree: nada que limpiar — la rama local se queda hasta que se decida renombrarla (`archive/<old-name>` si queda abandonada).
+- Si la rama no se trabajó en un worktree: nada que limpiar — la rama local se queda hasta que se decida renombrarla (`archive/<old-name>` si queda abandonada).
 - **Nunca** `git push origin --delete <rama>`: las ramas remotas se retienen para que un fork herede el historial completo y los `refs/pull/<n>/head` queden enlazables.
 - Estado final esperado: rama local (potencial worktree remoto) + `main`.
 
@@ -274,12 +274,12 @@ Cualquiera de estos requiere parada y consulta explícita al usuario:
 | Trigger | Acción |
 |---|---|
 | Frase "ya tenemos MVC" / "MVP reached" / "vamos a producción" / "vamos a staging" | Dispara [AGENTS.md](../AGENTS.md) §15.4 post-MVP revert (re-enable `stagingOnly`, recrear `staging`, regenerar el rol de Virginia). |
-| `git push --force` sugerido | NO. Punto. |
-| Cambios en `git-hooks/` o `core.hooksPath` global | NO sin OK explícito. |
+| `git push --force` sugerido | no. Punto. |
+| Cambios en `git-hooks/` o `core.hooksPath` global | no sin OK explícito. |
 | Cambios en `.gitignore` raíz | OK solo si no afecta `.codegraph/` ([AGENTS.md](../AGENTS.md) §14.4). |
 | Crear nuevo dir top-level | `codegraph sync .` después ([AGENTS.md](../AGENTS.md) §14.8). |
-| Branch protection en GitHub | NO sin OK explícito. |
-| Deploy secrets (`COOLIFY_WEBHOOK_URL`, `APAP_OAUTH_CLIENT_ID`) | NO tocar; son del operador. |
+| Branch protection en GitHub | no sin OK explícito. |
+| Deploy secrets (`COOLIFY_WEBHOOK_URL`, `APAP_OAUTH_CLIENT_ID`) | no tocar; son del operador. |
 | Asumir equivalencia nueva↔legacy sin documentarla en `docs/architecture/decisiones-proyecto.md` | STOP; documentar primero. |
 | Modificar `docs/discovery/` o `docs/legacy-*` por cambio de interpretación | OK si se cita el cambio concreto; el doc se mantiene vivo. |
 

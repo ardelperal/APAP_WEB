@@ -28,13 +28,13 @@ Pinee al **suelo current major.minor**, no a una línea legada. Ejemplo: cuando 
 
 ## Regla 12 — Doc de auditoría para features sensibles
 
-Si su PR toca auth, secrets, cookies, CSRF, XSS, idempotencia o PII, DEBE crear o actualizar un doc en `docs/audits/<feature>-audit-YYYY-Qn.md` con: Scope, Methodology, Findings (tabla de severidad), Verdict. Plantilla: `docs/audits/xss-audit-2026-Q2.md`.
+Si su PR toca auth, secrets, cookies, CSRF, XSS, idempotencia o PII, debe crear o actualizar un doc en `docs/audits/<feature>-audit-YYYY-Qn.md` con: Scope, Methodology, Findings (tabla de severidad), Verdict. Plantilla: `docs/audits/xss-audit-2026-Q2.md`.
 
 **Aplicación**: revisión de PR (el doc de auditoría es un ítem del checklist). `scripts/check_audit_and_runbook.py` es una ayuda de desarrollador que marca cambios a paths sensibles (`app/core/auth*`, `app/core/csrf*`, `app/core/session*`, `app/core/logging*`, `app/core/migration/`) y sugiere crear o actualizar un doc de auditoría.
 
 ## Regla 13 — Runbook para código que requiere acción del operador
 
-Si su PR introduce o cambia una rotación de secretos, paso manual de deploy, invalidación de cache, trigger de cron, cambio de env-var, o cualquier operación que el usuario deba ejecutar manualmente, DEBE crear un runbook en `docs/runbooks/<thing>.md` con secciones: When to trigger, Pre-deploy checklist, Deploy steps, Verification, Rollback. Referencie el runbook desde la descripción del PR.
+Si su PR introduce o cambia una rotación de secretos, paso manual de deploy, invalidación de cache, trigger de cron, cambio de env-var, o cualquier operación que el usuario deba ejecutar manualmente, debe crear un runbook en `docs/runbooks/<thing>.md` con secciones: When to trigger, Pre-deploy checklist, Deploy steps, Verification, Rollback. Referencie el runbook desde la descripción del PR.
 
 **Aplicación**: revisión de PR. `scripts/check_audit_and_runbook.py` marca cambios a `app/core/config.py` (env-var settings) y sugiere creación de runbook. El chequeo es una ayuda de desarrollador, no un gate de CI — la responsabilidad del operador se documenta en el PR.
 
@@ -76,7 +76,7 @@ Esto aplica a **services nuevos y a cualquier service existente siendo refactori
 
 ## Regla 30 — Los docstrings son contratos sincronizados
 
-Los docstrings son parte del contrato de código: las afirmaciones sobre comportamiento actual, inputs, outputs, errores o efectos colaterales DEBEN estar cubiertas por un test. Las referencias a issues/PRs y cicatrices de producción que son útiles para onboarding DEBEN etiquetarse como contexto histórico (no contrato) y preferiblemente moverse a `docs/` con un enlace; esta política complementa la regla §31 de Protocol.
+Los docstrings son parte del contrato de código: las afirmaciones sobre comportamiento actual, inputs, outputs, errores o efectos colaterales deben estar cubiertas por un test. Las referencias a issues/PRs y cicatrices de producción que son útiles para onboarding deben etiquetarse como contexto histórico (no contrato) y preferiblemente moverse a `docs/` con un enlace; esta política complementa la regla §31 de Protocol.
 
 **Chequeo de drift barato (requerido en review)**: por cada afirmación de comportamiento, identifique el test que la prueba; verifique que cada símbolo referenciado aún existe; y verifique que cada referencia a issue/PR aún describa el código actual. Si una afirmación no tiene test, añada uno o reescríbala como contexto histórico explícitamente no-contractual.
 

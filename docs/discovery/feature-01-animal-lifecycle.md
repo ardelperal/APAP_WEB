@@ -87,11 +87,11 @@ State is computed from the combination of:
 | `Eutanasia*` flags set | Eutanasia | Euthanasia recorded; terminal state |
 | None of the above | Pendiente de Nueva Situación | Previous situation ended; awaiting next action |
 
-**Migration note:** The legacy system stores `Situacion` as a mutable text field that is occasionally manually overridden. The web app MUST compute state dynamically from active records. Never store `Situacion` as an editable field.
+**Migration note:** The legacy system stores `Situacion` as a mutable text field that is occasionally manually overridden. The web app must compute state dynamically from active records. Never store `Situacion` as an editable field.
 
 ## Lifecycle Event Timeline and Location Traceability
 
-Every shelter animal MUST have a complete, chronological, auditable event timeline recording where the animal was at every moment and why/how it moved. This is a **mandatory foundation requirement** for the future web project — not an open question.
+Every shelter animal must have a complete, chronological, auditable event timeline recording where the animal was at every moment and why/how it moved. This is a **mandatory foundation requirement** for the future web project — not an open question.
 
 ### What the timeline must capture
 
@@ -109,14 +109,14 @@ Every shelter animal MUST have a complete, chronological, auditable event timeli
 
 ### Continuity requirement
 
-The timeline MUST represent **unbroken continuity**: for every interval between events, the system knows where the animal was and under what arrangement. Gaps in the timeline are data-quality defects that must be flagged.
+The timeline must represent **unbroken continuity**: for every interval between events, the system knows where the animal was and under what arrangement. Gaps in the timeline are data-quality defects that must be flagged.
 
 | Principle | Rule |
 |-----------|------|
 | No gaps | Every interval between two events must have a known location/arrangement |
 | Edge cases explicit | Multiple foster stays, returns to shelter, adoption returns, and re-entries are each distinct timeline entries |
 | Death as terminal event | Death (or euthanasia) is the final timeline entry; no events allowed after it |
-| Unknown legacy history | Migrated records with inconsistent or missing history MUST be flagged for cleanup, not silently accepted |
+| Unknown legacy history | Migrated records with inconsistent or missing history must be flagged for cleanup, not silently accepted |
 
 ### Legacy data migration behavior
 
@@ -133,7 +133,7 @@ The timeline MUST represent **unbroken continuity**: for every interval between 
 |---------|----------------|
 | Event log table | Dedicated `AnimalEventLog` table (or equivalent) with timestamp, event type, actor, location, and reference IDs |
 | State derivation | Current state is ALWAYS derived from the most recent event; never stored independently |
-| Audit trail | Every state change MUST be traceable to a source event in the timeline |
+| Audit trail | Every state change must be traceable to a source event in the timeline |
 | Gap detection | Background job or query that flags animals with unresolvable timeline gaps |
 
 #### Evidence Source
