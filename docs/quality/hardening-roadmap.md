@@ -269,7 +269,7 @@ Continuation session, ~5 hours, user out of house partway through.
 | # | PR | What |
 |---|---|---|
 | B3 | (next) | Slice-completeness gate (the real gap): port Protocol declared, adapter injected from `di/`, test per layer. New script `scripts/check_slice_completeness.py` to keep `check_layers.py` under the §21 cap. |
-| B4 | (next) | Layer gate for `migration/` as a separate file (`scripts/check_migration_boundaries.py`), NOT extending `check_layers.py`. `migration/` is not hexagonal — it has derivation (pure), legacy access (Access-bound), orchestration (apply/reconcile/cli). Forcing hexagonal rules on ETL breaks §32.P3. |
+| B4 | (next) | Layer gate for `migration/` as a separate file (`scripts/check_migration_boundaries.py`), not extending `check_layers.py`. `migration/` is not hexagonal — it has derivation (pure), legacy access (Access-bound), orchestration (apply/reconcile/cli). Forcing hexagonal rules on ETL breaks §32.P3. |
 | A4 | (next) | Add `app/modules/adopciones/service.py` to mutation target set (#434, 20.9 sites/100 LOC). **Linux baseline acquisition required — can't run cosmic-ray on Windows**. PR lands the `module-path` change with a `PENDING LINUX ACQUISITION` marker in `mutation-baseline.json`, pinned by a test that fails if the marker survives past the first schedule run after the PR lands. |
 
 ### Decisions taken while the user was out (reversible)
@@ -308,7 +308,7 @@ Run after session: `git worktree remove <path> --force` then `git branch -d <loc
 
 ### CI infrastructure incident — 2026-08-06 afternoon
 
-The project-owned self-hosted runner (`apap-web-oracle-arm64`, Oracle VPS) developed a zombie session: the listener process reported "Connected to GitHub" but GitHub-side the runner stayed `offline` and never picked up queued jobs. Three PRs (#449, #450, #451) hit the 1.5h timeout and got auto-cancelled. Cause: when systemd restarts the runner service, the orphaned listener PIDs from the previous session survive in the cgroup (they were reparented to PID 1 when the original parent exited), and they continue to hold the GitHub session. systemd restart does NOT reap them. The new listener reports "Connected to GitHub" but actually gets `Runner connect error: Error: Conflict. Retrying until reconnected` on every retry.
+The project-owned self-hosted runner (`apap-web-oracle-arm64`, Oracle VPS) developed a zombie session: the listener process reported "Connected to GitHub" but GitHub-side the runner stayed `offline` and never picked up queued jobs. Three PRs (#449, #450, #451) hit the 1.5h timeout and got auto-cancelled. Cause: when systemd restarts the runner service, the orphaned listener PIDs from the previous session survive in the cgroup (they were reparented to PID 1 when the original parent exited), and they continue to hold the GitHub session. systemd restart does not reap them. The new listener reports "Connected to GitHub" but actually gets `Runner connect error: Error: Conflict. Retrying until reconnected` on every retry.
 
 Workaround that worked: `sudo systemctl stop` + `sudo kill -9 <old PIDs>` + `sudo systemctl start`. But the underlying fragility remains.
 
