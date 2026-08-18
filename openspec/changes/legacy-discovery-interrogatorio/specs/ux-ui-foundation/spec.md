@@ -34,7 +34,7 @@ tokens nuevos. Necesita decisión de producto.
 > 1. **Telefónica Mística design system**: usar el skill `telefonica-brand-design`
 >    para aplicar Mística/Telefónica Brand Factory tokens + componentes.
 >    Pros: design system oficial de la marca, mantenido por Telefónica.
->    Cons: podría ser overkill para una protectora pequeña.
+>    Cons: podría ser overkill para una protectora pequeña. <!-- alantyle-ignore:ALAN004 -->
 > 2. **Tokens propios + componentes custom**: crear design tokens propios
 >    basados en los del legacy (`docs/design-tokens-apap-actual.md`) modernizados.
 >

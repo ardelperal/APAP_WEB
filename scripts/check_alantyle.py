@@ -187,6 +187,49 @@ ACRONYM_WHITELIST: frozenset[str] = frozenset().union(
     _REPO_INTERNAL_WHITELIST,
 )
 
+# Palabras permitidas SOLO en contexto de spec (archivos bajo openspec/).
+# Los specs usan RFC 2119 (MUST/SHALL/...) y Given/When/Then por diseño
+# (per openspec/config.yaml rules.specs); son lenguaje semántico de spec,
+# no énfasis editorial. En docs/ estas mismas palabras siguen siendo emph
+# y el guardrail test_whitelist_v2_does_not_relax_emph_words las protege:
+# este frozenset es independiente de ACRONYM_WHITELIST y solo aplica bajo
+# openspec/ (ver _is_spec_context).
+_SPEC_CONTEXT_KEYWORDS = frozenset({
+    # RFC 2119 (inglés)
+    "MUST", "SHALL", "SHOULD", "MAY", "NOT",
+    # RFC 2119 (equivalentes en castellano, idioma de los specs del repo)
+    "DEBE", "DEBEN", "NO", "PUEDE", "PUEDEN", "TIENE", "TIENEN",
+    # BDD / Gherkin
+    "GIVEN", "WHEN", "THEN", "AND", "BUT", "SCENARIO", "FEATURE",
+    "BACKGROUND", "EXAMPLES", "OUTLINE", "DADO", "CUANDO", "ENTONCES",
+    # conectores y cuantificadores comunes en prosa de spec
+    "IF", "WHERE", "IS", "IN", "ON", "AS", "BY", "FOR", "TO", "OF",
+    "WITH", "WITHOUT", "AFTER", "BEFORE", "ONLY", "NEVER", "ALWAYS",
+    "ANY", "ALL", "EACH", "OR", "NEW", "SUCH", "THAT", "THIS", "FROM",
+    "DO", "DOES", "NOTHING", "OPTIONAL", "PLUS", "BOTH", "HARD",
+    "FACTUAL", "ERROR", "FAILS", "CANNOT", "FIRST", "SECOND", "WEB",
+    # vocabulario de escenario en castellano (idioma de los specs del repo):
+    # marcadores de resultado y cuantificadores dentro de pasos Given/When/Then
+    "YA", "DOS", "OTRA", "OTRAS", "OTRO", "OTROS", "TODAS", "TODOS",
+    "SIN", "ANTES", "DESPUES", "EXISTE", "EXISTEN", "PASA", "FALLA",
+    "HAY",
+    # prefijos de escenario / work-unit / requisito del flujo OpenSpec
+    "QG", "SCN", "MUT", "PROP", "WU", "RISK", "MOD", "MSITES", "XCUT",
+    "ADAPT", "COMPLIANT", "MODIFIED", "HOOK", "DRY", "VERIFICATION",
+    "CANCELLATION", "NOTE",
+})
+
+
+def _is_spec_context(file: Path) -> bool:
+    """True si el archivo vive bajo openspec/ (specs persistentes o changes).
+
+    Los specs usan RFC 2119 y Given/When/Then por diseño; esas palabras son
+    lenguaje semántico de spec, no énfasis editorial. Fuera de openspec/ el
+    detector aplica la whitelist estricta (ACRONYM_WHITELIST) y sigue
+    reportando esas palabras como emph.
+    """
+    return "openspec" in file.parts
+
 # ALAN002: code-point ranges de emojis decorativos. Cubre BMP (Misc
 # Symbols) y supplementary planes (Pictographs, Emoticons, Transport,
 # Symbols Extended-A, Regional Indicators para banderas).
@@ -211,6 +254,21 @@ _EMOJI_RE = re.compile(
 # contabilizan porque no hay límite de palabra entre la letra final y
 # el dígito inicial.
 _ALLCAPS_WORD_RE = re.compile(r"\b[A-Z]{2,}\b")
+
+# Inline code (`...`): el contenido dentro de backticks es código, no prosa.
+# Los detectores de estilo no deben evaluarlo (queries SQL, identificadores,
+# keywords RFC 2119 dentro de ejemplos de código, etc.).
+_INLINE_CODE_RE = re.compile(r"`[^`\n]+`")
+
+
+def _mask_inline_code(raw: str) -> str:
+    """Reemplaza spans de inline code por espacios de igual longitud.
+
+    Preserva la longitud de la línea para que las columnas reportadas por
+    los detectores sigan coincidiendo con la línea cruda. Los detectores de
+    prosa evalúan la línea enmascarada, nunca la cruda.
+    """
+    return _INLINE_CODE_RE.sub(lambda m: " " * len(m.group()), raw)
 
 # Los marcadores GIVEN/WHEN/THEN (y su equivalente en castellano) son
 # estructura de escenarios OpenSpec, no énfasis en prosa. La excepción
@@ -302,22 +360,41 @@ def _pin_output_encoding() -> None:
         sys.stderr.reconfigure(encoding="utf-8")
 
 
+# Directorios excluidos del gate por convención. ``archive`` cubre
+# openspec/changes/archive: cambios ya cerrados, registros históricos
+# inmutables que no deben re-editarse para satisfacer el linter (ADR d-42).
+_EXCLUDED_DIR_SEGMENTS = frozenset({"archive"})
+
+
+def _is_excluded_path(path: Path) -> bool:
+    """True si el path vive bajo un directorio excluido del gate."""
+    return bool(_EXCLUDED_DIR_SEGMENTS.intersection(path.parts))
+
+
 def _iter_markdown_paths(targets: list[Path]) -> list[Path]:
     """Expande los argumentos a archivos ``.md`` ordenados.
 
     Acepta archivos sueltos (solo ``.md``; otros sufijos se ignoran) y
     directorios (recorrido recursivo). El resto de sufijos cae en
     silencio para que el operador pueda pasar paths heterogéneos sin
-    filtrarlos a mano.
+    filtrarlos a mano. Los paths bajo un directorio excluido
+    (``_EXCLUDED_DIR_SEGMENTS``, p. ej. openspec/changes/archive) se
+    descartan: son registros históricos inmutables fuera del gate.
     """
     out: list[Path] = []
     for target in targets:
         if target.is_file():
-            if target.suffix == ".md":
+            if target.suffix == ".md" and not _is_excluded_path(target):
                 out.append(target)
             continue
         if target.is_dir():
-            out.extend(sorted(p for p in target.rglob("*.md")))
+            out.extend(
+                sorted(
+                    p
+                    for p in target.rglob("*.md")
+                    if not _is_excluded_path(p)
+                )
+            )
     return out
 
 
@@ -487,6 +564,7 @@ def _check_allcaps(
     en la whitelist de acrónimos.
     """
     out: list[Violation] = []
+    spec_context = _is_spec_context(file)
     for idx, raw in enumerate(lines):
         if idx in skip:
             continue
@@ -497,11 +575,14 @@ def _check_allcaps(
         if scenario is not None:
             group = "bold" if scenario.group("bold") is not None else "plain"
             scenario_span = scenario.span(group)
-        for match in _ALLCAPS_WORD_RE.finditer(raw):
+        masked = _mask_inline_code(raw)
+        for match in _ALLCAPS_WORD_RE.finditer(masked):
             if scenario_span is not None and match.span() == scenario_span:
                 continue
             word = match.group()
             if word in ACRONYM_WHITELIST:
+                continue
+            if spec_context and word in _SPEC_CONTEXT_KEYWORDS:
                 continue
             out.append(
                 Violation(
