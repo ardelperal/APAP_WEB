@@ -10,13 +10,13 @@ El agente que posee este archivo en el rol "orchestrator" **no es** un escritor 
 
 ### §17.1 El orchestrator coordina, los subagents escriben
 
-El orchestrator NO DEBE hacer nada de lo siguiente inline:
+El orchestrator no debe hacer nada de lo siguiente inline:
 
 - Escribir código bajo `app/`, `tests/` o `scripts/` (routes, services, schemas, helpers, tests, fixtures).
 - Autorear SQL o scripts de migración bajo `app/core/migration/`.
 - Editar templates bajo `templates/` ni assets estáticos bajo `static/`.
 - Editar docs operacionales que gobiernen comportamiento de agente u operador: `AGENTS.md`, `docs/proceso.md`, `docs/roadmap.md`, `docs/audits/*`, `docs/runbooks/*`, `docs/uat/*`.
-- Autorear issues de GitHub o descripciones de PR para trabajo que el orchestrator NO ejecutó (un subagent lo hizo).
+- Autorear issues de GitHub o descripciones de PR para trabajo que el orchestrator no ejecutó (un subagent lo hizo).
 
 Las acciones inline permitidas del orchestrator se limitan a: preguntas clarificadoras cortas, snippets de código cortos para ilustrar intención en un prompt de delegación y correcciones pequeñas que no justifican spawnear un subagent (un typo en un docstring, un tweak de configuración de una línea ya cubierto por una regla existente). En duda: spawnear un subagent.
 
@@ -35,16 +35,16 @@ task(subagent="sdd-apply", branch="feat/issue-130-voluntario-row-helper",
      instructions="…implement _row_to_voluntario per TDD, follow §1, §11…")
 ```
 
-Cada prompt de delegación a un subagent DEBE incluir:
+Cada prompt de delegación a un subagent debe incluir:
 
 1. Los números de regla de AGENTS relevantes que el subagent debe seguir (por ejemplo, §1, §11, §14).
-2. Una instrucción explícita de usar `codegraph-vba` (MCP `codegraph_explore` + CLI `codegraph`) PRIMERO antes de cualquier `Read`/`Grep`/`Glob`, según §14.
+2. Una instrucción explícita de usar `codegraph-vba` (MCP `codegraph_explore` + CLI `codegraph`) primero antes de cualquier `Read`/`Grep`/`Glob`, según §14.
 3. Una "Definición de Hecho" concreta: qué archivos deben existir, qué tests deben pasar, qué evidencia debe devolver el subagent (SHA de commit, nombre de rama, URL de PR cuando aplique).
 4. Las lentes de revisión aplicables de §17.2 — el subagent debe self-revisar con `code-review-expert` antes de reportar "done"; `judgment-day` corre solo cuando el orchestrator lo lanza.
 
 ### §17.2 Lentes de revisión — ancladas al registro de skills
 
-Antes de que cualquier slice dirigido por un subagent aterrice en `main`, el orchestrator lanza la(s) lente(s) de revisión aplicable(s) desde el registro de skills. El registro de skills en `.atl/skill-registry.md` es la **fuente de verdad** sobre qué lentes existen. NO invente nombres de lentes que no estén en el registro. Si se necesita una lente futura, instálela vía el registro primero, luego actualice esta sección en un PR de seguimiento.
+Antes de que cualquier slice dirigido por un subagent aterrice en `main`, el orchestrator lanza la(s) lente(s) de revisión aplicable(s) desde el registro de skills. El registro de skills en `.atl/skill-registry.md` es la **fuente de verdad** sobre qué lentes existen. no invente nombres de lentes que no estén en el registro. Si se necesita una lente futura, instálela vía el registro primero, luego actualice esta sección en un PR de seguimiento.
 
 **Obligatoria en cada slice**: `code-review-expert` — una única lente senior que cubre SOLID, seguridad y mantenibilidad. El orchestrator lanza esta lente sobre el diff que produjo el subagent (la rama vs `main`) y lee los hallazgos antes de aprobar el merge.
 
@@ -56,7 +56,7 @@ Antes de que cualquier slice dirigido por un subagent aterrice en `main`, el orc
 - Security gates (gatekeepers, advisories de capacidad, mecanismos de override, flags de bypass, switches administrativos manuales).
 - Scripts de migración, escrituras SQL crudas, fixtures que tocan datos con forma real.
 
-Un mapa no exhaustivo de archivos que disparan automáticamente `judgment-day` (cuando se modifican, no solo se leen): `app/core/auth*`, `app/core/csrf*`, `app/core/session*`, `app/core/logging*`, `app/core/migration/`, `app/core/insforge.py` cuando se usa para escrituras, cualquier `scripts/seed*` o `scripts/backfill*`, `scripts/check_rules.py`, `scripts/pytest_plugin/coverage_gate.py`. El orchestrator DEBE correr `judgment-day` si el diff toca alguna de estas rutas aunque el cambio parezca cosmético.
+Un mapa no exhaustivo de archivos que disparan automáticamente `judgment-day` (cuando se modifican, no solo se leen): `app/core/auth*`, `app/core/csrf*`, `app/core/session*`, `app/core/logging*`, `app/core/migration/`, `app/core/insforge.py` cuando se usa para escrituras, cualquier `scripts/seed*` o `scripts/backfill*`, `scripts/check_rules.py`, `scripts/pytest_plugin/coverage_gate.py`. El orchestrator debe correr `judgment-day` si el diff toca alguna de estas rutas aunque el cambio parezca cosmético.
 
 **Incorrecto** — orchestrator mergea un fix de CSRF sin `judgment-day`
 
@@ -77,7 +77,7 @@ El orchestrator lee ambos reportes, decide qué hallazgos son blocking vs inform
 
 ### §17.3 Los cambios a AGENTS.md y otros docs operacionales van por el flow feature-branch + PR
 
-Los docs operacionales son parte del contrato del proyecto — gobiernan cómo se comporta cada agente (orchestrator, subagent, sesión futura). Editarlos inline es el mismo tipo de bypass que escribir un handler de route en `main` sin PR. El orchestrator DEBE tratar cualquier cambio a `AGENTS.md`, `docs/proceso.md`, `docs/roadmap.md`, `docs/audits/*`, `docs/runbooks/*`, `docs/uat/*` exactamente como un cambio de código bajo §15.5.
+Los docs operacionales son parte del contrato del proyecto — gobiernan cómo se comporta cada agente (orchestrator, subagent, sesión futura). Editarlos inline es el mismo tipo de bypass que escribir un handler de route en `main` sin PR. El orchestrator debe tratar cualquier cambio a `AGENTS.md`, `docs/proceso.md`, `docs/roadmap.md`, `docs/audits/*`, `docs/runbooks/*`, `docs/uat/*` exactamente como un cambio de código bajo §15.5.
 
 Concretamente, el orchestrator delega el cambio a un subagent (típicamente vía `task` con `sdd-apply` o la skill aplicable), y el subagent sigue este flow:
 
@@ -106,9 +106,9 @@ task(subagent="sdd-apply",
                    Follow §15.5 flow. Do NOT merge.")
 ```
 
-El orchestrator PUEDE escribir el texto de §17 propuesto en el prompt de delegación mismo (como snippet de referencia), pero el file write, commit, push y PR open DEBEN ocurrir del lado del subagent. El orchestrator no posee esas operaciones.
+El orchestrator puede escribir el texto de §17 propuesto en el prompt de delegación mismo (como snippet de referencia), pero el file write, commit, push y PR open deben ocurrir del lado del subagent. El orchestrator no posee esas operaciones.
 
-**Aplicación**: una violación de §17.1 (orchestrator escribe inline) es una falla de disciplina y el trabajo DEBE revertirse y rehacerse vía un subagent en una rama. Una violación de §17.2 (saltarse una lente obligatoria en un diff high-stakes) es un merge blocker — el merge no puede proceder sin el sign-off de la lente. Una violación de §17.3 (orchestrator edita `AGENTS.md` u otro doc operacional inline) es lo mismo que una violación de §15.5: el cambio debe revertirse y re-aterrizarse por el flow correcto, y el orchestrator debe reconocer el resbalón antes de continuar.
+**Aplicación**: una violación de §17.1 (orchestrator escribe inline) es una falla de disciplina y el trabajo debe revertirse y rehacerse vía un subagent en una rama. Una violación de §17.2 (saltarse una lente obligatoria en un diff high-stakes) es un merge blocker — el merge no puede proceder sin el sign-off de la lente. Una violación de §17.3 (orchestrator edita `AGENTS.md` u otro doc operacional inline) es lo mismo que una violación de §15.5: el cambio debe revertirse y re-aterrizarse por el flow correcto, y el orchestrator debe reconocer el resbalón antes de continuar.
 
 ## Core invariants
 
