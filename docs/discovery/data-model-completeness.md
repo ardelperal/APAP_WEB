@@ -72,7 +72,7 @@ Volunteer names are stored as **free-text strings** in multiple operational tabl
 | `TbAdopcion` | `VoluntarioSeguimiento`, `TelMovilVoluntarioSeguimiento`, `emailVoluntarioSeguimiento` | Follow-up volunteer for adoption (name + contact stored inline) |
 | `TbAcogidaAnimal` | `VoluntarioSeguimiento1`, `VoluntarioSeguimiento2`, `VoluntarioCosasSanitarias`, `VoluntarioAcogida` | Follow-up volunteer(s), health volunteer, foster care volunteer |
 
-Additionally, `TbVoluntariosParaAutorrellenables` is a legacy convenience table that stores volunteer names for auto-fill dropdowns. It is NOT a normalized entity — it exists only to populate form comboboxes.
+Additionally, `TbVoluntariosParaAutorrellenables` is a legacy convenience table that stores volunteer names for auto-fill dropdowns. It is not a normalized entity — it exists only to populate form comboboxes.
 
 ### Problems
 
@@ -85,7 +85,7 @@ Additionally, `TbVoluntariosParaAutorrellenables` is a legacy convenience table 
 
 ### Target model (Volunteer Registry — new feature)
 
-The future web application MUST introduce a `Volunteer` entity as a first-class registry. This is a **new feature** not present in legacy as a normalized concept.
+The future web application must introduce a `Volunteer` entity as a first-class registry. This is a **new feature** not present in legacy as a normalized concept.
 
 | Aspect | Target design |
 |--------|--------------|
@@ -102,11 +102,11 @@ These rules are **mandatory** for the target web application. They govern how vo
 
 | Rule | Detail |
 |------|--------|
-| **FK-only references** | No workflow or table in the target web app may use a volunteer unless that volunteer already exists in the Volunteer Registry. Free-text volunteer assignment is prohibited. All volunteer fields MUST be FK references to `Volunteer.ID`. |
-| **Existence + active validation** | Any create or edit workflow that assigns a volunteer MUST validate that the referenced volunteer exists AND is in active/usable status. Inactive volunteers cannot be assigned to new records. |
-| **No physical delete** | A volunteer that has been referenced by ANY business record (intake, foster stay, adoption, therapy, or any other operational table) MUST NOT be physically deleted. Such volunteers may only be deactivated (soft-deleted / marked inactive). |
-| **Historical preservation** | When a volunteer is deactivated, all historical records referencing that volunteer MUST preserve the FK relationship. The volunteer record remains readable for reporting, audit trails, and historical queries even after deactivation. |
-| **Unreferenced deletion** | A volunteer that has NEVER been referenced by any business record MAY be deleted, but ONLY if product explicitly decides this behavior. The default policy is deactivation for all volunteers regardless of reference status. |
+| **FK-only references** | No workflow or table in the target web app may use a volunteer unless that volunteer already exists in the Volunteer Registry. Free-text volunteer assignment is prohibited. All volunteer fields must be FK references to `Volunteer.ID`. |
+| **Existence + active validation** | Any create or edit workflow that assigns a volunteer must validate that the referenced volunteer exists and is in active/usable status. Inactive volunteers cannot be assigned to new records. |
+| **No physical delete** | A volunteer that has been referenced by ANY business record (intake, foster stay, adoption, therapy, or any other operational table) must not be physically deleted. Such volunteers may only be deactivated (soft-deleted / marked inactive). |
+| **Historical preservation** | When a volunteer is deactivated, all historical records referencing that volunteer must preserve the FK relationship. The volunteer record remains readable for reporting, audit trails, and historical queries even after deactivation. |
+| **Unreferenced deletion** | A volunteer that has NEVER been referenced by any business record may be deleted, but ONLY if product explicitly decides this behavior. The default policy is deactivation for all volunteers regardless of reference status. |
 
 #### Evidence Source
 
@@ -298,6 +298,6 @@ The following items were validated via Dysflow live inspection:
 | `TbTamaños` domain values | **Validated** | 5 values: enano, Gigante, Grande, Mediano, Pequeño |
 | `TbNombrePruebas` catalog | **Validated** | 13 tests across species (ambos/canina/felina). No auto-number PK; composite key is NombrePrueba + Especie. "Puppy" test is canina-only. |
 | `TbPruebasPeridicidad` rules | **Validated** | 12 rows — all tests have 12-month periodicity. Linked via NombrePrueba string, no DB-enforced FK. |
-| FK enforcement | **Validated** | 17 DB-enforced relationships found. Critical gap: main animal→event FKs (intake, adoption, foster, health action) are NOT DB-enforced — only therapy, attachments, contracts, and deworming parent→detail are enforced. |
+| FK enforcement | **Validated** | 17 DB-enforced relationships found. Critical gap: main animal→event FKs (intake, adoption, foster, health action) are not DB-enforced — only therapy, attachments, contracts, and deworming parent→detail are enforced. |
 | Chip uniqueness constraint | **Validated** | NCHIP is primary key in TbFichaAnimal (DB-enforced) |
 | Health action compound uniqueness | **Not found** | No compound unique index on NCHIP + TipoAnotacion + FechaAnotacion — enforcement is application-only |
