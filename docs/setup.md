@@ -1,8 +1,10 @@
 # Setup local de desarrollo
 
+[Back to Codebase Guide](CODEBASE-GUIDE.md)
+
 > Documento en proceso de traducción al castellano. El contenido nuevo (Fase 1 — esqueleto) ya está en castellano; el contenido heredado en inglés se traducirá en una iteración posterior (issue pendiente en el roadmap).
 
-Esta guía explica cómo preparar el entorno local para trabajar en APAP_WEB. Cubre la configuración del MCP de InsForge, la gestión de secretos por desarrollador, y los comandos de arranque del esqueleto (Fase 1).
+Esta guía explica cómo preparar el entorno local para trabajar en APAP_WEB. Cubre la configuración del MCP de InsForge, la gestión de secretos por desarrollador, y los comandos de arranque del esqueleto (Fase 1). No posee los comandos canónicos de test, lint y build — esos viven en [`docs/development.md`](development.md), que es el manual operativo canónico para esos flujos.
 
 ## Prerrequisitos
 
@@ -128,11 +130,25 @@ Salida esperada: `17 passed` (3 de config, 3 de app, 5 de pages, 1 smoke, 5 de C
 - Tailwind v4 se compila a `app/static/css/output.css` antes del `serve`. En Docker la build la hace el stage de builder del `Dockerfile`; en local la hace `make css` o `make css-watch`.
 - El `make run` es el atajo para el flujo local de "ver algo": compila CSS y arranca uvicorn en un solo comando.
 
-## Relacionado
+## Core invariants
 
-- `.gitignore` — contiene la regla que ignora `opencode.json` y `.venv/`.
-- `opencode.json.example` — plantilla de la configuración de InsForge MCP.
-- `docs/architecture-insforge-stack.md` — doc canónico de arquitectura.
-- `docs/development.md` — guía de comandos canónicos (test, lint, build).
-- `docs/roadmap.md` — hoja de ruta del proyecto (Fases 0-7 + transversales).
-- `openspec/changes/ci-cd-foundation/` — change de SDD que planifica el pipeline de despliegue.
+- **Python 3.11 es el piso**: pineado en `pyproject.toml` (`requires-python = ">=3.11"`). Bajar a 3.10 rompe el typecheck y el contrato con FastAPI 0.137.x.
+- **`.venv` local obligatorio**: no instalar dependencias en el Python global. Mezclar con opencode o hermes-agent del sistema causa fallos de import que parecen bugs del proyecto.
+- **`opencode.json` jamás se commitea**: contiene la clave de admin de InsForge. Filtrarla es compromiso total de la base de datos y de la autenticación OAuth del proyecto. La regla vive en `.gitignore`.
+- **Tailwind v4 vía npm, no CDN**: la build reproducible pasa por `tailwindcss/` + `npx`. Un `<link>` a CDN deja el bundle fuera de la cache y rompe el contrato del arnés.
+- **Node 18+ requerido por el CLI de Tailwind**: `npx @tailwindcss/cli` requiere Node 18 LTS o superior; npm 10 viene incluido.
+- **Cuenta InsForge real, no anon key**: la clave de admin permite ejecutar `run-raw-sql` y mutar schema. El free tier es suficiente para Fase 1.
+
+## Contributor checklist
+
+- [ ] Verificar `python --version` devuelve `3.11.x` (o superior compatible) antes de clonar el repo.
+- [ ] Crear el `.venv` desde la raíz del proyecto y activarlo en cada terminal; confirmar `which python` apunta a `.venv/bin/python`.
+- [ ] Copiar `opencode.json.example` a `opencode.json` y rellenar los dos placeholders (clave de admin + URL del proyecto InsForge).
+- [ ] Ejecutar `make css && make serve` y abrir `http://127.0.0.1:8000/healthz` para confirmar el JSON de health antes de seguir.
+- [ ] Ejecutar `make test` y confirmar `17 passed` (o la cifra actual de la suite) antes de abrir una PR.
+- [ ] Si trabaja en Windows PowerShell, usar siempre los bloques `powershell` listados en cada paso; los `bash` no aplican directamente.
+- [ ] Si mueve o recrea el worktree, ejecutar `python -m pip install -e ".[dev]"` otra vez para refrescar la ruta absoluta del editable.
+
+## Navigation
+
+Previous: [Design tokens APAP actual](design-tokens-apap-actual.md) | Next: [Development workflow](development.md)

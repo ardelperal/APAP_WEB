@@ -1,10 +1,14 @@
 # Flujo de desarrollo
 
+[Back to Codebase Guide](CODEBASE-GUIDE.md)
+
 > Documento en proceso de traducción al castellano. El contenido nuevo (Fase 1 — esqueleto) ya está en castellano; el contenido heredado en inglés se traducirá en una iteración posterior (issue pendiente en el roadmap).
 
 Esta guía lleva a un nuevo desarrollador desde un clone limpio hasta un test en verde en la aplicación APAP. Es la referencia canónica para los comandos locales. El workflow de CI (entregado en una PR anterior) y el job de deploy Coolify (CD-01, issue #1) llaman a los mismos comandos: el trabajo normal integra en `staging`, y producción queda guardada por `main`.
 
-Para setup del entorno por desarrollador y credenciales de InsForge MCP, ver [`docs/setup.md`](setup.md). Para las decisiones de arquitectura que dan forma a este flujo, ver [`docs/architecture-insforge-stack.md`](../docs/architecture-insforge-stack.md).
+No posee el setup por desarrollador ni la configuración de secretos InsForge — eso vive en [`docs/setup.md`](setup.md). No posee las decisiones de arquitectura — eso vive en [`docs/architecture/architecture-insforge-stack.md`](../architecture/architecture-insforge-stack.md). No posee la disciplina de proceso por issue — eso vive en [`docs/proceso.md`](proceso.md).
+
+Para setup del entorno por desarrollador y credenciales de InsForge MCP, ver [`docs/setup.md`](setup.md). Para las decisiones de arquitectura que dan forma a este flujo, ver [`docs/architecture/architecture-insforge-stack.md`](../architecture/architecture-insforge-stack.md).
 
 ## Prerrequisitos
 
@@ -356,9 +360,33 @@ La sección `openspec/changes/ci-cd-foundation/design.md § Future work` lista c
 ## Dónde mirar a continuación
 
 - [`docs/setup.md`](setup.md) — setup por desarrollador y credenciales InsForge MCP.
-- [`docs/architecture-insforge-stack.md`](../docs/architecture-insforge-stack.md) — decisiones de stack, política de dependencias y políticas de CI/CD y testing.
+- [`docs/architecture/architecture-insforge-stack.md`](../architecture/architecture-insforge-stack.md) — decisiones de stack, política de dependencias y políticas de CI/CD y testing.
 - [`docs/roadmap.md`](../docs/roadmap.md) — hoja de ruta viva del proyecto.
 - [`openspec/changes/ci-cd-foundation/`](../openspec/changes/ci-cd-foundation/) — change de SDD que planifica el pipeline de despliegue completo (PR 1 = superficie local; PR 2 = CI; PR 3 = CD).
 - `pyproject.toml` — configuración canónica de pytest (deprecation strictness) y ruff (reglas de lint). La verja de calidad del doc de arquitectura está codificada aquí.
 - `Makefile` — atajos de los comandos documentados arriba.
 - `Dockerfile` — build multi-stage para producción (Fase 2+ lo usa vía Coolify).
+
+## Core invariants
+
+- **`make verify` refleja CI**: la lista de targets de `verify` está pineada por `tests/test_ci_workflow.py::test_make_verify_covers_every_ci_gate` al orden de los jobs de `ci.yml`. Añadir un gate a CI sin añadirlo a `verify` rompe el test; añadirlo a `verify` sin CI lo deja como coste local sin enforcement.
+- **DeprecationWarning es error**: `pyproject.toml` promueve `DeprecationWarning` y `PendingDeprecationWarning` a error en pytest. Un test que importe APIs deprecadas falla en local y en CI; el filtro `StarletteDeprecationWarning` es la única excepción documentada.
+- **Cobertura `--cov-fail-under=80`**: pytest corre con `--cov-fail-under=80`, replicando el suelo de `pyproject.toml`. Una suite que pasa local sin ese flag puede pasar en local y fallar en CI; correr siempre con el flag.
+- **`ruff check .` cubre `E/F/W/I/UP/B`**: la selección vive en `pyproject.toml` § `[tool.ruff.lint]`. Cambiar reglas requiere PR que actualice también este doc.
+- **`make mutation` es semanal y Linux-only**: cosmic-ray no entra en `verify` por coste y portabilidad. Solo se ejecuta en el job `mutation` con schedule semanal; los workstations no lo corren por defecto.
+- **E2E solo con `APAP_OAUTH_CLIENT_ID`**: el job `ci / e2e` corre Playwright solo cuando las credenciales OAuth están configuradas como variable de entorno. Sin ellas el job se salta.
+- **Edición editable requiere reinstalar tras mover worktree**: `python -m pip install -e ".[dev]"` deja una ruta absoluta en un `.pth`. Mover o recrear el worktree deja esa ruta apuntando al checkout anterior; hay que reinstalar.
+
+## Contributor checklist
+
+- [ ] Ejecutar `make verify` antes de abrir la PR; si algún target falla, arreglarlo antes de pedir review.
+- [ ] Si añade un gate a `ci.yml`, añadir también el target correspondiente al `Makefile` y listarlo en `verify`, en el mismo orden.
+- [ ] Si añade una dependencia de runtime, declararla en `pyproject.toml` § `dependencies` y verificar que `make verify` la resuelve en local.
+- [ ] Si añade una dependencia de dev, declararla en `pyproject.toml` § `[project.optional-dependencies]` bajo `dev`; nunca instalar con `pip install <pkg>` ad-hoc.
+- [ ] Si mueve o recrea el worktree, ejecutar `python -m pip install -e ".[dev]"` desde la raíz del nuevo checkout antes de correr pytest.
+- [ ] Si la PR toca `ci.yml` o `Makefile`, abrir issue contra `tests/test_ci_workflow.py` para actualizar el ratchet en la misma sesión.
+- [ ] Si la PR introduce un test que requiere PostgreSQL, usar `APAP_TEST_POSTGRES_DSN` y marcar el skip en local cuando la variable no esté definida.
+
+## Navigation
+
+Previous: [Setup local](setup.md) | Next: [Proceso por issue](proceso.md)

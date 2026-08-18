@@ -1,6 +1,8 @@
 # APAP Application Architecture Stack
 
-This document is the baseline architecture for the future APAP application. It exists so a future AI or developer can start implementation without rediscovering the stack decisions already made.
+[Back to Codebase Guide](../CODEBASE-GUIDE.md)
+
+This document is the baseline architecture for the future APAP application. It exists so a future AI or developer can start implementation without rediscovering the stack decisions already made. It does **not** own the layer boundaries or the slice migration under `app/core/` — that is [`docs/codebase/architecture.md`](../codebase/architecture.md) — nor the operational rules in [AGENTS.md](../../AGENTS.md). The contract of infra lives here; the contract of code lives there.
 
 ## Architecture decision
 
@@ -364,3 +366,27 @@ If one of those happens, document the tradeoff before changing the stack.
 - Do not expose privileged InsForge keys to the browser.
 - Do not inherit legacy data-model debt only for convenience.
 - Do not use InsForge MCP tools as application runtime code.
+
+## Core invariants
+
+- **Stack no se cambia sin trade-off documentado**: HTMX 2.0.4, FastAPI 0.136.x, Pydantic 2.13.x, Tailwind 4.3.x e InsForge son el baseline. Sustituir uno requiere issue con la sección "When to choose another stack" cumplimentada.
+- **InsForge SDK o REST desde la app, MCP solo desde infra**: el código de aplicación llama al SDK Python o a las REST APIs de InsForge; las MCP tools (`run-raw-sql`, `create-bucket`, `create-function`, etc.) son para setup de schema, buckets y funciones. Mezclar ambos rompe la frontera de quién toca qué.
+- **Autorización por allowlist, no por roles implícitos**: la tabla `authorized_users` es la única fuente de verdad para acceso. OAuth decide quién es; la allowlist decide a quién se le deja entrar.
+- **Coolify + Dockerfile para deploy**: la webapp se sirve vía Coolify desde `ardelperal/APAP_WEB:main`. Hardcodear credenciales InsForge en el repo o saltarse Coolify para un deploy ad-hoc está prohibido.
+- **Adjuntos en Storage, metadatos en PostgreSQL**: los binarios viven en buckets InsForge Storage; PostgreSQL solo guarda `owner_type`, `bucket`, `storage_path`, metadatos y estado. La ruta de storage nunca es la fuente de verdad.
+- **Diseño de modelo primero, herencia legacy después**: cuando el modelo legacy arrastra deuda técnica, se rediseña; cualquier cambio incompatible viene con plan de migración DAO documentado en `decisiones-proyecto.md`.
+- **OpenRouter y claves de API solo en el servidor**: ninguna clave privilegiada llega al navegador. Toda integración de IA pasa por FastAPI.
+
+## Contributor checklist
+
+- [ ] Si modifica una versión pinneada del stack, actualizar la fila correspondiente en la tabla "Stack" y verificar que el lockfile (`uv.lock`, `package-lock.json`) refleja el cambio.
+- [ ] Si añade un endpoint que toca InsForge, llamar al SDK Python o a la REST API; no añadir herramientas MCP como dependencias de runtime en `pyproject.toml`.
+- [ ] Si añade una tabla nueva, migrar primero el modelo y luego añadir el mapeo DAO si hay deuda legacy que preservar; documentar en `decisiones-proyecto.md` cualquier divergencia.
+- [ ] Si añade una columna a `authorized_users`, mantener `email` único y actualizar la vista admin antes de mergear.
+- [ ] Si añade un bucket InsForge, declarar también la tabla de metadatos correspondiente y los hooks de upload/download que la usan.
+- [ ] Si introduce una clave de API o secreto, configurarla como variable de entorno en Coolify; nunca commitear `.env*` con valores reales.
+- [ ] Si propone reemplazar FastAPI, HTMX, Tailwind o InsForge, abrir issue con la sección "When to choose another stack" rellenada antes de tocar `pyproject.toml`.
+
+## Navigation
+
+Previous: [Mental model](../codebase/mental-model.md) | Next: [Design tokens APAP actual](../design-tokens-apap-actual.md)

@@ -118,7 +118,7 @@ Objetivo: repositorio sano, CI verde, deploy automatizado a Coolify + InsForge.
 
 **Pendiente del primer deploy real (no automatizable):** crear el registro DNS A de `apap.romancaba.com` apuntando al servidor Coolify y verificar que el redirect URI registrado en Google Cloud Console / InsForge shared OAuth es `https://apap.romancaba.com/auth/callback`.
 
-**Documentación de referencia:** [`docs/setup.md`](setup.md) (setup por desarrollador), [`docs/architecture-insforge-stack.md`](architecture-insforge-stack.md) (decisiones de stack), [`openspec/changes/ci-cd-foundation/`](../openspec/changes/ci-cd-foundation/) (propuesta, diseño, tareas, spec, apply-progress).
+**Documentación de referencia:** [`docs/setup.md`](setup.md) (setup por desarrollador), [`docs/architecture/architecture-insforge-stack.md`](architecture/architecture-insforge-stack.md) (decisiones de stack), [`openspec/changes/ci-cd-foundation/`](../openspec/changes/ci-cd-foundation/) (propuesta, diseño, tareas, spec, apply-progress).
 
 ### Fase 1 — Esqueleto de la aplicación web (#17)
 
@@ -132,7 +132,7 @@ Objetivo: login real con Google OAuth vía InsForge y allowlist de correos autor
 
 en verde — Cerrada. Issue **#16** mergeada en `main` como `1d22349`. Login con Google OAuth (PKCE nativo contra InsForge), tabla `usuarios_autorizados` con seed bootstrap, middleware de allowlist, panel `/admin` para developers. Pendiente solo el primer deploy real cuando el DNS esté resuelto.
 
-Documentación de referencia: [`docs/architecture-insforge-stack.md`](architecture-insforge-stack.md) § "Authentication and authorization", [`docs/decisiones-proyecto.md`](decisiones-proyecto.md) § D-01, D-03, D-20, D-40.
+Documentación de referencia: [`docs/architecture/architecture-insforge-stack.md`](architecture/architecture-insforge-stack.md) § "Authentication and authorization", [`docs/decisiones-proyecto.md`](decisiones-proyecto.md) § D-01, D-03, D-20, D-40.
 
 ### Fase 3 — Modelo de dominio limpio (Animal + Volunteer + anexos)
 
@@ -140,7 +140,7 @@ Objetivo: tablas `animals`, `volunteers`, `authorized_users` y la tabla mínima 
 
 en curso — `usuarios_autorizados` en verde (#25). `animals`, `volunteers`, `volunteer_roles` en verde (#26). Pendiente: `animal_event_log` (Fase 4 con CRUD) y `attachments` (Fase 7 con bucket de Storage). Bloquea Fases 4–7.
 
-Documentación de referencia: [`docs/architecture-insforge-stack.md`](architecture-insforge-stack.md) § "Data model policy", [`docs/discovery/data-model-notes.md`](discovery/data-model-notes.md), [`docs/discovery/data-model-completeness.md`](discovery/data-model-completeness.md), [`docs/decisiones-proyecto.md`](decisiones-proyecto.md) § D-04 (paridad de campos), D-05 (fidelidad al legacy).
+Documentación de referencia: [`docs/architecture/architecture-insforge-stack.md`](architecture/architecture-insforge-stack.md) § "Data model policy", [`docs/discovery/data-model-notes.md`](discovery/data-model-notes.md), [`docs/discovery/data-model-completeness.md`](discovery/data-model-completeness.md), [`docs/decisiones-proyecto.md`](decisiones-proyecto.md) § D-04 (paridad de campos), D-05 (fidelidad al legacy).
 
 ### Fase 4 — Entidad Animal (Feature 01)
 
@@ -228,7 +228,7 @@ Objetivo: alinear toda la documentación técnica con el idioma del proyecto (de
 
 | Slice | Estado | Issue |
 |---|---|---|
-| Traducción al castellano de `docs/architecture-insforge-stack.md` | pendiente | pendiente (issue por crear) |
+| Traducción al castellano de `docs/architecture/architecture-insforge-stack.md` | pendiente | pendiente (issue por crear) |
 | Traducción al castellano de `docs/development.md` | pendiente | pendiente (issue por crear) |
 | Revisión y traducción de los `docs/discovery/*.md` que aún estén en inglés | pendiente | pendiente (issue por crear) |
 
@@ -296,7 +296,7 @@ Objetivo: alinear toda la documentación técnica con el idioma del proyecto (de
 | Transversal | `feat(search): búsqueda global` | Fases 3–4 | pendiente |
 | Transversal | `feat(canonical-logs): traza canónica del sistema` | Fase 1 | pendiente (ref `docs/canonical-logs.md` no existe; el doc hay que crearlo cuando arranque la issue) |
 | Transversal | `feat(admin-panel): panel de control / configuración` | Fases 1–2 | pendiente |
-| Docs | `docs(architecture): traducir architecture-insforge-stack.md al castellano` | — | pendiente |
+| Docs | `docs(architecture): traducir architecture-insforge-stack.md al castellano` | — | pendiente (la ruta canónica es `docs/architecture/architecture-insforge-stack.md`; la traducción sigue siendo de ese archivo) |
 | Docs | `docs(development): traducir development.md al castellano` | — | pendiente |
 | Docs | `docs(discovery): revisar y traducir los discovery en inglés al castellano` | — | pendiente |
 | Docs | `docs(canonical-logs): crear el doc fundacional de traza canónica` | — | bloqueado por la issue de arriba |
@@ -374,7 +374,7 @@ Reglas de uso de la documentación generada vs. el Access:
 
 ### Arquitectura, plan y desarrollo
 
-- [`docs/architecture-insforge-stack.md`](architecture-insforge-stack.md) — stack base y reglas InsForge/Coolify *(pendiente de traducir al castellano)*.
+- [`docs/architecture/architecture-insforge-stack.md`](architecture/architecture-insforge-stack.md) — stack base y reglas InsForge/Coolify *(pendiente de traducir al castellano)*.
 - [`docs/proceso.md`](proceso.md) — playbook operativo por issue: premisas (P1 fidelidad al legacy, P2 resolución de dudas, P3 docs reflejan código, P4 pre-MVP single-branch) + workflow completo (pre-flight → triaje → SDD/TDD → validación → merge → cierre con trazabilidad). **Leer al iniciar cualquier issue que vaya más allá de un doc trivial.**
 - [`docs/setup.md`](setup.md) — setup por desarrollador y credenciales InsForge.
 - [`docs/development.md`](development.md) — flujo local de desarrollo *(pendiente de traducir al castellano)*.
