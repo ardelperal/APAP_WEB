@@ -1,0 +1,52 @@
+# CODEOWNERS — APAP_WEB
+# Sintaxis GitHub: cada línea es `<patrón>   @<usuario-o-equipo>`.
+# El último match gana. La regla por defecto queda al final.
+# Documentación de sintaxis: https://docs.github.com/es/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owner: revisión general de todo lo no listado debajo.
+*       @ardelperal
+
+# Código de producto.
+# Las tres rutas cubren los lugares donde vive el código en este repo:
+# `app/core/` (capacidad transversal) y `app/modules/` (capacidad de negocio).
+# AGENTS.md §33 fija el criterio para mover código entre las dos.
+/app/           @ardelperal
+/app/core/      @ardelperal
+/app/modules/   @ardelperal
+
+# Plantillas server-rendered y assets estáticos (CSS Tailwind compilado).
+/templates/     @ardelperal
+/static/        @ardelperal
+
+# Migración Access/VBA → web (CLI, engine, reconcile).
+# AGENTS.md §18 fija el mutual exclusion web ↔ legacy y la función de sync.
+/migration/     @ardelperal
+
+# Tests (unit, integration, e2e Playwright). Cobertura global ≥ 80%; CRITICAL_HELPERS 100% (AGENTS.md §11, §19).
+/tests/         @ardelperal
+
+# Scripts: detectores propios (check_rules.py), plugins (ruff, pytest) y tooling.
+/scripts/       @ardelperal
+
+# Documentación canónica: roadmap, proceso, decisiones, audits, runbooks, UAT, arquitectura.
+/docs/          @ardelperal
+
+# Specs SDD: propuesta, diseño, tareas, verificación y archivo.
+/openspec/      @ardelperal
+
+# Documentos raíz del repo.
+/AGENTS.md      @ardelperal
+/README.md      @ardelperal
+/DOCS.md        @ardelperal
+/CONTRIBUTING.md    @ardelperal
+/CHANGELOG.md   @ardelperal
+/SECURITY.md    @ardelperal
+/CODEOWNERS     @ardelperal
+
+# Configuración de build y CI.
+/pyproject.toml @ardelperal
+/Dockerfile     @ardelperal
+/Makefile       @ardelperal
+/.github/       @ardelperal
+/.dockerignore  @ardelperal
+/.gitignore     @ardelperal
