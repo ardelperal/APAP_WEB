@@ -31,7 +31,7 @@ Cero baseline bumps (excepto C2 con marker PENDING explícito). Cero force-pushe
 
 ## Pendiente — al retomar
 
-### PR #463 (refactor #390) — CERRADO PARCIALMENTE
+### PR #463 (refactor #390) — cerrado parcialmente
 
 Worktree en `C:/00repos/codigo/APAP_WEB_worktrees/wt-issue-390-cleanups` con commit `0cab510` en `refactor/390-plr0911-cleanups`. PR cerrado en GitHub.
 
@@ -55,7 +55,7 @@ Worktree en `C:/00repos/codigo/APAP_WEB_worktrees/wt-issue-390-cleanups` con com
 
 ### Issues abiertos en rango #341-#443
 
-- **#390** (refactor ARG/C901/ERA): parcial, ver arriba.
+- **#390** (refactor ARG/C901/era): parcial, ver arriba.
 - **#430** ✓ cerrado (PR #461).
 - **#434** ✓ abierto — A4 (adopciones) y B3 (diff_engine) hechos. Faltan más módulos.
 - **#420** ✓ epic abierto — Steps 4, 5, 6 pendientes (architecture reviewer agent, más mutation targets).
@@ -103,9 +103,9 @@ git worktree remove --force C:/00repos/codigo/APAP_WEB_worktrees/wt-fix-pr429-in
 
 ## Política actualizada (per request del usuario)
 
-- ✅ **NUNCA** `git push origin --delete <branch>` después de merge. Solo `git worktree remove --force <path>` para worktrees locales. Las ramas remotas se retienen para que un fork herede el historial.
+- ✅ **nunca** `git push origin --delete <branch>` después de merge. Solo `git worktree remove --force <path>` para worktrees locales. Las ramas remotas se retienen para que un fork herede el historial.
 - ✅ PRs con tamaño > 400 LOC pueden usar el label `size:exception` (creado en PR #442, documentado en AGENTS.md §15.1/§15.6).
-- ✅ Branch names deben ser `<type>/<issue>-<slug>` donde type ∈ `feat|fix|refactor|docs|ci|test`. NO `chore` (el regex del branch-name gate no lo permite).
+- ✅ Branch names deben ser `<type>/<issue>-<slug>` donde type ∈ `feat|fix|refactor|docs|ci|test`. no `chore` (el regex del branch-name gate no lo permite).
 
 ## Cuando vuelvas
 
