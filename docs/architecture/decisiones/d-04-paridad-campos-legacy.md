@@ -53,9 +53,9 @@ Sin paridad explícita, los voluntarios que migran datos del Access al sistema n
 - El discovery del legacy es un input continuo, no un entregable único.
 - Cada PR de slice animal verifica paridad con [`discovery/data-model-completeness.md`](../discovery/data-model-completeness.md) en su checklist.
 - Las labels `gap:legacy` son trazables vía [`proceso.md`](../proceso.md) §6.3.
-- El modelo de datos puede tener campos que el legacy NO tiene (esos requieren D-XX individual).
+- El modelo de datos puede tener campos que el legacy no tiene (esos requieren D-XX individual).
 
 ## When this changes
 
 - Si el refugio elimina un campo del Access (decisión del refugio), se actualiza [`discovery/data-model-completeness.md`](../discovery/data-model-completeness.md) y la paridad de ese campo deja de ser obligatoria.
-- Si se descubre que un campo legacy NO debiera existir en el nuevo (semántica obsoleta), se documenta como gap-of-fidelity con justificación.
+- Si se descubre que un campo legacy no debiera existir en el nuevo (semántica obsoleta), se documenta como gap-of-fidelity con justificación.
