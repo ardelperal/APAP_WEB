@@ -63,7 +63,7 @@ The system MUST gate production deployment behind successful CI and a push to `m
 - WHEN a production deploy run reaches the webhook step
 - THEN the job fails with an explicit configuration error
 
-> Why this one is a failure: without the secret, any payload would be unsigned and Coolify v4 would reject it. Better to fail loud at CI than roll back at runtime.
+> Why this one is a failure: without the secret, any payload would be unsigned and Coolify v4 would reject it. Better to fail loud at CI than roll back at runtime. <!-- alantyle-ignore:ALAN004 -->
 
 ### Requirement: Coolify Webhook Signing Contract
 
@@ -88,7 +88,7 @@ The deploy step MUST POST a GitHub push payload to the Coolify manual webhook wi
 - WHEN the step is implemented
 - THEN the workflow MUST NOT contain `curl -fsS -X POST "$COOLIFY_WEBHOOK_URL"` (or any curl variant that POSTs without body or signature)
 
-> Why: Coolify v4's manual github webhook endpoint verifies the raw JSON body against `manual_webhook_secret_github`. An unsigned curl POST would be silently rejected once the secret is set, causing every push to fail with no diagnostic.
+> Why: Coolify v4's manual github webhook endpoint verifies the raw JSON body against `manual_webhook_secret_github`. An unsigned curl POST would be silently rejected once the secret is set, causing every push to fail with no diagnostic. <!-- alantyle-ignore:ALAN004 -->
 
 ### Requirement: Operator Acceptance Evidence
 

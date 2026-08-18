@@ -617,6 +617,13 @@ def test_ci_workflow_lint_job_runs_alantyle_lint() -> None:
         "el detector alan-style es un gate bloqueante desde issue #576; "
         "continue-on-error ocultaría su exit code y reabriría el rollout."
     )
+    # Issue #578: el scope incluye los delta-specs de cada change. El
+    # detector enmascara inline code y aplica la whitelist spec-context
+    # bajo openspec/, y excluye archive/ como histórico inmutable.
+    assert "openspec/changes/*/specs/" in lint_job, (
+        "el gate alan-style debe cubrir los delta-specs de cada change "
+        "(openspec/changes/*/specs/) desde issue #578."
+    )
     # El detector debe correr después del gate AST de check_rules.py y
     # antes del ratchet de tamaño de módulo, manteniendo el orden de
     # familia de gates que el resto del job respeta.
