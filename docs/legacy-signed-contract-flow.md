@@ -33,14 +33,14 @@ superseded_by: ""
 
 ## 1. Resumen Ejecutivo
 
-El flujo legacy tiene **dos fases claramente separadas** que NO están conectadas automáticamente:
+El flujo legacy tiene **dos fases claramente separadas** que no están conectadas automáticamente:
 
 | Fase | Acción | Directorio | Quién la ejecuta |
 |------|--------|------------|-----------------|
 | **Generación** | `Plantilla.GenerarDocumento()` crea Word con mail-merge | `contratos/ParaFirma/` | Sistema (automático) |
 | **Firma + Anexado** | Usuario selecciona archivo firmado desde cualquier lugar | `contratos/Firmados/` | Usuario (explorador de archivos) |
 
-**Hallazgo clave**: NO existe código que mueva, copie o elimine archivos de `ParaFirma/` a `Firmados/`. Son flujos independientes. El usuario elige manualmente qué archivo adjuntar.
+**Hallazgo clave**: no existe código que mueva, copie o elimine archivos de `ParaFirma/` a `Firmados/`. Son flujos independientes. El usuario elige manualmente qué archivo adjuntar.
 
 ---
 
@@ -80,7 +80,7 @@ contratos/ParaFirma/Adop_0042.docx
 
 ### 2.4 Estado post-generación
 - El archivo queda en `ParaFirma/` como borrador Word editable
-- **NO se crea registro en `TbContratosAnexos`** en esta fase
+- **no se crea registro en `TbContratosAnexos`** en esta fase
 - El usuario debe abrir el Word, imprimirlo/firmarlo externamente
 
 ---
@@ -136,7 +136,7 @@ Public Function AbrirExplorador(Title As String, ...) As String
 End Function
 ```
 
-**Comportamiento**: Se abre un `FileDialog` de Office (explorador de Windows) **sin filtro específico**. El usuario puede navegar a **CUALQUIER archivo** en el sistema.
+**Comportamiento**: Se abre un `FileDialog` de Office (explorador de Windows) **sin filtro específico**. El usuario puede navegar a **cualquier archivo** en el sistema.
 
 ### 3.4 Método `Anexo.AnexarContrato()`
 **Ubicación**: `src/classes/Anexo.cls:12`
@@ -146,7 +146,7 @@ End Function
 3. Construye ruta final: `URLDirectorioContratosFirmados & strContrato & "." & strExtension`
 4. Verifica si el archivo final está abierto
 5. Busca/inserta/actualiza registro en `TbContratosAnexos`
-6. **COPIA el archivo** a Firmados: `FSO.CopyFile strURLContrato, strURLContratoFinal, True`
+6. **copia el archivo** a Firmados: `FSO.CopyFile strURLContrato, strURLContratoFinal, True`
 
 ---
 
@@ -154,7 +154,7 @@ End Function
 
 ### 4.1 Evidencia de código
 
-**NO existe código que:**
+**no existe código que:**
 - Elimine archivos de `contratos/ParaFirma/` después del anexado
 - Mueva archivos de `ParaFirma/` a `Firmados/`
 - Haga referencia a `ParaFirma/` dentro de `AnexarContrato()`
@@ -163,7 +163,7 @@ End Function
 
 | Directorio | Contenido | ¿Se modifica? |
 |------------|-----------|----------------|
-| `contratos/ParaFirma/` | Borradores Word generados por el sistema | **NO** — se acumulan indefinidamente |
+| `contratos/ParaFirma/` | Borradores Word generados por el sistema | **no** — se acumulan indefinidamente |
 | `contratos/Firmados/` | Archivos firmados seleccionados por el usuario | Sí — se copian/eliminan por acción del usuario |
 
 ### 4.3 Implicaciones
@@ -198,7 +198,7 @@ End Function
 | **Naming en Firmados** | `{Tipo}_{ID}.{ext}` | Compatibilidad con rutas existentes |
 | **Registro DB** | `TbContratosAnexos` con los mismos campos | Mantener modelo existente |
 | **Reemplazo** | Confirmar antes de sobrescribir | El legacy ya lo hace |
-| **Eliminación** | Solo eliminar de Firmados, nunca de ParaFirma | El legacy NO toca ParaFirma |
+| **Eliminación** | Solo eliminar de Firmados, nunca de ParaFirma | El legacy no toca ParaFirma |
 | **File picker** | Abrir en directorio por defecto | El legacy usa último directorio usado |
 | **Validación** | Solo 1 contrato por tipo por entidad | Regla de negocio existente |
 
