@@ -56,8 +56,8 @@ Records individual health events for each animal: vaccinations, deworming, steri
 
 - **Table:** `TbActuacionSanitaria`, `TbFichaAnimal`
 - **Dysflow tool:** `query_sql`
-- **Query:** `SELECT h.NCHIP, h.FechaAnotacion, f.FNacimiento, f.FDefuncion FROM TbActuacionSanitaria AS h INNER JOIN TbFichaAnimal AS f ON h.NCHIP = f.NCHIP WHERE h.FechaAnotacion < f.FNacimiento OR (f.FDefuncion IS NOT NULL AND h.FechaAnotacion > f.FDefuncion)`
-- **Result:** Existing violations found in legacy data — health actions with dates BEFORE animal birth (5+ records) and AFTER animal death (5+ records). This confirms: (1) date bounds are NOT DB-enforced, (2) legacy application enforcement is inconsistent, (3) the web app must implement strict date validation as a service-layer rule.
+- **Query:** `SELECT h.NCHIP, h.FechaAnotacion, f.FNacimiento, f.FDefuncion FROM TbActuacionSanitaria AS h INNER JOIN TbFichaAnimal AS f ON h.NCHIP = f.NCHIP WHERE h.FechaAnotacion < f.FNacimiento OR (f.FDefuncion IS NOT NULL and h.FechaAnotacion > f.FDefuncion)`
+- **Result:** Existing violations found in legacy data — health actions with dates BEFORE animal birth (5+ records) and AFTER animal death (5+ records). This confirms: (1) date bounds are not DB-enforced, (2) legacy application enforcement is inconsistent, (3) the web app must implement strict date validation as a service-layer rule.
 - **Verified:** [x]
 
 ## 3.2 Health Summary
@@ -91,8 +91,8 @@ Records therapy sessions for animals. Therapies are higher-level health interven
 
 | Rule | Detail |
 |------|--------|
-| **FK-only reference** | Therapy volunteer field MUST be a FK to `Volunteer.ID`. Free-text volunteer assignment is prohibited. |
-| **Active-volunteer validation** | On create/edit of a therapy, the system validates the volunteer exists AND is active in the Volunteer Registry. Inactive or nonexistent volunteers are rejected. |
+| **FK-only reference** | Therapy volunteer field must be a FK to `Volunteer.ID`. Free-text volunteer assignment is prohibited. |
+| **Active-volunteer validation** | On create/edit of a therapy, the system validates the volunteer exists and is active in the Volunteer Registry. Inactive or nonexistent volunteers are rejected. |
 | **No physical delete** | A volunteer referenced by any therapy record cannot be deleted; only deactivation is permitted. |
 | **Historical preservation** | Deactivating a volunteer does not remove or alter existing therapy records. The FK relationship is preserved for audit and reporting. |
 
@@ -101,7 +101,7 @@ Records therapy sessions for animals. Therapies are higher-level health interven
 | Rule | Detail |
 |------|--------|
 | Delete restriction | Cannot delete a therapy that has recommendations linked to it |
-| Volunteer assignment | Therapy volunteer MUST reference an active volunteer in the Volunteer Registry (FK to `Volunteer.ID`); see "Therapy volunteer business rules" above |
+| Volunteer assignment | Therapy volunteer must reference an active volunteer in the Volunteer Registry (FK to `Volunteer.ID`); see "Therapy volunteer business rules" above |
 | Recommendations | Child records under therapy; each is a dated note |
 
 ## 3.4 Recommendations
@@ -159,7 +159,7 @@ nextDue = lastActionDate + periodicityMonths
 
 - **Table:** `TbNombrePruebas`, `TbPruebasPeridicidad`, `TbFichaAnimal`
 - **Dysflow tool:** `get_schema`, `query_sql`
-- **Query:** `SELECT f.NCHIP, f.FNacimiento, f.Especie, DATEDIFF('m', f.FNacimiento, Date()) AS MonthsOld FROM TbFichaAnimal AS f WHERE f.Especie = 'CANINA' AND DATEDIFF('m', f.FNacimiento, Date()) < 8`
+- **Query:** `SELECT f.NCHIP, f.FNacimiento, f.Especie, DATEDIFF('m', f.FNacimiento, Date()) AS MonthsOld FROM TbFichaAnimal AS f WHERE f.Especie = 'CANINA' and DATEDIFF('m', f.FNacimiento, Date()) < 8`
 - **Result:** Puppy-test eligibility confirmed. "Puppy" test exists in `TbNombrePruebas` with `Especie = 'canina'`. Query found 1 dog under 8 months eligible. Formula `DATEDIFF('m', FNacimiento, Date()) < 8` works against live data. Periodicity for all tests (including Puppy) is 12 months per `TbPruebasPeridicidad`.
 - **Verified:** [x]
 
