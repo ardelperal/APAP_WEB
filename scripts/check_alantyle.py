@@ -1,4 +1,4 @@
-"""Linter for §10 anti-patterns of the documentation-alan-style skill (v2.1).
+"""Linter for §10 anti-patterns of the documentation-alan-style skill (v2.2).
 
 Detecta nueve violaciones en archivos markdown:
 
@@ -33,8 +33,8 @@ línea, o ``<!-- alantyle-ignore:ALANxxx -->`` para suprimir solo un código.
 El propio marcador no se evalúa.
 
 Tests: ``tests/test_check_alantyle.py``. Integración CI:
-``.github/workflows/ci.yml::lint.job.steps[alantyle-lint]`` (issue #559,
-ADR d-42).
+``.github/workflows/ci.yml::lint.job.steps[alantyle-lint]`` (issues
+#559, #571, #572; ADR d-42).
 """
 from __future__ import annotations
 
@@ -67,14 +67,24 @@ EXIT_USAGE_ERROR = 2
 # Acrónimos técnicos y nombres propios exentos de la regla ALAN003. La
 # skill §10 menciona HTTP, MCP y SQL como ejemplos; la lista no es cerrada.
 # Mantener las entradas en orden alfabético, sin distinguir mayúsculas.
+#
+# Las entradas marcadas con el comentario ``# issue #572`` corresponden a
+# la segunda expansión de la whitelist (issue #572): SQL/DB keywords,
+# estados de severidad y status de CI, marcadores de código y términos
+# del dominio APAP_WEB (gestión de protectoras de animales). La
+# justificación completa vive en el cuerpo del issue. Las entradas
+# genuinamente emph (MUST, AND, WHEN, THEN, etc.) se arreglan en otro PR
+# porque requieren fixes editoriales uno a uno en los docs afectados.
 ACRONYM_WHITELIST: frozenset[str] = frozenset(
     {
         "ACCDB",
         "ACID",
+        "ADOPT",  # issue #572 — domain: adopción de animales
         "ADR",
         "AGENTS",
         "AGI",
         "AI",
+        "ALTER",  # issue #572 — SQL keyword
         "AMQP",
         "APAP",
         "API",
@@ -84,14 +94,21 @@ ACRONYM_WHITELIST: frozenset[str] = frozenset(
         "ASCII",
         "ASGI",
         "AST",
+        "AUTOINCREMENT",  # issue #572 — SQL keyword (SQLite)
         "AWS",
         "AZURE",
+        "BASELINE",  # issue #572 — ratchet baseline
         "BD",
         "BDD",
         "BFF",
         "BI",
+        "BLOCKED",  # issue #572 — CI status + domain
         "BLOCKER",
         "BMP",
+        "BOOLEAN",  # issue #572 — SQL type
+        "CANINA",  # issue #572 — domain: especie canina
+        "CASCADE",  # issue #572 — SQL FK action
+        "CC",  # issue #572 — domain: prefijo CC.N de acceptance checklist
         "CD",
         "CDN",
         "CET",
@@ -105,6 +122,9 @@ ACRONYM_WHITELIST: frozenset[str] = frozenset(
         "COM",
         "CONTRIBUTING",
         "CORS",
+        "CRAP",  # issue #572 — Change Risk Anti-Patterns (CRAP index)
+        "CREATE",  # issue #572 — SQL keyword
+        "CRITICAL",  # issue #572 — severity level + domain
         "CRUD",
         "CSP",
         "CSRF",
@@ -116,16 +136,20 @@ ACRONYM_WHITELIST: frozenset[str] = frozenset(
         "DB",
         "DDD",
         "DDL",
+        "DEFAULT",  # issue #572 — SQL constraint
         "DELETE",
         "DI",
         "DIP",
+        "DISTINCT",  # issue #572 — SQL keyword
         "DNI",
         "DNS",
         "DOB",
+        "DOC",  # issue #572 — documentation
         "DOCS",
         "DOCX",
         "DOM",
         "DRF",
+        "DROP",  # issue #572 — SQL keyword (DROP TABLE/INDEX)
         "DSN",
         "EHR",
         "ELT",
@@ -134,8 +158,14 @@ ACRONYM_WHITELIST: frozenset[str] = frozenset(
         "ETL",
         "EU",
         "EXE",
+        "EXISTS",  # issue #572 — SQL keyword
+        "FAIL",  # issue #572 — CI status
+        "FALSE",  # issue #572 — boolean literal
         "FAQ",
+        "FELINA",  # issue #572 — domain: especie felina
+        "FIXME",  # issue #572 — code marker
         "FK",
+        "FOSTER",  # issue #572 — domain: acogida temporal de animal
         "FSO",
         "FTP",
         "FTS",
@@ -148,6 +178,8 @@ ACRONYM_WHITELIST: frozenset[str] = frozenset(
         "GUID",
         "GUIDE",
         "HEAD",
+        "HEALTH",  # issue #572 — domain: health UI del animal
+        "HIGH",  # issue #572 — severity level
         "HIPAA",
         "HMAC",
         "HSTS",
@@ -156,6 +188,7 @@ ACRONYM_WHITELIST: frozenset[str] = frozenset(
         "HTTP",
         "HTTPS",
         "HTTPX",
+        "IA",  # issue #572 — Inteligencia Artificial
         "IaaS",
         "ID",
         "IEEE",
@@ -163,6 +196,7 @@ ACRONYM_WHITELIST: frozenset[str] = frozenset(
         "INFO",
         "INFORGE",
         "INSFORGE",
+        "INSERT",  # issue #572 — SQL keyword
         "IP",
         "ISO",
         "JS",
@@ -175,13 +209,17 @@ ACRONYM_WHITELIST: frozenset[str] = frozenset(
         "KB",
         "KPI",
         "LF",
+        "LIFECYCLE",  # issue #572 — domain: ciclo de vida del animal
         "LINUX",
         "LLM",
         "LOC",
+        "LOW",  # issue #572 — severity level
         "LSP",
         "LTS",
         "MCP",
         "MD",
+        "MEDIUM",  # issue #572 — severity level
+        "MIGRATION",  # issue #572 — domain: migración de datos legacy
         "ML",
         "MQTT",
         "MSACCESS",
@@ -189,12 +227,15 @@ ACRONYM_WHITELIST: frozenset[str] = frozenset(
         "MVCC",
         "MVP",
         "NASA",
+        "NCHIP",  # issue #572 — domain: número de chip veterinario
         "NFKD",
         "NIE",
         "NIF",
         "NIST",
         "NLP",
         "NOSQL",
+        "NOW",  # issue #572 — SQL function
+        "NULL",  # issue #572 — SQL value
         "OCR",
         "OECD",
         "OK",
@@ -205,8 +246,10 @@ ACRONYM_WHITELIST: frozenset[str] = frozenset(
         "OS",
         "OSS",
         "PaaS",
+        "PASS",  # issue #572 — CI status
         "PATCH",
         "PDF",
+        "PENDING",  # issue #572 — CI status
         "PEP",
         "PG",
         "PHI",
@@ -232,18 +275,27 @@ ACRONYM_WHITELIST: frozenset[str] = frozenset(
         "RDBMS",
         "RDD",
         "README",
+        "RED",  # issue #572 — TDD: fase RED (red → green → refactor)
+        "REFERENCES",  # issue #572 — SQL FK clause
+        "REPORT",  # issue #572 — domain: prefijo REPORT-NN de issues
         "REQ",
         "REST",
+        "RESTRICT",  # issue #572 — SQL FK action
+        "RETURNING",  # issue #572 — SQL keyword (RETURNING clause)
         "RFC",
         "RIAC",
         "RLS",
         "ROI",
         "SAAS",
+        "SALUD",  # issue #572 — domain: salud UI
         "SDD",
         "SDK",
+        "SELECT",  # issue #572 — SQL keyword
         "SEO",
+        "SET",  # issue #572 — SQL keyword (ON DELETE SET NULL etc.)
         "SHA",
         "SIGINT",
+        "SKILL",  # issue #572 — domain: skill registry entry
         "SLA",
         "SLI",
         "SLO",
@@ -261,15 +313,18 @@ ACRONYM_WHITELIST: frozenset[str] = frozenset(
         "STDIN",
         "STDOUT",
         "SVG",
+        "TABLE",  # issue #572 — SQL keyword
         "TBD",
         "TCP",
         "TDD",
+        "TIMESTAMP",  # issue #572 — SQL type
         "TLD",
         "TLS",
         "TOC",
         "TOCTOU",
         "TODO",
         "TOML",
+        "TRUE",  # issue #572 — boolean literal
         "TS",
         "TSV",
         "TTL",
@@ -279,6 +334,8 @@ ACRONYM_WHITELIST: frozenset[str] = frozenset(
         "UI",
         "UK",
         "UN",
+        "UNIQUE",  # issue #572 — SQL constraint
+        "UPDATE",  # issue #572 — SQL keyword
         "URI",
         "URL",
         "URN",
@@ -288,6 +345,7 @@ ACRONYM_WHITELIST: frozenset[str] = frozenset(
         "UUID",
         "UX",
         "VBA",
+        "VOL",  # issue #572 — domain: voluntario
         "VPN",
         "VPS",
         "WHO",
@@ -298,6 +356,8 @@ ACRONYM_WHITELIST: frozenset[str] = frozenset(
         "WWW",
         "XML",
         "XSS",
+        "XX",  # issue #572 — domain: prefijo D-XX (ADR) y feature-XX-*
+        "XXX",  # issue #572 — code marker
         "YAML",
         "YYYY",
     }
