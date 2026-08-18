@@ -184,6 +184,9 @@ _INSTALL_HEADING_RE = re.compile(r"^##\s+(Installation|Install)\s*$", re.IGNOREC
 _PARAGRAPH_MAX_CHARS = 200
 _MAX_EXTERNAL_LINKS = 6
 _TOC_SCAN_LIMIT = 50
+# Mínimo de líneas para que el detector ALAN009 (instalación al final) evalúe
+# mitad-de-documento; por debajo de este umbral no hay "final" significativo.
+_MIN_LINES_FOR_INSTALL_AT_END = 4
 
 # Campos de frontmatter obligatorios (skill §10).
 _REQUIRED_FRONTMATTER_TOP_KEYS: tuple[str, ...] = (
@@ -260,11 +263,9 @@ def _line_ignored(raw: str, code: str | None = None) -> bool:
     (``ALANxxx``) acepta tanto el genérico como el específico de ese
     código. La comprobación es de substring sobre la línea cruda.
     """
-    if _IGNORE_ALL in raw:
-        return True
-    if code is not None and f"<!-- alantyle-ignore:{code} -->" in raw:
-        return True
-    return False
+    return _IGNORE_ALL in raw or (
+        code is not None and f"<!-- alantyle-ignore:{code} -->" in raw
+    )
 
 
 def _parse_frontmatter(lines: list[str]) -> tuple[list[str], int] | None:
@@ -308,9 +309,8 @@ def _parse_frontmatter_keys(body: list[str]) -> tuple[set[str], set[str]]:
                 in_metadata = True
                 continue
             top.add(key)
-        else:
-            if in_metadata and ":" in stripped:
-                meta.add(stripped.split(":", 1)[0].strip())
+        elif in_metadata and ":" in stripped:
+            meta.add(stripped.split(":", 1)[0].strip())
     return top, meta
 
 
@@ -596,7 +596,7 @@ def _check_install_at_end(file: Path, lines: list[str]) -> list[Violation]:
     después de la mitad del documento.
     """
     total = len(lines)
-    if total < 4:
+    if total < _MIN_LINES_FOR_INSTALL_AT_END:
         return []
     midpoint = total // 2
     for idx in range(midpoint, total):
@@ -652,7 +652,9 @@ def find_violations(paths: list[Path]) -> list[Violation]:
 def main(argv: list[str] | None = None) -> int:
     """Punto de entrada CLI. Véase docstring del módulo."""
     _pin_output_encoding()
-    args = sys.argv[1:] if argv is None else argv
+    if argv is None:
+        argv = sys.argv[1:]
+    args = argv
     if not args:
         print(
             "uso: check_alantyle.py <ruta> [<ruta>...] "
