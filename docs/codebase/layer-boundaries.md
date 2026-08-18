@@ -160,6 +160,15 @@ return RedirectResponse(url="/login", status_code=302)
 - [ ] ¿Algún check de auth defaultea a `True`? → Cambie a `False`.
 - [ ] ¿Algún redirect usa `HTTPException`? → Use `RedirectResponse`.
 
+## Contributor checklist
+
+- [ ] Cada nueva route delega al service (o al use case en slice hexagonal) — nunca SQL directo.
+- [ ] Cada dependencia cerrable usa `yield` con `try/finally`.
+- [ ] `Settings()` se cachea con `@functools.lru_cache` o equivalente; no se re-parsea por request.
+- [ ] Los enums de dominio son la única fuente de verdad para sets/listas derivados.
+- [ ] Defaults de flags de auth son `False`, nunca `True`.
+- [ ] Redirects usan `RedirectResponse`; `HTTPException` queda para 4xx/5xx reales.
+
 ## Navigation
 
 Previous: [Codebase Guide](../CODEBASE-GUIDE.md) | Next: [Quality gates](quality-gates.md)

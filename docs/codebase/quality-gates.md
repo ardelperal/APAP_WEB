@@ -32,6 +32,14 @@ El tipado estático se enforza, no se aspira: el job `typecheck` de CI corre `py
 
 **Aplicación**: `tests/test_ci_workflow.py::test_ci_workflow_defines_typecheck_job_running_mypy` pinea el job de CI y su invocación `python -m mypy`; la lista `needs` del job `deploy` incluye `typecheck`, así que una regresión de tipos bloquea los deploys; mypy sale con código no-cero ante cualquier error, fallando el job.
 
+## Contributor checklist
+
+- [ ] Cada PR no baja la cobertura global de `app/` por debajo del 80% (gate de CI).
+- [ ] Si toca `scripts/check_rules.py`, `pyproject.toml` o `ci.yml`, los flags siguen pineados por `tests/test_ci_workflow.py`.
+- [ ] Cada nuevo form/route UI lleva su flujo Playwright E2E correspondiente en `tests/e2e/`.
+- [ ] Cada `# type: ignore` lleva su código de error específico; ningún ignore desnudo.
+- [ ] Si baja `[tool.mypy]` o elimina el job `typecheck`, lo bloquea el cambio (config se amplía, no se reduce).
+
 ## Navigation
 
 Previous: [Layer boundaries](layer-boundaries.md) | Next: [Module size budgets](module-size-budgets.md)
