@@ -187,6 +187,93 @@ def test_alan003_still_flags_scenario_words_used_as_prose_emphasis() -> None:
     assert [match.code for match in matches] == ["ALAN003"]
 
 
+# --- ALAN003: inline code masking (issue #578) -----------------------------
+
+
+def test_alan003_ignores_allcaps_inside_inline_code() -> None:
+    """Keywords SQL dentro de backticks son código, no prosa (issue #578)."""
+    content = (
+        "# Title\n\n"
+        "Validación: `SELECT id FROM animales WHERE id = $1 AND activo = true`.\n"
+    )
+    assert _violations_for("ALAN003", content) == []
+
+
+def test_alan003_flags_allcaps_outside_inline_code_same_line() -> None:
+    """El masking solo cubre el span entre backticks; la prosa de la misma
+    línea sigue evaluándose."""
+    content = "# Title\n\nUsa `SELECT 1` pero el término AMAZING queda fuera.\n"
+    matches = _violations_for("ALAN003", content)
+    assert [m.message.split("'")[1] for m in matches] == ["AMAZING"]
+
+
+def test_alan003_inline_code_mask_preserves_columns() -> None:
+    """Las columnas reportadas coinciden con la línea cruda tras el masking."""
+    content = "# Title\n\n`SELECT FROM` y luego WHERE en prosa.\n"
+    matches = _violations_for("ALAN003", content)
+    assert len(matches) == 1
+    # "WHERE" empieza en la columna 20 de la línea cruda.
+    line = content.splitlines()[2]
+    assert matches[0].column == line.index("WHERE") + 1
+
+
+# --- ALAN003: spec-context whitelist (issue #578) --------------------------
+
+
+def _scan_as(content: str, file_name: str) -> list[Violation]:
+    return [
+        v
+        for v in scan_markdown_content(Path(file_name), content)
+        if v.code == "ALAN003"
+    ]
+
+
+@pytest.mark.parametrize(
+    "keyword",
+    ["MUST", "SHALL", "SHOULD", "MAY", "NOT", "GIVEN", "WHEN", "THEN"],
+)
+def test_alan003_spec_context_allows_rfc2119_and_bdd(keyword: str) -> None:
+    """Bajo openspec/ las keywords RFC 2119 y BDD son lenguaje semántico de
+    spec, no emph (issue #578)."""
+    content = f"# Title\n\nEl sistema {keyword} validar la entrada.\n"
+    assert _scan_as(content, "openspec/specs/foo/spec.md") == []
+
+
+@pytest.mark.parametrize(
+    "keyword",
+    ["DEBE", "DEBEN", "NO", "YA", "DOS", "SIN", "PASA", "FALLA"],
+)
+def test_alan003_spec_context_allows_spanish_scenario_vocab(keyword: str) -> None:
+    """El vocabulario de escenario en castellano es legítimo bajo openspec/."""
+    content = f"# Title\n\n- THEN el resultado {keyword} correcto.\n"
+    assert _scan_as(content, "openspec/changes/x/specs/y/spec.md") == []
+
+
+@pytest.mark.parametrize(
+    "keyword",
+    ["MUST", "SHALL", "NOT", "WHEN", "THEN"],
+)
+def test_alan003_docs_still_flag_emph_outside_openspec(keyword: str) -> None:
+    """Fuera de openspec/ las mismas palabras siguen siendo emph y se
+    reportan; el guardrail de docs permanece activo (issue #578)."""
+    content = f"# Title\n\nEl sistema {keyword} validar la entrada.\n"
+    matches = _scan_as(content, "docs/guide.md")
+    assert [m.message.split("'")[1] for m in matches] == [keyword]
+
+
+# --- Exclusión de archive (issue #578) -------------------------------------
+
+
+def test_archive_paths_are_excluded(tmp_path: Path) -> None:
+    """openspec/changes/archive es histórico inmutable y queda fuera del gate."""
+    from scripts.check_alantyle import _is_excluded_path
+
+    archived = tmp_path / "openspec" / "changes" / "archive" / "x" / "spec.md"
+    active = tmp_path / "openspec" / "changes" / "live" / "specs" / "spec.md"
+    assert _is_excluded_path(archived) is True
+    assert _is_excluded_path(active) is False
+
+
 # --- ALAN004: lenguaje ambiguo ---------------------------------------------
 
 
