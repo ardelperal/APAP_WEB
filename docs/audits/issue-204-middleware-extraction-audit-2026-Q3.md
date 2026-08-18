@@ -45,7 +45,7 @@ This audit documents the scope, methodology, findings, and verdict for the audit
 
 | Severity | Title | Form | Details |
 |---|---|---|---|
-| LOW | Scope del Detector 7 (informativo) | fixed | `scripts/check_rules.py::_check_csrf_middleware_registered` antes recorría `app/main.py` para el literal `CsrfMiddleware`. Tras #204, la referencia de clase vive en `app/core/middleware.py::install_auth_middleware`. El detector se actualizó para recorrer AMBOS ficheros: `app/main.py` debe llamar a `install_auth_middleware` (la superficie de bootstrapping), `app/core/middleware.py` debe referenciar `CsrfMiddleware` (el registro real). Soltar cualquier mitad es una regresión. La comprobación de dos ficheros es estructuralmente equivalente a la antigua de un fichero (misma ventana de regresión cubierta); sin cambio operator-facing. |
+| LOW | Scope del Detector 7 (informativo) | fixed | `scripts/check_rules.py::_check_csrf_middleware_registered` antes recorría `app/main.py` para el literal `CsrfMiddleware`. Tras #204, la referencia de clase vive en `app/core/middleware.py::install_auth_middleware`. El detector se actualizó para recorrer ambos ficheros: `app/main.py` debe llamar a `install_auth_middleware` (la superficie de bootstrapping), `app/core/middleware.py` debe referenciar `CsrfMiddleware` (el registro real). Soltar cualquier mitad es una regresión. La comprobación de dos ficheros es estructuralmente equivalente a la antigua de un fichero (misma ventana de regresión cubierta); sin cambio operator-facing. |
 
 ### Source-pin tracking (informativo)
 
