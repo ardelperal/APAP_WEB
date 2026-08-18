@@ -2,13 +2,13 @@
 
 ## Decision
 
-Cuando llegue el MVP, Virginia corre la validación UAT sobre `staging` usando la skill `feature-acceptance-uat` ([`docs/uat/uat-staging-<YYYY-MM-DD>.html`](../uat/)). El usuario revisa el sign-off y explícitamente instruye "merge to main". El agente NO preemptivamente flipea la fase — espera el OK explícito.
+Cuando llegue el MVP, Virginia corre la validación UAT sobre `staging` usando la skill `feature-acceptance-uat` ([`docs/uat/uat-staging-<YYYY-MM-DD>.html`](../uat/)). El usuario revisa el sign-off y explícitamente instruye "merge to main". El agente no preemptivamente flipea la fase — espera el OK explícito.
 
 ## Quick path
 
 - Post-MVP: Virginia valida UAT en `staging`.
 - Skill: `feature-acceptance-uat`.
-- El agente NO mergea sin OK explícito del usuario.
+- El agente no mergea sin OK explícito del usuario.
 
 ## Problem statement
 
