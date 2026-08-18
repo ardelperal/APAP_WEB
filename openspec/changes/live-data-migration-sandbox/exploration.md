@@ -22,7 +22,11 @@ Reprioritize APAP_WEB roadmap around making the backend operational now, migrati
 
 ### InsForge `animales` Schema (from `get-table-schema`)
 
-Columns (23 total): `id` (uuid, PK), `nchip` (text, NOT NULL, unique key), `traenchip`, `fimplantacionchip`, `nombreanimal`, `especie`, `sexo`, `raza`, `color`, `pelo`, `tamano`, `caracter`, `fnacimiento`, `fdefuncion`, `terapia`, `observaciones`, `nombrefoto` (→ filename only), `cartilla`, `eutanasia`, `razappp`, `mestizo`, `eutanasiaotroasc ausas`, `eutanasiaenfermedad`, `ultimoestadoantesdefallecido`, `comunicacionariac`
+Columns (23 total): `id` (uuid, PK), `nchip` (text, NOT NULL, unique key), `traenchip`, `fimplantacionchip`, `nombreanimal`, `especie`, `sexo`, `raza`, `color`, `pelo`, `tamano`, `caracter`.
+
+Continuación: `fnacimiento`, `fdefuncion`, `terapia`, `observaciones`, `nombrefoto` (→ filename only), `cartilla`, `eutanasia`, `razappp`, `mestizo`.
+
+Resto: `eutanasiaotroasc ausas`, `eutanasiaenfermedad`, `ultimoestadoantesdefallecido`, `comunicacionariac`
 
 **PII risk**: `nchip` (chip number — can be traced to animal+owner), `nombrefoto` (filename may encode owner/volunteer names in path), `traenchip` (Yes/No chip status). No animal photos stored in DB; only filenames.
 
