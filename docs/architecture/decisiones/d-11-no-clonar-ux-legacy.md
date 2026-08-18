@@ -2,7 +2,7 @@
 
 ## Decision
 
-El Access legacy tiene una UX específica que NO se replica. La nueva UI usa los mismos datos y reglas, pero con un patrón moderno: componentes reutilizables, sistema de diseño, navegación clara. Ver [`legacy-initial-dashboard.md`](../legacy-initial-dashboard.md) y [`legacy-health-ui-workflow.md`](../legacy-health-ui-workflow.md) solo como referencia de QUÉ hace el legacy, no de CÓMO se ve.
+El Access legacy tiene una UX específica que no se replica. La nueva UI usa los mismos datos y reglas, pero con un patrón moderno: componentes reutilizables, sistema de diseño, navegación clara. Ver [`legacy-initial-dashboard.md`](../legacy-initial-dashboard.md) y [`legacy-health-ui-workflow.md`](../legacy-health-ui-workflow.md) solo como referencia de QUÉ hace el legacy, no de CÓMO se ve.
 
 ## Quick path
 
