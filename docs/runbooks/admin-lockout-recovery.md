@@ -52,7 +52,7 @@ No se requiere redespliegue ni reinicio para que el INSERT manual sea visible. L
 
 ### SQL de recuperación manual
 
-Conéctese a la base de datos Postgres de producción (InsForge) y ejecute el siguiente INSERT. El esquema utiliza **nombres de columna en castellano**: `anadido_por` (NO `added_by`), `fecha_alta` (NO `created_at`). Usar el nombre de columna equivocado hará que el INSERT introduzca silenciosamente `NULL` o que la sentencia falle.
+Conéctese a la base de datos Postgres de producción (InsForge) y ejecute el siguiente INSERT. El esquema utiliza **nombres de columna en castellano**: `anadido_por` (no `added_by`), `fecha_alta` (no `created_at`). Usar el nombre de columna equivocado hará que el INSERT introduzca silenciosamente `NULL` o que la sentencia falle.
 
 ```sql
 INSERT INTO public.usuarios_autorizados
