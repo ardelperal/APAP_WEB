@@ -212,7 +212,7 @@ _SPEC_CONTEXT_KEYWORDS = frozenset({
     # marcadores de resultado y cuantificadores dentro de pasos Given/When/Then
     "YA", "DOS", "OTRA", "OTRAS", "OTRO", "OTROS", "TODAS", "TODOS",
     "SIN", "ANTES", "DESPUES", "EXISTE", "EXISTEN", "PASA", "FALLA",
-    "HAY", "TIENE", "TIENEN",
+    "HAY",
     # prefijos de escenario / work-unit / requisito del flujo OpenSpec
     "QG", "SCN", "MUT", "PROP", "WU", "RISK", "MOD", "MSITES", "XCUT",
     "ADAPT", "COMPLIANT", "MODIFIED", "HOOK", "DRY", "VERIFICATION",
