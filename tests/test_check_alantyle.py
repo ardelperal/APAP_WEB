@@ -508,3 +508,25 @@ def test_acronym_whitelist_contains_skill_listed_entries() -> None:
     assert expected.issubset(ACRONYM_WHITELIST), (
         f"missing from whitelist: {expected - ACRONYM_WHITELIST}"
     )
+
+
+def test_expanded_whitelist_accepts_common_technical_acronyms() -> None:
+    """Las abreviaturas técnicas comunes no disparan ALAN003 (§10 skill)."""
+    allowed = (
+        "ACCDB ACID AGI AI AMQP APAP APM ARG ARIAC ASGI AWS AZURE "
+        "BD BDD BFF BI BLOCKER CD CDN CET CIDR CLI CMD CODEOWNERS COM CORS CSP CRUD CSRF CSS CSV CTE "
+        "DAG DAO DB DDD DDL DELETE DI DIP DNI DNS DOCX DOB DOM DRF DSN EHR ELT EOL ERD ETL EU EXE "
+        "FAQ FK FTP FTS FSO GCP GDPR GET GMT GNU GRPC GUID HEAD HMAC HIPAA HSTS HTMX HTTPX HTTPS "
+        "IaaS ID IEEE IMAP INFO INFORGE IP ISO JS JSONB JWE JWS JWT K8S KB KPI LF LINUX LLM LOC LSP LTS MD ML MQTT "
+        "MSACCESS MVC MVCC NASA NFKD NIE NIF NIST NLP NOSQL OCR OECD OOM OPTIONS ORM OS OSS "
+        "PaaS PATCH PDF PEP PG PHI PID PII PK PKCE PNG POC POP POSIX POST PTY PUT PWA PYTHONHASHSEED PYTHONPATH QA "
+        "RAG RBAC RDBMS RDD REQ REST RFC RIAC RLS ROI SAAS SDD SDK SEO SIGINT SLA SLI SLO SMTP SOA SOAP SOC SOLID SOX SPA "
+        "SSL SSH STDERR STDIN STDOUT SVG TBD TCP TDD TLD TLS TODO TOCTOU TS TSV TTL UA UAT UDP UI UK UN URI URN "
+        "USA UTC UUID UX VBA VPN VPS WHO WIP WS WSL WSS WWW XSS YAML YYYY"
+    ).split()
+    for acronym in allowed:
+        line = f"ejemplo con {acronym} permitido"
+        assert _violations_for("ALAN003", f"# Title\n\n{line}\n") == [], acronym
+
+    headers = "WWW-Authenticate y X-Request-ID son cabeceras permitidas"
+    assert _violations_for("ALAN003", f"# Title\n\n{headers}\n") == []
