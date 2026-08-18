@@ -599,6 +599,41 @@ def _job_executable(workflow: str, start: str, end: str) -> str:
     return "\n".join(line for line in section.splitlines() if not line.lstrip().startswith("#"))
 
 
+def test_ci_workflow_lint_job_runs_alantyle_lint() -> None:
+    """Issue #559, ADR d-42: el job ``lint`` ejecuta el detector de
+    anti-patrones documentation-alan-style sobre los árboles canónicos.
+
+    El step se publica con ``continue-on-error: true`` durante el rollout
+    inicial (ADR d-42). Los autores de documentos preexistentes limpian
+    sus archivos por ignore markers o reescritura; la bandera se retira
+    en un PR de seguimiento cuando el contador agregado cae a cero.
+    Quitar la bandera antes de esa limpieza es la regresión que este
+    test existe para evitar.
+    """
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    lint_job = _job_executable(workflow, "\n  lint:", "\n  security:")
+
+    assert "scripts/check_alantyle.py" in lint_job, (
+        "el job lint debe invocar scripts/check_alantyle.py para hacer "
+        "cumplir §10 de la skill documentation-alan-style (issue #559)."
+    )
+    assert "continue-on-error: true" in lint_job, (
+        "el step debe llevar continue-on-error: true durante el rollout "
+        "inicial (ADR d-42). Retirar la bandera antes de que el contador "
+        "de hallazgos llegue a cero requiere un PR de seguimiento "
+        "explícito, no un cambio silencioso."
+    )
+    # El detector debe correr después del gate AST de check_rules.py y
+    # antes del ratchet de tamaño de módulo, manteniendo el orden de
+    # familia de gates que el resto del job respeta.
+    assert lint_job.index("scripts/check_alantyle.py") > lint_job.index(
+        "scripts/check_rules.py"
+    )
+    assert lint_job.index("scripts/check_alantyle.py") < lint_job.index(
+        "scripts/check_module_size.py"
+    )
+
+
 def test_ci_workflow_lint_job_runs_jscpd_gate() -> None:
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
     lint_job = _job_executable(workflow, "\n  lint:", "\n  security:")
