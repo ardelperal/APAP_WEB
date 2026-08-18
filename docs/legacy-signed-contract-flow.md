@@ -1,8 +1,33 @@
+---
+title: "Legacy: Flujo de contratos ParaFirma → Firmados"
+status: "historical"
+legacy_source: "src/classes/Plantilla.cls, src/classes/Anexo.cls, src/modules/Explorador.bas, src/forms/Form_FormEntradaGestion.cls, Form_FormAcogidaGestion.cls, Form_FormAdopcionesGestion.cls (Access/VBA)"
+superseded_by: ""
+---
+
 # Flujo Legacy: Contratos de ParaFirma a Firmados
 
 **Fecha**: 2026-06-13
 **Estado**: Exploración completa con evidencia de código
 **Objetivo**: Documentar con precisión el flujo exacto de movimiento de contratos desde generación hasta firma, para diseño de APAP_WEB.
+
+## What this doc is
+
+| It is | Evidence in this repo |
+|---|---|
+| Análisis del flujo legacy de generación (ParaFirma) y anexado (Firmados) de contratos de Entrada, Acogida y Adopción. | `TbContratosAnexos` descrito en §5. |
+| Evidencia de la falta de automatización entre ParaFirma y Firmados (hallazgo clave §1 y §4.1). | `Plantilla.cls:2228` y `Anexo.cls:12` listados como referencias. |
+
+## What this doc is not
+
+| It is not | Use this boundary |
+|---|---|
+| Una spec del módulo de documentos de APAP_WEB. | Las specs viven en [openspec/specs/](openspec/specs/) (DOC-01..04, #56–#59). |
+| Una guía de cuándo usar el motor de plantillas. | El diseño del motor vive en [d-05-fidelidad-legacy-superset.md](architecture/decisiones/d-05-fidelidad-legacy-superset.md) y la Fase 7 del [roadmap](roadmap.md). |
+
+## Core invariants
+
+- **Reglas heredadas del legacy que aplican al modelo nuevo**: conservar borrador en `ParaFirma` como referencia (§6 columna 1); formato de subida PDF obligatorio, Word opcional (§6 columna 2); un único contrato por tipo por entidad (`TbContratosAnexos` §5); reemplazo siempre con confirmación (§6 columna 5); eliminación solo del directorio `Firmados`, nunca de `ParaFirma` (§6 columna 6).
 
 ---
 
@@ -191,3 +216,14 @@ End Function
 | `src/forms/Form_FormEntradaGestion.cls` | `ComandoAnexarContrato_Click()` |
 | `src/forms/Form_FormAcogidaGestion.cls` | `ComandoAnexarContrato_Click()` |
 | `src/forms/Form_FormAdopcionesGestion.cls` | `ComandoAnexarContrato_Click()` |
+
+## Contributor checklist
+
+- [ ] Antes de implementar DOC-01..04 (#56–#59), confirme con este doc las reglas de negocio que el motor de plantillas debe respetar.
+- [ ] Si descubre una discrepancia entre este análisis y el código VBA actual del Access, abra issue `type:bug gap:legacy` (P1, [proceso.md](proceso.md) §0).
+- [ ] Si reescribe una regla heredada del legacy en el modelo nuevo, regístrela como ADR en [d-XX-*](architecture/decisiones/) con `supersedes` sobre este doc.
+- [ ] Si implementa `AnexarContrato()` o equivalente, preserve el invariante de confirmación antes de sobrescribir un contrato existente.
+
+## Navigation
+
+Back: [to Codebase Guide](CODEBASE-GUIDE.md)
