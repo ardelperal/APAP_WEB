@@ -1,10 +1,10 @@
 # Apply Progress — PR-7 (Slice 7 TOCTOU fix)
 
-**Change**: `hardening-2026-q2`
-**Slice**: 7 — TOCTOU fix on `voluntarios` deactivate
-**Branch**: `hardening-2026-q2/slice-7-toctou` (from `staging`)
-**Target branch**: `staging` (NEVER `main`)
-**Status**: READY FOR REVIEW
+- **Change**: `hardening-2026-q2`
+- **Slice**: 7 — TOCTOU fix on `voluntarios` deactivate
+- **Branch**: `hardening-2026-q2/slice-7-toctou` (from `staging`)
+- **Target branch**: `staging` (NEVER `main`)
+- **Status**: READY FOR REVIEW
 
 ## Audit reference
 
