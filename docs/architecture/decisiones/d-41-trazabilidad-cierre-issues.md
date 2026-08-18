@@ -14,7 +14,7 @@ Ver [`proceso.md`](../proceso.md) §6.3 y la regla global `github-issue-closure-
 
 - Cerrar issue = SHA(s) + test path + PR ref.
 - Verificable con `git merge-base --is-ancestor`.
-- Sin trazabilidad = issue NO cerrada.
+- Sin trazabilidad = issue no cerrada.
 
 ## Problem statement
 
