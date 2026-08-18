@@ -9,7 +9,7 @@ Esta página posee la trazabilidad entre docs operativas, specs OpenSpec y códi
 - **Single source of truth por concepto**: una regla vive en `AGENTS.md`, un contrato de stack en [Arquitectura InsForge](../architecture/architecture-insforge-stack.md), un playbook operativo en [proceso.md](../proceso.md); las radiales referencian, no duplican.
 - **P3 docs reflejan código**: si divergen, gana el código y la doc se actualiza en la misma sesión ([proceso.md](../proceso.md)).
 - **Trazabilidad por SHA**: cada cierre de issue cita commit SHA y path de test (AGENTS §16).
-- **Decisiones registradas**: las divergencias con el legacy van en [decisiones-proyecto](../decisiones-proyecto.md) con fecha, autor y motivo.
+- **Decisiones registradas**: las divergencias con el legacy van en [decisiones-proyecto](../architecture/decisiones-proyecto.md) con fecha, autor y motivo.
 
 ## Docs ↔ reglas ↔ código
 
@@ -28,7 +28,7 @@ Esta página posee la trazabilidad entre docs operativas, specs OpenSpec y códi
 | [Arquitectura InsForge](../architecture/architecture-insforge-stack.md) | Contrato de stack y target de despliegue | — | Vive, contract de infra |
 | [`docs/proceso.md`](../proceso.md) | Playbook operativo de una issue, open → closed | AGENTS §16 | Vive, contract de mantenedor |
 | [`docs/roadmap.md`](../roadmap.md) | Fases del producto, estado actual | — | Vive, contract de scope |
-| [`docs/decisiones-proyecto.md`](../decisiones-proyecto.md) | Divergencias con el legacy y motivos | P1 en [proceso.md](../proceso.md) | Vive |
+| [`docs/architecture/decisiones-proyecto.md`](../architecture/decisiones-proyecto.md) | Divergencias con el legacy y motivos | P1 en [proceso.md](../proceso.md) | Vive |
 | [`docs/discovery/`](../discovery/) | Decisiones de discovery por feature | P2 en [proceso.md](../proceso.md) | Vive |
 | [`docs/legacy-*`](../legacy-volunteer-roles.md) | Documentación específica del legacy por área | P2 en [proceso.md](../proceso.md) | Vive |
 | [`docs/audits/`](../audits/) | Un doc por slice sensible (auth, secretos, PII, etc.) | AGENTS §12 | Vive, contract de seguridad |
@@ -54,7 +54,7 @@ Los cambios SDD activos viven en [`openspec/changes/`](../../openspec/changes/);
 - [ ] Si actualiza una regla de [AGENTS.md](../../AGENTS.md), refresque la entrada correspondiente en este radial en la misma sesión.
 - [ ] Si crea o cierra una issue, cite en el comentario de cierre el SHA del commit y el path de test (AGENTS §16).
 - [ ] Si abre un change SDD, agregue una entrada en la tabla «OpenSpec ↔ código» apenas el slice aterrice en `main`.
-- [ ] Si descubre una divergencia con el legacy, regístrela en [decisiones-proyecto](../decisiones-proyecto.md) con fecha y motivo.
+- [ ] Si descubre una divergencia con el legacy, regístrela en [decisiones-proyecto](../architecture/decisiones-proyecto.md) con fecha y motivo.
 - [ ] Si una doc operativa (proceso, roadmap, audits, runbooks) cambia, refresque esta radial en la misma sesión.
 
 ## Navigation

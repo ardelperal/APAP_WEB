@@ -1,10 +1,8 @@
 # APAP Application Architecture Stack
 
-[Back to Codebase Guide](../CODEBASE-GUIDE.md)
+[← Back to Codebase Guide](../CODEBASE-GUIDE.md)
 
-This document is the baseline architecture for the future APAP application. It exists so a future AI or developer can start implementation without rediscovering the stack decisions already made. It does **not** own the layer boundaries or the slice migration under `app/core/` — that is [`docs/codebase/architecture.md`](../codebase/architecture.md) — nor the operational rules in [AGENTS.md](../../AGENTS.md). The contract of infra lives here; the contract of code lives there.
-
-## Architecture decision
+## Decision
 
 Build the application as a small internal web app using a server-rendered backend with HTMX, while using InsForge as the managed platform for data and infrastructure.
 
@@ -30,6 +28,62 @@ InsForge
   - Realtime, only if a feature needs it
 ```
 
+## Quick path
+
+- Frontend: HTMX 2.0.4 + Jinja2 + Tailwind 4.3 (server-rendered, no SPA).
+- Backend: FastAPI 0.136.x with Pydantic 2.13.x, served by Uvicorn 0.49.x.
+- Data: InsForge (PostgreSQL + Auth + Storage + Functions + Realtime).
+- Deploy: Coolify on the VPS, webhook on push to `main`.
+- Auth: Google OAuth via InsForge + allowlist in `authorized_users`.
+
+If a stack component must change, fill the "When this changes" section first.
+
+## Problem statement
+
+The team needs an internal web app for a small number of users (volunteers, key users) to manage the APAP refuge operations. The app must:
+
+- cover CRUD/backoffice workflows without SEO or public-facing concerns;
+- keep business rules and authorization server-side, never in the browser;
+- delegate infrastructure (PostgreSQL, Auth, Storage) to a managed backend to avoid ops overhead;
+- survive the migration from the Access/VBA legacy while preserving 100% of legacy functionality (see [`decisiones-proyecto.md`](decisiones-proyecto.md) D-05).
+
+Without a fixed stack, contributors introduce new technologies PR-by-PR, fragmenting the codebase and slowing onboarding. The team is small and cannot absorb per-PR stack decisions.
+
+## Evidence and scope
+
+| Evidence | Location |
+|---|---|
+| Pinned backend versions | [`pyproject.toml`](../../pyproject.toml) — FastAPI 0.136.x, Pydantic 2.13.x, HTTPX 0.28.x, python-multipart 0.0.32 |
+| ASGI server | [`pyproject.toml`](../../pyproject.toml) — Uvicorn 0.49.x |
+| InsForge client | [`app/core/insforge.py`](../../app/core/insforge.py) — Python HTTP client, no `@insforge/sdk` TS |
+| Tailwind v4 setup | [`tailwindcss/`](../../tailwindcss/) — CSS-first config, no `tailwind.config.js` |
+| Dockerfile for deploy | [`Dockerfile`](../../Dockerfile) — production image |
+| Coolify app | `apap-web` on the VPS — deploys from `ardelperal/APAP_WEB:main` |
+| InsForge usage | application code via SDK or REST; MCP tools only for infra |
+| Allowlist table | `authorized_users` table (PostgreSQL on InsForge) |
+| Architecture decision | [`decisiones-proyecto.md` D-20](decisiones/d-20-stack-fastapi-htmx-insforge.md) |
+
+## Options considered
+
+| Area | Option | Pros | Cons | Decision |
+|---|---|---|---|---|
+| Frontend approach | HTMX over SPA | Small user count, no SEO, mostly CRUD. No JS state duplication. | No rich client-side state by default. | accepted |
+| Frontend approach | React / Next.js SPA | Rich interactivity, mature ecosystem. | Doubles stack (TS + Python); no need for current audience. | rejected |
+| Backend framework | FastAPI | Async-native, type hints, Pydantic ecosystem. | Younger than Django. | accepted |
+| Backend framework | Django + DRF | Mature, batteries included. | ORM-heavy; less flexible for BaaS. | rejected |
+| Templates | Jinja2 | Server-rendered, no JS UI duplication. | Less interactive than SPA. | accepted |
+| Data validation | Pydantic 2 | Schema validation, settings management. | Couples app code to Pydantic types. | accepted |
+| HTTP client | HTTPX | Async, used for InsForge REST calls. | None material. | accepted |
+| Styling | Tailwind CSS v4 | CSS-first, fast compile, design tokens. | Requires Node CLI in build pipeline. | accepted |
+| Hosting | Coolify on VPS | Self-hosted, simple webhook on `main`. | Single VPS dependency. | accepted |
+| Hosting | Vercel + managed Postgres | Quick deploys. | Vendor lock-in; per-request pricing. | rejected |
+| BaaS | InsForge | Postgres + Auth + Storage in one. | Vendor lock-in to one BaaS. | accepted |
+| BaaS | Supabase | Same shape, larger community. | Different cost model; no team requirement to switch. | rejected |
+| Attachments | InsForge Storage + metadata in Postgres | Traceability, permissions, retention. | Two services to coordinate. | accepted |
+| Attachments | Files in Postgres bytea | Simpler. | Bloats DB; no CDN; bad for large files. | rejected |
+| Auth | Google OAuth via InsForge + allowlist | No password storage; small user list. | Requires Google account; allowlist management. | accepted |
+| Auth | Email + password in Postgres | Self-contained. | Password management overhead; breach risk. | rejected |
+
 ## Stack
 
 | Area | Decision | Version | Notes |
@@ -48,11 +102,38 @@ InsForge
 | Data model | Redesign allowed | - | Do not inherit legacy schema debt if a cleaner model is needed. |
 | Legacy compatibility | DAO migration/adaptation required | - | Any data-model redesign must include a migration path for the current DAOs. |
 
+## Goals
+
+- A single pinned stack with no per-PR technology choices.
+- InsForge absorbs infra (Postgres, Auth, Storage) — the team does not operate a Postgres.
+- Server-rendered UI with progressive interactivity via HTMX.
+- Two-layer security: OAuth (InsForge) + allowlist (FastAPI).
+- All AI / OpenRouter integrations routed through FastAPI; no privileged keys reach the browser.
+- Attachment binaries in InsForge Storage; metadata in PostgreSQL.
+
+## Non-goals
+
+- Build a React / Next.js SPA by default.
+- Store attachment binaries in PostgreSQL by default.
+- Expose privileged InsForge keys to the browser.
+- Inherit legacy data-model debt only for convenience.
+- Use InsForge MCP tools as application runtime code.
+
+## Non-negotiable invariants
+
+- **Stack change requires documented trade-off**: HTMX 2.0.4, FastAPI 0.136.x, Pydantic 2.13.x, Tailwind 4.3.x, and InsForge are the baseline. Replacing one requires an issue with the "When this changes" section filled in.
+- **InsForge SDK or REST from the app, MCP only from infra**: application code calls the Python SDK or the REST APIs of InsForge; MCP tools (`run-raw-sql`, `create-bucket`, `create-function`, etc.) are for schema, bucket and function setup. Mixing both breaks the boundary of who touches what.
+- **Allowlist authorization, not implicit roles**: the `authorized_users` table is the single source of truth for access. OAuth decides who you are; the allowlist decides who is let in.
+- **Coolify + Dockerfile for deploy**: the web app is served via Coolify from `ardelperal/APAP_WEB:main`. Hardcoding InsForge credentials in the repo or skipping Coolify for an ad-hoc deploy is forbidden.
+- **Attachments in Storage, metadata in PostgreSQL**: binaries live in InsForge Storage buckets; PostgreSQL only stores `owner_type`, `bucket`, `storage_path`, metadata and status. The storage path is never the source of truth.
+- **Model design first, legacy inheritance second**: when the legacy model drags technical debt, it is redesigned; every incompatible change comes with a DAO migration plan documented in [`decisiones-proyecto.md`](decisiones-proyecto.md).
+- **OpenRouter and API keys server-side only**: no privileged key reaches the browser. Every AI integration passes through FastAPI.
+
 ## Branch and deployment policy
 
 `main` remains the production branch for APAP_WEB. GitHub uses `main` as the default branch, and the Coolify `apap-web` application is configured to deploy from `ardelperal/APAP_WEB:main`.
 
-Normal implementation work targets `staging`. CI runs on PRs/pushes to both `staging` and `main`; the production deploy trigger remains guarded on pushes to `main`. The full UAT-gated staging channel is still future CD-03 scope.
+Normal implementation work targets `main` directly (see [`decisiones-proyecto.md` D-30](decisiones/d-30-pre-mvp-single-branch.md)). CI runs on PRs/pushes to `main`; the production deploy trigger remains guarded on pushes to `main`. The full UAT-gated staging channel is still future D-CD-03 scope.
 
 ## InsForge usage rules
 
@@ -160,8 +241,8 @@ FastAPI is the application boundary. It should own:
 
 The application uses a two-layer security model:
 
-1. **Authentication** (who are you): Google OAuth via InsForge
-2. **Authorization** (are you allowed): allowlist-based check in FastAPI
+1. **Authentication** (who are you): Google OAuth via InsForge.
+2. **Authorization** (are you allowed): allowlist-based check in FastAPI.
 
 Only authorized personnel can access the application. Unauthorized users see a friendly "access denied" page.
 
@@ -200,29 +281,29 @@ Key user access (normal app)
 
 FastAPI middleware checks authorization on every request:
 
-1. Extract user email from InsForge JWT token
-2. Query `authorized_users` table
-3. If email found → allow request, attach role to request state
-4. If email not found → redirect to `/unauthorized`
+1. Extract user email from InsForge JWT token.
+2. Query `authorized_users` table.
+3. If email found → allow request, attach role to request state.
+4. If email not found → redirect to `/unauthorized`.
 
 ### Admin panel (developer only)
 
 A protected section of the app where the developer can:
 
-- List all authorized users
-- Add a new user (email + role)
-- Remove a user
-- View audit log of who added whom
+- list all authorized users;
+- add a new user (email + role);
+- remove a user;
+- view audit log of who added whom.
 
 Only accessible when `role = developer`. Key users see no trace of this panel.
 
 ### Implementation notes
 
-- Do not store passwords; rely entirely on Google OAuth via InsForge
-- The `authorized_users` table is the single source of truth for access control
-- InsForge handles session tokens, refresh, and OAuth flow
-- FastAPI only checks the email against the allowlist after OAuth succeeds
-- The `/unauthorized` page should be helpful: explain that access requires authorization and provide contact info for the developer
+- Do not store passwords; rely entirely on Google OAuth via InsForge.
+- The `authorized_users` table is the single source of truth for access control.
+- InsForge handles session tokens, refresh, and OAuth flow.
+- FastAPI only checks the email against the allowlist after OAuth succeeds.
+- The `/unauthorized` page should be helpful: explain that access requires authorization and provide contact info for the developer.
 
 ## Tailwind CSS v4 setup
 
@@ -243,9 +324,10 @@ project/
 ```
 
 Development workflow:
-- `npm install -D tailwindcss @tailwindcss/cli` in `tailwindcss/` folder
-- `npx @tailwindcss/cli -i ./styles/app.css -o ../app/static/css/output.css --watch`
-- FastAPI serves `app/static/` as mounted static files
+
+- `npm install -D tailwindcss @tailwindcss/cli` in `tailwindcss/` folder.
+- `npx @tailwindcss/cli -i ./styles/app.css -o ../app/static/css/output.css --watch`.
+- FastAPI serves `app/static/` as mounted static files.
 
 Production: compile CSS during Docker build, serve the minified output.
 
@@ -329,9 +411,32 @@ PostgreSQL should store attachment metadata, for example:
 
 Do not treat storage paths as the only source of truth. The metadata table is required for traceability, permissions, retention, and migration.
 
-## When to choose another stack
+## Consequences
 
-Do not switch stacks lightly. Prefer the baseline unless one of these becomes true:
+### What changes by adopting this stack
+
+- A single pinned stack with no per-PR technology choices (see `pyproject.toml`).
+- InsForge absorbs infra; the team does not operate its own Postgres.
+- Authorization is two-layer (OAuth + allowlist); passwords are never stored.
+- Attachment binaries go to InsForge Storage; metadata stays in Postgres.
+- Deploys run via Coolify from `ardelperal/APAP_WEB:main`; credentials live in Coolify env vars, never in the repo.
+
+### What does not change
+
+- The Access/VBA legacy remains the source of truth during the migration (see [`decisiones-proyecto.md` D-05](decisiones/d-05-fidelidad-legacy-superset.md)).
+- The pre-MVP single-branch workflow stays in place (see [`decisiones-proyecto.md` D-30](decisiones/d-30-pre-mvp-single-branch.md)).
+- The team continues to be small; per-PR technology introductions remain discouraged.
+
+### Operational consequences
+
+- [`pyproject.toml`](../../pyproject.toml) is pinned; updates require explicit PRs.
+- Coolify is the deploy boundary; no ad-hoc deploys.
+- Each PR adding an InsForge endpoint must use the SDK or REST APIs (no MCP tools at runtime).
+- New tables in Postgres come with a DAO migration plan if they diverge from legacy.
+
+## When this changes
+
+Do not switch stacks lightly. The baseline holds unless one of the following becomes true:
 
 - the UI requires heavy client-side state or complex real-time interactions;
 - offline-first behavior becomes required;
@@ -339,7 +444,14 @@ Do not switch stacks lightly. Prefer the baseline unless one of these becomes tr
 - the team strongly standardizes on another backend framework;
 - InsForge constraints prevent a critical domain requirement.
 
-If one of those happens, document the tradeoff before changing the stack.
+If one of those happens, document the trade-off before changing the stack. Specifically:
+
+- **Frontend SPA adoption**: open D-STACK-02 with the interactivity cases that HTMX cannot cover.
+- **Backend framework swap**: open D-STACK-03 with benchmarks and migration cost.
+- **InsForge exit**: open D-STACK-04 with the replacement BaaS and data migration plan.
+- **Public-facing + SEO**: open D-STACK-05 with the public URL strategy and SEO requirements.
+
+Any swap must update this ADR or supersede it with a successor.
 
 ## Implementation checklist for a future AI
 
@@ -359,34 +471,16 @@ If one of those happens, document the tradeoff before changing the stack.
 - [ ] Deploy the FastAPI/HTMX application through Coolify on the VPS.
 - [ ] Configure InsForge and OpenRouter secrets as Coolify environment variables.
 
-## Non-goals
-
-- Do not build a React/Next.js SPA by default.
-- Do not store attachment binaries in PostgreSQL by default.
-- Do not expose privileged InsForge keys to the browser.
-- Do not inherit legacy data-model debt only for convenience.
-- Do not use InsForge MCP tools as application runtime code.
-
-## Core invariants
-
-- **Stack no se cambia sin trade-off documentado**: HTMX 2.0.4, FastAPI 0.136.x, Pydantic 2.13.x, Tailwind 4.3.x e InsForge son el baseline. Sustituir uno requiere issue con la sección "When to choose another stack" cumplimentada.
-- **InsForge SDK o REST desde la app, MCP solo desde infra**: el código de aplicación llama al SDK Python o a las REST APIs de InsForge; las MCP tools (`run-raw-sql`, `create-bucket`, `create-function`, etc.) son para setup de schema, buckets y funciones. Mezclar ambos rompe la frontera de quién toca qué.
-- **Autorización por allowlist, no por roles implícitos**: la tabla `authorized_users` es la única fuente de verdad para acceso. OAuth decide quién es; la allowlist decide a quién se le deja entrar.
-- **Coolify + Dockerfile para deploy**: la webapp se sirve vía Coolify desde `ardelperal/APAP_WEB:main`. Hardcodear credenciales InsForge en el repo o saltarse Coolify para un deploy ad-hoc está prohibido.
-- **Adjuntos en Storage, metadatos en PostgreSQL**: los binarios viven en buckets InsForge Storage; PostgreSQL solo guarda `owner_type`, `bucket`, `storage_path`, metadatos y estado. La ruta de storage nunca es la fuente de verdad.
-- **Diseño de modelo primero, herencia legacy después**: cuando el modelo legacy arrastra deuda técnica, se rediseña; cualquier cambio incompatible viene con plan de migración DAO documentado en `decisiones-proyecto.md`.
-- **OpenRouter y claves de API solo en el servidor**: ninguna clave privilegiada llega al navegador. Toda integración de IA pasa por FastAPI.
-
 ## Contributor checklist
 
-- [ ] Si modifica una versión pinneada del stack, actualizar la fila correspondiente en la tabla "Stack" y verificar que el lockfile (`uv.lock`, `package-lock.json`) refleja el cambio.
-- [ ] Si añade un endpoint que toca InsForge, llamar al SDK Python o a la REST API; no añadir herramientas MCP como dependencias de runtime en `pyproject.toml`.
-- [ ] Si añade una tabla nueva, migrar primero el modelo y luego añadir el mapeo DAO si hay deuda legacy que preservar; documentar en `decisiones-proyecto.md` cualquier divergencia.
-- [ ] Si añade una columna a `authorized_users`, mantener `email` único y actualizar la vista admin antes de mergear.
-- [ ] Si añade un bucket InsForge, declarar también la tabla de metadatos correspondiente y los hooks de upload/download que la usan.
-- [ ] Si introduce una clave de API o secreto, configurarla como variable de entorno en Coolify; nunca commitear `.env*` con valores reales.
-- [ ] Si propone reemplazar FastAPI, HTMX, Tailwind o InsForge, abrir issue con la sección "When to choose another stack" rellenada antes de tocar `pyproject.toml`.
+- [ ] If you change a pinned stack version, update the corresponding row in the "Stack" table and verify that the lockfile (`uv.lock`, `package-lock.json`) reflects the change.
+- [ ] If you add an endpoint that touches InsForge, call the Python SDK or the REST API; do not add MCP tools as runtime dependencies in `pyproject.toml`.
+- [ ] If you add a new table, migrate the model first and then add the DAO mapping if there is legacy debt to preserve; document any divergence in [`decisiones-proyecto.md`](decisiones-proyecto.md).
+- [ ] If you add a column to `authorized_users`, keep `email` unique and update the admin view before merging.
+- [ ] If you add an InsForge bucket, also declare the metadata table and the upload/download hooks that use it.
+- [ ] If you introduce an API key or secret, configure it as a Coolify environment variable; never commit `.env*` with real values.
+- [ ] If you propose replacing FastAPI, HTMX, Tailwind, or InsForge, open an issue with the "When this changes" section filled in before touching `pyproject.toml`.
 
 ## Navigation
 
-Previous: [Mental model](../codebase/mental-model.md) | Next: [Design tokens APAP actual](../design-tokens-apap-actual.md)
+Previous: [Codebase Guide](../CODEBASE-GUIDE.md) | Next: [Capas y slices](capas-y-slices.md)

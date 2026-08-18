@@ -71,7 +71,7 @@ The CD-03, ENV-01, CD-04, UAT, E2E, mobile E2E, and worker items remain unchecke
 | `openspec/changes/ci-cd-foundation/apply-progress.md` | Rewritten | Replaced stale 10/31 status with current archive-blocker status. |
 | `docs/development.md` | Updated | Scoped branch/deploy wording to current `staging` normal-work policy and `main` production trigger. |
 | `.github/branch-protection.md` | Updated | Scoped branch-protection instructions to the active protected branch policy instead of `main` only. |
-| `docs/architecture-insforge-stack.md` | Updated | Scoped branch/deploy policy to current `staging` normal-work and `main` production split. |
+| `docs/architecture/architecture-insforge-stack.md` | Updated | Scoped branch/deploy policy to current `staging` normal-work and `main` production split. |
 | `docs/roadmap.md` | Updated | Replaced stale pre-MVC main-only workflow wording with current staging-first policy. |
 
 ## Status

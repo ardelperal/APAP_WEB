@@ -65,7 +65,7 @@ El backend de datos es **InsForge** (PostgreSQL + auth + storage). Este proyecto
 
 El proyecto descansa sobre cuatro premisas no negociables. El detalle vive en los docs enlazados; esta sección enuncia el bullet para que la regla sea difícil de pasar por alto.
 
-- **P1 — Fidelidad al legacy Access/VBA.** Toda capacidad legacy se conserva o se reemplaza por un equivalente documentado en [`docs/decisiones-proyecto.md`](docs/decisiones-proyecto.md). Una brecha descubierta abre un issue `type:bug gap:legacy`.
+- **P1 — Fidelidad al legacy Access/VBA.** Toda capacidad legacy se conserva o se reemplaza por un equivalente documentado en [`docs/architecture/decisiones-proyecto.md`](docs/architecture/decisiones-proyecto.md). Una brecha descubierta abre un issue `type:bug gap:legacy`.
 - **P2 — Escalera de duda de dominio.** Discovery doc → decisiones-proyecto → legacy-* → Dysflow MCP sobre el binario Access. Solo `vba-access` y `access-vba-tdd` están permitidos para trabajo Access en APAP_WEB.
 - **P3 — Los documentos reflejan el código.** Cuando código y doc diverjan, gana el código y la doc se actualiza en la misma sesión.
 - **P4 — Pre-MVP single-branch.** Todo el trabajo aterriza en `main` directamente; `staging` se reactiva solo por declaración explícita del usuario (ver [docs/codebase/merge-workflow.md](docs/codebase/merge-workflow.md) §15.4).
@@ -105,7 +105,7 @@ Las 33 reglas de AGENTS (numeradas §1-§33) viven ahora en `docs/codebase/`. Es
 | Mapa de ownership por paquete | [`docs/codebase/repository-map.md`](docs/codebase/repository-map.md) | Qué paquete posee qué; dónde va código nuevo. |
 | Playbook operativo por issue | [`docs/proceso.md`](docs/proceso.md) | Workflow de open a closed con evidencia (P1-P4). |
 | Roadmap | [`docs/roadmap.md`](docs/roadmap.md) | Fases del producto y estado actual. |
-| Decisiones de proyecto | [`docs/decisiones-proyecto.md`](docs/decisiones-proyecto.md) | Divergencias formales con el legacy. |
+| Decisiones de proyecto | [`docs/architecture/decisiones-proyecto.md`](docs/architecture/decisiones-proyecto.md) | Divergencias formales con el legacy. |
 | Auditorías | [`docs/audits/`](docs/audits/) | Un documento por slice sensible. |
 | Runbooks | [`docs/runbooks/`](docs/runbooks/) | Procedimientos que exigen acción del operador. |
 | Hardening del arnés de calidad | [`docs/quality/hardening-roadmap.md`](docs/quality/hardening-roadmap.md) | Estado de los gates automáticos. |

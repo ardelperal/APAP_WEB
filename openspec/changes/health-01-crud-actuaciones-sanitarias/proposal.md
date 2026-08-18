@@ -26,7 +26,7 @@ El módulo soporta el flujo operativo real del refugio (vacunación, desparasita
 - 3 templates: `sanidad/list.html`, `sanidad/form.html` (compartido create/edit), `sanidad/detail.html`.
 - Nav link "Actuaciones" en `app/templates/base.html` (mobile + desktop).
 - Tests TDD: 25 atoms service + 14 atoms routes = 39 atoms nuevos.
-- Definición formal de **D-24** en `docs/decisiones-proyecto.md` (ver D-HEALTH-02).
+- Definición formal de **D-24** en `docs/architecture/decisiones-proyecto.md` (ver D-HEALTH-02).
 - `log_safe` para eventos `sanidad.created|updated|deleted` con campos no sensibles.
 - Actualizar `docs/roadmap.md` y cerrar #50 con SHA + trazabilidad.
 
@@ -125,7 +125,7 @@ Placeholders:
 - **Legacy:** `TbActuacionSanitaria` — volumetría esperada: ~5-10 actuaciones por animal × ~200 animales/año ≈ 1000-2000 filas/año.
 - **P1 (fidelidad al legacy):** superset funcional. El schema cubre los campos del legacy + FK estructurada a `catalogos_pruebas` (mejora justificada — el legacy guardaba el tipo como free-text).
 - **Decisiones de proyecto afectadas:** D-05 (fidelidad legacy), D-04 (paridad de campos), D-31 (workflow VBA via Dysflow).
-- **Decisión formalizada:** **D-24** (regla de validación de fechas, antes solo referenciada en roadmap.md — ahora operativa en `docs/decisiones-proyecto.md`).
+- **Decisión formalizada:** **D-24** (regla de validación de fechas, antes solo referenciada en roadmap.md — ahora operativa en `docs/architecture/decisiones-proyecto.md`).
 - **Decisiones nuevas introducidas:** D-HEALTH-01 (FK a catalogos_pruebas), D-HEALTH-02 (D-24 formal), D-HEALTH-03 (soft-delete), D-HEALTH-04 (search por animal), D-HEALTH-05 (CTE TOCTOU).
 
 ## Riesgos

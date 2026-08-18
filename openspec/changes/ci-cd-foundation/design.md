@@ -4,7 +4,7 @@
 
 Implement the delivery pipeline in three layers. Historical planning assumed chained PRs landing on `main` while APAP-WEB was pre-MVC; current repository policy uses `staging` for normal work, while production deployment remains guarded on `main`:
 
-1. **Local test surface (CI-01)** — ship `pyproject.toml` with `pytest` + `ruff` config, a `Makefile` entry point, and `docs/development.md`. The deprecation-as-error flag (`filterwarnings = ["error::DeprecationWarning"]`) is set in `pyproject.toml` per `docs/architecture-insforge-stack.md § CI/CD Quality Gate`.
+1. **Local test surface (CI-01)** — ship `pyproject.toml` with `pytest` + `ruff` config, a `Makefile` entry point, and `docs/development.md`. The deprecation-as-error flag (`filterwarnings = ["error::DeprecationWarning"]`) is set in `pyproject.toml` per `docs/architecture/architecture-insforge-stack.md § CI/CD Quality Gate`.
 2. **GitHub Actions CI (CI-02)** — a single workflow file `.github/workflows/ci.yml` with `lint`, `test`, `build`, and E2E hook coverage. CI runs on `main` and `staging`; branch-protection evidence is operator-owned.
 3. **CD pipeline (CD-01)** — a `deploy` job in the same workflow gated on `push: main` and `needs: [lint, test, build]`. The job fires the Coolify webhook using `COOLIFY_WEBHOOK_URL`.
 
@@ -110,7 +110,7 @@ This change is infrastructure; it does not produce application logic. The TDD cy
 | **Workflow file validity** | The YAML parses and the jobs are reachable | GitHub Actions parses the file on push; a syntax error fails the run before any job starts |
 | **Lint self-check** | The CI workflow reports potential hardcoded secrets | A diagnostic grep in CI reports suspicious workflow strings without blocking v1 |
 | **Dry-run deploy** | The `deploy` job's commands do not error in a dry-run mode | First merge to `main` after this change lands is a dry-run; success criterion is job exits zero |
-| **Downstream TDD readiness** | Future application PRs can land strict-TDD tests | The CI workflow's `pytest -W error::DeprecationWarning` config is documented and matches `docs/architecture-insforge-stack.md § Web Strict TDD Policy` |
+| **Downstream TDD readiness** | Future application PRs can land strict-TDD tests | The CI workflow's `pytest -W error::DeprecationWarning` config is documented and matches `docs/architecture/architecture-insforge-stack.md § Web Strict TDD Policy` |
 
 E2E coverage was originally out of scope for this foundation change. The workflow now has an explicit E2E job/hook, but this change still does not claim completion of the broader E2E ticket set listed under Future work.
 

@@ -132,7 +132,7 @@ Objetivo: login real con Google OAuth vía InsForge y allowlist de correos autor
 
 en verde — Cerrada. Issue **#16** mergeada en `main` como `1d22349`. Login con Google OAuth (PKCE nativo contra InsForge), tabla `usuarios_autorizados` con seed bootstrap, middleware de allowlist, panel `/admin` para developers. Pendiente solo el primer deploy real cuando el DNS esté resuelto.
 
-Documentación de referencia: [`docs/architecture/architecture-insforge-stack.md`](architecture/architecture-insforge-stack.md) § "Authentication and authorization", [`docs/decisiones-proyecto.md`](decisiones-proyecto.md) § D-01, D-03, D-20, D-40.
+Documentación de referencia: [`docs/architecture/architecture-insforge-stack.md`](architecture/architecture-insforge-stack.md) § "Authentication and authorization", [`docs/architecture/decisiones-proyecto.md`](architecture/decisiones-proyecto.md) § D-01, D-03, D-20, D-40.
 
 ### Fase 3 — Modelo de dominio limpio (Animal + Volunteer + anexos)
 
@@ -140,7 +140,7 @@ Objetivo: tablas `animals`, `volunteers`, `authorized_users` y la tabla mínima 
 
 en curso — `usuarios_autorizados` en verde (#25). `animals`, `volunteers`, `volunteer_roles` en verde (#26). Pendiente: `animal_event_log` (Fase 4 con CRUD) y `attachments` (Fase 7 con bucket de Storage). Bloquea Fases 4–7.
 
-Documentación de referencia: [`docs/architecture/architecture-insforge-stack.md`](architecture/architecture-insforge-stack.md) § "Data model policy", [`docs/discovery/data-model-notes.md`](discovery/data-model-notes.md), [`docs/discovery/data-model-completeness.md`](discovery/data-model-completeness.md), [`docs/decisiones-proyecto.md`](decisiones-proyecto.md) § D-04 (paridad de campos), D-05 (fidelidad al legacy).
+Documentación de referencia: [`docs/architecture/architecture-insforge-stack.md`](architecture/architecture-insforge-stack.md) § "Data model policy", [`docs/discovery/data-model-notes.md`](discovery/data-model-notes.md), [`docs/discovery/data-model-completeness.md`](discovery/data-model-completeness.md), [`docs/architecture/decisiones-proyecto.md`](architecture/decisiones-proyecto.md) § D-04 (paridad de campos), D-05 (fidelidad al legacy).
 
 ### Fase 4 — Entidad Animal (Feature 01)
 
@@ -148,7 +148,7 @@ Objetivo: CRUD de animales, búsqueda parametrizada, timeline de eventos y motor
 
 pendiente — pendiente de crear issue. Depende de Fase 3.
 
-Documentación de referencia: [`docs/discovery/feature-01-animal-lifecycle.md`](discovery/feature-01-animal-lifecycle.md), [`docs/decisiones-proyecto.md`](decisiones-proyecto.md) § "Timeline del animal" / "Ficha del animal: inspiración legacy" / "Propuesta automática de transición".
+Documentación de referencia: [`docs/discovery/feature-01-animal-lifecycle.md`](discovery/feature-01-animal-lifecycle.md), [`docs/architecture/decisiones-proyecto.md`](architecture/decisiones-proyecto.md) § "Timeline del animal" / "Ficha del animal: inspiración legacy" / "Propuesta automática de transición".
 
 ### Fase 5 — Voluntarios + Entradas + Acogidas + Adopciones (Feature 02)
 
@@ -156,7 +156,7 @@ Objetivo: flujos operativos centrales con asistentes por pasos y snapshots hist�
 
 en curso — Fases 5a INTAKE y 5b FOSTER cerradas; Fases 5c ADOPT y 5d VOL en curso. Próximos slices abiertos: VOL-02..05 (#35–#38), ADOPT-03 (#49), FOSTER-04 (#46, atomicidad `record_override` ↔ `create_acogida`).
 
-Documentación de referencia: [`docs/discovery/feature-02-intake-foster-adoption.md`](discovery/feature-02-intake-foster-adoption.md), [`docs/decisiones-proyecto.md`](decisiones-proyecto.md) § D-03 (dominio centrado en Animal), D-05 (fidelidad al legacy), [`docs/legacy-volunteer-roles.md`](legacy-volunteer-roles.md), [`docs/legacy-lifecycle-transition-rules.md`](legacy-lifecycle-transition-rules.md).
+Documentación de referencia: [`docs/discovery/feature-02-intake-foster-adoption.md`](discovery/feature-02-intake-foster-adoption.md), [`docs/architecture/decisiones-proyecto.md`](architecture/decisiones-proyecto.md) § D-03 (dominio centrado en Animal), D-05 (fidelidad al legacy), [`docs/legacy-volunteer-roles.md`](legacy-volunteer-roles.md), [`docs/legacy-lifecycle-transition-rules.md`](legacy-lifecycle-transition-rules.md).
 
 ### Fase 6 — Salud, Terapias e Inventario de Material (Feature 03)
 
@@ -164,7 +164,7 @@ Objetivo: registro sanitario con periodicidad, terapias con recomendaciones, inv
 
 pendiente — pendiente de crear issues (uno por sub-flujo). Depende de Fases 3–4. Próximos: HEALTH-02..06 (#51–#55).
 
-Documentación de referencia: [`docs/discovery/feature-03-health-care.md`](discovery/feature-03-health-care.md), [`docs/legacy-health-ui-workflow.md`](legacy-health-ui-workflow.md), [`docs/decisiones-proyecto.md`](decisiones-proyecto.md) § "Pestaña Salud del animal" / "Pestaña Terapias del animal" / "Terapias: inventario de material y asignación".
+Documentación de referencia: [`docs/discovery/feature-03-health-care.md`](discovery/feature-03-health-care.md), [`docs/legacy-health-ui-workflow.md`](legacy-health-ui-workflow.md), [`docs/architecture/decisiones-proyecto.md`](architecture/decisiones-proyecto.md) § "Pestaña Salud del animal" / "Pestaña Terapias del animal" / "Terapias: inventario de material y asignación".
 
 ### Fase 7 — Documentos, Contratos, Informes y Consultas (Feature 04)
 
@@ -172,7 +172,7 @@ Objetivo: anexos, motor de plantillas documentales, los 8 tipos de contrato, mó
 
 pendiente — pendiente de crear issues (uno por sub-flujo). Depende de Fases 3–6. Próximos: DOC-01..04 (#56–#59), REPORT-01..05 (#60–#64).
 
-Documentación de referencia: [`docs/discovery/feature-04-documents-contracts-reports.md`](discovery/feature-04-documents-contracts-reports.md), [`docs/decisiones-proyecto.md`](decisiones-proyecto.md) § "Motor de plantillas documentales" / "Documentos generados como fuente de verdad" / "Organización de documentos y anexos" / "Flujo de contratos para firma y firmados" / "Consultas como módulo de primer nivel" / "Informe trimestral — alcance core", [`docs/legacy-signed-contract-flow.md`](legacy-signed-contract-flow.md).
+Documentación de referencia: [`docs/discovery/feature-04-documents-contracts-reports.md`](discovery/feature-04-documents-contracts-reports.md), [`docs/architecture/decisiones-proyecto.md`](architecture/decisiones-proyecto.md) § "Motor de plantillas documentales" / "Documentos generados como fuente de verdad" / "Organización de documentos y anexos" / "Flujo de contratos para firma y firmados" / "Consultas como módulo de primer nivel" / "Informe trimestral — alcance core", [`docs/legacy-signed-contract-flow.md`](legacy-signed-contract-flow.md).
 
 ### Fase transversal — Migración en vivo del legacy
 
@@ -199,7 +199,7 @@ Objetivo: design system reutilizable (cargando el skill `frontend-design`) y das
 | Dashboard inicial + bandeja de pendientes | pendiente | pendiente (issue por crear) |
 | Búsqueda global | pendiente | pendiente (issue por crear) |
 
-**Documentación de referencia:** [`docs/decisiones-proyecto.md`](decisiones-proyecto.md) § "Dirección visual" / "Relación con la UX legacy" / "Dashboard de pendientes y navegación" / "Búsqueda global", [`docs/design-tokens-apap-actual.md`](design-tokens-apap-actual.md), [`docs/legacy-initial-dashboard.md`](legacy-initial-dashboard.md).
+**Documentación de referencia:** [`docs/architecture/decisiones-proyecto.md`](architecture/decisiones-proyecto.md) § "Dirección visual" / "Relación con la UX legacy" / "Dashboard de pendientes y navegación" / "Búsqueda global", [`docs/design-tokens-apap-actual.md`](design-tokens-apap-actual.md), [`docs/legacy-initial-dashboard.md`](legacy-initial-dashboard.md).
 
 ### Fase transversal — Motor de tareas
 
@@ -220,7 +220,7 @@ Objetivo: eventos estructurados correlacionados, panel de control para configura
 | Traza canónica (eventos JSON correlacionados) | pendiente | pendiente (issue por crear) |
 | Panel de control / configuración | pendiente | pendiente (issue por crear) |
 
-Documentación de referencia: [`docs/decisiones-proyecto.md`](decisiones-proyecto.md) § "Traza canónica del sistema" / "Panel de control / configuración".
+Documentación de referencia: [`docs/architecture/decisiones-proyecto.md`](architecture/decisiones-proyecto.md) § "Traza canónica del sistema" / "Panel de control / configuración".
 
 ### Fase transversal — Documentación unificada en castellano
 
@@ -370,7 +370,7 @@ Reglas de uso de la documentación generada vs. el Access:
 - [`docs/discovery/acceptance-checklist.md`](discovery/acceptance-checklist.md)
 - [`docs/discovery/inventory-baseline.md`](discovery/inventory-baseline.md)
 - [`docs/discovery/dysflow-notes.md`](discovery/dysflow-notes.md)
-- [`docs/decisiones-proyecto.md`](decisiones-proyecto.md) — registro canónico de decisiones de producto (D-01–D-07), UX (D-10–D-12), arquitectura (D-20–D-21), proceso (D-30–D-38) y UAT (D-40–D-41).
+- [`docs/architecture/decisiones-proyecto.md`](architecture/decisiones-proyecto.md) — registro canónico de decisiones de producto (D-01–D-07), UX (D-10–D-12), arquitectura (D-20–D-21), proceso (D-30–D-38) y UAT (D-40–D-41).
 
 ### Arquitectura, plan y desarrollo
 
@@ -414,7 +414,7 @@ Acciones que obligan a actualizar el roadmap en la misma sesión:
 - **Cierre de una issue**: eliminar la fila de §"Issues abiertos" (o reemplazar el pendiente por en verde con SHA + PR), reflejar el cambio en §"Estado actual" si toca algo visible allí y actualizar la fase correspondiente en §"Hoja de ruta por fases".
 - **Cambio de estado de una fase** (pendiente → en curso → en verde): actualizar la fase en §"Hoja de ruta por fases" y la fecha de "Última actualización".
 - **Nueva documentación**: añadir a §"Índice de documentación" en el mismo PR.
-- **Nueva decisión de arquitectura o proceso**: añadir a `docs/decisiones-proyecto.md`; el roadmap debe enlazarla, no duplicarla.
+- **Nueva decisión de arquitectura o proceso**: añadir a `docs/architecture/decisiones-proyecto.md`; el roadmap debe enlazarla, no duplicarla.
 - **Cierre de una fase completa**: marcar en verde la fila en §"Hoja de ruta por fases", mantener el enlace al histórico (no borrar) y proponer la siguiente fase.
 - **Obsolescencia detectada**: si el doc se desactualiza respecto a `main`, abrir `docs(roadmap): refrescar hoja de ruta` y ejecutar el refresco en la misma sesión.
 - **Auditoría de enlaces de §"Índice de documentación"**: en cada refresh, verificar que cada `path/to/doc.md` referenciado existe realmente. Si no existe, marcar como **referencia rota** en la fila y/o crear el doc correspondiente en la misma PR. El checklist concreto se hace con:

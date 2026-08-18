@@ -304,7 +304,7 @@ ON CONFLICT DO NOTHING;
   spec que documenta la necesidad de la entidad voluntario.
 - ``docs/discovery/data-model-completeness.md`` -- BR1..BR4 sobre
   voluntarios (entidad propia, FK-only, no delete, dedup).
-- ``docs/decisiones-proyecto.md`` -- decisiones de producto sobre
+- ``docs/architecture/decisiones-proyecto.md`` -- decisiones de producto sobre
   voluntarios.
 - Issues #34, #82..#86 (este slice) y pendientes #35..#38, #83
   (roles junction, dedup, FK migration, validacion activa).

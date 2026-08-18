@@ -55,7 +55,7 @@ Default `'regular'` cubre el flujo común sin pedir campo extra al operador.
 
 ### D-ADOPT-02: FK a `voluntario_seguimiento_id` validada con check `activo = true`
 
-Per VOL-05 (verificado en `openspec/changes/archive/...` y en `docs/decisiones-proyecto.md`), un voluntario inactivo no debe poder ser asignado a una nueva estancia/adopción. El service hace `SELECT id FROM voluntarios WHERE id = $1 AND activo = true` antes del INSERT y rechaza con `ValueError` si no hay match.
+Per VOL-05 (verificado en `openspec/changes/archive/...` y en `docs/architecture/decisiones-proyecto.md`), un voluntario inactivo no debe poder ser asignado a una nueva estancia/adopción. El service hace `SELECT id FROM voluntarios WHERE id = $1 AND activo = true` antes del INSERT y rechaza con `ValueError` si no hay match.
 
 `voluntario_seguimiento_id` sigue siendo opcional (NULL permitida) — un operador puede registrar una adopción sin asignar voluntario de seguimiento, pero si lo asigna, debe estar activo.
 
@@ -91,7 +91,7 @@ El endpoint `/adopciones?adoptante=...` invoca esta función cuando el query par
 
 | Riesgo | Mitigación |
 |---|---|
-| `tipo_adopcion` no existe en legacy — riesgo de "novel feature" | D-ADOPT-01 lo justifica: codifica semántica de dominio que el legacy distribuía en varios campos. Documentado en `decisiones-proyecto.md`. |
+| `tipo_adopcion` no existe en legacy — riesgo de "novel feature" | D-ADOPT-01 lo justifica: codifica semántica de dominio que el legacy distribuía en varios campos. Documentado en `docs/architecture/decisiones-proyecto.md`. |
 | FK validation a `animales` + `voluntarios` añade 2 queries por create/update | Las queries son indexadas por PK (UUID), sub-ms en InsForge. Coste aceptable para garantizar integridad referencial estricta. |
 | `search_adopciones_by_adoptante` sin índice trigram puede ser lenta | Volumetría ~400/año, ILIKE sobre texto sin índice es OK. Si crece, añadir índice `pg_trgm` en `nombre_adoptante` (futuro). |
 | Soft-delete via UPDATE vs physical delete — riesgo de "filas zombie" | Patrón del proyecto (mirror `animales`, `voluntarios`, `entradas`, `casas_acogida`). `activo = false` filtra listados; physical delete prohibido. |

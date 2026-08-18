@@ -1,7 +1,7 @@
 """FastAPI application entrypoint for APAP_WEB.
 
 The application is built following the skeleton outlined in
-``docs/architecture-insforge-stack.md`` and the acceptance criteria
+``docs/architecture/architecture-insforge-stack.md`` and the acceptance criteria
 of issue #17 (Fase 1 — esqueleto) and #16 (Fase 2 — auth). It exposes:
 
 - ``GET /``              → marketing landing page (auth required)

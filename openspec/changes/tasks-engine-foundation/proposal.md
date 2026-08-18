@@ -43,7 +43,7 @@ Usar read model común + generadores por dominio. Cada fuente produce candidatos
 |---|---|---|
 | `app/main.py` | Modificado | Sustituir cards fijas por resúmenes del motor en fase apply. |
 | `app/core/` o `app/modules/tasks/` | Nuevo | Contratos y servicios de tareas. |
-| `docs/decisiones-proyecto.md` | Modificado | Registrar clasificación contadores/colas/asignables. |
+| `docs/architecture/decisiones-proyecto.md` | Modificado | Registrar clasificación contadores/colas/asignables. |
 | `openspec/specs/task-engine/spec.md` | Nuevo | Contrato SDD de la capacidad. |
 
 ## Riesgos

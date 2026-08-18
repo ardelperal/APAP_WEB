@@ -120,5 +120,5 @@ skill_resolution: paths-injected
 - [ ] 3.11.1 Crear `specs/ux-ui-foundation/spec.md` documentando el design system
   base: tokens de diseño (del legacy o nuevos), componentes reutilizables, layout
   de la navegación, estructura de templates con Jinja2+HTMX+Tailwind.
-  Origen: `docs/decisiones-proyecto.md` §D-11/D-12 + `docs/design-tokens-apap-actual.md`.
+  Origen: `docs/architecture/decisiones-proyecto.md` §D-11/D-12 + `docs/design-tokens-apap-actual.md`.
   Depende de: decisión de producto sobre si se usa Tailwind v4 o nuevo design system.

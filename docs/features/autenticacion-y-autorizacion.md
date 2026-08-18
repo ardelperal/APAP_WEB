@@ -61,7 +61,7 @@ más el panel de administración que gestiona quién puede acceder.
 | PKCE para OAuth | Nativo, sin secreto del cliente en el código | Implicit flow | El estándar para SPAs y apps sin backend confidencial; InsForge lo soporta. |
 | Lista de autorizados | Tabla propia `usuarios_autorizados` en InsForge | Reusar el usuario de Google como autorización | Permite gestión fina (roles, activar/desactivar) sin tocar Google Workspace. |
 | Modelo de roles | Enum fijo: `developer`, `admin`, `key_user`, `reader` | RBAC dinámico con tabla de permisos | Para el MVP un enum es suficiente; el RBAC dinámico es la feature RBAC-01. |
-| Nombres del schema | CamelCase Spanish, exactos del legacy | snake_case English | Consistencia con el resto de tablas de migración (TbFichaAnimal, TbVoluntarios, etc.); ver `docs/decisiones-proyecto.md` § "Migración y convivencia con legacy". |
+| Nombres del schema | CamelCase Spanish, exactos del legacy | snake_case English | Consistencia con el resto de tablas de migración (TbFichaAnimal, TbVoluntarios, etc.); ver `docs/architecture/decisiones-proyecto.md` § "Migración y convivencia con legacy". |
 | Soft-delete | Columna `activo BOOLEAN NOT NULL DEFAULT true` | DELETE físico | Preserva las FKs históricas; un usuario que tuvo rol `developer` y fue desactivado sigue apareciendo en auditoría. |
 | Identificadores | UUID PK con `gen_random_uuid()` | INT autoincrement | Permite generación client-side, no expone el orden de creación, portable entre entornos. |
 
@@ -287,5 +287,5 @@ Usuario           Browser          APAP_WEB           InsForge         Google
 - `tests/test_auth_flow.py` — flujo OAuth completo.
 - `tests/test_admin.py` — panel de administración.
 - `tests/test_lifespan.py` — bootstrap en startup.
-- `docs/decisiones-proyecto.md` — decisiones de producto sobre usuarios autorizados.
+- `docs/architecture/decisiones-proyecto.md` — decisiones de producto sobre usuarios autorizados.
 - `app/core/config.py` — `APAP_INITIAL_ADMIN_EMAIL`, `APAP_SESSION_SECRET`.

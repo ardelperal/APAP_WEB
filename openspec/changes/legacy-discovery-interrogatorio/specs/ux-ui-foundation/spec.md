@@ -10,7 +10,7 @@ navegación. Esto es prerequisite para todas las features de UI.
 
 **Ya existe:**
 - `docs/design-tokens-apap-actual.md` — tokens heredados del legacy como referencia.
-- `docs/decisiones-proyecto.md` §D-11 ("No clonar la UX del legacy") y §D-12
+- `docs/architecture/decisiones-proyecto.md` §D-11 ("No clonar la UX del legacy") y §D-12
   ("Design system reutilizable").
 - Tailwind v4 configurado en el proyecto.
 - `base.html` con layout básico de navegación.

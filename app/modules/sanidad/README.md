@@ -92,7 +92,7 @@ Legacy route → service → queries layout. SQL y parámetros viven en `app/mod
 
 - `docs/CODEBASE-GUIDE.md` — mapa general.
 - `docs/audits/health-data-crud-audit-2026-Q3.md` — auditoría CRUD sanidad/salud.
-- `docs/decisiones-proyecto.md` — D-24 y D-HEALTH-01..05.
+- `docs/architecture/decisiones-proyecto.md` — D-24 y D-HEALTH-01..05.
 - AGENTS.md §1 (rutas sin SQL), §9 (log_safe), §11 (CRITICAL_HELPERS), §21 (presupuesto 700 líneas), §22 (seam SQL/service), §23 (E2E).
 
 ## Verification checklist

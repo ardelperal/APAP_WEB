@@ -36,7 +36,7 @@ The `cesiones` slice owns the `cesiones_propietario` table (legacy `TbCesionPorP
 
 The `contratos` row carries the polymorphic FK to `cesion_id`; the other entity FKs (`entrada_id`, `acogida_id`, `adopcion_id`) stay NULL per the `contratos_exactly_one_entity` CHECK. The contract type is resolved from `catalogos_tipos_contrato` by `codigo = 'Cesión'` (iniciales `'CP'`) so the create call is self-contained.
 
-The P1 fidelity deviation `nombre_representante NOT NULL` (legacy `required=False`) is recorded in `docs/decisiones-proyecto.md` as a gap-of-fidelity and stays `NOT NULL` here. Other free-text fields stay `TEXT` (not `BOOLEAN`) so the legacy `'Sí'` round-trips.
+The P1 fidelity deviation `nombre_representante NOT NULL` (legacy `required=False`) is recorded in `docs/architecture/decisiones-proyecto.md` as a gap-of-fidelity and stays `NOT NULL` here. Other free-text fields stay `TEXT` (not `BOOLEAN`) so the legacy `'Sí'` round-trips.
 
 The slice runs the same FK-existence pattern as the entradas and adopciones modules: the service validates the entrada FK against `entradas` BEFORE the INSERT, and the catalog resolution happens before the contract INSERT. The UNIQUE on `cesiones_propietario.entrada_id` is the natural idempotence guard for the cesión row.
 
@@ -82,7 +82,7 @@ Legacy route → service layout without a separate `queries.py` seam (AGENTS.md 
 - The 1-a-1 UNIQUE on `cesiones_propietario.entrada_id` is the natural idempotence guard. The service translates the PostgREST 409 body via `_is_unique_conflict` (lowercased substring match on `cesiones_propietario`, `duplicate`, or `unique`).
 - The `fecha` column on the contrato falls back to the first 10 characters of `cesiones.fecha_alta` when the form leaves `fecha_cesion` blank. The legacy contract numbering (`CPxxxx`) carries over verbatim from `numero_contrato`.
 - `cartilla_sanitaria`, `certificado_veterinario`, and `autorizacion_recogida` accept free text (`'Sí'`, `'No'`, or other) for legacy round-trip. A future boolean migration would touch every read path.
-- The P1 fidelity deviation `nombre_representante NOT NULL` is documented in `docs/decisiones-proyecto.md`; the legacy `required=False` is a known gap-of-fidelity.
+- The P1 fidelity deviation `nombre_representante NOT NULL` is documented in `docs/architecture/decisiones-proyecto.md`; the legacy `required=False` is a known gap-of-fidelity.
 - The two INSERTs in `create_cesion` are NOT wrapped in a transaction. A failure between the cesión INSERT and the contrato INSERT leaves the cesión row without its linked contrato. The follow-up migration to a single CTE is tracked in the backlog.
 
 ## Column constraints
@@ -133,7 +133,7 @@ The proposal at `openspec/changes/legacy-discovery-interrogatorio/proposal.md` a
 - `app/modules/entradas/README.md` — parent module; cesión is 1-a-1 with an entrada.
 - `app/core/domain_cesiones.py` — DDL for `cesiones_propietario`.
 - `app/core/domain_contracts.py` — DDL for `contratos` and `catalogos_tipos_contrato`.
-- `docs/decisiones-proyecto.md` — gap-of-fidelity log.
+- `docs/architecture/decisiones-proyecto.md` — gap-of-fidelity log.
 
 ## Tests pinned
 

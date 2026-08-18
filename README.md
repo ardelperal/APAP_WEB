@@ -47,7 +47,7 @@ La versión legacy corre en Microsoft Access / VBA sobre un único puesto.
 Esta reescritura conserva cada capacidad legacy o la reemplaza por un equivalente documentado, y se sostiene sobre tres anclas:
 
 1. **Superset funcional del legacy (premisa P1).**
-   Cada capacidad del Access usada por el equipo se conserva o se documenta como divergencia en [docs/decisiones-proyecto.md](docs/decisiones-proyecto.md).
+   Cada capacidad del Access usada por el equipo se conserva o se documenta como divergencia en [docs/architecture/decisiones-proyecto.md](docs/architecture/decisiones-proyecto.md).
    Las brechas se tratan como `type:bug gap:legacy`, nunca como omisión silenciosa.
 2. **Acceso allowlisted por Google OAuth.**
    La autenticación delega en Google (proxy OAuth de InsForge).
@@ -81,7 +81,7 @@ Para reglas operacionales del repo lea [AGENTS.md](AGENTS.md).
 | [docs/CODEBASE-GUIDE.md](docs/CODEBASE-GUIDE.md) | Mantenedores | Necesita entender dónde vive cada responsabilidad. |
 | [docs/proceso.md](docs/proceso.md) | Mantenedores | Va a llevar una issue de open a closed con evidencia. |
 | [docs/roadmap.md](docs/roadmap.md) | Mantenedores | Quiere ver el estado por fase y por área. |
-| [docs/decisiones-proyecto.md](docs/decisiones-proyecto.md) | Mantenedores | Busca una decisión arquitectónica formal (D-01…). |
+| [docs/architecture/decisiones-proyecto.md](docs/architecture/decisiones-proyecto.md) | Mantenedores | Busca una decisión arquitectónica formal (D-01…). |
 | [docs/codebase/repository-map.md](docs/codebase/repository-map.md) | Mantenedores | Necesita saber qué paquete posee qué comportamiento. |
 | [docs/codebase/merge-workflow.md](docs/codebase/merge-workflow.md) | Mantenedores | Necesita el detalle del pipeline CI/CD y la política de merge. |
 
@@ -90,7 +90,7 @@ Para reglas operacionales del repo lea [AGENTS.md](AGENTS.md).
 1. Configure las variables de entorno listadas en [DOCS.md → Variables de entorno](DOCS.md#variables-de-entorno) antes del primer arranque.
 2. Ejecute la suite local con `pytest -W error::DeprecationWarning --ignore=tests/e2e --deselect tests/test_voluntarios_concurrent.py` y `ruff check .`.
 3. Lea [AGENTS.md](AGENTS.md) si va a operar el repo con una IA; revise [docs/proceso.md](docs/proceso.md) si va a abrir una issue.
-4. Para divergencias con el legacy Access, consulte [docs/decisiones-proyecto.md](docs/decisiones-proyecto.md) antes de cambiar comportamiento.
+4. Para divergencias con el legacy Access, consulte [docs/architecture/decisiones-proyecto.md](docs/architecture/decisiones-proyecto.md) antes de cambiar comportamiento.
 
 [← Repo root](README.md) · [Technical reference →](DOCS.md)
 

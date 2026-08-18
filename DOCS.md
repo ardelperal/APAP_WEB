@@ -42,7 +42,7 @@ Cada documento del repo ocupa un único rol. Este índice es la única ruta reco
 | [docs/setup.md](docs/setup.md) | Setup local por desarrollador. |
 | [docs/CODEBASE-GUIDE.md](docs/CODEBASE-GUIDE.md) | Overview de módulos (Tier 2 de #464, parcial). |
 | [docs/architecture/architecture-insforge-stack.md](docs/architecture/architecture-insforge-stack.md) | Stack target, reglas InsForge, despliegue. |
-| [docs/decisiones-proyecto.md](docs/decisiones-proyecto.md) | Registro formal de decisiones arquitectónicas (D-01…). |
+| [docs/architecture/decisiones-proyecto.md](docs/architecture/decisiones-proyecto.md) | Registro formal de decisiones arquitectónicas (D-01…). |
 | [docs/audits/](docs/audits/) | Auditorías por slice sensible (CSRF, RBAC, XSS, cookies). |
 | [docs/runbooks/](docs/runbooks/) | Runbooks de operador (rotación de cookie, auth cache multi-worker). |
 | [docs/uat/](docs/uat/) | Informes de UAT firmados por fecha. |
@@ -155,7 +155,7 @@ APAP_WEB compone varias superficies (HTTP, OAuth Google, InsForge, CSRF, rate li
 | Playbook operativo por issue | [docs/proceso.md](docs/proceso.md) |
 | Hoja de ruta viva | [docs/roadmap.md](docs/roadmap.md) |
 | Setup local por desarrollador | [docs/setup.md](docs/setup.md) |
-| Decisiones arquitectónicas | [docs/decisiones-proyecto.md](docs/decisiones-proyecto.md) |
+| Decisiones arquitectónicas | [docs/architecture/decisiones-proyecto.md](docs/architecture/decisiones-proyecto.md) |
 | Stack target y reglas InsForge | [docs/architecture/architecture-insforge-stack.md](docs/architecture/architecture-insforge-stack.md) |
 | Workflow de contribución | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Cambios por versión | [CHANGELOG.md](CHANGELOG.md) |

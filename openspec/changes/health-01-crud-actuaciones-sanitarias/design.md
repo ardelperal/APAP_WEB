@@ -77,7 +77,7 @@ tests/test_sanidad_routes.py
 - `app/main.py`: `from app.modules.sanidad.routes import router as sanidad_router` + `application.include_router(sanidad_router)`.
 - `app/templates/base.html`: nav link "Actuaciones" en la sección de navegación (mobile + desktop).
 - `tests/test_domain.py`: añadir `test_actuacion_sanitaria_create_table_sql_columns` + `test_actuacion_sanitaria_create_table_sql_uses_if_not_exists` + `test_actuacion_sanitaria_create_table_sql_fk_animal_id_to_animales`.
-- `docs/decisiones-proyecto.md`: añadir sección D-24 (regla de validación de fechas).
+- `docs/architecture/decisiones-proyecto.md`: añadir sección D-24 (regla de validación de fechas).
 - `docs/roadmap.md`: mover #50 de §4 a §5-bis con SHA + commit.
 
 ## Interfaces
