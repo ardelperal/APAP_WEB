@@ -11,7 +11,7 @@ Este proyecto está **pre-MVP**. La regla por defecto es: **todo el trabajo ater
 ### §15.1 Gate pre-MVP — todo debe ser verdadero antes de mergear a `main`
 
 1. **`pytest` local está verde.** `python -m pytest -W error::DeprecationWarning` con los mismos `addopts` de `pyproject.toml` (bloque `[tool.pytest.ini_options]`) pasa localmente. Si `tests/test_voluntarios_concurrent.py` forma parte de la corrida, el entorno debe exponer `APAP_E2E_BASE_URL` (según `ci.yml` y el hardening REG-S-3) — en CI el archivo se `--deselect`-ea porque GitHub no aprovisiona Postgres.
-2. **`ci.yml` está verde en el head de la rama que se está mergeando.** Lint (`ruff check .` + el linter de reglas de AGENTS `python scripts/check_rules.py .`, regla §20), `test` (pytest con `DeprecationWarning` como error) y `build` (`python -m build`) DEBEN pasar. `e2e` y `deploy` son opcionales según `.github/workflows/ci.yml`: `e2e` se salta cuando `APAP_OAUTH_CLIENT_ID` no está fijado; `deploy` se salta cuando `COOLIFY_WEBHOOK_URL` no está fijado. Su ausencia no es un merge blocker en pre-MVP.
+2. **`ci.yml` está verde en el head de la rama que se está mergeando.** Lint (`ruff check .` + el linter de reglas de AGENTS `python scripts/check_rules.py .`, regla §20), `test` (pytest con `DeprecationWarning` como error) y `build` (`python -m build`) deben pasar. `e2e` y `deploy` son opcionales según `.github/workflows/ci.yml`: `e2e` se salta cuando `APAP_OAUTH_CLIENT_ID` no está fijado; `deploy` se salta cuando `COOLIFY_WEBHOOK_URL` no está fijado. Su ausencia no es un merge blocker en pre-MVP.
 3. **El diff es revisable.** Un solo diff de PR debe quedar por debajo de `review_budget_lines: 400` (default del orchestrator). Si una feature es mayor, divídala en PRs encadenados usando la skill `chained-pr` — nunca reviente main con un merge sobredimensionado.
 4. **Sin `--force`, sin reescritura de historial.** Merge con `--no-ff` para mantener visible el commit de feature; nunca `git push --force` a `main`; nunca rebase commits ya enviados.
 
@@ -26,7 +26,7 @@ Este proyecto está **pre-MVP**. La regla por defecto es: **todo el trabajo ater
 
 ### §15.3 Hook de pre-push staging-only — estado en este repo
 
-El 2026-07-03 el usuario desactivó `git config gentleai.stagingOnly` específicamente en este repo. El hook global de pre-push en `~/.config/opencode/git-hooks/pre-push` sigue existiendo pero es un **no-op para ESTE repo** (solo actúa cuando el flag por-repo está fijado a `true`). Los opt-ins de otros repos en `~/.config/opencode/git-hooks/` quedan intactos — el guardarraíl global continúa protegiéndolos. **NO** re-active el flag en pre-MVP — eso rearmaría el hook silenciosamente y contradiría el gate pre-MVP.
+El 2026-07-03 el usuario desactivó `git config gentleai.stagingOnly` específicamente en este repo. El hook global de pre-push en `~/.config/opencode/git-hooks/pre-push` sigue existiendo pero es un **no-op para este repo** (solo actúa cuando el flag por-repo está fijado a `true`). Los opt-ins de otros repos en `~/.config/opencode/git-hooks/` quedan intactos — el guardarraíl global continúa protegiéndolos. **no** re-active el flag en pre-MVP — eso rearmaría el hook silenciosamente y contradiría el gate pre-MVP.
 
 ### §15.4 Revert post-MVP — procedimiento cuando se declara MVP
 
@@ -36,9 +36,9 @@ Cuando el usuario señale MVP alcanzado ("ya tenemos MVC", "MVP reached", "pasam
 2. **Recree `staging` si falta.** `git checkout -b staging main && git push origin staging`. A partir de aquí, **todo** el trabajo posterior va a `staging`, no a `main`.
 3. **Defiera al contrato global staging-acceptance-contract.** El workflow se vuelve el estándar: el código aterriza en `staging` → UAT corrida por **Virginia** (validador) usando la skill `feature-acceptance-uat` (`docs/uat/uat-staging-<YYYY-MM-DD>.html`) → el usuario revisa el sign-off de Virginia → el usuario instruye explícitamente "merge to main" → el agente mergea. `main` es read-only hasta que aterrice esa instrucción explícita.
 4. **Marque esta regla 15 como DORMANT (post-MVP).** Edite AGENTS.md para reemplazar §15.1–§15.3 con un párrafo apuntador al global `staging-acceptance-contract` y al nombre de Virginia como validador. Conserve §15.4 como registro histórico del ciclo de vida pre-MVP, pero márquela "ARCHIVED".
-5. **El agente NO debe voltear fases preventivamente.** La declaración de MVP es un evento user-driven. Espere instrucción explícita; no infiera de frases como "ya está" o "vamos cerrando" sin la palabra clave MVP/MVC.
+5. **El agente no debe voltear fases preventivamente.** La declaración de MVP es un evento user-driven. Espere instrucción explícita; no infiera de frases como "ya está" o "vamos cerrando" sin la palabra clave MVP/MVC.
 
-### §15.5 Lo que sigue NO siendo automático en pre-MVP (consentimiento explícito requerido)
+### §15.5 Lo que sigue no siendo automático en pre-MVP (consentimiento explícito requerido)
 
 - Commits directos a `main` sin PR — sigue requiriendo OK del usuario. Siempre aterrice vía PR desde una feature branch.
 - `--force` a cualquier rama — stop absoluto, sin importar CI.
@@ -46,24 +46,24 @@ Cuando el usuario señale MVP alcanzado ("ya tenemos MVC", "MVP reached", "pasam
 - Renombrado del default branch, cambio de branch protection en GitHub — user OK.
 - Cualquier cosa que toque `git-hooks/`, el `core.hooksPath` global del usuario o el flag `gentleai.stagingOnly` de cualquier otro proyecto — user OK.
 
-**Aplicación**: cada merge de PR aterrizado bajo esta regla DEBE mencionar la URL del run de `ci.yml` que probó el gate verde, en el cuerpo del merge commit o en la descripción del PR. Tras MVP, esta regla queda dormida y el global `staging-acceptance-contract` es autoritativo. Si el gate alguna vez deriva (por ejemplo, alguien añade un job CI adicional requerido, o la branch protection en `main` requiere un check extra), esta regla 15 es la fuente de verdad a actualizar en pre-MVP.
+**Aplicación**: cada merge de PR aterrizado bajo esta regla debe mencionar la URL del run de `ci.yml` que probó el gate verde, en el cuerpo del merge commit o en la descripción del PR. Tras MVP, esta regla queda dormida y el global `staging-acceptance-contract` es autoritativo. Si el gate alguna vez deriva (por ejemplo, alguien añade un job CI adicional requerido, o la branch protection en `main` requiere un check extra), esta regla 15 es la fuente de verdad a actualizar en pre-MVP.
 
 ### §15.6 Autorización standing de merge (otorgada 2026-07-26, hasta fin de proyecto)
 
 Efectivo desde el 2026-07-26 y hasta que el usuario señale el fin del proyecto, el orchestrator tiene autorización standing para mergear PRs a `main` sin OK por push. Esta es una conveniencia temporal para la fase pre-MVP.
 
-**Alcance de la autorización**: el orchestrator puede mergear un PR a `main` él mismo cuando TODAS las siguientes se cumplen:
+**Alcance de la autorización**: el orchestrator puede mergear un PR a `main` él mismo cuando todas las siguientes se cumplen:
 
 1. Los gates pre-MVP de §15.1 están visiblemente verdes:
    - `pytest -W error::DeprecationWarning` local pasa
    - `ci.yml` en el head de la rama mergeada está verde (lint, test, typecheck, build)
    - diff ≤ `review_budget_lines` (o `size:exception` aprobado por el mantenedor)
    - sin `--force`, sin reescritura de historial
-2. El merge es un merge normal feature-branch → main (NO es force-push, NO es release tag, NO es rename del default branch, NO es cambio a git-hooks o `gentleai.stagingOnly`).
+2. El merge es un merge normal feature-branch → main (no es force-push, no es release tag, no es rename del default branch, no es cambio a git-hooks o `gentleai.stagingOnly`).
 3. El cuerpo del merge commit o la descripción del PR cita la URL del run de `ci.yml` que probó el gate verde (según la nota de aplicación de §15.5).
 4. Ningún cambio toca ningún elemento de la lista de §15.5 que aún requiere OK explícito del usuario.
 
-**Items que SIGUEN requiriendo OK explícito por push del usuario** (la lista de §15.5 no cambia):
+**Items que siguen requiriendo OK explícito por push del usuario** (la lista de §15.5 no cambia):
 
 - Commits directos a `main` sin PR.
 - `--force` a cualquier rama.
