@@ -47,7 +47,7 @@ en curso — `usuarios_autorizados` cerrado (#25). `animals`, `volunteers`, `vol
 
 ## Core invariants
 
-- **Animales y voluntarios tienen entidades separadas**: la casa de acogida (`TbAcogidaCasas`) NO es un voluntario del sistema ([legacy-volunteer-roles.md](../legacy-volunteer-roles.md) §3).
+- **Animales y voluntarios tienen entidades separadas**: la casa de acogida (`TbAcogidaCasas`) no es un voluntario del sistema ([legacy-volunteer-roles.md](../legacy-volunteer-roles.md) §3).
 - **Paridad de campos con el Access**: cada campo del animal en `TbFichaAnimal` tiene su equivalente en `animals`; un gap abre `type:bug gap:legacy` (P1, D-04).
 - **InsForgeClient solo bajo `adapters/` y `di/`**: ningún módulo toca el cliente directamente (§33 de AGENTS, regla de hexagonal).
 - **Tablas se crean idempotentemente**: cada `ensure_domain_schema` puede correr más de una vez sin error.
