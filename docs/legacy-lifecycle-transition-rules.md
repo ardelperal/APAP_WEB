@@ -1,8 +1,39 @@
+---
+title: "Legacy: Reglas de transición del ciclo de vida del animal"
+status: "historical"
+legacy_source: "Funciones Generales.bas (DameSituacion, RegistrarSituacion, CerrarTodasLasSituacionesPorFallecimiento, AnimalBorrable) + Animal.cls + Entrada.cls + Acogida.cls + Adopcion.cls + Form_FormFichaAnimalEleccionFinSituacion.cls + Form_FormFichaAnimalFallecimiento.cls (Access/VBA)"
+superseded_by: ""
+---
+
 # Reglas de Transición del Ciclo de Vida — Legado Access/VBA
 
 > **Fuente**: Análisis del código fuente del sistema legado `APAP_ACTUAL` (Access/VBA)
 > **Fecha del análisis**: 2026-06-08
 > **Archivos principales**: `Funciones Generales.bas`, `Animal.cls`, `Entrada.cls`, `Acogida.cls`, `Adopcion.cls`, `Form_FormFichaAnimalEleccionFinSituacion.cls`, `Form_FormFichaAnimalFallecimiento.cls`
+
+## What this doc is
+
+| It is | Evidence in this repo |
+|---|---|
+| Especificación de los 8 estados del animal y la matriz de transiciones del ciclo de vida. | §1 tabla de estados + §3 matriz de acciones por estado. |
+| Mapeo de las funciones de control a su equivalente en APAP_WEB. | §7.3 tabla de equivalencias. |
+
+## What this doc is not
+
+| It is not | Use this boundary |
+|---|---|
+| Una spec del state machine de APAP_WEB. | El state machine vive en `app/modules/lifecycle/` y se documenta en [discovery/state-machines.md](discovery/state-machines.md). |
+| Una guía para implementar el motor de estado derivado. | El diseño del state resolver (#33) se referencia desde el [roadmap](roadmap.md) Fase 4. |
+
+## Core invariants
+
+- **Un solo estado activo**: un animal solo puede tener una entrada activa, o una acogida activa, o una adopción activa. Nunca dos del mismo tipo ni de tipos incompatibles (§7.2 regla 1).
+- **Cierre automático al cambiar de estado**: la transición `Albergue → Acogida` cierra la entrada; `Acogida → Adopción` cierra la acogida y la entrada; etc. (§7.2 regla 2).
+- **Defunción cierra todo**: registrar `FDefuncion` cierra todas las situaciones abiertas del animal (§7.2 regla 3).
+- **No hay retroceso desde Entregado/Fallecido**: esos estados son terminales en modo estricto (§7.2 regla 4).
+- **Incoherente es estado de error**: requiere intervención manual y bloquea todas las acciones (§7.2 regla 5).
+- **Borrado solo con ficha limpia**: un animal solo puede eliminarse si no tiene ningún registro asociado (§7.2 regla 6; implementación parcial en `app/modules/lifecycle/application/can_delete_animal.py` con la regla §108–§113 del legacy).
+- **Modo estricto por defecto**: el sistema web debe operar siempre en modo estricto (§7.4).
 
 ---
 
@@ -349,3 +380,15 @@ El legado tiene un concepto de "modo estricto" (`BaseEnModoEstricto`) que activa
 | `TbAdopcion` | `IDAdopcion`, `NChip`, `FDevolucion`, `FAdopcion`, `NContrato` | Registro de adopciones; `FDevolucion` Is Null = adopción activa |
 | `TbActuacionSanitaria` | `NChip` | Actuaciones sanitarias (impide borrado) |
 | `TbTerapias` | `NChip` | Terapias (impide borrado) |
+
+## Contributor checklist
+
+- [ ] Antes de implementar LIFECYCLE-04..05 (#29, #30) y el state resolver (#33), estudie §3 (matriz de transiciones) y §7.3 (funciones a replicar).
+- [ ] Si implementa un handler de transición de estado, cubra los seis invariantes de §7.2 con un test de regresión por invariante.
+- [ ] Si cambia `DameSituacion()` o su equivalente (`calculateAnimalState`), preserve el orden de evaluación de §2.1 y la detección de `Incoherente`.
+- [ ] Si descubre una transición no listada en §3.2, abra issue `type:bug gap:legacy` (P1, [proceso.md](proceso.md) §0) con la evidencia del código VBA.
+- [ ] Si permite una transición que en el legacy estaba bloqueada en modo estricto, documente la decisión en un ADR y desactívela por defecto.
+
+## Navigation
+
+Back: [to Codebase Guide](CODEBASE-GUIDE.md)

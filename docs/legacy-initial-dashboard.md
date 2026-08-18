@@ -1,8 +1,35 @@
+---
+title: "Legacy: Panel inicial Form0Opciones"
+status: "migrated"
+legacy_source: "src/forms/Form_Form0Opciones.cls + Form_Form0Opciones.form.txt (Access/VBA)"
+superseded_by: "docs/architecture/decisiones/d-02-home-dashboard.md"
+---
+
 # Panel Inicial Legacy — Form0Opciones
 
 > **Fuente**: `src/forms/Form_Form0Opciones.cls` + `Form_Form0Opciones.form.txt`
 > **Tablas backend**: `TbFichaAnimal`, `TbAdopcion`, `TbEntradas`, `TbRIAC`
 > **Estado**: Evidencia completa (código + definición de formulario)
+
+## What this doc is
+
+| It is | Evidence in this repo |
+|---|---|
+| Documentación histórica del formulario de arranque del Access legacy (navegación + 10 contadores). | Tablas `TbFichaAnimal`, `TbAdopcion`, `TbEntradas`, `TbRIAC` descritas en §6. |
+| Referencia de QUÉ hacia el producto nuevo (no de CÓMO se presenta). | [d-11-no-clonar-ux-legacy.md](architecture/decisiones/d-11-no-clonar-ux-legacy.md) §5. |
+
+## What this doc is not
+
+| It is not | Use this boundary |
+|---|---|
+| Una spec para clonar el dashboard en APAP_WEB. | La bandeja operativa moderna vive en [d-02-home-dashboard.md](architecture/decisiones/d-02-home-dashboard.md). |
+| Una guía de implementación. | Las specs viven en [openspec/specs/](openspec/specs/). |
+
+## Core invariants
+
+- **Ocultar contador si es 0, mostrar en rojo si hay elementos pendientes**: patrón de "dashboard de lo que necesita atención" (§5).
+- **Numeración jerárquica por dominio**: los contadores mantienen la estructura 1.3 (fallecidos), 2.1–2.5 (situación animal), 4.1–4.3 (seguimiento adopciones) — refleja la organización operativa del refugio (§7 §"Prioridad alta").
+- **Ribbon visible solo para `adm`**: el control de visibilidad por usuario se traduce a roles de UI en el modelo nuevo (§1).
 
 ---
 
@@ -186,3 +213,14 @@ interface DashboardCounters {
   };
 }
 ```
+
+## Contributor checklist
+
+- [ ] Si consulta este doc para implementar la home de APAP_WEB, lea primero [d-02-home-dashboard.md](architecture/decisiones/d-02-home-dashboard.md) — la capacidad está migrada.
+- [ ] No use este doc para defender un clon visual de la bandeja del Access: contradice [d-11-no-clonar-ux-legacy.md](architecture/decisiones/d-11-no-clonar-ux-legacy.md).
+- [ ] Si descubre un campo o contador del legacy que no aparezca en el modelo nuevo, abra issue `type:bug gap:legacy` ([proceso.md](proceso.md) §0 P1).
+- [ ] Si modifica las queries agregadas de la bandeja moderna, ejecute los tests del módulo afectado antes de cerrar.
+
+## Navigation
+
+Back: [to Codebase Guide](CODEBASE-GUIDE.md)

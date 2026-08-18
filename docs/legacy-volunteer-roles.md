@@ -1,4 +1,31 @@
+---
+title: "Legacy: Modelo de voluntarios"
+status: "historical"
+legacy_source: "TbVoluntariosParaAutorrellenables + Funciones Generales.bas (RegistrarVoluntarios, RellenaDatosPersonales) + Form_FormEntradaAlta.cls, Form_FormAdopcionAlta.cls, Form_FormAcogidaAlta.cls, Form_FormTerapiasAlta.cls (Access/VBA)"
+superseded_by: ""
+---
+
 # Modelo de Voluntarios en el Sistema Legacy APAP
+
+## What this doc is
+
+| It is | Evidence in this repo |
+|---|---|
+| Análisis del modelo plano legacy `TbVoluntariosParaAutorrellenables` (sin roles, sin ID numérico, auto-registro). | §1 tabla de campos + §6 tabla de evidencias. |
+| Inventario de los campos contextuales por dominio (Entradas, Adopción, Acogida, Terapias). | §2.1–§2.4 (uno por tabla). |
+
+## What this doc is not
+
+| It is not | Use this boundary |
+|---|---|
+| Una spec del modelo de voluntarios de APAP_WEB. | El modelo many-to-many con catálogo de roles propuesto en §7.3 es una recomendación; las specs viven en [openspec/specs/](openspec/specs/) (VOL-01..05, #35–#38). |
+| Una guía para modelar la entidad separada `TbAcogidaCasas`. | La separación entre voluntario y casa de acogida está documentada en §3 pero no se replica como tal. |
+
+## Core invariants
+
+- **Casa de acogida no es voluntario**: `TbAcogidaCasas` es una entidad separada con dirección y DNI; un acogedor no es necesariamente un voluntario del sistema (§3 tabla).
+- **Auto-registro por nombre**: la tabla `TbVoluntariosParaAutorrellenables` se puebla automáticamente cuando se usa un nombre en cualquier formulario de negocio (§1 §"Características clave").
+- **Sin distinción de roles en origen**: el legacy no permite asignar solo voluntarios de salud a tareas sanitarias; cualquier persona puede aparecer en cualquier rol (§7.1).
 
 ## Resumen ejecutivo
 
@@ -225,3 +252,14 @@ Voluntario (entidad central)
 - Filtros de voluntarios por contexto
 - Estadísticas de participación por rol
 - Compatibilidad total con los datos existentes (cada campo contextual se mapea a un rol)
+
+## Contributor checklist
+
+- [ ] Antes de implementar VOL-01..05 (#35–#38), confirme con este doc los campos contextuales por dominio (§2.1–§2.4).
+- [ ] Si diseña el modelo de voluntarios en APAP_WEB, decida si replica la tabla plana o evoluciona al many-to-many propuesto en §7.3 y documente la decisión en un ADR.
+- [ ] Si descubre un campo de voluntario no listado en §2 (Entradas/Adopción/Acogida/Terapias), abra issue `type:bug gap:legacy` (P1, [proceso.md](proceso.md) §0).
+- [ ] Si separa `voluntarios` de `casas_de_acogida`, preserve el invariante de §3 (entidades distintas).
+
+## Navigation
+
+Back: [to Codebase Guide](CODEBASE-GUIDE.md)

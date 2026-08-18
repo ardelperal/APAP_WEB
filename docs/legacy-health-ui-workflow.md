@@ -1,8 +1,38 @@
+---
+title: "Legacy: Flujo de UI de Ficha Sanitaria"
+status: "historical"
+legacy_source: "src/forms/Form_FormFichasSanitarias*.cls + src/classes/FichaSanitaria.cls + src/classes/Animal.cls + Funciones Generales.bas (Access/VBA)"
+superseded_by: ""
+---
+
 # Flujo de UI de Ficha Sanitaria — APAP_ACTUAL (Legacy Access/VBA)
 
 **Fecha de análisis:** 2026-06-13  
 **Proyecto fuente:** APAP_ACTUAL (Access/VBA)  
 **Objetivo:** Documentar el flujo completo de la UI de salud para guiar la implementación en APAP_WEB
+
+## What this doc is
+
+| It is | Evidence in this repo |
+|---|---|
+| Catálogo del modelo de datos sanitario (5 tipos de eventos) y del flujo de navegación (FormFichasSanitariasGestion → AsuntoEleccion → Alta). | §3 tablas + §4 flujo. |
+| Inventario de validaciones y restricciones por estado del animal. | §7 reglas + §9.2 restricciones. |
+
+## What this doc is not
+
+| It is not | Use this boundary |
+|---|---|
+| Una spec del módulo de salud de APAP_WEB. | El diseño vive en [discovery/feature-03-health-care.md](discovery/feature-03-health-care.md) y las specs en [openspec/specs/](openspec/specs/) (HEALTH-02..06, #51–#55). |
+| Una guía para implementar la pestaña Salud del animal en la UI nueva. | La UI es responsabilidad del slice de salud en `app/modules/salud/` y del design system (D-12, pendiente). |
+
+## Core invariants
+
+- **Tipos de evento sanitario son cinco**: Analítica, Desparasitación, Vacuna, Esterilización, Otros (§3 tipo `TipoAnotacion`).
+- **Tabla resumen se mantiene por evento**: `TbResumenActuacionesSanitarias` refleja el último valor por chip y tipo de prueba; debe actualizarse tras cada CRUD (§3 §"Tabla de Resumen").
+- **Validación de fechas**: la fecha del evento es posterior al nacimiento y anterior a la defunción (§8.1).
+- **No duplicados por chip + prueba + fecha**: `MismaPruebaYFechaParaNChip` bloquea el alta (§8.2).
+- **Fallecido bloquea nuevos eventos**: animales con `FDefuncion` no admiten nuevas actuaciones sanitarias (§9.2).
+- **Incoherente bloquea nuevos eventos**: estado requiere intervención manual antes de cualquier alta (§9.2).
 
 ---
 
@@ -556,3 +586,15 @@ Este documento sirve como fuente de verdad para la implementación del módulo d
 ---
 
 *Documento generado por IA basado en análisis del código fuente de APAP_ACTUAL.*
+
+## Contributor checklist
+
+- [ ] Antes de implementar HEALTH-02..06 (#51–#55), confirme con §3 los cinco tipos de evento y los campos clave de `TbActuacionSanitaria`.
+- [ ] Si implementa el alta de un evento, cubra los cinco invariantes de §7–§8 con tests de regresión (`FechasBienParaPrueba`, `MismaPruebaYFechaParaNChip`, estado del animal).
+- [ ] Si añade un nuevo tipo de evento, actualice el catálogo de `TbNombrePruebas` y el filtro por especie; no reutilice tipos existentes para fines distintos.
+- [ ] Si descubre una validación del legacy no listada en §7–§8, abra issue `type:bug gap:legacy` (P1, [proceso.md](proceso.md) §0).
+- [ ] Si implementa el informe de próximas pruebas (§10), preserve el formato chip + tipo de prueba + fecha última + fecha próxima.
+
+## Navigation
+
+Back: [to Codebase Guide](CODEBASE-GUIDE.md)
