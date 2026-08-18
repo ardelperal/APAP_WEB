@@ -140,7 +140,7 @@ patterns from coverage measurement:
 Per Rule 14 the artifact is **versioned and gated**:
 
 - **Versioned**: this file is committed to git. Every PR that touches a
-  scope constant (`SCAN_DIRS`, `SCOPE`, `REFERENCE_SCOPE`, etc.) MUST
+  scope constant (`SCAN_DIRS`, `SCOPE`, `REFERENCE_SCOPE`, etc.) must
   also touch this document in the same commit.
 - **Gated**: a follow-up PR will add a `tests/test_testable_boundary.py`
   that parses every tool's scope constant and asserts it matches the
