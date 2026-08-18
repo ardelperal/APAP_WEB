@@ -4,7 +4,7 @@
 
 `openspec/config.yaml` es la convención documentada a nivel de proyecto para SDD en este repositorio. Centraliza el contexto que cada fase SDD consume y las reglas específicas por fase (proposal, specs, design, tasks, apply, verify, archive). Esta página registra qué significa ese contrato en la práctica y qué partes están hoy dirigidas por prompt en lugar de por un validador.
 
-La página NO duplica el archivo YAML: lo resume y lo enlaza. El YAML vive en [`openspec/config.yaml`](../openspec/config.yaml) y es la fuente única de verdad.
+La página no duplica el archivo YAML: lo resume y lo enlaza. El YAML vive en [`openspec/config.yaml`](../openspec/config.yaml) y es la fuente única de verdad.
 
 ## What support means today
 
@@ -14,7 +14,7 @@ En el repositorio actual, el respeto a `openspec/config.yaml` es mayormente diri
 - `sdd-init` y los ejemplos de convención compartida muestran la forma del archivo que se espera que los agentes creen.
 - Las fases posteriores reutilizan valores como `context`, `strict_tdd`, `rules` y `testing`.
 
-Lo que NO es cierto hoy:
+Lo que no es cierto hoy:
 
 - No hay parser ni validador en Python que enforce un schema canónico.
 - No hay contrato de compatibilidad que garantice el consumo uniforme de todos los campos en todas las fases.
