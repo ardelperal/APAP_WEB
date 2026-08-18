@@ -36,7 +36,7 @@ APAP_WEB es una aplicación web FastAPI + HTMX + Jinja2 (Python `>=3.11`) con ar
 | `apap-merge-workflow` | Política pre-MVP single-branch (§15), ciclo de vida de rama, autorización standing de merge. | [`skills/apap-merge-workflow/SKILL.md`](skills/apap-merge-workflow/SKILL.md) |
 | `apap-orchestrator-discipline` | Coordinación de subagents (§17), patrones de delegación, lentes de revisión. | [`skills/apap-orchestrator-discipline/SKILL.md`](skills/apap-orchestrator-discipline/SKILL.md) |
 
-> Las skills viven físicamente en `C:\Proyectos\skills\skills\` y están linkeadas en opencode. Si necesitás editar las skills, editá el original. Si una skill listada no existe físicamente, créala primero siguiendo `skill-creator` o `skill-improver`.
+> Las skills viven físicamente en `~/.config/opencode/skills/` y están linkeadas en opencode. Si necesitás editar las skills, editá el original. Si una skill listada no existe físicamente, créala primero siguiendo `skill-creator` o `skill-improver`.
 
 ## Cross-cutting skills (de otros repos)
 
