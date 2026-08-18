@@ -12,7 +12,7 @@
 > Pendiente: VOL-03 dedup de legacy, VOL-04 FK migration, VOL-05
 > validacion activa.
 
-> **Estado de paridad con el legacy (criterio duro):** este slice NO
+> **Estado de paridad con el legacy (criterio duro):** este slice no
 > ofrece aun la misma funcionalidad que el legacy. El legacy permite
 > crear voluntarios auto-rellenables desde un menu de Access. Este
 > slice cubre la gestion de voluntarios (crear, listar, ver, dar de
@@ -78,7 +78,7 @@ a una operacion (entrada, estancia, adopcion, terapia).
 | Entidad propia con ID | ``voluntarios`` con UUID PK | Free-text en tablas operativas | BR1 del discovery: el legacy tiene los nombres repetidos en 3+ tablas sin FK; consolidar a una entidad es el cambio minimo para evitar duplicacion. |
 | Nombres en espanol | CamelCase (``Voluntario``, ``Tel1``, ``Tel2``, ``Email``, ``DNI``) | snake_case English | Mismo criterio que ``animales``: matching el legacy, cero justificacion para renombrar. |
 | DNI como secondary key | Columna ``DNI TEXT UNIQUE`` agregada | Solo ``Email`` | BR3: el DNI es el identificador mas estable de una persona (no cambia), mientras que el email puede cambiar. Ademas, el legacy tiene DNI en varias tablas (TbEntradas, etc.) y se necesita para el script de dedup (VOL-03). |
-| Soft-delete | ``activo BOOLEAN NOT NULL DEFAULT true`` | DELETE fisico | BR4: los voluntarios referenciados por cualquier registro de negocio NO se pueden borrar. Solo desactivar. |
+| Soft-delete | ``activo BOOLEAN NOT NULL DEFAULT true`` | DELETE fisico | BR4: los voluntarios referenciados por cualquier registro de negocio no se pueden borrar. Solo desactivar. |
 | Roles como junction | Tabla ``roles_voluntario`` con UNIQUE (voluntario_id, tipo_rol) | Columna TEXT en voluntarios | BR2: los roles son atributos que pueden cambiar. Junction permite asignar/desasignar sin tocar la fila principal. |
 | Dominio de roles | ``intake``, ``seguimiento``, ``acogida``, ``salud`` | Lista mas larga | Es el set que aparece en la documentacion del discovery (issue #7 del backlog). Cualquier rol nuevo se anade en una migracion. |
 | Validacion de email | Regex simple ``@ in email`` | Regex RFC 5322 completo | Suficiente para el MVP. El detalle de la validacion se aborda en un ciclo futuro si hace falta. |
@@ -209,7 +209,7 @@ todos en verde.
 |---|---|
 | ``test_create_voluntario_ejecuta_insert_con_parametros_esperados`` | El INSERT contiene los 5 obligatorios en el orden correcto. |
 | ``test_create_voluntario_acepta_todos_los_campos_opcionales`` | El INSERT incluye los 4 opcionales. |
-| ``test_create_voluntario_rechaza_nombre_vacio_antes_de_sql`` | Validacion ANTES de SQL. |
+| ``test_create_voluntario_rechaza_nombre_vacio_antes_de_sql`` | Validacion antes de SQL. |
 | ``test_create_voluntario_rechaza_email_sin_formato_antes_de_sql`` | Validacion de formato. |
 | ``test_create_voluntario_propag_InsForgeError_en_email_duplicado`` | Duplicado propaga error. |
 | ``test_create_voluntario_email_vacio_se_permite`` | Email vacio -> NULL. |
