@@ -22,7 +22,7 @@ This audit documents the scope, methodology, findings, and verdict for the audit
 | Branch | `hardening-2026-q2/slice-4-xss-audit` (cortada de `staging`) |
 | PR | <https://github.com/ardelperal/APAP_WEB/pull/112> (pendiente de apertura) |
 | Fecha | 2026-06-27 |
-| Auditor | AI-assisted audit (code-based scan + auto-tests). Manual browser review PENDING — operador MUST completar antes de PR-5A/5B abra |
+| Auditor | AI-assisted audit (code-based scan + auto-tests). Manual browser review PENDING — operador must completar antes de PR-5A/5B abra |
 | Motivación | `engram:14518` finding 2 — la defensa CSRF depende de la ausencia de XSS, porque el token CSRF renderizado como hidden DOM input sería exfiltrable por JavaScript inyectado. Esta auditoría cierra el Slice 5 (Auth Hardening / CSRF middleware) |
 | Spec | `openspec/changes/hardening-2026-q2/specs/04-xss-audit/spec.md` |
 
@@ -89,13 +89,13 @@ El auto-test `test_jinja2templates_default_autoescape_is_true` pinea este invari
 
 El audit combina tres comprobaciones independientes. Un hallazgo en cualquier comprobación promueve al ladder de severidad (High/Medium/Low).
 
-1. **Auto-test (REQ-XSS-2)** — `tests/test_xss_audit.py` parametriza sobre 14 plantillas × hasta-7 campos user-controlled × 3 patrones XSS (script-tag, event-handler, SVG). Para cada tripleta `(plantilla, campo, patrón)`, el test renderiza la plantilla a través de la instancia `Jinja2Templates` de producción con el patrón inyectado en ese campo y afirma que el patrón NO aparece literalmente en el HTML renderizado. Resultado: **151 aserciones, 151 PASS, 0 FAIL**.
+1. **Auto-test (REQ-XSS-2)** — `tests/test_xss_audit.py` parametriza sobre 14 plantillas × hasta-7 campos user-controlled × 3 patrones XSS (script-tag, event-handler, SVG). Para cada tripleta `(plantilla, campo, patrón)`, el test renderiza la plantilla a través de la instancia `Jinja2Templates` de producción con el patrón inyectado en ese campo y afirma que el patrón no aparece literalmente en el HTML renderizado. Resultado: **151 aserciones, 151 PASS, 0 FAIL**.
 
-2. **Handler test (REQ-XSS-2.b)** — `tests/test_xss_audit_handlers.py` ejercita cada ruta `HTMLResponse` vía el `httpx.AsyncClient` del proyecto + transporte ASGI. El spy `InsForgeClient` devuelve filas con los cuatro payloads XSS en columnas user-controlled. El test afirma que el body de la respuesta NO contiene los tres patrones en contexto de texto (script/event/SVG). El patrón de URL-scheme (`javascript:alert(1)`) se afirma por separado vía el guard estructural `test_no_user_data_in_url_attributes` porque la interpolación en contexto de texto de `javascript:` es safe (los navegadores no disparan JS desde nodos de texto). Resultado: **11 aserciones de ruta parametrizadas + 1 reflected-XSS POST + 3 guards AST = 15 tests, 15 PASS, 0 FAIL**.
+2. **Handler test (REQ-XSS-2.b)** — `tests/test_xss_audit_handlers.py` ejercita cada ruta `HTMLResponse` vía el `httpx.AsyncClient` del proyecto + transporte ASGI. El spy `InsForgeClient` devuelve filas con los cuatro payloads XSS en columnas user-controlled. El test afirma que el body de la respuesta no contiene los tres patrones en contexto de texto (script/event/SVG). El patrón de URL-scheme (`javascript:alert(1)`) se afirma por separado vía el guard estructural `test_no_user_data_in_url_attributes` porque la interpolación en contexto de texto de `javascript:` es safe (los navegadores no disparan JS desde nodos de texto). Resultado: **11 aserciones de ruta parametrizadas + 1 reflected-XSS POST + 3 guards AST = 15 tests, 15 PASS, 0 FAIL**.
 
 3. **Code-based scan (REQ-XSS-3)** — combinado con el auto-test report aquí. Realizado leyendo las 14 plantillas y los 22 route handlers (ver §Code-based scan findings).
 
-4. **Manual browser review (REQ-XSS-3)** — PENDIENTE. El operador MUST abrir cada plantilla en un navegador, pegar payloads XSS en cada campo de formulario y verificar que no se ejecuta JavaScript. Ver §Manual review checklist.
+4. **Manual browser review (REQ-XSS-3)** — pendiente. El operador must abrir cada plantilla en un navegador, pegar payloads XSS en cada campo de formulario y verificar que no se ejecuta JavaScript. Ver §Manual review checklist.
 
 5. **Round-2 grep acceptance criteria (REQ-XSS-6)** — `tests/test_xss_audit_greps.py` ejecuta:
    - `grep -rn 'logger\.\(info\|warning\|error\|debug\|critical\|exception\)' app/main.py app/core/session.py` → 0 coincidencias
@@ -115,7 +115,7 @@ El audit combina tres comprobaciones independientes. Un hallazgo en cualquier co
 
 ## Verdict
 
-PROVISIONAL PASS: Slice 5 (Auth Hardening / CSRF middleware) puede proceder contra el verdict provisional. El operador MUST completar la checklist de revisión manual post-merge para convertir PROVISIONAL PASS en FINAL PASS; cualquier hallazgo manual que marque una fila como "Fires JS = YES" degrada el verdict a FAIL y requiere `PR-04A-XSSfix` antes de que Slice 5 aterrice.
+PROVISIONAL PASS: Slice 5 (Auth Hardening / CSRF middleware) puede proceder contra el verdict provisional. El operador must completar la checklist de revisión manual post-merge para convertir PROVISIONAL PASS en FINAL PASS; cualquier hallazgo manual que marque una fila como "Fires JS = YES" degrada el verdict a FAIL y requiere `PR-04A-XSSfix` antes de que Slice 5 aterrice.
 
 ### Estado de los criterios de aceptación
 
@@ -143,7 +143,7 @@ Suite completa tras este PR: **602 passed, 1 skipped, 0 failed.**
 
 ### Checklist de revisión manual (operador — REQUIRED post-merge)
 
-Los auto-tests cubren los patrones que el autoescape captura (`<tag>` y event handlers). La revisión de navegador cubre vectores que el autoescape NO captura: JS de terceros que pueda leer el DOM, inyección de CSS en atributos, esquemas URL `data:`/`vbscript:`, ejecución dinámica de scripts vía `setTimeout`/`eval`, etc. El operador MUST ejecutar este checklist post-merge y añadir hallazgos a la tabla §Manual review findings.
+Los auto-tests cubren los patrones que el autoescape captura (`<tag>` y event handlers). La revisión de navegador cubre vectores que el autoescape no captura: JS de terceros que pueda leer el DOM, inyección de CSS en atributos, esquemas URL `data:`/`vbscript:`, ejecución dinámica de scripts vía `setTimeout`/`eval`, etc. El operador must ejecutar este checklist post-merge y añadir hallazgos a la tabla §Manual review findings.
 
 ### Por plantilla
 
@@ -189,7 +189,7 @@ Para cada página renderizada, abrir DevTools → Elements → buscar el payload
 Find: <script>alert
 ```
 
-NO debe aparecer. (El auto-escape lo convierte a `&lt;script&gt;`.)
+no debe aparecer. (El auto-escape lo convierte a `&lt;script&gt;`.)
 
 ### Tabla de hallazgos manuales
 
