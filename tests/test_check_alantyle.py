@@ -530,3 +530,113 @@ def test_expanded_whitelist_accepts_common_technical_acronyms() -> None:
 
     headers = "WWW-Authenticate y X-Request-ID son cabeceras permitidas"
     assert _violations_for("ALAN003", f"# Title\n\n{headers}\n") == []
+
+
+# --- Whitelist v2 (issue #572): SQL keywords + APAP_WEB domain terms -------
+
+
+@pytest.mark.parametrize(
+    "acronym",
+    [
+        # SQL / DB keywords (issue #572, categoría 1)
+        "ALTER",
+        "AUTOINCREMENT",
+        "BOOLEAN",
+        "CASCADE",
+        "CRAP",
+        "CREATE",
+        "DEFAULT",
+        "DISTINCT",
+        "DROP",
+        "EXISTS",
+        "FALSE",
+        "INSERT",
+        "NOW",
+        "NULL",
+        "REFERENCES",
+        "RESTRICT",
+        "RETURNING",
+        "SELECT",
+        "SET",
+        "TABLE",
+        "TIMESTAMP",
+        "TRUE",
+        "UNIQUE",
+        "UPDATE",
+        # Severidad + estados de CI (issue #572, categorías 1+2)
+        "BLOCKED",
+        "CRITICAL",
+        "FAIL",
+        "HIGH",
+        "LOW",
+        "MEDIUM",
+        "PASS",
+        "PENDING",
+        # Marcadores de código (issue #572, "otros a considerar")
+        "FIXME",
+        "XXX",
+    ],
+)
+def test_whitelist_v2_accepts_sql_and_ci_terms(acronym: str) -> None:
+    """Los keywords SQL y estados de CI no disparan ALAN003 (issue #572).
+
+    Categoría 1 del issue #572: ``NULL``, ``DEFAULT``, ``CASCADE``,
+    ``AUTOINCREMENT``, etc. son keywords reservados del estándar SQL/ANSI
+    que aparecen en prosa cuando los docs describen constraints y
+    queries; tratarlos como emph generaba falsos positivos.
+    """
+    content = f"# Title\n\ncaso aislado con {acronym} en docs\n"
+    matches = _violations_for("ALAN003", content)
+    assert matches == [], f"acronym={acronym!r} matches={matches}"
+
+
+@pytest.mark.parametrize(
+    "acronym",
+    [
+        # Términos del dominio APAP_WEB (issue #572, categoría 2)
+        "ADOPT",
+        "BASELINE",
+        "CANINA",
+        "CC",
+        "DOC",
+        "FELINA",
+        "FOSTER",
+        "HEALTH",
+        "IA",
+        "LIFECYCLE",
+        "MIGRATION",
+        "NCHIP",
+        "RED",
+        "REPORT",
+        "SALUD",
+        "SKILL",
+        "VOL",
+        "XX",
+    ],
+)
+def test_whitelist_v2_accepts_apap_domain_terms(acronym: str) -> None:
+    """Los términos del dominio APAP_WEB no disparan ALAN003 (issue #572).
+
+    Categoría 2 del issue #572: ``LIFECYCLE``, ``FOSTER``, ``CANINA``,
+    ``FELINA``, ``VOL``, ``NCHIP``, ``CC`` son del dominio semántico del
+    proyecto (gestión de protectoras de animales). ``XX`` es el
+    placeholder de ``D-XX`` (ADR) y ``feature-XX-*``. ``RED`` es la fase
+    RED de TDD. ``REPORT`` es el prefijo de issues de informes.
+    """
+    content = f"# Title\n\ncaso de uso con {acronym} en dominio\n"
+    assert _violations_for("ALAN003", content) == [], acronym
+
+
+def test_whitelist_v2_does_not_relax_emph_words() -> None:
+    """La whitelist v2 NO relaja las palabras genuinamente emph.
+
+    Estas son las que el issue #572 aplaza al PR editorial: viven en
+    prosa en mayúsculas como énfasis en español/inglés y deben corregirse
+    línea por línea en los docs afectados.
+    """
+    emph_words = ("NO", "MUST", "AND", "WHEN", "THEN", "GIVEN", "NOT", "IF")
+    for word in emph_words:
+        assert word not in ACRONYM_WHITELIST, (
+            f"emph word {word!r} leaked into whitelist v2 — should be "
+            "fixed in editorial follow-up, not whitelisted"
+        )
