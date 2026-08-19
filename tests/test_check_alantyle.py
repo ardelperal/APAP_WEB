@@ -601,6 +601,126 @@ def test_cli_ignores_non_markdown_files(tmp_path: Path) -> None:
     )
 
 
+# --- Regresiones del gate bloqueante (issue #582) ---------------------------
+#
+# Estos tests corren el CLI real y pinea que tres correcciones estructurales
+# del detector (inline-code masking, whitelist spec-context, exclusión de
+# archive/) sigan activas. Si alguien las desactiva, un CI que hoy pasa
+# empezaría a fallar y este test detectaría la regresión antes de que
+# llegue a main.
+
+
+def test_cli_inline_code_masking_prevents_sql_false_positive(
+    tmp_path: Path,
+) -> None:
+    """SQL dentro de backticks no dispara ALAN003 (issue #578).
+
+    Si alguien elimina la llamada a ``_mask_inline_code`` dentro de
+    ``_check_allcaps``, palabras como FROM/WHERE/AND dentro de ``SELECT ...``
+    dispararían la violación y este test fallaría.
+    """
+    doc = tmp_path / "guide.md"
+    doc.write_text(
+        "# Title\n\n"
+        "Validación: `SELECT id FROM animales WHERE id = $1 AND activo = true`.\n",
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), str(doc)],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == EXIT_OK, (
+        f"inline-code masking se desactivó: stdout={result.stdout}\n"
+        f"stderr={result.stderr}"
+    )
+
+
+def test_cli_spec_context_whitelist_allows_rfc2119_in_openspec(
+    tmp_path: Path,
+) -> None:
+    """RFC 2119 + BDD bajo openspec/ no se reportan como emph (issue #578).
+
+    Crea un archivo cuya ruta contiene ``openspec`` en ``Path.parts``;
+    las keywords MUST/SHALL/GIVEN/WHEN/THEN deben pasar gracias al
+    frozenset independiente ``_SPEC_CONTEXT_KEYWORDS``. Si alguien lo
+    elimina, el test falla con violaciones ALAN003.
+    """
+    spec = tmp_path / "openspec" / "specs" / "foo" / "spec.md"
+    spec.parent.mkdir(parents=True)
+    spec.write_text(
+        "# Title\n\n"
+        "El sistema MUST validar la entrada. "
+        "**GIVEN** un usuario, WHEN recibe payload, THEN responde 201.\n",
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), str(spec)],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == EXIT_OK, (
+        f"spec-context whitelist se desactivó: stdout={result.stdout}\n"
+        f"stderr={result.stderr}"
+    )
+
+
+def test_cli_archive_exclusion_skips_historical_changes(tmp_path: Path) -> None:
+    """``openspec/changes/archive/`` queda fuera del gate (issue #578).
+
+    Crea un árbol con: (a) un archivo en ``archive/`` con una violación
+    ALAN003 que DEBE ignorarse, y (b) un archivo en un change activo
+    sin violaciones. El resultado debe ser exit 0. Si alguien quita
+    ``archive`` de ``_EXCLUDED_DIR_SEGMENTS``, la violación del histórico
+    rompe el gate.
+    """
+    archived = tmp_path / "openspec" / "changes" / "archive" / "x" / "spec.md"
+    archived.parent.mkdir(parents=True)
+    archived.write_text(
+        "# Title\n\nThis is AMAZING.\n",
+        encoding="utf-8",
+    )
+    active = tmp_path / "openspec" / "changes" / "live" / "specs" / "live" / "spec.md"
+    active.parent.mkdir(parents=True)
+    active.write_text(
+        "# Title\n\nTexto limpio en sentence case.\n",
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), str(tmp_path)],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == EXIT_OK, (
+        f"archive exclusion se desactivó: stdout={result.stdout}\n"
+        f"stderr={result.stderr}"
+    )
+
+
+def test_cli_real_alant003_violation_still_fails(tmp_path: Path) -> None:
+    """Anti-patrón real (EMPH no whitelisted) sigue fallando el gate.
+
+    Pin contra alguien que desactive el detector (e.g. un ``return []``
+    silencioso al inicio de ``_check_allcaps``). Si el detector deja de
+    reportar, este test falla.
+    """
+    dirty = tmp_path / "guide.md"
+    dirty.write_text(
+        "# Title\n\nThis is AMAZING.\n",
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), str(dirty)],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == EXIT_VIOLATIONS, (
+        f"el detector no reportó ALAN003: stdout={result.stdout}\n"
+        f"stderr={result.stderr}"
+    )
+    assert "ALAN003" in result.stderr
+
+
 # --- find_violations sobre archivos ---------------------------------------
 
 
