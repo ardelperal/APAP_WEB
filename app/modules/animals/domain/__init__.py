@@ -1,0 +1,1 @@
+"""Animals slice — domain layer (AGENTS.md §31: no I/O)."""

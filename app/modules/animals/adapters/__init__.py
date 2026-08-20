@@ -1,0 +1,1 @@
+"""Animals slice — adapters layer (per-transport subpackages)."""
