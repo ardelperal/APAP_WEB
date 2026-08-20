@@ -6,7 +6,6 @@ InsForge's PostgREST adapter.
 """
 from __future__ import annotations
 
-
 GET_ANIMAL_BY_NCHIP_SQL: str = (
     "SELECT id, \"NCHIP\", \"NombreAnimal\", \"Especie\", \"Sexo\", "
     "\"FNacimiento\", activo "
