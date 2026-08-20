@@ -28,9 +28,10 @@ from fastapi.responses import Response
 from fastapi.templating import Jinja2Templates
 
 from app.core.domain.auth.user import AuthorizedUser
+from app.core.ports.admin_port import AdminTemplatePort
 
 
-class AdminTemplateAdapter:
+class AdminTemplateAdapter(AdminTemplatePort):
     """Typed seam for rendering the admin pages.
 
     Wraps the application-lifespan-owned ``Jinja2Templates`` so the

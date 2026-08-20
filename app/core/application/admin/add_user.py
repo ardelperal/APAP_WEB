@@ -23,18 +23,18 @@ from __future__ import annotations
 from fastapi import Request
 from fastapi.responses import Response
 
-from app.core.adapters.admin_template_adapter import AdminTemplateAdapter
 from app.core.admin_helpers import _redirect_with_flash
 from app.core.application.auth.add_authorized_user import (
     add_authorized_user as _add_user_use_case,
 )
 from app.core.domain.auth.rol import Rol
+from app.core.ports.admin_port import AdminTemplatePort
 from app.core.ports.auth_port import AuthUsersPort
 
 
 def add_user(
     auth_port: AuthUsersPort,
-    template_adapter: AdminTemplateAdapter,
+    template_adapter: AdminTemplatePort,
     request: Request,
     *,
     current_user: dict,

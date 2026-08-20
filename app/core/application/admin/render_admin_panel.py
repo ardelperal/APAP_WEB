@@ -12,13 +12,13 @@ from __future__ import annotations
 from fastapi import Request
 from fastapi.responses import Response
 
-from app.core.adapters.admin_template_adapter import AdminTemplateAdapter
+from app.core.ports.admin_port import AdminTemplatePort
 from app.core.ports.auth_port import AuthUsersPort
 
 
 def render_admin_panel(
     auth_port: AuthUsersPort,
-    template_adapter: AdminTemplateAdapter,
+    template_adapter: AdminTemplatePort,
     request: Request,
     *,
     current_user: dict,

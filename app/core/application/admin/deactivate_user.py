@@ -22,16 +22,16 @@ from __future__ import annotations
 from fastapi import Request
 from fastapi.responses import RedirectResponse, Response
 
-from app.core.adapters.admin_template_adapter import AdminTemplateAdapter
 from app.core.application.auth.deactivate_authorized_user import (
     deactivate_authorized_user as _deactivate_use_case,
 )
+from app.core.ports.admin_port import AdminTemplatePort
 from app.core.ports.auth_port import AuthUsersPort
 
 
 def deactivate_user(
     auth_port: AuthUsersPort,
-    template_adapter: AdminTemplateAdapter,
+    template_adapter: AdminTemplatePort,
     request: Request,
     *,
     current_user: dict,
