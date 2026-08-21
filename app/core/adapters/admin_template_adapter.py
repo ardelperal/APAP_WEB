@@ -20,15 +20,18 @@ legacy template contract (the Jinja ``admin.html`` reads
 re-renders the admin table from typed entities directly can replace
 this projection; it is left unchanged here to preserve the template
 contract bit-for-bit.
+
+The port-level entry point takes an :class:`AdminPanelContext`
+dataclass (transport-agnostic) instead of seven keyword arguments;
+the adapter destructures it and narrows the concrete ``Request`` /
+``list[AuthorizedUser]`` types that the Jinja renderer needs.
 """
 from __future__ import annotations
 
-from fastapi import Request
 from fastapi.responses import Response
 from fastapi.templating import Jinja2Templates
 
-from app.core.domain.auth.user import AuthorizedUser
-from app.core.ports.admin_port import AdminTemplatePort
+from app.core.ports.admin_port import AdminPanelContext, AdminTemplatePort
 
 
 class AdminTemplateAdapter(AdminTemplatePort):
@@ -43,16 +46,7 @@ class AdminTemplateAdapter(AdminTemplatePort):
     def __init__(self, templates: Jinja2Templates) -> None:
         self._templates = templates
 
-    def render_panel(
-        self,
-        request: Request,
-        current_user: dict,
-        users: list[AuthorizedUser],
-        app_name: str,
-        roles: frozenset[str] | list[str],
-        error_message: str | None = None,
-        error_type: str | None = None,
-    ) -> Response:
+    def render_panel(self, context: AdminPanelContext) -> Response:
         """Render ``admin.html`` with the admin-panel context.
 
         The ``error_message`` / ``error_type`` pair populates the
@@ -65,14 +59,14 @@ class AdminTemplateAdapter(AdminTemplatePort):
         ``Jinja2Templates`` instance.
         """
         return self._templates.TemplateResponse(
-            request=request,
+            request=context.request,
             name="admin.html",
             context={
-                "app_name": app_name,
-                "current_user": current_user,
-                "users": [user.to_dict() for user in users],
-                "roles": sorted(roles),
-                "error_message": error_message,
-                "error_type": error_type,
+                "app_name": context.app_name,
+                "current_user": context.current_user,
+                "users": [user.to_dict() for user in context.users],
+                "roles": sorted(context.roles),
+                "error_message": context.error_message,
+                "error_type": context.error_type,
             },
         )

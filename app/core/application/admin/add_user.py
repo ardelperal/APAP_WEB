@@ -28,7 +28,7 @@ from app.core.application.auth.add_authorized_user import (
     add_authorized_user as _add_user_use_case,
 )
 from app.core.domain.auth.rol import Rol
-from app.core.ports.admin_port import AdminTemplatePort
+from app.core.ports.admin_port import AdminPanelContext, AdminTemplatePort
 from app.core.ports.auth_port import AuthUsersPort
 
 
@@ -83,20 +83,24 @@ def add_user(
         # duplicate). Re-render admin.html with the message in the
         # flash slot so the operator sees it next to the form.
         return template_adapter.render_panel(
+            AdminPanelContext(
+                request=request,
+                current_user=current_user,
+                users=auth_port.list_authorized_users(),
+                app_name=app_name,
+                roles=roles,
+                error_message=str(exc),
+                error_type="danger",
+            )
+        )
+
+    # Success: re-render so the new row is immediately visible.
+    return template_adapter.render_panel(
+        AdminPanelContext(
             request=request,
             current_user=current_user,
             users=auth_port.list_authorized_users(),
             app_name=app_name,
             roles=roles,
-            error_message=str(exc),
-            error_type="danger",
         )
-
-    # Success: re-render so the new row is immediately visible.
-    return template_adapter.render_panel(
-        request=request,
-        current_user=current_user,
-        users=auth_port.list_authorized_users(),
-        app_name=app_name,
-        roles=roles,
     )

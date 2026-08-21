@@ -25,7 +25,7 @@ from fastapi.responses import RedirectResponse, Response
 from app.core.application.auth.deactivate_authorized_user import (
     deactivate_authorized_user as _deactivate_use_case,
 )
-from app.core.ports.admin_port import AdminTemplatePort
+from app.core.ports.admin_port import AdminPanelContext, AdminTemplatePort
 from app.core.ports.auth_port import AuthUsersPort
 
 
@@ -48,12 +48,14 @@ def deactivate_user(
         _deactivate_use_case(auth_port, user_id)
     except ValueError as exc:
         return template_adapter.render_panel(
-            request=request,
-            current_user=current_user,
-            users=auth_port.list_authorized_users(),
-            app_name=app_name,
-            roles=roles,
-            error_message=str(exc),
-            error_type="danger",
+            AdminPanelContext(
+                request=request,
+                current_user=current_user,
+                users=auth_port.list_authorized_users(),
+                app_name=app_name,
+                roles=roles,
+                error_message=str(exc),
+                error_type="danger",
+            )
         )
     return RedirectResponse(url="/admin", status_code=302)
