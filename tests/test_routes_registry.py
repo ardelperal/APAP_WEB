@@ -149,6 +149,7 @@ def test_register_routers_produces_same_routes_as_full_create_app() -> None:
             "/admin",
             "/admin/users",
             "/admin/users/{user_id}/deactivate",
+            "/e2e/login",
             "/docs",
             "/docs/oauth2-redirect",
             "/redoc",
