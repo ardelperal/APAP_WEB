@@ -87,7 +87,7 @@ def register_e2e_auth_routes(app: FastAPI) -> None:
     if not settings.e2e_auth_enabled:
         return
 
-    @app.post("/e2e/login")
+    @app.get("/e2e/login")
     def _e2e_login(
         email: Annotated[
             str | None,
@@ -117,6 +117,16 @@ def register_e2e_auth_routes(app: FastAPI) -> None:
         ``apap_session`` cookie set on success. The auth cache is
         pre-populated so the very next request from the test client
         is authorized without a DB round-trip.
+
+        GET (not POST) on purpose: the mock is test-only and the
+        X-E2E-Secret header is a non-guessable shared secret that
+        browsers will NOT send cross-origin, so the route does not
+        need the CSRF defence that applies to cookie-authenticated
+        POSTs. Routing through GET also keeps the CSRF middleware's
+        safe-methods short-circuit out of the way, so the test
+        client does not have to send a ``csrf_token`` header that
+        it does not yet have (the token comes back in the
+        response).
         """
         expected_secret = settings.e2e_auth_secret
         if not expected_secret:
