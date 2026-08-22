@@ -49,6 +49,7 @@ from app.core.application.admin.render_admin_panel import (
 from app.core.di.admin_di import get_admin_template_adapter
 from app.core.domain.auth.rol import Rol
 from app.core.domain.auth.user import AuthorizedUser
+from app.core.ports.admin_port import AdminPanelContext
 
 # --- recording fake ---------------------------------------------------------
 
@@ -372,11 +373,13 @@ def test_admin_template_adapter_renders_with_sorted_roles() -> None:
     """The adapter passes a sorted roles list to the template."""
     adapter, _ = _make_adapter()
     response = adapter.render_panel(
-        request=_fake_request(),
-        current_user=_current_user(),
-        users=[],
-        app_name="TestApp",
-        roles=frozenset({"writer", "key_user", "developer"}),
+        AdminPanelContext(
+            request=_fake_request(),
+            current_user=_current_user(),
+            users=[],
+            app_name="TestApp",
+            roles=frozenset({"writer", "key_user", "developer"}),
+        )
     )
     body = response.body.decode("utf-8")
     # Sorted lexicographically; "developer" < "key_user" < "writer".
@@ -391,11 +394,13 @@ def test_admin_template_adapter_projects_users_via_to_dict() -> None:
     adapter, _ = _make_adapter()
     user = _user(email="ana@example.com")
     response = adapter.render_panel(
-        request=_fake_request(),
-        current_user=_current_user(),
-        users=[user],
-        app_name="TestApp",
-        roles=frozenset({"key_user"}),
+        AdminPanelContext(
+            request=_fake_request(),
+            current_user=_current_user(),
+            users=[user],
+            app_name="TestApp",
+            roles=frozenset({"key_user"}),
+        )
     )
     assert "ana@example.com" in response.body.decode("utf-8")
 
@@ -404,11 +409,13 @@ def test_admin_template_adapter_omits_flash_when_message_is_none() -> None:
     """No ``error_message`` key in the rendered HTML when the message is absent."""
     adapter, _ = _make_adapter()
     response = adapter.render_panel(
-        request=_fake_request(),
-        current_user=_current_user(),
-        users=[],
-        app_name="TestApp",
-        roles=frozenset({"key_user"}),
+        AdminPanelContext(
+            request=_fake_request(),
+            current_user=_current_user(),
+            users=[],
+            app_name="TestApp",
+            roles=frozenset({"key_user"}),
+        )
     )
     body = response.body.decode("utf-8")
     # The flash slot is an ``{% if error_message %}`` block; the rendered

@@ -602,36 +602,12 @@ def check_tests_per_layer(
 #: Never add a new entry except in the acquisition PR; from then on,
 #: fix the violation.
 BASELINE: Mapping[str, str] = {
-    # admin slice landed without an application-layer Protocol (#419).
-    # The Jinja-renderer adapter (app/core/adapters/admin_template_adapter.py)
-    # was created as the concrete seam without extracting the abstract
-    # AdminTemplatePort Protocol that app/core/application/admin/*.py would
-    # depend on. The four entries collapse to one fix: write
-    # app/core/ports/admin_port.py with class AdminTemplatePort(Protocol):
-    # def render_panel(...) -> Response, retarget application/admin/*.py to
-    # it, and the three application-adapter-free entries below can be
-    # deleted in the same PR.
-    "port-declared::admin": (
-        "admin slice (#419) landed before slice-completeness was a rule; "
-        "the Jinja-renderer adapter was extracted without an "
-        "AdminTemplatePort Protocol. Write app/core/ports/admin_port.py "
-        "with class AdminTemplatePort(Protocol): def render_panel(...) "
-        "-> Response, retarget application/admin/*.py to it, and the "
-        "three application-adapter-free entries below can be deleted in "
-        "the same PR."
-    ),
-    "application-adapter-free::app/core/application/admin/add_user.py": (
-        "See port-declared::admin -- the application file imports the "
-        "AdminTemplateAdapter concrete class because the abstract port "
-        "does not yet exist. Fixed by the same PR that adds "
-        "app/core/ports/admin_port.py."
-    ),
-    "application-adapter-free::app/core/application/admin/deactivate_user.py": (
-        "See port-declared::admin -- same fix as the add_user.py entry."
-    ),
-    "application-adapter-free::app/core/application/admin/render_admin_panel.py": (
-        "See port-declared::admin -- same fix as the add_user.py entry."
-    ),
+    # admin slice (#419) BASELINE collapsed in #584. The four
+    # entries (port-declared::admin plus three
+    # application-adapter-free::app/core/application/admin/*.py) were
+    # cleared when app/core/ports/admin_port.py landed with the
+    # AdminTemplatePort Protocol and the three application files
+    # retargeted to depend on it.
 }
 
 
