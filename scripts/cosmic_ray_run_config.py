@@ -67,6 +67,41 @@ def _skip_distributor_http_block(
     return i
 
 
+def _read_distributor_name(template_lines: list[str]) -> str:
+    """Return the ``name = "..."`` value inside ``[cosmic-ray.distributor]``.
+
+    Defaults to ``"http"`` for back-compat with templates that omit the
+    field — the original (#545) shape of this file was a ``[distributor]``
+    block followed by a ``[distributor.http]`` block, with no explicit
+    ``name`` line because the http distributor was the only one in play.
+    A new template that explicitly declares ``name = "local"`` is
+    preserved verbatim by ``_emit_distributor_header``; that function
+    does not invent a name on its own.
+    """
+    in_block = False
+    for raw_line in template_lines:
+        stripped = raw_line.strip()
+        if stripped == "[cosmic-ray.distributor]":
+            in_block = True
+            continue
+        if in_block:
+            if stripped.startswith("["):
+                break
+            if stripped.startswith("name ") or stripped.startswith("name="):
+                # Match `name = "..."` (TOML), `name "..."` (also legal
+                # in older parsers), and any future spelling. Strip quotes
+                # and whitespace; raise if the value is missing.
+                _, _, value = stripped.partition("=" if "=" in stripped else " ")
+                value = value.strip().strip('"').strip("'")
+                if not value:
+                    raise ValueError(  # noqa: TRY003 — operator-facing diagnostic
+                        "distributor name declared but empty; expected "
+                        "'local' or 'http'"
+                    )
+                return value
+    return "http"
+
+
 def _emit_distributor_header(
     out: list[str],
     lines: list[str],
@@ -77,13 +112,24 @@ def _emit_distributor_header(
     ``start`` is the index of the header line itself. Returns the
     index of the first line *not* consumed -- the next iteration of
     the outer loop picks up there.
+
+    The original implementation hard-coded ``name = "http"`` here on
+    the assumption that the CI only ever ran the parallel HTTP
+    distributor (#545). Once the workflow reverts to the local
+    distributor (this script's caller now passes ``local``), the
+    rewrite would silently override the operator's choice and
+    ``cosmic-ray exec`` would attempt the broken http distributor
+    again. Preserve the template's declared ``name = "..."`` value
+    verbatim; the http sub-section that follows is only meaningful
+    when the template asked for the http distributor, so the outer
+    loop's emit branch gates on the captured name below.
     """
     out.append(lines[start])
     i = start + 1
     while i < len(lines):
         inner_stripped = lines[i].strip()
         if inner_stripped.startswith("name ") or inner_stripped.startswith("name="):
-            out.append('name = "http"\n')
+            out.append(lines[i])
             i += 1
             continue
         # Comment + blank lines stay verbatim -- the operator's
@@ -112,7 +158,7 @@ def _replace_distributor_block(
         [cosmic-ray]
         ...
         [cosmic-ray.distributor]
-        name = "http"
+        name = "http"  # (or "local")
         # (comment lines explaining the worker choice)
         [cosmic-ray.distributor.http]
         worker-urls = [
@@ -123,11 +169,18 @@ def _replace_distributor_block(
         ...
 
     We keep everything up to (and including) the ``[cosmic-ray.distributor]``
-    header, replace ``name = "..."`` and all comments inside that block
-    with ``name = "http"``, then synthesise a fresh
-    ``[cosmic-ray.distributor.http]`` block whose ``worker-urls`` list
-    points at the per-run dir. Everything from the next non-distributor
-    ``[`` header onward is preserved verbatim.
+    header, preserve the operator-declared ``name = "..."`` verbatim
+    (this function does NOT flip the distributor — earlier versions
+    hard-coded ``name = "http"`` and silently overrode the template's
+    choice; that broke the rollback to the local distributor), then
+    synthesise a fresh ``[cosmic-ray.distributor.http]`` block whose
+    ``worker-urls`` list points at the per-run dir — but only when the
+    template asked for the http distributor. Local runs need no
+    worker block at all; cosmic-ray's local distributor is a plain
+    ``for work_item in pending_work`` loop in the main process.
+
+    Everything from the next non-distributor ``[`` header onward is
+    preserved verbatim.
 
     The logic is line-based rather than TOML-based because (a) the
     template is a small stable file, (b) the rewrite must keep comments
@@ -136,6 +189,7 @@ def _replace_distributor_block(
     stdlib-only without dragging in a TOML write dependency that
     cosmic-ray's transitive ``toml`` package does not actually expose.
     """
+    declared_name = _read_distributor_name(template_lines)
     out: list[str] = []
     found_distributor = False
     i = 0
@@ -154,13 +208,14 @@ def _replace_distributor_block(
         if stripped == "[cosmic-ray.distributor]" and not found_distributor:
             found_distributor = True
             i = _emit_distributor_header(out, template_lines, i)
-            out.append("\n")
-            out.append("[cosmic-ray.distributor.http]\n")
-            out.append("worker-urls = [\n")
-            for url in worker_urls:
-                out.append(f'    "{url}",\n')
-            out.append("]\n")
-            out.append("\n")
+            if declared_name == "http":
+                out.append("\n")
+                out.append("[cosmic-ray.distributor.http]\n")
+                out.append("worker-urls = [\n")
+                for url in worker_urls:
+                    out.append(f'    "{url}",\n')
+                out.append("]\n")
+                out.append("\n")
             continue
 
         out.append(line)

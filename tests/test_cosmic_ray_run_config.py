@@ -32,11 +32,56 @@ from scripts.cosmic_ray_run_config import (
 
 @pytest.fixture()
 def template_path(tmp_path: Path) -> Path:
-    """Minimal cosmic-ray.toml shape that exercises the distributor rewrite.
+    """Minimal cosmic-ray.toml shape that exercises the http distributor rewrite.
 
-    Mirrors the committed ``docs/quality/cosmic-ray.toml`` shape exactly
-    -- the helper's line-based rewrite is a function of the file's
-    shape, so tests need a faithful fixture to mean anything.
+    Mirrors the committed ``docs/quality/cosmic-ray.toml`` shape from
+    the http-distributor era (PR #545) so the worker-URL rewrite path
+    is exercised. Tests for the local distributor live in
+    ``local_template_path`` + ``test_*_local_*`` below.
+    """
+    text = textwrap.dedent(
+        """\
+        # cosmic-ray configuration for the mutation gate (issue #431).
+
+        [cosmic-ray]
+        module-path = ["app/foo.py"]
+        timeout = 60.0
+        excluded-modules = []
+        test-command = "python -m pytest -x"
+
+        [cosmic-ray.distributor]
+        name = "http"
+
+        # Comment block above the http sub-section -- the helper must
+        # preserve these comments when re-pointing the worker URLs.
+        [cosmic-ray.distributor.http]
+        worker-urls = [
+            "unix:///tmp/apap-cosmic-ray/w1.sock",
+            "unix:///tmp/apap-cosmic-ray/w2.sock",
+            "unix:///tmp/apap-cosmic-ray/w3.sock",
+            "unix:///tmp/apap-cosmic-ray/w4.sock",
+        ]
+
+        [cosmic-ray.filters.operators-filter]
+        exclude-operators = ["core/ReplaceBinaryOperator_BitOr_.*"]
+        """
+    )
+    path = tmp_path / "cosmic-ray.toml"
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+@pytest.fixture()
+def local_template_path(tmp_path: Path) -> Path:
+    """Local-distributor shape: ``name = "local"``, no http sub-section.
+
+    The committed template at HEAD uses this shape (rolled back from
+    the http distributor per #434). The renderer must preserve
+    ``name = "local"`` verbatim and skip the http block emission -- a
+    regression in either direction would re-introduce the original
+    bug (the script silently flipping the distributor) or break the
+    pilot baseline (re-emitting a http block the template doesn't ask
+    for).
     """
     text = textwrap.dedent(
         """\
@@ -50,16 +95,6 @@ def template_path(tmp_path: Path) -> Path:
 
         [cosmic-ray.distributor]
         name = "local"
-
-        # Comment block above the http sub-section -- the helper must
-        # preserve these comments when re-pointing the worker URLs.
-        [cosmic-ray.distributor.http]
-        worker-urls = [
-            "unix:///tmp/apap-cosmic-ray/w1.sock",
-            "unix:///tmp/apap-cosmic-ray/w2.sock",
-            "unix:///tmp/apap-cosmic-ray/w3.sock",
-            "unix:///tmp/apap-cosmic-ray/w4.sock",
-        ]
 
         [cosmic-ray.filters.operators-filter]
         exclude-operators = ["core/ReplaceBinaryOperator_BitOr_.*"]
@@ -106,23 +141,56 @@ def test_render_config_rewrites_worker_urls_to_per_run_dir(
         assert f'"unix:///tmp/apap-cosmic-ray/w{i}.sock"' not in rendered
 
 
-def test_render_config_switches_distributor_name_to_http(
+def test_render_config_preserves_distributor_name_from_template(
     template_path: Path,
     tmp_path: Path,
 ) -> None:
-    """The committed template defaults to ``local``; the per-run render flips it to ``http``."""
+    """The helper preserves whatever ``name =`` the template declared.
+
+    Earlier revisions of this script hard-coded ``name = "http"`` regardless
+    of what the template asked for, on the assumption that the CI only ever
+    ran the http distributor (#545). Once the workflow reverts to the local
+    distributor (the CI's actual state per #434), that hard-code silently
+    overrides the operator's choice and ``cosmic-ray exec`` re-enters the
+    broken http distributor path. The renderer must now mirror the
+    template verbatim; a regression here is the original bug coming back.
+    """
     run_dir = tmp_path / "run"
     run_dir.mkdir()
 
     out = render_config(template_path, run_dir)
 
     rendered = out.read_text(encoding="utf-8")
-    # The helper always emits ``name = "http"`` regardless of what the
-    # template declared; the operator-facing message at the top of the
-    # committed file already documents this is the only distributor the
-    # CI uses.
+    # The template declares ``name = "http"``; the rendered file must
+    # carry that exact line, with no ``local`` injected anywhere.
     assert 'name = "http"' in rendered
     assert 'name = "local"' not in rendered
+
+
+def test_render_config_local_template_omits_http_block(
+    local_template_path: Path,
+    tmp_path: Path,
+) -> None:
+    """Local distributor templates do not get a synthesised http sub-section.
+
+    The http block rewrite is only meaningful when the template asked for
+    the http distributor; emitting it for a local template would re-introduce
+    the broken unix:// URL scheme into the rendered config that cosmic-ray
+    would then try to dispatch against.
+    """
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+
+    out = render_config(local_template_path, run_dir)
+
+    rendered = out.read_text(encoding="utf-8")
+    # Local distributor stays verbatim.
+    assert 'name = "local"' in rendered
+    # No http sub-section synthesised -- aiohttp in cosmic-ray 8.4.6
+    # rejects unix:// URLs and the local distributor needs no workers
+    # at all.
+    assert "[cosmic-ray.distributor.http]" not in rendered
+    assert "worker-urls" not in rendered
 
 
 def test_render_config_preserves_unrelated_fields_and_comments(
