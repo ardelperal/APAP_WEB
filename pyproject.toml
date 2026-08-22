@@ -52,7 +52,18 @@ dev = [
     # see the dependency work-unit commit body for the exact queries.
     "radon==6.0.1",
     "xenon==0.9.3",
-    "cosmic-ray==8.7.0",
+    # cosmic-ray is pinned to 8.4.6 — NOT 8.7.0 — because the
+    # `mutation` job's worker supervisor (`cr-http-workers`) feeds
+    # Unix-domain-socket URLs (`--path`) to cosmic-ray exec, and 8.7.0's
+    # `cosmic_ray/distribution/http.py:67` raises NonHttpUrlClientError
+    # for anything that is not an `http://` URL. 8.4.6 accepts the
+    # `--path` URLs and matches `mutation-baseline.json::acquired_on.cosmic_ray`,
+    # so the existing baseline numbers stay comparable to the next run.
+    # Bumping past 8.4.6 requires either adapting the workflow to TCP
+    # workers (changes in `scripts/cosmic_ray_run_config.py` + ci.yml)
+    # or re-acquiring the baseline on the new runtime; both are
+    # independent work units and not bundled into this pin. See #434.
+    "cosmic-ray==8.4.6",
     "hypothesis>=6.165",
     "mutmut==3.7.0",
     "pytest-randomly>=4.1",
