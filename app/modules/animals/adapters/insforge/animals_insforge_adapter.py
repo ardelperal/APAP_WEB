@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from app.core.data_access import SqlExecutor
 from app.modules.animals.adapters.insforge.animals_insforge_queries import (
+    create_animal_sql,
     get_animal_by_nchip_sql,
     list_animals_sql,
 )
@@ -46,6 +47,35 @@ class AnimalsInsforgeAdapter(AnimalsPort):
         )
         rows = self._client.execute_sql(sql, params)
         return [_row_to_animal(row) for row in rows]
+
+    def create_animal(
+        self,
+        *,
+        nchip: str,
+        nombre: str,
+        especie: Especie,
+        sexo: Sexo,
+        fnacimiento: str,
+    ) -> Animal:
+        sql, params = create_animal_sql(
+            nchip=nchip,
+            nombre=nombre,
+            especie=especie.value,
+            sexo=sexo.value,
+            fnacimiento=fnacimiento,
+        )
+        rows = self._client.execute_sql(sql, params)
+        # ``INSERT ... RETURNING`` always yields one row on success;
+        # the empty-list branch is a defensive guard for an
+        # unexpected transport shape (would surface as an opaque
+        # ``IndexError`` otherwise, which is harder to diagnose).
+        if not rows:
+            raise RuntimeError(  # noqa: TRY003 — operator-facing diagnostic
+                "INSERT INTO animales RETURNING produced no rows — "
+                "the transport shape has drifted, expected exactly "
+                "one row"
+            )
+        return _row_to_animal(rows[0])
 
 
 def _row_to_animal(row: dict[str, object]) -> Animal:

@@ -1,10 +1,18 @@
 """Hexagonal port for the animals slice (AGENTS.md §31).
 
-Slice #420-7 second method — paginated list, complementing the
-read-by-NCHIP path landed in #587. Additional methods
-(``create``, ``update``, ``delete``, ``chip_cascade``,
-``photo_upload``, ``lifecycle_events``) land as the legacy
-:mod:`app.modules.animals.service` migrates.
+Slice #420-7 third method — ``create_animal`` joins ``get_animal_by_nchip``
+(#587) and ``list_animals`` (#596). Additional methods (``update``,
+``delete``, ``chip_cascade``, ``photo_upload``, ``lifecycle_events``)
+land as the legacy :mod:`app.modules.animals.service` migrates.
+
+The port carries the round-trip fields the hexagonal
+:class:`Animal` dataclass already encodes (NCHIP, NombreAnimal,
+Especie, Sexo, FNacimiento). Legacy ``TbFichaAnimal`` columns
+``TraeNChip``, ``FIMPLANTACIONCHIP``, ``Raza``, ``Color``, ``Pelo``,
+``Tamano``, ``Caracter`` are not in the dataclass yet — they land as
+a separate slice once we decide whether to widen the entity or
+carry a parallel ``AnimalCreateRequest`` so the legacy
+``dict[str, Any]`` shape can keep its full surface.
 
 Adapters MUST translate transport-level errors into the
 Protocol-level exceptions declared in :mod:`app.core.data_access`.
@@ -13,7 +21,7 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from app.modules.animals.domain.animal import Animal
+from app.modules.animals.domain.animal import Animal, Especie, Sexo
 
 
 @runtime_checkable
@@ -49,6 +57,31 @@ class AnimalsPort(Protocol):
         hexagonal path is a drop-in replacement for the legacy
         ``list_animales`` route handler; pass ``False`` for the
         historical-record paths that need to see inactive rows.
+        """
+
+    def create_animal(
+        self,
+        *,
+        nchip: str,
+        nombre: str,
+        especie: Especie,
+        sexo: Sexo,
+        fnacimiento: str,
+    ) -> Animal:
+        """Insert a new animal and return the persisted row.
+
+        The adapter is responsible for the primary-key generation
+        (``id`` comes back via ``INSERT ... RETURNING id``) and for
+        any transport-specific uniqueness check on ``NCHIP``. The
+        returned :class:`Animal` reflects the row as stored, including
+        ``id`` and ``activo=True``.
+
+        Adapters MUST raise :class:`app.core.data_access.UniqueViolation`
+        (or a subclass) when the NCHIP already exists so the
+        application layer can translate it into a 409 — the legacy
+        ``create_animal`` propagates ``InsForgeError`` for the same
+        condition, and the hexagonal path uses the data-access layer's
+        Protocol-level exception so callers stay transport-free.
         """
 
 
