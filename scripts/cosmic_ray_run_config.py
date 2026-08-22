@@ -97,7 +97,7 @@ def _read_distributor_name(template_lines: list[str]) -> str:
                     raise ValueError(
                         "distributor name declared but empty; expected "
                         "'local' or 'http'"
-                    )
+                    )  # noqa: TRY003 — operator-facing diagnostic
                 return value
     return "http"
 
