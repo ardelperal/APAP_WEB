@@ -899,58 +899,60 @@ def test_cosmic_ray_toml_includes_adopciones_service_in_module_path() -> None:
     )
 
 
-def test_mutation_baseline_marks_adopciones_as_awaiting_acquisition() -> None:
-    """Issue #434: the baseline must mark the new module as pending Linux acquisition.
+def test_mutation_baseline_adopciones_has_been_acquired() -> None:
+    """Issue #434: adopciones/service.py must carry a real survivor count, not a marker.
 
-    cosmic-ray 8.4.6 returns INCOMPETENT for 100% of mutants on native Windows
-    (issue #431, Finding 1), so the survivor count cannot be acquired locally.
-    The baseline carries an ``awaiting_acquisition`` marker with the date the
-    entry landed on ``main``; the ratchet (``check_mutation.py``) enforces a
-    14-day grace period before failing the build if the marker persists.
+    The 2026-08-06 baseline left ``app/modules/adopciones/service.py`` in
+    ``awaiting_acquisition`` because cosmic-ray 8.4.6 returns INCOMPETENT on
+    native Windows (issue #431, Finding 1) and the scheduled CI mutation job
+    never produced a session — the http distributor from PR #545 handed
+    unix:// URLs to cosmic-ray's ``aiohttp`` client and never executed a
+    single mutant. PR #593 rolled the distributor back to ``local``;
+    PR #594 stopped the renderer from overriding the template's distributor
+    name; the manual dispatch then ran a complete session in 1h27m.
 
-    Replacing the marker with a real integer count is the explicit handoff
-    that closes #434. ``tests/test_check_mutation.py`` covers the ratchet
-    behaviour; this test pins the wiring.
+    This test pins the post-acquisition state: the marker is gone,
+    the module appears under ``modules`` with a non-null integer, and
+    the recorded value was acquired on Linux ARM64 (the platform the
+    production runners run on — see ``acquired_on.platform``). A
+    regression here either un-acquires the count (re-adding the marker)
+    or pins a synthetic zero, both of which would silently freeze
+    a placeholder as if it were measured.
     """
     import json
-    from datetime import date, timedelta  # noqa: F401
-
-    from scripts.check_mutation import GRACE_PERIOD_DAYS
 
     baseline_path = REPO_ROOT / "docs" / "quality" / "mutation-baseline.json"
     payload = json.loads(baseline_path.read_text(encoding="utf-8"))
 
     awaiting = payload.get("awaiting_acquisition", {})
-    assert "app/modules/adopciones/service.py" in awaiting, (
-        "adopciones/service.py must carry an awaiting_acquisition marker "
-        "until the first scheduled CI mutation run replaces it with the "
-        "real survivor count (issue #434)"
+    assert "app/modules/adopciones/service.py" not in awaiting, (
+        "adopciones/service.py was acquired (issue #434); an entry under "
+        "'awaiting_acquisition' is a regression that re-opens the marker."
     )
 
-    since_str = awaiting["app/modules/adopciones/service.py"]
-    since = date.fromisoformat(since_str)
-    age = (date.today() - since).days
-    assert age <= GRACE_PERIOD_DAYS, (
-        f"awaiting_acquisition marker for adopciones/service.py is {age} days "
-        f"old, past the {GRACE_PERIOD_DAYS}-day grace period. The scheduled CI "
-        f"mutation job should have replaced it. See issue #434."
-    )
-
-    # The module must NOT appear under ``modules`` with a real (non-null)
-    # count: that would silently freeze a placeholder as if it were measured.
     modules = payload.get("modules", {})
-    assert "app/modules/adopciones/service.py" not in modules, (
-        "adopciones/service.py is awaiting acquisition; an entry under "
-        "'modules' with a real count is a regression — issue #434 ships "
-        "the marker, the follow-up PR drops it"
+    assert "app/modules/adopciones/service.py" in modules, (
+        "adopciones/service.py must appear under 'modules' with a real "
+        "integer count after the 2026-08-22 acquisition (issue #434)"
+    )
+    survivors = modules["app/modules/adopciones/service.py"]
+    assert isinstance(survivors, int) and survivors > 0, (
+        f"adopciones/service.py survivor count must be a positive integer, "
+        f"got {survivors!r}"
+    )
+
+    acquired = payload.get("acquired_on", {})
+    assert "platform" in acquired, "acquired_on.platform must be present"
+    assert "ARM64" in acquired["platform"], (
+        f"acquired_on.platform must record the Linux ARM64 runner "
+        f"(matches production). Got: {acquired['platform']!r}"
     )
 
     print(
-        "\nmutation-baseline.json[awaiting_acquisition]"
-        "[app/modules/adopciones/service.py] = "
-        f"{since_str} (age: {age} days, grace: {GRACE_PERIOD_DAYS})"
+        "\nmutation-baseline.json[modules][app/modules/adopciones/service.py]"
+        f" = {survivors} survivors (acquired {acquired.get('date')} on "
+        f"{acquired.get('platform')})"
     )
-
 
 def test_ci_workflow_branch_name_step_is_wired() -> None:
     """The branch-name gate must be wired in pr-name.yml (issue #441, #525).
