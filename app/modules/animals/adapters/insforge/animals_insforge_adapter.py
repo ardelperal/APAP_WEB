@@ -35,9 +35,9 @@ class AnimalsInsforgeAdapter(AnimalsPort):
     def list_animals(
         self,
         *,
-        limit: int,
-        offset: int,
-        activo_only: bool,
+        limit: int = 50,
+        offset: int = 0,
+        activo_only: bool = True,
     ) -> list[Animal]:
         sql, params = list_animals_sql(
             limit=limit,

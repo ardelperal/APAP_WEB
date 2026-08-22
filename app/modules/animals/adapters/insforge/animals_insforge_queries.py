@@ -57,11 +57,16 @@ def list_animals_sql(
     ranges; this helper does no defensive bounds-checking because
     it is the only caller that should be exercised in tests, and
     we want the surface to fail loudly on bad inputs.
+
+    ``limit`` and ``offset`` are coerced to ``str`` because the
+    InsForge client serialises bind parameters as strings on the
+    wire; the integer values land in postgres via the same implicit
+    text→int8 cast the legacy ``service.py`` already relies on.
     """
     where_clause = "WHERE activo = TRUE " if activo_only else ""
     return (
         LIST_ANIMALS_SQL.format(where_clause=where_clause),
-        [limit, offset],
+        [str(limit), str(offset)],
     )
 
 
