@@ -549,7 +549,15 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.ref, 'refs/tags/')
     runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
-    timeout-minutes: 120
+    # 6 hours. The pilot baseline of 233 mutants took 3111 s on the same
+    # runner with the local distributor; the curated 5-module set today
+    # produces 1114 work items and runs single-threaded (the http
+    # distributor's worker URLs were unix-domain sockets, which aiohttp
+    # in cosmic-ray 8.4.6 rejects — see docs/quality/cosmic-ray.toml).
+    # 360 min leaves headroom for the test-command (pytest across
+    # ~5 modules) per mutant; bump again if a future target set pushes
+    # the wall-clock higher.
+    timeout-minutes: 360
     env:
       # TASK-2.1 (W-5) determinism mitigation. The companion `--worker-count=1`
       # from that task does NOT exist in cosmic-ray 8.4.6: `cosmic-ray exec`
