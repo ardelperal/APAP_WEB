@@ -44,6 +44,9 @@ EXPECTED_PUBLIC_PATHS: frozenset[str] = frozenset(
         "/auth/google",
         "/auth/callback",
         "/logout",
+        # Issue #598: the E2E OAuth mock mints a session for tests.
+        # See app.core.middleware.PUBLIC_PATHS for the rationale.
+        "/e2e/login",
     }
 )
 
@@ -76,8 +79,9 @@ def test_public_paths_has_exactly_five_entries() -> None:
         f"got {sorted(PUBLIC_PATHS)!r}, expected {sorted(EXPECTED_PUBLIC_PATHS)!r}. "
         f"Update this atom AND the spec doc together — they MUST agree."
     )
-    assert len(PUBLIC_PATHS) == 5, (
-        f"PUBLIC_PATHS must have exactly 5 entries (verified on 2026-07-11); "
+    assert len(PUBLIC_PATHS) == 6, (
+        f"PUBLIC_PATHS must have exactly 6 entries (5 verified on 2026-07-11 "
+        f"+ /e2e/login added with the OAuth mock, issue #598); "
         f"got {len(PUBLIC_PATHS)}"
     )
 
