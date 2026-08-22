@@ -1017,7 +1017,18 @@ jobs:
         # InsForge bootstrap so the app can start in CI without a real
         # backend. Public HTML routes serve fine; data routes 500
         # (the e2e suite doesn't exercise those).
+        #
+        # Issue #598: enable the E2E OAuth mock so the suite can mint
+        # sessions for authenticated routes without real Google OAuth
+        # credentials. ``APAP_E2E_AUTH_SECRET`` is set as a CI variable
+        # (not a repo secret — the mock is test-only, so the secret
+        # does not need to be hidden). The dev server inherits the
+        # env vars via the workflow's ``env:`` block; the e2e tests
+        # send the matching ``X-E2E-Secret`` header at login.
         run: |
+          export APAP_E2E_AUTH_ENABLED=1
+          export APAP_E2E_AUTH_SECRET="${APAP_E2E_AUTH_SECRET}"
+          export APAP_E2E_AUTH_DEFAULT_EMAIL="${APAP_E2E_AUTH_DEFAULT_EMAIL:-e2e@apap.local}"
           python scripts/dev_server_no_lifespan.py &
           SERVER_PID=$!
           for i in {1..30}; do

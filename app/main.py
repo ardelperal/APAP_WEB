@@ -60,6 +60,7 @@ from app.core.csrf import csrf_token_context_processor
 from app.core.dashboard_data import DASHBOARD_PENDING_CARDS, DASHBOARD_SHORTCUTS
 from app.core.di.insforge_error_handler_di import get_insforge_error_handler_port
 from app.core.domain import ensure_domain_schema
+from app.core.e2e_auth import register_e2e_auth_routes
 from app.core.insforge import InsForgeClient
 from app.core.insforge_error_handler import register_insforge_error_handler
 from app.core.logging import configure_logging
@@ -200,6 +201,10 @@ def create_app() -> FastAPI:
     _register_index_handler(application, templates, settings)
     _register_unauthorized_handler(application, templates, settings)
     register_auth_flow_routes(application, templates)
+    # E2E test-only OAuth mock (issue #598). No-op unless
+    # ``Settings.e2e_auth_enabled`` is True. Production deployments
+    # leave that off and the route is not registered.
+    register_e2e_auth_routes(application)
     register_admin_routes(application, templates)
 
     # Domain routers (issue #204)

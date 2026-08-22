@@ -106,6 +106,21 @@ class Settings(BaseSettings):
     # extra config; production must override.
     google_redirect_uri: str = "http://127.0.0.1:8000/auth/callback"
 
+    # --- E2E test-only OAuth mock (issue #598) ----------------------
+    # When True, ``app.core.e2e_auth.register_e2e_auth_routes``
+    # registers ``POST /e2e/login`` which mints a session directly
+    # when the ``X-E2E-Secret`` request header matches
+    # ``e2e_auth_secret``. Defaults to False; production MUST leave
+    # this off (the route is not registered otherwise and the
+    # existing ``/login`` 503 behaviour stands).
+    e2e_auth_enabled: bool = False
+    e2e_auth_secret: str = ""
+    # Email used by the Playwright conftest when authenticating
+    # against the mock route. Must exist as an ``usuarios_autorizados``
+    # row in production, but the mock pre-populates the in-process
+    # auth cache so the DB row is bypassed during E2E runs.
+    e2e_auth_default_email: str = "e2e@apap.local"
+
     # --- Bootstrap (Fase 2) ---------------------------------------------
     # Email of the first `developer` user, seeded on first startup if
     # no developer exists. Empty means "do not seed anyone".
