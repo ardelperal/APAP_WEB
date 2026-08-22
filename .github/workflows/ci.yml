@@ -561,9 +561,20 @@ jobs:
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
 
       - name: Set up Python
+        # Pin to CPython 3.12 here even though ``pyproject.toml`` requires
+        # ``>=3.11``. The pinned cosmic-ray 8.4.6 (matches
+        # ``mutation-baseline.json::acquired_on.cosmic_ray``) calls
+        # ``asyncio.get_event_loop()`` from its HTTP distributor
+        # (``cosmic_ray/distribution/http.py:47``); that call has no current
+        # loop on Python 3.14 and the runtime aborts the session before any
+        # mutant executes. The fix landed in cosmic-ray 8.7.x but bumping
+        # the pin is a separate concern — pinning Python here keeps the
+        # evidence run reproducible against the baseline and matches the
+        # 3.12.3 CPython the baseline was acquired on. Restore
+        # ``python-version-file: pyproject.toml`` once cosmic-ray is bumped.
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
-          python-version-file: pyproject.toml
+          python-version: "3.12"
           cache: pip
 
       - name: Install development dependencies
