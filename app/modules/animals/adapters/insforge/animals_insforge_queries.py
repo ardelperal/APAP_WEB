@@ -155,7 +155,7 @@ def update_animal_sql(
 
     set_clause = ", ".join(f"{col} = ${i + 2}" for i, (col, _) in enumerate(pairs))
     sql = (
-        "UPDATE animales "
+        "UPDATE animales "  # noqa: S608 — column names from UPDATE_ANIMAL_COLUMN_ORDER constant; values are $N binds
         f"SET {set_clause} "
         "WHERE id = $1 "
         "RETURNING id, \"NCHIP\", \"NombreAnimal\", \"Especie\", \"Sexo\", "

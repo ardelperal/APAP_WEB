@@ -42,7 +42,7 @@ def _optional_non_blank(value: str | None) -> str | None:
         return None
     stripped = value.strip()
     if not stripped:
-        raise AnimalUpdateValidationError(
+        raise AnimalUpdateValidationError(  # noqa: TRY003 — operator-facing diagnostic
             "el valor del campo no puede estar vacio"
         )
     return stripped
