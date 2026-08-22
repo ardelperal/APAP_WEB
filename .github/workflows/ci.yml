@@ -1047,6 +1047,16 @@ jobs:
           # export it explicitly so the pytest subprocess picks it up.
           echo "APAP_E2E_AUTH_SECRET=${APAP_E2E_AUTH_SECRET}" >> "$GITHUB_ENV"
 
+          # Smoke check: the mock route must respond with 503 (no
+          # secret yet) or 401 (bad secret), NOT 404 — a 404 means the
+          # route was not registered because the dev server was built
+          # before #599 landed. Probe both with and without the header
+          # so a future reader can see the contract from the CI log.
+          echo "--- mock route probe ---"
+          curl -s -o /dev/null -w "no header: %{http_code}\n" -X POST http://127.0.0.1:8000/e2e/login || true
+          curl -s -o /dev/null -w "with header: %{http_code}\n" -X POST -H "X-E2E-Secret: $APAP_E2E_AUTH_SECRET" http://127.0.0.1:8000/e2e/login || true
+          echo "---"
+
       - name: Run Playwright E2E suite
         # Skip the suite entirely on branches that don't carry an
         # e2e/ tree (e.g. backend-only PRs like #106 / #107). The
