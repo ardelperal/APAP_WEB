@@ -988,7 +988,25 @@ jobs:
     # not provision real OAuth credentials; the e2e suite is meant to
     # run in a configured environment (staging, where APAP_OAUTH_CLIENT_ID
     # is set). Skip the job entirely when the secret is absent.
-    if: ${{ vars.APAP_OAUTH_CLIENT_ID != '' }}
+    #
+    # Gating policy (the test suite itself is comprehensive — full
+    # browser flow per slice — and slow; it does not belong on every
+    # PR). The job runs only when:
+    #
+    #   1. A release tag is pushed (refs/tags/*) — the canonical
+    #      pre-release evidence run; staging picks the artifact up
+    #      afterwards.
+    #   2. A maintainer manually dispatches the workflow
+    #      (workflow_dispatch event) — ad-hoc verification.
+    #
+    # Every PR push runs the unit + integration suite (the `test`
+    # and `integration` jobs), which already cover the auth gate
+    # contract through the FastAPI TestClient. The Playwright suite
+    # is the release-time confidence layer.
+    if: |
+      vars.APAP_OAUTH_CLIENT_ID != '' &&
+      (startsWith(github.ref, 'refs/tags/') ||
+       github.event_name == 'workflow_dispatch')
     steps:
       - name: Check out repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
