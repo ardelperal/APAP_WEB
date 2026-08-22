@@ -60,41 +60,35 @@ excluded-modules = []
 test-command = "python -m pytest tests/test_adopciones.py tests/test_adopciones_queries.py tests/test_adopciones_routes.py tests/test_animals_queries.py tests/test_derivation.py tests/test_derivation_11cases.py tests/test_insforge.py tests/test_migration.py::TestDiffEngine -x -q --no-cov -p no:cacheprovider -o addopts=''"
 
 [cosmic-ray.distributor]
-name = "http"
+name = "local"
 
-# `http` distributor dispatches each mutation to one of the worker URLs
-# below, instead of running mutants one at a time in the same process
-# (issue #545). The `local` distributor is a plain
-# `for work_item in pending_work:` loop with no concurrency primitives
-# (verified at cosmic_ray/distribution/local.py:26 in 8.7.0, unchanged from
-# 8.4.6) -- one core busy while the rest of the host sat idle. The 4
-# workers here match the 4 vCPU of the apap-coolify-noble runner documented
-# in `.github/workflows/ci.yml` (the issue body measured the serial run
-# on that same host).
+# DISTRIBUTOR = `local`, sequential. The `http` distributor from #545
+# (Unix-domain-socket worker URLs handed to cosmic-ray's HTTP distributor)
+# never worked end-to-end: cosmic-ray 8.4.6's
+# `cosmic_ray/distribution/http.py:67` raises
+# `NonHttpUrlClientError` whenever the worker URL is not `http(s)://`,
+# because aiohttp (cosmic-ray's HTTP client) refuses any other scheme.
+# cosmic-ray does NOT consult the `[distributor.http]` block while
+# `name = "local"`; the block is left in place below because
+# `scripts/cosmic_ray_run_config.py` parses it on every render and would
+# crash without it, but the URLs themselves are dead config until the
+# HTTP distributor comes back online.
 #
-# Worker URLs use Unix domain sockets rather than TCP ports to avoid the
-# port-collision surface flagged in #532: two mutation jobs landing on the
-# same host at once -- a scheduled run on `main` plus a manual dispatch on
-# a feature branch -- would otherwise step on each other's loopback ports.
-# Unix sockets are filesystem-bound; the CI step writes the actual paths
-# to a per-run temp directory keyed by `$GITHUB_RUN_ID` so concurrent runs
-# cannot collide on the same path. The committed `w1.sock`...`w4.sock`
-# strings below are the *shape* of the list -- the actual paths are
-# substituted at session start (see the `Run the mutation session` step in
-# `.github/workflows/ci.yml` and `scripts/cosmic_ray_run_config.py`).
+# The `local` distributor is a plain `for work_item in pending_work:`
+# loop in the cosmic-ray main process (verified at
+# `cosmic_ray/distribution/local.py:26` in 8.7.0, unchanged from 8.4.6)
+# — one core busy while the rest of the host sits idle. The pilot
+# baseline of 233 mutants ran in 3111 s on the same runner; the
+# curated 5-module set today produces 1114 work items and is expected
+# to take ~4–5 hours wall-clock. The job timeout in
+# `.github/workflows/ci.yml` is bumped to 360 minutes accordingly.
 #
-# The workers are NOT started by cosmic-ray itself: `cr-http-workers`
-# (registered as a console-script by cosmic-ray's `pyproject.toml`) brings
-# up `cosmic-ray http-worker --path <sock>` processes in independent git
-# clones (one clone per worker -- avoids the filesystem race when two
-# workers mutate the same file concurrently) and waits forever for them.
-# The CI step backgrounds it, runs `cosmic-ray exec`, then kills it.
-#
-# Under 4-way CPU contention a mutant that today dies in ~3s could push
-# past the 60s `timeout` above and surface as INCOMPETENT rather than
-# KILLED. `scripts/check_mutation.py` aborts above the 20% INCOMPETENT
-# ceiling, so the first run's verdict is the read; bumping `timeout` is
-# the lever if the run goes over 20% INCOMPETENT -- a single follow-up PR.
+# The original baseline (`migration/derivation.py`, 38 survivors out of
+# 167 killable mutants) was acquired with this same `local` distributor
+# on cosmic-ray 8.4.6 / CPython 3.12.3, so the next session's numbers
+# stay comparable to `mutation-baseline.json::acquired_on` without any
+# baseline re-measurement.
+
 [cosmic-ray.distributor.http]
 worker-urls = [
     "unix:///tmp/apap-cosmic-ray/w1.sock",
