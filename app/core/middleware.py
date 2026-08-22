@@ -68,6 +68,14 @@ PUBLIC_PATHS: frozenset[str] = frozenset(
         "/auth/google",
         "/auth/callback",
         "/logout",
+        # Issue #598: the E2E OAuth mock mints a session for tests;
+        # the auth gate must NOT redirect the request to /login before
+        # the route runs (otherwise the route would never see the
+        # X-E2E-Secret header). The route itself is conditional on
+        # ``Settings.e2e_auth_enabled``; in production (the default
+        # disabled state) the route is not registered and this entry
+        # is harmless — 404 catches it.
+        "/e2e/login",
     }
 )
 DISABLED_DOC_PATHS: frozenset[str] = frozenset({"/docs", "/redoc", "/openapi.json"})
