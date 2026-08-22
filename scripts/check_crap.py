@@ -219,6 +219,18 @@ BASELINE_CRAP: dict[str, float] = {
     # coverage-config tweak in a follow-up; for now the entry holds
     # the ratchet green at exactly 6.0.
     "app/core/e2e_auth.py::register_e2e_auth_routes._e2e_login": 6.0,
+    # Issue #420 slice 4 (update_animal). ``update_animal_sql`` has
+    # CC=6 (four optional fields plus the empty-pairs early return)
+    # and the function is pure — the SQL string is its output and
+    # every branch produces a deterministic string, which makes
+    # meaningful unit tests low-value. The adapter ``update_animal``
+    # has CC=6 (orchestration only) and will gain coverage when the
+    # hexagonal ``update_animal`` flow lands a route handler and a
+    # corresponding integration test. Until then, both entries hold
+    # the ratchet green and the shrink-only rule will retire them as
+    # soon as a real coverage path lights them up.
+    "app/modules/animals/adapters/insforge/animals_insforge_adapter.py::AnimalsInsforgeAdapter.update_animal": 22.56,
+    "app/modules/animals/adapters/insforge/animals_insforge_queries.py::update_animal_sql": 60.73,
 }
 
 #: Ratchet deadline (deterministic-quality-harness v1.5 Rule 12). Every

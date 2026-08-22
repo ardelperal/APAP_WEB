@@ -15,6 +15,7 @@ from app.modules.animals.adapters.insforge.animals_insforge_queries import (
     create_animal_sql,
     get_animal_by_nchip_sql,
     list_animals_sql,
+    update_animal_sql,
 )
 from app.modules.animals.domain.animal import Animal, Especie, Sexo
 from app.modules.animals.ports.animals_port import AnimalsPort
@@ -75,6 +76,57 @@ class AnimalsInsforgeAdapter(AnimalsPort):
                 "the transport shape has drifted, expected exactly "
                 "one row"
             )
+        return _row_to_animal(rows[0])
+
+    def update_animal(
+        self,
+        animal_id: str,
+        *,
+        nombre: str | None = None,
+        especie: Especie | None = None,
+        sexo: Sexo | None = None,
+        fnacimiento: str | None = None,
+    ) -> Animal | None:
+        # ``None``-skip on the SQL side is delegated to the helper;
+        # if every field is ``None`` the helper returns ``None`` and
+        # we short-circuit before touching the transport (the
+        # partial UPDATE would be a no-op anyway, and the route
+        # handler should not pay for a round-trip).
+        sql_params = update_animal_sql(
+            animal_id=animal_id,
+            nombre=nombre,
+            especie=None if especie is None else especie.value,
+            sexo=None if sexo is None else sexo.value,
+            fnacimiento=fnacimiento,
+        )
+        if sql_params is None:
+            # All kwargs were ``None``: surface the no-op by reading
+            # the row back via the same primary-key lookup the legacy
+            # code uses (would happen via get_animal, but importing
+            # the helper into itself is awkward — re-query is cheap).
+            return self.get_animal_by_id(animal_id)
+        sql, params = sql_params
+        rows = self._client.execute_sql(sql, params)
+        if not rows:
+            return None
+        return _row_to_animal(rows[0])
+
+    def get_animal_by_id(self, animal_id: str) -> Animal | None:
+        """Read-only helper used by ``update_animal``'s no-op branch.
+
+        Not part of the public ``AnimalsPort`` surface — it's a
+        private adapter implementation detail (the no-op branch
+        could equivalently return a sentinel, but reading the row
+        back keeps the contract symmetric with the legacy
+        ``update_animal`` which also returns the row unchanged).
+        """
+        rows = self._client.execute_sql(
+            "SELECT id, \"NCHIP\", \"NombreAnimal\", \"Especie\", \"Sexo\", "
+            "\"FNacimiento\", activo FROM animales WHERE id = $1",
+            [animal_id],
+        )
+        if not rows:
+            return None
         return _row_to_animal(rows[0])
 
 
