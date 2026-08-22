@@ -84,7 +84,7 @@ def authenticated_page(browser_context: BrowserContext, base_url: str) -> Page:
             "needs to export it to run authenticated E2E flows."
         )
 
-    response = browser_context.request.post(
+    response = browser_context.request.get(
         f"{base_url}/e2e/login",
         headers={E2E_SECRET_HEADER: secret},
     )

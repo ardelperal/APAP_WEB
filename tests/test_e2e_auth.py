@@ -74,7 +74,7 @@ def test_route_not_registered_when_disabled() -> None:
 
     # ``POST /e2e/login`` is not registered → 404 (FastAPI default).
     # ``GET /e2e/login`` is also 404 — only POST was registered.
-    response = client.post("/e2e/login")
+    response = client.get("/e2e/login")
 
     assert response.status_code == 404
 
@@ -99,7 +99,7 @@ def test_route_returns_503_when_secret_unset(
     register_e2e_auth_routes(app)
     client = TestClient(app)
 
-    response = client.post(
+    response = client.get(
         "/e2e/login",
         headers={"X-E2E-Secret": "anything"},
     )
@@ -122,7 +122,7 @@ def test_route_rejects_missing_secret_header(
     register_e2e_auth_routes(app)
     client = TestClient(app)
 
-    response = client.post("/e2e/login")
+    response = client.get("/e2e/login")
 
     assert response.status_code == 401
     assert "missing or invalid" in response.json()["detail"]
@@ -142,9 +142,9 @@ def test_route_rejects_wrong_secret_header(
     register_e2e_auth_routes(app)
     client = TestClient(app)
 
-    response = client.post(
+    response = client.get(
         "/e2e/login",
-        headers={"X-E2E-Secret": "wrong-secret"},
+        headers={"X-E2e-Secret": "wrong-secret"},
     )
 
     assert response.status_code == 401
@@ -171,7 +171,7 @@ def test_happy_path_mints_session_and_prepopulates_cache(
     register_e2e_auth_routes(app)
     client = TestClient(app)
 
-    response = client.post(
+    response = client.get(
         "/e2e/login?email=test@apap.local",
         headers={"X-E2E-Secret": "test-secret"},
     )
@@ -220,7 +220,7 @@ def test_default_email_applies_when_query_param_omitted(
     register_e2e_auth_routes(app)
     client = TestClient(app)
 
-    response = client.post(
+    response = client.get(
         "/e2e/login",
         headers={"X-E2E-Secret": "test-secret"},
     )
@@ -246,7 +246,7 @@ def test_empty_email_with_no_default_returns_400(
     register_e2e_auth_routes(app)
     client = TestClient(app)
 
-    response = client.post(
+    response = client.get(
         "/e2e/login?email= ",
         headers={"X-E2E-Secret": "test-secret"},
     )
