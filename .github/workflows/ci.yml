@@ -1020,15 +1020,15 @@ jobs:
         #
         # Issue #598: enable the E2E OAuth mock so the suite can mint
         # sessions for authenticated routes without real Google OAuth
-        # credentials. ``APAP_E2E_AUTH_SECRET`` is set as a CI variable
-        # (not a repo secret — the mock is test-only, so the secret
-        # does not need to be hidden). The dev server inherits the
-        # env vars via the workflow's ``env:`` block; the e2e tests
-        # send the matching ``X-E2E-Secret`` header at login.
+        # credentials. The secret here is a TEST-ONLY value baked
+        # into the workflow (the mock is gated by the env var; the
+        # test-only route rejects every request without the matching
+        # header, so this is not a production credential). Local
+        # dev must export the same value to run authenticated E2E.
         run: |
           export APAP_E2E_AUTH_ENABLED=1
-          export APAP_E2E_AUTH_SECRET="${APAP_E2E_AUTH_SECRET}"
-          export APAP_E2E_AUTH_DEFAULT_EMAIL="${APAP_E2E_AUTH_DEFAULT_EMAIL:-e2e@apap.local}"
+          export APAP_E2E_AUTH_SECRET="ci-e2e-test-secret-32-bytes-min"
+          export APAP_E2E_AUTH_DEFAULT_EMAIL="e2e@apap.local"
           python scripts/dev_server_no_lifespan.py &
           SERVER_PID=$!
           for i in {1..30}; do
@@ -1043,6 +1043,9 @@ jobs:
             exit 1
           fi
           echo "SERVER_PID=$SERVER_PID" >> "$GITHUB_ENV"
+          # The e2e tests read the secret via APAP_E2E_AUTH_SECRET;
+          # export it explicitly so the pytest subprocess picks it up.
+          echo "APAP_E2E_AUTH_SECRET=${APAP_E2E_AUTH_SECRET}" >> "$GITHUB_ENV"
 
       - name: Run Playwright E2E suite
         # Skip the suite entirely on branches that don't carry an
