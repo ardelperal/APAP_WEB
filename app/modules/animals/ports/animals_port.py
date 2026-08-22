@@ -1,9 +1,10 @@
 """Hexagonal port for the animals slice (AGENTS.md §31).
 
-Slice #420-7 third method — ``create_animal`` joins ``get_animal_by_nchip``
-(#587) and ``list_animals`` (#596). Additional methods (``update``,
-``delete``, ``chip_cascade``, ``photo_upload``, ``lifecycle_events``)
-land as the legacy :mod:`app.modules.animals.service` migrates.
+Slice #420-7 fourth method — ``update_animal`` joins
+``get_animal_by_nchip`` (#587), ``list_animals`` (#596) and
+``create_animal`` (#597). Additional methods (``delete``,
+``chip_cascade``, ``photo_upload``, ``lifecycle_events``) land as
+the legacy :mod:`app.modules.animals.service` migrates.
 
 The port carries the round-trip fields the hexagonal
 :class:`Animal` dataclass already encodes (NCHIP, NombreAnimal,
@@ -82,6 +83,30 @@ class AnimalsPort(Protocol):
         ``create_animal`` propagates ``InsForgeError`` for the same
         condition, and the hexagonal path uses the data-access layer's
         Protocol-level exception so callers stay transport-free.
+        """
+
+    def update_animal(
+        self,
+        animal_id: str,
+        *,
+        nombre: str | None = None,
+        especie: Especie | None = None,
+        sexo: Sexo | None = None,
+        fnacimiento: str | None = None,
+    ) -> Animal | None:
+        """Update the named fields of the animal with ``animal_id``.
+
+        Each kwarg is ``None``-skipped — a partial update writes only
+        the fields the caller passed. Passing every kwarg as ``None``
+        is a no-op that returns the current row (a future slice could
+        reject this as a validation error; for now the legacy
+        ``service.update_animal`` returns the row unchanged).
+
+        Returns the updated :class:`Animal`, or ``None`` when the id
+        does not exist (``UPDATE ... RETURNING`` with zero rows). The
+        adapter is responsible for translating transport errors
+        (e.g. invalid enum) into the data-access layer's Protocol
+        exceptions so callers stay transport-free.
         """
 
 
