@@ -70,7 +70,7 @@ class AnimalsInsforgeAdapter(AnimalsPort):
         # unexpected transport shape (would surface as an opaque
         # ``IndexError`` otherwise, which is harder to diagnose).
         if not rows:
-            raise RuntimeError(
+            raise RuntimeError(  # noqa: TRY003 — operator-facing diagnostic
                 "INSERT INTO animales RETURNING produced no rows — "
                 "the transport shape has drifted, expected exactly "
                 "one row"

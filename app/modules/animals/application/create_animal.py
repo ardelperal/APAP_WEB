@@ -37,7 +37,7 @@ class AnimalValidationError(ValueError):
 def _require_non_blank(value: str, field_name: str) -> str:
     stripped = value.strip()
     if not stripped:
-        raise AnimalValidationError(
+        raise AnimalValidationError(  # noqa: TRY003 — operator-facing diagnostic
             f"{field_name} es obligatorio y no puede estar vacio"
         )
     return stripped
