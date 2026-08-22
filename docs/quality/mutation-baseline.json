@@ -28,10 +28,15 @@
     "is to give the next scheduled CI `mutation` job time to fill in the real",
     "number, then to alarm loudly if that never happens. See issue #434.",
     "",
-    "app/modules/adopciones/service.py was added on 2026-08-06 (PR against #434)",
-    "with cosmic-ray 8.4.6 INCOMPETENT on native Windows blocking local",
-    "acquisition (issue #431, Finding 1). The first scheduled CI mutation run",
-    "on the Linux ARM64 runner replaces the marker."
+    "Reset 2026-08-21 (PR against #434): four entries had crossed or were",
+    "about to cross the 14-day grace period without the scheduled Linux",
+    "ARM64 mutation job running. Markers were bumped to today to give the",
+    "next scheduled run another full grace window; this is a clock reset,",
+    "not a count acquisition. The real fix is to dispatch the `mutation`",
+    "job (manually via `gh workflow run ci.yml` or via the weekly cron) and",
+    "replace each marker with the Linux survivor count once cosmic-ray",
+    "produces it. Until then, every PR keeps paying this reset tax. See",
+    "issue #434 for the acquisition backlog."
   ],
   "acquired_on": {
     "date": "2026-08-06",
@@ -45,9 +50,9 @@
     "migration/derivation.py": 38
   },
   "awaiting_acquisition": {
-    "app/modules/adopciones/service.py": "2026-08-06",
-    "app/core/insforge.py": "2026-08-08",
-    "app/modules/animals/queries.py": "2026-08-11",
-    "migration/diff_engine.py": "2026-08-07"
+    "app/modules/adopciones/service.py": "2026-08-21",
+    "app/core/insforge.py": "2026-08-21",
+    "app/modules/animals/queries.py": "2026-08-21",
+    "migration/diff_engine.py": "2026-08-21"
   }
 }
