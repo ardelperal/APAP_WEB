@@ -94,10 +94,10 @@ def _read_distributor_name(template_lines: list[str]) -> str:
                 _, _, value = stripped.partition("=" if "=" in stripped else " ")
                 value = value.strip().strip('"').strip("'")
                 if not value:
-                    raise ValueError(
+                    raise ValueError(  # noqa: TRY003 — operator-facing diagnostic
                         "distributor name declared but empty; expected "
                         "'local' or 'http'"
-                    )  # noqa: TRY003 — operator-facing diagnostic
+                    )
                 return value
     return "http"
 
