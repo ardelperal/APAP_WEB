@@ -13,6 +13,7 @@ from __future__ import annotations
 from app.core.data_access import SqlExecutor
 from app.modules.animals.adapters.insforge.animals_insforge_queries import (
     create_animal_sql,
+    delete_animal_sql,
     get_animal_by_nchip_sql,
     list_animals_sql,
     update_animal_sql,
@@ -125,6 +126,13 @@ class AnimalsInsforgeAdapter(AnimalsPort):
             "\"FNacimiento\", activo FROM animales WHERE id = $1",
             [animal_id],
         )
+        if not rows:
+            return None
+        return _row_to_animal(rows[0])
+
+    def delete_animal(self, animal_id: str) -> Animal | None:
+        sql, params = delete_animal_sql(animal_id)
+        rows = self._client.execute_sql(sql, params)
         if not rows:
             return None
         return _row_to_animal(rows[0])

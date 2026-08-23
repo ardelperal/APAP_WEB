@@ -165,12 +165,36 @@ def update_animal_sql(
     return sql, params
 
 
+# ``delete_animal`` — soft-delete via UPDATE ... RETURNING. Mirrors
+# the legacy ``service._DELETE_ANIMAL_SQL`` shape (sets
+# ``activo = FALSE`` rather than removing the row, so the audit
+# trail stays intact per issue #431 Finding 3). Returns the full
+# row so the route handler can confirm the post-deactivation
+# state — the legacy SQL only RETURNs ``id, activo`` and the legacy
+# service returns ``bool``; the hexagonal path returns the full
+# ``Animal`` so callers don't have to re-query.
+DELETE_ANIMAL_SQL: str = (
+    "UPDATE animales "
+    "SET activo = FALSE "
+    "WHERE id = $1 "
+    "RETURNING id, \"NCHIP\", \"NombreAnimal\", \"Especie\", \"Sexo\", "
+    "\"FNacimiento\", activo"
+)
+
+
+def delete_animal_sql(animal_id: str) -> tuple[str, list[str]]:
+    """Return the ``(sql, params)`` tuple for the soft-delete."""
+    return DELETE_ANIMAL_SQL, [animal_id]
+
+
 __all__ = [
     "GET_ANIMAL_BY_NCHIP_SQL",
     "LIST_ANIMALS_SQL",
     "INSERT_ANIMAL_SQL",
+    "DELETE_ANIMAL_SQL",
     "UPDATE_ANIMAL_COLUMN_ORDER",
     "create_animal_sql",
+    "delete_animal_sql",
     "get_animal_by_nchip_sql",
     "list_animals_sql",
     "update_animal_sql",
