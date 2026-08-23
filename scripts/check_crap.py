@@ -231,6 +231,18 @@ BASELINE_CRAP: dict[str, float] = {
     # soon as a real coverage path lights them up.
     "app/modules/animals/adapters/insforge/animals_insforge_adapter.py::AnimalsInsforgeAdapter.update_animal": 22.56,
     "app/modules/animals/adapters/insforge/animals_insforge_queries.py::update_animal_sql": 60.73,
+    # Issue #420 slice 6 (record_lifecycle_event). ``record_lifecycle_event``
+    # on the adapter carries 10 kwargs (CC=8) and one runtime branch
+    # (the empty-result-set guard); the SQL helper at 10 kwargs has
+    # CC=6. Both gain coverage when a real InsForge-backed route
+    # handler lands; until then they hold the ratchet green at the
+    # first-measured score. The ``_row_to_lifecycle_event`` mapper is
+    # purely mechanical (one conditional ``is not None`` arm per
+    # lineage field); the coverage test from #603 covers every arm
+    # with one dict per shape (full lineage vs all-NULL). Score 7.0
+    # reflects the per-field None-check branching the dataclass carries.
+    "app/modules/animals/adapters/insforge/animals_insforge_adapter.py::AnimalsInsforgeAdapter.record_lifecycle_event": 8.67,
+    "app/modules/animals/adapters/insforge/animals_insforge_adapter.py::_row_to_lifecycle_event": 7.0,
 }
 
 #: Ratchet deadline (deterministic-quality-harness v1.5 Rule 12). Every
