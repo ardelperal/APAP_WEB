@@ -358,16 +358,27 @@ class AnimalsInsforgeAdapter(AnimalsPort):
             # surface the error. ``updated`` already carries whatever
             # the saga managed to do before failing — informative for
             # the operator even though everything was rolled back.
+            # If the ROLLBACK itself fails (network drop, server gone),
+            # the connection state is unrecoverable anyway; we keep the
+            # original error as the primary cause and append the rollback
+            # failure for the operator's audit trail.
+            rollback_error: str | None = None
             try:
                 self._client.execute_sql(ROLLBACK_TX_SQL)
-            except Exception:  # noqa: BLE001, S110
-                pass
+            except Exception as rollback_exc:  # noqa: BLE001
+                rollback_error = repr(rollback_exc)
+            base_error = f"Error en la transaccion: {exc}"
+            error = (
+                f"{base_error}; rollback fallo: {rollback_error}"
+                if rollback_error
+                else base_error
+            )
             return ChangeChipResult(
                 success=False,
                 old_chip=old_chip,
                 new_chip=new_chip,
                 updated_tables=updated,
-                error=f"Error en la transaccion: {exc}",
+                error=error,
             )
 
 
