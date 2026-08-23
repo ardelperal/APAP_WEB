@@ -79,9 +79,9 @@ Status codes: 200 on renders, 303 See Other on success, 404 when the id is missi
 |---|---|
 | `create_animal(client, params)` | INSERT with required-field validation; duplicate NCHIP surfaces as `InsForgeError` 409 to the route. |
 | `list_animals(client)` | Active animals, most recent first. |
-| `get_animal_by_id(client, animal_id)` | One animal or `None`. |
 | `update_animal(client, animal_id, params)` | UPDATE; returns `None` when the id is missing. |
 | `delete_animal(client, animal_id)` | Atomic soft-delete. |
+| `record_event(client, *, animal_id, event_type, event_timestamp, created_by, ...)` | Legacy lifecycle-event writer (issue #32, D-23). Mirrored by the hexagonal `record_lifecycle_event` (#609). |
 | `search_animals(client, *, q, chip, especie, sexo, estado, fecha_alta_since, fecha_alta_until, limit, offset)` | Paginated search; `limit=0` returns count only. |
 | `change_animal_chip(client, *, animal_id, old_chip, new_chip, reason, operador_user_id)` | Saga: updates 6 tables; rolls back on any failure. |
 | `record_event(client, ...)` | Append a lifecycle event with causal-pair validation. |
@@ -181,6 +181,8 @@ The proposals cover the contracts:
 | `application/create_animal.py` | Hexagonal use case for the create flow. |
 | `application/update_animal.py` | Hexagonal use case for the partial update. |
 | `application/delete_animal.py` | Hexagonal use case for the soft-delete. |
+| `application/record_lifecycle_event.py` | Hexagonal use case for the lifecycle-event write (#609). |
+| `application/list_lifecycle_events.py` | Hexagonal use case for the chronological timeline read. |
 | `adapters/insforge/animals_insforge_adapter.py` | InsForge-backed `AnimalsPort` implementation. |
 | `adapters/insforge/animals_insforge_queries.py` | SQL seam for the InsForge adapter (AGENTS.md §22). |
 | `queries.py` | Legacy SQL builder seam (separate from the InsForge adapter; the slice carries two SQL seams until the legacy service is retired). |
