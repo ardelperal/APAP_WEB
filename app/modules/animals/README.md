@@ -95,7 +95,9 @@ The `change_animal_chip` saga lives in `chip_service.py` (extracted from `servic
 
 ## Layer type
 
-Legacy route → service → queries layout (per AGENTS.md §1 + §22), with three orthogonal sub-services (`chip_service`, `lifecycle_events`, `photo_service`) extracted to keep `service.py` under the module-size budget. This slice is not yet converted to the hexagonal form described in §33.
+Legacy route → service → queries layout (per AGENTS.md §1 + §22), with three orthogonal sub-services (`chip_service`, `lifecycle_events`, `photo_service`) extracted to keep `service.py` under the module-size budget.
+
+The slice is partially converted to the hexagonal form described in §33 (epic #420). The read + create + update + delete methods on `AnimalsPort` are landed (PRs #587, #596, #597, #603, #604); the chip cascade, photo upload, and lifecycle event log remain on the legacy shape and land as separate slices. The legacy `service.py` still owns the legacy column surface (`TraeNChip`, `Raza`, etc.) until the dataclass is widened or a parallel `AnimalCreateRequest` lands — see the port's module docstring for the open question.
 
 ## Risks and gotchas
 
@@ -172,7 +174,16 @@ The proposals cover the contracts:
 | `__init__.py` | Public API: `get_animal_by_id`, `record_lifecycle_event`, `validate_lifecycle_causal_pair`, `LifecycleEventType`, `CausalPairViolation`. |
 | `routes.py` | HTTP layer: 11 endpoints including the search, chip, and photo routes. |
 | `service.py` | CRUD orchestration, required-field validation. |
-| `queries.py` | SQL builder seam per AGENTS.md §22. |
+| `domain/animal.py` | Hexagonal `Animal` entity + `Especie` / `Sexo` enums (issue #420 slice). |
+| `ports/animals_port.py` | Hexagonal `AnimalsPort` Protocol with the migrated methods. |
+| `application/get_animal_by_nchip.py` | Hexagonal use case for the NCHIP read. |
+| `application/list_animals.py` | Hexagonal use case for the paginated list. |
+| `application/create_animal.py` | Hexagonal use case for the create flow. |
+| `application/update_animal.py` | Hexagonal use case for the partial update. |
+| `application/delete_animal.py` | Hexagonal use case for the soft-delete. |
+| `adapters/insforge/animals_insforge_adapter.py` | InsForge-backed `AnimalsPort` implementation. |
+| `adapters/insforge/animals_insforge_queries.py` | SQL seam for the InsForge adapter (AGENTS.md §22). |
+| `queries.py` | Legacy SQL builder seam (separate from the InsForge adapter; the slice carries two SQL seams until the legacy service is retired). |
 | `forms.py` | `AnimalForm` Pydantic v2 model. |
 | `chip_service.py` | Chip cascade saga (LIFECYCLE-04). |
 | `lifecycle_events.py` | Event log writer + D-23 causal-pair rule (LIFECYCLE-02). |
