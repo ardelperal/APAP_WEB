@@ -1,11 +1,14 @@
 """Hexagonal port for the animals slice (AGENTS.md §31).
 
-Slice #420-7 seventh method — ``list_lifecycle_events`` joins
+Slice #420-7 eighth method — ``change_animal_chip`` joins
 ``get_animal_by_nchip`` (#587), ``list_animals`` (#596),
 ``create_animal`` (#597), ``update_animal`` (#603),
-``delete_animal`` (#604) and ``record_lifecycle_event`` (#609).
-Additional methods (``chip_cascade``, ``photo_upload``) land as
-separate slices.
+``delete_animal`` (#604), ``record_lifecycle_event`` (#609) and
+``list_lifecycle_events`` (#610). One method remains
+(``photo_upload``); it lands as a separate slice because the
+photo streaming contract introduces a new dependency
+(``InsForgeClient`` for the storage backend) that the chip saga
+does not touch.
 
 The port carries the round-trip fields the hexagonal
 :class:`Animal` dataclass already encodes (NCHIP, NombreAnimal,
@@ -25,6 +28,7 @@ from datetime import datetime
 from typing import Protocol, runtime_checkable
 
 from app.modules.animals.domain.animal import Animal, Especie, Sexo
+from app.modules.animals.domain.change_chip_result import ChangeChipResult
 from app.modules.animals.domain.lifecycle_event import (
     AnimalLifecycleEvent,
     LifecycleEventType,
@@ -187,6 +191,42 @@ class AnimalsPort(Protocol):
         Returns ``[]`` when the animal has no events, or when the
         optional ``event_types`` filter matches nothing. ``animal_id``
         is mandatory and non-blank (validated in the use case).
+        """
+
+    def change_animal_chip(
+        self,
+        *,
+        animal_id: str,
+        old_chip: str,
+        new_chip: str,
+        reason: str,
+        operador_user_id: str,
+    ) -> ChangeChipResult:
+        """Saga: change the animal's NCHIP and propagate across 6 tables.
+
+        Tables touched (atomic, rolled back together on any failure):
+
+        - ``animals`` (the ``NCHIP`` column itself)
+        - ``entradas``, ``acogidas``, ``adopciones``,
+          ``actuaciones_sanitarias``, ``terapias`` (the 5 dependent
+          tables that carry the legacy ``chip`` column)
+        - ``animal_lifecycle_events`` (an append of the
+          ``CHIP_CHANGED`` event with the legacy ``metadata`` JSON
+          carrying ``{old_chip, new_chip, reason}``)
+
+        The adapter runs the saga in a single transaction. Pre-flight
+        validations (non-empty ``new_chip``/``reason``; ``new_chip``
+        not equal to ``old_chip``; uniqueness of ``new_chip``; current
+        chip matches ``old_chip``) happen BEFORE the transaction
+        opens. On any failure inside the transaction the adapter
+        rolls back and returns ``success=False`` with the error
+        message — the route handler translates that into the
+        appropriate HTTP code (422 for validation, 409 for unique
+        violations, 500 for unexpected transport failures).
+
+        Returns a :class:`ChangeChipResult` with the per-table row
+        counts so the operator can audit the blast radius without
+        re-querying.
         """
 
 

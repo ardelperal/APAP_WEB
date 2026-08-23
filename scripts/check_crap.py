@@ -252,6 +252,16 @@ BASELINE_CRAP: dict[str, float] = {
     # ratchet green at the first-measured score.
     "app/modules/animals/adapters/insforge/animals_insforge_adapter.py::AnimalsInsforgeAdapter.list_lifecycle_events": 12.19,
     "app/modules/animals/adapters/insforge/animals_insforge_queries.py::list_lifecycle_events_sql": 9.32,
+    # Issue #420 slice 8 (change_animal_chip). The adapter's
+    # ``change_animal_chip`` is the saga body: two pre-flight
+    # SELECTs, BEGIN, six UPDATE statements, one INSERT to the
+    # lifecycle log, COMMIT, plus a nested try/except for the
+    # ROLLBACK-failure surfacing. CC≈14 from the branches plus the
+    # accumulating per-table row-count dict. The function gains
+    # coverage when a real chip-cascade route handler lands; until
+    # then the entry holds the ratchet green at the first-measured
+    # score (CRAP=51.68 reflects the 14 branches × 0% coverage).
+    "app/modules/animals/adapters/insforge/animals_insforge_adapter.py::AnimalsInsforgeAdapter.change_animal_chip": 51.68,
 }
 
 #: Ratchet deadline (deterministic-quality-harness v1.5 Rule 12). Every

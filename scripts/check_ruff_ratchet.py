@@ -87,7 +87,7 @@ BASELINE: dict[str, int] = {
     "N818": 3,
     "PLR0911": 10,
     "PLR0912": 9,  # bumped 8 -> 9 by Slice 3 (scripts/_ratchet_deadline.py adds 1 too-many-branches)
-    "PLR0913": 39,  # bumped 35 -> 39 by Slice #420-7 (record_lifecycle_event: port method, use case, adapter method, SQL helper — each carries 10 kwargs for the lineage fields)
+    "PLR0913": 40,  # bumped 39 -> 40 by Slice #420-7 (change_animal_chip: use case adds 1 too-many-arguments on top of the four already-baselined surfaces)
     # PLR0915 fue retirado del baseline al completarse el triaje del issue #390
     # (1 -> 0). El sitio era ``MigrationReport.to_markdown`` en
     # ``migration/reporting.py`` con 75 statements en una sola función. Se
