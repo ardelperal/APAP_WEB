@@ -1,10 +1,11 @@
 """Hexagonal port for the animals slice (AGENTS.md §31).
 
-Slice #420-7 fourth method — ``update_animal`` joins
-``get_animal_by_nchip`` (#587), ``list_animals`` (#596) and
-``create_animal`` (#597). Additional methods (``delete``,
-``chip_cascade``, ``photo_upload``, ``lifecycle_events``) land as
-the legacy :mod:`app.modules.animals.service` migrates.
+Slice #420-7 fifth method — ``delete_animal`` joins
+``get_animal_by_nchip`` (#587), ``list_animals`` (#596),
+``create_animal`` (#597) and ``update_animal`` (#603).
+Additional methods (``chip_cascade``, ``photo_upload``,
+``lifecycle_events``) land as the legacy
+:mod:`app.modules.animals.service` migrates.
 
 The port carries the round-trip fields the hexagonal
 :class:`Animal` dataclass already encodes (NCHIP, NombreAnimal,
@@ -107,6 +108,21 @@ class AnimalsPort(Protocol):
         adapter is responsible for translating transport errors
         (e.g. invalid enum) into the data-access layer's Protocol
         exceptions so callers stay transport-free.
+        """
+
+    def delete_animal(self, animal_id: str) -> Animal | None:
+        """Soft-delete the animal with ``animal_id`` (sets ``activo=False``).
+
+        Idempotent: a second call on an already-inactive animal
+        returns the same row (the ``SET activo = FALSE`` is a no-op).
+        Returns the deactivated :class:`Animal` (``activo=False``)
+        so the route handler can confirm the state transition, or
+        ``None`` when ``animal_id`` does not exist.
+
+        Hard-deletes (row removal) are out of scope here — the
+        legacy ``TbFichaAnimal`` rows stay in the table for audit
+        even after the animal leaves the live list (issue #431,
+        Finding 3).
         """
 
 
