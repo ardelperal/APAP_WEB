@@ -10,15 +10,22 @@ constructs one per request from the already-pooled
 """
 from __future__ import annotations
 
+from datetime import datetime
+
 from app.core.data_access import SqlExecutor
 from app.modules.animals.adapters.insforge.animals_insforge_queries import (
     create_animal_sql,
     delete_animal_sql,
     get_animal_by_nchip_sql,
     list_animals_sql,
+    record_lifecycle_event_sql,
     update_animal_sql,
 )
 from app.modules.animals.domain.animal import Animal, Especie, Sexo
+from app.modules.animals.domain.lifecycle_event import (
+    AnimalLifecycleEvent,
+    LifecycleEventType,
+)
 from app.modules.animals.ports.animals_port import AnimalsPort
 
 
@@ -137,6 +144,57 @@ class AnimalsInsforgeAdapter(AnimalsPort):
             return None
         return _row_to_animal(rows[0])
 
+    def record_lifecycle_event(
+        self,
+        *,
+        animal_id: str,
+        event_type: LifecycleEventType,
+        event_timestamp: str | datetime,
+        created_by: str,
+        caused_by_event_id: str | None = None,
+        source_entity_type: str | None = None,
+        source_entity_id: str | None = None,
+        legacy_source_table: str | None = None,
+        legacy_source_id: int | None = None,
+        metadata: dict | None = None,
+    ) -> AnimalLifecycleEvent:
+        # ``event_timestamp`` may come in as a ``datetime`` (route layer
+        # parses from a form). The legacy SQL expects ISO 8601 text so
+        # we normalise here; ``isoformat()`` is a no-op on an already-
+        # formatted string for the postgres driver we use.
+        timestamp_str = (
+            event_timestamp.isoformat()
+            if isinstance(event_timestamp, datetime)
+            else event_timestamp
+        )
+        sql, params = record_lifecycle_event_sql(
+            animal_id=animal_id,
+            event_type=event_type.value,
+            event_timestamp=timestamp_str,
+            created_by=created_by,
+            caused_by_event_id=caused_by_event_id,
+            source_entity_type=source_entity_type,
+            source_entity_id=source_entity_id,
+            legacy_source_table=legacy_source_table,
+            legacy_source_id=legacy_source_id,
+            metadata=metadata,
+        )
+        rows = self._client.execute_sql(sql, params)
+        # ``ON CONFLICT DO NOTHING`` returns the EXISTING row (the
+        # conflict target) so the caller sees the persisted shape
+        # regardless of whether the insert raced. ``RETURNING`` is
+        # empty only when the row is genuinely absent — that should
+        # not happen given the table's NOT NULL constraints on every
+        # required column, so an empty result here is a transport-
+        # shape drift.
+        if not rows:
+            raise RuntimeError(  # noqa: TRY003 — operator-facing diagnostic
+                "INSERT INTO animal_lifecycle_events ON CONFLICT DO "
+                "NOTHING RETURNING produced no rows; the transport "
+                "shape has drifted, expected exactly one row."
+            )
+        return _row_to_lifecycle_event(rows[0])
+
 
 def _row_to_animal(row: dict[str, object]) -> Animal:
     """Translate a PostgREST row dict to the hexagonal ``Animal`` entity.
@@ -155,6 +213,54 @@ def _row_to_animal(row: dict[str, object]) -> Animal:
         Sexo=Sexo(str(row["Sexo"])),
         FNacimiento=str(row["FNacimiento"]),
         activo=bool(row["activo"]),
+    )
+
+
+def _row_to_lifecycle_event(row: dict[str, object]) -> AnimalLifecycleEvent:
+    """Translate a PostgREST row dict to the hexagonal ``AnimalLifecycleEvent``.
+
+    ``event_type`` comes back as a string from the wire and goes through
+    the ``LifecycleEventType`` StrEnum constructor (same pattern as
+    ``_row_to_animal``). The optional lineage fields (``caused_by_event_id``,
+    ``source_entity_type``, ``source_entity_id``, ``legacy_source_table``,
+    ``legacy_source_id``, ``metadata``) come back as ``None`` when the
+    column was NULL on insert; the row dict preserves them as
+    SQL NULL → Python ``None`` so the dataclass accepts them.
+    """
+    return AnimalLifecycleEvent(
+        id=str(row["id"]),
+        animal_id=str(row["animal_id"]),
+        event_type=LifecycleEventType(str(row["event_type"])),
+        event_timestamp=str(row["event_timestamp"]),
+        created_by=str(row["created_by"]),
+        caused_by_event_id=(
+            str(row["caused_by_event_id"])
+            if row["caused_by_event_id"] is not None
+            else None
+        ),
+        source_entity_type=(
+            str(row["source_entity_type"])
+            if row["source_entity_type"] is not None
+            else None
+        ),
+        source_entity_id=(
+            str(row["source_entity_id"])
+            if row["source_entity_id"] is not None
+            else None
+        ),
+        legacy_source_table=(
+            str(row["legacy_source_table"])
+            if row["legacy_source_table"] is not None
+            else None
+        ),
+        legacy_source_id=(
+            int(row["legacy_source_id"])
+            if row["legacy_source_id"] is not None
+            else None
+        ),
+        metadata=(
+            row["metadata"] if row["metadata"] is not None else None
+        ),
     )
 
 

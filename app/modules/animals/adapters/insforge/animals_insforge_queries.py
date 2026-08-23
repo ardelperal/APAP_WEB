@@ -187,15 +187,93 @@ def delete_animal_sql(animal_id: str) -> tuple[str, list[str]]:
     return DELETE_ANIMAL_SQL, [animal_id]
 
 
+# ``record_lifecycle_event`` — INSERT ... ON CONFLICT DO NOTHING ...
+# RETURNING. Idempotent via the natural-key UNIQUE constraint on
+# ``(animal_id, event_type, event_timestamp)`` (declared in
+# ``ANIMAL_LIFECYCLE_EVENTS_CREATE_TABLE_SQL``); the application
+# keeps the unique constraint aligned with the 14 pinned
+# ``LifecycleEventType`` members (see ``core_event_types_set_matches_strenum_members``
+# test). When the row already exists the ``ON CONFLICT`` clause
+# collapses to a no-op and the existing row comes back via
+# RETURNING — the caller sees the same shape either way.
+#
+# ``metadata`` is JSON-typed on the wire; the InsForge client
+# serialises dicts as JSONB. ``legacy_source_id`` is integer (the
+# legacy Access table's auto-increment column) and the other
+# lineage fields are nullable text.
+RECORD_LIFECYCLE_EVENT_COLUMNS: tuple[str, ...] = (
+    "id",
+    "animal_id",
+    "event_type",
+    "event_timestamp",
+    "created_by",
+    "caused_by_event_id",
+    "source_entity_type",
+    "source_entity_id",
+    "legacy_source_table",
+    "legacy_source_id",
+    "metadata",
+)
+
+
+def record_lifecycle_event_sql(
+    *,
+    animal_id: str,
+    event_type: str,
+    event_timestamp: str,
+    created_by: str,
+    caused_by_event_id: str | None,
+    source_entity_type: str | None,
+    source_entity_id: str | None,
+    legacy_source_table: str | None,
+    legacy_source_id: int | None,
+    metadata: dict | None,
+) -> tuple[str, list[str]]:
+    """Return the ``(sql, params)`` tuple for the lifecycle INSERT.
+
+    The bind list is positional; ``None`` lineage values land as
+    NULL so the partial-update contract works the same way it does
+    on the legacy ``record_event``. ``metadata`` lands as a JSONB
+    parameter (``$10``); ``legacy_source_id`` as integer ($9).
+    """
+    sql = (
+        "INSERT INTO animal_lifecycle_events ("
+        "animal_id, event_type, event_timestamp, created_by, "
+        "caused_by_event_id, source_entity_type, source_entity_id, "
+        "legacy_source_table, legacy_source_id, metadata"
+        ") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) "
+        "ON CONFLICT (animal_id, event_type, event_timestamp) DO NOTHING "
+        "RETURNING "
+        "id, animal_id, event_type, event_timestamp, created_by, "
+        "caused_by_event_id, source_entity_type, source_entity_id, "
+        "legacy_source_table, legacy_source_id, metadata"
+    )
+    params: list[object] = [
+        animal_id,
+        event_type,
+        event_timestamp,
+        created_by,
+        caused_by_event_id,
+        source_entity_type,
+        source_entity_id,
+        legacy_source_table,
+        legacy_source_id,
+        metadata,
+    ]
+    return sql, params
+
+
 __all__ = [
     "GET_ANIMAL_BY_NCHIP_SQL",
     "LIST_ANIMALS_SQL",
     "INSERT_ANIMAL_SQL",
     "DELETE_ANIMAL_SQL",
+    "RECORD_LIFECYCLE_EVENT_COLUMNS",
     "UPDATE_ANIMAL_COLUMN_ORDER",
     "create_animal_sql",
     "delete_animal_sql",
     "get_animal_by_nchip_sql",
     "list_animals_sql",
+    "record_lifecycle_event_sql",
     "update_animal_sql",
 ]
