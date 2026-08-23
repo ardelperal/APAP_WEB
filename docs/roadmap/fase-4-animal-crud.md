@@ -17,8 +17,9 @@ En curso (slice hexagonal). El epic #420 ("hexagonal vertical-slice refactor") e
 | `AnimalsPort.delete_animal` | #604 | Soft-delete (UPDATE activo=FALSE). |
 | `AnimalsPort.record_lifecycle_event` | #609 | INSERT idempotente (vía índice único natural y cláusula de conflicto). |
 | `AnimalsPort.list_lifecycle_events` | #610 | Read cronológico del timeline con filtro opcional por tipo. |
+| `AnimalsPort.change_animal_chip` | #611 | Saga transaccional sobre 6 tablas; valida unicidad del nuevo chip y registra evento CHIP_CHANGED. |
 
-Pendiente en el port: `chip_cascade`, `photo_upload`. Estos cubren #29 y #285 respectivamente. #32 (lifecycle event log) ya está cubierto por `record_lifecycle_event` + `list_lifecycle_events`.
+Pendiente en el port: `photo_upload`. Cubre #285 (streaming de fotos con ETag).
 
 Las piezas no-hexagonales siguen en la forma legacy:
 - #30 (LIFECYCLE-05) search API — pendiente.

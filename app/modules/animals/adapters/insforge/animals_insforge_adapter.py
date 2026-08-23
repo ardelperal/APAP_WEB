@@ -10,10 +10,23 @@ constructs one per request from the already-pooled
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime
 
 from app.core.data_access import SqlExecutor
 from app.modules.animals.adapters.insforge.animals_insforge_queries import (
+    BEGIN_TX_SQL,
+    CHECK_CHIP_UNIQUENESS_SQL,
+    COMMIT_TX_SQL,
+    GET_CURRENT_CHIP_SQL,
+    INSERT_CHIP_CHANGED_EVENT_SQL,
+    ROLLBACK_TX_SQL,
+    UPDATE_ACOGIDAS_CHIP_SQL,
+    UPDATE_ACTUACIONES_SANITARIAS_CHIP_SQL,
+    UPDATE_ADOPCIONES_CHIP_SQL,
+    UPDATE_ANIMALS_CHIP_SQL,
+    UPDATE_ENTRADAS_CHIP_SQL,
+    UPDATE_TERAPIAS_CHIP_SQL,
     create_animal_sql,
     delete_animal_sql,
     get_animal_by_nchip_sql,
@@ -23,6 +36,7 @@ from app.modules.animals.adapters.insforge.animals_insforge_queries import (
     update_animal_sql,
 )
 from app.modules.animals.domain.animal import Animal, Especie, Sexo
+from app.modules.animals.domain.change_chip_result import ChangeChipResult
 from app.modules.animals.domain.lifecycle_event import (
     AnimalLifecycleEvent,
     LifecycleEventType,
@@ -219,6 +233,142 @@ class AnimalsInsforgeAdapter(AnimalsPort):
         )
         rows = self._client.execute_sql(sql, params)
         return [_row_to_lifecycle_event(row) for row in rows]
+
+    def change_animal_chip(
+        self,
+        *,
+        animal_id: str,
+        old_chip: str,
+        new_chip: str,
+        reason: str,
+        operador_user_id: str,
+    ) -> ChangeChipResult:
+        # Two pre-flight SELECTs run BEFORE the transaction opens:
+        # uniqueness of the new chip (no other animal carries it) and
+        # the current chip on this animal (must match ``old_chip`` so
+        # the UPDATEs don't no-op every row). Both are SELECTs — they
+        # don't take a write lock until the subsequent UPDATE.
+        uniqueness_rows = self._client.execute_sql(
+            CHECK_CHIP_UNIQUENESS_SQL,
+            [new_chip, animal_id],
+        )
+        if uniqueness_rows:
+            return ChangeChipResult(
+                success=False,
+                old_chip=old_chip,
+                new_chip=new_chip,
+                updated_tables={},
+                error=(
+                    f"new_chip {new_chip!r} ya está asignado a otro animal"
+                ),
+            )
+        current_rows = self._client.execute_sql(
+            GET_CURRENT_CHIP_SQL, [animal_id]
+        )
+        if not current_rows:
+            return ChangeChipResult(
+                success=False,
+                old_chip=old_chip,
+                new_chip=new_chip,
+                updated_tables={},
+                error=f"animal_id {animal_id!r} no existe",
+            )
+        current_chip = str(current_rows[0]["NCHIP"])
+        if current_chip != old_chip:
+            return ChangeChipResult(
+                success=False,
+                old_chip=old_chip,
+                new_chip=new_chip,
+                updated_tables={},
+                error=(
+                    f"old_chip {old_chip!r} no coincide con el chip "
+                    f"actual {current_chip!r}; recargue la ficha"
+                ),
+            )
+
+        # Transaction body. We accumulate the per-table row counts
+        # even on failure so the operator can audit the partial
+        # damage (everything rolls back together, so the count is
+        # informational only).
+        updated: dict[str, int] = {}
+        try:
+            self._client.execute_sql(BEGIN_TX_SQL)
+
+            rows = self._client.execute_sql(
+                UPDATE_ANIMALS_CHIP_SQL,
+                [new_chip, animal_id, old_chip],
+            )
+            updated["animals"] = len(rows)
+
+            updated["entradas"] = len(
+                self._client.execute_sql(
+                    UPDATE_ENTRADAS_CHIP_SQL, [new_chip, old_chip]
+                )
+            )
+            updated["acogidas"] = len(
+                self._client.execute_sql(
+                    UPDATE_ACOGIDAS_CHIP_SQL, [new_chip, old_chip]
+                )
+            )
+            updated["adopciones"] = len(
+                self._client.execute_sql(
+                    UPDATE_ADOPCIONES_CHIP_SQL, [new_chip, old_chip]
+                )
+            )
+            updated["actuaciones_sanitarias"] = len(
+                self._client.execute_sql(
+                    UPDATE_ACTUACIONES_SANITARIAS_CHIP_SQL,
+                    [new_chip, old_chip],
+                )
+            )
+            updated["terapias"] = len(
+                self._client.execute_sql(
+                    UPDATE_TERAPIAS_CHIP_SQL, [new_chip, old_chip]
+                )
+            )
+
+            metadata_json = json.dumps(
+                {
+                    "old_chip": old_chip,
+                    "new_chip": new_chip,
+                    "reason": reason,
+                }
+            )
+            self._client.execute_sql(
+                INSERT_CHIP_CHANGED_EVENT_SQL,
+                [
+                    animal_id,
+                    LifecycleEventType.CHIP_CHANGED.value,
+                    metadata_json,
+                    operador_user_id,
+                ],
+            )
+
+            self._client.execute_sql(COMMIT_TX_SQL)
+
+            return ChangeChipResult(
+                success=True,
+                old_chip=old_chip,
+                new_chip=new_chip,
+                updated_tables=updated,
+            )
+
+        except Exception as exc:  # noqa: BLE001
+            # Any failure inside the transaction body: roll back and
+            # surface the error. ``updated`` already carries whatever
+            # the saga managed to do before failing — informative for
+            # the operator even though everything was rolled back.
+            try:
+                self._client.execute_sql(ROLLBACK_TX_SQL)
+            except Exception:  # noqa: BLE001, S110
+                pass
+            return ChangeChipResult(
+                success=False,
+                old_chip=old_chip,
+                new_chip=new_chip,
+                updated_tables=updated,
+                error=f"Error en la transaccion: {exc}",
+            )
 
 
 def _row_to_animal(row: dict[str, object]) -> Animal:

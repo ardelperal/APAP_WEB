@@ -97,7 +97,7 @@ The `change_animal_chip` saga lives in `chip_service.py` (extracted from `servic
 
 Legacy route → service → queries layout (per AGENTS.md §1 + §22), with three orthogonal sub-services (`chip_service`, `lifecycle_events`, `photo_service`) extracted to keep `service.py` under the module-size budget.
 
-The slice is partially converted to the hexagonal form described in §33 (epic #420). The read + create + update + delete methods on `AnimalsPort` are landed (PRs #587, #596, #597, #603, #604); the chip cascade, photo upload, and lifecycle event log remain on the legacy shape and land as separate slices. The legacy `service.py` still owns the legacy column surface (`TraeNChip`, `Raza`, etc.) until the dataclass is widened or a parallel `AnimalCreateRequest` lands — see the port's module docstring for the open question.
+The slice is partially converted to the hexagonal form described in §33 (epic #420). Seven of eight port methods are landed (PRs #587, #596, #597, #603, #604, #609, #610, #611); only `photo_upload` remains on the legacy shape (issue #285, streaming photo with ETag). The legacy `service.py` still owns the legacy column surface (`TraeNChip`, `Raza`, etc.) until the dataclass is widened or a parallel `AnimalCreateRequest` lands — see the port's module docstring for the open question.
 
 ## Risks and gotchas
 
