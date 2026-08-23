@@ -1,11 +1,11 @@
 """Hexagonal port for the animals slice (AGENTS.md §31).
 
-Slice #420-7 fifth method — ``delete_animal`` joins
+Slice #420-7 sixth method — ``record_lifecycle_event`` joins
 ``get_animal_by_nchip`` (#587), ``list_animals`` (#596),
-``create_animal`` (#597) and ``update_animal`` (#603).
-Additional methods (``chip_cascade``, ``photo_upload``,
-``lifecycle_events``) land as the legacy
-:mod:`app.modules.animals.service` migrates.
+``create_animal`` (#597), ``update_animal`` (#603) and
+``delete_animal`` (#604). Additional methods (``list_lifecycle_events``
+on the read side, ``chip_cascade``, ``photo_upload``) land as
+separate slices.
 
 The port carries the round-trip fields the hexagonal
 :class:`Animal` dataclass already encodes (NCHIP, NombreAnimal,
@@ -21,9 +21,14 @@ Protocol-level exceptions declared in :mod:`app.core.data_access`.
 """
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Protocol, runtime_checkable
 
 from app.modules.animals.domain.animal import Animal, Especie, Sexo
+from app.modules.animals.domain.lifecycle_event import (
+    AnimalLifecycleEvent,
+    LifecycleEventType,
+)
 
 
 @runtime_checkable
@@ -123,6 +128,36 @@ class AnimalsPort(Protocol):
         legacy ``TbFichaAnimal`` rows stay in the table for audit
         even after the animal leaves the live list (issue #431,
         Finding 3).
+        """
+
+    def record_lifecycle_event(
+        self,
+        *,
+        animal_id: str,
+        event_type: LifecycleEventType,
+        event_timestamp: str | datetime,
+        created_by: str,
+        caused_by_event_id: str | None = None,
+        source_entity_type: str | None = None,
+        source_entity_id: str | None = None,
+        legacy_source_table: str | None = None,
+        legacy_source_id: int | None = None,
+        metadata: dict | None = None,
+    ) -> AnimalLifecycleEvent:
+        """Append one event to ``animal_lifecycle_events``.
+
+        Idempotent via ``ON CONFLICT (animal_id, event_type,
+        event_timestamp) DO NOTHING``: a retry of the same logical
+        event collapses to a single row (the table's natural-key
+        UNIQUE constraint is what makes the ``ON CONFLICT`` clause
+        resolve to a no-op).
+
+        Returns the persisted :class:`AnimalLifecycleEvent` (the
+        adapter fills ``id`` and ``created_at`` from
+        ``INSERT ... RETURNING``). The caller can also use the return
+        value to confirm the ``ON CONFLICT`` path: when the row
+        already existed the adapter returns the existing event, not a
+        new one — the caller does not have to re-query.
         """
 
 
