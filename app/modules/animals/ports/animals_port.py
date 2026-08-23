@@ -1,10 +1,10 @@
 """Hexagonal port for the animals slice (AGENTS.md §31).
 
-Slice #420-7 sixth method — ``record_lifecycle_event`` joins
+Slice #420-7 seventh method — ``list_lifecycle_events`` joins
 ``get_animal_by_nchip`` (#587), ``list_animals`` (#596),
-``create_animal`` (#597), ``update_animal`` (#603) and
-``delete_animal`` (#604). Additional methods (``list_lifecycle_events``
-on the read side, ``chip_cascade``, ``photo_upload``) land as
+``create_animal`` (#597), ``update_animal`` (#603),
+``delete_animal`` (#604) and ``record_lifecycle_event`` (#609).
+Additional methods (``chip_cascade``, ``photo_upload``) land as
 separate slices.
 
 The port carries the round-trip fields the hexagonal
@@ -158,6 +158,35 @@ class AnimalsPort(Protocol):
         value to confirm the ``ON CONFLICT`` path: when the row
         already existed the adapter returns the existing event, not a
         new one — the caller does not have to re-query.
+        """
+
+    def list_lifecycle_events(
+        self,
+        animal_id: str,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+        event_types: list[LifecycleEventType] | None = None,
+    ) -> list[AnimalLifecycleEvent]:
+        """Return the chronological timeline of ``animal_id``'s events.
+
+        ``event_timestamp ASC`` ordering produces the legacy timeline
+        shape — newest at the bottom, oldest at the top — that the
+        ``/animales/{id}`` detail view renders. ``event_types`` filters
+        the timeline to a subset of ``LifecycleEventType`` (used by
+        the ``state resolver`` UI per D-23 to render only the events
+        that drive the current state).
+
+        ``limit`` defaults to 50 and ``offset`` defaults to 0; the
+        caller walks the timeline by stepping ``offset += len(result)``
+        until ``len(result) < limit``. There is no opaque cursor yet
+        because the per-animal timeline is bounded by the animal's
+        lifespan (a few dozen events even for a long-lived foster
+        chain).
+
+        Returns ``[]`` when the animal has no events, or when the
+        optional ``event_types`` filter matches nothing. ``animal_id``
+        is mandatory and non-blank (validated in the use case).
         """
 
 

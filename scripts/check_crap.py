@@ -243,6 +243,15 @@ BASELINE_CRAP: dict[str, float] = {
     # reflects the per-field None-check branching the dataclass carries.
     "app/modules/animals/adapters/insforge/animals_insforge_adapter.py::AnimalsInsforgeAdapter.record_lifecycle_event": 8.67,
     "app/modules/animals/adapters/insforge/animals_insforge_adapter.py::_row_to_lifecycle_event": 7.0,
+    # Issue #420 slice 7 (list_lifecycle_events). Same shape as the
+    # write side: ``list_lifecycle_events`` on the adapter carries 4
+    # kwargs (CC=8 from the kwargs plus the ``event_types`` filter
+    # branch) and the SQL helper at 4 kwargs has CC=7 (the ``= ANY``
+    # branch and the f-string where_clause). Both gain coverage when
+    # the timeline read route handler lands; until then they hold the
+    # ratchet green at the first-measured score.
+    "app/modules/animals/adapters/insforge/animals_insforge_adapter.py::AnimalsInsforgeAdapter.list_lifecycle_events": 12.19,
+    "app/modules/animals/adapters/insforge/animals_insforge_queries.py::list_lifecycle_events_sql": 9.32,
 }
 
 #: Ratchet deadline (deterministic-quality-harness v1.5 Rule 12). Every

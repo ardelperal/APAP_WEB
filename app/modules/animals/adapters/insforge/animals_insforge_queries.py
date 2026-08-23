@@ -266,6 +266,85 @@ def record_lifecycle_event_sql(
     return sql, params
 
 
+# ``list_lifecycle_events`` — chronological timeline read.
+# ``ORDER BY event_timestamp ASC, id ASC`` keeps the timeline stable
+# when two events share a timestamp (the id is the secondary key).
+# ``event_type = ANY($2)`` filters the timeline when the caller
+# passes a non-empty ``event_types`` list; ``TRUE`` is the no-op
+# placeholder when ``event_types`` is ``None`` or empty so the
+# adapter does not have to branch on the filter shape.
+LIST_LIFECYCLE_EVENTS_COLUMNS: tuple[str, ...] = (
+    "id",
+    "animal_id",
+    "event_type",
+    "event_timestamp",
+    "created_by",
+    "caused_by_event_id",
+    "source_entity_type",
+    "source_entity_id",
+    "legacy_source_table",
+    "legacy_source_id",
+    "metadata",
+)
+
+
+def list_lifecycle_events_sql(
+    *,
+    animal_id: str,
+    limit: int,
+    offset: int,
+    event_types: list[str] | None,
+) -> tuple[str, list[object]]:
+    """Return the ``(sql, params)`` tuple for the timeline read.
+
+    Params are positional: ``$1`` animal_id, ``$2`` event_type
+    filter (array when a filter is requested, single column for the
+    no-filter case via a wrapping subquery — postgres folds the
+    ``=ANY`` comparison to TRUE when the array is empty). Limit and
+    offset follow. The return type is ``list[object]`` because
+    postgres binds a mix of text and text[] values — narrowing
+    would require ``Union[...]`` and add noise.
+    """
+    where_clause = "WHERE animal_id = $1"
+    if event_types:
+        # Use = ANY with a non-empty array; postgres treats the
+        # comparison as TRUE for matching rows. Empty list bypasses
+        # the ``= ANY`` clause via the early return in the adapter.
+        where_clause = "WHERE animal_id = $1 AND event_type = ANY($2::text[])"
+    sql = (
+        "SELECT id, animal_id, event_type, event_timestamp, created_by, "  # noqa: S608 — column names are constant; the only user-derived input is the event_types list which lands as a $N bind parameter
+        "caused_by_event_id, source_entity_type, source_entity_id, "
+        "legacy_source_table, legacy_source_id, metadata "
+        "FROM animal_lifecycle_events "
+        f"{where_clause} "
+        "ORDER BY event_timestamp ASC, id ASC "
+        "LIMIT $3 OFFSET $4"
+    )
+    if event_types:
+        params: list[object] = [animal_id, list(event_types), str(limit), str(offset)]
+    else:
+        params = [animal_id, str(limit), str(offset)]
+    return sql, params
+
+
+__all__ = [
+    "GET_ANIMAL_BY_NCHIP_SQL",
+    "LIST_ANIMALS_SQL",
+    "LIST_LIFECYCLE_EVENTS_COLUMNS",
+    "INSERT_ANIMAL_SQL",
+    "DELETE_ANIMAL_SQL",
+    "RECORD_LIFECYCLE_EVENT_COLUMNS",
+    "UPDATE_ANIMAL_COLUMN_ORDER",
+    "create_animal_sql",
+    "delete_animal_sql",
+    "get_animal_by_nchip_sql",
+    "list_animals_sql",
+    "list_lifecycle_events_sql",
+    "record_lifecycle_event_sql",
+    "update_animal_sql",
+]
+
+
 __all__ = [
     "GET_ANIMAL_BY_NCHIP_SQL",
     "LIST_ANIMALS_SQL",

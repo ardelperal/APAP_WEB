@@ -18,6 +18,7 @@ from app.modules.animals.adapters.insforge.animals_insforge_queries import (
     delete_animal_sql,
     get_animal_by_nchip_sql,
     list_animals_sql,
+    list_lifecycle_events_sql,
     record_lifecycle_event_sql,
     update_animal_sql,
 )
@@ -194,6 +195,30 @@ class AnimalsInsforgeAdapter(AnimalsPort):
                 "shape has drifted, expected exactly one row."
             )
         return _row_to_lifecycle_event(rows[0])
+
+    def list_lifecycle_events(
+        self,
+        animal_id: str,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+        event_types: list[LifecycleEventType] | None = None,
+    ) -> list[AnimalLifecycleEvent]:
+        # Empty ``event_types`` would short-circuit to ``WHERE animal_id
+        # = $1 AND event_type = ANY($2::text[])`` which on postgres is
+        # ``FALSE`` for all rows — call the no-filter path instead so
+        # the caller sees the full timeline.
+        event_type_strings = (
+            [et.value for et in event_types] if event_types else None
+        )
+        sql, params = list_lifecycle_events_sql(
+            animal_id=animal_id,
+            limit=limit,
+            offset=offset,
+            event_types=event_type_strings,
+        )
+        rows = self._client.execute_sql(sql, params)
+        return [_row_to_lifecycle_event(row) for row in rows]
 
 
 def _row_to_animal(row: dict[str, object]) -> Animal:
