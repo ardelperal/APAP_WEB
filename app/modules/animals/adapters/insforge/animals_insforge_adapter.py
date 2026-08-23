@@ -254,12 +254,14 @@ def _row_to_lifecycle_event(row: dict[str, object]) -> AnimalLifecycleEvent:
             else None
         ),
         legacy_source_id=(
-            int(row["legacy_source_id"])
+            int(row["legacy_source_id"])  # type: ignore[arg-type]
             if row["legacy_source_id"] is not None
             else None
         ),
         metadata=(
-            row["metadata"] if row["metadata"] is not None else None
+            row["metadata"]  # type: ignore[arg-type]
+            if row["metadata"] is not None
+            else None
         ),
     )
 

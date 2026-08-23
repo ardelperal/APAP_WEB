@@ -228,13 +228,16 @@ def record_lifecycle_event_sql(
     legacy_source_table: str | None,
     legacy_source_id: int | None,
     metadata: dict | None,
-) -> tuple[str, list[str]]:
+) -> tuple[str, list[object]]:
     """Return the ``(sql, params)`` tuple for the lifecycle INSERT.
 
     The bind list is positional; ``None`` lineage values land as
     NULL so the partial-update contract works the same way it does
     on the legacy ``record_event``. ``metadata`` lands as a JSONB
-    parameter (``$10``); ``legacy_source_id`` as integer ($9).
+    parameter (``$10``); ``legacy_source_id`` as integer ($9). The
+    return type is ``list[object]`` because postgres binds a mix
+    of text, int and jsonb values — narrowing each entry to a
+    homogeneous type would require ``Union[...]`` and add noise.
     """
     sql = (
         "INSERT INTO animal_lifecycle_events ("
