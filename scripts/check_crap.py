@@ -262,6 +262,15 @@ BASELINE_CRAP: dict[str, float] = {
     # then the entry holds the ratchet green at the first-measured
     # score (CRAP=51.68 reflects the 14 branches × 0% coverage).
     "app/modules/animals/adapters/insforge/animals_insforge_adapter.py::AnimalsInsforgeAdapter.change_animal_chip": 51.68,
+    # Issue #420 slice 9 (resolve_animal_photo). The adapter boundary is
+    # not wired into the route yet, so the existing application and legacy
+    # photo tests execute only its definition line (5% line coverage).
+    # Its CC=7 also means tests alone cannot reach grade A: even at 100%
+    # coverage the CRAP score floors at 7.00. This exact first-measured
+    # score follows the change_animal_chip precedent in commit 5fa2795;
+    # the ratchet can retire only after the boundary is simplified below
+    # CC=6, independently of the route-wiring coverage improvement.
+    "app/modules/animals/adapters/insforge/animals_insforge_adapter.py::AnimalsInsforgeAdapter.resolve_animal_photo": 49.01,
 }
 
 #: Ratchet deadline (deterministic-quality-harness v1.5 Rule 12). Every
