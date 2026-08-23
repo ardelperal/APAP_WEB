@@ -30,10 +30,12 @@ class AnimalDeleteValidationError(ValueError):
 
 def _require_animal_id(animal_id: str | None) -> str:
     if animal_id is None:
-        raise AnimalDeleteValidationError("animal_id es obligatorio")
+        raise AnimalDeleteValidationError(  # noqa: TRY003 — operator-facing diagnostic
+            "animal_id es obligatorio"
+        )
     stripped = animal_id.strip()
     if not stripped:
-        raise AnimalDeleteValidationError(
+        raise AnimalDeleteValidationError(  # noqa: TRY003 — operator-facing diagnostic
             "animal_id es obligatorio y no puede estar vacio"
         )
     return stripped
