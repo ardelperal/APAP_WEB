@@ -15,7 +15,7 @@ En curso (slice hexagonal). El epic #420 ("hexagonal vertical-slice refactor") e
 | `AnimalsPort.create_animal` | #597 | INSERT con validación de campos requeridos. |
 | `AnimalsPort.update_animal` | #603 | Partial UPDATE (kwargs opcionales). |
 | `AnimalsPort.delete_animal` | #604 | Soft-delete (UPDATE activo=FALSE). |
-| `AnimalsPort.record_lifecycle_event` | #609 | INSERT idempotente (ON CONFLICT DO NOTHING). |
+| `AnimalsPort.record_lifecycle_event` | #609 | INSERT idempotente (vía índice único natural y cláusula de conflicto). |
 | `AnimalsPort.list_lifecycle_events` | #610 | Read cronológico del timeline con filtro opcional por tipo. |
 
 Pendiente en el port: `chip_cascade`, `photo_upload`. Estos cubren #29 y #285 respectivamente. #32 (lifecycle event log) ya está cubierto por `record_lifecycle_event` + `list_lifecycle_events`.
