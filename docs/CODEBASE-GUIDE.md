@@ -24,23 +24,29 @@
               ┌───────────────┴────────────────┐
               ▼                                ▼
     LEGACY SLICE                       HEXAGONAL SLICE
-    app/modules/<area>/                app/core/<layer>/<slice>/
+    app/modules/<area>/                §33.2 — dos rutas posibles:
+              │                        ┌────────────────────────┐
+    routes.py  │ HTTP only            │                        │
+         │     ▼                  app/core/<layer>/<slice>/   app/modules/<slice>/
+    service.py  validación + dominio │   (transversal)       │   (negocio con razón propia)
+         │     ▼                    │                        │
+    queries.py  construcción de SQL   │   routes / handlers   │   routes.py
+              │                       │   application/         │   domain/
+              │                       │   ports/  Protocol     │   ports/
+              │                       │   adapters/insforge/   │   application/
+              │                       │                        │   adapters/insforge/
+              │                       └────────────────────────┘
               │                                │
-    routes.py  │ HTTP only            routes / handlers │ HTTP only
-         │     ▼                                │     ▼
-    service.py  validación + dominio     application/  use case
-         │     ▼                                │     ▼
-    queries.py  construcción de SQL      ports/  Protocol (sin transporte)
-         │                                      │     ▼
-         │                              adapters/insforge/  adapter + queries
-         └───────────────┬──────────────────────┘
-                        ▼
+              └───────────────┬────────────────┘
+                              ▼
               app/core/insforge.py  (InsForgeClient)
-                        ▼
+                              ▼
               InsForge  —  PostgreSQL · Auth · Storage
 ```
 
 > **Todo request entra por una route delgada, cruza exactamente una capa de dominio y sale por un único cliente hacia InsForge; lo que rompe esa línea recta es lo que los gates rechazan.**
+>
+> La hexagonal puede vivir dentro del propio módulo (`app/modules/animals/`, regla §33.2) cuando el slice tiene razón de negocio propia; sólo se promueve a `app/core/<layer>/<slice>/` cuando dos o más consumidores lo comparten. La transición actual es in-place capa por capa, no extracción masiva.
 
 ## Guide pages
 

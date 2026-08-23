@@ -10,7 +10,7 @@ Esta página posee la definición de qué es APAP_WEB, qué no es y qué invaria
 |---|---|
 | Reescritura web server-rendered del Access/VBA legacy de APAP | [`README.md`](../../README.md), [Arquitectura InsForge](../architecture/architecture-insforge-stack.md) |
 | App FastAPI + Jinja2 + HTMX con datos en InsForge (PostgreSQL) | [`app/main.py`](../../app/main.py), [`app/core/insforge.py`](../../app/core/insforge.py) |
-| Proyecto hexagonal con vertical slices en migración | [`app/core/<layer>/<slice>/`](../../app/core/), [AGENTS.md](../../AGENTS.md) §33 |
+| Proyecto hexagonal con vertical slices en migración | [`app/core/<layer>/<slice>/`](../../app/core/) para capacidades transversales; [`app/modules/<slice>/`](../../app/modules/) cuando la hexagonal vive en un módulo de negocio; [AGENTS.md](../../AGENTS.md) §33.2 |
 | OpenSpec-driven: cada capacidad grande se describe antes de codear | [`openspec/specs/`](../../openspec/specs/), [`openspec/changes/`](../../openspec/changes/) |
 | Arnés de gates automático (lint + typecheck + mutation) | [`scripts/check_*.py`](../../scripts/), [Quality roadmap](../quality/hardening-roadmap.md) |
 
@@ -21,7 +21,7 @@ Esta página posee la definición de qué es APAP_WEB, qué no es y qué invaria
 | Un SDK publicable para terceros | El repo no expone paquete distribuible; `pyproject.toml` no declara `packages` ni entry points. |
 | Un dashboard o panel de BI | No existe `dashboard/` ni framework de BI; las vistas son páginas por módulo de negocio. |
 | Una API REST pura | El producto es server-rendered; las rutas devuelven HTML, no JSON excepto donde la UI lo requiere. |
-| Un monolito por capas estable | El layout `app/modules/` está en transición hacia `app/core/<layer>/<slice>/`; ver [repository map](repository-map.md). |
+| Un monolito por capas estable | El layout `app/modules/` está en transición hexagonal capa por capa in-place (dominio + puertos + aplicación + adapter dentro del propio módulo, no extracción a `app/core/`); ver [repository map](repository-map.md) §33. |
 | Compatible con la versión legacy en simultáneo | §18 de AGENTS exige exclusividad runtime; ver [sync and cloud](sync-and-cloud.md). |
 
 ## Core invariants
