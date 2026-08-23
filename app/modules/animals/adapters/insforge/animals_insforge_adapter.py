@@ -200,9 +200,9 @@ class AnimalsInsforgeAdapter(AnimalsPort):
         self,
         animal_id: str,
         *,
-        limit: int,
-        offset: int,
-        event_types: list[LifecycleEventType] | None,
+        limit: int = 50,
+        offset: int = 0,
+        event_types: list[LifecycleEventType] | None = None,
     ) -> list[AnimalLifecycleEvent]:
         # Empty ``event_types`` would short-circuit to ``WHERE animal_id
         # = $1 AND event_type = ANY($2::text[])`` which on postgres is

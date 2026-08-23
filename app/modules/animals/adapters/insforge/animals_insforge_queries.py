@@ -294,14 +294,16 @@ def list_lifecycle_events_sql(
     limit: int,
     offset: int,
     event_types: list[str] | None,
-) -> tuple[str, list[str]]:
+) -> tuple[str, list[object]]:
     """Return the ``(sql, params)`` tuple for the timeline read.
 
     Params are positional: ``$1`` animal_id, ``$2`` event_type
     filter (array when a filter is requested, single column for the
     no-filter case via a wrapping subquery — postgres folds the
     ``=ANY`` comparison to TRUE when the array is empty). Limit and
-    offset follow.
+    offset follow. The return type is ``list[object]`` because
+    postgres binds a mix of text and text[] values — narrowing
+    would require ``Union[...]`` and add noise.
     """
     where_clause = "WHERE animal_id = $1"
     if event_types:
@@ -319,7 +321,7 @@ def list_lifecycle_events_sql(
         "LIMIT $3 OFFSET $4"
     )
     if event_types:
-        params: list[str] = [animal_id, list(event_types), str(limit), str(offset)]
+        params: list[object] = [animal_id, list(event_types), str(limit), str(offset)]
     else:
         params = [animal_id, str(limit), str(offset)]
     return sql, params
