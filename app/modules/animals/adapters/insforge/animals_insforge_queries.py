@@ -311,8 +311,8 @@ def list_lifecycle_events_sql(
         # comparison as TRUE for matching rows. Empty list bypasses
         # the ``= ANY`` clause via the early return in the adapter.
         where_clause = "WHERE animal_id = $1 AND event_type = ANY($2::text[])"
-    sql = (  # noqa: S608 — column names are constant; the only user-derived input is the event_types list which lands as a $N bind parameter
-        "SELECT id, animal_id, event_type, event_timestamp, created_by, "
+    sql = (
+        "SELECT id, animal_id, event_type, event_timestamp, created_by, "  # noqa: S608 — column names are constant; the only user-derived input is the event_types list which lands as a $N bind parameter
         "caused_by_event_id, source_entity_type, source_entity_id, "
         "legacy_source_table, legacy_source_id, metadata "
         "FROM animal_lifecycle_events "
