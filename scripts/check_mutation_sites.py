@@ -36,7 +36,6 @@ BASELINE_MUTATION_SITES: dict[str, int] = {
     "app/modules/adopciones/service.py": 441,
     "app/modules/animals/routes.py": 592,
     "app/modules/animals/service.py": 488,
-    "app/modules/animals/adapters/insforge/animals_insforge_adapter.py": 362,  # bumped 278 -> 362 by Slice #420-7 (resolve_animal_photo adds the fail-closed SQL/storage branches; same exact-measurement precedent as change_animal_chip in 78542c8)
     "app/modules/cesiones/service.py": 370,
     "app/modules/foster/routes.py": 263,
     "app/modules/foster/service.py": 342,

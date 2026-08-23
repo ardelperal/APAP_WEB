@@ -10,13 +10,20 @@ constructs one per request from the already-pooled
 """
 from __future__ import annotations
 
-import hashlib
 import json
-from collections.abc import Iterator
 from datetime import datetime
-from typing import Protocol
 
 from app.core.data_access import SqlExecutor
+from app.modules.animals.adapters.insforge.animals_insforge_mappers import (
+    _row_to_animal,
+    _row_to_lifecycle_event,
+)
+from app.modules.animals.adapters.insforge.animals_insforge_photo import (
+    PhotoStorageClient,
+)
+from app.modules.animals.adapters.insforge.animals_insforge_photo import (
+    resolve_animal_photo as resolve_insforge_animal_photo,
+)
 from app.modules.animals.adapters.insforge.animals_insforge_queries import (
     BEGIN_TX_SQL,
     CHECK_CHIP_UNIQUENESS_SQL,
@@ -33,7 +40,6 @@ from app.modules.animals.adapters.insforge.animals_insforge_queries import (
     create_animal_sql,
     delete_animal_sql,
     get_animal_by_nchip_sql,
-    get_animal_photo_meta_sql,
     list_animals_sql,
     list_lifecycle_events_sql,
     record_lifecycle_event_sql,
@@ -45,41 +51,8 @@ from app.modules.animals.domain.lifecycle_event import (
     AnimalLifecycleEvent,
     LifecycleEventType,
 )
-from app.modules.animals.domain.photo import PhotoOutcome
 from app.modules.animals.ports.animals_port import AnimalsPort
-
-# Sentinel key the legacy ``photo_service`` recognises: a row with
-# ``NombreFoto`` equal to this literal is treated as "the animal has
-# no photo on file" and the adapter returns the placeholder PNG so
-# the route can render a 200 with a default image instead of 404.
-PHOTO_SENTINEL_KEY = "__missing__"
-
-# Tiny 1x1 PNG (67 bytes) the legacy returns when the animal has no
-# photo on file. Inline so the placeholder works without touching the
-# storage backend at all.
-PLACEHOLDER_PHOTO_PNG: bytes = (
-    b"\x89PNG\r\n\x1a\n"
-    b"\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
-    b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
-    b"\x00\x00\x00\rIDATx\x9cc\xfc\xff\xff?\x03)\x00"
-    b"\x05\xfe\x02\xfe\xa3\x35\x81\x00\x00\x00\x00IEND"
-    b"\xaeB`\x82"
-)
-
-
-class _PhotoStorageClient(Protocol):
-    """Shape the adapter uses to read a private-bucket object.
-
-    Matches the legacy ``photo_service._PhotoClient`` Protocol
-    minimally; the adapter takes it as a constructor arg so tests
-    can inject a fake without monkey-patching the storage module.
-    """
-
-    def stream_object(self, bucket: str, key: str) -> Iterator[bytes]: ...
-
-    def content_type(self, bucket: str, key: str) -> str: ...
-
-    def content_length(self, bucket: str, key: str) -> int | None: ...
+from app.modules.animals.ports.photo_asset import PhotoAsset
 
 
 class AnimalsInsforgeAdapter(AnimalsPort):
@@ -88,7 +61,7 @@ class AnimalsInsforgeAdapter(AnimalsPort):
     def __init__(
         self,
         client: SqlExecutor,
-        storage: _PhotoStorageClient | None = None,
+        storage: PhotoStorageClient,
     ) -> None:
         self._client = client
         self._storage = storage
@@ -426,156 +399,10 @@ class AnimalsInsforgeAdapter(AnimalsPort):
 
     def resolve_animal_photo(
         self, animal_id: str
-    ) -> PhotoOutcome | None:
-        # Three pre-flight branches, mirroring the legacy
-        # ``photo_service.resolve_animal_photo`` exactly:
-        # 1. animal does not exist → ``None`` (route renders 404)
-        # 2. SQL error on the lookup → ``PhotoOutcome(status="not_found")``
-        #    with the placeholder PNG so the client sees a photo
-        #    rather than a 404 (legacy fail-closed contract).
-        # 3. sentinel key (``NombreFoto == PHOTO_SENTINEL_KEY``) →
-        #    ``PhotoOutcome(status="not_found")`` with the placeholder
-        #    PNG; the storage backend is never queried.
-        try:
-            rows = self._client.execute_sql(
-                *get_animal_photo_meta_sql(animal_id)
-            )
-        except Exception:  # noqa: BLE001
-            return PhotoOutcome(
-                stream=iter([PLACEHOLDER_PHOTO_PNG]),
-                content_type="image/png",
-                etag="",
-                cache_control="private, max-age=3600, must-revalidate",
-                content_length=len(PLACEHOLDER_PHOTO_PNG),
-                status="not_found",
-            )
-        if not rows:
-            return None
-
-        nombrefoto = rows[0].get("NombreFoto")
-        updated_at = rows[0].get("updated_at")
-        if (
-            not isinstance(nombrefoto, str)
-            or nombrefoto in ("", PHOTO_SENTINEL_KEY)
-            or self._storage is None
-        ):
-            return PhotoOutcome(
-                stream=iter([PLACEHOLDER_PHOTO_PNG]),
-                content_type="image/png",
-                etag="",
-                cache_control="private, max-age=3600, must-revalidate",
-                content_length=len(PLACEHOLDER_PHOTO_PNG),
-                status="not_found",
-            )
-
-        # Compute the ETag from the (animal_id, updated_at,
-        # nombrefoto) tuple. Legacy uses ``hash(...)``; we use sha256
-        # here so the ETag is stable across Python runs (hash()
-        # is randomised per process via PYTHONHASHSEED).
-        etag_payload = f"{animal_id}|{updated_at}|{nombrefoto}".encode()
-        etag = f'"{hashlib.sha256(etag_payload).hexdigest()}"'
-
-        try:
-            stream = self._storage.stream_object(
-                "apap-photos", nombrefoto
-            )
-            content_type = self._storage.content_type(
-                "apap-photos", nombrefoto
-            )
-            content_length = self._storage.content_length(
-                "apap-photos", nombrefoto
-            )
-        except Exception:  # noqa: BLE001
-            # Storage failure → placeholder PNG (legacy fail-closed
-            # contract). The route renders 200 with the embedded
-            # PNG so the client sees a photo rather than a 5xx.
-            return PhotoOutcome(
-                stream=iter([PLACEHOLDER_PHOTO_PNG]),
-                content_type="image/png",
-                etag="",
-                cache_control="private, max-age=3600, must-revalidate",
-                content_length=len(PLACEHOLDER_PHOTO_PNG),
-                status="not_found",
-            )
-
-        return PhotoOutcome(
-            stream=stream,
-            content_type=content_type,
-            etag=etag,
-            cache_control="private, max-age=3600, must-revalidate",
-            content_length=content_length,
-            status="ok",
+    ) -> PhotoAsset | None:
+        return resolve_insforge_animal_photo(
+            self._client,
+            self._storage,
+            animal_id,
         )
-
-
-def _row_to_animal(row: dict[str, object]) -> Animal:
-    """Translate a PostgREST row dict to the hexagonal ``Animal`` entity.
-
-    ``Especie`` and ``Sexo`` come back as strings from the wire; the
-    ``StrEnum`` constructor rejects unknown values, matching the
-    legacy ``service._row_to_animal`` (the column set is constrained
-    to the two enums at the DB level so unknown values would be a
-    data-integrity bug, not a runtime event).
-    """
-    return Animal(
-        id=str(row["id"]),
-        NCHIP=str(row["NCHIP"]),
-        NombreAnimal=str(row["NombreAnimal"]),
-        Especie=Especie(str(row["Especie"])),
-        Sexo=Sexo(str(row["Sexo"])),
-        FNacimiento=str(row["FNacimiento"]),
-        activo=bool(row["activo"]),
-    )
-
-
-def _row_to_lifecycle_event(row: dict[str, object]) -> AnimalLifecycleEvent:
-    """Translate a PostgREST row dict to the hexagonal ``AnimalLifecycleEvent``.
-
-    ``event_type`` comes back as a string from the wire and goes through
-    the ``LifecycleEventType`` StrEnum constructor (same pattern as
-    ``_row_to_animal``). The optional lineage fields (``caused_by_event_id``,
-    ``source_entity_type``, ``source_entity_id``, ``legacy_source_table``,
-    ``legacy_source_id``, ``metadata``) come back as ``None`` when the
-    column was NULL on insert; the row dict preserves them as
-    SQL NULL → Python ``None`` so the dataclass accepts them.
-    """
-    return AnimalLifecycleEvent(
-        id=str(row["id"]),
-        animal_id=str(row["animal_id"]),
-        event_type=LifecycleEventType(str(row["event_type"])),
-        event_timestamp=str(row["event_timestamp"]),
-        created_by=str(row["created_by"]),
-        caused_by_event_id=(
-            str(row["caused_by_event_id"])
-            if row["caused_by_event_id"] is not None
-            else None
-        ),
-        source_entity_type=(
-            str(row["source_entity_type"])
-            if row["source_entity_type"] is not None
-            else None
-        ),
-        source_entity_id=(
-            str(row["source_entity_id"])
-            if row["source_entity_id"] is not None
-            else None
-        ),
-        legacy_source_table=(
-            str(row["legacy_source_table"])
-            if row["legacy_source_table"] is not None
-            else None
-        ),
-        legacy_source_id=(
-            int(row["legacy_source_id"])  # type: ignore[call-overload]
-            if row["legacy_source_id"] is not None
-            else None
-        ),
-        metadata=(
-            row["metadata"]  # type: ignore[arg-type]
-            if row["metadata"] is not None
-            else None
-        ),
-    )
-
-
 __all__ = ["AnimalsInsforgeAdapter"]

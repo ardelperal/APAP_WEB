@@ -14,30 +14,41 @@ from app.modules.animals.application.resolve_animal_photo import (
     PhotoResolutionValidationError,
     resolve_animal_photo,
 )
-from app.modules.animals.domain.photo import PhotoOutcome
+from app.modules.animals.ports.photo_asset import PhotoAsset
 
 
-def _ok_outcome() -> PhotoOutcome:
-    """A representative ``status='ok'`` outcome (real photo stream)."""
-    return PhotoOutcome(
-        stream=iter([b"fake-jpeg-bytes"]),
-        content_type="image/jpeg",
-        etag='"abc123"',
-        cache_control="private, max-age=3600, must-revalidate",
+class _ClosableIterator:
+    def __init__(self, chunks: list[bytes]) -> None:
+        self._chunks = iter(chunks)
+        self.closed = False
+
+    def __iter__(self) -> _ClosableIterator:
+        return self
+
+    def __next__(self) -> bytes:
+        return next(self._chunks)
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def _ok_outcome() -> PhotoAsset:
+    """A representative real-photo asset."""
+    return PhotoAsset(
+        stream=_ClosableIterator([b"fake-jpeg-bytes"]),
+        media_type="image/jpeg",
         content_length=12,
-        status="ok",
+        is_placeholder=False,
     )
 
 
-def _placeholder_outcome() -> PhotoOutcome:
-    """A representative ``status='not_found'`` outcome (placeholder PNG)."""
-    return PhotoOutcome(
-        stream=iter([b"\x89PNG\r\n\x1a\n"]),
-        content_type="image/png",
-        etag="",
-        cache_control="private, max-age=3600, must-revalidate",
+def _placeholder_outcome() -> PhotoAsset:
+    """A representative placeholder asset."""
+    return PhotoAsset(
+        stream=_ClosableIterator([b"\x89PNG\r\n\x1a\n"]),
+        media_type="image/png",
         content_length=8,
-        status="not_found",
+        is_placeholder=True,
     )
 
 
@@ -46,12 +57,12 @@ class _StubPort:
 
     def __init__(self) -> None:
         self.last_animal_id: str | None = None
-        self.next_outcome: PhotoOutcome | None = None
+        self.next_outcome: PhotoAsset | None = None
         self.next_missing: bool = False
 
     def resolve_animal_photo(
         self, animal_id: str
-    ) -> PhotoOutcome | None:
+    ) -> PhotoAsset | None:
         self.last_animal_id = animal_id
         if self.next_missing:
             return None
@@ -150,12 +161,12 @@ def test_happy_path_strips_and_delegates() -> None:
     assert result is port.next_outcome
     assert port.last_animal_id == "animal-id"
     assert result is not None
-    assert result.status == "ok"
-    assert result.content_type == "image/jpeg"
+    assert result.is_placeholder is False
+    assert result.media_type == "image/jpeg"
 
 
 def test_placeholder_outcome_flows_through() -> None:
-    """A ``status='not_found'`` outcome (placeholder PNG) reaches the caller."""
+    """A placeholder asset reaches the caller unchanged."""
     port = _StubPort()
     port.next_outcome = _placeholder_outcome()
 
@@ -163,8 +174,8 @@ def test_placeholder_outcome_flows_through() -> None:
 
     assert result is port.next_outcome
     assert result is not None
-    assert result.status == "not_found"
-    assert result.content_type == "image/png"
+    assert result.is_placeholder is True
+    assert result.media_type == "image/png"
     assert result.content_length == 8
 
 

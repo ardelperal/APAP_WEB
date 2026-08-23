@@ -30,7 +30,7 @@ from app.modules.animals.domain.lifecycle_event import (
     AnimalLifecycleEvent,
     LifecycleEventType,
 )
-from app.modules.animals.domain.photo import PhotoOutcome
+from app.modules.animals.ports.photo_asset import PhotoAsset
 
 
 @runtime_checkable
@@ -229,22 +229,17 @@ class AnimalsPort(Protocol):
 
     def resolve_animal_photo(
         self, animal_id: str
-    ) -> PhotoOutcome | None:
-        """Resolve the animal's photo stream (issue #285).
+    ) -> PhotoAsset | None:
+        """Resolve an owned photo asset stream (issue #285).
 
-        Returns ``None`` when the animal does not exist (the route
-        returns 404). Returns a :class:`PhotoOutcome` otherwise:
-        ``status == "ok"`` for a real photo stream, ``status ==
-        "not_found"`` for the placeholder PNG when the animal has
-        no photo on file (or the storage layer errors). The route
-        handles the placeholder case as 200 with the embedded PNG
-        so the client always sees an image.
+        Returns ``None`` when the animal does not exist. Returns a
+        :class:`PhotoAsset` otherwise; ``is_placeholder`` distinguishes
+        a real storage object from the fallback asset.
 
-        The ``stream`` is an :class:`Iterator[bytes]` consumed
-        lazily by ``StreamingResponse``; the adapter must NOT
-        buffer the iterator with ``list()``. ``etag`` is computed
-        from ``hash(animal_id, updated_at, nombrefoto)`` so the
-        ``If-None-Match`` conditional request works.
+        The asset carries intrinsic media type and known byte length only.
+        HTTP cache policy and validators belong to the future delivery
+        adapter, not this port. The consumer owns ``stream`` and MUST call
+        ``close()`` after complete, partial, failed, or cancelled consumption.
 
         ``animal_id`` is mandatory and non-blank (validated in the
         use case).

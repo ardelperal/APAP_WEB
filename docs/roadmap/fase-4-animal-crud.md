@@ -17,10 +17,14 @@ En curso (slice hexagonal). El epic #420 ("hexagonal vertical-slice refactor") e
 | `AnimalsPort.delete_animal` | #604 | Soft-delete (UPDATE activo=FALSE). |
 | `AnimalsPort.record_lifecycle_event` | #609 | INSERT idempotente (vía índice único natural y cláusula de conflicto). |
 | `AnimalsPort.list_lifecycle_events` | #610 | Read cronológico del timeline con filtro opcional por tipo. |
-| `AnimalsPort.change_animal_chip` | #611 | Saga transaccional sobre 6 tablas; valida unicidad del nuevo chip y registra evento CHIP_CHANGED. |
-| `AnimalsPort.resolve_animal_photo` | #612 | Streaming de la foto del animal con ETag; placeholder PNG cuando no hay foto (#285). |
+| `AnimalsPort.change_animal_chip` | #612 | Saga transaccional sobre 6 tablas; valida unicidad del nuevo chip y registra el evento CHIP_CHANGED. |
+| `AnimalsPort.resolve_animal_photo` | #613 | Devuelve un recurso de foto neutral, con stream cerrable y PNG de sustitución cuando no hay foto (#285). La política HTTP queda para la futura integración con la ruta. |
 
-Pendiente en el port: ninguno. Todos los métodos del `AnimalsPort` hexagonal han aterrizado (9 de 9). La superficie legacy (`TraeNChip` / `Raza` / etc.) queda en `service.py` hasta que un slice futuro amplíe el `Animal` o introduzca un `AnimalCreateRequest` paralelo.
+Pendiente en el port: ninguno. Los nueve métodos de `AnimalsPort` han aterrizado.
+
+La conversión no está completa. Las rutas siguen usando los servicios legacy.
+
+`service.py` conserva `TraeNChip`, `Raza` y los demás campos hasta que otro slice amplíe `Animal` o introduzca un `AnimalCreateRequest`.
 
 Las piezas no-hexagonales siguen en la forma legacy:
 - #30 (LIFECYCLE-05) search API — pendiente.

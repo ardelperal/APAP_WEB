@@ -31,7 +31,7 @@ def get_animals_port(request: Request) -> Iterator[AnimalsPort]:
     adapter.
     """
     client = request.app.state.insforge_client
-    adapter = AnimalsInsforgeAdapter(client)
+    adapter = AnimalsInsforgeAdapter(client, storage=client)
     yield adapter
 
 

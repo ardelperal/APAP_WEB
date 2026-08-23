@@ -13,14 +13,13 @@ InsForge storage client, no Jinja in this file.
 The use case enforces the only pre-flight invariant the legacy
 ``photo_service.resolve_animal_photo`` did: ``animal_id`` is
 mandatory and non-blank. The streaming semantics — placeholder
-PNG when the animal has no photo, storage-error fallback, ETag
-derivation, ``If-None-Match`` handling — live in the adapter and
-the route handler because they touch the storage client.
+PNG when the animal has no photo and storage-error fallback — live
+behind the port. HTTP cache policy remains a delivery-layer concern.
 """
 from __future__ import annotations
 
-from app.modules.animals.domain.photo import PhotoOutcome
 from app.modules.animals.ports.animals_port import AnimalsPort
+from app.modules.animals.ports.photo_asset import PhotoAsset
 
 
 class PhotoResolutionValidationError(ValueError):
@@ -47,12 +46,11 @@ def _require_animal_id(animal_id: str | None) -> str:
 def resolve_animal_photo(
     animals_port: AnimalsPort,
     animal_id: str,
-) -> PhotoOutcome | None:
-    """Return the streaming photo outcome for ``animal_id`` or ``None``.
+) -> PhotoAsset | None:
+    """Return the owned photo asset for ``animal_id`` or ``None``.
 
-    ``None`` means the animal does not exist (the route renders 404).
-    The adapter returns a :class:`PhotoOutcome` for every other
-    case (real photo stream or placeholder PNG).
+    ``None`` means the animal does not exist. Every returned asset owns
+    its stream; the future delivery caller must close it deterministically.
     """
     clean_animal_id = _require_animal_id(animal_id)
     return animals_port.resolve_animal_photo(clean_animal_id)
