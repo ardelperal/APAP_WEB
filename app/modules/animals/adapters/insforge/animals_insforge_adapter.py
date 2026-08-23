@@ -424,6 +424,89 @@ class AnimalsInsforgeAdapter(AnimalsPort):
                 error=error,
             )
 
+    def resolve_animal_photo(
+        self, animal_id: str
+    ) -> PhotoOutcome | None:
+        # Three pre-flight branches, mirroring the legacy
+        # ``photo_service.resolve_animal_photo`` exactly:
+        # 1. animal does not exist → ``None`` (route renders 404)
+        # 2. SQL error on the lookup → ``PhotoOutcome(status="not_found")``
+        #    with the placeholder PNG so the client sees a photo
+        #    rather than a 404 (legacy fail-closed contract).
+        # 3. sentinel key (``NombreFoto == PHOTO_SENTINEL_KEY``) →
+        #    ``PhotoOutcome(status="not_found")`` with the placeholder
+        #    PNG; the storage backend is never queried.
+        try:
+            rows = self._client.execute_sql(
+                *get_animal_photo_meta_sql(animal_id)
+            )
+        except Exception:  # noqa: BLE001
+            return PhotoOutcome(
+                stream=iter([PLACEHOLDER_PHOTO_PNG]),
+                content_type="image/png",
+                etag="",
+                cache_control="private, max-age=3600, must-revalidate",
+                content_length=len(PLACEHOLDER_PHOTO_PNG),
+                status="not_found",
+            )
+        if not rows:
+            return None
+
+        nombrefoto = rows[0].get("NombreFoto")
+        updated_at = rows[0].get("updated_at")
+        if (
+            not isinstance(nombrefoto, str)
+            or nombrefoto in ("", PHOTO_SENTINEL_KEY)
+            or self._storage is None
+        ):
+            return PhotoOutcome(
+                stream=iter([PLACEHOLDER_PHOTO_PNG]),
+                content_type="image/png",
+                etag="",
+                cache_control="private, max-age=3600, must-revalidate",
+                content_length=len(PLACEHOLDER_PHOTO_PNG),
+                status="not_found",
+            )
+
+        # Compute the ETag from the (animal_id, updated_at,
+        # nombrefoto) tuple. Legacy uses ``hash(...)``; we use sha256
+        # here so the ETag is stable across Python runs (hash()
+        # is randomised per process via PYTHONHASHSEED).
+        etag_payload = f"{animal_id}|{updated_at}|{nombrefoto}".encode()
+        etag = f'"{hashlib.sha256(etag_payload).hexdigest()}"'
+
+        try:
+            stream = self._storage.stream_object(
+                "apap-photos", nombrefoto
+            )
+            content_type = self._storage.content_type(
+                "apap-photos", nombrefoto
+            )
+            content_length = self._storage.content_length(
+                "apap-photos", nombrefoto
+            )
+        except Exception:  # noqa: BLE001
+            # Storage failure → placeholder PNG (legacy fail-closed
+            # contract). The route renders 200 with the embedded
+            # PNG so the client sees a photo rather than a 5xx.
+            return PhotoOutcome(
+                stream=iter([PLACEHOLDER_PHOTO_PNG]),
+                content_type="image/png",
+                etag="",
+                cache_control="private, max-age=3600, must-revalidate",
+                content_length=len(PLACEHOLDER_PHOTO_PNG),
+                status="not_found",
+            )
+
+        return PhotoOutcome(
+            stream=stream,
+            content_type=content_type,
+            etag=etag,
+            cache_control="private, max-age=3600, must-revalidate",
+            content_length=content_length,
+            status="ok",
+        )
+
 
 def _row_to_animal(row: dict[str, object]) -> Animal:
     """Translate a PostgREST row dict to the hexagonal ``Animal`` entity.
@@ -493,85 +576,6 @@ def _row_to_lifecycle_event(row: dict[str, object]) -> AnimalLifecycleEvent:
             else None
         ),
     )
-
-    def resolve_animal_photo(
-        self, animal_id: str
-    ) -> PhotoOutcome | None:
-        # Three pre-flight branches, mirroring the legacy
-        # ``photo_service.resolve_animal_photo`` exactly:
-        # 1. animal does not exist → ``None`` (route renders 404)
-        # 2. SQL error on the lookup → ``PhotoOutcome(status="not_found")``
-        #    with the placeholder PNG so the client sees a photo
-        #    rather than a 404 (legacy fail-closed contract).
-        # 3. sentinel key (``NombreFoto == PHOTO_SENTINEL_KEY``) →
-        #    ``PhotoOutcome(status="not_found")`` with the placeholder
-        #    PNG; the storage backend is never queried.
-        try:
-            rows = self._client.execute_sql(
-                *get_animal_photo_meta_sql(animal_id)
-            )
-        except Exception:  # noqa: BLE001
-            return PhotoOutcome(
-                stream=iter([PLACEHOLDER_PHOTO_PNG]),
-                content_type="image/png",
-                etag="",
-                cache_control="private, max-age=3600, must-revalidate",
-                content_length=len(PLACEHOLDER_PHOTO_PNG),
-                status="not_found",
-            )
-        if not rows:
-            return None
-
-        nombrefoto = rows[0].get("NombreFoto")
-        updated_at = rows[0].get("updated_at")
-        if nombrefoto == PHOTO_SENTINEL_KEY or self._storage is None:
-            return PhotoOutcome(
-                stream=iter([PLACEHOLDER_PHOTO_PNG]),
-                content_type="image/png",
-                etag="",
-                cache_control="private, max-age=3600, must-revalidate",
-                content_length=len(PLACEHOLDER_PHOTO_PNG),
-                status="not_found",
-            )
-
-        # Compute the ETag from the (animal_id, updated_at,
-        # nombrefoto) tuple. Legacy uses ``hash(...)``; we use sha256
-        # here so the ETag is stable across Python runs (hash()
-        # is randomised per process via PYTHONHASHSEED).
-        etag_payload = f"{animal_id}|{updated_at}|{nombrefoto}".encode()
-        etag = f'"{hashlib.sha256(etag_payload).hexdigest()}"'
-
-        try:
-            stream = self._storage.stream_object(
-                "apap-photos", nombrefoto
-            )
-            content_type = self._storage.content_type(
-                "apap-photos", nombrefoto
-            )
-            content_length = self._storage.content_length(
-                "apap-photos", nombrefoto
-            )
-        except Exception:  # noqa: BLE001
-            # Storage failure → placeholder PNG (legacy fail-closed
-            # contract). The route renders 200 with the embedded
-            # PNG so the client sees a photo rather than a 5xx.
-            return PhotoOutcome(
-                stream=iter([PLACEHOLDER_PHOTO_PNG]),
-                content_type="image/png",
-                etag="",
-                cache_control="private, max-age=3600, must-revalidate",
-                content_length=len(PLACEHOLDER_PHOTO_PNG),
-                status="not_found",
-            )
-
-        return PhotoOutcome(
-            stream=stream,
-            content_type=content_type,
-            etag=etag,
-            cache_control="private, max-age=3600, must-revalidate",
-            content_length=content_length,
-            status="ok",
-        )
 
 
 __all__ = ["AnimalsInsforgeAdapter"]
