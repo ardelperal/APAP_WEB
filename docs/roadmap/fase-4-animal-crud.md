@@ -2,22 +2,38 @@
 
 # Fase 4 — Entidad Animal (Feature 01)
 
-Esta página posee el estado de la Fase 4: CRUD de animales, búsqueda parametrizada, timeline de eventos y motor de estado derivado. Fase pendiente. Depende de Fase 3.
+Esta página posee el estado de la Fase 4: CRUD de animales, búsqueda parametrizada, timeline de eventos y motor de estado derivado. En curso vía la ruta hexagonal del epic #420. Depende de Fase 3.
 
 ## Estado
 
-pendiente — issue por crear. Los #29 (LIFECYCLE-04 cambio de chip con cascade), #30 (LIFECYCLE-05 search API), #33 (state resolver) y #69 (cache `estado_actual_animal`) cubren pedazos del scope; falta el slice que los integra como capacidad de usuario.
+En curso (slice hexagonal). El epic #420 ("hexagonal vertical-slice refactor") está migrando el CRUD de animales de la forma legacy a la hexagonal capa por capa:
+
+| Método hexagonal | PR | Notas |
+|---|---|---|
+| `AnimalsPort.get_animal_by_nchip` | #587 | Read por clave de negocio. |
+| `AnimalsPort.list_animals` | #596 | Read paginado, oldest-first por NCHIP. |
+| `AnimalsPort.create_animal` | #597 | INSERT con validación de campos requeridos. |
+| `AnimalsPort.update_animal` | #603 | Partial UPDATE (kwargs opcionales). |
+| `AnimalsPort.delete_animal` | #604 | Soft-delete (UPDATE activo=FALSE). |
+
+Pendiente en el port: `chip_cascade`, `photo_upload`, `lifecycle_events`. Estos cubren #29, #285 y #32 respectivamente.
+
+Las piezas no-hexagonales siguen en la forma legacy:
+- #30 (LIFECYCLE-05) search API — pendiente.
+- #33 (state resolver) — pendiente.
+- #69 (cache `estado_actual_animal`) — pendiente.
+- Integración hexagonal con un route handler — pendiente (los slices actuales exponen `AnimalsPort` pero las rutas `app/modules/animals/routes.py` siguen llamando al legacy `service.py`).
 
 ## Slices previstos
 
 | Slice | Estado | Issue / PR |
 |---|---|---|
-| CRUD de animales (alta, edición, baja lógica) | pendiente | issue por crear |
+| CRUD de animales (alta, edición, baja lógica) | en curso (5/5 métodos hexagonales landed; pendiente integración con routes) | #587, #596, #597, #603, #604 |
 | Búsqueda parametrizada de animales | pendiente | #30 |
 | Timeline de eventos del animal | pendiente | issue por crear |
 | Motor de estado derivado (`estado_actual_animal`) | pendiente | #33 |
 | Cache materializado de `estado_actual_animal` | pendiente | #69 |
-| Cambio de chip con cascade | pendiente | #29 |
+| Cambio de chip con cascade | pendiente (hexagonal port method) | #29 |
 
 ## Issues pendientes de crear
 
