@@ -14,6 +14,7 @@ import hashlib
 import json
 from collections.abc import Iterator
 from datetime import datetime
+from typing import Protocol
 
 from app.core.data_access import SqlExecutor
 from app.modules.animals.adapters.insforge.animals_insforge_queries import (
@@ -66,26 +67,19 @@ PLACEHOLDER_PHOTO_PNG: bytes = (
 )
 
 
-class _PhotoStorageClient:
+class _PhotoStorageClient(Protocol):
     """Shape the adapter uses to read a private-bucket object.
 
     Matches the legacy ``photo_service._PhotoClient`` Protocol
     minimally; the adapter takes it as a constructor arg so tests
     can inject a fake without monkey-patching the storage module.
-    ``raise NotImplementedError`` is the documented Python idiom for
-    ``Protocol``-style abstract methods — mypy treats the class as
-    abstract and concrete subclasses (the real InsForge storage
-    client, or a test fake) override the methods.
     """
 
-    def stream_object(self, bucket: str, key: str) -> Iterator[bytes]:
-        raise NotImplementedError
+    def stream_object(self, bucket: str, key: str) -> Iterator[bytes]: ...
 
-    def content_type(self, bucket: str, key: str) -> str:
-        raise NotImplementedError
+    def content_type(self, bucket: str, key: str) -> str: ...
 
-    def content_length(self, bucket: str, key: str) -> int | None:
-        raise NotImplementedError
+    def content_length(self, bucket: str, key: str) -> int | None: ...
 
 
 class AnimalsInsforgeAdapter(AnimalsPort):
