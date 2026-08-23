@@ -18,8 +18,9 @@ En curso (slice hexagonal). El epic #420 ("hexagonal vertical-slice refactor") e
 | `AnimalsPort.record_lifecycle_event` | #609 | INSERT idempotente (vía índice único natural y cláusula de conflicto). |
 | `AnimalsPort.list_lifecycle_events` | #610 | Read cronológico del timeline con filtro opcional por tipo. |
 | `AnimalsPort.change_animal_chip` | #611 | Saga transaccional sobre 6 tablas; valida unicidad del nuevo chip y registra evento CHIP_CHANGED. |
+| `AnimalsPort.resolve_animal_photo` | #612 | Streaming de la foto del animal con ETag; placeholder PNG cuando no hay foto (#285). |
 
-Pendiente en el port: `photo_upload`. Cubre #285 (streaming de fotos con ETag).
+Pendiente en el port: ninguno. Todos los métodos del `AnimalsPort` hexagonal han aterrizado (9 de 9). La superficie legacy (`TraeNChip` / `Raza` / etc.) queda en `service.py` hasta que un slice futuro amplíe el `Animal` o introduzca un `AnimalCreateRequest` paralelo.
 
 Las piezas no-hexagonales siguen en la forma legacy:
 - #30 (LIFECYCLE-05) search API — pendiente.

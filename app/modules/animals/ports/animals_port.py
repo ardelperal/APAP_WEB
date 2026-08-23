@@ -1,14 +1,11 @@
 """Hexagonal port for the animals slice (AGENTS.md §31).
 
-Slice #420-7 eighth method — ``change_animal_chip`` joins
-``get_animal_by_nchip`` (#587), ``list_animals`` (#596),
-``create_animal`` (#597), ``update_animal`` (#603),
-``delete_animal`` (#604), ``record_lifecycle_event`` (#609) and
-``list_lifecycle_events`` (#610). One method remains
-(``photo_upload``); it lands as a separate slice because the
-photo streaming contract introduces a new dependency
-(``InsForgeClient`` for the storage backend) that the chip saga
-does not touch.
+Slice #420-7 ninth method — ``resolve_animal_photo`` joins the eight
+landed methods. After this slice the hexagonal ``AnimalsPort`` is
+complete (every method in the port's module docstring has landed);
+the remaining legacy surface (``TraeNChip`` / ``Raza`` / etc. columns)
+is owned by ``service.py`` until a follow-up slice widens the
+``Animal`` entity or carries a parallel ``AnimalCreateRequest``.
 
 The port carries the round-trip fields the hexagonal
 :class:`Animal` dataclass already encodes (NCHIP, NombreAnimal,
@@ -33,6 +30,7 @@ from app.modules.animals.domain.lifecycle_event import (
     AnimalLifecycleEvent,
     LifecycleEventType,
 )
+from app.modules.animals.domain.photo import PhotoOutcome
 
 
 @runtime_checkable
@@ -227,6 +225,29 @@ class AnimalsPort(Protocol):
         Returns a :class:`ChangeChipResult` with the per-table row
         counts so the operator can audit the blast radius without
         re-querying.
+        """
+
+    def resolve_animal_photo(
+        self, animal_id: str
+    ) -> PhotoOutcome | None:
+        """Resolve the animal's photo stream (issue #285).
+
+        Returns ``None`` when the animal does not exist (the route
+        returns 404). Returns a :class:`PhotoOutcome` otherwise:
+        ``status == "ok"`` for a real photo stream, ``status ==
+        "not_found"`` for the placeholder PNG when the animal has
+        no photo on file (or the storage layer errors). The route
+        handles the placeholder case as 200 with the embedded PNG
+        so the client always sees an image.
+
+        The ``stream`` is an :class:`Iterator[bytes]` consumed
+        lazily by ``StreamingResponse``; the adapter must NOT
+        buffer the iterator with ``list()``. ``etag`` is computed
+        from ``hash(animal_id, updated_at, nombrefoto)`` so the
+        ``If-None-Match`` conditional request works.
+
+        ``animal_id`` is mandatory and non-blank (validated in the
+        use case).
         """
 
 

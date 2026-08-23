@@ -419,6 +419,24 @@ __all__ = [
 ]
 
 
+# ``resolve_animal_photo`` — read the photo metadata for the ETag
+# computation. The streaming fetch happens in the adapter against
+# the storage client (NOT the postgres connection); the SQL only
+# returns the metadata (nombrefoto + updated_at) the adapter needs
+# to compute the ETag and decide whether the storage fetch is
+# worth it (sentinel keys skip the fetch and return the placeholder
+# PNG immediately). Kept out of ``__all__`` because callers go
+# through the helper ``get_animal_photo_meta_sql``.
+GET_ANIMAL_PHOTO_META_SQL: str = (
+    "SELECT \"NombreFoto\", updated_at FROM animales WHERE id = $1"
+)
+
+
+def get_animal_photo_meta_sql(animal_id: str) -> tuple[str, list[str]]:
+    """Return the ``(sql, params)`` tuple for the photo-metadata read."""
+    return GET_ANIMAL_PHOTO_META_SQL, [animal_id]
+
+
 __all__ = [
     "GET_ANIMAL_BY_NCHIP_SQL",
     "LIST_ANIMALS_SQL",

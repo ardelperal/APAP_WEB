@@ -10,7 +10,9 @@ constructs one per request from the already-pooled
 """
 from __future__ import annotations
 
+import hashlib
 import json
+from collections.abc import Iterator
 from datetime import datetime
 
 from app.core.data_access import SqlExecutor
@@ -30,6 +32,7 @@ from app.modules.animals.adapters.insforge.animals_insforge_queries import (
     create_animal_sql,
     delete_animal_sql,
     get_animal_by_nchip_sql,
+    get_animal_photo_meta_sql,
     list_animals_sql,
     list_lifecycle_events_sql,
     record_lifecycle_event_sql,
@@ -41,14 +44,58 @@ from app.modules.animals.domain.lifecycle_event import (
     AnimalLifecycleEvent,
     LifecycleEventType,
 )
+from app.modules.animals.domain.photo import PhotoOutcome
 from app.modules.animals.ports.animals_port import AnimalsPort
+
+# Sentinel key the legacy ``photo_service`` recognises: a row with
+# ``NombreFoto`` equal to this literal is treated as "the animal has
+# no photo on file" and the adapter returns the placeholder PNG so
+# the route can render a 200 with a default image instead of 404.
+PHOTO_SENTINEL_KEY = "__missing__"
+
+# Tiny 1x1 PNG (67 bytes) the legacy returns when the animal has no
+# photo on file. Inline so the placeholder works without touching the
+# storage backend at all.
+PLACEHOLDER_PHOTO_PNG: bytes = (
+    b"\x89PNG\r\n\x1a\n"
+    b"\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
+    b"\x00\x00\x00\rIDATx\x9cc\xfc\xff\xff?\x03)\x00"
+    b"\x05\xfe\x02\xfe\xa3\x35\x81\x00\x00\x00\x00IEND"
+    b"\xaeB`\x82"
+)
+
+
+class _PhotoStorageClient:
+    """Shape the adapter uses to read a private-bucket object.
+
+    Matches the legacy ``photo_service._PhotoClient`` Protocol
+    minimally; the adapter takes it as a constructor arg so tests
+    can inject a fake without monkey-patching the storage module.
+    """
+
+    def stream_object(self, bucket: str, key: str) -> Iterator[bytes]:  # pragma: no cover
+        ...
+
+    @property
+    def content_type(self, bucket: str, key: str) -> str:  # pragma: no cover
+        ...
+
+    @property
+    def content_length(self, bucket: str, key: str) -> int | None:  # pragma: no cover
+        ...
 
 
 class AnimalsInsforgeAdapter(AnimalsPort):
     """InsForge-backed implementation of the animals port."""
 
-    def __init__(self, client: SqlExecutor) -> None:
+    def __init__(
+        self,
+        client: SqlExecutor,
+        storage: _PhotoStorageClient | None = None,
+    ) -> None:
         self._client = client
+        self._storage = storage
 
     def get_animal_by_nchip(self, nchip: str) -> Animal | None:
         sql, params = get_animal_by_nchip_sql(nchip)
@@ -450,6 +497,85 @@ def _row_to_lifecycle_event(row: dict[str, object]) -> AnimalLifecycleEvent:
             else None
         ),
     )
+
+    def resolve_animal_photo(
+        self, animal_id: str
+    ) -> PhotoOutcome | None:
+        # Three pre-flight branches, mirroring the legacy
+        # ``photo_service.resolve_animal_photo`` exactly:
+        # 1. animal does not exist → ``None`` (route renders 404)
+        # 2. SQL error on the lookup → ``PhotoOutcome(status="not_found")``
+        #    with the placeholder PNG so the client sees a photo
+        #    rather than a 404 (legacy fail-closed contract).
+        # 3. sentinel key (``NombreFoto == PHOTO_SENTINEL_KEY``) →
+        #    ``PhotoOutcome(status="not_found")`` with the placeholder
+        #    PNG; the storage backend is never queried.
+        try:
+            rows = self._client.execute_sql(
+                *get_animal_photo_meta_sql(animal_id)
+            )
+        except Exception:  # noqa: BLE001
+            return PhotoOutcome(
+                stream=iter([PLACEHOLDER_PHOTO_PNG]),
+                content_type="image/png",
+                etag="",
+                cache_control="private, max-age=3600, must-revalidate",
+                content_length=len(PLACEHOLDER_PHOTO_PNG),
+                status="not_found",
+            )
+        if not rows:
+            return None
+
+        nombrefoto = rows[0].get("NombreFoto")
+        updated_at = rows[0].get("updated_at")
+        if nombrefoto == PHOTO_SENTINEL_KEY or self._storage is None:
+            return PhotoOutcome(
+                stream=iter([PLACEHOLDER_PHOTO_PNG]),
+                content_type="image/png",
+                etag="",
+                cache_control="private, max-age=3600, must-revalidate",
+                content_length=len(PLACEHOLDER_PHOTO_PNG),
+                status="not_found",
+            )
+
+        # Compute the ETag from the (animal_id, updated_at,
+        # nombrefoto) tuple. Legacy uses ``hash(...)``; we use sha256
+        # here so the ETag is stable across Python runs (hash()
+        # is randomised per process via PYTHONHASHSEED).
+        etag_payload = f"{animal_id}|{updated_at}|{nombrefoto}".encode()
+        etag = f'"{hashlib.sha256(etag_payload).hexdigest()}"'
+
+        try:
+            stream = self._storage.stream_object(
+                "apap-photos", nombrefoto
+            )
+            content_type = self._storage.content_type(
+                "apap-photos", nombrefoto
+            )
+            content_length = self._storage.content_length(
+                "apap-photos", nombrefoto
+            )
+        except Exception:  # noqa: BLE001
+            # Storage failure → placeholder PNG (legacy fail-closed
+            # contract). The route renders 200 with the embedded
+            # PNG so the client sees a photo rather than a 5xx.
+            return PhotoOutcome(
+                stream=iter([PLACEHOLDER_PHOTO_PNG]),
+                content_type="image/png",
+                etag="",
+                cache_control="private, max-age=3600, must-revalidate",
+                content_length=len(PLACEHOLDER_PHOTO_PNG),
+                status="not_found",
+            )
+
+        return PhotoOutcome(
+            stream=stream,
+            content_type=content_type,
+            etag=etag,
+            cache_control="private, max-age=3600, must-revalidate",
+            content_length=content_length,
+            status="ok",
+        )
 
 
 __all__ = ["AnimalsInsforgeAdapter"]
