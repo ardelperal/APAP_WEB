@@ -1,14 +1,11 @@
 """Hexagonal port for the animals slice (AGENTS.md §31).
 
-Slice #420-7 eighth method — ``change_animal_chip`` joins
-``get_animal_by_nchip`` (#587), ``list_animals`` (#596),
-``create_animal`` (#597), ``update_animal`` (#603),
-``delete_animal`` (#604), ``record_lifecycle_event`` (#609) and
-``list_lifecycle_events`` (#610). One method remains
-(``photo_upload``); it lands as a separate slice because the
-photo streaming contract introduces a new dependency
-(``InsForgeClient`` for the storage backend) that the chip saga
-does not touch.
+Slice #420-7 ninth method — ``resolve_animal_photo`` joins the eight
+landed methods. After this slice the hexagonal ``AnimalsPort`` is
+complete (every method in the port's module docstring has landed);
+the remaining legacy surface (``TraeNChip`` / ``Raza`` / etc. columns)
+is owned by ``service.py`` until a follow-up slice widens the
+``Animal`` entity or carries a parallel ``AnimalCreateRequest``.
 
 The port carries the round-trip fields the hexagonal
 :class:`Animal` dataclass already encodes (NCHIP, NombreAnimal,
@@ -33,6 +30,7 @@ from app.modules.animals.domain.lifecycle_event import (
     AnimalLifecycleEvent,
     LifecycleEventType,
 )
+from app.modules.animals.ports.photo_asset import PhotoAsset
 
 
 @runtime_checkable
@@ -227,6 +225,24 @@ class AnimalsPort(Protocol):
         Returns a :class:`ChangeChipResult` with the per-table row
         counts so the operator can audit the blast radius without
         re-querying.
+        """
+
+    def resolve_animal_photo(
+        self, animal_id: str
+    ) -> PhotoAsset | None:
+        """Resolve an owned photo asset stream (issue #285).
+
+        Returns ``None`` when the animal does not exist. Returns a
+        :class:`PhotoAsset` otherwise; ``is_placeholder`` distinguishes
+        a real storage object from the fallback asset.
+
+        The asset carries intrinsic media type and known byte length only.
+        HTTP cache policy and validators belong to the future delivery
+        adapter, not this port. The consumer owns ``stream`` and MUST call
+        ``close()`` after complete, partial, failed, or cancelled consumption.
+
+        ``animal_id`` is mandatory and non-blank (validated in the
+        use case).
         """
 
 

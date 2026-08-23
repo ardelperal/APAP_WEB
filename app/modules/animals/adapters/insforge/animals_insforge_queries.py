@@ -389,17 +389,35 @@ def list_lifecycle_events_sql(
     return sql, params
 
 
+# ``resolve_animal_photo`` — read the photo metadata for the ETag
+# computation. The streaming fetch happens in the adapter against
+# the storage client (NOT the postgres connection); the SQL only
+# returns the metadata (nombrefoto + updated_at) the adapter needs
+# to compute the ETag and decide whether the storage fetch is
+# worth it (sentinel keys skip the fetch and return the placeholder
+# PNG immediately).
+GET_ANIMAL_PHOTO_META_SQL: str = (
+    "SELECT \"NombreFoto\", updated_at FROM animales WHERE id = $1"
+)
+
+
+def get_animal_photo_meta_sql(animal_id: str) -> tuple[str, list[str]]:
+    """Return the ``(sql, params)`` tuple for the photo-metadata read."""
+    return GET_ANIMAL_PHOTO_META_SQL, [animal_id]
+
+
 __all__ = [
     "BEGIN_TX_SQL",
     "CHECK_CHIP_UNIQUENESS_SQL",
     "COMMIT_TX_SQL",
+    "DELETE_ANIMAL_SQL",
     "GET_ANIMAL_BY_NCHIP_SQL",
+    "GET_ANIMAL_PHOTO_META_SQL",
     "GET_CURRENT_CHIP_SQL",
     "INSERT_CHIP_CHANGED_EVENT_SQL",
+    "INSERT_ANIMAL_SQL",
     "LIST_ANIMALS_SQL",
     "LIST_LIFECYCLE_EVENTS_COLUMNS",
-    "INSERT_ANIMAL_SQL",
-    "DELETE_ANIMAL_SQL",
     "RECORD_LIFECYCLE_EVENT_COLUMNS",
     "ROLLBACK_TX_SQL",
     "UPDATE_ACOGIDAS_CHIP_SQL",
@@ -412,24 +430,9 @@ __all__ = [
     "create_animal_sql",
     "delete_animal_sql",
     "get_animal_by_nchip_sql",
+    "get_animal_photo_meta_sql",
     "list_animals_sql",
     "list_lifecycle_events_sql",
-    "record_lifecycle_event_sql",
-    "update_animal_sql",
-]
-
-
-__all__ = [
-    "GET_ANIMAL_BY_NCHIP_SQL",
-    "LIST_ANIMALS_SQL",
-    "INSERT_ANIMAL_SQL",
-    "DELETE_ANIMAL_SQL",
-    "RECORD_LIFECYCLE_EVENT_COLUMNS",
-    "UPDATE_ANIMAL_COLUMN_ORDER",
-    "create_animal_sql",
-    "delete_animal_sql",
-    "get_animal_by_nchip_sql",
-    "list_animals_sql",
     "record_lifecycle_event_sql",
     "update_animal_sql",
 ]

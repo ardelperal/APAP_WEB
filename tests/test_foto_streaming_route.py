@@ -22,14 +22,9 @@ from app.core.config import get_settings
 from app.core.insforge import InsForgeClient
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
+from app.modules.animals import photo_service
 
-PLACEHOLDER_PNG = (
-    b"\x89PNG\r\n\x1a\n"
-    b"\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
-    b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
-    b"\x00\x00\x00\rIDATx\x9cc\xf8\xff\xff?\x00\x05\xfe\x02"
-    b"\xfeA\xc0\xc1\x00\x00\x00\x00IEND\xaeB`\x82"
-)
+PLACEHOLDER_PNG = photo_service.PLACEHOLDER_PHOTO_PNG
 PHOTO_BUCKET = "apap-photos"
 
 

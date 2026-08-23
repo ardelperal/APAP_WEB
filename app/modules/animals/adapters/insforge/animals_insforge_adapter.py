@@ -14,6 +14,16 @@ import json
 from datetime import datetime
 
 from app.core.data_access import SqlExecutor
+from app.modules.animals.adapters.insforge.animals_insforge_mappers import (
+    _row_to_animal,
+    _row_to_lifecycle_event,
+)
+from app.modules.animals.adapters.insforge.animals_insforge_photo import (
+    PhotoStorageClient,
+)
+from app.modules.animals.adapters.insforge.animals_insforge_photo import (
+    resolve_animal_photo as resolve_insforge_animal_photo,
+)
 from app.modules.animals.adapters.insforge.animals_insforge_queries import (
     BEGIN_TX_SQL,
     CHECK_CHIP_UNIQUENESS_SQL,
@@ -42,13 +52,19 @@ from app.modules.animals.domain.lifecycle_event import (
     LifecycleEventType,
 )
 from app.modules.animals.ports.animals_port import AnimalsPort
+from app.modules.animals.ports.photo_asset import PhotoAsset
 
 
 class AnimalsInsforgeAdapter(AnimalsPort):
     """InsForge-backed implementation of the animals port."""
 
-    def __init__(self, client: SqlExecutor) -> None:
+    def __init__(
+        self,
+        client: SqlExecutor,
+        storage: PhotoStorageClient,
+    ) -> None:
         self._client = client
+        self._storage = storage
 
     def get_animal_by_nchip(self, nchip: str) -> Animal | None:
         sql, params = get_animal_by_nchip_sql(nchip)
@@ -381,75 +397,12 @@ class AnimalsInsforgeAdapter(AnimalsPort):
                 error=error,
             )
 
-
-def _row_to_animal(row: dict[str, object]) -> Animal:
-    """Translate a PostgREST row dict to the hexagonal ``Animal`` entity.
-
-    ``Especie`` and ``Sexo`` come back as strings from the wire; the
-    ``StrEnum`` constructor rejects unknown values, matching the
-    legacy ``service._row_to_animal`` (the column set is constrained
-    to the two enums at the DB level so unknown values would be a
-    data-integrity bug, not a runtime event).
-    """
-    return Animal(
-        id=str(row["id"]),
-        NCHIP=str(row["NCHIP"]),
-        NombreAnimal=str(row["NombreAnimal"]),
-        Especie=Especie(str(row["Especie"])),
-        Sexo=Sexo(str(row["Sexo"])),
-        FNacimiento=str(row["FNacimiento"]),
-        activo=bool(row["activo"]),
-    )
-
-
-def _row_to_lifecycle_event(row: dict[str, object]) -> AnimalLifecycleEvent:
-    """Translate a PostgREST row dict to the hexagonal ``AnimalLifecycleEvent``.
-
-    ``event_type`` comes back as a string from the wire and goes through
-    the ``LifecycleEventType`` StrEnum constructor (same pattern as
-    ``_row_to_animal``). The optional lineage fields (``caused_by_event_id``,
-    ``source_entity_type``, ``source_entity_id``, ``legacy_source_table``,
-    ``legacy_source_id``, ``metadata``) come back as ``None`` when the
-    column was NULL on insert; the row dict preserves them as
-    SQL NULL → Python ``None`` so the dataclass accepts them.
-    """
-    return AnimalLifecycleEvent(
-        id=str(row["id"]),
-        animal_id=str(row["animal_id"]),
-        event_type=LifecycleEventType(str(row["event_type"])),
-        event_timestamp=str(row["event_timestamp"]),
-        created_by=str(row["created_by"]),
-        caused_by_event_id=(
-            str(row["caused_by_event_id"])
-            if row["caused_by_event_id"] is not None
-            else None
-        ),
-        source_entity_type=(
-            str(row["source_entity_type"])
-            if row["source_entity_type"] is not None
-            else None
-        ),
-        source_entity_id=(
-            str(row["source_entity_id"])
-            if row["source_entity_id"] is not None
-            else None
-        ),
-        legacy_source_table=(
-            str(row["legacy_source_table"])
-            if row["legacy_source_table"] is not None
-            else None
-        ),
-        legacy_source_id=(
-            int(row["legacy_source_id"])  # type: ignore[call-overload]
-            if row["legacy_source_id"] is not None
-            else None
-        ),
-        metadata=(
-            row["metadata"]  # type: ignore[arg-type]
-            if row["metadata"] is not None
-            else None
-        ),
-    )
-
-
+    def resolve_animal_photo(
+        self, animal_id: str
+    ) -> PhotoAsset | None:
+        return resolve_insforge_animal_photo(
+            self._client,
+            self._storage,
+            animal_id,
+        )
 __all__ = ["AnimalsInsforgeAdapter"]

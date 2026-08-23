@@ -242,7 +242,7 @@ BASELINE_CRAP: dict[str, float] = {
     # with one dict per shape (full lineage vs all-NULL). Score 7.0
     # reflects the per-field None-check branching the dataclass carries.
     "app/modules/animals/adapters/insforge/animals_insforge_adapter.py::AnimalsInsforgeAdapter.record_lifecycle_event": 8.67,
-    "app/modules/animals/adapters/insforge/animals_insforge_adapter.py::_row_to_lifecycle_event": 7.0,
+    "app/modules/animals/adapters/insforge/animals_insforge_mappers.py::_row_to_lifecycle_event": 7.0,
     # Issue #420 slice 7 (list_lifecycle_events). Same shape as the
     # write side: ``list_lifecycle_events`` on the adapter carries 4
     # kwargs (CC=8 from the kwargs plus the ``event_types`` filter

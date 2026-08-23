@@ -36,7 +36,6 @@ BASELINE_MUTATION_SITES: dict[str, int] = {
     "app/modules/adopciones/service.py": 441,
     "app/modules/animals/routes.py": 592,
     "app/modules/animals/service.py": 488,
-    "app/modules/animals/adapters/insforge/animals_insforge_adapter.py": 278,  # bumped 240 -> 278 by Slice #420-7 (change_animal_chip adds the 6-table saga body + per-table row-count accumulator)
     "app/modules/cesiones/service.py": 370,
     "app/modules/foster/routes.py": 263,
     "app/modules/foster/service.py": 342,

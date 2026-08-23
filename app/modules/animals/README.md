@@ -97,13 +97,17 @@ The `change_animal_chip` saga lives in `chip_service.py` (extracted from `servic
 
 Legacy route → service → queries layout (per AGENTS.md §1 + §22), with three orthogonal sub-services (`chip_service`, `lifecycle_events`, `photo_service`) extracted to keep `service.py` under the module-size budget.
 
-The slice is partially converted to the hexagonal form described in §33 (epic #420). Seven of eight port methods are landed (PRs #587, #596, #597, #603, #604, #609, #610, #611); only `photo_upload` remains on the legacy shape (issue #285, streaming photo with ETag). The legacy `service.py` still owns the legacy column surface (`TraeNChip`, `Raza`, etc.) until the dataclass is widened or a parallel `AnimalCreateRequest` lands — see the port's module docstring for the open question.
+The nine `AnimalsPort` methods are landed in PRs #587, #596, #597, #603, #604, #609, #610, #612 and #613.
+
+The conversion is not complete. Routes still call the legacy services.
+
+The legacy `service.py` owns `TraeNChip`, `Raza` and the remaining columns until the model widens or an `AnimalCreateRequest` lands.
 
 ## Risks and gotchas
 
 - `_validate_required_fields` rejects blank `NCHIP`, `NombreAnimal`, `Especie`, `Sexo`, `FNacimiento`, `Terapia`, `TraeNChip`, `FIMPLANTACIONCHIP`, and `NombreFoto`. The last one is also checked against the storage allow-list (`_validate_storage_key`); path traversal and absolute segments are rejected (issue #224).
 - The chip saga is transactional. Any failure in the 6-table UPDATE triggers ROLLBACK and the route renders 422. Two operators running concurrent chip changes on the same animal produce exactly one success and one 409 (UNIQUE on NCHIP).
-- The photo streaming contract is fail-closed: any storage or sentinel failure renders 404. The `If-None-Match` header is honoured with 304. The `next(byte_iter)` pre-advance is a deliberate guard against empty streams (issue #285).
+- The photo contract is fail-closed. An unknown animal returns 404. Missing keys and storage failures return the placeholder PNG with 200. `If-None-Match` returns 304 (issue #285).
 - `Situacion` is not persisted. Code that reads or writes it directly is a defect; the derived state comes from the event log.
 - The search API uses `ILIKE` with `chr(37)` wildcards and a per-row `LIMIT 100`. The state filter joins `animal_current_state`; a missing row falls back to `pendiente_entrada`.
 - The species and sex enums in `service.py` are shadowed by the `Especie` / `Sexo` form fields. The routes import the enums under aliases (`EspecieEnum`, `SexoEnum`) to avoid name shadowing.
@@ -176,6 +180,7 @@ The proposals cover the contracts:
 | `service.py` | CRUD orchestration, required-field validation. |
 | `domain/animal.py` | Hexagonal `Animal` entity + `Especie` / `Sexo` enums (issue #420 slice). |
 | `ports/animals_port.py` | Hexagonal `AnimalsPort` Protocol with the migrated methods. |
+| `ports/photo_asset.py` | Transport-neutral photo asset and owned closable-stream contract. |
 | `application/get_animal_by_nchip.py` | Hexagonal use case for the NCHIP read. |
 | `application/list_animals.py` | Hexagonal use case for the paginated list. |
 | `application/create_animal.py` | Hexagonal use case for the create flow. |
@@ -183,7 +188,10 @@ The proposals cover the contracts:
 | `application/delete_animal.py` | Hexagonal use case for the soft-delete. |
 | `application/record_lifecycle_event.py` | Hexagonal use case for the lifecycle-event write (#609). |
 | `application/list_lifecycle_events.py` | Hexagonal use case for the chronological timeline read. |
+| `application/resolve_animal_photo.py` | Hexagonal use case for photo resolution. |
 | `adapters/insforge/animals_insforge_adapter.py` | InsForge-backed `AnimalsPort` implementation. |
+| `adapters/insforge/animals_insforge_mappers.py` | Row-to-domain mapping for the InsForge adapter. |
+| `adapters/insforge/animals_insforge_photo.py` | Storage adapter for photo download, fallback, safe logging and deterministic stream cleanup. |
 | `adapters/insforge/animals_insforge_queries.py` | SQL seam for the InsForge adapter (AGENTS.md §22). |
 | `queries.py` | Legacy SQL builder seam (separate from the InsForge adapter; the slice carries two SQL seams until the legacy service is retired). |
 | `forms.py` | `AnimalForm` Pydantic v2 model. |

@@ -17,6 +17,8 @@ def test_insforge_adapter_satisfies_animals_port_protocol() -> None:
     Protocol be checked via ``isinstance`` after the duck-typed
     method exists.
     """
-    adapter = AnimalsInsforgeAdapter(client=None)  # type: ignore[arg-type]
+    adapter = AnimalsInsforgeAdapter(
+        client=None, storage=None  # type: ignore[arg-type]
+    )
     assert isinstance(adapter, AnimalsPort)
     assert hasattr(adapter, "get_animal_by_nchip")
