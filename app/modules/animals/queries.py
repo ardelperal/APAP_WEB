@@ -25,6 +25,15 @@ from dataclasses import replace as _dataclass_replace
 from enum import StrEnum
 from typing import Any, NamedTuple
 
+# Re-export the canonical estado mappings from the domain layer so the
+# legacy search path keeps a single import surface. The hexagonal
+# adapter imports the same names from ``app.modules.animals.domain.animal``
+# directly — both surfaces point to the same dicts.
+from app.modules.animals.domain.animal import (  # noqa: F401
+    DB_LABEL_TO_ESTADO,
+    VALID_ESTADOS,
+)
+
 # --- domain enums (shared with service.py) ----------------------------------
 
 
@@ -38,46 +47,10 @@ class Sexo(StrEnum):
     H = "H"
 
 
-# Mapping from API snake_case estado values to DB Spanish labels.
-# Single source of truth per AGENTS.md §4.
-#
-# Canonical spelling (LIFECYCLE-03 PR-C MODIFIED Requirement
-# ``animal-state-db-label-spelling``):
-#
-# - ``pendiente_nueva_situacion`` carries the accented
-#   ``"Pendiente de Nueva Situación"`` (with acute) — matches the
-#   ``animal_current_state`` CHECK constraint at
-#   ``app/core/domain_lifecycle.py:149`` and the cascade output at
-#   ``app/modules/lifecycle/domain/constants.py:17``.
-# - ``fallecido`` is split into the 5 CHECK-allowed variants
-#   (``fallecido_albergue`` … ``fallecido_desconocido``). The previous
-#   collapsed ``fallecido`` key that mapped every death to
-#   ``"Fallecido (Albergue)"`` was the P1 fidelity gap: the cascade
-#   writes 5 distinct strings to ``animal_current_state.current_state``
-#   (one per pre-death state + ``Desconocido``), and a search filter
-#   that collapsed them to one DB label silently undercounted the
-#   REPORT-05 dashboard counters.
-_ESTADO_DB_LABEL: dict[str, str] = {
-    "pendiente_entrada": "Pendiente de Entrada",
-    "pendiente_nueva_situacion": "Pendiente de Nueva Situación",
-    "albergue": "Albergue",
-    "acogida": "Acogida",
-    "adoptado": "Adoptado",
-    "entregado": "Entregado",
-    "fallecido_albergue": "Fallecido (Albergue)",
-    "fallecido_acogida": "Fallecido (Acogida)",
-    "fallecido_adoptado": "Fallecido (Adoptado)",
-    "fallecido_entregado": "Fallecido (Entregado)",
-    "fallecido_desconocido": "Fallecido (Desconocido)",
-    "incoherente": "Incoherente",
-}
-
-# Reverse mapping: DB Spanish label → API snake_case estado.
-# Single source of truth for DB→API normalization (AGENTS.md §4).
-DB_LABEL_TO_ESTADO: dict[str, str] = {v: k for k, v in _ESTADO_DB_LABEL.items()}
-
-# Valid API estado values.
-VALID_ESTADOS: frozenset[str] = frozenset(_ESTADO_DB_LABEL)
+# Legacy alias kept for any external callers (the legacy search path
+# still references ``_ESTADO_DB_LABEL`` for the forward API→DB mapping;
+# new code MUST use ``VALID_ESTADOS`` and ``DB_LABEL_TO_ESTADO`` instead).
+_ESTADO_DB_LABEL: dict[str, str] = {v: k for k, v in DB_LABEL_TO_ESTADO.items()}
 
 
 # --- search params ----------------------------------------------------------

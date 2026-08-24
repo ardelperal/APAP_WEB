@@ -1,11 +1,10 @@
 """Hexagonal port for the animals slice (AGENTS.md §31).
 
-Slice #420-7 ninth method — ``resolve_animal_photo`` joins the eight
-landed methods. After this slice the hexagonal ``AnimalsPort`` is
-complete (every method in the port's module docstring has landed);
-the remaining legacy surface (``TraeNChip`` / ``Raza`` / etc. columns)
-is owned by ``service.py`` until a follow-up slice widens the
-``Animal`` entity or carries a parallel ``AnimalCreateRequest``.
+PR-A.1 of epic #420 adds primary-key lookup and paginated search to the
+nine landed methods. The remaining legacy surface (``TraeNChip`` /
+``Raza`` / etc. columns) is owned by ``service.py`` until a follow-up
+slice widens the ``Animal`` entity or carries a parallel
+``AnimalCreateRequest``.
 
 The port carries the round-trip fields the hexagonal
 :class:`Animal` dataclass already encodes (NCHIP, NombreAnimal,
@@ -24,7 +23,12 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Protocol, runtime_checkable
 
-from app.modules.animals.domain.animal import Animal, Especie, Sexo
+from app.modules.animals.domain.animal import (
+    Animal,
+    AnimalSearchResult,
+    Especie,
+    Sexo,
+)
 from app.modules.animals.domain.change_chip_result import ChangeChipResult
 from app.modules.animals.domain.lifecycle_event import (
     AnimalLifecycleEvent,
@@ -43,6 +47,33 @@ class AnimalsPort(Protocol):
         NCHIP is the business primary key per
         ``docs/discovery/feature-01-animal-lifecycle.md`` §"Central
         identity: microchip".
+        """
+
+    def get_animal_by_id(self, animal_id: str) -> Animal | None:
+        """Return the animal with this UUID primary key, or ``None``.
+
+        Distinct from :meth:`get_animal_by_nchip`: this looks up by the
+        database primary key. ``animal_id`` is mandatory and non-blank
+        (validated in the use case).
+        """
+
+    def search_animals(
+        self,
+        *,
+        q: str | None = None,
+        chip: str | None = None,
+        especie: Especie | None = None,
+        sexo: Sexo | None = None,
+        estado: str | None = None,
+        fecha_alta_since: str | None = None,
+        fecha_alta_until: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> AnimalSearchResult:
+        """Search animals with optional filters.
+
+        Returns a fresh count over the same WHERE clause plus the requested
+        data page. The application use case clamps ``limit`` and ``offset``.
         """
 
     def list_animals(
@@ -246,4 +277,4 @@ class AnimalsPort(Protocol):
         """
 
 
-__all__ = ["AnimalsPort"]
+__all__ = ["AnimalSearchResult", "AnimalsPort"]

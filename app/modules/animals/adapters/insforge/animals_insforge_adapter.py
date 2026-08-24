@@ -28,6 +28,7 @@ from app.modules.animals.adapters.insforge.animals_insforge_queries import (
     BEGIN_TX_SQL,
     CHECK_CHIP_UNIQUENESS_SQL,
     COMMIT_TX_SQL,
+    GET_ANIMAL_BY_ID_SQL,
     GET_CURRENT_CHIP_SQL,
     INSERT_CHIP_CHANGED_EVENT_SQL,
     ROLLBACK_TX_SQL,
@@ -37,15 +38,22 @@ from app.modules.animals.adapters.insforge.animals_insforge_queries import (
     UPDATE_ANIMALS_CHIP_SQL,
     UPDATE_ENTRADAS_CHIP_SQL,
     UPDATE_TERAPIAS_CHIP_SQL,
+    count_animals_sql,
     create_animal_sql,
     delete_animal_sql,
     get_animal_by_nchip_sql,
     list_animals_sql,
     list_lifecycle_events_sql,
     record_lifecycle_event_sql,
+    search_animals_sql,
     update_animal_sql,
 )
-from app.modules.animals.domain.animal import Animal, Especie, Sexo
+from app.modules.animals.domain.animal import (
+    Animal,
+    AnimalSearchResult,
+    Especie,
+    Sexo,
+)
 from app.modules.animals.domain.change_chip_result import ChangeChipResult
 from app.modules.animals.domain.lifecycle_event import (
     AnimalLifecycleEvent,
@@ -72,6 +80,52 @@ class AnimalsInsforgeAdapter(AnimalsPort):
         if not rows:
             return None
         return _row_to_animal(rows[0])
+
+    def get_animal_by_id(self, animal_id: str) -> Animal | None:
+        """Return the animal with this database primary key, if present."""
+        rows = self._client.execute_sql(GET_ANIMAL_BY_ID_SQL, [animal_id])
+        if not rows:
+            return None
+        return _row_to_animal(rows[0])
+
+    def search_animals(
+        self,
+        *,
+        q: str | None = None,
+        chip: str | None = None,
+        especie: Especie | None = None,
+        sexo: Sexo | None = None,
+        estado: str | None = None,
+        fecha_alta_since: str | None = None,
+        fecha_alta_until: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> AnimalSearchResult:
+        """Return one filtered page and a separate unpaginated total."""
+        filters = {
+            "q": q,
+            "chip": chip,
+            "especie": None if especie is None else especie.value,
+            "sexo": None if sexo is None else sexo.value,
+            "estado": estado,
+            "fecha_alta_since": fecha_alta_since,
+            "fecha_alta_until": fecha_alta_until,
+        }
+        data_sql, data_params = search_animals_sql(
+            **filters,
+            limit=limit,
+            offset=offset,
+        )
+        rows = self._client.execute_sql(data_sql, data_params)
+        count_sql, count_params = count_animals_sql(**filters)
+        count_rows = self._client.execute_sql(count_sql, count_params)
+        total = int(str(count_rows[0]["total"])) if count_rows else 0
+        return AnimalSearchResult(
+            data=tuple(_row_to_animal(row) for row in rows),
+            total=total,
+            limit=limit,
+            offset=offset,
+        )
 
     def list_animals(
         self,
@@ -146,24 +200,6 @@ class AnimalsInsforgeAdapter(AnimalsPort):
             return self.get_animal_by_id(animal_id)
         sql, params = sql_params
         rows = self._client.execute_sql(sql, params)
-        if not rows:
-            return None
-        return _row_to_animal(rows[0])
-
-    def get_animal_by_id(self, animal_id: str) -> Animal | None:
-        """Read-only helper used by ``update_animal``'s no-op branch.
-
-        Not part of the public ``AnimalsPort`` surface — it's a
-        private adapter implementation detail (the no-op branch
-        could equivalently return a sentinel, but reading the row
-        back keeps the contract symmetric with the legacy
-        ``update_animal`` which also returns the row unchanged).
-        """
-        rows = self._client.execute_sql(
-            "SELECT id, \"NCHIP\", \"NombreAnimal\", \"Especie\", \"Sexo\", "
-            "\"FNacimiento\", activo FROM animales WHERE id = $1",
-            [animal_id],
-        )
         if not rows:
             return None
         return _row_to_animal(rows[0])

@@ -21,4 +21,17 @@ def test_insforge_adapter_satisfies_animals_port_protocol() -> None:
         client=None, storage=None  # type: ignore[arg-type]
     )
     assert isinstance(adapter, AnimalsPort)
-    assert hasattr(adapter, "get_animal_by_nchip")
+    port_methods = {
+        "get_animal_by_nchip",
+        "list_animals",
+        "create_animal",
+        "update_animal",
+        "delete_animal",
+        "record_lifecycle_event",
+        "list_lifecycle_events",
+        "change_animal_chip",
+        "resolve_animal_photo",
+        "get_animal_by_id",
+        "search_animals",
+    }
+    assert port_methods.issubset(dir(adapter)), "adapter must implement all port methods"

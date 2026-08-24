@@ -19,10 +19,17 @@ from app.modules.animals.adapters.insforge.animals_insforge_photo import (
     PLACEHOLDER_PHOTO_PNG,
 )
 from app.modules.animals.adapters.insforge.animals_insforge_queries import (
+    GET_ANIMAL_BY_ID_SQL,
     get_animal_by_nchip_sql,
     get_animal_photo_meta_sql,
 )
 from app.modules.animals.di.animals_di import get_animals_port
+from app.modules.animals.domain.animal import (
+    Animal,
+    AnimalSearchResult,
+    Especie,
+    Sexo,
+)
 from app.modules.animals.photo_service import (
     PLACEHOLDER_PHOTO_PNG as LEGACY_PLACEHOLDER_PHOTO_PNG,
 )
@@ -63,6 +70,163 @@ class _FakePhotoClient(_FakeClient):
         if isinstance(self._chunks, Exception):
             raise self._chunks
         return iter(self._chunks)
+
+
+class _SequencedFakeClient:
+    """SQL fake returning one configured response per call."""
+
+    def __init__(self, responses: list[list[dict[str, object]]]) -> None:
+        self._responses = iter(responses)
+        self.calls: list[tuple[str, list[object] | None]] = []
+
+    def execute_sql(
+        self, query: str, params: list[object] | None = None
+    ) -> list[dict[str, object]]:
+        self.calls.append((query, params))
+        return next(self._responses)
+
+
+def _animal_row(index: int) -> dict[str, object]:
+    """Build one valid seven-field animal transport row."""
+    return {
+        "id": f"animal-{index}",
+        "NCHIP": f"94100000000000{index}",
+        "NombreAnimal": f"Animal {index}",
+        "Especie": "CANINA",
+        "Sexo": "H",
+        "FNacimiento": "2024-03-01",
+        "activo": True,
+    }
+
+
+def test_get_animal_by_id_returns_row_when_exists() -> None:
+    client = _FakeClient(rows=[_animal_row(1)])
+    adapter = AnimalsInsforgeAdapter(client=client, storage=client)  # type: ignore[arg-type]
+
+    result = adapter.get_animal_by_id("animal-1")
+
+    assert result == Animal(
+        id="animal-1",
+        NCHIP="941000000000001",
+        NombreAnimal="Animal 1",
+        Especie=Especie.CANINA,
+        Sexo=Sexo.H,
+        FNacimiento="2024-03-01",
+    ), "primary-key lookup must map the returned row"
+    assert client.last_query == GET_ANIMAL_BY_ID_SQL, "lookup must use the query seam"
+    assert client.last_params == ["animal-1"], "lookup must bind the primary key"
+
+
+def test_get_animal_by_id_returns_none_when_missing() -> None:
+    client = _FakeClient(rows=[])
+    adapter = AnimalsInsforgeAdapter(client=client, storage=client)  # type: ignore[arg-type]
+
+    assert adapter.get_animal_by_id("missing") is None, "missing ids must return None"
+
+
+def test_search_animals_no_filters_returns_data_and_total() -> None:
+    rows = [_animal_row(index) for index in range(1, 4)]
+    client = _SequencedFakeClient([rows, [{"total": 3}]])
+    adapter = AnimalsInsforgeAdapter(client=client, storage=client)  # type: ignore[arg-type]
+
+    result = adapter.search_animals()
+
+    assert isinstance(result, AnimalSearchResult), "search must return the domain envelope"
+    assert result.data == tuple(
+        Animal(
+            id=f"animal-{index}",
+            NCHIP=f"94100000000000{index}",
+            NombreAnimal=f"Animal {index}",
+            Especie=Especie.CANINA,
+            Sexo=Sexo.H,
+            FNacimiento="2024-03-01",
+        )
+        for index in range(1, 4)
+    ), "all rows must be mapped in order"
+    assert result.total == 3, "total must come from the count query"
+    assert result.limit == 50, "default limit must be preserved"
+    assert result.offset == 0, "default offset must be preserved"
+
+
+def test_search_animals_with_chip_filter_sends_param() -> None:
+    client = _SequencedFakeClient([[], [{"total": 0}]])
+    adapter = AnimalsInsforgeAdapter(client=client, storage=client)  # type: ignore[arg-type]
+
+    adapter.search_animals(chip="941000000000001")
+
+    sql, params = client.calls[0]
+    assert 'a."NCHIP" = $1' in sql, "chip must use an exact-match WHERE clause"
+    assert params == ["941000000000001", 50, 0], "chip must be the first bind"
+
+
+def test_search_animals_with_q_filter_sends_like_param() -> None:
+    client = _SequencedFakeClient([[], [{"total": 0}]])
+    adapter = AnimalsInsforgeAdapter(client=client, storage=client)  # type: ignore[arg-type]
+
+    adapter.search_animals(q="Luna")
+
+    sql, params = client.calls[0]
+    assert 'a."NombreAnimal" ILIKE $1' in sql, "q must filter animal names"
+    assert params == ["%Luna%", 50, 0], "q must be wrapped for substring matching"
+
+
+def test_search_animals_with_estado_filter_uses_join() -> None:
+    client = _SequencedFakeClient([[], [{"total": 0}]])
+    adapter = AnimalsInsforgeAdapter(client=client, storage=client)  # type: ignore[arg-type]
+
+    adapter.search_animals(estado="acogida")
+
+    sql, params = client.calls[0]
+    assert "LEFT JOIN animal_current_state" in sql, "estado requires the state join"
+    assert "acs.current_state = $1" in sql, "estado must filter the derived state"
+    assert params == ["Acogida", 50, 0], "estado must bind its database label"
+
+
+def test_search_animals_forwards_enum_and_date_filters() -> None:
+    client = _SequencedFakeClient([[], [{"total": 0}]])
+    adapter = AnimalsInsforgeAdapter(client=client, storage=client)  # type: ignore[arg-type]
+
+    adapter.search_animals(
+        especie=Especie.FELINA,
+        sexo=Sexo.M,
+        fecha_alta_since="2026-01-01",
+        fecha_alta_until="2026-12-31",
+    )
+
+    sql, params = client.calls[0]
+    assert 'a."Especie" = $1' in sql, "species must use an exact match"
+    assert 'a."Sexo" = $2' in sql, "sex must use an exact match"
+    assert "a.fecha_alta >= $3" in sql, "the lower date bound must be inclusive"
+    assert "a.fecha_alta <= $4" in sql, "the upper date bound must be inclusive"
+    assert params == ["FELINA", "M", "2026-01-01", "2026-12-31", 50, 0], (
+        "domain enums and date bounds must be bound in declaration order"
+    )
+
+
+def test_search_animals_pagination() -> None:
+    client = _SequencedFakeClient([[], [{"total": 0}]])
+    adapter = AnimalsInsforgeAdapter(client=client, storage=client)  # type: ignore[arg-type]
+
+    adapter.search_animals(limit=10, offset=20)
+
+    search_sql, search_params = client.calls[0]
+    count_sql, count_params = client.calls[1]
+    assert "LIMIT $1 OFFSET $2" in search_sql, "data query must paginate"
+    assert search_params == [10, 20], "pagination binds must preserve values"
+    assert "LIMIT" not in count_sql, "count query must not paginate"
+    assert "OFFSET" not in count_sql, "count query must not offset"
+    assert count_params == [], "count query must omit pagination binds"
+
+
+def test_search_animals_total_independent_of_limit() -> None:
+    rows = [_animal_row(index) for index in range(1, 11)]
+    client = _SequencedFakeClient([rows, [{"total": 42}]])
+    adapter = AnimalsInsforgeAdapter(client=client, storage=client)  # type: ignore[arg-type]
+
+    result = adapter.search_animals(limit=10)
+
+    assert len(result.data) == 10, "data must contain only the requested page"
+    assert result.total == 42, "total must be independent of page size"
 
 
 def test_returns_none_when_no_match() -> None:
