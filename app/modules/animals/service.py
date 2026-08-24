@@ -61,6 +61,7 @@ from typing import Any, cast
 from app.core.data_access import SqlExecutor
 from app.core.insforge import _validate_storage_key
 from app.modules.animals import queries as qry
+from app.modules.animals.domain.animal import _INSERT_COLUMNS
 from app.modules.animals.queries import DB_LABEL_TO_ESTADO
 
 
@@ -148,33 +149,6 @@ class AnimalSearchResult:
     limit: int
     offset: int
 
-
-_INSERT_COLUMNS = (
-    "NCHIP",
-    "NombreAnimal",
-    "Especie",
-    "Sexo",
-    "FNacimiento",
-    "TraeNChip",
-    "FIMPLANTACIONCHIP",
-    "Raza",
-    "Color",
-    "Pelo",
-    "Tamano",
-    "Caracter",
-    "FDefuncion",
-    "Terapia",
-    "Observaciones",
-    "NombreFoto",
-    "Cartilla",
-    "Eutanasia",
-    "RazaPPP",
-    "Mestizo",
-    "EutanasiaOtrasCausas",
-    "EutanasiaEnfermedad",
-    "UltimoEstadoAntesDeFallecido",
-    "ComunicacionARIAC",
-)
 
 _SELECT_COLUMNS = (
     "id",

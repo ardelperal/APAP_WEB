@@ -7,10 +7,38 @@ migration target — only the columns the first read use case
 (``get_animal_by_nchip``) needs to round-trip are present; write
 paths will land additional columns as they migrate.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+
+_INSERT_COLUMNS = (
+    "NCHIP",
+    "NombreAnimal",
+    "Especie",
+    "Sexo",
+    "FNacimiento",
+    "TraeNChip",
+    "FIMPLANTACIONCHIP",
+    "Raza",
+    "Color",
+    "Pelo",
+    "Tamano",
+    "Caracter",
+    "FDefuncion",
+    "Terapia",
+    "Observaciones",
+    "NombreFoto",
+    "Cartilla",
+    "Eutanasia",
+    "RazaPPP",
+    "Mestizo",
+    "EutanasiaOtrasCausas",
+    "EutanasiaEnfermedad",
+    "UltimoEstadoAntesDeFallecido",
+    "ComunicacionARIAC",
+)
 
 
 class Especie(StrEnum):
@@ -110,4 +138,5 @@ __all__ = [
     "Especie",
     "Sexo",
     "VALID_ESTADOS",
+    "_INSERT_COLUMNS",
 ]

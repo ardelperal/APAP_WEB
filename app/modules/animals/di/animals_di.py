@@ -4,12 +4,9 @@ The :func:`get_animals_port` provider is the seam between FastAPI
 request handlers and the hexagonal
 :class:`~app.modules.animals.ports.AnimalsPort` abstraction.
 
-The provider is intentionally NOT wired into :mod:`app.main` by
-this PR: the existing callers (``app.modules.animals.routes``)
-continue to use the legacy ``app.modules.animals.service`` shim.
-Subsequent PRs of the #420 epic wire the provider into the request
-handlers that want the typed ``AnimalsPort`` directly, then the
-legacy shim is retired in the final PR of the slice.
+The list/detail routes and foster assignment gate consume this provider.
+Remaining animal handlers continue to use the legacy service until their
+dedicated #420 migration slices land.
 """
 from __future__ import annotations
 

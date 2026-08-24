@@ -39,8 +39,6 @@ BASELINE: dict[tuple[str, ...], str] = {
         "service.py imports queries through the package root, routes.py imports service -- pre-hexagonal pattern, break when FOSTER-02 lands its slice (Refs #420)",
     ("app.modules.adopciones", "app.modules.adopciones.routes", "app.modules.adopciones.service"):
         "service.py imports queries through the package root, routes.py imports service -- pre-hexagonal pattern, break when ADOPT-01 lands its slice (Refs #420)",
-    ("app.modules.animals", "app.modules.animals.service"):
-        "service.py imports queries via the package root (line 63: `from app.modules.animals import queries as qry`); __init__ re-exports get_animal_by_id from service -- tolerated mid-migration (Refs #420)",
     ("app.modules.entradas", "app.modules.entradas.batch_routes", "app.modules.entradas.routes"):
         "__init__ re-exports both routers (batch_router, router); both routers import back through the package root for their respective services -- tolerated mid-migration (Refs #420)",
     ("app.modules.foster", "app.modules.foster.assignment", "app.modules.foster.routes"):

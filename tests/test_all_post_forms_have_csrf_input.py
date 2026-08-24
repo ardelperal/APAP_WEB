@@ -26,6 +26,8 @@ from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
 from app.modules.adopciones import service as adopciones_service
 from app.modules.animals import service as animals_service
+from app.modules.animals.di.animals_di import get_animals_port
+from app.modules.animals.domain.animal import Animal, Especie, Sexo
 from app.modules.animals.service import Especie as EspecieEnum
 from app.modules.animals.service import Sexo as SexoEnum
 from app.modules.entradas import service as entradas_service
@@ -58,10 +60,19 @@ class _InsForgeSpy:
         )
 
 
+class _AnimalsPortStub:
+    def get_animal_by_id(self, animal_id: str) -> Animal:
+        return Animal(
+            id=animal_id, NCHIP="985112004409871", NombreAnimal="Luna",
+            Especie=Especie.CANINA, Sexo=Sexo.H, FNacimiento="2023-04-12",
+        )
+
+
 @pytest.fixture
 def spy_insforge(monkeypatch: pytest.MonkeyPatch) -> _InsForgeSpy:
     spy = _InsForgeSpy()
     app.dependency_overrides[get_insforge_client] = lambda: spy
+    app.dependency_overrides[get_animals_port] = _AnimalsPortStub
     monkeypatch.setattr(
         "app.modules.animals.routes.get_insforge_client_dep", lambda: spy
     )
@@ -207,6 +218,7 @@ def spy_insforge(monkeypatch: pytest.MonkeyPatch) -> _InsForgeSpy:
 
     yield spy
     app.dependency_overrides.pop(get_insforge_client, None)
+    app.dependency_overrides.pop(get_animals_port, None)
 
 
 _TEST_CSRF_TOKEN = "audit-token-1234567890"

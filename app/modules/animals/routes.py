@@ -1,8 +1,8 @@
 """Animals routes: list, create, get, edit, delete (soft).
 
-Thin layer on top of ``app.modules.animals.service``. The routes
-handle HTTP-specific concerns (form parsing, redirects, HTML
-rendering) and delegate the SQL to the service.
+Transitional thin layer over hexagonal use cases and the legacy
+``app.modules.animals.service``. Read-side list/detail handlers use
+``AnimalsPort``; handlers not yet migrated still delegate to the service.
 
 Auth model (issue #66 RBAC): permissions are checked via
 ``require_permission`` from ``app.core.rbac``.  The permission matrix:
@@ -48,7 +48,13 @@ from app.core.middleware import base_template_context_processor
 from app.core.rbac import Permission, require_permission
 from app.modules.animals import photo_service
 from app.modules.animals import service as animals_service
+from app.modules.animals.application.get_animal_by_id import (
+    get_animal_by_id as app_get_animal_by_id,
+)
+from app.modules.animals.application.list_animals import list_animals as app_list_animals
+from app.modules.animals.di.animals_di import get_animals_port
 from app.modules.animals.forms import AnimalForm
+from app.modules.animals.ports.animals_port import AnimalsPort
 
 # Los handlers de create/update reciben los campos ``Especie`` y
 # ``Sexo`` del form (mismo nombre que las columnas del schema y los
@@ -125,12 +131,17 @@ def _form_data_to_params(form: dict[str, Any]) -> dict[str, Any]:
 def list_animales(
     request: Request,
     user: Annotated[Response | dict, Depends(require_permission(Permission.READ_ANIMALES))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    port: Annotated[AnimalsPort, Depends(get_animals_port)],
 ):
-    """Lista de animales activos, mas recientes primero."""
+    """List active animals through the hexagonal port.
+
+    The legacy service ordered ``fecha_alta DESC`` (newest first), while
+    ``AnimalsPort.list_animals`` currently orders ``NCHIP ASC``.
+    TODO(#420 PR-A.2b): restore legacy ordering after ``fecha_alta`` widens.
+    """
     if (early := return_early_if_response(user)) is not None:
         return early
-    animales = animals_service.list_animals(client)
+    animales = app_list_animals(port)
     return _templates.TemplateResponse(
         request=request,
         name="animales/list.html",
@@ -270,12 +281,12 @@ def animal_detail(
     animal_id: str,
     request: Request,
     user: Annotated[Response | dict, Depends(require_permission(Permission.READ_ANIMALES))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    port: Annotated[AnimalsPort, Depends(get_animals_port)],
 ):
     """Detalle de un animal. 404 si no existe."""
     if (early := return_early_if_response(user)) is not None:
         return early
-    animal = animals_service.get_animal_by_id(client, animal_id)
+    animal = app_get_animal_by_id(port, animal_id)
     if animal is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     return _templates.TemplateResponse(
@@ -551,4 +562,3 @@ def _animal_to_form_data(animal) -> dict[str, Any]:
         "UltimoEstadoAntesDeFallecido": animal.UltimoEstadoAntesDeFallecido or "",
         "ComunicacionARIAC": animal.ComunicacionARIAC or "",
     }
-

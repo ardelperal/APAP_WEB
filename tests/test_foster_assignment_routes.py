@@ -38,6 +38,7 @@ from app.core.config import get_settings
 from app.core.insforge import InsForgeClient
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
+from app.modules.animals.di.animals_di import get_animals_port
 from app.modules.foster import assignment as assignment_service
 from app.modules.foster import service as foster_service
 from tests.conftest import auth_reval_rows, make_csrf_request
@@ -61,6 +62,7 @@ class _NoSqlRouteClient(InsForgeClient):
         # rejection tests set this to ``reader`` so
         # ``require_writer_user`` produces 403 BEFORE any handler SQL.
         self.auth_reval_rol: str = "key_user"
+        self.animals_port = object()
 
     def execute_sql(self, query: str, params: Any = None):  # type: ignore[override]
         # Issue #143: require_authorized_user revalidates authorization per
@@ -78,9 +80,11 @@ def route_client() -> _NoSqlRouteClient:
     spy = _NoSqlRouteClient()
     app.dependency_overrides[get_insforge_client] = lambda: spy
     app.dependency_overrides[get_insforge_client_dep] = lambda: spy
+    app.dependency_overrides[get_animals_port] = lambda: spy.animals_port
     yield spy
     app.dependency_overrides.pop(get_insforge_client, None)
     app.dependency_overrides.pop(get_insforge_client_dep, None)
+    app.dependency_overrides.pop(get_animals_port, None)
 
 
 def _login_as_key_user(client: httpx.AsyncClient) -> None:
@@ -260,7 +264,7 @@ async def test_post_asignar_admit_redirect_303_con_query_params(
     monkeypatch.setattr(
         assignment_service,
         "evaluate_assignment",
-        lambda _c, animal_id, casa_id: assignment_service.AssignmentDecision(
+        lambda _port, _c, animal_id, casa_id: assignment_service.AssignmentDecision(
             decision="admit", reason=None, warnings=()
         ),
     )
@@ -295,7 +299,7 @@ async def test_post_asignar_block_retorna_422_con_error(
     monkeypatch.setattr(
         assignment_service,
         "evaluate_assignment",
-        lambda _c, _aid, _cid: assignment_service.AssignmentDecision(
+        lambda _port, _c, _aid, _cid: assignment_service.AssignmentDecision(
             decision="block",
             reason="la casa solo admite FELINA, no CANINA",
             warnings=(),
@@ -338,7 +342,7 @@ async def test_post_asignar_admit_with_warning_con_motivo_graba_override_y_redir
     monkeypatch.setattr(
         assignment_service,
         "evaluate_assignment",
-        lambda _c, _aid, _cid: assignment_service.AssignmentDecision(
+        lambda _port, _c, _aid, _cid: assignment_service.AssignmentDecision(
             decision="admit_with_warning",
             reason=None,
             warnings=("capacidad excedida: 2/2",),
@@ -413,7 +417,7 @@ async def test_post_asignar_admit_redirect_does_not_include_override_id(
     monkeypatch.setattr(
         assignment_service,
         "evaluate_assignment",
-        lambda _c, _aid, _cid: assignment_service.AssignmentDecision(
+        lambda _port, _c, _aid, _cid: assignment_service.AssignmentDecision(
             decision="admit", reason=None, warnings=()
         ),
     )
@@ -448,7 +452,7 @@ async def test_post_asignar_admit_with_warning_sin_motivo_retorna_422(
     monkeypatch.setattr(
         assignment_service,
         "evaluate_assignment",
-        lambda _c, _aid, _cid: assignment_service.AssignmentDecision(
+        lambda _port, _c, _aid, _cid: assignment_service.AssignmentDecision(
             decision="admit_with_warning",
             reason=None,
             warnings=("capacidad excedida: 2/2",),
@@ -493,7 +497,7 @@ async def test_post_asignar_animal_no_existe_retorna_422(
         foster_service, "get_casa_acogida_by_id", lambda _c, _id: _casa()
     )
 
-    def _raise(_c, _aid, _cid) -> assignment_service.AssignmentDecision:
+    def _raise(_port, _c, _aid, _cid) -> assignment_service.AssignmentDecision:
         raise ValueError("el animal no existe o no está activo")
 
     monkeypatch.setattr(assignment_service, "evaluate_assignment", _raise)
@@ -545,7 +549,7 @@ async def test_post_asignar_casa_inactiva_retorna_422(
         foster_service, "get_casa_acogida_by_id", lambda _c, _id: _casa()
     )
 
-    def _raise(_c, _aid, _cid) -> assignment_service.AssignmentDecision:
+    def _raise(_port, _c, _aid, _cid) -> assignment_service.AssignmentDecision:
         raise ValueError("la casa está dada de baja")
 
     monkeypatch.setattr(assignment_service, "evaluate_assignment", _raise)
@@ -577,7 +581,7 @@ async def test_post_asignar_sin_csrf_retorna_403(
     monkeypatch.setattr(
         assignment_service,
         "evaluate_assignment",
-        lambda _c, _aid, _cid: assignment_service.AssignmentDecision(
+        lambda _port, _c, _aid, _cid: assignment_service.AssignmentDecision(
             decision="admit", reason=None, warnings=()
         ),
     )
@@ -693,7 +697,7 @@ async def test_post_asignar_warning_motivo_whitespace_no_graba_override(
     monkeypatch.setattr(
         assignment_service,
         "evaluate_assignment",
-        lambda _c, _aid, _cid: assignment_service.AssignmentDecision(
+        lambda _port, _c, _aid, _cid: assignment_service.AssignmentDecision(
             decision="admit_with_warning",
             reason=None,
             warnings=("capacidad excedida: 2/2",),
