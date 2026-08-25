@@ -4,7 +4,7 @@ Public API per AGENTS.md §27 — cross-module consumers import from this
 package surface (``app.modules.animals``), never from the submodule
 paths directly. The module currently exports:
 
-- :func:`get_animal_by_id` (legacy CRUD contract, FOSTER-03 +
+- :func:`get_animal_by_id` (hexagonal primary-key lookup, FOSTER-03 +
   ``foster/assignment.py`` consumer).
 - :func:`record_lifecycle_event` + :func:`validate_lifecycle_causal_pair`
   — the LIFECYCLE-02 (issue #32) service-layer entrypoints for the
@@ -21,6 +21,8 @@ paths directly. The module currently exports:
   (AGENTS.md §27 public-API rule).
 """
 
+from app.modules.animals.application.get_animal_by_id import get_animal_by_id
+from app.modules.animals.di.animals_di import get_animals_port
 from app.modules.animals.lifecycle_events import (
     CORE_EVENT_TYPES,
     SUPPORTING_EVENT_TYPES,
@@ -33,7 +35,7 @@ from app.modules.animals.lifecycle_events import (
 from app.modules.animals.lifecycle_events import (
     validate_causal_pair as validate_lifecycle_causal_pair,
 )
-from app.modules.animals.service import get_animal_by_id
+from app.modules.animals.ports.animals_port import AnimalsPort
 from app.modules.lifecycle import (
     CanDeleteResult,
     calculate_animal_state,
@@ -45,6 +47,7 @@ from app.modules.lifecycle import (
 
 __all__ = [
     "CORE_EVENT_TYPES",
+    "AnimalsPort",
     "CanDeleteResult",
     "CausalPairViolation",
     "LifecycleEventType",
@@ -54,6 +57,7 @@ __all__ = [
     "close_all_on_death",
     "close_previous_situation",
     "get_animal_by_id",
+    "get_animals_port",
     "persist_animal_state",
     "record_lifecycle_event",
     "validate_lifecycle_causal_pair",

@@ -49,6 +49,7 @@ from app.core.csrf import csrf_token_context_processor
 from app.core.insforge import InsForgeClient
 from app.core.middleware import base_template_context_processor
 from app.core.session import read_session_payload
+from app.modules.animals import AnimalsPort, get_animals_port
 from app.modules.foster import assignment as assignment_service
 from app.modules.foster import service as foster_service
 
@@ -145,6 +146,7 @@ def asignar_submit(  # noqa: PLR0913  # 2 Form fields + 4 fixed deps; form model
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_writer_user)],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    port: Annotated[AnimalsPort, Depends(get_animals_port)],
     animal_id: Annotated[str, Form()],
     motivo: Annotated[str, Form()] = "",
 ):
@@ -174,12 +176,11 @@ def asignar_submit(  # noqa: PLR0913  # 2 Form fields + 4 fixed deps; form model
     casa = foster_service.get_casa_acogida_by_id(client, casa_id)
     if casa is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-
     form_data = {"animal_id": animal_id, "motivo": motivo}
 
     try:
         decision = assignment_service.evaluate_assignment(
-            client, animal_id, casa_id
+            port, client, animal_id, casa_id
         )
     except ValueError as exc:
         return _render_asignar_form(

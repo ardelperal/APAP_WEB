@@ -183,17 +183,24 @@ def test_animal_routes_return_404_for_missing_resource(
     request_kwarg: str,
 ) -> None:
     """Detail, edit, and delete expose the same missing-resource contract."""
-    monkeypatch.setattr(
-        animal_routes.animals_service,
-        service_name,
-        Mock(return_value=None if service_name == "get_animal_by_id" else False),
-    )
+    dependency_kwarg = "client"
+    if handler is animal_routes.animal_detail:
+        monkeypatch.setattr(
+            animal_routes, "app_get_animal_by_id", Mock(return_value=None)
+        )
+        dependency_kwarg = "port"
+    else:
+        monkeypatch.setattr(
+            animal_routes.animals_service,
+            service_name,
+            Mock(return_value=None if service_name == "get_animal_by_id" else False),
+        )
 
     with pytest.raises(HTTPException) as exc_info:
         handler(
             animal_id="missing",
             user={"user_id": "writer-1"},
-            client=Mock(),
+            **{dependency_kwarg: Mock()},
             **{request_kwarg: Mock()},
         )
 

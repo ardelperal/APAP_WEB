@@ -19,10 +19,12 @@ En curso (slice hexagonal). El epic #420 ("hexagonal vertical-slice refactor") e
 | `AnimalsPort.list_lifecycle_events` | #610 | Read cronológico del timeline con filtro opcional por tipo. |
 | `AnimalsPort.change_animal_chip` | #612 | Saga transaccional sobre 6 tablas; valida unicidad del nuevo chip y registra el evento CHIP_CHANGED. |
 | `AnimalsPort.resolve_animal_photo` | #613 | Devuelve un recurso de foto neutral, con stream cerrable y PNG de sustitución cuando no hay foto (#285). La política HTTP queda para la futura integración con la ruta. |
+| `AnimalsPort.get_animal_by_id` | PR-A.1 | Read por UUID para detalle e integración foster. |
+| `AnimalsPort.search_animals` | PR-A.1 | Búsqueda paginada con nueve filtros. |
 
-Pendiente en el port: ninguno. Los nueve métodos de `AnimalsPort` han aterrizado.
+Pendiente en el port: ninguno. Los once métodos de `AnimalsPort` han aterrizado.
 
-La conversión no está completa. Las rutas siguen usando los servicios legacy.
+La conversión no está completa. Lista, detalle y la integración foster usan el port; las demás rutas siguen en los servicios legacy.
 
 `service.py` conserva `TraeNChip`, `Raza` y los demás campos hasta que otro slice amplíe `Animal` o introduzca un `AnimalCreateRequest`.
 
@@ -30,7 +32,7 @@ Las piezas no-hexagonales siguen en la forma legacy:
 - #30 (LIFECYCLE-05) search API — pendiente.
 - #33 (state resolver) — pendiente.
 - #69 (cache `estado_actual_animal`) — pendiente.
-- Integración hexagonal con un route handler — pendiente (los slices actuales exponen `AnimalsPort` pero las rutas `app/modules/animals/routes.py` siguen llamando al legacy `service.py`).
+- PR-A.2a landed `list_animales` + `animal_detail` + foster integration on the hexagonal path. Still pending on hexagonal: `search_animales` + `edit_animal_form` (PR-A.2b), create/update/delete (PR-B), chip/photo (PR-C).
 
 ## Slices previstos
 

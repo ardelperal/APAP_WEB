@@ -59,11 +59,11 @@ The search query lives in `app/modules/animals/queries.py` as `build_animal_sear
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| GET | `/animales` | READ_ANIMALES | List active animals, most recent first. |
+| GET | `/animales` | READ_ANIMALES | List active animals through `AnimalsPort` (`NCHIP ASC` until PR-A.2b restores legacy ordering). |
 | GET | `/animales/search` | AUTHORIZED | JSON search with 9 query filters, pagination. |
 | GET | `/animales/new` | READ_ANIMALES | Empty create form. |
 | POST | `/animales` | WRITE_ANIMALES | Create animal; renders 409 on duplicate NCHIP. |
-| GET | `/animales/{id}` | READ_ANIMALES | Detail view. |
+| GET | `/animales/{id}` | READ_ANIMALES | Detail view through `AnimalsPort`. |
 | GET | `/animales/{id}/salud/resumen` | AUTHORIZED | JSON health summary (HEALTH-03, issue #52). |
 | GET | `/animales/{id}/edit` | READ_ANIMALES | Edit form prefilled from the row. |
 | POST | `/animales/{id}/update` | WRITE_ANIMALES | Update animal. |
@@ -78,7 +78,8 @@ Status codes: 200 on renders, 303 See Other on success, 404 when the id is missi
 | Function | Purpose |
 |---|---|
 | `create_animal(client, params)` | INSERT with required-field validation; duplicate NCHIP surfaces as `InsForgeError` 409 to the route. |
-| `list_animals(client)` | Active animals, most recent first. |
+| `list_animals(port)` | Hexagonal active-animal route path; currently ordered by NCHIP. |
+| `get_animal_by_id(port, animal_id)` | Hexagonal primary-key lookup used by detail and foster assignment. |
 | `update_animal(client, animal_id, params)` | UPDATE; returns `None` when the id is missing. |
 | `delete_animal(client, animal_id)` | Atomic soft-delete. |
 | `record_event(client, *, animal_id, event_type, event_timestamp, created_by, ...)` | Legacy lifecycle-event writer (issue #32, D-23). Mirrored by the hexagonal `record_lifecycle_event` (#609). |
@@ -95,11 +96,11 @@ The `change_animal_chip` saga lives in `chip_service.py` (extracted from `servic
 
 ## Layer type
 
-Legacy route → service → queries layout (per AGENTS.md §1 + §22), with three orthogonal sub-services (`chip_service`, `lifecycle_events`, `photo_service`) extracted to keep `service.py` under the module-size budget.
+Transitional mixed layout. `list_animales`, `animal_detail`, and foster assignment use route → application → `AnimalsPort` → adapter. Unmigrated handlers retain route → legacy service → queries.
 
-The nine `AnimalsPort` methods are landed in PRs #587, #596, #597, #603, #604, #609, #610, #612 and #613.
+The eleven `AnimalsPort` methods are landed, including primary-key lookup and paginated search from PR-A.1 of epic #420.
 
-The conversion is not complete. Routes still call the legacy services.
+The conversion is not complete. Search/edit remain for PR-A.2b; writes for PR-B; chip/photo for PR-C.
 
 The legacy `service.py` owns `TraeNChip`, `Raza` and the remaining columns until the model widens or an `AnimalCreateRequest` lands.
 
@@ -165,7 +166,7 @@ The proposals cover the contracts:
 | `tests/test_animals.py` | Service-level atoms for CRUD, validation, search. |
 | `tests/test_animals_routes.py` | Route-level atoms for auth guards, CSRF, redirects, 404 / 409 / 422. |
 | `tests/test_animals_routes_redirects.py` | Redirect-only routes (303 See Other). |
-| `tests/test_animals_public_api.py` | JSON shape of the search endpoint. |
+| `tests/test_animals_public_api.py` | Package re-export of the hexagonal primary-key lookup. |
 | `tests/test_animal_search.py` | Search query atoms (filters, pagination, count). |
 | `tests/test_animals_queries.py` | Query-builder unit tests for the §22 seam. |
 | `tests/test_animals_foto_route.py` | Photo streaming contract. |
@@ -175,14 +176,16 @@ The proposals cover the contracts:
 
 | File | Role |
 |---|---|
-| `__init__.py` | Public API: `get_animal_by_id`, `record_lifecycle_event`, `validate_lifecycle_causal_pair`, `LifecycleEventType`, `CausalPairViolation`. |
+| `__init__.py` | Public API: primary-key lookup and DI port surface for sibling modules, plus lifecycle entrypoints. |
 | `routes.py` | HTTP layer: 11 endpoints including the search, chip, and photo routes. |
 | `service.py` | CRUD orchestration, required-field validation. |
 | `domain/animal.py` | Hexagonal `Animal` entity + `Especie` / `Sexo` enums (issue #420 slice). |
 | `ports/animals_port.py` | Hexagonal `AnimalsPort` Protocol with the migrated methods. |
 | `ports/photo_asset.py` | Transport-neutral photo asset and owned closable-stream contract. |
 | `application/get_animal_by_nchip.py` | Hexagonal use case for the NCHIP read. |
+| `application/get_animal_by_id.py` | Hexagonal use case for the UUID primary-key read. |
 | `application/list_animals.py` | Hexagonal use case for the paginated list. |
+| `application/search_animals.py` | Hexagonal use case for paginated filtered search. |
 | `application/create_animal.py` | Hexagonal use case for the create flow. |
 | `application/update_animal.py` | Hexagonal use case for the partial update. |
 | `application/delete_animal.py` | Hexagonal use case for the soft-delete. |
@@ -218,7 +221,7 @@ The `closes-with-trazability` comment on each merge cites the relevant commit SH
 
 | Template | Role |
 |---|---|
-| `templates/animales/list.html` | List active animals, most recent first. |
+| `templates/animales/list.html` | List active animals in the order supplied by the route. |
 | `templates/animales/form.html` | Create and edit form (shared by both flows). |
 | `templates/animales/detail.html` | Detail view with `AnimalForm`-compatible fields. |
 

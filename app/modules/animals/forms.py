@@ -1,7 +1,7 @@
 """Single source of truth for the animal form fields.
 
 The animal form has 24 fields, all matching the ``_INSERT_COLUMNS``
-constant in ``app.modules.animals.service``. Before the refactor, the
+constant in ``app.modules.animals.domain.animal``. Before the refactor, the
 two POST handlers (``create_animal_view`` and ``update_animal_view``)
 each declared the 24 fields as ``Form(...)`` parameters — adding or
 removing a column meant two places to edit, and a typo in either was
@@ -10,8 +10,8 @@ and the service would fail at the SQL layer).
 
 This module defines the fields in ONE place: a Pydantic model the
 two routes both use via ``Annotated[AnimalForm, Form()]``. Adding a
-column now means: add the column to ``_INSERT_COLUMNS`` in the
-service AND add the matching field here, and the test suite
+column now means: add the column to the domain ``_INSERT_COLUMNS``
+AND add the matching field here, and the test suite
 verifies the two stay in sync.
 
 Required fields are defined as ``ANIMAL_FORM_REQUIRED_FIELDS``
@@ -38,7 +38,7 @@ from typing import Annotated
 
 from pydantic import BaseModel
 
-from app.modules.animals.service import _INSERT_COLUMNS
+from app.modules.animals.domain.animal import _INSERT_COLUMNS
 
 
 class AnimalForm(BaseModel):
@@ -103,7 +103,7 @@ ANIMAL_FORM_REQUIRED_FIELDS: tuple[str, ...] = (
 )
 
 # Public list of ALL 24 form field names, derived from the Pydantic
-# model. Tests assert this matches the service ``_INSERT_COLUMNS``
+# model. Tests assert this matches the domain ``_INSERT_COLUMNS``
 # constant so the form and the SQL never drift.
 ANIMAL_FORM_FIELDS: tuple[str, ...] = tuple(AnimalForm.model_fields.keys())
 
@@ -114,7 +114,7 @@ ANIMAL_FORM_FIELDS: tuple[str, ...] = tuple(AnimalForm.model_fields.keys())
 _ANIMAL_FORM_FIELDS_AS_SET: frozenset[str] = frozenset(ANIMAL_FORM_FIELDS)
 _INSERT_COLUMNS_AS_SET: frozenset[str] = frozenset(_INSERT_COLUMNS)
 assert _ANIMAL_FORM_FIELDS_AS_SET == _INSERT_COLUMNS_AS_SET, (
-    "ANIMAL_FORM_FIELDS and service._INSERT_COLUMNS must agree on the "
+    "ANIMAL_FORM_FIELDS and domain._INSERT_COLUMNS must agree on the "
     f"24 column names; got form - insert = "
     f"{_ANIMAL_FORM_FIELDS_AS_SET - _INSERT_COLUMNS_AS_SET}, "
     f"insert - form = "

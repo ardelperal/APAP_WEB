@@ -53,6 +53,7 @@ import httpx
 import pytest
 
 from app.core.insforge import InsForgeClient
+from app.modules.animals.domain.animal import Animal, Especie, Sexo
 from app.modules.foster import assignment as assignment_service
 
 
@@ -80,6 +81,7 @@ def _client_recording(
         service_key="ik_test",
         transport=httpx.MockTransport(_recording_handler),
     )
+    client._test_animal_row = getattr(handler, "_animal_row", None)
     return client, captured
 
 
@@ -208,7 +210,30 @@ def _make_handler(
             return _json_response(200, [])
         raise AssertionError(f"unexpected SQL: {q!r}")
 
+    _handler._animal_row = animal_row
     return _handler
+
+
+class _AnimalsPortStub:
+    def __init__(self, row: dict[str, Any] | None) -> None:
+        self.row = row
+
+    def get_animal_by_id(self, _animal_id: str) -> Animal | None:
+        if self.row is None:
+            return None
+        return Animal(
+            id=str(self.row["id"]), NCHIP=str(self.row["NCHIP"]),
+            NombreAnimal=str(self.row["NombreAnimal"]),
+            Especie=Especie(self.row["Especie"]), Sexo=Sexo(self.row["Sexo"]),
+            FNacimiento=str(self.row["FNacimiento"]), activo=bool(self.row["activo"]),
+        )
+
+
+def _evaluate_assignment(
+    client: InsForgeClient, animal_id: str, casa_id: str
+) -> assignment_service.AssignmentDecision:
+    port = _AnimalsPortStub(client._test_animal_row)
+    return assignment_service.evaluate_assignment(port, client, animal_id, casa_id)
 
 
 # --- 1. evaluate_assignment: happy path admit ------------------------------
@@ -220,7 +245,7 @@ def test_evaluate_assignment_admit_when_especie_matches_and_capacity_ok() -> Non
         _make_handler(animal=_animal_row("FELINA"), casa=_casa_row("FELINA", 2), active_count=0)
     )
 
-    decision = assignment_service.evaluate_assignment(client, ANIMAL_ID, CASA_ID)
+    decision = _evaluate_assignment(client, ANIMAL_ID, CASA_ID)
     client.close()
 
     assert decision.decision == "admit"
@@ -237,7 +262,7 @@ def test_evaluate_assignment_species_mismatch_returns_block() -> None:
         _make_handler(animal=_animal_row("CANINA"), casa=_casa_row("FELINA", 2), active_count=0)
     )
 
-    decision = assignment_service.evaluate_assignment(client, ANIMAL_ID, CASA_ID)
+    decision = _evaluate_assignment(client, ANIMAL_ID, CASA_ID)
     client.close()
 
     assert decision.decision == "block"
@@ -260,7 +285,7 @@ def test_evaluate_assignment_casa_cualquier_especie_admite_cualquier_animal() ->
         )
     )
 
-    decision = assignment_service.evaluate_assignment(client, ANIMAL_ID, CASA_ID)
+    decision = _evaluate_assignment(client, ANIMAL_ID, CASA_ID)
     client.close()
 
     assert decision.decision == "admit"
@@ -279,7 +304,7 @@ def test_evaluate_assignment_admit_when_capacity_under_limit() -> None:
         )
     )
 
-    decision = assignment_service.evaluate_assignment(client, ANIMAL_ID, CASA_ID)
+    decision = _evaluate_assignment(client, ANIMAL_ID, CASA_ID)
     client.close()
 
     assert decision.decision == "admit"
@@ -298,7 +323,7 @@ def test_evaluate_assignment_admit_with_warning_when_capacity_at_limit() -> None
         )
     )
 
-    decision = assignment_service.evaluate_assignment(client, ANIMAL_ID, CASA_ID)
+    decision = _evaluate_assignment(client, ANIMAL_ID, CASA_ID)
     client.close()
 
     assert decision.decision == "admit_with_warning"
@@ -320,7 +345,7 @@ def test_evaluate_assignment_admit_with_warning_when_capacity_exceeded() -> None
         )
     )
 
-    decision = assignment_service.evaluate_assignment(client, ANIMAL_ID, CASA_ID)
+    decision = _evaluate_assignment(client, ANIMAL_ID, CASA_ID)
     client.close()
 
     assert decision.decision == "admit_with_warning"
@@ -341,7 +366,7 @@ def test_evaluate_assignment_animal_not_found_raises_value_error() -> None:
     client, captured = _client_recording(_handler)
 
     with pytest.raises(ValueError, match="animal"):
-        assignment_service.evaluate_assignment(client, ANIMAL_ID, CASA_ID)
+        _evaluate_assignment(client, ANIMAL_ID, CASA_ID)
     client.close()
 
 
@@ -355,7 +380,7 @@ def test_evaluate_assignment_animal_inactive_raises_value_error() -> None:
     )
 
     with pytest.raises(ValueError, match="animal"):
-        assignment_service.evaluate_assignment(client, ANIMAL_ID, CASA_ID)
+        _evaluate_assignment(client, ANIMAL_ID, CASA_ID)
     client.close()
 
 
@@ -367,7 +392,7 @@ def test_evaluate_assignment_casa_not_found_raises_value_error() -> None:
     client, captured = _client_recording(_make_handler(casa=None))
 
     with pytest.raises(ValueError, match="casa"):
-        assignment_service.evaluate_assignment(client, ANIMAL_ID, CASA_ID)
+        _evaluate_assignment(client, ANIMAL_ID, CASA_ID)
     client.close()
 
 
@@ -381,7 +406,7 @@ def test_evaluate_assignment_casa_inactive_raises_value_error() -> None:
     )
 
     with pytest.raises(ValueError, match="dada de baja"):
-        assignment_service.evaluate_assignment(client, ANIMAL_ID, CASA_ID)
+        _evaluate_assignment(client, ANIMAL_ID, CASA_ID)
     client.close()
 
 
@@ -402,7 +427,7 @@ def test_evaluate_assignment_count_only_preferred_species() -> None:
         )
     )
 
-    decision = assignment_service.evaluate_assignment(client, ANIMAL_ID, CASA_ID)
+    decision = _evaluate_assignment(client, ANIMAL_ID, CASA_ID)
     client.close()
 
     assert decision.decision == "admit"
@@ -426,7 +451,7 @@ def test_evaluate_assignment_cualquier_especie_counts_all() -> None:
         )
     )
 
-    decision = assignment_service.evaluate_assignment(client, ANIMAL_ID, CASA_ID)
+    decision = _evaluate_assignment(client, ANIMAL_ID, CASA_ID)
     client.close()
 
     assert decision.decision == "admit_with_warning"
@@ -449,7 +474,7 @@ def test_evaluate_assignment_no_cuenta_estancia_cerrada_es_filtro_sql() -> None:
         )
     )
 
-    assignment_service.evaluate_assignment(client, ANIMAL_ID, CASA_ID)
+    _evaluate_assignment(client, ANIMAL_ID, CASA_ID)
     client.close()
 
     count_query = next(
@@ -472,7 +497,7 @@ def test_evaluate_assignment_no_cuenta_estancia_soft_deleted_es_filtro_sql() -> 
         )
     )
 
-    assignment_service.evaluate_assignment(client, ANIMAL_ID, CASA_ID)
+    _evaluate_assignment(client, ANIMAL_ID, CASA_ID)
     client.close()
 
     count_query = next(
@@ -494,7 +519,7 @@ def test_evaluate_assignment_no_cuenta_estancias_de_otras_casas_es_filtro_sql() 
         )
     )
 
-    assignment_service.evaluate_assignment(client, ANIMAL_ID, CASA_ID)
+    _evaluate_assignment(client, ANIMAL_ID, CASA_ID)
     client.close()
 
     count_query = next(
@@ -514,7 +539,7 @@ def test_evaluate_assignment_block_reason_includes_both_especies() -> None:
         )
     )
 
-    decision = assignment_service.evaluate_assignment(client, ANIMAL_ID, CASA_ID)
+    decision = _evaluate_assignment(client, ANIMAL_ID, CASA_ID)
     client.close()
 
     assert decision.decision == "block"

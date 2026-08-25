@@ -29,6 +29,8 @@ from app.core.insforge import InsForgeClient
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
 from app.modules.animals import routes as animals_routes
+from app.modules.animals.di.animals_di import get_animals_port
+from app.modules.animals.domain.animal import Animal, Especie, Sexo
 from app.modules.animals.forms import (
     ANIMAL_FORM_FIELDS,
     ANIMAL_FORM_REQUIRED_FIELDS,
@@ -154,12 +156,38 @@ class _AnimalsRouteSpy(InsForgeClient):
         return []
 
 
+class _AnimalsPortStub:
+    def __init__(self) -> None:
+        self.animal = Animal(
+            id="abc-123", NCHIP="1", NombreAnimal="Luna",
+            Especie=Especie.CANINA, Sexo=Sexo.H, FNacimiento="2023-04-12",
+        )
+        self.list_calls = 0
+        self.detail_ids: list[str] = []
+
+    def list_animals(self, **_kwargs: Any) -> list[Animal]:
+        self.list_calls += 1
+        return [self.animal]
+
+    def get_animal_by_id(self, animal_id: str) -> Animal | None:
+        self.detail_ids.append(animal_id)
+        return None if animal_id == "missing" else self.animal
+
+
 @pytest.fixture
 def animals_spy() -> _AnimalsRouteSpy:
     spy = _AnimalsRouteSpy()
     app.dependency_overrides[get_insforge_client] = lambda: spy
     yield spy
     app.dependency_overrides.pop(get_insforge_client, None)
+
+
+@pytest.fixture
+def animals_port() -> _AnimalsPortStub:
+    port = _AnimalsPortStub()
+    app.dependency_overrides[get_animals_port] = lambda: port
+    yield port
+    app.dependency_overrides.pop(get_animals_port, None)
 
 
 def _login_as_key_user(client: httpx.AsyncClient) -> None:
@@ -203,6 +231,38 @@ def _login_as_reader(client: httpx.AsyncClient) -> None:
         secret=get_settings().session_secret,
     )
     client.cookies.set(session_cookie_name(), token)
+
+
+async def test_list_animales_uses_hexagonal_port(
+    client: httpx.AsyncClient,
+    animals_spy: _AnimalsRouteSpy,
+    animals_port: _AnimalsPortStub,
+) -> None:
+    _login_as_key_user(client)
+
+    response = await client.get("/animales")
+
+    assert response.status_code == 200, response.text
+    assert "Luna" in response.text, response.text
+    assert animals_port.list_calls == 1, "list route must call the port once"
+    assert animals_spy.captured_queries == [], "list route must not use legacy animal SQL"
+
+
+@pytest.mark.parametrize("animal_id,status_code", [("abc-123", 200), ("missing", 404)])
+async def test_animal_detail_uses_hexagonal_port(
+    client: httpx.AsyncClient,
+    animals_spy: _AnimalsRouteSpy,
+    animals_port: _AnimalsPortStub,
+    animal_id: str,
+    status_code: int,
+) -> None:
+    _login_as_key_user(client)
+
+    response = await client.get(f"/animales/{animal_id}")
+
+    assert response.status_code == status_code, response.text
+    assert animals_port.detail_ids == [animal_id], "detail route must pass the id to the port"
+    assert animals_spy.captured_queries == [], "detail route must not use legacy animal SQL"
 
 
 # --- update ----------------------------------------------------------------

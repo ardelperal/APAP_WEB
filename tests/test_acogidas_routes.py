@@ -54,6 +54,7 @@ from app.core.insforge import InsForgeClient
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
 from app.modules.acogidas import service as acogidas_service
+from app.modules.animals.di.animals_di import get_animals_port
 from tests.conftest import auth_reval_rows, make_csrf_request
 
 
@@ -77,6 +78,7 @@ class _NoSqlRouteClient(InsForgeClient):
         # rejection tests set this to ``reader`` so
         # ``require_writer_user`` produces 403 BEFORE any handler SQL.
         self.auth_reval_rol: str = "key_user"
+        self.animals_port = object()
 
     def execute_sql(self, query: str, params: Any = None):  # type: ignore[override]
         # Issue #143: require_authorized_user revalidates authorization per
@@ -94,9 +96,11 @@ def route_client() -> _NoSqlRouteClient:
     spy = _NoSqlRouteClient()
     app.dependency_overrides[get_insforge_client] = lambda: spy
     app.dependency_overrides[get_insforge_client_dep] = lambda: spy
+    app.dependency_overrides[get_animals_port] = lambda: spy.animals_port
     yield spy
     app.dependency_overrides.pop(get_insforge_client, None)
     app.dependency_overrides.pop(get_insforge_client_dep, None)
+    app.dependency_overrides.pop(get_animals_port, None)
 
 
 def _login_as_key_user(client: httpx.AsyncClient) -> None:
@@ -154,7 +158,7 @@ def _bypass_species_gate(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         foster_assignment_service,
         "evaluate_assignment",
-        lambda _c, _animal_id, _casa_id: foster_assignment_service.AssignmentDecision(
+        lambda _port, _c, _animal_id, _casa_id: foster_assignment_service.AssignmentDecision(
             decision="admit", reason=None, warnings=()
         ),
     )
@@ -817,7 +821,7 @@ async def test_create_acogida_rejects_species_mismatch_when_casa_acogida_id_prov
     monkeypatch.setattr(
         foster_assignment_service,
         "evaluate_assignment",
-        lambda _c, _aid, _cid: foster_assignment_service.AssignmentDecision(
+        lambda _port, _c, _aid, _cid: foster_assignment_service.AssignmentDecision(
             decision="block",
             reason="la casa solo admite CANINA, no FELINA",
             warnings=(),
@@ -917,7 +921,7 @@ async def test_update_acogida_rejects_species_mismatch_when_casa_acogida_id_prov
     monkeypatch.setattr(
         foster_assignment_service,
         "evaluate_assignment",
-        lambda _c, _aid, _cid: foster_assignment_service.AssignmentDecision(
+        lambda _port, _c, _aid, _cid: foster_assignment_service.AssignmentDecision(
             decision="block",
             reason="la casa solo admite CANINA, no FELINA",
             warnings=(),
@@ -1064,6 +1068,7 @@ def _install_feed_client(
     )
     app.dependency_overrides[get_insforge_client] = lambda: client
     app.dependency_overrides[get_insforge_client_dep] = lambda: client
+    app.dependency_overrides[get_animals_port] = object
     return client
 
 
@@ -1106,6 +1111,7 @@ async def test_post_create_with_fecha_final_persists(
         feed_client.close()
         app.dependency_overrides.pop(get_insforge_client, None)
         app.dependency_overrides.pop(get_insforge_client_dep, None)
+        app.dependency_overrides.pop(get_animals_port, None)
 
     insert_call = next(c for c in captured if "INSERT INTO acogidas" in c["query"])
     # fecha_final MUST reach the INSERT params list verbatim.
@@ -1154,6 +1160,7 @@ async def test_post_update_reopens_when_fecha_final_empty(
         feed_client.close()
         app.dependency_overrides.pop(get_insforge_client, None)
         app.dependency_overrides.pop(get_insforge_client_dep, None)
+        app.dependency_overrides.pop(get_animals_port, None)
 
     update_call = next(c for c in captured if "UPDATE acogidas SET" in c["query"])
     # The UPDATE must include fecha_final in its SET clause (because

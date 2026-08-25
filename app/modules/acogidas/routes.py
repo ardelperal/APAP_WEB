@@ -41,9 +41,11 @@ from app.core.middleware import base_template_context_processor
 from app.core.rbac import Permission, require_permission
 from app.modules.acogidas import service as acogidas_service
 from app.modules.acogidas.forms import AcogidaForm
+from app.modules.animals import AnimalsPort, get_animals_port
 from app.modules.foster import assignment_service
 
-router = APIRouter(prefix="/acogidas", tags=["foster"])
+_ACOGIDAS_PATH = "/acogidas"
+router = APIRouter(prefix=_ACOGIDAS_PATH, tags=["foster"])
 
 _TEMPLATES_DIR = Path(__file__).parents[2] / "templates"
 # PR-5B2 (REQ-AH-7): inject csrf_token into every template context.
@@ -77,6 +79,7 @@ def _opt(value: str | None) -> str | None:
 
 
 def _enforce_species_gate(
+    port: AnimalsPort,
     client: InsForgeClient,
     animal_id: str,
     casa_acogida_id: str | None,
@@ -109,7 +112,7 @@ def _enforce_species_gate(
     if not casa_acogida_id:
         return None  # legacy compat — estancia without casa skips the gate
     decision = assignment_service.evaluate_assignment(
-        client, animal_id, casa_acogida_id
+        port, client, animal_id, casa_acogida_id
     )
     if decision.decision == "block":
         return decision.reason
@@ -195,19 +198,20 @@ def new_acogida_form(
     """Render an empty create form."""
     if (early := return_early_if_response(user)) is not None:
         return early
-    return _render_form(request, user, {}, None, "/acogidas")
+    return _render_form(request, user, {}, None, _ACOGIDAS_PATH)
 
 
 # --- create (submit) ------------------------------------------------------
 
 
 @router.post("", response_class=HTMLResponse)
-def create_acogida_view(
+def create_acogida_view(  # noqa: PLR0913  # form model + fixed dependencies
     request: Request,
     form: Annotated[AcogidaForm, Form()],
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_ACOGIDAS))],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
-):  # noqa: PLR0913  # refactored to AcogidaForm
+    port: Annotated[AnimalsPort, Depends(get_animals_port)],
+):
     """Create a new estancia; redirect to detail on success, re-render form on validation error.
 
     Issue #142: ``override_id`` is the (optional) hidden form field
@@ -215,8 +219,7 @@ def create_acogida_view(
     returns ``admit_with_warning`` and the operator confirmed the
     override. ``create_acogida`` uses it to UPDATE the
     ``foster_capacity_overrides.estancia_id`` column so the audit
-    log row is no longer orphaned. An empty string is treated the
-    same as absent.
+    log row is no longer orphaned. An empty string is treated as absent.
     """
     if (early := return_early_if_response(user)) is not None:
         return early
@@ -249,7 +252,7 @@ def create_acogida_view(
     # require a motivo (only the audit log of the override does, and
     # that was already recorded in /asignar before the redirect).
     gate_error = _enforce_species_gate(
-        client, form.animal_id, form_data.get("casa_acogida_id")
+        port, client, form.animal_id, form_data.get("casa_acogida_id")
     )
     if gate_error:
         return _render_form(
@@ -257,7 +260,7 @@ def create_acogida_view(
             user,
             form_data,
             gate_error,
-            "/acogidas",
+            _ACOGIDAS_PATH,
             status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
     try:
@@ -276,7 +279,7 @@ def create_acogida_view(
             user,
             form_data,
             _format_persisted_error(exc, "estancia de acogida"),
-            "/acogidas",
+            _ACOGIDAS_PATH,
             status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
     except ValueError as exc:
@@ -285,7 +288,7 @@ def create_acogida_view(
             user,
             form_data,
             str(exc),
-            "/acogidas",
+            _ACOGIDAS_PATH,
             status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
     return RedirectResponse(
@@ -352,13 +355,14 @@ def edit_acogida_form(
 
 
 @router.post("/{acogida_id}/update", response_class=HTMLResponse)
-def update_acogida_view(
+def update_acogida_view(  # noqa: PLR0913  # form model + fixed dependencies
     acogida_id: str,
     request: Request,
     form: Annotated[AcogidaForm, Form()],
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_ACOGIDAS))],
     client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
-):  # noqa: PLR0913  # refactored to AcogidaForm
+    port: Annotated[AnimalsPort, Depends(get_animals_port)],
+):
     """Apply form edits; redirect to detail on success, re-render on validation error."""
     if (early := return_early_if_response(user)) is not None:
         return early
@@ -383,10 +387,9 @@ def update_acogida_view(
     # moves a stay from casa X to casa Y, gate (animal_id, Y). If they
     # keep the same casa, the gate evaluates the same combo as create
     # did when the stay was first opened — cheap one-shot SQL re-check
-    # in exchange for not having to load the existing row to compare
-    # (avoids a SELECT-then-UPDATE TOCTOU pattern).
+    # without loading the existing row first (avoids SELECT-then-UPDATE TOCTOU).
     gate_error = _enforce_species_gate(
-        client, form.animal_id, form_data.get("casa_acogida_id")
+        port, client, form.animal_id, form_data.get("casa_acogida_id")
     )
     if gate_error:
         return _render_form(
@@ -472,7 +475,7 @@ def delete_acogida_view(
     if not acogidas_service.delete_acogida(client, acogida_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     return RedirectResponse(
-        url="/acogidas", status_code=status.HTTP_303_SEE_OTHER
+        url=_ACOGIDAS_PATH, status_code=status.HTTP_303_SEE_OTHER
     )
 
 
