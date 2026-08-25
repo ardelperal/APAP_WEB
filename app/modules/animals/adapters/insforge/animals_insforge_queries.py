@@ -406,68 +406,6 @@ def record_lifecycle_event_sql(
     return sql, params
 
 
-# ``chip_cascade`` — saga SQL constants (issue #29, LIFECYCLE-04).
-# All UPDATEs carry ``RETURNING id`` so the adapter can count the
-# affected rows per table without an extra round-trip. The legacy
-# pre-flight checks (uniqueness of ``new_chip``; current chip
-# matches ``old_chip``) live in separate SELECTs because they read
-# before the transaction opens.
-CHECK_CHIP_UNIQUENESS_SQL: str = (
-    "SELECT id FROM animales WHERE \"NCHIP\" = $1 AND id != $2 LIMIT 1"
-)
-
-GET_CURRENT_CHIP_SQL: str = (
-    "SELECT \"NCHIP\" FROM animales WHERE id = $1"
-)
-
-UPDATE_ANIMALS_CHIP_SQL: str = (
-    "UPDATE animales SET \"NCHIP\" = $1, updated_at = now() "
-    "WHERE id = $2 AND \"NCHIP\" = $3 "
-    "RETURNING id"
-)
-
-UPDATE_ENTRADAS_CHIP_SQL: str = (
-    "UPDATE entradas SET chip = $1, updated_at = now() "
-    "WHERE chip = $2 AND activo = true "
-    "RETURNING id"
-)
-
-UPDATE_ACOGIDAS_CHIP_SQL: str = (
-    "UPDATE acogidas SET chip = $1, updated_at = now() "
-    "WHERE chip = $2 AND activo = true "
-    "RETURNING id"
-)
-
-UPDATE_ADOPCIONES_CHIP_SQL: str = (
-    "UPDATE adopciones SET chip = $1, updated_at = now() "
-    "WHERE chip = $2 AND activo = true "
-    "RETURNING id"
-)
-
-UPDATE_ACTUACIONES_SANITARIAS_CHIP_SQL: str = (
-    "UPDATE actuaciones_sanitarias SET chip = $1, updated_at = now() "
-    "WHERE chip = $2 "
-    "RETURNING id"
-)
-
-UPDATE_TERAPIAS_CHIP_SQL: str = (
-    "UPDATE terapias SET chip = $1, updated_at = now() "
-    "WHERE chip = $2 "
-    "RETURNING id"
-)
-
-INSERT_CHIP_CHANGED_EVENT_SQL: str = (
-    "INSERT INTO animal_lifecycle_events ("
-    "animal_id, event_type, event_timestamp, metadata, created_by"
-    ") VALUES ($1, $2, now(), $3, $4) "
-    "ON CONFLICT (animal_id, event_type, event_timestamp) DO NOTHING"
-)
-
-BEGIN_TX_SQL: str = "BEGIN"
-COMMIT_TX_SQL: str = "COMMIT"
-ROLLBACK_TX_SQL: str = "ROLLBACK"
-
-
 # ``list_lifecycle_events`` — chronological timeline read.
 # ``ORDER BY event_timestamp ASC, id ASC`` keeps the timeline stable
 # when two events share a timestamp (the id is the secondary key).
@@ -547,29 +485,17 @@ def get_animal_photo_meta_sql(animal_id: str) -> tuple[str, list[str]]:
 
 
 __all__ = [
-    "BEGIN_TX_SQL",
-    "CHECK_CHIP_UNIQUENESS_SQL",
-    "COMMIT_TX_SQL",
     "COUNT_ANIMALS_SQL",
     "DELETE_ANIMAL_SQL",
     "GET_ANIMAL_BY_ID_SQL",
     "GET_ANIMAL_BY_NCHIP_SQL",
     "GET_ANIMAL_PHOTO_META_SQL",
-    "GET_CURRENT_CHIP_SQL",
-    "INSERT_CHIP_CHANGED_EVENT_SQL",
     "INSERT_ANIMAL_SQL",
     "LIST_ANIMALS_SQL",
     "LIST_LIFECYCLE_EVENTS_COLUMNS",
     "RECORD_LIFECYCLE_EVENT_COLUMNS",
-    "ROLLBACK_TX_SQL",
     "SEARCH_ANIMALS_SQL",
-    "UPDATE_ACOGIDAS_CHIP_SQL",
-    "UPDATE_ACTUACIONES_SANITARIAS_CHIP_SQL",
-    "UPDATE_ADOPCIONES_CHIP_SQL",
-    "UPDATE_ANIMALS_CHIP_SQL",
     "UPDATE_ANIMAL_COLUMN_ORDER",
-    "UPDATE_ENTRADAS_CHIP_SQL",
-    "UPDATE_TERAPIAS_CHIP_SQL",
     "create_animal_sql",
     "count_animals_sql",
     "delete_animal_sql",

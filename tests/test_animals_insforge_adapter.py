@@ -12,6 +12,9 @@ from app.modules.animals.adapters.insforge import animals_insforge_photo
 from app.modules.animals.adapters.insforge.animals_insforge_adapter import (
     AnimalsInsforgeAdapter,
 )
+from app.modules.animals.adapters.insforge.animals_insforge_chip_cascade import (
+    AnimalsInsforgeChipCascade,
+)
 from app.modules.animals.adapters.insforge.animals_insforge_mappers import (
     _row_to_animal,
     _row_to_lifecycle_event,
@@ -32,6 +35,7 @@ from app.modules.animals.domain.animal import (
     Especie,
     Sexo,
 )
+from app.modules.animals.domain.change_chip_result import ChangeChipResult
 from app.modules.animals.photo_service import (
     PLACEHOLDER_PHOTO_PNG as LEGACY_PLACEHOLDER_PHOTO_PNG,
 )
@@ -334,6 +338,33 @@ def test_search_animals_zero_limit_executes_only_count_query() -> None:
     assert result.offset == 10, "count-only envelope must preserve the cursor"
     assert len(client.calls) == 1, "count-only search must skip the data query"
     assert "COUNT(*)" in client.calls[0][0], "the only query must be the count"
+
+
+def test_extracted_chip_cascade_matches_adapter_duplicate_chip_result() -> None:
+    cascade_client = _SequencedFakeClient([[{"id": "animal-2"}]])
+    adapter_client = _SequencedFakeClient([[{"id": "animal-2"}]])
+    cascade = AnimalsInsforgeChipCascade(cascade_client)
+    adapter = AnimalsInsforgeAdapter(
+        client=adapter_client,
+        storage=adapter_client,  # type: ignore[arg-type]
+    )
+    kwargs = {
+        "animal_id": "animal-1",
+        "old_chip": "old-chip",
+        "new_chip": "duplicate-chip",
+        "reason": "data correction",
+        "operador_user_id": "operator-1",
+    }
+
+    cascade_result = cascade.change_animal_chip(**kwargs)
+    adapter_result = adapter.change_animal_chip(**kwargs)
+
+    assert isinstance(cascade_result, ChangeChipResult), (
+        "the extracted cascade must preserve the port return type"
+    )
+    assert cascade_result == adapter_result, (
+        "adapter delegation must preserve duplicate-chip behavior"
+    )
 
 
 def test_returns_none_when_no_match() -> None:

@@ -10,10 +10,12 @@ constructs one per request from the already-pooled
 """
 from __future__ import annotations
 
-import json
 from datetime import datetime
 
 from app.core.data_access import SqlExecutor
+from app.modules.animals.adapters.insforge.animals_insforge_chip_cascade import (
+    AnimalsInsforgeChipCascade,
+)
 from app.modules.animals.adapters.insforge.animals_insforge_mappers import (
     _row_to_animal,
     _row_to_lifecycle_event,
@@ -25,19 +27,7 @@ from app.modules.animals.adapters.insforge.animals_insforge_photo import (
     resolve_animal_photo as resolve_insforge_animal_photo,
 )
 from app.modules.animals.adapters.insforge.animals_insforge_queries import (
-    BEGIN_TX_SQL,
-    CHECK_CHIP_UNIQUENESS_SQL,
-    COMMIT_TX_SQL,
     GET_ANIMAL_BY_ID_SQL,
-    GET_CURRENT_CHIP_SQL,
-    INSERT_CHIP_CHANGED_EVENT_SQL,
-    ROLLBACK_TX_SQL,
-    UPDATE_ACOGIDAS_CHIP_SQL,
-    UPDATE_ACTUACIONES_SANITARIAS_CHIP_SQL,
-    UPDATE_ADOPCIONES_CHIP_SQL,
-    UPDATE_ANIMALS_CHIP_SQL,
-    UPDATE_ENTRADAS_CHIP_SQL,
-    UPDATE_TERAPIAS_CHIP_SQL,
     count_animals_sql,
     create_animal_sql,
     delete_animal_sql,
@@ -73,6 +63,7 @@ class AnimalsInsforgeAdapter(AnimalsPort):
     ) -> None:
         self._client = client
         self._storage = storage
+        self._chip_cascade = AnimalsInsforgeChipCascade(client)
 
     def get_animal_by_nchip(self, nchip: str) -> Animal | None:
         sql, params = get_animal_by_nchip_sql(nchip)
@@ -300,143 +291,13 @@ class AnimalsInsforgeAdapter(AnimalsPort):
         reason: str,
         operador_user_id: str,
     ) -> ChangeChipResult:
-        # Two pre-flight SELECTs run BEFORE the transaction opens:
-        # uniqueness of the new chip (no other animal carries it) and
-        # the current chip on this animal (must match ``old_chip`` so
-        # the UPDATEs don't no-op every row). Both are SELECTs — they
-        # don't take a write lock until the subsequent UPDATE.
-        uniqueness_rows = self._client.execute_sql(
-            CHECK_CHIP_UNIQUENESS_SQL,
-            [new_chip, animal_id],
+        return self._chip_cascade.change_animal_chip(
+            animal_id=animal_id,
+            old_chip=old_chip,
+            new_chip=new_chip,
+            reason=reason,
+            operador_user_id=operador_user_id,
         )
-        if uniqueness_rows:
-            return ChangeChipResult(
-                success=False,
-                old_chip=old_chip,
-                new_chip=new_chip,
-                updated_tables={},
-                error=(
-                    f"new_chip {new_chip!r} ya está asignado a otro animal"
-                ),
-            )
-        current_rows = self._client.execute_sql(
-            GET_CURRENT_CHIP_SQL, [animal_id]
-        )
-        if not current_rows:
-            return ChangeChipResult(
-                success=False,
-                old_chip=old_chip,
-                new_chip=new_chip,
-                updated_tables={},
-                error=f"animal_id {animal_id!r} no existe",
-            )
-        current_chip = str(current_rows[0]["NCHIP"])
-        if current_chip != old_chip:
-            return ChangeChipResult(
-                success=False,
-                old_chip=old_chip,
-                new_chip=new_chip,
-                updated_tables={},
-                error=(
-                    f"old_chip {old_chip!r} no coincide con el chip "
-                    f"actual {current_chip!r}; recargue la ficha"
-                ),
-            )
-
-        # Transaction body. We accumulate the per-table row counts
-        # even on failure so the operator can audit the partial
-        # damage (everything rolls back together, so the count is
-        # informational only).
-        updated: dict[str, int] = {}
-        try:
-            self._client.execute_sql(BEGIN_TX_SQL)
-
-            rows = self._client.execute_sql(
-                UPDATE_ANIMALS_CHIP_SQL,
-                [new_chip, animal_id, old_chip],
-            )
-            updated["animals"] = len(rows)
-
-            updated["entradas"] = len(
-                self._client.execute_sql(
-                    UPDATE_ENTRADAS_CHIP_SQL, [new_chip, old_chip]
-                )
-            )
-            updated["acogidas"] = len(
-                self._client.execute_sql(
-                    UPDATE_ACOGIDAS_CHIP_SQL, [new_chip, old_chip]
-                )
-            )
-            updated["adopciones"] = len(
-                self._client.execute_sql(
-                    UPDATE_ADOPCIONES_CHIP_SQL, [new_chip, old_chip]
-                )
-            )
-            updated["actuaciones_sanitarias"] = len(
-                self._client.execute_sql(
-                    UPDATE_ACTUACIONES_SANITARIAS_CHIP_SQL,
-                    [new_chip, old_chip],
-                )
-            )
-            updated["terapias"] = len(
-                self._client.execute_sql(
-                    UPDATE_TERAPIAS_CHIP_SQL, [new_chip, old_chip]
-                )
-            )
-
-            metadata_json = json.dumps(
-                {
-                    "old_chip": old_chip,
-                    "new_chip": new_chip,
-                    "reason": reason,
-                }
-            )
-            self._client.execute_sql(
-                INSERT_CHIP_CHANGED_EVENT_SQL,
-                [
-                    animal_id,
-                    LifecycleEventType.CHIP_CHANGED.value,
-                    metadata_json,
-                    operador_user_id,
-                ],
-            )
-
-            self._client.execute_sql(COMMIT_TX_SQL)
-
-            return ChangeChipResult(
-                success=True,
-                old_chip=old_chip,
-                new_chip=new_chip,
-                updated_tables=updated,
-            )
-
-        except Exception as exc:  # noqa: BLE001
-            # Any failure inside the transaction body: roll back and
-            # surface the error. ``updated`` already carries whatever
-            # the saga managed to do before failing — informative for
-            # the operator even though everything was rolled back.
-            # If the ROLLBACK itself fails (network drop, server gone),
-            # the connection state is unrecoverable anyway; we keep the
-            # original error as the primary cause and append the rollback
-            # failure for the operator's audit trail.
-            rollback_error: str | None = None
-            try:
-                self._client.execute_sql(ROLLBACK_TX_SQL)
-            except Exception as rollback_exc:  # noqa: BLE001
-                rollback_error = repr(rollback_exc)
-            base_error = f"Error en la transaccion: {exc}"
-            error = (
-                f"{base_error}; rollback fallo: {rollback_error}"
-                if rollback_error
-                else base_error
-            )
-            return ChangeChipResult(
-                success=False,
-                old_chip=old_chip,
-                new_chip=new_chip,
-                updated_tables=updated,
-                error=error,
-            )
 
     def resolve_animal_photo(
         self, animal_id: str
