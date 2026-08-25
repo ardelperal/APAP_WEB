@@ -13,10 +13,10 @@ The use case enforces the same domain-validation rules the legacy
 be non-blank; Especie and Sexo must match the enum. The hexagonal
 dataclass enforces the enum constraint via the StrEnum constructor
 so the only thing the use case has to check is the string-blank
-contract. The legacy's richer column set (Raza, Color, Pelo, etc.)
-is out of scope — the port's signature is the round-trip fields
-the hexagonal ``Animal`` already encodes.
+contract. The complete writable column set is delegated unchanged after
+required-field validation.
 """
+# ruff: noqa: N803 — kwargs intentionally preserve legacy schema column names
 from __future__ import annotations
 
 from app.modules.animals.domain.animal import Animal, Especie, Sexo
@@ -43,7 +43,7 @@ def _require_non_blank(value: str, field_name: str) -> str:
     return stripped
 
 
-def create_animal(
+def create_animal(  # noqa: N803, PLR0913  # schema-named fields mirror the 24-column AnimalForm contract
     animals_port: AnimalsPort,
     *,
     nchip: str,
@@ -51,6 +51,25 @@ def create_animal(
     especie: Especie,
     sexo: Sexo,
     fnacimiento: str,
+    TraeNChip: str | None = None,
+    FIMPLANTACIONCHIP: str | None = None,
+    Raza: str | None = None,
+    Color: str | None = None,
+    Pelo: str | None = None,
+    Tamano: str | None = None,
+    Caracter: str | None = None,
+    FDefuncion: str | None = None,
+    Terapia: str | None = None,
+    Observaciones: str | None = None,
+    NombreFoto: str | None = None,
+    Cartilla: str | None = None,
+    Eutanasia: str | None = None,
+    RazaPPP: str | None = None,
+    Mestizo: str | None = None,
+    EutanasiaOtrasCausas: str | None = None,
+    EutanasiaEnfermedad: str | None = None,
+    UltimoEstadoAntesDeFallecido: str | None = None,
+    ComunicacionARIAC: str | None = None,
 ) -> Animal:
     """Create a new animal and return the persisted row.
 
@@ -68,6 +87,25 @@ def create_animal(
         especie=especie,
         sexo=sexo,
         fnacimiento=fnacimiento,
+        TraeNChip=TraeNChip,
+        FIMPLANTACIONCHIP=FIMPLANTACIONCHIP,
+        Raza=Raza,
+        Color=Color,
+        Pelo=Pelo,
+        Tamano=Tamano,
+        Caracter=Caracter,
+        FDefuncion=FDefuncion,
+        Terapia=Terapia,
+        Observaciones=Observaciones,
+        NombreFoto=NombreFoto,
+        Cartilla=Cartilla,
+        Eutanasia=Eutanasia,
+        RazaPPP=RazaPPP,
+        Mestizo=Mestizo,
+        EutanasiaOtrasCausas=EutanasiaOtrasCausas,
+        EutanasiaEnfermedad=EutanasiaEnfermedad,
+        UltimoEstadoAntesDeFallecido=UltimoEstadoAntesDeFallecido,
+        ComunicacionARIAC=ComunicacionARIAC,
     )
 
 

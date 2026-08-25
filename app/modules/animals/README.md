@@ -53,7 +53,7 @@ The slice runs the same FK-existence pattern as the entradas and adopciones modu
 | `animal_current_state` | `animal_id`, `current_state`, `derived_at` | Derived view materialised from the event log. |
 | `entradas`, `acogidas`, `adopciones`, `actuaciones_sanitarias`, `terapias` | `NCHIP` columns | Cascade targets of the chip-change saga. |
 
-The migrated search query lives in `adapters/insforge/animals_insforge_queries.py`; the legacy seam remains in `queries.py` until PR-B/PR-C retire the service path. Search joins `animal_current_state` to surface the derived state.
+Read SQL lives in `adapters/insforge/animals_insforge_queries.py`; CRUD SQL lives in `animals_insforge_write_queries.py`. The legacy seam remains until PR-C removes the chip and photo service paths.
 
 ## Endpoints
 
@@ -77,11 +77,11 @@ Status codes: 200 on renders, 303 See Other on success, 404 when the id is missi
 
 | Function | Purpose |
 |---|---|
-| `create_animal(client, params)` | INSERT with required-field validation; duplicate NCHIP surfaces as `InsForgeError` 409 to the route. |
+| `create_animal(port, **fields)` | Hexagonal INSERT; duplicate NCHIP surfaces as `UniqueViolationError` and becomes HTTP 409. |
 | `list_animals(port)` | Hexagonal active-animal route path; ordered by newest `fecha_alta`, then NCHIP. |
 | `get_animal_by_id(port, animal_id)` | Hexagonal primary-key lookup used by detail and foster assignment. |
-| `update_animal(client, animal_id, params)` | UPDATE; returns `None` when the id is missing. |
-| `delete_animal(client, animal_id)` | Atomic soft-delete. |
+| `update_animal(port, animal_id, **fields)` | Hexagonal partial UPDATE; `None` fields are skipped. |
+| `delete_animal(port, animal_id)` | Hexagonal atomic soft-delete. |
 | `record_event(client, *, animal_id, event_type, event_timestamp, created_by, ...)` | Legacy lifecycle-event writer (issue #32, D-23). Mirrored by the hexagonal `record_lifecycle_event` (#609). |
 | `search_animals(port, *, q, chip, especie, sexo, estado, fecha_alta_since, fecha_alta_until, limit, offset)` | Paginated hexagonal search used by the JSON route. |
 | `change_animal_chip(client, *, animal_id, old_chip, new_chip, reason, operador_user_id)` | Saga: updates 6 tables; rolls back on any failure. |
@@ -96,13 +96,13 @@ The `change_animal_chip` saga lives in `chip_service.py` (extracted from `servic
 
 ## Layer type
 
-Transitional mixed layout. `list_animales`, `animal_detail`, `search_animales`, `edit_animal_form`, and foster assignment use route → application → `AnimalsPort` → adapter. Unmigrated handlers retain route → legacy service → queries.
+Transitional mixed layout. Animal CRUD, search, edit prefill, and foster assignment use `AnimalsPort`. Chip and photo handlers retain route → legacy service until PR-C.
 
 The eleven `AnimalsPort` methods are landed, including primary-key lookup and paginated search from PR-A.1 of epic #420.
 
-The conversion is not complete. Write paths remain for PR-B; chip/photo remain for PR-C.
+PR-B migrated `create_animal_view`, `update_animal_view`, and `delete_animal_view`. Chip and photo remain for PR-C.
 
-The hexagonal `Animal` read entity carries all 28 application-facing fields. `updated_at` remains system-internal and write payloads stay in the legacy service until PR-B.
+The hexagonal `Animal` entity carries all 28 application-facing fields. The write port mirrors the 24 operator-writable fields; `id`, `estado`, `activo`, `fecha_alta`, and `updated_at` remain system-owned.
 
 ## Risks and gotchas
 
@@ -195,7 +195,9 @@ The proposals cover the contracts:
 | `adapters/insforge/animals_insforge_adapter.py` | InsForge-backed `AnimalsPort` implementation. |
 | `adapters/insforge/animals_insforge_mappers.py` | Row-to-domain mapping for the InsForge adapter. |
 | `adapters/insforge/animals_insforge_photo.py` | Storage adapter for photo download, fallback, safe logging and deterministic stream cleanup. |
-| `adapters/insforge/animals_insforge_queries.py` | SQL seam for the InsForge adapter (AGENTS.md §22). |
+| `adapters/insforge/animals_insforge_queries.py` | Read and lifecycle SQL seam for the InsForge adapter (AGENTS.md §22). |
+| `adapters/insforge/animals_insforge_write_queries.py` | CRUD SQL seam, split to satisfy the mutation-site ceiling. |
+| `adapters/insforge/animals_insforge_lifecycle.py` | Lifecycle persistence orchestration, split to satisfy the mutation-site ceiling. |
 | `queries.py` | Legacy SQL builder seam (separate from the InsForge adapter; the slice carries two SQL seams until the legacy service is retired). |
 | `forms.py` | `AnimalForm` Pydantic v2 model. |
 | `chip_service.py` | Chip cascade saga (LIFECYCLE-04). |

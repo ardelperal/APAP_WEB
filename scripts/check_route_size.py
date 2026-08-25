@@ -105,7 +105,6 @@ BASELINE: dict[str, int] = {
     "app/modules/sanidad/routes.py::create_actuacion_view": 59,
     # issue #388: MaterialForm migration shrank update_material_view 58 → 48 and
     # create_material_view 55 → 45 — both now within 50-line budget, removed from BASELINE
-    "app/modules/animals/routes.py::create_animal_view": 54,
     # issue #337: AdopcionForm migration shrank these from 82/78 (RBAC-era) → 59/53
     # (still >50 budget; ratchet prevents growth — must shrink further)
     "app/modules/adopciones/routes.py::create_adopcion_view": 59,

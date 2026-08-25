@@ -8,6 +8,7 @@ stateless; the DI provider in :mod:`app.modules.animals.di.animals_di`
 constructs one per request from the already-pooled
 :class:`~app.core.insforge.InsForgeClient`.
 """
+# ruff: noqa: N803 — kwargs intentionally preserve legacy schema column names
 from __future__ import annotations
 
 from datetime import datetime
@@ -16,9 +17,14 @@ from app.core.data_access import SqlExecutor
 from app.modules.animals.adapters.insforge.animals_insforge_chip_cascade import (
     AnimalsInsforgeChipCascade,
 )
+from app.modules.animals.adapters.insforge.animals_insforge_lifecycle import (
+    list_lifecycle_events as list_insforge_lifecycle_events,
+)
+from app.modules.animals.adapters.insforge.animals_insforge_lifecycle import (
+    record_lifecycle_event as record_insforge_lifecycle_event,
+)
 from app.modules.animals.adapters.insforge.animals_insforge_mappers import (
     _row_to_animal,
-    _row_to_lifecycle_event,
 )
 from app.modules.animals.adapters.insforge.animals_insforge_photo import (
     PhotoStorageClient,
@@ -29,13 +35,13 @@ from app.modules.animals.adapters.insforge.animals_insforge_photo import (
 from app.modules.animals.adapters.insforge.animals_insforge_queries import (
     GET_ANIMAL_BY_ID_SQL,
     count_animals_sql,
-    create_animal_sql,
-    delete_animal_sql,
     get_animal_by_nchip_sql,
     list_animals_sql,
-    list_lifecycle_events_sql,
-    record_lifecycle_event_sql,
     search_animals_sql,
+)
+from app.modules.animals.adapters.insforge.animals_insforge_write_queries import (
+    create_animal_sql,
+    delete_animal_sql,
     update_animal_sql,
 )
 from app.modules.animals.domain.animal import (
@@ -146,6 +152,7 @@ class AnimalsInsforgeAdapter(AnimalsPort):
         especie: Especie,
         sexo: Sexo,
         fnacimiento: str,
+        **optional_fields: str | None,
     ) -> Animal:
         sql, params = create_animal_sql(
             nchip=nchip,
@@ -153,6 +160,7 @@ class AnimalsInsforgeAdapter(AnimalsPort):
             especie=especie.value,
             sexo=sexo.value,
             fnacimiento=fnacimiento,
+            **optional_fields,
         )
         rows = self._client.execute_sql(sql, params)
         # ``INSERT ... RETURNING`` always yields one row on success;
@@ -175,6 +183,7 @@ class AnimalsInsforgeAdapter(AnimalsPort):
         especie: Especie | None = None,
         sexo: Sexo | None = None,
         fnacimiento: str | None = None,
+        **optional_fields: str | None,
     ) -> Animal | None:
         # ``None``-skip on the SQL side is delegated to the helper;
         # if every field is ``None`` the helper returns ``None`` and
@@ -187,6 +196,7 @@ class AnimalsInsforgeAdapter(AnimalsPort):
             especie=None if especie is None else especie.value,
             sexo=None if sexo is None else sexo.value,
             fnacimiento=fnacimiento,
+            **optional_fields,
         )
         if sql_params is None:
             # All kwargs were ``None``: surface the no-op by reading
@@ -221,19 +231,11 @@ class AnimalsInsforgeAdapter(AnimalsPort):
         legacy_source_id: int | None = None,
         metadata: dict | None = None,
     ) -> AnimalLifecycleEvent:
-        # ``event_timestamp`` may come in as a ``datetime`` (route layer
-        # parses from a form). The legacy SQL expects ISO 8601 text so
-        # we normalise here; ``isoformat()`` is a no-op on an already-
-        # formatted string for the postgres driver we use.
-        timestamp_str = (
-            event_timestamp.isoformat()
-            if isinstance(event_timestamp, datetime)
-            else event_timestamp
-        )
-        sql, params = record_lifecycle_event_sql(
+        return record_insforge_lifecycle_event(
+            self._client,
             animal_id=animal_id,
-            event_type=event_type.value,
-            event_timestamp=timestamp_str,
+            event_type=event_type,
+            event_timestamp=event_timestamp,
             created_by=created_by,
             caused_by_event_id=caused_by_event_id,
             source_entity_type=source_entity_type,
@@ -242,21 +244,6 @@ class AnimalsInsforgeAdapter(AnimalsPort):
             legacy_source_id=legacy_source_id,
             metadata=metadata,
         )
-        rows = self._client.execute_sql(sql, params)
-        # ``ON CONFLICT DO NOTHING`` returns the EXISTING row (the
-        # conflict target) so the caller sees the persisted shape
-        # regardless of whether the insert raced. ``RETURNING`` is
-        # empty only when the row is genuinely absent — that should
-        # not happen given the table's NOT NULL constraints on every
-        # required column, so an empty result here is a transport-
-        # shape drift.
-        if not rows:
-            raise RuntimeError(  # noqa: TRY003 — operator-facing diagnostic
-                "INSERT INTO animal_lifecycle_events ON CONFLICT DO "
-                "NOTHING RETURNING produced no rows; the transport "
-                "shape has drifted, expected exactly one row."
-            )
-        return _row_to_lifecycle_event(rows[0])
 
     def list_lifecycle_events(
         self,
@@ -266,21 +253,13 @@ class AnimalsInsforgeAdapter(AnimalsPort):
         offset: int = 0,
         event_types: list[LifecycleEventType] | None = None,
     ) -> list[AnimalLifecycleEvent]:
-        # Empty ``event_types`` would short-circuit to ``WHERE animal_id
-        # = $1 AND event_type = ANY($2::text[])`` which on postgres is
-        # ``FALSE`` for all rows — call the no-filter path instead so
-        # the caller sees the full timeline.
-        event_type_strings = (
-            [et.value for et in event_types] if event_types else None
-        )
-        sql, params = list_lifecycle_events_sql(
-            animal_id=animal_id,
+        return list_insforge_lifecycle_events(
+            self._client,
+            animal_id,
             limit=limit,
             offset=offset,
-            event_types=event_type_strings,
+            event_types=event_types,
         )
-        rows = self._client.execute_sql(sql, params)
-        return [_row_to_lifecycle_event(row) for row in rows]
 
     def change_animal_chip(
         self,

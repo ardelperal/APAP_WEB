@@ -24,21 +24,21 @@ En curso (slice hexagonal). El epic #420 ("hexagonal vertical-slice refactor") e
 
 Pendiente en el port: ninguno. Los once métodos de `AnimalsPort` han aterrizado.
 
-La conversión no está completa. Lista, detalle, búsqueda, formulario de edición y la integración foster usan el port; las rutas de escritura, chip y foto siguen en los servicios legacy.
+La conversión no está completa. El CRUD, la búsqueda, el formulario de edición y la integración foster usan el port; chip y foto siguen en los servicios legacy hasta PR-C.
 
-La entidad hexagonal `Animal` ya contiene los 28 campos de lectura. `updated_at` permanece interno al sistema y `service.py` conserva los payloads de escritura hasta PR-B.
+La entidad hexagonal `Animal` contiene los 28 campos de lectura. PR-B migró los payloads de escritura al port; `updated_at` permanece interno al sistema.
 
 Las piezas no-hexagonales siguen en la forma legacy:
 - #30 (LIFECYCLE-05) search API — pendiente.
 - #33 (state resolver) — pendiente.
 - #69 (cache `estado_actual_animal`) — pendiente.
-- PR-A.2a migró `list_animales`, `animal_detail` y la integración foster. PR-A.2b migró `search_animales` y `edit_animal_form`. Quedan pendientes create/update/delete (PR-B) y chip/photo (PR-C).
+- PR-A.2a migró `list_animales`, `animal_detail` y la integración foster. PR-A.2b migró `search_animales` y `edit_animal_form`. PR-B migró `create_animal_view`, `update_animal_view` y `delete_animal_view`. Quedan pendientes chip y foto (PR-C).
 
 ## Slices previstos
 
 | Slice | Estado | Issue / PR |
 |---|---|---|
-| CRUD de animales (alta, edición, baja lógica) | en curso (5/5 métodos hexagonales landed; pendiente integración con routes) | #587, #596, #597, #603, #604 |
+| CRUD de animales (alta, edición, baja lógica) | completado en rutas hexagonales | #587, #596, #597, #603, #604, epic #420 PR-B |
 | Búsqueda parametrizada de animales | pendiente | #30 |
 | Timeline de eventos del animal | pendiente | issue por crear |
 | Motor de estado derivado (`estado_actual_animal`) | pendiente | #33 |

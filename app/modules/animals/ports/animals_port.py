@@ -1,13 +1,13 @@
 """Hexagonal port for the animals slice (AGENTS.md §31).
 
-PR-A.2b of epic #420 widens the :class:`Animal` read entity to all
-28 application-facing fields and wires search/edit through this port.
-``updated_at`` remains transport-internal; write handlers stay on the
-legacy service until PR-B.
+PR-B of epic #420 routes create, update, and delete through this port.
+The writable kwargs mirror the 24-column ``AnimalForm`` contract; ``id``,
+``estado``, ``activo``, and ``fecha_alta`` remain system-owned.
 
 Adapters MUST translate transport-level errors into the
 Protocol-level exceptions declared in :mod:`app.core.data_access`.
 """
+# ruff: noqa: N803 — kwargs intentionally preserve legacy schema column names
 from __future__ import annotations
 
 from datetime import datetime
@@ -89,7 +89,7 @@ class AnimalsPort(Protocol):
         historical-record paths that need to see inactive rows.
         """
 
-    def create_animal(
+    def create_animal(  # noqa: N803, PLR0913  # schema-named fields mirror the 24-column AnimalForm contract
         self,
         *,
         nchip: str,
@@ -97,10 +97,31 @@ class AnimalsPort(Protocol):
         especie: Especie,
         sexo: Sexo,
         fnacimiento: str,
+        TraeNChip: str | None = None,
+        FIMPLANTACIONCHIP: str | None = None,
+        Raza: str | None = None,
+        Color: str | None = None,
+        Pelo: str | None = None,
+        Tamano: str | None = None,
+        Caracter: str | None = None,
+        FDefuncion: str | None = None,
+        Terapia: str | None = None,
+        Observaciones: str | None = None,
+        NombreFoto: str | None = None,
+        Cartilla: str | None = None,
+        Eutanasia: str | None = None,
+        RazaPPP: str | None = None,
+        Mestizo: str | None = None,
+        EutanasiaOtrasCausas: str | None = None,
+        EutanasiaEnfermedad: str | None = None,
+        UltimoEstadoAntesDeFallecido: str | None = None,
+        ComunicacionARIAC: str | None = None,
     ) -> Animal:
         """Insert a new animal and return the persisted row.
 
-        The adapter is responsible for the primary-key generation
+        The 24 writable fields have parity with ``AnimalForm`` and the
+        corresponding fields on the 28-field hexagonal entity. The adapter is
+        responsible for the primary-key generation
         (``id`` comes back via ``INSERT ... RETURNING id``) and for
         any transport-specific uniqueness check on ``NCHIP``. The
         returned :class:`Animal` reflects the row as stored, including
@@ -114,7 +135,7 @@ class AnimalsPort(Protocol):
         Protocol-level exception so callers stay transport-free.
         """
 
-    def update_animal(
+    def update_animal(  # noqa: N803, PLR0913  # schema-named fields mirror AnimalForm except saga-owned NCHIP
         self,
         animal_id: str,
         *,
@@ -122,10 +143,31 @@ class AnimalsPort(Protocol):
         especie: Especie | None = None,
         sexo: Sexo | None = None,
         fnacimiento: str | None = None,
+        TraeNChip: str | None = None,
+        FIMPLANTACIONCHIP: str | None = None,
+        Raza: str | None = None,
+        Color: str | None = None,
+        Pelo: str | None = None,
+        Tamano: str | None = None,
+        Caracter: str | None = None,
+        FDefuncion: str | None = None,
+        Terapia: str | None = None,
+        Observaciones: str | None = None,
+        NombreFoto: str | None = None,
+        Cartilla: str | None = None,
+        Eutanasia: str | None = None,
+        RazaPPP: str | None = None,
+        Mestizo: str | None = None,
+        EutanasiaOtrasCausas: str | None = None,
+        EutanasiaEnfermedad: str | None = None,
+        UltimoEstadoAntesDeFallecido: str | None = None,
+        ComunicacionARIAC: str | None = None,
     ) -> Animal | None:
         """Update the named fields of the animal with ``animal_id``.
 
-        Each kwarg is ``None``-skipped — a partial update writes only
+        The mutable fields have parity with the writable subset of the
+        28-field hexagonal entity. NCHIP changes remain exclusive to the chip
+        saga. Each kwarg is ``None``-skipped — a partial update writes only
         the fields the caller passed. Passing every kwarg as ``None``
         is a no-op that returns the current row (a future slice could
         reject this as a validation error; for now the legacy

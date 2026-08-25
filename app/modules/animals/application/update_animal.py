@@ -16,6 +16,7 @@ StrEnum constructor unchanged — invalid values raise ``ValueError``
 in the adapter, which the application layer lets propagate so the
 route handler translates it into a 422.
 """
+# ruff: noqa: N803 — kwargs intentionally preserve legacy schema column names
 from __future__ import annotations
 
 from app.modules.animals.domain.animal import Animal, Especie, Sexo
@@ -48,7 +49,7 @@ def _optional_non_blank(value: str | None) -> str | None:
     return stripped
 
 
-def update_animal(
+def update_animal(  # noqa: N803, PLR0913  # schema-named fields mirror AnimalForm except saga-owned NCHIP
     animals_port: AnimalsPort,
     animal_id: str,
     *,
@@ -56,6 +57,25 @@ def update_animal(
     especie: Especie | None = None,
     sexo: Sexo | None = None,
     fnacimiento: str | None = None,
+    TraeNChip: str | None = None,
+    FIMPLANTACIONCHIP: str | None = None,
+    Raza: str | None = None,
+    Color: str | None = None,
+    Pelo: str | None = None,
+    Tamano: str | None = None,
+    Caracter: str | None = None,
+    FDefuncion: str | None = None,
+    Terapia: str | None = None,
+    Observaciones: str | None = None,
+    NombreFoto: str | None = None,
+    Cartilla: str | None = None,
+    Eutanasia: str | None = None,
+    RazaPPP: str | None = None,
+    Mestizo: str | None = None,
+    EutanasiaOtrasCausas: str | None = None,
+    EutanasiaEnfermedad: str | None = None,
+    UltimoEstadoAntesDeFallecido: str | None = None,
+    ComunicacionARIAC: str | None = None,
 ) -> Animal | None:
     """Update the named fields of ``animal_id``; return the new row.
 
@@ -71,6 +91,25 @@ def update_animal(
         especie=especie,
         sexo=sexo,
         fnacimiento=fnacimiento,
+        TraeNChip=TraeNChip,
+        FIMPLANTACIONCHIP=FIMPLANTACIONCHIP,
+        Raza=Raza,
+        Color=Color,
+        Pelo=Pelo,
+        Tamano=Tamano,
+        Caracter=Caracter,
+        FDefuncion=FDefuncion,
+        Terapia=Terapia,
+        Observaciones=Observaciones,
+        NombreFoto=NombreFoto,
+        Cartilla=Cartilla,
+        Eutanasia=Eutanasia,
+        RazaPPP=RazaPPP,
+        Mestizo=Mestizo,
+        EutanasiaOtrasCausas=EutanasiaOtrasCausas,
+        EutanasiaEnfermedad=EutanasiaEnfermedad,
+        UltimoEstadoAntesDeFallecido=UltimoEstadoAntesDeFallecido,
+        ComunicacionARIAC=ComunicacionARIAC,
     )
 
 
