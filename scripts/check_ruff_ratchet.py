@@ -80,14 +80,14 @@ BASELINE: dict[str, int] = {
     # Renombrados a ``_client`` para silenciar el checker sin perder la
     # firma pública. Se ELIMINA la entrada por la misma razón que ERA001:
     # un ARG002 nuevo debe caer en la rama de regla desconocida y fallar.
-    "N802": 1,
+    "N802": 0,  # locked in 2026-08-24: capital-letter function name removed
     "N803": 5,
     "N806": 2,
     "N815": 2,
     "N818": 3,
-    "PLR0911": 10,
+    "PLR0911": 9,  # locked in 2026-08-24: one too-many-returns site refactored away
     "PLR0912": 9,  # bumped 8 -> 9 by Slice 3 (scripts/_ratchet_deadline.py adds 1 too-many-branches)
-    "PLR0913": 40,  # bumped 39 -> 40 by Slice #420-7 (change_animal_chip: use case adds 1 too-many-arguments on top of the four already-baselined surfaces)
+    "PLR0913": 45,  # bumped 40 -> 45 by Slice #420-7 PR-A.1 (search_animals: 9-filter legacy contract needs port + 9 kwargs; 5 new surfaces added: AnimalsPort.search_animals protocol, AnimalsInsforgeAdapter.search_animals, _animal_search_where, search_animals_sql, count_animals_sql)
     # PLR0915 fue retirado del baseline al completarse el triaje del issue #390
     # (1 -> 0). El sitio era ``MigrationReport.to_markdown`` en
     # ``migration/reporting.py`` con 75 statements en una sola función. Se
@@ -165,7 +165,7 @@ BASELINE: dict[str, int] = {
     # SIM910 retirado del baseline al llegar a 0 (issue #390). Se ELIMINA en vez
     # de ponerse a 0, igual que ERA001: asi un SIM910 nuevo cae en la rama de
     # regla desconocida y para el CI en vez de consumir una cuota.
-    "TRY003": 185,
+    "TRY003": 187,  # bumped 185 -> 187 by Slice #420-7 PR-A.1 (2 operator-facing RuntimeError diagnostics on create_animal / record_lifecycle_event adapter paths, raised when INSERT ... RETURNING produces no rows — transport-shape drift detection for the operator)
     "TRY004": 10,
     "TRY300": 1,
 }

@@ -6,6 +6,13 @@ InsForge's PostgREST adapter.
 """
 from __future__ import annotations
 
+from app.modules.animals.domain.animal import DB_LABEL_TO_ESTADO
+
+GET_ANIMAL_BY_ID_SQL: str = (
+    "SELECT id, \"NCHIP\", \"NombreAnimal\", \"Especie\", \"Sexo\", "
+    "\"FNacimiento\", activo FROM animales WHERE id = $1 LIMIT 1"
+)
+
 GET_ANIMAL_BY_NCHIP_SQL: str = (
     "SELECT id, \"NCHIP\", \"NombreAnimal\", \"Especie\", \"Sexo\", "
     "\"FNacimiento\", activo "
@@ -23,6 +30,128 @@ def get_animal_by_nchip_sql(nchip: str) -> tuple[str, list[str]]:
     adapter delegates here so the SQL is defined once.
     """
     return GET_ANIMAL_BY_NCHIP_SQL, [nchip]
+
+
+SEARCH_ANIMALS_SQL: str = (
+    "SELECT a.id, a.\"NCHIP\", a.\"NombreAnimal\", a.\"Especie\", "
+    "a.\"Sexo\", a.\"FNacimiento\", a.activo "
+    "FROM animales a "
+    "{join_clause}"
+    "WHERE {where_clause} "
+    'ORDER BY a."NCHIP" ASC '
+    "LIMIT ${limit_position} OFFSET ${offset_position}"
+)
+
+COUNT_ANIMALS_SQL: str = (
+    "SELECT COUNT(*) AS total FROM animales a "
+    "{join_clause}"
+    "WHERE {where_clause}"
+)
+
+_ESTADO_TO_DB_LABEL: dict[str, str] = {
+    api_estado: db_label for db_label, api_estado in DB_LABEL_TO_ESTADO.items()
+}
+
+
+def _animal_search_where(
+    *,
+    q: str | None,
+    chip: str | None,
+    especie: str | None,
+    sexo: str | None,
+    estado: str | None,
+    fecha_alta_since: str | None,
+    fecha_alta_until: str | None,
+) -> tuple[str, str, list[object]]:
+    """Build the shared search/count JOIN, WHERE clause, and bind values."""
+    conditions = ["a.activo = TRUE"]
+    params: list[object] = []
+
+    def add(condition: str, value: object) -> None:
+        params.append(value)
+        conditions.append(f"{condition} ${len(params)}")
+
+    if chip:
+        add('a."NCHIP" =', chip)
+    elif q:
+        add('a."NombreAnimal" ILIKE', f"%{q}%")
+    if especie:
+        add('a."Especie" =', especie)
+    if sexo:
+        add('a."Sexo" =', sexo)
+
+    db_estado = _ESTADO_TO_DB_LABEL.get(estado) if estado else None
+    join_clause = ""
+    if db_estado is not None:
+        join_clause = (
+            "LEFT JOIN animal_current_state acs ON a.id = acs.animal_id "
+        )
+        add("acs.current_state =", db_estado)
+
+    if fecha_alta_since:
+        add("a.fecha_alta >=", fecha_alta_since)
+    if fecha_alta_until:
+        add("a.fecha_alta <=", fecha_alta_until)
+
+    return join_clause, " AND ".join(conditions), params
+
+
+def search_animals_sql(
+    *,
+    q: str | None,
+    chip: str | None,
+    especie: str | None,
+    sexo: str | None,
+    estado: str | None,
+    fecha_alta_since: str | None,
+    fecha_alta_until: str | None,
+    limit: int,
+    offset: int,
+) -> tuple[str, list[object]]:
+    """Return SQL and binds for one filtered page ordered by NCHIP."""
+    join_clause, where_clause, params = _animal_search_where(
+        q=q,
+        chip=chip,
+        especie=especie,
+        sexo=sexo,
+        estado=estado,
+        fecha_alta_since=fecha_alta_since,
+        fecha_alta_until=fecha_alta_until,
+    )
+    limit_position = len(params) + 1
+    sql = SEARCH_ANIMALS_SQL.format(
+        join_clause=join_clause,
+        where_clause=where_clause,
+        limit_position=limit_position,
+        offset_position=limit_position + 1,
+    )
+    return sql, [*params, limit, offset]
+
+
+def count_animals_sql(
+    *,
+    q: str | None,
+    chip: str | None,
+    especie: str | None,
+    sexo: str | None,
+    estado: str | None,
+    fecha_alta_since: str | None,
+    fecha_alta_until: str | None,
+) -> tuple[str, list[object]]:
+    """Return an unpaginated count over the search WHERE clause."""
+    join_clause, where_clause, params = _animal_search_where(
+        q=q,
+        chip=chip,
+        especie=especie,
+        sexo=sexo,
+        estado=estado,
+        fecha_alta_since=fecha_alta_since,
+        fecha_alta_until=fecha_alta_until,
+    )
+    return COUNT_ANIMALS_SQL.format(
+        join_clause=join_clause,
+        where_clause=where_clause,
+    ), params
 
 
 # ``list_animals`` — paginated read, oldest-first by NCHIP. The legacy
@@ -410,7 +539,9 @@ __all__ = [
     "BEGIN_TX_SQL",
     "CHECK_CHIP_UNIQUENESS_SQL",
     "COMMIT_TX_SQL",
+    "COUNT_ANIMALS_SQL",
     "DELETE_ANIMAL_SQL",
+    "GET_ANIMAL_BY_ID_SQL",
     "GET_ANIMAL_BY_NCHIP_SQL",
     "GET_ANIMAL_PHOTO_META_SQL",
     "GET_CURRENT_CHIP_SQL",
@@ -420,6 +551,7 @@ __all__ = [
     "LIST_LIFECYCLE_EVENTS_COLUMNS",
     "RECORD_LIFECYCLE_EVENT_COLUMNS",
     "ROLLBACK_TX_SQL",
+    "SEARCH_ANIMALS_SQL",
     "UPDATE_ACOGIDAS_CHIP_SQL",
     "UPDATE_ACTUACIONES_SANITARIAS_CHIP_SQL",
     "UPDATE_ADOPCIONES_CHIP_SQL",
@@ -428,11 +560,13 @@ __all__ = [
     "UPDATE_ENTRADAS_CHIP_SQL",
     "UPDATE_TERAPIAS_CHIP_SQL",
     "create_animal_sql",
+    "count_animals_sql",
     "delete_animal_sql",
     "get_animal_by_nchip_sql",
     "get_animal_photo_meta_sql",
     "list_animals_sql",
     "list_lifecycle_events_sql",
     "record_lifecycle_event_sql",
+    "search_animals_sql",
     "update_animal_sql",
 ]
