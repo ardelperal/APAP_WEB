@@ -88,8 +88,8 @@ Rules:
 - **Inside `app/modules/**`, cross-slice imports go through the public
   package root.** `from app.modules.animals import get_animal_by_id` is
   fine — the target slice's `__init__.py` decides what it exposes, and
-  that decision stays reviewable. `from app.modules.animals.service
-  import get_animal_by_id` is not: it welds the caller to the
+  that decision stays reviewable. Importing the same capability from an
+  internal adapter module is not: it welds the caller to the
   callee's internal file layout.
 
 ## The ratchet

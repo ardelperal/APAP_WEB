@@ -60,7 +60,7 @@ def get_settings_rol(self):
 
 ## Regla 27 — Los imports cross-módulo van solo por la API pública del módulo destino
 
-La auditoría de mapa de dependencias del 2026-07-20 confirmó que este proyecto es por lo demás un DAG limpio con casi cero acoplamiento entre módulos — la mayoría de los módulos de dominio bajo `app/modules/` no importa nada entre sí. Surgieron dos excepciones: `app/modules/foster/assignment.py` importaba `app.modules.animals.service` directamente (saltándose `animals/__init__.py`, que no expone API pública — issue #231), y `app/modules/acogidas/routes.py` hacía el shorthand-submodule import equivalente a `foster.assignment` en lugar de usar el nombre `assignment_service` que `foster/__init__.py` ya exporta públicamente (arreglado directamente en el PR que añadió esta regla). Esta regla existe para mantener el DAG limpio a medida que el proyecto crezca a más módulos.
+La auditoría de mapa de dependencias del 2026-07-20 confirmó un DAG casi limpio. Las dos excepciones históricas fueron un import directo desde foster al servicio interno de animales y un shorthand-submodule desde acogidas a foster. Ambas se retiraron. Esta regla mantiene el DAG limpio.
 
 Desde `app/modules/<A>/`, un import de `app/modules/<B>/` (A != B) debe (a) importar desde el paquete `app.modules.<B>` (su superficie pública en `__init__.py`), nunca una ruta de submódulo como `app.modules.<B>.service` — incluido el shorthand `from app.modules.<B> import service`, que alcanza el mismo submódulo — y (b) nunca importar un nombre que empiece por `_`, sin importar la fuente.
 
@@ -75,7 +75,7 @@ from app.modules.animals import service as animals_service
 
 ```python
 # app/modules/animals/__init__.py
-from app.modules.animals.service import get_animal_by_id
+from app.modules.animals.application.get_animal_by_id import get_animal_by_id
 
 # app/modules/foster/assignment.py
 from app.modules.animals import get_animal_by_id

@@ -183,7 +183,6 @@ Highest-value targets, by density:
 | `app/modules/adopciones/service.py` | 527 | 110 | 20.9 |
 | `migration/diff_engine.py` | 642 | 131 | 20.4 |
 | `app/core/insforge.py` | 690 | 112 | 16.2 |
-| `app/modules/animals/queries.py` | 238 | 65 | 27.3 (blocked on #435) |
 
 ### Environment
 
@@ -257,7 +256,7 @@ Continuation session, ~5 hours, user out of house partway through.
 | A3 | #432 | `ba489c6` | Rebase onto post-#429 main. Added **tag trigger** to `mutation` job (`startsWith(github.ref, 'refs/tags/')`) — missing from the original PR. Added **backslash normalization** in `scripts/check_mutation.py` (Linux `Path` doesn't treat `\` as a separator, so `as_posix()` on Windows-recorded session SQLite was OS-dependent — `test_read_session_normalizes_windows_module_paths` failed in CI until `.replace("\\", "/")` was added). Merged. |
 | B1 | #444 | `91e6f79` | Rebase-and-merge of PR #438's hexagonal layer gate onto post-#429 + post-#432 main. The PR #438 branch was developed in parallel to PR #429 and DELETED 8 files + 17 lines of `pyproject.toml` that PR #429 added — resolution was to bring only the additions (check_layers.py, test_layers.py, capas-y-slices.md, ci.yml step, AGENTS.md §33 enforcement, Makefile check-layers target). Plus a lint-clean refactor of `scripts/check_layers.py` (C901/PLR0911/PLR2004/SIM102) with **zero baseline bump** — Path A only, no Path B. File grew 609 → 673 lines (still under §21 cap). |
 | B2 | #447 | `61e1ad1` | Resolve #437: `_check_slice` recognises a target under `app/core/` as cross-cutting (asymmetric: `modules/.../delivery → core/...` allowed; `core/<slice_a>/<file> → core/<slice_b>/<submodule>` for non-di still banned). New helper `_is_cross_cutting_core_target(module, layer)` — `layer == "delivery"` guard makes it one-directional. Removed `@pytest.mark.xfail(strict=True)` from `test_delivery_may_import_inward`. BASELINE entries removed: **none** (issue text mentions animals/acogidas routes, but actual code imports `app.core.auth_dependencies`, not `app.core.application.auth.get_user`). |
-| C1 | #446 | `4e2863a` | `tests/test_animals_queries.py` — 36 cases pinning every public builder of `app/modules/animals/queries.py` (the highest-density queries module at 27.3 sites/100 LOC). Includes dynamic-filter paths (chip-precedence-over-q, all-filters-combined pins `$N` order) and `DB_LABEL_TO_ESTADO` round-trips + unmapped. Unblocks the module as a mutation target per #434. |
+| C1 | #446 | `4e2863a` | Added 36 cases for the former animal query shim. Epic #420 later retired that shim in favor of the InsForge adapter query seam. |
 | C2 | #448 | `c5ad0bc` | 36 table-driven test cases in `tests/test_derivation.py` that exercise each surviving-mutation cluster independently (priority-cascade clauses, `==`/`!=` boundary literals, identity operators, missing-vs-zero key fallbacks). Plus a baseline-pin test in `tests/test_ci_workflow.py` (AGENTS.md §32.P3) that asserts `mutation-baseline.json[migration/derivation.py]` stays ≤ 38. **Baseline left at 38 (Path X)** — Linux acquisition required for a real number; CI `mutation` job (schedule+dispatch+tag) will corroborate the new count on its next run; a follow-up PR narrows the entry. |
 | CI | #452 | `b53109b` | Migrate basic CI gates from `runs-on: [self-hosted, Linux, ARM64, apap, oracle]` to `runs-on: ubuntu-latest` because the Oracle VPS runner developed a chronic session-renewal problem. Also fixed `tests/test_security_scanning.py` (still asserting the old runner) and refactored `migration/lock.py::acquire_lock` to lower its CRAP score from 26.54 to 1.00 (CC 14 → 1, 5 small helpers, 100% coverage). |
 | B3 | #449 | `e430140` | Slice-completeness gate (`scripts/check_slice_completeness.py`, 759 LOC since `scripts/` is exempt from the §21 cap). Four assertions per slice: port Protocol declared, adapter wired from `di/`, application layer adapter-free, every occupied layer has a test file. 23 tests pass; gate OK with 4 baselined violations. |
@@ -280,7 +279,7 @@ Continuation session, ~5 hours, user out of house partway through.
 | D2 | A4 PR lands with `PENDING LINUX ACQUISITION` baseline marker, not skipped | §32.P3 — a measurement whose failure mode is silence is worse than no measurement |
 | D3 | B4 is a separate gate (`check_migration_boundaries.py`), not an extension of `check_layers.py` | `migration/` is not hexagonal; forcing hexagonal rules on ETL manufactures false confidence |
 | D4 | C2 tests written without local verification that mutations die (Windows-broken cosmic-ray). Baseline entry pinned to the pre-PR main-branch measurement | Same as D2; CI `mutation` job (Linux, scheduled) will corroborate |
-| D5 | For C1, `codegraph_explore` before reading `app/modules/animals/queries.py` | §14 — CodeGraph is Read-equivalent |
+| D5 | For C1, `codegraph_explore` preceded inspection of the then-current animal query shim | §14 — CodeGraph is Read-equivalent |
 
 All five are reversible. Tell me when you're back if any of them should be undone.
 

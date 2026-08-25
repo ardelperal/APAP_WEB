@@ -25,6 +25,14 @@ import pytest
 
 from app.core.insforge import InsForgeClient
 from app.main import app, get_insforge_client
+from app.modules.animals.adapters.insforge.animals_insforge_adapter import (
+    AnimalsInsforgeAdapter,
+)
+from app.modules.animals.adapters.insforge.animals_insforge_chip_cascade import (
+    AnimalsInsforgeChipCascade,
+)
+from app.modules.animals.di.animals_di import get_animals_port
+from app.modules.animals.domain.change_chip_result import ChangeChipResult
 
 # =============================================================================
 # Fixtures and helpers shared by route-level and service-level tests
@@ -87,8 +95,12 @@ def animals_spy() -> _ChipCascadeSpy:
     """Override get_insforge_client dependency with a spy for auth revalidation."""
     spy = _ChipCascadeSpy()
     app.dependency_overrides[get_insforge_client] = lambda: spy
+    app.dependency_overrides[get_animals_port] = lambda: AnimalsInsforgeAdapter(
+        spy, storage=spy
+    )
     yield spy
     app.dependency_overrides.pop(get_insforge_client, None)
+    app.dependency_overrides.pop(get_animals_port, None)
 
 
 def _login_as_key_user(client: httpx.AsyncClient) -> None:
@@ -139,9 +151,13 @@ async def _chip_route_response(
     # Configure spy for get_animal_by_id
     animals_spy.get_animal_by_id_rows = get_animal_by_id_rows
 
-    # Patch the `change_animal_chip` symbol in `animals_service` with a stub.
+    # Patch the adapter delegation used directly by the route.
     from unittest.mock import patch
-    with patch("app.modules.animals.service.change_animal_chip", return_value=change_chip_result):
+    with patch.object(
+        AnimalsInsforgeAdapter,
+        "change_animal_chip",
+        return_value=change_chip_result,
+    ):
         response = await client.patch(
             "/animales/abc-123/chip",
             json={"new_chip": "222", "reason": "Chip fisurado"},
@@ -155,8 +171,6 @@ async def test_change_chip_route_returns_404_when_animal_not_found(
     animals_spy,
 ) -> None:
     """Animal not found -> 404, no call to change_animal_chip."""
-    from app.modules.animals.service import ChangeChipResult
-
     _login_as_key_user(client)
     result = ChangeChipResult(
         success=False, old_chip="", new_chip="", updated_tables={}, error=None
@@ -176,8 +190,6 @@ async def test_change_chip_route_returns_409_when_chip_already_assigned(
     monkeypatch,
 ) -> None:
     """change_animal_chip returns success=False with 'ya esta asignado' -> 409."""
-    from app.modules.animals.service import ChangeChipResult
-
     _login_as_key_user(client)
     result = ChangeChipResult(
         success=False,
@@ -206,8 +218,6 @@ async def test_change_chip_route_returns_422_when_old_chip_mismatch(
     monkeypatch,
 ) -> None:
     """change_animal_chip returns success=False without 'ya esta asignado' -> 422."""
-    from app.modules.animals.service import ChangeChipResult
-
     _login_as_key_user(client)
     result = ChangeChipResult(
         success=False,
@@ -236,8 +246,6 @@ async def test_change_chip_route_returns_200_on_success(
     monkeypatch,
 ) -> None:
     """change_animal_chip returns success=True -> 200 with result dict."""
-    from app.modules.animals.service import ChangeChipResult
-
     _login_as_key_user(client)
     result = ChangeChipResult(
         success=True,
@@ -274,8 +282,6 @@ async def test_change_chip_route_returns_200_on_success(
 
 def test_chip_change_cascades_to_all_six_tables():
     """Cuando el chip cambia, las 6 tablas se actualizan atomicamente."""
-    from app.modules.animals.service import change_animal_chip
-
     captured_queries: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -285,11 +291,11 @@ def test_chip_change_cascades_to_all_six_tables():
         params: list[Any] = body.get("params", [])
 
         # uniqueness: no other animal has new_chip=222
-        if "select id from animals where nchip" in query and params == ["222", "a1"]:
+        if "select id from animales where \"nchip\"" in query and params == ["222", "a1"]:
             return _json_response(200, {"rows": [], "rowCount": 0, "fields": []})
 
         # get current chip: animal exists, chip="111"
-        if "select nchip from animals where id" in query and params == ["a1"]:
+        if "select \"nchip\" from animales where id" in query and params == ["a1"]:
             return _json_response(200, {"rows": [{"NCHIP": "111"}], "rowCount": 1, "fields": []})
 
         # UPDATE entradas: 2 rows affected
@@ -318,8 +324,7 @@ def test_chip_change_cascades_to_all_six_tables():
         transport=transport,
     )
 
-    result = change_animal_chip(
-        client,
+    result = AnimalsInsforgeChipCascade(client).change_animal_chip(
         animal_id="a1",
         old_chip="111",
         new_chip="222",
@@ -345,14 +350,12 @@ def test_chip_change_cascades_to_all_six_tables():
 
 def test_chip_change_returns_false_when_new_chip_already_assigned():
     """409-equivalente: si new_chip ya pertenece a otro animal, no se modifica nada."""
-    from app.modules.animals.service import change_animal_chip
-
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content.decode("utf-8"))
         query = body.get("query", "").lower()
         params: list[Any] = body.get("params", [])
         # uniqueness: another animal already has new_chip
-        if "select id from animals where nchip" in query and params == ["222", "a1"]:
+        if "select id from animales where \"nchip\"" in query and params == ["222", "a1"]:
             return _json_response(200, {"rows": [{"id": "other-animal"}], "rowCount": 1, "fields": []})
         return _json_response(200, {"rows": [], "rowCount": 0, "fields": []})
 
@@ -363,8 +366,7 @@ def test_chip_change_returns_false_when_new_chip_already_assigned():
         transport=transport,
     )
 
-    result = change_animal_chip(
-        client,
+    result = AnimalsInsforgeChipCascade(client).change_animal_chip(
         animal_id="a1",
         old_chip="111",
         new_chip="222",
@@ -373,13 +375,11 @@ def test_chip_change_returns_false_when_new_chip_already_assigned():
     )
 
     assert result.success is False
-    assert "ya esta asignado" in result.error
+    assert "ya está asignado" in result.error
 
 
 def test_chip_change_returns_false_when_old_chip_mismatch():
     """422-equivalente: si old_chip no coincide, no se modifica nada."""
-    from app.modules.animals.service import change_animal_chip
-
     call_count = [0]
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -387,10 +387,10 @@ def test_chip_change_returns_false_when_old_chip_mismatch():
         body = json.loads(request.content.decode("utf-8"))
         query = body.get("query", "").lower()
         # uniqueness: no conflict
-        if "select id from animals where nchip" in query:
+        if "select id from animales where \"nchip\"" in query:
             return _json_response(200, {"rows": [], "rowCount": 0, "fields": []})
         # animal exists but chip is "333", not "111"
-        if "select nchip from animals where id" in query:
+        if "select \"nchip\" from animales where id" in query:
             return _json_response(200, {"rows": [{"NCHIP": "333"}], "rowCount": 1, "fields": []})
         return _json_response(200, {"rows": [], "rowCount": 0, "fields": []})
 
@@ -401,8 +401,7 @@ def test_chip_change_returns_false_when_old_chip_mismatch():
         transport=transport,
     )
 
-    result = change_animal_chip(
-        client,
+    result = AnimalsInsforgeChipCascade(client).change_animal_chip(
         animal_id="a1",
         old_chip="111",  # mismatched!
         new_chip="222",
@@ -418,16 +417,14 @@ def test_chip_change_returns_false_when_old_chip_mismatch():
 
 def test_chip_change_rollback_on_table_failure():
     """Si una tabla falla, todas las demas se revierten (ROLLBACK)."""
-    from app.modules.animals.service import change_animal_chip
-
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content.decode("utf-8"))
         query = body.get("query", "").lower()
         # uniqueness
-        if "select id from animals where nchip" in query:
+        if "select id from animales where \"nchip\"" in query:
             return _json_response(200, {"rows": [], "rowCount": 0, "fields": []})
         # get current chip
-        if "select nchip from animals where id" in query:
+        if "select \"nchip\" from animales where id" in query:
             return _json_response(200, {"rows": [{"NCHIP": "111"}], "rowCount": 1, "fields": []})
         # UPDATE entradas → InsForge error
         if "update entradas set chip" in query:
@@ -441,8 +438,7 @@ def test_chip_change_rollback_on_table_failure():
         transport=transport,
     )
 
-    result = change_animal_chip(
-        client,
+    result = AnimalsInsforgeChipCascade(client).change_animal_chip(
         animal_id="a1",
         old_chip="111",
         new_chip="222",
@@ -456,14 +452,12 @@ def test_chip_change_rollback_on_table_failure():
 
 def test_chip_change_validates_empty_fields():
     """new_chip vacio o igual a old_chip levanta ValueError antes de SQL."""
-    from app.modules.animals.service import change_animal_chip
-
     mock_client = MagicMock()
+    cascade = AnimalsInsforgeChipCascade(mock_client)
 
     # empty new_chip
     with pytest.raises(ValueError, match="new_chip"):
-        change_animal_chip(
-            mock_client,
+        cascade.change_animal_chip(
             animal_id="a1",
             old_chip="111",
             new_chip="",
@@ -473,8 +467,7 @@ def test_chip_change_validates_empty_fields():
 
     # same as old
     with pytest.raises(ValueError, match="new_chip"):
-        change_animal_chip(
-            mock_client,
+        cascade.change_animal_chip(
             animal_id="a1",
             old_chip="111",
             new_chip="111",
@@ -484,8 +477,7 @@ def test_chip_change_validates_empty_fields():
 
     # empty reason
     with pytest.raises(ValueError, match="reason"):
-        change_animal_chip(
-            mock_client,
+        cascade.change_animal_chip(
             animal_id="a1",
             old_chip="111",
             new_chip="222",

@@ -71,15 +71,15 @@ Además, el runbook operator `docs/runbooks/live-migration-apply.md` carga el wo
 
 ### Re-audit de layering del issue #233 (2026-07-20)
 
-El fail-closed decision tree se movió del HTTP handler a `photo_service.resolve_animal_photo`. La ruta ahora realiza solo el auth short-circuit, la traducción 404 y la construcción del `Response`. El move no amplía el acceso ni expone metadata de storage: las excepciones de lookup retienen el mismo evento `log_safe("animal_foto.sql_lookup_failed", reason=...)`, mientras que las missing keys, empty streams y typed storage failures retienen los mismos placeholder bytes y media type. Los átomos de ruta existentes más `tests/test_animal_photo_resolution.py` verifican el boundary preservado.
+El árbol fail-closed vive en `adapters/insforge/animals_insforge_photo.py`. La ruta solo aplica auth, traduce 404 y construye el streaming response. Los tests de ruta y adaptador verifican el boundary preservado.
 
 ## Findings
 
 | Severity | Title | Form | Details |
 |---|---|---|---|
-| MEDIUM | El sentinel placeholder es un PNG 1x1 transparente estático; los usuarios no ven ningún hint de "imagen rota" | deferred | `app/modules/animals/photo_service.py::PLACEHOLDER_PHOTO_PNG`; `app/modules/animals/photo_service.py::SENTINEL_KEY`. Mejora de UX, no un defecto de seguridad. Aceptado (fuera del alcance de PR4b). |
+| MEDIUM | El sentinel placeholder es un PNG 1x1 transparente estático; los usuarios no ven ningún hint de "imagen rota" | deferred | `animals_insforge_photo.py::PLACEHOLDER_PHOTO_PNG`; `animals_insforge_photo.py::PHOTO_SENTINEL_KEY`. Mejora de UX, no un defecto de seguridad. Aceptado (fuera del alcance de PR4b). |
 | MEDIUM | `delete_object` 404 devuelve `None` (idempotente) — si el operador loguea el valor de retorno no ve señal de "ya ausente" | deferred | `tests/migration/test_insforge_storage_methods.py::test_delete_object_404_is_idempotent_noop`. Sin leak de PII ni de secretos; solo operator UX. Aceptado (fuera del alcance de PR4b). |
-| LOW | `content_type_for_key` cae a `application/octet-stream` para extensiones desconocidas; los navegadores descargarán en vez de inline | deferred | `app/modules/animals/photo_service.py::content_type_for_key`. Default defensivo, sin impacto de seguridad. Aceptado. |
+| LOW | El resolver cae a `application/octet-stream` para extensiones desconocidas; los navegadores descargarán en vez de inline | deferred | `animals_insforge_photo.py::_content_type`. Default defensivo, sin impacto de seguridad. Aceptado. |
 | LOW | `voluntarios.dni` es web-only shadow (verificado vía Dysflow `get_schema` 2026-07-11: cero columna DNI en `TbVoluntariosParaAutorrellenables`) | deferred | Forward legacy apply must dejar `dni=NULL`; las colisiones solo surgen de manual web entry (UNIQUE constraint) o reverse-path (no hay columna legacy que recibir). `migration/mappings/voluntario.yaml` (`DNI: legacy_column: null`); `tests/test_log_safe_redaction.py::test_log_safe_redacts_each_new_pii_field_value[dni]`; la fila `dni` en la tabla Scope de arriba. Por diseño — preserva la fidelidad P1 al schema legacy verificado. |
 | LOW | El audit doc se renderizó en inglés por default del artifact; el registro preferido del proyecto para docs de operador es castellano de España | deferred | El default (inglés) se eligió porque la regla de artifact-language (technical artifacts default to English a menos que el proyecto solicite explícitamente otro idioma) toma precedencia sobre la preferencia de operator-doc para este audit. `docs/audits/pii-live-migration-2026-Q3.md` (este fichero). Aceptado — el operador puede solicitar un render en castellano en un follow-up. |
 
@@ -175,7 +175,7 @@ El operador must revisar y aceptar este verdict como parte de la M1 acceptance g
 
 - `app/core/logging.py::REDACTED_FIELDS` (15 entradas).
 - `app/main.py:148` (`PUBLIC_PATHS` 5-entry shape).
-- `app/modules/animals/photo_service.py` (`PLACEHOLDER_PHOTO_PNG`, `SENTINEL_KEY`, `content_type_for_key`).
+- `app/modules/animals/adapters/insforge/animals_insforge_photo.py` (placeholder, sentinel y resolución de media type).
 - `app/modules/animals/routes.py` (auth short-circuit + 404 translation + Response build).
 - `migration/mappings/voluntario.yaml` (`DNI: legacy_column: null`).
 - `migration/apply.py` (`apply_legacy_to_web(dni_collision_counter=...)` DI seam).
@@ -198,7 +198,7 @@ El operador must revisar y aceptar este verdict como parte de la M1 acceptance g
   - `tests/migration/test_cli.py`
   - `tests/test_public_paths.py`
   - `tests/test_animals_foto_route.py`
-  - `tests/test_animal_photo_resolution.py`
+  - `tests/test_animals_insforge_adapter.py`
   - `tests/test_runbook_links.py`
   - `tests/test_pii_audit_doc.py`
 - AGENTS.md §9 (`log_safe`), §10 (CSRF), §13 (runbook), §18 (web ↔ legacy mutual exclusion + sync), §23 (E2E).

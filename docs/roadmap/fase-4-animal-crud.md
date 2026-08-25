@@ -2,11 +2,11 @@
 
 # Fase 4 — Entidad Animal (Feature 01)
 
-Esta página posee el estado de la Fase 4: CRUD de animales, búsqueda parametrizada, timeline de eventos y motor de estado derivado. En curso vía la ruta hexagonal del epic #420. Depende de Fase 3.
+Esta página posee el estado de la Fase 4: CRUD de animales, búsqueda parametrizada, timeline de eventos y motor de estado derivado. La integración hexagonal del epic #420 está completada. Depende de Fase 3.
 
 ## Estado
 
-En curso (slice hexagonal). El epic #420 ("hexagonal vertical-slice refactor") está migrando el CRUD de animales de la forma legacy a la hexagonal capa por capa:
+Integración hexagonal completada. El epic #420 migró lectura, escritura, chip y foto a `AnimalsPort`:
 
 | Método hexagonal | PR | Notas |
 |---|---|---|
@@ -17,33 +17,29 @@ En curso (slice hexagonal). El epic #420 ("hexagonal vertical-slice refactor") e
 | `AnimalsPort.delete_animal` | #604 | Soft-delete (UPDATE activo=FALSE). |
 | `AnimalsPort.record_lifecycle_event` | #609 | INSERT idempotente (vía índice único natural y cláusula de conflicto). |
 | `AnimalsPort.list_lifecycle_events` | #610 | Read cronológico del timeline con filtro opcional por tipo. |
-| `AnimalsPort.change_animal_chip` | #612 | Saga transaccional sobre 6 tablas; valida unicidad del nuevo chip y registra el evento CHIP_CHANGED. |
-| `AnimalsPort.resolve_animal_photo` | #613 | Devuelve un recurso de foto neutral, con stream cerrable y PNG de sustitución cuando no hay foto (#285). La política HTTP queda para la futura integración con la ruta. |
+| `AnimalsPort.change_animal_chip` | #612, PR-C | Saga transaccional sobre 6 tablas; la ruta usa el port. |
+| `AnimalsPort.resolve_animal_photo` | #613, PR-C | Recurso neutral con stream cerrable; la ruta ya usa el port. |
 | `AnimalsPort.get_animal_by_id` | PR-A.1 | Read por UUID para detalle e integración foster. |
 | `AnimalsPort.search_animals` | PR-A.1 | Búsqueda paginada con nueve filtros. |
 
-Pendiente en el port: ninguno. Los once métodos de `AnimalsPort` han aterrizado.
+Pendiente en el port: ninguno. Los once métodos de `AnimalsPort` han aterrizado y todas las rutas de animales los usan.
 
-La conversión no está completa. El CRUD, la búsqueda, el formulario de edición y la integración foster usan el port; chip y foto siguen en los servicios legacy hasta PR-C.
+La conversión está completada al 100 %. Los shims legacy de servicio, chip, foto y queries se retiraron al cerrar el epic #420.
 
 La entidad hexagonal `Animal` contiene los 28 campos de lectura. PR-B migró los payloads de escritura al port; `updated_at` permanece interno al sistema.
 
-Las piezas no-hexagonales siguen en la forma legacy:
-- #30 (LIFECYCLE-05) search API — pendiente.
-- #33 (state resolver) — pendiente.
-- #69 (cache `estado_actual_animal`) — pendiente.
-- PR-A.2a migró `list_animales`, `animal_detail` y la integración foster. PR-A.2b migró `search_animales` y `edit_animal_form`. PR-B migró `create_animal_view`, `update_animal_view` y `delete_animal_view`. Quedan pendientes chip y foto (PR-C).
+Fuera del alcance del epic #420 quedan el state resolver (#33), la cache de `estado_actual_animal` (#69) y el pulido de la API de búsqueda (#30).
 
 ## Slices previstos
 
 | Slice | Estado | Issue / PR |
 |---|---|---|
 | CRUD de animales (alta, edición, baja lógica) | completado en rutas hexagonales | #587, #596, #597, #603, #604, epic #420 PR-B |
-| Búsqueda parametrizada de animales | pendiente | #30 |
+| Búsqueda parametrizada de animales | completada; pendiente de pulido | #30, epic #420 PR-A.2b |
 | Timeline de eventos del animal | pendiente | issue por crear |
 | Motor de estado derivado (`estado_actual_animal`) | pendiente | #33 |
 | Cache materializado de `estado_actual_animal` | pendiente | #69 |
-| Cambio de chip con cascade | pendiente (hexagonal port method) | #29 |
+| Cambio de chip con cascade | completado en ruta hexagonal | #29, epic #420 PR-C |
 
 ## Issues pendientes de crear
 

@@ -1,8 +1,6 @@
 """Animals routes: list, create, get, edit, delete (soft).
 
-Transitional thin layer over hexagonal use cases and the legacy
-``app.modules.animals.service``. CRUD handlers use ``AnimalsPort``; chip and
-photo handlers remain on the service.
+Thin HTTP layer over the animals slice's hexagonal use cases and port.
 
 Auth model (issue #66 RBAC): permissions are checked via
 ``require_permission`` from ``app.core.rbac``.  The permission matrix:
@@ -18,7 +16,6 @@ el copy-paste con ``app.modules.voluntarios.routes``.
 
 from __future__ import annotations
 
-from itertools import chain
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -32,6 +29,7 @@ from fastapi.responses import (
 )
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
+from starlette.background import BackgroundTask
 
 # Re-export for backwards compat with existing test imports.
 # The canonical location is app.core.auth_dependencies.
@@ -46,8 +44,6 @@ from app.core.insforge import InsForgeClient
 from app.core.logging import log_safe
 from app.core.middleware import base_template_context_processor
 from app.core.rbac import Permission, require_permission
-from app.modules.animals import photo_service
-from app.modules.animals import service as animals_service
 from app.modules.animals.application.get_animal_by_id import (
     get_animal_by_id as app_get_animal_by_id,
 )
@@ -404,19 +400,18 @@ def change_chip_view(
     animal_id: str,
     payload: ChipChangePayload,
     user: Annotated[Response | dict, Depends(require_authorized_user)],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    port: Annotated[AnimalsPort, Depends(get_animals_port)],
 ):
     """PATCH /animales/{id}/chip — cambia el chip en cascada a 6 tablas."""
     if (early := return_early_if_response(user)) is not None:
         return early
 
     user_id = user.get("user_id", "") if isinstance(user, dict) else ""
-    animal = animals_service.get_animal_by_id(client, animal_id)
+    animal = app_get_animal_by_id(port, animal_id)
     if animal is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
 
-    result = animals_service.change_animal_chip(
-        client,
+    result = port.change_animal_chip(
         animal_id=animal_id,
         old_chip=animal.NCHIP,
         new_chip=payload.new_chip,
@@ -433,7 +428,8 @@ def change_chip_view(
     )
 
     if not result.success:
-        if "ya esta asignado" in (result.error or ""):
+        error = result.error or ""
+        if "ya esta asignado" in error or "ya está asignado" in error:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=result.error)
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=result.error)
 
@@ -448,34 +444,26 @@ def change_chip_view(
 @router.get("/{animal_id}/foto")
 def animal_foto(
     animal_id: str,
-    request: Request,
     user: Annotated[Response | dict, Depends(require_permission(Permission.READ_ANIMALES))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    port: Annotated[AnimalsPort, Depends(get_animals_port)],
 ):
+    """Stream a transport-neutral photo asset resolved by ``AnimalsPort``."""
     if (early := return_early_if_response(user)) is not None:
         return early
-    outcome = photo_service.resolve_animal_photo(client, animal_id)
-    if outcome is None:
+    photo_asset = port.resolve_animal_photo(animal_id)
+    if photo_asset is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-    if outcome.status == "not_found":
-        return StreamingResponse(outcome.stream, media_type=outcome.content_type, headers={
-            "ETag": outcome.etag, "Cache-Control": outcome.cache_control,
-            **({"Content-Length": str(outcome.content_length)} if outcome.content_length else {}),
-        })
-    if request.headers.get("if-none-match") == outcome.etag:
-        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers={
-            "ETag": outcome.etag, "Cache-Control": outcome.cache_control})
-    try:
-        first_chunk = next(outcome.stream)
-    except StopIteration:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND) from None
-    except Exception as exc:
-        log_safe("animals.photo.stream_error", animal_id=animal_id, error=type(exc).__name__)
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND) from None
-    return StreamingResponse(chain([first_chunk], outcome.stream), media_type=outcome.content_type, headers={
-        "ETag": outcome.etag, "Cache-Control": outcome.cache_control,
-        **({"Content-Length": str(outcome.content_length)} if outcome.content_length else {}),
-    })
+    headers = (
+        {"Content-Length": str(photo_asset.content_length)}
+        if photo_asset.content_length is not None
+        else {}
+    )
+    return StreamingResponse(
+        photo_asset.stream,
+        media_type=photo_asset.media_type,
+        headers=headers,
+        background=BackgroundTask(photo_asset.stream.close),
+    )
 
 
 # --- helpers -------------------------------------------------------------

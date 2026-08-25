@@ -64,11 +64,11 @@ Enum exportado: `RolVoluntario` (intake, seguimiento, acogida, salud). `VALID_RO
 
 ## Layer type
 
-Legacy route → service layout sin `queries.py`. El módulo es uno de los previos al seam de AGENTS.md §22: SQL y validación conviven en `service.py`. El refactor a seam de queries está pendiente (no se documenta aquí la fecha concreta; ver `app/modules/animals/queries.py` como referencia del patrón destino).
+Legacy route → service layout sin `queries.py`. El módulo es uno de los previos al seam de AGENTS.md §22: SQL y validación conviven en `service.py`. El patrón destino está en `app/modules/animals/adapters/insforge/`.
 
 ## Risks and gotchas
 
-- **TOCTOU cerrado en `deactivate_voluntario`**: el `UPDATE` con `WHERE id = $1 AND activo = true RETURNING id` pliega el check de existencia bajo el row lock de PostgreSQL. Dos llamadas concurrentes producen exactamente un `True` y un `False`. Patron paralelo: `app/modules/animals/service.py::delete_animal`.
+- **TOCTOU cerrado en `deactivate_voluntario`**: el `UPDATE` con `WHERE id = $1 AND activo = true RETURNING id` pliega el check de existencia bajo el row lock de PostgreSQL. Dos llamadas concurrentes producen exactamente un `True` y un `False`. El adaptador de animales usa el mismo patrón de soft-delete atómico.
 - **Duplicado de email o DNI**: la base impone `UNIQUE`. Un duplicado propaga `InsForgeError` y la ruta traduce a `409` con mensaje en español.
 - **Validación de email superficial**: la regla `_validate_create_params` solo exige presencia de `@`. La validación real (RFC 5322, dominio válido) queda pendiente.
 - **Borrado preserva FK**: desactivar un voluntario no rompe las referencias de intakes, estancias, adopciones ni terapias. La trazabilidad histórica se mantiene.

@@ -16,8 +16,8 @@ The sentence that organizes this module: the animal is the aggregate root that e
 | Domain | What this module owns across CRUD, lifecycle events, chip changes, and photos. |
 | Tables backend | SQL surface the service depends on. |
 | Endpoints | HTTP routes mounted at `/animales`. |
-| Service layer | Public functions exported by `app.modules.animals`. |
-| Layer type | How this module is wired (route, service, queries, sub-services). |
+| Application and port | Public use cases and `AnimalsPort` capabilities. |
+| Layer type | How the completed hexagonal slice is wired. |
 | Risks and gotchas | Edge cases, chip cascade, photo streaming, and storage key validation. |
 | Cross-references | Audit, runbook, and adjacent-module docs. |
 | Verification checklist | Acceptance items for a doc or code PR. |
@@ -38,11 +38,11 @@ The `animals` slice owns four cooperating surfaces:
 - Basic CRUD for the `animales` table (legacy `TbFichaAnimal`, 24 user-facing columns + system columns).
 - The `animal_lifecycle_events` append-only log with the D-23 causal-pair rule (FOSTER_CLOSED_BY_ADOPTION must precede ADOPTION_STARTED for the same animal).
 - The chip cascade saga that updates the NCHIP field across 6 tables in a single transaction (LIFECYCLE-04, issue #29).
-- The photo streaming contract for the `apap-photos` storage bucket, with sentinel detection and ETag-based conditional responses (issue #285).
+- The photo streaming contract for the `apap-photos` storage bucket, with sentinel detection and deterministic stream cleanup (issue #285).
 
 The `Situacion` legacy column is not persisted: the current state is derived from the event log via `animal_current_state` and exposed through the search API as a snake_case enum. Adding a new derived state means BOTH adding an enum value AND extending the `DB_LABEL_TO_ESTADO` map; the integration test `test_core_event_types_set_matches_strenum_members` pins the contract.
 
-The slice runs the same FK-existence pattern as the entradas and adopciones modules. The required-field contract comes from Access `TbFichaAnimal.Required=True` plus the required-animal-data list in `docs/discovery/feature-01-animal-lifecycle.md`. The validation runs in `_validate_required_fields` BEFORE any SQL, so the service never writes a row with broken required fields.
+The required-field contract comes from Access `TbFichaAnimal.Required=True` plus the required-animal-data list in `docs/discovery/feature-01-animal-lifecycle.md`. Application validation runs before the port call, so the adapter never writes a row with broken required fields.
 
 ## Tables backend
 
@@ -53,7 +53,7 @@ The slice runs the same FK-existence pattern as the entradas and adopciones modu
 | `animal_current_state` | `animal_id`, `current_state`, `derived_at` | Derived view materialised from the event log. |
 | `entradas`, `acogidas`, `adopciones`, `actuaciones_sanitarias`, `terapias` | `NCHIP` columns | Cascade targets of the chip-change saga. |
 
-Read SQL lives in `adapters/insforge/animals_insforge_queries.py`; CRUD SQL lives in `animals_insforge_write_queries.py`. The legacy seam remains until PR-C removes the chip and photo service paths.
+Read and lifecycle SQL lives in `adapters/insforge/animals_insforge_queries.py`; CRUD SQL lives in `animals_insforge_write_queries.py`; chip SQL lives in `animals_insforge_chip_cascade.py`.
 
 ## Endpoints
 
@@ -69,11 +69,11 @@ Read SQL lives in `adapters/insforge/animals_insforge_queries.py`; CRUD SQL live
 | POST | `/animales/{id}/update` | WRITE_ANIMALES | Update animal. |
 | POST | `/animales/{id}/delete` | DELETE_ANIMALES | Soft-delete. |
 | PATCH | `/animales/{id}/chip` | AUTHORIZED | Chip cascade (LIFECYCLE-04). |
-| GET | `/animales/{id}/foto` | READ_ANIMALES | Streaming photo with ETag. |
+| GET | `/animales/{id}/foto` | READ_ANIMALES | Streaming photo through `AnimalsPort`. |
 
-Status codes: 200 on renders, 303 See Other on success, 404 when the id is missing, 409 on duplicate NCHIP, 422 on validation failure, 304 on If-None-Match for the photo endpoint.
+Status codes: 200 on renders, 303 See Other on success, 404 when the id is missing, 409 on duplicate NCHIP and 422 on validation failure.
 
-## Service layer
+## Application and port
 
 | Function | Purpose |
 |---|---|
@@ -82,36 +82,32 @@ Status codes: 200 on renders, 303 See Other on success, 404 when the id is missi
 | `get_animal_by_id(port, animal_id)` | Hexagonal primary-key lookup used by detail and foster assignment. |
 | `update_animal(port, animal_id, **fields)` | Hexagonal partial UPDATE; `None` fields are skipped. |
 | `delete_animal(port, animal_id)` | Hexagonal atomic soft-delete. |
-| `record_event(client, *, animal_id, event_type, event_timestamp, created_by, ...)` | Legacy lifecycle-event writer (issue #32, D-23). Mirrored by the hexagonal `record_lifecycle_event` (#609). |
 | `search_animals(port, *, q, chip, especie, sexo, estado, fecha_alta_since, fecha_alta_until, limit, offset)` | Paginated hexagonal search used by the JSON route. |
-| `change_animal_chip(client, *, animal_id, old_chip, new_chip, reason, operador_user_id)` | Saga: updates 6 tables; rolls back on any failure. |
-| `record_event(client, ...)` | Append a lifecycle event with causal-pair validation. |
-| `validate_causal_pair(client, ...)` | Pre-flight D-23 check that raises `CausalPairViolation`. |
-| `resolve_animal_photo(client, animal_id)` | Streaming outcome: `PhotoOutcome` with byte iterator + ETag. |
-| `Animal`, `AnimalSearch`, `AnimalSearchResult`, `ChangeChipResult` | Frozen dataclasses. |
+| `AnimalsPort.change_animal_chip(...)` | Saga: updates 6 tables; rolls back on any failure. |
+| `AnimalsPort.record_lifecycle_event(...)` | Append a lifecycle event through the adapter. |
+| `AnimalsPort.resolve_animal_photo(animal_id)` | Transport-neutral `PhotoAsset` with an owned closable stream. |
+| `Animal`, `AnimalSearchResult`, `ChangeChipResult`, `PhotoAsset` | Domain and port dataclasses. |
 | `Especie`, `Sexo`, `LifecycleEventType` | Domain enums. |
 | `CausalPairViolation` | Typed exception for D-23 violations. |
 
-The `change_animal_chip` saga lives in `chip_service.py` (extracted from `service.py` to keep that file under the 700-line budget, AGENTS.md rule 21). The lifecycle event log lives in `lifecycle_events.py`. The photo resolver lives in `photo_service.py`.
+The chip saga lives in `adapters/insforge/animals_insforge_chip_cascade.py`. The photo resolver lives in `adapters/insforge/animals_insforge_photo.py`. The lifecycle event log still exposes its established package API while the port owns persistence.
 
 ## Layer type
 
-Transitional mixed layout. Animal CRUD, search, edit prefill, and foster assignment use `AnimalsPort`. Chip and photo handlers retain route → legacy service until PR-C.
+The slice is 100% hexagonal. Every animal route and the foster integration depend on `AnimalsPort`; no legacy animal service or query shim remains.
 
-The eleven `AnimalsPort` methods are landed, including primary-key lookup and paginated search from PR-A.1 of epic #420.
-
-PR-B migrated `create_animal_view`, `update_animal_view`, and `delete_animal_view`. Chip and photo remain for PR-C.
+The eleven `AnimalsPort` methods are landed. PR-C migrated chip and photo, then removed the four legacy shims to close epic #420.
 
 The hexagonal `Animal` entity carries all 28 application-facing fields. The write port mirrors the 24 operator-writable fields; `id`, `estado`, `activo`, `fecha_alta`, and `updated_at` remain system-owned.
 
 ## Risks and gotchas
 
-- `_validate_required_fields` rejects blank `NCHIP`, `NombreAnimal`, `Especie`, `Sexo`, `FNacimiento`, `Terapia`, `TraeNChip`, `FIMPLANTACIONCHIP`, and `NombreFoto`. The last one is also checked against the storage allow-list (`_validate_storage_key`); path traversal and absolute segments are rejected (issue #224).
+- `AnimalForm` and the application create/update paths reject invalid required fields before the adapter writes. `NombreFoto` is also checked against the storage allow-list; path traversal and absolute segments are rejected (issue #224).
 - The chip saga is transactional. Any failure in the 6-table UPDATE triggers ROLLBACK and the route renders 422. Two operators running concurrent chip changes on the same animal produce exactly one success and one 409 (UNIQUE on NCHIP).
-- The photo contract is fail-closed. An unknown animal returns 404. Missing keys and storage failures return the placeholder PNG with 200. `If-None-Match` returns 304 (issue #285).
+- The photo contract is fail-closed. An unknown animal returns 404. Missing keys and storage failures return the placeholder PNG with 200. The transport-neutral port does not expose ETag or Cache-Control metadata.
 - `Situacion` is not persisted. Code that reads or writes it directly is a defect; the derived state comes from the event log.
 - The search API uses `ILIKE` with `chr(37)` wildcards and a per-row `LIMIT 100`. The state filter joins `animal_current_state`; a missing row falls back to `pendiente_entrada`.
-- The species and sex enums in `service.py` are shadowed by the `Especie` / `Sexo` form fields. The routes import the enums under aliases (`EspecieEnum`, `SexoEnum`) to avoid name shadowing.
+- The domain species and sex enums are imported under aliases in routes so the `Especie` / `Sexo` form fields do not shadow them.
 - The lifecycle log is append-only by SQL trigger. Corrections are modelled as new events with `caused_by_event_id` pointing at the prior event. The service exposes no UPDATE or DELETE for the log.
 
 ## Column constraints
@@ -130,13 +126,13 @@ The hexagonal `Animal` entity carries all 28 application-facing fields. The writ
 | `fecha_alta`, `updated_at` | TIMESTAMP | System columns. |
 | `activo` | BOOLEAN default true | Soft-delete flag. |
 
-## Sub-routers and sub-services
+## Adapter components
 
-The module is one package with one router and one primary service, plus three orthogonal sub-services:
+The module is one package with one router and focused hexagonal components:
 
-- `chip_service.py` — the chip cascade saga (LIFECYCLE-04, issue #29). Extracted to keep `service.py` under the 700-line budget.
+- `adapters/insforge/animals_insforge_chip_cascade.py` — the chip cascade saga (LIFECYCLE-04, issue #29).
 - `lifecycle_events.py` — the append-only event log writer with the D-23 causal-pair rule (issue #32).
-- `photo_service.py` — the streaming photo resolver for the `apap-photos` bucket (issue #285).
+- `adapters/insforge/animals_insforge_photo.py` — the streaming photo resolver for the `apap-photos` bucket (issue #285).
 
 The species, sex, and lifecycle event enums live in the corresponding sub-modules to keep the cross-module import surface narrow.
 
@@ -163,14 +159,12 @@ The proposals cover the contracts:
 
 | Test file | Coverage |
 |---|---|
-| `tests/test_animals.py` | Service-level atoms for CRUD, validation, search. |
 | `tests/test_animals_routes.py` | Route-level atoms for auth guards, CSRF, redirects, 404 / 409 / 422. |
 | `tests/test_animals_routes_redirects.py` | Redirect-only routes (303 See Other). |
 | `tests/test_animals_public_api.py` | Package re-export of the hexagonal primary-key lookup. |
 | `tests/test_animal_search.py` | Search query atoms (filters, pagination, count). |
-| `tests/test_animals_queries.py` | Query-builder unit tests for the §22 seam. |
 | `tests/test_animals_foto_route.py` | Photo streaming contract. |
-| `tests/test_animal_photo_resolution.py` | `PhotoOutcome` shape, fail-closed paths. |
+| `tests/test_animals_insforge_adapter.py` | Adapter CRUD, chip and `PhotoAsset` fail-closed paths. |
 
 ## Files inventory
 
@@ -178,7 +172,6 @@ The proposals cover the contracts:
 |---|---|
 | `__init__.py` | Public API: primary-key lookup and DI port surface for sibling modules, plus lifecycle entrypoints. |
 | `routes.py` | HTTP layer: 11 endpoints including the search, chip, and photo routes. |
-| `service.py` | CRUD orchestration, required-field validation. |
 | `domain/animal.py` | Hexagonal `Animal` entity + `Especie` / `Sexo` enums (issue #420 slice). |
 | `ports/animals_port.py` | Hexagonal `AnimalsPort` Protocol with the migrated methods. |
 | `ports/photo_asset.py` | Transport-neutral photo asset and owned closable-stream contract. |
@@ -198,11 +191,8 @@ The proposals cover the contracts:
 | `adapters/insforge/animals_insforge_queries.py` | Read and lifecycle SQL seam for the InsForge adapter (AGENTS.md §22). |
 | `adapters/insforge/animals_insforge_write_queries.py` | CRUD SQL seam, split to satisfy the mutation-site ceiling. |
 | `adapters/insforge/animals_insforge_lifecycle.py` | Lifecycle persistence orchestration, split to satisfy the mutation-site ceiling. |
-| `queries.py` | Legacy SQL builder seam (separate from the InsForge adapter; the slice carries two SQL seams until the legacy service is retired). |
 | `forms.py` | `AnimalForm` Pydantic v2 model. |
-| `chip_service.py` | Chip cascade saga (LIFECYCLE-04). |
 | `lifecycle_events.py` | Event log writer + D-23 causal-pair rule (LIFECYCLE-02). |
-| `photo_service.py` | Streaming photo resolver (issue #285). |
 
 ## Related issues
 
@@ -215,7 +205,7 @@ The slice is shaped by the following GitHub issues. The README cross-references 
 - #129 (issue #129) — required-field contract for `Terapia`, `TraeNChip`, `FIMPLANTACIONCHIP`, `NombreFoto`.
 - #224 (issue #224) — `NombreFoto` allow-list on storage key.
 - #233 (issue #233) — `animal_foto` route thinning (rule §28 ratchet).
-- #285 (issue #285) — `PhotoOutcome` streaming contract.
+- #285 (issue #285) — transport-neutral `PhotoAsset` streaming contract.
 
 The `closes-with-trazability` comment on each merge cites the relevant commit SHA and the test path.
 
@@ -230,9 +220,9 @@ The `closes-with-trazability` comment on each merge cites the relevant commit SH
 ## Verification checklist
 
 - [ ] Every endpoint table entry resolves to a real route in `app/modules/animals/routes.py`.
-- [ ] Every function name in the Service layer section is exported by `app/modules/animals/service.py`, `chip_service.py`, `lifecycle_events.py`, or `photo_service.py`.
+- [ ] Every function in the Application and port section resolves to an application use case or `AnimalsPort` method.
 - [ ] Every table and column name matches the queries or DDL that defines it.
-- [ ] The Layer type section matches the actual folder shape: `__init__.py`, `routes.py`, `service.py`, `queries.py`, `forms.py`, `chip_service.py`, `lifecycle_events.py`, `photo_service.py`.
+- [ ] The Layer type section matches the hexagonal folder shape: `domain/`, `ports/`, `application/`, `adapters/insforge/`, `di/`, `routes.py` and `forms.py`.
 - [ ] Cross-references resolve to files that exist at the linked paths.
 - [ ] No Spanish tuteo or voseo: read once in voice. Castellano peninsular formal in every paragraph.
 - [ ] No marketing fluff. No emoji in headings or body.

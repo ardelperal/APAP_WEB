@@ -144,15 +144,15 @@ def test_module_slice_is_discovered(tmp_path: Path) -> None:
     _tree(
         tmp_path,
         {
-            "app/modules/animals/service.py": "def list_animals() -> list: return []\n",
-            "app/modules/animals/routes.py": "def handler() -> None: pass\n",
+            "app/modules/widgets/service.py": "def list_widgets() -> list: return []\n",
+            "app/modules/widgets/routes.py": "def handler() -> None: pass\n",
         },
     )
     inventory = checker.discover_slices(tmp_path)
-    assert "animals" in inventory
-    delivery = inventory["animals"]["delivery"]
-    assert "app/modules/animals/service.py" in delivery
-    assert "app/modules/animals/routes.py" in delivery
+    assert "widgets" in inventory
+    delivery = inventory["widgets"]["delivery"]
+    assert "app/modules/widgets/service.py" in delivery
+    assert "app/modules/widgets/routes.py" in delivery
 
 
 # ---------------------------------------------------------------------------

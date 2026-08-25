@@ -599,8 +599,8 @@ def _validate_bucket_name(bucket_name: str) -> str:
 # interpolated directly into storage URL paths (``download_object_stream``,
 # ``delete_object``) and sent as a JSON ``filename`` field
 # (``_request_upload_strategy``). Unlike ``bucket``, it previously went
-# through no format check at all — only a non-emptiness check in
-# ``app.modules.animals.service``. This mirrors ``_validate_bucket_name``:
+# through no format check at all — only a non-emptiness check in the retired
+# animal service. This mirrors ``_validate_bucket_name``:
 # an allow-list of filename-safe characters (letters, digits, ``_``, ``-``,
 # ``.`` for extensions) that still rejects ``/``, ``\``, any ``..``
 # segment, and a leading dot (hidden-file / relative-traversal payloads).

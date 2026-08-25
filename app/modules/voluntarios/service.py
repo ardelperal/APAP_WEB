@@ -1,7 +1,6 @@
 """Voluntarios service: la unica capa que habla con SqlExecutor para el registro de voluntarios.
 
-Es la contraparte del ``app.modules.animals.service``: framework-
-agnostica, valida antes de SQL, devuelve dataclasses, propaga
+Es framework-agnostica, valida antes de SQL, devuelve dataclasses y propaga
 ``InsForgeError`` sin cambios. Las rutas HTTP son una capa fina
 encima.
 
@@ -19,7 +18,7 @@ Politica de validacion:
   voluntario este activo (BR2 del discovery).
 
 El schema se define como constante aqui (mismo patron que
-``app.core.auth`` y ``app.modules.animals.service``) para que las
+``app.core.auth``) para que las
 queries ``INSERT`` / ``SELECT`` esten en un solo lugar.
 
 Mapeo de campos (legacy ``TbVoluntariosParaAutorrellenables`` ->
@@ -165,7 +164,7 @@ ORDER BY tipo_rol ASC
 # Asi evitamos el patron anterior (SELECT previo + UPDATE) que abria
 # una ventana TOCTOU cuando dos requests concurrentes pasaban ambas
 # la guarda de existencia (finding de auditoria engram:14518).
-# Patron paralelo: ``app/modules/animals/service.py::_DELETE_ANIMAL_SQL``.
+# Parallel pattern: ``animals_insforge_write_queries.delete_animal_sql``.
 _DEACTIVATE_VOLUNTARIO_SQL = """
 UPDATE voluntarios
 SET activo = false, updated_at = now()
@@ -238,7 +237,7 @@ def deactivate_voluntario(client: SqlExecutor, voluntario_id: str) -> bool:
     This closes the TOCTOU window flagged by ``engram:14518`` in
     ``app/modules/voluntarios/routes.py`` (existence check + UPDATE
     allowed both concurrent callers to pass the existence guard).
-    Pattern mirrors ``app/modules/animals/service.py::delete_animal``.
+    Pattern mirrors the animals adapter's atomic soft-delete query.
 
     The caller (``deactivate_voluntario_view`` in routes) translates
     ``False`` to ``HTTPException(404)`` so the response is

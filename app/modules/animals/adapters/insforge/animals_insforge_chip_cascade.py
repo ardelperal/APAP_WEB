@@ -91,6 +91,15 @@ class AnimalsInsforgeChipCascade:
         reason: str,
         operador_user_id: str,
     ) -> ChangeChipResult:
+        new_chip = new_chip.strip()
+        if not new_chip:
+            raise ValueError("new_chip es obligatorio y no puede estar vacio")
+        if new_chip == old_chip:
+            raise ValueError("new_chip no puede ser igual a old_chip")
+        reason = reason.strip()
+        if not reason:
+            raise ValueError("reason es obligatorio y no puede estar vacio")
+
         # Two pre-flight SELECTs run BEFORE the transaction opens:
         # uniqueness of the new chip (no other animal carries it) and
         # the current chip on this animal (must match ``old_chip`` so

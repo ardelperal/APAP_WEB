@@ -39,9 +39,6 @@ from app.modules.animals.domain.animal import (
     Sexo,
 )
 from app.modules.animals.domain.change_chip_result import ChangeChipResult
-from app.modules.animals.photo_service import (
-    PLACEHOLDER_PHOTO_PNG as LEGACY_PLACEHOLDER_PHOTO_PNG,
-)
 
 
 class _FakeClient:
@@ -739,7 +736,6 @@ def test_resolve_photo_treats_empty_storage_stream_as_placeholder(
 
 def test_placeholder_png_has_valid_chunks_crc_and_decodable_scanline() -> None:
     png = PLACEHOLDER_PHOTO_PNG
-    assert png == LEGACY_PLACEHOLDER_PHOTO_PNG
     assert png.startswith(b"\x89PNG\r\n\x1a\n")
 
     offset = 8

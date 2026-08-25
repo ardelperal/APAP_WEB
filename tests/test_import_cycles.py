@@ -105,8 +105,8 @@ def test_extract_imports_filters_non_app() -> None:
     """Non-app imports (stdlib, third-party) are dropped.
 
     ``_extract_imports`` reports the package-level module of an
-    ``ImportFrom`` (e.g. ``app.modules.animals``), not the submodule
-    name (``app.modules.animals.service``); that is enough to build the
+    ``ImportFrom`` (e.g. ``app.modules.tasks``), not the submodule
+    name (``app.modules.tasks.service``); that is enough to build the
     cycle graph, where the edge is between modules.
     """
     checker = _load_checker()
@@ -114,11 +114,11 @@ def test_extract_imports_filters_non_app() -> None:
         "import os\n"
         "import sys\n"
         "import app.core.config\n"
-        "from app.modules.animals import service\n"
+        "from app.modules.tasks import service\n"
     ) as path:
         imports = checker._extract_imports(path)
     assert "app.core.config" in imports
-    assert "app.modules.animals" in imports
+    assert "app.modules.tasks" in imports
     assert "os" not in imports
     assert "sys" not in imports
 

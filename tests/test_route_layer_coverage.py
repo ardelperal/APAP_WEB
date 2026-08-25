@@ -183,7 +183,7 @@ def test_animal_routes_return_404_for_missing_resource(
     request_kwarg: str,
 ) -> None:
     """Detail, edit, and delete expose the same missing-resource contract."""
-    dependency_kwarg = "client"
+    dependency_kwarg = "port"
     port_stub: Mock | None = None
     if handler in (
         animal_routes.animal_detail,
@@ -193,7 +193,6 @@ def test_animal_routes_return_404_for_missing_resource(
         monkeypatch.setattr(
             animal_routes, "app_get_animal_by_id", Mock(return_value=None)
         )
-        dependency_kwarg = "port"
     elif handler is animal_routes.delete_animal_view:
         # PR-B: delete calls port.delete_animal directly (no application-layer
         # use case). The test passes a Mock port that returns None for the
@@ -201,13 +200,6 @@ def test_animal_routes_return_404_for_missing_resource(
         from app.modules.animals.ports.animals_port import AnimalsPort
         port_stub = Mock(spec=AnimalsPort)
         port_stub.delete_animal.return_value = None
-        dependency_kwarg = "port"
-    else:
-        monkeypatch.setattr(
-            animal_routes.animals_service,
-            service_name,
-            Mock(return_value=None if service_name == "get_animal_by_id" else False),
-        )
 
     with pytest.raises(HTTPException) as exc_info:
         handler(
