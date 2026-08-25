@@ -184,10 +184,23 @@ def test_animal_routes_return_404_for_missing_resource(
 ) -> None:
     """Detail, edit, and delete expose the same missing-resource contract."""
     dependency_kwarg = "client"
-    if handler in (animal_routes.animal_detail, animal_routes.edit_animal_form):
+    port_stub: Mock | None = None
+    if handler in (
+        animal_routes.animal_detail,
+        animal_routes.edit_animal_form,
+    ):
+        # PR-A.2a: detail and edit use the application-layer use case.
         monkeypatch.setattr(
             animal_routes, "app_get_animal_by_id", Mock(return_value=None)
         )
+        dependency_kwarg = "port"
+    elif handler is animal_routes.delete_animal_view:
+        # PR-B: delete calls port.delete_animal directly (no application-layer
+        # use case). The test passes a Mock port that returns None for the
+        # 404 contract.
+        from app.modules.animals.ports.animals_port import AnimalsPort
+        port_stub = Mock(spec=AnimalsPort)
+        port_stub.delete_animal.return_value = None
         dependency_kwarg = "port"
     else:
         monkeypatch.setattr(
@@ -200,7 +213,7 @@ def test_animal_routes_return_404_for_missing_resource(
         handler(
             animal_id="missing",
             user={"user_id": "writer-1"},
-            **{dependency_kwarg: Mock()},
+            **{dependency_kwarg: port_stub if port_stub is not None else Mock()},
             **{request_kwarg: Mock()},
         )
 

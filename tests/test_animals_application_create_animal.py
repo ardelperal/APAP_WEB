@@ -27,6 +27,7 @@ class _StubPort:
         self.last_especie: Especie | None = None
         self.last_sexo: Sexo | None = None
         self.last_fnacimiento: str | None = None
+        self.last_optional_fields: dict[str, str | None] = {}
         self.next_animal: Animal | None = None
 
     def create_animal(
@@ -37,12 +38,14 @@ class _StubPort:
         especie: Especie,
         sexo: Sexo,
         fnacimiento: str,
+        **optional_fields: str | None,
     ) -> Animal:
         self.last_nchip = nchip
         self.last_nombre = nombre
         self.last_especie = especie
         self.last_sexo = sexo
         self.last_fnacimiento = fnacimiento
+        self.last_optional_fields = optional_fields
         if self.next_animal is None:
             raise AssertionError(
                 "stub next_animal unset; set it in the test before "
@@ -158,3 +161,27 @@ def test_especie_and_sexo_pass_through() -> None:
 
     assert port.last_especie is Especie.FELINA
     assert port.last_sexo is Sexo.M
+
+
+def test_optional_fields_pass_through_to_port() -> None:
+    """The widened writable fields reach the port unchanged."""
+    port = _StubPort()
+    port.next_animal = _animal()
+
+    create_animal(
+        port,
+        nchip="941000000012345",
+        nombre="Luna",
+        especie=Especie.CANINA,
+        sexo=Sexo.H,
+        fnacimiento="2024-03-01",
+        Raza="Labrador",
+        Observaciones="Friendly",
+    )
+
+    assert port.last_optional_fields["Raza"] == "Labrador", (
+        "create must delegate the optional breed"
+    )
+    assert port.last_optional_fields["Observaciones"] == "Friendly", (
+        "create must delegate optional observations"
+    )

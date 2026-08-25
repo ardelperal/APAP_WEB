@@ -87,7 +87,7 @@ BASELINE: dict[str, int] = {
     "N818": 3,
     "PLR0911": 9,  # locked in 2026-08-24: one too-many-returns site refactored away
     "PLR0912": 9,  # bumped 8 -> 9 by Slice 3 (scripts/_ratchet_deadline.py adds 1 too-many-branches)
-    "PLR0913": 45,  # bumped 40 -> 45 by Slice #420-7 PR-A.1 (search_animals: 9-filter legacy contract needs port + 9 kwargs; 5 new surfaces added: AnimalsPort.search_animals protocol, AnimalsInsforgeAdapter.search_animals, _animal_search_where, search_animals_sql, count_animals_sql)
+    "PLR0913": 43,  # lowered 45 -> 43 by epic #420 PR-B after suppressing the intentional schema-parity write signatures
     # PLR0915 fue retirado del baseline al completarse el triaje del issue #390
     # (1 -> 0). El sitio era ``MigrationReport.to_markdown`` en
     # ``migration/reporting.py`` con 75 statements en una sola función. Se
@@ -111,7 +111,7 @@ BASELINE: dict[str, int] = {
     # y ``migration/volunteer_dedup.py::_cluster_decision`` tenia
     # ``if score > best_score: best_score = score`` (ahora
     # ``best_score = max(best_score, score)``). Se ELIMINA la entrada.
-    "PLR2004": 40,  # bumped 39 -> 40 by Slice 3 (scripts/_ratchet_deadline.py adds 1 magic-value-comparison)
+    "PLR2004": 39,  # lowered 40 -> 39 by epic #420 PR-B route simplification
     "PTH105": 3,
     "PTH108": 3,
     "PTH113": 2,

@@ -58,8 +58,14 @@ def _bypass_insforge(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "app.modules.animals.routes.get_insforge_client_dep", lambda: spy
     )
+    # PR-B migrated create/update/delete to AnimalsPort via
+    # Depends(get_animals_port); the hexagonal provider reads
+    # ``request.app.state.insforge_client`` directly, so the spy must
+    # also be wired into state for any POST that exercises those handlers.
+    app.state.insforge_client = spy
     yield
     app.dependency_overrides.pop(get_insforge_client, None)
+    app.state.__dict__.pop("insforge_client", None)
 
 
 def _login(

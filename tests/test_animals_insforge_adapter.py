@@ -6,8 +6,11 @@ import zlib
 from collections.abc import Iterator
 from types import SimpleNamespace
 
+import httpx
 import pytest
 
+from app.core.data_access import UniqueViolationError
+from app.core.insforge import InsForgeClient
 from app.modules.animals.adapters.insforge import animals_insforge_photo
 from app.modules.animals.adapters.insforge.animals_insforge_adapter import (
     AnimalsInsforgeAdapter,
@@ -338,6 +341,73 @@ def test_search_animals_zero_limit_executes_only_count_query() -> None:
     assert result.offset == 10, "count-only envelope must preserve the cursor"
     assert len(client.calls) == 1, "count-only search must skip the data query"
     assert "COUNT(*)" in client.calls[0][0], "the only query must be the count"
+
+
+def test_create_animal_writes_optional_fields() -> None:
+    row = {**_animal_row(1), "Raza": "Labrador", "Observaciones": "Friendly"}
+    client = _FakeClient(rows=[row])
+    adapter = AnimalsInsforgeAdapter(client=client, storage=client)  # type: ignore[arg-type]
+
+    result = adapter.create_animal(
+        nchip="941000000000001",
+        nombre="Animal 1",
+        especie=Especie.CANINA,
+        sexo=Sexo.H,
+        fnacimiento="2024-03-01",
+        Raza="Labrador",
+        Observaciones="Friendly",
+    )
+
+    assert result.Raza == "Labrador", "create must map the persisted optional breed"
+    assert '"Raza"' in (client.last_query or ""), "create SQL must include the breed column"
+    assert client.last_params is not None, "create must bind INSERT parameters"
+    assert "Labrador" in client.last_params, "create must bind the optional breed"
+    assert "Friendly" in client.last_params, "create must bind optional observations"
+
+
+def test_update_animal_writes_only_supplied_optional_fields() -> None:
+    row = {**_animal_row(1), "Raza": "Labrador"}
+    client = _FakeClient(rows=[row])
+    adapter = AnimalsInsforgeAdapter(client=client, storage=client)  # type: ignore[arg-type]
+
+    result = adapter.update_animal("animal-1", Raza="Labrador")
+
+    assert result is not None, "existing animals must return the updated row"
+    assert 'SET "Raza" = $2' in (client.last_query or ""), (
+        "partial update SQL must include only the supplied optional column"
+    )
+    assert client.last_params == ["animal-1", "Labrador"], (
+        "partial update must bind only the id and supplied value"
+    )
+
+
+def test_create_animal_translates_duplicate_nchip_to_unique_violation() -> None:
+    def duplicate_response(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            409,
+            json={
+                "code": "23505",
+                "message": "duplicate key value violates unique constraint animales_NCHIP_key",
+            },
+        )
+
+    client = InsForgeClient(
+        "https://example.invalid",
+        "test-key",
+        transport=httpx.MockTransport(duplicate_response),
+    )
+    adapter = AnimalsInsforgeAdapter(client=client, storage=client)
+
+    with pytest.raises(UniqueViolationError, match="duplicate key"):
+        adapter.create_animal(
+            nchip="941000000000001",
+            nombre="Animal 1",
+            especie=Especie.CANINA,
+            sexo=Sexo.H,
+            fnacimiento="2024-03-01",
+        )
+
+    client.close()
 
 
 def test_extracted_chip_cascade_matches_adapter_duplicate_chip_result() -> None:

@@ -28,6 +28,7 @@ class _StubPort:
         self.last_especie: Especie | None = None
         self.last_sexo: Sexo | None = None
         self.last_fnacimiento: str | None = None
+        self.last_optional_fields: dict[str, str | None] = {}
         self.next_animal: Animal | None = None
         self.next_missing: bool = False
 
@@ -39,12 +40,14 @@ class _StubPort:
         especie: Especie | None = None,
         sexo: Sexo | None = None,
         fnacimiento: str | None = None,
+        **optional_fields: str | None,
     ) -> Animal | None:
         self.last_animal_id = animal_id
         self.last_nombre = nombre
         self.last_especie = especie
         self.last_sexo = sexo
         self.last_fnacimiento = fnacimiento
+        self.last_optional_fields = optional_fields
         if self.next_missing:
             return None
         if self.next_animal is None:
@@ -176,3 +179,15 @@ def test_missing_id_returns_none() -> None:
 def test_validation_error_subclasses_value_error() -> None:
     """Existing ``except ValueError`` clauses in legacy callers keep working."""
     assert issubclass(AnimalUpdateValidationError, ValueError)
+
+
+def test_widened_partial_update_delegates_only_supplied_value() -> None:
+    """A widened optional value reaches the port without coercion."""
+    port = _StubPort()
+    port.next_animal = _animal()
+
+    update_animal(port, animal_id="id", Raza="Labrador")
+
+    assert port.last_optional_fields["Raza"] == "Labrador", (
+        "update must delegate the supplied optional breed"
+    )

@@ -1,8 +1,8 @@
 """Animals routes: list, create, get, edit, delete (soft).
 
 Transitional thin layer over hexagonal use cases and the legacy
-``app.modules.animals.service``. Read-side list/detail/search/edit handlers
-use ``AnimalsPort``; write, chip, and photo handlers remain on the service.
+``app.modules.animals.service``. CRUD handlers use ``AnimalsPort``; chip and
+photo handlers remain on the service.
 
 Auth model (issue #66 RBAC): permissions are checked via
 ``require_permission`` from ``app.core.rbac``.  The permission matrix:
@@ -41,8 +41,8 @@ from app.core.auth_dependencies import (
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
-from app.core.forms import optional_value
-from app.core.insforge import InsForgeClient, InsForgeError
+from app.core.data_access import UniqueViolationError
+from app.core.insforge import InsForgeClient
 from app.core.logging import log_safe
 from app.core.middleware import base_template_context_processor
 from app.core.rbac import Permission, require_permission
@@ -76,10 +76,8 @@ from app.modules.animals.ports.animals_port import AnimalsPort
 # referencias como ``[e.value for e in EspecieEnum]`` (usadas para
 # poblar el dropdown del form en el path 422) iteran sobre los
 # caracteres del string en vez de sobre los miembros del enum.
-# Por eso importamos los enums bajo alias y usamos ``EspecieEnum``
-# / ``SexoEnum`` en los bodies de los handlers.
-from app.modules.animals.service import Especie as EspecieEnum
-from app.modules.animals.service import Sexo as SexoEnum
+# Por eso importamos los enums bajo alias y usamos los aliases de dominio
+# en los bodies de los handlers.
 from app.modules.sanidad import get_resumen_sanitario
 
 router = APIRouter(prefix="/animales", tags=["animales"])
@@ -100,41 +98,6 @@ _templates = Jinja2Templates(
     directory=_TEMPLATES_DIR,
     context_processors=[csrf_token_context_processor, base_template_context_processor],
 )
-
-
-def _form_data_to_params(form: dict[str, Any]) -> dict[str, Any]:
-    """Map a parsed form to the dict shape that ``service.create_animal`` expects.
-
-    Only the columns present in the form are included; absent columns
-    are returned as ``None`` so the service passes them as NULL to
-    InsForge.
-    """
-    return {
-        "NCHIP": optional_value(form.get("NCHIP")),
-        "NombreAnimal": optional_value(form.get("NombreAnimal")),
-        "Especie": optional_value(form.get("Especie")),
-        "Sexo": optional_value(form.get("Sexo")),
-        "FNacimiento": optional_value(form.get("FNacimiento")),
-        "TraeNChip": optional_value(form.get("TraeNChip")),
-        "FIMPLANTACIONCHIP": optional_value(form.get("FIMPLANTACIONCHIP")),
-        "Raza": optional_value(form.get("Raza")),
-        "Color": optional_value(form.get("Color")),
-        "Pelo": optional_value(form.get("Pelo")),
-        "Tamano": optional_value(form.get("Tamano")),
-        "Caracter": optional_value(form.get("Caracter")),
-        "FDefuncion": optional_value(form.get("FDefuncion")),
-        "Terapia": optional_value(form.get("Terapia")),
-        "Observaciones": optional_value(form.get("Observaciones")),
-        "NombreFoto": optional_value(form.get("NombreFoto")),
-        "Cartilla": optional_value(form.get("Cartilla")),
-        "Eutanasia": optional_value(form.get("Eutanasia")),
-        "RazaPPP": optional_value(form.get("RazaPPP")),
-        "Mestizo": optional_value(form.get("Mestizo")),
-        "EutanasiaOtrasCausas": optional_value(form.get("EutanasiaOtrasCausas")),
-        "EutanasiaEnfermedad": optional_value(form.get("EutanasiaEnfermedad")),
-        "UltimoEstadoAntesDeFallecido": optional_value(form.get("UltimoEstadoAntesDeFallecido")),
-        "ComunicacionARIAC": optional_value(form.get("ComunicacionARIAC")),
-    }
 
 
 # --- list -----------------------------------------------------------------
@@ -215,8 +178,8 @@ def new_animal_form(
             "user": user,
             "form_data": {},
             "error": None,
-            "especies": [e.value for e in EspecieEnum],
-            "sexos": [s.value for s in SexoEnum],
+            "especies": [e.value for e in DomainEspecie],
+            "sexos": [s.value for s in DomainSexo],
         },
     )
 
@@ -229,7 +192,7 @@ def create_animal_view(
     request: Request,
     form: Annotated[AnimalForm, Form()],
     user: Annotated[Response | dict, Depends(require_permission(Permission.WRITE_ANIMALES))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    port: Annotated[AnimalsPort, Depends(get_animals_port)],
 ):
     """Procesa el submit del formulario. En exito, redirect al detalle.
 
@@ -241,40 +204,34 @@ def create_animal_view(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
-    form_data: dict[str, Any] = _form_data_to_params(
-        form.model_dump(exclude_none=True)
-    )
+    form_data: dict[str, Any] = form.model_dump(exclude_none=True)
+    optional_fields = {
+        key: value
+        for key, value in form_data.items()
+        if key not in {"NCHIP", "NombreAnimal", "Especie", "Sexo", "FNacimiento"}
+    }
 
     try:
-        animal = animals_service.create_animal(client, form_data)
-    except ValueError as exc:
-        return _templates.TemplateResponse(
-            request=request,
-            name="animales/form.html",
-            context={
-                "user": user,
-                "form_data": form_data,
-                "error": str(exc),
-                "especies": [e.value for e in EspecieEnum],
-                "sexos": [s.value for s in SexoEnum],
-            },
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        animal = port.create_animal(
+            nchip=form_data["NCHIP"],
+            nombre=form_data["NombreAnimal"],
+            especie=DomainEspecie(form_data["Especie"]),
+            sexo=DomainSexo(form_data["Sexo"]),
+            fnacimiento=form_data["FNacimiento"],
+            **optional_fields,
         )
-    except InsForgeError as exc:
-        if exc.status_code == 409:
-            return _templates.TemplateResponse(
-                request=request,
-                name="animales/form.html",
-                context={
-                    "user": user,
-                    "form_data": form_data,
-                    "error": "Ya existe un animal con ese NCHIP. Compruebalo.",
-                    "especies": [e.value for e in EspecieEnum],
-                    "sexos": [s.value for s in SexoEnum],
-                },
-                status_code=status.HTTP_409_CONFLICT,
-            )
-        raise
+    except ValueError as exc:
+        return _render_animal_form_error(
+            request, user, form_data, str(exc), status.HTTP_422_UNPROCESSABLE_CONTENT
+        )
+    except UniqueViolationError:
+        return _render_animal_form_error(
+            request,
+            user,
+            form_data,
+            "Ya existe un animal con ese NCHIP. Compruebalo.",
+            status.HTTP_409_CONFLICT,
+        )
 
     return RedirectResponse(
         url=f"/animales/{animal.id}", status_code=status.HTTP_303_SEE_OTHER
@@ -365,8 +322,8 @@ def edit_animal_form(
             "user": user,
             "form_data": _animal_to_form_data(animal),
             "error": None,
-            "especies": [e.value for e in EspecieEnum],
-            "sexos": [s.value for s in SexoEnum],
+            "especies": [e.value for e in DomainEspecie],
+            "sexos": [s.value for s in DomainSexo],
         },
     )
 
@@ -380,7 +337,7 @@ def update_animal_view(
     request: Request,
     form: Annotated[AnimalForm, Form()],
     user: Annotated[Response | dict, Depends(require_permission(Permission.WRITE_ANIMALES))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    port: Annotated[AnimalsPort, Depends(get_animals_port)],
 ):
     """Procesa el submit de edicion. Redirect al detalle en exito.
 
@@ -390,20 +347,28 @@ def update_animal_view(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
-    form_data = _form_data_to_params(form.model_dump(exclude_none=True))
+    form_data: dict[str, Any] = form.model_dump(exclude_none=True)
+    optional_fields = {
+        key: value
+        for key, value in form_data.items()
+        if key not in {"NCHIP", "NombreAnimal", "Especie", "Sexo", "FNacimiento"}
+    }
 
     try:
-        animals_service.update_animal(client, animal_id, form_data)
+        port.update_animal(
+            animal_id,
+            nombre=form_data.get("NombreAnimal"),
+            especie=(
+                DomainEspecie(form_data["Especie"])
+                if "Especie" in form_data else None
+            ),
+            sexo=DomainSexo(form_data["Sexo"]) if "Sexo" in form_data else None,
+            fnacimiento=form_data.get("FNacimiento"),
+            **optional_fields,
+        )
     except ValueError as exc:
-        return _templates.TemplateResponse(
-            request=request,
-            name="animales/form.html",
-            context={
-                "user": user, "form_data": form_data, "error": str(exc),
-                "especies": [e.value for e in EspecieEnum],
-                "sexos": [s.value for s in SexoEnum],
-            },
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        return _render_animal_form_error(
+            request, user, form_data, str(exc), status.HTTP_422_UNPROCESSABLE_CONTENT
         )
 
     return RedirectResponse(
@@ -419,18 +384,12 @@ def delete_animal_view(
     animal_id: str,
     _request: Request,
     user: Annotated[Response | dict, Depends(require_permission(Permission.DELETE_ANIMALES))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    port: Annotated[AnimalsPort, Depends(get_animals_port)],
 ):
-    """Soft-delete via ``animals_service.delete_animal``. Redirect a la lista.
-
-    El service hace un solo ``UPDATE … WHERE id = $1 RETURNING id``;
-    si la fila no existia (RETURNING vacio) devuelve ``False`` y el
-    handler responde 404. Asi evitamos el patron anterior (SELECT
-    previo + UPDATE) y cerramos el problema #1 del code review externo.
-    """
+    """Soft-delete through ``AnimalsPort`` and redirect to the list."""
     if (early := return_early_if_response(user)) is not None:
         return early
-    if not animals_service.delete_animal(client, animal_id):
+    if port.delete_animal(animal_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     return RedirectResponse(
         url="/animales", status_code=status.HTTP_303_SEE_OTHER
@@ -520,6 +479,28 @@ def animal_foto(
 
 
 # --- helpers -------------------------------------------------------------
+def _render_animal_form_error(
+    request: Request,
+    user: Response | dict,
+    form_data: dict[str, Any],
+    error: str,
+    status_code: int,
+) -> Response:
+    """Render the shared animal form error response."""
+    return _templates.TemplateResponse(
+        request=request,
+        name="animales/form.html",
+        context={
+            "user": user,
+            "form_data": form_data,
+            "error": error,
+            "especies": [item.value for item in DomainEspecie],
+            "sexos": [item.value for item in DomainSexo],
+        },
+        status_code=status_code,
+    )
+
+
 def _search_result_to_json(result: AnimalSearchResult) -> dict[str, Any]:
     """Map ``AnimalSearchResult`` to the spec JSON envelope."""
     return {

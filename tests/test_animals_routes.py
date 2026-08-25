@@ -26,6 +26,7 @@ import httpx
 import pytest
 from fastapi.responses import HTMLResponse
 
+from app.core.data_access import UniqueViolationError
 from app.core.insforge import InsForgeClient
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
@@ -173,6 +174,10 @@ class _AnimalsPortStub:
         )
         self.list_calls = 0
         self.detail_ids: list[str] = []
+        self.create_kwargs: dict[str, Any] | None = None
+        self.update_calls: list[tuple[str, dict[str, Any]]] = []
+        self.delete_ids: list[str] = []
+        self.create_error: Exception | None = None
 
     def list_animals(self, **_kwargs: Any) -> list[Animal]:
         self.list_calls += 1
@@ -181,6 +186,20 @@ class _AnimalsPortStub:
     def get_animal_by_id(self, animal_id: str) -> Animal | None:
         self.detail_ids.append(animal_id)
         return None if animal_id == "missing" else self.animal
+
+    def create_animal(self, **kwargs: Any) -> Animal:
+        self.create_kwargs = kwargs
+        if self.create_error is not None:
+            raise self.create_error
+        return self.animal
+
+    def update_animal(self, animal_id: str, **kwargs: Any) -> Animal | None:
+        self.update_calls.append((animal_id, kwargs))
+        return None if animal_id == "missing" else self.animal
+
+    def delete_animal(self, animal_id: str) -> Animal | None:
+        self.delete_ids.append(animal_id)
+        return None if animal_id == "no-such-id" else self.animal
 
 
 @pytest.fixture
@@ -303,9 +322,10 @@ async def test_edit_animal_form_uses_all_hexagonal_fields(
 # --- update ----------------------------------------------------------------
 
 
-async def test_update_animal_view_delega_en_service_y_redirige_303(
+async def test_update_animal_view_delegates_to_port_and_redirects_303(
     client: httpx.AsyncClient,
     animals_spy: _AnimalsRouteSpy,
+    animals_port: _AnimalsPortStub,
 ) -> None:
     """POST /animales/{id}/update con form valido -> 303 a /animales/{id}.
 
@@ -331,28 +351,32 @@ async def test_update_animal_view_delega_en_service_y_redirige_303(
         },
     )
 
-    assert response.status_code == 303
-    assert response.headers["location"] == "/animales/abc-123"
-    # El handler NO debe emitir SQL directo (problema #1 cerrado):
-    # el unico SQL es el UPDATE que emite ``update_animal`` via service.
-    update_queries = [q for q in animals_spy.captured_queries if "UPDATE animales SET" in q]
-    assert len(update_queries) == 1, (
-        f"se esperaba UN UPDATE via service, se emitieron: {update_queries!r}"
+    assert response.status_code == 303, response.text
+    assert response.headers["location"] == "/animales/abc-123", (
+        "successful update must redirect to detail"
+    )
+    assert animals_port.update_calls[0][0] == "abc-123", (
+        "update route must delegate the path id to the port"
+    )
+    assert animals_port.update_calls[0][1]["Terapia"] == "No", (
+        "update route must delegate writable form fields"
+    )
+    assert animals_spy.captured_queries == [], (
+        "update route must not use legacy animal SQL"
     )
 
 
-async def test_update_animal_view_con_NCHIP_vacio_retorna_422_sin_update(
+async def test_update_animal_view_preserves_value_error_422_translation(
     client: httpx.AsyncClient,
     animals_spy: _AnimalsRouteSpy,
+    animals_port: _AnimalsPortStub,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """NCHIP vacio (whitespace) -> re-render del form con 422, sin tocar la DB.
+    """A port ``ValueError`` re-renders the form with 422 and no legacy SQL."""
+    def reject(_animal_id: str, **_kwargs: Any) -> Animal | None:
+        raise ValueError("invalid animal")
 
-    Usamos ``"   "`` (whitespace) en vez de ``""`` porque httpx no
-    envia campos de form vacios: un NCHIP vacio dispara el 422 de
-    validacion de FastAPI (``Form(...)``) ANTES de llegar al handler
-    y devuelve JSON. El whitespace se filtra en ``_form_data_to_params``
-    y dispara la validacion del service que renderiza el form HTML.
-    """
+    monkeypatch.setattr(animals_port, "update_animal", reject)
     _login_as_key_user(client)
 
     response = await make_csrf_request(
@@ -360,7 +384,7 @@ async def test_update_animal_view_con_NCHIP_vacio_retorna_422_sin_update(
         "POST",
         "/animales/abc-123/update",
         form_data={
-            "NCHIP": "   ",
+            "NCHIP": "985112004409871",
             "NombreAnimal": "Luna",
             "Especie": "CANINA",
             "Sexo": "H",
@@ -372,20 +396,22 @@ async def test_update_animal_view_con_NCHIP_vacio_retorna_422_sin_update(
         },
     )
 
-    assert response.status_code == 422
-    assert "text/html" in response.headers["content-type"]
-    # No se debe haber emitido ningun UPDATE.
-    assert not any("UPDATE animales SET" in q for q in animals_spy.captured_queries), (
-        f"no se debe emitir UPDATE si la validacion falla; queries: {animals_spy.captured_queries!r}"
+    assert response.status_code == 422, response.text
+    assert "text/html" in response.headers["content-type"], (
+        "ValueError must re-render the HTML form"
+    )
+    assert animals_spy.captured_queries == [], (
+        "validation failures must not use legacy animal SQL"
     )
 
 
 # --- delete ----------------------------------------------------------------
 
 
-async def test_delete_animal_view_delega_en_service_y_redirige_303(
+async def test_delete_animal_view_delegates_to_port_and_redirects_303(
     client: httpx.AsyncClient,
     animals_spy: _AnimalsRouteSpy,
+    animals_port: _AnimalsPortStub,
 ) -> None:
     """POST /animales/{id}/delete con id existente -> 303 a /animales."""
     _login_as_key_user(client)
@@ -396,21 +422,24 @@ async def test_delete_animal_view_delega_en_service_y_redirige_303(
         "/animales/abc-123/delete",
     )
 
-    assert response.status_code == 303
-    assert response.headers["location"] == "/animales"
-    # El handler delega en service.delete_animal que emite un solo
-    # UPDATE activo = false. NO debe haber un SELECT previo redundante
-    # para verificar existencia (eso era el patron anterior del bug).
-    assert any("SET activo = false" in q for q in animals_spy.captured_queries)
+    assert response.status_code == 303, response.text
+    assert response.headers["location"] == "/animales", (
+        "successful delete must redirect to the list"
+    )
+    assert animals_port.delete_ids == ["abc-123"], (
+        "delete route must delegate the path id to the port"
+    )
+    assert animals_spy.captured_queries == [], (
+        "delete route must not use legacy animal SQL"
+    )
 
 
 async def test_delete_animal_view_con_id_inexistente_retorna_404(
     client: httpx.AsyncClient,
     animals_spy: _AnimalsRouteSpy,
+    animals_port: _AnimalsPortStub,
 ) -> None:
     """delete_animal de un id que no existe -> 404 (sin redireccion)."""
-    animals_spy.get_animal_by_id_rows = []   # delete devolvera False
-    animals_spy.delete_returning_rows = []   # el service ve 0 filas -> False
     _login_as_key_user(client)
 
     response = await make_csrf_request(
@@ -419,7 +448,88 @@ async def test_delete_animal_view_con_id_inexistente_retorna_404(
         "/animales/no-such-id/delete",
     )
 
-    assert response.status_code == 404
+    assert response.status_code == 404, response.text
+    assert animals_port.delete_ids == ["no-such-id"], (
+        "missing delete must still call the port once"
+    )
+    assert animals_spy.captured_queries == [], (
+        "missing delete must not use legacy animal SQL"
+    )
+
+
+async def test_create_animal_view_delegates_to_port_and_redirects_303(
+    client: httpx.AsyncClient,
+    animals_spy: _AnimalsRouteSpy,
+    animals_port: _AnimalsPortStub,
+) -> None:
+    _login_as_key_user(client)
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/animales",
+        form_data={
+            "NCHIP": "985112004409871",
+            "NombreAnimal": "Luna",
+            "Especie": "CANINA",
+            "Sexo": "H",
+            "FNacimiento": "2023-04-12",
+            "Terapia": "No",
+            "TraeNChip": "Si",
+            "FIMPLANTACIONCHIP": "2023-04-15",
+            "NombreFoto": "luna.jpg",
+            "Raza": "Labrador",
+        },
+    )
+
+    assert response.status_code == 303, response.text
+    assert response.headers["location"] == "/animales/abc-123", (
+        "successful create must redirect to the persisted animal"
+    )
+    assert animals_port.create_kwargs is not None, "create route must call the port"
+    assert animals_port.create_kwargs["especie"] is Especie.CANINA, (
+        "create route must convert the species to its domain enum"
+    )
+    assert animals_port.create_kwargs["Raza"] == "Labrador", (
+        "create route must delegate optional writable fields"
+    )
+    assert animals_spy.captured_queries == [], (
+        "create route must not use legacy animal SQL"
+    )
+
+
+async def test_create_animal_view_translates_unique_violation_to_409(
+    client: httpx.AsyncClient,
+    animals_spy: _AnimalsRouteSpy,
+    animals_port: _AnimalsPortStub,
+) -> None:
+    animals_port.create_error = UniqueViolationError("duplicate key")
+    _login_as_key_user(client)
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/animales",
+        form_data={
+            "NCHIP": "985112004409871",
+            "NombreAnimal": "Luna",
+            "Especie": "CANINA",
+            "Sexo": "H",
+            "FNacimiento": "2023-04-12",
+            "Terapia": "No",
+            "TraeNChip": "Si",
+            "FIMPLANTACIONCHIP": "2023-04-15",
+            "NombreFoto": "luna.jpg",
+        },
+    )
+
+    assert response.status_code == 409, response.text
+    assert "Ya existe un animal con ese NCHIP. Compruebalo." in response.text, (
+        "unique violations must preserve the operator-facing conflict message"
+    )
+    assert animals_spy.captured_queries == [], (
+        "conflict handling must not fall back to legacy animal SQL"
+    )
 
 
 # ---------------------------------------------------------------------------
