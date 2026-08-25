@@ -53,19 +53,19 @@ The slice runs the same FK-existence pattern as the entradas and adopciones modu
 | `animal_current_state` | `animal_id`, `current_state`, `derived_at` | Derived view materialised from the event log. |
 | `entradas`, `acogidas`, `adopciones`, `actuaciones_sanitarias`, `terapias` | `NCHIP` columns | Cascade targets of the chip-change saga. |
 
-The search query lives in `app/modules/animals/queries.py` as `build_animal_search` and `build_animal_count`. The search joins `animal_current_state` to surface the derived state. The `DB_LABEL_TO_ESTADO` map is the single source of truth for DB-to-API state translation (AGENTS.md §4).
+The migrated search query lives in `adapters/insforge/animals_insforge_queries.py`; the legacy seam remains in `queries.py` until PR-B/PR-C retire the service path. Search joins `animal_current_state` to surface the derived state.
 
 ## Endpoints
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| GET | `/animales` | READ_ANIMALES | List active animals through `AnimalsPort` (`NCHIP ASC` until PR-A.2b restores legacy ordering). |
-| GET | `/animales/search` | AUTHORIZED | JSON search with 9 query filters, pagination. |
+| GET | `/animales` | READ_ANIMALES | List active animals through `AnimalsPort` (`fecha_alta DESC`, then `NCHIP ASC`). |
+| GET | `/animales/search` | AUTHORIZED | JSON search with 9 query filters through `AnimalsPort`. |
 | GET | `/animales/new` | READ_ANIMALES | Empty create form. |
 | POST | `/animales` | WRITE_ANIMALES | Create animal; renders 409 on duplicate NCHIP. |
 | GET | `/animales/{id}` | READ_ANIMALES | Detail view through `AnimalsPort`. |
 | GET | `/animales/{id}/salud/resumen` | AUTHORIZED | JSON health summary (HEALTH-03, issue #52). |
-| GET | `/animales/{id}/edit` | READ_ANIMALES | Edit form prefilled from the row. |
+| GET | `/animales/{id}/edit` | READ_ANIMALES | Edit form prefilled from the widened hexagonal entity. |
 | POST | `/animales/{id}/update` | WRITE_ANIMALES | Update animal. |
 | POST | `/animales/{id}/delete` | DELETE_ANIMALES | Soft-delete. |
 | PATCH | `/animales/{id}/chip` | AUTHORIZED | Chip cascade (LIFECYCLE-04). |
@@ -78,12 +78,12 @@ Status codes: 200 on renders, 303 See Other on success, 404 when the id is missi
 | Function | Purpose |
 |---|---|
 | `create_animal(client, params)` | INSERT with required-field validation; duplicate NCHIP surfaces as `InsForgeError` 409 to the route. |
-| `list_animals(port)` | Hexagonal active-animal route path; currently ordered by NCHIP. |
+| `list_animals(port)` | Hexagonal active-animal route path; ordered by newest `fecha_alta`, then NCHIP. |
 | `get_animal_by_id(port, animal_id)` | Hexagonal primary-key lookup used by detail and foster assignment. |
 | `update_animal(client, animal_id, params)` | UPDATE; returns `None` when the id is missing. |
 | `delete_animal(client, animal_id)` | Atomic soft-delete. |
 | `record_event(client, *, animal_id, event_type, event_timestamp, created_by, ...)` | Legacy lifecycle-event writer (issue #32, D-23). Mirrored by the hexagonal `record_lifecycle_event` (#609). |
-| `search_animals(client, *, q, chip, especie, sexo, estado, fecha_alta_since, fecha_alta_until, limit, offset)` | Paginated search; `limit=0` returns count only. |
+| `search_animals(port, *, q, chip, especie, sexo, estado, fecha_alta_since, fecha_alta_until, limit, offset)` | Paginated hexagonal search used by the JSON route. |
 | `change_animal_chip(client, *, animal_id, old_chip, new_chip, reason, operador_user_id)` | Saga: updates 6 tables; rolls back on any failure. |
 | `record_event(client, ...)` | Append a lifecycle event with causal-pair validation. |
 | `validate_causal_pair(client, ...)` | Pre-flight D-23 check that raises `CausalPairViolation`. |
@@ -96,13 +96,13 @@ The `change_animal_chip` saga lives in `chip_service.py` (extracted from `servic
 
 ## Layer type
 
-Transitional mixed layout. `list_animales`, `animal_detail`, and foster assignment use route → application → `AnimalsPort` → adapter. Unmigrated handlers retain route → legacy service → queries.
+Transitional mixed layout. `list_animales`, `animal_detail`, `search_animales`, `edit_animal_form`, and foster assignment use route → application → `AnimalsPort` → adapter. Unmigrated handlers retain route → legacy service → queries.
 
 The eleven `AnimalsPort` methods are landed, including primary-key lookup and paginated search from PR-A.1 of epic #420.
 
-The conversion is not complete. Search/edit remain for PR-A.2b; writes for PR-B; chip/photo for PR-C.
+The conversion is not complete. Write paths remain for PR-B; chip/photo remain for PR-C.
 
-The legacy `service.py` owns `TraeNChip`, `Raza` and the remaining columns until the model widens or an `AnimalCreateRequest` lands.
+The hexagonal `Animal` read entity carries all 28 application-facing fields. `updated_at` remains system-internal and write payloads stay in the legacy service until PR-B.
 
 ## Risks and gotchas
 

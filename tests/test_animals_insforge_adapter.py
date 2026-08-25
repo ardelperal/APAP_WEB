@@ -13,6 +13,7 @@ from app.modules.animals.adapters.insforge.animals_insforge_adapter import (
     AnimalsInsforgeAdapter,
 )
 from app.modules.animals.adapters.insforge.animals_insforge_mappers import (
+    _row_to_animal,
     _row_to_lifecycle_event,
 )
 from app.modules.animals.adapters.insforge.animals_insforge_photo import (
@@ -22,6 +23,7 @@ from app.modules.animals.adapters.insforge.animals_insforge_queries import (
     GET_ANIMAL_BY_ID_SQL,
     get_animal_by_nchip_sql,
     get_animal_photo_meta_sql,
+    list_animals_sql,
 )
 from app.modules.animals.di.animals_di import get_animals_port
 from app.modules.animals.domain.animal import (
@@ -99,6 +101,74 @@ def _animal_row(index: int) -> dict[str, object]:
     }
 
 
+_WIDENED_FIELDS = (
+    "fecha_alta", "estado", "TraeNChip", "FIMPLANTACIONCHIP", "Raza",
+    "Color", "Pelo", "Tamano", "Caracter", "FDefuncion", "Terapia",
+    "Observaciones", "NombreFoto", "Cartilla", "Eutanasia", "RazaPPP",
+    "Mestizo", "EutanasiaOtrasCausas", "EutanasiaEnfermedad",
+    "UltimoEstadoAntesDeFallecido", "ComunicacionARIAC",
+)
+
+
+def test_row_to_animal_maps_the_full_28_field_shape() -> None:
+    row = {
+        **_animal_row(1),
+        "fecha_alta": "2026-08-25T10:00:00Z",
+        "current_state": "Albergue",
+        "TraeNChip": "Si",
+        "FIMPLANTACIONCHIP": "2024-03-02",
+        "Raza": "Mestiza",
+        "Color": "Negro",
+        "Pelo": "Corto",
+        "Tamano": "Mediano",
+        "Caracter": "Sociable",
+        "FDefuncion": "",
+        "Terapia": "No",
+        "Observaciones": "Sin observaciones",
+        "NombreFoto": "animals/luna.jpg",
+        "Cartilla": "Si",
+        "Eutanasia": "No",
+        "RazaPPP": "No",
+        "Mestizo": "Si",
+        "EutanasiaOtrasCausas": "No",
+        "EutanasiaEnfermedad": "No",
+        "UltimoEstadoAntesDeFallecido": "Albergue",
+        "ComunicacionARIAC": "Si",
+    }
+
+    animal = _row_to_animal(row)
+
+    expected = {
+        name: "albergue" if name == "estado" else row[name]
+        for name in _WIDENED_FIELDS
+    }
+    actual = {name: getattr(animal, name) for name in _WIDENED_FIELDS}
+    assert actual == expected, "the mapper must preserve every widened transport value"
+
+
+def test_row_to_animal_accepts_the_original_partial_row() -> None:
+    animal = _row_to_animal(_animal_row(1))
+
+    for name in _WIDENED_FIELDS:
+        assert getattr(animal, name) is None, f"missing {name} must map to None"
+
+
+def test_row_to_animal_reads_estado_from_current_state() -> None:
+    animal = _row_to_animal({**_animal_row(1), "current_state": "Acogida"})
+    assert animal.estado == "acogida", (
+        "estado must normalize the current_state database label for the API"
+    )
+
+
+def test_list_animals_sql_restores_legacy_order_with_stable_tiebreaker() -> None:
+    sql, params = list_animals_sql(limit=50, offset=0, activo_only=True)
+
+    assert 'ORDER BY fecha_alta DESC, "NCHIP" ASC' in sql, (
+        "list pagination must be newest-first and deterministic for equal timestamps"
+    )
+    assert params == ["50", "0"], "list pagination binds must remain unchanged"
+
+
 def test_get_animal_by_id_returns_row_when_exists() -> None:
     client = _FakeClient(rows=[_animal_row(1)])
     adapter = AnimalsInsforgeAdapter(client=client, storage=client)  # type: ignore[arg-type]
@@ -122,6 +192,29 @@ def test_get_animal_by_id_returns_none_when_missing() -> None:
     adapter = AnimalsInsforgeAdapter(client=client, storage=client)  # type: ignore[arg-type]
 
     assert adapter.get_animal_by_id("missing") is None, "missing ids must return None"
+
+
+def test_get_animal_by_id_projects_every_edit_form_column() -> None:
+    for column in _WIDENED_FIELDS:
+        if column == "estado":
+            continue
+        sql_column = column if column == "fecha_alta" else f'"{column}"'
+        assert sql_column in GET_ANIMAL_BY_ID_SQL, (
+            f"primary-key lookup must project {column} for edit prefill"
+        )
+
+
+def test_search_animals_projects_current_state_without_state_filter() -> None:
+    client = _SequencedFakeClient([[], [{"total": 0}]])
+    adapter = AnimalsInsforgeAdapter(client=client, storage=client)  # type: ignore[arg-type]
+
+    adapter.search_animals()
+
+    sql = client.calls[0][0]
+    assert "acs.current_state" in sql, "search rows must project the derived state"
+    assert "LEFT JOIN animal_current_state" in sql, (
+        "search must join state even when estado is not a filter"
+    )
 
 
 def test_search_animals_no_filters_returns_data_and_total() -> None:
@@ -227,6 +320,20 @@ def test_search_animals_total_independent_of_limit() -> None:
 
     assert len(result.data) == 10, "data must contain only the requested page"
     assert result.total == 42, "total must be independent of page size"
+
+
+def test_search_animals_zero_limit_executes_only_count_query() -> None:
+    client = _SequencedFakeClient([[{"total": 42}]])
+    adapter = AnimalsInsforgeAdapter(client=client, storage=client)  # type: ignore[arg-type]
+
+    result = adapter.search_animals(limit=0, offset=10)
+
+    assert result.data == (), "count-only search must not return data"
+    assert result.total == 42, "count-only search must return the fresh total"
+    assert result.limit == 0, "count-only envelope must preserve limit zero"
+    assert result.offset == 10, "count-only envelope must preserve the cursor"
+    assert len(client.calls) == 1, "count-only search must skip the data query"
+    assert "COUNT(*)" in client.calls[0][0], "the only query must be the count"
 
 
 def test_returns_none_when_no_match() -> None:

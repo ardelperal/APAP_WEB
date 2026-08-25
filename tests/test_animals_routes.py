@@ -24,6 +24,7 @@ from typing import Any
 
 import httpx
 import pytest
+from fastapi.responses import HTMLResponse
 
 from app.core.insforge import InsForgeClient
 from app.core.session import session_cookie_name, write_session
@@ -161,6 +162,14 @@ class _AnimalsPortStub:
         self.animal = Animal(
             id="abc-123", NCHIP="1", NombreAnimal="Luna",
             Especie=Especie.CANINA, Sexo=Sexo.H, FNacimiento="2023-04-12",
+            fecha_alta="2023-04-13", estado="albergue", TraeNChip="Si",
+            FIMPLANTACIONCHIP="2023-04-14", Raza="Mestiza", Color="Negro",
+            Pelo="Corto", Tamano="Mediano", Caracter="Sociable",
+            FDefuncion="", Terapia="No", Observaciones="Ninguna",
+            NombreFoto="animals/luna.jpg", Cartilla="Si", Eutanasia="No",
+            RazaPPP="No", Mestizo="Si", EutanasiaOtrasCausas="No",
+            EutanasiaEnfermedad="No", UltimoEstadoAntesDeFallecido="",
+            ComunicacionARIAC="Si",
         )
         self.list_calls = 0
         self.detail_ids: list[str] = []
@@ -263,6 +272,32 @@ async def test_animal_detail_uses_hexagonal_port(
     assert response.status_code == status_code, response.text
     assert animals_port.detail_ids == [animal_id], "detail route must pass the id to the port"
     assert animals_spy.captured_queries == [], "detail route must not use legacy animal SQL"
+
+
+async def test_edit_animal_form_uses_all_hexagonal_fields(
+    client: httpx.AsyncClient,
+    animals_spy: _AnimalsRouteSpy,
+    animals_port: _AnimalsPortStub,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_context: dict[str, Any] = {}
+
+    def render(*, context: dict[str, Any], **_kwargs: Any) -> HTMLResponse:
+        captured_context.update(context)
+        return HTMLResponse("rendered")
+
+    monkeypatch.setattr(animals_routes._templates, "TemplateResponse", render)
+    _login_as_key_user(client)
+
+    response = await client.get("/animales/abc-123/edit")
+
+    assert response.status_code == 200, response.text
+    assert animals_port.detail_ids == ["abc-123"], "edit route must use the port lookup"
+    assert animals_spy.captured_queries == [], "edit route must not use legacy animal SQL"
+    expected_form_keys = set(ANIMAL_FORM_FIELDS)
+    assert set(captured_context["form_data"]) == expected_form_keys, (
+        "edit template context must carry every AnimalForm key"
+    )
 
 
 # --- update ----------------------------------------------------------------

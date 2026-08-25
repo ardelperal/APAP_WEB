@@ -24,15 +24,15 @@ En curso (slice hexagonal). El epic #420 ("hexagonal vertical-slice refactor") e
 
 Pendiente en el port: ninguno. Los once métodos de `AnimalsPort` han aterrizado.
 
-La conversión no está completa. Lista, detalle y la integración foster usan el port; las demás rutas siguen en los servicios legacy.
+La conversión no está completa. Lista, detalle, búsqueda, formulario de edición y la integración foster usan el port; las rutas de escritura, chip y foto siguen en los servicios legacy.
 
-`service.py` conserva `TraeNChip`, `Raza` y los demás campos hasta que otro slice amplíe `Animal` o introduzca un `AnimalCreateRequest`.
+La entidad hexagonal `Animal` ya contiene los 28 campos de lectura. `updated_at` permanece interno al sistema y `service.py` conserva los payloads de escritura hasta PR-B.
 
 Las piezas no-hexagonales siguen en la forma legacy:
 - #30 (LIFECYCLE-05) search API — pendiente.
 - #33 (state resolver) — pendiente.
 - #69 (cache `estado_actual_animal`) — pendiente.
-- PR-A.2a landed `list_animales` + `animal_detail` + foster integration on the hexagonal path. Still pending on hexagonal: `search_animales` + `edit_animal_form` (PR-A.2b), create/update/delete (PR-B), chip/photo (PR-C).
+- PR-A.2a migró `list_animales`, `animal_detail` y la integración foster. PR-A.2b migró `search_animales` y `edit_animal_form`. Quedan pendientes create/update/delete (PR-B) y chip/photo (PR-C).
 
 ## Slices previstos
 

@@ -47,7 +47,7 @@ def search_animals(  # noqa: PLR0913
         estado=estado,
         fecha_alta_since=fecha_alta_since,
         fecha_alta_until=fecha_alta_until,
-        limit=max(1, min(int(limit), MAX_LIMIT)),
+        limit=max(0, min(int(limit), MAX_LIMIT)),
         offset=max(0, int(offset)),
     )
 

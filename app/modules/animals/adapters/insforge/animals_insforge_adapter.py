@@ -111,13 +111,18 @@ class AnimalsInsforgeAdapter(AnimalsPort):
             "fecha_alta_since": fecha_alta_since,
             "fecha_alta_until": fecha_alta_until,
         }
+        count_sql, count_params = count_animals_sql(**filters)
+        if limit == 0:
+            count_rows = self._client.execute_sql(count_sql, count_params)
+            total = int(str(count_rows[0]["total"])) if count_rows else 0
+            return AnimalSearchResult(data=(), total=total, limit=0, offset=offset)
+
         data_sql, data_params = search_animals_sql(
             **filters,
             limit=limit,
             offset=offset,
         )
         rows = self._client.execute_sql(data_sql, data_params)
-        count_sql, count_params = count_animals_sql(**filters)
         count_rows = self._client.execute_sql(count_sql, count_params)
         total = int(str(count_rows[0]["total"])) if count_rows else 0
         return AnimalSearchResult(

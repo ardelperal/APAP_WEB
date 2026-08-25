@@ -184,7 +184,7 @@ def test_animal_routes_return_404_for_missing_resource(
 ) -> None:
     """Detail, edit, and delete expose the same missing-resource contract."""
     dependency_kwarg = "client"
-    if handler is animal_routes.animal_detail:
+    if handler in (animal_routes.animal_detail, animal_routes.edit_animal_form):
         monkeypatch.setattr(
             animal_routes, "app_get_animal_by_id", Mock(return_value=None)
         )

@@ -1,4 +1,4 @@
-"""Use case: list animals, paginated, oldest-first by NCHIP.
+"""Use case: list animals, paginated, newest-first by admission date.
 
 Slice #420-7 second surface (complementing ``get_animal_by_nchip``,
 landed in #587). The single application-layer entry point for the

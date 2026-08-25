@@ -1,8 +1,8 @@
 """Animals routes: list, create, get, edit, delete (soft).
 
 Transitional thin layer over hexagonal use cases and the legacy
-``app.modules.animals.service``. Read-side list/detail handlers use
-``AnimalsPort``; handlers not yet migrated still delegate to the service.
+``app.modules.animals.service``. Read-side list/detail/search/edit handlers
+use ``AnimalsPort``; write, chip, and photo handlers remain on the service.
 
 Auth model (issue #66 RBAC): permissions are checked via
 ``require_permission`` from ``app.core.rbac``.  The permission matrix:
@@ -52,7 +52,20 @@ from app.modules.animals.application.get_animal_by_id import (
     get_animal_by_id as app_get_animal_by_id,
 )
 from app.modules.animals.application.list_animals import list_animals as app_list_animals
+from app.modules.animals.application.search_animals import (
+    search_animals as app_search_animals,
+)
 from app.modules.animals.di.animals_di import get_animals_port
+from app.modules.animals.domain.animal import (
+    Animal,
+    AnimalSearchResult,
+)
+from app.modules.animals.domain.animal import (
+    Especie as DomainEspecie,
+)
+from app.modules.animals.domain.animal import (
+    Sexo as DomainSexo,
+)
 from app.modules.animals.forms import AnimalForm
 from app.modules.animals.ports.animals_port import AnimalsPort
 
@@ -133,12 +146,7 @@ def list_animales(
     user: Annotated[Response | dict, Depends(require_permission(Permission.READ_ANIMALES))],
     port: Annotated[AnimalsPort, Depends(get_animals_port)],
 ):
-    """List active animals through the hexagonal port.
-
-    The legacy service ordered ``fecha_alta DESC`` (newest first), while
-    ``AnimalsPort.list_animals`` currently orders ``NCHIP ASC``.
-    TODO(#420 PR-A.2b): restore legacy ordering after ``fecha_alta`` widens.
-    """
+    """List active animals through the hexagonal port, newest first."""
     if (early := return_early_if_response(user)) is not None:
         return early
     animales = app_list_animals(port)
@@ -156,11 +164,11 @@ def list_animales(
 def search_animales(  # noqa: PLR0913  # 9 query filters needed for the search UI; not reducible without removing features
     _request: Request,
     user: Annotated[Response | dict, Depends(require_authorized_user)],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    port: Annotated[AnimalsPort, Depends(get_animals_port)],
     q: Annotated[str | None, Query(description="Substring match on nombre (case-insensitive). Ignored if chip is set.")] = None,
     chip: Annotated[str | None, Query(description="Exact match on NCHIP. Takes precedence over q.")] = None,
-    especie: Annotated[str | None, Query(description="Exact match: CANINA or FELINA.")] = None,
-    sexo: Annotated[str | None, Query(description="Exact match: M or H.")] = None,
+    especie: Annotated[DomainEspecie | None, Query(description="Exact match: CANINA or FELINA.")] = None,
+    sexo: Annotated[DomainSexo | None, Query(description="Exact match: M or H.")] = None,
     estado: Annotated[str | None, Query(description="Dynamic state via animal_current_state JOIN. Values: pendiente_entrada | pendiente_nueva_situacion | albergue | acogida | adoptado | entregado | fallecido | incoherente.")] = None,
     fecha_alta_since: Annotated[str | None, Query(description="ISO date. Filter fecha_alta >= value.")] = None,
     fecha_alta_until: Annotated[str | None, Query(description="ISO date. Filter fecha_alta <= value.")] = None,
@@ -174,8 +182,8 @@ def search_animales(  # noqa: PLR0913  # 9 query filters needed for the search U
     """
     if (early := return_early_if_response(user)) is not None:
         return early
-    result = animals_service.search_animals(
-        client,
+    result = app_search_animals(
+        port,
         q=q,
         chip=chip,
         especie=especie,
@@ -342,12 +350,12 @@ def edit_animal_form(
     animal_id: str,
     request: Request,
     user: Annotated[Response | dict, Depends(require_permission(Permission.READ_ANIMALES))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    port: Annotated[AnimalsPort, Depends(get_animals_port)],
 ):
     """Formulario prellenado para editar un animal."""
     if (early := return_early_if_response(user)) is not None:
         return early
-    animal = animals_service.get_animal_by_id(client, animal_id)
+    animal = app_get_animal_by_id(port, animal_id)
     if animal is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     return _templates.TemplateResponse(
@@ -512,18 +520,18 @@ def animal_foto(
 
 
 # --- helpers -------------------------------------------------------------
-def _search_result_to_json(result: animals_service.AnimalSearchResult) -> dict[str, Any]:
+def _search_result_to_json(result: AnimalSearchResult) -> dict[str, Any]:
     """Map ``AnimalSearchResult`` to the spec JSON envelope."""
     return {
         "data": [
             {
                 "id": a.id,
-                "chip": a.chip,
-                "nombre": a.nombre,
-                "especie": a.especie,
-                "sexo": a.sexo,
+                "chip": a.NCHIP,
+                "nombre": a.NombreAnimal,
+                "especie": a.Especie.value,
+                "sexo": a.Sexo.value,
                 "estado": a.estado,
-                "fecha_nacimiento": a.fecha_nacimiento,
+                "fecha_nacimiento": a.FNacimiento,
                 "fecha_alta": a.fecha_alta,
             }
             for a in result.data
@@ -534,7 +542,7 @@ def _search_result_to_json(result: animals_service.AnimalSearchResult) -> dict[s
     }
 
 
-def _animal_to_form_data(animal) -> dict[str, Any]:
+def _animal_to_form_data(animal: Animal) -> dict[str, Any]:
     """Convierte un Animal a dict para pre-rellenar el form."""
     return {
         "NCHIP": animal.NCHIP or "",
