@@ -4,9 +4,9 @@ The :func:`get_animals_port` provider is the seam between FastAPI
 request handlers and the hexagonal
 :class:`~app.modules.animals.ports.AnimalsPort` abstraction.
 
-The list/detail routes and foster assignment gate consume this provider.
-Remaining animal handlers continue to use the legacy service until their
-dedicated #420 migration slices land.
+It is wired into the request handlers that depend on ``AnimalsPort``
+(list/detail migrated in PR-A.2a; search/edit in PR-A.2b) and the foster
+assignment gate.
 """
 from __future__ import annotations
 

@@ -1,19 +1,9 @@
 """Hexagonal port for the animals slice (AGENTS.md §31).
 
-PR-A.1 of epic #420 adds primary-key lookup and paginated search to the
-nine landed methods. The remaining legacy surface (``TraeNChip`` /
-``Raza`` / etc. columns) is owned by ``service.py`` until a follow-up
-slice widens the ``Animal`` entity or carries a parallel
-``AnimalCreateRequest``.
-
-The port carries the round-trip fields the hexagonal
-:class:`Animal` dataclass already encodes (NCHIP, NombreAnimal,
-Especie, Sexo, FNacimiento). Legacy ``TbFichaAnimal`` columns
-``TraeNChip``, ``FIMPLANTACIONCHIP``, ``Raza``, ``Color``, ``Pelo``,
-``Tamano``, ``Caracter`` are not in the dataclass yet — they land as
-a separate slice once we decide whether to widen the entity or
-carry a parallel ``AnimalCreateRequest`` so the legacy
-``dict[str, Any]`` shape can keep its full surface.
+PR-A.2b of epic #420 widens the :class:`Animal` read entity to all
+28 application-facing fields and wires search/edit through this port.
+``updated_at`` remains transport-internal; write handlers stay on the
+legacy service until PR-B.
 
 Adapters MUST translate transport-level errors into the
 Protocol-level exceptions declared in :mod:`app.core.data_access`.
@@ -83,7 +73,7 @@ class AnimalsPort(Protocol):
         offset: int = 0,
         activo_only: bool = True,
     ) -> list[Animal]:
-        """Return a paginated slice of animals, oldest-first by NCHIP.
+        """Return animals newest-first by fecha_alta, then NCHIP.
 
         ``limit`` is the maximum number of rows the caller is willing
         to receive; adapters are free to return fewer but must not

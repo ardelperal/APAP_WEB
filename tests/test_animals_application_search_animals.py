@@ -23,13 +23,13 @@ def _empty_result() -> AnimalSearchResult:
     return AnimalSearchResult(data=(), total=0, limit=50, offset=0)
 
 
-def test_limit_at_or_below_zero_clamps_to_one() -> None:
+def test_zero_limit_preserves_count_only_contract() -> None:
     port = _StubPort(_empty_result())
 
     result = search_animals(port, limit=0)  # type: ignore[arg-type]
 
     assert result is port._result, "use case must return the port result unchanged"
-    assert port.calls[0]["limit"] == 1, "non-positive limits must clamp to one"
+    assert port.calls[0]["limit"] == 0, "zero must preserve the legacy count-only contract"
 
 
 def test_negative_offset_clamps_to_zero() -> None:

@@ -2,11 +2,28 @@
 
 from __future__ import annotations
 
-from app.modules.animals.domain.animal import Animal, Especie, Sexo
+from app.modules.animals.domain.animal import (
+    DB_LABEL_TO_ESTADO,
+    Animal,
+    Especie,
+    Sexo,
+)
 from app.modules.animals.domain.lifecycle_event import (
     AnimalLifecycleEvent,
     LifecycleEventType,
 )
+
+
+def _optional_str(row: dict[str, object], key: str) -> str | None:
+    value = row.get(key)
+    return None if value is None else str(value)
+
+
+def _optional_estado(row: dict[str, object]) -> str | None:
+    current_state = _optional_str(row, "current_state")
+    if current_state is None:
+        return None
+    return DB_LABEL_TO_ESTADO.get(current_state, "incoherente")
 
 
 def _row_to_animal(row: dict[str, object]) -> Animal:
@@ -19,6 +36,29 @@ def _row_to_animal(row: dict[str, object]) -> Animal:
         Sexo=Sexo(str(row["Sexo"])),
         FNacimiento=str(row["FNacimiento"]),
         activo=bool(row["activo"]),
+        fecha_alta=_optional_str(row, "fecha_alta"),
+        estado=_optional_estado(row),
+        TraeNChip=_optional_str(row, "TraeNChip"),
+        FIMPLANTACIONCHIP=_optional_str(row, "FIMPLANTACIONCHIP"),
+        Raza=_optional_str(row, "Raza"),
+        Color=_optional_str(row, "Color"),
+        Pelo=_optional_str(row, "Pelo"),
+        Tamano=_optional_str(row, "Tamano"),
+        Caracter=_optional_str(row, "Caracter"),
+        FDefuncion=_optional_str(row, "FDefuncion"),
+        Terapia=_optional_str(row, "Terapia"),
+        Observaciones=_optional_str(row, "Observaciones"),
+        NombreFoto=_optional_str(row, "NombreFoto"),
+        Cartilla=_optional_str(row, "Cartilla"),
+        Eutanasia=_optional_str(row, "Eutanasia"),
+        RazaPPP=_optional_str(row, "RazaPPP"),
+        Mestizo=_optional_str(row, "Mestizo"),
+        EutanasiaOtrasCausas=_optional_str(row, "EutanasiaOtrasCausas"),
+        EutanasiaEnfermedad=_optional_str(row, "EutanasiaEnfermedad"),
+        UltimoEstadoAntesDeFallecido=_optional_str(
+            row, "UltimoEstadoAntesDeFallecido"
+        ),
+        ComunicacionARIAC=_optional_str(row, "ComunicacionARIAC"),
     )
 
 

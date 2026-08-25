@@ -2,10 +2,9 @@
 
 Field names match the schema in CamelCase Spanish per
 ``docs/discovery/feature-01-animal-lifecycle.md`` and the legacy
-``TbFichaAnimal`` mapping. The :class:`Animal` dataclass is a partial
-migration target — only the columns the first read use case
-(``get_animal_by_nchip``) needs to round-trip are present; write
-paths will land additional columns as they migrate.
+``TbFichaAnimal`` mapping. The :class:`Animal` dataclass carries the
+complete 28-field read shape. ``updated_at`` stays adapter-internal
+because legacy application surfaces never expose it.
 """
 
 from __future__ import annotations
@@ -57,11 +56,14 @@ class Sexo(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class Animal:
-    """A row of the ``animales`` table as the read side needs it.
+    """The complete 28-field animal read entity.
 
     ``id`` is the UUID primary key. ``FNacimiento`` is ``DATE`` on
     the wire and an ISO 8601 string in the API. ``activo`` defaults
-    to ``True`` (the column is ``NOT NULL DEFAULT TRUE``).
+    to ``True`` (the column is ``NOT NULL DEFAULT TRUE``). The 21
+    widened fields are optional so seven-field adapter rows remain
+    valid. ``updated_at`` is intentionally excluded because it is a
+    system-internal column that legacy API surfaces never exposed.
     """
 
     id: str
@@ -71,6 +73,27 @@ class Animal:
     Sexo: Sexo
     FNacimiento: str
     activo: bool = True
+    fecha_alta: str | None = None
+    estado: str | None = None
+    TraeNChip: str | None = None
+    FIMPLANTACIONCHIP: str | None = None
+    Raza: str | None = None
+    Color: str | None = None
+    Pelo: str | None = None
+    Tamano: str | None = None
+    Caracter: str | None = None
+    FDefuncion: str | None = None
+    Terapia: str | None = None
+    Observaciones: str | None = None
+    NombreFoto: str | None = None
+    Cartilla: str | None = None
+    Eutanasia: str | None = None
+    RazaPPP: str | None = None
+    Mestizo: str | None = None
+    EutanasiaOtrasCausas: str | None = None
+    EutanasiaEnfermedad: str | None = None
+    UltimoEstadoAntesDeFallecido: str | None = None
+    ComunicacionARIAC: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,8 +101,7 @@ class AnimalSearchResult:
     """Paginated search result for ``AnimalsPort.search_animals``.
 
     Mirrors the legacy ``service.search_animals`` contract: data + total +
-    pagination. ``data`` carries the partial seven-field :class:`Animal` rows;
-    PR-B will widen ``Animal`` and the mapper will pick up the new columns.
+    pagination. ``data`` carries the complete :class:`Animal` read entity.
     """
 
     data: tuple[Animal, ...]
