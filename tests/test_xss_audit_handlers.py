@@ -195,8 +195,14 @@ class _XssInsForge(InsForgeClient):
 def xss_insforge() -> _XssInsForge:
     spy = _XssInsForge()
     app.dependency_overrides[get_insforge_client] = lambda: spy
+    # Epic #420 migrated the animals routes to Depends(get_animals_port);
+    # the hexagonal provider reads ``state.insforge_client`` directly, so
+    # the state must also be wired for these tests (which exercise the
+    # animals detail/edit routes after migration).
+    app.state.insforge_client = spy
     yield spy
     app.dependency_overrides.pop(get_insforge_client, None)
+    app.state.__dict__.pop("insforge_client", None)
 
 
 # ---------------------------------------------------------------------------

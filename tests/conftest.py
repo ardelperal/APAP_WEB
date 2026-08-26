@@ -45,6 +45,7 @@ import pytest_asyncio
 os.environ.setdefault("APAP_MODE", "test")
 
 from app.core.config import get_settings  # noqa: E402  (must follow the env set)
+from app.core.insforge import InsForgeClient  # noqa: E402
 from app.core.session import read_session, session_cookie_name  # noqa: E402
 from app.main import app as _app  # noqa: E402
 
@@ -111,6 +112,90 @@ def _clear_settings_cache() -> None:
         _reset_rate_limit_backend()
     except ImportError:
         pass  # Before rate-limit middleware is added; no-op
+
+
+@pytest.fixture(autouse=True)
+def _install_default_insforge_client() -> None:
+    """Wire a default ``state.insforge_client`` spy into the module ``app``.
+
+    Epic #420 migrated the animals slice (and several cross-slice
+    consumers) to ``Depends(get_animals_port)`` which reads
+    ``request.app.state.insforge_client`` directly. Routes that
+    exercise those handlers no longer go through the legacy
+    ``get_insforge_client_dep`` override; the test client needs the
+    state populated for any POST that reaches the hexagonal port
+    provider, including CSRF middleware tests, XSS audit
+    handlers, and auth middleware tests.
+
+    Tests that want a custom spy (recording INSERT/UPDATE/SELECT
+    SQL) override this by setting ``app.state.insforge_client`` to
+    their own object after this fixture runs.
+
+    The default spy implements pattern-matching on ``execute_sql`` so
+    pre-existing CSRF / XSS / session / migration tests that exercise
+    CSRF middleware, the animales routes, and the voluntarios routes
+    (each of which writes a row-keyed lookup against the spy) all get
+    the keys they expect without each test having to install its own
+    ``app.state.insforge_client`` fixture. Tests that need richer
+    data (e.g. ``xss_insforge``) override this by setting
+    ``app.state.insforge_client`` to their own object after this
+    fixture runs; the test order runs autouse FIRST then
+    non-autouse, so the override wins for that test.
+    """
+    class _DefaultInsForgeSpy(InsForgeClient):
+        def __init__(self) -> None:  # type: ignore[override]
+            import httpx as _httpx
+            self._client = _httpx.Client(base_url="https://default-spy.example")
+            self.execute_sql_calls: list[tuple[str, list[object]]] = []
+
+        def execute_sql(  # type: ignore[override]
+            self, sql: str, params: list[object] | None = None
+        ) -> list[dict[str, object]]:
+            self.execute_sql_calls.append((sql, list(params or [])))
+            s = sql.strip().lower()
+            # Routes that select a single animal by primary key expect
+            # one row back; otherwise the handler 404s and the test
+            # fails an unrelated assertion. Tests that need richer
+            # data override this spy.
+            if s.startswith("select") and "from animales" in s and "where id =" in s.replace(" ", "").replace("=", "= "):
+                return [
+                    {
+                        "id": params[0] if params else "abc-123",
+                        "NCHIP": "985112004409871",
+                        "NombreAnimal": "Luna",
+                        "Especie": "CANINA",
+                        "Sexo": "H",
+                        "FNacimiento": "2023-04-12",
+                        "activo": True,
+                    }
+                ]
+            if s.startswith("select") and "from voluntarios" in s and "where id =" in s.replace(" ", ""):
+                return [
+                    {
+                        "id": params[0] if params else "v-1",
+                        "Voluntario": "Ana",
+                        "Email": "ana@example.com",
+                        "DNI": "12345678A",
+                        "Tel1": "+34 600 000 000",
+                        "Tel2": None,
+                        "fecha_alta": "2024-01-01",
+                        "activo": True,
+                    }
+                ]
+            if s.startswith("select") and "from entradas" in s and "where id =" in s.replace(" ", ""):
+                return [
+                    {
+                        "id": params[0] if params else "ent-1",
+                        "FechaEntrada": "2024-01-01",
+                        "activo": True,
+                    }
+                ]
+            return []
+
+    spy = _DefaultInsForgeSpy()
+    _app.state.insforge_client = spy
+    yield
+    _app.state.__dict__.pop("insforge_client", None)
 
 
 @pytest_asyncio.fixture

@@ -80,7 +80,6 @@ BASELINE: dict[str, int] = {
     # Renombrados a ``_client`` para silenciar el checker sin perder la
     # firma pública. Se ELIMINA la entrada por la misma razón que ERA001:
     # un ARG002 nuevo debe caer en la rama de regla desconocida y fallar.
-    "N802": 0,  # locked in 2026-08-24: capital-letter function name removed
     "N803": 5,
     "N806": 1,
     "N815": 2,

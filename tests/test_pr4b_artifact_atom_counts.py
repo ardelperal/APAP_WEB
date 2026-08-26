@@ -58,11 +58,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 # AND re-running pytest --collect-only to confirm the new sum.
 PER_FILE_ATOM_COUNTS: dict[str, int] = {
     "tests/test_log_safe_redaction.py": 15,
-    "tests/test_animals_foto_route.py": 18,
+    "tests/test_animals_foto_route.py": 15,  # PR-C deleted 3 redundant atoms (test_foto_streaming_route / test_photo_outcome_streaming / test_animal_photo_resolution all moved here or were absorbed)
     "tests/migration/test_insforge_storage_methods.py": 34,
     "tests/test_pii_audit_doc.py": 7,
 }
-EXPECTED_TOTAL: int = sum(PER_FILE_ATOM_COUNTS.values())  # 74 (issue #224: +4 _validate_storage_key atoms)
+EXPECTED_TOTAL: int = sum(PER_FILE_ATOM_COUNTS.values())  # 71 (PR-C: -3 atoms retired from test_animals_foto_route)
 
 # Headline atom-count patterns for 4R-era claims. Each pattern
 # matches a numeric claim that, if it disagrees with EXPECTED_TOTAL,
