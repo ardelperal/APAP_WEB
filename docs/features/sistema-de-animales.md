@@ -111,7 +111,7 @@ contrato de la función de bootstrap.
 | `FNacimiento` y `FDefuncion` | DATE | TIMESTAMP | Solo se necesita la fecha, no la hora. El legacy usa campos `F+Nombre` para fechas. |
 | Indices | Solo los implicitos por UNIQUE y PK | Indices adicionales | Suficiente para el MVP. Indices adicionales se anaden cuando los queries lo justifiquen. |
 | DROP+CREATE en prod para renombrar | Directo | ALTER TABLE | Las tablas estaban vacias, no hay perdida. Mas simple que ALTER para 28 columnas. |
-| **Validaciones** (en service, no en DB) | En `app/modules/animals/service.py` | Solo en DB | Las validaciones de negocio (nombre no vacio, especie en dominio) viven en el service para devolver errores claros al usuario. La DB solo enforce lo no negociable. |
+| **Validaciones** (en aplicación, no solo en DB) | En `application/` y `forms.py` | Solo en DB | Las validaciones de negocio viven antes del port para devolver errores claros. La DB aplica las restricciones no negociables. |
 
 ## 4. Contratos de interfaz
 
@@ -263,29 +263,16 @@ derivada).
 
 ## 6. Plan de tests
 
-Cubierto por `tests/test_domain.py` (15 tests del schema) y
-`tests/test_animals.py` (12 tests del service layer). Total: 27
-tests en esta feature, todos en verde.
+La red hexagonal se reparte entre tests de dominio, aplicación, adaptador y
+rutas. No existe una suite del servicio legacy porque ese shim se retiró.
 
-### Service layer (12 tests)
-
-- `test_create_animal_ejecuta_insert_con_parametros_esperados` — el
-  INSERT contiene los 5 obligatorios en el orden correcto.
-- `test_create_animal_rechaza_Especie_invalida_antes_de_sql` — la
-  validacion corre antes de tocar la DB.
-- `test_create_animal_rechaza_Sexo_invalido_antes_de_sql`
-- `test_create_animal_rechaza_NCHIP_vacio`
-- `test_create_animal_rechaza_NombreAnimal_vacio`
-- `test_create_animal_rechaza_FNacimiento_vacio`
-- `test_create_animal_propag_InsForgeError_en_NCHIP_duplicado` — un
-  409 de InsForge (NCHIP duplicado) propaga el error tal cual.
-- `test_create_animal_acepta_todos_los_campos_opcionales` — el INSERT
-  incluye los 24 campos (5 obligatorios + 19 opcionales).
-- `test_list_animals_ejecuta_select_y_devuelve_filas` — el SELECT
-  filtra por `activo = true` y ordena por `fecha_alta DESC`.
-- `test_list_animals_devuelve_lista_vacia_sin_filas`
-- `test_get_animal_by_id_devuelve_fila_cuando_existe`
-- `test_get_animal_by_id_devuelve_None_si_no_existe`
+| Test file | Qué cubre |
+|---|---|
+| `tests/test_animals_domain.py` | Entidades y enums de dominio. |
+| `tests/test_animals_application_*.py` | Validación y delegación de los casos de uso. |
+| `tests/test_animals_insforge_adapter.py` | SQL, mapeos, chip y foto del adaptador. |
+| `tests/test_animals_routes.py` | Traducción HTTP y delegación a `AnimalsPort`. |
+| `tests/test_animals_foto_route.py` | Streaming, placeholder y cierre del recurso. |
 
 | Test | Que cubre |
 |---|---|
@@ -305,7 +292,7 @@ tests en esta feature, todos en verde.
 | `test_ensure_domain_schema_order_is_animales_then_voluntarios_then_roles` | El orden es el correcto (animales, voluntarios, roles_voluntario). |
 | `test_ensure_domain_schema_raises_when_create_table_fails` | Si InsForge devuelve error, la excepcion se propaga. |
 
-**Test E2E (Dysflow contra prod):** se verifica via
+**Test E2E (Dysflow contra prod):** se verifica vía
 `get-table-schema` que las 28 columnas existen en el schema real de
 InsForge con los nombres correctos (lowercase por convencion de
 Postgres, pero el SQL los mantiene en CamelCase). Verificado el

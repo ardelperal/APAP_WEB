@@ -177,7 +177,7 @@ def test_route_coverage_reports_every_route_file_below_floor() -> None:
             "app/modules/entradas/batch_routes.py": {
                 "summary": {"num_statements": 10, "covered_lines": 8}
             },
-            "app/modules/animals/service.py": {
+            "app/modules/voluntarios/service.py": {
                 "summary": {"num_statements": 10, "covered_lines": 0}
             },
         }

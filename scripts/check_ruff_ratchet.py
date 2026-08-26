@@ -80,9 +80,8 @@ BASELINE: dict[str, int] = {
     # Renombrados a ``_client`` para silenciar el checker sin perder la
     # firma pública. Se ELIMINA la entrada por la misma razón que ERA001:
     # un ARG002 nuevo debe caer en la rama de regla desconocida y fallar.
-    "N802": 0,  # locked in 2026-08-24: capital-letter function name removed
     "N803": 5,
-    "N806": 2,
+    "N806": 1,
     "N815": 2,
     "N818": 3,
     "PLR0911": 9,  # locked in 2026-08-24: one too-many-returns site refactored away
@@ -111,7 +110,7 @@ BASELINE: dict[str, int] = {
     # y ``migration/volunteer_dedup.py::_cluster_decision`` tenia
     # ``if score > best_score: best_score = score`` (ahora
     # ``best_score = max(best_score, score)``). Se ELIMINA la entrada.
-    "PLR2004": 39,  # lowered 40 -> 39 by epic #420 PR-B route simplification
+    "PLR2004": 38,  # lowered by epic #420 final legacy-shim removal
     "PTH105": 3,
     "PTH108": 3,
     "PTH113": 2,
@@ -128,7 +127,7 @@ BASELINE: dict[str, int] = {
     # quedó al nivel del if padre (el return de la rama allowed hace que
     # el flujo caiga al resto solo cuando el bucket está lleno). Se
     # ELIMINA la entrada.
-    "S101": 5,
+    "S101": 4,
     "S105": 3,
     "S110": 4,
     # S112 fue retirado del baseline al completarse el triaje del issue #390
@@ -165,7 +164,7 @@ BASELINE: dict[str, int] = {
     # SIM910 retirado del baseline al llegar a 0 (issue #390). Se ELIMINA en vez
     # de ponerse a 0, igual que ERA001: asi un SIM910 nuevo cae en la rama de
     # regla desconocida y para el CI en vez de consumir una cuota.
-    "TRY003": 187,  # bumped 185 -> 187 by Slice #420-7 PR-A.1 (2 operator-facing RuntimeError diagnostics on create_animal / record_lifecycle_event adapter paths, raised when INSERT ... RETURNING produces no rows — transport-shape drift detection for the operator)
+    "TRY003": 177,
     "TRY004": 10,
     "TRY300": 1,
 }

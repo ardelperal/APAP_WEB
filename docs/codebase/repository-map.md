@@ -17,7 +17,7 @@ Esta página posee el mapa de ownership por paquete y la regla de §33 para colo
 |---|---|
 | [`app/main.py`](../../app/main.py) | Composition root del servidor FastAPI, registro de routers, ciclo de vida. |
 | [`app/core/`](../../app/core/) | Capacidades transversales convertidas a hexagonal: auth, oauth, catalogos, schema_bootstrap, admin. |
-| [`app/modules/animals/`](../../app/modules/animals/) | Slice con los nueve métodos de `AnimalsPort` aterrizados. Las rutas aún usan los servicios legacy; la conversión no está completa. |
+| [`app/modules/animals/`](../../app/modules/animals/) | Slice hexagonal completo: las once capacidades y todas las rutas usan `AnimalsPort`; no quedan shims legacy. |
 | [`app/core/insforge.py`](../../app/core/insforge.py) | Cliente HTTP único hacia InsForge; nadie más lo importa fuera de `adapters/` y `di/`. |
 | `app/core/auth*.py`, `csrf.py`, `session.py` | Defensa en profundidad: allowlist, CSRF, cookies firmadas. |
 | [`app/core/migration/`](../../app/core/migration/) | Sync bidireccional web ↔ legacy; único paquete que lee ambos backends. |

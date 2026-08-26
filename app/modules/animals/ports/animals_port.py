@@ -82,10 +82,8 @@ class AnimalsPort(Protocol):
         list — there is no opaque cursor yet because the slice is
         still small enough that off-by-one is cheap).
 
-        ``activo_only=True`` mirrors the legacy filter on
-        :func:`app.modules.animals.service.list_animales` so the
-        hexagonal path is a drop-in replacement for the legacy
-        ``list_animales`` route handler; pass ``False`` for the
+        ``activo_only=True`` preserves the retired list route's active-only
+        filter; pass ``False`` for the
         historical-record paths that need to see inactive rows.
         """
 

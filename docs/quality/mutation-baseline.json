@@ -53,7 +53,6 @@
   "modules": {
     "app/core/insforge.py": 145,
     "app/modules/adopciones/service.py": 81,
-    "app/modules/animals/queries.py": 25,
     "migration/derivation.py": 3,
     "migration/diff_engine.py": 78
   },

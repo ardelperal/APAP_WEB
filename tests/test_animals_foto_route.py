@@ -1,8 +1,7 @@
 """Strict TDD atoms for the PR4b ``GET /animales/{animal_id}/foto`` route.
 
 This file pins the route-layer contract. The underlying storage and
-reliability logic lives in ``app.modules.animals.photo_service`` (single
-responsibility: stream photo bytes or signal a missing/sentinel) and
+reliability logic lives in the hexagonal InsForge photo adapter and
 ``app.core.insforge.InsForgeClient.download_object_stream`` (two-step
 authenticated HTTP). The route translates the typed service outcome to
 an HTTP response and never exposes a presigned URL.
@@ -35,10 +34,16 @@ from app.core.config import get_settings
 from app.core.insforge import InsForgeClient
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
-from app.modules.animals import photo_service
+from app.modules.animals.adapters.insforge.animals_insforge_adapter import (
+    AnimalsInsforgeAdapter,
+)
+from app.modules.animals.adapters.insforge.animals_insforge_photo import (
+    PLACEHOLDER_PHOTO_PNG,
+)
+from app.modules.animals.di.animals_di import get_animals_port
 
 # --- 1x1 valid PNG served as the placeholder. -----------------------------
-PLACEHOLDER_PNG = photo_service.PLACEHOLDER_PHOTO_PNG
+PLACEHOLDER_PNG = PLACEHOLDER_PHOTO_PNG
 SENTINEL_KEY = "__missing__"
 PHOTO_BUCKET = "apap-photos"
 
@@ -140,8 +145,12 @@ class _FakeAnimalesFotoClient(InsForgeClient):
 def fake_client() -> _FakeAnimalesFotoClient:
     client = _FakeAnimalesFotoClient()
     app.dependency_overrides[get_insforge_client] = lambda: client
+    app.dependency_overrides[get_animals_port] = lambda: AnimalsInsforgeAdapter(
+        client, storage=client
+    )
     yield client
     app.dependency_overrides.pop(get_insforge_client, None)
+    app.dependency_overrides.pop(get_animals_port, None)
 
 
 def _seed_animal(
@@ -331,7 +340,7 @@ class TestFotoRouteDoesNotLeakPresignedUrl:
 
 
 class TestFotoRouteIsolatedService:
-    """The route delegates to the photo_service module — no SQL in the route."""
+    """The route delegates to the hexagonal port — no SQL in the route."""
 
     async def test_foto_route_does_not_issue_raw_sql_for_photo(
         self,
@@ -447,7 +456,6 @@ class TestFotoRouteMidStreamFailClosed:
         assert response.status_code == 200
         assert response.headers["content-type"] == "image/png"
         assert response.content == PLACEHOLDER_PNG
-
     async def test_foto_route_placeholder_when_stream_fails_on_first_iteration(
         self,
         client: httpx.AsyncClient,
@@ -604,7 +612,7 @@ class TestFotoRouteMidStreamFailClosed:
 class TestFotoRouteSqlLookupFailClosed:
     """PR4b 4R WARN-3: SQL failure on the animales lookup fails closed to the placeholder.
 
-    The route wraps ``animals_service.get_animal_by_id`` so an unexpected
+    The photo adapter wraps the animal metadata lookup so an unexpected
     ``InsForgeError`` / network drop / SQL syntax error on the animales
     SELECT becomes the placeholder PNG rather than a 5xx. The animal is
     still ``None`` (no row visible to the route) so this is consistent
@@ -661,86 +669,3 @@ class TestFotoRouteSqlLookupFailClosed:
         assert response.status_code == 200
         assert response.headers["content-type"] == "image/png"
         assert response.content == PLACEHOLDER_PNG
-
-
-class TestFotoServiceMidStreamWrapping:
-    """``stream_animal_photo`` wraps mid-stream errors as ``PhotoStreamError``.
-
-    These atoms pin the service-level contract: callers (the route layer
-    and any future caller) get a single typed surface so the placeholder
-    translation has a stable hook. Without this wrapping, mid-stream
-    ``httpx.RemoteProtocolError`` / ``httpx.TimeoutException`` /
-    ``httpx.ReadTimeout`` would propagate verbatim and force every
-    consumer to catch the full httpx exception tree.
-    """
-
-    def test_stream_animal_photo_wraps_mid_stream_5xx_as_photo_stream_error(
-        self,
-    ) -> None:
-        """Streamed GET returns 5xx eagerly → wrapped as ``PhotoStreamError``."""
-        from app.core.insforge import InsForgeError
-
-        class _FiveXxStream:
-            def download_object_stream(self, bucket, key):
-                raise InsForgeError(503, {"error": "streamed_get_5xx"})
-
-        with pytest.raises(photo_service.PhotoStreamError) as exc:
-            for _ in photo_service.stream_animal_photo(
-                _FiveXxStream(), nombrefoto="abc.jpg"
-            ):
-                pass
-        assert isinstance(exc.value.__cause__, InsForgeError)
-        assert exc.value.__cause__.status_code == 503
-
-    def test_stream_animal_photo_wraps_mid_stream_network_error_as_photo_stream_error(
-        self,
-    ) -> None:
-        """Mid-iteration ``httpx.RemoteProtocolError`` → wrapped as ``PhotoStreamError``."""
-
-        def _fail_after(chunks, fail_after_n, exc):
-            for i, chunk in enumerate(chunks):
-                if i >= fail_after_n:
-                    raise exc
-                yield chunk
-
-        class _MidStreamFail:
-            def download_object_stream(self, bucket, key):
-                return _fail_after(
-                    [b"PART1-", b"PART2-", b"PART3"],
-                    fail_after_n=2,
-                    exc=httpx.RemoteProtocolError("connection reset"),
-                )
-
-        gen = photo_service.stream_animal_photo(_MidStreamFail(), nombrefoto="abc.jpg")
-        # First two chunks are yielded OK.
-        assert next(gen) == b"PART1-"
-        assert next(gen) == b"PART2-"
-        # The third iteration raises, wrapped as PhotoStreamError.
-        with pytest.raises(photo_service.PhotoStreamError) as exc:
-            next(gen)
-        assert isinstance(exc.value.__cause__, httpx.RemoteProtocolError)
-
-    def test_stream_animal_photo_wraps_mid_stream_read_timeout_as_photo_stream_error(
-        self,
-    ) -> None:
-        """Mid-iteration ``httpx.ReadTimeout`` → wrapped as ``PhotoStreamError``."""
-
-        def _fail_after(chunks, fail_after_n, exc):
-            for i, chunk in enumerate(chunks):
-                if i >= fail_after_n:
-                    raise exc
-                yield chunk
-
-        class _StalledStream:
-            def download_object_stream(self, bucket, key):
-                return _fail_after(
-                    [b"PART1-", b"PART2-"],
-                    fail_after_n=1,
-                    exc=httpx.ReadTimeout("stalled"),
-                )
-
-        gen = photo_service.stream_animal_photo(_StalledStream(), nombrefoto="abc.jpg")
-        assert next(gen) == b"PART1-"
-        with pytest.raises(photo_service.PhotoStreamError) as exc:
-            next(gen)
-        assert isinstance(exc.value.__cause__, httpx.ReadTimeout)

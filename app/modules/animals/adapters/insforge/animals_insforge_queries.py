@@ -200,8 +200,7 @@ def list_animals_sql(
 
     ``limit`` and ``offset`` are coerced to ``str`` because the
     InsForge client serialises bind parameters as strings on the
-    wire; the integer values land in postgres via the same implicit
-    text→int8 cast the legacy ``service.py`` already relies on.
+    wire; the integer values land in postgres via an implicit text→int8 cast.
     """
     where_clause = "WHERE activo = TRUE " if activo_only else ""
     return (
@@ -350,15 +349,14 @@ def list_lifecycle_events_sql(
     return sql, params
 
 
-# ``resolve_animal_photo`` — read the photo metadata for the ETag
-# computation. The streaming fetch happens in the adapter against
+# ``resolve_animal_photo`` — read the storage key. The streaming fetch happens
+# in the adapter against
 # the storage client (NOT the postgres connection); the SQL only
-# returns the metadata (nombrefoto + updated_at) the adapter needs
-# to compute the ETag and decide whether the storage fetch is
+# returns the key the adapter needs to decide whether the storage fetch is
 # worth it (sentinel keys skip the fetch and return the placeholder
 # PNG immediately).
 GET_ANIMAL_PHOTO_META_SQL: str = (
-    "SELECT \"NombreFoto\", updated_at FROM animales WHERE id = $1"
+    "SELECT \"NombreFoto\" FROM animales WHERE id = $1"
 )
 
 

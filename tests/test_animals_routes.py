@@ -33,10 +33,12 @@ from app.main import app, get_insforge_client
 from app.modules.animals import routes as animals_routes
 from app.modules.animals.di.animals_di import get_animals_port
 from app.modules.animals.domain.animal import Animal, Especie, Sexo
+from app.modules.animals.domain.change_chip_result import ChangeChipResult
 from app.modules.animals.forms import (
     ANIMAL_FORM_FIELDS,
     ANIMAL_FORM_REQUIRED_FIELDS,
 )
+from app.modules.animals.ports.photo_asset import PhotoAsset
 from tests.conftest import auth_reval_rows, make_csrf_request
 
 
@@ -178,6 +180,15 @@ class _AnimalsPortStub:
         self.update_calls: list[tuple[str, dict[str, Any]]] = []
         self.delete_ids: list[str] = []
         self.create_error: Exception | None = None
+        self.change_chip_calls: list[dict[str, str]] = []
+        self.change_chip_result = ChangeChipResult(
+            success=True,
+            old_chip="1",
+            new_chip="2",
+            updated_tables={"animals": 1},
+        )
+        self.photo_ids: list[str] = []
+        self.photo_asset: PhotoAsset | None = None
 
     def list_animals(self, **_kwargs: Any) -> list[Animal]:
         self.list_calls += 1
@@ -200,6 +211,14 @@ class _AnimalsPortStub:
     def delete_animal(self, animal_id: str) -> Animal | None:
         self.delete_ids.append(animal_id)
         return None if animal_id == "no-such-id" else self.animal
+
+    def change_animal_chip(self, **kwargs: str) -> ChangeChipResult:
+        self.change_chip_calls.append(kwargs)
+        return self.change_chip_result
+
+    def resolve_animal_photo(self, animal_id: str) -> PhotoAsset | None:
+        self.photo_ids.append(animal_id)
+        return self.photo_asset
 
 
 @pytest.fixture
@@ -316,6 +335,89 @@ async def test_edit_animal_form_uses_all_hexagonal_fields(
     expected_form_keys = set(ANIMAL_FORM_FIELDS)
     assert set(captured_context["form_data"]) == expected_form_keys, (
         "edit template context must carry every AnimalForm key"
+    )
+
+
+async def test_change_chip_view_delegates_lookup_and_saga_to_port(
+    client: httpx.AsyncClient,
+    animals_spy: _AnimalsRouteSpy,
+    animals_port: _AnimalsPortStub,
+) -> None:
+    """The chip route passes the port-loaded current chip to the port saga."""
+    _login_as_key_user(client)
+
+    response = await client.patch(
+        "/animales/abc-123/chip",
+        json={"new_chip": "2", "reason": "Chip damaged"},
+        headers={"X-CSRFToken": "test-csrf-token-animals"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert animals_port.detail_ids == ["abc-123"], (
+        "chip route must load the animal through the port"
+    )
+    assert animals_port.change_chip_calls == [{
+        "animal_id": "abc-123",
+        "old_chip": "1",
+        "new_chip": "2",
+        "reason": "Chip damaged",
+        "operador_user_id": "u-ana",
+    }], "chip route must delegate the complete saga command to the port"
+    assert animals_spy.captured_queries == [], (
+        "chip route must not use legacy animal SQL"
+    )
+
+
+class _ClosablePhotoStream:
+    def __init__(self, chunks: list[bytes]) -> None:
+        self._chunks = iter(chunks)
+        self.closed = False
+
+    def __iter__(self):
+        return self
+
+    def __next__(self) -> bytes:
+        return next(self._chunks)
+
+    def close(self) -> None:
+        self.closed = True
+
+
+async def test_animal_foto_delegates_to_port_and_closes_owned_stream(
+    client: httpx.AsyncClient,
+    animals_spy: _AnimalsRouteSpy,
+    animals_port: _AnimalsPortStub,
+) -> None:
+    """The photo route maps a transport-neutral asset and releases ownership."""
+    stream = _ClosablePhotoStream([b"photo", b"-bytes"])
+    animals_port.photo_asset = PhotoAsset(
+        stream=stream,
+        media_type="image/webp",
+        content_length=11,
+        is_placeholder=False,
+    )
+    _login_as_key_user(client)
+
+    response = await client.get("/animales/abc-123/foto")
+
+    assert response.status_code == 200, response.text
+    assert response.content == b"photo-bytes", "route must stream the port asset"
+    assert response.headers["content-type"] == "image/webp", (
+        "route must preserve the asset media type"
+    )
+    assert response.headers["content-length"] == "11", (
+        "route must preserve a known asset length"
+    )
+    assert "etag" not in response.headers, "the transport-neutral port has no ETag"
+    assert "cache-control" not in response.headers, (
+        "HTTP cache policy must not leak into the port contract"
+    )
+    assert animals_port.photo_ids == ["abc-123"], (
+        "photo route must resolve the asset through the port"
+    )
+    assert stream.closed is True, "the route must close its owned photo stream"
+    assert animals_spy.captured_queries == [], (
+        "photo route must not use legacy animal SQL"
     )
 
 

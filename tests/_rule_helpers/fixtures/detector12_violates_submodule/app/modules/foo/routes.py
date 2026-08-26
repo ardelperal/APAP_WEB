@@ -1,8 +1,7 @@
 """Positive fixture for Detector 12 (Rule 27), failure mode (a):
 ``from app.modules.bar import service`` reaches into the ``service``
 submodule directly instead of going through ``bar``'s public API,
-mirroring ``app/modules/foster/assignment.py``'s pre-fix import of
-``app.modules.animals.service`` (issue #231)."""
+mirroring the cross-module submodule import removed by issue #231."""
 
 from __future__ import annotations
 

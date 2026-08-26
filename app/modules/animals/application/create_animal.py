@@ -7,9 +7,8 @@ for hexagonal animal creation. Delegates to
 code stays transport-agnostic (AGENTS.md §31) — no FastAPI, no
 InsForge, no Jinja in this file.
 
-The use case enforces the same domain-validation rules the legacy
-``app.modules.animals.service._validate_required_fields`` did for
-``create_animal``: NCHIP and NombreAnimal are mandatory and must
+The use case enforces the domain-validation rules preserved from the
+retired legacy create path: NCHIP and NombreAnimal are mandatory and must
 be non-blank; Especie and Sexo must match the enum. The hexagonal
 dataclass enforces the enum constraint via the StrEnum constructor
 so the only thing the use case has to check is the string-blank

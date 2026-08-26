@@ -208,9 +208,6 @@ BASELINE_NO_QUERIES_MODULES: frozenset[str] = frozenset(
 
 BASELINE_NO_INTEGRATION_TESTS: frozenset[tuple[str, str]] = frozenset(
     {
-        # animals/queries.py — added post-#355, out of #329 scope
-        ("app/modules/animals/queries.py", "build_animal_count"),
-        ("app/modules/animals/queries.py", "build_animal_search"),
         # tasks/queries.py — added post-#355, out of #329 scope
         ("app/modules/tasks/queries.py", "build_get_tarea"),
         ("app/modules/tasks/queries.py", "build_insert_tarea"),
@@ -1713,13 +1710,10 @@ def _check_unjustified_lazy_import(path: Path, tree: ast.AST) -> list[Violation]
 # ``cross_module_submodule_import`` / ``cross_module_private_import`` —
 # the 2026-07-20 dependency-map audit found this project is an almost
 # clean DAG of domain modules (most import nothing from each other).
-# The two exceptions found: ``app/modules/foster/assignment.py``
-# importing ``app.modules.animals.service`` directly (bypassing
-# ``animals/__init__.py``, which exposes no public API — issue #231),
-# and an equivalent shorthand-submodule import from ``acogidas/routes.py``
-# into ``foster.assignment`` (fixed in this same PR, see AGENTS.md rule
-# 27). This detector keeps the DAG clean as the project grows to more
-# modules.
+# The two historical exceptions were a direct cross-module service import
+# from foster (issue #231) and an equivalent shorthand-submodule import from
+# acogidas into ``foster.assignment``. Both are fixed; this detector keeps the
+# DAG clean as the project grows to more modules.
 
 #: Ratchet allowlist: (file, imported dotted module) pairs that are
 #: ALREADY known cross-module submodule-reach violations, tracked by an
