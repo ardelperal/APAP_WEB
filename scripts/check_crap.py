@@ -66,7 +66,7 @@ BASELINE_CRAP: dict[str, float] = {
     "app/core/di/auth_dependencies_session_di.py::require_authorized_user": 9.01,
     "app/core/auth_flow.py::register_auth_flow_routes.callback": 7.1,
     "app/core/csrf.py::CsrfMiddleware.dispatch": 13.00,
-    "app/core/domain/auth/user.py::AuthorizedUser.from_row": 8.35,
+    "app/core/domain/auth/user.py::AuthorizedUser.from_row": 8.10,
     "app/core/insforge_error_translation.py::_classify_409_body": 10.54,
     "app/core/insforge_error_translation.py::translate_post_error": 6.04,
     "app/core/logging.py::JsonFormatter.format": 6.2,
@@ -93,10 +93,10 @@ BASELINE_CRAP: dict[str, float] = {
     "app/modules/animals/lifecycle_events.py::_validate_required_fields": 7.0,
     "app/modules/animals/lifecycle_events.py::validate_causal_pair": 12.01,
     "app/modules/animals/routes.py::_animal_to_form_data": 25.0,
-    "app/modules/animals/routes.py::animal_foto": 10.74,
+    "app/modules/animals/routes.py::animal_foto": 4.00,
     "app/modules/animals/routes.py::animal_salud_resumen": 8.3,
-    "app/modules/animals/routes.py::change_chip_view": 7.0,
-    "app/modules/animals/routes.py::create_animal_view": 13.61,
+    "app/modules/animals/routes.py::change_chip_view": 2.0,
+    "app/modules/animals/routes.py::create_animal_view": 6.00,
     "app/modules/cesiones/service.py::create_cesion": 7.0,
     "app/modules/entradas/batch_routes.py::stage_batch_view": 18.0,
     "app/modules/entradas/batch_service.py::_check_cross_batch_uniqueness": 7.01,
@@ -213,49 +213,24 @@ BASELINE_CRAP: dict[str, float] = {
     # coverage-config tweak in a follow-up; for now the entry holds
     # the ratchet green at exactly 6.0.
     "app/core/e2e_auth.py::register_e2e_auth_routes._e2e_login": 6.0,
-    # Issue #420 slice 4 (update_animal). ``update_animal_sql`` has
-    # CC=6 (four optional fields plus the empty-pairs early return)
-    # and the function is pure — the SQL string is its output and
-    # every branch produces a deterministic string, which makes
-    # meaningful unit tests low-value. The adapter ``update_animal``
-    # has CC=6 (orchestration only) and will gain coverage when the
-    # hexagonal ``update_animal`` flow lands a route handler and a
-    # corresponding integration test. Until then, both entries hold
-    # the ratchet green and the shrink-only rule will retire them as
-    # soon as a real coverage path lights them up.
-    "app/modules/animals/adapters/insforge/animals_insforge_adapter.py::AnimalsInsforgeAdapter.update_animal": 22.56,
-    "app/modules/animals/adapters/insforge/animals_insforge_queries.py::update_animal_sql": 60.73,
-    # Issue #420 slice 6 (record_lifecycle_event). ``record_lifecycle_event``
-    # on the adapter carries 10 kwargs (CC=8) and one runtime branch
-    # (the empty-result-set guard); the SQL helper at 10 kwargs has
-    # CC=6. Both gain coverage when a real InsForge-backed route
-    # handler lands; until then they hold the ratchet green at the
-    # first-measured score. The ``_row_to_lifecycle_event`` mapper is
-    # purely mechanical (one conditional ``is not None`` arm per
-    # lineage field); the coverage test from #603 covers every arm
-    # with one dict per shape (full lineage vs all-NULL). Score 7.0
-    # reflects the per-field None-check branching the dataclass carries.
-    "app/modules/animals/adapters/insforge/animals_insforge_adapter.py::AnimalsInsforgeAdapter.record_lifecycle_event": 8.67,
+    # Issue #420 slice 4 (update_animal). The adapter baseline remains
+    # shrink-only; the write-query builder now stays below grade A by
+    # delegating ordered pair selection to a tested pure helper.
+    "app/modules/animals/adapters/insforge/animals_insforge_adapter.py::AnimalsInsforgeAdapter.update_animal": 5.27,
+    # Issue #420 slice 6 (record_lifecycle_event). The adapter is now a
+    # thin delegator; its exact CI score is retained to lock the coverage
+    # improvement. The mapper baseline remains for its per-field NULL arms.
+    "app/modules/animals/adapters/insforge/animals_insforge_adapter.py::AnimalsInsforgeAdapter.record_lifecycle_event": 1.12,
     "app/modules/animals/adapters/insforge/animals_insforge_mappers.py::_row_to_lifecycle_event": 7.0,
-    # Issue #420 slice 7 (list_lifecycle_events). Same shape as the
-    # write side: ``list_lifecycle_events`` on the adapter carries 4
-    # kwargs (CC=8 from the kwargs plus the ``event_types`` filter
-    # branch) and the SQL helper at 4 kwargs has CC=7 (the ``= ANY``
-    # branch and the f-string where_clause). Both gain coverage when
-    # the timeline read route handler lands; until then they hold the
-    # ratchet green at the first-measured score.
-    "app/modules/animals/adapters/insforge/animals_insforge_adapter.py::AnimalsInsforgeAdapter.list_lifecycle_events": 12.19,
+    # Issue #420 slice 7 (list_lifecycle_events). The adapter delegates
+    # filtering to the lifecycle helper module; the SQL builder keeps its
+    # separate exact baseline for the ``= ANY`` query-shape branch.
+    "app/modules/animals/adapters/insforge/animals_insforge_adapter.py::AnimalsInsforgeAdapter.list_lifecycle_events": 1.12,
     "app/modules/animals/adapters/insforge/animals_insforge_queries.py::list_lifecycle_events_sql": 9.32,
-    # Issue #420 slice 8 (change_animal_chip). The adapter's
-    # ``change_animal_chip`` is the saga body: two pre-flight
-    # SELECTs, BEGIN, six UPDATE statements, one INSERT to the
-    # lifecycle log, COMMIT, plus a nested try/except for the
-    # ROLLBACK-failure surfacing. CC≈14 from the branches plus the
-    # accumulating per-table row-count dict. The function gains
-    # coverage when a real chip-cascade route handler lands; until
-    # then the entry holds the ratchet green at the first-measured
-    # score (CRAP=51.68 reflects the 14 branches × 0% coverage).
-    "app/modules/animals/adapters/insforge/animals_insforge_adapter.py::AnimalsInsforgeAdapter.change_animal_chip": 51.68,
+    # Issue #420 slice 8 (change_animal_chip). The adapter now delegates
+    # the saga to ``AnimalsInsforgeChipCascade``; retain the exact score
+    # so future coverage or complexity drift cannot pass silently.
+    "app/modules/animals/adapters/insforge/animals_insforge_adapter.py::AnimalsInsforgeAdapter.change_animal_chip": 1.00,
 }
 
 #: Ratchet deadline (deterministic-quality-harness v1.5 Rule 12). Every
