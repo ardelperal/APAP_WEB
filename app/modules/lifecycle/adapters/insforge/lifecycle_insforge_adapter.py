@@ -86,30 +86,13 @@ class InsForgeLifecycleAdapter:
         """Upsert the ``animal_current_state`` cache row.
 
         Writes the derived ``state`` (one of the 12 CHECK-allowed
-        strings) and ``state_changed_at = now()``; the
-        ``reconciliation_status`` is set to ``matched`` so the
-        reconciliation engine stops flagging the row as
-        divergent. The categorical ``kind`` is passed through for
-        future routing (PR-C may dispatch on it for
-        ``pre_death_state`` / ``active_*_id`` writes).
+        strings), placement IDs, pre-death state, and
+        ``state_changed_at = now()``. The ``reconciliation_status``
+        is set to ``matched`` so the reconciliation engine stops
+        flagging the row as divergent.
         """
-        sql, params = q.build_upsert_current_state(
-            animal_id, result.state, _kind_value(result.kind)
-        )
+        sql, params = q.build_upsert_current_state(animal_id, result)
         self._executor.execute_sql(sql, params)
-
-
-def _kind_value(kind: object) -> str:
-    """Return the snake_case value of a ``DerivationKind``.
-
-    ``DerivationKind`` is a ``StrEnum`` so ``kind.value`` is the
-    snake_case label (e.g. ``"albergue"``). The annotation on
-    ``DerivationResult.kind`` is ``object`` to avoid a cycle
-    between ``animal_state.py`` and ``result.py``, so this
-    helper bridges the runtime shape.
-    """
-    value = getattr(kind, "value", kind)
-    return str(value)
 
 
 __all__ = ["InsForgeLifecycleAdapter"]
