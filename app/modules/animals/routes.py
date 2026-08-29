@@ -64,6 +64,11 @@ from app.modules.animals.domain.animal import (
 )
 from app.modules.animals.forms import AnimalForm
 from app.modules.animals.ports.animals_port import AnimalsPort
+from app.modules.animals.route_helpers import (
+    _animal_update_kwargs,
+    _chip_change_response,
+    _execute_chip_change,
+)
 
 # Los handlers de create/update reciben los campos ``Especie`` y
 # ``Sexo`` del form (mismo nombre que las columnas del schema y los
@@ -344,24 +349,9 @@ def update_animal_view(
     if (early := return_early_if_response(user)) is not None:
         return early
     form_data: dict[str, Any] = form.model_dump(exclude_none=True)
-    optional_fields = {
-        key: value
-        for key, value in form_data.items()
-        if key not in {"NCHIP", "NombreAnimal", "Especie", "Sexo", "FNacimiento"}
-    }
 
     try:
-        port.update_animal(
-            animal_id,
-            nombre=form_data.get("NombreAnimal"),
-            especie=(
-                DomainEspecie(form_data["Especie"])
-                if "Especie" in form_data else None
-            ),
-            sexo=DomainSexo(form_data["Sexo"]) if "Sexo" in form_data else None,
-            fnacimiento=form_data.get("FNacimiento"),
-            **optional_fields,
-        )
+        port.update_animal(animal_id, **_animal_update_kwargs(form_data))
     except ValueError as exc:
         return _render_animal_form_error(
             request, user, form_data, str(exc), status.HTTP_422_UNPROCESSABLE_CONTENT
@@ -406,17 +396,12 @@ def change_chip_view(
     if (early := return_early_if_response(user)) is not None:
         return early
 
-    user_id = user.get("user_id", "") if isinstance(user, dict) else ""
-    animal = app_get_animal_by_id(port, animal_id)
-    if animal is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-
-    result = port.change_animal_chip(
-        animal_id=animal_id,
-        old_chip=animal.NCHIP,
-        new_chip=payload.new_chip,
-        reason=payload.reason,
-        operador_user_id=user_id,
+    result = _execute_chip_change(
+        port,
+        animal_id,
+        payload.new_chip,
+        payload.reason,
+        user,
     )
 
     log_safe(
@@ -427,18 +412,7 @@ def change_chip_view(
         new_chip=result.new_chip,
     )
 
-    if not result.success:
-        error = result.error or ""
-        if "ya esta asignado" in error or "ya está asignado" in error:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=result.error)
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=result.error)
-
-    return {
-        "success": True,
-        "old_chip": result.old_chip,
-        "new_chip": result.new_chip,
-        "updated_tables": result.updated_tables,
-    }
+    return _chip_change_response(result)
 
 
 @router.get("/{animal_id}/foto")

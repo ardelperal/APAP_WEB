@@ -59,6 +59,11 @@ from app.modules.animals.ports.animals_port import AnimalsPort
 from app.modules.animals.ports.photo_asset import PhotoAsset
 
 
+def _search_total(rows: list[dict[str, object]]) -> int:
+    """Return the count-query total, defaulting an empty result to zero."""
+    return int(str(rows[0]["total"])) if rows else 0
+
+
 class AnimalsInsforgeAdapter(AnimalsPort):
     """InsForge-backed implementation of the animals port."""
 
@@ -102,8 +107,8 @@ class AnimalsInsforgeAdapter(AnimalsPort):
         filters = {
             "q": q,
             "chip": chip,
-            "especie": None if especie is None else especie.value,
-            "sexo": None if sexo is None else sexo.value,
+            "especie": getattr(especie, "value", None),
+            "sexo": getattr(sexo, "value", None),
             "estado": estado,
             "fecha_alta_since": fecha_alta_since,
             "fecha_alta_until": fecha_alta_until,
@@ -111,7 +116,7 @@ class AnimalsInsforgeAdapter(AnimalsPort):
         count_sql, count_params = count_animals_sql(**filters)
         if limit == 0:
             count_rows = self._client.execute_sql(count_sql, count_params)
-            total = int(str(count_rows[0]["total"])) if count_rows else 0
+            total = _search_total(count_rows)
             return AnimalSearchResult(data=(), total=total, limit=0, offset=offset)
 
         data_sql, data_params = search_animals_sql(
@@ -121,7 +126,7 @@ class AnimalsInsforgeAdapter(AnimalsPort):
         )
         rows = self._client.execute_sql(data_sql, data_params)
         count_rows = self._client.execute_sql(count_sql, count_params)
-        total = int(str(count_rows[0]["total"])) if count_rows else 0
+        total = _search_total(count_rows)
         return AnimalSearchResult(
             data=tuple(_row_to_animal(row) for row in rows),
             total=total,

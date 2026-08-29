@@ -69,6 +69,32 @@ _ESTADO_TO_DB_LABEL: dict[str, str] = {
 }
 
 
+def _exact_search_filter(
+    condition: str,
+    value: object | None,
+) -> tuple[str, object] | None:
+    """Return one exact-match filter only when its value is present."""
+    return (condition, value) if value else None
+
+
+def _name_search_filter(q: str | None) -> tuple[str, object] | None:
+    """Return the wrapped substring-name filter when requested."""
+    return ('a."NombreAnimal" ILIKE', f"%{q}%") if q else None
+
+
+def _append_search_filter(
+    conditions: list[str],
+    params: list[object],
+    search_filter: tuple[str, object] | None,
+) -> None:
+    """Append one optional condition and its correctly numbered bind."""
+    if search_filter is None:
+        return
+    condition, value = search_filter
+    params.append(value)
+    conditions.append(f"{condition} ${len(params)}")
+
+
 def _animal_search_where(
     *,
     q: str | None,
@@ -83,28 +109,30 @@ def _animal_search_where(
     conditions = ["a.activo = TRUE"]
     params: list[object] = []
 
-    def add(condition: str, value: object) -> None:
-        params.append(value)
-        conditions.append(f"{condition} ${len(params)}")
+    identity_filter = _exact_search_filter('a."NCHIP" =', chip) or _name_search_filter(q)
+    _append_search_filter(conditions, params, identity_filter)
+    _append_search_filter(
+        conditions, params, _exact_search_filter('a."Especie" =', especie)
+    )
+    _append_search_filter(
+        conditions, params, _exact_search_filter('a."Sexo" =', sexo)
+    )
 
-    if chip:
-        add('a."NCHIP" =', chip)
-    elif q:
-        add('a."NombreAnimal" ILIKE', f"%{q}%")
-    if especie:
-        add('a."Especie" =', especie)
-    if sexo:
-        add('a."Sexo" =', sexo)
-
-    db_estado = _ESTADO_TO_DB_LABEL.get(estado) if estado else None
+    db_estado = _ESTADO_TO_DB_LABEL.get(estado or "")
     join_clause = "LEFT JOIN animal_current_state acs ON a.id = acs.animal_id "
-    if db_estado is not None:
-        add("acs.current_state =", db_estado)
-
-    if fecha_alta_since:
-        add("a.fecha_alta >=", fecha_alta_since)
-    if fecha_alta_until:
-        add("a.fecha_alta <=", fecha_alta_until)
+    _append_search_filter(
+        conditions, params, _exact_search_filter("acs.current_state =", db_estado)
+    )
+    _append_search_filter(
+        conditions,
+        params,
+        _exact_search_filter("a.fecha_alta >=", fecha_alta_since),
+    )
+    _append_search_filter(
+        conditions,
+        params,
+        _exact_search_filter("a.fecha_alta <=", fecha_alta_until),
+    )
 
     return join_clause, " AND ".join(conditions), params
 

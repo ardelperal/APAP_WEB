@@ -44,6 +44,15 @@ def create_animal_sql(
 UPDATE_ANIMAL_COLUMN_ORDER: tuple[str, ...] = _INSERT_COLUMNS[1:]
 
 
+def _update_pairs(values: dict[str, str | None]) -> list[tuple[str, str]]:
+    """Return supplied update values in the canonical column order."""
+    return [
+        (column, value)
+        for column in UPDATE_ANIMAL_COLUMN_ORDER
+        if (value := values.get(column)) is not None
+    ]
+
+
 def update_animal_sql(
     *,
     animal_id: str,
@@ -59,11 +68,7 @@ def update_animal_sql(
         "FNacimiento": fnacimiento,
         **optional_fields,
     }
-    pairs = [
-        (column, value)
-        for column in UPDATE_ANIMAL_COLUMN_ORDER
-        if (value := values.get(column)) is not None
-    ]
+    pairs = _update_pairs(values)
     if not pairs:
         return None
     set_clause = ", ".join(f'"{column}" = ${index + 2}' for index, (column, _) in enumerate(pairs))
