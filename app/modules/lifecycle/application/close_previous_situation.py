@@ -31,6 +31,7 @@ from datetime import datetime
 from typing import Final
 
 from app.core.data_access import SqlExecutor
+from app.modules.lifecycle.ports.lifecycle_port import LifecyclePort
 
 #: Mapping from the situation category to the matching closing event.
 #: The set is closed — adding a new transition means both adding a
@@ -97,6 +98,7 @@ def close_previous_situation(  # noqa: PLR0913 - situation transition needs cate
     source_entity_type: str | None = None,
     source_entity_id: str | None = None,
     created_by: str = DEFAULT_CREATED_BY,
+    lifecycle_port: LifecyclePort | None = None,
 ) -> None:
     """Emit the closing event for a previous situation category.
 
@@ -164,6 +166,10 @@ def close_previous_situation(  # noqa: PLR0913 - situation transition needs cate
             created_by,
         ],
     )
+
+    if lifecycle_port is not None:
+        result = lifecycle_port.calculate_state(animal_id)
+        lifecycle_port.persist_animal_state(animal_id, result)
 
 
 __all__ = [

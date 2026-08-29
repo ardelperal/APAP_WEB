@@ -19,6 +19,17 @@ go through unchanged — invalid enum values raise ``ValueError`` in
 the StrEnum constructor and the application lets the
 ``InvalidTimestampError`` propagate so the route handler
 translates it into a 422.
+
+PR-B (LIFECYCLE-03): after the event is recorded, the use case
+optionally composes with :class:`~app.modules.lifecycle.ports.lifecycle_port.LifecyclePort`
+to chain ``calculate_state`` + ``persist_animal_state``. This closes
+the gap identified in audit id3263: the state resolver and cache
+logic were implemented at the domain/port/adapter/test layers but
+the production composition in the application layer was missing.
+The ``lifecycle_port`` parameter is optional (``None`` by default)
+so existing callers (``animals/__init__.py``) do not break; the
+DI wiring in the route handlers provides the port in the same
+request scope (§18).
 """
 from __future__ import annotations
 
@@ -29,6 +40,7 @@ from app.modules.animals.domain.lifecycle_event import (
     LifecycleEventType,
 )
 from app.modules.animals.ports.animals_port import AnimalsPort
+from app.modules.lifecycle.ports.lifecycle_port import LifecyclePort
 
 
 class LifecycleEventValidationError(ValueError):
@@ -54,6 +66,7 @@ def _require_non_blank(value: str | None, field_name: str) -> str:
 
 def record_lifecycle_event(
     animals_port: AnimalsPort,
+    lifecycle_port: LifecyclePort | None = None,
     *,
     animal_id: str,
     event_type: LifecycleEventType,
@@ -72,11 +85,20 @@ def record_lifecycle_event(
     event_timestamp) DO NOTHING`` so a retry collapses to the existing
     row. The adapter returns the existing event in that case — the
     caller does not have to re-query.
+
+    PR-B (LIFECYCLE-03): when ``lifecycle_port`` is supplied (non-``None``),
+    the use case chains ``calculate_state(animal_id)`` then
+    ``persist_animal_state(animal_id, result)`` so the
+    ``animal_current_state`` cache row is kept in sync after every event
+    emission. Both calls happen in the same request scope — the same
+    :class:`~app.core.data_access.SqlExecutor` instance is shared across
+    the ``AnimalsPort`` and ``LifecyclePort`` adapters so they participate
+    in the same database transaction (AGENTS.md §18).
     """
     clean_animal_id = _require_non_blank(animal_id, "animal_id")
     clean_created_by = _require_non_blank(created_by, "created_by")
 
-    return animals_port.record_lifecycle_event(
+    event = animals_port.record_lifecycle_event(
         animal_id=clean_animal_id,
         event_type=event_type,
         event_timestamp=event_timestamp,
@@ -88,6 +110,12 @@ def record_lifecycle_event(
         legacy_source_id=legacy_source_id,
         metadata=metadata,
     )
+
+    if lifecycle_port is not None:
+        result = lifecycle_port.calculate_state(clean_animal_id)
+        lifecycle_port.persist_animal_state(clean_animal_id, result)
+
+    return event
 
 
 __all__ = ["record_lifecycle_event", "LifecycleEventValidationError"]
