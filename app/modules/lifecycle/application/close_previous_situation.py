@@ -92,7 +92,7 @@ def close_previous_situation(  # noqa: PLR0913 - situation transition needs cate
     executor: SqlExecutor,
     animal_id: str,
     category: str,
-    caused_by_event_id: str,
+    caused_by_event_id: str | None,
     event_timestamp: str | datetime,
     *,
     source_entity_type: str | None = None,
