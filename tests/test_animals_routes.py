@@ -336,6 +336,45 @@ async def test_edit_animal_form_uses_all_hexagonal_fields(
     assert set(captured_context["form_data"]) == expected_form_keys, (
         "edit template context must carry every AnimalForm key"
     )
+    # Issue #624: the edit template must post to /animales/{id}/update,
+    # not back to the document URL (``action=""`` would round-trip to
+    # ``/animales/{id}/edit`` and 405).
+    assert captured_context["form_action"] == "/animales/abc-123/update", (
+        f"edit form context must carry form_action=/animales/{{id}}/update; "
+        f"got {captured_context.get('form_action')!r}"
+    )
+
+
+async def test_new_animal_form_passes_form_action_for_create(
+    client: httpx.AsyncClient,
+    animals_spy: _AnimalsRouteSpy,
+    animals_port: _AnimalsPortStub,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GET /animales/new sets ``form_action=/animales`` (create endpoint).
+
+    Pins the contract documented in issue #624: the new-animal form
+    template (``app/templates/animales/form.html``) must post to the
+    create endpoint at ``POST /animales``, not back to the document URL
+    (``/animales/new``, which would 405). The route must therefore
+    populate ``form_action`` in the template context.
+    """
+    captured_context: dict[str, Any] = {}
+
+    def render(*, context: dict[str, Any], **_kwargs: Any) -> HTMLResponse:
+        captured_context.update(context)
+        return HTMLResponse("rendered")
+
+    monkeypatch.setattr(animals_routes._templates, "TemplateResponse", render)
+    _login_as_key_user(client)
+
+    response = await client.get("/animales/new")
+
+    assert response.status_code == 200, response.text
+    assert captured_context["form_action"] == "/animales", (
+        f"new-animal form context must carry form_action=/animales; "
+        f"got {captured_context.get('form_action')!r}"
+    )
 
 
 async def test_change_chip_view_delegates_lookup_and_saga_to_port(

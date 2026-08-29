@@ -21,6 +21,14 @@ from app.core.data_access import SqlExecutor
 from app.core.insforge import InsForgeError
 from app.core.logging import log_safe
 from app.modules.adopciones import queries
+from app.modules.animals.lifecycle_events import (
+    LifecycleEventType,
+    actualizar_estado_animal,
+    record_event,
+)
+from app.modules.lifecycle.application.close_previous_situation import (
+    close_previous_situation,
+)
 
 
 class AdopcionConflictError(ValueError):
@@ -322,6 +330,32 @@ def create_adopcion(
         tipo_adopcion=adopcion.tipo_adopcion,
         actor_user_id=actor_user_id,
     )
+
+    # LIFECYCLE-02 (issue #32): emit ADOPTION_STARTED so the event log
+    # records the entry into the adoption, then close the previous
+    # FOSTER situation (FOSTER_CLOSED_BY_ADOPTION) and refresh the
+    # animal-current-state cache. All three run in the same DB
+    # transaction as the INSERT above.
+    record_event(
+        client,
+        animal_id=adopcion.animal_id,
+        event_type=LifecycleEventType.ADOPTION_STARTED,
+        event_timestamp=adopcion.fecha_adopcion,
+        created_by="adopciones.create_adopcion",
+        source_entity_type="adopciones",
+        source_entity_id=adopcion.id,
+    )
+    close_previous_situation(
+        client,
+        animal_id=adopcion.animal_id,
+        category="FOSTER",
+        caused_by_event_id=None,
+        event_timestamp=adopcion.fecha_adopcion,
+        source_entity_type="adopciones",
+        source_entity_id=adopcion.id,
+    )
+    actualizar_estado_animal(client, animal_id=adopcion.animal_id)
+
     return adopcion
 
 
@@ -347,6 +381,12 @@ def update_adopcion(
     *,
     actor_user_id: str | None = None,
 ) -> Adopcion | None:
+    # Capture the previous row state BEFORE the UPDATE so we can
+    # detect the active -> returned transition (``fecha_devolucion``
+    # going from ``None`` to a date string). This is the LIFECYCLE-02
+    # (issue #32) trigger for the ``ADOPTION_RETURNED`` event.
+    previous = get_adopcion_by_id(client, adopcion_id)
+
     sql, sql_params = queries.build_adopcion_update(adopcion_id, params)
     try:
         rows = client.execute_sql(sql, sql_params)
@@ -358,7 +398,7 @@ def update_adopcion(
         raise
 
     if not rows:
-        if get_adopcion_by_id(client, adopcion_id) is None:
+        if previous is None:
             return None
         _raise_validation_error(client, params)
 
@@ -369,6 +409,30 @@ def update_adopcion(
         animal_id=adopcion.animal_id,
         actor_user_id=actor_user_id,
     )
+
+    # LIFECYCLE-02 (issue #32): emit ``ADOPTION_RETURNED`` when
+    # ``fecha_devolucion`` transitions from ``None`` to a date
+    # string (the family returned the animal). The event is recorded
+    # in the same DB transaction as the UPDATE so the event log and
+    # the source row stay consistent. The cache refresh fires AFTER
+    # the event INSERT so the cascade re-derives with the new event
+    # in the log.
+    if (
+        previous is not None
+        and previous.fecha_devolucion is None
+        and adopcion.fecha_devolucion is not None
+    ):
+        record_event(
+            client,
+            animal_id=adopcion.animal_id,
+            event_type=LifecycleEventType.ADOPTION_RETURNED,
+            event_timestamp=adopcion.fecha_devolucion,
+            created_by="adopciones.update_adopcion",
+            source_entity_type="adopciones",
+            source_entity_id=adopcion.id,
+        )
+        actualizar_estado_animal(client, animal_id=adopcion.animal_id)
+
     return adopcion
 
 
@@ -504,9 +568,20 @@ def transition_seguimiento_for_route(
 
     Translates exceptions into a result type so the route stays below the
     50-line handler cap (AGENTS.md rule 28).
+
+    Maps three failure modes to a status code:
+
+    - ``InsForgeError`` (transport / backend) -> 500 with a Spanish
+      operator message.
+    - ``ValueError`` raised by ``resolve_seguimiento_action`` (unknown
+      action name) or by ``transition_seguimiento`` (invalid state
+      transition, missing ``documento_url`` for ``ANEXAR``) -> 422 with
+      the service's Spanish error copy so the form template can render
+      it next to the operator's input.
+    - ``result is None`` (id not found) -> 404.
     """
-    resolved = resolve_seguimiento_action(action)
     try:
+        resolved = resolve_seguimiento_action(action)
         result = transition_seguimiento(
             client,
             adopcion_id=adopcion_id,
@@ -518,6 +593,15 @@ def transition_seguimiento_for_route(
         return _SeguirTransitionError(
             message="Error del servidor al actualizar el seguimiento.",
             status_code=500,
+        )
+    except ValueError as exc:
+        # Invalid action name, invalid state transition, or missing
+        # ``documento_url`` for ``ANEXAR``. The route renders this as
+        # a 422 form re-render (same path as the create/update
+        # validation 422s) so the operator sees the Spanish message
+        # instead of a 500 stack trace.
+        return _SeguirTransitionError(
+            message=str(exc), status_code=422,
         )
     if result is None:
         return _SeguirTransitionError(
