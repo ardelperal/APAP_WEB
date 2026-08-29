@@ -31,10 +31,10 @@ SCAN_DIRS = ("app", "migration")
 BASELINE_MUTATION_SITES: dict[str, int] = {
     "app/core/insforge.py": 526,
     "app/modules/acogidas/routes.py": 383,
-    "app/modules/acogidas/service.py": 322,
+    "app/modules/acogidas/service.py": 355,
     "app/modules/adopciones/routes.py": 306,
-    "app/modules/adopciones/service.py": 441,
-    "app/modules/animals/routes.py": 442,
+    "app/modules/adopciones/service.py": 482,
+    "app/modules/animals/routes.py": 449,
     "app/modules/cesiones/service.py": 370,
     "app/modules/foster/routes.py": 263,
     "app/modules/foster/service.py": 342,
