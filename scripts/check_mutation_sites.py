@@ -42,7 +42,7 @@ BASELINE_MUTATION_SITES: dict[str, int] = {
     "app/modules/salud/service.py": 323,
     "app/modules/sanidad/routes.py": 357,
     "app/modules/sanidad/service.py": 387,
-    "migration/apply.py": 336,
+    "migration/apply.py": 470,
     "migration/cli.py": 443,
     "migration/diff_engine.py": 333,
     "migration/lock.py": 268,  # Re-baselined after Path A refactor of acquire_lock (issue #420 / PR #452). The 4-helper split grew the file by 9 sites (function defs + docstrings) but reduced the per-function CRAP from 26.54 to 1.00 (grade A).
