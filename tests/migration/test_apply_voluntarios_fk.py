@@ -17,18 +17,14 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
-
 from migration.apply import (
-    _VoluntariosIndex,
     _legacy_to_web_row,
     _normalise_for_lookup,
     _resolve_fk_value,
     _strip_accents,
-    apply_legacy_to_web,
+    _VoluntariosIndex,
 )
 from tests.migration.conftest import FakeInsForge
-
 
 # ---------------------------------------------------------------------------
 # Helpers: pure functions (no I/O)

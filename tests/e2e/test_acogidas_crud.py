@@ -66,7 +66,6 @@ from __future__ import annotations
 
 import os
 import uuid
-from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -803,15 +802,15 @@ def test_create_acogida_with_nonexistent_casa_returns_422(
         # reason so the suite does not falsely fail while documenting
         # the missing-translation gap.
         pytest.skip(
-            f"POST /acogidas with non-existent casa_acogida_id returned 500 "
-            f"(expected 422). The FOSTER-03 species gate's "
-            f"``ValueError('la casa no existe')`` propagates as an "
-            f"unhandled exception in create_acogida_view because the "
-            f"_enforce_species_gate call is not wrapped in a try/except. "
-            f"See app/modules/acogidas/routes.py::create_acogida_view — "
-            f"wrap the gate_error call in the same try/except that wraps "
-            f"create_acogida, returning _render_form(..., 422) on "
-            f"ValueError to close the gap."
+            "POST /acogidas with non-existent casa_acogida_id returned 500 "
+            "(expected 422). The FOSTER-03 species gate's "
+            "``ValueError('la casa no existe')`` propagates as an "
+            "unhandled exception in create_acogida_view because the "
+            "_enforce_species_gate call is not wrapped in a try/except. "
+            "See app/modules/acogidas/routes.py::create_acogida_view — "
+            "wrap the gate_error call in the same try/except that wraps "
+            "create_acogida, returning _render_form(..., 422) on "
+            "ValueError to close the gap."
         )
 
     assert response.status == 422, (

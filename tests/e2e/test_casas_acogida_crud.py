@@ -48,7 +48,6 @@ from __future__ import annotations
 
 import os
 import uuid
-from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -536,5 +535,5 @@ def test_soft_delete_casa_acogida_redirects_to_list(
     assert list_page is not None and list_page.status == 200
     body = page.content()
     assert f"Apellido-{suffix}" not in body, (
-        f"deleted casa's apellidos must not appear in /casas-acogida"
+        "deleted casa's apellidos must not appear in /casas-acogida"
     )
