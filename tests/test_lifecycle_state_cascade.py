@@ -86,6 +86,18 @@ CASES: list[tuple[str, dict[str, object], list[dict[str, object]], list[dict[str
     ),
 ]
 
+TERMINAL_CASES = [
+    case
+    for case in CASES
+    if case[0]
+    in {
+        "03_entregado",
+        "07_fallecido_albergue",
+        "09_fallecido_adoptado",
+        "11_incoherente_cross_category",
+    }
+]
+
 
 @pytest.mark.parametrize(
     ("name", "ficha", "entradas", "acogidas", "adopciones", "expected_state"),
@@ -106,6 +118,29 @@ def test_cascade_matches_derivation_11cases(
     assert result.state == expected_state, (
         f"case {name!r}: expected {expected_state!r}, got {result.state!r}"
     )
+
+
+@pytest.mark.parametrize(
+    ("name", "ficha", "entradas", "acogidas", "adopciones", "expected_state"),
+    TERMINAL_CASES,
+    ids=[case[0] for case in TERMINAL_CASES],
+)
+def test_terminal_states_have_no_placement_ids(
+    name: str,  # noqa: ARG001
+    ficha: dict[str, object],
+    entradas: list[dict[str, object]],
+    acogidas: list[dict[str, object]],
+    adopciones: list[dict[str, object]],
+    expected_state: str,
+) -> None:
+    from app.modules.lifecycle.domain.animal_state import calculate_state
+
+    result = calculate_state(ficha, entradas, acogidas, adopciones)
+
+    assert result.state == expected_state
+    assert result.active_intake_id is None
+    assert result.active_foster_id is None
+    assert result.active_adoption_id is None
 
 
 def test_domain_module_does_not_import_insforge() -> None:

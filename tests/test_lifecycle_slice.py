@@ -170,7 +170,13 @@ def test_lifecycle_application_di_source_files_no_insforge_import(module_path: s
         ("build_select_active_intakes", "animal-uuid-1"),
         ("build_select_active_fosters", "animal-uuid-2"),
         ("build_select_active_adoptions", "animal-uuid-3"),
-        ("build_upsert_current_state", ("animal-uuid-4", "Albergue", "albergue")),
+        (
+            "build_upsert_current_state",
+            (
+                "animal-uuid-4",
+                DerivationResult(state="Albergue", kind=DerivationKind.ALBERGUE),
+            ),
+        ),
         ("build_select_ficha", "animal-uuid-5"),
     ],
 )
@@ -197,6 +203,163 @@ def test_lifecycle_insforge_queries_return_sql_params_tuples(
     assert isinstance(params, list), (
         f"{builder_name}: must return a list of params; got {params!r}"
     )
+
+
+@pytest.mark.parametrize(
+    "pre_death_state",
+    ["Albergue", "Acogida", "Adoptado", "Entregado", "Desconocido"],
+)
+def test_upsert_current_state_writes_valid_pre_death_state(
+    pre_death_state: str,
+) -> None:
+    """A death derivation persists each valid pre-death cache value."""
+    import app.modules.lifecycle.adapters.insforge.lifecycle_insforge_queries as q
+
+    sql, params = q.build_upsert_current_state(
+        "animal-uuid",
+        DerivationResult(
+            state=f"Fallecido ({pre_death_state})",
+            kind=DerivationKind.FALLECIDO,
+            pre_death_state=pre_death_state,
+        ),
+    )
+
+    assert "pre_death_state" in sql
+    assert params[5] == pre_death_state
+
+
+def test_upsert_current_state_nulls_pre_death_state_when_not_deceased() -> None:
+    """Non-death derivations cannot leave stale pre-death cache data."""
+    import app.modules.lifecycle.adapters.insforge.lifecycle_insforge_queries as q
+
+    _sql, params = q.build_upsert_current_state(
+        "animal-uuid",
+        DerivationResult(
+            state="Albergue",
+            kind=DerivationKind.ALBERGUE,
+            pre_death_state="Acogida",
+        ),
+    )
+
+    assert params[5] is None
+
+
+def test_upsert_current_state_round_trips_active_placement_ids() -> None:
+    """The three active placement IDs retain their SQL parameter positions."""
+    import app.modules.lifecycle.adapters.insforge.lifecycle_insforge_queries as q
+
+    sql, params = q.build_upsert_current_state(
+        "animal-uuid",
+        DerivationResult(
+            state="Albergue",
+            kind=DerivationKind.ALBERGUE,
+            active_intake_id="intake-uuid",
+            active_foster_id="foster-uuid",
+            active_adoption_id="adoption-uuid",
+        ),
+    )
+
+    assert "active_intake_id" in sql
+    assert "active_foster_id" in sql
+    assert "active_adoption_id" in sql
+    assert params[2:5] == ["intake-uuid", "foster-uuid", "adoption-uuid"]
+
+
+@pytest.mark.parametrize(
+    ("state", "kind", "pre_death_state"),
+    [
+        ("Fallecido (Albergue)", "fallecido", "Albergue"),
+        ("Incoherente", "incoherente", None),
+        ("Entregado", "entregado", None),
+    ],
+)
+def test_upsert_current_state_does_not_normalize_terminal_active_ids(
+    state: str, kind: str, pre_death_state: str | None
+) -> None:
+    """The adapter passes domain-owned placement IDs through unchanged."""
+    import app.modules.lifecycle.adapters.insforge.lifecycle_insforge_queries as q
+
+    _sql, params = q.build_upsert_current_state(
+        "animal-uuid",
+        DerivationResult(
+            state=state,
+            kind=kind,
+            pre_death_state=pre_death_state,
+            active_intake_id="stale-intake",
+            active_foster_id="stale-foster",
+            active_adoption_id="stale-adoption",
+        ),
+    )
+
+    assert params[2:5] == ["stale-intake", "stale-foster", "stale-adoption"]
+
+
+def test_upsert_current_state_preserves_core_cache_columns() -> None:
+    """The original state, timestamp, and matched-status behavior remains."""
+    import app.modules.lifecycle.adapters.insforge.lifecycle_insforge_queries as q
+
+    sql, params = q.build_upsert_current_state(
+        "animal-uuid",
+        DerivationResult(
+            state="Pendiente de Entrada",
+            kind=DerivationKind.PENDIENTE_ENTRADA,
+        ),
+    )
+
+    assert "animal_id" in sql
+    assert "current_state" in sql
+    assert "state_changed_at" in sql
+    assert "now()" in sql
+    assert "reconciliation_status" in sql
+    assert "'matched'" in sql
+    assert params[:2] == ["animal-uuid", "Pendiente de Entrada"]
+
+
+def test_lifecycle_adapter_passes_derivation_auxiliary_fields_to_upsert() -> None:
+    """The adapter forwards every domain-carried auxiliary cache value."""
+    from app.modules.lifecycle.adapters.insforge.lifecycle_insforge_adapter import (
+        InsForgeLifecycleAdapter,
+    )
+
+    class _RecordingExecutor:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, list]] = []
+
+        def execute_sql(
+            self, query: str, params: list | None = None
+        ) -> list[dict[str, object]]:
+            self.calls.append((query, list(params or [])))
+            return []
+
+    executor = _RecordingExecutor()
+    adapter = InsForgeLifecycleAdapter(executor)  # type: ignore[arg-type]
+
+    adapter.persist_animal_state(
+        "animal-uuid-active",
+        DerivationResult(
+            state="Albergue",
+            kind=DerivationKind.ALBERGUE,
+            active_intake_id="intake-uuid",
+            active_foster_id="foster-uuid",
+            active_adoption_id="adoption-uuid",
+        ),
+    )
+    adapter.persist_animal_state(
+        "animal-uuid-deceased",
+        DerivationResult(
+            state="Fallecido (Acogida)",
+            kind=DerivationKind.FALLECIDO,
+            pre_death_state="Acogida",
+        ),
+    )
+
+    assert executor.calls[0][1][2:6] == [
+        "intake-uuid",
+        "foster-uuid",
+        "adoption-uuid",
+        None,
+    ]
+    assert executor.calls[1][1][2:6] == [None, None, None, "Acogida"]
 
 
 # ---------------------------------------------------------------------------

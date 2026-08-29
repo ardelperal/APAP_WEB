@@ -32,6 +32,8 @@ LIFECYCLE-03 (issue #33) PR-B.
 """
 from __future__ import annotations
 
+from app.modules.lifecycle.domain.result import DerivationResult
+
 # --- active placements (P3/P4/P5 single-active branch) -------------------
 
 # An active intake is one whose ``fecha_salida`` is NULL (legacy
@@ -140,43 +142,55 @@ def build_select_ficha(animal_id: str) -> tuple[str, list]:
 
 # The cache carries a CHECK-constrained ``current_state`` value
 # (12 allowed strings, see ``app/core/domain_lifecycle.py:147-156``)
-# plus the auxiliary columns (``active_intake_id`` etc.) the
-# spec wants. This builder only writes the state and the
-# ``state_changed_at`` timestamp; the auxiliary columns land in
-# a follow-up builder when the close/can_delete use cases wire up
-# in PR-C.
-#
-# ``kind`` is currently unused at the SQL level -- the cache
-# stores the string ``current_state``, not the categorical kind.
-# The parameter is kept in the signature so PR-C can route on it
-# (e.g. write ``pre_death_state`` only for ``FALLECIDO``) without
-# a breaking change at the call site.
+# plus the placement IDs and pre-death state produced by the domain
+# cascade. Terminal states clear placement IDs so an upsert cannot
+# retain stale references from the previous cache row.
 #
 # ``ON CONFLICT (animal_id) DO UPDATE`` is the natural-key arbiter
 # (the ``animal_current_state`` PK is on ``animal_id``).
 _UPSERT_CURRENT_STATE_SQL = """
 INSERT INTO animal_current_state (
-    animal_id, current_state, state_changed_at, reconciliation_status
-) VALUES ($1, $2, now(), 'matched')
+    animal_id,
+    current_state,
+    active_intake_id,
+    active_foster_id,
+    active_adoption_id,
+    pre_death_state,
+    state_changed_at,
+    reconciliation_status
+) VALUES ($1, $2, $3, $4, $5, $6, now(), 'matched')
 ON CONFLICT (animal_id) DO UPDATE SET
     current_state = EXCLUDED.current_state,
+    active_intake_id = EXCLUDED.active_intake_id,
+    active_foster_id = EXCLUDED.active_foster_id,
+    active_adoption_id = EXCLUDED.active_adoption_id,
+    pre_death_state = EXCLUDED.pre_death_state,
     state_changed_at = EXCLUDED.state_changed_at,
     reconciliation_status = 'matched'
 """
 
-
 def build_upsert_current_state(
-    animal_id: str, state: str, kind: str
+    animal_id: str,
+    result: DerivationResult,
 ) -> tuple[str, list]:
     """Return the SQL+params pair that upserts the cache row.
 
-    ``state`` must be one of the 12 CHECK-allowed strings; the
-    cascade guarantees that contract via ``DerivationResult.state``.
-    ``kind`` is the snake_case ``DerivationKind`` value carried for
-    routing at the application layer (no current SQL effect; future
-    PRs may dispatch on it for pre_death_state / active_*_id writes).
+    ``result.state`` must be one of the 12 CHECK-allowed strings; the
+    cascade guarantees that contract. Terminal placement IDs are guaranteed
+    to be ``None`` by the domain cascade (see ``DerivationResult`` docstring
+    and ``test_terminal_states_have_no_placement_ids``); the adapter does not
+    defensively re-clear them. Only ``fallecido`` retains ``pre_death_state``.
     """
-    return _UPSERT_CURRENT_STATE_SQL, [animal_id, state, kind]
+    kind = str(getattr(result.kind, "value", result.kind))
+    pre_death_state = result.pre_death_state if kind == "fallecido" else None
+    return _UPSERT_CURRENT_STATE_SQL, [
+        animal_id,
+        result.state,
+        result.active_intake_id,
+        result.active_foster_id,
+        result.active_adoption_id,
+        pre_death_state,
+    ]
 
 
 __all__ = [
