@@ -60,10 +60,13 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
+
+from rapidfuzz import fuzz
 
 from app.core import logging as logging_mod
 from app.core.insforge import InsForgeError
@@ -260,32 +263,190 @@ def _safe_table(table_name: str) -> str:
     return table_name
 
 
+# --- Voluntarios index for FK resolution -----------------------------------
+
+
+class _VoluntariosIndex:
+    __slots__ = ("_by_name",)
+
+    def __init__(self) -> None:
+        # Maps normalised name -> (web_uuid, original_name).
+        self._by_name: dict[str, tuple[str, str]] = {}
+
+    def load_from_db(self, client: _InsForgeLike) -> None:
+        """Load all active volontarios from the DB into the index (Level 1).
+
+        Called once per apply run before processing acogidas / adopciones.
+        Entries from ``record()`` (Level 2: volontarios migrated in this run)
+        take precedence and are NOT overwritten by DB entries.
+        Idempotent in the sense that re-calling never corrupts the index;
+        it only adds DB entries that are not yet present.
+        """
+        sql = "SELECT id, voluntario FROM volontarios WHERE activo = true"
+        for row in client.execute_sql(sql, None):
+            norm = _normalise_for_lookup(row.get("voluntario", ""))
+            if norm and norm not in self._by_name:
+                # Only add if not already registered via record() (Level 2 wins).
+                self._by_name[norm] = (str(row["id"]), row["voluntario"])
+
+    def record(self, legacy_name: str, web_uuid: str) -> None:
+        """Register a volontario migrated in this run (Level 2 resolution).
+
+        Called after each successful volontarios INSERT so that a
+        subsequent acogida row can resolve the FK using the just-migrated
+        volontario (Level 2 beats Level 3 fuzzy).
+        """
+        norm = _normalise_for_lookup(legacy_name)
+        if norm:
+            self._by_name[norm] = (web_uuid, legacy_name)
+
+    def resolve(
+        self,
+        legacy_name: str | None,
+        *,
+        fuzzy_threshold: int = 85,
+    ) -> str | None:
+        """Resolve a free-text legacy name to a volontario UUID.
+
+        Levels:
+          1. Exact normalised match in the index -> return UUID.
+          2. Fuzzy match (rapidfuzz.WRatio >= threshold) -> return best UUID.
+          3. No match -> return None.
+        """
+        if not legacy_name or not str(legacy_name).strip():
+            return None
+
+        name = str(legacy_name).strip()
+        norm = _normalise_for_lookup(name)
+
+        # Level 1: exact normalised match.
+        if norm in self._by_name:
+            return self._by_name[norm][0]
+
+        # Level 2: fuzzy match -- score every entry, return best above threshold.
+        best_uuid: str | None = None
+        best_score = 0.0
+        stripped = _strip_accents(norm)
+        for indexed_norm, (uuid, _original) in self._by_name.items():
+            indexed_stripped = _strip_accents(indexed_norm)
+            score = fuzz.WRatio(stripped, indexed_stripped)
+            if score >= fuzzy_threshold and score > best_score:
+                best_score = score
+                best_uuid = uuid
+
+        return best_uuid
+
+
+def _normalise_for_lookup(name: str) -> str:
+    """Lower-case + strip + collapse internal whitespace.
+
+    Mirrors the normalisation used in the dedup pipeline so that the
+    FK resolver and the dedup CLI produce consistent results.
+    """
+    return " ".join(name.strip().lower().split())
+
+
+def _strip_accents(name: str) -> str:
+    """Decompose to NFD then drop combining marks.
+
+    Used so "Maria Garcia" / "Maria Garcia" normalise to the same
+    ASCII string before WRatio scoring.
+    """
+    return "".join(
+        ch
+        for ch in unicodedata.normalize("NFKD", name)
+        if not unicodedata.combining(ch)
+    )
+
+
 # --- Mapping helpers ----------------------------------------------------
 
 
-def _legacy_to_web_row(legacy_row: dict[str, Any], mapping: Any) -> dict[str, Any]:
+def _resolve_fk_value(
+    legacy_value: str | None,
+    lookup_table: str,
+    lookup_key: str,
+    client: _InsForgeLike,
+    vol_index: _VoluntariosIndex | None,
+    *,
+    fuzzy_match: bool = False,
+    fuzzy_threshold: int = 85,
+    optional: bool = False,
+) -> str | None:
+    """Resolve a legacy free-text value to a web UUID via FK lookup.
+
+    Exact lookup: SELECT UUID FROM ``lookup_table`` WHERE ``lookup_key`` = $1.
+    Fuzzy lookup (for volontarios): use ``vol_index`` to resolve via
+    the 4-level strategy (index -> fuzzy -> None/raise).
+    """
+    if not legacy_value or not str(legacy_value).strip():
+        return None
+
+    safe_table = _safe_table(lookup_table)
+    safe_key = _safe_table(lookup_key)
+    sql = f'SELECT id FROM {safe_table} WHERE {safe_key} = $1 LIMIT 1'  # noqa: S608
+    rows = client.execute_sql(sql, [str(legacy_value).strip()])
+    if rows:
+        return str(rows[0]["id"])
+
+    # Exact lookup missed. For volontarios fuzzy, fall through to the index.
+    if fuzzy_match and vol_index is not None:
+        return vol_index.resolve(legacy_value, fuzzy_threshold=fuzzy_threshold)
+
+    return None
+
+
+def _legacy_to_web_row(
+    legacy_row: dict[str, Any],
+    mapping: Any,
+    client: _InsForgeLike,
+    vol_index: _VoluntariosIndex | None = None,
+) -> dict[str, Any]:
     """Map a legacy ``dict`` to its web-column ``dict``.
 
     Walks the ``mapping.columns`` list and emits only the columns with a
     non-null ``legacy_column``. Web-only columns (``legacy_column=None``,
-    e.g. ``DNI`` on ``voluntarios``) are skipped — they are owned by
+    e.g. ``DNI`` on ``voluntarios``) are skipped -- they are owned by
     the web side and the shadow-state handles their reconciliation.
 
-    Values are passed through verbatim. Date coercion (Access stores
-    dates as ``#YYYY-MM-DD#``; InsForge wants ISO-8601 strings) is the
-    YAML's ``transform`` responsibility — the helper does NOT
-    re-interpret values. Transforms like ``default_uuid`` /
-    ``default_now`` are handled at the SQL layer (the YAML declares
-    ``legacy_column=null`` for them and the applier knows to skip them
-    here, mirroring the legacy_reader contract).
+    For columns with ``transform: fk_lookup``, resolves the legacy free-text
+    value to a web UUID via :func:`_resolve_fk_value`.  volontario columns
+    use fuzzy matching when the YAML declares ``fuzzy_match: true``.
     """
     out: dict[str, Any] = {}
     for col in mapping.columns:
-        if col.legacy_column is None:
-            # Web-only column (id, fecha_alta, DNI, ...) — handled by
-            # the SQL default or the shadow-state.
+        # FK columns (transform: fk_lookup) always need resolution,
+        # regardless of whether their YAML column declares legacy_column.
+        # The YAML uses legacy_column=None for FK columns that have no direct
+        # legacy equivalent (the legacy value lives in fk_lookups[].legacy_column).
+        # Check this FIRST so we don't skip FK columns at the next gate.
+        if col.transform == "fk_lookup":
+            lookup_spec = next(
+                (lk for lk in mapping.fk_lookups if lk.name == col.lookup),
+                None,
+            )
+            if lookup_spec is None:
+                continue
+            # Prefer col.legacy_column; fall back to lookup_spec.legacy_column
+            # (for FK columns that only declare the legacy column in fk_lookups).
+            legacy_src = col.legacy_column or lookup_spec.legacy_column
+            resolved = _resolve_fk_value(
+                legacy_row.get(legacy_src),
+                lookup_table=lookup_spec.lookup_table,
+                lookup_key=lookup_spec.lookup_legacy_key,
+                client=client,
+                vol_index=vol_index,
+                fuzzy_match=lookup_spec.fuzzy_match,
+                fuzzy_threshold=lookup_spec.fuzzy_threshold,
+                optional=lookup_spec.optional,
+            )
+            out[col.web_column] = resolved
+        elif col.legacy_column is None:
+            # Web-only non-FK column (id, fecha_alta, DNI, ...) -- handled
+            # by the SQL default or the shadow-state.
             continue
-        out[col.web_column] = legacy_row.get(col.legacy_column)
+        else:
+            out[col.web_column] = legacy_row.get(col.legacy_column)
     return out
 
 
@@ -504,6 +665,15 @@ def apply_legacy_to_web(
     applied = 0
     skipped = 0
 
+    # VOL-04 (#37): volontario FK index for resolution.
+    # Built once per apply run for ``acogida`` / ``adopcion`` tables which
+    # carry volontario free-text references that need to resolve to UUIDs.
+    # The index is loaded from the DB inside the lock so it is consistent
+    # with the rows migrated in this run (Level 2 resolution).
+    # For ``volontarios`` itself, the index starts empty and is populated
+    # row-by-row as INSERTs succeed (Level 2 for subsequent rows).
+    vol_index: _VoluntariosIndex = _VoluntariosIndex()
+
     try:
         with lock_ctx:
             # --- Snapshot write (AFTER lock, BEFORE first read) ----
@@ -521,6 +691,12 @@ def apply_legacy_to_web(
                 snapshot_written = True
 
             # --- Read + apply loop --------------------------------
+            # Load the volontarios index for tables that carry volontario FKs.
+            # Must be inside the lock so Level 2 (in-memory snapshot) is
+            # consistent with the DB state at apply time.
+            if mapping.web_table in ("acogidas", "adopciones"):
+                vol_index.load_from_db(client)
+
             for _legacy_table_name, rows in load_legacy_snapshot_batched(
                 legacy_path, [spec]
             ):
@@ -532,6 +708,7 @@ def apply_legacy_to_web(
                             web_table=web_table,
                             legacy_row=legacy_row,
                             dry_run=dry_run,
+                            vol_index=vol_index,
                         )
                     except InsForgeError as exc:
                         errors.append(
@@ -641,6 +818,7 @@ def _apply_one_row(
     web_table: str,
     legacy_row: dict[str, Any],
     dry_run: bool,
+    vol_index: _VoluntariosIndex | None = None,
 ) -> str:
     """Apply one legacy row and return ``"applied"`` or ``"skipped"``.
 
@@ -652,7 +830,7 @@ def _apply_one_row(
     """
     legacy_pk_value = legacy_row.get(mapping.legacy_key)
     if legacy_pk_value is None:
-        # The legacy row has no natural key — there is nothing to match
+        # The legacy row has no natural key -- there is nothing to match
         # against the web side. Surface as an error so the CLI's error
         # count bumps.
         raise ValueError(
@@ -661,14 +839,14 @@ def _apply_one_row(
     legacy_pk = str(legacy_pk_value)
 
     source_hash = _compute_source_hash(legacy_row)
-    web_row = _legacy_to_web_row(legacy_row, mapping)
+    web_row = _legacy_to_web_row(legacy_row, mapping, client, vol_index)
 
     existing = _fetch_web_row_by_key(client, mapping, legacy_pk)
 
     if existing is None:
         if dry_run:
             return "applied"  # counted, not written
-        _insert_web_row(client, web_table, web_row)
+        returned = _insert_web_row(client, web_table, web_row)
         logging_mod.log_safe(
             "sync.applied",
             table=web_table,
@@ -679,9 +857,17 @@ def _apply_one_row(
             op="INSERT",
             dry_run=False,
         )
+        # Register the new row in the volontarios index so subsequent
+        # rows (acogidas / adopciones) can resolve FKs via Level 2.
+        # Only for the volontarios table; other tables contribute no
+        # volontario name -> UUID entries.
+        if vol_index is not None and mapping.web_table == "volontarios":
+            web_uuid = returned[0]["id"] if returned else None
+            if web_uuid:
+                vol_index.record(str(legacy_pk_value), str(web_uuid))
         return "applied"
 
-    # Row exists — compare the canonical mapped dict.
+    # Row exists -- compare the canonical mapped dict.
     target_payload = {col: existing.get(col) for col in web_row}
     target_hash = _compute_source_hash(target_payload)
     if _compute_source_hash(web_row) == target_hash:
@@ -731,15 +917,18 @@ def _fetch_web_row_by_key(
 
 def _insert_web_row(
     client: _InsForgeLike, web_table: str, web_row: dict[str, Any]
-) -> None:
-    """INSERT ``web_row`` into ``web_table`` and return the new row.
+) -> list[dict[str, Any]]:
+    """INSERT ``web_row`` into ``web_table`` and return the ``RETURNING`` row.
 
     The SQL is constructed from the column list of ``web_row`` so the
     function works against any mapping without a per-table hand-coded
     INSERT. ``id`` (UUID) and timestamps (``fecha_alta``,
     ``updated_at``) are handled by the DB defaults (``DEFAULT
-    gen_random_uuid()``, ``DEFAULT now()``) — we just don't include
+    gen_random_uuid()``, ``DEFAULT now()``) -- we just don't include
     them in the params if they're missing from the mapped row.
+
+    Returns the rows from ``RETURNING id`` so callers can record the
+    new web UUID (e.g. for FK index registration in VOL-04).
     """
     safe_table = _safe_table(web_table)
     cols = [c for c in web_row if _SAFE_TABLE_NAME.match(c)]
@@ -749,7 +938,7 @@ def _insert_web_row(
     cols_vals = f"({', '.join(cols)}) VALUES ({placeholders})"
     sql = f"INSERT INTO {safe_table} {cols_vals} RETURNING id"  # noqa: S608 ids validados
     params = [web_row[c] for c in cols]
-    client.execute_sql(sql, params)
+    return client.execute_sql(sql, params)
 
 
 def _record_shadow_divergence(
