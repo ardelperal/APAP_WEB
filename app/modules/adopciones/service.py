@@ -21,14 +21,12 @@ from app.core.data_access import SqlExecutor
 from app.core.insforge import InsForgeError
 from app.core.logging import log_safe
 from app.modules.adopciones import queries
-from app.modules.animals.lifecycle_events import (
+from app.modules.animals import (
     LifecycleEventType,
     actualizar_estado_animal,
     record_event,
 )
-from app.modules.lifecycle.application.close_previous_situation import (
-    close_previous_situation,
-)
+from app.modules.lifecycle import close_previous_situation
 
 
 class AdopcionConflictError(ValueError):
