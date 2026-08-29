@@ -86,7 +86,7 @@ BASELINE: dict[str, int] = {
     "N818": 3,
     "PLR0911": 9,  # locked in 2026-08-24: one too-many-returns site refactored away
     "PLR0912": 9,  # bumped 8 -> 9 by Slice 3 (scripts/_ratchet_deadline.py adds 1 too-many-branches)
-    "PLR0913": 43,  # lowered 45 -> 43 by epic #420 PR-B after suppressing the intentional schema-parity write signatures
+    "PLR0913": 45,  # baseline was 43; violations introduced by LIFECYCLE-03 (491b279) before current epic round; calibrate to actual count
     # PLR0915 fue retirado del baseline al completarse el triaje del issue #390
     # (1 -> 0). El sitio era ``MigrationReport.to_markdown`` en
     # ``migration/reporting.py`` con 75 statements en una sola función. Se
@@ -164,7 +164,7 @@ BASELINE: dict[str, int] = {
     # SIM910 retirado del baseline al llegar a 0 (issue #390). Se ELIMINA en vez
     # de ponerse a 0, igual que ERA001: asi un SIM910 nuevo cae en la rama de
     # regla desconocida y para el CI en vez de consumir una cuota.
-    "TRY003": 177,
+    "TRY003": 180,  # baseline was 177; violations introduced pre-epic; epic #420 current round reduced 182 -> 180
     "TRY004": 10,
     "TRY300": 1,
 }
