@@ -36,6 +36,7 @@ from app.modules.animals.lifecycle_events import (
 from app.modules.animals.ports.animals_port import AnimalsPort
 from app.modules.lifecycle import (
     CanDeleteResult,
+    LifecyclePort,  # noqa: F401 — re-exported for cross-module consumers
     calculate_animal_state,
     can_delete_animal,
     close_all_on_death,
