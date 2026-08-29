@@ -24,6 +24,7 @@ from app.modules.lifecycle.application.close_previous_situation import (
     close_previous_situation,
 )
 from app.modules.lifecycle.domain.animal_state import DerivationKind, DerivationResult
+from app.modules.lifecycle.ports.lifecycle_port import LifecyclePort
 
 
 class _FakeSqlExecutor:

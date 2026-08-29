@@ -40,7 +40,7 @@ from app.modules.animals.domain.lifecycle_event import (
     LifecycleEventType,
 )
 from app.modules.animals.ports.animals_port import AnimalsPort
-from app.modules.lifecycle import LifecyclePort
+from app.modules.lifecycle.ports.lifecycle_port import LifecyclePort
 
 
 class LifecycleEventValidationError(ValueError):
