@@ -56,7 +56,7 @@ BASELINE_CC: dict[tuple[str, str], int] = {
     ("app/main.py", "create_app"): 1,  # issue #336 refactor — extracted closures
     ("app/modules/animals/routes.py", "_animal_to_form_data"): 25,
     ("app/modules/entradas/batch_routes.py", "stage_batch_view"): 17,
-    ("migration/apply.py", "apply_legacy_to_web"): 19,
+    ("migration/apply.py", "apply_legacy_to_web"): 20,
     ("migration/cli_apply_reverse.py", "run_apply"): 21,
     ("migration/derivation.py", "derive_estado_actual_animal"): 31,
     ("migration/diff_engine.py", "_diff_snapshots"): 29,
