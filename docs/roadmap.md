@@ -42,12 +42,11 @@ Las capacidades que cruzan varias fases viven en [`transversales.md`](roadmap/tr
 
 | SHA | Title | PR |
 |---|---|---|
-| d5fb075 | refactor(animals): retire legacy record_event alias from app.modules.animals (merge resolution) | — |
+| 031e4a6 | feat(cesiones): hexagonal migration + E2E battery (12 tests) | #628 |
+| 6bee0ab | docs(roadmap): close Fase 4 (hexagonal animals completed) | — |
+| f529b8f | docs(roadmap): close Fase 3 and Fase 5; update recent activity after PR #627 | — |
+| d5fb075 | refactor(animals): retire legacy record_event alias from app.modules.animals | — |
 | 9a8b6f5 | feat(lifecycle): wire state cache composition into event emitters (LIFECYCLE-03 PR-B+PR-C) | — |
-| 8444234 | chore: lower mutation-sites baseline for Python 3.12 runner | — |
-| 8ce7fe8 | fix: templates use lowercase dataclass field names + remove obsolete helpers | — |
-| 36ea71a | fix: remove voluntarios.routes.get_insforge_client_dep monkeypatch from CSRF test | — |
-| b9ee41c | Merge PR #627 `feat(epic #420): voluntarios hexagonal + lifecycle events + E2E plan` | #627 |
 
 ## Cuándo ir al legacy directamente
 
