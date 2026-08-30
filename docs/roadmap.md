@@ -20,7 +20,7 @@ Estructura hub-and-spoke. Esta página es el hub; las páginas radiales viven en
 | Fase 1 — Esqueleto de la aplicación web | cerrado (#17) | aroman | [fase-1-esqueleto.md](roadmap/fase-1-esqueleto.md) |
 | Fase 2 — Autenticación y autorización | cerrado (#16) | aroman | [fase-2-auth-allowlist.md](roadmap/fase-2-auth-allowlist.md) |
 | Fase 3 — Modelo de dominio limpio | cerrado | aroman | [fase-3-modelo-dominio.md](roadmap/fase-3-modelo-dominio.md) |
-| Fase 4 — Entidad Animal (Feature 01) | pendiente | aroman | [fase-4-animal-crud.md](roadmap/fase-4-animal-crud.md) |
+| Fase 4 — Entidad Animal (Feature 01) | cerrado | aroman | [fase-4-animal-crud.md](roadmap/fase-4-animal-crud.md) |
 | Fase 5 — Voluntarios + Entradas + Acogidas + Adopciones (Feature 02) | cerrado | aroman | [fase-5-flujos-operativos.md](roadmap/fase-5-flujos-operativos.md) |
 | Fase 6 — Salud, Terapias e Inventario de Material (Feature 03) | pendiente | aroman | [fase-6-salud-terapias-material.md](roadmap/fase-6-salud-terapias-material.md) |
 | Fase 7 — Documentos, Contratos, Informes y Consultas (Feature 04) | pendiente | aroman | [fase-7-documentos-contratos-informes.md](roadmap/fase-7-documentos-contratos-informes.md) |
