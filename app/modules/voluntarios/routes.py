@@ -18,7 +18,6 @@ from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
 from app.core.auth_dependencies import (
-    get_insforge_client_dep,
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
