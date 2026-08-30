@@ -66,6 +66,20 @@ Fuera del alcance del epic #420 quedan el state resolver (#33), la cache de `est
 - **Cierre automático al cambiar de estado**: la transición cierra la situación anterior (`CerrarSituacionNoEjecutivas` → `closePreviousSituation()`).
 - **Defunción cierra todo**: `closeAllOnDeath()` cierra todas las situaciones abiertas.
 
+## Batería E2E
+
+Baterías E2E con Playwright para el slice de animales. Las baterías se escriben al mismo tiempo que el slice; solo se ejecutan en CI en el primer prototipo funcional y en releases ([transversales.md §Batería E2E](transversales.md)).
+
+| Fichero E2E | Casos | Estado |
+|---|---|---|
+| `test_animales_crud.py` | Alta animal, búsqueda por nchip, editar, baja lógica, foto upload, chip change, timeline (9 tests) | ✅ hecho |
+| `test_animales_state_machine.py` | Transiciones: Entrada → Acogida → Adopcion; Defuncion cierra todo | ❌ pendiente |
+| `test_animales_soft_delete.py` | Verificar que animal con situaciones abiertas no se puede borrar | ❌ pendiente |
+| `test_animales_lifecycle_events.py` | Registrar evento de lifecycle; verificar timeline; verificar cierre automático | ❌ pendiente |
+| `test_animales_auth.py` | 302 sin sesión, 403 reader en POST/DELETE | ❌ pendiente |
+
+**Total pendiente:** 4 ficheros E2E nuevos para cubrir completamente el slice animals.
+
 ## Contributor checklist
 
 - [ ] Si implementa el CRUD de animales, abra primero la issue y cite [docs/discovery/feature-01-animal-lifecycle.md](../discovery/feature-01-animal-lifecycle.md).

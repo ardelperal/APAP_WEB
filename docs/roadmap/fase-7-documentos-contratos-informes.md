@@ -65,6 +65,46 @@ pendiente — pendiente de crear issues (uno por sub-flujo). Próximos: DOC-01..
 - [ ] Si diseña el módulo de Consultas, siga el spec en [docs/discovery/feature-04-documents-contracts-reports.md](../discovery/feature-04-documents-contracts-reports.md).
 - [ ] Si descubre una discrepancia entre el spec y el código VBA actual del Access, abra issue `type:bug gap:legacy` (P1).
 
+## Batería E2E
+
+Baterías E2E con Playwright para cada sub-slice de Fase 7. Las baterías se escriben al mismo tiempo que el slice; solo se ejecutan en CI en el primer prototipo funcional y en releases ([transversales.md §Batería E2E](transversales.md)).
+
+### 7a — Documentos y anexos
+
+| Fichero E2E | Casos | Slice |
+|---|---|---|
+| `test_contratos_pdf.py` | Generar PDF desde plantilla; descargar; verificar contenido | `contratos` ❌ pendiente |
+| `test_contratos_upload.py` | Upload contrato firmado; registrar en DB; verificar en lista | `contratos` ❌ pendiente |
+| `test_anexos_polimorfico.py` | Adjuntar anexo a cesión, adopción, acogida; verificar linking correcto | `anexos` ❌ pendiente |
+| `test_legacy_storage_migration.py` | Migrar archivo legacy; verificar acceso vía object storage | `migración` ❌ pendiente |
+| `test_contratos_auth.py` | 302 sin sesión, 403 reader en POST/PATCH | `contratos` ❌ pendiente |
+
+### 7b — Motor de plantillas
+
+| Fichero E2E | Casos | Slice |
+|---|---|---|
+| `test_template_engine.py` | Renderizar plantilla con variables; verificar PDF generado | `templates` ❌ pendiente |
+| `test_template_variants.py` | Renderizar variantes (Cesión, Adopción, Acogida); verificar campos correctos | `templates` ❌ pendiente |
+
+### 7c — Consultas y módulo propio
+
+| Fichero E2E | Casos | Slice |
+|---|---|---|
+| `test_consultas_module.py` | Listado de consultas; crear; editar; soft-delete | `consultas` ❌ pendiente |
+| `test_consultas_auth.py` | 302 sin sesión, 403 reader en POST | `consultas` ❌ pendiente |
+
+### Informes (REPORT-01..05)
+
+| Fichero E2E | Casos | Slice |
+|---|---|---|
+| `test_report_builder.py` | Query builder con plantilla curada; ejecutar; verificar resultado | `reports` ❌ pendiente |
+| `test_report_export.py` | Ejecutar informe; exportar PDF; exportar Excel | `reports` ❌ pendiente |
+| `test_report_trimestral.py` | Generar informe trimestral; verificar datos agregados; charts | `reports` ❌ pendiente |
+| `test_notification_engine.py` | Registrar notificación; verificar envío (o cola) al llegar fecha límite | `tasks` ❌ pendiente |
+| `test_dashboard_counters.py` | Verificar que los contadores del dashboard reflejan el estado real de la DB | `dashboard` ❌ pendiente |
+
+**Total pendiente:** 15 ficheros E2E para Fase 7.
+
 ## Navigation
 
 Previous: [fase-6-salud-terapias-material.md](fase-6-salud-terapias-material.md) | Next: [transversales.md](transversales.md)

@@ -50,6 +50,25 @@ Ninguna — todas las issues de Fase 5 están cerradas y reflejadas en la tabla 
 - **Estado del animal cierra situaciones previas**: cada nueva entrada / acogida / adopción cierra la anterior (`CerrarSituacionNoEjecutivas`).
 - **VOL-03 usa rapidfuzz, no thefuzz** ([d-25](../architecture/decisiones/d-25-rapidfuzz-fuzzy-match.md)).
 
+## Batería E2E
+
+Baterías E2E con Playwright para cada slice. Las baterías se escriben al mismo tiempo que el slice; solo se ejecutan en CI en el primer prototipo funcional y en releases ([transversales.md §Batería E2E](transversales.md)).
+
+| Slice | Tests E2E | Estado |
+|---|---|---|
+| `animals` | `test_animales_crud.py` (9 tests) | ✅ hecho |
+| `entradas` | `test_entradas_crud.py` (7) + `test_entradas_batch.py` (6) | ✅ hecho |
+| `acogidas` | `test_acogidas_crud.py` (8) | ✅ hecho |
+| `foster` (casas de acogida) | `test_casas_acogida_crud.py` (7) + `test_casas_acogida_asignar.py` (6) | ✅ hecho |
+| `adopciones` | `test_adopciones_crud.py` (7) + `test_adopciones_seguimiento.py` (6) | ✅ hecho |
+| `voluntarios` | `test_voluntarios_crud.py` (5) + `test_voluntarios_roles.py` (4) | ✅ hecho |
+| `cesiones` | `test_cesiones_crud.py` + `test_cesiones_conflicts.py` + `test_cesiones_auth.py` | ❌ pendiente — slice en `feat/cesiones-hex-migration` |
+| Auth ( transversal) | `test_login_form.py`, `test_logout.py`, `test_public_redirects.py`, `test_admin_authenticated.py` | ✅ hecho |
+| Layout / nav | `test_landing.py`, `test_nav_layout.py`, `test_layout_responsive_extended.py` | ✅ hecho |
+| Seguridad (transversal) | `test_security_headers.py` | ✅ hecho |
+
+**Baterías pendientes:** `cesiones` es el único slice de Fase 5 sin E2E. La batería mínima es `test_cesiones_crud.py` (happy-path POST + GET + soft-delete) + `test_cesiones_conflicts.py` (409 UNIQUE + 422 validación) + `test_cesiones_auth.py` (302 / 403 por rol). Se crea al cerrar `feat/cesiones-hex-migration`.
+
 ## Contributor checklist
 
 - [ ] Si abre un slice de Fase 5, cite la sub-fase (5a/5b/5c/5d) y la issue correspondiente.

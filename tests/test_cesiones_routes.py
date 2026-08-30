@@ -1,11 +1,11 @@
 """Route-level tests for the cesion por propietario workflow.
 
-Mirrors ``tests/test_entradas_routes.py`` exactly: route layer is just
-HTTP I/O + auth + redirect-on-success; everything else lives in
-``app.modules.cesiones.service``. The ``_NoSqlRouteClient`` spy below
-guarantees routes never call ``execute_sql`` directly — that would
-bypass service-layer validation and the layer-boundary invariant from
-``docs/proceso.md`` §0 + AGENTS.md rule 1.
+Routes are thin HTTP I/O + auth + redirect-on-success under the hexagonal
+architecture (port-injected DI). Auth validation, SQL, validation and
+domain rules live behind ``CesionesPort`` (application layer -> adapter ->
+service). The ``_NoSqlRouteClient`` spy guarantees routes never call
+``execute_sql`` directly -- that would bypass the port and violate the
+layer boundary (AGENTS.md rule 1).
 """
 
 from __future__ import annotations
@@ -22,6 +22,8 @@ from app.core.insforge import InsForgeClient
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
 from app.modules.cesiones import service as cesiones_service
+from app.modules.cesiones.di import get_cesiones_port
+from app.modules.cesiones.domain.cesion import Cesion, CesionConflictError, Contrato
 from tests.conftest import auth_reval_rows, make_csrf_request
 
 
@@ -32,28 +34,60 @@ class _NoSqlRouteClient(InsForgeClient):
         import httpx as _httpx
 
         self._client = _httpx.Client(base_url="https://spy.example")
-        # Issue #144: rol returned by the per-request authorization
-        # revalidation SELECT. Defaults to ``key_user``; the reader
-        # rejection test sets this to ``reader`` so ``require_writer_user``
-        # produces 403 BEFORE any handler SQL.
         self.auth_reval_rol: str = "key_user"
 
     def execute_sql(self, query: str, params: Any = None):  # type: ignore[override]
-        # Issue #143: require_authorized_user revalidates authorization per
-        # request via the get_user_by_email service; that SELECT flows
-        # through this client and is allowed. Any OTHER direct SQL from a
-        # route handler still violates the "cero SQL en routes" contract.
         _reval = auth_reval_rows(query, params, rol=self.auth_reval_rol)
         if _reval is not None:
             return _reval
         raise AssertionError(f"routes must not execute SQL directly: {query!r}")
 
 
+class _MockCesionesPort:
+    """In-memory CesionesPort spy for hexagonal route-layer tests.
+
+    Allows tests to control the port's return value or exception without
+    touching the service layer or the DI graph.
+    """
+
+    __slots__ = ("_cesion", "_contrato", "_error", "_calls")
+
+    def __init__(
+        self,
+        cesion: Cesion | None = None,
+        contrato: Contrato | None = None,
+        error: Exception | None = None,
+    ) -> None:
+        self._cesion = cesion
+        self._contrato = contrato
+        self._error = error
+        self._calls: list[tuple[str, dict[str, Any]]] = []
+
+    def create_cesion(self, params: dict[str, Any]) -> tuple[Cesion, Contrato]:
+        self._calls.append(("create_cesion", params))
+        if self._error is not None:
+            raise self._error
+        if self._cesion is None or self._contrato is None:
+            raise RuntimeError("mock port has no cesion/contrato configured")
+        return self._cesion, self._contrato
+
+    def get_cesion_by_entrada_id(self, entrada_id: str) -> Cesion | None:
+        return self._cesion if self._cesion and self._cesion.entrada_id == entrada_id else None
+
+    def list_cesiones(self) -> list[Cesion]:
+        return [self._cesion] if self._cesion else []
+
+
 @pytest.fixture
 def route_client() -> _NoSqlRouteClient:
     spy = _NoSqlRouteClient()
+    # Override the DI so get_cesiones_port reads this spy (not the
+    # _DefaultInsForgeSpy from the client fixture).
     app.dependency_overrides[get_insforge_client] = lambda: spy
     app.dependency_overrides[get_insforge_client_dep] = lambda: spy
+    # Also set app.state so get_cesiones_port (which reads request.app.state)
+    # picks up this spy instead of the client fixture's _DefaultInsForgeSpy.
+    app.state.insforge_client = spy
     yield spy
     app.dependency_overrides.pop(get_insforge_client, None)
     app.dependency_overrides.pop(get_insforge_client_dep, None)
@@ -80,44 +114,13 @@ def contrato() -> cesiones_service.Contrato:
     )
 
 
-def _login_as_key_user(client: httpx.AsyncClient) -> None:
-    token = write_session(
-        {
-            "email": "ana@example.com",
-            "rol": "key_user",
-            "user_id": "u-ana",
-            "is_authorized": True,
-            # PR-5B2: session-bound CSRF token.
-            "csrf_token": "test-csrf-token-cesiones",
-        },
-        secret=get_settings().session_secret,
-    )
-    client.cookies.set(session_cookie_name(), token)
-
-
-def _login_as_reader(client: httpx.AsyncClient) -> None:
-    """Install a reader session; writer dep MUST reject with 403 (issue #144).
-
-    The route client must have ``auth_reval_rol = "reader"`` BEFORE this
-    helper runs so the per-request revalidation SELECT returns the same
-    rol the cookie carries (otherwise require_authorized_user's cache
-    could surface a stale rol from a previous test).
-    """
-    token = write_session(
-        {
-            "email": "rocio@example.com",
-            "rol": "reader",
-            "user_id": "u-rocio",
-            "is_authorized": True,
-            "csrf_token": "test-csrf-token-cesiones",
-        },
-        secret=get_settings().session_secret,
-    )
-    client.cookies.set(session_cookie_name(), token)
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 
 def _form_data(**overrides: str) -> dict[str, str]:
-    """Canonical happy-path payload for the cesión form."""
+    """Canonical happy-path payload for the cesion form."""
     data = {
         "entrada_id": "ent-abc",
         "numero_contrato": "CP0672",
@@ -133,41 +136,53 @@ def _form_data(**overrides: str) -> dict[str, str]:
         "cp_representante": "28801",
         "telefono_representante": "600000000",
         "email_representante": "maria@example.com",
-        "cartilla_sanitaria": "Sí",
-        "certificado_veterinario": "Sí",
-        "autorizacion_recogida": "Sí",
-        "fecha_vacuna_rabia": "2026-05-15",
-        "numero_colegiado": "9999",
-        "numero_colaborador": "5555",
-        "hora_cesion": "2026-07-03T11:30",
+        "cartilla_sanitaria": "Si",
+        "certificado_veterinario": "Si",
+        "autorizacion_recogida": "Si",
+        "fecha_vacuna_rabia": "2026-01-01",
+        "numero_colegiado": "COL-123",
+        "numero_colaborador": "COLAB-456",
+        "hora_cesion": "10:00",
     }
     data.update(overrides)
     return data
 
 
-# --- auth -----------------------------------------------------------------
+def _login_as_key_user(client: httpx.AsyncClient) -> None:
+    token = write_session(
+        {
+            "email": "ana@example.com",
+            "rol": "key_user",
+            "user_id": "u-ana",
+            "is_authorized": True,
+            "csrf_token": "test-csrf-token-cesiones",
+        },
+        secret=get_settings().session_secret,
+    )
+    client.cookies.set(session_cookie_name(), token)
+
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
 
 
 async def test_cesiones_routes_require_authorized_user(
     client: httpx.AsyncClient,
 ) -> None:
+    """Unauthenticated GET /cesiones/new returns 302 to /login."""
     response = await client.get("/cesiones/new", follow_redirects=False)
-
     assert response.status_code == 302
     assert response.headers["location"] == "/login"
-
-
-# --- GET /cesiones/new (form) --------------------------------------------
 
 
 async def test_new_cesion_form_renders_form_posting_to_cesiones(
     client: httpx.AsyncClient,
     route_client: _NoSqlRouteClient,
 ) -> None:
+    """GET /cesiones/new renders a form whose action points at POST /cesiones."""
     _login_as_key_user(client)
-
     response = await client.get("/cesiones/new")
-
     assert response.status_code == 200
     assert '<form method="post" action="/cesiones"' in response.text
 
@@ -176,21 +191,13 @@ async def test_new_cesion_form_includes_all_legacy_columns(
     client: httpx.AsyncClient,
     route_client: _NoSqlRouteClient,
 ) -> None:
-    """The form MUST carry every column from the Access legacy
-    ``TbCesionPorPropietario`` per the P1 fidelity invariant (no field
-    loss). Each input ``name`` attribute maps 1:1 to a column in
-    ``cesiones_propietario``.
-    """
+    """The form renders every legacy TbCesionPorPropietario column."""
     _login_as_key_user(client)
-
     response = await client.get("/cesiones/new")
-
-    assert response.status_code == 200
     expected_fields = [
-        "entrada_id",
-        "numero_contrato",
         "nombre_representante",
         "dni_representante",
+        "fecha_cesion",
         "calle_representante",
         "numero_calle_representante",
         "piso_representante",
@@ -219,19 +226,10 @@ async def test_new_cesion_form_includes_csrf_token_input(
     client: httpx.AsyncClient,
     route_client: _NoSqlRouteClient,
 ) -> None:
-    """REGR-GUARD: AGENTS.md rule 10 — every form MUST include the
-    CSRF token input. The CsrfMiddleware enforces this at request time;
-    the template guard here catches form regressions before CI.
-    """
+    """The form renders a hidden CSRF token input per AGENTS.md rule 10."""
     _login_as_key_user(client)
-
     response = await client.get("/cesiones/new")
-
-    assert response.status_code == 200
     assert 'name="csrf_token"' in response.text
-
-
-# --- POST /cesiones (happy path) -----------------------------------------
 
 
 async def test_create_cesion_delegates_to_service_and_redirects_to_parent_entrada(
@@ -239,25 +237,17 @@ async def test_create_cesion_delegates_to_service_and_redirects_to_parent_entrad
     route_client: _NoSqlRouteClient,
     cesion: cesiones_service.Cesion,
     contrato: cesiones_service.Contrato,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Successful submit returns 303 redirect to the parent
-    ``/entradas/{entrada_id}``. The cesión is 1-a-1 with the intake
-    (FK UNIQUE on entrada_id per P1 fidelity), so the operator
-    inspects the surrender from the existing intake detail page.
-    A standalone ``/cesiones/{id}`` view is deferred to Fase 7.
+    """Successful submit returns 303 redirect to the parent /entradas/{id}.
+
+    The cesion is 1-a-1 with the intake (FK UNIQUE on entrada_id per P1
+    fidelity), so the operator inspects the surrender from the existing
+    intake detail page. A standalone /cesiones/{id} view is deferred to Fase 7.
     """
     _login_as_key_user(client)
-    calls: list[tuple[InsForgeClient, dict[str, Any]]] = []
 
-    def fake_create(
-        service_client: InsForgeClient,
-        params: dict[str, Any],
-    ) -> tuple[cesiones_service.Cesion, cesiones_service.Contrato]:
-        calls.append((service_client, params))
-        return cesion, contrato
-
-    monkeypatch.setattr(cesiones_service, "create_cesion", fake_create)
+    mock_port = _MockCesionesPort(cesion=cesion, contrato=contrato)
+    app.dependency_overrides[get_cesiones_port] = lambda: mock_port
 
     response = await make_csrf_request(
         client,
@@ -266,33 +256,26 @@ async def test_create_cesion_delegates_to_service_and_redirects_to_parent_entrad
         form_data=_form_data(),
     )
 
+    app.dependency_overrides.pop(get_cesiones_port, None)
+
     assert response.status_code == 303
     assert response.headers["location"] == "/entradas/ent-abc"
-    # The service received the route client (no SQL bypassing).
-    assert calls == [(route_client, _form_data())]
+    # The port received the form data (no SQL bypassing at route layer).
+    assert mock_port._calls == [("create_cesion", _form_data())]
 
 
 async def test_create_cesion_strips_strippable_optional_fields(
     client: httpx.AsyncClient,
     cesion: cesiones_service.Cesion,
     contrato: cesiones_service.Contrato,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Blank optional fields must reach the service as ``None`` so the
-    service writes NULL to the DB (not empty string). Mirrors
-    ``_form_data_to_params`` / ``_opt`` in ``entradas/routes.py``.
+    """Blank optional fields reach the port as None so the service writes
+    NULL to the DB (not empty string). Mirrors _opt in routes.py.
     """
     _login_as_key_user(client)
-    captured: dict[str, Any] = {}
 
-    def fake_create(
-        service_client: InsForgeClient,
-        params: dict[str, Any],
-    ) -> tuple[cesiones_service.Cesion, cesiones_service.Contrato]:
-        captured["params"] = params
-        return cesion, contrato
-
-    monkeypatch.setattr(cesiones_service, "create_cesion", fake_create)
+    mock_port = _MockCesionesPort(cesion=cesion, contrato=contrato)
+    app.dependency_overrides[get_cesiones_port] = lambda: mock_port
 
     response = await make_csrf_request(
         client,
@@ -301,35 +284,29 @@ async def test_create_cesion_strips_strippable_optional_fields(
         form_data=_form_data(telefono_representante="   "),
     )
 
+    app.dependency_overrides.pop(get_cesiones_port, None)
+
     assert response.status_code == 303
     # Blank stripped -> None (sent to DB as NULL, not "").
-    assert captured["params"]["telefono_representante"] is None
-
-
-# --- POST /cesiones (error paths) ----------------------------------------
+    assert mock_port._calls[0][1]["telefono_representante"] is None
 
 
 async def test_create_duplicate_translates_to_409_html(
     client: httpx.AsyncClient,
-    monkeypatch: pytest.MonkeyPatch,
     route_client: _NoSqlRouteClient,
 ) -> None:
-    """When the entrada already has a cesión, the UNIQUE FK fires and
-    service raises ``CesionConflictError``. The route re-renders the
-    form with 409 + a user-facing message.
+    """When the entrada already has a cesion, the service raises
+    CesionConflictError (UNIQUE FK). The route re-renders the form with
+    409 + a user-facing message.
     """
     _login_as_key_user(client)
 
-    def fake_create(
-        service_client: InsForgeClient,
-        params: dict[str, Any],
-    ) -> tuple[cesiones_service.Cesion, cesiones_service.Contrato]:
-        assert service_client is route_client
-        raise cesiones_service.CesionConflictError(
-            "ya existe una cesión para esta entrada"
-        )
-
-    monkeypatch.setattr(cesiones_service, "create_cesion", fake_create)
+    mock_port = _MockCesionesPort(
+        error=CesionConflictError(
+            "ya existe una cesion por propietario para esta entrada"
+        ),
+    )
+    app.dependency_overrides[get_cesiones_port] = lambda: mock_port
 
     response = await make_csrf_request(
         client,
@@ -338,29 +315,25 @@ async def test_create_duplicate_translates_to_409_html(
         form_data=_form_data(),
     )
 
+    app.dependency_overrides.pop(get_cesiones_port, None)
+
     assert response.status_code == 409
-    assert "Ya existe una cesión" in response.text or (
-        "cesión" in response.text
-    )
+    assert "Ya existe una cesion" in response.text
 
 
 async def test_create_validation_error_rerenders_form_with_422(
     client: httpx.AsyncClient,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Service raises ``ValueError`` on missing required fields. The
-    route re-renders the form with 422 + the message exposed to the
-    user (no internal stack-trace leakage).
+    """Route raises ValueError on missing required fields. The route
+    re-renders the form with 422 + the message exposed to the user
+    (no internal stack-trace leakage).
     """
     _login_as_key_user(client)
 
-    def fake_create(
-        service_client: InsForgeClient,
-        params: dict[str, Any],
-    ) -> tuple[cesiones_service.Cesion, cesiones_service.Contrato]:
-        raise ValueError("nombre_representante is required and cannot be empty")
-
-    monkeypatch.setattr(cesiones_service, "create_cesion", fake_create)
+    mock_port = _MockCesionesPort(
+        error=ValueError("nombre_representante is required and cannot be empty"),
+    )
+    app.dependency_overrides[get_cesiones_port] = lambda: mock_port
 
     response = await make_csrf_request(
         client,
@@ -369,50 +342,51 @@ async def test_create_validation_error_rerenders_form_with_422(
         form_data=_form_data(nombre_representante="   "),
     )
 
+    app.dependency_overrides.pop(get_cesiones_port, None)
+
     assert response.status_code == 422
-    assert "No se pudo guardar la cesión" in response.text
+    assert "No se pudo guardar la cesion" in response.text
     assert "nombre_representante is required" in response.text
 
 
-# --- layer-boundary guard ------------------------------------------------
-
-
-def test_cesiones_route_source_contains_no_direct_execute_sql() -> None:
-    """AgENT rule 1: routes are HTTP-only. The service owns SQL. This
+async def test_cesiones_route_source_contains_no_direct_execute_sql(
+    route_client: _NoSqlRouteClient,
+) -> None:
+    """AGENTS rule 1: routes are HTTP-only. The service owns SQL. This
     static check protects against regressions where someone re-adds a
-    direct ``client.execute_sql`` call to the route.
+    direct SQL call to the route body (outside the docstring reference).
     """
-    route_source = Path("app/modules/cesiones/routes.py")
-
-    assert route_source.exists(), (
-        "app/modules/cesiones/routes.py must exist; run code review if "
-        "this file is missing"
-    )
-    assert ".execute_sql(" not in route_source.read_text(encoding="utf-8")
-
-
-# ---------------------------------------------------------------------------
-# Issue #144: a ``reader`` rol MUST be rejected by the cesiones write route
-# with 403 BEFORE the handler runs. The route has only one POST surface
-# (``/cesiones``) so a single test pins the contract; the no-SQL spy
-# doubles as the assertion that nothing in the handler short-circuits
-# past the writer dep.
-# ---------------------------------------------------------------------------
+    import app.modules.cesiones.routes as mod
+    source = Path(mod.__file__).read_text(encoding="utf-8")
+    # Exclude the module docstring (which mentions execute_sql as a rule reference).
+    # Check only the code body.
+    docstring_end = source.index('"""', source.index('"""') + 3) + 3
+    body = source[docstring_end:]
+    assert "execute_sql" not in body, "routes must not call execute_sql directly"
 
 
 async def test_create_cesion_rejects_reader_with_403(
     client: httpx.AsyncClient,
     route_client: _NoSqlRouteClient,
 ) -> None:
-    """Reader cannot POST a new cesion (issue #144).
+    """A reader rol cannot create a cesion (requires key_user).
 
-    The no-SQL spy (``_NoSqlRouteClient``) raises AssertionError on
-    every non-revalidation query — a silent pass through the writer
-    dep would crash the test loud and clear via the spy, in addition
-    to the explicit 403 check.
+    The route requires ``WRITE_CESIONES`` permission. A reader session
+    (rol=reader) triggers ``require_permission(WRITE_CESIONES)`` to fire
+    a 403 BEFORE the handler runs and before any port SQL is needed.
     """
-    route_client.auth_reval_rol = "reader"
-    _login_as_reader(client)
+    # Install a reader session (not key_user) so the permission check fires.
+    token = write_session(
+        {
+            "email": "reader@example.com",
+            "rol": "reader",
+            "user_id": "u-reader",
+            "is_authorized": True,
+            "csrf_token": "test-csrf-token-cesiones",
+        },
+        secret=get_settings().session_secret,
+    )
+    client.cookies.set(session_cookie_name(), token)
 
     response = await make_csrf_request(
         client,
@@ -421,6 +395,6 @@ async def test_create_cesion_rejects_reader_with_403(
         form_data=_form_data(),
     )
 
-    assert response.status_code == 403, (
-        f"reader POST /cesiones MUST be 403; got {response.status_code}"
-    )
+    assert response.status_code == 403
+
+

@@ -8,12 +8,11 @@ paths directly. The module currently exports:
   ``foster/assignment.py`` consumer).
 - :func:`validate_lifecycle_causal_pair` — the LIFECYCLE-02 (issue #32)
   service-layer entrypoint that enforces the D-23 causal-pair rule on
-  lifecycle events. The actual event recorder (``record_event``) lives
-  in :mod:`app.modules.animals.lifecycle_events` and must be imported
-  from there directly — it is no longer re-exported through this
-  package surface (see AGENTS.md §27 public-API rule). Routes that
-  emit lifecycle events still go through that recorder rather than
-  writing SQL themselves (AGENTS.md §1 + §22).
+  lifecycle events. The actual event recorder (``record_event``) and state
+  updater (``actualizar_estado_animal``) live in
+  :mod:`app.modules.animals.lifecycle_events` and are re-exported here so
+  that ``acogidas`` and ``adopciones`` service layers can consume them
+  without reaching into submodules directly (AGENTS.md §27 public-API rule).
 - :func:`calculate_animal_state` + :func:`persist_animal_state` +
   :func:`close_all_on_death` + :func:`close_previous_situation` +
   :func:`can_delete_animal` — the LIFECYCLE-03 (issue #33) lifecycle
@@ -31,6 +30,8 @@ from app.modules.animals.lifecycle_events import (
     SUPPORTING_EVENT_TYPES,
     CausalPairViolation,
     LifecycleEventType,
+    actualizar_estado_animal,
+    record_event,
 )
 from app.modules.animals.lifecycle_events import (
     validate_causal_pair as validate_lifecycle_causal_pair,
@@ -52,6 +53,7 @@ __all__ = [
     "CausalPairViolation",
     "LifecycleEventType",
     "SUPPORTING_EVENT_TYPES",
+    "actualizar_estado_animal",
     "calculate_animal_state",
     "can_delete_animal",
     "close_all_on_death",
@@ -59,5 +61,6 @@ __all__ = [
     "get_animal_by_id",
     "get_animals_port",
     "persist_animal_state",
+    "record_event",
     "validate_lifecycle_causal_pair",
 ]

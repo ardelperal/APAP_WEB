@@ -1,32 +1,35 @@
 """Routes for the cesion por propietario workflow (issue #41 / INTAKE-03).
 
-Mirrors ``app.modules.entradas.routes`` exactly: routes are a thin
-HTTP layer that delegates to ``app.modules.cesiones.service``. Auth
-guards, form parsing and HTML rendering live here; SQL, validation and
-domain rules live in the service. Per AGENTS.md rule 1, this module
-must never call ``client.execute_sql`` directly — that guard is
-enforced by ``tests/test_cesiones_routes.py`` via static analysis of
-the source file.
+Routes are a thin HTTP layer that delegates to application-layer use cases.
+Auth guards, form parsing and HTML rendering live here; SQL, validation and
+domain rules live in the service layer (now behind ``CesionesPort``).
+Per AGENTS.md rule 1, this module must never call ``client.execute_sql``
+directly — that guard is enforced by ``tests/test_cesiones_routes.py`` via
+static analysis of the source file.
 
-The route surface is intentionally minimal (issue #41 acceptance
-criteria):
+The route surface is intentionally minimal (issue #41 acceptance criteria):
 
 - ``GET /cesiones/new`` — render the surrender form (operator side).
 - ``POST /cesiones`` — process the form. Returns 303 on success,
-  422 on validation errors, 409 if a cesión already exists for the
+  422 on validation errors, 409 if a cesion already exists for the
   referenced ``entrada_id`` (FK UNIQUE enforcement).
 
 On success the route redirects to ``/entradas/{entrada_id}`` because
-the cesión carries enough context to be inspected from the parent
+the cesion carries enough context to be inspected from the parent
 intake detail page. Adding a standalone ``/cesiones/{id}`` detail view
 is deferred until Fase 7 (contract generation) ships, when the
-cesión page will render alongside its generated contrato / PDF.
+cesion page will render alongside its generated contrato / PDF.
 
 CSRF defense (AGENTS.md rule 10): the form template renders an
 ``<input type="hidden" name="csrf_token" value="{{ csrf_token }}">``;
 ``CsrfMiddleware`` validates the token before this handler runs. The
 POST is wrapped by ``make_csrf_request`` in route tests so the
 middleware does not reject them.
+
+Hexagonal migration (this file): routes inject ``CesionesPort`` via
+``get_cesiones_port`` (DI generator). The port is backed by
+``CesionesInsforgeAdapter``, which calls the existing service layer.
+No InsForgeClient leaks into the route body.
 """
 
 from __future__ import annotations
@@ -39,16 +42,15 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
-from app.core.auth_dependencies import (
-    get_insforge_client_dep,
-    return_early_if_response,
-)
+from app.core.auth_dependencies import return_early_if_response
 from app.core.csrf import csrf_token_context_processor
-from app.core.insforge import InsForgeClient
 from app.core.middleware import base_template_context_processor
 from app.core.rbac import Permission, require_permission
-from app.modules.cesiones import service as cesiones_service
+from app.modules.cesiones.application.create_cesion import create_cesion
+from app.modules.cesiones.di import get_cesiones_port
+from app.modules.cesiones.domain.cesion import CesionConflictError
 from app.modules.cesiones.forms import CesionForm
+from app.modules.cesiones.ports.cesiones_port import CesionesPort
 
 router = APIRouter(prefix="/cesiones", tags=["cesiones"])
 
@@ -155,14 +157,14 @@ async def create_cesion_view(
     request: Request,
     form: Annotated[CesionForm, Form()],
     user: Annotated[Response | dict, Depends(require_permission(Permission.WRITE_CESIONES))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
-):  # noqa: PLR0913  # refactored to CesionForm (22 Form fields → 1 annotated model)
-    """Process the cesión form. On success, redirect to the parent
-    ``/entradas/{entrada_id}`` (the cesión lives 1-a-1 with its
+    port: Annotated[CesionesPort, Depends(get_cesiones_port)],
+):  # noqa: PLR0913  # 8 params is the minimum for a legacy-capture form; refactored to CesionForm
+    """Process the cesion form. On success, redirect to the parent
+    ``/entradas/{entrada_id}`` (the cesion lives 1-a-1 with its
     intake); on validation errors re-render with 422; on the
     FK-UNIQUE-conflict re-render with 409 and a friendly message
     (P1 fidelity: legacy ``TbCesionPorPropietario`` was 1-a-1 with
-    ``TbEntradas``, so a second cesión for the same entrada is an
+    ``TbEntradas``, so a second cesion for the same entrada is an
     error, not a silent override).
     """
     if (early := return_early_if_response(user)) is not None:
@@ -195,14 +197,14 @@ async def create_cesion_view(
     )
 
     try:
-        cesion, _contrato = cesiones_service.create_cesion(client, form_data)
-    except cesiones_service.CesionConflictError:
+        cesion, _contrato = create_cesion(port, form_data)
+    except CesionConflictError:
         return _render_form(
             request,
             user,
             form_data,
-            "Ya existe una cesión por propietario para esta entrada. "
-            "Edita la existente o elimínala antes de crear otra.",
+            "Ya existe una cesion por propietario para esta entrada. "
+            "Edita la existente o eliminarla antes de crear otra.",
             status_code=status.HTTP_409_CONFLICT,
         )
     except ValueError as exc:
@@ -210,7 +212,7 @@ async def create_cesion_view(
             request,
             user,
             form_data,
-            f"No se pudo guardar la cesión: {exc}",
+            f"No se pudo guardar la cesion: {exc}",
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
 
