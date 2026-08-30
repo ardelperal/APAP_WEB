@@ -70,6 +70,10 @@ Baterías E2E con Playwright para cada sub-slice de Fase 6. Las baterías se esc
 | Fichero E2E | Casos | Slice |
 |---|---|---|
 | `test_sanidad_crud.py` | List, filter by animal, create, 422 FK, detail, edit, soft-delete (7 tests) | `sanidad` ✅ hecho |
+| `test_sanidad_5tipos.py` | Create each of 5 tipos (Analitica/Desparasitacion/Vacuna/Esterilizacion/Otros) via catalog dropdown (5 tests) | `sanidad` ✅ hecho (PR #628 E2E batch 1) |
+| `test_sanidad_auth.py` | 302 without session, 403 reader in POST, reader 200 on GET list (6 tests) | `sanidad` ✅ hecho (PR #628 E2E batch 1) |
+| `test_sanidad_date_validation.py` | Future date → 422, non-ISO → 422, fecha before FNacimiento → 422 (3 tests) | `sanidad` ✅ hecho (PR #628 E2E batch 1) |
+| `test_sanidad_no_duplicates.py` | Duplicate (animal+fecha+tipo) → 409, different tipos both succeed (2 tests) | `sanidad` ✅ hecho (PR #628 E2E batch 1) |
 | `test_sanidad_5tipos.py` | Crear cada tipo: Analítica, Desparasitación, Vacuna, Esterilización, Otros + validar fecha PostMortem | `sanidad` ❌ pendiente |
 | `test_sanidad_date_validation.py` | Fecha posterior al nacimiento, anterior a defunción, 422 en rango inválido | `sanidad` ❌ pendiente |
 | `test_sanidad_no_duplicates.py` | Mismo chip + prueba + fecha → 409 | `sanidad` ❌ pendiente |
@@ -89,7 +93,7 @@ Baterías E2E con Playwright para cada sub-slice de Fase 6. Las baterías se esc
 
 | Fichero E2E | Casos | Slice |
 |---|---|---|
-| `test_materiales_crud.py` | List, create, detail, edit, deactivate (mínimo 5 tests) | `materiales` ❌ pendiente |
+| `test_materiales_crud.py` | List, create, detail, edit, deactivate, duplicate (material+tamano+color) → 409 (5 tests) | `materiales` ✅ hecho (PR #628 E2E batch 1) |
 | `test_materiales_assignment.py` | Asignar material a estancia; desasignar; verificar disponibilidad decrece | `materiales` / `foster` ❌ pendiente |
 | `test_materiales_auth.py` | 302 sin sesión, 403 con rol reader en POST | `materiales` ❌ pendiente |
 
@@ -105,7 +109,7 @@ Baterías E2E con Playwright para cada sub-slice de Fase 6. Las baterías se esc
 |---|---|---|
 | `test_proximas_pruebas.py` | List con chip + tipo + última fecha + próxima fecha; filtro por animal; export | `sanidad` ❌ pendiente |
 
-**Total pendiente:** 13 ficheros E2E nuevos para cubrir completamente Fase 6.
+**Total pendiente:** 7 ficheros E2E nuevos (terapias full/lifecycle/auth, materiales assignment, periodicity engine, proximas-pruebas, sanidad lifecycle).
 
 ## Navigation
 
