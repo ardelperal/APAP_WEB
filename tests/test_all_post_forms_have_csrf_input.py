@@ -13,7 +13,6 @@ runtime enumeration in test_csrf_form_enumeration.py covers the
 "JS-submitted forms" gap (REQ-AH-7 misses fetch/onclick submissions
 that bypass the rendered HTML).
 """
-
 from __future__ import annotations
 
 from typing import Any
@@ -28,14 +27,15 @@ from app.modules.adopciones import service as adopciones_service
 from app.modules.animals.di.animals_di import get_animals_port
 from app.modules.animals.domain.animal import Animal, Especie, Sexo
 from app.modules.entradas import service as entradas_service
-from app.modules.voluntarios import service as voluntarios_service
+from app.modules.voluntarios.di import get_voluntarios_port
+from app.modules.voluntarios.domain.voluntario import Voluntario
 
 
 class _InsForgeSpy:
     """In-process InsForge stand-in. Routes use the service modules,
     so we override the SERVICES directly rather than mocking SQL."""
 
-    def execute_sql(self, query: str, params: Any = None):  # type: ignore[no-untyped-def]
+    def execute_sql(self, query: str, params: Any = None) -> Any:  # type: ignore[no-untyped-def]
         # We don't actually need SQL here because the services are
         # monkey-patched in the fixture. This stub exists only to
         # satisfy InsForgeClient's interface.
@@ -47,10 +47,7 @@ class _InsForgeSpy:
         return [{"id": "stub-1"}]
 
     def __getattr__(self, name: str) -> Any:  # type: ignore[no-untyped-def]
-        # Strict mode: unmocked methods surface as test failures. The
-        # previous ``return lambda *a, **kw: None`` silently swallowed
-        # every call and let bugs hide (a future OAuth method or SQL
-        # call would just no-op and the test would stay green).
+        # Strict mode: unmocked methods surface as test failures.
         raise NotImplementedError(
             f"_InsForgeSpy.{name} is not mocked. Add an explicit method "
             f"to the spy in this test instead of relying on no-op fallback."
@@ -65,12 +62,47 @@ class _AnimalsPortStub:
         )
 
 
+class _VoluntariosPortStub:
+    """Hexagonal port stub for CSRF form audit (epic #420 PR-C)."""
+
+    def list_voluntarios(self) -> list[Voluntario]:
+        return [
+            Voluntario(
+                id="v-1", voluntario="Ana", email="ana@example.com",
+                dni="12345678A", tel1="600000000", tel2=None,
+                fecha_alta="2026-06-01", activo=True,
+            )
+        ]
+
+    def get_voluntario_by_id(self, voluntario_id: str) -> Voluntario | None:
+        if voluntario_id == "v-1":
+            return Voluntario(
+                id="v-1", voluntario="Ana", email="ana@example.com",
+                dni="12345678A", tel1="600000000", tel2=None,
+                fecha_alta="2026-06-01", activo=True,
+            )
+        return None
+
+    def list_voluntario_roles(self, voluntario_id: str) -> list[str]:
+        return ["paseador"]
+
+    def create_voluntario(  # noqa: N803, PLR0913
+        self, *, nombre: str, tel1: str | None = None, tel2: str | None = None,
+        email: str | None = None, dni: str | None = None,
+    ) -> Voluntario:
+        return Voluntario(id="v-new", voluntario=nombre, activo=True)
+
+    def deactivate_voluntario(self, voluntario_id: str) -> bool:
+        return True
+
+
 @pytest.fixture
 def spy_insforge(monkeypatch: pytest.MonkeyPatch) -> _InsForgeSpy:
     spy = _InsForgeSpy()
     app.state.insforge_client = spy
     app.dependency_overrides[get_insforge_client] = lambda: spy
     app.dependency_overrides[get_animals_port] = _AnimalsPortStub
+    app.dependency_overrides[get_voluntarios_port] = _VoluntariosPortStub
     monkeypatch.setattr(
         "app.modules.animals.routes.get_insforge_client_dep", lambda: spy
     )
@@ -78,15 +110,11 @@ def spy_insforge(monkeypatch: pytest.MonkeyPatch) -> _InsForgeSpy:
         "app.modules.entradas.routes.get_insforge_client_dep", lambda: spy
     )
     monkeypatch.setattr(
-        "app.modules.voluntarios.routes.get_insforge_client_dep", lambda: spy
-    )
-    monkeypatch.setattr(
         "app.modules.adopciones.routes.get_insforge_client_dep", lambda: spy
     )
 
-    # Stub the services so they return plausible objects without
-    # hitting InsForge SQL. The route handlers call into these
-    # services; the service layer is what actually executes SQL.
+    # Stub the legacy services (entradas, adopciones — not yet hexagonal)
+    # so they return plausible objects without hitting InsForge SQL.
     monkeypatch.setattr(
         entradas_service, "get_entrada_by_id",
         lambda _c, _id: entradas_service.Entrada(
@@ -114,39 +142,6 @@ def spy_insforge(monkeypatch: pytest.MonkeyPatch) -> _InsForgeSpy:
         raising=False,
     )
     monkeypatch.setattr(
-        voluntarios_service, "get_voluntario_by_id",
-        lambda _c, _id: voluntarios_service.Voluntario(
-            id="v-1",
-            Voluntario="Ana",
-            Email="ana@example.com",
-            DNI="12345678A",
-            Tel1="600000000",
-            Tel2=None,
-            fecha_alta="2026-06-01",
-            activo=True,
-        ),
-        raising=False,
-    )
-    monkeypatch.setattr(
-        voluntarios_service, "list_voluntarios",
-        lambda _c: [voluntarios_service.Voluntario(
-            id="v-1",
-            Voluntario="Ana",
-            Email="ana@example.com",
-            DNI="12345678A",
-            Tel1="600000000",
-            Tel2=None,
-            fecha_alta="2026-06-01",
-            activo=True,
-        )],
-        raising=False,
-    )
-    monkeypatch.setattr(
-        voluntarios_service, "list_roles",
-        lambda _c, _id: ["paseador"],
-        raising=False,
-    )
-    monkeypatch.setattr(
         adopciones_service, "get_adopcion_by_id",
         lambda _c, _id: adopciones_service.Adopcion(
             id="adop-1",
@@ -170,6 +165,7 @@ def spy_insforge(monkeypatch: pytest.MonkeyPatch) -> _InsForgeSpy:
     yield spy
     app.dependency_overrides.pop(get_insforge_client, None)
     app.dependency_overrides.pop(get_animals_port, None)
+    app.dependency_overrides.pop(get_voluntarios_port, None)
     del app.state.insforge_client
 
 
@@ -206,7 +202,7 @@ def _assert_csrf_input_in_html(html: str, *, url_path: str) -> None:
     )
 
 
-# --- 10 POST handlers enumerated -----------------------------------------
+# --- 13 POST handlers enumerated -----------------------------------------
 
 # Each entry is (URL path to GET, description of the form being audited).
 # Update this table when a new POST form is added; the test will fail
@@ -239,7 +235,7 @@ async def test_post_form_renders_csrf_token_input(
 ) -> None:
     """Every POST form in the application MUST include the csrf_token hidden input.
 
-    Iterates over the 10 handlers enumerated in the audit doc's
+    Iterates over the 13 handlers enumerated in the audit doc's
     "Pre-slice form audit" table. The same HTML snippet
     ``<input type=\"hidden\" name=\"csrf_token\" value=\"...\"/>``
     must appear inside every form tag.

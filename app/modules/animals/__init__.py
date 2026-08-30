@@ -6,11 +6,10 @@ paths directly. The module currently exports:
 
 - :func:`get_animal_by_id` (hexagonal primary-key lookup, FOSTER-03 +
   ``foster/assignment.py`` consumer).
-- :func:`record_lifecycle_event` + :func:`validate_lifecycle_causal_pair`
-  — the LIFECYCLE-02 (issue #32) service-layer entrypoints for the
-  animal lifecycle event log + the D-23 causal-pair rule. Routes that
-  emit lifecycle events will go through these rather than writing SQL
-  directly (AGENTS.md §1 + §22).
+- :func:`record_event` + :func:`actualizar_estado_animal` — the
+  LIFECYCLE-02 (issue #32) event recorder functions. Re-exported here
+  so cross-module consumers can import from ``app.modules.animals``
+  per AGENTS.md §27 public-API rule.
 - :func:`calculate_animal_state` + :func:`persist_animal_state` +
   :func:`close_all_on_death` + :func:`close_previous_situation` +
   :func:`can_delete_animal` — the LIFECYCLE-03 (issue #33) lifecycle
@@ -28,9 +27,8 @@ from app.modules.animals.lifecycle_events import (
     SUPPORTING_EVENT_TYPES,
     CausalPairViolation,
     LifecycleEventType,
-)
-from app.modules.animals.lifecycle_events import (
-    record_event as record_lifecycle_event,
+    actualizar_estado_animal,
+    record_event,
 )
 from app.modules.animals.lifecycle_events import (
     validate_causal_pair as validate_lifecycle_causal_pair,
@@ -38,6 +36,7 @@ from app.modules.animals.lifecycle_events import (
 from app.modules.animals.ports.animals_port import AnimalsPort
 from app.modules.lifecycle import (
     CanDeleteResult,
+    LifecyclePort,  # noqa: F401 — re-exported for cross-module consumers
     calculate_animal_state,
     can_delete_animal,
     close_all_on_death,
@@ -47,11 +46,12 @@ from app.modules.lifecycle import (
 
 __all__ = [
     "CORE_EVENT_TYPES",
+    "SUPPORTING_EVENT_TYPES",
+    "actualizar_estado_animal",
     "AnimalsPort",
     "CanDeleteResult",
     "CausalPairViolation",
     "LifecycleEventType",
-    "SUPPORTING_EVENT_TYPES",
     "calculate_animal_state",
     "can_delete_animal",
     "close_all_on_death",
@@ -59,6 +59,6 @@ __all__ = [
     "get_animal_by_id",
     "get_animals_port",
     "persist_animal_state",
-    "record_lifecycle_event",
+    "record_event",
     "validate_lifecycle_causal_pair",
 ]

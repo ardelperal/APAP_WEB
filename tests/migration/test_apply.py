@@ -442,7 +442,9 @@ def test_legacy_to_web_row_applies_mapping() -> None:
             ),
         ],
     )
-    mapped = _legacy_to_web_row(legacy_row, mapping)
+    # client=None is safe here: this test uses identity transforms only,
+    # no FK lookups, so the client is never actually called.
+    mapped = _legacy_to_web_row(legacy_row, mapping, client=None, vol_index=None)
     assert mapped == {"nchip": "001", "nombreanimal": "Rex"}
 
 

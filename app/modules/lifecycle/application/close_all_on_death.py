@@ -35,6 +35,7 @@ from datetime import datetime
 from typing import Any
 
 from app.core.data_access import SqlExecutor
+from app.modules.lifecycle.ports.lifecycle_port import LifecyclePort
 
 # Active placements are the same projections the cascade adapter
 # reads (app/modules/lifecycle/adapters/insforge/lifecycle_insforge_queries.py).
@@ -184,6 +185,7 @@ def close_all_on_death(
     *,
     created_by: str = DEFAULT_CREATED_BY,
     metadata: dict[str, Any] | None = None,
+    lifecycle_port: LifecyclePort | None = None,
 ) -> str:
     """Emit ``DEATH_RECORDED`` + one closing event per active placement.
 
@@ -283,6 +285,10 @@ def close_all_on_death(
         id_column="IDAdopcion",
         created_by=created_by,
     )
+
+    if lifecycle_port is not None:
+        result = lifecycle_port.calculate_state(animal_id)
+        lifecycle_port.persist_animal_state(animal_id, result)
 
     return death_event_id
 

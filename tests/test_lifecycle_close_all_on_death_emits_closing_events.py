@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import pytest
 
+from app.modules.lifecycle.domain.animal_state import DerivationKind, DerivationResult
+
 
 class _FakeSqlExecutor:
     """Stub executor that records calls and returns canned rows.
@@ -319,5 +321,63 @@ def test_close_all_on_death_with_no_metadata_uses_null() -> None:
     )
 
 
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+    # -------------------------------------------------------------------
+    # PR-C state-update tests — lifecycle_port chaining.
+    # -------------------------------------------------------------------
+
+class _StubLifecyclePort:
+    """Stub for LifecyclePort that records every call."""
+
+    def __init__(
+        self,
+        next_result=None,
+    ):
+        self.next_result = next_result or DerivationResult(
+            state="Fallecido (Albergue)",
+            kind=DerivationKind.FALLECIDO,
+        )
+        self.calls = []
+
+    def calculate_state(self, animal_id):
+        self.calls.append((animal_id, None))
+        return self.next_result
+
+    def persist_animal_state(self, animal_id, result):
+        self.calls.append((animal_id, result))
+
+def test_close_all_on_death_calls_lifecycle_port_after_emitting_events():
+    """PR-C: when lifecycle_port is supplied, calculate + persist after events."""
+    from app.modules.lifecycle.application.close_all_on_death import close_all_on_death
+
+    executor = _FakeSqlExecutor()
+    lifecycle_port = _StubLifecyclePort()
+
+    close_all_on_death(
+        executor,
+        animal_id="animal-death-42",
+        event_timestamp="2026-08-01T00:00:00Z",
+        lifecycle_port=lifecycle_port,
+    )
+
+    assert len(lifecycle_port.calls) == 2
+    calc_call, persist_call = lifecycle_port.calls
+    assert calc_call == ("animal-death-42", None)
+    assert persist_call[0] == "animal-death-42"
+    assert persist_call[1] is lifecycle_port.next_result
+
+def test_close_all_on_death_no_state_update_when_port_is_none():
+    """PR-C: lifecycle_port=None (default) emits events without updating state."""
+    from app.modules.lifecycle.application.close_all_on_death import close_all_on_death
+
+    executor = _FakeSqlExecutor()
+
+    close_all_on_death(
+        executor,
+        animal_id="animal-no-port-1",
+        event_timestamp="2026-08-01T00:00:00Z",
+    )
+    events = _closing_event_types(executor.calls)
+    assert "DEATH_RECORDED" in events
+
+    if __name__ == "__main__":
+        pytest.main([__file__, "-v"])

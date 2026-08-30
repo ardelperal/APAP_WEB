@@ -19,7 +19,7 @@ from enum import StrEnum
 
 from app.core.auth import VALID_ROLES
 from app.core.roles import Rol
-from app.modules.voluntarios.service import VALID_ROL_TYPES, RolVoluntario
+from app.modules.voluntarios.domain import VALID_ROL_TYPES, RolVoluntario
 
 
 def test_rol_is_a_str_enum() -> None:

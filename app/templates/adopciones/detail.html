@@ -21,6 +21,13 @@
         {% else %}
           · <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700">Devuelta el {{ adopcion.fecha_devolucion }}</span>
         {% endif %}
+        {# ADOPT-03 (issue #49): render the seguimiento_estado badge. Fresh
+           adopciones have not transitioned yet, so the field is NULL; we
+           treat NULL as PENDIENTE (the implicit initial state per
+           ``app/modules/adopciones/service.py::transition_seguimiento``).
+           The e2e suite in ``tests/e2e/test_adopciones_seguimiento.py``
+           pins this PENDIENTE badge for fresh adopciones. #}
+        · <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-sky-50 text-sky-700">Seguimiento: {{ adopcion.seguimiento_estado or "PENDIENTE" }}</span>
       </p>
     </div>
     <div class="flex gap-2">

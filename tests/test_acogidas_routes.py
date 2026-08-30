@@ -1015,6 +1015,46 @@ def _feed_handler(
         # The actual UPDATE on acogidas (dynamic SET clause post-fix).
         if "UPDATE acogidas SET" in body["query"]:
             return _json_response(200, [update_row or _acogida_row()])
+        # LIFECYCLE-02 (issue #32): create_acogida / close_acogida fire
+        # ``record_event`` + ``close_previous_situation`` writes and
+        # refresh ``animal_current_state`` via
+        # ``actualizar_estado_animal``. Those writes hit:
+        #   * ``INSERT INTO animal_lifecycle_events`` (event log)
+        #   * ``FROM entradas/acogidas/adopciones`` active-collection
+        #     SELECTs (the cascade inputs)
+        #   * ``LEFT JOIN animal_current_state`` (ficha SELECT)
+        #   * ``INSERT INTO animal_current_state`` (cache UPSERT)
+        # Returning an empty list keeps the cascade happy ("no other
+        # active placements") without coupling the route test to the
+        # lifecycle SQL shape -- that's pinned by
+        # ``tests/test_acogidas_lifecycle_events.py``.
+        if "INSERT INTO animal_lifecycle_events" in body["query"]:
+            return _json_response(200, [])
+        if "INSERT INTO animal_current_state" in body["query"]:
+            return _json_response(200, [])
+        if (
+            "FROM entradas" in body["query"]
+            and "fecha_salida IS NULL" in body["query"]
+            and "activo = true" in body["query"]
+        ):
+            return _json_response(200, [])
+        if (
+            "FROM acogidas" in body["query"]
+            and "fecha_final IS NULL" in body["query"]
+            and "activo = true" in body["query"]
+        ):
+            return _json_response(200, [])
+        if (
+            "FROM adopciones" in body["query"]
+            and "fecha_devolucion IS NULL" in body["query"]
+            and "activo = true" in body["query"]
+        ):
+            return _json_response(200, [])
+        if (
+            "LEFT JOIN animal_current_state" in body["query"]
+            and "FROM animales" in body["query"]
+        ):
+            return _json_response(200, [_acogida_row()])
         raise AssertionError(f"Unexpected SQL: {body['query']!r}")
 
     return _handler

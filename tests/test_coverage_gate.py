@@ -36,8 +36,6 @@ def test_critical_helpers_contains_named_list() -> None:
         "_redirect",
         "_render_form",
         "_is_duplicate_error",
-        "_validate_create_params",
-        "_build_insert_params",
     }
     missing = required - CRITICAL_HELPERS
     assert not missing, (

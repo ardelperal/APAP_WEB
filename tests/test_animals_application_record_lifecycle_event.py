@@ -19,6 +19,7 @@ from app.modules.animals.domain.lifecycle_event import (
     AnimalLifecycleEvent,
     LifecycleEventType,
 )
+from app.modules.lifecycle.domain.animal_state import DerivationKind, DerivationResult
 
 
 class _StubPort:
@@ -105,8 +106,34 @@ class _StubPort:
     ) -> object | None:
         raise NotImplementedError
 
-    def delete_animal(self, animal_id: str) -> object | None:  # pragma: no cover
+    def delete_animal(self, animal_id: str) -> object:  # pragma: no cover
         return None
+
+
+class _StubLifecyclePort:
+    """Stub implementation of :class:`LifecyclePort` for unit tests."""
+
+    def __init__(
+        self,
+        next_result: DerivationResult | None = None,
+    ) -> None:
+        self.next_result = next_result or DerivationResult(
+            state="Pendiente de Entrada",
+            kind=DerivationKind.PENDIENTE_ENTRADA,
+        )
+        self.call_history: list[tuple[str, DerivationResult | None]] = []
+
+    def calculate_state(self, animal_id: str) -> DerivationResult:
+        self.call_history.append((animal_id, None))
+        return self.next_result
+
+    def persist_animal_state(
+        self, animal_id: str, result: DerivationResult
+    ) -> None:
+        self.call_history.append((animal_id, result))
+
+    def __repr__(self) -> str:
+        return f"<_StubLifecyclePort calls={len(self.call_history)}>"
 
 
 def _event() -> AnimalLifecycleEvent:
@@ -262,3 +289,86 @@ def test_enum_value_flows_through_unchanged() -> None:
     )
 
     assert port.last_event_type is LifecycleEventType.STATE_CORRECTION
+
+
+def test_lifecycle_port_is_called_after_event_insert() -> None:
+    """PR-B: after INSERT, ``lifecycle_port.calculate_state`` + ``persist_animal_state`` are called."""
+    animals_port = _StubPort()
+    animals_port.next_event = _event()
+    lifecycle_port = _StubLifecyclePort()
+
+    result = record_lifecycle_event(
+        animals_port,
+        lifecycle_port,
+        animal_id="animal-42",
+        event_type=LifecycleEventType.INTAKE_STARTED,
+        event_timestamp="2024-03-01T10:00:00+00:00",
+        created_by="operator@apap.local",
+    )
+
+    # Event returned is from the animals port (existing behaviour).
+    assert result is animals_port.next_event
+    # Lifecycle port was called exactly once for the full derive + persist chain.
+    assert len(lifecycle_port.call_history) == 2
+    calc_call, persist_call = lifecycle_port.call_history
+    # First: calculate_state receives the same animal_id.
+    assert calc_call == ("animal-42", None)
+    # Second: persist_animal_state receives the same animal_id + the result from calculate_state.
+    assert persist_call[0] == "animal-42"
+    assert persist_call[1] is lifecycle_port.next_result
+
+
+def test_lifecycle_port_passes_correct_animal_id_from_event() -> None:
+    """The ``animal_id`` used is the cleaned one from the event record."""
+    animals_port = _StubPort()
+    animals_port.next_event = _event()
+    lifecycle_port = _StubLifecyclePort()
+
+    record_lifecycle_event(
+        animals_port,
+        lifecycle_port,
+        animal_id=" id-with-spaces ",
+        event_type=LifecycleEventType.INTAKE_STARTED,
+        event_timestamp="2024-03-01T10:00:00+00:00",
+        created_by="operator@apap.local",
+    )
+
+    # Lifecycle port receives the stripped (cleaned) animal_id.
+    calc_call, _ = lifecycle_port.call_history
+    assert calc_call[0] == "id-with-spaces"
+
+
+def test_lifecycle_port_not_required_when_none() -> None:
+    """Omitting ``lifecycle_port`` still records the event without error."""
+    animals_port = _StubPort()
+    animals_port.next_event = _event()
+
+    result = record_lifecycle_event(
+        animals_port,
+        lifecycle_port=None,  # type: ignore[arg-none]
+        animal_id="animal-id",
+        event_type=LifecycleEventType.INTAKE_STARTED,
+        event_timestamp="2024-03-01T10:00:00+00:00",
+        created_by="operator@apap.local",
+    )
+
+    assert result is animals_port.next_event
+
+
+def test_validation_error_aborts_before_lifecycle_port_is_called() -> None:
+    """A pre-flight validation error short-circuits before lifecycle port is touched."""
+    animals_port = _StubPort()
+    animals_port.next_event = _event()
+    lifecycle_port = _StubLifecyclePort()
+
+    with pytest.raises(LifecycleEventValidationError, match="animal_id"):
+        record_lifecycle_event(
+            animals_port,
+            lifecycle_port,
+            animal_id="",
+            event_type=LifecycleEventType.INTAKE_STARTED,
+            event_timestamp="2024-03-01T10:00:00+00:00",
+            created_by="operator@apap.local",
+        )
+
+    assert lifecycle_port.call_history == []

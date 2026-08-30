@@ -36,11 +36,13 @@ from app.modules.lifecycle.domain.animal_state import (
     DerivationResult,
     calculate_state,
 )
+from app.modules.lifecycle.ports.lifecycle_port import LifecyclePort
 
 __all__ = [
     "CanDeleteResult",
     "DerivationKind",
     "DerivationResult",
+    "LifecyclePort",
     "build_lifecycle_port",
     "calculate_animal_state",
     "calculate_state",

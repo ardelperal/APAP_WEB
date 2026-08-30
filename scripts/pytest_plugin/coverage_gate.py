@@ -32,8 +32,6 @@ CRITICAL_HELPERS: frozenset[str] = frozenset(
         "_redirect",
         "_render_form",
         "_is_duplicate_error",
-        "_validate_create_params",
-        "_build_insert_params",
         "optional_text",
         "optional_value",
         "required_text",

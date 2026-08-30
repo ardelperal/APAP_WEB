@@ -181,6 +181,7 @@ def new_animal_form(
             "error": None,
             "especies": [e.value for e in DomainEspecie],
             "sexos": [s.value for s in DomainSexo],
+            "form_action": "/animales",
         },
     )
 
@@ -325,6 +326,7 @@ def edit_animal_form(
             "error": None,
             "especies": [e.value for e in DomainEspecie],
             "sexos": [s.value for s in DomainSexo],
+            "form_action": f"/animales/{animal_id}/update",
         },
     )
 
@@ -458,6 +460,7 @@ def _render_animal_form_error(
             "error": error,
             "especies": [item.value for item in DomainEspecie],
             "sexos": [item.value for item in DomainSexo],
+            "form_action": "/animales",
         },
         status_code=status_code,
     )

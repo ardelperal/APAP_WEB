@@ -1556,6 +1556,10 @@ def test_no_user_data_in_url_attributes() -> None:
     handler_controlled: frozenset[tuple[str, str]] = frozenset(
         {
             ("entradas/form.html", "form_action"),
+            # ``form_action`` in ``animales/form.html`` is set by the
+            # animals route to either ``/animales`` (new) or
+            # ``/animales/{id}/update`` (edit), never user data.
+            ("animales/form.html", "form_action"),
             # ``form_action`` in ``casas_acogida/form.html`` is set
             # by the foster route to either ``/casas-acogida`` (new)
             # or ``/casas-acogida/{id}/update`` (edit), never user data.

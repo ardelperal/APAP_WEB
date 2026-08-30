@@ -17,7 +17,7 @@
   </div>
   {% endif %}
 
-  <form method="post" action="" class="bg-surface rounded-card shadow-card p-6 space-y-6">
+  <form method="post" action="{{ form_action | safe }}" class="bg-surface rounded-card shadow-card p-6 space-y-6">
     {# PR-5B2: CSRF defense-in-depth (REQ-AH-7). #}
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">

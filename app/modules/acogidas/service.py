@@ -67,6 +67,12 @@ from typing import Any
 from app.core.data_access import SqlExecutor
 from app.core.logging import log_safe
 from app.modules.acogidas import queries
+from app.modules.animals import (
+    LifecycleEventType,
+    actualizar_estado_animal,
+    record_event,
+)
+from app.modules.lifecycle import close_previous_situation
 
 # Back-compat re-exports — the integration tests
 # (``tests/test_acogidas.py``, ``tests/test_acogidas_routes.py``) compute
@@ -318,6 +324,31 @@ def create_acogida(
     acogida = _row_to_acogida(rows[0])
     log_safe("foster.acogida.created", acogida_id=acogida.id)
 
+    # LIFECYCLE-02 (issue #32): emit FOSTER_STARTED so the event log
+    # records the transition into the foster stay, then close the
+    # previous situation (INTAKE_CLOSED_BY_FOSTER) and refresh the
+    # animal-current-state cache. All three run in the same DB
+    # transaction as the INSERT above.
+    record_event(
+        client,
+        animal_id=acogida.animal_id,
+        event_type=LifecycleEventType.FOSTER_STARTED,
+        event_timestamp=acogida.fecha_inicio,
+        created_by="acogidas.create_acogida",
+        source_entity_type="acogidas",
+        source_entity_id=acogida.id,
+    )
+    close_previous_situation(
+        client,
+        animal_id=acogida.animal_id,
+        category="INTAKE",
+        caused_by_event_id=None,
+        event_timestamp=acogida.fecha_inicio,
+        source_entity_type="acogidas",
+        source_entity_id=acogida.id,
+    )
+    actualizar_estado_animal(client, animal_id=acogida.animal_id)
+
     # Issue #142: link the foster_capacity_overrides row to the new
     # estancia, when ``override_id`` is present and non-empty.
     override_id_raw = params.get("override_id")
@@ -435,6 +466,21 @@ def close_acogida(
         return None
     closed = _row_to_acogida(rows[0])
     log_safe("foster.acogida.closed", acogida_id=closed.id)
+
+    # LIFECYCLE-02 (issue #32): emit FOSTER_RETURNED so the event
+    # log records the transition out of the foster stay, then refresh
+    # the animal-current-state cache.
+    record_event(
+        client,
+        animal_id=closed.animal_id,
+        event_type=LifecycleEventType.FOSTER_RETURNED,
+        event_timestamp=closed.fecha_final or str(date.today()),
+        created_by="acogidas.close_acogida",
+        source_entity_type="acogidas",
+        source_entity_id=closed.id,
+    )
+    actualizar_estado_animal(client, animal_id=closed.animal_id)
+
     return closed
 
 

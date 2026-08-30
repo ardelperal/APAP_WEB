@@ -1,11 +1,11 @@
 {% extends base_template %}
-{% block title %}{{ voluntario.Voluntario }} - APAP{% endblock %}
+{% block title %}{{ voluntario.voluntario }} - APAP{% endblock %}
 {% block content %}
   <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
     <div>
-      <h1 class="text-3xl font-bold text-primary-dark tracking-tight">{{ voluntario.Voluntario }}</h1>
+      <h1 class="text-3xl font-bold text-primary-dark tracking-tight">{{ voluntario.voluntario }}</h1>
       <p class="text-text-muted text-sm mt-1">
-        {% if voluntario.Email %}{{ voluntario.Email }}{% endif %}
+        {% if voluntario.email %}{{ voluntario.email }}{% endif %}
       </p>
     </div>
     <form method="post" action="/voluntarios/{{ voluntario.id }}/deactivate" class="inline"
@@ -20,23 +20,59 @@
 
   <div class="bg-surface rounded-card shadow-card p-6 space-y-6">
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <div><span class="text-text-muted text-sm">Email</span><div class="text-text">{{ voluntario.Email or "—" }}</div></div>
-      <div><span class="text-text-muted text-sm">DNI</span><div class="font-mono text-text">{{ voluntario.DNI or "—" }}</div></div>
-      <div><span class="text-text-muted text-sm">Teléfono 1</span><div class="text-text">{{ voluntario.Tel1 or "—" }}</div></div>
-      <div><span class="text-text-muted text-sm">Teléfono 2</span><div class="text-text">{{ voluntario.Tel2 or "—" }}</div></div>
+      <div><span class="text-text-muted text-sm">Email</span><div class="text-text">{{ voluntario.email or "—" }}</div></div>
+      <div><span class="text-text-muted text-sm">DNI</span><div class="font-mono text-text">{{ voluntario.dni or "—" }}</div></div>
+      <div><span class="text-text-muted text-sm">Teléfono 1</span><div class="text-text">{{ voluntario.tel1 or "—" }}</div></div>
+      <div><span class="text-text-muted text-sm">Teléfono 2</span><div class="text-text">{{ voluntario.tel2 or "—" }}</div></div>
       <div><span class="text-text-muted text-sm">Fecha de alta</span><div class="text-text">{{ voluntario.fecha_alta or "—" }}</div></div>
     </div>
 
-    {% if roles %}
-    <div class="bg-gradient-to-br from-primary/10 to-primary/5 border-l-4 border-primary rounded-card p-5">
-      <h2 class="text-primary-dark font-semibold mb-2">Roles</h2>
-      <div class="flex flex-wrap gap-2">
+    {# --- Roles section --- #}
+    <div class="border-t border-border pt-4">
+      <h2 class="text-lg font-semibold text-primary-dark mb-3">Roles</h2>
+
+      {# Error feedback from role assignment/removal #}
+      {% if role_error %}
+      <div class="mb-3 p-3 bg-red-50 border border-red-300 rounded text-red-800 text-sm">
+        {{ role_error }}
+      </div>
+      {% endif %}
+
+      {# Current roles #}
+      {% if roles %}
+      <div class="flex flex-wrap gap-2 mb-4">
         {% for rol in roles %}
-        <span class="bg-primary/15 text-primary-dark text-xs font-semibold px-2.5 py-1 rounded-full">{{ rol }}</span>
+        <span class="inline-flex items-center gap-1 bg-primary/15 text-primary-dark text-xs font-semibold px-2.5 py-1 rounded-full">
+          {{ rol }}
+          <form method="post" action="/voluntarios/{{ voluntario.id }}/roles/remove" class="inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+            <input type="hidden" name="rol" value="{{ rol }}" />
+            <button type="submit" class="text-primary-dark hover:text-rose-700 font-bold leading-none" title="Quitar rol">×</button>
+          </form>
+        </span>
         {% endfor %}
       </div>
+      {% else %}
+      <p class="text-text-muted text-sm mb-4">Sin roles asignados.</p>
+      {% endif %}
+
+      {# Add role form #}
+      <form method="post" action="/voluntarios/{{ voluntario.id }}/roles/add" class="flex items-center gap-2 flex-wrap">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+        <select name="rol" required class="border border-border rounded px-2 py-1 text-sm bg-surface text-text focus:outline-none focus:ring-2 focus:ring-primary/50">
+          <option value="">Añadir rol...</option>
+          {% set assigned = roles or [] %}
+          {% for rol in ['intake', 'seguimiento', 'acogida', 'salud'] %}
+            {% if rol not in assigned %}
+            <option value="{{ rol }}">{{ rol }}</option>
+            {% endif %}
+          {% endfor %}
+        </select>
+        <button type="submit" class="bg-primary text-white px-3 py-1 rounded text-sm font-semibold hover:bg-primary-dark transition-colors">
+          Añadir
+        </button>
+      </form>
     </div>
-    {% endif %}
   </div>
 
   <div class="mt-4">

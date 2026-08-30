@@ -23,6 +23,7 @@ from app.modules.lifecycle.application.close_previous_situation import (
     UnknownSituationCategoryError,
     close_previous_situation,
 )
+from app.modules.lifecycle.domain.animal_state import DerivationKind, DerivationResult
 
 
 class _FakeSqlExecutor:
@@ -239,6 +240,64 @@ def test_closing_event_by_category_is_closed_set() -> None:
         "ADOPTION": "ADOPTION_RETURNED",
     }
 
+    # -------------------------------------------------------------------
+    # PR-C state-update tests — lifecycle_port chaining.
+    # -------------------------------------------------------------------
 
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+class _StubLifecyclePort:
+    """Stub for LifecyclePort that records every call."""
+
+    def __init__(
+        self,
+        next_result=None,
+    ):
+        self.next_result = next_result or DerivationResult(
+            state="Acogida",
+            kind=DerivationKind.ACOGIDA,
+        )
+        self.calls = []
+
+    def calculate_state(self, animal_id):
+        self.calls.append((animal_id, None))
+        return self.next_result
+
+    def persist_animal_state(self, animal_id, result):
+        self.calls.append((animal_id, result))
+
+def test_close_previous_situation_calls_lifecycle_port_after_emitting_event():
+    """PR-C: when lifecycle_port is supplied, calculate + persist after closing event."""
+    executor = _FakeSqlExecutor()
+    lifecycle_port = _StubLifecyclePort()
+
+    close_previous_situation(
+        executor,
+        animal_id="animal-transition-99",
+        category="INTAKE",
+        caused_by_event_id="trigger-ev-99",
+        event_timestamp="2026-08-01T00:00:00Z",
+        lifecycle_port=lifecycle_port,
+    )
+
+    assert len(lifecycle_port.calls) == 2
+    calc_call, persist_call = lifecycle_port.calls
+    assert calc_call == ("animal-transition-99", None)
+    assert persist_call[0] == "animal-transition-99"
+    assert persist_call[1] is lifecycle_port.next_result
+
+def test_close_previous_situation_no_state_update_when_port_is_none():
+    """PR-C: lifecycle_port=None emits closing event without updating state."""
+    executor = _FakeSqlExecutor()
+
+    close_previous_situation(
+        executor,
+        animal_id="animal-no-port-2",
+        category="FOSTER",
+        caused_by_event_id="trigger-ev-2",
+        event_timestamp="2026-08-01T00:00:00Z",
+    )
+    inserts = _insert_params(executor.calls)
+    assert len(inserts) == 1
+    assert inserts[0][1] == "FOSTER_CLOSED_BY_ADOPTION"
+
+    if __name__ == "__main__":
+        pytest.main([__file__, "-v"])

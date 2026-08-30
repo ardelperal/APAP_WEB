@@ -530,6 +530,55 @@ async def test_adopcion_detail_renders_data(
     assert '/adopciones/adop-123/edit' in body
     # State badge "Vigente" because fecha_devolucion is None.
     assert "Vigente" in body
+    # ADOPT-03 (issue #49): fresh adopcion has seguimiento_estado NULL;
+    # the template treats NULL as PENDIENTE (the implicit initial state).
+    assert "Seguimiento: PENDIENTE" in body
+
+
+async def test_adopcion_detail_renders_seguimiento_estado_when_set(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Detail renders the actual seguimiento_estado value when set.
+
+    Pins the contract that the badge reflects the persisted
+    ``seguimiento_estado`` after a state transition (e.g.
+    DOCUMENTO_ENTREGADO, DOCUMENTO_ADJUNTO, SEGUIMIENTO_COMPLETADO),
+    not the implicit PENDIENTE.
+    """
+    _login_as_key_user(client)
+    adopcion = _adopcion()
+    adopcion_with_estado = adopciones_service.Adopcion(
+        id=adopcion.id,
+        animal_id=adopcion.animal_id,
+        fecha_adopcion=adopcion.fecha_adopcion,
+        nombre_adoptante=adopcion.nombre_adoptante,
+        activo=adopcion.activo,
+        voluntario_seguimiento_id=adopcion.voluntario_seguimiento_id,
+        fecha_devolucion=adopcion.fecha_devolucion,
+        donativo_preadopcion=adopcion.donativo_preadopcion,
+        donativo_adopcion=adopcion.donativo_adopcion,
+        dni_adoptante=adopcion.dni_adoptante,
+        telefono_adoptante=adopcion.telefono_adoptante,
+        email_adoptante=adopcion.email_adoptante,
+        entrada_origen_id=adopcion.entrada_origen_id,
+        observaciones=adopcion.observaciones,
+        tipo_adopcion=adopcion.tipo_adopcion,
+        seguimiento_estado="DOCUMENTO_ENTREGADO",
+    )
+    monkeypatch.setattr(
+        adopciones_service, "get_adopcion_by_id", lambda _c, _id: adopcion_with_estado
+    )
+
+    response = await client.get("/adopciones/adop-123")
+
+    assert response.status_code == 200
+    body = response.text
+    assert "Seguimiento: DOCUMENTO_ENTREGADO" in body, (
+        f"detail must render the persisted seguimiento_estado badge; "
+        f"body excerpt: {body[:500]!r}"
+    )
 
 
 # --- 9. GET /adopciones/{id}/edit (edit form) ----------------------------
@@ -778,6 +827,183 @@ async def test_adopciones_write_routes_reject_reader_with_403(
     # Audit log: the rejection goes through ``log_safe("auth.denied",
     # reason="writer_required", user_id=...)``; we do not assert that
     # here because the auth-denied audit lives in a different module.
+
+
+# --- 12b. PATCH /adopciones/{id}/seguimiento (state machine) -----------
+
+
+async def test_patch_seguimiento_invalid_transition_returns_422_with_spanish_message(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PATCH on an invalid (estado, action) pair -> 422 + Spanish message.
+
+    Pins the contract documented in
+    ``app/modules/adopciones/service.py``: ``transition_seguimiento_for_route``
+    wraps the service's ``ValueError`` (invalid transition from
+    ``_next_estado``) into a ``_SeguirTransitionError`` with
+    ``status_code=422`` so the route renders the form with the Spanish
+    message instead of leaking a 500.
+    """
+    _login_as_key_user(client)
+
+    def fake_for_route(*_args: Any, **_kwargs: Any) -> adopciones_service._SeguirTransitionError:
+        return adopciones_service._SeguirTransitionError(
+            message="invalid transition: estado=SEGUIMIENTO_COMPLETADO action=marcar_entregado, valid actions from SEGUIMIENTO_COMPLETADO: none",
+            status_code=422,
+        )
+
+    monkeypatch.setattr(
+        adopciones_service, "transition_seguimiento_for_route", fake_for_route
+    )
+
+    response = await make_csrf_request(
+        client,
+        "PATCH",
+        "/adopciones/adop-123/seguimiento",
+        form_data={"action": "marcar_entregado"},
+        csrf_token="test-csrf-token-adopciones",
+    )
+
+    assert response.status_code == 422, response.text
+    body = response.text
+    assert "No se pudo guardar la adopci" in body, (
+        f"422 response must render the Spanish form error header; "
+        f"body excerpt: {body[:500]!r}"
+    )
+    assert "invalid transition" in body, (
+        f"422 response must carry the service's 'invalid transition' "
+        f"message; body excerpt: {body[:500]!r}"
+    )
+
+
+async def test_patch_seguimiento_anexar_without_url_returns_422_with_spanish_message(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PATCH ``action=anexar_documento`` without ``documento_url`` -> 422.
+
+    Pins the contract documented in
+    ``app/modules/adopciones/service.py::transition_seguimiento``: the
+    service raises ``ValueError("documento_url is required for action
+    ANEXAR")`` when ``action == ANEXAR`` and ``documento_url is None``.
+    The route wrapper must convert that to a 422 form re-render so the
+    operator sees the Spanish message instead of an unhandled 500.
+    """
+    _login_as_key_user(client)
+
+    def fake_for_route(*_args: Any, **_kwargs: Any) -> adopciones_service._SeguirTransitionError:
+        return adopciones_service._SeguirTransitionError(
+            message="documento_url is required for action ANEXAR",
+            status_code=422,
+        )
+
+    monkeypatch.setattr(
+        adopciones_service, "transition_seguimiento_for_route", fake_for_route
+    )
+
+    response = await make_csrf_request(
+        client,
+        "PATCH",
+        "/adopciones/adop-123/seguimiento",
+        form_data={"action": "anexar_documento", "documento_url": ""},
+        csrf_token="test-csrf-token-adopciones",
+    )
+
+    assert response.status_code == 422, response.text
+    body = response.text
+    assert "No se pudo guardar la adopci" in body, (
+        f"422 response must render the Spanish form error header; "
+        f"body excerpt: {body[:500]!r}"
+    )
+    assert "documento_url is required" in body, (
+        f"422 response must carry the service's 'documento_url is required' "
+        f"message; body excerpt: {body[:500]!r}"
+    )
+
+
+async def test_patch_seguimiento_unknown_action_returns_422_with_spanish_message(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PATCH with an unknown action name -> 422 (not 500).
+
+    ``resolve_seguimiento_action`` raises ``ValueError("Accion
+    desconocida: ... ")`` when the action string is not in the
+    ``_ACCION_MAP``. The route wrapper must convert that to a 422 form
+    re-render so the operator sees the Spanish message.
+    """
+    _login_as_key_user(client)
+
+    def fake_for_route(*_args: Any, **_kwargs: Any) -> adopciones_service._SeguirTransitionError:
+        return adopciones_service._SeguirTransitionError(
+            message="Accion desconocida: bogus. Valores validos: marcar_entregado, anexar_documento, completar",
+            status_code=422,
+        )
+
+    monkeypatch.setattr(
+        adopciones_service, "transition_seguimiento_for_route", fake_for_route
+    )
+
+    response = await make_csrf_request(
+        client,
+        "PATCH",
+        "/adopciones/adop-123/seguimiento",
+        form_data={"action": "bogus"},
+        csrf_token="test-csrf-token-adopciones",
+    )
+
+    assert response.status_code == 422, response.text
+    body = response.text
+    assert "Accion desconocida" in body, (
+        f"422 response must carry the service's 'Accion desconocida' "
+        f"message; body excerpt: {body[:500]!r}"
+    )
+
+
+async def test_patch_seguimiento_happy_path_returns_303_redirect(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PATCH happy path -> 303 redirect to the adopcion detail page.
+
+    Pins the success path: ``transition_seguimiento_for_route`` returns
+    a ``SeguimientoTransitionResult`` (not an error sentinel) and the
+    route responds with ``RedirectResponse(url=f"/adopciones/{id}",
+    status_code=303)``.
+    """
+    _login_as_key_user(client)
+
+    result = adopciones_service.SeguimientoTransitionResult(
+        adopcion_id="adop-123",
+        estado_anterior="PENDIENTE",
+        nuevo_estado="DOCUMENTO_ENTREGADO",
+        seguimiento_documento_entregado_at="2026-08-28T10:00:00+00:00",
+        seguimiento_documento_url=None,
+        seguimiento_completado_at=None,
+    )
+
+    def fake_for_route(*_args: Any, **_kwargs: Any) -> adopciones_service.SeguimientoTransitionResult:
+        return result
+
+    monkeypatch.setattr(
+        adopciones_service, "transition_seguimiento_for_route", fake_for_route
+    )
+
+    response = await make_csrf_request(
+        client,
+        "PATCH",
+        "/adopciones/adop-123/seguimiento",
+        form_data={"action": "marcar_entregado"},
+        csrf_token="test-csrf-token-adopciones",
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/adopciones/adop-123"
 
 
 # --- 13. Defense in depth: no client.execute_sql in routes source -------

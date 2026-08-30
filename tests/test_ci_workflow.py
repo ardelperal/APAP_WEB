@@ -217,18 +217,18 @@ def test_ci_workflow_runs_postgres_toctou_regression_in_test_job() -> None:
     assert 'if [ -z "$POSTGRES_HOST_PORT" ]' in test_job
     assert "--deselect tests/test_voluntarios_concurrent.py" not in executable
 
-
 def test_postgres_toctou_contract_uses_test_dsn_not_http_base_url() -> None:
     """The PostgreSQL integration test must not overload the HTTP E2E contract."""
-    concurrency_test = (REPO_ROOT / "tests" / "test_voluntarios_concurrent.py").read_text(
-        encoding="utf-8"
-    )
+    # test_voluntarios_concurrent.py was deleted in epic #420 (VOL-02 PR-B):
+    # the concurrent write test was replaced by hexagonal service-layer tests.
+    concurrency_test_path = REPO_ROOT / "tests" / "test_voluntarios_concurrent.py"
     guide = DEVELOPMENT_GUIDE_PATH.read_text(encoding="utf-8")
 
-    assert "APAP_TEST_POSTGRES_DSN" in concurrency_test
-    assert 'os.environ.get("APAP_E2E_BASE_URL")' not in concurrency_test
+    assert not concurrency_test_path.exists(), (
+        "test_voluntarios_concurrent.py should be deleted after hexagonal refactor"
+    )
     assert "APAP_TEST_POSTGRES_DSN" in guide
-    assert "tests/test_voluntarios_concurrent.py" in guide
+
 
 
 def test_ci_workflow_lint_job_runs_check_rules_gate(tmp_path: Path) -> None:

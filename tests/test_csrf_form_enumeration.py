@@ -98,9 +98,7 @@ def no_sql_client(
     monkeypatch.setattr(
         "app.modules.entradas.routes.get_insforge_client_dep", lambda: spy
     )
-    monkeypatch.setattr(
-        "app.modules.voluntarios.routes.get_insforge_client_dep", lambda: spy
-    )
+
 
     settings = get_settings()
     token = write_session(
