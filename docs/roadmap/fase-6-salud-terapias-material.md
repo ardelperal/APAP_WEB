@@ -6,35 +6,34 @@ Esta página posee el estado de la Fase 6: registro sanitario con periodicidad, 
 
 ## Estado
 
-pendiente — pendiente de crear issues (uno por sub-flujo). Próximos: HEALTH-02..06 (#51–#55).
+En curso. HEALTH-01..06 están cerrados en GitHub. Lo que queda:
+
+1. **E2E pendientes**: 7 ficheros (terapias CRUD full, terapias auth, materiales assignment, periodicity engine, informe próximas pruebas). E2E de sanidad y materiales CRUD已完成.
+2. **HEALTH-05**: motor de periodicidad (#54) — ✅ mergeado en PR #630.
 
 ## Slices
 
 | Sub-fase | Slice | Estado | Issue |
 |---|---|---|---|
-| 6a SALUD | HEALTH-01 modelo base de sanidad | pendiente | #50 |
-| 6a SALUD | HEALTH-02 batch API (eventos múltiples) | pendiente | #51 |
-| 6a SALUD | HEALTH-03 summary API (últimos valores por chip) | pendiente | #52 |
-| 6a SALUD | HEALTH-04 therapies CRUD | pendiente | #53 |
-| 6a SALUD | HEALTH-05 periodicity engine | pendiente | #54 |
-| 6a SALUD | HEALTH-06 prueba-catalog migration | pendiente | #55 |
+| 6a SALUD | HEALTH-01 modelo base de sanidad | cerrado | #50 |
+| 6a SALUD | HEALTH-02 batch API (eventos múltiples) | cerrado | #51 |
+| 6a SALUD | HEALTH-03 summary API (últimos valores por chip) | cerrado | #52 |
+| 6a SALUD | HEALTH-04 therapies CRUD | cerrado | #53 |
+| 6a SALUD | HEALTH-05 periodicity engine | **cerrado** ✅ | #54 |
+| 6a SALUD | HEALTH-06 prueba-catalog migration | cerrado | #55 |
 | 6a SALUD | Informe de próximas pruebas | pendiente | — |
 | 6b TERAPIAS | `feat(therapies): terapias y recomendaciones` | pendiente | — |
 | 6c MATERIAL | `feat(material): inventario de material y asignaciones` | pendiente | — |
 
 ## Issues abiertas relacionadas
 
-- #50 HEALTH-01 modelo base de sanidad.
-- #51 HEALTH-02 batch API.
-- #52 HEALTH-03 summary API.
-- #53 HEALTH-04 therapies CRUD.
-- #54 HEALTH-05 periodicity engine.
-- #55 HEALTH-06 prueba-catalog migration.
+- #54 HEALTH-05 periodicity engine (cerrado ✅, PR #630).
 
 ## Issues pendientes de crear
 
 - `feat(therapies): terapias y recomendaciones` (Fase 6b — depende de Fases 3–4).
 - `feat(material): inventario de material y asignaciones` (Fase 6c — depende de Fases 3–4).
+- `feat(proximas-pruebas): informe de próximas pruebas` (depende de HEALTH-05 — listo para iniciar).
 
 ## Decisiones relacionadas
 
