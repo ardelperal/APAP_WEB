@@ -42,11 +42,11 @@ Las capacidades que cruzan varias fases viven en [`transversales.md`](roadmap/tr
 
 | SHA | Title | PR |
 |---|---|---|
+| 57b2d18 | test(e2e): Fase 6 E2E battery batch 1 (21 tests) | #629 |
 | 031e4a6 | feat(cesiones): hexagonal migration + E2E battery (12 tests) | #628 |
+| af04f4b | docs(roadmap): update recent activity after PR #628 | — |
 | 6bee0ab | docs(roadmap): close Fase 4 (hexagonal animals completed) | — |
 | f529b8f | docs(roadmap): close Fase 3 and Fase 5; update recent activity after PR #627 | — |
-| d5fb075 | refactor(animals): retire legacy record_event alias from app.modules.animals | — |
-| 9a8b6f5 | feat(lifecycle): wire state cache composition into event emitters (LIFECYCLE-03 PR-B+PR-C) | — |
 
 ## Cuándo ir al legacy directamente
 
