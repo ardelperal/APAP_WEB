@@ -41,7 +41,7 @@ BASELINE_MUTATION_SITES: dict[str, int] = {
     "app/modules/salud/routes.py": 408,
     "app/modules/salud/service.py": 323,
     "app/modules/sanidad/routes.py": 357,
-    "app/modules/sanidad/service.py": 387,
+    "app/modules/sanidad/service.py": 394,  # HEALTH-05: scheduling logic extracted to scheduling.py (+4 net over pre-HEALTH-05)
     "migration/apply.py": 464,
     "migration/cli.py": 443,
     "migration/diff_engine.py": 333,
