@@ -141,7 +141,7 @@ def test_root_gitignore_ignores_atl_receipts_but_keeps_skill_registry() -> None:
     # ``_check_ignored`` cannot assert the negation: with ``--verbose``,
     # ``git check-ignore`` exits 0 for any matching pattern, including a
     # ``!`` exemption. Without ``--verbose`` an exempted path exits 1.
-    registry = _git("check-ignore", "--no-index", ".atl/skill-registry.md")
+    registry = _git("check-ignore", "--no-index", ".atl/skill-registry.md")  # noqa: PLR0912
     assert registry.returncode == 1, (
         ".atl/skill-registry.md is deliberately tracked and must stay trackable"
     )

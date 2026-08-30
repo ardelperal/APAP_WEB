@@ -42,6 +42,34 @@ Cobertura, linter, mypy, E2E y ratchets. Estado del arnés en [docs/quality/hard
 | Linter APAP (ruff + custom) | cerrado | [docs/codebase/code-quality-rules.md](../codebase/code-quality-rules.md) |
 | mypy zero errores | cerrado | [docs/codebase/quality-gates.md](../codebase/quality-gates.md) |
 | E2E net (Playwright) | cerrado (público); E2E autenticado bloqueado por secretos OAuth | #206, #223 |
+
+#### Batería E2E por slice
+
+Cada slice que aterriza en `main` necesita su batería E2E con Playwright. La batería se escribe al mismo tiempo que el slice (no como tarea posterior). El estado de cada batería se documenta en la página radial de su fase.
+
+**Política de ejecución en CI:**
+
+| Gatillo | ¿Corre la batería E2E? |
+|---|---|
+| PR a `main` (cualquier slice) | **No** — coverage gate es coverage unit 80% + linter + mypy |
+| Primer prototipo funcional | **Sí** — todas las baterías escritas hasta la fecha se ejecutan |
+| Release tag (`v*.*.*`) | **Sí** — todas las baterías se ejecutan |
+| Mantenimiento post-prototipo (hotfix, chore) | **No** |
+
+**Objetivo:** validar que todos los flujos end-to-end operan con datos reales de InsForge antes de cada release. La batería no sustituye los tests unitarios ni de integración — los complementa cubriendo la cadena completa HTTP → servicio → base de datos → HTML.
+
+**Formato de cada batería E2E:**
+
+```
+tests/e2e/test_<slice>_crud.py  —  CRUD Happy path
+tests/e2e/test_<slice>_errors.py  —  Errores: 409, 422, 404, 403
+tests/e2e/test_<slice>_lifecycle.py  —  Transiciones de estado
+tests/e2e/test_<slice>_auth.py  —  Auth: 302, 403 según rol
+```
+
+Un slice puede necesitar 1 o 4 ficheros según su complejidad. Lo mínimo es `*_crud.py`.
+
+**Inventario de baterías por fase:** ver las páginas radiales de cada fase.
 | Mutation testing | cerrado (runbook) | [docs/runbooks/mutation-testing.md](../runbooks/mutation-testing.md) |
 | Anti-patrones documentados (§32) | cerrado (auditoría 2026-07-25) | [docs/codebase/anti-patterns.md](../codebase/anti-patterns.md) |
 
