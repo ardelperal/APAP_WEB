@@ -59,9 +59,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from app.core.catalogs import (
+    list_catalogos_periodicidad as _list_catalogos_periodicidad,
+)
 from app.core.data_access import SqlExecutor
 from app.core.logging import log_safe
 from app.modules.sanidad import queries
+from app.modules.sanidad.scheduling import schedule_periodic_task
 from app.modules.sanidad.service import ActuacionSanitaria, _validate_fecha_d24
 
 # --- public data classes --------------------------------------------------
@@ -202,6 +206,9 @@ def commit_batch(
         )
 
     _audit_log_committed(len(inserted), records, actor_user_id=actor_user_id)
+    # HEALTH-05 (#54): schedule periodic tasks for each committed actuation.
+    for actuacion in inserted:
+        schedule_periodic_task(client, actuacion, _list_catalogos_periodicidad(client))
     return BatchResult(inserted=tuple(inserted))
 
 

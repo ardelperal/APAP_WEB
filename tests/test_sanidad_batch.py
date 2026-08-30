@@ -176,7 +176,7 @@ def test_batch_insert_happy_path_emits_audit_log() -> None:
     result = batch_service.commit_batch(client, records, actor_user_id="u-1")
 
     assert len(result.inserted) == 5
-    assert len(captured) == 1
+    assert len(captured) == 6  # HEALTH-05: +5 for periodicidad catalog fetch per batch record
     # dry_run is FALSE on the wire → real insert.
     params = captured[0]["params"]
     assert params[7] is False

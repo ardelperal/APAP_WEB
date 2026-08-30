@@ -54,6 +54,18 @@ from app.core.catalogs import (
 from app.core.data_access import SqlExecutor
 from app.core.logging import log_safe
 from app.modules.sanidad import queries
+from app.modules.sanidad.scheduling import schedule_periodic_task
+
+def _post_create_schedule(client: SqlExecutor, actuacion: ActuacionSanitaria) -> None:
+    """Run after create_actuacion_sanitaria commits: schedule next periodic task.
+
+    HEALTH-05 (#54). Extracted to a named function so tests can monkeypatch it
+    without patching the module-level import.
+    """
+    try:
+        schedule_periodic_task(client, actuacion, _list_catalogos_periodicidad(client))
+    except Exception:
+        pass  # non-fatal
 
 
 @dataclass(frozen=True, slots=True)
@@ -445,6 +457,7 @@ def create_actuacion_sanitaria(
         fecha=actuacion.fecha,
         actor_user_id=actor_user_id,
     )
+    _post_create_schedule(client, actuacion)
     return actuacion
 
 
