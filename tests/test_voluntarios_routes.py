@@ -1,15 +1,12 @@
-"""Route-level tests for the voluntarios deactivate endpoint
-(Slice 7, hardening-2026-q2 — TOCTOU fix).
+"""Route-level tests for the voluntarios routes (epic #420 PR-B).
 
-Covers REQ-1 (single SQL, no SELECT previo redundante) and REQ-2
-(404 when the row does not exist OR was already inactive) from
-``openspec/changes/hardening-2026-q2/specs/07-toctou-fix/spec.md``.
+Covers the hexagonal wiring of routes to use cases via :func:`get_voluntarios_port`:
+- GET/POST `/voluntarios` — list and create
+- GET `/voluntarios/{id}` — detail
+- POST `/voluntarios/{id}/deactivate` — soft-delete (TOCTOU fix)
 
-The concurrent case (REQ-3) lives in
-``tests/test_voluntarios_concurrent.py`` because it requires a real
-PostgreSQL row lock to exercise faithfully.
+RBAC (issue #144): reader rol is rejected with 403 on write endpoints.
 """
-
 from __future__ import annotations
 
 from typing import Any
@@ -17,84 +14,108 @@ from typing import Any
 import httpx
 import pytest
 
-from app.core.insforge import InsForgeClient
 from app.core.session import session_cookie_name, write_session
-from app.main import app, get_insforge_client
-from tests.conftest import auth_reval_rows, make_csrf_request
+from app.main import app
+from app.modules.voluntarios.di import get_voluntarios_port
+from app.modules.voluntarios.domain.voluntario import Voluntario
+from app.modules.voluntarios.ports.voluntarios_port import VoluntariosPort
+from tests.conftest import make_csrf_request
+
+# -------------------------------------------------------------------------------------------------
+# Test port spy — captures all port method calls (hexagonal equivalent of the
+# legacy execute_sql spy). Lets us assert the route calls exactly what it should
+# and nothing else (no SELECT prior to UPDATE, etc.).
+# -------------------------------------------------------------------------------------------------
 
 
-class _VoluntariosRouteSpy(InsForgeClient):
-    """``InsForgeClient`` spy para el route ``deactivate_voluntario_view``.
+class _VoluntariosPortSpy:
+    """``VoluntariosPort`` spy that records calls and returns configurable data.
 
-    ``execute_sql`` no toca la red: matchea el SQL contra la unica
-    sentencia esperada (``UPDATE voluntarios SET activo = false``) y
-    devuelve las filas configuradas. Tests pueden mutar
-    ``deactivate_returning_rows`` para simular los distintos estados
-    de la fila (activa vs ya inactiva vs inexistente).
-
-    Captures ``captured_queries`` para que los tests verifiquen que
-    el handler emite EXACTAMENTE los SQLs esperados. La pista clave
-    es: el deactivate handler NO debe emitir un SELECT previo
-    (regresion del patron TOCTOU que esta PR cierra).
+    Replaces the legacy ``execute_sql`` spy now that routes go through the
+    hexagonal port instead of calling ``voluntarios_service`` directly.
     """
 
-    def __init__(self) -> None:  # type: ignore[override]
-        import httpx as _httpx
+    def __init__(self) -> None:
+        self.captured_calls: list[tuple[str, Any]] = []
+        self.list_rows: list[Voluntario] = []
+        self.get_row: Voluntario | None = None
+        self.create_voluntario_row: Voluntario | None = None
+        self.create_unique_violation = False
+        self.deactivate_result = True
+        self.deactivate_call_count = 0
+        self.deactivate_rotating: list[bool] | None = None
+        # For the auth revalidation SELECT inside the permission check.
+        self.auth_reval_rol = "key_user"
 
-        self._client = _httpx.Client(base_url="https://spy.example")
-        self.captured_queries: list[str] = []
-        self.captured_params: list[Any] = []
-        # Issue #144: rol returned by the per-request authorization
-        # revalidation SELECT. Defaults to ``key_user``; the reader
-        # rejection tests set this to ``reader`` so the writer dep can
-        # produce a 403 BEFORE the handler runs.
-        self.auth_reval_rol: str = "key_user"
-        # Default: primer deactivate tiene exito (devuelve una fila).
-        # Los tests mutan esta lista para simular el caso "ya estaba
-        # inactiva" (lista vacia) o "no existe" (lista vacia).
-        self.deactivate_returning_rows: list[dict[str, Any]] = [
-            {"id": "v-1"}
-        ]
-        # Contador de invocaciones: usado para alternar el retorno entre
-        # llamadas y simular el caso "doble deactivate concurrente".
-        self.call_count = 0
-        # Si se configura, los returns se rotan segun el call_count.
-        # Por ejemplo: ``rotating_rows = [[{"id": "v-1"}], []]``
-        # produce True en la primera llamada y False en la segunda.
-        self.rotating_rows: list[list[dict[str, Any]]] | None = None
+    def list_voluntarios(self) -> list[Voluntario]:
+        self.captured_calls.append(("list_voluntarios", None))
+        return self.list_rows
 
-    def execute_sql(self, query: str, params: Any = None):  # type: ignore[override]
-        # Issue #143: the per-request authorization revalidation SELECT
-        # (via get_user_by_email) is answered here and NOT recorded in
-        # captured_queries/params, so the domain-SQL assertions stay unchanged.
-        _reval = auth_reval_rows(query, params, rol=self.auth_reval_rol)
-        if _reval is not None:
-            return _reval
-        self.captured_queries.append(query)
-        self.captured_params.append(params)
-        # Solo nos interesa la sentencia del deactivate (la unica
-        # UPDATE contra ``voluntarios SET activo = false``).
-        if "UPDATE voluntarios" in query and "SET activo = false" in query:
-            if self.rotating_rows is not None:
-                idx = min(self.call_count, len(self.rotating_rows) - 1)
-                self.call_count += 1
-                return list(self.rotating_rows[idx])
-            return list(self.deactivate_returning_rows)
-        # Cualquier otra SELECT (ej. ``get_voluntario_by_id`` que ya
-        # NO deberia aparecer en el deactivate handler) se ignora.
+    def get_voluntario_by_id(self, voluntario_id: str) -> Voluntario | None:
+        self.captured_calls.append(("get_voluntario_by_id", voluntario_id))
+        return self.get_row
+
+    def create_voluntario(
+        self,
+        *,
+        nombre: str,
+        tel1: str | None = None,
+        tel2: str | None = None,
+        email: str | None = None,
+        dni: str | None = None,
+    ) -> Voluntario:
+        from app.core.data_access import UniqueViolationError
+
+        self.captured_calls.append(
+            ("create_voluntario", {"nombre": nombre, "tel1": tel1, "tel2": tel2, "email": email, "dni": dni})
+        )
+        if self.create_unique_violation:
+            raise UniqueViolationError("unique constraint violation: email")
+        if self.create_voluntario_row is None:
+            raise RuntimeError("unexpected call")
+        return self.create_voluntario_row
+
+    def deactivate_voluntario(self, voluntario_id: str) -> bool:
+        self.captured_calls.append(("deactivate_voluntario", voluntario_id))
+        self.deactivate_call_count += 1
+        if self.deactivate_rotating is not None:
+            idx = min(self.deactivate_call_count - 1, len(self.deactivate_rotating) - 1)
+            return self.deactivate_rotating[idx]
+        return self.deactivate_result
+
+    def list_voluntario_roles(self, voluntario_id: str) -> list[str]:
+        self.captured_calls.append(("list_voluntario_roles", voluntario_id))
         return []
 
 
+# -------------------------------------------------------------------------------------------------
+# FastAPI dependency override
+# -------------------------------------------------------------------------------------------------
+
+
 @pytest.fixture
-def voluntarios_spy() -> _VoluntariosRouteSpy:
-    spy = _VoluntariosRouteSpy()
-    app.dependency_overrides[get_insforge_client] = lambda: spy
+def voluntarios_spy() -> _VoluntariosPortSpy:
+    """Override ``get_voluntarios_port`` with a spy port.
+
+    The spy captures every port method call so tests can assert the route
+    invokes exactly the expected use case without extra round-trips.
+    """
+    spy = _VoluntariosPortSpy()
+
+    def _spy_factory() -> VoluntariosPort:
+        return spy
+
+    app.dependency_overrides[get_voluntarios_port] = _spy_factory
     yield spy
-    app.dependency_overrides.pop(get_insforge_client, None)
+    app.dependency_overrides.pop(get_voluntarios_port, None)
 
 
-def _login_as_key_user(client: httpx.AsyncClient) -> None:
-    """Any authorized user can hit ``/voluntarios/{id}/deactivate``."""
+# -------------------------------------------------------------------------------------------------
+# Session helpers
+# -------------------------------------------------------------------------------------------------
+
+
+def _write_key_user_session() -> str:
     from app.core.config import get_settings
 
     token = write_session(
@@ -103,28 +124,90 @@ def _login_as_key_user(client: httpx.AsyncClient) -> None:
             "rol": "key_user",
             "user_id": "u-ana",
             "is_authorized": True,
-            # PR-5B2: session-bound CSRF token.
             "csrf_token": "test-csrf-token-voluntarios",
         },
         secret=get_settings().session_secret,
     )
-    client.cookies.set(session_cookie_name(), token)
+    return token
 
 
-# --- REQ-1: handler invoca exactamente una SQL ----------------------------
+def _write_reader_session() -> str:
+    from app.core.config import get_settings
+
+    token = write_session(
+        {
+            "email": "rocio@example.com",
+            "rol": "reader",
+            "user_id": "u-rocio",
+            "is_authorized": True,
+            "csrf_token": "test-csrf-token-voluntarios",
+        },
+        secret=get_settings().session_secret,
+    )
+    return token
 
 
-async def test_deactivate_routes_invoca_execute_sql_una_vez(
+def _install_session(client: httpx.AsyncClient, session_token: str) -> None:
+    client.cookies.set(session_cookie_name(), session_token)
+
+
+# -------------------------------------------------------------------------------------------------
+# RBAC: reader cannot write (issue #144)
+# -------------------------------------------------------------------------------------------------
+
+
+async def test_create_voluntario_rejects_reader_with_403(
     client: httpx.AsyncClient,
-    voluntarios_spy: _VoluntariosRouteSpy,
+    voluntarios_spy: _VoluntariosPortSpy,
 ) -> None:
-    """POST ``/voluntarios/{id}/deactivate`` emite UN solo ``execute_sql``.
+    """Reader rol receives 403 on POST /voluntarios (issue #144)."""
+    voluntarios_spy.auth_reval_rol = "reader"
+    _install_session(client, _write_reader_session())
 
-    Regresion guard contra el patron anterior (SELECT previo + UPDATE).
-    El handler DEBE delegar en ``voluntarios_service.deactivate_voluntario``
-    y NO emitir una ``get_voluntario_by_id`` previa.
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/voluntarios",
+        form_data={"Voluntario": "Rocio"},
+    )
+
+    assert response.status_code == 403
+    assert voluntarios_spy.captured_calls == []
+
+
+async def test_deactivate_voluntario_rejects_reader_with_403(
+    client: httpx.AsyncClient,
+    voluntarios_spy: _VoluntariosPortSpy,
+) -> None:
+    """Reader rol receives 403 on POST /voluntarios/{id}/deactivate (issue #144)."""
+    voluntarios_spy.auth_reval_rol = "reader"
+    _install_session(client, _write_reader_session())
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/voluntarios/v-1/deactivate",
+    )
+
+    assert response.status_code == 403
+    assert voluntarios_spy.captured_calls == []
+
+
+# -------------------------------------------------------------------------------------------------
+# Deactivate: exactly one port call, no SELECT prior (TOCTOU fix)
+# -------------------------------------------------------------------------------------------------
+
+
+async def test_deactivate_routes_calls_port_once(
+    client: httpx.AsyncClient,
+    voluntarios_spy: _VoluntariosPortSpy,
+) -> None:
+    """POST /voluntarios/{id}/deactivate calls ``deactivate_voluntario`` exactly once.
+
+    No ``get_voluntario_by_id`` is called first (TOCTOU fix: the existence check
+    is now inside the atomic UPDATE, not a separate SELECT).
     """
-    _login_as_key_user(client)
+    _install_session(client, _write_key_user_session())
 
     response = await make_csrf_request(
         client,
@@ -134,42 +217,26 @@ async def test_deactivate_routes_invoca_execute_sql_una_vez(
 
     assert response.status_code == 303
     assert response.headers["location"] == "/voluntarios"
-
-    # Exactamente UNA llamada a execute_sql (sin SELECT previo).
-    update_queries = [
-        q
-        for q in voluntarios_spy.captured_queries
-        if "UPDATE voluntarios" in q and "SET activo = false" in q
+    deactivate_calls = [
+        c for c in voluntarios_spy.captured_calls
+        if c[0] == "deactivate_voluntario"
     ]
-    select_queries = [
-        q for q in voluntarios_spy.captured_queries if "SELECT" in q
+    assert len(deactivate_calls) == 1
+    assert deactivate_calls[0][1] == "v-1"
+    get_calls = [
+        c for c in voluntarios_spy.captured_calls
+        if c[0] == "get_voluntario_by_id"
     ]
-    assert len(update_queries) == 1, (
-        "se esperaba UN UPDATE via service; "
-        f"se emitieron: {voluntarios_spy.captured_queries!r}"
-    )
-    assert len(select_queries) == 0, (
-        "el handler NO debe emitir SELECT previo al UPDATE "
-        "(eso era el patron TOCTOU que esta PR cierra); "
-        f"se emitieron: {select_queries!r}"
-    )
+    assert get_calls == [], "no SELECT prior to UPDATE (TOCTOU fix)"
 
 
-# --- REQ-2: 404 cuando la fila no existe o ya estaba inactiva ------------
-
-
-async def test_deactivate_routes_404_on_second_call(
+async def test_deactivate_routes_404_when_inactive(
     client: httpx.AsyncClient,
-    voluntarios_spy: _VoluntariosRouteSpy,
+    voluntarios_spy: _VoluntariosPortSpy,
 ) -> None:
-    """El segundo POST contra el mismo id retorna 404 (la fila ya esta inactiva).
-
-    Simula el camino real: el primer POST desactiva la fila, el
-    segundo la encuentra con ``activo = false`` y el ``WHERE activo = true``
-    no matchea. El servicio devuelve ``False`` y el handler responde 404.
-    """
-    voluntarios_spy.rotating_rows = [[{"id": "v-1"}], []]
-    _login_as_key_user(client)
+    """Second deactivate returns 404 (row already inactive)."""
+    voluntarios_spy.deactivate_rotating = [True, False]
+    _install_session(client, _write_key_user_session())
 
     first = await make_csrf_request(
         client,
@@ -183,17 +250,16 @@ async def test_deactivate_routes_404_on_second_call(
     )
 
     assert first.status_code == 303
-    assert first.headers["location"] == "/voluntarios"
     assert second.status_code == 404
 
 
-async def test_deactivate_routes_inexistente_retorna_404(
+async def test_deactivate_routes_404_when_not_found(
     client: httpx.AsyncClient,
-    voluntarios_spy: _VoluntariosRouteSpy,
+    voluntarios_spy: _VoluntariosPortSpy,
 ) -> None:
-    """Voluntario inexistente -> 404 (no redirect, no 500)."""
-    voluntarios_spy.deactivate_returning_rows = []
-    _login_as_key_user(client)
+    """Inexistent voluntario returns 404."""
+    voluntarios_spy.deactivate_result = False
+    _install_session(client, _write_key_user_session())
 
     response = await make_csrf_request(
         client,
@@ -204,163 +270,45 @@ async def test_deactivate_routes_inexistente_retorna_404(
     assert response.status_code == 404
 
 
-# --- REQ-1: la SQL emitida tiene la forma exacta esperada ---------------
+# -------------------------------------------------------------------------------------------------
+# Detail: calls get_voluntario_by_id + list_voluntario_roles
+# -------------------------------------------------------------------------------------------------
 
 
-async def test_deactivate_routes_sql_es_update_con_returning_y_filtro_activo(
+async def test_detail_calls_port_methods(
     client: httpx.AsyncClient,
-    voluntarios_spy: _VoluntariosRouteSpy,
+    voluntarios_spy: _VoluntariosPortSpy,
 ) -> None:
-    """La SQL emitida incluye ``RETURNING id`` y el filtro ``activo = true``.
-
-    La presencia del filtro ``AND activo = true`` es la pieza que
-    cierra la ventana TOCTOU: la condicion de existencia se evalua
-    dentro de la propia sentencia, bajo el row lock de PostgreSQL.
-    Sin ese filtro, dos requests concurrentes podrian ambas hacer
-    UPDATE (un escenario que el test de concurrencia en
-    ``test_voluntarios_concurrent.py`` cubre).
-    """
-    _login_as_key_user(client)
+    """GET /voluntarios/{id} calls ``get_voluntario_by_id`` and ``list_voluntario_roles``."""
+    voluntarios_spy.get_row = Voluntario(
+        id="v-1", voluntario="Ana Garcia", activo=True
+    )
+    _install_session(client, _write_key_user_session())
 
     response = await make_csrf_request(
         client,
-        "POST",
-        "/voluntarios/v-1/deactivate",
-    )
-    assert response.status_code == 303
-
-    update_queries = [
-        q
-        for q in voluntarios_spy.captured_queries
-        if "UPDATE voluntarios" in q and "SET activo = false" in q
-    ]
-    assert len(update_queries) == 1
-    sql = update_queries[0]
-    assert "RETURNING id" in sql
-    assert "WHERE id = $1 AND activo = true" in sql
-    # El parametro $1 esta ligado (no interpolado en la SQL).
-    assert voluntarios_spy.captured_params[0] == ["v-1"]
-
-
-# --- Acceptance criteria: grep invariants ---------------------------------
-
-
-async def test_deactivate_routes_handler_no_tiene_select_previo_para_existencia(
-    voluntarios_spy: _VoluntariosRouteSpy,
-) -> None:
-    """El handler NO llama ``get_voluntario_by_id`` antes del UPDATE.
-
-    Implementado como un test que ejecuta el codigo del handler contra
-    el spy y verifica el patron de queries emitidas (acceptance
-    criterion del spec: ``grep -n "get_voluntario_by_id"
-    app/modules/voluntarios/routes.py`` debe retornar solo la llamada
-    del detalle, no la del deactivate).
-    """
-    import httpx as _httpx
-
-    from app.main import app as _app
-
-    transport = _httpx.ASGITransport(app=_app)
-    async with _httpx.AsyncClient(transport=transport, base_url="http://testserver") as c:
-        _login_as_key_user(c)
-        response = await make_csrf_request(
-            c,
-            "POST",
-            "/voluntarios/v-1/deactivate",
-        )
-
-    assert response.status_code == 303
-    # Cualquier SELECT que aparezca aqui es un bug (regresion del TOCTOU).
-    select_queries = [
-        q for q in voluntarios_spy.captured_queries if "SELECT" in q
-    ]
-    assert select_queries == [], (
-        "el deactivate handler no debe emitir SELECT previo; "
-        f"queries capturadas: {voluntarios_spy.captured_queries!r}"
+        "GET",
+        "/voluntarios/v-1",
     )
 
-
-# ---------------------------------------------------------------------------
-# Issue #144: a ``reader`` rol MUST be rejected by write routes with 403.
-# ``voluntarios`` was the module the user explicitly named in the bug
-# description; before #144 a reader could POST a new voluntario or
-# deactivate an existing one with the same effective permissions as a
-# key_user. After #144 the writer dep short-circuits with 403 BEFORE
-# the handler runs, so no SQL is emitted.
-# ---------------------------------------------------------------------------
+    assert response.status_code == 200
+    # Must call both port methods (detail + roles).
+    assert ("get_voluntario_by_id", "v-1") in voluntarios_spy.captured_calls
+    assert ("list_voluntario_roles", "v-1") in voluntarios_spy.captured_calls
 
 
-def _login_as_reader(client: httpx.AsyncClient) -> None:
-    """Install a reader session cookie; reader MUST be 403 on writes.
-
-    The spy must have ``auth_reval_rol = "reader"`` BEFORE calling this
-    helper so the per-request auth revalidation SELECT returns the same
-    rol the cookie carries.
-    """
-    from app.core.config import get_settings
-
-    token = write_session(
-        {
-            "email": "rocio@example.com",
-            "rol": "reader",
-            "user_id": "u-rocio",
-            "is_authorized": True,
-            "csrf_token": "test-csrf-token-voluntarios",
-        },
-        secret=get_settings().session_secret,
-    )
-    client.cookies.set(session_cookie_name(), token)
-
-
-async def test_create_voluntario_rejects_reader_with_403(
+async def test_detail_404_when_not_found(
     client: httpx.AsyncClient,
-    voluntarios_spy: _VoluntariosRouteSpy,
+    voluntarios_spy: _VoluntariosPortSpy,
 ) -> None:
-    """Reader cannot POST a new voluntario (issue #144)."""
-    voluntarios_spy.auth_reval_rol = "reader"
-    _login_as_reader(client)
+    """GET /voluntarios/{id} returns 404 when the row does not exist."""
+    voluntarios_spy.get_row = None
+    _install_session(client, _write_key_user_session())
 
     response = await make_csrf_request(
         client,
-        "POST",
-        "/voluntarios",
-        form_data={"Voluntario": "Rocio"},
+        "GET",
+        "/voluntarios/no-such-id",
     )
 
-    assert response.status_code == 403, (
-        f"reader POST /voluntarios MUST be 403; got {response.status_code}"
-    )
-    # No INSERT must reach the DB.
-    assert not any(
-        "INSERT INTO voluntarios" in q for q in voluntarios_spy.captured_queries
-    ), (
-        "reader POST must not emit any voluntario INSERT; "
-        f"queries: {voluntarios_spy.captured_queries!r}"
-    )
-
-
-async def test_deactivate_voluntario_rejects_reader_with_403(
-    client: httpx.AsyncClient,
-    voluntarios_spy: _VoluntariosRouteSpy,
-) -> None:
-    """Reader cannot deactivate an existing voluntario (issue #144)."""
-    voluntarios_spy.auth_reval_rol = "reader"
-    _login_as_reader(client)
-
-    response = await make_csrf_request(
-        client,
-        "POST",
-        "/voluntarios/v-1/deactivate",
-    )
-
-    assert response.status_code == 403, (
-        f"reader POST /voluntarios/{'{'}id{'}'}/deactivate MUST be 403; "
-        f"got {response.status_code}"
-    )
-    # No UPDATE must reach the DB.
-    assert not any(
-        "UPDATE voluntarios" in q for q in voluntarios_spy.captured_queries
-    ), (
-        "reader POST must not emit any voluntario UPDATE; "
-        f"queries: {voluntarios_spy.captured_queries!r}"
-    )
+    assert response.status_code == 404

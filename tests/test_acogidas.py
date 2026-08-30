@@ -123,8 +123,20 @@ def _make_handler(insert_row: dict[str, Any] | None = None):
     """Default handler that returns a valid animal and lets the INSERT through."""
 
     def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
-        # Animal existence check: SELECT FROM animales
+        # Animal existence check: SELECT FROM animales WHERE id = $1
+        # (FK validation in create_acogida -- issue #32 acceptance).
         if "FROM animales" in body["query"] and "WHERE id = $1" in body["query"]:
+            return _json_response(200, [_animal_row(body["params"][0])])
+        # LIFECYCLE-02 (issue #32): the cascade's ficha SELECT
+        # (``LEFT JOIN animal_current_state WHERE animales.id = $1``)
+        # does NOT carry the substring ``"WHERE id = $1"`` -- the column
+        # is qualified with the table alias. Match it separately so the
+        # cascade's ``build_select_ficha`` call returns a valid ficha
+        # row and the state derivation does not crash on missing keys.
+        if (
+            "FROM animales" in body["query"]
+            and "LEFT JOIN animal_current_state" in body["query"]
+        ):
             return _json_response(200, [_animal_row(body["params"][0])])
         # Casa existence check: SELECT FROM casas_acogida
         if "FROM casas_acogida" in body["query"] and "WHERE id = $1" in body["query"]:
@@ -139,13 +151,93 @@ def _make_handler(insert_row: dict[str, Any] | None = None):
         # Entrada existence check: SELECT FROM entradas
         if "FROM entradas" in body["query"] and "WHERE id = $1" in body["query"]:
             return _json_response(200, [{"id": body["params"][0]}])
+        # LIFECYCLE-02 (issue #32): create_acogida / close_acogida
+        # emit lifecycle events into ``animal_lifecycle_events`` and
+        # refresh ``animal_current_state`` via
+        # ``actualizar_estado_animal``. Those writes hit:
+        #   * ``INSERT INTO animal_lifecycle_events`` (event log)
+        #   * ``FROM entradas/acogidas/adopciones`` active-collection
+        #     SELECTs (the cascade inputs)
+        #   * ``INSERT INTO animal_current_state`` (cache UPSERT)
+        # Returning empty lists keeps the cascade happy ("no other
+        # active placements") without coupling the CRUD tests to the
+        # lifecycle SQL shape -- that's pinned by
+        # ``tests/test_acogidas_lifecycle_events.py``.
+        if "INSERT INTO animal_lifecycle_events" in body["query"]:
+            return _json_response(200, [])
+        if (
+            "FROM entradas" in body["query"]
+            and "fecha_salida IS NULL" in body["query"]
+            and "activo = true" in body["query"]
+        ):
+            return _json_response(200, [])
+        if (
+            "FROM acogidas" in body["query"]
+            and "fecha_final IS NULL" in body["query"]
+            and "activo = true" in body["query"]
+        ):
+            return _json_response(200, [])
+        if (
+            "FROM adopciones" in body["query"]
+            and "fecha_devolucion IS NULL" in body["query"]
+            and "activo = true" in body["query"]
+        ):
+            return _json_response(200, [])
+        if "INSERT INTO animal_current_state" in body["query"]:
+            return _json_response(200, [])
         if "INSERT INTO acogidas" in body["query"]:
             return _json_response(200, [insert_row or _row()])
         if "UPDATE acogidas SET" in body["query"]:
             return _json_response(200, [insert_row or _row()])
+        # LIFECYCLE-02 (issue #32): let cascade-driven SQL through with
+        # an empty response so the cascade does not crash. The SQL shape
+        # is pinned by ``tests/test_acogidas_lifecycle_events.py``.
+        lifecycle_resp = _lifecycle_query_response(body["query"])
+        if lifecycle_resp is not None:
+            return lifecycle_resp
         raise AssertionError(f"Unexpected SQL: {body['query']}")
 
     return _handler
+
+
+def _lifecycle_query_response(query: str) -> httpx.Response | None:
+    """Return a 200/[] response for any lifecycle SQL query the cascade issues.
+
+    LIFECYCLE-02 (issue #32) makes ``create_acogida`` / ``close_acogida``
+    fire extra SQL: ``INSERT INTO animal_lifecycle_events`` (event log),
+    the cascade's ficha + active-placements SELECTs, and the
+    ``INSERT INTO animal_current_state`` cache UPSERT. Pre-existing
+    CRUD tests use custom inline handlers that only know about the
+    ``INSERT/UPDATE acogidas`` shape; this helper lets those tests
+    accept the new lifecycle SQL without coupling to its exact
+    parameter list. The lifecycle SQL shape is pinned by
+    ``tests/test_acogidas_lifecycle_events.py``.
+    """
+    if "INSERT INTO animal_lifecycle_events" in query:
+        return _json_response(200, [])
+    if "INSERT INTO animal_current_state" in query:
+        return _json_response(200, [])
+    if "LEFT JOIN animal_current_state" in query and "FROM animales" in query:
+        return _json_response(200, [_animal_row()])
+    if (
+        "FROM entradas" in query
+        and "fecha_salida IS NULL" in query
+        and "activo = true" in query
+    ):
+        return _json_response(200, [])
+    if (
+        "FROM acogidas" in query
+        and "fecha_final IS NULL" in query
+        and "activo = true" in query
+    ):
+        return _json_response(200, [])
+    if (
+        "FROM adopciones" in query
+        and "fecha_devolucion IS NULL" in query
+        and "activo = true" in query
+    ):
+        return _json_response(200, [])
+    return None
 
 
 # --- create: happy path ---------------------------------------------------
@@ -275,6 +367,12 @@ def test_create_acogida_links_override_when_casa_and_animal_match() -> None:
         if "UPDATE foster_capacity_overrides" in body["query"]:
             captured.append(body)
             return _json_response(200, [{"id": OVERRIDE_UUID, "estancia_id": ACOGIDA_UUID}])
+        # LIFECYCLE-02 (issue #32): let cascade-driven SQL through with
+        # an empty response so the cascade does not crash. The SQL shape
+        # is pinned by ``tests/test_acogidas_lifecycle_events.py``.
+        lifecycle_resp = _lifecycle_query_response(body["query"])
+        if lifecycle_resp is not None:
+            return lifecycle_resp
         raise AssertionError(f"Unexpected SQL: {body['query']}")
 
     client, _ = _client_recording(_handler)
@@ -360,6 +458,12 @@ def test_create_acogida_does_not_link_override_when_casa_mismatches(
                 f"override's recorded casa; got params={body['params']!r}"
             )
             return _json_response(200, [])
+        # LIFECYCLE-02 (issue #32): let cascade-driven SQL through with
+        # an empty response so the cascade does not crash. The SQL shape
+        # is pinned by ``tests/test_acogidas_lifecycle_events.py``.
+        lifecycle_resp = _lifecycle_query_response(body["query"])
+        if lifecycle_resp is not None:
+            return lifecycle_resp
         raise AssertionError(f"Unexpected SQL: {body['query']}")
 
     client, _ = _client_recording(_handler)
@@ -433,6 +537,12 @@ def test_create_acogida_does_not_link_override_when_animal_mismatches(
                 f"the override's recorded animal; got params={body['params']!r}"
             )
             return _json_response(200, [])
+        # LIFECYCLE-02 (issue #32): let cascade-driven SQL through with
+        # an empty response so the cascade does not crash. The SQL shape
+        # is pinned by ``tests/test_acogidas_lifecycle_events.py``.
+        lifecycle_resp = _lifecycle_query_response(body["query"])
+        if lifecycle_resp is not None:
+            return lifecycle_resp
         raise AssertionError(f"Unexpected SQL: {body['query']}")
 
     client, _ = _client_recording(_handler)
@@ -505,6 +615,12 @@ def test_create_acogida_does_not_link_when_casa_is_null(
                 f"$3 must be the form's casa (None here); got {body['params']!r}"
             )
             return _json_response(200, [])
+        # LIFECYCLE-02 (issue #32): let cascade-driven SQL through with
+        # an empty response so the cascade does not crash. The SQL shape
+        # is pinned by ``tests/test_acogidas_lifecycle_events.py``.
+        lifecycle_resp = _lifecycle_query_response(body["query"])
+        if lifecycle_resp is not None:
+            return lifecycle_resp
         raise AssertionError(f"Unexpected SQL: {body['query']}")
 
     client, _ = _client_recording(_handler)
@@ -570,6 +686,12 @@ def test_create_acogida_logs_warning_when_override_already_linked(
             # 0 rows: WHERE id=X AND estancia_id IS NULL fails because
             # the row is already linked.
             return _json_response(200, [])
+        # LIFECYCLE-02 (issue #32): let cascade-driven SQL through with
+        # an empty response so the cascade does not crash. The SQL shape
+        # is pinned by ``tests/test_acogidas_lifecycle_events.py``.
+        lifecycle_resp = _lifecycle_query_response(body["query"])
+        if lifecycle_resp is not None:
+            return lifecycle_resp
         raise AssertionError(f"Unexpected SQL: {body['query']}")
 
     client, _ = _client_recording(_handler)
@@ -621,6 +743,12 @@ def test_create_acogida_logs_warning_when_override_id_unknown(
             return _json_response(200, [_row()])
         if "UPDATE foster_capacity_overrides" in body["query"]:
             return _json_response(200, [])
+        # LIFECYCLE-02 (issue #32): let cascade-driven SQL through with
+        # an empty response so the cascade does not crash. The SQL shape
+        # is pinned by ``tests/test_acogidas_lifecycle_events.py``.
+        lifecycle_resp = _lifecycle_query_response(body["query"])
+        if lifecycle_resp is not None:
+            return lifecycle_resp
         raise AssertionError(f"Unexpected SQL: {body['query']}")
 
     client, _ = _client_recording(_handler)
@@ -653,6 +781,12 @@ def test_create_acogida_without_override_id_doesnt_touch_foster_capacity_overrid
             return _json_response(200, [_animal_row()])
         if "INSERT INTO acogidas" in body["query"]:
             return _json_response(200, [_row()])
+        # LIFECYCLE-02 (issue #32): let cascade-driven SQL through with
+        # an empty response so the cascade does not crash. The SQL shape
+        # is pinned by ``tests/test_acogidas_lifecycle_events.py``.
+        lifecycle_resp = _lifecycle_query_response(body["query"])
+        if lifecycle_resp is not None:
+            return lifecycle_resp
         raise AssertionError(f"Unexpected SQL: {body['query']}")
 
     client, _ = _client_recording(_handler)
@@ -687,6 +821,12 @@ def test_create_acogida_with_empty_override_id_skips_link() -> None:
             return _json_response(200, [_animal_row()])
         if "INSERT INTO acogidas" in body["query"]:
             return _json_response(200, [_row()])
+        # LIFECYCLE-02 (issue #32): let cascade-driven SQL through with
+        # an empty response so the cascade does not crash. The SQL shape
+        # is pinned by ``tests/test_acogidas_lifecycle_events.py``.
+        lifecycle_resp = _lifecycle_query_response(body["query"])
+        if lifecycle_resp is not None:
+            return lifecycle_resp
         raise AssertionError(f"Unexpected SQL: {body['query']}")
 
     client, _ = _client_recording(_handler)
@@ -738,6 +878,12 @@ def test_create_acogida_rejects_nonexistent_animal() -> None:
     def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
         if "FROM animales" in body["query"]:
             return _json_response(200, [])  # no rows
+        # LIFECYCLE-02 (issue #32): let cascade-driven SQL through with
+        # an empty response so the cascade does not crash. The SQL shape
+        # is pinned by ``tests/test_acogidas_lifecycle_events.py``.
+        lifecycle_resp = _lifecycle_query_response(body["query"])
+        if lifecycle_resp is not None:
+            return lifecycle_resp
         raise AssertionError(f"Unexpected SQL: {body['query']}")
 
     client, captured = _client_recording(_handler)
@@ -756,6 +902,12 @@ def test_create_acogida_rejects_inactive_animal() -> None:
     def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
         if "FROM animales" in body["query"]:
             return _json_response(200, [_animal_row(activo=False)])
+        # LIFECYCLE-02 (issue #32): let cascade-driven SQL through with
+        # an empty response so the cascade does not crash. The SQL shape
+        # is pinned by ``tests/test_acogidas_lifecycle_events.py``.
+        lifecycle_resp = _lifecycle_query_response(body["query"])
+        if lifecycle_resp is not None:
+            return lifecycle_resp
         raise AssertionError(f"Unexpected SQL: {body['query']}")
 
     client, captured = _client_recording(_handler)
@@ -774,6 +926,12 @@ def test_create_acogida_rejects_nonexistent_casa() -> None:
             return _json_response(200, [_animal_row()])
         if "FROM casas_acogida" in body["query"]:
             return _json_response(200, [])  # casa not found
+        # LIFECYCLE-02 (issue #32): let cascade-driven SQL through with
+        # an empty response so the cascade does not crash. The SQL shape
+        # is pinned by ``tests/test_acogidas_lifecycle_events.py``.
+        lifecycle_resp = _lifecycle_query_response(body["query"])
+        if lifecycle_resp is not None:
+            return lifecycle_resp
         raise AssertionError(f"Unexpected SQL: {body['query']}")
 
     client, captured = _client_recording(_handler)
@@ -794,6 +952,12 @@ def test_create_acogida_rejects_inactive_casa() -> None:
             return _json_response(200, [_animal_row()])
         if "FROM casas_acogida" in body["query"]:
             return _json_response(200, [_casa_row(activo=False)])
+        # LIFECYCLE-02 (issue #32): let cascade-driven SQL through with
+        # an empty response so the cascade does not crash. The SQL shape
+        # is pinned by ``tests/test_acogidas_lifecycle_events.py``.
+        lifecycle_resp = _lifecycle_query_response(body["query"])
+        if lifecycle_resp is not None:
+            return lifecycle_resp
         raise AssertionError(f"Unexpected SQL: {body['query']}")
 
     client, captured = _client_recording(_handler)
@@ -823,6 +987,12 @@ def test_create_acogida_rejects_inactive_voluntario(field: str) -> None:
             return _json_response(200, [_animal_row()])
         if "FROM voluntarios" in body["query"]:
             return _json_response(200, [_voluntario_row(activo=False)])
+        # LIFECYCLE-02 (issue #32): let cascade-driven SQL through with
+        # an empty response so the cascade does not crash. The SQL shape
+        # is pinned by ``tests/test_acogidas_lifecycle_events.py``.
+        lifecycle_resp = _lifecycle_query_response(body["query"])
+        if lifecycle_resp is not None:
+            return lifecycle_resp
         raise AssertionError(f"Unexpected SQL: {body['query']}")
 
     client, captured = _client_recording(_handler)
@@ -852,6 +1022,12 @@ def test_create_acogida_rejects_nonexistent_voluntario(field: str) -> None:
             return _json_response(200, [_animal_row()])
         if "FROM voluntarios" in body["query"]:
             return _json_response(200, [])  # vol not found
+        # LIFECYCLE-02 (issue #32): let cascade-driven SQL through with
+        # an empty response so the cascade does not crash. The SQL shape
+        # is pinned by ``tests/test_acogidas_lifecycle_events.py``.
+        lifecycle_resp = _lifecycle_query_response(body["query"])
+        if lifecycle_resp is not None:
+            return lifecycle_resp
         raise AssertionError(f"Unexpected SQL: {body['query']}")
 
     client, captured = _client_recording(_handler)
@@ -886,6 +1062,12 @@ def test_create_acogida_rejects_nonexistent_entrada() -> None:
             return _json_response(200, [_animal_row()])
         if "FROM entradas" in body["query"]:
             return _json_response(200, [])  # entrada not found
+        # LIFECYCLE-02 (issue #32): let cascade-driven SQL through with
+        # an empty response so the cascade does not crash. The SQL shape
+        # is pinned by ``tests/test_acogidas_lifecycle_events.py``.
+        lifecycle_resp = _lifecycle_query_response(body["query"])
+        if lifecycle_resp is not None:
+            return lifecycle_resp
         raise AssertionError(f"Unexpected SQL: {body['query']}")
 
     client, captured = _client_recording(_handler)
@@ -923,6 +1105,12 @@ def test_create_acogida_accepts_soft_deleted_entrada() -> None:
             )
         if "INSERT INTO acogidas" in body["query"]:
             return _json_response(200, [_row()])
+        # LIFECYCLE-02 (issue #32): let cascade-driven SQL through with
+        # an empty response so the cascade does not crash. The SQL shape
+        # is pinned by ``tests/test_acogidas_lifecycle_events.py``.
+        lifecycle_resp = _lifecycle_query_response(body["query"])
+        if lifecycle_resp is not None:
+            return lifecycle_resp
         raise AssertionError(f"Unexpected SQL: {body['query']}")
 
     client, _ = _client_recording(_handler)
@@ -1032,6 +1220,12 @@ def test_update_acogida_returns_none_when_id_missing() -> None:
             return _json_response(200, [_animal_row()])
         if "UPDATE acogidas SET" in body["query"]:
             return _json_response(200, [])
+        # LIFECYCLE-02 (issue #32): let cascade-driven SQL through with
+        # an empty response so the cascade does not crash. The SQL shape
+        # is pinned by ``tests/test_acogidas_lifecycle_events.py``.
+        lifecycle_resp = _lifecycle_query_response(body["query"])
+        if lifecycle_resp is not None:
+            return lifecycle_resp
         raise AssertionError(f"Unexpected SQL: {body['query']}")
 
     client, captured = _client_recording(_handler)
@@ -1049,7 +1243,11 @@ def test_close_acogida_sets_fecha_final_and_keeps_activo_true() -> None:
     def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
         if "UPDATE acogidas" in body["query"] and "fecha_final" in body["query"]:
             return _json_response(200, [_row({"fecha_final": str(date.today()), "activo": True})])
-        raise AssertionError(f"Unexpected SQL: {body['query']}")
+        # LIFECYCLE-02 (issue #32): close_acogida emits FOSTER_RETURNED
+        # and refreshes animal_current_state; let those calls through
+        # with empty rows so the cascade does not crash. The SQL shape
+        # is pinned by ``tests/test_acogidas_lifecycle_events.py``.
+        return _json_response(200, [])
 
     client, captured = _client_recording(_handler)
     result = acogidas_service.close_acogida(client, "a-1")
@@ -1105,7 +1303,11 @@ def test_close_acogida_works_on_soft_deleted_stay() -> None:
                 200,
                 [_row({"activo": False, "fecha_final": str(date.today())})],
             )
-        raise AssertionError(f"Unexpected SQL: {body['query']}")
+        # LIFECYCLE-02 (issue #32): close_acogida emits FOSTER_RETURNED
+        # and refreshes animal_current_state; let those calls through
+        # with empty rows so the cascade does not crash. The SQL shape
+        # is pinned by ``tests/test_acogidas_lifecycle_events.py``.
+        return _json_response(200, [])
 
     client, _ = _client_recording(_handler)
 

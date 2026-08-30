@@ -190,9 +190,77 @@ def _validation_handler(
                 200, [update_row or _row()] if params[0] != "missing" else []
             )
 
+        # LIFECYCLE-02 (issue #32): create_adopcion / update_adopcion
+        # emit lifecycle events into ``animal_lifecycle_events`` and
+        # refresh ``animal_current_state`` via
+        # ``actualizar_estado_animal``. Those writes hit:
+        #   * ``INSERT INTO animal_lifecycle_events`` (event log)
+        #   * the cascade's active-collection SELECTs
+        #   * ``INSERT INTO animal_current_state`` (cache UPSERT)
+        # Returning empty lists keeps the cascade happy ("no other
+        # active placements") without coupling the CRUD tests to the
+        # lifecycle SQL shape -- that's pinned by
+        # ``tests/test_adopciones_lifecycle_events.py``.
+        lifecycle_resp = _lifecycle_query_response(query)
+        if lifecycle_resp is not None:
+            return lifecycle_resp
+
         raise AssertionError(f"Unexpected SQL: {query!r}")
 
     return _handler
+
+
+def _lifecycle_query_response(query: str) -> httpx.Response | None:
+    """Return a 200/[] response for any lifecycle SQL query the cascade issues.
+
+    LIFECYCLE-02 (issue #32) makes ``create_adopcion`` / ``update_adopcion``
+    fire extra SQL: ``INSERT INTO animal_lifecycle_events`` (event log),
+    the cascade's ficha + active-placements SELECTs, and the
+    ``INSERT INTO animal_current_state`` cache UPSERT. Pre-existing
+    CRUD tests use custom inline handlers that only know about the
+    ``INSERT/UPDATE adopciones`` shape; this helper lets those tests
+    accept the new lifecycle SQL without coupling to its exact
+    parameter list. The lifecycle SQL shape is pinned by
+    ``tests/test_adopciones_lifecycle_events.py``.
+    """
+    if "INSERT INTO animal_lifecycle_events" in query:
+        return _json_response(200, [])
+    if "INSERT INTO animal_current_state" in query:
+        return _json_response(200, [])
+    if "LEFT JOIN animal_current_state" in query and "FROM animales" in query:
+        # Cascade's ``build_select_ficha`` SELECT — return a minimal
+        # ficha row so the cascade's P1/P2/P3 branches don't crash on
+        # missing keys. ``fdefuncion`` null keeps the cascade on the
+        # non-terminal path.
+        return _json_response(
+            200,
+            [
+                {
+                    "FDefuncion": None,
+                    "UltimoEstadoAntesDeFallecido": None,
+                    "Situacion": "",
+                }
+            ],
+        )
+    if (
+        "FROM entradas" in query
+        and "fecha_salida IS NULL" in query
+        and "activo = true" in query
+    ):
+        return _json_response(200, [])
+    if (
+        "FROM acogidas" in query
+        and "fecha_final IS NULL" in query
+        and "activo = true" in query
+    ):
+        return _json_response(200, [])
+    if (
+        "FROM adopciones" in query
+        and "fecha_devolucion IS NULL" in query
+        and "activo = true" in query
+    ):
+        return _json_response(200, [])
+    return None
 
 
 # --- create: happy path ---------------------------------------------------
@@ -219,10 +287,14 @@ def test_create_adopcion_inserts_with_all_columns() -> None:
     assert result.activo is True
     assert result.is_active is True  # fecha_devolucion is None → vigente
 
-    # 1 CTE = 1 SQL roundtrip.
-    assert len(captured) == 1
-    cte = captured[0]
-    assert "INSERT INTO adopciones" in cte["query"]
+    # LIFECYCLE-02 (issue #32): the service now emits ADOPTION_STARTED,
+    # the FOSTER_CLOSED_BY_ADOPTION closing event, and refreshes the
+    # animal_current_state cache in the same DB transaction as the
+    # INSERT. That fires several extra SQL calls on top of the CTE;
+    # we assert the CTE was issued (and its shape) rather than the
+    # total call count. The lifecycle SQL shape is pinned by
+    # ``tests/test_adopciones_lifecycle_events.py``.
+    cte = next(c for c in captured if "INSERT INTO adopciones" in c["query"])
     # All three FK-check CTEs share one WITH clause (PostgreSQL syntax
     # only requires WITH before the first one).
     assert "checked_animal" in cte["query"]
@@ -249,9 +321,13 @@ def test_create_adopcion_with_null_voluntario_skips_voluntario_fk_check() -> Non
     adopciones_service.create_adopcion(client, params)
     client.close()
 
-    # 1 CTE = 1 SQL roundtrip; the CTE returns the row, no disambiguation.
-    assert len(captured) == 1
-    assert "INSERT INTO adopciones" in captured[0]["query"]
+    # LIFECYCLE-02 (issue #32): the service fires extra lifecycle SQL
+    # calls in the same transaction. We assert the CTE was issued
+    # rather than the total call count -- the lifecycle SQL shape is
+    # pinned by ``tests/test_adopciones_lifecycle_events.py``.
+    cte = next(c for c in captured if "INSERT INTO adopciones" in c["query"])
+    assert "WITH checked_animal" in cte["query"]
+    assert "checked_voluntario" in cte["query"]
 
 
 def test_create_adopcion_with_donativos_numeric_coerces_to_float() -> None:
@@ -270,8 +346,10 @@ def test_create_adopcion_with_donativos_numeric_coerces_to_float() -> None:
 
     assert result.donativo_preadopcion == 50.0
     assert result.donativo_adopcion == 150.5
-    assert len(captured) == 1
-    cte = captured[0]
+    # LIFECYCLE-02 (issue #32): the service fires extra lifecycle SQL
+    # calls in the same transaction. We assert the CTE was issued
+    # (and its param list) rather than the total call count.
+    cte = next(c for c in captured if "INSERT INTO adopciones" in c["query"])
     # donativo_preadopcion is the 5th param (per _WRITE_COLUMNS order).
     assert cte["params"][4] == 50.0
     assert cte["params"][5] == 150.5
@@ -286,9 +364,12 @@ def test_create_adopcion_default_tipo_adopcion_is_regular() -> None:
     client.close()
 
     assert result.tipo_adopcion == "regular"
-    assert len(captured) == 1
+    # LIFECYCLE-02 (issue #32): the service fires extra lifecycle SQL
+    # calls in the same transaction. We assert the CTE was issued
+    # (and its param at index 12) rather than the total call count.
+    cte = next(c for c in captured if "INSERT INTO adopciones" in c["query"])
     # tipo_adopcion is the 13th param.
-    assert captured[0]["params"][12] == "regular"
+    assert cte["params"][12] == "regular"
 
 
 # --- create: required-field validation ------------------------------------
@@ -401,8 +482,13 @@ def test_create_adopcion_accepts_soft_deleted_entrada() -> None:
     adopciones_service.create_adopcion(client, params)
     client.close()
 
-    # 1 CTE; no disambiguation because the CTE succeeded.
-    assert len(captured) == 1
+    # LIFECYCLE-02 (issue #32): the service fires extra lifecycle SQL
+    # calls in the same transaction. We assert the CTE was issued
+    # rather than the total call count -- the lifecycle SQL shape is
+    # pinned by ``tests/test_adopciones_lifecycle_events.py``.
+    assert any(
+        "INSERT INTO adopciones" in c["query"] for c in captured
+    ), "create_adopcion MUST issue the CTE-shaped INSERT"
 
 
 def test_create_adopcion_with_soft_deleted_animal_returns_422() -> None:
@@ -549,9 +635,11 @@ def test_update_adopcion_validates_and_updates_minimal_fields() -> None:
 
     assert result is not None
     assert result.nombre_adoptante == "María Editada"
-    assert len(captured) == 1
-    cte = captured[0]
-    assert "UPDATE adopciones SET" in cte["query"]
+    # LIFECYCLE-02 (issue #32): update_adopcion now issues a
+    # ``get_adopcion_by_id`` BEFORE the UPDATE to capture the previous
+    # ``fecha_devolucion`` for the ADOPTION_RETURNED transition. We
+    # assert the UPDATE CTE was issued rather than the total call count.
+    cte = next(c for c in captured if "UPDATE adopciones SET" in c["query"])
     assert "WITH checked_animal" in cte["query"]
     assert "updated_at = now()" in cte["query"]
     # First param is the adopcion_id.
@@ -592,9 +680,14 @@ def test_update_adopcion_revalidates_voluntario_activo() -> None:
         )
     client.close()
 
-    # 1 CTE + 3 disambiguation SELECTs (animal pass, vol fail, get-by-id pass).
-    assert len(captured) == 4
-    assert "UPDATE adopciones SET" in captured[0]["query"]
+    # LIFECYCLE-02 (issue #32): update_adopcion now issues a
+    # ``get_adopcion_by_id`` BEFORE the UPDATE so we can detect the
+    # active -> returned transition. On the validation-failure path
+    # the captured list grows by one (the prior SELECT) and
+    # ``captured[0]`` is the prior SELECT rather than the UPDATE CTE.
+    # We assert the UPDATE CTE was issued rather than the total
+    # call count.
+    assert any("UPDATE adopciones SET" in c["query"] for c in captured)
 
 
 def test_update_adopcion_translates_409_to_adopcion_conflict_error() -> None:
@@ -607,6 +700,12 @@ def test_update_adopcion_translates_409_to_adopcion_conflict_error() -> None:
     """
 
     def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
+        # LIFECYCLE-02 (issue #32): update_adopcion issues a
+        # ``get_adopcion_by_id`` BEFORE the UPDATE; answer it with
+        # the standard ``_row()`` so the prior-state lookup does not
+        # blow up.
+        if "FROM adopciones" in body["query"] and "WHERE id = $1" in body["query"]:
+            return _json_response(200, [_row()])
         if "UPDATE adopciones SET" in body["query"]:
             return _json_response(
                 409,
