@@ -19,9 +19,9 @@ Estructura hub-and-spoke. Esta página es el hub; las páginas radiales viven en
 | Fase 0 — Infraestructura y CI/CD | cerrado | aroman | [fase-0-infra-cicd.md](roadmap/fase-0-infra-cicd.md) |
 | Fase 1 — Esqueleto de la aplicación web | cerrado (#17) | aroman | [fase-1-esqueleto.md](roadmap/fase-1-esqueleto.md) |
 | Fase 2 — Autenticación y autorización | cerrado (#16) | aroman | [fase-2-auth-allowlist.md](roadmap/fase-2-auth-allowlist.md) |
-| Fase 3 — Modelo de dominio limpio | en curso (#26) | aroman | [fase-3-modelo-dominio.md](roadmap/fase-3-modelo-dominio.md) |
+| Fase 3 — Modelo de dominio limpio | cerrado | aroman | [fase-3-modelo-dominio.md](roadmap/fase-3-modelo-dominio.md) |
 | Fase 4 — Entidad Animal (Feature 01) | pendiente | aroman | [fase-4-animal-crud.md](roadmap/fase-4-animal-crud.md) |
-| Fase 5 — Voluntarios + Entradas + Acogidas + Adopciones (Feature 02) | en curso | aroman | [fase-5-flujos-operativos.md](roadmap/fase-5-flujos-operativos.md) |
+| Fase 5 — Voluntarios + Entradas + Acogidas + Adopciones (Feature 02) | cerrado | aroman | [fase-5-flujos-operativos.md](roadmap/fase-5-flujos-operativos.md) |
 | Fase 6 — Salud, Terapias e Inventario de Material (Feature 03) | pendiente | aroman | [fase-6-salud-terapias-material.md](roadmap/fase-6-salud-terapias-material.md) |
 | Fase 7 — Documentos, Contratos, Informes y Consultas (Feature 04) | pendiente | aroman | [fase-7-documentos-contratos-informes.md](roadmap/fase-7-documentos-contratos-informes.md) |
 
@@ -42,11 +42,12 @@ Las capacidades que cruzan varias fases viven en [`transversales.md`](roadmap/tr
 
 | SHA | Title | PR |
 |---|---|---|
-| ada7f8f | docs(adr): apply §14 ADR recipe to architectural decisions | #566 |
-| 4d8e3ae | chore(agents): replace skill paths with `~/.config/opencode/skills/` | — |
-| 91ec51e | docs(ops): apply §13 anatomy to 6 operational docs | #565 |
-| 3fedc27 | docs(readme): audit README to alan-style (363→99 lines, no dup with DOCS.md) | #564 |
-| afb12fe | docs(agents): slim AGENTS.md from 1060 to 111 lines via radial docs structure | #563 |
+| d5fb075 | refactor(animals): retire legacy record_event alias from app.modules.animals (merge resolution) | — |
+| 9a8b6f5 | feat(lifecycle): wire state cache composition into event emitters (LIFECYCLE-03 PR-B+PR-C) | — |
+| 8444234 | chore: lower mutation-sites baseline for Python 3.12 runner | — |
+| 8ce7fe8 | fix: templates use lowercase dataclass field names + remove obsolete helpers | — |
+| 36ea71a | fix: remove voluntarios.routes.get_insforge_client_dep monkeypatch from CSRF test | — |
+| b9ee41c | Merge PR #627 `feat(epic #420): voluntarios hexagonal + lifecycle events + E2E plan` | #627 |
 
 ## Cuándo ir al legacy directamente
 

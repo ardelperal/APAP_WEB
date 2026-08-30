@@ -2,11 +2,11 @@
 
 # Fase 3 — Modelo de dominio limpio
 
-Esta página posee el estado de la Fase 3: tablas `animals`, `volunteers`, `authorized_users` y la tabla mínima de anexos, sin UI de producto todavía. Fase en curso. Bloquea Fases 4–7.
+Esta página posee el estado de la Fase 3: tablas `animals`, `volunteers`, `authorized_users` y la tabla mínima de anexos, sin UI de producto todavía. Fase cerrada. Las capacidades bloqueantes (animal_current_state, animal_event_log con composition) mergeadas en PR #627.
 
 ## Estado
 
-en curso — `usuarios_autorizados` cerrado (#25). `animals`, `volunteers`, `volunteer_roles` cerrados (#26). Pendiente: `animal_event_log` (con CRUD en Fase 4) y `attachments` (con bucket de Storage en Fase 7).
+cerrado — `usuarios_autorizados` (#25), `animals`/`voluntarios` (#26), `animal_current_state` (#69, #620) y `animal_event_log` (LIFECYCLE-02 #32 + PR #627 composition) todos cerrados. Pendiente: `attachments` (con bucket de Storage en Fase 7).
 
 ## Slices
 
@@ -14,16 +14,18 @@ en curso — `usuarios_autorizados` cerrado (#25). `animals`, `volunteers`, `vol
 |---|---|---|
 | Tabla `usuarios_autorizados` + seed bootstrap | cerrado | #25 |
 | Tablas `animals`, `volunteers`, `volunteer_roles` | cerrado | #26 |
-| Tabla `animal_event_log` | pendiente (con CRUD en Fase 4) | — |
+| `animal_current_state` cache materializado + columnas auxiliares | cerrado | #69 (4bd4768 + 4d9ce7b aux columns, PR #363 + PR #620) |
+| Tabla `animal_event_log` (schema) | cerrado | LIFECYCLE-02 #32 (f041275) |
+| Tabla `animal_event_log` (composition en services) | cerrado | LIFECYCLE-02 #32 + PR #627 (acogidas y adopciones emiten `FOSTER_STARTED`/`ADOPTION_STARTED` + `actualizar_estado_animal`; entradas no necesita — es INTAKE, no placement) |
 | Tabla `attachments` (bucket Storage) | pendiente (con anexos en Fase 7) | — |
 
 ## Issues abiertas relacionadas
 
-- #33 state resolver (`DameSituacion()` legacy replication) — pendiente.
-- #35–#38 VOL-02..05 (roles_voluntario junction, deduplicación, FK free-text → estructurada, active validation).
-- #46 FOSTER-04 material assignment (depende de Fase 5).
-- #49 ADOPT-03 4-state follow-up state machine.
-- #69 cache materializado `estado_actual_animal`.
+- #33 state resolver (`DameSituacion()` legacy replication) — domain cerrado + DI + SQL + use cases; composition para placements (acogidas/adopciones) mergeada en PR #627. Entradas no necesita composition (INTAKE, no placement).
+- #35–#38 VOL-02..05 — ver [`fase-5-flujos-operativos.md`](fase-5-flujos-operativos.md) (todas cerradas).
+- #46 FOSTER-04 material assignment — cerrado (#46, c1b73f3 + b490e2c, PR #170 + #171); ver [`fase-5-flujos-operativos.md`](fase-5-flujos-operativos.md).
+- #49 ADOPT-03 4-state follow-up state machine — cerrado (#49, 96ec631); ver [`fase-5-flujos-operativos.md`](fase-5-flujos-operativos.md).
+- #69 cache materializado `estado_actual_animal` — cerrado (#69, 4bd4768, PR #363; columnas auxiliares en 4d9ce7b / PR #620).
 
 ## Issues pendientes de crear
 

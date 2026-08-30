@@ -6,31 +6,28 @@ Esta página posee el estado de la Fase 5: flujos operativos centrales con asist
 
 ## Estado
 
-en curso — Fases 5a INTAKE y 5b FOSTER cerradas; Fases 5c ADOPT y 5d VOL en curso.
+cerrado — Fase 5 completa. Todas las sub-fases 5a/5b/5c/5d cerradas sobre main. El epic #420 hexagonal (VOL-02..05 + LIFECYCLE-02) mergeado con PR #627.
 
 ## Slices
 
 | Sub-fase | Slice | Estado | Issue / PR |
 |---|---|---|---|
 | 5a INTAKE | Alta / edición / listado de entradas individuales | cerrado | #87, #88, #89 |
-| 5a INTAKE | Entradas múltiples transaccional | en curso | `openspec/changes/intake-batch-entradas-transaccional/` |
+| 5a INTAKE | Entradas múltiples transaccional (INTAKE-02) | cerrado | #40 (c7b69ec) |
 | 5b FOSTER | `app/modules/foster/` (assignment + routes + service) | cerrado | ver `app/modules/foster/README.md` |
-| 5b FOSTER | `feat(foster) override→estancia atomicity` | pendiente (follow-up) | #142 |
-| 5b FOSTER | FOSTER-04 material assignment | pendiente | #46 |
+| 5b FOSTER | `feat(foster) override→estancia atomicity` | cerrado | #142 (2bbcfa3 + 28d04e9 follow-up, PR #155) |
+| 5b FOSTER | FOSTER-04 material assignment | cerrado | #46 (c1b73f3 catalog + b490e2c junction, PR #170 + #171) |
 | 5c ADOPT | ADOPT-01..02 (alta y edición de adopción) | cerrado | ver `app/modules/adopciones/` |
-| 5c ADOPT | ADOPT-03 4-state follow-up state machine | pendiente | #49 |
+| 5c ADOPT | ADOPT-03 4-state follow-up state machine | cerrado | #49 (96ec631) |
 | 5d VOL | VOL-01 modelo base de voluntarios | cerrado | #26 |
-| 5d VOL | VOL-02..05 roles_voluntario junction + dedup + FK + active validation | pendiente | #35, #36, #37, #38 |
+| 5d VOL | VOL-02 roles_voluntario junction (assign/remove use cases) | cerrado | #35 (epic #420 PR-A hexagonal, PR #627) |
+| 5d VOL | VOL-03 fuzzy dedup pipeline | cerrado | #36 (d322e7d, PR #321) |
+| 5d VOL | VOL-04 FK free-text → estructurada (migration) | cerrado | #37 (cd56ba4) |
+| 5d VOL | VOL-05 active validation gate (entradas / acogidas / adopciones) | cerrado | #38 (gate `activo = true` aplicado en `entradas/queries.py`, `acogidas/queries.py` y `adopciones/queries.py` como parte de #44/#47) |
 
 ## Issues abiertas relacionadas
 
-- #35 VOL-02 roles_voluntario junction table.
-- #36 VOL-03 pipeline de deduplicación fuzzy.
-- #37 VOL-04 migración FK free-text → FK estructurada.
-- #38 VOL-05 active validation gate.
-- #46 FOSTER-04 material assignment.
-- #49 ADOPT-03 4-state follow-up state machine.
-- #142 feat(foster) override→estancia atomicity (follow-up).
+Ninguna — todas las issues de Fase 5 están cerradas y reflejadas en la tabla de slices con SHA + PR.
 
 ## Decisiones relacionadas
 
