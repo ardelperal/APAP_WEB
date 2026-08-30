@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import inspect
 from importlib import import_module
-from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -12,7 +11,9 @@ from fastapi import HTTPException
 from starlette.responses import Response
 
 from app.modules.animals import routes as animal_routes
-from app.modules.voluntarios import routes as voluntario_routes
+from app.modules.voluntarios import (
+    routes as voluntario_routes,  # noqa: F401  (used in ROUTE_MODULES below)
+)
 
 ROUTE_MODULES = (
     "app.modules.acogidas.routes",
