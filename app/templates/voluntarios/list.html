@@ -26,10 +26,10 @@
       <tbody>
         {% for vol in voluntarios %}
         <tr class="border-b border-border last:border-b-0 hover:bg-primary/5 transition-colors">
-          <td class="px-6 py-4 whitespace-nowrap font-semibold text-text">{{ vol.Voluntario }}</td>
-          <td class="px-6 py-4 whitespace-nowrap text-text-muted">{{ vol.Email or "—" }}</td>
-          <td class="px-6 py-4 whitespace-nowrap text-text-muted">{{ vol.Tel1 or "—" }}</td>
-          <td class="px-6 py-4 whitespace-nowrap text-text-muted">{{ vol.DNI or "—" }}</td>
+          <td class="px-6 py-4 whitespace-nowrap font-semibold text-text">{{ vol.voluntario }}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-text-muted">{{ vol.email or "—" }}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-text-muted">{{ vol.tel1 or "—" }}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-text-muted">{{ vol.dni or "—" }}</td>
           <td class="px-6 py-4 whitespace-nowrap text-right">
             <a href="/voluntarios/{{ vol.id }}" class="text-primary font-semibold hover:underline">Ver</a>
           </td>

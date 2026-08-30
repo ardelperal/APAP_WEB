@@ -114,11 +114,11 @@ class _XssInsForge(InsForgeClient):
         self.list_voluntarios_rows: list[dict[str, object]] = [
             {
                 "id": "v-1",
-                "Voluntario": XSS_SCRIPT,
-                "Email": XSS_IMG,
-                "DNI": XSS_SVG,
-                "Tel1": XSS_URL,
-                "Tel2": None,
+                "voluntario": XSS_SCRIPT,
+                "email": XSS_IMG,
+                "dni": XSS_SVG,
+                "tel1": XSS_URL,
+                "tel2": None,
                 "fecha_alta": "2024-01-01",
                 "activo": True,
             }

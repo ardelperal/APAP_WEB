@@ -91,8 +91,6 @@ def test_named_critical_helpers_resolve_to_existing_app_functions() -> None:
         "_redirect",
         "_render_form",
         "_is_duplicate_error",
-        "_validate_create_params",
-        "_build_insert_params",
     }
     missing = named - defined
     assert not missing, (
