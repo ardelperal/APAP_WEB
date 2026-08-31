@@ -153,6 +153,19 @@ jobs:
         # test_ci_workflow_lint_job_runs_layers_gate.
         run: python scripts/check_layers.py
 
+      - name: Run test-classification ratchet (AGENTS.md apap-testing-strategy)
+        # Issue #631 -- companion to the audit docs/quality/test-audit.md
+        # (2026-08-31). Removing this step is a blocked change. Every domain
+        # whose unit tests mock SQL via httpx.MockTransport must have a
+        # matching tests/integration/test_<module>_queries_integration.py
+        # when the flow involves FK enforcement, triggers, CTE rollback, or
+        # ON CONFLICT semantics. Three P0 gaps (cesiones, entradas, auth)
+        # live in a shrink-only BASELINE inside the script; landing the
+        # matching integration file removes the entry. Pinned by
+        # tests/test_check_test_classification.py::
+        # test_ci_workflow_lint_job_runs_check_test_classification.
+        run: python scripts/check_test_classification.py
+
       - name: Run slice-completeness gate (AGENTS.md rule 33 + hardening Step 2)
         # Issue #420 (epic) / hardening roadmap Step 2 — removing this
         # step is a blocked change. Sister of check_layers.py above: that

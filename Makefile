@@ -23,7 +23,7 @@ TAILWIND_OUTPUT ?= app/static/css/output.css
         check-slice-completeness check-migration-boundaries \
         check-docstring-coverage check-complexity check-ruff-ratchet \
         check-vulture-guard check-jscpd check-mutation-sites \
-        check-import-cycles check-workflows check-crap \
+        check-import-cycles check-workflows check-test-classification check-crap \
         quality-report \
         mutation build all clean css css-watch serve run
 
@@ -160,6 +160,14 @@ check-import-cycles:
 check-workflows:
 	$(PYTHON) scripts/check_workflows.py
 
+# check-test-classification -- issue #631. Companion to the test audit
+# docs/quality/test-audit.md (2026-08-31). Every domain whose unit tests
+# mock SQL via httpx.MockTransport must have a matching
+# tests/integration/test_<module>_queries_integration.py when the flow
+# involves FK enforcement, triggers, CTE rollback, or ON CONFLICT.
+check-test-classification:
+	$(PYTHON) scripts/check_test_classification.py
+
 # check-crap — runs in the CI `test` job, not `lint`: the CRAP score is
 # a function of complexity AND coverage, so it needs coverage.json from
 # the pytest run above it. Depends on test-ci for exactly that reason.
@@ -197,7 +205,7 @@ test-ci:
 #
 # Pinned by tests/test_ci_workflow.py::test_make_verify_covers_every_ci_gate.
 verify: lint check-rules check-alantyle check-module-size check-route-size check-layers \
-        check-slice-completeness check-migration-boundaries \
+        check-test-classification check-slice-completeness check-migration-boundaries \
         check-docstring-coverage check-complexity check-ruff-ratchet \
         check-vulture-guard check-jscpd check-mutation-sites \
         check-import-cycles check-workflows typecheck check-crap quality-report

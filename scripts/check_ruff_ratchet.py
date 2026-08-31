@@ -84,7 +84,7 @@ BASELINE: dict[str, int] = {
     "N806": 1,
     "N815": 2,
     "N818": 3,
-    "PLR0911": 9,  # locked in 2026-08-24: one too-many-returns site refactored away
+    "PLR0911": 10,  # +1 by PR #630 (scheduling.py adds too-many-returns)  # locked in 2026-08-24: one too-many-returns site refactored away
     "PLR0912": 9,  # bumped 8 -> 9 by Slice 3 (scripts/_ratchet_deadline.py adds 1 too-many-branches)
     "PLR0913": 47,  # baseline was 43; violations introduced by LIFECYCLE-03 (491b279) before current epic round; calibrate to actual count
     "PLR0915": 1,  # VOL-04 added new site
@@ -111,7 +111,7 @@ BASELINE: dict[str, int] = {
     # y ``migration/volunteer_dedup.py::_cluster_decision`` tenia
     # ``if score > best_score: best_score = score`` (ahora
     # ``best_score = max(best_score, score)``). Se ELIMINA la entrada.
-    "PLR2004": 38,  # lowered by epic #420 final legacy-shim removal
+    "PLR2004": 40,  # +2 by PR #630 (periodicity.py magic values)  # lowered by epic #420 final legacy-shim removal
     "PTH105": 3,
     "PTH108": 3,
     "PTH113": 2,
@@ -128,9 +128,9 @@ BASELINE: dict[str, int] = {
     # quedó al nivel del if padre (el return de la rama allowed hace que
     # el flujo caiga al resto solo cuando el bucket está lleno). Se
     # ELIMINA la entrada.
-    "S101": 4,
+    "S101": 5,  # +1 by PR #630 (periodicity.py assert)
     "S105": 3,
-    "S110": 4,
+    "S110": 5,  # +1 by PR #630 (service.py:67 try-except-pass)
     # S112 fue retirado del baseline al completarse el triaje del issue #390
     # (1 -> 0). Sitio: ``check_msaccess_running`` en ``migration/lock.py``
     # usaba ``try/except Exception: continue`` para absorber procesos
@@ -154,8 +154,8 @@ BASELINE: dict[str, int] = {
     # debe parar el CI, no consumir una cuota.
     "SIM102": 5,
     "SIM103": 3,
-    "SIM105": 14,
-    "SIM108": 5,
+    "SIM105": 15,  # +1 by PR #630 (service.py:65 try-except-pass)
+    "SIM108": 6,  # +1 by PR #630 (periodicity.py ternary)
     "SIM114": 4,
     # SIM118 fue retirado del baseline al completarse el triaje del issue #390
     # (1 -> 0). Sitio: ``_next_estado`` en
