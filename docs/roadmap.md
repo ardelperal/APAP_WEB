@@ -42,11 +42,11 @@ Las capacidades que cruzan varias fases viven en [`transversales.md`](roadmap/tr
 
 | SHA | Title | PR |
 |---|---|---|
-| 215fe2c | test(integration): entradas batch CTE rollback against real Postgres | #632 |
-| a36b78c | chore(quality): test-classification audit + apap-testing-strategy ratchet | #631 |
-| f0e0b81 | docs(roadmap): HEALTH-05 marked closed (PR #630) | — |
-| eb3880e | feat(sanidad): HEALTH-05 periodicity engine | #630 |
-| 57b2d18 | test(e2e): Fase 6 E2E battery batch 1 (21 tests) | #629 |
+| f915298 | test(integration): animal_lifecycle_events append-only trigger | #636 |
+| 2a3f5ef | test(integration): chip cascade transaction lifecycle | #635 |
+| 3593903 | test(integration): auth revalidation against real Postgres | #634 |
+| dd984ad | test(integration): cesiones UNIQUE+FK conflict resolution | #633 |
+| 215fe2c | test(integration): entradas batch CTE rollback | #632 |
 
 ## Cuándo ir al legacy directamente
 
