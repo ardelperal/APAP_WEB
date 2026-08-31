@@ -1,0 +1,9 @@
+# Ignore operator-provided artifacts by default.
+frontend/*
+backend/*
+
+# Preserve the directory placeholders and the two explicitly approved binaries.
+!frontend/.gitkeep
+!backend/.gitkeep
+!frontend/APAP_Alcala.accdb
+!backend/Registro_APAP_Alcala_datos_18.accdb
