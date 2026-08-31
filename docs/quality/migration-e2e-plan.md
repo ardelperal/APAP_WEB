@@ -1,7 +1,9 @@
-# Migration E2E Test Plan — Real .accdb + Real Postgres
+# Migration E2E Test Plan — Real .accdb + Real backend
 
 > Plan de testing E2E para el path crítico de migration bidireccional. Source of truth del plan de testing; el issue #637 es el tracker.
 > Generado 2026-08-31 tras el user directive: "la herramienta tiene que tener la capacidad de pasar los datos de una base de datos a otra en cualquier momento ... IMPORTANTÍSIMO".
+>
+> **Actualizado 2026-08-31**: el approach se ajustó — el fixture ES el .accdb backend real del operador (no un sintético). El backend de destino es el backend real del operador (InsForge en CI, Postgres local como fallback). Ver §"Decisión revisada" abajo.
 
 ## Contexto y motivación
 
