@@ -342,7 +342,7 @@ After reading ~25 representative files, **no obvious source of non-determinism**
 1. ✅ `tests/integration/test_auth_queries_integration.py` — landed 2026-08-31 via PR closing #634. Four atoms: active user revalidation, post-deactivation revalidation (None), case-insensitive email, missing user. The cookie + DB revalidation path now has a real-Postgres atom alongside the unit-test mock.
 2. `tests/integration/test_lifecycle_append_only_trigger.py` — assert UPDATE on `animal_lifecycle_events` rejected.
 3. ✅ `tests/integration/test_entradas_queries_integration.py` — landed 2026-08-31 via PR closing #632. Three atoms: UNIQUE rollback (entrada pre-existing collides with staged row), FK rollback (ghost animal_id), happy-path control.
-4. `tests/integration/test_chip_cascade_integration.py` — assert chip-cascade UPDATE fires against real rows.
+4. ✅ `tests/integration/test_chip_cascade_integration.py` — landed 2026-08-31 via PR closing #635. Three atoms: atomic rollback on failure, atomic commit when all succeed, drift documented. The atom surfaces a real schema/SQL drift — the production cascade's first UPDATE references ``"NCHIP"`` (uppercase quoted) but the schema has ``nchip`` (lowercase); the other five UPDATEs target a ``chip`` column that does not exist on any of the five target tables. The cascade as-shipped is silent dead code today.
 
 **P1** (operational risk):
 5. `tests/e2e/test_rate_limit_concurrent.py` — concurrent burst against `/animales/search`.
