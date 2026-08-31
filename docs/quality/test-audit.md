@@ -341,7 +341,7 @@ After reading ~25 representative files, **no obvious source of non-determinism**
 **P0** (security / data integrity):
 1. `tests/integration/test_auth_revalidation_integration.py` — real DB + real session cookie + real CSRF token; assert deactivate path 302s.
 2. `tests/integration/test_lifecycle_append_only_trigger.py` — assert UPDATE on `animal_lifecycle_events` rejected.
-3. `tests/integration/test_entradas_queries_integration.py::test_batch_rollback_on_midway_unique_violation`.
+3. ✅ `tests/integration/test_entradas_queries_integration.py` — landed 2026-08-31 via PR closing #632. Three atoms: UNIQUE rollback (entrada pre-existing collides with staged row), FK rollback (ghost animal_id), happy-path control.
 4. `tests/integration/test_chip_cascade_integration.py` — assert chip-cascade UPDATE fires against real rows.
 
 **P1** (operational risk):

@@ -89,12 +89,6 @@ BASELINE: dict[str, str] = {
         "UniqueViolationError is not asserted. See docs/quality/test-audit.md "
         "§Critical-gaps point 4."
     ),
-    "entradas": (
-        "Batch CTE commit/cancel staging is the most transactional flow in the "
-        "system. Verified only against httpx.MockTransport with a staged error "
-        "handler — the real Postgres rollback semantics are not asserted. See "
-        "docs/quality/test-audit.md §Critical-gaps point 1."
-    ),
     "auth": (
         "Auth revalidation against real DB (issue #143 path) is mocked via "
         "auth_reval_rows. The cookie + DB revalidation end-to-end round-trip "
