@@ -13,11 +13,10 @@ the gate.
 
 Per ``docs/quality/test-audit.md`` (2026-08-31), the audit listed five
 P0 gaps: ``cesiones``, ``entradas``, ``auth``, ``chip_cascade``, and
-``animal_lifecycle_events``. After issues #632 and #633, the
-``entradas`` and ``cesiones`` gaps are closed (integration atoms
-landed; ratchet baseline shrunk). One module gap remains: ``auth``
-(#634). ``chip_cascade`` and ``lifecycle_events`` are cross-cutting
-concerns that the audit itself owns (the ratchet stays narrow).
+``animal_lifecycle_events``. After issues #632, #633, and #634, all
+three module gaps are closed (integration atoms landed; ratchet
+baseline shrunk to empty). ``chip_cascade`` and ``lifecycle_events``
+remain cross-cutting concerns that the audit itself owns.
 """
 
 from __future__ import annotations
@@ -197,36 +196,31 @@ def test_baselined_entry_disappears_once_integration_lands(tmp_path: Path) -> No
     lands, the notice for that module disappears — the gate signals the
     developer to remove the BASELINE entry in a follow-up PR.
 
-    As of the #633 / cesiones integration atom, the BASELINE is
-    ``{auth}``. Covering auth integration and asserting no notice
-    appears exercises the shrink-only contract.
+    As of the #634 / auth integration atom, the BASELINE is empty:
+    every in-scope module that the audit flagged is covered. The
+    assertion is therefore reduced to "no BASELINE entries remain to
+    validate against" — the test now exists primarily to lock in the
+    contract that any future BASELINE entry is required to be backed
+    by a real integration atom.
     """
     files = {
         "tests/__init__.py": "",
         "tests/integration/__init__.py": "",
-        # Provide coverage for everything EXCEPT the baselined modules.
+        # Provide coverage for every in-scope module.
     }
     in_scope = _load_checker().IN_SCOPE_DOMAINS
-    baselined = _load_checker().BASELINE
-    for module in sorted(in_scope - set(baselined)):
+    for module in sorted(in_scope):
         files[f"tests/integration/test_{module}_queries_integration.py"] = (
             f"# integration atom for {module}\n"
         )
-    # Now also provide auth integration. After this, no baselined
-    # module remains.
-    files["tests/integration/test_auth_queries_integration.py"] = (
-        "# integration atom for auth\n"
-    )
     _tree(tmp_path, files)
     checker = _load_checker()
     violations, notices = checker.check_tree(tmp_path)
     assert violations == []
-    # No baselined module remains.
-    for module in baselined:
-        assert all(module not in n for n in notices), (
-            f"BASELINE module {module} should not appear in notices once its "
-            f"integration file exists."
-        )
+    # No BASELINE entries exist; the BASELINE dict is empty.
+    assert checker.BASELINE == {} or all(
+        all(module not in n for n in notices) for module in checker.BASELINE
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -312,7 +312,7 @@ After reading ~25 representative files, **no obvious source of non-determinism**
 | `tests/test_entradas_batch.py` | `tests/integration/test_entradas_queries_integration.py::test_batch_rollback_on_midway_unique_violation` | CTE rollback unverifiable against fake |
 | `tests/test_acogidas_lifecycle_events.py`, `test_adopciones_lifecycle_events.py` | `tests/integration/test_lifecycle_append_only_trigger.py` | Append-only trigger never asserted |
 | `tests/test_chip_cascade.py` | `tests/integration/test_chip_cascade_integration.py` | FK cascade across multiple tables |
-| `tests/test_auth.py` deactivate path | `tests/integration/test_auth_revalidation_integration.py` | Real cookie + DB revalidation |
+| `tests/test_auth.py` deactivate path | `tests/integration/test_auth_queries_integration.py` (closed #634) | Real cookie + DB revalidation |
 | `tests/test_animales_insforge_adapter.py` chip cascade + photo | `tests/integration/test_animals_photo_bucket_invariant.py` | Bucket invariant at slice boundary |
 | `tests/test_cesiones.py` conflict path | `tests/integration/test_cesiones_queries_integration.py` (closed #633) | Real unique constraints |
 
@@ -339,7 +339,7 @@ After reading ~25 representative files, **no obvious source of non-determinism**
 ### 4. Add new tests (prioritized by criticality)
 
 **P0** (security / data integrity):
-1. `tests/integration/test_auth_revalidation_integration.py` — real DB + real session cookie + real CSRF token; assert deactivate path 302s.
+1. ✅ `tests/integration/test_auth_queries_integration.py` — landed 2026-08-31 via PR closing #634. Four atoms: active user revalidation, post-deactivation revalidation (None), case-insensitive email, missing user. The cookie + DB revalidation path now has a real-Postgres atom alongside the unit-test mock.
 2. `tests/integration/test_lifecycle_append_only_trigger.py` — assert UPDATE on `animal_lifecycle_events` rejected.
 3. ✅ `tests/integration/test_entradas_queries_integration.py` — landed 2026-08-31 via PR closing #632. Three atoms: UNIQUE rollback (entrada pre-existing collides with staged row), FK rollback (ghost animal_id), happy-path control.
 4. `tests/integration/test_chip_cascade_integration.py` — assert chip-cascade UPDATE fires against real rows.
