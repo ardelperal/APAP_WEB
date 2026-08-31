@@ -91,6 +91,7 @@ Si estás manteniendo o ampliando un test con `httpx.MockTransport` y **cualquie
 | El flujo es un batch con rollback parcial | El mock no simula el orden de ejecución de filas en una transacción. |
 | El flujo hace soft-delete cascade (UPDATE parent + ver columnas hijo) | El mock no propaga el cambio entre tablas. |
 | El flujo es auth revalidation contra DB (issue #143 path) | El mock puede fingir `auth_reval_rows` pero no verifica que el cookie + DB coincidan. |
+| **El flujo emite SQL con identificadores o columnas que el schema podría no tener (drift schema/SQL)** | El mock no verifica que la columna exista. Asume que el SQL es ejecutable y devuelve rows estáticos. Un `UPDATE` que referencia `"NCHIP"` (uppercase) en un schema que tiene `nchip` (lowercase) pasa el unit test porque el mock devuelve `[{'id': '...'}]`; en producción Postgres rechaza con `UndefinedColumn`. La auditoría 2026-08-31 descubrió este patrón con el chip cascade (issue #635): el wrapper de producción hace try/except + ROLLBACK y devuelve un failure genérico, ocultando que el cascade entero es dead code. |
 
 Si **ninguna** de estas condiciones se cumple, el mock es aceptable. No convertir por convertir.
 
