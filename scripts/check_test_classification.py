@@ -83,12 +83,6 @@ IN_SCOPE_DOMAINS: set[str] = {
 # The reason must cite docs/quality/test-audit.md so the BASELINE stays
 # traceable to its source of truth.
 BASELINE: dict[str, str] = {
-    "cesiones": (
-        "Conflict resolution (overlapping contratos, dual propietario) is exercised "
-        "only at the route layer with a spy. The CTE rollback against a real "
-        "UniqueViolationError is not asserted. See docs/quality/test-audit.md "
-        "§Critical-gaps point 4."
-    ),
     "auth": (
         "Auth revalidation against real DB (issue #143 path) is mocked via "
         "auth_reval_rows. The cookie + DB revalidation end-to-end round-trip "

@@ -261,7 +261,7 @@
 ### `cesiones` (`app/modules/cesiones/`)
 - **Covered by**: `test_cesiones.py`, `test_cesiones_adapter.py`, `test_cesiones_routes.py`, E2E `test_cesiones_crud.py` + `test_cesiones_conflicts.py` + `test_cesiones_auth.py`.
 - **Gaps**:
-  - **No `tests/integration/test_cesiones_queries_integration.py`**. Conflict resolution tested only at the route layer with a spy.
+  - **No `tests/integration/test_cesiones_queries_integration.py`**. Conflict resolution tested only at the route layer with a spy. ✅ Closed 2026-08-31 via PR closing #633. Three atoms landed against real Postgres: UNIQUE rollback on duplicate entrada, FK rollback on ghost entrada, happy-path control.
 
 ### `voluntarios` (`app/modules/voluntarios/`)
 - **Covered by**: ~12 `test_voluntarios_*.py` files (service, application, routes, roles, RBAC).
@@ -314,7 +314,7 @@ After reading ~25 representative files, **no obvious source of non-determinism**
 | `tests/test_chip_cascade.py` | `tests/integration/test_chip_cascade_integration.py` | FK cascade across multiple tables |
 | `tests/test_auth.py` deactivate path | `tests/integration/test_auth_revalidation_integration.py` | Real cookie + DB revalidation |
 | `tests/test_animales_insforge_adapter.py` chip cascade + photo | `tests/integration/test_animals_photo_bucket_invariant.py` | Bucket invariant at slice boundary |
-| `tests/test_cesiones.py` conflict path | `tests/integration/test_cesiones_queries_integration.py` (does not exist) | Real unique constraints |
+| `tests/test_cesiones.py` conflict path | `tests/integration/test_cesiones_queries_integration.py` (closed #633) | Real unique constraints |
 
 ### 2. Extend existing tests
 
