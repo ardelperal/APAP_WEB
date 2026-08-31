@@ -42,11 +42,11 @@ Las capacidades que cruzan varias fases viven en [`transversales.md`](roadmap/tr
 
 | SHA | Title | PR |
 |---|---|---|
+| a36b78c | chore(quality): test-classification audit + apap-testing-strategy ratchet | #631 |
+| f0e0b81 | docs(roadmap): HEALTH-05 marked closed (PR #630) | — |
+| eb3880e | feat(sanidad): HEALTH-05 periodicity engine | #630 |
 | 57b2d18 | test(e2e): Fase 6 E2E battery batch 1 (21 tests) | #629 |
 | 031e4a6 | feat(cesiones): hexagonal migration + E2E battery (12 tests) | #628 |
-| af04f4b | docs(roadmap): update recent activity after PR #628 | — |
-| 6bee0ab | docs(roadmap): close Fase 4 (hexagonal animals completed) | — |
-| f529b8f | docs(roadmap): close Fase 3 and Fase 5; update recent activity after PR #627 | — |
 
 ## Cuándo ir al legacy directamente
 
