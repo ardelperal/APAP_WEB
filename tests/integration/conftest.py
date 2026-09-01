@@ -402,6 +402,36 @@ def ephemeral_postgres() -> Iterator[_EphemeralPostgres]:
     EphemeralPostgres.teardown()
 
 
+@pytest.fixture
+def postgres_dsn() -> str:
+    """Expose the APAP_TEST_POSTGRES_DSN env var for tests that need
+    to build their own psycopg connection (rather than going through
+    the integration conftest's ``ephemeral_postgres`` wrapper).
+
+    M0 of the self-host-backend-coolify openspec (issue #641).
+    """
+    return os.environ["APAP_TEST_POSTGRES_DSN"]
+
+
+@pytest.fixture
+def schema_postgres_dsn(ephemeral_postgres) -> str:
+    """DSN that points at the same database the ephemeral schema lives in.
+
+    Tests that need to build their own psycopg connection (the
+    ``LocalPostgresExecutor`` does this) should use this DSN rather
+    than the global ``APAP_TEST_POSTGRES_DSN`` because the ephemeral
+    schema (``ephemeral_postgres.schema``) only exists on the same
+    Postgres instance the integration conftest provisioned.
+
+    The DSN is identical to ``APAP_TEST_POSTGRES_DSN`` but documented
+    here as a separate fixture so tests that need the schema can
+    request it explicitly.
+
+    M0 of the self-host-backend-coolify openspec (issue #641).
+    """
+    return os.environ["APAP_TEST_POSTGRES_DSN"]
+
+
 @pytest.fixture(autouse=True)
 def _truncate_between_tests(ephemeral_postgres: _EphemeralPostgres) -> None:
     """Wipe all data before each test for isolation under the session-scoped schema."""

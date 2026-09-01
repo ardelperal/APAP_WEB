@@ -143,7 +143,7 @@ def local_backend(self_host_schema):
         s3_endpoint="http://127.0.0.1:9000",
         port=port,
     )
-    base_url = f"http://127.0.0.1:{port}/api"
+    base_url = f"http://127.0.0.1:{port}"
     yield base_url
     server.should_exit = True
     thread.join(timeout=5)
@@ -244,8 +244,8 @@ def test_local_backend_storage_get_bucket(
     """
     # Bucket is auto-created at startup; this should return 200.
     with httpx.Client(base_url=local_backend, timeout=5) as c:
-        r = c.get("/api/storage/buckets/test-bucket")
+        r = c.get("/api/storage/buckets/apap-photos")
     assert r.status_code == 200
     body = r.json()
-    assert body["name"] == "test-bucket"
+    assert body["name"] == "apap-photos"
     assert body["isPublic"] is False
