@@ -149,6 +149,10 @@ class ColumnMapping(BaseModel):
         "default_now",
         "default_uuid",
         "default_true",
+        "nullify_empty_string",
+        "normalize_sexo",
+        "normalize_especie",
+        "normalize_si_no",
     ] = "identity"
     nullable: bool = True
     lookup: str | None = None  # nombre del fk_lookup (transform=fk_lookup)

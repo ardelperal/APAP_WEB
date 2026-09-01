@@ -27,28 +27,28 @@ columns:
 # Postgres trata los identificadores sin quotes como lowercase
 # aplastado, no como snake_case (issue #638).
   - { web_column: NCHIP, legacy_column: NCHIP, transform: identity, nullable: false }
-  - { web_column: TraeNChip, legacy_column: TraeNChip, transform: identity, nullable: true }
-  - { web_column: FIMPLANTACIONCHIP, legacy_column: FIMPLANTACIONCHIP, transform: identity, nullable: true }
+  - { web_column: TraeNChip, legacy_column: TraeNChip, transform: normalize_si_no, nullable: true }
+  - { web_column: FIMPLANTACIONCHIP, legacy_column: FIMPLANTACIONCHIP, transform: nullify_empty_string, nullable: true }
   - { web_column: NombreAnimal, legacy_column: NombreAnimal, transform: identity, nullable: false }
-  - { web_column: Especie, legacy_column: Especie, transform: identity, nullable: false }
-  - { web_column: Sexo, legacy_column: Sexo, transform: identity, nullable: false }
+  - { web_column: Especie, legacy_column: Especie, transform: normalize_especie, nullable: false }
+  - { web_column: Sexo, legacy_column: Sexo, transform: normalize_sexo, nullable: false }
   - { web_column: Raza, legacy_column: Raza, transform: identity, nullable: true }
   - { web_column: Color, legacy_column: Color, transform: identity, nullable: true }
   - { web_column: Pelo, legacy_column: Pelo, transform: identity, nullable: true }
   - { web_column: Tamano, legacy_column: Tamanyos, transform: identity, nullable: true }
   - { web_column: Caracter, legacy_column: Caracter, transform: identity, nullable: true }
-  - { web_column: FNacimiento, legacy_column: FNacimiento, transform: identity, nullable: false }
-  - { web_column: FDefuncion, legacy_column: FDefuncion, transform: identity, nullable: true }
-  - { web_column: Terapia, legacy_column: Terapia, transform: identity, nullable: true }
+  - { web_column: FNacimiento, legacy_column: FNacimiento, transform: nullify_empty_string, nullable: false }
+  - { web_column: FDefuncion, legacy_column: FDefuncion, transform: nullify_empty_string, nullable: true }
+  - { web_column: Terapia, legacy_column: Terapia, transform: normalize_si_no, nullable: true }
   - { web_column: Observaciones, legacy_column: Observaciones, transform: identity, nullable: true }
   - { web_column: NombreFoto, legacy_column: NombreFoto, transform: identity, nullable: true }
-  - { web_column: Cartilla, legacy_column: Cartilla, transform: identity, nullable: true }
-  - { web_column: Eutanasia, legacy_column: Eutanasia, transform: identity, nullable: true }
-  - { web_column: RazaPPP, legacy_column: RazaPPP, transform: identity, nullable: true }
-  - { web_column: Mestizo, legacy_column: Mestizo, transform: identity, nullable: true }
-  - { web_column: eutanasia_otras_causas, legacy_column: EutanasiaOtrasCausas, transform: identity, nullable: true }
-  - { web_column: eutanasia_enfermedad, legacy_column: EutanasiaEnfermedad, transform: identity, nullable: true }
-  - { web_column: ultimo_estado_antes_de_fallecido, legacy_column: UltimoEstadoAntesDeFallecido, transform: identity, nullable: true }
+  - { web_column: Cartilla, legacy_column: Cartilla, transform: normalize_si_no, nullable: true }
+  - { web_column: Eutanasia, legacy_column: Eutanasia, transform: normalize_si_no, nullable: true }
+  - { web_column: RazaPPP, legacy_column: RazaPPP, transform: normalize_si_no, nullable: true }
+  - { web_column: Mestizo, legacy_column: Mestizo, transform: normalize_si_no, nullable: true }
+  - { web_column: eutanasia_otras_causas, legacy_column: EutanasiaOtrasCausas, transform: nullify_empty_string, nullable: true }
+  - { web_column: eutanasia_enfermedad, legacy_column: EutanasiaEnfermedad, transform: nullify_empty_string, nullable: true }
+  - { web_column: ultimo_estado_antes_de_fallecido, legacy_column: UltimoEstadoAntesDeFallecido, transform: nullify_empty_string, nullable: true }
   - { web_column: comunicacionariac, legacy_column: ComunicacionARIAC, transform: identity, nullable: true }
 
   # --- Web-only (greenfield) ---
