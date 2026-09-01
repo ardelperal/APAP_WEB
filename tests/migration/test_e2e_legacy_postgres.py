@@ -395,14 +395,6 @@ def test_e2e_apply_legacy_to_web_idempotent(
 
 
 @pytest.mark.integration
-@pytest.mark.xfail(
-    reason=(
-        "Reverse path apply_web_to_legacy is in openspec PR6 (live-data-migration-sandbox) "
-        "but not yet implemented. The test exercises the contract end-to-end. "
-        "When PR6 lands, remove the xfail marker and re-run; the test should pass."
-    ),
-    strict=False,
-)
 def test_e2e_round_trip_preserves_natural_key(
     backend_client: InsForgeLike,
     legacy_copy: Path,
@@ -418,12 +410,13 @@ def test_e2e_round_trip_preserves_natural_key(
     copy of the legacy) must contain the same NCHIPs.
 
     This atom is the closure of the audit P0 cross-cutting gap
-    (M2 fallback-ready gate). It is currently xfail because
-    ``apply_web_to_legacy`` is in PR6 (live-data-migration-sandbox)
-    and not yet landed in the repo. When the reverse path lands,
-    remove the xfail marker and re-run.
+    (M2 fallback-ready gate). The reverse path is in
+    ``migration.apply_reverse`` (the post-PR6 shim). With the
+    value transforms landed in #639 the round-trip is end-to-end
+    green against real Postgres + real .accdb.
     """
     from migration import apply as apply_mod
+    from migration.apply_reverse import apply_web_to_legacy
 
     # Forward: legacy -> web
     apply_mod.apply_legacy_to_web(
@@ -432,12 +425,13 @@ def test_e2e_round_trip_preserves_natural_key(
         legacy_path=str(legacy_copy),
     )
 
-    # Reverse: web -> legacy. The reverse path is PR6/M2; for the
-    # purpose of this atom, the contract is "all NCHIPs from the
-    # web side are written back to a separate .accdb".
+    # Reverse: web -> legacy. PR6 (live-data-migration-sandbox)
+    # landed ``apply_web_to_legacy`` as a thin shim; the orchestrator
+    # lives in ``migration.reverse_apply.orchestrator``. With the
+    # value transforms from #639 the round-trip is end-to-end green.
     legacy_dest = legacy_copy.parent / "legacy_dest.accdb"
     shutil.copy2(legacy_copy, legacy_dest)
-    apply_mod.apply_web_to_legacy(
+    apply_web_to_legacy(
         client=backend_client,
         table_name="animal",
         legacy_path=str(legacy_dest),
