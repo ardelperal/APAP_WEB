@@ -236,6 +236,41 @@ def build_parser() -> argparse.ArgumentParser:
         help="Read bucket state without creating a missing bucket.",
     )
 
+    # --- verify-fallback-ready --------------------------------------
+    # PR7 (issue #637, openspec live-data-migration-sandbox): the
+    # M2 fallback-ready gate. Closes the migration openspec; the
+    # gate is the operator's CI-clean signal that the bidirectional
+    # migration is ready for production. ``--ci-only`` runs the
+    # CI-runnable subset (round-trip test + PII audit + reverse
+    # dry-run); the full mode adds the operator-attested signature
+    # check. The dispatcher in main() routes to the standalone
+    # ``migration.cli_verify_fallback_ready.main`` so the gate logic
+    # lives in one place and the project CLI does not need to
+    # import migration.verify_fallback_ready directly.
+    verify_fb = sub.add_parser(
+        "verify-fallback-ready",
+        help=(
+            "Verify the M2 fallback-ready gate. Exits 0 when every "
+            "required check passes; otherwise exits 1 with "
+            "missing_ci_condition=<name> on stderr."
+        ),
+        description=(
+            "The M2 fallback-ready gate (PR7). The CI subset "
+            "(--ci-only) is wired into .github/workflows/ci.yml; "
+            "the full mode (no flag) is invoked by the operator "
+            "before claiming the M2 milestone."
+        ),
+    )
+    verify_fb.add_argument(
+        "--ci-only",
+        dest="ci_only",
+        action="store_true",
+        help=(
+            "Run only CI-runnable checks (no operator attestation "
+            "required). This is the mode the CI job uses."
+        ),
+    )
+
     return parser
 
 
@@ -670,6 +705,15 @@ def main(
             return run_status(args, web_client=web_client, stream=stream)
         if args.command == "ensure-bucket":
             return run_ensure_bucket(args, web_client=web_client, stream=stream)
+        if args.command == "verify-fallback-ready":
+            # Dispatch to the standalone entry point so the gate
+            # logic lives in one place (migration.verify_fallback_ready).
+            # The project CLI does not import that module directly
+            # to keep the test surface tight; the standalone
+            # module is the public face of the gate.
+            from migration.cli_verify_fallback_ready import main as _vfb_main
+            vfb_argv = ["--ci-only"] if args.ci_only else []
+            return _vfb_main(vfb_argv)
     finally:
         if owned_web_client is not None:
             owned_web_client.close()
