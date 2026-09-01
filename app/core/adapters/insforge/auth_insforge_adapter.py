@@ -164,3 +164,38 @@ class InsForgeAuthUsersAdapter:
             _CHECK_OTHER_DEVELOPERS_SQL, [exclude_user_id]
         )
         return bool(rows and rows[0].get("exists"))
+
+    # --- M1 backward-compat defaults (issue #641) -----------------
+    # Classic password auth is not supported by InsForge. The
+    # M1 local adapter (ClassicPasswordAuthPort) overrides
+    # these; the InsForge adapter is the fallback when
+    # APAP_LOCAL_BACKEND is false. The defaults keep the
+    # endpoint contract clean: a user without a password cannot
+    # log in via classic auth (None), and setting a password on
+    # InsForge is unsupported (raises).
+
+    def verify_password(
+        self, email: str, password: str
+    ) -> AuthorizedUser | None:
+        """InsForge has no password store. Always returns None.
+
+        The caller (the login endpoint) must NOT distinguish this
+        from "wrong password" — both yield None and the endpoint
+        responds with the same generic error to prevent email
+        enumeration.
+        """
+        return None
+
+    def set_password(self, email: str, password: str) -> None:
+        """InsForge cannot store password hashes. Always raises.
+
+        The login endpoint must not reach this path for InsForge
+        deployments because the local adapter is wired in when
+        APAP_LOCAL_BACKEND=true (and InsForge is not). The raise
+        is a defensive guard: if a future code path wires the
+        wrong adapter, the failure is loud.
+        """
+        raise NotImplementedError(
+            "InsForge adapter cannot set_password; configure "
+            "APAP_LOCAL_BACKEND=true to use the local adapter."
+        )
