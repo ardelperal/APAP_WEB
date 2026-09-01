@@ -20,6 +20,7 @@ tests can use ``httpx.MockTransport`` without hitting the network.
 """
 
 from __future__ import annotations
+import os
 
 import json
 import re
@@ -73,6 +74,16 @@ class InsForgeClient:
         transport: httpx.BaseTransport | None = None,
         timeout: float = 10.0,
     ) -> None:
+        # When APAP_LOCAL_BACKEND is set and the operator did not
+        # provide a custom base_url, point at the local backend
+        # served by the same process. The local API reuses the
+        # InsForge JSON shape (see app/core/local_backend/api.py)
+        # so the rest of the application does not need to know
+        # which backend is in use.
+        if not base_url and os.environ.get("APAP_LOCAL_BACKEND", "").lower() in (
+            "1", "true", "yes", "on"
+        ):
+            base_url = "http://localhost:8000/api"
         # Strip trailing slash so URL joining is predictable.
         self._base_url = base_url.rstrip("/")
         self._service_key = service_key
