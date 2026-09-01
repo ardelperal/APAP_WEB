@@ -7,16 +7,16 @@ version: "1.0"
 # threshold 85 (cubierto por test_voluntario_yaml_fuzzy_match_enabled).
 web_table: voluntarios
 legacy_table: TbVoluntariosParaAutorrellenables
-key_field: Voluntario
+key_field: voluntario
 legacy_key: Voluntario
 date_fields: []
 
 columns:
   # --- Heredadas 1:1 ---
-  - { web_column: Voluntario, legacy_column: Voluntario, transform: identity, nullable: false }
-  - { web_column: Tel1, legacy_column: Tel1, transform: identity, nullable: true }
-  - { web_column: Tel2, legacy_column: Tel2, transform: identity, nullable: true }
-  - { web_column: Email, legacy_column: Email, transform: identity, nullable: true }
+  - { web_column: voluntario, legacy_column: Voluntario, transform: identity, nullable: false }
+  - { web_column: tel1, legacy_column: Tel1, transform: identity, nullable: true }
+  - { web_column: tel2, legacy_column: Tel2, transform: identity, nullable: true }
+  - { web_column: email, legacy_column: Email, transform: identity, nullable: true }
 
   # --- Web-only ---
   # Estrategia web_only (PR 3 / web-only-feature-preservation §3.4):

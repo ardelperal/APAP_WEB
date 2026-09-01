@@ -19,7 +19,13 @@ date_fields:
   - FDefuncion
 
 columns:
-  # --- Heredadas 1:1 (CamelCase legacy preservado en web) ---
+  # --- Heredadas 1:1 (snake_case web, CamelCase legacy) ---
+# El schema web usa snake_case (eutanasia_otras_causas, etc.). El mapping
+# en web_column usa el nombre del schema web, NO el del legacy.
+# legacy_column preserva el CamelCase del .accdb. Sin esta distinción
+# el INSERT contra la DB falla con "column does not exist" porque
+# Postgres trata los identificadores sin quotes como lowercase
+# aplastado, no como snake_case (issue #638).
   - { web_column: NCHIP, legacy_column: NCHIP, transform: identity, nullable: false }
   - { web_column: TraeNChip, legacy_column: TraeNChip, transform: identity, nullable: true }
   - { web_column: FIMPLANTACIONCHIP, legacy_column: FIMPLANTACIONCHIP, transform: identity, nullable: true }
@@ -40,10 +46,10 @@ columns:
   - { web_column: Eutanasia, legacy_column: Eutanasia, transform: identity, nullable: true }
   - { web_column: RazaPPP, legacy_column: RazaPPP, transform: identity, nullable: true }
   - { web_column: Mestizo, legacy_column: Mestizo, transform: identity, nullable: true }
-  - { web_column: EutanasiaOtrasCausas, legacy_column: EutanasiaOtrasCausas, transform: identity, nullable: true }
-  - { web_column: EutanasiaEnfermedad, legacy_column: EutanasiaEnfermedad, transform: identity, nullable: true }
-  - { web_column: UltimoEstadoAntesDeFallecido, legacy_column: UltimoEstadoAntesDeFallecido, transform: identity, nullable: true }
-  - { web_column: ComunicacionARIAC, legacy_column: ComunicacionARIAC, transform: identity, nullable: true }
+  - { web_column: eutanasia_otras_causas, legacy_column: EutanasiaOtrasCausas, transform: identity, nullable: true }
+  - { web_column: eutanasia_enfermedad, legacy_column: EutanasiaEnfermedad, transform: identity, nullable: true }
+  - { web_column: ultimo_estado_antes_de_fallecido, legacy_column: UltimoEstadoAntesDeFallecido, transform: identity, nullable: true }
+  - { web_column: comunicacionariac, legacy_column: ComunicacionARIAC, transform: identity, nullable: true }
 
   # --- Web-only (greenfield) ---
   # id, fecha_alta, updated_at, activo son columnas que solo existen en
