@@ -156,7 +156,7 @@ def _expand_params_for_placeholder_style(
 # psycopg against the service container — these CREATE TABLE IF NOT EXISTS
 # statements are the only thing needed to make the ephemeral schema match
 # the InsForge domain + catalogos layout.
-_CATALOGOS_MOTIVOS_CREATE_TABLE_SQL = """\
+CATALOGOS_MOTIVOS_CREATE_TABLE_SQL = """\
 CREATE TABLE IF NOT EXISTS catalogos_motivos (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     codigo TEXT NOT NULL,
@@ -171,7 +171,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS catalogos_motivos_natural_key
     ON catalogos_motivos (codigo, especie);
 """
 
-_CATALOGOS_ORIGENES_CREATE_TABLE_SQL = """\
+CATALOGOS_ORIGENES_CREATE_TABLE_SQL = """\
 CREATE TABLE IF NOT EXISTS catalogos_origenes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     codigo TEXT NOT NULL,
@@ -186,7 +186,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS catalogos_origenes_codigo_key
     ON catalogos_origenes (codigo);
 """
 
-_CATALOGOS_PERIODICIDAD_CREATE_TABLE_SQL = """\
+CATALOGOS_PERIODICIDAD_CREATE_TABLE_SQL = """\
 CREATE TABLE IF NOT EXISTS catalogos_periodicidad (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     codigo TEXT NOT NULL,
@@ -201,7 +201,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS catalogos_periodicidad_codigo_key
     ON catalogos_periodicidad (codigo);
 """
 
-_CATALOGOS_PRUEBAS_CREATE_TABLE_SQL = """\
+CATALOGOS_PRUEBAS_CREATE_TABLE_SQL = """\
 CREATE TABLE IF NOT EXISTS catalogos_pruebas (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     codigo TEXT NOT NULL,
@@ -217,7 +217,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS catalogos_pruebas_natural_key
     ON catalogos_pruebas (codigo, especie);
 """
 
-_CATALOGOS_TIPOS_CONTRATO_CREATE_TABLE_SQL = """\
+CATALOGOS_TIPOS_CONTRATO_CREATE_TABLE_SQL = """\
 CREATE TABLE IF NOT EXISTS catalogos_tipos_contrato (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     codigo TEXT NOT NULL,
@@ -241,11 +241,11 @@ _DSN_ENV = "APAP_TEST_POSTGRES_DSN"
 # Order respects FK dependencies: catalogos_* first (no FKs of their own,
 # but referenced by contratos), then the existing domain statements.
 _DOMAIN_SQL_STATEMENTS = (
-    _CATALOGOS_MOTIVOS_CREATE_TABLE_SQL,
-    _CATALOGOS_ORIGENES_CREATE_TABLE_SQL,
-    _CATALOGOS_PERIODICIDAD_CREATE_TABLE_SQL,
-    _CATALOGOS_PRUEBAS_CREATE_TABLE_SQL,
-    _CATALOGOS_TIPOS_CONTRATO_CREATE_TABLE_SQL,
+    CATALOGOS_MOTIVOS_CREATE_TABLE_SQL,
+    CATALOGOS_ORIGENES_CREATE_TABLE_SQL,
+    CATALOGOS_PERIODICIDAD_CREATE_TABLE_SQL,
+    CATALOGOS_PRUEBAS_CREATE_TABLE_SQL,
+    CATALOGOS_TIPOS_CONTRATO_CREATE_TABLE_SQL,
     ANIMALS_CREATE_TABLE_SQL,
     VOLUNTARIOS_CREATE_TABLE_SQL,
     ROLES_VOLUNTARIO_CREATE_TABLE_SQL,
