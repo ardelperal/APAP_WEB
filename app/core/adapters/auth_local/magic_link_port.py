@@ -22,13 +22,13 @@ from __future__ import annotations
 
 import hashlib
 import secrets
-from datetime import UTC, datetime, timedelta, timedelta
+from datetime import UTC, datetime, timedelta
 
 from app.core.data_access import SqlExecutor
 from app.core.ports.magic_link_port import MagicLinkPort
 
 
-class MagicLinkPort(MagicLinkPort):
+class MagicLinkPortImpl(MagicLinkPort):
     """Local-Postgres implementation of magic-link tokens."""
 
     INSERT_TOKEN_SQL = """
@@ -144,4 +144,4 @@ class MagicLinkPort(MagicLinkPort):
         )
 
 
-__all__ = ["MagicLinkPort"]
+__all__ = ["MagicLinkPortImpl"]

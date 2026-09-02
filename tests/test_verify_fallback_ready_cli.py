@@ -11,8 +11,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from migration.verify_fallback_ready import (
     ALL_CHECKS,
     CI_CHECKS,
@@ -20,7 +18,6 @@ from migration.verify_fallback_ready import (
     check_operator_signature,
     check_pii_audit_verdict,
     check_round_trip_test,
-    check_web_to_legacy_check_only,
     format_receipt,
     run_gate,
 )
@@ -165,6 +162,7 @@ def test_operator_signature_check_passes_with_valid_file(
 ) -> None:
     """A signature file with all required keys returns PASS."""
     import json
+
     from migration import verify_fallback_ready
 
     sig = tmp_path / "migration_report_signature.json"

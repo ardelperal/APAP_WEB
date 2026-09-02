@@ -26,7 +26,7 @@ from app.core.domain.auth.user import AuthorizedUser
 from app.core.ports.auth_classic_port import ClassicPasswordAuthPort
 
 
-class ClassicPasswordAuthPort(ClassicPasswordAuthPort):
+class ClassicPasswordAuthPortImpl(ClassicPasswordAuthPort):
     """Local-Postgres implementation of classic email/password auth."""
 
     GET_USER_BY_EMAIL_SQL = """
@@ -98,4 +98,4 @@ class ClassicPasswordAuthPort(ClassicPasswordAuthPort):
         )
 
 
-__all__ = ["ClassicPasswordAuthPort"]
+__all__ = ["ClassicPasswordAuthPortImpl"]

@@ -28,11 +28,10 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app.core.adapters.auth_local.magic_link_port import MagicLinkPort
 from app.core.adapters.auth_local.classic_password_auth_port import (
-    ClassicPasswordAuthPort,
+    ClassicPasswordAuthPortImpl as ClassicPasswordAuthPort,
 )
-
+from app.core.adapters.auth_local.magic_link_port import MagicLinkPortImpl as MagicLinkPort
 
 # --- MagicLinkPort ---------------------------------------------------------
 
@@ -110,7 +109,6 @@ def test_consume_token_expired_returns_none(self_host_schema) -> None:
     port = MagicLinkPort(self_host_schema, ttl_seconds=1)
     raw = port.create_token("ana@test.com", purpose="login")
     # Force-expire by updating the DB directly.
-    from datetime import UTC, datetime, timedelta
     self_host_schema.execute_sql(
         "UPDATE magic_link_tokens SET expires_at = %s",
         [datetime.now(UTC) - timedelta(seconds=10)],

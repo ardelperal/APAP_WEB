@@ -106,7 +106,7 @@ class LocalPostgresExecutor:
                         raise QueryError(str(exc)) from exc
                     raise DatabaseError(str(exc)) from exc
                 try:
-                    rows = list(cur.fetchall())
+                    rows: list[Any] = list(cur.fetchall())
                 except psycopg.ProgrammingError:
                     # INSERT/UPDATE/DELETE: no rows to fetch
                     rows = []
@@ -117,8 +117,32 @@ class LocalPostgresExecutor:
                     # it). Tests using the conftest's cursor get dicts
                     # directly; this branch is for the executor's own
                     # connections which use the default tuple factory.
-                    columns = [col[0] for col in cur.description]
-                    rows = [dict(zip(columns, row)) for row in rows]
+                    # ``cur.description`` is ``None`` only for statements
+                    # that did not produce a result set; the branch above
+                    # already handles that (``rows == []``), so the type
+                    # narrowing is safe.
+                    # Map tuples to dicts by cursor description. This branch
+                    # only runs when ``rows`` is non-empty (the outer ``if``
+                    # guards it) and ``rows[0]`` is not a dict (the default
+                    # psycopg cursor returns tuples). The branch therefore
+                    # always iterates over the tuple rows; the cast below is
+                    # a documentation marker for mypy because psycopg's
+                    # ``cur.fetchall`` returns ``list[tuple[Any, ...]]`` but
+                    # the consumer (the caller of ``execute``) expects
+                    # ``list[dict[str, Any]]``.
+                    # mypy narrow: ``cur.description`` is non-None because the
+                    # outer ``if`` guarantees ``rows`` is non-empty (which only
+                    # happens for statements that produced a result set).
+                    description_list = cur.description
+                    assert description_list is not None
+                    columns = [col[0] for col in description_list]
+                    # The producer side is psycopg's default tuple factory;
+                    # the consumer side (``InsForgeClient.execute_sql``)
+                    # expects ``list[dict[str, Any]]``. We map tuples to dicts
+                    # here so the contract is uniform.
+                    rows = [
+                        dict(zip(columns, row, strict=True)) for row in rows
+                    ]
                 return rows
         except psycopg.Error as exc:
             # Connection-level failure during ``_connect`` (DSN bad, network
