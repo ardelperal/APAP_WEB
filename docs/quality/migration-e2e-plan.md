@@ -3,7 +3,7 @@
 > Plan de testing E2E para el path crítico de migration bidireccional. Source of truth del plan de testing; el issue #637 es el tracker.
 > Generado 2026-08-31 tras el user directive: "la herramienta tiene que tener la capacidad de pasar los datos de una base de datos a otra en cualquier momento ... IMPORTANTÍSIMO".
 >
-> **Actualizado 2026-08-31**: el approach se ajustó — el fixture ES el .accdb backend real del operador (no un sintético). El backend de destino es el backend real del operador (InsForge en CI, Postgres local como fallback). Ver §"Decisión revisada" abajo.
+> **Actualizado 2026-08-31**: el approach se ajustó — el fixture `es` el .accdb backend real del operador (no un sintético). El backend de destino es el backend real del operador (InsForge en CI, Postgres local como fallback). Ver §"Decisión revisada" abajo.
 
 ## Contexto y motivación
 
@@ -26,7 +26,7 @@ El usuario explícitamente pidió que la herramienta tenga **capacidad de pasar 
 | Unit con `FakeInsForge` | Mapeos YAML, SQL shape, error mapping, idempotencia, rollback | Postgres real |
 | Runtime boundary | pyodbc fake con `monkeypatch` (no toca Access) | Access real |
 | Round-trip | 5 átomos forward+reverse con fake bidireccional | Ambas DBs reales simultáneamente |
-| Migration E2E | **0 tests** | TODO |
+| Migration E2E | **0 tests** | `TODO` |
 
 El `test_round_trip.py` actual es el más cercano a E2E pero **explícitamente no toca DBs reales** (Hard Rule 8 — no production mutation). El comentario del módulo es claro:
 
@@ -38,11 +38,11 @@ D-31 del openspec `live-data-migration-sandbox`:
 
 > El binario Access se consulta con Dysflow, no con mdbtools ni scripts ad-hoc.
 
-**Producción NO usa mdbtools**. Pero **testing E2E en CI Linux** necesita leer un `.accdb` sin Microsoft Access Driver (que solo está en Windows). El path oficial `pyodbc + MS Access Driver` no es viable en CI Linux estándar.
+**Producción `no` usa mdbtools**. Pero **testing E2E en CI Linux** necesita leer un `.accdb` sin Microsoft Access Driver (que solo está en Windows). El path oficial `pyodbc + MS Access Driver` no es viable en CI Linux estándar.
 
 **Solución**: mdbtools se usa **solo en el test seam** (`tests/migration/_e2e_seams/`), no en `migration/`. El seam es una pieza de testing; producción sigue con pyodbc.
 
-Esto NO viola D-31 — D-31 prohíbe mdbtools como **driver de producción**, no como herramienta de testing.
+Esto `no` viola D-31 — D-31 prohíbe mdbtools como **driver de producción**, no como herramienta de testing.
 
 ## Plan
 
@@ -79,7 +79,7 @@ Esto NO viola D-31 — D-31 prohíbe mdbtools como **driver de producción**, no
 class MdbToolsLegacyReader:
     """Read .accdb via mdb-export (CI Linux). Test seam only.
     
-    Production code reads .accdb via pyodbc + MS Access Driver. This
+    Production code reads .accdb via pyodbc + `MS` Access Driver. This
     seam is for E2E testing in Linux CI where the Microsoft driver
     is unavailable. The seam is a thin wrapper around `mdb-export`
     that mimics the pyodbc Connection.cursor().execute() interface.
@@ -107,7 +107,7 @@ class MdbToolsLegacyReader:
 
 3. **`test_e2e_idempotent_after_operator_drift`**
    - Aplica forward una vez
-   - Modifica UNA fila en Postgres (UPDATE `nombre` o similar — simula corrección del operador)
+   - Modifica `una` fila en Postgres (UPDATE `nombre` o similar — simula corrección del operador)
    - Re-aplica forward
    - **Smoke**: la fila modificada por el operador se preserva (no se pisa con el valor legacy)
    - **Smoke**: una fila queda en `web_only_feature_shadow` con `reconciliation_status="needs_review"`
@@ -185,7 +185,7 @@ def verify_fallback_ready_ci_only() -> VerifyResult:
 
 ## Restricción de privacidad
 
-El `.accdb` fixture **NO contiene PII real**. Las filas son sintéticas:
+El `.accdb` fixture **`no` contiene PII real**. Las filas son sintéticas:
 - DNI: rango `00000000-A` a `00000000-T` (formato DNI ficticio, no se corresponde a personas reales)
 - Email: `test-{N}@example.com` (dominio reservado RFC 2606)
 - Tel: rango `600000000` a `600000099` (números ficticios del rango español)
@@ -206,7 +206,7 @@ Verificación de no-PII: `docs/audits/pii-live-migration-2026-Q3.md` (PR4b) cubr
 
 - `APAP_TEST_POSTGRES_DSN` (ya existe en integration conftest)
 - `mdbtools` instalado en CI Linux (`mdb-export`, `mdb-schema` ya están en `/usr/bin`)
-- pyodbc + MS Access Driver en Windows para generar el `.accdb` fixture (operador de confianza)
+- pyodbc + `MS` Access Driver en Windows para generar el `.accdb` fixture (operador de confianza)
 - `mdbtools` en `[project.optional-dependencies.test-e2e]` de `pyproject.toml`
 
 ## Riesgos identificados
@@ -223,7 +223,7 @@ Verificación de no-PII: `docs/audits/pii-live-migration-2026-Q3.md` (PR4b) cubr
 - Issue: #637
 - Openspec: `live-data-migration-sandbox`
 - Decisiones: D-12 (verify-fallback-ready gate), D-13 (fixture-first E2E), D-31 (mdbtools no en producción — sigue vigente; este plan usa mdbtools **solo en el test seam**)
-- Skills: `apap-testing-strategy` HR-4 (integration test con DB real para flujos con FK/ON CONFLICT)
+- Skills: `apap-testing-strategy` `HR-4` (integration test con DB real para flujos con FK/`ON CONFLICT`)
 - Roadmap: `docs/roadmap/transversales.md` PR7 (verify-fallback-ready gate)
 
 ## Cierre formal de la épica de migration
