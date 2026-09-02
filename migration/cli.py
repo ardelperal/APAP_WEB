@@ -46,17 +46,9 @@ from pathlib import Path
 from typing import IO, Any
 
 from app.core.insforge import InsForgeClient, InsForgeError
-from migration.apply import (
-    _safe_table,
-    apply_legacy_to_web,  # noqa: F401 — monkeypatch surface for test_cli_apply_safety.py
-)
+from migration.apply import _safe_table, apply_legacy_to_web  # noqa: F401 — test_cli_apply_safety monkeypatch
 from migration.bootstrap import APAP_PHOTOS_BUCKET, check_private_bucket, ensure_private_bucket
-from migration.cli_format import (
-    _format_row_for_check_only,
-    _format_row_for_interactive,
-    _format_value_prompt,
-    _parse_since,
-)
+from migration.cli_format import (_format_row_for_check_only, _format_row_for_interactive, _format_value_prompt, _parse_since)
 from migration.mappings import list_available_tables, load_mapping
 from migration.shadow_state import ShadowStateRepository
 
@@ -77,6 +69,11 @@ MIGRATION_RUNBOOK_REF: str = "docs/runbooks/live-migration-apply.md"
 # without hitting a partially-initialized module. The seam re-uses
 # this constant for the ``apap-migrate apply: status=error ...``
 # categorical line.
+# ``run_ensure_bucket`` is defined in ``migration.cli_ensure_bucket``;
+# re-exported here so ``from migration.cli import run_ensure_bucket``
+# keeps working (tests + ``main`` dispatch rely on this surface).
+from migration.cli_ensure_bucket import run_ensure_bucket  # noqa: E402,F401 — re-export
+
 from migration.cli_apply_reverse import (  # noqa: E402 — circular but deterministic
     APPLY_DIRECTION_LEGACY_TO_WEB,
     APPLY_DIRECTION_WEB_TO_LEGACY,
@@ -618,44 +615,6 @@ def run_status(
         rows = web_client.execute_sql(f"SELECT COUNT(*) FROM {safe_web_table}")  # noqa: S608
         count = rows[0].get("count", 0) if rows else 0
         stream.write(f"table={table} web_table={mapping.web_table} web_count={count}\n")
-    return 0
-
-
-def run_ensure_bucket(
-    args: argparse.Namespace,
-    *,
-    web_client: InsForgeClient | None = None,
-    stream: IO[str] | None = None,
-) -> int:
-    """Body of ``apap-migrate ensure-bucket``."""
-    if stream is None:
-        stream = sys.stdout
-    if web_client is None:
-        sys.stderr.write("apap-migrate ensure-bucket: requires a web_client in this runtime\n")
-        return 2
-
-    try:
-        if args.check_only:
-            result = check_private_bucket(web_client, args.bucket_name)
-        else:
-            result = ensure_private_bucket(web_client, args.bucket_name)
-    except InsForgeError as exc:
-        body = exc.body if isinstance(exc.body, dict) else {"error": str(exc.body)}
-        reason = body.get("error", "insforge_error")
-        stream.write(
-            f"bucket={args.bucket_name} status=error reason={reason} "
-            f"exit=5 message={body.get('message', exc)}\n"
-        )
-        return 5
-    except ValueError as exc:
-        stream.write(f"bucket={args.bucket_name} status=error exit=2 message={exc}\n")
-        return 2
-
-    visibility = "true" if result.is_public else "false"
-    stream.write(
-        f"bucket={result.bucket_name} status={result.status} "
-        f"isPublic={visibility}\n"
-    )
     return 0
 
 
