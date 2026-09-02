@@ -225,3 +225,4 @@ def test_commit_batch_cte_succeeds_when_no_constraint_violated(
         [batch_id],
     )
     assert post_staging == []
+

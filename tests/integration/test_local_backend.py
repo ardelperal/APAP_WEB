@@ -33,7 +33,6 @@ import pytest
 
 from app.core.local_backend.app import create_app
 
-
 # --- URL switching (unit-level) -------------------------------------------
 
 
