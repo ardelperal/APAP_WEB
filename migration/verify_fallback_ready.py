@@ -33,9 +33,15 @@ rather than re-implementing the reverse pipeline.
 
 from __future__ import annotations
 
+import os
 import re
+import socket
 import subprocess
 import sys
+import time
+import urllib.error
+import urllib.request
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -67,21 +73,97 @@ class CheckResult:
     evidence: str
 
 
-def _run_subprocess_check(args: list[str], cwd: Path) -> tuple[int, str, str]:
+def _run_subprocess_check(
+    args: list[str],
+    cwd: Path,
+    extra_env: dict[str, str] | None = None,
+) -> tuple[int, str, str]:
     """Run a subprocess and return ``(returncode, stdout, stderr)``.
 
     Centralised so the format is consistent and the orchestrator can
     treat the check as a function-of-state rather than a function-of-
     process.
+
+    ``extra_env`` is merged on top of the inherited environment so
+    checks can override specific variables (the local-backend fixture
+    wiring uses this to inject ``APAP_LOCAL_BACKEND`` /
+    ``APAP_INSFORGE_URL`` without disturbing the rest of the env).
     """
+    env = None
+    if extra_env:
+        env = {**os.environ, **extra_env}
     proc = subprocess.run(
         args,
         cwd=cwd,
         capture_output=True,
         text=True,
         check=False,
+        env=env,
     )
     return proc.returncode, proc.stdout, proc.stderr
+
+
+def _pick_free_port() -> int:
+    """Return an OS-assigned free TCP port.
+
+    Lets the kernel pick so two CI jobs on the same host never collide.
+    Used by the local-backend fixture wiring in
+    ``check_web_to_legacy_check_only``.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def _wait_for_healthz(port: int, timeout_seconds: float) -> bool:
+    """Poll ``GET /healthz`` until it returns 200 or the timeout elapses.
+
+    The local backend's lifespan must complete before the executor on
+    ``app.state`` is reachable — uvicorn returns the process socket
+    immediately, but the lifespan only runs on the first request. We
+    poll briefly to give the lifespan time to settle.
+    """
+    deadline = time.monotonic() + timeout_seconds
+    url = f"http://127.0.0.1:{port}/healthz"
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=0.5) as resp:  # noqa: S310
+                if resp.status == 200:
+                    return True
+        except (urllib.error.URLError, ConnectionError, OSError):
+            pass
+        time.sleep(0.1)
+    return False
+
+
+def _provision_ephemeral_schema(dsn: str) -> str:
+    """Provision an ephemeral APAP schema and return its name.
+
+    Mirrors ``tests/integration/conftest.py::_EphemeralPostgres._provision``
+    via ``app.core.schema_provisioning.provision_apap_schema`` so the
+    web-to-legacy dry-run has the same domain tables it would have in
+    production. The schema name is UUID-suffixed so concurrent runs do
+    not collide; the caller is responsible for dropping it via
+    ``_drop_ephemeral_schema``.
+    """
+    from app.core.schema_provisioning import provision_apap_schema
+
+    schema = f"gate_{uuid.uuid4().hex[:12]}"
+    provision_apap_schema(dsn, schema)
+    return schema
+
+
+def _drop_ephemeral_schema(dsn: str, schema: str) -> None:
+    """Drop the ephemeral schema provisioned by ``_provision_ephemeral_schema``.
+
+    Best-effort: failures here are swallowed (the gate reports the
+    real error from the subprocess, not the cleanup). Production is
+    never at risk because the schema name is unique per run.
+    """
+    import psycopg
+
+    with psycopg.connect(dsn, autocommit=True) as conn:
+        conn.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
 
 
 def check_round_trip_test() -> CheckResult:
@@ -169,6 +251,16 @@ def check_web_to_legacy_check_only() -> CheckResult:
     sandbox use; it is committed to the repo and the README mandates
     copy-before-mutate discipline).
 
+    M0 of self-host-backend-coolify (issue #641): the CLI's
+    ``InsForgeClient`` now points at the local backend when
+    ``APAP_LOCAL_BACKEND=true`` and ``APAP_INSFORGE_URL`` targets it.
+    If ``APAP_LOCAL_DB_URL`` is set in the parent env, this check
+    auto-wires both: it provisions an ephemeral APAP schema, spawns
+    the local backend on a free port, runs the migration CLI against
+    it, and tears everything down. Without ``APAP_LOCAL_DB_URL`` the
+    check falls back to the operator's manual setup (InsForge remote
+    must be reachable).
+
     This is a soft check: if the CLI returns non-zero, we report FAIL
     but the orchestrator continues (other conditions may still
     pass). The operator sees a precise error in the receipt.
@@ -180,20 +272,105 @@ def check_web_to_legacy_check_only() -> CheckResult:
             status="FAIL",
             evidence=f"legacy fixture missing at {legacy_path}",
         )
-    rc, stdout, stderr = _run_subprocess_check(
-        [
-            "python",
-            "-m",
-            "migration",
-            "apply",
-            "--direction",
-            "web-to-legacy",
-            "--check-only",
-            "--legacy-path",
-            str(legacy_path),
-        ],
-        cwd=REPO_ROOT,
-    )
+
+    # M0 fixture wiring: if APAP_LOCAL_DB_URL is set, stand up the
+    # local backend in-process with a fresh ephemeral schema, run the
+    # check, then tear down. Otherwise inherit the parent's env
+    # (operator must ensure the target — InsForge or local — is reachable).
+    extra_env: dict[str, str] = {}
+    backend_proc = None
+    ephemeral_schema: str | None = None
+    local_db_url = os.environ.get("APAP_LOCAL_DB_URL")
+    if local_db_url:
+        try:
+            ephemeral_schema = _provision_ephemeral_schema(local_db_url)
+        except Exception as exc:  # noqa: BLE001
+            return CheckResult(
+                name="web_to_legacy_check_only",
+                status="FAIL",
+                evidence=f"could not provision ephemeral schema: {exc}",
+            )
+        try:
+            port = _pick_free_port()
+        except OSError as exc:
+            _drop_ephemeral_schema(local_db_url, ephemeral_schema)
+            return CheckResult(
+                name="web_to_legacy_check_only",
+                status="FAIL",
+                evidence=f"could not find a free port for the local backend: {exc}",
+            )
+        backend_proc = subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "uvicorn",
+                "app.core.local_backend.app:create_app",
+                "--factory",
+                "--port",
+                str(port),
+                "--host",
+                "127.0.0.1",
+            ],
+            cwd=REPO_ROOT,
+            env={
+                **os.environ,
+                "APAP_LOCAL_DB_URL": local_db_url,
+                "APAP_LOCAL_DB_SCHEMA": ephemeral_schema,
+            },
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
+        try:
+            if not _wait_for_healthz(port, timeout_seconds=5.0):
+                stderr_bytes = backend_proc.stderr.read() if backend_proc.stderr else b""
+                stderr_text = stderr_bytes.decode("utf-8", errors="replace") if stderr_bytes else ""
+                return CheckResult(
+                    name="web_to_legacy_check_only",
+                    status="FAIL",
+                    evidence=(
+                        f"local backend did not become healthy on port {port} "
+                        f"within 5s; stderr={stderr_text[-300:]!r}"
+                    ),
+                )
+            extra_env = {
+                "APAP_LOCAL_BACKEND": "true",
+                "APAP_INSFORGE_URL": f"http://127.0.0.1:{port}",
+                # Dummy key — the local backend does not authenticate.
+                "APAP_INSFORGE_SERVICE_KEY": "local-backend-dummy-key",
+            }
+        except Exception:
+            backend_proc.kill()
+            raise
+
+    try:
+        rc, stdout, stderr = _run_subprocess_check(
+            [
+                "python",
+                "-m",
+                "migration",
+                "apply",
+                "--direction",
+                "web-to-legacy",
+                "--check-only",
+                "--legacy-path",
+                str(legacy_path),
+            ],
+            cwd=REPO_ROOT,
+            extra_env=extra_env or None,
+        )
+    finally:
+        if backend_proc is not None:
+            backend_proc.terminate()
+            try:
+                backend_proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                backend_proc.kill()
+        if ephemeral_schema is not None and local_db_url is not None:
+            try:
+                _drop_ephemeral_schema(local_db_url, ephemeral_schema)
+            except Exception:  # noqa: BLE001
+                pass  # best-effort cleanup
+
     if rc == 0:
         return CheckResult(
             name="web_to_legacy_check_only",
