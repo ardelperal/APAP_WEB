@@ -1,22 +1,11 @@
-"""CLI for ``apap-migrate reconcile``.
+"""CLI for ``apap-migrate reconcile`` + ``ensure-bucket`` + others.
 
-PR 1 of ``web-only-feature-preservation`` wired the parser and the
-``--help`` entry point. PR 5 fills in the body across three work
-units:
+The reconcile subcommands wire the parser (PR1) and the body (PR5).
+``ensure-bucket`` lives in ``migration.cli_ensure_bucket`` (module-size
+split, issue #203) and is re-exported here so the public surface
+``from migration.cli import X`` is unchanged.
 
-- T5.1 (committed) ``--check-only`` (design.md §7): list
-  ``needs_review`` rows from the shadow state in a pipe-friendly
-  ``key=value`` format on stdout. No writes are issued. Exit 0
-  even when pending rows exist (the operator must resolve them —
-  non-zero would block unattended monitoring).
-- T5.2-T5.4 (this file) ``--interactive``: walk each case with
-  prompts ``(a) keep web / (b) accept derived / (c) defer /
-  (q) quit``.
-- T5.5 ``--table <name>`` and ``--since <ISO8601>``: forward to
-  ``ShadowStateRepository.list_needs_review``.
-
-Two testability seams are injected through ``main`` /
-``run_reconcile``:
+Two testability seams are injected through ``main`` / ``run_reconcile``:
 
 - ``prompt``: a ``Callable[[str], str]`` that the CLI uses to read
   the operator's choice. Production binds it to ``input``; tests
@@ -25,14 +14,8 @@ Two testability seams are injected through ``main`` /
   output to. Production binds it to ``sys.stdout``; tests bind
   it to an ``io.StringIO`` and assert against ``.getvalue()``.
 
-The pattern mirrors ``migration.__main__``: the
-``ShadowStateRepository`` is built from the injected
-``InsForgeClient`` when no explicit ``shadow_state`` is provided
-(production path) so the test surface stays a single object.
-
-Output formatting and PII masking live in ``migration.cli_format``
-(issue #203, module-size split); this module re-imports those helpers
-so existing ``from migration.cli import X`` callers keep working.
+Output formatting + PII masking live in ``migration.cli_format``;
+this module re-imports those helpers for backwards-compat callers.
 """
 
 from __future__ import annotations
@@ -45,10 +28,20 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import IO, Any
 
-from app.core.insforge import InsForgeClient, InsForgeError
-from migration.apply import _safe_table, apply_legacy_to_web  # noqa: F401 — test_cli_apply_safety monkeypatch
-from migration.bootstrap import APAP_PHOTOS_BUCKET, check_private_bucket, ensure_private_bucket
-from migration.cli_format import (_format_row_for_check_only, _format_row_for_interactive, _format_value_prompt, _parse_since)
+from app.core.insforge import InsForgeClient
+from migration.apply import (  # noqa: F401 — test_cli_apply_safety monkeypatch
+    _safe_table,
+    apply_legacy_to_web,
+)
+from migration.bootstrap import (
+    APAP_PHOTOS_BUCKET,  # check_private_bucket/ensure_private_bucket moved to cli_ensure_bucket
+)
+from migration.cli_format import (
+    _format_row_for_check_only,
+    _format_row_for_interactive,
+    _format_value_prompt,
+    _parse_since,
+)
 from migration.mappings import list_available_tables, load_mapping
 from migration.shadow_state import ShadowStateRepository
 
@@ -72,14 +65,13 @@ MIGRATION_RUNBOOK_REF: str = "docs/runbooks/live-migration-apply.md"
 # ``run_ensure_bucket`` is defined in ``migration.cli_ensure_bucket``;
 # re-exported here so ``from migration.cli import run_ensure_bucket``
 # keeps working (tests + ``main`` dispatch rely on this surface).
-from migration.cli_ensure_bucket import run_ensure_bucket  # noqa: E402,F401 — re-export
-
 from migration.cli_apply_reverse import (  # noqa: E402 — circular but deterministic
     APPLY_DIRECTION_LEGACY_TO_WEB,
     APPLY_DIRECTION_WEB_TO_LEGACY,
     add_direction_arg,
     run_apply,
 )
+from migration.cli_ensure_bucket import run_ensure_bucket  # noqa: E402,F401 — re-export
 
 # Type alias for the prompt reader injected into ``run_reconcile``.
 # Production: ``input`` (read from stdin). Tests: a list-driven
