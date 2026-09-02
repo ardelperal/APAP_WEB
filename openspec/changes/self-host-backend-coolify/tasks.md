@@ -1,245 +1,165 @@
-# Tasks: self-host-backend-coolify
+# Tasks: self-host-backend-coolify (revised)
 
-Plan de aplicación concreto para reemplazar InsForge con un backend self-hosted en Coolify.
+The user approved the **app FastAPI independiente** approach in the
+session prior to this one. The previous in-session attempt at the
+router-mounted approach failed with `SystemExit: 3` from `uvicorn`'s
+thread-based runner. This task list re-baselines for the
+app-independiente approach with `httpx.AsyncClient(ASGITransport=app)` for
+tests.
 
-## M0 — Backend self-hosted viable (target: 4-5 días)
+## M0 — Backend self-hosted viable
 
-### 0.1 Infra local
-- [ ] **0.1.1** Crear `Dockerfile` multi-stage con `uv pip install` y runtime slim
-- [ ] **0.1.2** Crear `docker-compose.yml` con app+postgres+minio
-- [ ] **0.1.3** Verificar `docker-compose build` produce imagen <300MB
-- [ ] **0.1.4** Verificar `docker-compose up` arranca los 3 servicios healthy
+### 0.1 Module: `app/core/local_backend/`
 
-### 0.2 Módulo `app/core/local_backend/`
-- [ ] **0.2.1** `app/core/local_backend/__init__.py` — entry point
-- [ ] **0.2.2** `app/core/local_backend/db.py` — `Psycopg2Executor` que satisface `SqlExecutor`
-- [ ] **0.2.3** `app/core/local_backend/storage.py` — `S3StorageAdapter` con boto3
-- [ ] **0.2.4** `app/core/local_backend/api.py` — FastAPI router con `/healthz`,
-      `/api/database/advance/rawsql`, `/api/storage/buckets[/...]`,
-      `/api/auth/oauth/google[/callback]`
-- [ ] **0.2.5** `app/core/local_backend/health.py` — `/healthz` endpoint
+- [x] **0.1.1** `app/core/local_backend/__init__.py` — package init
+- [x] **0.1.2** `app/core/local_backend/db.py` — `LocalPostgresExecutor` (psycopg wrapper, satisfies `SqlExecutor` Protocol)
+  - [x] **0.1.2.1** `LocalPostgresExecutor.__init__(dsn, search_path=None)`
+  - [x] **0.1.2.2** `_connect()` opens connection; sets `search_path` if provided
+  - [x] **0.1.2.3** `execute(query, params)` rewrites `$N` to `%s`, runs via psycopg, returns list of dicts
+  - [x] **0.1.2.4** `QueryError` (4xx) vs `DatabaseError` (5xx) classification
+  - [x] **0.1.2.5** TDD: unit test with `ephemeral_postgres` schema (proves `search_path` works)
 
-### 0.3 Integración con `InsForgeClient`
-- [ ] **0.3.1** Modificar `InsForgeClient.__init__` para default a
-      `http://localhost:8000/api` cuando `APAP_LOCAL_BACKEND=true`
-      y `APAP_INSFORGE_URL=""` (ver issue #275 / regla §32.P2 para
-      no romper setups existentes)
-- [ ] **0.3.2** Añadir el router local_backend en `app/main.py` cuando
-      `APAP_LOCAL_BACKEND=true`
-- [ ] **0.3.3** Test E2E: `InsForgeClient(base_url="", ...)` con
-      `APAP_LOCAL_BACKEND=true` apunta a localhost
-- [ ] **0.3.4** Test E2E: la app real, con `APAP_LOCAL_BACKEND=true`,
-      habla con el API local sin tocar código de negocio
+- [x] **0.1.3** `app/core/local_backend/healthz.py` — `GET /healthz` handler, returns `{"db": "up", "storage": "up", "oauth": "configured"}`
+  - [x] **0.1.3.1** TDD: integration test (status 200, body shape)
 
-### 0.4 Schema migration
-- [ ] **0.4.1** Crear `migration/sql/0049_initial_local_backend.sql` con las 13
-      tablas (8 dominio + 5 catálogos + usuarios_autorizados + shadow)
-- [ ] **0.4.2** Conectar el bootstrap existente (`schema_bootstrap.py`)
-      al nuevo path cuando `APAP_LOCAL_BACKEND=true`
-- [ ] **0.4.3** Test: la migration es idempotente (re-ejecución no falla)
+- [x] **0.1.4** `app/core/local_backend/rawsql.py` — `POST /api/database/advance/rawsql` handler
+  - [x] **0.1.4.1** Reuses `LocalPostgresExecutor` from `request.app.state`
+  - [x] **0.1.4.2** Returns `{"rows": [...], "rowCount": N}` matching `InsForgeClient.execute_sql` consumer
+  - [x] **0.1.4.3** Maps `QueryError` → HTTP 400, `DatabaseError` → HTTP 503 (or 500)
+  - [x] **0.1.4.4** TDD: integration test with full round-trip (INSERT then SELECT)
 
-### 0.5 Verify-fallback-ready gate
-- [ ] **0.5.1** El check `web_to_legacy_check_only` funciona contra el
-      nuevo backend local (3/3 checks verde)
-- [ ] **0.5.2** El test E2E legacy_postgres sigue funcionando
-- [ ] **0.5.3** El `InsForgeClient` standalone apunta a `http://localhost:8000/api`
-      en CI cuando se usa docker-compose
+- [x] **0.1.5** `app/core/local_backend/storage.py` — `GET /api/storage/buckets` and `POST /api/storage/buckets/{name}` handlers
+  - [x] **0.1.5.1** `GET` returns `[{"bucketName": ..., "isPublic": ..., "files": ...}, ...]` (matching `InsForgeClient.get_bucket` consumer)
+  - [x] **0.1.5.2** `POST` returns the bucket shape, creates the bucket on demand
+  - [x] **0.1.5.3** M0 stub: hard-coded `apap-photos` bucket with `isPublic=false, files=0`; M2 replaces with MinIO
 
-## M1 — Login clásico con magic link (target: 2-3 días)
+- [x] **0.1.6** `app/core/local_backend/oauth_google.py` — OAuth flow stub
+  - [x] **0.1.6.1** `POST /api/auth/oauth/google?code_challenge=...&redirect_uri=...` returns `{"authUrl": "https://accounts.google.com/..."}`
+  - [x] **0.1.6.2** `POST /api/auth/oauth/google/callback` with `{"code", "code_verifier", "redirect_uri"}` returns `{"token": "<session_jwt>", "user": {"id", "email"}}`
+  - [x] **0.1.6.3** `POST /api/auth/oauth/exchange?client_type=web` accepts `insforge_code` and returns the same JWT
+  - [x] **0.1.6.4** M0 stub: deterministic session JWT and hard-coded user (`id="local-user"`, `email="local@apap"`)
+  - [x] **0.1.6.5** M3 replaces with real Google OAuth; M0 keeps the same shapes
 
-### 1.1 Schema migration
-- [ ] **1.1.1** `migration/sql/0050_add_password_hash.sql` — añade
-      `password_hash`, `email_verified_at`, `failed_attempts` a
-      `usuarios_autorizados` (idempotente)
-- [ ] **1.1.2** `migration/sql/0051_create_magic_link_tokens.sql` — crea
-      `magic_link_tokens` con índice
-- [ ] **1.1.3** Aplicar migrations al nuevo DB local
-- [ ] **1.1.4** Test: la migration es idempotente
+- [x] **0.1.7** `app/core/local_backend/app.py` — FastAPI app factory
+  - [x] **0.1.7.1** `lifespan` reads `APAP_LOCAL_DB_URL` (required) and optional `APAP_LOCAL_DB_SCHEMA`, constructs `LocalPostgresExecutor` and stores on `app.state`
+  - [x] **0.1.7.2** `lifespan` raises if `APAP_LOCAL_DB_URL` is unset (M0 hard-fail; M2 production)
+  - [x] **0.1.7.3** `create_app()` factory builds the FastAPI app, mounts each router at its documented path (`/api/database/advance/rawsql`, `/api/storage/buckets[/...]`, `/api/auth/oauth/google[/callback]`, `/healthz`)
+  - [x] **0.1.7.4** TDD: lifespan raises on missing DSN; works with DSN
 
-### 1.2 Ports
-- [ ] **1.2.1** `app/core/ports/auth_classic_port.py` — Protocol
-      con `verify_password` y `set_password`
-- [ ] **1.2.2** `app/core/ports/magic_link_port.py` — Protocol
-      con `create_token`, `consume_token`, `list_active`
+### 0.2 Tests: `tests/integration/test_local_backend.py`
 
-### 1.3 Adapters
-- [ ] **1.3.1** `app/core/adapters/auth_local/classic_password_auth_port.py`
-      con argon2id (`time_cost=3, memory_cost=65536, parallelism=4`)
-- [ ] **1.3.2** `app/core/adapters/auth_local/magic_link_port.py` con
-      SHA-256 hash de token
-- [ ] **1.3.3** Adapter InsForge gana no-op default para los nuevos
-      métodos (compatibilidad)
+- [x] **0.2.1** `test_healthz_returns_db_status` — uses `httpx.AsyncClient(ASGITransport=app)`; asserts 200 + body shape
+- [x] **0.2.2** `test_rawsql_select_roundtrip` — INSERT via API → SELECT via API → row matches
+- [x] **0.2.3** `test_rawsql_insert_returns_empty_rows` — INSERT returns `{"rows": [], "rowCount": 0}` (InsForge contract)
+- [x] **0.2.4** `test_rawsql_error_returns_4xx` — query-level error → HTTP 400
+- [x] **0.2.5** `test_storage_list_buckets` — GET returns the bucket list shape
+- [x] **0.2.6** `test_storage_get_bucket_creates_on_demand` — GET auto-creates the bucket
+- [x] **0.2.7** `test_oauth_google_start_returns_auth_url` — POST start returns the auth URL shape
+- [x] **0.2.8** `test_oauth_google_callback_returns_jwt` — POST callback returns token + user
+- [x] **0.2.9** `test_oauth_exchange_returns_jwt` — POST exchange accepts insforge_code
+- [ ] **0.2.10** `test_insforge_client_targets_local_backend` — the existing
+  URL-switching test already covers this; update the existing test to
+  point at the local backend (or add a new test that uses the local
+  backend URL).
 
-### 1.4 Endpoints
-- [ ] **1.4.1** `POST /api/auth/login` — email+password → session cookie
-- [ ] **1.4.2** `POST /api/auth/logout` — limpia session
-- [ ] **1.4.3** `POST /api/auth/forgot-password` — genera token, lo loguea
-- [ ] **1.4.4** `GET /api/auth/magic?token=...` — consume token, emite session
-- [ ] **1.4.5** `POST /api/auth/reset-password` — cambia password
-- [ ] **1.4.6** `GET /admin/magic-links` — admin-only, lista tokens activos
+### 0.3 Verify-fallback-ready gate
 
-### 1.5 Tests
-- [ ] **1.5.1** `tests/test_classic_password_auth.py` — happy path,
-      wrong password, no password, hash timing
-- [ ] **1.5.2** `tests/test_magic_link.py` — create/consume, expiry,
-      one-time-use, hash-stored
-- [ ] **1.5.3** `tests/test_local_backend_auth.py` — end-to-end del flow
-      de login clásico
+- [x] **0.3.1** Run the gate against the new local backend:
+  `python -m migration.cli_verify_fallback_ready --ci-only`. All 3
+  CI checks should pass:
+  - `round_trip_test` (uses `FakeInsForge`, independent of the new local
+    backend — should keep passing)
+  - `pii_audit_verdict` (parses the audit doc — should keep passing)
+  - `web_to_legacy_check_only` (runs `apply --direction web-to-legacy
+    --check-only` — should now exercise the LOCAL backend path, not
+    InsForge remote). **M0 may require fixture wiring** for the local
+    backend in the gate's runner. If the gate runner cannot stand up
+    the local backend (e.g. it runs in a different test scope), the
+    gate can be run manually against a running local backend.
 
-### 1.6 Compatibilidad OAuth
-- [ ] **1.6.1** `oauth_insforge_adapter` no se toca (sigue funcionando)
-- [ ] **1.6.2** Test: un usuario con `password_hash IS NULL` puede
-      loguearse con Google pero no con clásico
-- [ ] **1.6.3** Test: un usuario con password puede usar ambos flows
+    Status: the gate now auto-wires the local backend when
+    `APAP_LOCAL_DB_URL` is set. It provisions an ephemeral APAP
+    schema via `app.core.schema_provisioning`, spawns uvicorn on
+    a free port, runs the migration CLI against it, and tears
+    everything down. `round_trip_test` and `pii_audit_verdict`
+    pass locally; `web_to_legacy_check_only` passes on the CI
+    runner (which has the Microsoft Access Driver + pyodbc) but
+    requires the driver on dev boxes (see the runbook).
 
-## M2 — Coolify + producción (target: 2-3 días)
+### 0.4 CI integration
 
-### 2.1 Coolify provisioning
-- [ ] **2.1.1** Crear `coolify.yaml` con metadata del servicio
-- [ ] **2.1.2** `coolify deploy --from-file coolify.yaml` provisiona el servicio
-- [ ] **2.1.3** `coolify-db` (Postgres 16) ya provisionado
-- [ ] **2.1.4** Provisionar `coolify-minio` (imagen `minio/minio:latest`,
-      puerto 9000)
-- [ ] **2.1.5** Configurar secrets en Coolify:
-      `APAP_SESSION_SECRET`, `APAP_S3_ACCESS_KEY`,
-      `APAP_S3_SECRET_KEY`, `APAP_LOCAL_DB_URL`,
-      `APAP_GOOGLE_CLIENT_ID`, `APAP_GOOGLE_CLIENT_SECRET`
-- [ ] **2.1.6** Configurar DNS wildcard `*.apap.example.org`
+- [x] **0.4.1** `tests/integration/test_local_backend.py` is added to the
+  integration test directory (where the ephemeral schema lives). It
+  runs in the same CI job as the other integration tests.
 
-### 2.2 Runbook
-- [ ] **2.2.1** `docs/runbooks/self-host-backend.md` con secciones:
-      provisioning, reset password, rotate secret, backup, magic link
-- [ ] **2.2.2** Procedimiento de deploy paso a paso
-- [ ] **2.2.3** Procedimiento de reset password (operador genera magic
-      link, lo entrega al usuario)
-- [ ] **2.2.4** Procedimiento de rotación de secrets
-- [ ] **2.2.5** Procedimiento de backup (cron pg_dump + mc mirror)
+### 0.5 No migrations or main.py changes (M0)
 
-### 2.3 Verificación
-- [ ] **2.3.1** `https://apap.example.org/healthz` retorna 200
-      con `{"db": "up", "storage": "up"}`
-- [ ] **2.3.2** TLS activo (certificado Let's Encrypt válido)
-- [ ] **2.3.3** `verify-fallback-ready --ci-only` verde desde Coolify
-- [ ] **2.3.4** `apap-migrate apply --table animal --legacy-path
-      /path/to/copy.accdb` funciona contra el backend de Coolify
-- [ ] **2.3.5** Smoke test: un usuario real puede loguearse (Google o
-      magic link), navegar /animales, ver una foto
-- [ ] **2.3.6** El operador puede ver los magic links activos via
-      `GET /admin/magic-links`
+- [x] **0.5.1** `app/main.py` is **not** touched in M0 (the InsForgeClient
+  change from the previous session is the only modification).
+  The local backend runs as a separate app, in a separate process (M2)
+  or in-process (M0 tests).
 
-## Out of scope (diferido a futuras épicas)
+  Status: `app/main.py` is untouched in this M0 (verified —
+  `git diff app/main.py` returns empty in this branch).
+- [x] **0.5.2** No new SQL migrations in M0 (the local backend uses
+  the same ephemeral schema provisioned by the integration conftest).
+  M1's `007_add_password_hash.sql` and `008_create_magic_link_tokens.sql`
+  already exist and are applied automatically by the conftest.
 
-- **SMTP real para magic link**: en M1, el operador entrega los
-  magic links manualmente desde el log. SMTP real es una épica
-  separada.
-- **Migración del `.accdb` legacy real**: el plan E2E
-  (`docs/quality/migration-e2e-plan.md`) ya cubre el forward + reverse
-  con datos sintéticos. La migración de los 1363 animales del
-  `.accdb` real es una épica posterior.
-- **2FA / TOTP**: el campo `failed_attempts` está en el schema pero
-  no se usa. Rate limiting + 2FA son épicas futuras.
-- **Multi-tenant**: el schema actual asume una sola protectora.
-- **Email verification enforcement**: el campo `email_verified_at` está
-  en el schema pero no se enforza.
-- **Auditoría de sesiones**: el operador puede ver magic links activos
-  pero no hay un log de "quién hizo login cuándo". Eso es admin panel
-  completo, épica futura.
-- **OAuth de Apple / Facebook / GitHub**: el Protocol es
-  backend-agnostic; añadir providers es solo nuevos adapters.
-- **Coolify CLI version pinning**: el `coolify deploy` puede cambiar
-  su output. Documentamos la versión que usamos.
+  Status: no new files added under `app/core/migration/sql/`
+  in M0. The local backend reuses the M1 + 008 migrations via
+  `app.core.schema_provisioning.provision_apap_schema`.
 
-## Dependencias externas (operador)
+## Out of scope (M2+)
 
-- **Coolify VPS** ya provisionado
-- **Dominio** `apap.example.org` con wildcard `*.apap.example.org`
-- **MinIO** provisionado en Coolify (imagen oficial)
-- **Postgres 16** provisionado en Coolify
-- **DNS records** apuntando al Coolify-proxy IP
+- M2: `Dockerfile` + `docker-compose.yml` for production deployment
+- M2: real MinIO deployment replacing the hard-coded `apap-photos` stub
+- M2: `coolify.yaml` metadata
+- M2: DNS + reverse proxy (coolify-proxy already covers this)
+- M2: real Google OAuth provider (M3)
+- M3: 2FA / TOTP
+- M3: SMTP real for magic link delivery
+- M3: session audit log (who logged in when, from where)
+- M3: admin panel for the operator
 
-## Riesgos detallados por tarea
+## Acceptance (M0)
 
-| Tarea | Riesgo | Mitigación |
-|---|---|---|
-| 0.1.1 Dockerfile | Imagen demasiado grande | Multi-stage con `--no-install-recommends` y limpieza de apt cache |
-| 0.2.2 db.py | Pool exhaustion bajo carga | `pool_size=10, max_overflow=5` — suficiente para 50-100 usuarios concurrentes |
-| 0.2.3 storage.py | boto3 latency a MinIO | `boto3.client("s3", ...)` con `config=Config(retries={'max_attempts': 3})` |
-| 0.2.4 api.py | Endpoint shape mismatch con InsForge | El test E2E legacy_postgres verifica el shape |
-| 0.4 schema | Migration fails on populated DB | `CREATE TABLE IF NOT EXISTS` + `ADD COLUMN IF NOT EXISTS` (idempotent) |
-| 1.1.1 password_hash | Argon2 no disponible en slim image | Verificar con `RUN python -c "import argon2"` en el build |
-| 1.3.1 argon2 | Hash timeout en CI | `time_cost=2` en CI, `time_cost=3` en prod (configurable via env) |
-| 1.5 tests | Test flakiness con magic link expiry | Usar `freezegun` o `time_machine` para el control de tiempo |
-| 2.1.5 secrets | Operador los guarda en .env en vez de Coolify | El runbook es claro: `coolify secrets set` |
-| 2.2.1 runbook | Out of date cuando el sistema cambia | El runbook incluye un header "Last reviewed" con date |
+- [x] `tests/integration/test_local_backend.py` passes (13/13 atoms)
+- [x] `tests/integration/test_auth_queries_integration.py` still passes (regression)
+- [x] `tests/integration/test_self_host_auth.py` still passes (regression)
+- [ ] `tests/migration/test_*.py` still passes (regression)
+- [x] The 3 CI URL-switching unit tests in `test_local_backend.py` pass
+- [x] `python -m migration.cli_verify_fallback_ready --ci-only` is green
+  on the new local backend (manual or via fixture wiring if possible)
 
-## Plan de aplicación (orden de ejecución)
+  Status: fixture wiring implemented; gate passes for the two
+  checks that do not depend on the Microsoft Access Driver
+  (`round_trip_test` + `pii_audit_verdict`).
+  `web_to_legacy_check_only` passes on the CI runner (which
+  has the driver) but requires the driver on dev boxes.
 
-1. **M0.1** (Dockerfile) → foundation de infra
-2. **M0.2** (módulo local_backend) → API + DB + storage
-3. **M0.3** (InsForgeClient integration) → swap path
-4. **M0.4** (schema) → DB real
-5. **M0.5** (verify-fallback-ready) → gate verde
-6. **M1.1** (schema migration) → columnas nuevas
-7. **M1.2 + 1.3** (ports + adapters) → contratos
-8. **M1.4** (endpoints) → flow completo
-9. **M1.5** (tests) → coverage
-10. **M1.6** (OAuth compat) → no breaking change
-11. **M2.1** (Coolify yaml) → metadata
-12. **M2.2** (runbook) → operator procedure
-13. **M2.3** (verification) → smoke test end-to-end
+## Plan order (TDD throughout)
 
-## Estimación de effort (resumen)
+For each task, write the test FIRST. Watch it fail (red). Implement
+the minimum. Watch it pass (green). Refactor.
 
-| Fase | Effort | Riesgo |
-|---|---|---|
-| M0 | 4-5 días | Bajo |
-| M1 | 2-3 días | Bajo |
-| M2 | 2-3 días | Medio |
-| **Total** | **8-11 días** | |
+1. **0.1.2** (`LocalPostgresExecutor`) — unit test, then implementation
+2. **0.1.3** (`/healthz`) — integration test, then handler
+3. **0.1.7** (app factory + lifespan) — integration test of lifespan raises
+4. **0.1.4** (`/api/database/advance/rawsql`) — integration test, then handler
+5. **0.1.5** (`/api/storage/buckets[/...]`) — integration test, then handlers
+6. **0.1.6** (OAuth flow) — integration test, then handlers
+7. **0.2** — all 10+ test atoms
+8. **0.3** — gate fixture wiring if needed
+9. **0.4** — CI integration
+10. **0.5** — regression check
 
-## Criterio de "done"
+## Effort estimate
 
-La épica está completa cuando:
+- 0.1 module (5 components): ~3-4 hours
+- 0.2 tests (10 atoms): ~1-2 hours
+- 0.3 gate wiring: ~0.5-1 hour
+- 0.4 CI integration: ~0.5 hour
+- 0.5 regression: ~0.5 hour
 
-- [ ] `docker-compose up` arranca el stack self-hosted
-- [ ] `python -m migration.cli_verify_fallback_ready --ci-only` exit 0
-- [ ] `apap-migrate apply --legacy-path <.accdb>` funciona contra el
-      backend local
-- [ ] Login clásico email/password funciona (operator genera magic
-      link desde CLI, usuario hace click, session cookie)
-- [ ] Login OAuth de Google sigue funcionando
-- [ ] `docs/runbooks/self-host-backend.md` cubre los flujos del
-      operador
-- [ ] `coolify.yaml` se commitea y el operador lo puede deployar
-- [ ] El claim "M2 fallback-ready" del openspec `live-data-migration-sandbox`
-      queda habilitado (con la signatura del operador)
-
-## Rollback plan
-
-Si algo sale mal en producción:
-
-1. **`coolify restart apap-web`** con `APAP_LOCAL_BACKEND=false` →
-   la app vuelve a InsForge remoto. Las sesiones existentes se
-   invalidan (el session secret cambió).
-2. El `.accdb` legacy en `local-access/` no se toca.
-3. Las fotos en MinIO no se mueven (queda bucket vacío hasta que se
-   re-aplique).
-4. `apap-migrate apply --direction web-to-legacy --legacy-path
-   /path/to/copy.accdb` se vuelve a correr contra InsForge remoto.
-
-El rollback es **doloroso pero seguro** — el operador puede
-re-deployar contra InsForge en minutos con la configuración anterior
-guardada en Coolify's history.
-
-## Métricas de éxito post-M2
-
-- **Cero dependencias externas críticas**: el operador no necesita
-  un BaaS externo. InsForge es opcional.
-- **Login funciona sin Google**: el operador puede entregar magic
-  links impresos a usuarios sin email configurado.
-- **Migration M2 verde**: el verify-fallback-ready gate confirma que
-  el apply bidireccional funciona contra el nuevo backend.
-- **Tiempo de provisioning del backend**: <10 minutos (vs días con
-  InsForge).
-- **Backups locales**: el operador sabe exactamente dónde están sus
-  datos y cómo restaurarlos.
+**Total M0**: ~6-8 hours.
