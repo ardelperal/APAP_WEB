@@ -230,7 +230,7 @@ def provision_apap_schema(dsn: str, schema: str) -> None:
         # depends on ``app.core.data_access`` which this module transitively
         # loads via ``psycopg``. Hoisting the import would break the
         # conftest-shaped import graph the rest of the repo assumes.
-        from app.core.adapters.insforge.auth_insforge_queries import (
+        from app.core.adapters.insforge.auth_insforge_queries import (  # lazy-import: see comment above
             CREATE_TABLE_SQL as USUARIOS_AUTORIZADOS_CREATE_SQL,
         )
         for piece in _split_statements(USUARIOS_AUTORIZADOS_CREATE_SQL):
