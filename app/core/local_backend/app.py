@@ -29,9 +29,14 @@ from __future__ import annotations
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
-from app.core.local_backend.db import LocalPostgresExecutor
+from app.core.local_backend.db import (
+    DatabaseError,
+    LocalPostgresExecutor,
+    QueryError,
+)
 from app.core.local_backend.healthz import router as healthz_router
 from app.core.local_backend.oauth_google import router as oauth_router
 from app.core.local_backend.rawsql import router as rawsql_router
@@ -81,6 +86,25 @@ def create_app() -> FastAPI:
         title="APAP_WEB local backend (M0)",
         lifespan=lifespan,
     )
+
+    @app.exception_handler(QueryError)
+    async def _on_query_error(
+        request: Request, exc: QueryError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "query_error", "detail": str(exc)},
+        )
+
+    @app.exception_handler(DatabaseError)
+    async def _on_database_error(
+        request: Request, exc: DatabaseError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "database_error", "detail": str(exc)},
+        )
+
     app.include_router(rawsql_router, prefix="/api")
     app.include_router(storage_router, prefix="/api")
     app.include_router(healthz_router)

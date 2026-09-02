@@ -1,38 +1,81 @@
-"""``GET /api/storage/buckets`` and ``POST /api/storage/buckets/{name}`` stubs
+"""``GET /api/storage/buckets`` and ``POST /api/storage/buckets`` handlers
 (M0 of self-host-backend-coolify).
 
-The full implementation will follow the next TDD step. The stub
-returns the shape that ``InsForgeClient.get_bucket`` expects:
+The InsForge REST API exposes the bucket admin surface used by
+``InsForgeClient.get_bucket`` and ``InsForgeClient.ensure_bucket``. The
+local backend re-implements those endpoints against an in-memory
+bucket registry (M2 swaps this for real MinIO + boto3).
 
-  ``[{"bucketName": "apap-photos", "isPublic": false, "files": 0}, ...]``
+The contract is body-based for ``POST`` (``{"bucketName": ..., "isPublic": ...}``),
+matching what ``InsForgeClient.ensure_bucket`` sends. The tasks.md
+originally suggested ``POST /api/storage/buckets/{name}`` but the
+InsForge client sends the name in the body, so the body-based form
+is what the integration tests pin.
 
-(bucketName camelCase matches the existing client; isPublic and files
-match the InsForge envelope shape.)
+Hard rules (web-tdd-philosophy):
+- Rule 4 (no humo): tests assert return shapes (``bucketName``,
+  ``isPublic``, ``files``) and the round-trip behaviour, never
+  absence-of-error.
+- Rule 8 (no production mutation): the bucket registry is in-process;
+  no real MinIO/S3 contacted.
 """
 
 from __future__ import annotations
+
+from typing import Any
 
 from fastapi import APIRouter
 
 router = APIRouter()
 
 
-_BUCKETS = [
-    {"bucketName": "apap-photos", "isPublic": False, "files": 0},
-]
+def _bucket_dict(name: str, is_public: bool) -> dict[str, Any]:
+    """Shape the InsForge bucket envelope.
 
-
-@router.get("/storage/buckets")
-def list_buckets() -> list[dict]:
-    """List all buckets (M0 stub: one fixed bucket)."""
-    return list(_BUCKETS)
-
-
-@router.post("/storage/buckets/{bucket_name}")
-async def ensure_bucket(bucket_name: str, is_public: bool = False) -> dict:
-    """Create the bucket if missing. M0 stub always returns success."""
+    ``bucketName`` (camelCase) matches the existing client. ``isPublic``
+    and ``files`` are part of the InsForge envelope — ``files`` is the
+    count of objects in the bucket (always 0 in M0).
+    """
     return {
-        "bucketName": bucket_name,
+        "bucketName": name,
         "isPublic": is_public,
         "files": 0,
     }
+
+
+# M0 stub: an in-memory registry of buckets seeded with the canonical
+# ``apap-photos`` bucket used by APAP_WEB. M2 swaps for MinIO + boto3.
+_BUCKETS: dict[str, dict[str, Any]] = {
+    "apap-photos": _bucket_dict("apap-photos", is_public=False),
+}
+
+
+@router.get("/storage/buckets")
+def list_buckets() -> list[dict[str, Any]]:
+    """List all buckets (M0 stub: in-memory registry)."""
+    return list(_BUCKETS.values())
+
+
+@router.post("/storage/buckets")
+def ensure_bucket(payload: dict[str, Any]) -> dict[str, Any]:
+    """Create the bucket if missing. Idempotent: returns the existing
+    bucket envelope if the name is already in the registry.
+
+    Body shape (matches what ``InsForgeClient.ensure_bucket`` sends):
+        ``{"bucketName": str, "isPublic": bool}``
+
+    APAP migration buckets must be private (``is_public=True`` is
+    rejected at the client side; the server echoes back whatever the
+    caller sent — the local backend does not enforce privacy, it just
+    records what the operator asked for).
+    """
+    name = payload.get("bucketName")
+    if not isinstance(name, str) or not name:
+        raise ValueError("payload must include a non-empty 'bucketName' string")
+    is_public = bool(payload.get("isPublic", False))
+    if name not in _BUCKETS:
+        _BUCKETS[name] = _bucket_dict(name, is_public)
+    return _BUCKETS[name]
+
+
+__all__ = ["router", "list_buckets", "ensure_bucket"]
