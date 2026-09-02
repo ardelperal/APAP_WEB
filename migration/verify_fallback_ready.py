@@ -35,16 +35,19 @@ from __future__ import annotations
 
 import os
 import re
-import socket
 import subprocess
 import sys
-import time
-import urllib.error
-import urllib.request
-import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+
+from migration.verify_fallback_helpers import (
+    _drop_ephemeral_schema,
+    _pick_free_port,
+    _provision_ephemeral_schema,
+    _run_subprocess_check,
+    _wait_for_healthz,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PII_AUDIT_PATH = REPO_ROOT / "docs" / "audits" / "pii-live-migration-2026-Q3.md"
@@ -71,99 +74,6 @@ class CheckResult:
     name: str
     status: str
     evidence: str
-
-
-def _run_subprocess_check(
-    args: list[str],
-    cwd: Path,
-    extra_env: dict[str, str] | None = None,
-) -> tuple[int, str, str]:
-    """Run a subprocess and return ``(returncode, stdout, stderr)``.
-
-    Centralised so the format is consistent and the orchestrator can
-    treat the check as a function-of-state rather than a function-of-
-    process.
-
-    ``extra_env`` is merged on top of the inherited environment so
-    checks can override specific variables (the local-backend fixture
-    wiring uses this to inject ``APAP_LOCAL_BACKEND`` /
-    ``APAP_INSFORGE_URL`` without disturbing the rest of the env).
-    """
-    env = None
-    if extra_env:
-        env = {**os.environ, **extra_env}
-    proc = subprocess.run(
-        args,
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-        check=False,
-        env=env,
-    )
-    return proc.returncode, proc.stdout, proc.stderr
-
-
-def _pick_free_port() -> int:
-    """Return an OS-assigned free TCP port.
-
-    Lets the kernel pick so two CI jobs on the same host never collide.
-    Used by the local-backend fixture wiring in
-    ``check_web_to_legacy_check_only``.
-    """
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-def _wait_for_healthz(port: int, timeout_seconds: float) -> bool:
-    """Poll ``GET /healthz`` until it returns 200 or the timeout elapses.
-
-    The local backend's lifespan must complete before the executor on
-    ``app.state`` is reachable — uvicorn returns the process socket
-    immediately, but the lifespan only runs on the first request. We
-    poll briefly to give the lifespan time to settle.
-    """
-    deadline = time.monotonic() + timeout_seconds
-    url = f"http://127.0.0.1:{port}/healthz"
-    while time.monotonic() < deadline:
-        try:
-            with urllib.request.urlopen(url, timeout=0.5) as resp:  # noqa: S310
-                if resp.status == 200:
-                    return True
-        except (urllib.error.URLError, ConnectionError, OSError):
-            pass
-        time.sleep(0.1)
-    return False
-
-
-def _provision_ephemeral_schema(dsn: str) -> str:
-    """Provision an ephemeral APAP schema and return its name.
-
-    Mirrors ``tests/integration/conftest.py::_EphemeralPostgres._provision``
-    via ``app.core.schema_provisioning.provision_apap_schema`` so the
-    web-to-legacy dry-run has the same domain tables it would have in
-    production. The schema name is UUID-suffixed so concurrent runs do
-    not collide; the caller is responsible for dropping it via
-    ``_drop_ephemeral_schema``.
-    """
-    from app.core.schema_provisioning import provision_apap_schema
-
-    schema = f"gate_{uuid.uuid4().hex[:12]}"
-    provision_apap_schema(dsn, schema)
-    return schema
-
-
-def _drop_ephemeral_schema(dsn: str, schema: str) -> None:
-    """Drop the ephemeral schema provisioned by ``_provision_ephemeral_schema``.
-
-    Best-effort: failures here are swallowed (the gate reports the
-    real error from the subprocess, not the cleanup). Production is
-    never at risk because the schema name is unique per run.
-    """
-    import psycopg
-
-    with psycopg.connect(dsn, autocommit=True) as conn:
-        conn.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
 
 
 def check_round_trip_test() -> CheckResult:

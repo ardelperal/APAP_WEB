@@ -510,21 +510,26 @@ def apply_legacy_to_web(
 from migration.apply_helpers import (  # noqa: E402,F401
     _SAFE_TABLE_NAME,
     SourceDriftError,
-    _apply_one_row,
-    _apply_value_transform,
-    _compute_source_hash,
-    _fetch_web_row_by_key,
-    _insert_web_row,
-    _legacy_to_web_row,
-    _LockContext,
     _normalise_for_lookup,
-    _record_shadow_divergence,
-    _resolve_default_lock_path,
-    _resolve_default_partial_path,
-    _resolve_default_snapshot_path,
     _resolve_fk_value,
     _safe_table,
     _strip_accents,
     _VoluntariosIndex,
-    _write_or_check_snapshot,
 )
+from migration.apply_lock import (  # noqa: E402,F401
+    _LockContext,
+    _resolve_default_lock_path,
+    _resolve_default_partial_path,
+    _resolve_default_snapshot_path,
+)
+from migration.apply_per_row import (  # noqa: E402,F401
+    _apply_one_row,
+    _fetch_web_row_by_key,
+    _insert_web_row,
+    _record_shadow_divergence,
+)
+from migration.apply_row_mapping import (  # noqa: E402,F401
+    _compute_source_hash,
+    _legacy_to_web_row,
+)
+from migration.apply_snapshots import _write_or_check_snapshot  # noqa: E402,F401
