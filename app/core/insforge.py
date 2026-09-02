@@ -20,9 +20,9 @@ tests can use ``httpx.MockTransport`` without hitting the network.
 """
 
 from __future__ import annotations
-import os
 
 import json
+import os
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass
