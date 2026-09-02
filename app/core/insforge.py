@@ -83,7 +83,12 @@ class InsForgeClient:
         if not base_url and os.environ.get("APAP_LOCAL_BACKEND", "").lower() in (
             "1", "true", "yes", "on"
         ):
-            base_url = "http://localhost:8000/api"
+            # The local-backend routes live under ``/api/...``
+            # (the ``InsForgeClient`` hardcodes that prefix on
+            # every endpoint), so the ``base_url`` itself must
+            # NOT carry a trailing ``/api`` — that would double
+            # the prefix on every request.
+            base_url = "http://localhost:8000"
         # Strip trailing slash so URL joining is predictable.
         self._base_url = base_url.rstrip("/")
         self._service_key = service_key
