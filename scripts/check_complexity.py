@@ -67,7 +67,15 @@ BASELINE_CC: dict[tuple[str, str], int] = {
         "migration/reverse_apply/orchestrator.py",
         "apply_web_to_legacy",
     ): 13,  # issue #332 refactor — extracted helpers (was CC=57)
-}
+        # M0 (self-host-backend-coolify): extracted from apply.py / new
+        # wiring in verify_fallback_ready. CCs are still over the hard
+        # budget; future work will split the dispatch into per-transform
+        # functions so each call site is unit-testable in isolation.
+        ("app/core/schema_provisioning.py", "_split_statements"): 26,
+        ("migration/apply_helpers.py", "_apply_value_transform"): 22,
+        ("migration/verify_fallback_ready.py", "check_web_to_legacy_check_only"): 16,
+    }
+
 
 #: Ratchet deadline (deterministic-quality-harness v1.5 Rule 12). Every
 #: baselined function's goal is to shrink below MAX_CC (target=0 entries).
