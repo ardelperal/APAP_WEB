@@ -8,9 +8,16 @@ InsForge adapter falls back to ``NotImplementedError`` for
 """
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from app.core.domain.auth.user import AuthorizedUser
+if TYPE_CHECKING:
+    # ``AuthorizedUser`` is the return type of ``verify_password``. The
+    # ``ports`` layer may not import from the ``domain`` layer (rule 33:
+    # vertical slices own their column through the layers; compose them
+    # in ``app/core/di/`` instead). Type-check-only; the signature
+    # forward-references the type as a string so the runtime contract
+    # still resolves through the adapter.
+    from app.core.domain.auth.user import AuthorizedUser  # noqa: F401
 
 
 @runtime_checkable

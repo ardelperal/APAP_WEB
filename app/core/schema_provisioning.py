@@ -223,17 +223,20 @@ def provision_apap_schema(dsn: str, schema: str) -> None:
         for stmt in statements:
             for piece in _split_statements(stmt):
                 conn.execute(piece)
-        # Auth core table (the integration conftest does this too via
-        # ``self_host_auth`` fixture; non-test consumers need it because
-        # ``migration.apply`` queries ``usuarios_autorizados``).
-        # lazy-import: avoid circular import — ``app.core.adapters.insforge``
-        # depends on ``app.core.data_access`` which this module transitively
-        # loads via ``psycopg``. Hoisting the import would break the
-        # conftest-shaped import graph the rest of the repo assumes.
-        from app.core.adapters.insforge.auth_insforge_queries import (  # lazy-import: see comment above
-            CREATE_TABLE_SQL as USUARIOS_AUTORIZADOS_CREATE_SQL,
+        # Auth core table — same DDL the integration conftest uses via
+        # ``self_host_auth`` fixture. Inlined here to keep the
+        # ``infrastructure`` layer free of ``adapters`` imports (rule 33).
+        USUARIOS_AUTORIZADOS_DDL = '''
+        CREATE TABLE IF NOT EXISTS usuarios_autorizados (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            email TEXT UNIQUE NOT NULL,
+            rol TEXT NOT NULL,
+            anadido_por UUID,
+            activo BOOLEAN NOT NULL DEFAULT true,
+            fecha_alta TIMESTAMP NOT NULL DEFAULT now()
         )
-        for piece in _split_statements(USUARIOS_AUTORIZADOS_CREATE_SQL):
+        '''
+        for piece in _split_statements(USUARIOS_AUTORIZADOS_DDL):
             conn.execute(piece)
         # M1 migrations on top.
         for migration_name in _MIGRATION_FILES:
