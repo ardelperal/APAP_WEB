@@ -57,10 +57,18 @@ tests.
 - [x] **0.2.7** `test_oauth_google_start_returns_auth_url` — POST start returns the auth URL shape
 - [x] **0.2.8** `test_oauth_google_callback_returns_jwt` — POST callback returns token + user
 - [x] **0.2.9** `test_oauth_exchange_returns_jwt` — POST exchange accepts insforge_code
-- [ ] **0.2.10** `test_insforge_client_targets_local_backend` — the existing
+- [x] **0.2.10** `test_insforge_client_targets_local_backend` — the existing
   URL-switching test already covers this; update the existing test to
   point at the local backend (or add a new test that uses the local
   backend URL).
+
+  Status: covered by `test_insforge_client_local_url_overrides_local_flag`
+  which sets `APAP_INSFORGE_URL=https://custom-insforge.example.com` and
+  asserts the client targets that URL even with `APAP_LOCAL_BACKEND=true`
+  set. The reverse — client targets `http://localhost:8000` when the
+  flag is set and no explicit URL — is covered by
+  `test_insforge_client_uses_local_default_when_flag_set` (asserts the
+  base URL equals `http://localhost:8000`).
 
 ### 0.3 Verify-fallback-ready gate
 
