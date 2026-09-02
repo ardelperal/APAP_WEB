@@ -475,6 +475,7 @@ def self_host_schema(ephemeral_postgres):
     M1 of the self-host-backend-coolify openspec (issue #641).
     """
     from pathlib import Path
+
     from app.core.adapters.insforge.auth_insforge_queries import (
         CREATE_TABLE_SQL as USUARIOS_AUTORIZADOS_CREATE_SQL,
     )
