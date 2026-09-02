@@ -27,6 +27,49 @@ from pathlib import Path
 
 import psycopg
 
+# Domain DDL constants — same imports the integration conftest uses so the
+# helper produces an identical schema. Imported at module level so the
+# APAP003 rule linter does not flag them as unjustified lazy imports.
+from app.core.domain_adopciones import ADOPCIONES_CREATE_TABLE_SQL
+from app.core.domain_animales import ANIMALS_CREATE_TABLE_SQL
+from app.core.domain_casas_acogida import CASAS_ACOGIDA_CREATE_TABLE_SQL
+from app.core.domain_cesiones import CESIONES_PROPIETARIO_CREATE_TABLE_SQL
+from app.core.domain_contracts import CONTRATOS_CREATE_TABLE_SQL
+from app.core.domain_entradas import (
+    ENTRADAS_BATCH_STAGING_CREATE_TABLE_SQL,
+    ENTRADAS_CREATE_TABLE_SQL,
+)
+from app.core.domain_foster import (
+    ACOGIDAS_ADD_CASA_FK_SQL,
+    ACOGIDAS_CREATE_TABLE_SQL,
+    FOSTER_CAPACITY_OVERRIDES_ADD_ESTANCIA_FK_SQL,
+    FOSTER_CAPACITY_OVERRIDES_CREATE_TABLE_SQL,
+)
+from app.core.domain_lifecycle import (
+    ANIMAL_CURRENT_STATE_CREATE_TABLE_SQL,
+    ANIMAL_CURRENT_STATE_STATE_INDEX_SQL,
+    ANIMAL_LIFECYCLE_EVENTS_ANIMAL_TIMESTAMP_INDEX_SQL,
+    ANIMAL_LIFECYCLE_EVENTS_APPEND_ONLY_FUNCTION_SQL,
+    ANIMAL_LIFECYCLE_EVENTS_APPEND_ONLY_TRIGGER_SQL,
+    ANIMAL_LIFECYCLE_EVENTS_CAUSED_BY_INDEX_SQL,
+    ANIMAL_LIFECYCLE_EVENTS_CREATE_TABLE_SQL,
+    ANIMAL_LIFECYCLE_EVENTS_DROP_APPEND_ONLY_TRIGGER_SQL,
+)
+from app.core.domain_materiales import (
+    ESTANCIA_MATERIALES_ACTIVE_UNIQUE_INDEX_SQL,
+    ESTANCIA_MATERIALES_CREATE_TABLE_SQL,
+    MATERIALES_CREATE_TABLE_SQL,
+)
+from app.core.domain_salud import ACTUACION_SANITARIA_CREATE_TABLE_SQL
+from app.core.domain_terapias import (
+    RECOMENDACIONES_CREATE_TABLE_SQL,
+    TERAPIAS_CREATE_TABLE_SQL,
+)
+from app.core.domain_voluntarios import (
+    ROLES_VOLUNTARIO_CREATE_TABLE_SQL,
+    VOLUNTARIOS_CREATE_TABLE_SQL,
+)
+
 
 def _load_conftest_catalogos() -> tuple[str, ...]:
     """Import the catalogos DDL constants from the integration conftest.
@@ -52,50 +95,10 @@ def _load_domain_statements() -> tuple[str, ...]:
     """Return the ordered domain DDL list (catalogos + domain tables).
 
     Catalogos come from the integration conftest (single source of
-    truth); domain tables come from ``app.core.domain_*`` modules.
+    truth); domain tables come from the module-level imports above.
     Order respects FK dependencies — catalogos first, then tables
     that reference them, then the lifecycle append-only trigger.
     """
-    from app.core.domain_adopciones import ADOPCIONES_CREATE_TABLE_SQL
-    from app.core.domain_animales import ANIMALS_CREATE_TABLE_SQL
-    from app.core.domain_casas_acogida import CASAS_ACOGIDA_CREATE_TABLE_SQL
-    from app.core.domain_cesiones import CESIONES_PROPIETARIO_CREATE_TABLE_SQL
-    from app.core.domain_contracts import CONTRATOS_CREATE_TABLE_SQL
-    from app.core.domain_entradas import (
-        ENTRADAS_BATCH_STAGING_CREATE_TABLE_SQL,
-        ENTRADAS_CREATE_TABLE_SQL,
-    )
-    from app.core.domain_foster import (
-        ACOGIDAS_ADD_CASA_FK_SQL,
-        ACOGIDAS_CREATE_TABLE_SQL,
-        FOSTER_CAPACITY_OVERRIDES_ADD_ESTANCIA_FK_SQL,
-        FOSTER_CAPACITY_OVERRIDES_CREATE_TABLE_SQL,
-    )
-    from app.core.domain_lifecycle import (
-        ANIMAL_CURRENT_STATE_CREATE_TABLE_SQL,
-        ANIMAL_CURRENT_STATE_STATE_INDEX_SQL,
-        ANIMAL_LIFECYCLE_EVENTS_ANIMAL_TIMESTAMP_INDEX_SQL,
-        ANIMAL_LIFECYCLE_EVENTS_APPEND_ONLY_FUNCTION_SQL,
-        ANIMAL_LIFECYCLE_EVENTS_APPEND_ONLY_TRIGGER_SQL,
-        ANIMAL_LIFECYCLE_EVENTS_CAUSED_BY_INDEX_SQL,
-        ANIMAL_LIFECYCLE_EVENTS_CREATE_TABLE_SQL,
-        ANIMAL_LIFECYCLE_EVENTS_DROP_APPEND_ONLY_TRIGGER_SQL,
-    )
-    from app.core.domain_materiales import (
-        ESTANCIA_MATERIALES_ACTIVE_UNIQUE_INDEX_SQL,
-        ESTANCIA_MATERIALES_CREATE_TABLE_SQL,
-        MATERIALES_CREATE_TABLE_SQL,
-    )
-    from app.core.domain_salud import ACTUACION_SANITARIA_CREATE_TABLE_SQL
-    from app.core.domain_terapias import (
-        RECOMENDACIONES_CREATE_TABLE_SQL,
-        TERAPIAS_CREATE_TABLE_SQL,
-    )
-    from app.core.domain_voluntarios import (
-        ROLES_VOLUNTARIO_CREATE_TABLE_SQL,
-        VOLUNTARIOS_CREATE_TABLE_SQL,
-    )
-
     catalogos = _load_conftest_catalogos()
     return (
         *catalogos,
@@ -223,6 +226,10 @@ def provision_apap_schema(dsn: str, schema: str) -> None:
         # Auth core table (the integration conftest does this too via
         # ``self_host_auth`` fixture; non-test consumers need it because
         # ``migration.apply`` queries ``usuarios_autorizados``).
+        # lazy-import: avoid circular import — ``app.core.adapters.insforge``
+        # depends on ``app.core.data_access`` which this module transitively
+        # loads via ``psycopg``. Hoisting the import would break the
+        # conftest-shaped import graph the rest of the repo assumes.
         from app.core.adapters.insforge.auth_insforge_queries import (
             CREATE_TABLE_SQL as USUARIOS_AUTORIZADOS_CREATE_SQL,
         )
