@@ -237,7 +237,7 @@ implements `AuthUsersPort` with the password methods, plus a new
 
 - Email verification enforcement (the `email_verified_at` column is
   added but not enforced — that's a future epic)
-- 2FA / TOTP
+- 2FA / one-time-password
 - Rate limiting on login (the `failed_attempts` column is added but
   not used; that's a future epic)
 - Audit log of login attempts
