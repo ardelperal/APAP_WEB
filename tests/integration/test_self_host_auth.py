@@ -132,8 +132,10 @@ def test_list_active_returns_unused_unexpired_tokens(
     """
     port = MagicLinkPort(self_host_schema, ttl_seconds=600)
     first = port.create_token("first@test.com", purpose="login")
+    # Create a second token so list_active returns >1 row; we
+    # don't bind it because we only need to assert ordering.
+    port.create_token("second@test.com", purpose="login")
     time.sleep(0.01)  # ensure distinct created_at
-    second = port.create_token("second@test.com", purpose="login")
 
     # Consume one — it should NOT appear in the active list.
     port.consume_token(first)
