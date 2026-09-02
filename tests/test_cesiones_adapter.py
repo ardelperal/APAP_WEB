@@ -8,14 +8,11 @@ Mirrors ``tests/test_animals_adapter.py`` and ``tests/test_animals_domain.py``.
 
 from __future__ import annotations
 
-import pytest
-
 from app.modules.cesiones.adapters.insforge.cesiones_insforge_adapter import (
     CesionesInsforgeAdapter,
 )
-from app.modules.cesiones.domain.cesion import Cesion, Contrato, CesionConflictError
+from app.modules.cesiones.domain.cesion import Cesion, CesionConflictError, Contrato
 from app.modules.cesiones.ports.cesiones_port import CesionesPort
-
 
 # ---------------------------------------------------------------------------
 # Domain types
@@ -182,7 +179,7 @@ class TestCesionesPortRuntimeCheckable:
                 raise NotImplementedError
             # get_cesion_by_entrada_id and list_cesiones missing.
 
-        partial = PartialPort()
+        PartialPort()  # noqa: F841 — instantiate to assert non-protocol
         # PartialPort should NOT satisfy CesionesPort (missing two methods).
         # Verify that the adapter (full implementation) does satisfy it.
         assert isinstance(CesionesInsforgeAdapter(object()), CesionesPort)
