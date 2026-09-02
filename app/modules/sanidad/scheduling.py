@@ -38,7 +38,9 @@ def schedule_periodic_task(
     if not actuacion.tipo_actuacion_id:
         return
 
-    from app.core.logging import log_safe  # lazy-import: schedule module loaded at module level from service.py
+    from app.core.logging import (
+        log_safe,  # lazy-import: schedule module loaded at module level from service.py
+    )
     from app.modules.sanidad.periodicity import (  # lazy-import: avoids circular dep (periodicity.py is framework-agnostic)
         find_periodicity_rule,
         generate_next_tarea,

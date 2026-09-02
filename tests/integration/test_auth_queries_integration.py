@@ -38,7 +38,6 @@ from app.core import auth
 from app.core.adapters.insforge.auth_insforge_queries import (
     CREATE_TABLE_SQL,
     DEACTIVATE_USER_SQL,
-    GET_USER_BY_EMAIL_SQL,
 )
 from tests.integration.conftest import _EphemeralPostgres
 
