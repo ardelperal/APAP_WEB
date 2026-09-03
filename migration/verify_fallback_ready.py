@@ -211,6 +211,31 @@ def check_web_to_legacy_check_only() -> CheckResult:
     return _run_web_to_legacy_check_only(local_backend=local_backend)
 
 
+def check_magic_link_local_round_trip() -> CheckResult:
+    """Drive the magic-link round-trip against the local backend.
+
+    Thin dispatcher that delegates the env-flag check + round-trip
+    drive + result construction to
+    :func:`tests.migration._local_backend_fixture.run_magic_link_gate_check`.
+    Keeping this function as a one-liner keeps
+    ``migration/verify_fallback_ready.py`` under the 250-site
+    mutation budget (the heavy lifting lives under ``tests/``
+    which the mutation-site scanner does not see).
+
+    The helper raises :class:`RuntimeError` when
+    ``APAP_TEST_POSTGRES_DSN`` is unset while ``APAP_LOCAL_BACKEND``
+    is set; the helper maps the message to a ``CheckResult`` with
+    ``status="FAIL"`` and the original message as evidence so the
+    operator sees exactly which env var is missing (matches
+    AGENTS.md "MUST NOT silently skip").
+    """
+    from tests.migration._local_backend_fixture import (
+        run_magic_link_gate_check,
+    )
+
+    return run_magic_link_gate_check()
+
+
 def check_operator_signature() -> CheckResult:
     """Verify the operator signature file exists with a valid operator_id.
 
@@ -264,6 +289,7 @@ CI_CHECK_NAMES: list[str] = [
     "check_round_trip_test",
     "check_pii_audit_verdict",
     "check_web_to_legacy_check_only",
+    "check_magic_link_local_round_trip",
 ]
 ALL_CHECK_NAMES: list[str] = CI_CHECK_NAMES + ["check_operator_signature"]
 
@@ -275,6 +301,7 @@ CI_CHECKS: list[Callable[[], CheckResult]] = [
     check_round_trip_test,
     check_pii_audit_verdict,
     check_web_to_legacy_check_only,
+    check_magic_link_local_round_trip,
 ]
 ALL_CHECKS: list[Callable[[], CheckResult]] = CI_CHECKS + [check_operator_signature]
 

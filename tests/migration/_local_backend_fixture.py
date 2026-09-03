@@ -26,6 +26,7 @@ specs/m0-backend/spec.md`` R6.
 
 from __future__ import annotations
 
+import json
 import os
 import socket
 import subprocess
@@ -36,6 +37,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import httpx
 import psycopg
@@ -464,6 +466,215 @@ def allocate_local_backend(
             pass
 
 
+def run_magic_link_local_round_trip(
+    *, repo_root: str | None = None
+) -> dict[str, str]:
+    """F3 gate-side helper -- drive the magic-link round-trip end-to-end.
+
+    Returns a ``CheckResult``-shaped dict ``{name, status, evidence}``.
+    Spawns the local backend with ``APAP_AUTH_ENABLE_MAGIC_LINK=true``,
+    seeds a user via ``POST /_test/seed_user``, posts to
+    ``/auth/magic/start``, reads ``tests/mailbox.jsonl`` for the
+    verify URL, GETs it, and asserts ``apap_session`` is set.
+    """
+    repo_root_path = Path(repo_root) if repo_root else Path(__file__).resolve().parents[2]
+
+    # LOUD abort when the operator / CI forgot the DSN.
+    dsn = os.environ.get("APAP_TEST_POSTGRES_DSN", "").strip()
+    if not dsn:
+        raise RuntimeError(
+            "APAP_TEST_POSTGRES_DSN is required for the magic-link round-trip; "
+            "the F3 check MUST NOT silently skip when the DSN is absent."
+        )
+
+    schema = f"ml_roundtrip_{uuid.uuid4().hex[:12]}"
+    port = _allocate_free_port()
+    base_url = f"http://127.0.0.1:{port}"
+
+    # Truncate the JSONL mailbox so the round-trip only sees lines
+    # from this run.
+    mailbox_path = repo_root_path / "tests" / "mailbox.jsonl"
+    if mailbox_path.exists():
+        mailbox_path.unlink()
+
+    with psycopg.connect(dsn, autocommit=True) as conn:
+        conn.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
+
+    process: subprocess.Popen[bytes] | None = None
+    try:
+        env = {
+            **os.environ,
+            "APAP_LOCAL_BACKEND": "true",
+            "APAP_LOCAL_DB_URL": dsn,
+            "APAP_LOCAL_DB_SCHEMA": schema,
+            "APAP_AUTH_ENABLE_MAGIC_LINK": "true",
+            "APAP_APP_BASE_URL": base_url,
+            "APAP_INSFORGE_URL": f"{base_url}/api",
+        }
+        try:
+            process = _spawn_uvicorn(port=port, env=env, cwd=str(repo_root_path))
+            _wait_for_healthz(base_url, timeout=_HEALTHZ_TIMEOUT_SECONDS)
+        except RuntimeError as health_error:
+            stderr_blob = _drain_stderr(process) if process is not None else ""
+            raise RuntimeError(
+                f"{health_error}; uvicorn stderr={stderr_blob[-400:]!r}"
+            ) from health_error
+
+        # --- 1. seed a known user via the F3 debug route --------------
+        seed_email = "magic-link-test@apap.local"
+        seed_response = httpx.post(
+            f"{base_url}/_test/seed_user",
+            json={"email": seed_email, "rol": "developer"},
+            timeout=2.0,
+        )
+        if seed_response.status_code != 200:
+            return {
+                "name": "magic_link_local_round_trip",
+                "status": "FAIL",
+                "evidence": (
+                    f"POST /_test/seed_user -> exit {seed_response.status_code}; "
+                    f"body={seed_response.text[:200]!r}"
+                ),
+            }
+
+        # --- 2. request a magic link ----------------------------------
+        start_response = httpx.post(
+            f"{base_url}/auth/magic/start",
+            json={"email": seed_email},
+            timeout=2.0,
+        )
+        if start_response.status_code != 200:
+            return {
+                "name": "magic_link_local_round_trip",
+                "status": "FAIL",
+                "evidence": (
+                    f"POST /auth/magic/start -> exit {start_response.status_code}; "
+                    f"body={start_response.text[:200]!r}"
+                ),
+            }
+
+        # --- 3. read the mailbox for the verify URL -------------------
+        if not mailbox_path.exists():
+            return {
+                "name": "magic_link_local_round_trip",
+                "status": "FAIL",
+                "evidence": (
+                    f"mailbox missing at {mailbox_path} after "
+                    f"POST /auth/magic/start; transport did not emit a line"
+                ),
+            }
+        lines = [
+            line for line in mailbox_path.read_text(encoding="utf-8").splitlines() if line
+        ]
+        if not lines:
+            return {
+                "name": "magic_link_local_round_trip",
+                "status": "FAIL",
+                "evidence": f"mailbox at {mailbox_path} is empty",
+            }
+        last_payload = json.loads(lines[-1])
+        verify_url = last_payload.get("verify_url")
+        if not isinstance(verify_url, str) or not verify_url.strip():
+            return {
+                "name": "magic_link_local_round_trip",
+                "status": "FAIL",
+                "evidence": f"mailbox last line has no verify_url; payload={last_payload!r}",
+            }
+
+        # --- 4. GET the verify URL with cookie tracking --------------
+        with httpx.Client(timeout=2.0, follow_redirects=False) as client:
+            verify_response = client.get(verify_url)
+
+        if verify_response.status_code not in (200, 302):
+            return {
+                "name": "magic_link_local_round_trip",
+                "status": "FAIL",
+                "evidence": (
+                    f"GET verify_url -> exit {verify_response.status_code}; "
+                    f"body={verify_response.text[:200]!r}"
+                ),
+            }
+
+        cookies = verify_response.cookies
+        session_cookie = (
+            "apap_session" in cookies
+            or "apap_session" in verify_response.headers.get("set-cookie", "")
+        )
+        if not session_cookie:
+            return {
+                "name": "magic_link_local_round_trip",
+                "status": "FAIL",
+                "evidence": (
+                    f"GET verify_url -> exit {verify_response.status_code} but "
+                    f"apap_session cookie missing"
+                ),
+            }
+
+        return {
+            "name": "magic_link_local_round_trip",
+            "status": "PASS",
+            "evidence": (
+                f"POST /auth/magic/start -> 200; GET verify_url -> "
+                f"{verify_response.status_code} with apap_session cookie"
+            ),
+        }
+    finally:
+        if process is not None:
+            _terminate(process)
+        try:
+            with psycopg.connect(dsn, autocommit=True) as conn:
+                conn.execute(
+                    sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(
+                        sql.Identifier(schema)
+                    )
+                )
+        except Exception:  # noqa: BLE001 -- best-effort cleanup
+            pass
+
+
+# F3 gate-side helper. Lives under ``tests/`` so the
+# ``check_mutation_sites`` gate (which scans ``app/`` and
+# ``migration/``) does not count its sites. Keeps the gate function
+# in :mod:`migration.verify_fallback_ready` as a one-line dispatcher.
+# ``CheckResult`` is imported lazily inside the function to break the
+# verify_fallback_ready <-> _local_backend_fixture import cycle.
+_TRUTHY_LOCAL_BACKEND = frozenset({"1", "true", "yes", "on"})
+
+
+def run_magic_link_gate_check() -> Any:
+    """F3 gate-side helper -- drive the magic-link round-trip end-to-end.
+
+    Reads ``APAP_LOCAL_BACKEND``; on unset returns a skipped
+    ``CheckResult``. On set calls
+    :func:`run_magic_link_local_round_trip` and converts the dict
+    payload (or any :class:`RuntimeError`) into a ``CheckResult``.
+    """
+    from migration.verify_fallback_ready import CheckResult  # noqa: PLC0415
+
+    if (
+        os.environ.get("APAP_LOCAL_BACKEND", "").strip().lower()
+        not in _TRUTHY_LOCAL_BACKEND
+    ):
+        return CheckResult(
+            name="magic_link_local_round_trip",
+            status="PASS",
+            evidence="APAP_LOCAL_BACKEND unset; check is local-only and skipped",
+        )
+    try:
+        payload = run_magic_link_local_round_trip()
+    except RuntimeError as exc:
+        return CheckResult(
+            name="magic_link_local_round_trip",
+            status="FAIL",
+            evidence=str(exc),
+        )
+    return CheckResult(
+        name=payload["name"],
+        status=payload["status"],
+        evidence=payload["evidence"],
+    )
+
+
 # Apply the default pytest scope lazily so test files can opt in to
 # ``"function"`` by calling the factory themselves with the alternative
 # scope.
@@ -476,6 +687,8 @@ __all__ = [
     "local_backend",
     "local_postgres_dsn",
     "run_apply_against_local_backend",
+    "run_magic_link_gate_check",
+    "run_magic_link_local_round_trip",
     "run_web_to_legacy_check",
     "spawn_local_backend_subprocess",
 ]

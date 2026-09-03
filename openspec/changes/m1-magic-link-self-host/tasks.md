@@ -99,24 +99,24 @@ Note: the user's lineage abandoned earlier `review-cdcbb2a641e7b4e0` (which only
 ## F3. Magic-verify-ready — gate + integration atom
 
 ### T3.1 `check_magic_link_local_round_trip`
-- [ ] `migration/verify_fallback_ready.py` adds `check_magic_link_local_round_trip()` to `CI_CHECKS` (after the existing three)
-- [ ] The check reuses the local backend spawn helper from M0/T3.2 if available; otherwise spawns its own ephemeral backend
-- [ ] Provisions a temp user in `authorized_users`, POSTs to `/auth/magic/start`, reads `tests/mailbox.jsonl` (cleared at start), extracts the verify URL, GETs it, asserts 200/302 with `apap_session` cookie
+- [x] `migration/verify_fallback_ready.py` adds `check_magic_link_local_round_trip()` to `CI_CHECKS` (after the existing three)
+- [x] The check reuses the local backend spawn helper from M0/T3.2 if available; otherwise spawns its own ephemeral backend
+- [x] Provisions a temp user in `authorized_users`, POSTs to `/auth/magic/start`, reads `tests/mailbox.jsonl` (cleared at start), extracts the verify URL, GETs it, asserts 200/302 with `apap_session` cookie
 
 ### T3.2 Test conftest extension
-- [ ] `tests/migration/_local_backend_fixture.py` extends the existing fixture with an env var override `APAP_AUTH_ENABLE_MAGIC_LINK=1` and `APAP_SMTP_HOST` unset (so the local backend resolves `ConsoleMailTransport`)
-- [ ] The teardown also clears `tests/mailbox.jsonl` between tests
+- [x] `tests/migration/_local_backend_fixture.py` extends the existing fixture with an env var override `APAP_AUTH_ENABLE_MAGIC_LINK=1` and `APAP_SMTP_HOST` unset (so the local backend resolves `ConsoleMailTransport`)
+- [x] The teardown also clears `tests/mailbox.jsonl` between tests
 
 ### T3.3 Test atom AS7
-- [ ] `tests/migration/test_magic_link_local_round_trip.py::test_magic_link_local_round_trip_against_spawned_backend`
-- [ ] Uses the extended fixture from T3.2
-- [ ] Asserts the migration subprocess `verify-fallback-ready --ci-only` returns exit 0 with `magic_link_round_trip: PASS` in stdout
+- [x] `tests/migration/test_magic_link_local_round_trip.py::test_magic_link_local_round_trip_against_spawned_backend`
+- [x] Uses the extended fixture from T3.2
+- [x] Asserts the migration subprocess `verify-fallback-ready --ci-only` returns exit 0 with `magic_link_round_trip: PASS` in stdout
 
 ### F3 gate
 
 - [ ] All F1/F2 gates still green
-- [ ] `migration/verify_fallback_ready.py` adds the new check, total file ≤700 lines
-- [ ] `tests/migration/test_magic_link_local_round_trip.py` covers AS7 (1 atom)
+- [x] `migration/verify_fallback_ready.py` adds the new check, total file ≤700 lines
+- [x] `tests/migration/test_magic_link_local_round_trip.py` covers AS7 (1 atom)
 - [ ] `python scripts/check_layers.py` clean (the new check lives in `migration/` and does NOT import from `app.core.auth_magic.*` without proper layering — keeps deps narrow)
 - [ ] `uv run pytest tests/migration/` all green
 - [ ] All gates green; one commit; `gentle-ai review start` lineage burned
