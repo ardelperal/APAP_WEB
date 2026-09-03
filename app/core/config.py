@@ -78,6 +78,13 @@ class Settings(BaseSettings):
 
     Environment variables are read with the ``APAP_`` prefix. For
     example, ``APAP_INSFORGE_URL`` populates :attr:`insforge_url`.
+
+    Production operators: see ``docs/production-env.md`` for the
+    canonical reference of every APAP_* env var (concern, default,
+    required state, startup-config check) and the single-page
+    runbook ``docs/runbooks/coolify-deploy.md`` for the deploy
+    checklist. The repo-root ``.env.example`` lists every APAP_* in
+    template form for the local-dev ``.env`` workflow.
     """
 
     model_config = SettingsConfigDict(
