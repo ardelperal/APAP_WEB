@@ -33,12 +33,14 @@ rather than re-implementing the reverse pipeline.
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
-import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+
+from tests.migration._local_backend_fixture import run_web_to_legacy_check
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PII_AUDIT_PATH = REPO_ROOT / "docs" / "audits" / "pii-live-migration-2026-Q3.md"
@@ -67,7 +69,9 @@ class CheckResult:
     evidence: str
 
 
-def _run_subprocess_check(args: list[str], cwd: Path) -> tuple[int, str, str]:
+def _run_subprocess_check(
+    args: list[str], cwd: Path
+) -> tuple[int, str, str]:
     """Run a subprocess and return ``(returncode, stdout, stderr)``.
 
     Centralised so the format is consistent and the orchestrator can
@@ -159,19 +163,16 @@ def check_pii_audit_verdict() -> CheckResult:
     )
 
 
-def check_web_to_legacy_check_only() -> CheckResult:
-    """Run ``apply --direction web-to-legacy --check-only`` and assert it exits 0.
+def _run_web_to_legacy_check_only(local_backend: bool) -> CheckResult:
+    """Run ``apply --direction web-to-legacy --check-only`` and report exit code.
 
-    The spec (REQ-Web-To-Legacy-Symmetric) requires the reverse path
-    be exercised as a dry-run. The CLI requires ``--legacy-path`` so
-    the dry-run can iterate the legacy tables. We use the local-access
-    backend fixture (the real .accdb the operator has authorised for
-    sandbox use; it is committed to the repo and the README mandates
-    copy-before-mutate discipline).
-
-    This is a soft check: if the CLI returns non-zero, we report FAIL
-    but the orchestrator continues (other conditions may still
-    pass). The operator sees a precise error in the receipt.
+    Spec: REQ-Web-To-Legacy-Symmetric (PR6). The actual spawn +
+    subprocess plumbing lives in
+    :func:`tests.migration._local_backend_fixture.run_web_to_legacy_check`
+    (importing across the test boundary is the deliberate F3 design
+    choice — see R6 in ``m0-backend/spec.md``). This function is the
+    legacy-path shim: it checks the ``.accdb`` fixture exists and
+    forwards to the shared helper.
     """
     legacy_path = REPO_ROOT / "tests" / "migration" / "local-access" / "backend" / "Registro_APAP_Alcala_datos_18.accdb"
     if not legacy_path.exists():
@@ -180,34 +181,34 @@ def check_web_to_legacy_check_only() -> CheckResult:
             status="FAIL",
             evidence=f"legacy fixture missing at {legacy_path}",
         )
-    rc, stdout, stderr = _run_subprocess_check(
-        [
-            "python",
-            "-m",
-            "migration",
-            "apply",
-            "--direction",
-            "web-to-legacy",
-            "--check-only",
-            "--legacy-path",
-            str(legacy_path),
-        ],
-        cwd=REPO_ROOT,
+    payload = run_web_to_legacy_check(
+        legacy_path=str(legacy_path),
+        local_backend=local_backend,
+        repo_root=str(REPO_ROOT),
     )
-    if rc == 0:
-        return CheckResult(
-            name="web_to_legacy_check_only",
-            status="PASS",
-            evidence="apply --direction web-to-legacy --check-only → exit 0",
-        )
     return CheckResult(
-        name="web_to_legacy_check_only",
-        status="FAIL",
-        evidence=(
-            f"apply --direction web-to-legacy --check-only → exit {rc}; "
-            f"stderr={stderr[-300:]!r}"
-        ),
+        name=payload["name"],
+        status=payload["status"],
+        evidence=payload["evidence"],
     )
+
+
+def check_web_to_legacy_check_only() -> CheckResult:
+    """Dispatch the reverse-pipeline dry-run per the F3 env contract.
+
+    Reads ``APAP_LOCAL_BACKEND`` at check time and forwards to
+    :func:`_run_web_to_legacy_check_only` so the orchestrator stays
+    a thin wrapper. The env is read here (not in the helper) so
+    ``monkeypatch.setenv`` from integration tests lands between the
+    orchestrator call and the helper invocation — see AS10.
+    """
+    local_backend = os.environ.get("APAP_LOCAL_BACKEND", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    return _run_web_to_legacy_check_only(local_backend=local_backend)
 
 
 def check_operator_signature() -> CheckResult:
