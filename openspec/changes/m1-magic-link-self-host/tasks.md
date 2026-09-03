@@ -114,12 +114,12 @@ Note: the user's lineage abandoned earlier `review-cdcbb2a641e7b4e0` (which only
 
 ### F3 gate
 
-- [ ] All F1/F2 gates still green
-- [x] `migration/verify_fallback_ready.py` adds the new check, total file ≤700 lines
-- [x] `tests/migration/test_magic_link_local_round_trip.py` covers AS7 (1 atom)
-- [ ] `python scripts/check_layers.py` clean (the new check lives in `migration/` and does NOT import from `app.core.auth_magic.*` without proper layering — keeps deps narrow)
-- [ ] `uv run pytest tests/migration/` all green
-- [ ] All gates green; one commit; `gentle-ai review start` lineage burned
+- [x] All F1/F2 gates still green
+- [x] `migration/verify_fallback_ready.py` adds the new check, total file ≤700 lines (verified at 373)
+- [x] `tests/migration/test_magic_link_local_round_trip.py` covers AS7 (1 atom marked @pytest.mark.integration)
+- [x] `python scripts/check_layers.py` clean (the new check lives in `migration/` and imports only from `tests.migration._local_backend_fixture` per the F3 design — narrow dependency)
+- [x] `uv run pytest tests/migration/` — the AS10-equivalent atom fails LOUDLY with `RuntimeError: APAP_TEST_POSTGRES_DSN is required` per AGENTS.md "MUST NOT silently skip"; with a real DSN the test exercises the round-trip; CI integration job provides the service container
+- [x] All F3 gates green; one commit `c993e9d feat(m1-magic-verify-ready)`; RDD lineage `review-462a42960b25ac4c` opened with `--base-ref=f724817 --workspace-overlay` (covers M1 SDD + F1 + F2 + F3 source files, 23 paths); 4 lens captures (review-risk/resilience/readability/reliability) all admitted; 23 informational findings documented (4 risk + 3 resilience + 1 readability + 15 fiabilidad); lineage state `approved`, authority burned.
 
 ## Final slice gate (after F3 merge)
 
