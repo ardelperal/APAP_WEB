@@ -57,40 +57,40 @@ The first feature to start is **F1. M0-foundation** (the LocalPostgresExecutor +
 (F2 starts only after F1's review receipt is burned and gates are green.)
 
 ### T2.1 `GET /healthz` (AS1, AS2)
-- [ ] `app/core/local_backend/healthz.py` — `healthz_router` with `GET /healthz` handler returning `{"db": "up"|"down", "storage": "up", "oauth": "configured"|"missing"}`
-- [ ] `db` comes from a try/except around an `app.state.local_postgres_executor.execute("SELECT 1")` probe (5xx-mappable); on any exception → `db: down`
-- [ ] `storage` hard-codes `up` in M0 (the in-memory stub is always healthy)
-- [ ] `oauth` reads `APAP_GOOGLE_CLIENT_ID` from the env at request time
-- [ ] Tests for AS1 (db up + oauth configured) and AS2 (oauth missing)
+- [x] `app/core/local_backend/healthz.py` — `healthz_router` with `GET /healthz` handler returning `{"db": "up"|"down", "storage": "up", "oauth": "configured"|"missing"}`
+- [x] `db` comes from a try/except around an `app.state.local_postgres_executor.execute("SELECT 1")` probe (5xx-mappable); on any exception → `db: down`
+- [x] `storage` hard-codes `up` in M0 (the in-memory stub is always healthy)
+- [x] `oauth` reads `APAP_GOOGLE_CLIENT_ID` from the env at request time
+- [x] Tests for AS1 (db up + oauth configured) and AS2 (oauth missing)
 
 ### T2.2 `GET/POST /api/storage/buckets[/...]` (AS6, AS7)
-- [ ] `app/core/local_backend/storage.py` — `storage_router` with `GET /api/storage/buckets` (list all) and `POST /api/storage/buckets/{bucket_name}` (create-on-demand, idempotent)
-- [ ] Path parameter validated against `^[A-Za-z0-9_-]{1,64}$`; HTTP 400 on invalid
-- [ ] In-memory `_BUCKETS: dict[str, dict]` registry seeded with one entry `{"bucketName": "apap-photos", "isPublic": False, "files": 0}`
-- [ ] Response shape exactly `{"bucketName": str, "isPublic": bool, "files": int}` — camelCase keys, matching InsForgeClient expectations
-- [ ] Tests for AS6 (seeded bucket) and AS7 (create-on-demand)
+- [x] `app/core/local_backend/storage.py` — `storage_router` with `GET /api/storage/buckets` (list all) and `POST /api/storage/buckets/{bucket_name}` (create-on-demand, idempotent)
+- [x] Path parameter validated against `^[A-Za-z0-9_-]{1,64}$`; HTTP 400 on invalid
+- [x] In-memory `_BUCKETS: dict[str, dict]` registry seeded with one entry `{"bucketName": "apap-photos", "isPublic": False, "files": 0}`
+- [x] Response shape exactly `{"bucketName": str, "isPublic": bool, "files": int}` — camelCase keys, matching InsForgeClient expectations
+- [x] Tests for AS6 (seeded bucket) and AS7 (create-on-demand)
 
 ### T2.3 OAuth flow stubs (AS8)
-- [ ] `app/core/local_backend/oauth_google.py` — `oauth_router` with three handlers:
+- [x] `app/core/local_backend/oauth_google.py` — `oauth_router` with three handlers:
   - `POST /api/auth/oauth/google?code_challenge=...&redirect_uri=...` → `{"authUrl": "https://accounts.google.com/o/oauth2/v2/auth?..."}`
   - `POST /api/auth/oauth/google/callback` accepting `{"code", "code_verifier", "redirect_uri"}` JSON → `{"token": "<jwt>", "user": {"id": "local-user", "email": "local@apap"}}`
   - `POST /api/auth/oauth/exchange?client_type=web` accepting `{"code": "<insforge_code>", "code_verifier": "..."}` JSON → same envelope
-- [ ] JWT is HS256-signed with `APAP_SESSION_SECRET` (or `stub-secret` if unset); claims `{"email", "sub", "iat", "exp"}`
-- [ ] `insforge_code` exchange validates the `code` matches a regex (stub: `^insforge_` prefix); HTTP 401 on mismatch
-- [ ] Tests for AS8 (all three sub-scenarios)
+- [x] JWT is HS256-signed with `APAP_SESSION_SECRET` (or `stub-secret` if unset); claims `{"email", "sub", "iat", "exp"}`
+- [x] `insforge_code` exchange validates the `code` matches a regex (stub: `^insforge_[A-Za-z0-9]{8,64}$` pattern); HTTP 401 on mismatch
+- [x] Tests for AS8 (all three sub-scenarios + negative case)
 
 ### T2.4 Module exports from `app.py`
-- [ ] `from app.core.local_backend.app import healthz_router, rawsql_router, storage_router, oauth_router` works
-- [ ] The four routers are mounted at the documented paths (`/healthz` at root, the other three under `/api`)
-- [ ] Tests that mount each router individually via `FastAPI()` and `app.include_router(router, prefix=...)` work — this is what enables the per-router integration tests in T1.2/T2.1–T2.3
+- [x] `from app.core.local_backend.app import healthz_router, rawsql_router, storage_router, oauth_router` works
+- [x] The four routers are mounted at the documented paths (`/healthz` at root, the other three under `/api`)
+- [x] Tests that mount each router individually via `FastAPI()` and `app.include_router(router, prefix=...)` work — this is what enables the per-router integration tests in T1.2/T2.1–T2.3
 
 ### F2 gate
 
-- [ ] All F1 gates still green
-- [ ] `tests/integration/test_local_backend.py` covers AS1, AS2, AS6, AS7, AS8 (5 new atoms; total ≥11 in this file)
-- [ ] `tests/integration/test_insforge_client_url.py` covers AS9 (3 sub-scenarios)
-- [ ] `python scripts/check_module_size.py` clean (storage.py and oauth_google.py must each be ≤700 lines; if oauth_google.py exceeds 700, split into `oauth_starts.py` + `oauth_callbacks.py`)
-- [ ] All gates green; one commit; `gentle-ai review start` lineage burned
+- [x] All F1 gates still green
+- [x] `tests/integration/test_local_backend.py` covers AS1, AS2, AS6, AS7, AS8 (8 new atoms; total 15 in this file — 7 F1 + 8 F2)
+- [x] `tests/integration/test_insforge_client_url.py` covers AS9 (3 sub-scenarios)
+- [x] `python scripts/check_module_size.py` clean (storage.py = 50 lines; oauth_google.py = 148 lines; both well under 700)
+- [x] All gates green; one commit `25330ed`; `gentle-ai review start` lineage `review-d63151f872860c32` opened with `--base-ref 84571af4... --workspace-overlay`; capture admitted with 6 reliability findings (3 WARNING on length-cap, _BUCKETS race, broad except; 1 WARNING on JSON accept-list; 2 SUGGESTION on iat precision and alg-header constant); lineage state `approved`, authority burned.
 
 ## F3. M0-client-switch — end-to-end verify-fallback-ready
 
