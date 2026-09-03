@@ -6,14 +6,13 @@ import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import APIRouter, FastAPI
+from fastapi import FastAPI
 
 from app.core.local_backend.db import LocalPostgresExecutor
+from app.core.local_backend.healthz import healthz_router
+from app.core.local_backend.oauth_google import oauth_router
 from app.core.local_backend.rawsql import router as rawsql_router
-
-healthz_router = APIRouter()
-storage_router = APIRouter()
-oauth_router = APIRouter()
+from app.core.local_backend.storage import storage_router
 
 
 def create_app(*, db_dsn: str = "", oauth_configured: bool = False) -> FastAPI:
