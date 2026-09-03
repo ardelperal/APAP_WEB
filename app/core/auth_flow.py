@@ -75,6 +75,7 @@ from app.core.application.oauth import (
     start_google_login as start_google_login_use_case,
 )
 from app.core.auth_dependencies import get_insforge_client_dep
+from app.core.auth_magic.routes import router as magic_router
 from app.core.csrf import issue_csrf_to_session
 from app.core.data_access import InsForgeError
 from app.core.domain.oauth import (
@@ -309,3 +310,14 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
         response = _redirect("/")
         response.set_cookie(**params.kwargs)
         return response
+
+    # M1 (F2) — register the magic-link routes (POST /auth/magic/start and
+    # GET + POST /auth/magic/verify). The router is included on the SAME
+    # ``app`` so the F3 lifespan can attach ``magic_link_port``,
+    # ``mail_transport`` and ``auth_port`` to ``app.state`` once and have
+    # the routes see them via :mod:`app.core.auth_magic.app_state`. No
+    # import cycle: ``auth_flow`` imports ``routes`` only at call time
+    # (the import is at module top-level inside ``register_auth_flow_routes``,
+    # but the router object is built lazily on first include).
+    app.include_router(magic_router)
+

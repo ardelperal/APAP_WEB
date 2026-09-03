@@ -287,3 +287,4 @@ async def test_postgres_adapter_roundtrip_with_ephemeral_schema(
     # Consume completes the round-trip.
     consumed_email = await adapter.consume_magic_link(request.token_hash)
     assert consumed_email == "roundtrip@apap.local"
+
