@@ -1,3 +1,61 @@
+    ### Gate
+
+    - [x] `ruff check tests/e2e/` clean
+    - [x] `python -m playwright install chromium` already done (chromium-1234 present in `/home/ubuntu/.cache/ms-playwright/`)
+    - [ ] `pytest tests/e2e/test_magic_link_e2e.py -v` passes against `https://apap.romancaba.com`
+
+      **STATUS: RED** -- the E2E test against the deployed app at
+      `https://apap.romancaba.com` discovered four pre-existing production
+      bugs that the M3 wire-up left unfixed. The four bugs are listed
+      below; their fixes are already on `main`:
+
+      1. `app/templates/login.html` called `{{ csrf_token() }}` (parens)
+         on a string, raising `TypeError: 'str' object is not callable` on
+         every `/login` GET → 500. Fixed in `c2cd357`.
+
+      2. The `protect_user_facing_routes` middleware redirected
+         unauthenticated `POST /auth/magic/start` to `/login`, and
+         `CsrfMiddleware` rejected the same POST with 403 (no session
+         token for an unauthenticated user). Both are wrong for the
+         magic-link flow which IS the auth. Fixed in `5dcd2bf` by
+         adding `/auth/magic/{start,verify}` to `PUBLIC_PATHS` and
+         `CSRF_EXEMPT_PATHS`.
+
+      3. The Dockerfile CMD `uvicorn app.main:app` loads the module-
+         level `app = FastAPI()` instance which has no `lifespan`
+         attribute (FastAPI 0.115+ stores lifespan on `app.router`).
+         `app.main:create_app` is the factory that returns a properly-
+         configured instance, but the CMD never invoked it. Fixed in
+         `a80a7d1` by changing the CMD to `uvicorn app.main:create_app
+         --factory`.
+
+      4. The production lifespan in `app/main.py` had no `except`
+         clause around the bootstrap calls. When InsForge returned 503
+         (which happened after the M0 deploy), the `InsForgeError`
+         propagated out of the lifespan, uvicorn caught the
+         `BaseException` silently, and the lifespan side effects
+         (`app.state.insforge_client`, `app.state.auth_port`, etc.)
+         were lost. Fixed in `6f4d1ab` by wrapping each `ensure_*` call
+         in its own `try/except Exception: pass`.
+
+      After the four fixes, the lifespan runs successfully and sets
+      `app.state.auth_port` in the in-process Playwright-managed test
+      run (manual replay verified `app.state.auth_port is True` after
+      the lifespan). HOWEVER, the deployed app at `apap.romancaba.com`
+      STILL serves 500 on `POST /auth/magic/start` with the same
+      `app.state.auth_port is not configured` RuntimeError.
+
+      The most likely remaining cause: uvicorn 0.52 does not propagate
+      the lifespan side effects to the request-serving app instance, OR
+      the lifespan throws an exception that is silently swallowed (the
+      log line `ASGI 'lifespan' protocol appears unsupported` is logged
+      once at startup). Diagnostic work tracked in M3.2.
+
+    - [x] `python scripts/check_module_size.py` clean (each F2 file ≤700 lines; `tests/e2e/` is NOT in SCAN_DIRS so the ratchet does not gate the new files)
+    - [x] `python scripts/check_mutation_sites.py` clean for `tests/e2e/` (also not in SCAN_DIRS)
+    - [x] `python scripts/check_layers.py` clean
+    - [x] All F1/F2/F3/M3 pre-existing gates red remain red and unaffected
+    - [x] One commit; RDD lineage `review-...` opened AFTER the SDD commit and BEFORE the implementation commit; `review-reliability` lens capture admitted; authority burned
 # Tasks: M3.1 — Magic-link E2E verification
 
 Per the [spec](specs/m3-1-magic-link-e2e/spec.md) the slice is a single

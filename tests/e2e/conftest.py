@@ -85,3 +85,8 @@ def page(browser_context: BrowserContext) -> Page:
 def base_url() -> str:
     """The base URL the test server is reachable at."""
     return BASE_URL
+
+@pytest.fixture(scope="session")
+def maildev_url() -> str:
+    """Base URL of the local MailDev HTTP API (for the M3.1 magic-link E2E)."""
+    return os.environ.get("MAILDEV_URL", "http://apap-smtp-dev:8025")
