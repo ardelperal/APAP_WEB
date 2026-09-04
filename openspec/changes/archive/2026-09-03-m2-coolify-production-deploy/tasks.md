@@ -84,11 +84,11 @@ No behavior change; this is a docstring-only update.
 
 ### Gate
 
-- [ ] `ruff check .` clean
-- [ ] `python scripts/check_module_size.py` clean (only `app/core/config.py::Settings.env_prefix` docstring touched — doc-only)
-- [ ] `python scripts/check_mutation_sites.py` clean
-- [ ] `python scripts/check_layers.py` clean
-- [ ] `python scripts/check_slice_completeness.py` OK
-- [ ] `python scripts/check_ruff_ratchet.py` (informational; pre-existing mismatch on the Ubuntu image, not introduced)
-- [ ] All M0+M1 pre-existing gates red remain red and unaffected
-- [ ] One commit; `gentle-ai review start` lineage burned
+- [x] `ruff check .` clean
+- [x] `python scripts/check_module_size.py` clean (only `app/core/config.py::Settings.env_prefix` docstring touched — doc-only; pre-existing `migration/apply.py` + `migration/cli.py` violations unaffected)
+- [x] `python scripts/check_mutation_sites.py` clean (pre-existing `insforge.py` + `migration/*` violations unaffected)
+- [x] `python scripts/check_layers.py` clean
+- [x] `python scripts/check_slice_completeness.py` OK
+- [x] `python scripts/check_ruff_ratchet.py` (informational; pre-existing mismatch on the Ubuntu image, not introduced)
+- [x] All M0+M1 pre-existing gates red remain red and unaffected
+- [x] One commit `7a5e4d4 docs(m2-coolify-deploy): env template, deploy runbook, prod-env reference`; RDD lineage `review-3deb6ab9b7ed430f` opened at base-ref=1e2948e (post-M1-archive); 4 paths in scope (3 new docs + the docstring); single lens review-reliability capture pending (parent will capture); authoritative burnout follows.
