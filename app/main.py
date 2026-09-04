@@ -170,7 +170,7 @@ async def lifespan(_: FastAPI):
     # is not configured" that the M3.1 E2E test caught against the
     # deployed app).
     def _capture_state() -> dict[str, object]:
-        return dict(_.__dict__.get("_state") or {})
+        s = getattr(_, "state", None); return dict(s._state) if s is not None and hasattr(s, "_state") else {}
     try:
         yield _capture_state()
     finally:
