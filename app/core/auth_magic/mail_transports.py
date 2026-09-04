@@ -1,6 +1,6 @@
-"""Mail transport implementations for the magic-link self-host slice (M1, R2).
+"""Mail transport implementations for the magic-link self-host slice (M1, M3).
 
-Two implementations live here:
+Three implementations live here:
 
 - :class:`ConsoleMailTransport` — the default for dev and CI. It appends
   one JSON line to ``tests/mailbox.jsonl`` per ``send_magic_link`` call
@@ -9,20 +9,26 @@ Two implementations live here:
   ``check_magic_link_local_round_trip`` gate to extract the verify URL
   the route just emitted.
 
-- :class:`SMTPMailTransport` — the M1.1 placeholder. The class is in
-  place so the resolver at ``app.core.auth_magic.get_mail_transport``
-  has a concrete symbol to return when ``APAP_SMTP_HOST`` is set, but
-  every ``send_magic_link`` call raises :class:`NotImplementedError`.
-  The M1.1 wiring will replace the raise with an ``asyncio.to_thread``
-  call to ``smtplib.SMTP`` with a ``MIMEText`` message.
+- :class:`SMTPMailTransport` — the M3 production transport. Connects to
+  the SMTP relay configured via ``APAP_SMTP_HOST`` (see
+  :mod:`app.core.auth_magic.get_mail_transport`) and sends a plain-text
+  message containing the verify URL. Synchronous I/O is offloaded to a
+  worker thread via :func:`asyncio.to_thread`.
+
+- :class:`SMTPTransportError` — :class:`RuntimeError` subclass raised by
+  :class:`SMTPMailTransport` on SMTP-level failures. The F2 routes map
+  this to a 5xx response (the existing ``RuntimeError`` branch in the
+  route handler covers it).
 """
 from __future__ import annotations
 
 import asyncio
 import json
 import pathlib
+import smtplib
 from datetime import UTC, datetime
 from email.message import EmailMessage
+from email.mime.text import MIMEText
 from typing import Any
 
 #: Path of the JSONL mailbox, relative to the repo root. The default
@@ -86,51 +92,104 @@ class ConsoleMailTransport:
             handle.write(line + "\n")
 
 
-class SMTPMailTransport:
-    """Placeholder for the M1.1 SMTP-backed transport (spec R2).
+class SMTPTransportError(RuntimeError):
+    """Raised when the SMTP transport cannot deliver a magic-link message.
 
-    M1 wires this through the resolver at
-    :mod:`app.core.auth_magic.get_mail_transport` so flipping
-    ``APAP_SMTP_HOST`` selects it, but the actual SMTP send is out of
-    scope. Every call raises :class:`NotImplementedError` so a missing
-    M1.1 implementation surfaces as a clear runtime error rather than a
-    silent no-op.
-
-    The M1.1 wiring contract:
-
-    - Read ``APAP_SMTP_HOST``, ``APAP_SMTP_PORT`` (default 587),
-      ``APAP_SMTP_USERNAME``, ``APAP_SMTP_PASSWORD``,
-      ``APAP_SMTP_FROM`` (default ``noreply@apap.local``),
-      ``APAP_SMTP_USE_TLS`` (default true) at ``__init__`` time.
-    - Build an :class:`email.message.EmailMessage` with a plain-text
-      body that contains the ``verify_url`` and a short greeting.
-    - Open ``smtplib.SMTP(host, port)`` in a worker thread via
-      :func:`asyncio.to_thread` (the event loop must not block on
-      I/O). If ``APAP_SMTP_USE_TLS`` is true, call ``starttls()`` and
-      ``login(username, password)`` before ``send_message(msg)``.
-    - Treat ``SMTPException`` as a transport failure (do NOT roll back
-      the magic-link row in the database — the persisted row IS the
-      audit trail).
+    Subclass of ``RuntimeError`` so the existing F2 magic-link routes
+    can map the failure to a 5xx response without introducing a new
+    exception-handling branch. Callers can still distinguish
+    ``SMTPTransportError`` from other runtime errors via ``isinstance``.
     """
 
-    def __init__(self) -> None:
-        # M1.1 will read the env vars here and cache the SMTP client
-        # parameters. For M1 the constructor is a no-op so the symbol
-        # can be resolved by the resolver without side effects.
-        return
+
+class SMTPMailTransport:
+    """Send magic-link emails via stdlib :mod:`smtplib` (M3, R1).
+
+    The transport reads SMTP configuration from the constructor
+    arguments (which the resolver
+    :func:`app.core.auth_magic.get_mail_transport` populates from
+    ``APAP_SMTP_HOST`` / ``APAP_SMTP_PORT`` / ``APAP_SMTP_USER`` /
+    ``APAP_SMTP_PASSWORD`` / ``APAP_SMTP_FROM``). Synchronous I/O is
+    offloaded to a worker thread via :func:`asyncio.to_thread` so the
+    FastAPI event loop never blocks on SMTP socket reads.
+
+    TLS handling: when ``port == 465`` the transport uses
+    :class:`smtplib.SMTP_SSL` (implicit TLS). For ``port == 587`` with
+    ``user`` non-empty, the transport calls ``starttls()`` after
+    ``ehlo()`` so the AUTH LOGIN handshake is encrypted. For
+    unauthenticated relays (``user == ""``), the transport connects in
+    plaintext on port 25 / 587 (acceptable for local-dev MailPit and CI
+    sandboxes; production deployments should always set
+    ``APAP_SMTP_USER``).
+
+    Failures are translated to :class:`SMTPTransportError` so the F2
+    routes can map the failure to a 5xx response without introducing a
+    new exception-handling branch.
+    """
+
+    def __init__(
+        self,
+        host: str,
+        port: int = 587,
+        user: str = "",
+        password: str = "",
+        from_addr: str = "noreply@apap.local",
+    ) -> None:
+        self._host = host
+        self._port = port
+        self._user = user
+        self._password = password
+        self._from_addr = from_addr
 
     async def send_magic_link(
         self, email: str, raw_token: str, base_url: str
     ) -> None:
-        """Placeholder — raises :class:`NotImplementedError`.
-
-        The M1.1 implementation will replace this method with a real
-        SMTP send (see the class docstring for the contract).
-        """
-        raise NotImplementedError(
-            "SMTPMailTransport is the M1.1 wiring placeholder. "
-            "Configure APAP_SMTP_HOST to enable."
+        """Build a plain-text verify-URL message and send via SMTP."""
+        verify_url = self._build_verify_url(base_url, raw_token)
+        subject = "APAP_WEB — inicia sesión"
+        body = (
+            f"APAP_WEB — inicia sesión\n\n"
+            f"Abre este enlace en los próximos 24 horas para iniciar sesión:\n\n"
+            f"  {verify_url}\n\n"
+            f"Si no solicitaste este correo, ignóralo.\n"
         )
+        msg = MIMEText(body, _subtype="plain", _charset="utf-8")
+        msg["Subject"] = subject
+        msg["From"] = self._from_addr
+        msg["To"] = email
+        try:
+            await asyncio.to_thread(
+                self._send_sync, email, msg.as_string()
+            )
+        except smtplib.SMTPException as exc:
+            raise SMTPTransportError(
+                f"SMTP delivery failed: {exc}"
+            ) from exc
+
+    @staticmethod
+    def _build_verify_url(base_url: str, raw_token: str) -> str:
+        """Build the verify URL (spec R1 shape)."""
+        return f"{base_url.rstrip('/')}/auth/magic/verify?token={raw_token}"
+
+    def _send_sync(self, to_addr: str, msg_str: str) -> None:
+        """Open the SMTP connection, send ``msg_str``, close (in thread)."""
+        if self._port == 465:
+            client = smtplib.SMTP_SSL(self._host, self._port, timeout=10)
+        else:
+            client = smtplib.SMTP(self._host, self._port, timeout=10)
+        try:
+            client.ehlo()
+            if self._user and self._port != 465:
+                client.starttls()
+                client.ehlo()
+            if self._user:
+                client.login(self._user, self._password)
+            client.sendmail(self._from_addr, [to_addr], msg_str)
+        finally:
+            try:
+                client.quit()
+            except smtplib.SMTPException:
+                pass
 
 
 def _utcnow_iso() -> str:
@@ -138,7 +197,7 @@ def _utcnow_iso() -> str:
     return datetime.now(tz=UTC).isoformat()
 
 
-#: Type-checker helper: the M1.1 implementation will type its message
-#: variable as ``EmailMessage``; the import is in the module namespace
-#: so a future M1.1 PR can use it without a new import.
+#: Type-checker helper: the M3 implementation types its message
+#: variable as ``EmailMessage``; the import is kept in the module namespace
+#: so future helper code can use it without a new import.
 _ = EmailMessage

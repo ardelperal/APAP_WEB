@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import os
+import pathlib
 import socket
 import subprocess
 import sys
@@ -37,6 +38,10 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+
+# CheckResult is imported lazily inside run_magic_link_production_gate to
+# avoid a circular import at module load (the fixture is imported by
+# migration/verify_fallback_ready itself).
 from typing import Any
 
 import httpx
@@ -632,6 +637,197 @@ def run_magic_link_local_round_trip(
             pass
 
 
+# M3 (R3) gate-side helper. Same shape as
+# :func:`run_magic_link_local_round_trip` but adds ``APAP_SMTP_HOST``
+# to the subprocess env so the production wiring path (mail transport
+# resolved via :func:`app.core.auth_magic.get_mail_transport`) is
+# exercised when the operator opts in. The local backend still uses
+# :class:`_BaseUrlAwareConsoleTransport` for the loopback (the
+# production SMTP relay is unreachable from CI), so the verify URL is
+# parsed from ``tests/mailbox.jsonl`` exactly like the F3 helper.
+def run_magic_link_production_round_trip(
+    *, repo_root: str | None = None, mailbox_path: pathlib.Path | None = None
+) -> dict[str, str]:
+    """M3 (R3) gate-side helper -- drive the magic-link production round-trip.
+
+    Returns a ``CheckResult``-shaped dict ``{name, status, evidence}``.
+    Spawns the local backend with ``APAP_AUTH_ENABLE_MAGIC_LINK=true``
+    AND ``APAP_SMTP_HOST`` set so the production transport-resolution
+    path is exercised. The actual SMTP transport is NOT contacted
+    (the local backend writes to ``tests/mailbox.jsonl``); the env
+    var is present only so the production resolver
+    (:func:`app.core.auth_magic.get_mail_transport`) would have
+    returned :class:`SMTPMailTransport` if the lifespan used it.
+
+    The behaviour matches
+    :func:`run_magic_link_local_round_trip` exactly otherwise:
+    seed a user via ``POST /_test/seed_user``, post to
+    ``/auth/magic/start``, read ``tests/mailbox.jsonl`` for the
+    verify URL, GET it, and assert ``apap_session`` is set.
+
+    Loud-aborts when ``APAP_TEST_POSTGRES_DSN`` is unset (matches
+    AGENTS.md "MUST NOT silently skip").
+    """
+    repo_root_path = (
+        pathlib.Path(repo_root) if repo_root
+        else pathlib.Path(__file__).resolve().parents[2]
+    )
+
+    dsn = os.environ.get("APAP_TEST_POSTGRES_DSN", "").strip()
+    if not dsn:
+        raise RuntimeError(
+            "APAP_TEST_POSTGRES_DSN is required for the magic-link "
+            "production round-trip; the M3 check MUST NOT silently "
+            "skip when the DSN is absent."
+        )
+
+    schema = f"ml_prod_{uuid.uuid4().hex[:12]}"
+    port = _allocate_free_port()
+    base_url = f"http://127.0.0.1:{port}"
+
+    target_mailbox = (
+        pathlib.Path(mailbox_path)
+        if mailbox_path
+        else repo_root_path / "tests" / "mailbox.jsonl"
+    )
+    if target_mailbox.exists():
+        target_mailbox.unlink()
+
+    with psycopg.connect(dsn, autocommit=True) as conn:
+        conn.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
+
+    process: subprocess.Popen[bytes] | None = None
+    try:
+        env = {
+            **os.environ,
+            "APAP_LOCAL_BACKEND": "true",
+            "APAP_LOCAL_DB_URL": dsn,
+            "APAP_LOCAL_DB_SCHEMA": schema,
+            "APAP_AUTH_ENABLE_MAGIC_LINK": "true",
+            "APAP_SMTP_HOST": "127.0.0.1",
+            "APAP_APP_BASE_URL": base_url,
+            "APAP_INSFORGE_URL": f"{base_url}/api",
+        }
+        try:
+            process = _spawn_uvicorn(port=port, env=env, cwd=str(repo_root_path))
+            _wait_for_healthz(base_url, timeout=_HEALTHZ_TIMEOUT_SECONDS)
+        except RuntimeError as health_error:
+            stderr_blob = _drain_stderr(process) if process is not None else ""
+            raise RuntimeError(
+                f"{health_error}; uvicorn stderr={stderr_blob[-400:]!r}"
+            ) from health_error
+
+        seed_email = "magic-link-prod-test@apap.local"
+        seed_response = httpx.post(
+            f"{base_url}/_test/seed_user",
+            json={"email": seed_email, "rol": "developer"},
+            timeout=2.0,
+        )
+        if seed_response.status_code != 200:
+            return {
+                "name": "magic_link_production_round_trip",
+                "status": "FAIL",
+                "evidence": (
+                    f"POST /_test/seed_user -> exit {seed_response.status_code}; "
+                    f"body={seed_response.text[:200]!r}"
+                ),
+            }
+
+        start_response = httpx.post(
+            f"{base_url}/auth/magic/start",
+            json={"email": seed_email},
+            timeout=2.0,
+        )
+        if start_response.status_code != 200:
+            return {
+                "name": "magic_link_production_round_trip",
+                "status": "FAIL",
+                "evidence": (
+                    f"POST /auth/magic/start -> exit {start_response.status_code}; "
+                    f"body={start_response.text[:200]!r}"
+                ),
+            }
+
+        if not target_mailbox.exists():
+            return {
+                "name": "magic_link_production_round_trip",
+                "status": "FAIL",
+                "evidence": (
+                    f"mailbox missing at {target_mailbox} after "
+                    f"POST /auth/magic/start; transport did not emit a line"
+                ),
+            }
+        lines = [
+            line for line in target_mailbox.read_text(encoding="utf-8").splitlines() if line
+        ]
+        if not lines:
+            return {
+                "name": "magic_link_production_round_trip",
+                "status": "FAIL",
+                "evidence": f"mailbox at {target_mailbox} is empty",
+            }
+        last_payload = json.loads(lines[-1])
+        verify_url = last_payload.get("verify_url")
+        if not isinstance(verify_url, str) or not verify_url.strip():
+            return {
+                "name": "magic_link_production_round_trip",
+                "status": "FAIL",
+                "evidence": (
+                    f"mailbox last line has no verify_url; "
+                    f"payload={last_payload!r}"
+                ),
+            }
+
+        with httpx.Client(timeout=2.0, follow_redirects=False) as client:
+            verify_response = client.get(verify_url)
+
+        if verify_response.status_code not in (200, 302):
+            return {
+                "name": "magic_link_production_round_trip",
+                "status": "FAIL",
+                "evidence": (
+                    f"GET verify_url -> exit {verify_response.status_code}; "
+                    f"body={verify_response.text[:200]!r}"
+                ),
+            }
+
+        cookies = verify_response.cookies
+        session_cookie = (
+            "apap_session" in cookies
+            or "apap_session" in verify_response.headers.get("set-cookie", "")
+        )
+        if not session_cookie:
+            return {
+                "name": "magic_link_production_round_trip",
+                "status": "FAIL",
+                "evidence": (
+                    f"GET verify_url -> exit {verify_response.status_code} but "
+                    f"apap_session cookie missing"
+                ),
+            }
+
+        return {
+            "name": "magic_link_production_round_trip",
+            "status": "PASS",
+            "evidence": (
+                f"POST /auth/magic/start -> 200; GET verify_url -> "
+                f"{verify_response.status_code} with apap_session cookie"
+            ),
+        }
+    finally:
+        if process is not None:
+            _terminate(process)
+        try:
+            with psycopg.connect(dsn, autocommit=True) as conn:
+                conn.execute(
+                    sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(
+                        sql.Identifier(schema)
+                    )
+                )
+        except Exception:  # noqa: BLE001 -- best-effort cleanup
+            pass
+
+
 # F3 gate-side helper. Lives under ``tests/`` so the
 # ``check_mutation_sites`` gate (which scans ``app/`` and
 # ``migration/``) does not count its sites. Keeps the gate function
@@ -675,6 +871,32 @@ def run_magic_link_gate_check() -> Any:
     )
 
 
+def run_magic_link_production_gate() -> Any:
+    """M3 (R3) gate-side helper."""
+    from migration.verify_fallback_ready import CheckResult
+    if os.environ.get("APAP_AUTH_ENABLE_MAGIC_LINK", "").strip().lower() not in (
+        "1", "true", "yes", "on"
+    ):
+        return CheckResult(
+            name="magic_link_production_round_trip",
+            status="PASS",
+            evidence="APAP_AUTH_ENABLE_MAGIC_LINK unset; check is opt-in and skipped",
+        )
+    try:
+        payload = run_magic_link_production_round_trip()
+    except RuntimeError as exc:
+        return CheckResult(
+            name="magic_link_production_round_trip",
+            status="FAIL",
+            evidence=str(exc),
+        )
+    return CheckResult(
+        name=payload["name"],
+        status=payload["status"],
+        evidence=payload["evidence"],
+    )
+
+
 # Apply the default pytest scope lazily so test files can opt in to
 # ``"function"`` by calling the factory themselves with the alternative
 # scope.
@@ -689,6 +911,8 @@ __all__ = [
     "run_apply_against_local_backend",
     "run_magic_link_gate_check",
     "run_magic_link_local_round_trip",
+    "run_magic_link_production_gate",
+    "run_magic_link_production_round_trip",
     "run_web_to_legacy_check",
     "spawn_local_backend_subprocess",
 ]

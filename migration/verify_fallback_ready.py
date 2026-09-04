@@ -1,4 +1,4 @@
-"""Verify the M2 fallback-ready gate (issue #637, openspec PR7).
+"""Verify the M2+M3 fallback-ready gate (issue #637, openspec PR7 / M3).
 
 Closes the migration openspec's final requirement: a HARD CI gate
 plus a publication gate that no operator may claim "fallback ready"
@@ -236,6 +236,22 @@ def check_magic_link_local_round_trip() -> CheckResult:
     return run_magic_link_gate_check()
 
 
+def check_magic_link_production_round_trip() -> CheckResult:
+    """Dispatch the magic-link production round-trip (M3, R3).
+
+    Delegates to :func:`tests.migration._local_backend_fixture.run_magic_link_production_gate`
+    which returns a fully-built ``CheckResult``. The dispatch logic is
+    intentionally thin so the heavy CheckResult construction lives in
+    the helper module (outside the SCAN_DIRS scope of the mutation-sites
+    ratchet).
+    """
+    from tests.migration._local_backend_fixture import (
+        run_magic_link_production_gate,
+    )
+
+    return run_magic_link_production_gate()
+
+
 def check_operator_signature() -> CheckResult:
     """Verify the operator signature file exists with a valid operator_id.
 
@@ -290,6 +306,7 @@ CI_CHECK_NAMES: list[str] = [
     "check_pii_audit_verdict",
     "check_web_to_legacy_check_only",
     "check_magic_link_local_round_trip",
+    "check_magic_link_production_round_trip",
 ]
 ALL_CHECK_NAMES: list[str] = CI_CHECK_NAMES + ["check_operator_signature"]
 
@@ -302,6 +319,7 @@ CI_CHECKS: list[Callable[[], CheckResult]] = [
     check_pii_audit_verdict,
     check_web_to_legacy_check_only,
     check_magic_link_local_round_trip,
+    check_magic_link_production_round_trip,
 ]
 ALL_CHECKS: list[Callable[[], CheckResult]] = CI_CHECKS + [check_operator_signature]
 

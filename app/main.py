@@ -55,6 +55,7 @@ from app.core.auth_dependencies import (
     get_insforge_client_dep as get_insforge_client,  # noqa: F401  - re-exported for test backwards compat
 )
 from app.core.auth_flow import register_auth_flow_routes
+from app.core.auth_magic.lifespan import wire_magic_link_to_app_state
 from app.core.catalogs import ensure_catalogs
 from app.core.csrf import csrf_token_context_processor
 from app.core.dashboard_data import DASHBOARD_PENDING_CARDS, DASHBOARD_SHORTCUTS
@@ -128,6 +129,15 @@ async def lifespan(_: FastAPI):
         _validate_secrets(settings)
     client = InsForgeClient(settings.insforge_url, settings.insforge_service_key)
     _.state.insforge_client = client
+    from app.core.adapters.insforge.auth_insforge_adapter import (
+        InsForgeAuthUsersAdapter,
+    )
+
+    def _auth_port_factory() -> object:
+        return InsForgeAuthUsersAdapter(client)
+
+    _.state._magic_link_auth_port_factory = _auth_port_factory
+    await wire_magic_link_to_app_state(_, settings)
     try:
         ensure_schema_and_seed(client, settings)
         ensure_catalogs(client)
