@@ -138,14 +138,36 @@ async def lifespan(_: FastAPI):
 
     _.state._magic_link_auth_port_factory = _auth_port_factory
     await wire_magic_link_to_app_state(_, settings)
+    # M3.1 fix: bootstrap steps are best-effort. If InsForge is
+    # unavailable at startup (503, network down, etc.) the app must
+    # still come up so the OAuth path and /healthz can serve the
+    # operator. Failures are already logged at ERROR via log_safe
+    # inside each ensure_* function. The InsForge client itself is
+    # attached to app.state so subsequent /auth/magic/start calls
+    # can still hit InsForge when it comes back.
     try:
         ensure_schema_and_seed(client, settings)
+    except Exception:
+        pass
+    try:
         ensure_catalogs(client)
+    except Exception:
+        pass
+    try:
         ensure_domain_schema(client)
+    except Exception:
+        pass
+    try:
         apply_sql_migrations(client)
+    except Exception:
+        pass
+    try:
         yield
     finally:
-        client.close()
+        try:
+            client.close()
+        except Exception:
+            pass
 
 
 def _redirect(path: str) -> RedirectResponse:
