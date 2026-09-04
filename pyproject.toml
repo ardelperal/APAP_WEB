@@ -39,11 +39,8 @@ dependencies = [
     "python-multipart>=0.0.31",
     "httpx>=0.27",
     "itsdangerous>=2.2",
-<<<<<<< HEAD
-=======
     "argon2-cffi>=23.1.0",
     "psycopg[binary]>=3.3",
->>>>>>> e729898 (fix(deps): move psycopg[binary] from dev optionals to runtime dependencies)
 ]
 
 [project.optional-dependencies]
