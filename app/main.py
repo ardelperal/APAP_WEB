@@ -161,8 +161,18 @@ async def lifespan(_: FastAPI):
         apply_sql_migrations(client)
     except Exception:
         pass
+    # M3.2 fix: snapshot a copy of the app.state underlay dict so
+    # Starlette's merged_lifespan can forward it into scope["state"]
+    # (which uvicorn exposes to the request as request.app.state).
+    # Without a non-None yield, app.state.X is set during the
+    # lifespan but scope["state"] stays empty, so request.app.state.X
+    # returns None at request time (the RuntimeError "app.state.auth_port
+    # is not configured" that the M3.1 E2E test caught against the
+    # deployed app).
+    def _capture_state() -> dict[str, object]:
+        return dict(_.__dict__.get("_state") or {})
     try:
-        yield
+        yield _capture_state()
     finally:
         try:
             client.close()
