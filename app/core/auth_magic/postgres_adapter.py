@@ -100,7 +100,7 @@ class PostgresMagicLinkAdapter:
 
     async def _connect(self) -> psycopg.AsyncConnection[Any]:
         """Open an async connection and apply the optional ``search_path``."""
-        connection = await psycopg.AsyncConnection.connect(self._dsn)
+        connection = await psycopg.AsyncConnection.connect(self._dsn, connect_timeout=5)
         if self._search_path:
             async with connection.cursor() as cursor:
                 await cursor.execute(

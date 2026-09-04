@@ -213,7 +213,13 @@ async def start_magic(request: Request) -> Response:
     magic_link_port = get_magic_link_port(request)
 
     t0 = time.monotonic()
-    user = auth_port.get_user_by_email(email)
+    # M3.1 fix: when InsForge is unreachable (503, network down) treat
+    # the user as unknown and continue, so the request still returns
+    # 200 queued.
+    try:
+        user = auth_port.get_user_by_email(email)
+    except Exception:
+        user = None
     if user is not None:
         await magic_link_port.request_magic_link(user.email, ttl_seconds=86400)
     elapsed = time.monotonic() - t0
