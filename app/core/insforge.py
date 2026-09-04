@@ -22,7 +22,6 @@ tests can use ``httpx.MockTransport`` without hitting the network.
 from __future__ import annotations
 
 import json
-import os
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -32,6 +31,7 @@ import httpx
 
 from app.core.data_access import InsForgeError
 from app.core.insforge_error_translation import translate_post_error
+from app.core.insforge_url import resolve_insforge_url
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,12 +49,8 @@ class InsForgeUser:
     id: str
     email: str
 
-
 # ``InsForgeError`` is re-exported from ``app.core.data_access`` so the
-# Protocol-level ``DuplicateKeyError`` can inherit from it cleanly
-# (without a circular import between this module and ``data_access``).
-# Existing ``from app.core.insforge import InsForgeError`` imports keep
-# working through this re-export.
+# Protocol-level ``DuplicateKeyError`` can inherit cleanly.
 
 
 class InsForgeClient:
@@ -62,9 +58,8 @@ class InsForgeClient:
 
     Designed for the small surface area APAP_WEB needs: privileged SQL
     for setup/seed, the Google OAuth flow, and allowlist lookups. The
-    service key is used as the bearer token for privileged operations;
-    the exchange endpoint returns a JWT that the app stores as the
-    session cookie.
+    service key is the bearer token; the exchange endpoint returns a JWT
+    that the app stores as the session cookie.
     """
 
     def __init__(
@@ -74,16 +69,10 @@ class InsForgeClient:
         transport: httpx.BaseTransport | None = None,
         timeout: float = 10.0,
     ) -> None:
-        # When APAP_LOCAL_BACKEND is set and the operator did not
-        # provide a custom base_url, point at the local backend (the
-        # local API reuses the InsForge JSON shape so the rest of the
-        # app does not need to know which backend is in use).
-        if not base_url and os.environ.get("APAP_LOCAL_BACKEND", "").lower() in (
-            "1", "true", "yes", "on"
-        ):
-            base_url = "http://localhost:8000"
-        # Strip trailing slash so URL joining is predictable.
-        self._base_url = base_url.rstrip("/")
+        # The base_url argument is the per-instance operator override;
+        # when empty/whitespace the env-driven R7 switch decides.
+        chosen = base_url.strip() or resolve_insforge_url()
+        self._base_url = chosen.rstrip("/")
         self._service_key = service_key
         self._client = httpx.Client(
             base_url=self._base_url,
