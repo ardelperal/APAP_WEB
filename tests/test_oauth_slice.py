@@ -200,18 +200,30 @@ def _user(email: str = "ardelperal@gmail.com", rol: Rol = Rol.DEVELOPER) -> Auth
 # login_page
 
 
-def test_login_page_returns_app_name_when_configured() -> None:
+def test_login_page_returns_context_when_google_configured() -> None:
     settings = _settings()
-    assert login_page_uc(settings) == "APAP_WEB"
+    ctx = login_page_uc(settings)
+    assert ctx == {"app_name": "APAP_WEB", "google_enabled": True, "magic_link_enabled": False}
 
 
-def test_login_page_returns_none_when_client_id_missing() -> None:
-    settings = _settings(google_client_id="")
-    assert login_page_uc(settings) is None
+def test_login_page_returns_context_when_only_magic_link_configured(monkeypatch) -> None:
+    settings = _settings(google_client_id="", google_client_secret="")
+    monkeypatch.setenv("APAP_AUTH_ENABLE_MAGIC_LINK", "true")
+    monkeypatch.setenv("APAP_SMTP_HOST", "smtp.example.com")
+    ctx = login_page_uc(settings)
+    assert ctx == {"app_name": "APAP_WEB", "google_enabled": False, "magic_link_enabled": True}
 
 
-def test_login_page_returns_none_when_client_secret_missing() -> None:
-    settings = _settings(google_client_secret="")
+def test_login_page_returns_context_when_both_configured(monkeypatch) -> None:
+    settings = _settings()
+    monkeypatch.setenv("APAP_AUTH_ENABLE_MAGIC_LINK", "true")
+    monkeypatch.setenv("APAP_SMTP_HOST", "smtp.example.com")
+    ctx = login_page_uc(settings)
+    assert ctx == {"app_name": "APAP_WEB", "google_enabled": True, "magic_link_enabled": True}
+
+
+def test_login_page_returns_none_when_neither_configured() -> None:
+    settings = _settings(google_client_id="", google_client_secret="")
     assert login_page_uc(settings) is None
 
 

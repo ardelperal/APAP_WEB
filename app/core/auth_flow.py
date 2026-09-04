@@ -134,7 +134,12 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
 
     @app.get("/login")
     def login(request: Request) -> Response:
-        """Render APAP's login page, or 503 when Google OAuth is unconfigured.
+        """Render APAP's login page, or 503 when NO credential channel is configured.
+
+        M3 fix: the page now renders when EITHER Google OAuth OR
+        magic-link is configured. The previous behaviour 503'd
+        the page when Google env vars were empty even if magic-link
+        was active -- fixing that to support magic-link-only deploys.
 
         This route is intentionally passive. Starting OAuth directly
         from ``/login`` creates a redirect loop when ``/auth/callback``
@@ -144,13 +149,13 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
         navigates to ``/auth/google``.
         """
         settings = config_module.get_settings()
-        app_name = login_page_use_case(settings)
-        if app_name is None:
+        context = login_page_use_case(settings)
+        if context is None:
             return _oauth_unconfigured_response()
         return templates.TemplateResponse(
             request=request,
             name="login.html",
-            context={"app_name": app_name},
+            context=context,
         )
 
     @app.get("/auth/google")
