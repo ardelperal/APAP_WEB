@@ -174,6 +174,15 @@ async def lifespan(_: FastAPI):
         return dict(s._state) if s is not None and hasattr(s, "_state") else {}
     try:
         yield _capture_state()
+    except BaseException:
+        # M3.2 fix: a misbehaving step must not propagate out of the
+        # lifespan. uvicorn 0.52 sets self.asgi = None on any
+        # BaseException, which routes subsequent requests through
+        # a None app. Catch everything and yield anyway so the
+        # lifespan completes and the protocol app reference stays
+        # valid.
+        import logging
+        logging.getLogger(__name__).exception("lifespan_unhandled_error")
     finally:
         try:
             client.close()
