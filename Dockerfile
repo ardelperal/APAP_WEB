@@ -78,6 +78,11 @@ RUN pip install --no-cache-dir /tmp/wheels/*.whl \
 
 # Pre-compiled CSS (built in the tailwind-base stage).
 COPY --from=builder /work/app/static/css/output.css /app/app/static/css/output.css
+# Static assets (M3.2: the magic-link form onsubmit handler lives in
+# app/static/js/magic-link-form.js; it must be served over HTTPS so the
+# deployed app's strict CSP -- which only allows script-src 'self' -- can
+# load it without unsafe-inline or per-request nonces).
+COPY --from=builder /work/app/static/js/ /app/app/static/js/
 
 USER apap
 
