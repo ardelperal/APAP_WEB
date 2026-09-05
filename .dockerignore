@@ -1,60 +1,51 @@
-# Files and directories excluded from the Docker build context.
-# Kept small and explicit so `docker build` stays fast and the
-# resulting images stay clean.
+# Build context trim for both apap-web and the new local-backend Dockerfiles.
+# Keeps image rebuilds fast and context uploads small.
 
+# VCS / IDE
 .git/
-.github/
-.gitignore
+.gitattributes
+.idea/
+.vscode/
 
+# Local Python
 .venv/
-venv/
-env/
 __pycache__/
+*.pyc
+*.pyo
+*.pyd
 .pytest_cache/
+.mypy_cache/
 .ruff_cache/
-.coverage
-htmlcov/
-build/
-dist/
-*.egg-info/
-*.egg
 
-.dysflow/
-.atl/
-.playwright-mcp/
-.engram/
+# Node
+node_modules/
+.tailwindcss-cache/
 
-# Tailwind: only ship package.json, the build runs in the container.
-tailwindcss/node_modules/
-tailwindcss/package-lock.json
+# OS / editor cruft
+.DS_Store
+*.swp
+*.swo
 
-# Local Access binaries and project documentation that is not needed at
-# runtime.
-*.accdb
-*.laccdb
-*.mdb
-*.ldb
-
-docs/discovery/
-docs/legacy-*.md
-docs/mockups/
-# `docs/setup.md` is referenced by `pyproject.toml` as the package README,
-# so `pip wheel` requires it to exist in the build context. Keep it.
-# docs/setup.md
-docs/development.md
-docs/plan-completo.md
-docs/roadmap.md
-docs/features-showcase.html
-docs/canonical-logs.md
-docs/design-tokens-apap-actual.md
-docs/architecture/decisiones-proyecto.md
-docs/architecture/decisiones/
-docs/architecture/architecture-insforge-stack.md
-
+# Tests (don't ship in the runtime image; tests live outside the runtime graph)
+tests/
 openspec/
 
-scripts/
+# Docs (not needed in the runtime)
+docs/
+*.md
+!docker/local-backend.Dockerfile
 
-# `tests/` is needed by the builder stage of the Dockerfile:
-# `pip wheel` includes tests in the wheel metadata, and the `COPY tests/`
-# instruction must succeed. Keep it in the build context.
+# Local config / secrets
+.env
+.env.*
+!.env.example
+*.log
+logs/
+
+# GitHub
+.github/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
