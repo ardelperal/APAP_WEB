@@ -177,8 +177,12 @@ class PostgresMagicLinkAdapter:
         # is left as an empty string for F1: the transport builds the
         # verify URL with whatever value the caller passed in. F2 will
         # inject ``settings.app_base_url`` at the route layer.
-        verify_url = self._transport_build_verify_url("", raw_token)
-        await transport.send_magic_link(email, raw_token, "")
+        # M3.1 fix: read APAP_PUBLIC_BASE_URL at the adapter boundary so
+        # a wrong value surfaces here, not inside the SMTP transport
+        # (which would silently produce an unclickable Gmail link).
+        base_url = os.environ.get("APAP_PUBLIC_BASE_URL", "").strip()
+        verify_url = self._transport_build_verify_url(base_url, raw_token)
+        await transport.send_magic_link(email, raw_token, base_url)
 
         return MagicLinkRequest(
             email=row[0],
