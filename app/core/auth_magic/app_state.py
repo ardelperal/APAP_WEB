@@ -100,7 +100,7 @@ def get_auth_port(request: Request) -> AuthUsersPort:
         from app.core.roles import Rol
         stub = StubAuthPort()
         settings = get_settings()
-        seed_email = settings.e2e_auth_default_email
+        seed_email = settings.initial_admin_email or "ardelperal@gmail.com"
         stub.add(seed_email, rol=Rol.DEVELOPER)
         return stub
     port = getattr(request.app.state, "auth_port", None)

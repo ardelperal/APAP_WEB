@@ -126,7 +126,6 @@ class Settings(BaseSettings):
     # against the mock route. Must exist as an ``usuarios_autorizados``
     # row in production, but the mock pre-populates the in-process
     # auth cache so the DB row is bypassed during E2E runs.
-    e2e_auth_default_email: str = "e2e@apap.local"
 
     # --- Bootstrap (Fase 2) ---------------------------------------------
     # Email of the first `developer` user, seeded on first startup if
