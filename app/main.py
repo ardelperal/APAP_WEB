@@ -145,7 +145,7 @@ async def lifespan(_: FastAPI):
             stub = StubAuthPort()
             settings = get_settings()
             seed_email = settings.e2e_auth_default_email
-            stub.add(seed_email, role="DEVELOPER")
+            stub.add(seed_email, rol="DEVELOPER")
             return stub
         return InsForgeAuthUsersAdapter(client)
 

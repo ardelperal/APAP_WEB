@@ -100,7 +100,7 @@ def get_auth_port(request: Request) -> AuthUsersPort:
         stub = StubAuthPort()
         settings = get_settings()
         seed_email = settings.e2e_auth_default_email
-        stub.add(seed_email, role="DEVELOPER")
+        stub.add(seed_email, rol="DEVELOPER")
         return stub
     port = getattr(request.app.state, "auth_port", None)
     if port is None:
