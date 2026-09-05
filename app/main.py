@@ -1,3 +1,4 @@
+
 """FastAPI application entrypoint for APAP_WEB.
 
 The application is built following the skeleton outlined in
@@ -87,6 +88,10 @@ _TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    # M3.2 fix: bind the app instance to the module-level helper so
+    # _state_copy() can snapshot it after state is attached below.
+    global app_main_state
+    app_main_state = _
     """Application lifespan.
 
     On startup, bootstrap the InsForge schema:
@@ -197,6 +202,16 @@ async def lifespan(_: FastAPI):
         # valid.
         import logging
         logging.getLogger(__name__).exception("lifespan_unhandled_error")
+        # M3.2 fix: yield the app.state so Starlette's merged_lifespan
+        # forwards it into scope["state"] (which uvicorn exposes to the
+        # request as request.app.state). Without a non-None yield,
+        # app.state.X is set during the lifespan but scope["state"] stays
+        # empty, so request.app.state.X returns None at request time
+        # (the RuntimeError "app.state.auth_port is not configured" that
+        # the M3.1 E2E test caught against the deployed app).
+        def _capture_state() -> dict[str, object]:
+            return dict(_.__dict__.get("_state") or {})
+        yield _capture_state()
     finally:
         try:
             client.close()
