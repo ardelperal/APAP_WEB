@@ -280,9 +280,15 @@ async def _verify_magic_impl(request: Request, token: str) -> Response:
     auth_port = get_auth_port(request)
 
     email = await magic_link_port.consume_magic_link(token_hash)
+    print(f"DEBUG verify: email from DB = {email!r}", flush=True)
     if email is None:
         return RedirectResponse("/login", status_code=302)
     user = auth_port.get_user_by_email(email)
+    print(
+        f"DEBUG verify: user from auth_port({email!r}) = {user!r}, "
+        f"type={type(auth_port).__name__}, APAP_E2E_STUB_AUTH={os.environ.get('APAP_E2E_STUB_AUTH')}",
+        flush=True,
+    )
     if user is None:
         return RedirectResponse("/unauthorized", status_code=302)
 
