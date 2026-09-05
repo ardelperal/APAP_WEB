@@ -196,3 +196,24 @@ This slice ships under RDD. Single lens `review-reliability` is enough
 for a 1-test slice; the lineage opens AFTER the SDD commit (so the SDD
 is in scope) and BEFORE the implementation commit (so the implementation
 is in scope). Parent captures the receipt; the worker does NOT.
+
+
+## Production fixes post-archive (commits 400ba49, dcdb9d1, be243c2, 12ec9df)
+
+The M3.1 SDD was archived with the e2e test in RED state. The fix
+process exposed four production-resilience bugs that were not visible
+to the unit tests:
+
+| # | Commit | File | Bug | Fix |
+|---|--------|------|-----|-----|
+| 1 | `dcdb9d1` | `app/main.py` | `_capture_state()` did `dict(_.__dict__.get("_state") or {})` which returns `{}` because `_.__dict__` doesn't have `_state` (the `app.state` is a `State` proxy). | Read `_.state._state` directly. |
+| 2 | `12ec9df` | `app/main.py` | Uvicorn 0.52 catches `BaseException` raised by `await app(scope, ...)` and sets `self.asgi = None` on the HTTP protocol. The user's `wire_magic_link_to_app_state` raised (e.g. on InsForge 503) and uvicorn nulled the app, so subsequent requests 500 with no app instance. | Wrap the lifespan's `try: yield` in `except BaseException` that logs and yields an empty dict. |
+| 3 | `400ba49` (part 1) | `app/core/request_context.py` | `CorrelationIdMiddleware.__call__` constructed a `starlette.Request` from the lifespan startup scope whose `type` is `"lifespan"`, firing the assertion and being caught by uvicorn. | Skip non-HTTP scopes: `if scope["type"] not in ("http", "websocket"): return await self.app(scope, receive, send)`. |
+| 4 | `400ba49` (part 2) | `app/core/auth_magic/postgres_adapter.py` | `psycopg.AsyncConnection.connect` had no `connect_timeout`, so the lifespan hung for ~60 s on every startup when `APAP_LOCAL_DB_URL` pointed to an unreachable host. | `connect_timeout=5`. |
+| 5 | `400ba49` (part 3) | `app/core/auth_magic/routes.py` | `start_magic` called `auth_port.get_user_by_email(email)` which raised `InsForgeError` (503) when InsForge was unreachable. | Wrap the call in `try/except Exception` so the endpoint always returns `200 {"status": "queued"}` even when InsForge is down. |
+
+After commit `400ba49`:
+- `curl -X POST https://apap.romancaba.com/auth/magic/start -d '{"email":"ardelperal@gmail.com","csrf_token":"..."}'` returns `200 {"status":"queued"}` against the deployed app.
+- The full round-trip (verify URL + cookie assertion) still requires InsForge to be reachable to find the user AND to send the email. The rdd-m0 dev env has InsForge 503; production / CI has it working.
+- The e2e test stays in M3.1's "RED in dev env, GREEN in production" status.
+

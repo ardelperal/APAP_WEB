@@ -77,11 +77,20 @@ def get_mail_transport(request: Request) -> MailTransport:
 def get_auth_port(request: Request) -> AuthUsersPort:
     """Return the request-scoped :class:`AuthUsersPort` from ``app.state``.
 
+    When the env var ``APAP_E2E_STUB_AUTH=true`` is set, returns a
+    :class:`StubAuthUsersPort` (in-memory) instead of the real InsForge
+    adapter. Used by ``tests/e2e/test_magic_link_e2e.py`` to exercise
+    the full route without an InsForge backend.
+
     Raises :class:`RuntimeError` if ``app.state.auth_port`` is not set.
     The F3 lifespan attaches the same :class:`AuthUsersPort` adapter the
     OAuth callback uses (currently
     :class:`app.core.adapters.insforge.auth_insforge_adapter.InsForgeAuthUsersAdapter`).
     """
+    if os.environ.get("APAP_E2E_STUB_AUTH") == "true":
+        from app.core.auth_magic.app_state import StubAuthUsersPort  # noqa: PLC0415
+        from app.core.config import get_settings  # noqa: PLC0415
+        return StubAuthUsersPort(e2e_email=get_settings().e2e_auth_default_email)
     port = getattr(request.app.state, "auth_port", None)
     if port is None:
         raise RuntimeError(

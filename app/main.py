@@ -34,6 +34,7 @@ for the deploy webhook contract.
 
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
@@ -134,6 +135,16 @@ async def lifespan(_: FastAPI):
     )
 
     def _auth_port_factory() -> object:
+        # M3.1 E2E fix: when APAP_E2E_STUB_AUTH=true, return a
+        # StubAuthUsersPort (in-memory) that always finds the user, so
+        # the E2E test can exercise the full magic-link round-trip
+        # without an InsForge backend.
+        if os.environ.get("APAP_E2E_STUB_AUTH") == "true":
+            from app.core.auth_magic.app_state import StubAuthUsersPort
+            from app.core.config import get_settings
+            return StubAuthUsersPort(
+                e2e_email=get_settings().e2e_auth_default_email
+            )
         return InsForgeAuthUsersAdapter(client)
 
     _.state._magic_link_auth_port_factory = _auth_port_factory
