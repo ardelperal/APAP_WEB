@@ -37,11 +37,11 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
+from app.core.auth_magic.lifespan import wire_magic_link_to_app_state
 from app.core.auth_magic.mail_transports import (
     SMTPMailTransport,
     SMTPTransportError,
 )
-from app.core.auth_magic.lifespan import wire_magic_link_to_app_state
 from app.core.config import Settings
 
 pytestmark = pytest.mark.integration

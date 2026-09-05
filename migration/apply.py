@@ -57,15 +57,14 @@ cleanup).
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import unicodedata
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
-import hashlib
-import json
-from migration.apply_value_transforms import _apply_value_transform
 
 from rapidfuzz import fuzz
 
@@ -78,6 +77,7 @@ from migration import (
     check_msaccess_running,
     release_lock,
 )
+from migration.apply_value_transforms import _apply_value_transform
 from migration.bootstrap import bootstrap_m0_infrastructure
 from migration.dni_collision import DniCollisionCounter
 from migration.legacy_reader import (
