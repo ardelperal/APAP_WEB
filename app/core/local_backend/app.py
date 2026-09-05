@@ -171,4 +171,32 @@ def create_app(*, db_dsn: str = "", oauth_configured: bool = False) -> FastAPI:
     return application
 
 
+def create_app_from_env() -> FastAPI:
+    """Build the local FastAPI app using env-var configuration.
+
+    Reads ``APAP_LOCAL_BACKEND_DSN`` (required) and
+    ``APAP_LOCAL_BACKEND_OAUTH_CONFIGURED`` (default ``False``) from the
+    process environment. Raises ``RuntimeError`` when the DSN is unset so
+    the container fails fast at startup instead of binding to port 8080
+    and serving 500s.
+
+    This helper is the entry point the Dockerfile's ``CMD`` invokes via
+    ``uvicorn ...:create_app_from_env --factory`` so the operator never
+    has to thread DSN through ``--db-dsn=...`` on the command line
+    (where it would leak into the process list).
+    """
+    import os
+
+
+    dsn = os.environ.get("APAP_LOCAL_BACKEND_DSN", "").strip()
+    oauth = os.environ.get("APAP_LOCAL_BACKEND_OAUTH_CONFIGURED", "false").lower() in (
+        "1", "true", "yes", "on"
+    )
+    if not dsn:
+        raise RuntimeError(
+            "APAP_LOCAL_BACKEND_DSN is required for the local backend"
+        )
+    return create_app(db_dsn=dsn, oauth_configured=oauth)
+
+
 __all__ = ["create_app", "healthz_router", "oauth_router", "rawsql_router", "storage_router"]
