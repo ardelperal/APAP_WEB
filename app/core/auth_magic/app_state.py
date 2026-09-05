@@ -97,10 +97,11 @@ def get_auth_port(request: Request) -> AuthUsersPort:
         # round-trip without an InsForge backend.
         from app.core.config import get_settings  # noqa: PLC0415
         from app.core.local_backend.stub_auth_port import StubAuthPort
+        from app.core.roles import Rol
         stub = StubAuthPort()
         settings = get_settings()
         seed_email = settings.e2e_auth_default_email
-        stub.add(seed_email, rol="DEVELOPER")
+        stub.add(seed_email, rol=Rol.DEVELOPER)
         return stub
     port = getattr(request.app.state, "auth_port", None)
     if port is None:
