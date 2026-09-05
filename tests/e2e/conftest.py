@@ -81,7 +81,7 @@ def page(browser_context: BrowserContext) -> Page:
     yield browser_context.new_page()
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def base_url() -> str:
     """The base URL the test server is reachable at."""
     return BASE_URL
