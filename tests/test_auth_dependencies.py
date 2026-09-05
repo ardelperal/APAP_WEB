@@ -41,6 +41,7 @@ from app.core.auth_dependencies import (
     return_early_if_response,
 )
 from app.core.config import get_settings
+from app.core.data_access import InsForgeError
 from app.core.insforge import InsForgeClient
 from app.core.session import (
     session_cookie_name,
@@ -544,6 +545,27 @@ class _RevalSpy:
         return None
 
 
+class _ErrorRaisingSpy:
+    """InsForge stand-in whose ``execute_sql`` raises ``InsForgeError``.
+
+    Production behaviour when the hosted proxy at
+    ``https://c3uc9dk6.eu-central.insforge.app`` returns 503.
+    """
+
+    def __init__(self, error: InsForgeError | None = None) -> None:
+        self._error = error or InsForgeError(
+            503, {"message": "Service Temporarily Unavailable"}
+        )
+        self.query_count = 0
+
+    def execute_sql(self, query, params=None):  # type: ignore[no-untyped-def]
+        self.query_count += 1
+        raise self._error
+
+    def close(self) -> None:
+        return None
+
+
 def _authorized_payload(email: str = "u@e.com", rol: str = "key_user") -> dict:
     return {"email": email, "rol": rol, "user_id": "u-1", "is_authorized": True}
 
@@ -634,6 +656,92 @@ def test_require_authorized_user_reauthorizes_after_invalidation() -> None:
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# M3.1 hotfix: fail-open on the cookie claim when InsForge is unreachable
+# ---------------------------------------------------------------------------
+#
+# Production reality in M3.1: the InsForge hosted proxy at
+# https://c3uc9dk6.eu-central.insforge.app returns 503 the first ~30
+# seconds after the lifespan starts while it warms up, then
+# intermittently the rest of the day. The magic-link verify route
+# already established the trust chain (it validated the user via
+# auth_port - InsForge adapter or in-memory StubAuthPort in E2E)
+# and minted an apap_session cookie with is_authorized=True. The /
+# revalidation step runs require_authorized_user which - BEFORE this
+# hotfix - would raise InsForgeError and bounce the operator to
+# /unauthorized even though they just clicked a valid magic link.
+# Expected behavior: trust the cookie's is_authorized=True for as
+# long as InsForge is unreachable. The cookie is signed by
+# session_secret so it cannot be forged, so the trust chain from
+# /auth/magic/verify holds.
+
+
+def test_require_authorized_user_fails_open_on_insforge_503_when_cookie_says_authorized() -> None:
+    """InsForge raises InsForgeError, cookie is_authorized=True -> return payload."""
+    spy = _ErrorRaisingSpy()
+    payload = _authorized_payload(email="ardelperal@gmail.com", rol="developer")
+    result = require_authorized_user(
+        request=_make_request(), payload=payload, client=spy
+    )
+    assert not isinstance(result, _Response), (
+        f"expected payload passthrough when InsForge is down + "
+        f"cookie is_authorized=True; got {type(result).__name__} {result!r}"
+    )
+    assert result["email"] == "ardelperal@gmail.com"
+    assert result["rol"] == "developer"
+    assert spy.query_count == 1
+
+
+def test_require_authorized_user_fails_closed_on_insforge_503_when_cookie_omits_authorized() -> None:
+    """InsForge 503 + cookie without is_authorized=True -> /unauthorized."""
+    spy = _ErrorRaisingSpy()
+    payload = {"email": "x@y.com", "rol": "developer"}
+    result = require_authorized_user(
+        request=_make_request(), payload=payload, client=spy
+    )
+    assert isinstance(result, _Response)
+    assert result.status_code == 302
+    assert result.headers["location"] == "/unauthorized"
+
+
+def test_require_authorized_user_uses_cache_even_if_insforge_is_down() -> None:
+    """A previous successful revalidation caches the claim; downstream
+    InsForge 503 no longer matters because the cache hit short-circuits
+    the try/except InsForgeError branch.
+    """
+    healthy = _RevalSpy(
+        [{"id": "u-1", "email": "u@e.com", "rol": "key_user", "active": True}]
+    )
+    require_authorized_user(
+        request=_make_request(), payload=_authorized_payload(), client=healthy
+    )
+    assert healthy.query_count == 1
+    broken = _ErrorRaisingSpy()
+    result = require_authorized_user(
+        request=_make_request(), payload=_authorized_payload(), client=broken
+    )
+    assert not isinstance(result, _Response)
+    assert result["email"] == "u@e.com"
+    assert broken.query_count == 0
+
+
+def test_require_authorized_user_still_fails_closed_on_db_reval_miss() -> None:
+    """InsForge returns no row -> /unauthorized (defense in depth).
+
+    The fail-open ONLY triggers on InsForgeError (transport), not on a
+    successful query that returned []. A cookie claiming a
+    non-existent email cannot pass validation.
+    """
+    spy = _RevalSpy([])
+    payload = _authorized_payload(email="ghost@x.com", rol="developer")
+    result = require_authorized_user(
+        request=_make_request(), payload=payload, client=spy
+    )
+    assert isinstance(result, _Response)
+    assert result.headers["location"] == "/unauthorized"
+    assert spy.query_count == 1
+
+
 # Issue #144: require_writer_user enforces write-role at the route boundary
 # ---------------------------------------------------------------------------
 #

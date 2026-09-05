@@ -65,6 +65,17 @@ def require_authorized_user(
         try:
             fresh = get_user_by_email(client, email)
         except InsForgeError:
+            # M3.1 hotfix: fail-open on the cookie claim when InsForge
+            # is unreachable. The cookie was issued by /auth/magic/verify
+            # AFTER the verify route validated the user via auth_port,
+            # so the trust chain holds. Trusting is_authorized=True
+            # here lets the operator continue working during a transient
+            # InsForge outage instead of bouncing them to /unauthorized
+            # every page load. The cookie itself is signed by
+            # ``session_secret`` so it cannot be forged.
+            if payload.get("is_authorized"):
+                payload["rol"] = payload.get("rol", "developer")
+                return payload
             return _deny(payload, "db_unreachable")
         if fresh is None:
             set_cached_auth(email, is_authorized=False, rol=None)
