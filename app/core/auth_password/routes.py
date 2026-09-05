@@ -19,38 +19,30 @@ production; catches the case where the lifespan hasn't run yet).
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
-from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from app.core.adapters.auth.classic_password_auth_port import (
-    ClassicPasswordAuthPort,
-)
+from app.core.auth_password.app_state import get_password_auth_port
 from app.core.config import get_settings
-from app.core.auth_magic.get_mail_transport import get_mail_transport
-
 
 # Spec R4: passwords shorter than 12 characters are rejected with 400.
 MIN_PASSWORD_LEN = 12
 
 
-def _get_password_auth(request: Request) -> ClassicPasswordAuthPort:
+def _get_password_auth(request: Request):
     """Resolve the password auth port from app.state.
 
-    Raises HTTPException 500 with a clear error if the lifespan hasn't
-    mounted the port yet (should never happen in production; the
-    factory function is registered in the same lifespan block that
-    registers the route handler).
+    Delegates to :func:`get_password_auth_port` which fails loudly (500
+    JSONResponse) if the lifespan hasn't mounted the port yet.
     """
-    port = getattr(request.app.state, "password_auth", None)
-    if port is None:
+    try:
+        return get_password_auth_port(request)
+    except RuntimeError as exc:
         return JSONResponse(
-            {"error": "password_auth_not_configured"},
+            {"error": "password_auth_not_configured", "detail": str(exc)},
             status_code=500,
         )
-    return port
 
 
 def _set_apap_session_cookie(response: JSONResponse, email: str) -> JSONResponse:
