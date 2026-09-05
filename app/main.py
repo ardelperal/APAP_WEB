@@ -133,6 +133,7 @@ async def lifespan(_: FastAPI):
     from app.core.adapters.insforge.auth_insforge_adapter import (
         InsForgeAuthUsersAdapter,
     )
+    from app.core.roles import Rol
 
     def _auth_port_factory() -> object:
         # M3.1 E2E fix: when APAP_E2E_STUB_AUTH=true, return the
@@ -145,7 +146,7 @@ async def lifespan(_: FastAPI):
             stub = StubAuthPort()
             settings = get_settings()
             seed_email = settings.initial_admin_email or "ardelperal@gmail.com"
-            stub.add(seed_email, rol="DEVELOPER")
+            stub.add(seed_email, rol=Rol.DEVELOPER)
             return stub
         return InsForgeAuthUsersAdapter(client)
 
