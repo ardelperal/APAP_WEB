@@ -79,10 +79,11 @@ def get_mail_transport(request: Request) -> MailTransport:
 def get_auth_port(request: Request) -> AuthUsersPort:
     """Return the request-scoped :class:`AuthUsersPort` from ``app.state``.
 
-    When the env var ``APAP_E2E_STUB_AUTH=true`` is set, returns a
-    :class:`StubAuthUsersPort` (in-memory) instead of the real InsForge
-    adapter. Used by ``tests/e2e/test_magic_link_e2e.py`` to exercise
-    the full route without an InsForge backend.
+    When the env var ``APAP_E2E_STUB_AUTH=true`` is set, returns the
+    F3-round-trip :class:`StubAuthPort` (in-memory) seeded with the
+    configured ``e2e_auth_default_email``. Used by
+    ``tests/e2e/test_magic_link_e2e.py`` to exercise the full magic-link
+    round-trip without an InsForge backend.
 
     Raises :class:`RuntimeError` if ``app.state.auth_port`` is not set.
     The F3 lifespan attaches the same :class:`AuthUsersPort` adapter the
@@ -90,9 +91,17 @@ def get_auth_port(request: Request) -> AuthUsersPort:
     :class:`app.core.adapters.insforge.auth_insforge_adapter.InsForgeAuthUsersAdapter`).
     """
     if os.environ.get("APAP_E2E_STUB_AUTH") == "true":
-        from app.core.auth_magic.app_state import StubAuthUsersPort  # noqa: PLC0415
+        # M3.1 E2E fix: re-use the F3-round-trip StubAuthPort in
+        # app/core/local_backend/stub_auth_port.py. Pre-seeds the
+        # configured test email so the magic-link form can complete a
+        # round-trip without an InsForge backend.
         from app.core.config import get_settings  # noqa: PLC0415
-        return StubAuthUsersPort(e2e_email=get_settings().e2e_auth_default_email)
+        from app.core.local_backend.stub_auth_port import StubAuthPort
+        stub = StubAuthPort()
+        settings = get_settings()
+        seed_email = settings.e2e_auth_default_email
+        stub.add(seed_email, role="DEVELOPER")
+        return stub
     port = getattr(request.app.state, "auth_port", None)
     if port is None:
         raise RuntimeError(
