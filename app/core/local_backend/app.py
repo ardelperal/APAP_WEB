@@ -97,6 +97,17 @@ def create_app(*, db_dsn: str = "", oauth_configured: bool = False) -> FastAPI:
         )
         application.state.local_postgres_executor = executor
         application.state.oauth_configured = oauth_configured
+        application.state.oauth_configured = oauth_configured
+        # F1 §T2.AS1 — apply the 27-statement DDL on every cold start
+        # so the local Postgres is the source of truth for the schema.
+        # Idempotent (CREATE TABLE IF NOT EXISTS). The InsForge adapter
+        # accepts our LocalPostgresExecutor via the SqlExecutor Protocol.
+        from app.core.adapters.insforge.auth_insforge_adapter import (
+            InsForgeAuthUsersAdapter,
+        )
+        InsForgeAuthUsersAdapter(executor).ensure_schema_and_seed(
+            os.environ.get("APAP_INITIAL_ADMIN_EMAIL", "").strip(),
+        )
         if magic_enabled:
             # F3 (spec M1 T3.1) — wire the three magic-link ports onto
             # ``app.state`` so the F2 routes can resolve them via

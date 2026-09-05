@@ -32,10 +32,15 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy only the bits that influence the wheel (keep the build context small).
-COPY pyproject.toml README.md LICENSE ./
+COPY pyproject.toml README.md ./
 COPY app ./app
 COPY migration ./migration
 COPY tailwindcss ./tailwindcss
+# Hatch's metadata validator requires the readme file referenced in
+# pyproject.toml ([project] readme = "docs/setup.md"). The local-backend
+# doesn't actually use the readme at runtime, but the metadata validator
+# errors out without it. COPYing it explicitly is the cheapest fix.
+COPY docs ./docs
 
 RUN pip wheel --no-cache-dir --no-deps --wheel-dir /work/dist .
 

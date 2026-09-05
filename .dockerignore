@@ -30,9 +30,11 @@ node_modules/
 tests/
 openspec/
 
-# Docs (not needed in the runtime)
+# Docs (not needed in the runtime - except the readme which hatch needs)
 docs/
+!docs/setup.md
 *.md
+!README.md
 !docker/local-backend.Dockerfile
 
 # Local config / secrets
