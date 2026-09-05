@@ -179,7 +179,7 @@ class TestCesionesPortRuntimeCheckable:
                 raise NotImplementedError
             # get_cesion_by_entrada_id and list_cesiones missing.
 
-        partial = PartialPort()
+        _partial = PartialPort()  # noqa: F841  # silence unused-var (intentional probe of type system)
         # PartialPort should NOT satisfy CesionesPort (missing two methods).
         # Verify that the adapter (full implementation) does satisfy it.
         assert isinstance(CesionesInsforgeAdapter(object()), CesionesPort)

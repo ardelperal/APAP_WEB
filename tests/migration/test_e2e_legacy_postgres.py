@@ -384,7 +384,6 @@ def test_e2e_apply_legacy_to_web_idempotent(
     # here is: applied rows are visible on the web side. We verify
     # ``web_count == applied`` (forward-only smoke; the round-trip
     # atom below exercises the full forward + reverse loop).
-    reader = MdbToolsLegacyReader(str(legacy_copy))
     web_rows = backend_client.execute_sql(
         "SELECT COUNT(*) AS c FROM animales WHERE activo = true", []
     )

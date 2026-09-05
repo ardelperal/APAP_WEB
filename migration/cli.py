@@ -82,7 +82,10 @@ from migration.cli_apply_reverse import (  # noqa: E402 — circular but determi
     add_direction_arg,
     run_apply,
 )
-from migration.cli_status import run_ensure_bucket, run_status
+from migration.cli_status import (  # noqa: E402  # late import: avoid circular with cli_status
+    run_ensure_bucket,
+    run_status,
+)
 
 # Type alias for the prompt reader injected into ``run_reconcile``.
 # Production: ``input`` (read from stdin). Tests: a list-driven
