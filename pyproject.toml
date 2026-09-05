@@ -205,6 +205,9 @@ markers = [
     # APAP_TEST_POSTGRES_DSN. CI supplies the service container DSN and
     # the job MUST NOT silently skip when the DSN is absent (issue #329).
     "integration: integration tests that run SQL against a real Postgres engine.",
+        # F3 e2e tests — drive the deployed apap-web against the live apap-local-backend
+        # (self-host-insforge-backend-coolify slice).
+        "e2e_deployed: e2e tests against the deployed stack (apap-web, apap-local-backend, apap-pg-test)."
     ]
 
 # Ruff configuration — fast single-binary linter, current best practice.
