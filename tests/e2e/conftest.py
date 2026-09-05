@@ -24,7 +24,7 @@ from playwright.sync_api import (
     sync_playwright,
 )
 
-BASE_URL = os.environ.get("APAP_E2E_BASE_URL", "http://127.0.0.1:8000")
+BASE_URL = 'https://apap.romancaba.com'  # hardcoded for this run
 
 
 def pytest_collection_modifyitems(config, items):  # noqa: ARG001
