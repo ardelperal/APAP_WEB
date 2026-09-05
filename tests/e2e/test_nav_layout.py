@@ -67,29 +67,30 @@ def _skip_if_login_unavailable(page: Page, base_url: str) -> None:
 
 
 def test_nav_does_not_overflow_on_mobile(page: Page, base_url: str) -> None:
-    """At 375px the primary nav must fit within the viewport.
+    """At 375px the mobile template must not produce horizontal scroll.
 
-    Fails today (mobile-first bug): the nav renders 7+ items inline and
-    extends to x=700+, producing horizontal page scroll that hides the
-    Salir button and the right side of the nav on real iPhone SE
-    hardware. Once a burger menu or flex-wrap collapse lands, this
-    test passes without further changes.
+    The mobile template renders the nav inside a <details> burger
+    that starts closed, so the nav itself has 0 visible area at 375px.
+    The user-visible invariant is that the document does not overflow
+    horizontally. The burger disclosure itself is tested separately
+    in tests/e2e/test_mobile_burger.py.
     """
     _skip_if_login_unavailable(page, base_url)
     page.set_viewport_size(MOBILE_VIEWPORT)
+    page.set_extra_http_headers(
+        {"User-Agent": (
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
+            "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 "
+            "Mobile/15E148 Safari/604.1"
+        )}
+    )
     page.goto(f"{base_url}{PUBLIC_ROUTE}", wait_until="domcontentloaded")
 
-    nav = page.locator("nav").first
-    nav.wait_for(state="visible")
-    bbox = nav.bounding_box()
-    assert bbox is not None, "nav must be visible at /login"
-
-    right_edge = bbox["x"] + bbox["width"]
-    assert right_edge <= MOBILE_VIEWPORT["width"] + LAYOUT_TOLERANCE_PX, (
-        f"nav overflows mobile viewport: "
-        f"right_edge={right_edge:.0f}px, "
-        f"viewport_width={MOBILE_VIEWPORT['width']}px, "
-        f"bbox={bbox}"
+    scroll_width = page.evaluate("() => document.documentElement.scrollWidth")
+    client_width = page.evaluate("() => document.documentElement.clientWidth")
+    assert scroll_width <= client_width + LAYOUT_TOLERANCE_PX, (
+        f"mobile viewport overflow: scrollWidth={scroll_width}, "
+        f"clientWidth={client_width}"
     )
 
 
@@ -129,22 +130,28 @@ def test_page_has_no_horizontal_scroll_on_mobile(
 
 
 def test_nav_renders_inline_on_desktop(page: Page, base_url: str) -> None:
-    """At 1280px the nav must render inline (single row, not stacked)."""
+    """At 1280px the primary nav is rendered inline (not as a burger).
+
+    On desktop the page renders TWO navs: the burger (hidden via
+    ``md:hidden``) and the inline nav with all module links. We assert
+    the SECOND one (the inline one) is the one that's visible.
+    """
     _skip_if_login_unavailable(page, base_url)
     page.set_viewport_size(DESKTOP_VIEWPORT)
     page.goto(f"{base_url}{PUBLIC_ROUTE}", wait_until="domcontentloaded")
 
-    nav = page.locator("nav").first
-    nav.wait_for(state="visible")
+    nav = page.locator("nav[aria-label='Navegación principal']")
+    nav.wait_for(state="visible", timeout=5000)
     bbox = nav.bounding_box()
     assert bbox is not None
-    # Single-row inline nav at 1280px is ~40px tall; 80px catches a
-    # stacked layout or accidental flex-col regression.
+
     assert bbox["height"] < 80, (
-        f"nav is stacked/too tall on desktop: height={bbox['height']:.0f}px"
+        f"inline nav should be one line (height<80px), got {bbox['height']:.0f}px"
     )
     assert bbox["x"] + bbox["width"] <= DESKTOP_VIEWPORT["width"] + LAYOUT_TOLERANCE_PX, (
-        f"nav overflows desktop viewport: bbox={bbox}"
+        f"inline nav overflows desktop viewport: "
+        f"right_edge={bbox['x'] + bbox['width']:.0f}px, "
+        f"viewport_width={DESKTOP_VIEWPORT['width']}px"
     )
 
 
