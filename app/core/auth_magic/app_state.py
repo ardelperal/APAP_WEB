@@ -28,6 +28,8 @@ production code.
 """
 from __future__ import annotations
 
+import os
+
 from fastapi import Request
 
 from app.core.ports.auth_port import AuthUsersPort
