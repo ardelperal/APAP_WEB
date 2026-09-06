@@ -144,6 +144,25 @@ def _raise_terapia_fk_error(
             f"voluntario_id debe apuntar a un voluntario activo (inactivo: {vol_id})"
         )
 
+    # Lifecycle gate (issue #46 follow-up): the CTE rejected the animal
+    # not because of an FK or active-flag issue (those branches above
+    # returned), but because ``animal_current_state.current_state`` is
+    # one of the blocked states (``Incoherente`` or any ``Fallecido (*)``
+    # variant). Surface the Spanish lifecycle error copy so the
+    # operator UI can render the actionable message.
+    lifecycle_rows = client.execute_sql(
+        "SELECT current_state FROM animal_current_state WHERE animal_id = $1",
+        [animal_id],
+    )
+    if lifecycle_rows:
+        current_state = lifecycle_rows[0].get("current_state") or ""
+        if current_state == "Incoherente" or current_state.startswith("Fallecido"):
+            raise ValueError(
+                f"animal_id en estado {current_state} — "
+                "no se puede registrar terapia para animales "
+                "fallecidos o incoherentes"
+            )
+
     raise ValueError(
         "FK validation failed (animal_id, voluntario_id) — none matched"
     )

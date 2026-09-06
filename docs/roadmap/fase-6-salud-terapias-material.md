@@ -28,7 +28,7 @@ cerrados en GitHub. Lo que queda:
 | 6a SALUD | HEALTH-05 periodicity engine | **cerrado** | #54 |
 | 6a SALUD | HEALTH-06 prueba-catalog migration | cerrado | #55 |
 | 6a SALUD | Informe de próximas pruebas | **cerrado** | #652 |
-| 6b TERAPIAS | terapias y recomendaciones | pendiente | — |
+| 6b TERAPIAS | terapias y recomendaciones | **cerrado (con lifecycle gate)** | #53, #653 |
 | 6c MATERIAL | inventario de material y asignaciones | pendiente | — |
 
 ## Issues abiertas relacionadas
@@ -85,7 +85,7 @@ Baterías E2E con Playwright para cada sub-slice de Fase 6. Las baterías se esc
 |---|---|---|---|
 | `test_salud_terapias.py` | List, create, detail, edit, soft-delete, recomendaciones create/patch/delete, 409 con recomendaciones pendientes (7 tests) | hecho | `salud` |
 | `test_terapias_auth.py` | GET/POST/GET-detail anónimo devuelven redirect a /login (3 tests) | hecho | `salud` |
-| `test_terapias_lifecycle.py` | Incoherente / Fallecido bloquean nueva terapia | pendiente (requiere implementación del código; el CTE actual no consulta ``animal_current_state``) | `salud` |
+| `test_terapias_lifecycle.py` | Incoherente / Fallecido bloquean nueva terapia (CTE gate + desambiguación del service) | hecho (#653, skip hasta seed de ``animal_current_state`` en el harness) | `salud` |
 | `test_terapias_crud_full.py` | CRUD completo con todos los campos opcionales + recomendaciones completas (PATCH completada) | cubierto por ``test_salud_terapias.py`` (7 tests) | `salud` |
 
 Nota sobre lifecycle: el slice 6b está cerrado con HEALTH-04 (#53) pero

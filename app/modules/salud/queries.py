@@ -52,9 +52,44 @@ TERAPIA_SELECT_COLUMNS: Final[tuple[str, ...]] = (
 #   $2  voluntario_id  (required; must be activo per VOL-05)
 #   $3  fecha
 #   $4  descripcion
+# Atomic INSERT with FK checks (animal exists + activo, voluntario exists +
+# activo per VOL-05) plus the lifecycle gate (animal not in
+# Incoherente or any Fallecido (*) variant). TOCTOU-safe: all checks
+# run in the same PostgreSQL statement snapshot as the INSERT.
+#
+# Placeholders:
+#   $1 — animal_id (UUID)
+#   $2 — voluntario_id (UUID)
+#   $3 — fecha (YYYY-MM-DD)
+#   $4 — descripcion (text, nullable)
+#
+# Lifecycle gate (issue #46 follow-up):
+#   The ``checked_animal`` CTE LEFT JOINs ``animal_current_state`` so a
+#   terapia INSERT is short-circuited when the animal is in any of the
+#   blocked states: ``Incoherente`` plus the ``Fallecido (*)`` variants
+#   (Albergue / Acogida / Adoptado / Entregado / Desconocido). The
+#   LEFT JOIN keeps healthy animals (no row in ``animal_current_state``
+#   yet — their first actuation event has not landed) reachable; the
+#   ``IS NULL`` arm of the predicate passes the row through. The
+#   ``LIKE 'Fallecido%'`` pattern matches the canonical DB labels
+#   declared in ``app/core/domain_lifecycle.py::ANIMAL_CURRENT_STATE_CREATE_TABLE_SQL``
+#   so new Fallecido variants added there are picked up automatically
+#   (the integration test ``test_core_event_types_set_matches_strenum_members``
+#   pins that contract).
 _CREATE_TERAPIA_SQL: Final[str] = f"""
 WITH checked_animal AS (
-    SELECT id FROM animales WHERE id = $1 AND activo = true
+    SELECT a.id
+    FROM animales a
+    LEFT JOIN animal_current_state acs ON a.id = acs.animal_id
+    WHERE a.id = $1
+      AND a.activo = true
+      AND (
+          acs.current_state IS NULL
+          OR (
+              acs.current_state != 'Incoherente'
+              AND acs.current_state NOT LIKE 'Fallecido%'
+          )
+      )
 ),
 checked_voluntario AS (
     SELECT id FROM voluntarios WHERE id = $2 AND activo = true
