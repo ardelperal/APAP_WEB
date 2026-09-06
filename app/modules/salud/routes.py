@@ -35,12 +35,13 @@ from fastapi.templating import Jinja2Templates
 
 from app.core.auth_dependencies import (
     AuthenticatedUser,
-    get_insforge_client_dep,
+    get_local_postgres_executor_dep,
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
+from app.core.data_access import SqlExecutor
 from app.core.forms import optional_value as _opt
-from app.core.insforge import InsForgeClient, InsForgeError
+from app.core.insforge import InsForgeError
 from app.core.logging import log_safe
 from app.core.middleware import base_template_context_processor
 from app.core.rbac import Permission, require_permission
@@ -142,7 +143,7 @@ def _render_terapia_form_error(
 def list_terapias_view(
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_SALUD))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
     animal_id: str | None = None,
 ):
     """List active terapias; ``?animal_id=`` filters to one animal."""
@@ -168,7 +169,7 @@ def list_terapias_view(
 def new_terapia_form(
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """Empty form for a new terapia."""
     if (early := return_early_if_response(user)) is not None:
@@ -186,7 +187,7 @@ def create_terapia_view(
     request: Request,
     form: Annotated[TerapiaForm, Form()],
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):  # noqa: PLR0913  # refactored to TerapiaForm
     """Create a terapia; redirect to detail on success.
 
@@ -225,7 +226,7 @@ def terapia_detail(
     terapia_id: str,
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_SALUD))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """Detail view with its recomendaciones; 404 when the id is missing."""
     if (early := return_early_if_response(user)) is not None:
@@ -253,7 +254,7 @@ def edit_terapia_form(
     terapia_id: str,
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """Edit form prefilled from the persisted row."""
     if (early := return_early_if_response(user)) is not None:
@@ -279,7 +280,7 @@ def update_terapia_view(
     request: Request,
     form: Annotated[TerapiaForm, Form()],
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):  # noqa: PLR0913  # refactored to TerapiaForm
     """Update an existing terapia; redirect to detail on success.
 
@@ -320,7 +321,7 @@ def delete_terapia_view(
     terapia_id: str,
     _request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """Soft-delete via ``salud_service.delete_terapia``.
 
@@ -365,7 +366,7 @@ def list_recomendaciones_view(
     terapia_id: str,
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_SALUD))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """List active recomendaciones for a terapia."""
     if (early := return_early_if_response(user)) is not None:
@@ -391,7 +392,7 @@ def create_recomendacion_view(
     _request: Request,
     form: Annotated[RecomendacionForm, Form()],
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):  # noqa: PLR0913  # refactored to RecomendacionForm
     """Create a recomendacion linked to the terapia.
 
@@ -437,7 +438,7 @@ def complete_recomendacion_view(
     recomendacion_id: str,
     _request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """Mark a recomendacion as completed (``completada=true``).
 
@@ -475,7 +476,7 @@ def delete_recomendacion_view(
     recomendacion_id: str,
     _request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """Soft-delete a recomendacion.
 
