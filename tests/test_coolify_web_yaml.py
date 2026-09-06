@@ -132,8 +132,6 @@ class TestEnvContract:
         "APAP_SESSION_SECRET",
         "APAP_LOCAL_BACKEND",
         "APAP_LOCAL_DB_URL",
-        "APAP_INSFORGE_URL",
-        "APAP_INSFORGE_SERVICE_KEY",
         "APAP_SMTP_HOST",
         "APAP_SMTP_PORT",
         "APAP_SMTP_USER",
@@ -162,7 +160,6 @@ class TestEnvContract:
             assert isinstance(entry, dict)
             if entry["name"] in (
                 "APAP_SESSION_SECRET",
-                "APAP_INSFORGE_SERVICE_KEY",
                 "APAP_SMTP_PASSWORD",
                 "APAP_LOCAL_DB_URL",
             ):

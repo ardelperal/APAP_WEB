@@ -86,8 +86,7 @@ COPY --from=builder /work/app/static/js/ /app/app/static/js/
 
 USER apap
 
-ENV APAP_INSFORGE_URL=http://localhost:7130 \
-    PYTHONUNBUFFERED=1 \
+ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
 EXPOSE 8000
