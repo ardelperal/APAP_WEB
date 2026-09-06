@@ -1,19 +1,29 @@
 # Archive Report: m3-1-magic-link-e2e
 
 **Change**: `m3-1-magic-link-e2e`
-**Archived on**: 2026-09-05
+**Archived on**: 2026-09-05 (M3.4 + Phase 3 closed on 2026-09-06)
 **Artifact store mode**: `openspec`
-**Branch**: `feat/641-self-host-backend-coolify`
-**Archive status**: wip — partial; awaiting `M3.4` (magic-link wiring + `SMTPMailTransport`)
+**Branch at archive time**: `feat/641-self-host-backend-coolify` (merged to `main` as `fbfb521`)
+**Archive status**: wip — partial; round-trip covered by `tests/integration/test_magic_link_routes.py` (CI), live E2E remains skip'd on MailDev outage (issue #649 follow-up)
 
 ## Summary
 
-The `m3-1-magic-link-e2e` change was archived as **wip** (partial). The slice shipped its scaffolding and unit tests, but the round-trip E2E test it was designed to enable cannot pass yet because the M3 backend wiring it exercises is not in the codebase:
+The `m3-1-magic-link-e2e` change was archived as **wip** (partial). The
+slice shipped its scaffolding and unit tests, but the round-trip E2E
+test it was designed to enable cannot pass yet because the M3 backend
+wiring it exercises is not in the codebase:
 
-- The routes `POST /auth/magic/start` and `GET /auth/magic/verify` are not registered anywhere. `app/core/auth_flow.py` only exposes `/login`, `/auth/google`, `/auth/callback`, and `/logout`.
-- `SMTPMailTransport` is not implemented. `grep -rn 'send_magic_link\|SMTPMailTransport' app/` returns zero hits. `Settings` has no `APAP_SMTP_HOST/PORT/USER/...` fields.
+- The routes `POST /auth/magic/start` and `GET /auth/magic/verify`
+  are not registered anywhere. `app/core/auth_flow.py` only exposes
+  `/login`, `/auth/google`, `/auth/callback`, and `/logout`.
+- `SMTPMailTransport` is not implemented.
+  `grep -rn 'send_magic_link\|SMTPMailTransport' app/` returns zero
+  hits. `Settings` has no `APAP_SMTP_HOST/PORT/USER/...` fields.
 
-Both gaps are tracked as a single follow-up issue, the **M3.4** slice, in `docs/roadmap/transversales.md` under "Issues pendientes de crear".
+Both gaps were tracked as a single follow-up issue, the **M3.4** slice,
+in `docs/roadmap/transversales.md` under "Issues pendientes de crear".
+The slice closed when M3.4 landed in commits `1a24387` and `0550244`
+on the umbrella branch.
 
 ## Task Completion Gate
 
@@ -49,7 +59,7 @@ No CRITICAL verification issues; the partial state is the slice's own design (sc
 | `8a64628` | `docs(roadmap): add self-host backend section to transversales; update integrations inventory` | updates the roadmap to list M3.4 as pending | n/a (doc only) |
 | `7b9f953` | `chore(skill-registry): refresh after move to Oracle VPS` | housekeeping | n/a (auto-generated metadata) |
 
-All listed commits are reachable from `feat/641-self-host-backend-coolify` via `git merge-base --is-ancestor`.
+All listed commits are reachable from `origin/main` via `git merge-base --is-ancestor`.
 
 ## Runtime verification evidence
 
@@ -57,11 +67,48 @@ The MailDev HTTP API on `apap-smtp-dev:8025` returns "Empty reply" — pre-exist
 
 ## Specs synced
 
-Delta specs were **not** promoted to `openspec/specs/`. The M3.1 specs describe a verification target that the round-trip E2E does not currently exercise. Promoting them would mislead a future reader into believing the round-trip is verified. The specs remain in this archive folder for traceability; promotion to `openspec/specs/` is a precondition of the M3.4 archive (which will close the verification loop end-to-end).
+Delta specs were **not** promoted to `openspec/specs/`. The M3.1 spec is
+in proposal format (intent + forecast), not the strict spec.md
+format ``openspec/specs/<name>/spec.md`` uses
+(``## Purpose`` / ``## Requirements`` / ``### Requirement`` /
+``#### Scenario``). Promoting it as-is would break the format
+convention; reformatting it would mislead readers into believing the
+M3.1 E2E round-trip is verified when it is currently
+``pytest.mark.skip``'d (MailDev HTTP API broken — issue #649 follow-up).
+The specs remain in this archive folder for traceability.
+
+## Final state (post-M3.4 + Phase 3, 2026-09-06)
+
+The round-trip the M3.1 spec describes is **covered end-to-end** by the
+integration suite that M3.4 landed:
+
+- ``tests/integration/test_magic_link_routes.py`` (7 tests, runs in CI
+  with ``APAP_TEST_POSTGRES_DSN``): in-process ``httpx.AsyncClient``
+  against the ``local_backend`` factory + real ``ephemeral_postgres``
+  + fake SMTP transport. Pins the same five behaviours the M3.1 spec
+  asserts (form present, POST returns 200, mail sent, cookie set,
+  redirect to ``/``).
+
+- ``tests/e2e/test_magic_link_e2e.py`` remains skip'd — the live path
+  needs a working MailDev container (issue #649 follow-up) and a
+  running production deploy (the new
+  ``docs/runbooks/operator-deploy-2026.md`` covers that procedure).
+
+- The merge that brought M3.4 to ``main`` is ``fbfb521`` (cleaned up
+  with ``git rm`` of the parallel-implementation artefacts from the
+  old ``main``). Phase 3 added the operator-facing wire
+  (``2be1c45`` + ``5c0add1``).
 
 ## Follow-up
 
-- **M3.4** (`feat(m3-4): magic-link wiring + SMTPMailTransport en local_backend/app.py`): 1 router, 1 SMTP transport class, 2 endpoints, settings + DI. Scope ~150 LOC. The round-trip E2E in this archive un-skips when M3.4 lands.
-- **Phase 3** (#648): Coolify deploy manifest + `.accdb` legacy migration + runbook operador. Independent of M3.4.
-- **Phase 5** (#647): separate deploy step from lifespan bootstrap. Independent.
-- **Hygiene** (#646): pre-existing ruff errors + failing e2e (paralelo).
+- ~~**M3.4**~~ closed in commits ``1a24387`` + ``0550244`` on
+  ``feat/641-self-host-backend-coolify``; merged to ``main`` as
+  ``fbfb521``. Issue ``#651`` closed.
+- ~~**Phase 3**~~ closed in commits ``2be1c45`` + ``5c0add1`` on
+  ``feat/648-coolify-deploy-manifest``. Issue ``#648`` closed.
+- **MailDev repair** (issue ``#649`` follow-up): investigate why the
+  HTTP API is broken (``curl http://apap-smtp-dev:8025/api/v2/messages``
+  returns "Empty reply"); when fixed, drop the ``pytest.mark.skip``
+  in ``tests/e2e/test_magic_link_e2e.py``.
+- **Phase 5** (``#647``): separate deploy step from lifespan bootstrap. Independent.
+- **Hygiene** (``#646``): pre-existing ruff errors + failing e2e (paralelo).
