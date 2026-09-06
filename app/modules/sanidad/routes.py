@@ -47,11 +47,12 @@ rol with 403 BEFORE the handler runs.
 
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, status
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.core.auth_dependencies import (
@@ -534,3 +535,91 @@ def delete_actuacion_view(
 # keep each routes file under the AGENTS §21 / §28 size budgets. The
 # router is registered under the same ``sanidad_router`` prefix from
 # ``routes_registry.py`` so the URL contract is unchanged.
+
+
+@router.get("/proximas-pruebas", response_class=JSONResponse)
+def proximas_pruebas(
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_SALUD))],
+    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    fecha_desde: Annotated[
+        str,
+        Query(description="ISO date (YYYY-MM-DD); lower bound of the window."),
+    ],
+    fecha_hasta: Annotated[
+        str,
+        Query(description="ISO date (YYYY-MM-DD); upper bound of the window."),
+    ],
+    animal_id: Annotated[
+        str | None,
+        Query(description="Optional UUID filter by animal."),
+    ] = None,
+    tipo_prueba_codigo: Annotated[
+        str | None,
+        Query(description="Optional filter by catalogos_periodicidad.codigo."),
+    ] = None,
+) -> JSONResponse:
+    """JSON endpoint for the proximity report (issue #652).
+
+    Returns one row per (animal, tipo_prueba) whose next due date
+    falls inside the ``[fecha_desde, fecha_hasta]`` window. See
+    ``sanidad.service.get_proximas_pruebas`` for the contract.
+
+    Auth: any operator with ``READ_SALUD`` (per AGENTS §21 RBAC; same
+    auth model as the list endpoints above). The reader rol can call
+    this endpoint to scan the schedule; writers use it to triage
+    the next batch of vaccinations.
+
+    Response shape:
+        ``[{"chip": "...", "nombre": "...", "tipo_codigo": "...",
+        "fecha_ultima": "YYYY-MM-DD", "fecha_proxima": "YYYY-MM-DD",
+        "periodicidad_meses": N, "estado": "vencida|proxima|futura"}, ...]``
+
+    Empty window → ``[]``. Filters that exclude every row → ``[]``.
+    """
+    try:
+        desde = date.fromisoformat(fecha_desde)
+        hasta = date.fromisoformat(fecha_hasta)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "fecha_desde and fecha_hasta must be ISO dates "
+                f"(YYYY-MM-DD): {exc}"
+            ),
+        ) from exc
+
+    if desde > hasta:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="fecha_desde must be <= fecha_hasta",
+        )
+
+    items = sanidad_service.get_proximas_pruebas(
+        client,
+        desde,
+        hasta,
+        animal_id=animal_id,
+        tipo_prueba_codigo=tipo_prueba_codigo,
+    )
+    payload = [
+        {
+            "chip": item.chip,
+            "nombre": item.nombre,
+            "tipo_codigo": item.tipo_codigo,
+            "fecha_ultima": item.fecha_ultima.isoformat(),
+            "fecha_proxima": item.fecha_proxima.isoformat(),
+            "periodicidad_meses": item.periodicidad_meses,
+            "estado": item.estado,
+        }
+        for item in items
+    ]
+    log_safe(
+        "sanidad.proximas_pruebas",
+        actor=user["email"] if isinstance(user, dict) else None,
+        desde=fecha_desde,
+        hasta=fecha_hasta,
+        animal_id=animal_id,
+        tipo=tipo_prueba_codigo,
+        rows=len(payload),
+    )
+    return JSONResponse(payload)

@@ -6,16 +6,14 @@ Esta página posee el estado de la Fase 6: registro sanitario con periodicidad, 
 
 ## Estado
 
-En curso. HEALTH-01..04 y HEALTH-06 están cerrados en GitHub.
-HEALTH-05 (motor de periodicidad) acaba de mergear a `main`
-(commit `a0f8c35` en la rama `feat/fase6-health`; cierre del issue
-#54). Lo que queda:
+En curso. HEALTH-01..06 y el informe de próximas pruebas están
+cerrados en GitHub. Lo que queda:
 
 1. **E2E pendientes**: las baterías Playwright de terapias (CRUD
-   full, lifecycle, auth) y materiales (assignment, auth). La
-   batería de periodicidad se cubre en este merge con
-   `tests/test_sanidad_periodicity.py` (35 atoms en el suite
-   default; no requiere Postgres ni MailDev).
+   full, lifecycle, auth) y materiales (assignment, auth). El
+   informe de próximas pruebas tiene su batería E2E en
+   `tests/e2e/test_proximas_pruebas.py` (5 atoms; skip limpio sin
+   servidor).
 2. **Sub-fases 6b y 6c**: terapias y material, pendientes de
    implementación. Sus issues se crean al iniciar el slice.
 
@@ -29,7 +27,7 @@ HEALTH-05 (motor de periodicidad) acaba de mergear a `main`
 | 6a SALUD | HEALTH-04 therapies CRUD | cerrado | #53 |
 | 6a SALUD | HEALTH-05 periodicity engine | **cerrado** | #54 |
 | 6a SALUD | HEALTH-06 prueba-catalog migration | cerrado | #55 |
-| 6a SALUD | Informe de próximas pruebas | pendiente | — |
+| 6a SALUD | Informe de próximas pruebas | **cerrado** | #652 |
 | 6b TERAPIAS | terapias y recomendaciones | pendiente | — |
 | 6c MATERIAL | inventario de material y asignaciones | pendiente | — |
 
@@ -108,9 +106,11 @@ Baterías E2E con Playwright para cada sub-slice de Fase 6. Las baterías se esc
 
 | Fichero E2E | Casos | Estado | Slice |
 |---|---|---|---|
-| `test_proximas_pruebas.py` | List con chip + tipo + última fecha + próxima fecha; filtro por animal; export | pendiente | `sanidad` |
+| `test_proximas_pruebas.py` | 200 con ventana válida; 400 con fecha mal-formada; 400 con ventana invertida; shape de las filas (chip, nombre, tipo_codigo, fecha_ultima, fecha_proxima, periodicidad_meses, estado); filtro por animal | hecho (#652) | `sanidad` |
 
-**Total pendiente:** 7 ficheros E2E nuevos (terapias full/lifecycle/auth, materiales assignment, periodicity engine, proximas-pruebas, sanidad lifecycle).
+**Total pendiente:** 5 ficheros E2E nuevos (terapias CRUD full / lifecycle /
+auth, materiales assignment / auth, sanidad lifecycle). Las baterías de
+periodicidad y de informe de próximas pruebas están cubiertas.
 
 ## Navigation
 

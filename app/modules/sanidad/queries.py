@@ -43,6 +43,7 @@ D-24 inheritance:
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any, Final
 
 # Columns the batch INSERT writes. Order matches the per-record
@@ -306,3 +307,97 @@ SELECT nchip FROM animales WHERE id = $1 AND activo = true
 def build_get_animal_nchip(animal_id: str) -> tuple[str, list[Any]]:
     """Return the nchip for an active animal, or None if not found."""
     return _GET_ANIMAL_NCHIP_SQL, [animal_id]
+
+
+_BUILD_PROXIMAS_PRUEBAS_SQL: str = """
+WITH ultima_actuacion AS (
+    SELECT
+        a.animal_id,
+        a.tipo_actuacion_id,
+        MAX(a.fecha) AS fecha_ultima
+    FROM actuacion_sanitaria a
+    WHERE a.activo = true
+      AND a.tipo_actuacion_id IS NOT NULL
+    GROUP BY a.animal_id, a.tipo_actuacion_id
+),
+proxima_fecha AS (
+    SELECT
+        ua.animal_id,
+        ua.tipo_actuacion_id,
+        ua.fecha_ultima,
+        cp.codigo AS tipo_codigo,
+        cp.periodicidad_meses,
+        -- ``fecha_ultima + meses`` via Postgres interval syntax. The
+        -- ``|| ' months'`` casts the integer to text. ``::interval`` is
+        -- then a typed interval. Using ``make_interval`` would also work
+        -- but is only available in PG 9.4 or later — we are on PG 16 so both
+        -- are safe. the text-cast form is portable back to PG 9.4 and
+        -- matches the rest of the codebase.
+        (ua.fecha_ultima + (cp.periodicidad_meses::text || ' months')::interval)::date
+            AS fecha_proxima
+    FROM ultima_actuacion ua
+    JOIN catalogos_periodicidad cp
+      ON cp.id = ua.tipo_actuacion_id
+    WHERE cp.periodicidad_meses IS NOT NULL
+      AND cp.activo = true
+)
+SELECT
+    a.nchip AS chip,
+    a.nombreanimal AS nombre,
+    pf.tipo_codigo,
+    pf.fecha_ultima,
+    pf.fecha_proxima,
+    pf.periodicidad_meses
+FROM proxima_fecha pf
+JOIN animales a ON a.id = pf.animal_id
+WHERE a.activo = true
+  AND a.fdefuncion IS NULL
+  AND pf.fecha_proxima BETWEEN $1 AND $2
+"""
+
+
+def build_proximas_pruebas_sql(
+    fecha_desde: date,
+    fecha_hasta: date,
+    *,
+    animal_id: str | None = None,
+    tipo_prueba_codigo: str | None = None,
+) -> tuple[str, list[Any]]:
+    """Pure SQL builder for the proximity report (#652).
+
+    Returns ``(sql, params)``. ``params`` is a list of bind values,
+    ordered to match the ``$N`` placeholders in the SQL.
+
+    Window filter is mandatory: the operator MUST scope the query
+    with ``fecha_desde`` and ``fecha_hasta``; passing both to the same
+    date returns a one-day window. ``animal_id`` and
+    ``tipo_prueba_codigo`` are optional narrow filters; they append
+    ``AND`` clauses when provided.
+
+    Excludes:
+
+    - Soft-deleted animals (``a.activo = false``).
+    - Deceased animals (``a.fdefuncion IS NOT NULL``).
+    - One-shot test types (``cp.periodicidad_meses IS NULL``).
+
+    The query does NOT exclude the dynamic ``Incoherente`` lifecycle
+    state: a one-time ``actualizar_estado_animal`` call would correct
+    the row in ``animal_current_state``, but that table is not part
+    of the proximity query (the dynamic state is consulted in the
+    operator UI when the animal is opened, not here). The report is
+    intentionally a quick scan; the operator cross-references the
+    animal's lifecycle view for edge cases.
+    """
+    sql = _BUILD_PROXIMAS_PRUEBAS_SQL
+    params: list[Any] = [fecha_desde.isoformat(), fecha_hasta.isoformat()]
+    if animal_id is not None:
+        sql += "\n  AND a.id::text = $3"
+        params.append(animal_id)
+        next_idx = 4
+    else:
+        next_idx = 3
+    if tipo_prueba_codigo is not None:
+        sql += f"\n  AND cp.codigo = ${next_idx}"
+        params.append(tipo_prueba_codigo)
+    sql += "\nORDER BY pf.fecha_proxima ASC"
+    return sql, params
