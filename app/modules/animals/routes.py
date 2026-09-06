@@ -8,7 +8,7 @@ Auth model (issue #66 RBAC): permissions are checked via
 - WRITE_ANIMALES: admin, staff, voluntario
 - DELETE_ANIMALES: admin, staff
 
-Las dependencias de auth (``get_insforge_client_dep``,
+Las dependencias de auth (``get_local_postgres_executor_dep``,
 ``get_current_user_optional`` y ``require_permission``) viven
 en ``app.core.auth_dependencies`` / ``app.core.rbac`` para evitar
 el copy-paste con ``app.modules.voluntarios.routes``.
@@ -34,13 +34,12 @@ from starlette.background import BackgroundTask
 # Re-export for backwards compat with existing test imports.
 # The canonical location is app.core.auth_dependencies.
 from app.core.auth_dependencies import (
-    get_insforge_client_dep,
+    get_local_postgres_executor_dep,
     require_authorized_user,
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
-from app.core.data_access import UniqueViolationError
-from app.core.insforge import InsForgeClient
+from app.core.data_access import SqlExecutor, UniqueViolationError
 from app.core.logging import log_safe
 from app.core.middleware import base_template_context_processor
 from app.core.rbac import Permission, require_permission
@@ -270,7 +269,7 @@ def animal_detail(
 def animal_salud_resumen(
     animal_id: str,
     user: Annotated[Response | dict, Depends(require_authorized_user)],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """Health summary: latest actuacion per tipo for one animal.
 

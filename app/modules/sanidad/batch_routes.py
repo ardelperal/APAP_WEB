@@ -41,12 +41,13 @@ from fastapi.templating import Jinja2Templates
 
 from app.core.auth_dependencies import (
     AuthenticatedUser,
-    get_insforge_client_dep,
+    get_local_postgres_executor_dep,
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
+from app.core.data_access import SqlExecutor
 from app.core.forms import optional_value as _opt
-from app.core.insforge import InsForgeClient, InsForgeError
+from app.core.insforge import InsForgeError
 from app.core.logging import log_safe
 from app.core.middleware import base_template_context_processor
 from app.core.rbac import Permission, require_permission
@@ -228,7 +229,7 @@ def new_batch_actuaciones_form(
 def batch_actuaciones_view(  # noqa: PLR0913  # batch endpoint with 7 list-form fields; inherent complexity not reducible
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
     dry_run: Annotated[str | None, Form()] = None,
     animal_id: Annotated[list[str] | None, Form()] = None,
     voluntario_id: Annotated[list[str] | None, Form()] = None,
@@ -256,7 +257,7 @@ def batch_actuaciones_view(  # noqa: PLR0913  # batch endpoint with 7 list-form 
 def _do_batch_view(  # noqa: PLR0913  # non-route batch orchestrator; 8 args needed for multi-record processing
     request: Request,
     user: AuthenticatedUser,
-    client: InsForgeClient,
+    client: SqlExecutor,
     dry_run: str | None,
     animal_id: list[str],
     voluntario_id: list[str],

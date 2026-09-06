@@ -45,12 +45,12 @@ from fastapi.templating import Jinja2Templates
 
 from app.core.auth_dependencies import (
     AuthenticatedUser,
-    get_insforge_client_dep,
+    get_local_postgres_executor_dep,
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
+from app.core.data_access import SqlExecutor
 from app.core.forms import optional_value as _opt
-from app.core.insforge import InsForgeClient
 from app.core.middleware import base_template_context_processor
 from app.core.rbac import Permission, require_permission
 from app.modules.materiales import service as materiales_service
@@ -137,7 +137,7 @@ def _render_form(  # noqa: PLR0913  # non-route helper; 6 args is minimal for te
 def list_materiales_view(
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_MATERIALES))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """Active catalog list. Delegates to ``materiales_service.list_materials``.
 
@@ -184,7 +184,7 @@ def create_material_view(
     request: Request,
     form: Annotated[MaterialForm, Form()],
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_MATERIALES))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):  # noqa: PLR0913  # refactored to MaterialForm
     """Procesa el submit del formulario de alta. En exito, redirect al detalle.
 
@@ -235,7 +235,7 @@ def material_detail(
     material_id: str,
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_MATERIALES))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """Detail view. Returns 404 when the row is missing.
 
@@ -263,7 +263,7 @@ def edit_material_form(
     material_id: str,
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_MATERIALES))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """Edit form prefilled with the persisted row.
 
@@ -295,7 +295,7 @@ def update_material_view(
     request: Request,
     form: Annotated[MaterialForm, Form()],
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_MATERIALES))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):  # noqa: PLR0913  # refactored to MaterialForm
     """Procesa el submit del formulario de edicion. En exito, redirect al detalle.
 
@@ -348,7 +348,7 @@ def deactivate_material_view(
     material_id: str,
     _request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_MATERIALES))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """Soft-delete via ``materiales_service.deactivate_material``.
 

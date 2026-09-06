@@ -29,13 +29,13 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from app.core.auth_dependencies import (
-    get_insforge_client_dep,
+    get_local_postgres_executor_dep,
     require_authorized_user,
     require_writer_user,
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
-from app.core.insforge import InsForgeClient
+from app.core.data_access import SqlExecutor
 from app.core.middleware import base_template_context_processor
 from app.modules.entradas import batch_service
 
@@ -105,7 +105,7 @@ def new_batch_form(
 def stage_batch_view(  # noqa: PLR0913  # batch endpoint with 6 list-form fields; inherent complexity not reducible
     request: Request,
     user: Annotated[Response | dict, Depends(require_writer_user)],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
     animal_id: Annotated[list[str] | None, Form()] = None,
     voluntario_entrada_id: Annotated[list[str] | None, Form()] = None,
     fecha_entrada: Annotated[list[str] | None, Form()] = None,
@@ -186,7 +186,7 @@ def batch_preview(
     batch_id: str,
     request: Request,
     user: Annotated[Response | dict, Depends(require_authorized_user)],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     if (early := return_early_if_response(user)) is not None:
         return early
@@ -208,7 +208,7 @@ def commit_batch_view(
     batch_id: str,
     request: Request,
     user: Annotated[Response | dict, Depends(require_writer_user)],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     if (early := return_early_if_response(user)) is not None:
         return early
@@ -252,7 +252,7 @@ def cancel_batch_view(
     batch_id: str,
     _request: Request,
     user: Annotated[Response | dict, Depends(require_writer_user)],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     if (early := return_early_if_response(user)) is not None:
         return early

@@ -31,12 +31,12 @@ from fastapi.templating import Jinja2Templates
 from app.core.auth import Rol
 from app.core.auth_dependencies import (
     AuthenticatedUser,
-    get_insforge_client_dep,
+    get_local_postgres_executor_dep,
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
+from app.core.data_access import SqlExecutor
 from app.core.forms import optional_value as _opt
-from app.core.insforge import InsForgeClient
 from app.core.middleware import base_template_context_processor
 from app.core.rbac import Permission, require_permission
 from app.modules.foster import assignment as foster_assignment_service
@@ -136,7 +136,7 @@ def _render_form(  # noqa: PLR0913  # non-route helper; 6 args is minimal for te
 def list_casas_acogida_view(
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_CASAS_ACOGIDA))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
     especie: str | None = None,
 ):
     if (early := return_early_if_response(user)) is not None:
@@ -170,7 +170,7 @@ def create_casa_acogida_view(
     request: Request,
     form: Annotated[CasaAcogidaForm, Form()],
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_CASAS_ACOGIDA))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """Procesa el submit del formulario. En exito, redirect al detalle.
 
@@ -209,7 +209,7 @@ def casa_acogida_detail(
     casa_id: str,
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_CASAS_ACOGIDA))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     if (early := return_early_if_response(user)) is not None:
         return early
@@ -255,7 +255,7 @@ def edit_casa_acogida_form(
     casa_id: str,
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_CASAS_ACOGIDA))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     if (early := return_early_if_response(user)) is not None:
         return early
@@ -280,7 +280,7 @@ def update_casa_acogida_view(
     request: Request,
     form: Annotated[CasaAcogidaForm, Form()],
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_CASAS_ACOGIDA))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """Procesa el submit del formulario de edicion. En exito, redirect al detalle.
 
@@ -318,7 +318,7 @@ def delete_casa_acogida_view(
     casa_id: str,
     _request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_CASAS_ACOGIDA))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     if (early := return_early_if_response(user)) is not None:
         return early

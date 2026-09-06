@@ -38,7 +38,7 @@ from starlette.responses import Response
 
 from app.core.auth_dependencies import (
     AuthenticatedUser,
-    get_insforge_client_dep,
+    get_local_postgres_executor_dep,
     require_authorized_user,
     require_developer_user,
     require_writer_user,
@@ -46,7 +46,7 @@ from app.core.auth_dependencies import (
 )
 from app.core.config import get_settings
 from app.core.csrf import csrf_token_context_processor
-from app.core.insforge import InsForgeClient
+from app.core.data_access import SqlExecutor
 from app.core.middleware import base_template_context_processor
 from app.core.session import read_session_payload
 from app.modules.animals import AnimalsPort, get_animals_port
@@ -113,7 +113,7 @@ def asignar_form(
     casa_id: str,
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_authorized_user)],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """Render the foster assignment evaluation form.
 
@@ -145,7 +145,7 @@ def asignar_submit(  # noqa: PLR0913  # 2 Form fields + 4 fixed deps; form model
     casa_id: str,
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_writer_user)],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
     port: Annotated[AnimalsPort, Depends(get_animals_port)],
     animal_id: Annotated[str, Form()],
     motivo: Annotated[str, Form()] = "",
@@ -260,7 +260,7 @@ def overrides_list(
     casa_id: str,
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_developer_user)],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """Render the historical list of capacity overrides for one casa.
 

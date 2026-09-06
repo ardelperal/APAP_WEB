@@ -12,7 +12,7 @@ from collections.abc import Iterator
 
 from fastapi import Request
 
-from app.core.insforge import InsForgeClient
+from app.core.data_access import SqlExecutor
 from app.modules.cesiones.adapters.insforge.cesiones_insforge_adapter import (
     CesionesInsforgeAdapter,
 )
@@ -29,7 +29,7 @@ def get_cesiones_port(
     Yields a fresh adapter per request so the route layer is decoupled
     from the concrete adapter.
     """
-    client: InsForgeClient = request.app.state.insforge_client
+    client: SqlExecutor = request.app.state.sql_executor
     adapter = CesionesInsforgeAdapter(client)
     yield adapter
 

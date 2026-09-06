@@ -32,11 +32,12 @@ from fastapi.templating import Jinja2Templates
 
 from app.core.auth_dependencies import (
     AuthenticatedUser,
-    get_insforge_client_dep,
+    get_local_postgres_executor_dep,
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
-from app.core.insforge import InsForgeClient, InsForgeError
+from app.core.data_access import SqlExecutor
+from app.core.insforge import InsForgeError
 from app.core.middleware import base_template_context_processor
 from app.core.rbac import Permission, require_permission
 from app.modules.acogidas import service as acogidas_service
@@ -80,7 +81,7 @@ def _opt(value: str | None) -> str | None:
 
 def _enforce_species_gate(
     port: AnimalsPort,
-    client: InsForgeClient,
+    client: SqlExecutor,
     animal_id: str,
     casa_acogida_id: str | None,
 ) -> str | None:
@@ -168,7 +169,7 @@ def _render_form(  # noqa: PLR0913  # non-route helper; 6 args is minimal for te
 def list_acogidas_view(
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_ACOGIDAS))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
     activas_solo: int | None = None,
 ):
     """List stays; ``?activas_solo=1`` filters to open stays."""
@@ -209,7 +210,7 @@ def create_acogida_view(  # noqa: PLR0913  # form model + fixed dependencies
     request: Request,
     form: Annotated[AcogidaForm, Form()],
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_ACOGIDAS))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
     port: Annotated[AnimalsPort, Depends(get_animals_port)],
 ):
     """Create a new estancia; redirect to detail on success, re-render form on validation error.
@@ -304,7 +305,7 @@ def acogida_detail(
     acogida_id: str,
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_ACOGIDAS))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """Render the stay detail view with computed duration + active state."""
     if (early := return_early_if_response(user)) is not None:
@@ -334,7 +335,7 @@ def edit_acogida_form(
     acogida_id: str,
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_ACOGIDAS))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """Render the edit form prefilled from the current stay row."""
     if (early := return_early_if_response(user)) is not None:
@@ -360,7 +361,7 @@ def update_acogida_view(  # noqa: PLR0913  # form model + fixed dependencies
     request: Request,
     form: Annotated[AcogidaForm, Form()],
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_ACOGIDAS))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
     port: Annotated[AnimalsPort, Depends(get_animals_port)],
 ):
     """Apply form edits; redirect to detail on success, re-render on validation error."""
@@ -438,7 +439,7 @@ def close_acogida_view(
     acogida_id: str,
     _request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_ACOGIDAS))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """Close the stay: ``fecha_final = current_date``, ``activo`` stays true.
 
@@ -463,7 +464,7 @@ def delete_acogida_view(
     acogida_id: str,
     _request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_ACOGIDAS))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """Soft-delete the stay: ``activo = false`` + ``fecha_baja = now()``.
 

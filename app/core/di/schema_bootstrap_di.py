@@ -39,7 +39,7 @@ from app.core.adapters.insforge.schema_bootstrap_insforge_adapter import (
     InsForgeSchemaBootstrapAdapter,
 )
 from app.core.config import get_settings
-from app.core.insforge import InsForgeClient
+from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.ports.schema_bootstrap_port import SchemaBootstrapPort
 
 
@@ -72,9 +72,9 @@ def get_schema_bootstrap_port(
         # ``app.main.lifespan``; this branch keeps the dep usable in
         # tests that exercise FastAPI without ``LifespanMiddleware``.
         settings = get_settings()
-        client = InsForgeClient(
-            settings.insforge_url,
-            settings.insforge_service_key,
+        client = LocalPostgresExecutor(
+            settings.local_db_url,
+            settings.local_db_schema or None,
         )
         request.app.state.sql_executor = client
     try:

@@ -23,13 +23,11 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.core.auth_dependencies import (
-    get_insforge_client_dep as get_insforge_client,
-)
-from app.core.auth_dependencies import (
+    get_local_postgres_executor_dep,  # noqa: F401  - InsForge deprecation migration
     require_authorized_user,
 )
 from app.core.csrf import csrf_token_context_processor
-from app.core.insforge import InsForgeClient
+from app.core.data_access import SqlExecutor
 from app.core.middleware import base_template_context_processor
 from app.modules.tasks import service as tareas_service
 from app.modules.tasks.forms import TareaForm
@@ -50,7 +48,7 @@ _templates = Jinja2Templates(
 def listar_tareas(  # noqa: PLR0913  # 4 query filters + 3 fixed deps; filters needed for task UX
     request: Request,
     current_user: Annotated[dict, Depends(require_authorized_user)],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
     estado: str | None = None,
     responsable_id: str | None = None,
     vinculo_tipo: str | None = None,
@@ -115,7 +113,7 @@ def detalle_tarea(
     request: Request,
     tarea_id: str,
     current_user: Annotated[dict, Depends(require_authorized_user)],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """Render the detail view for a single tarea."""
     tarea = tareas_service.obtener_tarea(client=client, tarea_id=tarea_id)
@@ -140,7 +138,7 @@ def crear_tarea(
     request: Request,
     form: Annotated[TareaForm, Form()],
     current_user: Annotated[dict, Depends(require_authorized_user)],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):  # noqa: PLR0913  # refactored to TareaForm
     """Create a manual tarea from form data.
 
@@ -170,7 +168,7 @@ def crear_tarea(
 def asignar_tarea(
     request: Request,
     current_user: Annotated[dict, Depends(require_authorized_user)],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
     tarea_id: str,
     responsable_id: Annotated[str | None, Form()] = None,
 ):
@@ -193,7 +191,7 @@ def asignar_tarea(
 def cerrar_tarea(
     request: Request,
     current_user: Annotated[dict, Depends(require_authorized_user)],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
     tarea_id: str,
     comentario: Annotated[str | None, Form()] = None,
 ):

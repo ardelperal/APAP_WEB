@@ -48,7 +48,7 @@ from app.core.adapters.insforge.oauth_insforge_adapter import (
     InsForgeOAuthAdapter,
 )
 from app.core.config import get_settings
-from app.core.insforge import InsForgeClient
+from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.ports.oauth_port import OAuthPort
 
 
@@ -79,9 +79,9 @@ def get_oauth_port(request: Request) -> Iterator[OAuthPort]:
         # ``app.main.lifespan``; this branch keeps the dep usable in
         # tests that exercise FastAPI without ``LifespanMiddleware``.
         settings = get_settings()
-        client = InsForgeClient(
-            settings.insforge_url,
-            settings.insforge_service_key,
+        client = LocalPostgresExecutor(
+            settings.local_db_url,
+            settings.local_db_schema or None,
         )
         request.app.state.sql_executor = client
     try:

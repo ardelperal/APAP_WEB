@@ -46,13 +46,14 @@ from fastapi.templating import Jinja2Templates
 
 from app.core.auth_dependencies import (
     AuthenticatedUser,
-    get_insforge_client_dep,
+    get_local_postgres_executor_dep,
     require_authorized_user,
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
+from app.core.data_access import SqlExecutor
 from app.core.forms import optional_value as _opt
-from app.core.insforge import InsForgeClient, InsForgeError
+from app.core.insforge import InsForgeError
 from app.core.middleware import base_template_context_processor
 from app.core.rbac import Permission, require_permission
 from app.modules.adopciones import service as adopciones_service
@@ -156,7 +157,7 @@ def _render_form(  # noqa: PLR0913  # non-route helper; 6 args is minimal for te
 def list_adopciones_view(
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_ADOPCIONES))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
     adoptante: str | None = None,
 ):
     """List active adopciones; ``?adoptante=`` filters by name (ILIKE)."""
@@ -201,7 +202,7 @@ def create_adopcion_view(
     request: Request,
     form: Annotated[AdopcionForm, Form()],
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_ADOPCIONES))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """Create an adopción; redirect to detail on success.
 
@@ -266,7 +267,7 @@ def adopcion_detail(
     adopcion_id: str,
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_ADOPCIONES))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """Detail view; 404 when the id is missing."""
     if (early := return_early_if_response(user)) is not None:
@@ -289,7 +290,7 @@ def edit_adopcion_form(
     adopcion_id: str,
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_ADOPCIONES))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """Edit form prefilled from the persisted row."""
     if (early := return_early_if_response(user)) is not None:
@@ -315,7 +316,7 @@ def update_adopcion_view(
     request: Request,
     form: Annotated[AdopcionForm, Form()],
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_ADOPCIONES))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """Update an existing adopción; redirect to detail on success.
 
@@ -373,7 +374,7 @@ def delete_adopcion_view(
     adopcion_id: str,
     _request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_ADOPCIONES))],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """Soft-delete via ``adopciones_service.delete_adopcion``; redirect to list.
 
@@ -404,7 +405,7 @@ def seguimiento_transition_view(  # noqa: PLR0913  # PATCH with 2 Form fields + 
     adopcion_id: str,
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_authorized_user)],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
     action: Annotated[str, Form()],
     documento_url: Annotated[str | None, Form()] = None,
 ):

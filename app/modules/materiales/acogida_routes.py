@@ -61,14 +61,14 @@ from fastapi.templating import Jinja2Templates
 
 from app.core.auth_dependencies import (
     AuthenticatedUser,
-    get_insforge_client_dep,
+    get_local_postgres_executor_dep,
     require_authorized_user,
     require_writer_user,
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
+from app.core.data_access import SqlExecutor
 from app.core.forms import optional_value as _opt
-from app.core.insforge import InsForgeClient
 from app.core.middleware import base_template_context_processor
 from app.modules.materiales import estancia_material_service
 from app.modules.materiales import service as materiales_service
@@ -181,7 +181,7 @@ def list_estancia_materiales_view(
     estancia_id: str,
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_authorized_user)],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """Per-stay junction list.
 
@@ -219,7 +219,7 @@ def assign_material_to_estancia_view(  # noqa: PLR0913  # 2 Form fields + 5 fixe
     estancia_id: str,
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_writer_user)],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
     material_id: Annotated[str, Form()],
     cantidad: Annotated[str, Form()] = "1",
     notas: Annotated[str | None, Form()] = None,
@@ -316,7 +316,7 @@ def remove_material_from_estancia_view(
     junction_id: str,
     _request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_writer_user)],
-    client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """Soft-delete a single junction row.
 

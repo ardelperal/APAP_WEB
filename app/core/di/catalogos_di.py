@@ -6,7 +6,7 @@ concrete :class:`InsForgeClient` from the application layer — routes
 and use cases depend on :class:`CatalogosPort`, never on the concrete
 backend.
 
-Pattern (mirrors :func:`app.core.auth_dependencies.get_insforge_client_dep`):
+Pattern (mirrors :func:`app.core.auth_dependencies.get_local_postgres_executor_dep`):
 
 1. Yield the per-request port bound to the request-scoped
    :class:`SqlExecutor`. Production: the pool of executor lives on
@@ -39,7 +39,7 @@ from app.core.adapters.insforge.catalogos_insforge_adapter import (
     InsForgeCatalogosAdapter,
 )
 from app.core.config import get_settings
-from app.core.insforge import InsForgeClient
+from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.ports.catalogos_port import CatalogosPort
 
 
@@ -70,9 +70,9 @@ def get_catalogos_port(request: Request) -> Iterator[CatalogosPort]:
         # ``app.main.lifespan``; this branch keeps the dep usable in
         # tests that exercise FastAPI without ``LifespanMiddleware``.
         settings = get_settings()
-        client = InsForgeClient(
-            settings.insforge_url,
-            settings.insforge_service_key,
+        client = LocalPostgresExecutor(
+            settings.local_db_url,
+            settings.local_db_schema or None,
         )
         request.app.state.sql_executor = client
     try:
