@@ -98,6 +98,16 @@ class Settings(BaseSettings):
     # set in production. Empty in dev so privileged ops are off by default.
     insforge_service_key: str = ""
 
+    # Coolify-hosted local backend (issue #641, #648). The only
+    # supported production transport as of 2026-09-06: when
+    # ``APAP_LOCAL_BACKEND=true`` (read by ``resolve_insforge_url``),
+    # ``LocalPostgresExecutor`` (see ``app.core.local_backend.db``)
+    # runs every SQL against this DSN. ``APAP_LOCAL_DB_URL`` is
+    # the DSN (e.g. ``postgresql://apap:<pw>@apap-pg-test:5432/apap``);
+    # ``APAP_LOCAL_DB_SCHEMA`` is the schema name (optional,
+    # defaults to ``public``; tests pass an ephemeral schema).
+    local_db_url: str = ""
+    local_db_schema: str = ""
     # --- Google OAuth (Fase 2) ------------------------------------------
     google_client_id: str = ""
     google_client_secret: str = ""
