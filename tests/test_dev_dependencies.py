@@ -86,11 +86,24 @@ def third_party_imports() -> dict[str, set[str]]:
 
 
 def undeclared_imports(declared: set[str]) -> dict[str, set[str]]:
-    """Third-party imports under ``tests/`` that ``declared`` does not cover."""
+    """Third-party imports under ``tests/`` that ``declared`` does not cover.
+
+    Fallback for modules not in ``packages_distributions()`` but whose normalised
+    declared package name is a prefix of the module (e.g. ``psycopg`` is covered by
+    ``psycopg[binary]``). This handles the case where a package is declared with extras
+    and the bare module is used in tests (integration tests skip on missing dependency).
+    """
     module_to_distributions = packages_distributions()
     offenders: dict[str, set[str]] = {}
     for module, files in third_party_imports().items():
         distributions = {_normalise(name) for name in module_to_distributions.get(module, [])}
+        # Fallback: module not in packages_distributions() but declared as a prefix.
+        # e.g. ``psycopg`` import is satisfied by ``psycopg[binary]`` declaration.
+        if not distributions:
+            distributions = {
+                pkg for pkg in declared
+                if module.startswith(pkg) or pkg.startswith(module)
+            }
         if not distributions or not (distributions & declared):
             offenders[module] = files
     return offenders

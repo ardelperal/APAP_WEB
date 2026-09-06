@@ -158,7 +158,7 @@ def test_create_actuacion_happy_path() -> None:
     assert actuacion.tipo_actuacion_id is None
     # The CTE INSERT was emitted with positional params matching
     # _WRITE_COLUMNS order.
-    assert len(captured) == 1
+    assert len(captured) == 2  # HEALTH-05: +1 periodicidad catalog fetch in _post_create_schedule
     params = captured[0]["params"]
     assert params[0] == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"  # animal_id
     assert params[2] == "2026-07-04"  # fecha
@@ -197,7 +197,7 @@ def test_update_actuacion_happy_path() -> None:
     assert actuacion.observaciones == "Refuerzo"
     # The UPDATE CTE was emitted with id first, then FK placeholders
     # (shifted by +1 vs INSERT).
-    assert len(captured) == 1
+    assert len(captured) == 1  # tipo_actuacion_id is None in test; _post_create_schedule short-circuits: +1 periodicidad catalog fetch in _post_create_schedule
     params = captured[0]["params"]
     assert params[0] == "11111111-1111-1111-1111-111111111111"  # id
     assert params[1] == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"  # animal_id
@@ -451,7 +451,7 @@ def test_delete_returns_true_and_emits_log_for_active_row() -> None:
 
     assert deleted is True
     # The DELETE was emitted with id as the only param.
-    assert len(captured) == 1
+    assert len(captured) == 1  # no schedule call on delete: +1 periodicidad catalog fetch in _post_create_schedule
     assert captured[0]["params"] == ["id-1"]
 
 
