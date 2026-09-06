@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Domain schema bootstrap: backward-compat shim.
 
 This module is the single entry point for domain schema creation.
@@ -28,27 +30,37 @@ startup; the canonical "via port" use case lives at
 and is what future slices will wire into ``app/main.py``.
 """
 
-from __future__ import annotations
 
-from app.core.adapters.insforge.schema_bootstrap_insforge_adapter import (
+from app.core.adapters.insforge.schema_bootstrap_insforge_adapter import (  # noqa: E402
     InsForgeSchemaBootstrapAdapter,
 )
-from app.core.domain_adopciones import ADOPCIONES_CREATE_TABLE_SQL
-from app.core.domain_animales import ANIMALS_CREATE_TABLE_SQL  # noqa: I001
-from app.core.domain_casas_acogida import CASAS_ACOGIDA_CREATE_TABLE_SQL
-from app.core.domain_cesiones import CESIONES_PROPIETARIO_CREATE_TABLE_SQL
-from app.core.domain_contracts import CONTRATOS_CREATE_TABLE_SQL
-from app.core.domain_entradas import (
+from app.core.data_access import SqlExecutor  # noqa: E402
+from app.core.domain_adopciones import (  # noqa: E402
+    ADOPCIONES_CREATE_TABLE_SQL,
+)
+from app.core.domain_animales import (  # noqa: E402
+    ANIMALS_CREATE_TABLE_SQL,  # noqa: I001
+)
+from app.core.domain_casas_acogida import (  # noqa: E402
+    CASAS_ACOGIDA_CREATE_TABLE_SQL,
+)
+from app.core.domain_cesiones import (  # noqa: E402
+    CESIONES_PROPIETARIO_CREATE_TABLE_SQL,
+)
+from app.core.domain_contracts import (  # noqa: E402
+    CONTRATOS_CREATE_TABLE_SQL,
+)
+from app.core.domain_entradas import (  # noqa: E402
     ENTRADAS_BATCH_STAGING_CREATE_TABLE_SQL,
     ENTRADAS_CREATE_TABLE_SQL,
 )
-from app.core.domain_foster import (  # noqa: F401
+from app.core.domain_foster import (  # noqa: F401  # noqa: E402
     ACOGIDAS_ADD_CASA_FK_SQL,
     ACOGIDAS_CREATE_TABLE_SQL,
     FOSTER_CAPACITY_OVERRIDES_ADD_ESTANCIA_FK_SQL,
     FOSTER_CAPACITY_OVERRIDES_CREATE_TABLE_SQL,
 )
-from app.core.domain_lifecycle import (  # noqa: F401
+from app.core.domain_lifecycle import (  # noqa: F401  # noqa: E402
     ANIMAL_CURRENT_STATE_CREATE_TABLE_SQL,
     ANIMAL_CURRENT_STATE_STATE_INDEX_SQL,
     ANIMAL_LIFECYCLE_EVENTS_ANIMAL_TIMESTAMP_INDEX_SQL,
@@ -58,21 +70,23 @@ from app.core.domain_lifecycle import (  # noqa: F401
     ANIMAL_LIFECYCLE_EVENTS_CREATE_TABLE_SQL,
     ANIMAL_LIFECYCLE_EVENTS_DROP_APPEND_ONLY_TRIGGER_SQL,
 )
-from app.core.domain_materiales import (  # noqa: F401
+from app.core.domain_materiales import (  # noqa: F401  # noqa: E402
     ESTANCIA_MATERIALES_ACTIVE_UNIQUE_INDEX_SQL,
     ESTANCIA_MATERIALES_CREATE_TABLE_SQL,
     MATERIALES_CREATE_TABLE_SQL,
 )
-from app.core.domain_salud import ACTUACION_SANITARIA_CREATE_TABLE_SQL  # noqa: F401
-from app.core.domain_terapias import (  # noqa: F401
+from app.core.domain_salud import (  # noqa: E402
+    ACTUACION_SANITARIA_CREATE_TABLE_SQL,  # noqa: F401
+)
+from app.core.domain_terapias import (  # noqa: F401  # noqa: E402
     RECOMENDACIONES_CREATE_TABLE_SQL,
     TERAPIAS_CREATE_TABLE_SQL,
 )
-from app.core.domain_voluntarios import (  # noqa: F401
+from app.core.domain_voluntarios import (  # noqa: F401  # noqa: E402
     ROLES_VOLUNTARIO_CREATE_TABLE_SQL,
     VOLUNTARIOS_CREATE_TABLE_SQL,
 )
-from app.core.insforge import InsForgeClient
+from app.core.insforge import InsForgeClient  # noqa: E402
 
 __all__ = [
     "ACOGIDAS_ADD_CASA_FK_SQL",
@@ -99,6 +113,7 @@ __all__ = [
     "FOSTER_CAPACITY_OVERRIDES_CREATE_TABLE_SQL",
     "MATERIALES_CREATE_TABLE_SQL",
     "RECOMENDACIONES_CREATE_TABLE_SQL",
+    "InsForgeClient",
     "ROLES_VOLUNTARIO_CREATE_TABLE_SQL",
     "TERAPIAS_CREATE_TABLE_SQL",
     "VOLUNTARIOS_CREATE_TABLE_SQL",
@@ -106,7 +121,7 @@ __all__ = [
 ]
 
 
-def ensure_domain_schema(client: InsForgeClient) -> None:
+def ensure_domain_schema(client: SqlExecutor) -> None:
     """Create the domain tables (idempotent) in dependency order.
 
     Backward-compat shim: builds an :class:`InsForgeSchemaBootstrapAdapter`

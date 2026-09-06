@@ -269,6 +269,12 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # Tests can use longer lines, magic values, and relaxed naming.
 "tests/**" = ["B011"]
+# ``app/core/domain/__init__.py`` and ``app/core/migration/sql_runner.py``
+# have a leading module docstring that legitimately lives above the
+# import block; the noqa comments ruff emits when fixing the
+# ``E402`` rule are noisy. Whitelist these two.
+"app/core/domain/__init__.py" = ["E402"]
+"app/core/migration/sql_runner.py" = ["E402"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["app", "tests"]

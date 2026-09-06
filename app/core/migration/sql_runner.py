@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from app.core.data_access import SqlExecutor  # noqa: E402
+
 """SQL migration runner for the APAP_WEB web database (schema plane).
 
 Distinct from ``app.core.migration.*`` (which handles the bidireccional
@@ -12,11 +16,9 @@ idempotent (``DROP CONSTRAINT IF EXISTS``, ``CREATE TABLE IF NOT
 EXISTS``) so manual replays are safe.
 """
 
-from __future__ import annotations
+
 
 from pathlib import Path
-
-from app.core.insforge import InsForgeClient
 
 _MIGRATIONS_DIR = Path(__file__).resolve().parent / "sql"
 _BOOTSTRAP_SQL = (
@@ -32,7 +34,7 @@ _RECORD_SQL = (
 )
 
 
-def apply_sql_migrations(client: InsForgeClient) -> list[str]:
+def apply_sql_migrations(client: SqlExecutor) -> list[str]:
     """Apply any pending SQL migrations in alphabetical order.
 
     Returns the filenames applied in this run (empty when the database
