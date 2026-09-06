@@ -101,8 +101,8 @@ a crear al abrir ese slice).
 | Fichero E2E | Casos | Slice |
 |---|---|---|
 | `test_materiales_crud.py` | List, create, detail, edit, deactivate, duplicate (material+tamano+color) → 409 (5 tests) | `materiales` ✅ hecho (PR #628 E2E batch 1) |
-| `test_materiales_assignment.py` | Asignar material a estancia; desasignar; verificar disponibilidad decrece | `materiales` / `foster` ❌ pendiente |
-| `test_materiales_auth.py` | 302 sin sesión, 403 con rol reader en POST | `materiales` ❌ pendiente |
+| `test_materiales_assignment.py` | 4 atoms (assign redirect, duplicate 409, unassign redirect, list decreases) | `materiales` ✅ hecho (skip hasta seed de animal+estancia; issue #46 follow-up) |
+| `test_materiales_auth.py` | 3 atoms (catalog list/detail, per-stancia assignment list redirect a /login) | `materiales` ✅ hecho (skip sin servidor) |
 
 ### Periodicidad (HEALTH-05)
 
