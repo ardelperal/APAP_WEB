@@ -1,15 +1,23 @@
-"""OAuth flow stubs for the local backend (M0).
+"""OAuth flow handlers for the local backend (M0 of self-host-backend-coolify).
 
-M0 ships three endpoints that pretend to drive a Google OAuth handshake
-and to exchange an ``insforge_code`` for a session JWT. The integration
-with Google itself is M1; here the handlers are honest stubs that return
-deterministic, signed tokens so the front-end and the local backend can
-exercise the same call sites they will use against real Google later.
+Three endpoints mirror what ``InsForgeClient`` consumes for the
+Google OAuth proxy flow:
 
-JWTs are HS256-signed with ``APAP_SESSION_SECRET`` (or the constant
-``stub-secret`` when the env var is unset) using only stdlib — the
-project has no PyJWT dependency in production, so this module does not
-introduce one.
+- ``GET  /api/auth/oauth/google`` (start) → ``{"authUrl": "https://..."}``
+- ``POST /api/auth/oauth/google/callback`` (legacy direct Google) →
+  ``{"token": "<jwt>", "user": {"id", "email"}}``
+- ``POST /api/auth/oauth/exchange`` (InsForge-hosted proxy) →
+  ``{"user": {"id", "email"}, "accessToken": "<jwt>", "csrfToken": "..."}``
+
+M0 stubs the URL and the JWT deterministically so the rest of the
+integration tests pass without a real Google OAuth provider. M3 swaps
+in the real Google OAuth and a proper signing key.
+
+Hard rules (web-tdd-philosophy):
+- Rule 4 (no humo): tests assert return shapes and the JWT structure
+  (3 dot-separated parts), never absence-of-error.
+- Rule 8 (no production mutation): the JWT is signed with a stub secret;
+  no real OAuth provider contacted.
 """
 
 from __future__ import annotations
@@ -19,130 +27,107 @@ import hashlib
 import hmac
 import json
 import os
-import re
 import time
 
-from fastapi import APIRouter, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Query
 
-oauth_router = APIRouter()
-
-_INSFORGE_CODE_PATTERN = r"^insforge_[A-Za-z0-9]{8,64}$"
-_INSFORGE_CODE_RE = re.compile(_INSFORGE_CODE_PATTERN)
-
-_SESSION_SECRET_ENV = "APAP_SESSION_SECRET"
-_STUB_SECRET = "stub-secret"
-
-_LOCAL_USER_ID = "local-user"
-_LOCAL_USER_EMAIL = "local@apap"
-
-_GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
-_GOOGLE_SCOPE = "openid email profile"
-_GOOGLE_CLIENT_ID_STUB = "test"
+router = APIRouter()
 
 
-def _b64url_encode(data: bytes) -> str:
-    """Base64-url-encode ``data`` without padding (RFC 7515 §2)."""
-    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+def _make_signed_jwt(email: str) -> str:
+    """Return a minimal signed JWT for the stub OAuth response.
+
+    The real InsForge returns a JWT signed with a service key. M0
+    stubs the shape (``header.payload.signature``) so the client can
+    parse it; the signature is not verified in M0 (the client just
+    sets a cookie and reads the payload). M3 uses a real signing key.
+    """
+    secret = os.environ.get("APAP_SESSION_SECRET", "stub-secret").encode()
+    header = base64.urlsafe_b64encode(b'{"alg":"HS256","typ":"JWT"}').rstrip(b"=").decode()
+    payload = json.dumps(
+        {
+            "email": email,
+            "sub": "local-user",
+            "iat": int(time.time()),
+            "exp": int(time.time()) + 3600,
+        }
+    ).encode()
+    payload_b64 = base64.urlsafe_b64encode(payload).rstrip(b"=").decode()
+    signature = hmac.new(secret, f"{header}.{payload_b64}".encode(), hashlib.sha256).digest()
+    signature_b64 = base64.urlsafe_b64encode(signature).rstrip(b"=").decode()
+    return f"{header}.{payload_b64}.{signature_b64}"
 
 
-def _sign_jwt(claims: dict[str, object]) -> str:
-    """Return an HS256-signed JWT for ``claims`` using the session secret."""
-    secret = os.environ.get(_SESSION_SECRET_ENV) or _STUB_SECRET
-    header = {"alg": "HS256", "typ": "JWT"}
-    header_b64 = _b64url_encode(
-        json.dumps(header, separators=(",", ":")).encode("utf-8")
-    )
-    payload_b64 = _b64url_encode(
-        json.dumps(claims, separators=(",", ":")).encode("utf-8")
-    )
-    signing_input = f"{header_b64}.{payload_b64}".encode("ascii")
-    digest = hmac.new(secret.encode("utf-8"), signing_input, hashlib.sha256).digest()
-    signature_b64 = _b64url_encode(digest)
-    return f"{header_b64}.{payload_b64}.{signature_b64}"
+_LOCAL_USER = {"id": "local-user", "email": "local@apap"}
 
 
-def _build_token_envelope() -> dict[str, object]:
-    """Build the canonical ``{token, user}`` envelope using a fresh JWT."""
-    now = int(time.time())
-    claims = {
-        "email": _LOCAL_USER_EMAIL,
-        "sub": _LOCAL_USER_ID,
-        "iat": now,
-        "exp": now + 3600,
-    }
-    return {
-        "token": _sign_jwt(claims),
-        "user": {"id": _LOCAL_USER_ID, "email": _LOCAL_USER_EMAIL},
-    }
-
-
-@oauth_router.post("/auth/oauth/google")
-async def start_google_oauth(
-    code_challenge: str = Query(...),
+@router.get("/auth/oauth/google")
+def start_google_oauth(
     redirect_uri: str = Query(...),
-) -> dict[str, str]:
-    """Return the Google OAuth ``authUrl`` stub.
+    code_challenge: str = Query(...),
+) -> dict:
+    """Return a stub Google auth URL (M0).
 
-    The URL is a static template with the supplied ``code_challenge`` and
-    ``redirect_uri`` interpolated. M0 does not call Google; the front-end
-    accepts the stub URL the same way it will accept the real one.
+    The real implementation calls Google OAuth with PKCE and state.
+    M0 just returns a deterministic URL — the client only reads
+    ``authUrl`` to redirect the user, so the test only needs the shape
+    to be correct.
     """
-    scope = _GOOGLE_SCOPE.replace(" ", "+")
-    auth_url = (
-        f"{_GOOGLE_AUTH_URL}?client_id={_GOOGLE_CLIENT_ID_STUB}"
-        f"&redirect_uri={redirect_uri}"
-        f"&response_type=code"
-        f"&scope={scope}"
-        f"&code_challenge={code_challenge}"
-        f"&code_challenge_method=S256"
-    )
-    return {"authUrl": auth_url}
+    return {
+        "authUrl": (
+            f"https://accounts.google.com/o/oauth2/v2/auth"
+            f"?client_id=stub"
+            f"&redirect_uri={redirect_uri}"
+            f"&response_type=code"
+            f"&scope=openid+email"
+            f"&code_challenge={code_challenge}"
+            f"&code_challenge_method=S256"
+        )
+    }
 
 
-@oauth_router.post("/auth/oauth/google/callback")
-async def google_oauth_callback(request: Request) -> dict[str, object]:
-    """Return the JWT + user envelope for the Google OAuth callback stub."""
-    return _build_token_envelope()
+@router.post("/auth/oauth/google/callback")
+def google_oauth_callback(payload: dict) -> dict:
+    """Return a stub session JWT (M0) for the legacy direct-callback path.
 
-
-@oauth_router.post("/auth/oauth/exchange")
-async def exchange_insforge_code(request: Request) -> JSONResponse:
-    """Validate ``code`` against the insforge_code pattern and return the envelope.
-
-    M0 does not perform a real code-for-token handshake with InsForge; the
-    pattern check is the only acceptance gate. ``client_type`` is read
-    from the query string for forward-compatibility with the eventual
-    web/mobile branching — M0 ignores its value.
+    The real implementation validates the Google code with PKCE and
+    signs the JWT with the service key. M0 returns a deterministic JWT
+    for the test, no validation. Body is JSON (matches what
+    ``InsForgeClient.exchange_google_oauth_code`` sends).
     """
-    try:
-        payload = await request.json()
-    except Exception:
-        return JSONResponse(
-            status_code=400,
-            content={"error": "invalid_request", "detail": "request body must be valid JSON"},
-        )
-    if not isinstance(payload, dict):
-        return JSONResponse(
-            status_code=400,
-            content={"error": "invalid_request", "detail": "request body must be an object"},
-        )
-    code = payload.get("code", "")
-    if not isinstance(code, str) or not _INSFORGE_CODE_RE.match(code):
-        return JSONResponse(
-            status_code=401,
-            content={
-                "error": "invalid_code",
-                "detail": f"code must match {_INSFORGE_CODE_PATTERN}",
-            },
-        )
-    return JSONResponse(content=_build_token_envelope())
+    return {
+        "token": _make_signed_jwt(_LOCAL_USER["email"]),
+        "user": dict(_LOCAL_USER),
+    }
+
+
+@router.post("/auth/oauth/exchange")
+def exchange_insforge_oauth_code(
+    payload: dict,
+    client_type: str = Query("web"),
+) -> dict:
+    """Return a stub session JWT (M0) for the InsForge-hosted OAuth proxy.
+
+    The real implementation validates the InsForge one-time code with
+    PKCE and signs the JWT with the service key. M0 returns a
+    deterministic JWT for the test, no validation. Body is JSON
+    (matches what ``InsForgeClient.exchange_insforge_oauth_code``
+    sends).
+    """
+    # ``client_type`` is accepted for parity with the real endpoint but
+    # the stub does not branch on it (web / mobile produce the same
+    # payload shape).
+    _ = client_type
+    return {
+        "user": dict(_LOCAL_USER),
+        "accessToken": _make_signed_jwt(_LOCAL_USER["email"]),
+        "csrfToken": "stub-csrf-token",
+    }
 
 
 __all__ = [
-    "oauth_router",
+    "router",
     "start_google_oauth",
     "google_oauth_callback",
-    "exchange_insforge_code",
-    "_sign_jwt",
+    "exchange_insforge_oauth_code",
 ]

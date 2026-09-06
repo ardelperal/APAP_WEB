@@ -359,7 +359,7 @@ After reading ~25 representative files, **no obvious source of non-determinism**
 **Service-layer unit tests** (`test_acogidas.py`, `test_entradas.py`, `test_foster.py`, `test_sanidad.py`, `test_salud.py`, `test_materiales.py`, `test_cesiones.py`, `test_voluntarios_*.py`, `test_animals_insforge_adapter.py`):
 - Pattern: real `InsForgeClient` wired to `httpx.MockTransport`. Handler returns canned rows / errors keyed on captured SQL.
 - Asserts: SQL string shape, param ordering, exact call count.
-- **What is hidden**: trigger execution, FK enforcement, ON CONFLICT semantics, `RETURNING` shape under empty rowsets.
+- **What is hidden**: trigger execution, FK enforcement, `ON CONFLICT` semantics, `RETURNING` shape under empty rowsets.
 
 **Route-layer integration tests** (`test_acogidas_routes.py`, `test_animals_routes.py`):
 - Pattern: full FastAPI app + `httpx.ASGITransport`. `_NoSqlRouteClient` spy fails test if a route calls `client.execute_sql` directly.

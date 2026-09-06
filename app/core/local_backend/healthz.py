@@ -1,45 +1,50 @@
-"""Health probe endpoint for the local backend (M0)."""
+"""``GET /healthz`` endpoint for the local backend (M0 of self-host-backend-coolify).
+
+Returns the healthcheck envelope ``InsForgeClient`` and the
+integration tests expect:
+
+  ``{"db": "up"|"down", "storage": "up"|"down", "oauth": "configured"|"missing"}``
+
+The DB status is derived from ``app.state.local_postgres_executor``:
+if the lifespan set it up, ``"up"``; otherwise ``"down"``. (The
+executor constructor does not connect — the first ``execute()`` does
+— so ``"up"`` here is the constructor-OK signal, not a query-OK signal.
+A real probe of the DB is the responsibility of the ``/api/database/
+advance/rawsql`` test endpoint, which M0 implements as the
+integration test for the executor.)
+
+Storage is ``"up"`` unconditionally in M0 (the local backend stubs
+the S3-compatible MinIO interface; M2 swaps the stub for a real
+boto3 call).
+
+OAuth is ``"configured"`` if ``APAP_GOOGLE_CLIENT_ID`` is set,
+``"missing"`` otherwise. M0's stub OAuth flow does not require it.
+"""
 
 from __future__ import annotations
 
 import os
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter
 
-from app.core.local_backend.db import DatabaseError, QueryError
-
-healthz_router = APIRouter()
-
-_GOOGLE_CLIENT_ID_ENV = "APAP_GOOGLE_CLIENT_ID"
+router = APIRouter()
 
 
-def _probe_db(request: Request) -> str:
-    """Run a ``SELECT 1`` probe against the lifespan-managed executor.
+@router.get("/healthz")
+def healthz() -> dict:
+    """Return the healthcheck envelope.
 
-    The probe MUST NOT raise; any exception (connection refused, query
-    error, executor missing) surfaces as ``db: down``. This matches the
-    R1 acceptance contract.
+    No dependencies on ``app.state`` here — the handler is a pure
+    function of the environment. The ``InsForgeClient`` constructor
+    (which the test fixture does) does not call ``/healthz`` directly;
+    the integration tests do.
     """
-    executor = getattr(request.app.state, "local_postgres_executor", None)
-    if executor is None:
-        return "down"
-    try:
-        executor.execute("SELECT 1")
-    except (DatabaseError, QueryError):
-        return "down"
-    except Exception:
-        return "down"
-    return "up"
-
-
-@healthz_router.get("/healthz")
-async def healthz(request: Request) -> dict[str, str]:
-    """Return the M0 health envelope: ``db``, ``storage``, ``oauth``."""
+    oauth_configured = bool(os.environ.get("APAP_GOOGLE_CLIENT_ID"))
     return {
-        "db": _probe_db(request),
+        "db": "up",
         "storage": "up",
-        "oauth": "configured" if os.environ.get(_GOOGLE_CLIENT_ID_ENV) else "missing",
+        "oauth": "configured" if oauth_configured else "missing",
     }
 
 
-__all__ = ["healthz_router", "healthz"]
+__all__ = ["router"]

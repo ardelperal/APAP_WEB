@@ -116,14 +116,6 @@ class CorrelationIdMiddleware:
         self, scope: dict, receive: object, send: object
     ) -> None:
         """Process the request, setting and resetting the correlation id."""
-        # M3.1 fix: skip non-HTTP scopes (lifespan startup) so the
-        # request_context middleware does not try to construct a
-        # starlette.Request from a scope that has no request (the
-        # assertion in starlette.Request.__init__ fires for any scope
-        # whose type is not "http" or "websocket"; uvicorn lifespan
-        # does not satisfy this).
-        if scope["type"] not in ("http", "websocket"):
-            return await self.app(scope, receive, send)
         # lazy-import: avoids importing starlette at module load time
         from starlette.requests import (
             Request,  # lazy-import: avoids circular import with logging (loaded early at startup)

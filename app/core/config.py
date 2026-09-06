@@ -78,13 +78,6 @@ class Settings(BaseSettings):
 
     Environment variables are read with the ``APAP_`` prefix. For
     example, ``APAP_INSFORGE_URL`` populates :attr:`insforge_url`.
-
-    Production operators: see ``docs/production-env.md`` for the
-    canonical reference of every APAP_* env var (concern, default,
-    required state, startup-config check) and the single-page
-    runbook ``docs/runbooks/coolify-deploy.md`` for the deploy
-    checklist. The repo-root ``.env.example`` lists every APAP_* in
-    template form for the local-dev ``.env`` workflow.
     """
 
     model_config = SettingsConfigDict(
@@ -126,6 +119,7 @@ class Settings(BaseSettings):
     # against the mock route. Must exist as an ``usuarios_autorizados``
     # row in production, but the mock pre-populates the in-process
     # auth cache so the DB row is bypassed during E2E runs.
+    e2e_auth_default_email: str = "e2e@apap.local"
 
     # --- Bootstrap (Fase 2) ---------------------------------------------
     # Email of the first `developer` user, seeded on first startup if
@@ -190,6 +184,22 @@ class Settings(BaseSettings):
     # ``app.core.logging.configure_logging``. Unknown values fall back
     # to ``INFO`` at runtime (the typed default is ``"INFO"``).
     log_level: str = "INFO"
+
+    # --- Magic-link SMTP transport (M3.4, issue #651) ------------------
+    # When ``smtp_host`` is empty, :class:`SMTPMailTransport` is a no-op
+    # (the magic-link route still mints the token for local-dev / E2E
+    # inspection, but no email is sent). In production ``smtp_host``
+    # must point at the transactional provider (Resend, Mailgun, ...)
+    # and the remaining fields carry the credentials.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    # ``From`` address used in the envelope; ``onboarding@resend.dev``
+    # is Resend's test-from (no DNS required). Operators must change
+    # it once their domain is verified (see
+    # ``scripts/setup_resend_smtp.sh``).
+    smtp_from: str = ""
 
     debug: bool = False
 

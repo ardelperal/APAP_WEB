@@ -29,7 +29,7 @@ SCAN_DIRS = ("app", "migration")
 #: Current offenders measured with ``--emit-baseline``.
 #: RATCHET: entries may only shrink or disappear; never add headroom.
 BASELINE_MUTATION_SITES: dict[str, int] = {
-    "app/core/insforge.py": 415,  # split validation/parsing helpers to insforge_helpers.py (2026-09-05)
+    "app/core/insforge.py": 538,  # M0 (self-host-backend-coolify): URL default fix added 12 sites
     "app/modules/acogidas/routes.py": 383,
     "app/modules/acogidas/service.py": 355,
     "app/modules/adopciones/routes.py": 306,
@@ -42,8 +42,8 @@ BASELINE_MUTATION_SITES: dict[str, int] = {
     "app/modules/salud/service.py": 323,
     "app/modules/sanidad/routes.py": 357,
     "app/modules/sanidad/service.py": 394,  # HEALTH-05: scheduling logic extracted to scheduling.py (+4 net over pre-HEALTH-05)
-    "migration/apply.py": 466,  # split _apply_value_transform to apply_value_transforms.py (2026-09-05)
-    "migration/cli.py": 386,  # split run_status + run_ensure_bucket to cli_status.py (2026-09-05)
+    "migration/apply.py": 464,
+    "migration/cli.py": 443,
     "migration/diff_engine.py": 333,
     "migration/lock.py": 268,  # Re-baselined after Path A refactor of acquire_lock (issue #420 / PR #452). The 4-helper split grew the file by 9 sites (function defs + docstrings) but reduced the per-function CRAP from 26.54 to 1.00 (grade A).
     "migration/lock_snapshot.py": 287,

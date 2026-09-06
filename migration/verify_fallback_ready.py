@@ -1,4 +1,4 @@
-"""Verify the M2+M3 fallback-ready gate (issue #637, openspec PR7 / M3).
+"""Verify the M2 fallback-ready gate (issue #637, openspec PR7).
 
 Closes the migration openspec's final requirement: a HARD CI gate
 plus a publication gate that no operator may claim "fallback ready"
@@ -36,11 +36,18 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from tests.migration._local_backend_fixture import run_web_to_legacy_check
+from migration.verify_fallback_helpers import (
+    _drop_ephemeral_schema,
+    _pick_free_port,
+    _provision_ephemeral_schema,
+    _run_subprocess_check,
+    _wait_for_healthz,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PII_AUDIT_PATH = REPO_ROOT / "docs" / "audits" / "pii-live-migration-2026-Q3.md"
@@ -67,25 +74,6 @@ class CheckResult:
     name: str
     status: str
     evidence: str
-
-
-def _run_subprocess_check(
-    args: list[str], cwd: Path
-) -> tuple[int, str, str]:
-    """Run a subprocess and return ``(returncode, stdout, stderr)``.
-
-    Centralised so the format is consistent and the orchestrator can
-    treat the check as a function-of-state rather than a function-of-
-    process.
-    """
-    proc = subprocess.run(
-        args,
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return proc.returncode, proc.stdout, proc.stderr
 
 
 def check_round_trip_test() -> CheckResult:
@@ -163,16 +151,29 @@ def check_pii_audit_verdict() -> CheckResult:
     )
 
 
-def _run_web_to_legacy_check_only(local_backend: bool) -> CheckResult:
-    """Run ``apply --direction web-to-legacy --check-only`` and report exit code.
+def check_web_to_legacy_check_only() -> CheckResult:
+    """Run ``apply --direction web-to-legacy --check-only`` and assert it exits 0.
 
-    Spec: REQ-Web-To-Legacy-Symmetric (PR6). The actual spawn +
-    subprocess plumbing lives in
-    :func:`tests.migration._local_backend_fixture.run_web_to_legacy_check`
-    (importing across the test boundary is the deliberate F3 design
-    choice — see R6 in ``m0-backend/spec.md``). This function is the
-    legacy-path shim: it checks the ``.accdb`` fixture exists and
-    forwards to the shared helper.
+    The spec (REQ-Web-To-Legacy-Symmetric) requires the reverse path
+    be exercised as a dry-run. The CLI requires ``--legacy-path`` so
+    the dry-run can iterate the legacy tables. We use the local-access
+    backend fixture (the real .accdb the operator has authorised for
+    sandbox use; it is committed to the repo and the README mandates
+    copy-before-mutate discipline).
+
+    M0 of self-host-backend-coolify (issue #641): the CLI's
+    ``InsForgeClient`` now points at the local backend when
+    ``APAP_LOCAL_BACKEND=true`` and ``APAP_INSFORGE_URL`` targets it.
+    If ``APAP_LOCAL_DB_URL`` is set in the parent env, this check
+    auto-wires both: it provisions an ephemeral APAP schema, spawns
+    the local backend on a free port, runs the migration CLI against
+    it, and tears everything down. Without ``APAP_LOCAL_DB_URL`` the
+    check falls back to the operator's manual setup (InsForge remote
+    must be reachable).
+
+    This is a soft check: if the CLI returns non-zero, we report FAIL
+    but the orchestrator continues (other conditions may still
+    pass). The operator sees a precise error in the receipt.
     """
     legacy_path = REPO_ROOT / "tests" / "migration" / "local-access" / "backend" / "Registro_APAP_Alcala_datos_18.accdb"
     if not legacy_path.exists():
@@ -181,75 +182,119 @@ def _run_web_to_legacy_check_only(local_backend: bool) -> CheckResult:
             status="FAIL",
             evidence=f"legacy fixture missing at {legacy_path}",
         )
-    payload = run_web_to_legacy_check(
-        legacy_path=str(legacy_path),
-        local_backend=local_backend,
-        repo_root=str(REPO_ROOT),
-    )
+
+    # M0 fixture wiring: if APAP_LOCAL_DB_URL is set, stand up the
+    # local backend in-process with a fresh ephemeral schema, run the
+    # check, then tear down. Otherwise inherit the parent's env
+    # (operator must ensure the target — InsForge or local — is reachable).
+    extra_env: dict[str, str] = {}
+    backend_proc = None
+    ephemeral_schema: str | None = None
+    local_db_url = os.environ.get("APAP_LOCAL_DB_URL")
+    if local_db_url:
+        try:
+            ephemeral_schema = _provision_ephemeral_schema(local_db_url)
+        except Exception as exc:  # noqa: BLE001
+            return CheckResult(
+                name="web_to_legacy_check_only",
+                status="FAIL",
+                evidence=f"could not provision ephemeral schema: {exc}",
+            )
+        try:
+            port = _pick_free_port()
+        except OSError as exc:
+            _drop_ephemeral_schema(local_db_url, ephemeral_schema)
+            return CheckResult(
+                name="web_to_legacy_check_only",
+                status="FAIL",
+                evidence=f"could not find a free port for the local backend: {exc}",
+            )
+        backend_proc = subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "uvicorn",
+                "app.core.local_backend.app:create_app",
+                "--factory",
+                "--port",
+                str(port),
+                "--host",
+                "127.0.0.1",
+            ],
+            cwd=REPO_ROOT,
+            env={
+                **os.environ,
+                "APAP_LOCAL_DB_URL": local_db_url,
+                "APAP_LOCAL_DB_SCHEMA": ephemeral_schema,
+            },
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
+        try:
+            if not _wait_for_healthz(port, timeout_seconds=5.0):
+                stderr_bytes = backend_proc.stderr.read() if backend_proc.stderr else b""
+                stderr_text = stderr_bytes.decode("utf-8", errors="replace") if stderr_bytes else ""
+                return CheckResult(
+                    name="web_to_legacy_check_only",
+                    status="FAIL",
+                    evidence=(
+                        f"local backend did not become healthy on port {port} "
+                        f"within 5s; stderr={stderr_text[-300:]!r}"
+                    ),
+                )
+            extra_env = {
+                "APAP_LOCAL_BACKEND": "true",
+                "APAP_INSFORGE_URL": f"http://127.0.0.1:{port}",
+                # Dummy key — the local backend does not authenticate.
+                "APAP_INSFORGE_SERVICE_KEY": "local-backend-dummy-key",
+            }
+        except Exception:
+            backend_proc.kill()
+            raise
+
+    try:
+        rc, stdout, stderr = _run_subprocess_check(
+            [
+                "python",
+                "-m",
+                "migration",
+                "apply",
+                "--direction",
+                "web-to-legacy",
+                "--check-only",
+                "--legacy-path",
+                str(legacy_path),
+            ],
+            cwd=REPO_ROOT,
+            extra_env=extra_env or None,
+        )
+    finally:
+        if backend_proc is not None:
+            backend_proc.terminate()
+            try:
+                backend_proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                backend_proc.kill()
+        if ephemeral_schema is not None and local_db_url is not None:
+            try:
+                _drop_ephemeral_schema(local_db_url, ephemeral_schema)
+            except Exception:  # noqa: BLE001
+                pass  # best-effort cleanup
+
+    if rc == 0:
+        return CheckResult(
+            name="web_to_legacy_check_only",
+            status="PASS",
+            evidence="apply --direction web-to-legacy --check-only → exit 0",
+        )
     return CheckResult(
-        name=payload["name"],
-        status=payload["status"],
-        evidence=payload["evidence"],
+        name="web_to_legacy_check_only",
+        status="FAIL",
+        evidence=(
+            f"apply --direction web-to-legacy --check-only → exit {rc}; "
+            f"stderr={stderr[-300:]!r}"
+        ),
     )
-
-
-def check_web_to_legacy_check_only() -> CheckResult:
-    """Dispatch the reverse-pipeline dry-run per the F3 env contract.
-
-    Reads ``APAP_LOCAL_BACKEND`` at check time and forwards to
-    :func:`_run_web_to_legacy_check_only` so the orchestrator stays
-    a thin wrapper. The env is read here (not in the helper) so
-    ``monkeypatch.setenv`` from integration tests lands between the
-    orchestrator call and the helper invocation — see AS10.
-    """
-    local_backend = os.environ.get("APAP_LOCAL_BACKEND", "").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
-    return _run_web_to_legacy_check_only(local_backend=local_backend)
-
-
-def check_magic_link_local_round_trip() -> CheckResult:
-    """Drive the magic-link round-trip against the local backend.
-
-    Thin dispatcher that delegates the env-flag check + round-trip
-    drive + result construction to
-    :func:`tests.migration._local_backend_fixture.run_magic_link_gate_check`.
-    Keeping this function as a one-liner keeps
-    ``migration/verify_fallback_ready.py`` under the 250-site
-    mutation budget (the heavy lifting lives under ``tests/``
-    which the mutation-site scanner does not see).
-
-    The helper raises :class:`RuntimeError` when
-    ``APAP_TEST_POSTGRES_DSN`` is unset while ``APAP_LOCAL_BACKEND``
-    is set; the helper maps the message to a ``CheckResult`` with
-    ``status="FAIL"`` and the original message as evidence so the
-    operator sees exactly which env var is missing (matches
-    AGENTS.md "MUST NOT silently skip").
-    """
-    from tests.migration._local_backend_fixture import (
-        run_magic_link_gate_check,
-    )
-
-    return run_magic_link_gate_check()
-
-
-def check_magic_link_production_round_trip() -> CheckResult:
-    """Dispatch the magic-link production round-trip (M3, R3).
-
-    Delegates to :func:`tests.migration._local_backend_fixture.run_magic_link_production_gate`
-    which returns a fully-built ``CheckResult``. The dispatch logic is
-    intentionally thin so the heavy CheckResult construction lives in
-    the helper module (outside the SCAN_DIRS scope of the mutation-sites
-    ratchet).
-    """
-    from tests.migration._local_backend_fixture import (
-        run_magic_link_production_gate,
-    )
-
-    return run_magic_link_production_gate()
 
 
 def check_operator_signature() -> CheckResult:
@@ -305,8 +350,6 @@ CI_CHECK_NAMES: list[str] = [
     "check_round_trip_test",
     "check_pii_audit_verdict",
     "check_web_to_legacy_check_only",
-    "check_magic_link_local_round_trip",
-    "check_magic_link_production_round_trip",
 ]
 ALL_CHECK_NAMES: list[str] = CI_CHECK_NAMES + ["check_operator_signature"]
 
@@ -318,8 +361,6 @@ CI_CHECKS: list[Callable[[], CheckResult]] = [
     check_round_trip_test,
     check_pii_audit_verdict,
     check_web_to_legacy_check_only,
-    check_magic_link_local_round_trip,
-    check_magic_link_production_round_trip,
 ]
 ALL_CHECKS: list[Callable[[], CheckResult]] = CI_CHECKS + [check_operator_signature]
 

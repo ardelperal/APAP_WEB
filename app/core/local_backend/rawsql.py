@@ -1,93 +1,67 @@
-"""Raw SQL endpoint for the local PostgreSQL backend."""
+"""``POST /api/database/advance/rawsql`` handler (M0 of self-host-backend-coolify).
+
+The InsForge REST API exposes a privileged ``/api/database/advance/rawsql``
+endpoint that ``InsForgeClient.execute_sql`` consumes. The local backend
+re-implements that endpoint against a Postgres connection, reusing the
+``LocalPostgresExecutor`` from ``app.core.local_backend.db`` so the
+contract (``{"rows": [...], "rowCount": N}``) is identical to InsForge's.
+
+Error mapping:
+- ``QueryError`` (query rejected by Postgres: syntax, FK, constraint) → 400.
+- ``DatabaseError`` (connection-level failure: bad DSN, network down)
+  → 503 (service unavailable, mirrors Postgres-down semantics).
+
+Hard rules (web-tdd-philosophy):
+- Rule 4 (no humo): the handler translates the executor's typed
+  exceptions into HTTP status codes; tests assert the status, not the
+  absence of an exception.
+- Rule 8 (no production mutation): the executor reads from the
+  integration conftest's ephemeral schema via the lifespan-set
+  ``APAP_LOCAL_DB_SCHEMA``.
+"""
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse
 
-from app.core.local_backend.db import (
-    DatabaseError,
-    QueryError,
-    QueryResult,
-    _safe_table,
-)
+from app.core.local_backend.db import DatabaseError, LocalPostgresExecutor, QueryError
 
 router = APIRouter()
-_SQL_KEYWORDS = frozenset("""
-all alter and any array as asc avg between bigint boolean by case cast char
-coalesce count create cross current_date date decimal default delete desc
-distinct double drop else end exists extract false float foreign from full
-group having ilike in inner insert int integer interval into is join json jsonb
-key left like limit max min not nothing null numeric offset on or order outer
-primary real recursive replace returning right select serial set smallint sum
-table text then time timestamp timestamptz true truncate union update using uuid
-values varchar when where with
-""".split())
-_STRING = re.compile(
-    r"'(?:''|[^'])*'|\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$.*?\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$",
-    re.DOTALL,
-)
-_SAFE_TOKEN = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*\b")
 
 
-def _outside_strings(query: str) -> str:
-    """Remove string literals so SQL terminators remain visible."""
-    return _STRING.sub("", query)
+@router.post("/database/advance/rawsql")
+async def execute_rawsql(
+    request: Request,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Execute a raw SQL statement and return the rows.
+
+    Body shape (matches what the production ``InsForgeClient`` sends):
+        ``{"query": str, "params": list | None}``
+
+    Response shape (matches InsForge's envelope):
+        ``{"rows": [{"col": val, ...}, ...], "rowCount": N}``
+
+    Raises (translated to HTTP status by ``app.exception_handler`` or the
+    FastAPI default handlers):
+        - ``QueryError`` → 400 Bad Request (caller's query is malformed).
+        - ``DatabaseError`` → 503 Service Unavailable (Postgres down).
+    """
+    query = payload.get("query")
+    if not isinstance(query, str) or not query:
+        # Caller-side mistake: missing or non-string ``query``.
+        # Translate to ``QueryError`` so the 400 mapping is uniform.
+        raise QueryError("payload must include a non-empty 'query' string")
+
+    params = payload.get("params")
+    if params is not None and not isinstance(params, (list, tuple)):
+        raise QueryError("payload 'params' must be a list or tuple if present")
+
+    executor: LocalPostgresExecutor = request.app.state.local_postgres_executor
+    rows = executor.execute(query, params)
+    return {"rows": rows, "rowCount": len(rows)}
 
 
-def _validate_query(query: str) -> None:
-    """Reject unsafe identifiers, comments, and multiple statements."""
-    outside = _outside_strings(query)
-    if '"' in outside or "`" in outside or "--" in outside or "/*" in outside:
-        raise QueryError("unsafe SQL identifier or SQL comment", "unsafe_sql_identifier")
-    if ";" in outside:
-        raise QueryError("only one SQL statement is allowed", "multiple_statements")
-    for match in _SAFE_TOKEN.finditer(outside):
-        if match.group(0).upper() not in _SQL_KEYWORDS:
-            _safe_table(match.group(0))
-
-
-def _error(status: int, code: str, detail: str) -> JSONResponse:
-    """Build the stable JSON error envelope."""
-    return JSONResponse(status_code=status, content={"error": code, "detail": detail})
-
-
-@router.post("/database/advance/rawsql", response_model=None)
-async def execute_rawsql(request: Request) -> dict[str, Any] | JSONResponse:
-    """Execute one validated statement against the local Postgres DSN."""
-    try:
-        payload = await request.json()
-    except Exception:
-        return _error(400, "invalid_request", "request body must be valid JSON")
-    if not isinstance(payload, dict):
-        return _error(400, "invalid_request", "request body must be an object")
-    if "query" not in payload or "params" not in payload:
-        return _error(400, "invalid_request", "query and params are required")
-    query = payload["query"]
-    params = payload["params"]
-    if not isinstance(query, str) or not query.strip():
-        return _error(400, "invalid_request", "query must be a non-empty string")
-    if params is not None and not isinstance(params, list):
-        return _error(400, "invalid_request", "params must be a list or null")
-    try:
-        _validate_query(query)
-    except QueryError as exc:
-        return _error(400, exc.code, str(exc))
-    executor = getattr(request.app.state, "local_postgres_executor", None)
-    if executor is None:
-        return _error(503, "database_error", "local backend is not initialized")
-    try:
-        result = executor.execute(query, params)
-    except QueryError as exc:
-        return _error(400, exc.code, str(exc))
-    except DatabaseError:
-        return _error(503, "database_error", "database is unavailable")
-    rows = list(result) if result is not None else []
-    rowcount = result.rowcount if isinstance(result, QueryResult) else len(rows)
-    return {"rows": rows, "rowCount": rowcount}
-
-
-__all__ = ["router", "execute_rawsql"]
+__all__ = ["router", "execute_rawsql", "DatabaseError", "QueryError"]

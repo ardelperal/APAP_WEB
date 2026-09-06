@@ -185,16 +185,43 @@ Legítimos son los `app/core/di/*_di.py` y `app/main.py`; el resto es backlog.
 
 Documentación: [docs/architecture/capas-y-slices.md](../architecture/capas-y-slices.md), [docs/codebase/architecture.md](../codebase/architecture.md), épica #420 (índice vivo de slices).
 
+### Self-host backend (Coolify)
+
+Reemplazo del backend InsForge por un contenedor FastAPI propio desplegado en Coolify, en el mismo VPS que el front. El branch activo del esfuerzo es `feat/641-self-host-backend-coolify` (issue umbrella #641). El switch de runtime vive en `app/core/insforge_url.py` con la variable `APAP_LOCAL_BACKEND`; los commits `c12b361 feat(insforge): default to local backend when APAP_LOCAL_BACKEND=true` y `b10a88d fix(insforge): local backend base_url must not carry /api prefix` documentan el corte.
+
+| Sub-fase | Estado en branch | Issue |
+|---|---|---|
+| M0 — `LocalPostgresExecutor` + healthz + storage + client switch | cerrado | #641 |
+| M1 — `MagicLinkPort` + `ClassicPasswordAuthPort` (self-host auth) | cerrado | #641 |
+| M2 — `.env.example` + runbook + docs de deploy Coolify | cerrado | #641 |
+| M3 — UI: form magic-link + CSP (M3-login, M3.2-csp) | cerrado | — |
+| M3.1 — Helper + fixtures + unit tests del helper | wip (round-trip E2E skip'd) | #649 |
+| M3.4 — Magic-link wiring + `SMTPMailTransport` en `local_backend/app.py` | pendiente | issue a crear |
+| Phase 3 — Coolify deploy manifest + `.accdb` legacy migration + runbook operador | pendiente | #648 |
+| Phase 5 — Deploy step separado del lifespan bootstrap | pendiente | #647 |
+| Hygiene — Pre-existing ruff errors + failing e2e | pendiente | #646 |
+
+**Estado del round-trip M3.1**: el helper lee de MailDev HTTP API (`apap-smtp-dev`); los unit tests del helper están verdes en el suite default (regex, polling, timeout, retry sobre 5xx); el test E2E se archiva con `pytest.mark.skip` cuya razón apunta a M3.4. La unidad de trabajo "M3.1 wip" cierra cuando se commitee el helper + conftest + unit tests + skip documentado.
+
+**Invariante no negociable:**
+
+- **Contenedor único en Coolify, sin InsForge en producción**: el contenedor `app/core/local_backend/app.py` reemplaza a InsForge para el path de datos autenticado. Mantener `APAP_LOCAL_BACKEND=true` en Coolify; el binario de InsForge queda solo como fallback de desarrollo local.
+
 ## Issues pendientes de crear (consolidado)
 
 | Fase / Área | Título tentativo | Depende de |
 |---|---|---|
+| Self-host | `feat(m3-4): magic-link wiring + SMTPMailTransport en local_backend/app.py` | #649 cerrado |
+| Self-host | `chore(phase-3): Coolify deploy manifest + .accdb legacy migration + runbook operador` | M3.4 cerrado |
+| Self-host | `chore(phase-5): separar deploy step del lifespan bootstrap` | Phase 3 |
+| Hygiene | `chore(hygiene): pre-existing ruff errors + failing e2e test` | — |
 | Migración en vivo PR7 | `feat(migration): verify-fallback-ready + gate CI` | PR6 cerrado |
 | Transversal | `feat(dashboard): bandeja de pendientes + realtime` | Fase 2 |
 | Transversal | `feat(search): búsqueda global` | Fases 3–4 |
 | Transversal | `feat(canonical-logs): traza canónica del sistema` | Fase 1 |
 | Transversal | `feat(admin-panel): panel de control / configuración` | Fases 1–2 |
 | Docs | `docs(architecture): traducir architecture-insforge-stack.md al castellano` | — |
+| Docs | `docs(architecture): d-42-self-host-backend-coolify.md — decisión arquitectónica del corte` | — |
 | Docs | `docs(development): traducir development.md al castellano` | — |
 | Docs | `docs(discovery): revisar y traducir los discovery en inglés al castellano` | — |
 | Docs | `docs(canonical-logs): crear el doc fundacional de traza canónica` | bloqueado por la issue de arriba |

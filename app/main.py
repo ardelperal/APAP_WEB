@@ -1,4 +1,3 @@
-
 """FastAPI application entrypoint for APAP_WEB.
 
 The application is built following the skeleton outlined in
@@ -35,7 +34,6 @@ for the deploy webhook contract.
 
 from __future__ import annotations
 
-import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
@@ -57,7 +55,6 @@ from app.core.auth_dependencies import (
     get_insforge_client_dep as get_insforge_client,  # noqa: F401  - re-exported for test backwards compat
 )
 from app.core.auth_flow import register_auth_flow_routes
-from app.core.auth_magic.lifespan import wire_magic_link_to_app_state
 from app.core.catalogs import ensure_catalogs
 from app.core.csrf import csrf_token_context_processor
 from app.core.dashboard_data import DASHBOARD_PENDING_CARDS, DASHBOARD_SHORTCUTS
@@ -88,10 +85,6 @@ _TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    # M3.2 fix: bind the app instance to the module-level helper so
-    # _state_copy() can snapshot it after state is attached below.
-    global app_main_state
-    app_main_state = _
     """Application lifespan.
 
     On startup, bootstrap the InsForge schema:
@@ -135,89 +128,14 @@ async def lifespan(_: FastAPI):
         _validate_secrets(settings)
     client = InsForgeClient(settings.insforge_url, settings.insforge_service_key)
     _.state.insforge_client = client
-    from app.core.adapters.insforge.auth_insforge_adapter import (
-        InsForgeAuthUsersAdapter,
-    )
-    from app.core.roles import Rol
-
-    def _auth_port_factory() -> object:
-        # M3.1 E2E fix: when APAP_E2E_STUB_AUTH=true, return the
-        # F3-round-trip StubAuthPort (in-memory) that always finds the
-        # user, so the E2E test can exercise the full magic-link
-        # round-trip without an InsForge backend.
-        if os.environ.get("APAP_E2E_STUB_AUTH") == "true":
-            from app.core.config import get_settings
-            from app.core.local_backend.stub_auth_port import StubAuthPort
-            stub = StubAuthPort()
-            settings = get_settings()
-            seed_email = settings.initial_admin_email or "ardelperal@gmail.com"
-            stub.add(seed_email, rol=Rol.DEVELOPER)
-            return stub
-        return InsForgeAuthUsersAdapter(client)
-
-    _.state._magic_link_auth_port_factory = _auth_port_factory
-    await wire_magic_link_to_app_state(_, settings)
-    # M3.1 fix: bootstrap steps are best-effort. If InsForge is
-    # unavailable at startup (503, network down, etc.) the app must
-    # still come up so the OAuth path and /healthz can serve the
-    # operator. Failures are already logged at ERROR via log_safe
-    # inside each ensure_* function. The InsForge client itself is
-    # attached to app.state so subsequent /auth/magic/start calls
-    # can still hit InsForge when it comes back.
     try:
         ensure_schema_and_seed(client, settings)
-    except Exception:
-        pass
-    try:
         ensure_catalogs(client)
-    except Exception:
-        pass
-    try:
         ensure_domain_schema(client)
-    except Exception:
-        pass
-    try:
         apply_sql_migrations(client)
-    except Exception:
-        pass
-    # M3.2 fix: snapshot a copy of the app.state underlay dict so
-    # Starlette's merged_lifespan can forward it into scope["state"]
-    # (which uvicorn exposes to the request as request.app.state).
-    # Without a non-None yield, app.state.X is set during the
-    # lifespan but scope["state"] stays empty, so request.app.state.X
-    # returns None at request time (the RuntimeError "app.state.auth_port
-    # is not configured" that the M3.1 E2E test caught against the
-    # deployed app).
-    def _capture_state() -> dict[str, object]:
-        s = getattr(_, "state", None)
-        return dict(s._state) if s is not None and hasattr(s, "_state") else {}
-    try:
-        yield _capture_state()
-    except BaseException:
-        # M3.2 fix: a misbehaving step must not propagate out of the
-        # lifespan. uvicorn 0.52 sets self.asgi = None on any
-        # BaseException, which routes subsequent requests through
-        # a None app. Catch everything and yield anyway so the
-        # lifespan completes and the protocol app reference stays
-        # valid.
-        import logging
-        logging.getLogger(__name__).exception("lifespan_unhandled_error")
-        # M3.2 fix: yield the app.state so Starlette's merged_lifespan
-        # forwards it into scope["state"] (which uvicorn exposes to the
-        # request as request.app.state). Without a non-None yield,
-        # app.state.X is set during the lifespan but scope["state"] stays
-        # empty, so request.app.state.X returns None at request time
-        # (the RuntimeError "app.state.auth_port is not configured" that
-        # the M3.1 E2E test caught against the deployed app).
-        def _capture_state() -> dict[str, object]:
-            return dict(_.__dict__.get("_state") or {})
-        yield _capture_state()
+        yield
     finally:
-        try:
-            client.close()
-        except Exception:
-            pass
-
+        client.close()
 
 
 def _redirect(path: str) -> RedirectResponse:

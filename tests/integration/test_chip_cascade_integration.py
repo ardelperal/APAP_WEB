@@ -53,7 +53,6 @@ from tests.integration.conftest import (
     _expand_params_for_placeholder_style,
 )
 
-
 # The integration schema has ``nchip`` (lowercase) on ``animales``.
 # The production cascade's first UPDATE uses ``"NCHIP"`` (uppercase
 # quoted), which is broken. Use the schema-correct column name

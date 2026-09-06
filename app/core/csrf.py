@@ -49,19 +49,6 @@ from app.core.session import read_session_payload
 
 SAFE_METHODS: frozenset[str] = frozenset({"GET", "HEAD", "OPTIONS"})
 
-# Paths that are exempt from CSRF validation. These are auth-flow
-# endpoints whose own auth mechanism (the magic-link token itself,
-# the OAuth state cookie, etc.) substitutes for the CSRF token.
-CSRF_EXEMPT_PATHS: frozenset[str] = frozenset(
-    {
-        # M3: magic-link is itself a credential (the raw token in the URL
-        # authorizes a session). CSRF protection on these would block the
-        # very flow it should protect.
-        "/auth/magic/start",
-        "/auth/magic/verify",
-    }
-)
-
 CSRF_HEADER = "X-CSRFToken"
 """Header name used by AJAX callers to transport the CSRF token."""
 
@@ -113,23 +100,8 @@ def csrf_token_context_processor(request: Request) -> dict[str, str]:
     The middleware populates ``request.state.csrf_token`` for every
     request (safe + non-safe methods alike) so this binding works
     regardless of which middleware short-circuits.
-
-    M3 fix: for unauthenticated requests (no session cookie) the
-    middleware cannot populate ``request.state.csrf_token`` with a
-    real value (the token is bound to the session). Generate a fresh
-    ephemeral token here so forms like the magic-link submit (which
-    is itself an auth flow, exempt from CSRF) still render with a
-    non-empty ``csrf_token`` placeholder. The CSRF middleware short-
-    circuits on CSRF_EXEMPT_PATHS, so this ephemeral token is never
-    actually verified; it's there only so the form HTML is valid and
-    the template does not blow up rendering an empty ``value=""``.
     """
-    token = getattr(request.state, "csrf_token", None)
-    if not token:
-        import secrets
-        token = secrets.token_urlsafe(32)
-        request.state.csrf_token = token
-    return {"csrf_token": token}
+    return {"csrf_token": getattr(request.state, "csrf_token", "") or ""}
 
 
 def _extract_provided_token(request: Request) -> str | None:
@@ -168,11 +140,6 @@ class CsrfMiddleware(BaseHTTPMiddleware):
         request: Request,
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
-        # M3: magic-link paths carry the credential in the URL/POST body;
-        # CSRF protection would block the very flow it should protect. Skip on those paths.
-        if request.url.path in CSRF_EXEMPT_PATHS:
-            self._populate_csrf_state(request)
-            return await call_next(request)
         if request.method in SAFE_METHODS:
             # GET/HEAD/OPTIONS still benefit from ``request.state.csrf_token``
             # being populated so templates that render forms with

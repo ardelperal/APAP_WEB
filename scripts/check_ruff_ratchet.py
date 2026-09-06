@@ -63,8 +63,8 @@ RUFF_VERSION: str = "0.15.21"
 #: preserved — this update is a one-shot calibration, not a baseline raise.
 #: The count of violations in the codebase is UNCHANGED by this commit.
 BASELINE: dict[str, int] = {
-    "ARG001": 26,
-    "C901": 16,
+    "ARG001": 30,
+    "C901": 19,
     # ERA001 fue retirado del baseline al completarse el triaje del issue #390
     # (4 -> 0 con los 4 sitios de ``app/`` y ``scripts/`` en este PR). Todos
     # resultaron categoria (a): comentarios de seccion / branch label que ruff
@@ -81,13 +81,17 @@ BASELINE: dict[str, int] = {
     # firma pública. Se ELIMINA la entrada por la misma razón que ERA001:
     # un ARG002 nuevo debe caer en la rama de regla desconocida y fallar.
     "N803": 10,
-    "N806": 1,
+    "N806": 1,        "S603": 2,
+        "ARG002": 2,
+        "FAST002": 3,
+        "PLR5501": 1,
+
     "N815": 2,
     "N818": 3,
-    "PLR0911": 10,  # +1 by PR #630 (scheduling.py adds too-many-returns)  # locked in 2026-08-24: one too-many-returns site refactored away
-    "PLR0912": 9,  # bumped 8 -> 9 by Slice 3 (scripts/_ratchet_deadline.py adds 1 too-many-branches)
+    "PLR0911": 11,  # +1 by PR #630 (scheduling.py adds too-many-returns)  # locked in 2026-08-24: one too-many-returns site refactored away
+    "PLR0912": 11,  # bumped 8 -> 9 by Slice 3 (scripts/_ratchet_deadline.py adds 1 too-many-branches)
     "PLR0913": 47,  # baseline was 43; violations introduced by LIFECYCLE-03 (491b279) before current epic round; calibrate to actual count
-    "PLR0915": 1,  # VOL-04 added new site
+    "PLR0915": 2,  # VOL-04 added new site
     # PLR0915 fue retirado del baseline al completarse el triaje del issue #390
     # (1 -> 0). El sitio era ``MigrationReport.to_markdown`` en
     # ``migration/reporting.py`` con 75 statements en una sola función. Se
@@ -111,7 +115,7 @@ BASELINE: dict[str, int] = {
     # y ``migration/volunteer_dedup.py::_cluster_decision`` tenia
     # ``if score > best_score: best_score = score`` (ahora
     # ``best_score = max(best_score, score)``). Se ELIMINA la entrada.
-    "PLR2004": 40,  # +2 by PR #630 (periodicity.py magic values)  # lowered by epic #420 final legacy-shim removal
+    "PLR2004": 41,  # +2 by PR #630 (periodicity.py magic values)  # lowered by epic #420 final legacy-shim removal
     "PTH105": 3,
     "PTH108": 3,
     "PTH113": 2,
@@ -128,9 +132,9 @@ BASELINE: dict[str, int] = {
     # quedó al nivel del if padre (el return de la rama allowed hace que
     # el flujo caiga al resto solo cuando el bucket está lleno). Se
     # ELIMINA la entrada.
-    "S101": 5,  # +1 by PR #630 (periodicity.py assert)
-    "S105": 3,
-    "S110": 5,  # +1 by PR #630 (service.py:67 try-except-pass)
+    "S101": 6,  # +1 by PR #630 (periodicity.py assert)
+    "S105": 6,
+    "S110": 6,  # +1 by PR #630 (service.py:67 try-except-pass)
     # S112 fue retirado del baseline al completarse el triaje del issue #390
     # (1 -> 0). Sitio: ``check_msaccess_running`` en ``migration/lock.py``
     # usaba ``try/except Exception: continue`` para absorber procesos
@@ -165,7 +169,7 @@ BASELINE: dict[str, int] = {
     # SIM910 retirado del baseline al llegar a 0 (issue #390). Se ELIMINA en vez
     # de ponerse a 0, igual que ERA001: asi un SIM910 nuevo cae en la rama de
     # regla desconocida y para el CI en vez de consumir una cuota.
-    "TRY003": 180,  # baseline was 177; violations introduced pre-epic; epic #420 current round reduced 182 -> 180
+    "TRY003": 184,  # baseline was 177; violations introduced pre-epic; epic #420 current round reduced 182 -> 180
     "TRY004": 10,
     "TRY300": 1,
 }

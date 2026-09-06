@@ -56,6 +56,7 @@ from app.core.logging import log_safe
 from app.modules.sanidad import queries
 from app.modules.sanidad.scheduling import schedule_periodic_task
 
+
 def _post_create_schedule(client: SqlExecutor, actuacion: ActuacionSanitaria) -> None:
     """Run after create_actuacion_sanitaria commits: schedule next periodic task.
 

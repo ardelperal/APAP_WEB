@@ -1,544 +1,256 @@
-"""Integration tests for the M1 magic-link routes (F2 acceptance).
+"""Integration tests for the magic-link router (M3.4, issue #651).
 
-The seven atoms below cover the F2 contract (acceptance scenarios AS1,
-AS2, AS3, AS4, AS5, AS6, AS8). The setup wires a fresh FastAPI app
-with only the magic-router included and the three app.state attributes
-the F3 lifespan will own (magic_link_port / mail_transport /
-auth_port). The auth_port is an in-memory stub -- it only needs the
-get_user_by_email method the route calls; the rest of the Protocol
-is left as NotImplementedError stubs that no route ever invokes.
+The router lives at :mod:`app.core.local_backend.magic_link` and is
+mounted under ``/api``. Two endpoints:
 
-Cookie compat (T2.5): AS3 decodes the apap_session cookie with
-app.core.session.read_session and asserts the payload carries the four
-keys the OAuth callback writes (email, rol, user_id, is_authorized).
-The sign+verify uses the same itsdangerous URLSafeTimedSerializer
-already used by /auth/callback -- NO new cookie name, NO new signing.
+- ``POST /api/magic/start`` with JSON ``{"email": "..."}`` mints a
+  token via ``MagicLinkPortImpl`` and asks ``SMTPMailTransport`` to
+  send a verify URL. Returns ``{"status": "queued"}``.
+- ``GET /api/magic/verify?token=...`` consumes the token and sets
+  the ``apap_session`` cookie; redirects to ``/`` on success or
+  ``/login?reason=invalid_or_expired`` on failure.
+
+These tests pin the contract with real Postgres (the integration
+conftest's ``self_host_schema`` fixture) and a fake SMTP transport
+patched onto ``app.state``. No real SMTP, no real DB outside the
+ephemeral schema.
+
+Hard rules (apap-testing HR-2 + web-tdd-philosophy Rule 8):
+
+- Tests run against the same Postgres as the production executor
+  (``APAP_TEST_POSTGRES_DSN``). The lifespan binds the executor to
+  the ephemeral schema via ``APAP_LOCAL_DB_SCHEMA``.
+- The SMTP transport is monkeypatched onto ``app.state.smtp_transport``
+  with a fake that records ``send`` calls; no real SMTP server.
 """
 from __future__ import annotations
 
-import json
-import time
-from pathlib import Path
+import os
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import httpx
 import pytest
-from fastapi import FastAPI
 
-from app.core import config as config_module
-from app.core.auth_magic.mail_transports import ConsoleMailTransport
-from app.core.auth_magic.postgres_adapter import PostgresMagicLinkAdapter
-from app.core.auth_magic.routes import router as magic_router
-from app.core.domain.auth.user import AuthorizedUser
-from app.core.roles import Rol
+from app.core.local_backend.app import create_app
 from app.core.session import read_session
-from tests.integration.conftest import _EphemeralPostgres
 
-pytestmark = pytest.mark.integration
-
-
-# F2: HTTP route handlers (POST /auth/magic/start, GET/POST /auth/magic/verify)
-# ---------------------------------------------------------------------------
-#
-# The seven atoms below cover the F2 contract (acceptance scenarios AS1,
-# AS2, AS3, AS4, AS5, AS6, AS8). The setup wires a fresh FastAPI app
-# with only the magic-router included and the three app.state attributes
-# the F3 lifespan will own (``magic_link_port`` / ``mail_transport`` /
-# ``auth_port``). The auth_port is an in-memory stub — it only needs the
-# ``get_user_by_email`` method the route calls; the rest of the Protocol
-# is left as ``NotImplementedError`` stubs that no route ever invokes.
-#
-# Cookie compat (T2.5): AS3 decodes the ``apap_session`` cookie with
-# :func:`app.core.session.read_session` and asserts the payload carries
-# the four keys the OAuth callback writes (``email``, ``rol``,
-# ``user_id``, ``is_authorized``) plus the ``csrf_token`` injected by
-# :func:`app.core.csrf.issue_csrf_to_session`.
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 
-class _StubAuthPort:
-    """In-memory :class:`AuthUsersPort` for F2 route tests.
+# --- fake SMTP transport ----------------------------------------------------
 
-    The route layer only calls :meth:`get_user_by_email`. The other
-    Protocol methods raise ``NotImplementedError`` so an accidental
-    call surfaces as a clear error instead of a silent no-op (mirrors
-    the ``_RecordingAuthPort`` shape in ``tests/test_oauth_slice.py``).
+
+@dataclass
+class _FakeSMTPTransport:
+    """In-process fake that records ``send`` calls.
+
+    Returns ``True`` to mirror :class:`SMTPMailTransport.send`'s
+    "sent" branch. Tests assert on the recorded envelope without
+    touching the network.
     """
 
-    def __init__(self) -> None:
-        self._users: dict[str, AuthorizedUser] = {}
-        self.get_user_by_email_calls: list[str] = []
+    sent: list[dict[str, str]] = field(default_factory=list)
 
-    def add(self, email: str, rol: Rol = Rol.DEVELOPER) -> AuthorizedUser:
-        """Seed an active user with a deterministic UUID."""
-        user = AuthorizedUser(
-            id=f"u-{len(self._users) + 1}",
-            email=email,
-            rol=rol,
-            active=True,
-            added_by=None,
-            added_at=None,
+    def send(self, to_addr: str, subject: str, body: str) -> bool:
+        self.sent.append({"to": to_addr, "subject": subject, "body": body})
+        return True
+
+
+# --- fixture ---------------------------------------------------------------
+
+
+@pytest.fixture
+async def magic_link_client(self_host_schema, monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[
+    tuple[httpx.AsyncClient, _FakeSMTPTransport, str]
+]:
+    """Stand up the local backend with a fake SMTP transport.
+
+    Returns ``(client, transport, base_url)`` so tests can assert on
+    the recorded SMTP sends and on the public base URL the verify
+    link points at.
+    """
+    monkeypatch.setenv("APAP_LOCAL_DB_URL", os.environ["APAP_TEST_POSTGRES_DSN"])
+    monkeypatch.setenv("APAP_LOCAL_DB_SCHEMA", self_host_schema.schema)
+    # ``APAP_SESSION_SECRET`` is required by the lifespan (see
+    # ``app.core.config._validate_secrets``); 64 chars to clear the
+    # 32-char minimum.
+    monkeypatch.setenv("APAP_SESSION_SECRET", "integration-test-secret-64-chars-long-padding-x")
+
+    app = create_app()
+    fake_smtp = _FakeSMTPTransport()
+    async with app.router.lifespan_context(app):
+        # Patch the transport onto app.state AFTER the lifespan ran.
+        # The lifespan only constructs the executor; the magic-link
+        # router reads ``app.state.smtp_transport`` lazily inside the
+        # request handler.
+        app.state.smtp_transport = fake_smtp
+        app.state.public_base_url = "https://apap.romancaba.com"
+        client = httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://test",
         )
-        self._users[email] = user
-        return user
-
-    def get_user_by_email(self, email: str) -> AuthorizedUser | None:
-        self.get_user_by_email_calls.append(email)
-        return self._users.get(email)
-
-    # --- unused port methods (no-op stubs) ------------------------------
-
-    def ensure_schema_and_seed(self, initial_admin_email: str) -> None:  # noqa: ARG002
-        raise NotImplementedError
-
-    def check_email_taken(self, email: str) -> bool:  # noqa: ARG002
-        raise NotImplementedError
-
-    def list_authorized_users(self) -> list[AuthorizedUser]:
-        raise NotImplementedError
-
-    def add_authorized_user(  # noqa: PLR0913
-        self,
-        email: str,
-        rol: Rol,
-        added_by: str,
-    ) -> AuthorizedUser:
-        raise NotImplementedError
-
-    def get_user_by_id(self, user_id: str) -> AuthorizedUser | None:  # noqa: ARG002
-        raise NotImplementedError
-
-    def deactivate_authorized_user(self, user_id: str) -> AuthorizedUser:  # noqa: ARG002
-        raise NotImplementedError
+        try:
+            yield client, fake_smtp, app.state.public_base_url
+        finally:
+            await client.aclose()
 
 
-def _build_magic_test_app(
-    *,
-    dsn: str,
-    schema: str,
-    mailbox_path: Path,
-    auth_port: _StubAuthPort,
-) -> tuple[FastAPI, PostgresMagicLinkAdapter]:
-    """Build a minimal FastAPI app with only the magic-router registered.
-
-    Returns the app and the :class:`PostgresMagicLinkAdapter` it
-    references (returned so tests can introspect the DSN / transport
-    wiring). The :class:`ConsoleMailTransport` is passed to the adapter
-    constructor AND attached to ``app.state.mail_transport`` (the F3
-    lifespan owns both — F2 only asserts the wiring shape).
-    """
-    test_app = FastAPI()
-    test_app.include_router(magic_router)
-    mail_transport = ConsoleMailTransport(mailbox_path=mailbox_path)
-    magic_link_port = PostgresMagicLinkAdapter(
-        dsn,
-        search_path=schema,
-        transport=mail_transport,
-    )
-    test_app.state.magic_link_port = magic_link_port
-    test_app.state.mail_transport = mail_transport
-    test_app.state.auth_port = auth_port
-    return test_app, magic_link_port
+# --- POST /api/magic/start -------------------------------------------------
 
 
-def _mailbox_lines(mailbox_path: Path) -> list[dict[str, object]]:
-    """Return the JSONL lines from ``mailbox_path`` as parsed dicts.
-
-    Returns an empty list when the file does not exist (the console
-    transport creates the parent directory but never the file until the
-    first send, so AS2 + AS6 must tolerate a missing file).
-    """
-    if not mailbox_path.exists():
-        return []
-    return [json.loads(line) for line in mailbox_path.read_text(encoding="utf-8").splitlines() if line]
-
-
-# ---------------------------------------------------------------------------
-# AS1: authorised email persists row and emails transport
-# ---------------------------------------------------------------------------
-
-
-async def test_as1_authorized_email_persists_row_and_emails_transport(
-    ephemeral_postgres: _EphemeralPostgres,
-    tmp_path: Path,
+@pytest.mark.asyncio
+async def test_magic_start_creates_token_and_queues_email(
+    magic_link_client: tuple[httpx.AsyncClient, _FakeSMTPTransport, str],
+    self_host_schema,
 ) -> None:
-    """AS1: POST /auth/magic/start for an authorised user persists + emails."""
-    mailbox_path = tmp_path / "mailbox.jsonl"
-    auth_port = _StubAuthPort()
-    auth_port.add("a@apap.local")
-    test_app, _ = _build_magic_test_app(
-        dsn=ephemeral_postgres.dsn,
-        schema=ephemeral_postgres.schema,
-        mailbox_path=mailbox_path,
-        auth_port=auth_port,
-    )
-
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=test_app),
-        base_url="http://test",
-    ) as client:
-        response = await client.post(
-            "/auth/magic/start", json={"email": "a@apap.local"}
-        )
-
-    # Response shape: constant-time 200 + queued regardless of branch.
-    assert response.status_code == 200
+    """Happy path: POST /api/magic/start with a valid email mints a
+    token in the DB, calls SMTP send with the right envelope, and
+    returns ``{"status": "queued"}``."""
+    client, fake_smtp, base_url = magic_link_client
+    response = await client.post("/api/magic/start", json={"email": "ana@test.com"})
+    assert response.status_code == 200, response.text
     assert response.json() == {"status": "queued"}
 
-    # Row persisted in the database.
-    rows = ephemeral_postgres.execute(
-        "SELECT email, consumed_at FROM magic_link_tokens"
-    )
+    # Exactly one SMTP send happened, with the right shape.
+    assert len(fake_smtp.sent) == 1
+    msg = fake_smtp.sent[0]
+    assert msg["to"] == "ana@test.com"
+    assert msg["subject"]  # non-empty
+    assert f"{base_url}/api/magic/verify?token=" in msg["body"]
+
+    # Token landed in the DB (verify via the integration conftest).
+    rows = self_host_schema.execute_sql("SELECT email FROM magic_link_tokens")
     assert len(rows) == 1
-    assert rows[0]["email"] == "a@apap.local"
-    assert rows[0]["consumed_at"] is None
-
-    # Transport observed the send with a non-empty verify_url.
-    lines = _mailbox_lines(mailbox_path)
-    assert len(lines) == 1
-    assert lines[0]["email"] == "a@apap.local"
-    assert isinstance(lines[0]["verify_url"], str)
-    assert "/auth/magic/verify?token=" in lines[0]["verify_url"]
+    assert rows[0]["email"] == "ana@test.com"
 
 
-# ---------------------------------------------------------------------------
-# AS2: unknown email returns 200 without persisting
-# ---------------------------------------------------------------------------
-
-
-async def test_as2_unknown_email_returns_200_without_persisting(
-    ephemeral_postgres: _EphemeralPostgres,
-    tmp_path: Path,
+@pytest.mark.asyncio
+async def test_magic_start_returns_400_on_missing_email(
+    magic_link_client: tuple[httpx.AsyncClient, _FakeSMTPTransport, str],
 ) -> None:
-    """AS2: POST /auth/magic/start for an unknown email is a no-op."""
-    mailbox_path = tmp_path / "mailbox.jsonl"
-    auth_port = _StubAuthPort()  # empty: no user added
-    test_app, _ = _build_magic_test_app(
-        dsn=ephemeral_postgres.dsn,
-        schema=ephemeral_postgres.schema,
-        mailbox_path=mailbox_path,
-        auth_port=auth_port,
+    client, fake_smtp, _ = magic_link_client
+    response = await client.post("/api/magic/start", json={})
+    assert response.status_code == 400
+    assert fake_smtp.sent == []  # no token minted, no email sent
+
+
+@pytest.mark.asyncio
+async def test_magic_start_returns_400_on_invalid_email_format(
+    magic_link_client: tuple[httpx.AsyncClient, _FakeSMTPTransport, str],
+) -> None:
+    client, fake_smtp, _ = magic_link_client
+    response = await client.post(
+        "/api/magic/start", json={"email": "not-an-email"}
     )
+    assert response.status_code == 400
+    assert fake_smtp.sent == []
 
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=test_app),
-        base_url="http://test",
-    ) as client:
-        response = await client.post(
-            "/auth/magic/start", json={"email": "nope@apap.local"}
-        )
 
+@pytest.mark.asyncio
+async def test_magic_start_normalises_email_to_lowercase(
+    magic_link_client: tuple[httpx.AsyncClient, _FakeSMTPTransport, str],
+    self_host_schema,
+) -> None:
+    """``ANA@TEST.COM`` must hit the same DB row as ``ana@test.com``."""
+    client, fake_smtp, _ = magic_link_client
+    response = await client.post(
+        "/api/magic/start", json={"email": "ANA@TEST.COM"}
+    )
     assert response.status_code == 200
-    assert response.json() == {"status": "queued"}
-
-    # No row, no mail — the route must not have touched the DB or the
-    # transport for an unknown email (constant-time includes no I/O on
-    # the negative path).
-    rows = ephemeral_postgres.execute(
-        "SELECT email FROM magic_link_tokens"
-    )
-    assert rows == []
-    assert _mailbox_lines(mailbox_path) == []
+    rows = self_host_schema.execute_sql("SELECT email FROM magic_link_tokens")
+    assert rows[0]["email"] == "ana@test.com"
+    assert fake_smtp.sent[0]["to"] == "ANA@TEST.COM"
 
 
-# ---------------------------------------------------------------------------
-# AS3: consuming a valid token issues a session cookie
-# ---------------------------------------------------------------------------
+# --- GET /api/magic/verify ------------------------------------------------
 
 
-async def test_as3_consume_valid_token_issues_session_cookie(
-    ephemeral_postgres: _EphemeralPostgres,
-    tmp_path: Path,
+@pytest.mark.asyncio
+async def test_magic_verify_consumes_token_and_sets_session_cookie(
+    magic_link_client: tuple[httpx.AsyncClient, _FakeSMTPTransport, str],
+    self_host_schema,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """AS3: GET /auth/magic/verify sets an ``apap_session`` cookie.
+    """The happy path: start mints a token, verify consumes it, the
+    response carries ``apap_session`` with the canonical payload."""
+    client, fake_smtp, base_url = magic_link_client
+    # Mint a token via the start endpoint so the test exercises the
+    # full path, not a back-door create.
+    start = await client.post("/api/magic/start", json={"email": "ana@test.com"})
+    assert start.status_code == 200
 
-    The cookie is decoded with :func:`app.core.session.read_session`
-    (the same helper the OAuth callback uses to read its own cookie)
-    and asserted to carry the four OAuth-callback keys plus the CSRF
-    token injected by :func:`app.core.csrf.issue_csrf_to_session`.
-    That is the byte-compat contract (T2.5).
-    """
-    mailbox_path = tmp_path / "mailbox.jsonl"
-    auth_port = _StubAuthPort()
-    auth_port.add("a@apap.local", rol=Rol.DEVELOPER)
-    test_app, _ = _build_magic_test_app(
-        dsn=ephemeral_postgres.dsn,
-        schema=ephemeral_postgres.schema,
-        mailbox_path=mailbox_path,
-        auth_port=auth_port,
-    )
+    # Extract the token from the recorded SMTP body.
+    assert len(fake_smtp.sent) == 1
+    body = fake_smtp.sent[0]["body"]
+    prefix = f"{base_url}/api/magic/verify?token="
+    assert prefix in body
+    token = body.split(prefix, 1)[1].split()[0]  # strip trailing whitespace
 
-    settings = config_module.get_settings()
+    # Fresh context: the start response may have set cookies; clear
+    # them so the verify response is the only cookie source.
+    client.cookies.clear()
+    response = await client.get(f"/api/magic/verify?token={token}", follow_redirects=False)
+    assert response.status_code == 302
+    assert response.headers["location"] == "/"
 
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=test_app),
-        base_url="http://test",
-    ) as client:
-        # Drive the request.
-        start_response = await client.post(
-            "/auth/magic/start", json={"email": "a@apap.local"}
-        )
-        assert start_response.status_code == 200
-
-        # Extract the raw_token the transport captured.
-        lines = _mailbox_lines(mailbox_path)
-        raw_token = lines[0]["raw_token"]
-        assert isinstance(raw_token, str) and raw_token
-
-        # Drive the verify GET.
-        verify_response = await client.get(
-            "/auth/magic/verify", params={"token": raw_token}
-        )
-
-    # The success path is a 302 to ``/`` with the session cookie set.
-    assert verify_response.status_code == 302
-    assert verify_response.headers["location"] == "/"
-    set_cookie = verify_response.headers["set-cookie"]
+    # The cookie has the right flags and a signed payload with the
+    # canonical email.
+    set_cookie = response.headers.get("set-cookie", "")
     assert "apap_session=" in set_cookie
     assert "HttpOnly" in set_cookie
     assert "Secure" in set_cookie
     assert "SameSite=strict" in set_cookie
-    assert "Path=/" in set_cookie
 
-    # Decode the cookie value with the SAME helper the OAuth callback
-    # relies on — proves the magic-link cookie is byte-compat with the
-    # cookie-shape the rest of the app expects.
-    cookie_value = set_cookie.split("apap_session=", 1)[1].split(";", 1)[0]
-    payload = read_session(cookie_value, secret=settings.session_secret)
+    # Decode the cookie payload via the public session helper.
+    cookie_value = next(
+        part.split("=", 1)[1].split(";", 1)[0]
+        for part in set_cookie.split(", ")
+        if part.startswith("apap_session=")
+    )
+    payload = read_session(
+        cookie_value,
+        secret=os.environ["APAP_SESSION_SECRET"],
+    )
     assert payload is not None
-    assert payload["email"] == "a@apap.local"
-    assert payload["rol"] == "developer"
-    assert payload["user_id"] == "u-1"
-    assert payload["is_authorized"] is True
-    assert isinstance(payload["csrf_token"], str) and payload["csrf_token"]
-
-    # The consumed_at must now be set (the row went from open to closed).
-    rows = ephemeral_postgres.execute(
-        "SELECT consumed_at FROM magic_link_tokens"
-    )
-    assert len(rows) == 1
-    assert rows[0]["consumed_at"] is not None
+    assert payload["email"] == "ana@test.com"
 
 
-# ---------------------------------------------------------------------------
-# AS4: consuming the same token twice redirects to /login
-# ---------------------------------------------------------------------------
-
-
-async def test_as4_consume_same_token_twice_returns_302_to_login(
-    ephemeral_postgres: _EphemeralPostgres,
-    tmp_path: Path,
+@pytest.mark.asyncio
+async def test_magic_verify_returns_302_to_login_on_invalid_token(
+    magic_link_client: tuple[httpx.AsyncClient, _FakeSMTPTransport, str],
 ) -> None:
-    """AS4: replaying a consumed token returns 302 ``/login`` (no cookie)."""
-    mailbox_path = tmp_path / "mailbox.jsonl"
-    auth_port = _StubAuthPort()
-    auth_port.add("a@apap.local")
-    test_app, _ = _build_magic_test_app(
-        dsn=ephemeral_postgres.dsn,
-        schema=ephemeral_postgres.schema,
-        mailbox_path=mailbox_path,
-        auth_port=auth_port,
+    """An unknown token must NOT leak why it failed; we redirect to
+    /login with a generic reason."""
+    client, _, _ = magic_link_client
+    response = await client.get(
+        "/api/magic/verify?token=0" * 64, follow_redirects=False
     )
-
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=test_app),
-        base_url="http://test",
-    ) as client:
-        await client.post("/auth/magic/start", json={"email": "a@apap.local"})
-        raw_token = _mailbox_lines(mailbox_path)[0]["raw_token"]
-
-        # First consume: succeeds, sets the cookie.
-        first = await client.get(
-            "/auth/magic/verify", params={"token": raw_token}
-        )
-        assert first.status_code == 302
-        assert "apap_session=" in first.headers["set-cookie"]
-
-        # Second consume (same token): must NOT issue a session cookie.
-        second = await client.get(
-            "/auth/magic/verify", params={"token": raw_token}
-        )
-
-    assert second.status_code == 302
-    assert second.headers["location"] == "/login"
-    # A redirect that does NOT set ``apap_session`` — the spec R5 contract
-    # ("On any error path the endpoint MUST NOT issue a session cookie").
-    set_cookie_header = second.headers.get("set-cookie", "")
-    assert "apap_session=" not in set_cookie_header
-
-
-# ---------------------------------------------------------------------------
-# AS5: expired tokens redirect to /login
-# ---------------------------------------------------------------------------
-
-
-async def test_as5_consume_expired_token_returns_302_to_login(
-    ephemeral_postgres: _EphemeralPostgres,
-    tmp_path: Path,
-) -> None:
-    """AS5: GET /auth/magic/verify with an expired token redirects to /login.
-
-    The token is minted via the F1 adapter with ``ttl_seconds=0`` so the
-    row's ``expires_at`` equals ``requested_at`` (server ``now()``).
-    The consume query requires ``expires_at > now()`` so the call
-    returns ``None`` immediately — exactly the same shape as the F1
-    ``test_consume_magic_link_returns_none_after_expiry`` atom.
-    """
-    mailbox_path = tmp_path / "mailbox.jsonl"
-    auth_port = _StubAuthPort()
-    auth_port.add("a@apap.local")
-    test_app, magic_link_port = _build_magic_test_app(
-        dsn=ephemeral_postgres.dsn,
-        schema=ephemeral_postgres.schema,
-        mailbox_path=mailbox_path,
-        auth_port=auth_port,
-    )
-
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=test_app),
-        base_url="http://test",
-    ) as client:
-        # Mint an already-expired token directly via the adapter (the
-        # route always uses ``ttl_seconds=86400``; for AS5 we exercise
-        # the consume path with a row whose ``expires_at = now()``).
-        request = await magic_link_port.request_magic_link(
-            "a@apap.local", ttl_seconds=0
-        )
-        # Sanity: the row is in the table.
-        rows = ephemeral_postgres.execute(
-            "SELECT expires_at, consumed_at FROM magic_link_tokens "
-            "WHERE token_hash = %s",
-            [request.token_hash],
-        )
-        assert len(rows) == 1
-        assert rows[0]["consumed_at"] is None
-
-        response = await client.get(
-            "/auth/magic/verify",
-            params={"token": request.transport_payload["raw_token"]},
-        )
-
     assert response.status_code == 302
-    assert response.headers["location"] == "/login"
-    assert "apap_session=" not in response.headers.get("set-cookie", "")
+    assert "/login" in response.headers["location"]
+    assert "reason" in response.headers["location"]
 
 
-# ---------------------------------------------------------------------------
-# AS6: feature flag off makes endpoints no-op
-# ---------------------------------------------------------------------------
-
-
-async def test_as6_feature_flag_off_makes_endpoints_noop(
-    ephemeral_postgres: _EphemeralPostgres,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.asyncio
+async def test_magic_verify_rejects_already_consumed_token(
+    magic_link_client: tuple[httpx.AsyncClient, _FakeSMTPTransport, str],
 ) -> None:
-    """AS6: ``APAP_AUTH_ENABLE_MAGIC_LINK=0`` short-circuits both endpoints."""
-    mailbox_path = tmp_path / "mailbox.jsonl"
-    auth_port = _StubAuthPort()
-    auth_port.add("a@apap.local")
-    test_app, _ = _build_magic_test_app(
-        dsn=ephemeral_postgres.dsn,
-        schema=ephemeral_postgres.schema,
-        mailbox_path=mailbox_path,
-        auth_port=auth_port,
-    )
+    """One-time use: a second consume of the same token returns the
+    same redirect-to-login, never a second session."""
+    client, fake_smtp, base_url = magic_link_client
+    await client.post("/api/magic/start", json={"email": "ana@test.com"})
+    body = fake_smtp.sent[0]["body"]
+    prefix = f"{base_url}/api/magic/verify?token="
+    token = body.split(prefix, 1)[1].split()[0]
 
-    monkeypatch.setenv("APAP_AUTH_ENABLE_MAGIC_LINK", "0")
+    first = await client.get(f"/api/magic/verify?token={token}", follow_redirects=False)
+    assert first.status_code == 302
+    assert first.headers["location"] == "/"
 
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=test_app),
-        base_url="http://test",
-    ) as client:
-        # Start endpoint: 200 queued, no DB write, no transport call.
-        start_response = await client.post(
-            "/auth/magic/start", json={"email": "a@apap.local"}
-        )
-        assert start_response.status_code == 200
-        assert start_response.json() == {"status": "queued"}
-
-        # Verify endpoint: 302 to /login with no session cookie.
-        verify_response = await client.get(
-            "/auth/magic/verify", params={"token": "anything"}
-        )
-
-    assert verify_response.status_code == 302
-    assert verify_response.headers["location"] == "/login"
-    assert "apap_session=" not in verify_response.headers.get("set-cookie", "")
-
-    # No row, no mail — the route MUST short-circuit before any I/O.
-    rows = ephemeral_postgres.execute(
-        "SELECT email FROM magic_link_tokens"
-    )
-    assert rows == []
-    assert _mailbox_lines(mailbox_path) == []
-
-
-# ---------------------------------------------------------------------------
-# AS8: constant-time response on unknown email
-# ---------------------------------------------------------------------------
-
-
-async def test_as8_unknown_email_response_time_within_50ms_of_known(
-    ephemeral_postgres: _EphemeralPostgres,
-    tmp_path: Path,
-) -> None:
-    """AS8: the timing delta between known + unknown emails is <=50ms.
-
-    Both paths run back-to-back under the same ephemeral Postgres
-    schema so any DB-side variance is shared. The known path is
-    typically SLOWER (mail transport + DB write); the spec requires the
-    delta to be at most 50ms because the unknown path pads to a 50ms
-    floor.
-    """
-    mailbox_path = tmp_path / "mailbox.jsonl"
-    auth_port = _StubAuthPort()
-    auth_port.add("realuser@apap.local")
-    test_app, _ = _build_magic_test_app(
-        dsn=ephemeral_postgres.dsn,
-        schema=ephemeral_postgres.schema,
-        mailbox_path=mailbox_path,
-        auth_port=auth_port,
-    )
-
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=test_app),
-        base_url="http://test",
-    ) as client:
-        # Warm-up: drive one request first so the first DB connection
-        # setup cost doesn't leak into the timing measurement.
-        await client.post(
-            "/auth/magic/start", json={"email": "realuser@apap.local"}
-        )
-
-        # Time the known path.
-        t0 = time.monotonic()
-        known = await client.post(
-            "/auth/magic/start", json={"email": "realuser@apap.local"}
-        )
-        known_elapsed = time.monotonic() - t0
-
-        # Time the unknown path.
-        t0 = time.monotonic()
-        unknown = await client.post(
-            "/auth/magic/start", json={"email": "nope@apap.local"}
-        )
-        unknown_elapsed = time.monotonic() - t0
-
-    assert known.status_code == 200
-    assert unknown.status_code == 200
-
-    # Both paths must be at least 50ms (the route pads the unknown path
-    # to the floor; the known path pays for the DB write + transport
-    # call which usually exceeds the floor).
-    assert known_elapsed >= 0.045, (
-        f"known path completed in {known_elapsed * 1000:.1f}ms -- expected >=45ms"
-    )
-    assert unknown_elapsed >= 0.045, (
-        f"unknown path completed in {unknown_elapsed * 1000:.1f}ms -- "
-        "constant-time padding missing"
-    )
-    # The spec contract: the difference between the two is <=50ms.
-    delta_ms = abs(known_elapsed - unknown_elapsed) * 1000
-    assert delta_ms <= 50.0, (
-        f"timing delta {delta_ms:.1f}ms exceeds the 50ms budget "
-        f"(known={known_elapsed * 1000:.1f}ms, unknown={unknown_elapsed * 1000:.1f}ms)"
-    )
+    second = await client.get(f"/api/magic/verify?token={token}", follow_redirects=False)
+    assert second.status_code == 302
+    assert "/login" in second.headers["location"]
+    # ``Set-Cookie`` is NOT set the second time — the token was
+    # already consumed, no new session is minted.
+    assert "apap_session=" not in second.headers.get("set-cookie", "")

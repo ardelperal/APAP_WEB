@@ -1,213 +1,147 @@
-"""FastAPI composition root for the local backend."""
+"""FastAPI app for the local backend (M0 of self-host-backend-coolify, issue #641).
+
+The local backend is a **separate FastAPI app** — not a router mounted
+on ``app.main``. The user-approved architecture in the session prior
+to this one keeps the lifespans independent: ``app.main`` provisions
+the schema against InsForge (or against the local DB when
+``APAP_LOCAL_BACKEND=true``); the local backend has its own lifespan
+that constructs the ``LocalPostgresExecutor`` from
+``APAP_LOCAL_DB_URL``.
+
+The router mounts each handler at its documented path under ``/api``
+(or root for ``/healthz``). The lifespan builds the executor once
+at startup and stores it on ``app.state.local_postgres_executor``;
+the handlers retrieve it from there. M2 (Coolify + production) wraps
+this app in a separate Docker container behind coolify-proxy.
+
+M3.4 (issue #651) extends the lifespan to also wire the magic-link
+port + SMTP transport + session secret onto ``app.state`` so the
+magic-link router can read them.
+
+Hard rules (web-tdd-philosophy):
+- Rule 1 (fixture gate): the lifespan runs in the test via
+  ``httpx.AsyncClient(ASGITransport=app)``.
+- Rule 4 (no humo): the lifespan raises on missing DSN, the executor
+  wraps psycopg errors into typed exceptions, the handlers translate
+  those to HTTP status codes.
+- Rule 8 (no production mutation): the local backend runs in-process
+  against the integration conftest's ephemeral Postgres.
+"""
 
 from __future__ import annotations
 
 import os
-from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from app.core.auth_magic.mail_transports import ConsoleMailTransport
-from app.core.auth_magic.postgres_adapter import PostgresMagicLinkAdapter
-from app.core.local_backend.db import LocalPostgresExecutor
-from app.core.local_backend.healthz import healthz_router
-from app.core.local_backend.oauth_google import oauth_router
+from app.core.adapters.auth_local.magic_link_port import MagicLinkPortImpl
+from app.core.config import get_settings
+from app.core.local_backend.db import (
+    DatabaseError,
+    LocalPostgresExecutor,
+    QueryError,
+)
+from app.core.local_backend.healthz import router as healthz_router
+from app.core.local_backend.magic_link import router as magic_link_router
+from app.core.local_backend.oauth_google import router as oauth_router
 from app.core.local_backend.rawsql import router as rawsql_router
-from app.core.local_backend.storage import storage_router
-from app.core.local_backend.stub_auth_port import StubAuthPort
-
-# Spec M1 R7 — operators flip the magic-link channel without a redeploy
-# by reading the env at request time; the lifespan reads the same env
-# once at startup to decide whether to attach the magic-link adapters.
-_MAGIC_LINK_TRUTHY = frozenset({"1", "true", "yes", "on"})
+from app.core.local_backend.storage import router as storage_router
+from app.core.mail.smtp_transport import SMTPMailTransport
 
 
-def _magic_link_enabled() -> bool:
-    """Return ``True`` iff ``APAP_AUTH_ENABLE_MAGIC_LINK`` is truthy.
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Build the LocalPostgresExecutor at startup; tear down at shutdown.
 
-    Mirrors :func:`app.core.auth_magic.routes._magic_link_enabled`'s
-    truthy set so the lifespan matches the route gate. Centralised
-    here (instead of imported from the route module) to avoid a
-    circular import — the routes module imports nothing from
-    ``local_backend``, but the lifespan imports both the routes and
-    the local-backend internals; pulling the predicate keeps the
-    edge direction single-source-of-truth (lifespan owns the env
-    parsing; routes own the per-request parsing).
+    Reads ``APAP_LOCAL_DB_URL`` (required) and ``APAP_LOCAL_DB_SCHEMA``
+    (optional, default ``public``) from the environment. The
+    integration tests pass the ephemeral schema name via
+    ``APAP_LOCAL_DB_SCHEMA`` so the executor queries the right namespace.
+    M0 hard-fails on missing DSN: the local backend is not optional.
+    M2 (production) will surface a more useful error to the operator.
+
+    M3.4 also wires:
+
+    - ``MagicLinkPortImpl`` over the executor (so the magic-link
+      router can persist tokens).
+    - ``SMTPMailTransport`` over the cached settings (no-op when
+      ``APAP_SMTP_HOST`` is unset).
+    - ``session_secret`` (the lifespan reads it from
+      ``APAP_SESSION_SECRET`` so the magic-link verify handler can
+      sign the cookie).
     """
-    return (
-        os.environ.get("APAP_AUTH_ENABLE_MAGIC_LINK", "").strip().lower()
-        in _MAGIC_LINK_TRUTHY
-    )
-
-
-class _BaseUrlAwareConsoleTransport(ConsoleMailTransport):
-    """Console transport that injects ``APAP_APP_BASE_URL`` as the base.
-
-    The local FastAPI backend is spawned on a kernel-allocated port
-    (see :mod:`tests.migration._local_backend_fixture`); the verify
-    URL the magic-link transport emits must point at the same loopback
-    so the F3 round-trip gate can ``GET`` it back. The default
-    :class:`ConsoleMailTransport` uses whatever ``base_url`` the
-    caller passed in, and the F1 adapter hard-codes ``""`` (see
-    :mod:`app.core.auth_magic.postgres_adapter`); F3 closes the gap
-    by overriding :meth:`send_magic_link` to read
-    ``APAP_APP_BASE_URL`` from the spawned subprocess's env.
-
-    The class lives in this module (not under ``app.core.auth_magic``)
-    because it is F3-local-backend-only behaviour: production wiring
-    would either inject ``settings.app_base_url`` at the route layer
-    or have the M1.1 ``SMTPMailTransport`` build the URL itself. This
-    subclass is the loopback-specific shim.
-    """
-
-    async def send_magic_link(
-        self, email: str, raw_token: str, base_url: str
-    ) -> None:
-        """Append a JSON line whose ``verify_url`` carries the env-injected base.
-
-        The caller-supplied ``base_url`` argument is ignored; the
-        subprocess env (``APAP_APP_BASE_URL``) is authoritative for
-        the loopback. Falling back to the caller's value when the env
-        is empty keeps the transport usable in the integration-test
-        path (``test_magic_link_routes.py``) where ``APAP_APP_BASE_URL``
-        is unset and the test asserts the URL shape with the
-        ``http://test`` httpx base.
-        """
-        effective_base = os.environ.get("APAP_APP_BASE_URL", "").strip()
-        if not effective_base:
-            effective_base = base_url
-        await super().send_magic_link(email, raw_token, effective_base)
-
-
-def create_app(*, db_dsn: str = "", oauth_configured: bool = False) -> FastAPI:
-    """Build the local FastAPI application and mount its routers."""
-    if not db_dsn or not db_dsn.strip():
-        raise RuntimeError("db_dsn is required for the local backend")
-
-    magic_enabled = _magic_link_enabled()
-
-    @asynccontextmanager
-    async def lifespan(application: FastAPI) -> AsyncIterator[None]:
-        executor = LocalPostgresExecutor(
-            db_dsn,
-            search_path=os.environ.get("APAP_LOCAL_DB_SCHEMA") or None,
-        )
-        application.state.local_postgres_executor = executor
-        application.state.oauth_configured = oauth_configured
-        application.state.oauth_configured = oauth_configured
-        # F1 §T2.AS1 — apply the 27-statement DDL on every cold start
-        # so the local Postgres is the source of truth for the schema.
-        # Idempotent (CREATE TABLE IF NOT EXISTS). The InsForge adapter
-        # accepts our LocalPostgresExecutor via the SqlExecutor Protocol.
-        from app.core.adapters.insforge.auth_insforge_adapter import (
-            InsForgeAuthUsersAdapter,
-        )
-        InsForgeAuthUsersAdapter(executor).ensure_schema_and_seed(
-            os.environ.get("APAP_INITIAL_ADMIN_EMAIL", "").strip(),
-        )
-        if magic_enabled:
-            # F3 (spec M1 T3.1) — wire the three magic-link ports onto
-            # ``app.state`` so the F2 routes can resolve them via
-            # :mod:`app.core.auth_magic.app_state`. The lifespan is the
-            # sole owner; tests that need a fresh state rebuild the
-            # app via :func:`tests.migration._local_backend_fixture.allocate_local_backend`.
-            schema = os.environ.get("APAP_LOCAL_DB_SCHEMA") or None
-            application.state.magic_link_port = PostgresMagicLinkAdapter(
-                db_dsn, search_path=schema
-            )
-            application.state.mail_transport = _BaseUrlAwareConsoleTransport()
-            application.state.auth_port = StubAuthPort()
-        try:
-            yield
-        finally:
-            executor.close()
-
-    application = FastAPI(title="APAP local backend", lifespan=lifespan)
-    application.include_router(healthz_router)
-    application.include_router(rawsql_router, prefix="/api")
-    application.include_router(storage_router, prefix="/api")
-    application.include_router(oauth_router, prefix="/api")
-    if magic_enabled:
-        # F3 (spec M1 T3.1) — mount the magic-link routes onto the same
-        # ``application`` so the lifespan-attached ``app.state`` ports
-        # are visible to them via :mod:`app.core.auth_magic.app_state`.
-        # The import is local (not module-level) so the production
-        # factory (no magic-link flag) does not pull the route module's
-        # graph into its import tree.
-        from app.core.auth_magic.routes import router as magic_router
-
-        application.include_router(magic_router)
-
-        # F3 debug-only route (spec M1 T3.4) — seed a known user so the
-        # round-trip gate can plant ``magic-link-test@apap.local``
-        # without provisioning a real ``usuarios_autorizados`` table.
-        # The route is registered ONLY when ``APAP_AUTH_ENABLE_MAGIC_LINK``
-        # is truthy; production factories (without the flag) do not
-        # expose ``/_test/seed_user`` at all. The route calls the
-        # :class:`StubAuthPort.add` helper (the F2 test-stub shape),
-        # not the Protocol-level ``add_authorized_user`` (the use-case
-        # shape), because the stub implements the former and not the
-        # latter.
-        @application.post("/_test/seed_user")
-        async def test_seed_user(request: Request) -> JSONResponse:
-            body: Any = await request.json()
-            if not isinstance(body, dict):
-                return JSONResponse(
-                    {"error": "invalid_request", "detail": "body must be a JSON object"},
-                    status_code=400,
-                )
-            email_raw = body.get("email")
-            if not isinstance(email_raw, str) or not email_raw.strip():
-                return JSONResponse(
-                    {"error": "invalid_request", "detail": "email is required"},
-                    status_code=400,
-                )
-            rol_raw = body.get("rol", "developer")
-            if not isinstance(rol_raw, str):
-                rol_raw = "developer"
-            auth_port = application.state.auth_port
-            user = auth_port.add(email_raw, rol_raw)
-            return JSONResponse(
-                {
-                    "id": user.id,
-                    "email": user.email,
-                    "rol": user.rol.value,
-                    "active": user.active,
-                }
-            )
-
-    return application
-
-
-def create_app_from_env() -> FastAPI:
-    """Build the local FastAPI app using env-var configuration.
-
-    Reads ``APAP_LOCAL_BACKEND_DSN`` (required) and
-    ``APAP_LOCAL_BACKEND_OAUTH_CONFIGURED`` (default ``False``) from the
-    process environment. Raises ``RuntimeError`` when the DSN is unset so
-    the container fails fast at startup instead of binding to port 8080
-    and serving 500s.
-
-    This helper is the entry point the Dockerfile's ``CMD`` invokes via
-    ``uvicorn ...:create_app_from_env --factory`` so the operator never
-    has to thread DSN through ``--db-dsn=...`` on the command line
-    (where it would leak into the process list).
-    """
-    import os
-
-
-    dsn = os.environ.get("APAP_LOCAL_BACKEND_DSN", "").strip()
-    oauth = os.environ.get("APAP_LOCAL_BACKEND_OAUTH_CONFIGURED", "false").lower() in (
-        "1", "true", "yes", "on"
-    )
+    dsn = os.environ.get("APAP_LOCAL_DB_URL")
     if not dsn:
         raise RuntimeError(
-            "APAP_LOCAL_BACKEND_DSN is required for the local backend"
+            "APAP_LOCAL_DB_URL is not set. The local backend requires "
+            "a Postgres DSN at startup. Set it in the environment or "
+            ".env (see docs/runbooks/self-host-backend.md)."
         )
-    return create_app(db_dsn=dsn, oauth_configured=oauth)
+    search_path = os.environ.get("APAP_LOCAL_DB_SCHEMA")
+    executor = LocalPostgresExecutor(dsn, search_path=search_path)
+    app.state.local_postgres_executor = executor
+
+    # M3.4 wiring: magic-link port + SMTP transport + session secret.
+    settings = get_settings()
+    app.state.magic_link_port = MagicLinkPortImpl(executor)
+    app.state.smtp_transport = SMTPMailTransport(settings)
+    app.state.session_secret = settings.session_secret
+    # Public base URL the verify link points at. Defaults to the
+    # ``APAP_PUBLIC_BASE_URL`` env var or ``http://127.0.0.1:8000``;
+    # production sets it to ``https://apap.romancaba.com`` via the
+    # Coolify env-var injection in M2.
+    app.state.public_base_url = os.environ.get(
+        "APAP_PUBLIC_BASE_URL", "http://127.0.0.1:8000"
+    )
+
+    try:
+        yield
+    finally:
+        # The current implementation builds a fresh connection per
+        # execute() call (no pool in M0). The hook is here for M2 when
+        # a real connection pool arrives.
+        pass
 
 
-__all__ = ["create_app", "healthz_router", "oauth_router", "rawsql_router", "storage_router"]
+def create_app() -> FastAPI:
+    """App factory for the local backend.
+
+    A factory (not a module-level instance) keeps the tests hermetic
+    and lets the lifespan be properly initialised by the test
+    client (ASGITransport). Module-level instances skip the lifespan
+    in some test setups; factories do not.
+    """
+    app = FastAPI(
+        title="APAP_WEB local backend (M0)",
+        lifespan=lifespan,
+    )
+
+    @app.exception_handler(QueryError)
+    async def _on_query_error(
+        request: Request, exc: QueryError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "query_error", "detail": str(exc)},
+        )
+
+    @app.exception_handler(DatabaseError)
+    async def _on_database_error(
+        request: Request, exc: DatabaseError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "database_error", "detail": str(exc)},
+        )
+
+    app.include_router(rawsql_router, prefix="/api")
+    app.include_router(storage_router, prefix="/api")
+    app.include_router(healthz_router)
+    app.include_router(oauth_router, prefix="/api")
+    app.include_router(magic_link_router, prefix="/api")
+    return app
+
+
+__all__ = ["create_app", "lifespan"]

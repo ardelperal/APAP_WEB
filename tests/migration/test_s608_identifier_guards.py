@@ -104,10 +104,10 @@ class TestCliStatusGuard:
         import io
         from types import SimpleNamespace
 
-        from migration import cli, cli_status
+        from migration import cli
 
         monkeypatch.setattr(
-            cli_status, "load_mapping", lambda _table: SimpleNamespace(web_table=INJECTION)
+            cli, "load_mapping", lambda _table: SimpleNamespace(web_table=INJECTION)
         )
 
         class _RecordingClient:

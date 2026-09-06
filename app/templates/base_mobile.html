@@ -6,17 +6,15 @@
    mismas labels en espanol) pero con layout optimizado para
    telefonos:
 
-   - Header con burger (mismo patrón ``<details>/<summary>`` que
-     ``base.html``) para que el menu completo viva en un disclosure
-     en lugar de una pagina dedicada. Esto elimina la confusion
-     anterior donde el link "Menú" apuntaba a ``/casas-acogida`` (un
-     modulo de foster, no un menu).
    - Sin grid horizontal: una sola columna, todo apilado.
    - Botones full-width y touch-friendly (altura >= 44px).
    - Sin animaciones pesadas; el ``scroll-behavior`` smooth y
      transitions cortas siguen siendo aceptables.
    - Tipografia ligeramente mayor para legibilidad en pantallas
      pequenas.
+   - Header simplificado: logo + acceso directo al menu, sin
+     burger disclosure (el menu completo vive en una pagina
+     dedicada).
 
    IMPORTANTE: este template NO extiende ``base.html`` ni usa
    Jinja blocks que el template desktop no tenga. Es una
@@ -41,51 +39,12 @@
   </head>
   <body class="min-h-screen flex flex-col bg-bg text-text font-sans antialiased">
     <header class="sticky top-0 z-50 bg-surface border-b border-border shadow-card">
-      <div class="px-4 py-3 flex items-center justify-between gap-2">
+      <div class="px-4 py-3 flex items-center justify-between">
         <a href="/" class="text-primary font-bold text-lg flex items-center gap-2">
           <span aria-hidden="true">🐾</span>
           <span>APAP</span>
         </a>
-        {# Mobile burger: native <details>/<summary> so no JS is needed to
-           open/close the menu — the browser handles toggle + a11y.
-           Links mirror the desktop nav in base.html (issue #147 follow-up). #}
-        <details id="mobile-burger" class="relative ml-auto">
-          <summary class="list-none cursor-pointer flex items-center gap-2 px-3 py-2 rounded border border-border text-text-muted hover:text-primary hover:border-primary transition-colors">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" class="h-5 w-5" aria-hidden="true">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
-            </svg>
-            <span class="text-sm font-medium">Menú</span>
-          </summary>
-          <div class="absolute right-0 top-full mt-2 w-72 max-w-[calc(100vw-2rem)] bg-surface border border-border rounded-card shadow-card z-50">
-            <nav class="flex flex-col py-2 text-sm" aria-label="Menú móvil">
-              <a href="/" class="px-4 py-2.5 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Inicio</a>
-              <a href="/animales" class="px-4 py-2.5 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Animales</a>
-              <a href="/entradas" class="px-4 py-2.5 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Entradas</a>
-              <a href="/entradas/batch/new" class="px-4 py-2.5 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Entradas en lote</a>
-              <a href="/casas-acogida" class="px-4 py-2.5 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Casas de acogida</a>
-              <a href="/acogidas" class="px-4 py-2.5 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Estancias de acogida</a>
-              <a href="/adopciones" class="px-4 py-2.5 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Adopciones</a>
-              <a href="/sanidad" class="px-4 py-2.5 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Actuaciones</a>
-              <a href="/voluntarios" class="px-4 py-2.5 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Voluntarios</a>
-              {% if user is defined and user and user.role == "developer" %}
-                <a href="/admin" class="px-4 py-2.5 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Admin</a>
-              {% endif %}
-            </nav>
-            <div class="border-t border-border px-4 py-3 text-sm">
-              {% if user is defined and user %}
-                <p class="font-medium text-text">{{ user.email }}</p>
-                <p class="text-text-muted text-xs">Rol: {{ user.role }}</p>
-                <form method="post" action="/logout" class="mt-2">
-                  <button type="submit" class="w-full text-left text-text-muted hover:text-rose-700 transition-colors">
-                    Salir
-                  </button>
-                </form>
-              {% else %}
-                <a href="/login" class="block text-primary font-semibold">Iniciar sesión</a>
-              {% endif %}
-            </div>
-          </div>
-        </details>
+        <a href="/casas-acogida" class="text-sm text-text-muted">Menú</a>
       </div>
     </header>
 

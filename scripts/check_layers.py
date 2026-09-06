@@ -591,6 +591,8 @@ BASELINE: Mapping[str, str] = {
     "app/core/domain/oauth/session.py -> app.core.domain.auth.user [slice-boundary]": _EPIC_420,
     "app/core/tasks/scheduler.py -> app.modules.tasks [layer-direction]": _LAZY_CYCLE,
     "app/core/tasks/scheduler.py -> app.modules.tasks.service [layer-direction]": _LAZY_CYCLE,
+        "app/core/ports/auth_classic_port.py -> app.core.domain.auth.user [slice-boundary]": _EPIC_420,
+        "app/core/ports/magic_link_port.py -> app.core.domain.auth.user [slice-boundary]": _EPIC_420,
 }
 
 

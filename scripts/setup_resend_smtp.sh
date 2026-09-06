@@ -5,7 +5,7 @@
 #   ./scripts/setup_resend_smtp.sh <resend_api_key>
 #
 # What it does:
-#   1. Replaces the 5 APAP_SMTP_* env vars on the Coolify production app
+#   1. Sets the 5 APAP_SMTP_* env vars on the Coolify production app
 #      (smtp.resend.com:465, user=resend, password=<api_key>,
 #      from=onboarding@resend.dev for instant testability).
 #   2. Triggers a fresh deploy so the lifespan picks up the new SMTP
@@ -13,7 +13,7 @@
 #
 # Prereqs:
 #   - Resend account created (https://resend.com).
-#   - API key copied from Settings → API Keys (starts with `re_`).
+#   - API key copied from Settings → API Keys.
 #   - Coolify env vars COOLIFY_API, COOLIFY_ACCESS_TOKEN, APP_UUID
 #     set in the operator's shell.
 #
@@ -21,21 +21,18 @@
 #   By default this script sets APAP_SMTP_FROM=onboarding@resend.dev.
 #   This is the test from-address Resend ships with every account — no
 #   DNS required. The recipient sees the email come from
-#   "onboarding@resend.dev" (fine for internal E2E).
+#   "onboarding@resend.dev" (which is fine for internal E2E).
 #
 #   Once you verify romancaba.com in the Resend dashboard (Domains →
 #   Add Domain → paste the SPF + DKIM records into your DNS), change
 #   `from` to `noreply@romancaba.com` (or whatever alias you prefer):
 #
-#       ENV_UUID=$(curl -sS -H "Authorization: Bearer $COOLIFY_ACCESS_TOKEN" \
-#         "$COOLIFY_API/applications/$APP_UUID/envs" \
-#         | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(e["uuid"] for e in d if e["key"]=="APAP_SMTP_FROM" and not e["is_preview"]))')
-#       curl -sS -X DELETE "$COOLIFY_API/applications/$APP_UUID/envs/$ENV_UUID" \
-#         -H "Authorization: Bearer $COOLIFY_ACCESS_TOKEN"
-#       curl -sS -X POST "$COOLIFY_API/applications/$APP_UUID/envs" \
-#         -H "Authorization: Bearer $COOLIFY_ACCESS_TOKEN" \
-#         -H "Content-Type: application/json" \
-#         -d '{"key":"APAP_SMTP_FROM","value":"noreply@romancaba.com","is_preview":false}'
+#       curl -X DELETE "$COOLIFY_API/applications/$APP_UUID/envs/<env_uuid>" \\
+#            -H "Authorization: Bearer $COOLIFY_ACCESS_TOKEN"
+#       curl -X POST "$COOLIFY_API/applications/$APP_UUID/envs" \\
+#            -H "Authorization: Bearer $COOLIFY_ACCESS_TOKEN" \\
+#            -H "Content-Type: application/json" \\
+#            -d '{"key":"APAP_SMTP_FROM","value":"noreply@romancaba.com","is_preview":false}'
 #
 #   Then redeploy.
 set -euo pipefail

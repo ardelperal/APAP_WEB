@@ -156,7 +156,7 @@ def _expand_params_for_placeholder_style(
 # psycopg against the service container — these CREATE TABLE IF NOT EXISTS
 # statements are the only thing needed to make the ephemeral schema match
 # the InsForge domain + catalogos layout.
-_CATALOGOS_MOTIVOS_CREATE_TABLE_SQL = """\
+CATALOGOS_MOTIVOS_CREATE_TABLE_SQL = """\
 CREATE TABLE IF NOT EXISTS catalogos_motivos (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     codigo TEXT NOT NULL,
@@ -171,7 +171,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS catalogos_motivos_natural_key
     ON catalogos_motivos (codigo, especie);
 """
 
-_CATALOGOS_ORIGENES_CREATE_TABLE_SQL = """\
+CATALOGOS_ORIGENES_CREATE_TABLE_SQL = """\
 CREATE TABLE IF NOT EXISTS catalogos_origenes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     codigo TEXT NOT NULL,
@@ -186,7 +186,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS catalogos_origenes_codigo_key
     ON catalogos_origenes (codigo);
 """
 
-_CATALOGOS_PERIODICIDAD_CREATE_TABLE_SQL = """\
+CATALOGOS_PERIODICIDAD_CREATE_TABLE_SQL = """\
 CREATE TABLE IF NOT EXISTS catalogos_periodicidad (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     codigo TEXT NOT NULL,
@@ -201,7 +201,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS catalogos_periodicidad_codigo_key
     ON catalogos_periodicidad (codigo);
 """
 
-_CATALOGOS_PRUEBAS_CREATE_TABLE_SQL = """\
+CATALOGOS_PRUEBAS_CREATE_TABLE_SQL = """\
 CREATE TABLE IF NOT EXISTS catalogos_pruebas (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     codigo TEXT NOT NULL,
@@ -217,7 +217,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS catalogos_pruebas_natural_key
     ON catalogos_pruebas (codigo, especie);
 """
 
-_CATALOGOS_TIPOS_CONTRATO_CREATE_TABLE_SQL = """\
+CATALOGOS_TIPOS_CONTRATO_CREATE_TABLE_SQL = """\
 CREATE TABLE IF NOT EXISTS catalogos_tipos_contrato (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     codigo TEXT NOT NULL,
@@ -241,11 +241,11 @@ _DSN_ENV = "APAP_TEST_POSTGRES_DSN"
 # Order respects FK dependencies: catalogos_* first (no FKs of their own,
 # but referenced by contratos), then the existing domain statements.
 _DOMAIN_SQL_STATEMENTS = (
-    _CATALOGOS_MOTIVOS_CREATE_TABLE_SQL,
-    _CATALOGOS_ORIGENES_CREATE_TABLE_SQL,
-    _CATALOGOS_PERIODICIDAD_CREATE_TABLE_SQL,
-    _CATALOGOS_PRUEBAS_CREATE_TABLE_SQL,
-    _CATALOGOS_TIPOS_CONTRATO_CREATE_TABLE_SQL,
+    CATALOGOS_MOTIVOS_CREATE_TABLE_SQL,
+    CATALOGOS_ORIGENES_CREATE_TABLE_SQL,
+    CATALOGOS_PERIODICIDAD_CREATE_TABLE_SQL,
+    CATALOGOS_PRUEBAS_CREATE_TABLE_SQL,
+    CATALOGOS_TIPOS_CONTRATO_CREATE_TABLE_SQL,
     ANIMALS_CREATE_TABLE_SQL,
     VOLUNTARIOS_CREATE_TABLE_SQL,
     ROLES_VOLUNTARIO_CREATE_TABLE_SQL,
@@ -402,6 +402,36 @@ def ephemeral_postgres() -> Iterator[_EphemeralPostgres]:
     EphemeralPostgres.teardown()
 
 
+@pytest.fixture
+def postgres_dsn() -> str:
+    """Expose the APAP_TEST_POSTGRES_DSN env var for tests that need
+    to build their own psycopg connection (rather than going through
+    the integration conftest's ``ephemeral_postgres`` wrapper).
+
+    M0 of the self-host-backend-coolify openspec (issue #641).
+    """
+    return os.environ["APAP_TEST_POSTGRES_DSN"]
+
+
+@pytest.fixture
+def schema_postgres_dsn(ephemeral_postgres) -> str:
+    """DSN that points at the same database the ephemeral schema lives in.
+
+    Tests that need to build their own psycopg connection (the
+    ``LocalPostgresExecutor`` does this) should use this DSN rather
+    than the global ``APAP_TEST_POSTGRES_DSN`` because the ephemeral
+    schema (``ephemeral_postgres.schema``) only exists on the same
+    Postgres instance the integration conftest provisioned.
+
+    The DSN is identical to ``APAP_TEST_POSTGRES_DSN`` but documented
+    here as a separate fixture so tests that need the schema can
+    request it explicitly.
+
+    M0 of the self-host-backend-coolify openspec (issue #641).
+    """
+    return os.environ["APAP_TEST_POSTGRES_DSN"]
+
+
 @pytest.fixture(autouse=True)
 def _truncate_between_tests(ephemeral_postgres: _EphemeralPostgres) -> None:
     """Wipe all data before each test for isolation under the session-scoped schema."""
@@ -428,6 +458,47 @@ def _truncate_between_tests(ephemeral_postgres: _EphemeralPostgres) -> None:
             if tables:
                 cur.execute(f"TRUNCATE TABLE {', '.join(tables)} CASCADE")
 
+
+
+
+
+@pytest.fixture
+def self_host_schema(ephemeral_postgres):
+    """Extend the ephemeral Postgres schema with the self-host auth tables.
+
+    Creates ``usuarios_autorizados`` (not in the domain provisioning)
+    and applies migrations 007 (add password_hash, email_verified_at,
+    failed_attempts) and 008 (create ``magic_link_tokens``). Tests that
+    need classic password auth or magic-link tokens depend on this
+    fixture instead of the bare ``ephemeral_postgres``.
+
+    M1 of the self-host-backend-coolify openspec (issue #641).
+    """
+    from pathlib import Path
+
+    from app.core.adapters.insforge.auth_insforge_queries import (
+        CREATE_TABLE_SQL as USUARIOS_AUTORIZADOS_CREATE_SQL,
+    )
+
+    # Create the auth core table first (it is not in the domain
+    # provisioning). Then apply the M1 migrations on top.
+    with ephemeral_postgres.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(USUARIOS_AUTORIZADOS_CREATE_SQL)
+
+    migrations_dir = (
+        Path(__file__).resolve().parent.parent.parent
+        / "app" / "core" / "migration" / "sql"
+    )
+    for migration_name in (
+        "007_add_password_hash.sql",
+        "008_create_magic_link_tokens.sql",
+    ):
+        sql_text = (migrations_dir / migration_name).read_text(encoding="utf-8")
+        with ephemeral_postgres.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql_text)
+    yield ephemeral_postgres
 
 class _EphemeralPostgres:
     """Manages an ephemeral Postgres schema for integration tests."""
@@ -503,7 +574,7 @@ class _EphemeralPostgres:
 
     def execute(
         self, query: str, params: tuple[Any, ...] | list[Any] | None = None
-    ) -> list[dict[str, Any]]:
+        ) -> list[dict[str, Any]]:
         """Execute a query and return all rows as dicts.
 
         ``$N`` placeholders in the query are rewritten to ``%s`` at the
@@ -532,3 +603,30 @@ class _EphemeralPostgres:
             with conn.cursor() as cur:
                 cur.execute(rewritten_query, expanded_params)
                 return list(cur.fetchall())
+
+    def execute_sql(
+        self, query: str, params: tuple[Any, ...] | list[Any] | None = None
+    ) -> list[dict[str, Any]]:
+        """Alias of ``execute`` matching the SqlExecutor Protocol.
+
+        The integration conftest exposes ``execute`` (its own
+        internal name); production code (and our local adapters)
+        use the SqlExecutor Protocol which calls ``execute_sql``.
+        Both names do the same thing — the alias keeps the
+        production code calling the canonical name without the
+        conftest needing a different fixture signature.
+
+        INSERT/UPDATE/DELETE return no rows so we wrap fetchall in
+        a try/except for ProgrammingError. The Protocol's
+        ``list[dict]`` return type allows empty lists.
+        """
+        rewritten_query, expanded_params = _expand_params_for_placeholder_style(
+            query, [] if params is None else list(params)
+        )
+        with self.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(rewritten_query, expanded_params)
+                try:
+                    return list(cur.fetchall())
+                except psycopg.ProgrammingError:
+                    return []

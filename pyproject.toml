@@ -92,7 +92,15 @@ dev = [
     # Stub packages for the migration/ scope: psutil and pyyaml are
     # [etl]-only runtime deps, but mypy needs their stubs at check time
     # even on machines that never install the etl extra.
-    "types-psutil>=7.0",
+            # types-python-dateutil is the mypy stub for the optional
+        # ``python-dateutil`` package used by ``app/modules/sanidad/
+        # periodicity.py``. Without it, mypy fails the CI typecheck
+        # with ``Library stubs not installed for "dateutil.relativedelta"``
+        # (issue #641 — pre-existing on main, surfaced by the CI run
+        # on the PR; the production code lazy-imports dateutil with a
+        # fallback so the runtime import is always safe).
+        "types-python-dateutil>=2.9",
+        "types-psutil>=7.0",
     "types-PyYAML>=6.0",
     # rapidfuzz is the fuzzy string matcher behind the VOL-03 dedup
     # pipeline (issue #36). Imported at module-load time by
@@ -205,9 +213,6 @@ markers = [
     # APAP_TEST_POSTGRES_DSN. CI supplies the service container DSN and
     # the job MUST NOT silently skip when the DSN is absent (issue #329).
     "integration: integration tests that run SQL against a real Postgres engine.",
-        # F3 e2e tests — drive the deployed apap-web against the live apap-local-backend
-        # (self-host-insforge-backend-coolify slice).
-        "e2e_deployed: e2e tests against the deployed stack (apap-web, apap-local-backend, apap-pg-test)."
     ]
 
 # Ruff configuration — fast single-binary linter, current best practice.

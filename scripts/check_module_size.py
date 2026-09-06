@@ -50,7 +50,7 @@ SCAN_DIRS = ("app", "migration")
 #: fails on any drift between this dict and the real tree. Never add a
 #: new entry: split the module instead.
 BASELINE: dict[str, int] = {
-    "migration/apply.py": 1063,  # split _apply_value_transform to apply_value_transforms.py (2026-09-05); _legacy_to_web_row + _compute_source_hash kept in apply.py
+    "migration/apply.py": 1058,
     "migration/reconcile.py": 976,
 }
 

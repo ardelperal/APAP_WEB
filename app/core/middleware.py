@@ -67,12 +67,6 @@ PUBLIC_PATHS: frozenset[str] = frozenset(
         "/login",
         "/auth/google",
         "/auth/callback",
-        # M3: magic-link flow is itself an auth flow. The unauthenticated
-        # POST to /auth/magic/start must NOT be redirected to /login
-        # (that would prevent the user from logging in) and the verify
-        # GET must NOT be redirected either (the token IS the credential).
-        "/auth/magic/start",
-        "/auth/magic/verify",
         "/logout",
         # Issue #598: the E2E OAuth mock mints a session for tests;
         # the auth gate must NOT redirect the request to /login before
