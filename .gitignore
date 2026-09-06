@@ -92,6 +92,14 @@ SOUL.md
 # regression this entry caused.
 # quality/  # removed in favor of the anchored rule below
 /quality/
+# Gentle AI review artifact JSONs (produced by `gentle-ai review` runs).
+# These are written to repo root by older runs and pollute `git status`.
+# Pattern is broad (.gentle-ai*.json) so any future prefix is also ignored.
+.gentle-ai*.json
+
+# Pi editor runtime state (analogous to .codegraph-vba/, .engram/).
+.pi/
+
 # Local Pi runtime state
 # Directory-first order is REQUIRED: .atl/ establishes the directory, !.atl/
 # un-ignores it for traversal, .atl/*.md re-ignores .md files, and
