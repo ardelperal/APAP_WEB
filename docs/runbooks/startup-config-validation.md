@@ -20,7 +20,7 @@ Este runbook es el procedimiento del operador para diagnosticar y recuperar un f
 Abra este runbook en las siguientes situaciones:
 
 - Antes del primer despliegue a producción.
-- Tras rotar `APAP_SESSION_SECRET` o `APAP_INSFORGE_SERVICE_KEY`.
+- Tras rotar `APAP_SESSION_SECRET`.
 - Cuando un despliegue falla con `StartupConfigError` en los registros de la aplicación.
 - Antes de añadir `APAP_DEBUG=true` a un entorno de producción (no lo haga).
 
@@ -52,7 +52,6 @@ La aplicación no arranca. El health probe (`/healthz`) devuelve 503 o excede el
 
 ## Lista de comprobación previa
 
-- [ ] `APAP_INSFORGE_SERVICE_KEY` está fijado al valor real del service key de InsForge (no al valor por defecto vacío).
 - [ ] `APAP_SESSION_SECRET` está fijado a una cadena aleatoria de **al menos treinta y dos caracteres**.
 - [ ] `APAP_DEBUG` **no** está fijado a `true` en el entorno de producción.
 - [ ] Ha probado localmente el fragmento de generación de secretos de la sección siguiente.
@@ -71,9 +70,8 @@ El comando imprime una cadena criptográficamente aleatoria de treinta y dos car
 
 1. Abra el panel de la aplicación Coolify para `apap-web`.
 2. Navegue a **Environment variables**.
-3. Añada o actualice `APAP_INSFORGE_SERVICE_KEY` con el service key real desde el panel de InsForge.
-4. Añada o actualice `APAP_SESSION_SECRET` con el secreto generado.
-5. Guarde y dispare un nuevo despliegue.
+3. Añada o actualice `APAP_SESSION_SECRET` con el secreto generado.
+4. Guarde y dispare un nuevo despliegue.
 
 ## Verificación
 
@@ -97,7 +95,6 @@ El comando imprime una cadena criptográficamente aleatoria de treinta y dos car
 
     ```bash
     APAP_SESSION_SECRET="dev-only-change-me-in-production" \
-      APAP_INSFORGE_SERVICE_KEY="ik_real_key" \
       python -c "from app.main import create_app; create_app()"
     ```
 
@@ -105,7 +102,7 @@ El comando imprime una cadena criptográficamente aleatoria de treinta y dos car
 
 ## Reversión
 
-Si un despliegue funcional previo utilizaba `APAP_INSFORGE_SERVICE_KEY` vacío o el placeholder `APAP_SESSION_SECRET`:
+Si un despliegue funcional previo utilizaba el placeholder `APAP_SESSION_SECRET`:
 
 1. Restaure los valores anteriores en las variables de entorno de Coolify.
 2. Redespliegue.
@@ -116,6 +113,6 @@ Si un despliegue funcional previo utilizaba `APAP_INSFORGE_SERVICE_KEY` vacío o
 ## Documentos relacionados
 
 - `app/core/config.py` — `StartupConfigError` (línea 40), `_validate_secrets` y `_PLACEHOLDER_SESSION_SECRET` (línea 37).
-- `app/main.py` — cableado del `lifespan`: el validador se invoca entre `configure_logging` y `InsForgeClient`.
+- `app/main.py` — cableado del `lifespan`: el validador se invoca entre `configure_logging` y la construcción del cliente SQL local.
 - `docs/audits/secret-startup-validation-2026-Q3.md` — auditoría de seguridad.
 - `AGENTS.md` §32.P2 — anti-patrón que este runbook cierra (valores por defecto inseguros pero que arrancan).

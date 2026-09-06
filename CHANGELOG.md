@@ -11,6 +11,22 @@ Las notas detalladas por tag viven en GitHub Releases; este changelog agrega los
 
 ## Unreleased
 
+### Removed
+
+- `chore(config)`: drop InsForge from the deployment surface (closes #654):
+    - `Dockerfile`: drop `ENV APAP_INSFORGE_URL=http://localhost:7130` (the container no longer references InsForge).
+    - `coolify/apap-web-coolify.yaml`: drop `APAP_INSFORGE_URL` and `APAP_INSFORGE_SERVICE_KEY` from the env list and the operator secret list.
+    - `pyproject.toml`: drop `"insforge"` from `keywords`; clean two stale comment references to `docs/architecture/architecture-insforge-stack.md`.
+    - `opencode.json.example`: delete (the only entry was the `@insforge/mcp@latest` MCP server).
+    - `tests/test_coolify_web_yaml.py`: drop the two `APAP_INSFORGE_*` entries from the env-contract pin.
+    - `docs/setup.md`: drop the "Configurar el MCP de InsForge" step and the InsForge prerequisite row.
+    - `docs/runbooks/operator-deploy-2026.md`: drop `APAP_INSFORGE_SERVICE_KEY` from the required secrets list.
+    - `docs/runbooks/startup-config-validation.md`: drop all 5 `APAP_INSFORGE_SERVICE_KEY` mentions; rewrite the local-validation example.
+
+### Notes
+
+- `app/core/config.py` still defines `insforge_url`, `insforge_anon_key`, and `insforge_service_key` — those are removed in #5 once the consumer code is gone. `tests/migration/test_insforge_storage_methods.py` and its `.gitleaksignore` allowlist are removed in #7.
+
 ### Added
 
 - `docs(repo): add DOCS.md, CONTRIBUTING.md, CHANGELOG.md, SECURITY.md and CODEOWNERS at repo root (closes #552)`.

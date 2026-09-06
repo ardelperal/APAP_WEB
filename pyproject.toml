@@ -10,7 +10,7 @@ readme = "docs/setup.md"
 requires-python = ">=3.11"
 license = { text = "Proprietary" }
 authors = [{ name = "APAP Engineering" }]
-keywords = ["apap", "animal-shelter", "fastapi", "htmx", "insforge"]
+keywords = ["apap", "animal-shelter", "fastapi", "htmx"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -22,7 +22,6 @@ classifiers = [
 ]
 
 # Runtime dependencies for the APAP_WEB application skeleton (Fase 1).
-# Pinned per docs/architecture/architecture-insforge-stack.md § Stack.
 #
 # Note: the ETL one-time (reconcile, diff_engine, mappings/*.yaml,
 # shadow_state, lock, etc.) was moved to the top-level ``migration/``
@@ -163,8 +162,7 @@ only-include = ["app"]
 [tool.hatch.build.targets.sdist]
 only-include = ["app", "tests", "docs", "pyproject.toml", "README.md", "tailwindcss"]
 
-# Pytest configuration — deprecation strictness per
-# docs/architecture/architecture-insforge-stack.md § CI/CD Quality Gate.
+# Pytest configuration — deprecation strictness.
 # Tests of the FastAPI app use ``httpx.ASGITransport`` + ``pytest-asyncio``
 # in ``asyncio_mode = "auto"`` to avoid the deprecated
 # ``starlette.testclient.TestClient`` path entirely.

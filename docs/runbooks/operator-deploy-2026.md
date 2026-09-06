@@ -69,8 +69,8 @@ The Coolify service does not exist yet. The operator:
    "environment variables"; mark the sensitive ones as **secret**).
    The full list and defaults are in
    [`coolify/apap-web-coolify.yaml`](../../coolify/apap-web-coolify.yaml).
-   Required secrets: ``APAP_SESSION_SECRET``, ``APAP_LOCAL_DB_URL``,
-   ``APAP_SMTP_PASSWORD``, ``APAP_INSFORGE_SERVICE_KEY``.
+    Required secrets: ``APAP_SESSION_SECRET``, ``APAP_LOCAL_DB_URL``,
+    ``APAP_SMTP_PASSWORD``.
 
 4. **Trigger the first deploy** by pushing to ``main`` (the webhook in
    ``COOLIFY_WEBHOOK_URL`` fires the build) OR by clicking "Deploy" in

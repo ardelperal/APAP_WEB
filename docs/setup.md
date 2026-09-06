@@ -4,7 +4,7 @@
 
 > Documento en proceso de traducción al castellano. El contenido nuevo (Fase 1 — esqueleto) ya está en castellano; el contenido heredado en inglés se traducirá en una iteración posterior (issue pendiente en el roadmap).
 
-Esta guía explica cómo preparar el entorno local para trabajar en APAP_WEB. Cubre la configuración del MCP de InsForge, la gestión de secretos por desarrollador, y los comandos de arranque del esqueleto (Fase 1). No posee los comandos canónicos de test, lint y build — esos viven en [`docs/development.md`](development.md), que es el manual operativo canónico para esos flujos.
+Esta guía explica cómo preparar el entorno local para trabajar en APAP_WEB. Cubre la gestión de secretos por desarrollador y los comandos de arranque del esqueleto (Fase 1). No posee los comandos canónicos de test, lint y build — esos viven en [`docs/development.md`](development.md), que es el manual operativo canónico para esos flujos.
 
 ## Prerrequisitos
 
@@ -14,7 +14,6 @@ Esta guía explica cómo preparar el entorno local para trabajar en APAP_WEB. Cu
 | Node.js | 18+ | Necesario para `npx @tailwindcss/cli` (build de CSS) |
 | npm | 10+ | Incluido con Node 18+ |
 | OpenCode CLI | cualquiera reciente | Cliente de IA preferido para el proyecto |
-| Cuenta InsForge | free tier | <https://insforge.app> |
 
 ## Setup único
 
@@ -77,23 +76,7 @@ npm install
 cd ..
 ```
 
-### 4. Configurar el MCP de InsForge (opcional para Fase 1)
-
-`opencode.json` contiene la clave de admin de InsForge, que **es un secreto**. Por eso está en `.gitignore` y se regenera desde la plantilla.
-
-```powershell
-Copy-Item opencode.json.example opencode.json
-notepad opencode.json
-```
-
-Sustituir los placeholders:
-
-| Placeholder | Reemplazar por |
-|---|---|
-| `ik_replace_me_with_your_insforge_admin_api_key` | Tu clave de admin de InsForge (panel → Settings → API keys) |
-| `https://your-app-region.insforge.app` | URL de tu proyecto InsForge |
-
-### 5. Arrancar la app local
+### 4. Arrancar la app local
 
 Compila el CSS y levanta uvicorn en modo reload:
 
@@ -113,7 +96,7 @@ cd tailwindcss; npx tailwindcss -i ./styles/app.css -o ../app/static/css/output.
 
 Abre <http://127.0.0.1:8000> para ver el landing, <http://127.0.0.1:8000/healthz> para el JSON de health, y <http://127.0.0.1:8000/unauthorized> para la página de acceso denegado provisional.
 
-### 6. Verificar los tests
+### 5. Verificar los tests
 
 ```bash
 make test
@@ -125,7 +108,6 @@ Salida esperada: `17 passed` (3 de config, 3 de app, 5 de pages, 1 smoke, 5 de C
 
 ## Por qué este patrón
 
-- `opencode.json` con la clave de admin **nunca se commitea** (`.gitignore`). Una clave filtrada en Git es un compromiso total de la base de datos y la autenticación del proyecto en InsForge.
 - El proyecto se instala en un `.venv` local. Esto evita pisar dependencias de otras herramientas del sistema (opencode, hermes-agent) y mantiene el árbol reproducible.
 - Tailwind v4 se compila a `app/static/css/output.css` antes del `serve`. En Docker la build la hace el stage de builder del `Dockerfile`; en local la hace `make css` o `make css-watch`.
 - El `make run` es el atajo para el flujo local de "ver algo": compila CSS y arranca uvicorn en un solo comando.
@@ -134,16 +116,13 @@ Salida esperada: `17 passed` (3 de config, 3 de app, 5 de pages, 1 smoke, 5 de C
 
 - **Python 3.11 es el piso**: pineado en `pyproject.toml` (`requires-python = ">=3.11"`). Bajar a 3.10 rompe el typecheck y el contrato con FastAPI 0.137.x.
 - **`.venv` local obligatorio**: no instalar dependencias en el Python global. Mezclar con opencode o hermes-agent del sistema causa fallos de import que parecen bugs del proyecto.
-- **`opencode.json` jamás se commitea**: contiene la clave de admin de InsForge. Filtrarla es compromiso total de la base de datos y de la autenticación OAuth del proyecto. La regla vive en `.gitignore`.
 - **Tailwind v4 vía npm, no CDN**: la build reproducible pasa por `tailwindcss/` + `npx`. Un `<link>` a CDN deja el bundle fuera de la cache y rompe el contrato del arnés.
 - **Node 18+ requerido por el CLI de Tailwind**: `npx @tailwindcss/cli` requiere Node 18 LTS o superior; npm 10 viene incluido.
-- **Cuenta InsForge real, no anon key**: la clave de admin permite ejecutar `run-raw-sql` y mutar schema. El free tier es suficiente para Fase 1.
 
 ## Contributor checklist
 
 - [ ] Verificar `python --version` devuelve `3.11.x` (o superior compatible) antes de clonar el repo.
 - [ ] Crear el `.venv` desde la raíz del proyecto y activarlo en cada terminal; confirmar `which python` apunta a `.venv/bin/python`.
-- [ ] Copiar `opencode.json.example` a `opencode.json` y rellenar los dos placeholders (clave de admin + URL del proyecto InsForge).
 - [ ] Ejecutar `make css && make serve` y abrir `http://127.0.0.1:8000/healthz` para confirmar el JSON de health antes de seguir.
 - [ ] Ejecutar `make test` y confirmar `17 passed` (o la cifra actual de la suite) antes de abrir una PR.
 - [ ] Si trabaja en Windows PowerShell, usar siempre los bloques `powershell` listados en cada paso; los `bash` no aplican directamente.
