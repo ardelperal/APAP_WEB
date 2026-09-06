@@ -32,11 +32,11 @@ def _deny(payload: dict | None, reason: str, *, url: str = "/unauthorized") -> R
 def get_insforge_client_dep(request: Request) -> Iterator[InsForgeClient]:
     """Yield the pooled InsForge client owned by the application lifespan."""
     try:
-        client = request.app.state.insforge_client
+        client = request.app.state.sql_executor
     except AttributeError:
         settings = get_settings()
         client = InsForgeClient(settings.insforge_url, settings.insforge_service_key)
-        request.app.state.insforge_client = client
+        request.app.state.sql_executor = client
     yield client
 
 

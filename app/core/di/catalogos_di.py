@@ -10,7 +10,7 @@ Pattern (mirrors :func:`app.core.auth_dependencies.get_insforge_client_dep`):
 
 1. Yield the per-request port bound to the request-scoped
    :class:`SqlExecutor`. Production: the pool of executor lives on
-   ``app.state.insforge_client`` (the lifespan creates one
+   ``app.state.sql_executor`` (the lifespan creates one
    :class:`InsForgeClient` and reuses its underlying ``httpx.Client``
    across requests). The adapter is cheap to construct (no I/O), so
    building it per request is fine.
@@ -51,7 +51,7 @@ def get_catalogos_port(request: Request) -> Iterator[CatalogosPort]:
     the route layer does not import any InsForge-shaped import.
 
     The lifespan stores the pooled :class:`InsForgeClient` on
-    ``app.state.insforge_client``; that client is reused across
+    ``app.state.sql_executor``; that client is reused across
     requests to amortize the underlying ``httpx.Client`` connection
     pool. A lightweight ASGI test transport that does not run the
     lifespan falls back to a lazily-created client so the same
@@ -63,7 +63,7 @@ def get_catalogos_port(request: Request) -> Iterator[CatalogosPort]:
     import :class:`InsForgeCatalogosAdapter` directly.
     """
     try:
-        client = request.app.state.insforge_client
+        client = request.app.state.sql_executor
     except AttributeError:
         # Lazy fallback for ASGI test transports that skip the lifespan.
         # Production always initializes this state in
@@ -74,7 +74,7 @@ def get_catalogos_port(request: Request) -> Iterator[CatalogosPort]:
             settings.insforge_url,
             settings.insforge_service_key,
         )
-        request.app.state.insforge_client = client
+        request.app.state.sql_executor = client
     try:
         adapter = InsForgeCatalogosAdapter(client)
         yield adapter
