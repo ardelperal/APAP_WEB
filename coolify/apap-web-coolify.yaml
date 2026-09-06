@@ -1,0 +1,107 @@
+# APAP_WEB Coolify deploy contract (Phase 3b of self-host-backend-coolify).
+#
+# This file is the single source of truth for the apap-web Coolify
+# service: image, port, healthcheck, env vars, and the linked
+# runbook. Coolify itself imports the service via webhook
+# (COOLIFY_WEBHOOK_URL); this yaml is the reference the operator
+# (and a future CI import job) uses to provision it reproducibly.
+#
+# The env list MUST stay in sync with ``docs/codebase/integrations.md``
+# and ``app/core/config.py::Settings``. ``tests/test_coolify_web_yaml.py``
+# pins the contract: any drift fails the test suite.
+#
+# See also:
+#   docs/runbooks/operator-deploy-2026.md  — step-by-step deploy + rollback
+#   docs/codebase/integrations.md          — env-var reference
+#   docs/architecture/decisiones-proyecto.md — Coolify-as-deploy decision
+
+service:
+  name: apap-web
+  description: |
+    APAP_WEB FastAPI application + the local_backend API in the same
+    process. The container replaces InsForge in production via the
+    APAP_LOCAL_BACKEND=true switch (issue #641 / M0-M3.4).
+
+  # --- image ---------------------------------------------------------------
+  #
+  # Built by .github/workflows/ci.yml on every push to main, pushed to
+  # GitHub Container Registry. Tag is the short SHA so rollback is
+  # always one image-tag-flip away (issue #648 acceptance).
+  image: ghcr.io/ardelperal/apap-web:v{short_sha}
+
+  # --- port ----------------------------------------------------------------
+  #
+  # uvicorn listens on 0.0.0.0:8000 (the container's only port; Coolify's
+  # Traefik reverse-proxies external HTTPS traffic to it). Matches
+  # app/main.py::create_app.
+  port: 8000
+
+  # --- healthcheck ---------------------------------------------------------
+  #
+  # Probes GET /healthz every 10s; Coolify's restart policy treats
+  # 3 consecutive failures as a crash. /healthz lives in
+  # app/core/local_backend/healthz.py and returns the envelope the
+  # InsForge client and the integration tests pin:
+  #   {"db": "up"|"down", "storage": "up", "oauth": "configured"|"missing"}
+  healthcheck:
+    path: /healthz
+    interval_seconds: 10
+    timeout_seconds: 3
+    start_period_seconds: 30
+    failure_threshold: 3
+
+  # --- env vars ------------------------------------------------------------
+  #
+  # Pinned set. Operator overrides sensitive values via Coolify's
+  # secret store (UI or API); non-secret defaults match
+  # app/core/config.py::Settings.
+  #
+  # Tests in tests/test_coolify_web_yaml.py::TestEnvContract pin this
+  # list against ``docs/codebase/integrations.md`` and forbid
+  # ``CHANGEME`` placeholders for secret-bearing vars.
+  env:
+    # Runtime mode (web/legacy/test).
+    - { name: APAP_MODE, value: web }
+
+    # Session signing secret (32+ chars; Coolify secret store).
+    - { name: APAP_SESSION_SECRET, value: "" }
+
+    # Self-host switch — when true, InsForgeClient points at the local
+    # backend in this same container (issue #641).
+    - { name: APAP_LOCAL_BACKEND, value: "true" }
+
+    # Local Postgres DSN. Coolify secret store; format:
+    #   postgresql://apap:<pw>@apap-pg-test:5432/apap
+    - { name: APAP_LOCAL_DB_URL, value: "" }
+
+    # Legacy InsForge fallbacks (operator can leave empty in
+    # production once self-host is permanent).
+    - { name: APAP_INSFORGE_URL, value: "" }
+    - { name: APAP_INSFORGE_SERVICE_KEY, value: "" }
+
+    # Magic-link SMTP transport (M3.4 / #651). Resend credentials
+    # via Coolify secret store; ``APAP_SMTP_HOST=""`` keeps the
+    # transport in no-op mode if the operator wants to skip email
+    # delivery during a rehearsal.
+    - { name: APAP_SMTP_HOST, value: "" }
+    - { name: APAP_SMTP_PORT, value: "587" }
+    - { name: APAP_SMTP_USER, value: "" }
+    - { name: APAP_SMTP_PASSWORD, value: "" }
+    - { name: APAP_SMTP_FROM, value: "onboarding@resend.dev" }
+
+    # Public base URL the magic-link verify email points at.
+    # Production: ``https://apap.romancaba.com``.
+    - { name: APAP_PUBLIC_BASE_URL, value: "https://apap.romancaba.com" }
+
+  # --- volumes -------------------------------------------------------------
+  #
+  # None at the app level. The local Postgres is a sibling Coolify
+  # service (``apap-pg-test``); the app talks to it via DSN. Photos
+  # bucket is in-process (M0 stub); M2 swaps it for MinIO.
+
+  # --- linked runbook ------------------------------------------------------
+  #
+  # The single human-facing doc the operator reads before deploying.
+  # ``tests/test_coolify_web_yaml.py::TestRunbookLink`` ensures the
+  # file actually exists, so a renamed runbook fails the build.
+  runbook: docs/runbooks/operator-deploy-2026.md
