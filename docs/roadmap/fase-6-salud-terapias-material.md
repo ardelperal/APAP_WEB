@@ -84,9 +84,17 @@ Baterías E2E con Playwright para cada sub-slice de Fase 6. Las baterías se esc
 | Fichero E2E | Casos | Estado | Slice |
 |---|---|---|---|
 | `test_salud_terapias.py` | List, create, detail, edit, soft-delete, recomendaciones create/patch/delete, 409 con recomendaciones pendientes (7 tests) | hecho | `salud` |
-| `test_terapias_crud_full.py` | CRUD completo con todos los campos opcionales + recomendaciones | pendiente | `salud` |
-| `test_terapias_lifecycle.py` | Incoherente / Fallecido bloquean nueva terapia | pendiente | `salud` |
-| `test_terapias_auth.py` | 302 sin sesión, 403 reader en POST | pendiente | `salud` |
+| `test_terapias_auth.py` | GET/POST/GET-detail anónimo devuelven redirect a /login (3 tests) | hecho | `salud` |
+| `test_terapias_lifecycle.py` | Incoherente / Fallecido bloquean nueva terapia | pendiente (requiere implementación del código; el CTE actual no consulta ``animal_current_state``) | `salud` |
+| `test_terapias_crud_full.py` | CRUD completo con todos los campos opcionales + recomendaciones completas (PATCH completada) | cubierto por ``test_salud_terapias.py`` (7 tests) | `salud` |
+
+Nota sobre lifecycle: el slice 6b está cerrado con HEALTH-04 (#53) pero
+el motor de estado del animal (Incoherente / Fallecido) no bloquea
+hoy nuevas terapias; lo hace la regla equivalente en sanidad
+(HEALTH-01). El test E2E de lifecycle es un follow-up que requiere
+un slice pequeño: extender el CTE de ``create_terapia`` para que
+descarta animales en estado ``Incoherente`` / ``Fallecido`` (issue
+a crear al abrir ese slice).
 
 ### 6c — Material
 
