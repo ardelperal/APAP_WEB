@@ -1,5 +1,13 @@
 """InsForge REST client.
 
+.. deprecated:: 2026-09-06
+    ``InsForgeClient`` is no longer the production transport. The
+    Coolify-hosted local backend (see ``app.core.local_backend``) is the
+    only supported backend as of issue #641 closing the self-host
+    umbrella. This module remains so legacy adapters that still route
+    through it can run in test + dev; production deploys must use
+    ``LocalPostgresExecutor`` (or a future SqlExecutor adapter) instead.
+
 Thin async HTTPX wrapper around the public InsForge REST API. Used by:
 
 - the bootstrap seed to create the ``authorized_users`` table and the

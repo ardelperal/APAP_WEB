@@ -1,5 +1,15 @@
 """R7 in the spec: InsForgeClient base URL resolution.
 
+.. deprecated:: 2026-09-06
+    The ``APAP_LOCAL_BACKEND=true`` switch this module owns is no
+    longer the runtime decision: the Coolify-hosted local backend
+    (see ``app.core.local_backend``) is the only supported backend
+    as of issue #641 closing the self-host umbrella. The module
+    remains so legacy test + dev adapters that still consult it
+    can run; production deploys no longer read ``APAP_INSFORGE_URL``
+    (the env var is ignored) and always serve traffic from
+    ``LocalPostgresExecutor`` via ``app.core.local_backend``.
+
 Lifted out of ``app/core/insforge.py`` so the client module can stay under
 the 700-line budget. Reads two environment variables only:
 
