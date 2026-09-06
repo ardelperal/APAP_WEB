@@ -4,6 +4,14 @@ Selects the complete hexagonal :class:`Animal` read shape.
 ``FNacimiento`` comes back as an ISO 8601 string from InsForge's
 PostgREST adapter. ``updated_at`` remains transport-internal.
 """
+
+# Deprecated 2026-09-06: this module is no longer the production
+# transport. The Coolify-hosted local backend (LocalPostgresExecutor)
+# is the only supported backend as of issue #641 closing the
+# self-host umbrella. This file remains so the legacy InsForge-
+# touching tests can run in CI; production deploys use the
+# SqlExecutor-based adapter (a follow-up slice).
+
 from __future__ import annotations
 
 from app.modules.animals.domain.animal import DB_LABEL_TO_ESTADO

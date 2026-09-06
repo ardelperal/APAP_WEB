@@ -3,6 +3,14 @@
 Column names match the bootstrap schema in ``app/core/domain_voluntarios.py``
 (lowercase: ``voluntario``, ``tel1``, ``email``, ``dni``).
 """
+
+# Deprecated 2026-09-06: this module is no longer the production
+# transport. The Coolify-hosted local backend (LocalPostgresExecutor)
+# is the only supported backend as of issue #641 closing the
+# self-host umbrella. This file remains so the legacy InsForge-
+# touching tests can run in CI; production deploys use the
+# SqlExecutor-based adapter (a follow-up slice).
+
 from __future__ import annotations
 
 #: INSERT columns (writeable subset of the full row).

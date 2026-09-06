@@ -8,6 +8,14 @@ stateless; the DI provider in :mod:`app.modules.animals.di.animals_di`
 constructs one per request from the already-pooled
 :class:`~app.core.insforge.InsForgeClient`.
 """
+
+# Deprecated 2026-09-06: this module is no longer the production
+# transport. The Coolify-hosted local backend (LocalPostgresExecutor)
+# is the only supported backend as of issue #641 closing the
+# self-host umbrella. This file remains so the legacy InsForge-
+# touching tests can run in CI; production deploys use the
+# SqlExecutor-based adapter (a follow-up slice).
+
 # ruff: noqa: N803 — kwargs intentionally preserve legacy schema column names
 from __future__ import annotations
 

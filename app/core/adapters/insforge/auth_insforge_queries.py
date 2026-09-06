@@ -15,6 +15,14 @@ $1"``) and ``tests/test_auth.py`` (keys on ``"SELECT EXISTS"``,
 must preserve those substrings; the comment next to each
 projection-affecting query documents the substring contract.
 """
+
+# Deprecated 2026-09-06: this module is no longer the production
+# transport. The Coolify-hosted local backend (LocalPostgresExecutor)
+# is the only supported backend as of issue #641 closing the
+# self-host umbrella. This file remains so the legacy InsForge-
+# touching tests can run in CI; production deploys use the
+# SqlExecutor-based adapter (a follow-up slice).
+
 from __future__ import annotations
 
 # El CHECK constraint que duplicaba los valores de ``Rol`` se eliminó
