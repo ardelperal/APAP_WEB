@@ -6,10 +6,18 @@ Esta página posee el estado de la Fase 6: registro sanitario con periodicidad, 
 
 ## Estado
 
-En curso. HEALTH-01..06 están cerrados en GitHub. Lo que queda:
+En curso. HEALTH-01..04 y HEALTH-06 están cerrados en GitHub.
+HEALTH-05 (motor de periodicidad) acaba de mergear a `main`
+(commit `a0f8c35` en la rama `feat/fase6-health`; cierre del issue
+#54). Lo que queda:
 
-1. **E2E pendientes**: 7 ficheros (terapias CRUD full, terapias auth, materiales assignment, periodicity engine, informe próximas pruebas). E2E de sanidad y materiales CRUD已完成.
-2. **HEALTH-05**: motor de periodicidad (#54) — ✅ mergeado en PR #630.
+1. **E2E pendientes**: las baterías Playwright de terapias (CRUD
+   full, lifecycle, auth) y materiales (assignment, auth). La
+   batería de periodicidad se cubre en este merge con
+   `tests/test_sanidad_periodicity.py` (35 atoms en el suite
+   default; no requiere Postgres ni MailDev).
+2. **Sub-fases 6b y 6c**: terapias y material, pendientes de
+   implementación. Sus issues se crean al iniciar el slice.
 
 ## Slices
 
@@ -19,21 +27,15 @@ En curso. HEALTH-01..06 están cerrados en GitHub. Lo que queda:
 | 6a SALUD | HEALTH-02 batch API (eventos múltiples) | cerrado | #51 |
 | 6a SALUD | HEALTH-03 summary API (últimos valores por chip) | cerrado | #52 |
 | 6a SALUD | HEALTH-04 therapies CRUD | cerrado | #53 |
-| 6a SALUD | HEALTH-05 periodicity engine | **cerrado** ✅ | #54 |
+| 6a SALUD | HEALTH-05 periodicity engine | **cerrado** | #54 |
 | 6a SALUD | HEALTH-06 prueba-catalog migration | cerrado | #55 |
 | 6a SALUD | Informe de próximas pruebas | pendiente | — |
-| 6b TERAPIAS | `feat(therapies): terapias y recomendaciones` | pendiente | — |
-| 6c MATERIAL | `feat(material): inventario de material y asignaciones` | pendiente | — |
+| 6b TERAPIAS | terapias y recomendaciones | pendiente | — |
+| 6c MATERIAL | inventario de material y asignaciones | pendiente | — |
 
 ## Issues abiertas relacionadas
 
-- #54 HEALTH-05 periodicity engine (cerrado ✅, PR #630).
-
-## Issues pendientes de crear
-
-- `feat(therapies): terapias y recomendaciones` (Fase 6b — depende de Fases 3–4).
-- `feat(material): inventario de material y asignaciones` (Fase 6c — depende de Fases 3–4).
-- `feat(proximas-pruebas): informe de próximas pruebas` (depende de HEALTH-05 — listo para iniciar).
+- #54 HEALTH-05 periodicity engine — cerrado en este merge.
 
 ## Decisiones relacionadas
 
@@ -66,49 +68,48 @@ Baterías E2E con Playwright para cada sub-slice de Fase 6. Las baterías se esc
 
 ### 6a — Salud (sanidad actuaciones)
 
-| Fichero E2E | Casos | Slice |
-|---|---|---|
-| `test_sanidad_crud.py` | List, filter by animal, create, 422 FK, detail, edit, soft-delete (7 tests) | `sanidad` ✅ hecho |
-| `test_sanidad_5tipos.py` | Create each of 5 tipos (Analitica/Desparasitacion/Vacuna/Esterilizacion/Otros) via catalog dropdown (5 tests) | `sanidad` ✅ hecho (PR #628 E2E batch 1) |
-| `test_sanidad_auth.py` | 302 without session, 403 reader in POST, reader 200 on GET list (6 tests) | `sanidad` ✅ hecho (PR #628 E2E batch 1) |
-| `test_sanidad_date_validation.py` | Future date → 422, non-ISO → 422, fecha before FNacimiento → 422 (3 tests) | `sanidad` ✅ hecho (PR #628 E2E batch 1) |
-| `test_sanidad_no_duplicates.py` | Duplicate (animal+fecha+tipo) → 409, different tipos both succeed (2 tests) | `sanidad` ✅ hecho (PR #628 E2E batch 1) |
-| `test_sanidad_5tipos.py` | Crear cada tipo: Analítica, Desparasitación, Vacuna, Esterilización, Otros + validar fecha PostMortem | `sanidad` ❌ pendiente |
-| `test_sanidad_date_validation.py` | Fecha posterior al nacimiento, anterior a defunción, 422 en rango inválido | `sanidad` ❌ pendiente |
-| `test_sanidad_no_duplicates.py` | Mismo chip + prueba + fecha → 409 | `sanidad` ❌ pendiente |
-| `test_sanidad_auth.py` | 302 sin sesión, 403 con rol reader en POST | `sanidad` ❌ pendiente |
-| `test_sanidad_lifecycle.py` | Crear evento sanitario; verificar que Incoherente/Fallecido bloquean nuevo evento | `sanidad` ❌ pendiente |
+| Fichero E2E | Casos | Estado | Slice |
+|---|---|---|---|
+| `test_sanidad_crud.py` | List, filter by animal, create, 422 FK, detail, edit, soft-delete (7 tests) | hecho | `sanidad` |
+| `test_sanidad_5tipos.py` | Create each of 5 tipos via catalog dropdown (5 tests) | hecho (PR #628) | `sanidad` |
+| `test_sanidad_auth.py` | 302 sin sesión, 403 reader en POST (6 tests) | hecho (PR #628) | `sanidad` |
+| `test_sanidad_date_validation.py` | Fecha futura, no-ISO, antes de FNacimiento (3 tests) | hecho (PR #628) | `sanidad` |
+| `test_sanidad_no_duplicates.py` | Duplicado (animal+fecha+tipo) → 409; tipos distintos → ambos OK (2 tests) | hecho (PR #628) | `sanidad` |
+| `test_sanidad_lifecycle.py` | Incoherente / Fallecido bloquean nuevo evento | pendiente | `sanidad` |
+| `tests/test_sanidad_periodicity.py` | Periodicidad: lookup, wildcards, next-due, prioridad | hecho (HEALTH-05 / #54) | `sanidad` |
+
+Nota: el motor de periodicidad (HEALTH-05) se cubre con
+`tests/test_sanidad_periodicity.py` (35 atoms en el suite default;
+no requiere Postgres ni MailDev). El fichero
+`test_periodicity_engine.py` listado en versiones anteriores de
+esta página queda absorbido en este test unit.
 
 ### 6b — Terapias
 
-| Fichero E2E | Casos | Slice |
-|---|---|---|
-| `test_salud_terapias.py` | List, create, detail, edit, soft-delete, recomendaciones create/patch/delete, 409 con recomendaciones pendientes (7 tests) | `salud` ✅ hecho |
-| `test_terapias_crud_full.py` | CRUD completo de terapias con todos los campos opcionales + recomendaciones completas | `salud` ❌ pendiente |
-| `test_terapias_lifecycle.py` | Crear terapia; verificar que Incoherente/Fallecido bloquean nueva terapia | `salud` ❌ pendiente |
-| `test_terapias_auth.py` | 302 sin sesión, 403 con rol reader en POST | `salud` ❌ pendiente |
+| Fichero E2E | Casos | Estado | Slice |
+|---|---|---|---|
+| `test_salud_terapias.py` | List, create, detail, edit, soft-delete, recomendaciones create/patch/delete, 409 con recomendaciones pendientes (7 tests) | hecho | `salud` |
+| `test_terapias_crud_full.py` | CRUD completo con todos los campos opcionales + recomendaciones | pendiente | `salud` |
+| `test_terapias_lifecycle.py` | Incoherente / Fallecido bloquean nueva terapia | pendiente | `salud` |
+| `test_terapias_auth.py` | 302 sin sesión, 403 reader en POST | pendiente | `salud` |
 
 ### 6c — Material
 
-| Fichero E2E | Casos | Slice |
-|---|---|---|
-| `test_materiales_crud.py` | List, create, detail, edit, deactivate, duplicate (material+tamano+color) → 409 (5 tests) | `materiales` ✅ hecho (PR #628 E2E batch 1) |
-| `test_materiales_assignment.py` | Asignar material a estancia; desasignar; verificar disponibilidad decrece | `materiales` / `foster` ❌ pendiente |
-| `test_materiales_auth.py` | 302 sin sesión, 403 con rol reader en POST | `materiales` ❌ pendiente |
-
-### Periodicidad (HEALTH-05)
-
-| Fichero E2E | Casos | Slice |
-|---|---|---|
-| `test_periodicity_engine.py` | Registrar periodicidad; verificar que genera tarea pendiente; simular fecha futura; verificar alerta | `tasks` / `sanidad` ❌ pendiente |
+| Fichero E2E | Casos | Estado | Slice |
+|---|---|---|---|
+| `test_materiales_crud.py` | List, create, detail, edit, deactivate, duplicate → 409 (5 tests) | hecho (PR #628) | `materiales` |
+| `test_materiales_assignment.py` | Asignar material a estancia; desasignar; verificar disponibilidad decrece | pendiente | `materiales` / `foster` |
+| `test_materiales_auth.py` | 302 sin sesión, 403 reader en POST | pendiente | `materiales` |
 
 ### Informe de próximas pruebas
 
-| Fichero E2E | Casos | Slice |
-|---|---|---|
-| `test_proximas_pruebas.py` | List con chip + tipo + última fecha + próxima fecha; filtro por animal; export | `sanidad` ❌ pendiente |
+| Fichero E2E | Casos | Estado | Slice |
+|---|---|---|---|
+| `test_proximas_pruebas.py` | List con chip + tipo + última fecha + próxima fecha; filtro por animal; export | pendiente | `sanidad` |
 
-**Total pendiente:** 7 ficheros E2E nuevos (terapias full/lifecycle/auth, materiales assignment, periodicity engine, proximas-pruebas, sanidad lifecycle).
+**Total pendiente:** 6 ficheros E2E nuevos (terapias CRUD full/lifecycle/auth,
+materiales assignment/auth, proximas-pruebas, sanidad lifecycle).
+La batería de periodicidad se cubre en `tests/test_sanidad_periodicity.py`.
 
 ## Navigation
 
