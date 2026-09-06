@@ -35,7 +35,15 @@ from app.core.application.auth._domain_errors import (
 from app.core.data_access import SqlExecutor
 from app.core.domain.auth.rol import Rol
 from app.core.domain.auth.user import AuthorizedUser
-from app.core.schema_bootstrap import SqlStatement, run_idempotent_sql
+
+# ``SqlStatement`` and ``run_idempotent_sql`` are imported lazily
+# inside ``ensure_schema_and_seed`` to break the pre-existing
+# ``app.core.schema_bootstrap`` ↔ ``app.core.adapters.insforge`` cycle:
+# loading ``app.core.ports`` eagerly imports this adapter, which used
+# to import ``app.core.schema_bootstrap`` at module level; in turn the
+# bootstrap module imports ``app.core.ports.schema_bootstrap_port``
+# which closes the loop. Deferring the import to the only call site
+# removes the cycle while preserving the runtime contract.
 
 
 class InsForgeAuthUsersAdapter:
@@ -57,6 +65,12 @@ class InsForgeAuthUsersAdapter:
         guarded by a ``WHERE NOT EXISTS`` clause so it is safe to
         call on every cold start: the admin is seeded at most once.
         """
+        # Lazy import: see module-level comment. ``SqlStatement`` and
+        # ``run_idempotent_sql`` live in ``app.core.schema_bootstrap``,
+        # which is mid-import when this adapter is loaded via
+        # ``app.core.ports.__init__`` -> ``app.core.adapters.insforge.__init__``.
+        from app.core.schema_bootstrap import SqlStatement, run_idempotent_sql
+
         statements = [SqlStatement(CREATE_TABLE_SQL)]
         if initial_admin_email:
             statements.append(

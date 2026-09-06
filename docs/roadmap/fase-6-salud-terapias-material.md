@@ -68,21 +68,18 @@ Baterías E2E con Playwright para cada sub-slice de Fase 6. Las baterías se esc
 
 ### 6a — Salud (sanidad actuaciones)
 
-| Fichero E2E | Casos | Estado | Slice |
-|---|---|---|---|
-| `test_sanidad_crud.py` | List, filter by animal, create, 422 FK, detail, edit, soft-delete (7 tests) | hecho | `sanidad` |
-| `test_sanidad_5tipos.py` | Create each of 5 tipos via catalog dropdown (5 tests) | hecho (PR #628) | `sanidad` |
-| `test_sanidad_auth.py` | 302 sin sesión, 403 reader en POST (6 tests) | hecho (PR #628) | `sanidad` |
-| `test_sanidad_date_validation.py` | Fecha futura, no-ISO, antes de FNacimiento (3 tests) | hecho (PR #628) | `sanidad` |
-| `test_sanidad_no_duplicates.py` | Duplicado (animal+fecha+tipo) → 409; tipos distintos → ambos OK (2 tests) | hecho (PR #628) | `sanidad` |
-| `test_sanidad_lifecycle.py` | Incoherente / Fallecido bloquean nuevo evento | pendiente | `sanidad` |
-| `tests/test_sanidad_periodicity.py` | Periodicidad: lookup, wildcards, next-due, prioridad | hecho (HEALTH-05 / #54) | `sanidad` |
-
-Nota: el motor de periodicidad (HEALTH-05) se cubre con
-`tests/test_sanidad_periodicity.py` (35 atoms en el suite default;
-no requiere Postgres ni MailDev). El fichero
-`test_periodicity_engine.py` listado en versiones anteriores de
-esta página queda absorbido en este test unit.
+| Fichero E2E | Casos | Slice |
+|---|---|---|
+| `test_sanidad_crud.py` | List, filter by animal, create, 422 FK, detail, edit, soft-delete (7 tests) | `sanidad` ✅ hecho |
+| `test_sanidad_5tipos.py` | Create each of 5 tipos (Analitica/Desparasitacion/Vacuna/Esterilizacion/Otros) via catalog dropdown (5 tests) | `sanidad` ✅ hecho (PR #628 E2E batch 1) |
+| `test_sanidad_auth.py` | 302 without session, 403 reader in POST, reader 200 on GET list (6 tests) | `sanidad` ✅ hecho (PR #628 E2E batch 1) |
+| `test_sanidad_date_validation.py` | Future date → 422, non-ISO → 422, fecha before FNacimiento → 422 (3 tests) | `sanidad` ✅ hecho (PR #628 E2E batch 1) |
+| `test_sanidad_no_duplicates.py` | Duplicate (animal+fecha+tipo) → 409, different tipos both succeed (2 tests) | `sanidad` ✅ hecho (PR #628 E2E batch 1) |
+| `test_sanidad_5tipos.py` | Crear cada tipo: Analítica, Desparasitación, Vacuna, Esterilización, Otros + validar fecha PostMortem | `sanidad` ❌ pendiente |
+| `test_sanidad_date_validation.py` | Fecha posterior al nacimiento, anterior a defunción, 422 en rango inválido | `sanidad` ❌ pendiente |
+| `test_sanidad_no_duplicates.py` | Mismo chip + prueba + fecha → 409 | `sanidad` ❌ pendiente |
+| `test_sanidad_auth.py` | 302 sin sesión, 403 con rol reader en POST | `sanidad` ❌ pendiente |
+| `test_sanidad_lifecycle.py` | Crear evento sanitario; verificar que Incoherente/Fallecido bloquean nuevo evento | `sanidad` ❌ pendiente |
 
 ### 6b — Terapias
 
@@ -95,11 +92,17 @@ esta página queda absorbido en este test unit.
 
 ### 6c — Material
 
-| Fichero E2E | Casos | Estado | Slice |
-|---|---|---|---|
-| `test_materiales_crud.py` | List, create, detail, edit, deactivate, duplicate → 409 (5 tests) | hecho (PR #628) | `materiales` |
-| `test_materiales_assignment.py` | Asignar material a estancia; desasignar; verificar disponibilidad decrece | pendiente | `materiales` / `foster` |
-| `test_materiales_auth.py` | 302 sin sesión, 403 reader en POST | pendiente | `materiales` |
+| Fichero E2E | Casos | Slice |
+|---|---|---|
+| `test_materiales_crud.py` | List, create, detail, edit, deactivate, duplicate (material+tamano+color) → 409 (5 tests) | `materiales` ✅ hecho (PR #628 E2E batch 1) |
+| `test_materiales_assignment.py` | Asignar material a estancia; desasignar; verificar disponibilidad decrece | `materiales` / `foster` ❌ pendiente |
+| `test_materiales_auth.py` | 302 sin sesión, 403 con rol reader en POST | `materiales` ❌ pendiente |
+
+### Periodicidad (HEALTH-05)
+
+| Fichero E2E | Casos | Slice |
+|---|---|---|
+| `test_periodicity_engine.py` | Registrar periodicidad; verificar que genera tarea pendiente; simular fecha futura; verificar alerta | `tasks` / `sanidad` ❌ pendiente |
 
 ### Informe de próximas pruebas
 
@@ -107,9 +110,7 @@ esta página queda absorbido en este test unit.
 |---|---|---|---|
 | `test_proximas_pruebas.py` | List con chip + tipo + última fecha + próxima fecha; filtro por animal; export | pendiente | `sanidad` |
 
-**Total pendiente:** 6 ficheros E2E nuevos (terapias CRUD full/lifecycle/auth,
-materiales assignment/auth, proximas-pruebas, sanidad lifecycle).
-La batería de periodicidad se cubre en `tests/test_sanidad_periodicity.py`.
+**Total pendiente:** 7 ficheros E2E nuevos (terapias full/lifecycle/auth, materiales assignment, periodicity engine, proximas-pruebas, sanidad lifecycle).
 
 ## Navigation
 
