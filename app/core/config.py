@@ -185,6 +185,22 @@ class Settings(BaseSettings):
     # to ``INFO`` at runtime (the typed default is ``"INFO"``).
     log_level: str = "INFO"
 
+    # --- Magic-link SMTP transport (M3.4, issue #651) ------------------
+    # When ``smtp_host`` is empty, :class:`SMTPMailTransport` is a no-op
+    # (the magic-link route still mints the token for local-dev / E2E
+    # inspection, but no email is sent). In production ``smtp_host``
+    # must point at the transactional provider (Resend, Mailgun, ...)
+    # and the remaining fields carry the credentials.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    # ``From`` address used in the envelope; ``onboarding@resend.dev``
+    # is Resend's test-from (no DNS required). Operators must change
+    # it once their domain is verified (see
+    # ``scripts/setup_resend_smtp.sh``).
+    smtp_from: str = ""
+
     debug: bool = False
 
     # --- RBAC: roles allowed to write (issue #144) --------------------
