@@ -33,11 +33,8 @@ so the tests run deterministically without touching the real
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 from pathlib import Path
-
-import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = REPO_ROOT / "scripts" / "migrate_legacy_accdb_to_local.sh"
@@ -50,6 +47,7 @@ def _run(
     args: list[str],
     *,
     env_extra: dict[str, str] | None = None,
+    path_prepend: Path | None = None,
     workdir: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run the script with a clean environment (only what the test injects)."""
@@ -65,6 +63,10 @@ def _run(
         env.pop(key, None)
     if env_extra:
         env.update(env_extra)
+    # Some tests need a fake ``python`` on PATH so the script's
+    # ``exec python`` finds the fake rather than the real interpreter.
+    if path_prepend is not None:
+        env["PATH"] = f"{path_prepend}{os.pathsep}{env['PATH']}"
     return subprocess.run(
         ["bash", str(SCRIPT), *args],
         capture_output=True,
@@ -121,11 +123,15 @@ class TestScriptRefusesWithoutEnv:
         assert result.returncode != 0
         assert "ACCDB" in result.stderr or "env" in result.stderr.lower(), result.stderr
 
-    def test_only_one_env_var_exits_non_zero(self) -> None:
+    def test_only_one_env_var_exits_non_zero(self, tmp_path: Path) -> None:
         """``APAP_LEGACY_ACCDB_PATH`` alone is not enough — the local
         backend also needs ``APAP_LOCAL_DB_URL``."""
+        # Create a real .accdb file so the missing-env check fires
+        # BEFORE the file-existence check.
+        accdb_path = tmp_path / "fake.accdb"
+        accdb_path.write_bytes(b"")
         result = _run(
-            [], env_extra={"APAP_LEGACY_ACCDB_PATH": "/tmp/fake.accdb"}
+            [], env_extra={"APAP_LEGACY_ACCDB_PATH": str(accdb_path)}
         )
         assert result.returncode != 0
         assert "APAP_LOCAL_DB_URL" in result.stderr, result.stderr
@@ -154,12 +160,15 @@ class TestScriptInvokesCliWithRightFlags:
     arguments and exits 0. The test asserts on the recorded argv."""
 
     def test_calls_python_with_apply_legacy_to_web(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path
     ) -> None:
-        accdb = tmp_path / "fixture.accdb"
+        accdb = tmp_path / 'fixture.accdb'
         accdb.write_bytes(b"")
-        fake_python = tmp_path / "fake_python.sh"
-        # The fake records argv to a sentinel file the test reads back.
+        # A fake ``python`` that records argv and exits 0. We inject it
+        # FIRST on PATH so the script's ``exec python`` finds it before
+        # the real interpreter. Name MUST be ``python`` (no extension) —
+        # the script's ``exec python`` looks up the literal name on PATH.
+        fake_python = tmp_path / "python"
         argv_file = tmp_path / "argv.txt"
         fake_python.write_text(
             "#!/usr/bin/env bash\n"
@@ -168,16 +177,14 @@ class TestScriptInvokesCliWithRightFlags:
             encoding="utf-8",
         )
         fake_python.chmod(0o755)
-        monkeypatch.setenv("ARGV_FILE", str(argv_file))
-        # Put the fake python FIRST on PATH so the script's `python`
-        # invocation finds it before the real interpreter.
-        monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
-
+        # ``ARGV_FILE`` must be in the subprocess env (not in the test
+        # runner's env, since subprocess replaces env wholesale).
         env = {
             "APAP_LEGACY_ACCDB_PATH": str(accdb),
             "APAP_LOCAL_DB_URL": "postgresql://localhost/test",
+            "ARGV_FILE": str(argv_file),
         }
-        result = _run([], env_extra=env)
+        result = _run([], env_extra=env, path_prepend=tmp_path)
 
         assert result.returncode == 0, result.stderr
         recorded = argv_file.read_text(encoding="utf-8").splitlines()
