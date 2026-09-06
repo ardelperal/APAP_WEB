@@ -13,32 +13,27 @@ The form posts JSON via the onsubmit handler in /static/js/magic-link-form.js
 status, not on a page navigation (the form does not navigate; it updates
 the status text and resets).
 
-STATUS (M3.1 archive, 2026-09-05):
+STATUS (M3.4 close-out, 2026-09-05):
 
-This round-trip test is **skipped** because the M3 backend wiring it
-exercises is not in the codebase yet. Two structural gaps block it:
+The M3 backend wiring this test exercises now lands in the
+``local_backend/app.py`` lifespan + ``local_backend/magic_link.py``
+router. The round-trip is fully covered in-process by
+``tests/integration/test_magic_link_routes.py`` (real Postgres via
+``APAP_TEST_POSTGRES_DSN`` + fake SMTP transport), which pins the
+same assertions 1-5 above via ``httpx.AsyncClient(ASGITransport)``.
 
-1. The routes ``POST /auth/magic/start`` and ``GET /auth/magic/verify``
-   are not registered anywhere — ``app/core/auth_flow.py`` only exposes
-   ``/login``, ``/auth/google``, ``/auth/callback`` and ``/logout``.
-   The form posts to ``/auth/magic/start`` (a 404 in the current app).
-2. There is no ``SMTPMailTransport``: ``grep -rn send_magic_link\\|SMTPMailTransport app/``
-   returns zero hits. ``Settings`` has no ``APAP_SMTP_HOST/PORT/USER/...``
-   fields, and ``MagicLinkPortImpl`` only persists the token — it does
-   not deliver the email. The docstring on the port itself says
-   "SMTP in a future epic"; that epic is the open M3 backend wiring
-   issue tracked alongside this archive.
+The E2E remains ``pytest.mark.skip``'d here because it needs a
+running ``apap-smtp-dev`` MailDev (the local email backend) and a
+running ``apap.romancaba.com`` deployment. Both are operator-side
+fixtures outside the unit-test boundary: MailDev's HTTP API is
+currently broken (issue #649 follow-up), and the E2E runbook
+lives at ``docs/runbooks/`` (to be authored as part of Phase 3,
+#648). Once those land, this module drops the ``pytest.mark.skip``
+line and the body below executes against the deployed app.
 
-The helper (``tests/e2e/_maildev_helper.py``) and the conftest fixtures
-land in this archive so that, once M3 backend is implemented, this test
-is the only file that needs to be un-skipped (plus a small
-``MAILDEV_URL`` -> ``RESEND_INBOX_URL`` repoint if the production
-backend does not run MailDev).
-
-Companion unit tests covering the helper's pure logic live at
-``tests/test_maildev_helper.py`` (regex matching, polling semantics,
-HTTP-error retry, timeout behaviour) — those are green and run in
-the default suite.
+The unit tests for the helper (``tests/test_maildev_helper.py``) and
+the SMTP transport (``tests/test_smtp_transport.py``) are green.
+The round-trip coverage lives in the integration suite.
 """
 from __future__ import annotations
 
@@ -52,11 +47,12 @@ pytestmark = [
     pytest.mark.e2e,
     pytest.mark.skip(
         reason=(
-            "M3 backend missing: /auth/magic/start + /auth/magic/verify + "
-            "SMTPMailTransport are not implemented. See the M3 backend "
-            "wiring issue tracked alongside this M3.1 archive; once it "
-            "lands, drop the pytest.mark.skip line and repoint MAILDEV_URL "
-            "at the deployed email backend (Resend in production)."
+            "Round-trip covered in-process by "
+            "tests/integration/test_magic_link_routes.py. The E2E path "
+            "needs a live apap-smtp-dev MailDev container (currently "
+            "broken — issue #649 follow-up) and a running production "
+            "deploy; see Phase 3 (#648) runbook for the operator "
+            "checklist."
         )
     ),
 ]
@@ -66,10 +62,10 @@ MAILDEV_URL = os.environ.get("MAILDEV_URL", "http://apap-smtp-dev:8025")
 
 
 def test_magic_link_round_trip_against_deployed_app(page, base_url: str) -> None:  # noqa: ARG001
-    """Round-trip covered above; the body is intentionally empty — the
-    module-level ``pytest.mark.skip`` documents why this test cannot
-    run yet. Once M3 backend lands, fill in the navigation steps
-    documented in the module docstring (assertions 1-5)."""
+    """Round-trip covered by the integration suite; once MailDev + the
+    deployed-app E2E runbook (Phase 3) are green, fill in the
+    navigation steps documented in the module docstring (assertions
+    1-5) and drop the ``pytest.mark.skip`` above."""
     """End-to-end magic-link flow against the deployed app on the same VPS.
 
     1. /login renders the magic-link form (fix(m3-login) verification).

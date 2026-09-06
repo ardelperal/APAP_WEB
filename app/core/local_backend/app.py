@@ -14,6 +14,10 @@ at startup and stores it on ``app.state.local_postgres_executor``;
 the handlers retrieve it from there. M2 (Coolify + production) wraps
 this app in a separate Docker container behind coolify-proxy.
 
+M3.4 (issue #651) extends the lifespan to also wire the magic-link
+port + SMTP transport + session secret onto ``app.state`` so the
+magic-link router can read them.
+
 Hard rules (web-tdd-philosophy):
 - Rule 1 (fixture gate): the lifespan runs in the test via
   ``httpx.AsyncClient(ASGITransport=app)``.
@@ -32,15 +36,19 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from app.core.adapters.auth_local.magic_link_port import MagicLinkPortImpl
+from app.core.config import get_settings
 from app.core.local_backend.db import (
     DatabaseError,
     LocalPostgresExecutor,
     QueryError,
 )
 from app.core.local_backend.healthz import router as healthz_router
+from app.core.local_backend.magic_link import router as magic_link_router
 from app.core.local_backend.oauth_google import router as oauth_router
 from app.core.local_backend.rawsql import router as rawsql_router
 from app.core.local_backend.storage import router as storage_router
+from app.core.mail.smtp_transport import SMTPMailTransport
 
 
 @asynccontextmanager
@@ -53,6 +61,16 @@ async def lifespan(app: FastAPI):
     ``APAP_LOCAL_DB_SCHEMA`` so the executor queries the right namespace.
     M0 hard-fails on missing DSN: the local backend is not optional.
     M2 (production) will surface a more useful error to the operator.
+
+    M3.4 also wires:
+
+    - ``MagicLinkPortImpl`` over the executor (so the magic-link
+      router can persist tokens).
+    - ``SMTPMailTransport`` over the cached settings (no-op when
+      ``APAP_SMTP_HOST`` is unset).
+    - ``session_secret`` (the lifespan reads it from
+      ``APAP_SESSION_SECRET`` so the magic-link verify handler can
+      sign the cookie).
     """
     dsn = os.environ.get("APAP_LOCAL_DB_URL")
     if not dsn:
@@ -62,9 +80,22 @@ async def lifespan(app: FastAPI):
             ".env (see docs/runbooks/self-host-backend.md)."
         )
     search_path = os.environ.get("APAP_LOCAL_DB_SCHEMA")
-    app.state.local_postgres_executor = LocalPostgresExecutor(
-        dsn, search_path=search_path
+    executor = LocalPostgresExecutor(dsn, search_path=search_path)
+    app.state.local_postgres_executor = executor
+
+    # M3.4 wiring: magic-link port + SMTP transport + session secret.
+    settings = get_settings()
+    app.state.magic_link_port = MagicLinkPortImpl(executor)
+    app.state.smtp_transport = SMTPMailTransport(settings)
+    app.state.session_secret = settings.session_secret
+    # Public base URL the verify link points at. Defaults to the
+    # ``APAP_PUBLIC_BASE_URL`` env var or ``http://127.0.0.1:8000``;
+    # production sets it to ``https://apap.romancaba.com`` via the
+    # Coolify env-var injection in M2.
+    app.state.public_base_url = os.environ.get(
+        "APAP_PUBLIC_BASE_URL", "http://127.0.0.1:8000"
     )
+
     try:
         yield
     finally:
@@ -109,6 +140,7 @@ def create_app() -> FastAPI:
     app.include_router(storage_router, prefix="/api")
     app.include_router(healthz_router)
     app.include_router(oauth_router, prefix="/api")
+    app.include_router(magic_link_router, prefix="/api")
     return app
 
 

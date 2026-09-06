@@ -75,6 +75,22 @@ class LocalPostgresExecutor:
             conn.commit()
         return conn
 
+    def execute_sql(
+        self, query: str, params: list | tuple | None = None
+    ) -> list[dict[str, Any]]:
+        """Alias of :meth:`execute` matching the :class:`SqlExecutor`
+        Protocol.
+
+        ``SqlExecutor`` is the canonical surface every backend client
+        must satisfy (see :mod:`app.core.data_access`); ``execute``
+        is the historical name the local backend has always exposed
+        (used by ``rawsql.py`` and the integration conftest's
+        executor). Both names point at the same implementation so
+        a :class:`MagicLinkPortImpl` constructed against this
+        executor satisfies ``SqlExecutor`` structurally.
+        """
+        return self.execute(query, params)
+
     def execute(
         self, query: str, params: list | tuple | None = None
     ) -> list[dict[str, Any]]:
