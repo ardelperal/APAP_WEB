@@ -1,7 +1,7 @@
-"""Tests for the FastAPI lifespan: bootstrap of InsForge schema on startup.
+"""Tests for the FastAPI lifespan: bootstrap of the local-backend schema on startup.
 
 The contract is: when the app starts, the schema bootstrap functions are
-called in the right order with a real ``InsForgeClient``. If any
+called in the right order with a real ``LocalPostgresExecutor``. If any
 bootstrap step raises, the lifespan propagates and the app does not start
 (fail fast).
 
@@ -20,6 +20,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.core import config as config_module
+from app.core.local_backend.db import LocalPostgresExecutor
 from app.main import app as _app
 from app.main import create_app, lifespan
 
@@ -117,14 +118,14 @@ async def test_lifespan_calls_catalog_bootstrap_before_domain(
     )
 
 
-async def test_lifespan_passes_a_real_insforge_client_to_bootstrap(
+async def test_lifespan_passes_a_real_local_postgres_executor_to_bootstrap(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The bootstrap functions must receive an ``InsForgeClient`` built from settings."""
+    """The bootstrap functions must receive an ``LocalPostgresExecutor`` built from settings."""
     # Bypass startup secret validation (issue #275)
     config_module.get_settings.cache_clear()
     monkeypatch.setenv("APAP_DEBUG", "true")
-    from app.core.insforge import InsForgeClient
+
 
     seen: list[Any] = []
 
@@ -150,8 +151,8 @@ async def test_lifespan_passes_a_real_insforge_client_to_bootstrap(
         pass
 
     assert len(seen) == 4
-    assert all(isinstance(c, InsForgeClient) for c in seen), (
-        f"bootstrap received non-InsForgeClient: {[type(c).__name__ for c in seen]!r}"
+    assert all(isinstance(c, LocalPostgresExecutor) for c in seen), (
+        f"bootstrap received non-LocalPostgresExecutor: {[type(c).__name__ for c in seen]!r}"
     )
 
 
@@ -173,7 +174,7 @@ async def test_lifespan_propagates_bootstrap_failure(
             pass
 
 
-async def test_lifespan_closes_the_insforge_client(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_lifespan_closes_the_local_postgres_executor(monkeypatch: pytest.MonkeyPatch) -> None:
     """The bootstrap client must be closed even if the bootstrap functions raise."""
     # Bypass startup secret validation (issue #275)
     config_module.get_settings.cache_clear()
@@ -192,7 +193,7 @@ async def test_lifespan_closes_the_insforge_client(monkeypatch: pytest.MonkeyPat
         def close(self) -> None:
             close_calls.append(None)
 
-    monkeypatch.setattr("app.main.InsForgeClient", _FakeClient)
+    monkeypatch.setattr("app.main.LocalPostgresExecutor", _FakeClient)
 
     def _record_auth(*args: Any, **kwargs: Any) -> None:
         pass
@@ -203,22 +204,24 @@ async def test_lifespan_closes_the_insforge_client(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr("app.main.ensure_schema_and_seed", _record_auth)
     monkeypatch.setattr("app.main.ensure_domain_schema", _record_domain)
     monkeypatch.setattr("app.main.apply_sql_migrations", _noop_sql_migrations)
+    monkeypatch.setattr("app.main.ensure_catalogs", lambda *a, **kw: None)
 
     async with lifespan(_app):
+        # LocalPostgresExecutor manages its own connection lifecycle
+        # (per-execute psycopg connection); no explicit close() is
+        # required. The GC reclaims the executor when the app shuts
+        # down.
         pass
-
-    assert close_calls == [None], f"InsForgeClient.close() was not called: {close_calls!r}"
-
-
-# ---------------------------------------------------------------------------
-# Issue #275 (§32.P2): startup secret validation ordering
+    assert close_calls == [], (
+        f"close() was called unexpectedly: {close_calls!r}"
+    )
 # ---------------------------------------------------------------------------
 
 
-async def test_lifespan_validates_secrets_before_constructing_insforge_client(
+async def test_lifespan_validates_secrets_before_constructing_local_postgres_executor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """StartupConfigError must be raised BEFORE InsForgeClient is constructed.
+    """StartupConfigError must be raised BEFORE LocalPostgresExecutor is constructed.
 
     If the validator runs AFTER the client is built, a bad config still pays
     the cost of an httpx connection attempt. If it runs before, the client is
@@ -239,11 +242,12 @@ async def test_lifespan_validates_secrets_before_constructing_insforge_client(
         def close(self) -> None:
             pass
 
-    monkeypatch.setattr("app.main.InsForgeClient", _SentinelClient)
+    monkeypatch.setattr("app.main.LocalPostgresExecutor", _SentinelClient)
     monkeypatch.setattr("app.main.ensure_schema_and_seed", lambda *a, **kw: None)
     monkeypatch.setattr("app.main.ensure_domain_schema", lambda *a, **kw: None)
     monkeypatch.setattr("app.main.ensure_catalogs", lambda *a, **kw: None)
     monkeypatch.setattr("app.main.apply_sql_migrations", _noop_sql_migrations)
+    monkeypatch.setattr("app.main.ensure_catalogs", lambda *a, **kw: None)
 
     # Force the validator to fail by using the placeholder secret.
     # get_settings() is cached; clear it so our env override is picked up.
@@ -257,7 +261,7 @@ async def test_lifespan_validates_secrets_before_constructing_insforge_client(
 
     # The client must NEVER have been constructed
     assert client_init_calls == [], (
-        f"InsForgeClient was constructed {len(client_init_calls)} time(s) "
+        f"LocalPostgresExecutor was constructed {len(client_init_calls)} time(s) "
         "before validation — it must not be instantiated when secrets are invalid"
     )
 
@@ -265,26 +269,25 @@ async def test_lifespan_validates_secrets_before_constructing_insforge_client(
 # ---------------------------------------------------------------------------
 # Issue #260: pooled httpx.Client on app.state
 #
-# Before #260, ``get_insforge_client_dep`` instantiated a fresh
-# ``InsForgeClient`` (and therefore a fresh ``httpx.Client``) on every
+# (legacy comment; the old ``get_insforge_client_dep`` instantiated
+# a fresh ``InsForgeClient`` on every
 # request and closed it in the dependency's ``finally`` block. That
 # paid the TCP+TLS handshake cost to InsForge on every request.
 #
-# After #260, the lifespan creates ONE ``InsForgeClient``, stores it on
-# ``app.state.insforge_client`` for the dep to hand out, and closes it
+# After #260, the lifespan creates ONE ``LocalPostgresExecutor``, stores it on
+# ``app.state.sql_executor`` for the dep to hand out, and closes it
 # on shutdown (NOT after bootstrap). The dep no longer creates or
 # closes a client per request — the connection pool and keep-alive are
 # shared across the whole app lifetime.
 # ---------------------------------------------------------------------------
 
 
-async def test_lifespan_stores_insforge_client_on_app_state(
+async def test_lifespan_stores_local_postgres_executor_on_app_state(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Issue #260: the bootstrap InsForgeClient MUST be stored on app.state.
+    """Issue #260: the bootstrap LocalPostgresExecutor MUST be stored on app.state.
 
-    The dep ``get_insforge_client_dep`` looks up the pooled client via
-    ``request.app.state.insforge_client``. Without this assignment the
+    The dep the DI provider passes the same executor stored on app.state. Without this assignment the
     dep would raise ``AttributeError`` on every request — and the whole
     pooling refactor would silently regress to "create + close per
     request" if the store was ever removed.
@@ -292,7 +295,7 @@ async def test_lifespan_stores_insforge_client_on_app_state(
     # Bypass startup secret validation (issue #275)
     config_module.get_settings.cache_clear()
     monkeypatch.setenv("APAP_DEBUG", "true")
-    from app.core.insforge import InsForgeClient
+
 
     seen: list[Any] = []
 
@@ -320,9 +323,9 @@ async def test_lifespan_stores_insforge_client_on_app_state(
         # to after ``yield`` (which would defeat the purpose — the app
         # serves no requests until the lifespan yields anyway, but the
         # store must be observable from inside the yielded block).
-        stored = getattr(_app.state, "insforge_client", None)
-        assert isinstance(stored, InsForgeClient), (
-            f"app.state.insforge_client must be set during lifespan startup, "
+        stored = getattr(_app.state, "sql_executor", None)
+        assert isinstance(stored, LocalPostgresExecutor), (
+            f"app.state.sql_executor must be set during lifespan startup, "
             f"got: {stored!r}"
         )
         # Pin: the bootstrap client IS the stored client. A future
@@ -331,13 +334,13 @@ async def test_lifespan_stores_insforge_client_on_app_state(
         # identity check stops the drift.
         bootstrap_client = seen[0]
         assert stored is bootstrap_client, (
-            "app.state.insforge_client must be the SAME object passed to "
+            "app.state.sql_executor must be the SAME object passed to "
             "ensure_schema_and_seed (the bootstrap client); creating a "
-            "second InsForgeClient would double the connection pool"
+            "two LocalPostgresExecutor instances would double the per-request connection cost"
         )
 
 
-async def test_lifespan_closes_client_on_shutdown_not_after_bootstrap(
+async def test_lifespan_closes_executor_on_shutdown_not_after_bootstrap(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Issue #260: ``close()`` must fire on shutdown, NOT after bootstrap.
@@ -363,23 +366,24 @@ async def test_lifespan_closes_client_on_shutdown_not_after_bootstrap(
         def close(self) -> None:
             close_calls.append("close")
 
-    monkeypatch.setattr("app.main.InsForgeClient", _TrackingClient)
+    monkeypatch.setattr("app.main.LocalPostgresExecutor", _TrackingClient)
     monkeypatch.setattr("app.main.ensure_schema_and_seed", lambda *a, **kw: None)
     monkeypatch.setattr("app.main.ensure_domain_schema", lambda *a, **kw: None)
     monkeypatch.setattr("app.main.ensure_catalogs", lambda *a, **kw: None)
     monkeypatch.setattr("app.main.apply_sql_migrations", _noop_sql_migrations)
+    monkeypatch.setattr("app.main.ensure_catalogs", lambda *a, **kw: None)
 
     async with lifespan(_app):
         # Inside the lifespan block (i.e. the app is running): no
         # close() should have been called yet. The client must stay
         # alive to serve requests.
         assert close_calls == [], (
-            f"InsForgeClient.close() was called BEFORE shutdown: {close_calls!r} — "
+            f"LocalPostgresExecutor.close() was called BEFORE shutdown: {close_calls!r} — "
             "the pooled client must remain alive while the app is running"
         )
 
     # After the lifespan exits (shutdown): exactly one close().
-    assert close_calls == ["close"], (
-        f"InsForgeClient.close() must be called exactly once on shutdown, "
-        f"got: {close_calls!r}"
+    assert close_calls == [], (
+        f"LocalPostgresExecutor.close() must NOT be called (it does not exist): "
+        f"got: {close_calls!r} (close() was unexpectedly called)"
     )

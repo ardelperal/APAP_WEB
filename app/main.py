@@ -61,8 +61,8 @@ from app.core.dashboard_data import DASHBOARD_PENDING_CARDS, DASHBOARD_SHORTCUTS
 from app.core.di.insforge_error_handler_di import get_insforge_error_handler_port
 from app.core.domain import ensure_domain_schema
 from app.core.e2e_auth import register_e2e_auth_routes
-from app.core.insforge import InsForgeClient
 from app.core.insforge_error_handler import register_insforge_error_handler
+from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.logging import configure_logging
 from app.core.middleware import (
     DISABLED_DOC_PATHS as _DISABLED_DOC_PATHS,  # noqa: F401  - re-export for parity with PUBLIC_PATHS
@@ -126,8 +126,18 @@ async def lifespan(_: FastAPI):
         # lazy-import: only needed in production; avoids loading config at startup in dev.
         from app.core.config import _validate_secrets
         _validate_secrets(settings)
-    client = InsForgeClient(settings.insforge_url, settings.insforge_service_key)
-    _.state.insforge_client = client
+    # LocalPostgresExecutor wraps the DSN + schema from Settings.
+    # This replaces the deprecated InsForgeClient (commit f68b4cc)
+    # as the only supported production transport. The executor
+    # satisfies the SqlExecutor Protocol so the four bootstrap
+    # functions (ensure_schema_and_seed, ensure_catalogs,
+    # ensure_domain_schema, apply_sql_migrations) accept it
+    # unchanged.
+    client = LocalPostgresExecutor(
+        settings.local_db_url,
+        search_path=settings.local_db_schema or None,
+    )
+    _.state.sql_executor = client
     try:
         ensure_schema_and_seed(client, settings)
         ensure_catalogs(client)
@@ -135,7 +145,7 @@ async def lifespan(_: FastAPI):
         apply_sql_migrations(client)
         yield
     finally:
-        client.close()
+        pass
 
 
 def _redirect(path: str) -> RedirectResponse:
