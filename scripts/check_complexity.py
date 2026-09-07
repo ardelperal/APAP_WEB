@@ -67,6 +67,11 @@ BASELINE_CC: dict[tuple[str, str], int] = {
         "migration/reverse_apply/orchestrator.py",
         "apply_web_to_legacy",
     ): 13,  # issue #332 refactor — extracted helpers (was CC=57)
+    # M0 (self-host-backend-coolify): sibling of the baselined entry in
+    # verify_fallback_ready.py above. The web-to-legacy dispatch lives
+    # in a separate verifier file to keep the legacy-only and the
+    # symmetric paths isolated; both are over the hard CC budget.
+    ("migration/verify_fallback_web_to_legacy.py", "check_web_to_legacy_check_only"): 16,
         # M0 (self-host-backend-coolify): extracted from apply.py / new
         # wiring in verify_fallback_ready. CCs are still over the hard
         # budget; future work will split the dispatch into per-transform
