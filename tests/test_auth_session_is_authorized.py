@@ -46,7 +46,7 @@ import httpx
 import pytest
 from fastapi.responses import RedirectResponse
 
-from app.core.insforge import InsForgeClient
+from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
 from app.modules.animals.routes import require_authorized_user
@@ -78,7 +78,7 @@ class _FakeInsForge(InsForgeClient):
         code_verifier: str,
         redirect_uri: str,
     ):
-        from app.core.insforge import InsForgeUser, OAuthExchangeResult
+        from app.core.local_backend.oauth_google import exchange_local_oauth_code
 
         row = self.get_user_by_email_response or {}
         return OAuthExchangeResult(

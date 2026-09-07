@@ -4,7 +4,7 @@
 The saga runs in a single transaction; on any failure the adapter
 rolls back and returns ``success=False`` with the error message —
 the route handler translates that into a 409 / 422 / 500
-depending on the error class without leaking ``InsForgeError``
+depending on the error class without leaking ``BackendError``
 shape up to the application layer.
 
 The ``updated_tables`` dict carries the row counts per table

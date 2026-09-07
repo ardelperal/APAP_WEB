@@ -41,7 +41,7 @@ from app.core.auth_dependencies import (
     return_early_if_response,
 )
 from app.core.config import get_settings
-from app.core.insforge import InsForgeClient
+from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.session import (
     session_cookie_name,
     write_session,

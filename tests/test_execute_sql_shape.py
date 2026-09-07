@@ -19,7 +19,7 @@ These tests run against the LIVE InsForge (proxied through
 
 from __future__ import annotations
 
-from app.core.insforge import InsForgeClient
+from app.core.local_backend.db import LocalPostgresExecutor
 
 # ---------------------------------------------------------------------------
 # Public surface contract (the only contract every call site depends on)

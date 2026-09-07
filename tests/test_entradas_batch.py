@@ -21,7 +21,8 @@ from typing import Any
 import httpx
 import pytest
 
-from app.core.insforge import InsForgeClient, InsForgeError
+from app.core.data_access import BackendError
+from app.core.local_backend.db import LocalPostgresExecutor
 from app.modules.entradas import batch_service
 from app.modules.entradas.service import Entrada
 
@@ -369,7 +370,7 @@ def test_commit_batch_propagates_unsupported_insforge_error() -> None:
     )
     client, captured = _client_recording(handler)
 
-    with pytest.raises(InsForgeError):
+    with pytest.raises(BackendError):
         batch_service.commit_batch(client, batch_id)
     client.close()
 

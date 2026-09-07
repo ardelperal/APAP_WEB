@@ -3,7 +3,7 @@
 Validates the natural UNIQUE constraint on ``cesiones_propietario.entrada_id``
 against the real Postgres fixture. The unit-test suite
 (``tests/test_cesiones.py``) verifies the wire-shape of the SQL via
-``httpx.MockTransport`` and the ``InsForgeError`` → ``CesionConflictError``
+``httpx.MockTransport`` and the ``BackendError`` → ``CesionConflictError``
 mapping via a staged handler. The integration atom closes the audit
 P0 gap documented in ``docs/quality/test-audit.md`` §Critical-gaps
 point 4 by asserting that the constraint itself fires against the real

@@ -16,10 +16,10 @@ import json
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    # ``_InsForgeLike`` lives in ``migration.apply`` (kept there because
+    # ``SqlExecutor`` lives in ``migration.apply`` (kept there because
     # it is the structural type of the public ``apply_legacy_to_web``
     # signature). Re-imported for type checking only.
-    from migration.apply import _InsForgeLike  # noqa: F401
+    from migration.apply import SqlExecutor  # noqa: F401
     from migration.apply_per_row import _VoluntariosIndex  # noqa: F401
 
 
@@ -29,7 +29,7 @@ from migration.apply_helpers import _apply_value_transform, _resolve_fk_value
 def _legacy_to_web_row(
     legacy_row: dict[str, Any],
     mapping: Any,
-    client: _InsForgeLike,
+    client: SqlExecutor,
     vol_index: _VoluntariosIndex | None = None,
 ) -> dict[str, Any]:
     """Map a legacy ``dict`` to its web-column ``dict``.

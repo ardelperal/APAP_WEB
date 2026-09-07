@@ -11,7 +11,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from app.core.insforge import InsForgeClient
+from app.core.local_backend.db import LocalPostgresExecutor
 from app.main import app, get_insforge_client
 
 
@@ -62,7 +62,7 @@ class _FakeInsForge(InsForgeClient):
         code_verifier: str,
         redirect_uri: str,
     ):
-        from app.core.insforge import InsForgeUser, OAuthExchangeResult
+        from app.core.local_backend.oauth_google import exchange_local_oauth_code
 
         return OAuthExchangeResult(
             token=self.exchange_result["token"],
@@ -85,7 +85,7 @@ class _FakeInsForge(InsForgeClient):
         verifier. The fake returns the same OAuthExchangeResult shape
         the live endpoint does.
         """
-        from app.core.insforge import InsForgeUser, OAuthExchangeResult
+        from app.core.local_backend.oauth_google import exchange_local_oauth_code
 
         return OAuthExchangeResult(
             token=self.exchange_result["token"],

@@ -29,7 +29,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from app.core.insforge import InsForgeClient
+from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
 from tests.conftest import auth_reval_rows, make_csrf_request

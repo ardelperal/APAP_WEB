@@ -480,7 +480,7 @@ def test_get_catalogos_port_falls_back_when_lifespan_skipped() -> None:
     from fastapi import FastAPI
 
     from app.core.di.catalogos_di import get_catalogos_port
-    from app.core.insforge import InsForgeClient
+    from app.core.local_backend.db import LocalPostgresExecutor
 
     app = FastAPI()
     assert not hasattr(app.state, "insforge_client")

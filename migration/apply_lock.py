@@ -15,10 +15,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    # ``_InsForgeLike`` lives in ``migration.apply`` (kept there because
+    # ``SqlExecutor`` lives in ``migration.apply`` (kept there because
     # it is the structural type of the public ``apply_legacy_to_web``
     # signature). Re-imported for type checking only.
-    from migration.apply import _InsForgeLike  # noqa: F401
+    from migration.apply import SqlExecutor  # noqa: F401
 
 
 
@@ -39,7 +39,7 @@ class _LockContext:
 
     def __init__(
         self,
-        _client: _InsForgeLike,
+        _client: SqlExecutor,
         lock_path: Path | None,
         *,
         dry_run: bool,

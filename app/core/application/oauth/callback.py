@@ -17,7 +17,7 @@ The callback use case is the heart of the OAuth flow. It:
 The use case raises the Protocol-level errors defined in
 :mod:`app.core.domain.oauth.errors` for the three failure
 modes the route layer must distinguish (rule §32.P4 — the
-legacy code caught a bare ``InsForgeError`` and turned every
+legacy code caught a bare ``BackendError`` and turned every
 failure into a ``/login`` redirect):
 
 - :class:`CallbackInvalidError` — neither code was supplied.
@@ -26,7 +26,7 @@ failure into a ``/login`` redirect):
   to an active row. The route layer redirects to
   ``/unauthorized`` AND clears the ``apap_pkce`` cookie so the
   browser does not replay the bad verifier.
-- :class:`app.core.data_access.InsForgeError` — the transport
+- :class:`app.core.data_access.BackendError` — the transport
   exchange failed (expired code, wrong verifier, network
   error, ...). The route layer catches and redirects to
   ``/login`` (the same shape the legacy code had, but now
@@ -105,10 +105,10 @@ def callback(
             ``usuarios_autorizados``. The route layer redirects
             to ``/unauthorized`` and clears the ``apap_pkce``
             cookie.
-        InsForgeError: When the transport exchange fails. The
+        BackendError: When the transport exchange fails. The
             route layer catches and redirects to ``/login``. This
             is the §32.P4 narrowing of the legacy
-            ``except InsForgeError`` bucket — the catch is now
+            ``except BackendError`` bucket — the catch is now
             scoped to the single exchange call site, not the
             whole route.
     """

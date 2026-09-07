@@ -42,7 +42,8 @@ from app.core.domain import (
     VOLUNTARIOS_CREATE_TABLE_SQL,
     ensure_domain_schema,
 )
-from app.core.insforge import InsForgeClient, InsForgeError
+from app.core.data_access import BackendError
+from app.core.local_backend.db import LocalPostgresExecutor
 
 
 def _json_response(status_code: int, body: Any) -> httpx.Response:
@@ -331,7 +332,7 @@ def test_ensure_domain_schema_raises_when_create_table_fails() -> None:
         service_key="ik_test",
         transport=httpx.MockTransport(handler),
     )
-    with pytest.raises(InsForgeError):
+    with pytest.raises(BackendError):
         ensure_domain_schema(client)
     client.close()
 
@@ -1722,7 +1723,7 @@ def test_ensure_domain_schema_idempotent_for_materiales() -> None:
     unique index uses ``CREATE UNIQUE INDEX IF NOT EXISTS`` so the
     bootstrap is replay-safe across cold starts (lifespan runs every
     process boot). The test runs ``ensure_domain_schema`` twice on the
-    same client and asserts no InsForgeError is raised AND the second
+    same client and asserts no BackendError is raised AND the second
     call re-emits the same statement set (so a re-run on a live DB is
     a no-op rather than a re-create).
     """

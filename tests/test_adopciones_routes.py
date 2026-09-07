@@ -24,7 +24,8 @@ import pytest
 
 from app.core.auth_dependencies import get_insforge_client_dep
 from app.core.config import get_settings
-from app.core.insforge import InsForgeClient, InsForgeError
+from app.core.data_access import BackendError
+from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
 from app.modules.adopciones import service as adopciones_service
@@ -398,13 +399,13 @@ async def test_create_adopcion_translates_insforge_error_to_422(
     route_client: _NoSqlRouteClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """P1-2 (risk review 2026-07-04): non-409 ``InsForgeError`` -> 422.
+    """P1-2 (risk review 2026-07-04): non-409 ``BackendError`` -> 422.
 
     Previously only ``ValueError`` was caught; a CHECK constraint
     violation on ``tipo_adopcion`` or a malformed date on
-    ``fecha_adopcion`` raised ``InsForgeError`` (a ``RuntimeError``,
+    ``fecha_adopcion`` raised ``BackendError`` (a ``RuntimeError``,
     NOT a ``ValueError``) and bubbled out as a 500. The route now
-    also catches ``InsForgeError`` so those paths render as a clean
+    also catches ``BackendError`` so those paths render as a clean
     422 with the operator's input preserved.
     """
     _login_as_key_user(client)
@@ -415,7 +416,7 @@ async def test_create_adopcion_translates_insforge_error_to_422(
         *,
         actor_user_id: str | None = None,
     ) -> adopciones_service.Adopcion:
-        raise InsForgeError(
+        raise BackendError(
             status_code=400,
             body={
                 "error": "violates check constraint",
@@ -451,8 +452,8 @@ async def test_create_adopcion_with_bad_fecha_returns_422(
 
     The service lets ``_optional_date`` pass the raw string through
     (validation lives in the DB). A malformed ``fecha_adopcion`` (e.g.
-    ``"ayer"``) raises ``InsForgeError`` when the DB rejects the value.
-    The route catches ``InsForgeError`` and renders a 422.
+    ``"ayer"``) raises ``BackendError`` when the DB rejects the value.
+    The route catches ``BackendError`` and renders a 422.
     """
     _login_as_key_user(client)
 
@@ -462,7 +463,7 @@ async def test_create_adopcion_with_bad_fecha_returns_422(
         *,
         actor_user_id: str | None = None,
     ) -> adopciones_service.Adopcion:
-        raise InsForgeError(
+        raise BackendError(
             status_code=400,
             body={
                 "error": "invalid input syntax for type date: 'ayer'",

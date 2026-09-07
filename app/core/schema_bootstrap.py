@@ -45,7 +45,7 @@ def run_idempotent_sql(
     swallowing or translating the original database exception.
 
     The ``client`` parameter is typed as the :class:`SqlExecutor`
-    Protocol (issue #259) rather than the concrete ``InsForgeClient``,
+    Protocol (issue #259) rather than the concrete ``LocalPostgresExecutor``,
     so this primitive stays backend-agnostic and can drive the future
     legacy-Access adapter without a separate bootstrap path.
     """

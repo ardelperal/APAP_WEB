@@ -2,7 +2,7 @@
 
 Wires ``CesionesPort`` -> ``CesionesInsforgeAdapter`` -> InsForge.
 Mirrors ``app.modules.animals.di.animals_di.get_animals_port`` exactly:
-a sync generator that reads the pooled InsForgeClient from request state
+a sync generator that reads the pooled LocalPostgresExecutor from request state
 and yields a fresh adapter per request.
 """
 
@@ -24,7 +24,7 @@ def get_cesiones_port(
 ) -> Iterator[CesionesPort]:
     """Yield a ``CesionesPort`` wired to an InsForge-backed adapter.
 
-    Reads the pooled :class:`~app.core.insforge.InsForgeClient` from
+    Reads the pooled :class:`~app.core.insforge.LocalPostgresExecutor` from
     ``request.app.state.insforge_client`` (managed by the app lifespan).
     Yields a fresh adapter per request so the route layer is decoupled
     from the concrete adapter.

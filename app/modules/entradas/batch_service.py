@@ -31,8 +31,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from app.core.data_access import SqlExecutor
-from app.core.insforge import InsForgeError
+from app.core.data_access import BackendError, SqlExecutor
 from app.modules.entradas.service import (
     Entrada,
     EntradaConflictError,
@@ -311,7 +310,7 @@ def commit_batch(client: SqlExecutor, batch_id: str) -> list[Entrada]:
 
     try:
         rows = client.execute_sql(_COMMIT_BATCH_SQL, [batch_id])
-    except InsForgeError as exc:
+    except BackendError as exc:
         if is_duplicate_error(exc):
             raise EntradaConflictError(
                 "entrada duplicada durante el commit del lote"

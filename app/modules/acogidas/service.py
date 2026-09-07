@@ -92,7 +92,7 @@ class AcogidaConflictError(ValueError):
     Currently unused at the service level (no UNIQUE constraint on the
     public CRUD surface beyond the legacy natural-key on
     ``(animal_id, fecha_inicio)`` which PostgreSQL would surface as a
-    raw ``InsForgeError``), but kept for future parity and explicit
+    raw ``BackendError``), but kept for future parity and explicit
     signal to routes (mirror of the *ConflictError(ValueError) family
     across entradas/acogidas/adopciones/cesiones/sanidad).
     """

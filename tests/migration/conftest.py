@@ -40,7 +40,7 @@ from typing import Any
 
 import pytest
 
-from app.core.insforge import InsForgeError
+from app.core.data_access import BackendError
 from migration import legacy_reader
 from migration import lock as _migration_lock
 from migration.apply import (
@@ -104,7 +104,7 @@ class FakeInsForge:
         existing = self.buckets.get(bucket_name)
         if existing is not None:
             if existing.get("isPublic") is not False:
-                raise InsForgeError(
+                raise BackendError(
                     409,
                     {
                         "error": "bucket_public_violation",

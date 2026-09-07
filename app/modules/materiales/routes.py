@@ -27,7 +27,7 @@ RBAC (REQ-FOSTER-04-03, AGENTS.md §17.2 + issue #144):
 Conflict mapping (PR-5B pattern, ``AcogidaConflictError`` /
 ``AdopcionConflictError`` precedent): the catalog's
 ``UNIQUE (material, tamano, color)`` constraint is DB-enforced. The
-service translates the resulting ``InsForgeError(23505)`` to
+service translates the resulting ``BackendError(23505)`` to
 ``materiales_service.MaterialConflictError``; the route maps that to a
 distinct HTTP 409 + a Spanish actionable message (NOT the generic 422)
 so the operator sees a clear "ya existe material con esa combinación

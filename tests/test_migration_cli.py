@@ -35,7 +35,7 @@ from typing import Any
 
 import httpx
 
-from app.core.insforge import InsForgeClient
+from app.core.local_backend.db import LocalPostgresExecutor
 from migration.cli import main as cli_main
 
 # --- helpers --------------------------------------------------------------

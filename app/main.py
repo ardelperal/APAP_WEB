@@ -125,7 +125,7 @@ async def lifespan(_: FastAPI):
         from app.core.config import _validate_secrets
         _validate_secrets(settings)
     # LocalPostgresExecutor wraps the DSN + schema from Settings.
-    # This replaces the deprecated InsForgeClient (commit f68b4cc)
+    # This replaces the deprecated LocalPostgresExecutor (commit f68b4cc)
     # as the only supported production transport. The executor
     # satisfies the SqlExecutor Protocol so the four bootstrap
     # functions (ensure_schema_and_seed, ensure_catalogs,

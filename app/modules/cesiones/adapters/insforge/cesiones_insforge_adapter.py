@@ -4,7 +4,7 @@ The existing ``service.py`` already owns SQL, validation and mapping.
 This adapter wires it behind the port interface, keeping the service
 as the single SQL/implementation file per HR-5.
 
-HR-6: ``InsForgeClient`` and ``InsForgeError`` are confined here.
+HR-6: ``LocalPostgresExecutor`` and ``BackendError`` are confined here.
 Module-level imports are deferred to runtime (``sys.modules`` lookup) so
 that test monkeypatches (``monkeypatch.setattr(cesiones_service,
 "create_cesion", ...)``) take effect even when the module was imported

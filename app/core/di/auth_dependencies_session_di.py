@@ -11,8 +11,8 @@ from starlette.responses import Response
 from app.core.auth import get_user_by_email
 from app.core.auth_cache import get_cached_auth, set_cached_auth
 from app.core.config import get_settings
-from app.core.data_access import InsForgeError, SqlExecutor
-from app.core.insforge import InsForgeClient
+from app.core.data_access import BackendError, SqlExecutor
+from app.core.local_backend.db import LocalPostgresExecutor
 
 
 def _shim():
@@ -49,7 +49,7 @@ def get_current_user_optional(request: Request) -> dict | None:
 def require_authorized_user(
     request: Request,
     payload: dict | None = Depends(get_current_user_optional),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    client: LocalPostgresExecutor = Depends(get_insforge_client_dep),
 ) -> Response | dict:
     """Require an authorized session revalidated against the auth backend."""
     if not payload:
@@ -65,7 +65,7 @@ def require_authorized_user(
     if cached is None:
         try:
             fresh = get_user_by_email(client, email)
-        except InsForgeError:
+        except BackendError:
             return _deny(payload, "db_unreachable")
         if fresh is None:
             set_cached_auth(email, is_authorized=False, rol=None)

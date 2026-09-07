@@ -62,8 +62,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from app.core.data_access import SqlExecutor
-from app.core.insforge import InsForgeError
+from app.core.data_access import BackendError, SqlExecutor
 from app.core.logging import log_safe
 from app.modules.materiales import queries
 
@@ -76,7 +75,7 @@ class MaterialConflictError(ValueError):
     The ``UNIQUE (material, tamano, color)`` constraint is DB-enforced
     (P1 fidelity to legacy ``TbMaterial``), so a duplicate INSERT
     raises PostgreSQL 23505 which the InsForge proxy surfaces as
-    ``InsForgeError(409, ...)``. The service catches that and re-raises
+    ``BackendError(409, ...)``. The service catches that and re-raises
     as ``MaterialConflictError`` with a Spanish actionable message so
     the route layer can map it to HTTP 409. Mirrors the
     ``EntradaConflictError`` / ``AcogidaConflictError`` precedent.
@@ -165,7 +164,7 @@ def _row_to_estancia_material(row: dict[str, Any]) -> EstanciaMaterial:
 # --- domain-specific validation helpers ----------------------------------
 
 
-def _is_unique_violation(exc: InsForgeError) -> bool:
+def _is_unique_violation(exc: BackendError) -> bool:
     """Detect a PostgreSQL 23505 unique-violation surfaced by InsForge.
 
     Mirrors the ``_is_duplicate_error`` precedent in
@@ -254,13 +253,13 @@ def create_material(
     raises ``ValueError`` with the offending field name. If the
     ``UNIQUE (material, tamano, color)`` constraint rejects the INSERT
     (PostgreSQL 23505 — race-condition duplicate), translate the
-    ``InsForgeError`` to ``MaterialConflictError`` so the route layer
+    ``BackendError`` to ``MaterialConflictError`` so the route layer
     can map it to HTTP 409 (Scenario 2 in spec #15894).
     """
     sql, write_params = queries.build_material_insert(params)
     try:
         rows = client.execute_sql(sql, write_params)
-    except InsForgeError as exc:
+    except BackendError as exc:
         if _is_unique_violation(exc):
             raise MaterialConflictError(
                 "ya existe material con esa combinacion "
@@ -316,7 +315,7 @@ def update_material(
     sql, write_params = queries.build_material_update(material_id, params)
     try:
         rows = client.execute_sql(sql, [material_id, *write_params])
-    except InsForgeError as exc:
+    except BackendError as exc:
         if _is_unique_violation(exc):
             raise MaterialConflictError(
                 "ya existe material con esa combinacion "

@@ -2,7 +2,7 @@
 
 Slice 1 of the hexagonal refactor:
 ``refactor/hexagonal-slice-catalogos``. The DI helper hides the
-concrete :class:`InsForgeClient` from the application layer — routes
+concrete :class:`LocalPostgresExecutor` from the application layer — routes
 and use cases depend on :class:`CatalogosPort`, never on the concrete
 backend.
 
@@ -11,7 +11,7 @@ Pattern (mirrors :func:`app.core.auth_dependencies.get_local_postgres_executor_d
 1. Yield the per-request port bound to the request-scoped
    :class:`SqlExecutor`. Production: the pool of executor lives on
    ``app.state.sql_executor`` (the lifespan creates one
-   :class:`InsForgeClient` and reuses its underlying ``httpx.Client``
+   :class:`LocalPostgresExecutor` and reuses its underlying ``httpx.Client``
    across requests). The adapter is cheap to construct (no I/O), so
    building it per request is fine.
 2. On AttributeError (a lightweight ASGI test transport that does
@@ -50,7 +50,7 @@ def get_catalogos_port(request: Request) -> Iterator[CatalogosPort]:
     concrete adapter (InsForge) is hidden behind this dependency so
     the route layer does not import any InsForge-shaped import.
 
-    The lifespan stores the pooled :class:`InsForgeClient` on
+    The lifespan stores the pooled :class:`LocalPostgresExecutor` on
     ``app.state.sql_executor``; that client is reused across
     requests to amortize the underlying ``httpx.Client`` connection
     pool. A lightweight ASGI test transport that does not run the

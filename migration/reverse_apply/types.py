@@ -18,10 +18,10 @@ from typing import Any, Protocol
 from migration import MigrationError
 
 
-class _InsForgeLike(Protocol):
+class SqlExecutor(Protocol):
     """Structural type for the web client passed to ``apply_web_to_legacy``.
 
-    Mirrors the surface ``InsForgeClient.execute_sql`` exposes, plus
+    Mirrors the surface ``LocalPostgresExecutor.execute_sql`` exposes, plus
     the private ``apap-photos`` bucket accessors that the bootstrap
     uses. The :class:`FakeInsForge` test fixture satisfies the
     protocol by duck typing.
@@ -68,5 +68,5 @@ class ReverseSyncStateRollbackError(ReverseApplyError):
 __all__ = [
     "ReverseApplyError",
     "ReverseSyncStateRollbackError",
-    "_InsForgeLike",
+    "SqlExecutor",
 ]

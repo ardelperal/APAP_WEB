@@ -10,7 +10,7 @@ slice (the adapter is stateless beyond the injected
 :class:`~app.core.data_access.SqlExecutor`), so the composition
 root is also stateless.
 
-Per AGENTS.md §33.4: ``InsForgeClient`` and ``InsForgeError`` are
+Per AGENTS.md §33.4: ``LocalPostgresExecutor`` and ``BackendError`` are
 imported only under ``adapters/`` and ``di/`` (plus ``app/main.py``
 which builds the pooled client). Domain, ports and application are
 transport-agnostic -- which is why this module is the only place in

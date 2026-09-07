@@ -45,7 +45,7 @@ def _read(rel_path: str) -> ast.Module:
 
 def test_lifecycle_port_uses_sql_executor() -> None:
     """Pin #2: ``lifecycle_port.py`` depends on ``SqlExecutor``, never
-    on ``InsForgeClient`` / ``InsForgeError``.
+    on ``InsForgeClient`` / ``BackendError``.
     """
     tree = _read("app/modules/lifecycle/ports/lifecycle_port.py")
     for _kind, module, name in _imports(tree):
@@ -68,7 +68,7 @@ def test_lifecycle_port_uses_sql_executor() -> None:
 )
 def test_lifecycle_slice_has_no_insforge_import(module_path: str) -> None:
     """Pin #1 (PR-A scope): every module in domain/ + ports/ has no
-    InsForgeClient / InsForgeError import. PR-B's adapter is the only
+    InsForgeClient / BackendError import. PR-B's adapter is the only
     module in the slice that may import the transport.
     """
     tree = _read(module_path)
@@ -122,7 +122,7 @@ def test_lifecycle_port_is_runtime_checkable() -> None:
 )
 def test_lifecycle_application_and_di_have_no_insforge_import(module_path: str) -> None:
     """Pin #1 (PR-B scope): application/ and di/ never import
-    ``InsForgeClient`` / ``InsForgeError``. PR-A covers domain/ and
+    ``InsForgeClient`` / ``BackendError``. PR-A covers domain/ and
     ports/; PR-B widens the rule to the use cases and the composition
     root. The adapter under ``adapters/insforge/`` is the only module
     allowed to import the transport (AGENTS.md §33.4).

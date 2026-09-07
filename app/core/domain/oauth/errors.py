@@ -3,7 +3,7 @@
 The use cases in :mod:`app.core.application.oauth` raise these types
 (not transport errors) so the route layer can translate each to a
 single HTTP response. This is the §32.P4 fix for the legacy
-``app.core.auth_flow`` which caught a bare ``InsForgeError`` and
+``app.core.auth_flow`` which caught a bare ``BackendError`` and
 silently turned every transport failure into ``/redirect(/login)``
 — the new shape names the failure so a future handler can render
 an error page instead of bouncing the user.
@@ -66,7 +66,7 @@ class CallbackInvalidError(OAuthError):
     an ``insforge_code`` nor a legacy ``code`` query parameter. The
     route layer redirects to ``/login`` (the same shape the legacy
     ``app.core.auth_flow`` used for the 165-line ``except
-    InsForgeError`` bucket, but now applied ONLY to the genuinely
+    BackendError`` bucket, but now applied ONLY to the genuinely
     invalid-input case — transport failures are translated
     separately, §32.P4).
     """

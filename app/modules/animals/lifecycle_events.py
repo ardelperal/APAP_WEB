@@ -332,7 +332,7 @@ def record_event(  # noqa: PLR0913  # domain event recorder; 10 keyword-only arg
 
     Raises :class:`ValueError` on a missing required field or an
     event_type outside the 14 pinned values. Transport errors
-    (``InsForgeError`` from the client) propagate untouched so the
+    (``BackendError`` from the client) propagate untouched so the
     caller (route or hook) can map them to the appropriate HTTP code.
     """
     event_type_member = _coerce_event_type(event_type)

@@ -38,7 +38,7 @@ from app.core.local_backend.app import create_app
 
 def test_insforge_client_defaults_to_insforge_url() -> None:
     """When ``APAP_LOCAL_BACKEND`` is unset, the client targets InsForge."""
-    from app.core.insforge import InsForgeClient
+    from app.core.local_backend.db import LocalPostgresExecutor
 
     client = InsForgeClient(
         base_url="https://insforge.example.com",
@@ -59,7 +59,7 @@ def test_insforge_client_uses_local_default_when_flag_set(
     carry that prefix (otherwise every request would land on
     ``/api/api/...`` and 404).
     """
-    from app.core.insforge import InsForgeClient
+    from app.core.local_backend.db import LocalPostgresExecutor
 
     monkeypatch.setenv("APAP_LOCAL_BACKEND", "true")
     monkeypatch.delenv("APAP_INSFORGE_URL", raising=False)
@@ -73,7 +73,7 @@ def test_insforge_client_local_url_overrides_local_flag(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``APAP_INSFORGE_URL`` always wins over the local default."""
-    from app.core.insforge import InsForgeClient
+    from app.core.local_backend.db import LocalPostgresExecutor
 
     monkeypatch.setenv("APAP_LOCAL_BACKEND", "true")
     monkeypatch.setenv("APAP_INSFORGE_URL", "https://custom-insforge.example.com")

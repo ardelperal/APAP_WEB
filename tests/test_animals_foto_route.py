@@ -31,7 +31,7 @@ import httpx
 import pytest
 
 from app.core.config import get_settings
-from app.core.insforge import InsForgeClient
+from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
 from app.modules.animals.adapters.insforge.animals_insforge_adapter import (
@@ -288,10 +288,10 @@ class TestFotoRouteAuthAndRouting:
         fake_client: _FakeAnimalesFotoClient,
     ) -> None:
         """A storage-side error fails closed to the placeholder (no 5xx leak)."""
-        from app.core.insforge import InsForgeError
+        from app.core.data_access import BackendError
 
         _login_as_key_user(client)
-        fake_client.download_raises = InsForgeError(503, {"error": "boom"})
+        fake_client.download_raises = BackendError(503, {"error": "boom"})
         _seed_animal(fake_client, "anim-5", nombrefoto="abc123.jpg")
 
         response = await client.get(
@@ -312,10 +312,10 @@ class TestFotoRouteDoesNotLeakPresignedUrl:
         fake_client: _FakeAnimalesFotoClient,
     ) -> None:
         """The response body MUST NOT include the presigned URL or any presigned token."""
-        from app.core.insforge import InsForgeError
+        from app.core.data_access import BackendError
 
         _login_as_key_user(client)
-        fake_client.download_raises = InsForgeError(
+        fake_client.download_raises = BackendError(
             401,
             {"error": "auth_failed", "url": "https://storage.example.local/secret?token=abc"},
         )
@@ -441,10 +441,10 @@ class TestFotoRouteMidStreamFailClosed:
         fake_client: _FakeAnimalesFotoClient,
     ) -> None:
         """Streamed-GET 5xx (caught eagerly by ``download_object_stream``) → placeholder."""
-        from app.core.insforge import InsForgeError
+        from app.core.data_access import BackendError
 
         _login_as_key_user(client)
-        fake_client.download_raises = InsForgeError(
+        fake_client.download_raises = BackendError(
             503, {"error": "streamed_get_unavailable"}
         )
         _seed_animal(fake_client, "anim-r4-1", nombrefoto="abc.jpg")
@@ -613,7 +613,7 @@ class TestFotoRouteSqlLookupFailClosed:
     """PR4b 4R WARN-3: SQL failure on the animales lookup fails closed to the placeholder.
 
     The photo adapter wraps the animal metadata lookup so an unexpected
-    ``InsForgeError`` / network drop / SQL syntax error on the animales
+    ``BackendError`` / network drop / SQL syntax error on the animales
     SELECT becomes the placeholder PNG rather than a 5xx. The animal is
     still ``None`` (no row visible to the route) so this is consistent
     with the missing-animal semantics from the operator's perspective —
@@ -627,11 +627,11 @@ class TestFotoRouteSqlLookupFailClosed:
         client: httpx.AsyncClient,
         fake_client: _FakeAnimalesFotoClient,
     ) -> None:
-        """``InsForgeError`` on the animales SELECT → placeholder (no 5xx leak)."""
-        from app.core.insforge import InsForgeError
+        """``BackendError`` on the animales SELECT → placeholder (no 5xx leak)."""
+        from app.core.data_access import BackendError
 
         _login_as_key_user(client)
-        fake_client.animales_lookup_raises = InsForgeError(
+        fake_client.animales_lookup_raises = BackendError(
             500, {"error": "animales_lookup_failed"}
         )
         _seed_animal(fake_client, "anim-r4-w3", nombrefoto="abc.jpg")
@@ -652,7 +652,7 @@ class TestFotoRouteSqlLookupFailClosed:
         """A non-InsForge exception on the animales SELECT → placeholder.
 
         Belt-and-braces: the wrap catches ``Exception`` (not just
-        ``InsForgeError``) so a ``KeyError`` from a column rename or a
+        ``BackendError``) so a ``KeyError`` from a column rename or a
         ``RuntimeError`` from a service-layer invariant violation also
         fails closed. The audit doc records the precise scope claim.
         """

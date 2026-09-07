@@ -50,7 +50,7 @@ import pytest
 
 from app.core.auth_dependencies import get_insforge_client_dep
 from app.core.config import get_settings
-from app.core.insforge import InsForgeClient
+from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
 from app.modules.acogidas import service as acogidas_service
@@ -403,19 +403,19 @@ async def test_create_acogida_route_translates_fk_violation_to_422(
     route_client: _NoSqlRouteClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Service raises ``InsForgeError`` on concurrent FK violation -> 422.
+    """Service raises ``BackendError`` on concurrent FK violation -> 422.
 
     ``_validate_references`` runs SELECTs before the INSERT; a
     concurrent deactivate between the SELECT and the INSERT can still
     produce a PostgreSQL FK violation (PostgREST 400 with a
     ``"violates foreign key constraint"`` body). The service raises
-    ``InsForgeError``; the route must translate it to 422 with the
+    ``BackendError``; the route must translate it to 422 with the
     operator's form input preserved, NOT a 500.
 
-    Mirrors the adopciones pattern: routes catch ``InsForgeError`` to
+    Mirrors the adopciones pattern: routes catch ``BackendError`` to
     surface 4xx-style backend failures as actionable 422s.
     """
-    from app.core.insforge import InsForgeError
+    from app.core.data_access import BackendError
 
     _login_as_key_user(client)
     _bypass_species_gate(monkeypatch)
@@ -424,7 +424,7 @@ async def test_create_acogida_route_translates_fk_violation_to_422(
         service_client: InsForgeClient, params: dict[str, Any]
     ) -> acogidas_service.Acogida:
         # Simulate a PostgreSQL FK violation arriving via PostgREST.
-        raise InsForgeError(
+        raise BackendError(
             status_code=400,
             body={
                 "code": "23503",

@@ -12,7 +12,8 @@ import json
 import httpx
 import pytest
 
-from app.core.insforge import InsForgeClient, InsForgeError
+from app.core.data_access import BackendError
+from app.core.local_backend.db import LocalPostgresExecutor
 
 
 def _json_response(status_code: int, body: dict | list) -> httpx.Response:
@@ -69,7 +70,7 @@ def test_execute_sql_sends_authorization_bearer_header() -> None:
 
 
 def test_execute_sql_raises_insforge_error_on_4xx() -> None:
-    """``execute_sql`` raises ``InsForgeError`` carrying status and body on failure."""
+    """``execute_sql`` raises ``BackendError`` carrying status and body on failure."""
     transport = httpx.MockTransport(
         lambda request: _json_response(403, {"message": "forbidden"})
     )
@@ -79,7 +80,7 @@ def test_execute_sql_raises_insforge_error_on_4xx() -> None:
         transport=transport,
     )
 
-    with pytest.raises(InsForgeError) as exc:
+    with pytest.raises(BackendError) as exc:
         client.execute_sql("SELECT 1")
 
     assert exc.value.status_code == 403
@@ -87,7 +88,7 @@ def test_execute_sql_raises_insforge_error_on_4xx() -> None:
 
 
 def test_execute_sql_raises_insforge_error_on_5xx() -> None:
-    """``execute_sql`` raises ``InsForgeError`` on 5xx too (caller decides)."""
+    """``execute_sql`` raises ``BackendError`` on 5xx too (caller decides)."""
     transport = httpx.MockTransport(
         lambda request: _json_response(500, {"message": "boom"})
     )
@@ -97,7 +98,7 @@ def test_execute_sql_raises_insforge_error_on_5xx() -> None:
         transport=transport,
     )
 
-    with pytest.raises(InsForgeError):
+    with pytest.raises(BackendError):
         client.execute_sql("SELECT 1")
 
 
@@ -216,7 +217,7 @@ def test_exchange_google_oauth_code_raises_on_failure() -> None:
         transport=transport,
     )
 
-    with pytest.raises(InsForgeError) as exc:
+    with pytest.raises(BackendError) as exc:
         client.exchange_google_oauth_code(
             code="bad",
             code_verifier="v",
@@ -316,10 +317,10 @@ def test_exchange_insforge_oauth_code_returns_user_and_access_token() -> None:
 
 
 def test_exchange_insforge_oauth_code_raises_on_401_invalid_credentials() -> None:
-    """``exchange_insforge_oauth_code`` raises ``InsForgeError`` on 401.
+    """``exchange_insforge_oauth_code`` raises ``BackendError`` on 401.
 
     Pins the error path so the production ``/auth/callback`` handler
-    can catch ``InsForgeError`` and redirect to /login instead of
+    can catch ``BackendError`` and redirect to /login instead of
     surfacing a 500 to the user.
     """
     transport = httpx.MockTransport(
@@ -338,7 +339,7 @@ def test_exchange_insforge_oauth_code_raises_on_401_invalid_credentials() -> Non
         transport=transport,
     )
 
-    with pytest.raises(InsForgeError) as exc:
+    with pytest.raises(BackendError) as exc:
         client.exchange_insforge_oauth_code(
             insforge_code="expired",
             code_verifier="v",
@@ -353,7 +354,7 @@ def test_exchange_insforge_oauth_code_raises_when_response_missing_access_token(
 
     Guards against a regression where InsForge's response envelope
     changes (e.g. moves the JWT under a different key). The client
-    must surface a clear ``InsForgeError`` instead of silently returning
+    must surface a clear ``BackendError`` instead of silently returning
     an empty token to the route handler — which would issue a session
     cookie with no underlying identity.
     """
@@ -373,7 +374,7 @@ def test_exchange_insforge_oauth_code_raises_when_response_missing_access_token(
         transport=transport,
     )
 
-    with pytest.raises(InsForgeError) as exc:
+    with pytest.raises(BackendError) as exc:
         client.exchange_insforge_oauth_code(
             insforge_code="insforge-code-xyz",
             code_verifier="v",
@@ -404,7 +405,7 @@ def test_exchange_insforge_oauth_code_raises_when_response_missing_email() -> No
         transport=transport,
     )
 
-    with pytest.raises(InsForgeError):
+    with pytest.raises(BackendError):
         client.exchange_insforge_oauth_code(
             insforge_code="insforge-code-xyz",
             code_verifier="v",

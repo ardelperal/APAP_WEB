@@ -7,7 +7,8 @@ import re
 import httpx
 import pytest
 
-from app.core.insforge import InsForgeClient, InsForgeError
+from app.core.data_access import BackendError
+from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
 from tests.conftest import make_csrf_request
@@ -508,11 +509,11 @@ async def test_admin_deactivate_user_redirects_when_is_authorized_false(
     assert response.headers["location"] == "/unauthorized"
 
 
-# --- §32.P4 (issues #277, #278): global InsForgeError handler ----------------
+# --- §32.P4 (issues #277, #278): global BackendError handler ----------------
 #
 # The admin ``_add_user_or_error`` helper only catches ``ValueError`` from
 # ``add_authorized_user`` (the duplicate-email path translates
-# InsForgeError → ValueError inside the service). Any OTHER InsForgeError —
+# BackendError → ValueError inside the service). Any OTHER BackendError —
 # transport failure, upstream 5xx, timeout — propagates uncaught and
 # would produce a generic 500 page. This class covers the global handler
 # that converts those into a 502 Bad Gateway with a non-leaking message.
@@ -520,13 +521,13 @@ async def test_admin_deactivate_user_redirects_when_is_authorized_false(
 
 class TestInsForgeErrorGlobalHandler:
     """AGENTS.md §32.P4: any route calling a service that reaches InsForge
-    must handle both the domain error AND InsForgeError, OR a global
+    must handle both the domain error AND BackendError, OR a global
     handler must exist and be exercised by tests."""
 
     async def test_admin_add_user_returns_502_on_non_duplicate_insforge_error(
         self, client: httpx.AsyncClient, fake_insforge: _FakeInsForge
     ) -> None:
-        """A non-duplicate InsForgeError (e.g. 5xx from upstream) returns
+        """A non-duplicate BackendError (e.g. 5xx from upstream) returns
         502, not 500, per the §32.P4 anti-pattern fix."""
         from app.core.config import get_settings
 
@@ -557,9 +558,9 @@ class TestInsForgeErrorGlobalHandler:
             if "INSERT INTO usuarios_autorizados" in query and "VALUES" in query:
                 # Simulate a transport-level 5xx from InsForge. The
                 # service-layer translator only recognises "duplicate" /
-                # "unique" substrings; every other InsForgeError re-raises
+                # "unique" substrings; every other BackendError re-raises
                 # verbatim, which the global handler must convert to 502.
-                raise InsForgeError(503, "service unavailable")
+                raise BackendError(503, "service unavailable")
             return []
 
         fake_insforge.execute_sql = execute_sql
@@ -574,9 +575,9 @@ class TestInsForgeErrorGlobalHandler:
         assert response.status_code == 502
         body = response.json()
         assert "Upstream database error" in body["detail"]
-        # The raw InsForgeError repr must NOT leak to the client
+        # The raw BackendError repr must NOT leak to the client
         # (anti-pattern §32.P4: backend detail that does not belong in
-        # the response body). InsForgeError.__str__ formats as
+        # the response body). BackendError.__str__ formats as
         # ``"InsForge {status_code}: {body!r}"`` so any leak would
         # surface the ``"InsForge 503"`` substring.
         assert "InsForge 503" not in response.text

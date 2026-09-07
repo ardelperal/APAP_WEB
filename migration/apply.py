@@ -63,7 +63,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from app.core import logging as logging_mod
-from app.core.insforge import InsForgeError
+from app.core.data_access import BackendError
 from migration import (
     MigrationError,
     MsAccessPreflightUnavailableError,
@@ -161,10 +161,10 @@ class PartialApplyInterruptedError(MigrationError):
         self.detail = detail
 
 
-class _InsForgeLike(Protocol):
+class SqlExecutor(Protocol):
     """Structural type for the web client passed to ``apply_legacy_to_web``.
 
-    Mirrors the surface ``InsForgeClient.execute_sql`` exposes; defined
+    Mirrors the surface ``LocalPostgresExecutor.execute_sql`` exposes; defined
     as a Protocol so tests can pass a ``FakeInsForge`` without
     subclassing the real client.
     """
@@ -189,7 +189,7 @@ class _InsForgeLike(Protocol):
 BOOTSTRAP_SHADOW_TABLE_SQL = SHADOW_TABLE_SQL
 
 
-def _bootstrap_shadow_state(client: _InsForgeLike) -> None:
+def _bootstrap_shadow_state(client: SqlExecutor) -> None:
     """Ensure ``web_only_feature_shadow`` exists.
 
     Idempotent: the repository emits ``CREATE ... IF NOT EXISTS`` DDL
@@ -213,7 +213,7 @@ def _bootstrap_shadow_state(client: _InsForgeLike) -> None:
 # a trusted source (the YAML mapping or a CLI argument validated by
 # argparse choices) before embedding it. Anything else is SQLi.
 def apply_legacy_to_web(
-    client: _InsForgeLike,
+    client: SqlExecutor,
     table_name: str,
     *,
     legacy_path: str,
@@ -266,7 +266,7 @@ def apply_legacy_to_web(
       leaves no trace (lock released, no snapshot, no partial file).
 
     Args:
-        client: InsForge-shaped client (``InsForgeClient`` in
+        client: InsForge-shaped client (``LocalPostgresExecutor`` in
             production, ``FakeInsForge`` in tests).
         table_name: YAML spec name (e.g. ``"animal"``,
             ``"voluntario"``). Must be in ``list_available_tables()``.
@@ -457,7 +457,7 @@ def apply_legacy_to_web(
                             dry_run=dry_run,
                             vol_index=vol_index,
                         )
-                    except InsForgeError as exc:
+                    except BackendError as exc:
                         errors.append(
                             f"{mapping.legacy_table}: InsForge error on "
                             f"{legacy_row.get(mapping.legacy_key)!r}: {exc}"

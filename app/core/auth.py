@@ -14,7 +14,7 @@ This module preserves the pre-Phase-1 API so the existing callers
 working without a signature change. Every shim function:
 
 1. Accepts the legacy first argument (``client: SqlExecutor`` — the
-   InsForgeClient satisfies the Protocol structurally).
+   LocalPostgresExecutor satisfies the Protocol structurally).
 2. Constructs a fresh :class:`InsForgeAuthUsersAdapter` from the
    client (cheap, no I/O).
 3. Delegates to the new use case.

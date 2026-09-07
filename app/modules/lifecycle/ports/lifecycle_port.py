@@ -3,7 +3,7 @@
 The port is the contract between the use cases (``application/`` in
 PR-B) and the adapters (InsForge in PR-B, Access via the legacy
 adapter when it lands). The Protocol depends on
-``app.core.data_access.SqlExecutor`` — never on ``InsForgeClient``
+``app.core.data_access.SqlExecutor`` — never on ``LocalPostgresExecutor``
 (AGENTS.md §31).
 """
 

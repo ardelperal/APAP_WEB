@@ -22,7 +22,8 @@ import pytest
 
 from app.core.auth_dependencies import get_insforge_client_dep
 from app.core.config import get_settings
-from app.core.insforge import InsForgeClient, InsForgeError
+from app.core.data_access import BackendError
+from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
 from app.modules.sanidad import batch_service as sanidad_batch_service
@@ -510,7 +511,7 @@ async def test_create_validation_error_survives_catalog_recovery_failure(
         raise ValueError("fecha no puede ser futura")
 
     def _catalogos(_client: Any) -> list[dict[str, Any]]:
-        raise InsForgeError(503, {"error": "catalog unavailable"})
+        raise BackendError(503, {"error": "catalog unavailable"})
 
     monkeypatch.setattr(
         sanidad_service, "create_actuacion_sanitaria", _create
@@ -533,11 +534,11 @@ async def test_create_backend_error_returns_503_not_422(
     route_client: _NoSqlRouteClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """InsForgeError is logged and surfaced as backend outage, not validation."""
+    """BackendError is logged and surfaced as backend outage, not validation."""
     _login_as_key_user(client)
 
     def _create(*args: Any, **kwargs: Any) -> Any:
-        raise InsForgeError(503, {"error": "backend unavailable"})
+        raise BackendError(503, {"error": "backend unavailable"})
 
     monkeypatch.setattr(
         sanidad_service, "create_actuacion_sanitaria", _create
@@ -560,11 +561,11 @@ async def test_delete_backend_error_returns_503(
     route_client: _NoSqlRouteClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Delete handles InsForgeError instead of leaking an unhandled 500."""
+    """Delete handles BackendError instead of leaking an unhandled 500."""
     _login_as_key_user(client)
 
     def _delete(*args: Any, **kwargs: Any) -> bool:
-        raise InsForgeError(503, {"error": "backend unavailable"})
+        raise BackendError(503, {"error": "backend unavailable"})
 
     monkeypatch.setattr(
         sanidad_service, "delete_actuacion_sanitaria", _delete
@@ -587,7 +588,7 @@ async def test_delete_backend_error_returns_503(
 #   * POST with dry_run=true renders preview without INSERT.
 #   * POST with batch-validation error rerenders preview with 422.
 #   * POST with empty / too-small form rerenders with 422.
-#   * InsForgeError rerenders as 503.
+#   * BackendError rerenders as 503.
 
 
 def _valid_batch_form() -> dict[str, list[str]]:
@@ -838,7 +839,7 @@ async def test_batch_post_backend_error_returns_503(
     route_client: _NoSqlRouteClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """InsForgeError during batch commit -> 503 (matches single-record)."""
+    """BackendError during batch commit -> 503 (matches single-record)."""
     _login_as_key_user(client)
 
     def _commit(
@@ -846,7 +847,7 @@ async def test_batch_post_backend_error_returns_503(
         records: list[dict[str, Any]],
         **kwargs: Any,
     ) -> Any:
-        raise InsForgeError(503, {"error": "backend unavailable"})
+        raise BackendError(503, {"error": "backend unavailable"})
 
     monkeypatch.setattr(sanidad_batch_service, "commit_batch", _commit)
 

@@ -399,7 +399,7 @@ def test_patch_seguimiento_anexar_without_url_returns_422(
     The service's ``transition_seguimiento`` raises
     ``ValueError("documento_url is required for action ANEXAR")`` when
     ``action == ANEXAR`` and ``documento_url is None``. The route's
-    wrapper maps the underlying ``InsForgeError`` (transport) to 500
+    wrapper maps the underlying ``BackendError`` (transport) to 500
     and propagates other exceptions; in the current implementation the
     ValueError is NOT wrapped in ``_SeguirTransitionError`` and
     propagates as an unhandled exception → FastAPI returns 500.

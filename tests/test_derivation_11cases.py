@@ -21,7 +21,7 @@ from typing import Any
 import httpx
 import pytest
 
-from app.core.insforge import InsForgeClient
+from app.core.local_backend.db import LocalPostgresExecutor
 
 # --- helpers --------------------------------------------------------------
 

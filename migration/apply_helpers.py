@@ -16,10 +16,10 @@ import unicodedata
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    # ``_InsForgeLike`` lives in ``migration.apply`` (kept there because
+    # ``SqlExecutor`` lives in ``migration.apply`` (kept there because
     # it is the structural type of the public ``apply_legacy_to_web``
     # signature). Re-imported for type checking only.
-    from migration.apply import _InsForgeLike  # noqa: F401
+    from migration.apply import SqlExecutor  # noqa: F401
 
 from rapidfuzz import fuzz
 
@@ -80,7 +80,7 @@ class _VoluntariosIndex:
         # Maps normalised name -> (web_uuid, original_name).
         self._by_name: dict[str, tuple[str, str]] = {}
 
-    def load_from_db(self, client: _InsForgeLike) -> None:
+    def load_from_db(self, client: SqlExecutor) -> None:
         """Load all active volontarios from the DB into the index (Level 1).
 
         Called once per apply run before processing acogidas / adopciones.
@@ -173,7 +173,7 @@ def _resolve_fk_value(
     legacy_value: str | None,
     lookup_table: str,
     lookup_key: str,
-    client: _InsForgeLike,
+    client: SqlExecutor,
     vol_index: _VoluntariosIndex | None,
     *,
     fuzzy_match: bool = False,
@@ -209,7 +209,7 @@ def _apply_value_transform(transform: str, value: Any) -> Any:
     Catalogue lives in ``migration.mappings.ColumnMapping.transform``.
     Dispatcher is an explicit table so the supported set is visible at
     a glance. Failures raise ``ValueError``; the apply pipeline re-raises
-    and the per-row ``except InsForgeError`` records the error and
+    and the per-row ``except BackendError`` records the error and
     continues (a single bad value must not abort the whole apply).
     """
     if transform == "identity":

@@ -33,7 +33,7 @@ from typing import Any
 import httpx
 import pytest
 
-from app.core.insforge import InsForgeClient
+from app.core.local_backend.db import LocalPostgresExecutor
 from app.modules.sanidad import batch_service
 
 # --- mock helpers (mirror test_sanidad.py shape) --------------------------
@@ -399,14 +399,14 @@ def test_batch_insert_rejects_empty_records() -> None:
 
 
 def test_batch_insert_propagates_insforge_error() -> None:
-    """``InsForgeError`` from the SQL executor surfaces verbatim.
+    """``BackendError`` from the SQL executor surfaces verbatim.
 
     The service does NOT swallow transport errors — the route layer
     translates them to 503 (mirroring ``create_actuacion_sanitaria``).
     The exception type is preserved so the route's ``except``
     clause can discriminate.
     """
-    from app.core.insforge import InsForgeError
+    from app.core.data_access import BackendError
 
     records = _records(3)
 
@@ -415,7 +415,7 @@ def test_batch_insert_propagates_insforge_error() -> None:
 
     client, _captured = _client_recording(_boom)
 
-    with pytest.raises(InsForgeError) as exc_info:
+    with pytest.raises(BackendError) as exc_info:
         batch_service.commit_batch(client, records)
 
     assert exc_info.value.status_code == 503
