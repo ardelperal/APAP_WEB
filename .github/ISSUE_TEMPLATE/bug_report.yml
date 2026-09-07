@@ -1,0 +1,37 @@
+name: Reporte de error
+description: Reporta un error o vulnerabilidad técnica en la aplicación.
+title: "bug: "
+labels:
+  - "type:bug"
+body:
+  - type: textarea
+    id: problema-descripcion
+    attributes:
+      label: Problema y ubicación
+      description: Describa el problema, dónde ocurre (archivo:línea) y su severidad.
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidencia-verificacion
+    attributes:
+      label: Evidencia de verificación
+      description: Evidencia que confirma el problema (código revisado, ruta de explotación, reproducción).
+    validations:
+      required: true
+
+  - type: textarea
+    id: escenario-impacto
+    attributes:
+      label: Escenario e impacto
+      description: Cómo se explota o dispara el problema y qué impacto concreto tiene.
+    validations:
+      required: true
+
+  - type: textarea
+    id: recomendacion
+    attributes:
+      label: Recomendación
+      description: Solución propuesta.
+    validations:
+      required: true
