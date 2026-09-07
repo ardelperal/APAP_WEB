@@ -3,7 +3,7 @@
 The magic link + classic password auth is the M1 milestone of the
 self-host-backend-coolify openspec. The Ports (Protocols) define
 the contract; these tests pin the behaviour before any adapter is
-written. The InsForgeAdapter gains a no-op default for the new
+written. The local backend gains a no-op default for the new
 methods so the migration does not break the existing OAuth-only
 deployments.
 
@@ -231,41 +231,3 @@ def test_set_password_updates_existing_hash(self_host_schema) -> None:
     )
 
 
-# --- InsForge adapter no-op defaults (backward compat) -----------------
-
-
-def test_insforge_auth_port_verify_password_returns_none(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The InsForge adapter gains a default ``verify_password`` that
-    returns None — InsForge does not have password auth, so the
-    fallback prevents AttributeError when the M0 backend is not
-    configured but the M1 endpoint is hit.
-
-    The default is overridden by the local adapter when
-    ``APAP_LOCAL_BACKEND=true`` is set.
-    """
-    from app.core.adapters.insforge.auth_insforge_adapter import (
-        InsForgeAuthUsersAdapter,
-    )
-
-    adapter = InsForgeAuthUsersAdapter(executor=None)
-    # verify_password is not implemented on InsForge; calling it should
-    # raise AttributeError or return None. The migration must add the
-    # method. After the migration it returns None (InsForge has no
-    # password auth).
-    result = adapter.verify_password("ana@test.com", "anything")
-    assert result is None
-
-
-def test_insforge_auth_port_set_password_raises() -> None:
-    """The InsForge adapter's default ``set_password`` raises
-    ``NotImplementedError`` — InsForge cannot store password hashes.
-    """
-    from app.core.adapters.insforge.auth_insforge_adapter import (
-        InsForgeAuthUsersAdapter,
-    )
-
-    adapter = InsForgeAuthUsersAdapter(executor=None)
-    with pytest.raises(NotImplementedError):
-        adapter.set_password("ana@test.com", "anything")

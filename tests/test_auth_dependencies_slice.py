@@ -50,7 +50,7 @@ SHIM_PATH = REPO_ROOT / "app" / "core" / "auth_dependencies.py"
 NINE_PUBLIC_NAMES = (
     "AuthenticatedUser",
     "is_authenticated_user",
-    "get_insforge_client_dep",
+    "get_local_postgres_executor_dep",
     "get_current_user_optional",
     "return_early_if_response",
     "require_authorized_user",
@@ -141,9 +141,9 @@ def _module_r04_violations(source: str) -> list[str]:
        inside the module body — but NOT inside docstrings (the module
        docstring describes ``POST/PUT/PATCH/DELETE`` HTTP methods, not
        raw SQL keywords).
-    2. An ``InsForgeClient(...)`` constructor call OUTSIDE the single
-       permitted fallback site inside ``get_insforge_client_dep``.
-       Importing ``InsForgeClient`` at module level IS allowed — it is
+    2. An ``LocalPostgresExecutor(...)`` constructor call OUTSIDE the single
+       permitted fallback site inside ``get_local_postgres_executor_dep``.
+       Importing ``LocalPostgresExecutor`` at module level IS allowed — it is
        the only construction site permitted, and the fallback needs
        the symbol in scope.
     3. A direct attribute access of ``auth_cache`` (the module must go
@@ -207,19 +207,19 @@ def _module_r04_violations(source: str) -> list[str]:
                 )
                 break
 
-    # ---- Constraint 2: ``InsForgeClient(...)`` constructor outside the
+    # ---- Constraint 2: ``LocalPostgresExecutor(...)`` constructor outside the
     # permitted fallback site.
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
         func = node.func
-        if not (isinstance(func, ast.Name) and func.id == "InsForgeClient"):
+        if not (isinstance(func, ast.Name) and func.id == "LocalPostgresExecutor"):
             continue
         enclosing = _enclosing_function(node)
-        if enclosing is None or enclosing.name != "get_insforge_client_dep":
+        if enclosing is None or enclosing.name != "get_local_postgres_executor_dep":
             violations.append(
-                f"InsForgeClient(...) construction at line {node.lineno} "
-                f"outside the permitted get_insforge_client_dep fallback "
+                f"LocalPostgresExecutor(...) construction at line {node.lineno} "
+                f"outside the permitted get_local_postgres_executor_dep fallback "
                 f"site (the service seam must own this)"
             )
 
@@ -270,10 +270,10 @@ def test_di_module_has_no_raw_sql_or_execute_sql() -> None:
        code (docstrings excluded — they may mention HTTP methods like
        ``POST/PUT/PATCH/DELETE`` in plain English/Spanish).
     2. **No transport construction outside the permitted fallback** —
-       ``InsForgeClient(...)`` is allowed ONLY inside
-       ``get_insforge_client_dep`` at the lazy fallback site (a single
-       line, when ``app.state.insforge_client`` is absent). Importing
-       ``InsForgeClient`` at module level is permitted because that
+       ``LocalPostgresExecutor(...)`` is allowed ONLY inside
+       ``get_local_postgres_executor_dep`` at the lazy fallback site (a single
+       line, when ``app.state.sql_executor`` is absent). Importing
+       ``LocalPostgresExecutor`` at module level is permitted because that
        single function needs the symbol in scope.
     3. **No direct ``app.core.auth_cache`` access** — the di module must
        use the ``get_cached_auth`` / ``set_cached_auth`` facade and must
@@ -595,7 +595,7 @@ def test_shim_exports_resolve_when_di_module_imported_first() -> None:
         NINE = (
             "AuthenticatedUser",
             "is_authenticated_user",
-            "get_insforge_client_dep",
+            "get_local_postgres_executor_dep",
             "get_current_user_optional",
             "return_early_if_response",
             "require_authorized_user",

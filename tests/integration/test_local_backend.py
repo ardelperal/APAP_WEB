@@ -2,7 +2,7 @@
 
 The M0 milestone replaces InsForge (the managed BaaS) with a FastAPI
 backend served by the same process, over Postgres. The tests below
-pin the contract that ``InsForgeClient`` consumes regardless of whether
+pin the contract that ``LocalPostgresExecutor`` consumes regardless of whether
 the backend is InsForge remote or the local one.
 
 This file replaces the earlier in-process uvicorn tests (which proved
@@ -40,7 +40,7 @@ def test_insforge_client_defaults_to_insforge_url() -> None:
     """When ``APAP_LOCAL_BACKEND`` is unset, the client targets InsForge."""
     from app.core.local_backend.db import LocalPostgresExecutor
 
-    client = InsForgeClient(
+    client = LocalPostgresExecutor(
         base_url="https://insforge.example.com",
         service_key="dummy",
     )
@@ -54,7 +54,7 @@ def test_insforge_client_uses_local_default_when_flag_set(
     the client targets ``http://localhost:8000`` (the local backend).
 
     Note: the ``base_url`` is intentionally without a trailing
-    ``/api`` — ``InsForgeClient`` hardcodes the ``/api/...``
+    ``/api`` — ``LocalPostgresExecutor`` hardcodes the ``/api/...``
     prefix on every endpoint, so the base URL itself must NOT
     carry that prefix (otherwise every request would land on
     ``/api/api/...`` and 404).
@@ -63,7 +63,7 @@ def test_insforge_client_uses_local_default_when_flag_set(
 
     monkeypatch.setenv("APAP_LOCAL_BACKEND", "true")
     monkeypatch.delenv("APAP_INSFORGE_URL", raising=False)
-    client = InsForgeClient(base_url="", service_key="dummy")
+    client = LocalPostgresExecutor(base_url="", service_key="dummy")
     # ``httpx.Client.base_url`` is a ``URL`` object; compare via ``str``
     # so the assertion works regardless of trailing-slash normalization.
     assert str(client._client.base_url).rstrip("/") == "http://localhost:8000"
@@ -77,7 +77,7 @@ def test_insforge_client_local_url_overrides_local_flag(
 
     monkeypatch.setenv("APAP_LOCAL_BACKEND", "true")
     monkeypatch.setenv("APAP_INSFORGE_URL", "https://custom-insforge.example.com")
-    client = InsForgeClient(
+    client = LocalPostgresExecutor(
         base_url=os.environ["APAP_INSFORGE_URL"],
         service_key="dummy",
     )
@@ -143,7 +143,7 @@ async def test_rawsql_select_roundtrip(
 ) -> None:
     """INSERT then SELECT via the rawsql endpoint returns the inserted row.
 
-    Pins the contract that ``InsForgeClient.execute_sql`` consumes:
+    Pins the contract that ``LocalPostgresExecutor.execute_sql`` consumes:
     ``{"rows": [{...}], "rowCount": N}``.
     """
     client = local_backend_client
@@ -189,7 +189,7 @@ async def test_rawsql_insert_returns_empty_rows(
     """INSERT without RETURNING returns ``{"rows": [], "rowCount": 0}``.
 
     Pins the InsForge contract: non-SELECT queries return an empty
-    rows list so the consumer (``InsForgeClient.execute_sql``) can
+    rows list so the consumer (``LocalPostgresExecutor.execute_sql``) can
     safely call ``rows[0]`` after a SELECT.
     """
     client = local_backend_client
@@ -247,7 +247,7 @@ async def test_storage_list_buckets(
 ) -> None:
     """``GET /api/storage/buckets`` returns the bucket-list shape.
 
-    Pins the contract ``InsForgeClient.get_bucket`` consumes: a list of
+    Pins the contract ``LocalPostgresExecutor.get_bucket`` consumes: a list of
     ``{"bucketName": ..., "isPublic": ..., "files": ...}`` dicts.
     """
     client = local_backend_client
@@ -269,7 +269,7 @@ async def test_storage_ensure_bucket_returns_bucket_shape(
     local_backend_client: httpx.AsyncClient,
 ) -> None:
     """``POST /api/storage/buckets`` (with ``bucketName`` in body) returns
-    the bucket shape used by ``InsForgeClient.ensure_bucket``.
+    the bucket shape used by ``LocalPostgresExecutor.ensure_bucket``.
 
     The InsForge contract is body-based (``{"bucketName": ..., "isPublic": ...}``),
     not path-based (``/buckets/{name}``), so the handler must accept the
@@ -318,7 +318,7 @@ async def test_oauth_google_start_returns_auth_url(
 ) -> None:
     """``GET /api/auth/oauth/google`` returns the auth URL shape.
 
-    Pins the contract ``InsForgeClient.start_google_oauth`` consumes:
+    Pins the contract ``LocalPostgresExecutor.start_google_oauth`` consumes:
     ``{"authUrl": "https://..."}``.
     """
     client = local_backend_client
@@ -342,7 +342,7 @@ async def test_oauth_google_callback_returns_jwt(
 ) -> None:
     """``POST /api/auth/oauth/google/callback`` returns ``token`` + ``user``.
 
-    Pins the contract ``InsForgeClient.exchange_google_oauth_code``
+    Pins the contract ``LocalPostgresExecutor.exchange_google_oauth_code``
     consumes: ``{"token": "<jwt>", "user": {"id": ..., "email": ...}}``.
     """
     client = local_backend_client
@@ -370,7 +370,7 @@ async def test_oauth_exchange_returns_jwt(
 ) -> None:
     """``POST /api/auth/oauth/exchange?client_type=web`` returns ``user`` + ``accessToken``.
 
-    Pins the contract ``InsForgeClient.exchange_insforge_oauth_code``
+    Pins the contract ``LocalPostgresExecutor.exchange_insforge_oauth_code``
     consumes (the InsForge-hosted OAuth proxy): the body has at least
     ``user`` and ``accessToken`` keys; the test reads ``accessToken``
     as the session JWT.

@@ -57,7 +57,7 @@ class _SearchPort:
 @pytest.fixture
 def search_port(monkeypatch: pytest.MonkeyPatch) -> Iterator[_SearchPort]:
     port = _SearchPort()
-    monkeypatch.setattr(app.state, "insforge_client", _AuthClient(), raising=False)
+    monkeypatch.setattr(app.state, "sql_executor", _AuthClient(), raising=False)
     app.dependency_overrides[get_animals_port] = lambda: port
     yield port
     app.dependency_overrides.pop(get_animals_port, None)

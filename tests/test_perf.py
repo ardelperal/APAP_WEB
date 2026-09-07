@@ -35,8 +35,8 @@ def _json_response(status_code: int, body: Any) -> httpx.Response:
 
 def _make_web_client(
     handler: Callable[[httpx.Request], httpx.Response],
-) -> InsForgeClient:
-    return InsForgeClient(
+) -> LocalPostgresExecutor:
+    return LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=httpx.MockTransport(handler),

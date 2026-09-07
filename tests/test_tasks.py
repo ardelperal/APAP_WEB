@@ -22,9 +22,10 @@ import uuid
 import httpx
 import pytest
 
+from app.core.di.local_postgres_di import get_local_postgres_executor_dep
 from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.session import session_cookie_name, write_session
-from app.main import app, get_insforge_client
+from app.main import app
 from tests.conftest import make_csrf_request
 
 # ---------------------------------------------------------------------------
@@ -32,7 +33,7 @@ from tests.conftest import make_csrf_request
 # ---------------------------------------------------------------------------
 
 
-class _FakeTasksInsForge(InsForgeClient):
+class _FakeTasksInsForge(LocalPostgresExecutor):
     """Minimal fake for task engine tests.
 
     Simulates the ``tarea`` table (issue #7). Supports the six service
@@ -181,9 +182,9 @@ class _FakeTasksInsForge(InsForgeClient):
 @pytest.fixture
 def fake_tasks_insforge() -> _FakeTasksInsForge:
     fake = _FakeTasksInsForge()
-    app.dependency_overrides[get_insforge_client] = lambda: fake
+    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: fake
     yield fake
-    app.dependency_overrides.pop(get_insforge_client, None)
+    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
 
 
 # ---------------------------------------------------------------------------

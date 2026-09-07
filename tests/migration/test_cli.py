@@ -294,7 +294,7 @@ def test_cli_main_builds_and_closes_client_when_not_injected(
             insforge_service_key="ik_test",
         ),
     )
-    monkeypatch.setattr(cli_mod, "InsForgeClient", ClosingFakeInsForge)
+    monkeypatch.setattr(cli_mod, "LocalPostgresExecutor", ClosingFakeInsForge)
 
     stream = io.StringIO()
     rc = main(["status", "--table", "animal"], stream=stream)

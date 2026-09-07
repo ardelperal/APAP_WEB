@@ -41,16 +41,17 @@ class _AnonymousSpy:
 
 
 @pytest.fixture
-def _bypass_insforge(monkeypatch: pytest.MonkeyPatch) -> None:
-    from app.main import app, get_insforge_client
+def _bypass_sql_executor(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.core.di.local_postgres_di import get_local_postgres_executor_dep
+    from app.main import app
 
     spy = _AnonymousSpy()
-    app.dependency_overrides[get_insforge_client] = lambda: spy
+    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy
     monkeypatch.setattr(
-        "app.modules.animals.routes.get_insforge_client_dep", lambda: spy
+        "app.modules.animals.routes.get_local_postgres_executor_dep", lambda: spy
     )
     yield
-    app.dependency_overrides.pop(get_insforge_client, None)
+    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
 
 
 def _login(
@@ -340,7 +341,7 @@ class TestRateLimitMiddlewareIntegration:
         assert "error" in body
 
     async def test_write_route_under_both_limits_returns_200(
-        self, client: httpx.AsyncClient, _bypass_insforge: None
+        self, client: httpx.AsyncClient, _bypass_sql_executor: None
     ) -> None:
         """POST under user (60/min) and IP (30/min) limits → 200."""
         _login(client, user_id="u-test", rol="admin")
@@ -356,7 +357,7 @@ class TestRateLimitMiddlewareIntegration:
         assert response.status_code in (200, 302)
 
     async def test_write_route_over_user_limit_returns_429_reason_user(
-        self, client: httpx.AsyncClient, _bypass_insforge: None
+        self, client: httpx.AsyncClient, _bypass_sql_executor: None
     ) -> None:
         """Authenticated POST exhausting user bucket → 429, reason=user."""
         _login(client, user_id="u-exhaust", rol="admin")
@@ -397,7 +398,7 @@ class TestRateLimitMiddlewareIntegration:
     async def test_apap_mode_test_bypasses_all_limits(
         self,
         client: httpx.AsyncClient,
-        _bypass_insforge: None,
+        _bypass_sql_executor: None,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """APAP_MODE=test → 1000 POSTs return no 429."""
@@ -430,7 +431,7 @@ class TestRateLimitMiddlewareIntegration:
     async def test_rejection_log_has_no_ip_kwarg(
         self,
         client: httpx.AsyncClient,
-        _bypass_insforge: None,
+        _bypass_sql_executor: None,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """On 429, log_safe is called WITHOUT any IP-identifying kwarg."""
@@ -475,7 +476,7 @@ class TestRateLimitMiddlewareIntegration:
     async def test_all_headers_present_on_protected_success(
         self,
         client: httpx.AsyncClient,
-        _bypass_insforge: None,
+        _bypass_sql_executor: None,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Under-limit write request → 200/302 AND all X-RateLimit-* headers.

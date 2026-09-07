@@ -13,9 +13,10 @@ from pathlib import Path
 import httpx
 import pytest
 
+from app.core.di.local_postgres_di import get_local_postgres_executor_dep
 from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.session import session_cookie_name, write_session
-from app.main import app, get_insforge_client
+from app.main import app
 
 
 def _read(rel: str) -> str:
@@ -75,7 +76,7 @@ def test_solo_dos_call_sites_en_app() -> None:
     }
 
 
-class _Spy(InsForgeClient):
+class _Spy(LocalPostgresExecutor):
     """InsForge stand-in: [] from execute_sql, no HTTP I/O."""
 
     def __init__(self) -> None:  # type: ignore[override]
@@ -96,9 +97,9 @@ class _Spy(InsForgeClient):
 @pytest.fixture
 def spy_insforge() -> _Spy:
     s = _Spy()
-    app.dependency_overrides[get_insforge_client] = lambda: s
+    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: s
     yield s
-    app.dependency_overrides.pop(get_insforge_client, None)
+    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
 
 
 def _login_pre_fix(client: httpx.AsyncClient) -> None:

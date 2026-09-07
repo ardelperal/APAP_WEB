@@ -2,7 +2,7 @@
 
 PR 1 of ``web-only-feature-preservation``: CRUD for the
 ``web_only_feature_shadow`` table. The repository is a thin wrapper
-over ``InsForgeClient.execute_sql`` — tests inject a mock client
+over ``LocalPostgresExecutor.execute_sql`` — tests inject a mock client
 (``httpx.MockTransport``) and assert the SQL emitted, which is the
 same testing pattern used in ``tests/test_migration.py::TestWebReader``.
 
@@ -45,7 +45,7 @@ def _json_response(status_code: int, body: Any) -> httpx.Response:
     )
 
 
-def _client_recording(handler) -> tuple[InsForgeClient, list[dict[str, Any]]]:
+def _client_recording(handler) -> tuple[LocalPostgresExecutor, list[dict[str, Any]]]:
     """Build a client whose MockTransport records every call's JSON body."""
     captured: list[dict[str, Any]] = []
 
@@ -55,7 +55,7 @@ def _client_recording(handler) -> tuple[InsForgeClient, list[dict[str, Any]]]:
         captured.append(body)
         return handler(request, body)
 
-    client = InsForgeClient(
+    client = LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=httpx.MockTransport(_recording_handler),

@@ -2,7 +2,7 @@
 
 Mirrors the stub-port pattern from the previous application-layer
 tests in this slice so the use-case stays transport-free: the
-application code never sees ``InsForgeClient``, the storage
+application code never sees ``LocalPostgresExecutor``, the storage
 backend, or the postgres connection; it talks to the
 :class:`AnimalsPort` Protocol only.
 """

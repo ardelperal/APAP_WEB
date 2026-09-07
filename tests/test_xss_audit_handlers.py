@@ -7,7 +7,7 @@ inside the handlers (a vector the template test cannot detect because
 the template is never reached).
 
 Method:
-  1. Build a spy ``InsForgeClient`` that returns rows whose
+  1. Build a spy ``LocalPostgresExecutor`` that returns rows whose
      user-controlled columns contain the four XSS patterns from
      spec REQ-XSS-2.
   2. Log in as an authorized user (any role works).
@@ -29,9 +29,10 @@ from pathlib import Path
 import httpx
 import pytest
 
+from app.core.di.local_postgres_di import get_local_postgres_executor_dep
 from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.session import session_cookie_name, write_session
-from app.main import app, get_insforge_client
+from app.main import app
 from tests.conftest import auth_reval_rows, make_csrf_request
 
 # Four XSS payloads from spec REQ-XSS-2 — chosen so each spans a
@@ -72,8 +73,8 @@ def _login_as_key_user(client: httpx.AsyncClient) -> None:
 # ---------------------------------------------------------------------------
 
 
-class _XssInsForge(InsForgeClient):
-    """Stand-in for ``InsForgeClient`` that returns XSS-laden rows.
+class _XssInsForge(LocalPostgresExecutor):
+    """Stand-in for ``LocalPostgresExecutor`` that returns XSS-laden rows.
 
     Pattern matches SQL fragments (same shape as the real routes) so
     that all ``animales``/``entradas``/``voluntarios`` queries return
@@ -194,15 +195,15 @@ class _XssInsForge(InsForgeClient):
 @pytest.fixture
 def xss_insforge() -> _XssInsForge:
     spy = _XssInsForge()
-    app.dependency_overrides[get_insforge_client] = lambda: spy
+    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy
     # Epic #420 migrated the animals routes to Depends(get_animals_port);
-    # the hexagonal provider reads ``state.insforge_client`` directly, so
+    # the hexagonal provider reads ``state.sql_executor`` directly, so
     # the state must also be wired for these tests (which exercise the
     # animals detail/edit routes after migration).
-    app.state.insforge_client = spy
+    app.state.sql_executor = spy
     yield spy
-    app.dependency_overrides.pop(get_insforge_client, None)
-    app.state.__dict__.pop("insforge_client", None)
+    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
+    app.state.__dict__.pop("sql_executor", None)
 
 
 # ---------------------------------------------------------------------------

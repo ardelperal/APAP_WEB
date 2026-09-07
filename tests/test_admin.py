@@ -8,13 +8,14 @@ import httpx
 import pytest
 
 from app.core.data_access import BackendError
+from app.core.di.local_postgres_di import get_local_postgres_executor_dep
 from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.session import session_cookie_name, write_session
-from app.main import app, get_insforge_client
+from app.main import app
 from tests.conftest import make_csrf_request
 
 
-class _FakeInsForge(InsForgeClient):
+class _FakeInsForge(LocalPostgresExecutor):
     def __init__(self) -> None:
         self.list_users_response: list[dict] = []
         self.add_user_response: dict = {
@@ -71,12 +72,12 @@ class _FakeInsForge(InsForgeClient):
 @pytest.fixture
 def fake_insforge() -> _FakeInsForge:
     fake = _FakeInsForge()
-    app.dependency_overrides[get_insforge_client] = lambda: fake
+    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: fake
     # Slice 6 (admin handlers): the admin routes now compose AuthUsersPort
     # via the ``get_auth_users_port`` dep, which resolves the client from
-    # ``app.state.insforge_client``. Set it here so both the legacy
+    # ``app.state.sql_executor``. Set it here so both the legacy
     # dep override AND the new port dep see the fake.
-    app.state.insforge_client = fake
+    app.state.sql_executor = fake
     # Slice 6 (admin template adapter): the admin routes wrap Jinja via
     # ``get_admin_template_adapter`` which reads ``app.state.templates``.
     # In production the lifespan sets it (via ``create_app``); in tests
@@ -99,7 +100,7 @@ def fake_insforge() -> _FakeInsForge:
         ],
     )
     yield fake
-    app.dependency_overrides.pop(get_insforge_client, None)
+    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
 
 
 def _login_as(

@@ -2,7 +2,7 @@
 
 ``admin_add_user`` was historically ``async def`` and called
 ``await request.form()`` even though it then called the SYNC
-``InsForgeClient``. In FastAPI, ``async def`` handlers run on the
+``LocalPostgresExecutor``. In FastAPI, ``async def`` handlers run on the
 event loop; calling a sync HTTP client (the InsForge ``Client``) from
 the loop blocks it for the duration of the call (no threadpool
 offload — the handler is async, so FastAPI doesn't move it to a
@@ -41,7 +41,7 @@ def test_admin_add_user_is_sync_def_not_async() -> None:
     """
     func = _get_admin_add_user()
     assert not inspect.iscoroutinefunction(func), (
-        "admin_add_user is async def but calls the sync InsForgeClient; "
+        "admin_add_user is async def but calls the sync LocalPostgresExecutor; "
         "this blocks the FastAPI event loop for the duration of the SQL "
         "call. Convert to `def` so FastAPI runs it in the threadpool "
         "where the sync client is fine (same as admin_deactivate_user)."
@@ -156,7 +156,7 @@ def test_admin_handlers_all_use_the_same_async_style() -> None:
         endpoint = route.endpoint
         assert not inspect.iscoroutinefunction(endpoint), (
             f"admin handler {route.name!r} is async def; all admin "
-            f"handlers must be sync (def) so the sync InsForgeClient "
+            f"handlers must be sync (def) so the sync LocalPostgresExecutor "
             f"can run in the FastAPI threadpool without blocking the "
             f"event loop. Convert this handler to def."
         )

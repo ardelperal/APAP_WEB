@@ -1,6 +1,6 @@
 """Tests for the usuarios_autorizados schema, bootstrap seed and CRUD.
 
-All tests use a real ``InsForgeClient`` with an ``httpx.MockTransport``
+All tests use a real ``LocalPostgresExecutor`` with an ``httpx.MockTransport``
 so we exercise the SQL strings, params, and response parsing without
 hitting the network.
 """
@@ -34,8 +34,8 @@ def _json_response(status_code: int, body: Any) -> httpx.Response:
     )
 
 
-def _client(handler) -> InsForgeClient:
-    return InsForgeClient(
+def _client(handler) -> LocalPostgresExecutor:
+    return LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=httpx.MockTransport(handler),
@@ -452,7 +452,7 @@ def test_add_authorized_user_rejects_duplicate_via_insforge_error() -> None:
     """When the pre-check passes but INSERT 23505s, raise ValueError.
 
     The handler returns a 409 with the Postgres ``23505`` SQLSTATE the
-    way the real InsForge gateway does; ``InsForgeClient.execute_sql``
+    way the real InsForge gateway does; ``LocalPostgresExecutor.execute_sql``
     translates it to :class:`~app.core.data_access.UniqueViolationError`
     (a :class:`~app.core.data_access.DuplicateKeyError` subclass) so
     the service catches the Protocol-level error without inspecting

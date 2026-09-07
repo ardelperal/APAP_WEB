@@ -69,7 +69,7 @@ def test_execute_sql_type_hint_matches_public_shape() -> None:
     with ``]``; any deviation (e.g. ``Any``, ``dict`` alone) is
     caught.
     """
-    annotations = InsForgeClient.execute_sql.__annotations__
+    annotations = LocalPostgresExecutor.execute_sql.__annotations__
     return_annotation = annotations.get("return", "")
     assert return_annotation.startswith("list["), (
         f"execute_sql return must be a list type, got: {return_annotation!r}"

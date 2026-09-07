@@ -50,22 +50,23 @@ class _AnonymousSpy:
 
 
 @pytest.fixture
-def _bypass_insforge(monkeypatch: pytest.MonkeyPatch) -> None:
-    from app.main import app, get_insforge_client
+def _bypass_sql_executor(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.core.di.local_postgres_di import get_local_postgres_executor_dep
+    from app.main import app
 
     spy = _AnonymousSpy()
-    app.dependency_overrides[get_insforge_client] = lambda: spy
+    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy
     monkeypatch.setattr(
-        "app.modules.animals.routes.get_insforge_client_dep", lambda: spy
+        "app.modules.animals.routes.get_local_postgres_executor_dep", lambda: spy
     )
     # PR-B migrated create/update/delete to AnimalsPort via
     # Depends(get_animals_port); the hexagonal provider reads
-    # ``request.app.state.insforge_client`` directly, so the spy must
+    # ``request.app.state.sql_executor`` directly, so the spy must
     # also be wired into state for any POST that exercises those handlers.
-    app.state.insforge_client = spy
+    app.state.sql_executor = spy
     yield
-    app.dependency_overrides.pop(get_insforge_client, None)
-    app.state.__dict__.pop("insforge_client", None)
+    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
+    app.state.__dict__.pop("sql_executor", None)
 
 
 def _login(
@@ -102,7 +103,7 @@ def _animal_form_data() -> dict[str, str]:
 
 
 async def test_post_with_header_token_passes_csrf(
-    client: httpx.AsyncClient, _bypass_insforge: None
+    client: httpx.AsyncClient, _bypass_sql_executor: None
 ) -> None:
     """POST with ``X-CSRFToken`` header matching the session token -> non-403."""
     _login(client)
@@ -120,7 +121,7 @@ async def test_post_with_header_token_passes_csrf(
 
 
 async def test_post_with_form_field_token_passes_csrf(
-    client: httpx.AsyncClient, _bypass_insforge: None
+    client: httpx.AsyncClient, _bypass_sql_executor: None
 ) -> None:
     """POST with ``csrf_token`` form field matching the session -> non-403."""
     _login(client)
@@ -140,7 +141,7 @@ async def test_post_with_form_field_token_passes_csrf(
 
 
 async def test_post_without_token_is_rejected_with_403(
-    client: httpx.AsyncClient, _bypass_insforge: None
+    client: httpx.AsyncClient, _bypass_sql_executor: None
 ) -> None:
     """POST with no token at all (no header, no form field) -> 403."""
     _login(client)
@@ -157,7 +158,7 @@ async def test_post_without_token_is_rejected_with_403(
 
 
 async def test_post_with_wrong_token_is_rejected_with_403(
-    client: httpx.AsyncClient, _bypass_insforge: None
+    client: httpx.AsyncClient, _bypass_sql_executor: None
 ) -> None:
     """POST with a token that doesn't match the session -> 403."""
     _login(client, csrf_token="real-token")
@@ -176,7 +177,7 @@ async def test_post_with_wrong_token_is_rejected_with_403(
 
 
 async def test_post_with_session_a_cookie_and_session_b_token_is_rejected(
-    client: httpx.AsyncClient, _bypass_insforge: None
+    client: httpx.AsyncClient, _bypass_sql_executor: None
 ) -> None:
     """Cross-session token replay -> 403 (REQ-AH-8 adversarial scenario)."""
     _login(client, csrf_token="session-A-token")
@@ -192,7 +193,7 @@ async def test_post_with_session_a_cookie_and_session_b_token_is_rejected(
 
 
 async def test_post_with_session_without_csrf_token_field_is_rejected(
-    client: httpx.AsyncClient, _bypass_insforge: None
+    client: httpx.AsyncClient, _bypass_sql_executor: None
 ) -> None:
     """A session that predates PR-5B (no csrf_token field) -> 403."""
     settings = get_settings()
@@ -221,7 +222,7 @@ async def test_post_with_session_without_csrf_token_field_is_rejected(
 
 
 async def test_get_request_bypasses_csrf_check(
-    client: httpx.AsyncClient, _bypass_insforge: None
+    client: httpx.AsyncClient, _bypass_sql_executor: None
 ) -> None:
     """GET requests bypass CSRF entirely (RFC 7231 safe methods)."""
     response = await client.get("/animales", follow_redirects=False)
@@ -232,7 +233,7 @@ async def test_get_request_bypasses_csrf_check(
 
 
 async def test_csrf_disabled_feature_flag_skips_middleware(
-    client: httpx.AsyncClient, _bypass_insforge: None, monkeypatch: pytest.MonkeyPatch
+    client: httpx.AsyncClient, _bypass_sql_executor: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """When ``APAP_CSRF_ENABLED=false``, the middleware short-circuits."""
     from app.core import config as config_module
@@ -255,7 +256,7 @@ async def test_csrf_disabled_feature_flag_skips_middleware(
 
 
 async def test_csrf_rejection_emits_csrf_rejected_log_event(
-    client: httpx.AsyncClient, _bypass_insforge: None, caplog: pytest.LogCaptureFixture
+    client: httpx.AsyncClient, _bypass_sql_executor: None, caplog: pytest.LogCaptureFixture
 ) -> None:
     """A rejected POST emits the ``csrf.rejected`` log event (Slice 6 swap).
 

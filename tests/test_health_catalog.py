@@ -59,8 +59,8 @@ def _json_response(status_code: int, body: Any) -> httpx.Response:
 
 def _make_client(
     handler: Any,
-) -> tuple[InsForgeClient, list[dict[str, Any]]]:
-    """Build a real InsForgeClient with a mock transport that records calls."""
+) -> tuple[LocalPostgresExecutor, list[dict[str, Any]]]:
+    """Build a real LocalPostgresExecutor with a mock transport that records calls."""
     captured: list[dict[str, Any]] = []
 
     def _recording_handler(request: httpx.Request) -> httpx.Response:
@@ -69,7 +69,7 @@ def _make_client(
         captured.append(body)
         return handler(request, body)
 
-    client = InsForgeClient(
+    client = LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=httpx.MockTransport(_recording_handler),

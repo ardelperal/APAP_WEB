@@ -8,12 +8,12 @@ of the route-level tests in ``test_admin.py`` / ``test_animals.py`` /
 
 Currently pinned:
 
-- ``get_insforge_client_dep`` closes the ``httpx.Client`` it creates
+- ``get_local_postgres_executor_dep`` closes the ``httpx.Client`` it creates
   for each request (no resource leak across requests). This is the
   fix for code-quality-fixes T2 / problem #3 of the external review.
 - F-2 / F-4 (issue #119): ``return_early_if_response(value: object)``
-  → ``Response | dict``; ``get_insforge_client_dep()`` declares
-  ``Iterator[InsForgeClient]`` as return annotation.
+  → ``Response | dict``; ``get_local_postgres_executor_dep()`` declares
+  ``Iterator[LocalPostgresExecutor]`` as return annotation.
 - F-3 (issue #120): the triple-duplicated "read cookie + decode
   payload" pattern is replaced by ``app.core.session.read_session_payload``;
   the call sites in ``app/main.py`` (middleware) and
@@ -36,7 +36,7 @@ from starlette.responses import Response as _Response
 from app.core import auth_cache as _auth_cache
 from app.core.auth_dependencies import (
     get_current_user_optional,
-    get_insforge_client_dep,
+    get_local_postgres_executor_dep,
     require_authorized_user,
     return_early_if_response,
 )
@@ -48,36 +48,36 @@ from app.core.session import (
 )
 
 # ---------------------------------------------------------------------------
-# F-4 (issue #119): get_insforge_client_dep return annotation
+# F-4 (issue #119): get_local_postgres_executor_dep return annotation
 # ---------------------------------------------------------------------------
 
 
 def test_get_insforge_client_dep_return_annotation_is_iterator() -> None:
-    """F-4: ``get_insforge_client_dep`` MUST declare ``Iterator[InsForgeClient]``.
+    """F-4: ``get_local_postgres_executor_dep`` MUST declare ``Iterator[LocalPostgresExecutor]``.
 
     Without the annotation, type checkers infer the return as
     ``Any`` and every handler that does
-    ``client: InsForgeClient = Depends(get_insforge_client_dep)``
+    ``client: LocalPostgresExecutor = Depends(get_local_postgres_executor_dep)``
     loses precision on every method call on ``client``.
 
     Uses ``typing.get_type_hints`` because ``from __future__ import
     annotations`` makes all annotations lazy strings; the raw
     ``inspect.signature(...).return_annotation`` returns the
-    string ``"Iterator[InsForgeClient]"``, not the resolved type.
+    string ``"Iterator[LocalPostgresExecutor]"``, not the resolved type.
     """
     from typing import get_args, get_origin, get_type_hints
 
-    hints = get_type_hints(get_insforge_client_dep)
+    hints = get_type_hints(get_local_postgres_executor_dep)
     return_hint = hints["return"]
     # ``typing.get_type_hints`` may return a fresh ``Iterator[...]``
     # object on each call, so compare by origin + args rather than ``is``.
     assert get_origin(return_hint) is Iterator, (
-        f"get_insforge_client_dep return must be an Iterator, "
+        f"get_local_postgres_executor_dep return must be an Iterator, "
         f"got: {return_hint!r}"
     )
     type_args = get_args(return_hint)
-    assert InsForgeClient in type_args, (
-        f"get_insforge_client_dep return must yield InsForgeClient, "
+    assert LocalPostgresExecutor in type_args, (
+        f"get_local_postgres_executor_dep return must yield LocalPostgresExecutor, "
         f"got args: {type_args!r}"
     )
 
@@ -86,7 +86,7 @@ def test_get_insforge_client_dep_is_a_generator() -> None:
     """The implementation MUST be a generator function (uses ``yield``).
 
     Pre-#260 the dep was a generator that created + closed a per-request
-    InsForgeClient (the yield + finally closed the client's httpx
+    LocalPostgresExecutor (the yield + finally closed the client's httpx
     transport so it never leaked). After #260 the lifecycle is owned by
     the lifespan (created in startup, closed in shutdown), so the dep
     only ``yield``s the pooled instance — no per-request create or
@@ -95,30 +95,30 @@ def test_get_insforge_client_dep_is_a_generator() -> None:
     - FastAPI's dependency-injection protocol treats it the same way
       (callers that use ``dependency_overrides[...]`` continue to work
       whether they override with a generator or a plain callable).
-    - The return annotation stays ``Iterator[InsForgeClient]`` (see
+    - The return annotation stays ``Iterator[LocalPostgresExecutor]`` (see
       :func:`test_get_insforge_client_dep_return_annotation_is_iterator`).
 
     This test is a defence-in-depth check: even if the annotation
     changes, the body must still be a generator function.
     """
-    assert inspect.isgeneratorfunction(get_insforge_client_dep), (
-        "get_insforge_client_dep must be a generator function "
+    assert inspect.isgeneratorfunction(get_local_postgres_executor_dep), (
+        "get_local_postgres_executor_dep must be a generator function "
         "(uses yield) so the dep hands out the pooled client via the "
-        "same Iterator[InsForgeClient] protocol FastAPI expects"
+        "same Iterator[LocalPostgresExecutor] protocol FastAPI expects"
     )
 
 
 # ---------------------------------------------------------------------------
 # Issue #260: pooled httpx.Client on app.state
 #
-# The dep no longer creates or closes an InsForgeClient. It yields the
-# pooled instance stored on ``request.app.state.insforge_client`` by
+# The dep no longer creates or closes an LocalPostgresExecutor. It yields the
+# pooled instance stored on ``request.app.state.sql_executor`` by
 # the lifespan. The two tests below pin that contract.
 # ---------------------------------------------------------------------------
 
 
 def test_get_insforge_client_dep_returns_pooled_client_from_app_state() -> None:
-    """Issue #260: the dep MUST yield the InsForgeClient stored on app.state.
+    """Issue #260: the dep MUST yield the LocalPostgresExecutor stored on app.state.
 
     A single ``httpx.Client`` connection pool must be reused across
     requests — created in the lifespan, closed in shutdown, never
@@ -131,14 +131,14 @@ def test_get_insforge_client_dep_returns_pooled_client_from_app_state() -> None:
     pooling refactor would regress to "no pooling" without any test
     noticing.
     """
-    from app.core.auth_dependencies import get_insforge_client_dep  # noqa: PLC0415
+    from app.core.auth_dependencies import get_local_postgres_executor_dep  # noqa: PLC0415
 
-    pooled = InsForgeClient("http://test", "k")
+    pooled = LocalPostgresExecutor("http://test", "k")
 
-    # Wire up a fake request whose ``app.state.insforge_client`` is
+    # Wire up a fake request whose ``app.state.sql_executor`` is
     # our pooled sentinel. The dep MUST hand that exact instance back.
     class _State:
-        insforge_client = pooled
+        sql_executor = pooled
 
     class _App:
         state = _State()
@@ -146,7 +146,7 @@ def test_get_insforge_client_dep_returns_pooled_client_from_app_state() -> None:
     class _Request:
         app = _App()
 
-    gen = get_insforge_client_dep(request=_Request())
+    gen = get_local_postgres_executor_dep(request=_Request())
     try:
         handed_out = next(gen)
     finally:
@@ -157,8 +157,8 @@ def test_get_insforge_client_dep_returns_pooled_client_from_app_state() -> None:
         gen.close()
 
     assert handed_out is pooled, (
-        "get_insforge_client_dep MUST return the same InsForgeClient "
-        "stored on app.state.insforge_client — pooling breaks if the "
+        "get_local_postgres_executor_dep MUST return the same LocalPostgresExecutor "
+        "stored on app.state.sql_executor — pooling breaks if the "
         "dep returns anything else"
     )
 
@@ -177,7 +177,7 @@ def test_get_insforge_client_dep_does_not_close_pooled_client() -> None:
     ``close()`` on the client it yields. We verify by tracking every
     ``close()`` call on the pooled sentinel.
     """
-    from app.core.auth_dependencies import get_insforge_client_dep  # noqa: PLC0415
+    from app.core.auth_dependencies import get_local_postgres_executor_dep  # noqa: PLC0415
 
     close_calls: list[None] = []
 
@@ -189,7 +189,7 @@ def test_get_insforge_client_dep_does_not_close_pooled_client() -> None:
             close_calls.append(None)
 
     class _State:
-        insforge_client = _PooledClient()
+        sql_executor = _PooledClient()
 
     class _App:
         state = _State()
@@ -197,7 +197,7 @@ def test_get_insforge_client_dep_does_not_close_pooled_client() -> None:
     class _Request:
         app = _App()
 
-    gen = get_insforge_client_dep(request=_Request())
+    gen = get_local_postgres_executor_dep(request=_Request())
     try:
         next(gen)
     finally:
@@ -208,7 +208,7 @@ def test_get_insforge_client_dep_does_not_close_pooled_client() -> None:
         gen.close()
 
     assert close_calls == [], (
-        f"get_insforge_client_dep MUST NOT close the pooled client "
+        f"get_local_postgres_executor_dep MUST NOT close the pooled client "
         f"(lifespan owns the lifecycle). close() calls observed: "
         f"{close_calls!r}"
     )
@@ -462,7 +462,8 @@ async def test_middleware_pasa_con_is_authorized_true(
 ) -> None:
     """``/animales`` with ``is_authorized=True`` reaches the route handler."""
     from app.core.config import get_settings
-    from app.main import app, get_insforge_client
+    from app.core.di.local_postgres_di import get_local_postgres_executor_dep
+    from app.main import app
 
     # The route handler needs an InsForge client; without a stub the
     # lifespan tries to reach the real backend and the test errors with
@@ -490,7 +491,7 @@ async def test_middleware_pasa_con_is_authorized_true(
         def __getattr__(self, name: str) -> object:
             raise NotImplementedError(f"_StubInsForge.{name} not mocked")
 
-    app.dependency_overrides[get_insforge_client] = lambda: _StubInsForge()
+    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: _StubInsForge()
     try:
         client.cookies.set(
             session_cookie_name(),
@@ -507,7 +508,7 @@ async def test_middleware_pasa_con_is_authorized_true(
         r = await client.get("/animales", follow_redirects=False)
         assert r.headers.get("location") not in ("/unauthorized", "/login")
     finally:
-        app.dependency_overrides.pop(get_insforge_client, None)
+        app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
 
 
 # ---------------------------------------------------------------------------

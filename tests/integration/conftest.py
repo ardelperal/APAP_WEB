@@ -93,7 +93,7 @@ def _to_client_placeholder_style(query: str) -> str:
     We do this translation at the test-boundary in ``execute`` (NOT in
     ``queries.py``) so that:
 
-    - The production code path (``InsForgeClient.execute_sql`` — HTTP
+    - The production code path (``LocalPostgresExecutor.execute_sql`` — HTTP
       to the InsForge API) is untouched. InsForge's server receives
       ``$N`` placeholders, which it binds natively.
     - The integration tests run against any Postgres (not just

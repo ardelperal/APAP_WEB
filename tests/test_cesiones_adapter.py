@@ -8,8 +8,8 @@ Mirrors ``tests/test_animals_adapter.py`` and ``tests/test_animals_domain.py``.
 
 from __future__ import annotations
 
-from app.modules.cesiones.adapters.insforge.cesiones_insforge_adapter import (
-    CesionesInsforgeAdapter,
+from app.modules.cesiones.adapters.stubs.cesiones_stub import (
+    StubCesionesPort,
 )
 from app.modules.cesiones.domain.cesion import Cesion, CesionConflictError, Contrato
 from app.modules.cesiones.ports.cesiones_port import CesionesPort
@@ -126,26 +126,26 @@ class TestCesionConflictError:
 
 
 # ---------------------------------------------------------------------------
-# CesionesInsforgeAdapter
+# StubCesionesPort
 # ---------------------------------------------------------------------------
 
 
 class TestCesionesInsforgeAdapter:
     def test_adapter_implements_port_protocol(self) -> None:
-        """CesionesInsforgeAdapter satisfies CesionesPort at runtime."""
-        adapter = CesionesInsforgeAdapter(object())
+        """StubCesionesPort satisfies CesionesPort at runtime."""
+        adapter = StubCesionesPort(object())
         assert isinstance(adapter, CesionesPort)
 
     def test_create_cesion_signature(self) -> None:
-        adapter = CesionesInsforgeAdapter(object())
+        adapter = StubCesionesPort(object())
         assert callable(adapter.create_cesion)
 
     def test_get_cesion_by_entrada_id_signature(self) -> None:
-        adapter = CesionesInsforgeAdapter(object())
+        adapter = StubCesionesPort(object())
         assert callable(adapter.get_cesion_by_entrada_id)
 
     def test_list_cesiones_signature(self) -> None:
-        adapter = CesionesInsforgeAdapter(object())
+        adapter = StubCesionesPort(object())
         assert callable(adapter.list_cesiones)
 
 
@@ -182,7 +182,7 @@ class TestCesionesPortRuntimeCheckable:
         PartialPort()  # noqa: F841 — instantiate to assert non-protocol
         # PartialPort should NOT satisfy CesionesPort (missing two methods).
         # Verify that the adapter (full implementation) does satisfy it.
-        assert isinstance(CesionesInsforgeAdapter(object()), CesionesPort)
+        assert isinstance(StubCesionesPort(object()), CesionesPort)
         # The partial implementation may or may not raise TypeError depending
         # on the Python version's structural subtyping strictness; what matters
         # is that the adapter passes the check.

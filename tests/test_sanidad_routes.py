@@ -20,18 +20,18 @@ from typing import Any
 import httpx
 import pytest
 
-from app.core.auth_dependencies import get_insforge_client_dep
 from app.core.config import get_settings
 from app.core.data_access import BackendError
+from app.core.di.local_postgres_di import get_local_postgres_executor_dep
 from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.session import session_cookie_name, write_session
-from app.main import app, get_insforge_client
+from app.main import app
 from app.modules.sanidad import batch_service as sanidad_batch_service
 from app.modules.sanidad import service as sanidad_service
 from tests.conftest import auth_reval_rows, make_csrf_request
 
 
-class _NoSqlRouteClient(InsForgeClient):
+class _NoSqlRouteClient(LocalPostgresExecutor):
     """Client spy that fails if a route executes SQL directly.
 
     Mirrors the same pattern used in ``tests/test_adopciones_routes.py``:
@@ -64,11 +64,11 @@ class _NoSqlRouteClient(InsForgeClient):
 @pytest.fixture
 def route_client() -> _NoSqlRouteClient:
     spy = _NoSqlRouteClient()
-    app.dependency_overrides[get_insforge_client] = lambda: spy
-    app.dependency_overrides[get_insforge_client_dep] = lambda: spy
+    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy
+    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy
     yield spy
-    app.dependency_overrides.pop(get_insforge_client, None)
-    app.dependency_overrides.pop(get_insforge_client_dep, None)
+    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
+    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
 
 
 def _login_as_key_user(client: httpx.AsyncClient) -> None:
@@ -636,7 +636,7 @@ async def test_batch_post_happy_path_redirects_to_list(
     _login_as_key_user(client)
 
     def _commit(
-        client_arg: InsForgeClient,
+        client_arg: LocalPostgresExecutor,
         records: list[dict[str, Any]],
         **kwargs: Any,
     ) -> Any:
@@ -672,7 +672,7 @@ async def test_batch_post_dry_run_renders_preview_without_inserting(
     called: dict[str, bool] = {"commit_called": False}
 
     def _commit(
-        client_arg: InsForgeClient,
+        client_arg: LocalPostgresExecutor,
         records: list[dict[str, Any]],
         **kwargs: Any,
     ) -> Any:
@@ -680,7 +680,7 @@ async def test_batch_post_dry_run_renders_preview_without_inserting(
         return sanidad_batch_service.BatchResult(inserted=())
 
     def _preview(
-        client_arg: InsForgeClient,
+        client_arg: LocalPostgresExecutor,
         records: list[dict[str, Any]],
     ) -> Any:
         return sanidad_batch_service.BatchPreview(
@@ -729,7 +729,7 @@ async def test_batch_post_validation_error_rerenders_with_422(
     _login_as_key_user(client)
 
     def _commit(
-        client_arg: InsForgeClient,
+        client_arg: LocalPostgresExecutor,
         records: list[dict[str, Any]],
         **kwargs: Any,
     ) -> Any:
@@ -768,7 +768,7 @@ async def test_batch_post_too_few_records_rerenders_with_422(
     called: dict[str, bool] = {}
 
     def _commit(
-        client_arg: InsForgeClient,
+        client_arg: LocalPostgresExecutor,
         records: list[dict[str, Any]],
         **kwargs: Any,
     ) -> Any:
@@ -811,7 +811,7 @@ async def test_batch_post_empty_form_rerenders_with_422(
     called: dict[str, bool] = {}
 
     def _commit(
-        client_arg: InsForgeClient,
+        client_arg: LocalPostgresExecutor,
         records: list[dict[str, Any]],
         **kwargs: Any,
     ) -> Any:
@@ -843,7 +843,7 @@ async def test_batch_post_backend_error_returns_503(
     _login_as_key_user(client)
 
     def _commit(
-        client_arg: InsForgeClient,
+        client_arg: LocalPostgresExecutor,
         records: list[dict[str, Any]],
         **kwargs: Any,
     ) -> Any:
@@ -912,7 +912,7 @@ async def test_batch_routes_never_execute_sql_directly(
     _login_as_key_user(client)
 
     def _preview(
-        client_arg: InsForgeClient,
+        client_arg: LocalPostgresExecutor,
         records: list[dict[str, Any]],
     ) -> Any:
         return sanidad_batch_service.BatchPreview(
@@ -923,7 +923,7 @@ async def test_batch_routes_never_execute_sql_directly(
         )
 
     def _commit(
-        client_arg: InsForgeClient,
+        client_arg: LocalPostgresExecutor,
         records: list[dict[str, Any]],
         **kwargs: Any,
     ) -> Any:

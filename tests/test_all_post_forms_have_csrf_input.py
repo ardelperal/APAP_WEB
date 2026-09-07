@@ -21,8 +21,9 @@ import httpx
 import pytest
 
 from app.core.config import get_settings
+from app.core.di.local_postgres_di import get_local_postgres_executor_dep
 from app.core.session import session_cookie_name, write_session
-from app.main import app, get_insforge_client
+from app.main import app
 from app.modules.adopciones import service as adopciones_service
 from app.modules.animals.di.animals_di import get_animals_port
 from app.modules.animals.domain.animal import Animal, Especie, Sexo
@@ -38,7 +39,7 @@ class _InsForgeSpy:
     def execute_sql(self, query: str, params: Any = None) -> Any:  # type: ignore[no-untyped-def]
         # We don't actually need SQL here because the services are
         # monkey-patched in the fixture. This stub exists only to
-        # satisfy InsForgeClient's interface.
+        # satisfy LocalPostgresExecutor's interface.
         from tests.conftest import auth_reval_rows
 
         _reval = auth_reval_rows(query, params, rol="developer")
@@ -99,18 +100,18 @@ class _VoluntariosPortStub:
 @pytest.fixture
 def spy_insforge(monkeypatch: pytest.MonkeyPatch) -> _InsForgeSpy:
     spy = _InsForgeSpy()
-    app.state.insforge_client = spy
-    app.dependency_overrides[get_insforge_client] = lambda: spy
+    app.state.sql_executor = spy
+    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy
     app.dependency_overrides[get_animals_port] = _AnimalsPortStub
     app.dependency_overrides[get_voluntarios_port] = _VoluntariosPortStub
     monkeypatch.setattr(
-        "app.modules.animals.routes.get_insforge_client_dep", lambda: spy
+        "app.modules.animals.routes.get_local_postgres_executor_dep", lambda: spy
     )
     monkeypatch.setattr(
-        "app.modules.entradas.routes.get_insforge_client_dep", lambda: spy
+        "app.modules.entradas.routes.get_local_postgres_executor_dep", lambda: spy
     )
     monkeypatch.setattr(
-        "app.modules.adopciones.routes.get_insforge_client_dep", lambda: spy
+        "app.modules.adopciones.routes.get_local_postgres_executor_dep", lambda: spy
     )
 
     # Stub the legacy services (entradas, adopciones — not yet hexagonal)
@@ -163,10 +164,10 @@ def spy_insforge(monkeypatch: pytest.MonkeyPatch) -> _InsForgeSpy:
     )
 
     yield spy
-    app.dependency_overrides.pop(get_insforge_client, None)
+    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
     app.dependency_overrides.pop(get_animals_port, None)
     app.dependency_overrides.pop(get_voluntarios_port, None)
-    del app.state.insforge_client
+    del app.state.sql_executor
 
 
 _TEST_CSRF_TOKEN = "audit-token-1234567890"

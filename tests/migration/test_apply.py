@@ -6,7 +6,7 @@ TDD contract — Hard Rules from web-tdd-philosophy:
   ``apply_runner`` fixture's ``seed=`` kwarg. No shared state across
   atoms.
 - **Rule 2 (DI)**: the Dysflow executor is injected via
-  ``legacy_reader.set_legacy_query_executor``; the InsForgeClient is
+  ``legacy_reader.set_legacy_query_executor``; the LocalPostgresExecutor is
   the ``FakeInsForge`` instance built by ``apply_runner``. No global
   getters.
 - **Rule 3 (cardinality)**: every atom that mutates asserts

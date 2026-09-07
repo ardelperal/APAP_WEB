@@ -10,7 +10,7 @@ The ``materiales.service`` module owns:
   AND every active junction row pointing at it
 
 Mirror of the ``tests/test_foster.py`` and ``tests/test_acogidas.py``
-patterns: real InsForgeClient + httpx.MockTransport so we exercise the
+patterns: real LocalPostgresExecutor + httpx.MockTransport so we exercise the
 SQL strings, params, and response parsing without hitting the network.
 
 FOSTER-04 (#46) PR A — only the service layer is tested here. Routes
@@ -43,7 +43,7 @@ def _json_response(status_code: int, body: Any) -> httpx.Response:
 
 def _client_recording(
     handler: Callable[[httpx.Request, dict[str, Any]], httpx.Response],
-) -> tuple[InsForgeClient, list[dict[str, Any]]]:
+) -> tuple[LocalPostgresExecutor, list[dict[str, Any]]]:
     captured: list[dict[str, Any]] = []
 
     def _recording_handler(request: httpx.Request) -> httpx.Response:
@@ -52,7 +52,7 @@ def _client_recording(
         captured.append(body)
         return handler(request, body)
 
-    client = InsForgeClient(
+    client = LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=httpx.MockTransport(_recording_handler),

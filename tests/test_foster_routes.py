@@ -51,16 +51,16 @@ from typing import Any
 import httpx
 import pytest
 
-from app.core.auth_dependencies import get_insforge_client_dep
 from app.core.config import get_settings
+from app.core.di.local_postgres_di import get_local_postgres_executor_dep
 from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.session import session_cookie_name, write_session
-from app.main import app, get_insforge_client
+from app.main import app
 from app.modules.foster import service as foster_service
 from tests.conftest import auth_reval_rows, make_csrf_request
 
 
-class _NoSqlRouteClient(InsForgeClient):
+class _NoSqlRouteClient(LocalPostgresExecutor):
     """Client spy that fails if a route executes SQL directly.
 
     Mirrors the same pattern used in
@@ -95,11 +95,11 @@ class _NoSqlRouteClient(InsForgeClient):
 @pytest.fixture
 def route_client() -> _NoSqlRouteClient:
     spy = _NoSqlRouteClient()
-    app.dependency_overrides[get_insforge_client] = lambda: spy
-    app.dependency_overrides[get_insforge_client_dep] = lambda: spy
+    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy
+    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy
     yield spy
-    app.dependency_overrides.pop(get_insforge_client, None)
-    app.dependency_overrides.pop(get_insforge_client_dep, None)
+    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
+    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
 
 
 def _login_as_key_user(client: httpx.AsyncClient) -> None:
@@ -266,11 +266,11 @@ async def test_list_casas_acogida_delegates_to_service_and_renders_spanish_copy(
       is in the body so operators can apply the especie filter.
     """
     _login_as_key_user(client)
-    calls: list[InsForgeClient] = []
+    calls: list[LocalPostgresExecutor] = []
     casa = _casa()
 
     def fake_list(
-        service_client: InsForgeClient, especie: str | None = None
+        service_client: LocalPostgresExecutor, especie: str | None = None
     ) -> list[foster_service.CasaAcogida]:
         calls.append(service_client)
         return [casa]
@@ -301,10 +301,10 @@ async def test_list_casas_acogida_with_especie_query_param(
 ) -> None:
     """The ``?especie=`` query param reaches the service unchanged."""
     _login_as_key_user(client)
-    calls: list[tuple[InsForgeClient, str | None]] = []
+    calls: list[tuple[LocalPostgresExecutor, str | None]] = []
 
     def fake_list(
-        service_client: InsForgeClient, especie: str | None = None
+        service_client: LocalPostgresExecutor, especie: str | None = None
     ) -> list[foster_service.CasaAcogida]:
         calls.append((service_client, especie))
         return []
@@ -354,10 +354,10 @@ async def test_create_casa_acogida_valid_records_redirects_to_detail(
     """Valid create form -> service returns the casa -> 303 to detail."""
     _login_as_key_user(client)
     casa = _casa()
-    calls: list[tuple[InsForgeClient, dict[str, Any]]] = []
+    calls: list[tuple[LocalPostgresExecutor, dict[str, Any]]] = []
 
     def fake_create(
-        service_client: InsForgeClient, params: dict[str, Any]
+        service_client: LocalPostgresExecutor, params: dict[str, Any]
     ) -> foster_service.CasaAcogida:
         calls.append((service_client, params))
         return casa
@@ -399,7 +399,7 @@ async def test_create_casa_acogida_sad_validation_rerenders_form_with_422(
     _login_as_key_user(client)
 
     def fake_create(
-        service_client: InsForgeClient, params: dict[str, Any]
+        service_client: LocalPostgresExecutor, params: dict[str, Any]
     ) -> foster_service.CasaAcogida:
         raise ValueError("capacidad debe ser un entero positivo (>= 1)")
 
@@ -476,7 +476,7 @@ async def test_post_casa_acogida_with_empty_capacidad_returns_pydantic_422(
     # ``str``, a missing form-definition, etc.), the AssertionError
     # names the regression loud and clear.
     def _create_must_not_be_called(
-        service_client: InsForgeClient, params: dict[str, Any]
+        service_client: LocalPostgresExecutor, params: dict[str, Any]
     ) -> foster_service.CasaAcogida:
         raise AssertionError(
             "Pydantic parse should reject empty 'capacidad' BEFORE "
@@ -645,10 +645,10 @@ async def test_update_casa_acogida_valid_records_redirects_to_detail(
     """Valid update -> service returns the casa -> 303 to detail page."""
     _login_as_key_user(client)
     casa = _casa()
-    calls: list[tuple[InsForgeClient, str, dict[str, Any]]] = []
+    calls: list[tuple[LocalPostgresExecutor, str, dict[str, Any]]] = []
 
     def fake_update(
-        service_client: InsForgeClient,
+        service_client: LocalPostgresExecutor,
         casa_id: str,
         params: dict[str, Any],
     ) -> foster_service.CasaAcogida | None:
@@ -690,7 +690,7 @@ async def test_update_casa_acogida_sad_validation_rerenders_form_with_422(
     _login_as_key_user(client)
 
     def fake_update(
-        service_client: InsForgeClient,
+        service_client: LocalPostgresExecutor,
         casa_id: str,
         params: dict[str, Any],
     ) -> foster_service.CasaAcogida | None:
@@ -749,9 +749,9 @@ async def test_delete_casa_acogida_redirects_to_list_when_successful(
 ) -> None:
     """Soft-delete succeeds -> 303 redirect to the list page."""
     _login_as_key_user(client)
-    calls: list[tuple[InsForgeClient, str]] = []
+    calls: list[tuple[LocalPostgresExecutor, str]] = []
 
-    def fake_delete(service_client: InsForgeClient, casa_id: str) -> bool:
+    def fake_delete(service_client: LocalPostgresExecutor, casa_id: str) -> bool:
         calls.append((service_client, casa_id))
         return True
 
