@@ -65,6 +65,7 @@ from app.core.data_access import BackendError, SqlExecutor
 from app.core.logging import log_safe
 from app.core.middleware import base_template_context_processor
 from app.core.rbac import Permission, require_permission
+from app.modules.sanidad import proximas as sanidad_proximas
 from app.modules.sanidad import service as sanidad_service
 from app.modules.sanidad.forms import ActuacionForm
 
@@ -594,7 +595,7 @@ def proximas_pruebas(
             detail="fecha_desde must be <= fecha_hasta",
         )
 
-    items = sanidad_service.get_proximas_pruebas(
+    items = sanidad_proximas.get_proximas_pruebas(
         client,
         desde,
         hasta,
