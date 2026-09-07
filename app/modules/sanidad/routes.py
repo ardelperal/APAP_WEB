@@ -563,19 +563,43 @@ def proximas_pruebas(
 
     Returns one row per (animal, tipo_prueba) whose next due date
     falls inside the ``[fecha_desde, fecha_hasta]`` window. See
-    ``sanidad.service.get_proximas_pruebas`` for the contract.
+    ``sanidad.proximas.get_proximas_pruebas`` for the contract.
 
-    Auth: any operator with ``READ_SALUD`` (per AGENTS §21 RBAC; same
-    auth model as the list endpoints above). The reader rol can call
-    this endpoint to scan the schedule; writers use it to triage
-    the next batch of vaccinations.
+    Auth: ``READ_SALUD`` (same RBAC model as the other list endpoints).
+    Empty window or fully-filtered window → ``[]``.
+    """
+    desde, hasta = _parse_proximas_window(fecha_desde, fecha_hasta)
 
-    Response shape:
-        ``[{"chip": "...", "nombre": "...", "tipo_codigo": "...",
-        "fecha_ultima": "YYYY-MM-DD", "fecha_proxima": "YYYY-MM-DD",
-        "periodicidad_meses": N, "estado": "vencida|proxima|futura"}, ...]``
+    items = sanidad_proximas.get_proximas_pruebas(
+        client,
+        desde,
+        hasta,
+        animal_id=animal_id,
+        tipo_prueba_codigo=tipo_prueba_codigo,
+    )
+    payload = sanidad_proximas.serialize_proximas_pruebas(items)
+    log_safe(
+        "sanidad.proximas_pruebas",
+        actor=user["email"] if isinstance(user, dict) else None,
+        desde=fecha_desde,
+        hasta=fecha_hasta,
+        animal_id=animal_id,
+        tipo=tipo_prueba_codigo,
+        rows=len(payload),
+    )
+    return JSONResponse(payload)
 
-    Empty window → ``[]``. Filters that exclude every row → ``[]``.
+
+def _parse_proximas_window(
+    fecha_desde: str,
+    fecha_hasta: str,
+) -> tuple[date, date]:
+    """Validate the operator-supplied window and return ``(desde, hasta)``.
+
+    Both endpoints MUST be ISO dates (``YYYY-MM-DD``); ``fecha_desde``
+    MUST be ``<= fecha_hasta``. Anything else raises an HTTP 400 with
+    a specific detail so the UI can surface it to the operator without
+    a generic 500.
     """
     try:
         desde = date.fromisoformat(fecha_desde)
@@ -595,32 +619,4 @@ def proximas_pruebas(
             detail="fecha_desde must be <= fecha_hasta",
         )
 
-    items = sanidad_proximas.get_proximas_pruebas(
-        client,
-        desde,
-        hasta,
-        animal_id=animal_id,
-        tipo_prueba_codigo=tipo_prueba_codigo,
-    )
-    payload = [
-        {
-            "chip": item.chip,
-            "nombre": item.nombre,
-            "tipo_codigo": item.tipo_codigo,
-            "fecha_ultima": item.fecha_ultima.isoformat(),
-            "fecha_proxima": item.fecha_proxima.isoformat(),
-            "periodicidad_meses": item.periodicidad_meses,
-            "estado": item.estado,
-        }
-        for item in items
-    ]
-    log_safe(
-        "sanidad.proximas_pruebas",
-        actor=user["email"] if isinstance(user, dict) else None,
-        desde=fecha_desde,
-        hasta=fecha_hasta,
-        animal_id=animal_id,
-        tipo=tipo_prueba_codigo,
-        rows=len(payload),
-    )
-    return JSONResponse(payload)
+    return desde, hasta

@@ -116,3 +116,24 @@ def get_proximas_pruebas(
     )
     rows = client.execute_sql(sql, params)
     return [_row_to_proxima_prueba(row, fecha_hasta) for row in rows]
+
+
+def serialize_proximas_pruebas(items: list[ProximaPrueba]) -> list[dict[str, Any]]:
+    """Project a list of ``ProximaPrueba`` rows to the JSON payload shape.
+
+    Lives next to the domain type so the route handler stays HTTP-only
+    (AGENTS.md rule 28: keep handlers under 50 lines and move the
+    HTTP-unrelated logic to the service layer).
+    """
+    return [
+        {
+            "chip": item.chip,
+            "nombre": item.nombre,
+            "tipo_codigo": item.tipo_codigo,
+            "fecha_ultima": item.fecha_ultima.isoformat(),
+            "fecha_proxima": item.fecha_proxima.isoformat(),
+            "periodicidad_meses": item.periodicidad_meses,
+            "estado": item.estado,
+        }
+        for item in items
+    ]
