@@ -13,15 +13,29 @@ Las notas detalladas por tag viven en GitHub Releases; este changelog agrega los
 
 ### Removed
 
+- `refactor`: drop InsForge error-handler hexagonal slice (port + adapter + DI + shim, closes #662):
+    - `app/core/insforge_error_handler.py`: deleted (103 lines).
+    - `app/core/ports/insforge_error_handler_port.py`: deleted (131 lines).
+    - `app/core/adapters/insforge/insforge_error_handler_insforge_adapter.py`: deleted.
+    - `app/core/di/insforge_error_handler_di.py`: deleted.
+    - `tests/test_insforge_error_handler.py` and `tests/test_slice_insforge_error_handler.py`: deleted.
+    - `app/core/ports/__init__.py`: drop `ErrorTranslationPort`, `ErrorUserResponse`, `TranslatableError` re-exports.
+    - `app/core/adapters/insforge/__init__.py`: drop `InsForgeErrorTranslation` re-export.
+    - `app/main.py`: replace `register_insforge_error_handler(app, get_insforge_error_handler_port())` with a generic `@app.exception_handler(Exception)` that emits `log_safe("server.unhandled_error", ...)` and returns a non-leaking 502. The §32.P4 contract is preserved as a generic handler instead of an InsForge-specific binding.
 - `chore(secrets)`: drop InsForge settings fields and validation gate (closes #658):
     - `app/core/config.py`: drop fields `insforge_url`, `insforge_anon_key`, `insforge_service_key`; drop the `_validate_secrets` gate for `APAP_INSFORGE_SERVICE_KEY`; update module + `Settings` docstrings.
     - `app/core/di/auth_dependencies_session_di.py`: drop the dead `AttributeError` fallback in `get_insforge_client_dep` that constructed `InsForgeClient(settings.insforge_url, ...)` — the lifespan always wires `sql_executor`. Function now just yields `request.app.state.sql_executor`.
     - `app/core/tasks/scheduler.py`: replace `InsForgeClient(settings.insforge_url, settings.insforge_service_key)` with `LocalPostgresExecutor(settings.local_db_url)`; drop the `client.close()` call (LocalPostgresExecutor manages per-call connections).
     - `tests/test_config.py`: replace 5 atoms that asserted `insforge_*` field existence with atoms that assert `AttributeError` on access and that `_validate_secrets` does not require the InsForge key.
 
+### Added
+
+- `tests/test_unhandled_error_handler.py`: 3 atoms that pin the §32.P4 contract end-to-end — a route raising `RuntimeError` returns a non-leaking 502, `HTTPException` and `RequestValidationError` keep their built-in handlers.
+
 ### Notes
 
-- `migration/cli.py:639-640` and `migration/storage_spike.py:406-407` still read the removed fields. These are CLI-tool paths covered by issue #8 (migration package rewrite); the migration tests don't run on PR CI.
+- `migration/cli.py:639-640` and `migration/storage_spike.py:406-407` still read the removed settings fields. CLI-tool paths covered by issue #8 (migration package rewrite); the migration tests don't run on PR CI.
+- `app/core/insforge.py` and `app/core/insforge_error_translation.py` still exist (kept for issue #5). Their docstrings now reference the generic handler in `app/main.py` instead of the deleted `insforge_error_handler` module.
 
 ## v0.1.0 — 2026-08-01
 

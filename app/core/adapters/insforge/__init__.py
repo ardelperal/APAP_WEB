@@ -26,11 +26,12 @@ NOT execute SQL. It composes the OAuth protocol primitives
 (PKCE minting + InsForge HTTP round-trips) on top of an
 :class:`InsForgeClient` injected by the DI layer.
 
-The adapters do NOT catch ``InsForgeError`` — the global handler
-registered in ``app/core/insforge_error_handler.py`` translates any
-unhandled transport error into a 502 at the FastAPI boundary. A unit
+The adapters do NOT catch ``InsForgeError`` — the generic
+exception handler registered in ``app/main.py`` translates any
+unhandled error into a non-leaking 502 at the FastAPI boundary
+(§32.P4 contract preserved via the generic handler). A unit
 test that mocks the ``SqlExecutor`` to raise ``InsForgeError`` will
-see the exception propagate untouched.
+see the exception propagate untouched until the handler runs.
 """
 
 
@@ -42,9 +43,6 @@ from app.core.adapters.insforge.auth_insforge_adapter import (
 from app.core.adapters.insforge.catalogos_insforge_adapter import (
     InsForgeCatalogosAdapter,
 )
-from app.core.adapters.insforge.insforge_error_handler_insforge_adapter import (
-    InsForgeErrorTranslation,
-)
 from app.core.adapters.insforge.oauth_insforge_adapter import (
     InsForgeOAuthAdapter,
 )
@@ -55,7 +53,6 @@ from app.core.adapters.insforge.schema_bootstrap_insforge_adapter import (
 __all__ = [
     "InsForgeAuthUsersAdapter",
     "InsForgeCatalogosAdapter",
-    "InsForgeErrorTranslation",
     "InsForgeOAuthAdapter",
     "InsForgeSchemaBootstrapAdapter",
 ]

@@ -8,9 +8,10 @@ The translator is intentionally narrow: only the 409 unique-key
 envelope is mapped to :class:`~app.core.data_access.DuplicateKeyError`
 (``UniqueViolation`` for the canonical Postgres SQLSTATE ``23505``).
 Every other transport failure surfaces as the original
-:class:`~app.core.insforge.InsForgeError` so the global
-:func:`app.core.insforge_error_handler.register_insforge_error_handler`
-handler still owns the 502 conversion.
+:class:`~app.core.insforge.InsForgeError` so the generic exception
+handler in :mod:`app.main` turns any unhandled error into a
+non-leaking 502 (§32.P4 contract preserved after the InsForge
+error-handler slice removal in issue #662).
 """
 
 from __future__ import annotations
@@ -90,9 +91,9 @@ def translate_post_error(exc: InsForgeError) -> DataAccessError:
     preserves the original traceback when a translation happens.
 
     Only the 409-status path is translated today; every other status code
-    keeps flowing through :class:`InsForgeError` so the global
-    :func:`app.core.insforge_error_handler.register_insforge_error_handler`
-    handler still owns the 502 conversion for transport failures.
+    keeps flowing through :class:`InsForgeError` so the generic exception
+    handler in :mod:`app.main` turns any unhandled error into a
+    non-leaking 502 (§32.P4 contract preserved).
     """
     if exc.status_code != HTTP_STATUS_CONFLICT:
         return exc

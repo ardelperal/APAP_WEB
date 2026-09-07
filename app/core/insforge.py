@@ -132,9 +132,11 @@ class InsForgeClient:
         translated to :class:`~app.core.data_access.UniqueViolationError`
         so domain code can ``except DuplicateKeyError`` without
         inspecting the transport envelope. Every other non-2xx
-        response continues to surface as :class:`InsForgeError` —
-        the global handler in :mod:`app.core.insforge_error_handler`
-        still owns the 502 conversion for those.
+        response continues to surface as :class:`InsForgeError` — the
+        generic exception handler in :mod:`app.main` turns any
+        unhandled error into a non-leaking 502 (§32.P4 contract
+        preserved after the InsForge error-handler slice removal in
+        issue #662).
         """
         try:
             body = self._post_raw_sql(query, params)
