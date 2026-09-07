@@ -6,6 +6,14 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
+# Explicit minimum-scope permissions (issue #682): without an
+# explicit block, this workflow inherits the repository-wide
+# GITHUB_TOKEN permission set, which can silently widen over time.
+# ``contents: read`` covers the ``git fetch --unshallow`` of the
+# base ref; no other scope is needed.
+permissions:
+  contents: read
+
 jobs:
   pr-size:
     name: pr-size
