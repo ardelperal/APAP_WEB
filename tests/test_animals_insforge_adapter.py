@@ -10,7 +10,7 @@ import httpx
 import pytest
 
 from app.core.data_access import UniqueViolationError
-from app.core.insforge import InsForgeClient
+from app.core.local_backend.db import LocalPostgresExecutor
 from app.modules.animals.adapters.insforge import animals_insforge_photo
 from app.modules.animals.adapters.insforge.animals_insforge_adapter import (
     AnimalsInsforgeAdapter,

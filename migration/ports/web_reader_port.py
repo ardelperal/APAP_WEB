@@ -19,10 +19,10 @@ method here takes no concrete backend client; the adapter chooses its
 own transport. Rule §22 (SQL/service separation): the SQL lives in the
 adapter, not in the port.
 
-Why this port is narrower than the apply layer's ``_InsForgeLike``
+Why this port is narrower than the apply layer's ``SqlExecutor``
 ==============================================================================
 
-``_InsForgeLike`` (in :mod:`migration.apply`) declares
+``SqlExecutor`` (in :mod:`migration.apply`) declares
 ``execute_sql`` + ``get_bucket`` + ``ensure_bucket`` because
 ``apply_legacy_to_web`` is a write pipeline that bootstraps the
 shadow table and the private photo bucket before any per-row INSERT.
@@ -123,7 +123,7 @@ class WebReaderError(Exception):
     precedent: inherits from bare ``Exception`` so it does not pull
     the Protocol-level :class:`~app.core.data_access.DataAccessError`
     into this package's import graph. Adapters wrap transport
-    failures (e.g. :class:`~app.core.data_access.InsForgeError`) in
+    failures (e.g. :class:`~app.core.data_access.BackendError`) in
     this exception so the use case catches a domain-level error
     without inspecting the envelope shape.
 

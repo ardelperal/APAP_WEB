@@ -50,7 +50,8 @@ from app.core.catalogs import (
     list_catalogos_pruebas,
     list_catalogos_tipos_contrato,
 )
-from app.core.insforge import InsForgeClient, InsForgeError
+from app.core.data_access import BackendError
+from app.core.local_backend.db import LocalPostgresExecutor
 
 # --- helpers --------------------------------------------------------------
 
@@ -541,7 +542,7 @@ def test_ensure_catalogs_is_idempotent_on_repeated_runs() -> None:
 
 
 def test_ensure_catalogs_raises_when_create_table_fails() -> None:
-    """If the first DDL fails, ensure_catalogs propagates InsForgeError."""
+    """If the first DDL fails, ensure_catalogs propagates BackendError."""
 
     def handler(request: httpx.Request) -> httpx.Response:
         return _json_response(500, {"error": "boom"})
@@ -551,7 +552,7 @@ def test_ensure_catalogs_raises_when_create_table_fails() -> None:
         service_key="ik_test",
         transport=httpx.MockTransport(handler),
     )
-    with pytest.raises(InsForgeError):
+    with pytest.raises(BackendError):
         ensure_catalogs(client)
     client.close()
 

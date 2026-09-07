@@ -5,8 +5,8 @@ request handlers and the hexagonal :class:`AuthUsersPort` abstraction.
 Each request gets a fresh :class:`InsForgeAuthUsersAdapter` bound to
 the shared :class:`~app.core.local_backend.db.LocalPostgresExecutor`
 the application lifespan owns (see commit e3f3bd0 for the migration
-from :class:`InsForgeClient` to ``LocalPostgresExecutor``; the legacy
-``InsForgeClient`` is deprecated as of commit f68b4cc).
+from :class:`LocalPostgresExecutor` to ``LocalPostgresExecutor``; the legacy
+``LocalPostgresExecutor`` is deprecated as of commit f68b4cc).
 
 The provider is intentionally NOT wired into :mod:`app.main` by this
 slice: the existing callers (``app.core.auth_dependencies``,

@@ -2,12 +2,12 @@
 (M0 of self-host-backend-coolify).
 
 The InsForge REST API exposes the bucket admin surface used by
-``InsForgeClient.get_bucket`` and ``InsForgeClient.ensure_bucket``. The
+``LocalPostgresExecutor.get_bucket`` and ``LocalPostgresExecutor.ensure_bucket``. The
 local backend re-implements those endpoints against an in-memory
 bucket registry (M2 swaps this for real MinIO + boto3).
 
 The contract is body-based for ``POST`` (``{"bucketName": ..., "isPublic": ...}``),
-matching what ``InsForgeClient.ensure_bucket`` sends. The tasks.md
+matching what ``LocalPostgresExecutor.ensure_bucket`` sends. The tasks.md
 originally suggested ``POST /api/storage/buckets/{name}`` but the
 InsForge client sends the name in the body, so the body-based form
 is what the integration tests pin.
@@ -61,7 +61,7 @@ def ensure_bucket(payload: dict[str, Any]) -> dict[str, Any]:
     """Create the bucket if missing. Idempotent: returns the existing
     bucket envelope if the name is already in the registry.
 
-    Body shape (matches what ``InsForgeClient.ensure_bucket`` sends):
+    Body shape (matches what ``LocalPostgresExecutor.ensure_bucket`` sends):
         ``{"bucketName": str, "isPublic": bool}``
 
     APAP migration buckets must be private (``is_public=True`` is

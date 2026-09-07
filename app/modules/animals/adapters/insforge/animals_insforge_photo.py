@@ -43,7 +43,7 @@ _CONTENT_TYPES = {
 
 
 class PhotoStorageClient(Protocol):
-    """Minimal real storage API required from ``InsForgeClient``."""
+    """Minimal real storage API required from ``LocalPostgresExecutor``."""
 
     def download_object_stream(
         self, bucket: str, key: str

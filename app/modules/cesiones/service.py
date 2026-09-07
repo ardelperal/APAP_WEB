@@ -58,8 +58,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from app.core.data_access import SqlExecutor
-from app.core.insforge import InsForgeError
+from app.core.data_access import BackendError, SqlExecutor
 
 
 class CesionConflictError(ValueError):
@@ -307,7 +306,7 @@ def _build_cesion_insert_params(params: dict[str, Any]) -> list[Any]:
     ]
 
 
-def _is_unique_conflict(exc: InsForgeError) -> bool:
+def _is_unique_conflict(exc: BackendError) -> bool:
     """Detect the 1-a-1 UNIQUE conflict on ``cesiones_propietario.entrada_id``.
 
     Same heuristic as ``_is_duplicate_error`` in ``entradas.service``
@@ -376,7 +375,7 @@ def create_cesion(
         cesion_rows = client.execute_sql(
             _INSERT_CESION_SQL, _build_cesion_insert_params(params)
         )
-    except InsForgeError as exc:
+    except BackendError as exc:
         if _is_unique_conflict(exc):
             raise CesionConflictError(
                 "ya existe una cesión para esta entrada"

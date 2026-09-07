@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol, cast
 
-from app.core.insforge import InsForgeError
+from app.core.data_access import BackendError
 from migration.shadow_state import ShadowStateRepository
 
 APAP_PHOTOS_BUCKET = "apap-photos"
@@ -59,7 +59,7 @@ def check_private_bucket(
     """Read back bucket state and fail closed unless it is private."""
     bucket = bucket_admin.get_bucket(bucket_name)
     if bucket is None:
-        raise InsForgeError(
+        raise BackendError(
             404,
             {
                 "error": "bucket_missing",
@@ -85,7 +85,7 @@ def ensure_private_bucket(
 
     readback = bucket_admin.get_bucket(bucket_name)
     if readback is None:
-        raise InsForgeError(
+        raise BackendError(
             500,
             {
                 "error": "bucket_readback_missing",
@@ -105,12 +105,12 @@ def bootstrap_m0_infrastructure(
     """Ensure shadow schema and private photo bucket before apply locks.
 
     The shadow table is always ensured via SQL DDL. The bucket admin
-    defaults to ``client`` so production ``InsForgeClient`` can own both
+    defaults to ``client`` so production ``LocalPostgresExecutor`` can own both
     surfaces, while tests may inject a dedicated fake.
     """
     ensure_shadow_table(client)
     # cast: when no dedicated admin is injected, the production
-    # ``InsForgeClient`` passed as ``client`` owns both surfaces.
+    # ``LocalPostgresExecutor`` passed as ``client`` owns both surfaces.
     admin = bucket_admin or cast("_BucketAdmin", client)
     bucket = ensure_private_bucket(admin, bucket_name=bucket_name)
     return BootstrapResult(shadow_table_ready=True, bucket=bucket)
@@ -121,14 +121,14 @@ def _assert_private_bucket(bucket_name: str, bucket: dict[str, Any]) -> None:
     if visibility is False:
         return
     if visibility is True:
-        raise InsForgeError(
+        raise BackendError(
             409,
             {
                 "error": "bucket_public_violation",
                 "message": f"Bucket {bucket_name!r} exists but is public; recreate it private",
             },
         )
-    raise InsForgeError(
+    raise BackendError(
         502,
         {
             "error": "bucket_visibility_unknown",

@@ -13,8 +13,8 @@ tests can assert the exact query shape without spinning up transport.
 
 Rule §31 (domain depends on Protocol): the constructor takes a
 :class:`~app.core.data_access.SqlExecutor`, not an
-:class:`~app.core.insforge.InsForgeClient`. The
-:class:`~app.core.insforge.InsForgeClient` happens to satisfy the
+:class:`~app.core.insforge.LocalPostgresExecutor`. The
+:class:`~app.core.insforge.LocalPostgresExecutor` happens to satisfy the
 Protocol structurally (it has ``execute_sql(query, params)``
 returning ``list[dict]``), so the DI helper can pass either without
 an explicit cast — no InsForge import leaks into the application
@@ -69,7 +69,7 @@ class InsForgeWebReaderAdapter(WebReaderPort):
     lifecycle, not the adapter.
 
     Transport errors (any exception raised by ``execute_sql`` —
-    :class:`~app.core.data_access.InsForgeError`,
+    :class:`~app.core.data_access.BackendError`,
     :class:`httpx.TimeoutException`, etc.) are wrapped in
     :class:`WebReaderError` so the use case catches a
     domain-level error without inspecting the envelope. The
@@ -89,7 +89,7 @@ class InsForgeWebReaderAdapter(WebReaderPort):
             executor: Any object that satisfies the
                 :class:`~app.core.data_access.SqlExecutor` Protocol.
                 In production this is the
-                :class:`~app.core.insforge.InsForgeClient` stored
+                :class:`~app.core.insforge.LocalPostgresExecutor` stored
                 on the application lifespan state; in tests it can
                 be an ``httpx.MockTransport``-backed fake or a
                 plain in-memory stub.

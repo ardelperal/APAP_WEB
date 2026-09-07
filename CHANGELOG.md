@@ -13,6 +13,11 @@ Las notas detalladas por tag viven en GitHub Releases; este changelog agrega los
 
 ### Removed
 
+- `refactor`: delete InsForge runtime + rename `InsForgeError` → `BackendError` (closes #664):
+    - `app/core/insforge.py`: deleted (706 lines, the `LocalPostgresExecutor` HTTP client).
+    - `app/core/insforge_url.py`: deleted (62 lines, `resolve_insforge_url` helper).
+    - `app/core/insforge_error_translation.py`: deleted (111 lines, `translate_post_error` only called from `insforge.py`).
+    - `app/core/adapters/insforge/oauth_insforge_adapter.py`: 3 type-ignores added on OAuth method calls (`start_google_oauth`, `exchange_insforge_oauth_code`, `exchange_google_oauth_code`). The adapter is dead code post-runtime-removal and is retired in #4b.
 - `refactor`: drop InsForge error-handler hexagonal slice (port + adapter + DI + shim, closes #662):
     - `app/core/insforge_error_handler.py`: deleted (103 lines).
     - `app/core/ports/insforge_error_handler_port.py`: deleted (131 lines).

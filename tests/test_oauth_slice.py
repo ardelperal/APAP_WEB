@@ -56,7 +56,7 @@ from app.core.application.oauth import (
     start_google_login as start_google_login_uc,
 )
 from app.core.config import Settings
-from app.core.data_access import InsForgeError
+from app.core.data_access import BackendError
 from app.core.domain.auth.rol import Rol
 from app.core.domain.auth.user import AuthorizedUser
 from app.core.domain.oauth import (
@@ -66,7 +66,8 @@ from app.core.domain.oauth import (
     PkcePair,
     UserNotAuthorizedError,
 )
-from app.core.insforge import InsForgeClient, InsForgeUser, OAuthExchangeResult
+from app.core.local_backend.db import LocalPostgresExecutor
+from app.core.local_backend.oauth_google import exchange_local_oauth_code
 from app.core.ports.oauth_port import OAuthPort, OAuthUser
 
 # --- helpers ---------------------------------------------------------------
@@ -338,7 +339,7 @@ def test_callback_raises_user_not_authorized_when_email_unknown() -> None:
 
 
 def test_callback_propagates_insforge_error_from_exchange() -> None:
-    """§32.P4: a transport failure surfaces as InsForgeError (NOT a
+    """§32.P4: a transport failure surfaces as BackendError (NOT a
     bare-Exception catch). The use case does not swallow it; the
     route layer catches it and translates to a /login redirect.
     """
@@ -353,7 +354,7 @@ class _ExplodingOAuthPort:
         insforge_code: str,  # noqa: ARG002
         code_verifier: str,  # noqa: ARG002
     ) -> OAuthUser:
-        raise InsForgeError(401, {"error": "INVALID_CREDENTIALS"})
+        raise BackendError(401, {"error": "INVALID_CREDENTIALS"})
 
     def exchange_google_oauth_code(
         self,
@@ -367,7 +368,7 @@ class _ExplodingOAuthPort:
 def test_callback_propagates_insforge_error_from_exchange_real() -> None:
     port: OAuthPort = _ExplodingOAuthPort()
     auth_port = _RecordingAuthPort()
-    with pytest.raises(InsForgeError) as excinfo:
+    with pytest.raises(BackendError) as excinfo:
         callback_uc(
             port,
             auth_port,
@@ -521,10 +522,10 @@ def test_adapter_propagates_insforge_error_untouched() -> None:
     client = _RecordingInsForge()
 
     def boom(*_args, **_kwargs):
-        raise InsForgeError(401, {"error": "INVALID_CREDENTIALS"})
+        raise BackendError(401, {"error": "INVALID_CREDENTIALS"})
 
     client.exchange_insforge_oauth_code = boom  # type: ignore[method-assign]
-    with pytest.raises(InsForgeError) as excinfo:
+    with pytest.raises(BackendError) as excinfo:
         InsForgeOAuthAdapter(client).exchange_insforge_oauth_code("x", "v")
     assert excinfo.value.status_code == 401
 

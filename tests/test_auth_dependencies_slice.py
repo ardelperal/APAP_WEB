@@ -8,7 +8,7 @@ This file pins the **new** shape of slice #420-7:
    shim that re-exports the 9 names via ``import *``.
 3. The di module does NOT execute raw SQL — it delegates to
    :func:`app.core.auth.get_user_by_email` (the abstracted seam).
-4. The §32.P4 ``InsForgeError`` fix in
+4. The §32.P4 ``BackendError`` fix in
    :func:`app.core.di.auth_dependencies_di.require_authorized_user` redirects
    to ``/unauthorized`` instead of leaking the transport failure as a 500.
 
@@ -38,7 +38,7 @@ from pathlib import Path
 import pytest
 
 from app.core import auth_dependencies as _shim
-from app.core.data_access import InsForgeError
+from app.core.data_access import BackendError
 from app.core.di import auth_dependencies_di as _di
 from app.core.di import auth_dependencies_session_di as _session_di
 
@@ -297,23 +297,23 @@ def test_di_module_has_no_raw_sql_or_execute_sql() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Atom 4 — §32.P4 fix: InsForgeError → 302 + log_safe("auth.denied",
+# Atom 4 — §32.P4 fix: BackendError → 302 + log_safe("auth.denied",
 # reason="db_unreachable") + set_cached_auth is NOT called
 # ---------------------------------------------------------------------------
 
 
 class _RaisingInsForgeClient:
-    """Spy InsForge client whose ``execute_sql`` raises ``InsForgeError``.
+    """Spy InsForge client whose ``execute_sql`` raises ``BackendError``.
 
     The application-layer use case (``get_user_by_email``) goes through
     the adapter layer, which calls ``self._executor.execute_sql(...)``
     on the injected client. The spy implements the same interface
     (``execute_sql``) so the full revalidation path is exercised and
     the exception bubbles back to ``require_authorized_user`` as
-    ``InsForgeError``.
+    ``BackendError``.
     """
 
-    def __init__(self, exc: InsForgeError) -> None:
+    def __init__(self, exc: BackendError) -> None:
         self._exc = exc
         self.call_count = 0
 
@@ -387,10 +387,10 @@ def test_require_authorized_user_catches_insforge_error_and_redirects(
     monkeypatch: pytest.MonkeyPatch,
     set_cached_auth,
 ) -> None:
-    """§32.P4 Variant A: ``InsForgeError`` is caught and returns 302.
+    """§32.P4 Variant A: ``BackendError`` is caught and returns 302.
 
     Forces :func:`app.core.auth.get_user_by_email` to raise
-    ``InsForgeError(503, "service unavailable")`` (the shape the
+    ``BackendError(503, "service unavailable")`` (the shape the
     PostgREST adapter raises on transport failure). Asserts:
 
     1. The dep does NOT propagate the exception.
@@ -421,13 +421,13 @@ def test_require_authorized_user_catches_insforge_error_and_redirects(
             "rol": "key_user",
             "is_authorized": True,
         },
-        client=_RaisingInsForgeClient(InsForgeError(503, "service unavailable")),
+        client=_RaisingInsForgeClient(BackendError(503, "service unavailable")),
     )
 
     # Assertion 1: a RedirectResponse is returned — no exception escaped.
     assert isinstance(result, RedirectResponse), (
         f"§32.P4 fix: require_authorized_user MUST return a RedirectResponse "
-        f"on InsForgeError, not raise. Got: {result!r}"
+        f"on BackendError, not raise. Got: {result!r}"
     )
     # Assertion 2: 302 to /unauthorized.
     assert result.status_code == 302
@@ -441,7 +441,7 @@ def test_require_authorized_user_catches_insforge_error_and_redirects(
     ]
     assert denial_events, (
         f"§32.P4 fix: require_authorized_user MUST emit auth.denied with "
-        f"reason=db_unreachable on InsForgeError; got: {captured!r}"
+        f"reason=db_unreachable on BackendError; got: {captured!r}"
     )
     # user_id is propagated from the payload (no PII leak).
     assert denial_events[0][1].get("user_id") == "u-1"

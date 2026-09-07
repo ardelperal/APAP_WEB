@@ -114,7 +114,7 @@ class InsForgeBackendClient:
     def __init__(self, url: str, api_key: str) -> None:
         # Lazy import so test modules that use the Postgres backend
         # do not pay the cost of importing the production client.
-        from app.core.insforge import InsForgeClient
+        from app.core.local_backend.db import LocalPostgresExecutor
 
         self._client = InsForgeClient(url, api_key)
 

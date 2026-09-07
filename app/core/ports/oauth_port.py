@@ -30,12 +30,12 @@ domain :class:`~app.core.domain.auth.rol.Rol` and the
 port free of SQL/table knowledge.
 
 The port does NOT catch transport errors: the adapter re-raises
-:class:`~app.core.data_access.InsForgeError` and the use case
+:class:`~app.core.data_access.BackendError` and the use case
 catches it. This is the §32.P4 fix: the legacy
-``app.core.auth_flow.callback`` caught a bare ``InsForgeError``
+``app.core.auth_flow.callback`` caught a bare ``BackendError``
 and silently turned every transport failure into a
 ``/redirect(/login)``. The new use case catches the SAME
-:class:`InsForgeError` type, but only on the exchange call site —
+:class:`BackendError` type, but only on the exchange call site —
 so the redaction list still works, but the catch is no longer a
 catch-all for every "this didn't work" outcome.
 
@@ -51,7 +51,7 @@ Rule §31 (domain services depend on Protocol abstractions): every
 method here takes no concrete backend client; the adapter chooses its
 own transport.
 Rule §22 (SQL/service separation): no SQL lives here; the
-:class:`app.core.insforge.InsForgeClient` calls the HTTP endpoints
+:class:`app.core.insforge.LocalPostgresExecutor` calls the HTTP endpoints
 the adapter wraps.
 """
 
@@ -97,7 +97,7 @@ class OAuthPort(Protocol):
 
     - :class:`app.core.adapters.insforge.oauth_insforge_adapter.InsForgeOAuthAdapter`
       — production adapter, talks to InsForge via
-      :class:`app.core.insforge.InsForgeClient`.
+      :class:`app.core.insforge.LocalPostgresExecutor`.
     - Test fakes (in ``tests/``) — in-memory adapters that record
       calls or raise on demand without any transport.
     """
@@ -149,7 +149,7 @@ class OAuthPort(Protocol):
             The :class:`OAuthUser` resolved by InsForge.
 
         Raises:
-            app.core.data_access.InsForgeError: When the backend
+            app.core.data_access.BackendError: When the backend
                 returns a non-2xx response (expired code, wrong
                 verifier, etc.). The use case catches and re-raises
                 as a redirect to ``/login`` (the §32.P4 fix narrows
@@ -180,7 +180,7 @@ class OAuthPort(Protocol):
             The :class:`OAuthUser` resolved by InsForge.
 
         Raises:
-            app.core.data_access.InsForgeError: When the backend
+            app.core.data_access.BackendError: When the backend
                 returns a non-2xx response. Same handling as
                 :meth:`exchange_insforge_oauth_code`.
         """

@@ -27,7 +27,7 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from app.core.insforge import InsForgeClient
+from app.core.local_backend.db import LocalPostgresExecutor
 from migration import (
     FkLookupError,
     LockActiveError,

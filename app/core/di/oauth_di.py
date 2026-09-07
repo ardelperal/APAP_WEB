@@ -3,7 +3,7 @@
 The :func:`get_oauth_port` provider is the seam between FastAPI
 request handlers and the hexagonal :class:`OAuthPort` abstraction.
 Each request gets a fresh :class:`InsForgeOAuthAdapter` bound to
-the pooled :class:`~app.core.insforge.InsForgeClient` the
+the pooled :class:`~app.core.insforge.LocalPostgresExecutor` the
 application lifespan already owns (so the adapter's instantiation
 is cheap — no I/O, no connection management — and the lifespan's
 client teardown is unaffected).
@@ -20,7 +20,7 @@ directly.
 Pattern (mirrors :func:`app.core.di.catalogos_di.get_catalogos_port`):
 
 1. Yield the per-request port bound to the request-scoped
-   :class:`InsForgeClient`. Production: the client lives on
+   :class:`LocalPostgresExecutor`. Production: the client lives on
    ``app.state.sql_executor`` (the lifespan creates one
    and reuses its underlying ``httpx.Client`` across requests).
    The adapter is cheap to construct (no I/O), so building it
@@ -59,7 +59,7 @@ def get_oauth_port(request: Request) -> Iterator[OAuthPort]:
     concrete adapter (InsForge) is hidden behind this dependency so
     the route layer does not import any InsForge-shaped import.
 
-    The lifespan stores the pooled :class:`InsForgeClient` on
+    The lifespan stores the pooled :class:`LocalPostgresExecutor` on
     ``app.state.sql_executor``; that client is reused across
     requests to amortize the underlying ``httpx.Client`` connection
     pool. A lightweight ASGI test transport that does not run the

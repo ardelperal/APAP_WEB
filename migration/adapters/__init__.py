@@ -4,7 +4,7 @@ Concrete implementations of the :mod:`migration.ports` Protocols.
 Each subpackage is one adapter family (InsForge, legacy DAO, ...).
 Adapters are the ONLY place that imports transport clients — the
 :mod:`migration.application` use cases never see
-:class:`~app.core.insforge.InsForgeClient` or the legacy DAO
+:class:`~app.core.insforge.LocalPostgresExecutor` or the legacy DAO
 client directly.
 
 §18 (web ↔ legacy mutual exclusion): the migration package is the

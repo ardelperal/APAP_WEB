@@ -32,8 +32,10 @@ from datetime import UTC, datetime
 from typing import IO
 
 import migration.cli as cli_mod
-from app.core.insforge import InsForgeClient, InsForgeError
+from app.core.data_access import BackendError
+from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.logging import log_safe
+from migration.apply import SqlExecutor as MigrationSqlExecutor
 from migration import MsAccessPreflightUnavailableError
 from migration.apply import (
     ApplyResult,
@@ -137,7 +139,7 @@ def _emit_migration_report(
 def run_apply(
     args: argparse.Namespace,
     *,
-    web_client: InsForgeClient | None = None,
+    web_client: MigrationSqlExecutor | None = None,
     stream: IO[str] | None = None,
 ) -> int:
     """Body of ``apap-migrate apply`` (PR3 / M1 forward + PR6 / M2 reverse).
@@ -160,7 +162,7 @@ def run_apply(
     | ``MsAccessPreflightUnavailableError``  | 5    | ``msaccess_preflight_unavailable``   |
     | ``MsAccessRunningError``               | 5    | ``msaccess_running``                 |
     | ``LegacyReaderError``                  | 5    | ``legacy_read_failed``               |
-    | ``InsForgeError`` (bootstrap path)     | 5    | ``infra_bootstrap_failed``          |
+    | ``BackendError`` (bootstrap path)     | 5    | ``infra_bootstrap_failed``          |
     | ``SourceDriftError``                   | 6    | ``source_drift``                     |
     | ``PartialApplyInterruptedError``       | 7    | ``partial_apply_interrupted``        |
 
@@ -290,9 +292,9 @@ def run_apply(
             error="legacy_read_failed",
         )
         return 5
-    except InsForgeError:
+    except BackendError:
         # Bootstrap failure (private bucket missing, shadow table
-        # invariant broken, etc.). ``InsForgeError.body`` may carry
+        # invariant broken, etc.). ``BackendError.body`` may carry
         # internal server-side details — categorical only.
         stream.write(
             _format_apply_error("infra_bootstrap_failed", exit_code=5)

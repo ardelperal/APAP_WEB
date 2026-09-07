@@ -4,7 +4,7 @@ Constructs the per-run :class:`migration.ports.web_reader_port.WebReaderPort`
 backed by the InsForge client. Use cases under
 :mod:`migration.application.web_reader` depend only on the port —
 this helper is the seam that hides the concrete
-:class:`~app.core.insforge.InsForgeClient`.
+:class:`~app.core.insforge.LocalPostgresExecutor`.
 
 Rule §2 (resources that own ``.close()`` use ``yield``): the
 adapter is cheap to construct (no I/O) and holds no resources of
@@ -26,7 +26,7 @@ def build_web_reader_port(executor: SqlExecutor) -> WebReaderPort:
 
     Args:
         executor: A :class:`~app.core.data_access.SqlExecutor`
-            (the production :class:`~app.core.insforge.InsForgeClient`
+            (the production :class:`~app.core.insforge.LocalPostgresExecutor`
             satisfies this structurally; tests pass a fake).
 
     Returns:

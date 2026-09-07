@@ -9,8 +9,7 @@ in ``tests/test_materiales_queries.py`` without spinning up transport.
 
 from __future__ import annotations
 
-from app.core.data_access import SqlExecutor
-from app.core.insforge import InsForgeError
+from app.core.data_access import BackendError, SqlExecutor
 from app.core.logging import log_safe
 from app.modules.materiales import queries
 from app.modules.materiales.service import (
@@ -60,7 +59,7 @@ def assign_material_to_estancia(
     )
     try:
         rows = client.execute_sql(sql, write_params)
-    except InsForgeError as exc:
+    except BackendError as exc:
         if _is_unique_violation(exc):
             raise MaterialConflictError(
                 "ese material ya esta asignado a esta estancia"

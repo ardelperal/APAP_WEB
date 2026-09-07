@@ -25,7 +25,8 @@ from typing import Any
 import httpx
 import pytest
 
-from app.core.insforge import InsForgeClient, InsForgeError
+from app.core.data_access import BackendError
+from app.core.local_backend.db import LocalPostgresExecutor
 from app.modules.cesiones import service as cesiones_service
 
 
@@ -399,7 +400,7 @@ def test_create_cesion_propagates_unexpected_insforge_errors() -> None:
 
     client = _client(handler)
 
-    with pytest.raises(InsForgeError):
+    with pytest.raises(BackendError):
         cesiones_service.create_cesion(client, _valid_params())
 
 

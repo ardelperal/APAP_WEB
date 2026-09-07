@@ -20,10 +20,10 @@ Every closing event references the death event via
 ``caused_by_event_id`` so the audit trail is traceable end-to-end.
 
 The use case takes the ``SqlExecutor`` Protocol (AGENTS.md §31) — it
-does NOT depend on ``InsForgeClient`` or ``LifecyclePort`` (the port
+does NOT depend on ``LocalPostgresExecutor`` or ``LifecyclePort`` (the port
 exposes only ``calculate_state`` and ``persist_animal_state``, neither
 of which fits event emission). The ``SqlExecutor`` Protocol is the
-slice's contract for the SQL-touching seam; ``InsForgeClient``
+slice's contract for the SQL-touching seam; ``LocalPostgresExecutor``
 implements it via ``app/core/data_access.py`` (issue #259).
 
 LIFECYCLE-03 (issue #33) PR-C work-unit C5.

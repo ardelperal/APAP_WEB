@@ -30,7 +30,7 @@ from typing import Any
 import httpx
 import pytest
 
-from app.core.insforge import InsForgeClient
+from app.core.local_backend.db import LocalPostgresExecutor
 from migration.shadow_state import (
     SHADOW_TABLE_SQL,
     ShadowStateRepository,

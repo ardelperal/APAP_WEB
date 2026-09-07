@@ -26,7 +26,7 @@ from typing import Any
 import httpx
 import pytest
 
-from app.core.insforge import InsForgeClient
+from app.core.local_backend.db import LocalPostgresExecutor
 from app.modules.materiales import estancia_material_service
 from app.modules.materiales import service as materiales_service
 
@@ -210,7 +210,7 @@ def test_create_material_rejects_blank_observaciones() -> None:
 def test_create_material_unique_constraint_raises_conflict() -> None:
     """When the DB rejects a duplicate ``(material, tamano, color)``
     active row with PostgreSQL 23505, the service translates the
-    InsForgeError into MaterialConflictError so the route can map it
+    BackendError into MaterialConflictError so the route can map it
     to HTTP 409. This is the race-condition path (two writers submitting
     the same triple simultaneously) — Scenario 2 in spec #15894.
     """

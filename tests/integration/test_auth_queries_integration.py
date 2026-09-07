@@ -17,7 +17,7 @@ exercised against a real engine. These atoms assert that:
      with ``WHERE activo = true`` stops matching.
 
 The unit-test suite (``tests/test_auth.py``) verifies the wire-shape
-of the SQL and the ``InsForgeError`` translation logic. This integration
+of the SQL and the ``BackendError`` translation logic. This integration
 atom verifies the actual Postgres-side guarantee that a deactivated
 user is no longer returned by the revalidation query.
 

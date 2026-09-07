@@ -9,7 +9,7 @@ from typing import Any, get_type_hints
 import httpx
 
 from app.core.data_access import SqlExecutor
-from app.core.insforge import InsForgeClient
+from app.core.local_backend.db import LocalPostgresExecutor
 
 _SERVICE_PATHS = tuple(sorted(Path("app/modules").rglob("*service.py"))) + (
     Path("app/modules/foster/assignment.py"),

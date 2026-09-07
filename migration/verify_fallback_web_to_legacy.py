@@ -254,7 +254,7 @@ def check_web_to_legacy_check_only() -> CheckResult:
     copy-before-mutate discipline).
 
     M0 of self-host-backend-coolify (issue #641): the CLI's
-    ``InsForgeClient`` now points at the local backend when
+    ``LocalPostgresExecutor`` now points at the local backend when
     ``APAP_LOCAL_BACKEND=true`` and ``APAP_INSFORGE_URL`` targets it.
     If ``APAP_LOCAL_DB_URL`` is set in the parent env, this check
     auto-wires both: it provisions an ephemeral APAP schema, spawns

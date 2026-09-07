@@ -11,7 +11,7 @@ Protocol-level exceptions.
 The adapter is a thin, stateless object — instantiation is cheap
 (no I/O, no connection). The DI provider in
 :mod:`app.core.di.auth_di` constructs one per request from the
-already-pooled :class:`~app.core.insforge.InsForgeClient` that the
+already-pooled :class:`~app.core.insforge.LocalPostgresExecutor` that the
 application lifespan owns.
 """
 

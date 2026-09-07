@@ -33,7 +33,8 @@ from typing import Any
 import httpx
 import pytest
 
-from app.core.insforge import InsForgeClient, InsForgeError
+from app.core.data_access import BackendError
+from app.core.local_backend.db import LocalPostgresExecutor
 
 BUCKET = "apap-photos"
 SERVICE_KEY = "ik_test_service_for_pr4b"
@@ -248,7 +249,7 @@ def test_upload_object_strategy_failures_fail_closed(
 
     The production contract: the exception body is the server's
     response body verbatim (we don't fabricate or scrub it — the
-    InsForgeError carries the truth); the client MUST NOT surface the
+    BackendError carries the truth); the client MUST NOT surface the
     client's own service key inside that body or inside the request
     that triggered the failure. Each atom asserts the error body is
     exactly the server payload (a dict of the documented shape) and
@@ -260,7 +261,7 @@ def test_upload_object_strategy_failures_fail_closed(
         observed_paths.append(request.url.path)
         return _json_response(status_code, {"error": reason, "hint": "no real PII here"})
 
-    with pytest.raises(InsForgeError) as exc:
+    with pytest.raises(BackendError) as exc:
         _client(handler).upload_object(
             BUCKET, KEY, SAMPLE_BYTES, content_type="image/jpeg"
         )
@@ -291,7 +292,7 @@ def test_upload_object_transfer_failure_aborts_before_confirm() -> None:
             return _json_response(201, {"key": KEY})
         raise AssertionError(f"unexpected request: {request.method} {request.url}")
 
-    with pytest.raises(InsForgeError) as exc:
+    with pytest.raises(BackendError) as exc:
         _client(handler).upload_object(
             BUCKET, KEY, SAMPLE_BYTES, content_type="image/jpeg"
         )
@@ -300,7 +301,7 @@ def test_upload_object_transfer_failure_aborts_before_confirm() -> None:
 
 
 def test_upload_object_confirm_failure_propagates_insforge_error() -> None:
-    """A confirm failure surfaces as ``InsForgeError`` carrying the status."""
+    """A confirm failure surfaces as ``BackendError`` carrying the status."""
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "POST" and request.url.path.endswith("/upload-strategy"):
@@ -314,7 +315,7 @@ def test_upload_object_confirm_failure_propagates_insforge_error() -> None:
             return _json_response(503, {"error": "confirm_unavailable"})
         raise AssertionError(f"unexpected request: {request.method} {request.url}")
 
-    with pytest.raises(InsForgeError) as exc:
+    with pytest.raises(BackendError) as exc:
         _client(handler).upload_object(
             BUCKET, KEY, SAMPLE_BYTES, content_type="image/jpeg"
         )
@@ -387,32 +388,32 @@ class TestDownloadObjectStream:
         assert calls[0] == f"/api/storage/buckets/{BUCKET}/download-strategy/objects/{KEY}"
 
     def test_download_object_stream_strategy_unauthorized_fails_closed(self) -> None:
-        """401 on the strategy GET raises ``InsForgeError`` (no bytes)."""
+        """401 on the strategy GET raises ``BackendError`` (no bytes)."""
 
         def handler(_request: httpx.Request) -> httpx.Response:
             return _json_response(401, {"error": "auth_required"})
 
-        with pytest.raises(InsForgeError) as exc:
+        with pytest.raises(BackendError) as exc:
             b"".join(_client(handler).download_object_stream(BUCKET, KEY))
         assert exc.value.status_code == 401
 
     def test_download_object_stream_strategy_404_fails_closed(self) -> None:
-        """404 on the strategy GET raises ``InsForgeError`` carrying 404."""
+        """404 on the strategy GET raises ``BackendError`` carrying 404."""
 
         def handler(_request: httpx.Request) -> httpx.Response:
             return _json_response(404, {"error": "not_found", "path": KEY})
 
-        with pytest.raises(InsForgeError) as exc:
+        with pytest.raises(BackendError) as exc:
             b"".join(_client(handler).download_object_stream(BUCKET, KEY))
         assert exc.value.status_code == 404
 
     def test_download_object_stream_5xx_fails_closed(self) -> None:
-        """5xx on the strategy GET raises ``InsForgeError`` (fail closed)."""
+        """5xx on the strategy GET raises ``BackendError`` (fail closed)."""
 
         def handler(_request: httpx.Request) -> httpx.Response:
             return _json_response(503, {"error": "temporarily_unavailable"})
 
-        with pytest.raises(InsForgeError) as exc:
+        with pytest.raises(BackendError) as exc:
             b"".join(_client(handler).download_object_stream(BUCKET, KEY))
         assert exc.value.status_code == 503
 
@@ -566,12 +567,12 @@ class TestDeleteObject:
         assert result is None
 
     def test_delete_object_5xx_raises_insforge_error(self) -> None:
-        """A 5xx surfaces as ``InsForgeError``."""
+        """A 5xx surfaces as ``BackendError``."""
 
         def handler(_request: httpx.Request) -> httpx.Response:
             return _json_response(500, {"error": "boom"})
 
-        with pytest.raises(InsForgeError) as exc:
+        with pytest.raises(BackendError) as exc:
             _client(handler).delete_object(BUCKET, KEY)
         assert exc.value.status_code == 500
 

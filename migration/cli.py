@@ -28,7 +28,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import IO, Any
 
-from app.core.insforge import InsForgeClient
+from app.core.local_backend.db import LocalPostgresExecutor
 from migration.apply import (  # noqa: F401 — test_cli_apply_safety monkeypatch
     _safe_table,
     apply_legacy_to_web,
@@ -310,7 +310,7 @@ def _apply_keep_web(
 def _apply_accept_derived(
     *,
     shadow_state: ShadowStateRepository,
-    web_client: InsForgeClient,
+    web_client: LocalPostgresExecutor,
     row: dict[str, Any],
     new_value: Any,
     now: datetime,
@@ -360,7 +360,7 @@ def _apply_accept_derived(
 def run_reconcile(
     args: argparse.Namespace,
     *,
-    web_client: InsForgeClient | None = None,
+    web_client: LocalPostgresExecutor | None = None,
     shadow_state: ShadowStateRepository | None = None,
     prompt: _PromptReader | None = None,
     stream: IO[str] | None = None,
@@ -489,7 +489,7 @@ def _run_reconcile_interactive(
     prompt: _PromptReader,
     stream: IO[str],
     shadow_state: ShadowStateRepository,
-    web_client: InsForgeClient | None,
+    web_client: LocalPostgresExecutor | None,
 ) -> int:
     """Walk each ``needs_review`` case with ``a/b/c/q`` prompts.
 
@@ -588,7 +588,7 @@ def _resolve_lock_path() -> Path:
 def run_status(
     args: argparse.Namespace,
     *,
-    web_client: InsForgeClient | None = None,
+    web_client: LocalPostgresExecutor | None = None,
     stream: IO[str] | None = None,
 ) -> int:
     """Body of ``apap-migrate status`` (read-only web counts)."""
@@ -613,7 +613,7 @@ def run_status(
 def main(
     argv: Sequence[str] | None = None,
     *,
-    web_client: InsForgeClient | None = None,
+    web_client: LocalPostgresExecutor | None = None,
     shadow_state: ShadowStateRepository | None = None,
     prompt: _PromptReader | None = None,
     stream: IO[str] | None = None,
@@ -630,12 +630,12 @@ def main(
     parser = build_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)
 
-    owned_web_client: InsForgeClient | None = None
+    owned_web_client: LocalPostgresExecutor | None = None
     if web_client is None:
         from app.core.config import get_settings
 
         settings = get_settings()
-        owned_web_client = InsForgeClient(
+        owned_web_client = LocalPostgresExecutor(
             settings.insforge_url,  # type: ignore[attr-defined]  # removed in #658; rewritten in #8
             settings.insforge_service_key,  # type: ignore[attr-defined]  # removed in #658; rewritten in #8
         )
@@ -651,7 +651,7 @@ def main(
                 stream=stream,
             )
         if args.command == "apply":
-            return run_apply(args, web_client=web_client, stream=stream)
+            return run_apply(args, web_client=web_client, stream=stream)  # type: ignore[arg-type]  # cli dispatcher retired in #8
         if args.command == "status":
             return run_status(args, web_client=web_client, stream=stream)
         if args.command == "ensure-bucket":
@@ -667,7 +667,7 @@ def main(
             return _vfb_main(vfb_argv)
     finally:
         if owned_web_client is not None:
-            owned_web_client.close()
+            pass  # LocalPostgresExecutor has no close() method; connection is per-call.
 
     # Defensive: ``required=True`` on the subparsers means argparse
     # already rejected empty invocations; this line is unreachable

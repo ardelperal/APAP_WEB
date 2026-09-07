@@ -10,13 +10,13 @@ Rule §22 (SQL/service separation): the SQL string is constructed here
 in the adapter, not interpolated inside validation/orchestration. The
 row-to-entity mapping is a list comprehension over the raw rows; no
 column-name aliases, no schema-shaping, no transport quirks — the
-InsForge envelope unwrapping is owned by :class:`InsForgeClient` in
+InsForge envelope unwrapping is owned by :class:`LocalPostgresExecutor` in
 ``app/core/insforge.py``, and the adapter sees the canonical
 ``list[dict[str, Any]]`` shape.
 
 Rule §31 (domain depends on Protocol): the adapter constructor takes
-a :class:`SqlExecutor`, not an :class:`InsForgeClient`. The
-:class:`InsForgeClient` happens to satisfy the Protocol structurally
+a :class:`SqlExecutor`, not an :class:`LocalPostgresExecutor`. The
+:class:`LocalPostgresExecutor` happens to satisfy the Protocol structurally
 (it has ``execute_sql(query, params)`` returning ``list[dict]``), so a
 DI helper can pass either without an explicit cast.
 """
@@ -134,7 +134,7 @@ class InsForgeCatalogosAdapter(CatalogosPort):
         Args:
             executor: Any object that satisfies the
                 :class:`app.core.data_access.SqlExecutor` Protocol.
-                In production this is the :class:`InsForgeClient`
+                In production this is the :class:`LocalPostgresExecutor`
                 stored on ``app.state.insforge_client``; in tests it
                 can be an ``httpx.MockTransport``-backed fake.
         """

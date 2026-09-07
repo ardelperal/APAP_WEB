@@ -10,11 +10,11 @@ Migration plan:
 
 - Today (this commit): the helper exists; no caller has migrated.
 - Subsequent commits: per-module migration replaces
-  ``InsForgeClient`` with ``LocalPostgresExecutor`` (sanidad,
+  ``LocalPostgresExecutor`` with ``LocalPostgresExecutor`` (sanidad,
   foster, entradas, etc.). Each migration is its own commit
   with its own verification.
 - Final commit: ``app/main.py`` switches the lifespan from
-  ``InsForgeClient`` to ``LocalPostgresExecutor``; the legacy
+  ``LocalPostgresExecutor`` to ``LocalPostgresExecutor``; the legacy
   ``get_insforge_client_dep`` is removed (or kept only for tests
   that pin the deprecation).
 """

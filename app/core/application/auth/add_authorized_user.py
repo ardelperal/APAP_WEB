@@ -20,7 +20,7 @@ Domain rules owned by this use case (not by the adapter):
   case translates into the same ``ValueError`` contract. This is the
   Protocol-level catch introduced by the foundation work (issue #259)
   and the active fix for issue #277 (the old code inspected
-  ``InsForgeError.body`` for the substring ``"duplicate"``).
+  ``BackendError.body`` for the substring ``"duplicate"``).
 - **Auth-cache invalidation** — issue #143. A prior deactivate may
   have cached a deny for this email; re-adding must take effect on
   the next request, not after the TTL.

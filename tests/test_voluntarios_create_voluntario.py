@@ -5,7 +5,7 @@ Covers:
 - ``nombre`` blank → VoluntarioValidationError.
 - ``nombre`` missing → VoluntarioValidationError.
 - Adapter raises UniqueViolationError → propagates to caller.
-- Adapter raises InsForgeError → propagates to caller.
+- Adapter raises BackendError → propagates to caller.
 """
 from __future__ import annotations
 

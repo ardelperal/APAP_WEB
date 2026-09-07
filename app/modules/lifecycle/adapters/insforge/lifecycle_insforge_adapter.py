@@ -15,7 +15,7 @@ The adapter is a thin, stateless object -- instantiation is cheap
 (no I/O, no connection). The DI provider in
 :mod:`app.modules.lifecycle.di.lifecycle_di` constructs one per
 request from the pooled
-:class:`~app.core.insforge.InsForgeClient` that the application
+:class:`~app.core.insforge.LocalPostgresExecutor` that the application
 lifespan already owns.
 
 LIFECYCLE-03 (issue #33) PR-B.

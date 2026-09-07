@@ -31,7 +31,7 @@ import httpx
 import pytest
 
 from app.core.data_access import SqlExecutor
-from app.core.insforge import InsForgeClient
+from app.core.local_backend.db import LocalPostgresExecutor
 from app.modules.animals.lifecycle_events import (
     CAUSAL_PAIR_DECISION_ID,
     CORE_EVENT_TYPES,

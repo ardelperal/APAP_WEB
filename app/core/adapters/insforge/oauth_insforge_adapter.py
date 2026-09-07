@@ -3,12 +3,12 @@
 The adapter is the seam where the OAuth protocol meets the InsForge
 HTTP transport. It wraps the three ``start_google_oauth`` /
 ``exchange_google_oauth_code`` / ``exchange_insforge_oauth_code``
-methods on :class:`app.core.insforge.InsForgeClient` and projects
+methods on :class:`app.core.insforge.LocalPostgresExecutor` and projects
 their transport-shaped return values to the :class:`OAuthUser` value
 object the port declares.
 
 The adapter is the ONLY place in the OAuth slice that imports
-:class:`app.core.insforge.InsForgeClient` (rule §31: domain depends
+:class:`app.core.insforge.LocalPostgresExecutor` (rule §31: domain depends
 on Protocol, never on a concrete client). The application layer
 imports the :class:`OAuthPort` Protocol and never sees this module.
 
@@ -43,7 +43,7 @@ Hexagonal taxonomy:
 from __future__ import annotations
 
 from app.core.domain.oauth import PkcePair
-from app.core.insforge import InsForgeClient
+from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.pkce import generate_pkce_pair
 from app.core.ports.oauth_port import OAuthUser
 
@@ -52,18 +52,18 @@ class InsForgeOAuthAdapter:
     """InsForge implementation of :class:`OAuthPort`.
 
     The adapter is stateless and thread-safe. It holds a single
-    :class:`InsForgeClient` reference passed at construction time;
+    :class:`LocalPostgresExecutor` reference passed at construction time;
     the DI layer (``app/core/di/oauth_di.py``) owns the client's
     lifecycle, not the adapter.
     """
 
-    def __init__(self, client: InsForgeClient) -> None:
+    def __init__(self, client: LocalPostgresExecutor) -> None:
         """Store the InsForge client used for every OAuth round-trip.
 
         Args:
-            client: The pooled :class:`InsForgeClient` from
+            client: The pooled :class:`LocalPostgresExecutor` from
                 ``app.state.insforge_client`` (production) or a
-                test fake that subclasses ``InsForgeClient`` and
+                test fake that subclasses ``LocalPostgresExecutor`` and
                 overrides the three ``start_google_oauth`` /
                 ``exchange_*`` methods.
         """
@@ -83,7 +83,7 @@ class InsForgeOAuthAdapter:
         request as the ``redirect_uri`` query parameter.
         """
         code_verifier, code_challenge = generate_pkce_pair()
-        auth_url = self._client.start_google_oauth(redirect_uri, code_challenge)
+        auth_url = self._client.start_google_oauth(redirect_uri, code_challenge)  # type: ignore[attr-defined]  # oauth_insforge_adapter retired in #4b
         return auth_url, PkcePair(
             code_verifier=code_verifier,
             code_challenge=code_challenge,
@@ -96,13 +96,13 @@ class InsForgeOAuthAdapter:
     ) -> OAuthUser:
         """Exchange an InsForge-hosted ``insforge_code`` for the user identity.
 
-        Production path. The :class:`InsForgeClient` already raises
-        :class:`app.core.data_access.InsForgeError` on a non-2xx
+        Production path. The :class:`LocalPostgresExecutor` already raises
+        :class:`app.core.data_access.BackendError` on a non-2xx
         response — the use case catches it (the §32.P4 narrowing).
         This adapter does not need to translate transport errors;
         they are already in the right Protocol-level shape.
         """
-        result = self._client.exchange_insforge_oauth_code(
+        result = self._client.exchange_insforge_oauth_code(  # type: ignore[attr-defined]  # oauth_insforge_adapter retired in #4b
             insforge_code=insforge_code,
             code_verifier=code_verifier,
         )
@@ -120,7 +120,7 @@ class InsForgeOAuthAdapter:
         the InsForge OAuth proxy rollout. New flows should call
         :meth:`exchange_insforge_oauth_code` instead.
         """
-        result = self._client.exchange_google_oauth_code(
+        result = self._client.exchange_google_oauth_code(  # type: ignore[attr-defined]  # oauth_insforge_adapter retired in #4b
             code=code,
             code_verifier=code_verifier,
             redirect_uri=redirect_uri,

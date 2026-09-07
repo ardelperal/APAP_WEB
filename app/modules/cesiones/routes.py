@@ -29,7 +29,7 @@ middleware does not reject them.
 Hexagonal migration (this file): routes inject ``CesionesPort`` via
 ``get_cesiones_port`` (DI generator). The port is backed by
 ``CesionesInsforgeAdapter``, which calls the existing service layer.
-No InsForgeClient leaks into the route body.
+No LocalPostgresExecutor leaks into the route body.
 """
 
 from __future__ import annotations

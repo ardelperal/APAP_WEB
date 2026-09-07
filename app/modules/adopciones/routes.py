@@ -51,9 +51,8 @@ from app.core.auth_dependencies import (
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
-from app.core.data_access import SqlExecutor
+from app.core.data_access import BackendError, SqlExecutor
 from app.core.forms import optional_value as _opt
-from app.core.insforge import InsForgeError
 from app.core.middleware import base_template_context_processor
 from app.core.rbac import Permission, require_permission
 from app.modules.adopciones import service as adopciones_service
@@ -215,7 +214,7 @@ def create_adopcion_view(
 
     P1-2 (risk review 2026-07-04): the try/except wraps both
     ``ValueError`` (FK / required-field / numeric coercion errors) AND
-    ``InsForgeError`` (CHECK constraint violation on ``tipo_adopcion``
+    ``BackendError`` (CHECK constraint violation on ``tipo_adopcion``
     surfacing as 4xx, malformed date on ``fecha_adopcion`` /
     ``fecha_devolucion`` surfacing as 4xx). Any of these now renders as
     a 422 with the operator's form input preserved, instead of leaking
@@ -245,7 +244,7 @@ def create_adopcion_view(
             "/adopciones",
             status.HTTP_409_CONFLICT,
         )
-    except (ValueError, InsForgeError) as exc:
+    except (ValueError, BackendError) as exc:
         return _render_form(
             request,
             user,
@@ -350,7 +349,7 @@ def update_adopcion_view(
             f"/adopciones/{adopcion_id}/update",
             status.HTTP_409_CONFLICT,
         )
-    except (ValueError, InsForgeError) as exc:
+    except (ValueError, BackendError) as exc:
         return _render_form(
             request,
             user,

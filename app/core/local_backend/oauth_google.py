@@ -1,6 +1,6 @@
 """OAuth flow handlers for the local backend (M0 of self-host-backend-coolify).
 
-Three endpoints mirror what ``InsForgeClient`` consumes for the
+Three endpoints mirror what ``LocalPostgresExecutor`` consumes for the
 Google OAuth proxy flow:
 
 - ``GET  /api/auth/oauth/google`` (start) → ``{"authUrl": "https://..."}``
@@ -93,7 +93,7 @@ def google_oauth_callback(payload: dict) -> dict:
     The real implementation validates the Google code with PKCE and
     signs the JWT with the service key. M0 returns a deterministic JWT
     for the test, no validation. Body is JSON (matches what
-    ``InsForgeClient.exchange_google_oauth_code`` sends).
+    ``LocalPostgresExecutor.exchange_google_oauth_code`` sends).
     """
     return {
         "token": _make_signed_jwt(_LOCAL_USER["email"]),
@@ -111,7 +111,7 @@ def exchange_insforge_oauth_code(
     The real implementation validates the InsForge one-time code with
     PKCE and signs the JWT with the service key. M0 returns a
     deterministic JWT for the test, no validation. Body is JSON
-    (matches what ``InsForgeClient.exchange_insforge_oauth_code``
+    (matches what ``LocalPostgresExecutor.exchange_insforge_oauth_code``
     sends).
     """
     # ``client_type`` is accepted for parity with the real endpoint but

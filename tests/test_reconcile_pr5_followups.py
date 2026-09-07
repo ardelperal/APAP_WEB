@@ -43,7 +43,7 @@ from typing import Any
 
 import httpx
 
-from app.core.insforge import InsForgeClient
+from app.core.local_backend.db import LocalPostgresExecutor
 from migration.cli import (
     _format_row_for_check_only,
 )

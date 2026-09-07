@@ -17,15 +17,15 @@ Issue #336: extracted from ``create_app`` to reduce the factory's
 cyclomatic complexity (CC) and line count.
 
 Issue judgment-day 2026-08-04 BLOCKER §31 (the legacy
-``auth_flow.py:21`` imported :class:`InsForgeClient` and
-:class:`InsForgeError` directly) is now fixed: this module no
+``auth_flow.py:21`` imported :class:`LocalPostgresExecutor` and
+:class:`BackendError` directly) is now fixed: this module no
 longer imports any InsForge-shaped symbol. The adapter wraps the
 InsForge client; the use cases depend on the Protocol.
 
 Issue judgment-day 2026-08-04 §32.P4 (the legacy 165-166 caught a
-bare ``InsForgeError`` and silently turned every transport failure
+bare ``BackendError`` and silently turned every transport failure
 into a ``/login`` redirect) is also fixed: the new
-:meth:`callback` use case catches ``InsForgeError`` ONLY at the
+:meth:`callback` use case catches ``BackendError`` ONLY at the
 single exchange call site (the legitimate failure path), and the
 adapter raises Protocol-level errors for the application-level
 failures (no code, not authorized) that the route translates
@@ -76,13 +76,13 @@ from app.core.application.oauth import (
 )
 from app.core.auth_dependencies import get_insforge_client_dep
 from app.core.csrf import issue_csrf_to_session
-from app.core.data_access import InsForgeError
+from app.core.data_access import BackendError
 from app.core.domain.oauth import (
     CallbackInvalidError,
     OAuthNotConfiguredError,
     UserNotAuthorizedError,
 )
-from app.core.insforge import InsForgeClient
+from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.logging import log_safe
 from app.core.session import (
     read_session,
@@ -126,7 +126,7 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
     The route handlers are THIN: each one handles only transport
     concerns (cookie parsing, redirect building, template
     rendering) and delegates the domain decision to a use case in
-    :mod:`app.core.application.oauth`. The :class:`InsForgeClient`
+    :mod:`app.core.application.oauth`. The :class:`LocalPostgresExecutor`
     is constructed per-request by the shim helpers
     (no DI; the legacy shape is preserved).
     """
@@ -154,7 +154,7 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
 
     @app.get("/auth/google")
     def start_google_login(
-        client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+        client: Annotated[LocalPostgresExecutor, Depends(get_insforge_client_dep)],
     ) -> Response:
         """Start the Google OAuth flow via InsForge.
 
@@ -194,7 +194,7 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
     @app.get("/auth/callback")
     def callback(
         request: Request,
-        client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+        client: Annotated[LocalPostgresExecutor, Depends(get_insforge_client_dep)],
         insforge_code: str | None = None,
         code: str | None = None,  # legacy direct-callback (pre-InsForge-proxy)
     ) -> Response:
@@ -242,8 +242,8 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
             response = _redirect("/unauthorized")
             response.delete_cookie("apap_pkce")
             return response
-        except InsForgeError:
-            # §32.P4 fix: the legacy code caught a bare InsForgeError
+        except BackendError:
+            # §32.P4 fix: the legacy code caught a bare BackendError
             # for every failure (no code, transport, not authorized,
             # all collapsed). The new use case catches it ONLY at the
             # single exchange call site, so this is now the narrow

@@ -18,7 +18,7 @@ Validation contract:
   active ``voluntarios`` row (VOL-05, D-HEALTH-05). Soft-deletes aside.
 - ``tipo_actuacion_id`` is optional. The FK is validated by the DB; the
   service does NOT pre-check the catalog (an invalid id surfaces as
-  ``InsForgeError`` from the CTE, which the route translates to 422).
+  ``BackendError`` from the CTE, which the route translates to 422).
 - D-24 reglas 1+2 (format + future-date): checked by the pure helper
   ``_validate_fecha_d24`` before any DB call.
 - D-24 regla 3 (fecha anterior a animales.fecha_alta): checked atomically
@@ -749,7 +749,7 @@ def get_proximas_pruebas(
     ``estado`` column.
 
     Args:
-        client: the SqlExecutor (production ``InsForgeClient`` or the
+        client: the SqlExecutor (production ``LocalPostgresExecutor`` or the
             integration conftest's ``self_host_schema``).
         fecha_desde: lower bound of the window (inclusive).
         fecha_hasta: upper bound (inclusive). Also drives the

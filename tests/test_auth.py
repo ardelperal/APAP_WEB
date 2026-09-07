@@ -23,7 +23,7 @@ from app.core.auth import (
     list_authorized_users,
 )
 from app.core.config import Settings
-from app.core.insforge import InsForgeClient
+from app.core.local_backend.db import LocalPostgresExecutor
 
 
 def _json_response(status_code: int, body: Any) -> httpx.Response:
@@ -483,7 +483,7 @@ def test_add_authorized_user_rejects_duplicate_via_insforge_error() -> None:
         add_authorized_user(client, email="new@example.com", role="key_user", added_by="u-1")
     # The service caught the Protocol-level exception, not the transport
     # envelope — guards against a regression where the catch reverts to
-    # ``except InsForgeError``.
+    # ``except BackendError``.
     assert issubclass(DuplicateKeyError, Exception)
 
 

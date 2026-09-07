@@ -16,16 +16,16 @@ exceptions; it never inspects ``status_code`` / ``body`` envelopes.
 Inheritance note for Phase 1
 ----------------------------
 
-:class:`InsForgeError` lives in this module so :class:`DuplicateKeyError`
-can inherit from it cleanly — preserving backward compatibility with
-the (pre-Phase-1) world where service-layer code catches
-``except InsForgeError`` to inspect 409 bodies for uniqueness
-violations. ``DuplicateKeyError`` inherits from both
-:class:`DataAccessError` (the universal Protocol base) and
-:class:`InsForgeError` (for backward compatibility during the
-incremental migration). When the Legacy Access adapter lands in
-Phase 3 the same pattern can be applied: its ``LegacyReaderError``
-will inherit from :class:`DataAccessError` only.
+:class:`BackendError` (formerly :class:`InsForgeError`) lives in this
+module so :class:`DuplicateKeyError` can inherit from it cleanly —
+preserving backward compatibility with the (pre-Phase-1) world where
+service-layer code catches ``except InsForgeError`` to inspect 409
+bodies for uniqueness violations. ``DuplicateKeyError`` inherits from
+both :class:`DataAccessError` (the universal Protocol base) and
+:class:`BackendError` (for backward compatibility during the incremental
+migration). The legacy name ``InsForgeError`` is preserved as an alias
+of :class:`BackendError` until every ``except InsForgeError`` clause is
+migrated (issue #7).
 
 §31 (Domain services depend on Protocol abstractions)
 §32.P4 (Partial exception handling — fix by catching Protocol exceptions)
@@ -67,51 +67,57 @@ class DataAccessError(Exception):
     transport error so an operator postmortem can still see it in the
     traceback without domain code having to know the transport shape.
 
-    This is the universal Protocol base — the legacy Access adapter (when
-    it lands) will subclass this directly, and the InsForge adapter's
-    transport error (:class:`InsForgeError`) ALSO inherits from this so a
-    future ``except DataAccessError`` clause catches everything at once.
+    This is the universal Protocol base — every backend adapter (the
+    Coolify local Postgres one, the future legacy Access one, ...) subclasses
+    :class:`DataAccessError` directly. A future ``except DataAccessError``
+    clause catches every adapter failure at once.
     """
 
 
-class InsForgeError(DataAccessError):
-    """Raised when the InsForge API returns a non-2xx response.
+class BackendError(DataAccessError):
+    """Raised when a backend returns a non-2xx response.
 
-    Lives in this module (rather than :mod:`app.core.insforge`) so the
-    Protocol-level :class:`DuplicateKeyError` can inherit from it
-    without a circular import — the InsForge adapter translates 409
-    uniqueness violations to ``DuplicateKeyError`` for domain code, but
-    service-layer code that has not yet migrated to Protocol exceptions
-    (Phase 3) keeps catching ``except InsForgeError`` and ``__cause__``
-    preservation continues to work because ``DuplicateKeyError`` is
-    ``isinstance``-equivalent to ``InsForgeError``.
+    Replaces the legacy :class:`InsForgeError` (kept as a deprecated alias
+    below for backward compatibility with code that has not yet migrated).
+    Lives in this module (rather than alongside a specific adapter) so the
+    Protocol-level :class:`DuplicateKeyError` can inherit from it without
+    a circular import — adapters translate 409 uniqueness violations to
+    ``DuplicateKeyError`` for domain code, but service-layer code that has
+    not yet migrated to Protocol exceptions keeps catching
+    ``except InsForgeError`` and ``__cause__`` preservation continues to
+    work because ``DuplicateKeyError`` is ``isinstance``-equivalent to
+    ``InsForgeError`` (via the alias).
 
-    The class no longer subclasses :class:`RuntimeError` directly — that
-    was the case while it lived in :mod:`app.core.insforge` and is now
-    redundant because ``DataAccessError`` is already an ``Exception``
-    subclass. A repository-wide grep confirmed nothing depends on
-    ``except RuntimeError`` for ``InsForgeError``.
+    The ``status_code`` and ``body`` attributes preserve the upstream envelope
+    for callers that still inspect it during the migration.
     """
 
     def __init__(self, status_code: int, body: Any) -> None:
         self.status_code = status_code
         self.body = body
-        super().__init__(f"InsForge {status_code}: {body!r}")
+        super().__init__(f"backend {status_code}: {body!r}")
 
 
-class DuplicateKeyError(InsForgeError):
+# Deprecated alias — kept until every ``except InsForgeError`` clause is
+# migrated. The symbol resolves to the new :class:`BackendError`, so
+# ``except InsForgeError`` keeps matching the same instance type. Removal
+# is tracked in issue #7 (test fakes retirement).
+InsForgeError = BackendError
+
+
+class DuplicateKeyError(BackendError):
     """Raised when SQL INSERT/UPDATE violates a uniqueness constraint.
 
-    The InsForge adapter catches 409 responses whose body carries the
-    Postgres ``23505`` SQLSTATE or whose message contains the substring
+    Adapters catch 409 responses whose body carries the Postgres
+    ``23505`` SQLSTATE or whose message contains the substring
     ``"duplicate"`` / ``"unique"`` and raises this exception. Domain
     code catches :class:`DuplicateKeyError` (or its more specific
     subclass :class:`UniqueViolation`) without knowing the transport
     envelope shape.
 
     Backward compatibility: ``DuplicateKeyError`` inherits from
-    :class:`InsForgeError` (via the linear chain ``DataAccessError`` →
-    ``InsForgeError`` → ``DuplicateKeyError``) so the existing
+    :class:`BackendError` (via the linear chain ``DataAccessError`` →
+    ``BackendError`` → ``DuplicateKeyError``) so the existing
     ``except InsForgeError`` clauses in service-layer code (translated
     to ``MaterialConflictError`` / ``EntradaConflictError`` / ...) keep
     matching until Phase 3 ports those clauses to
@@ -122,7 +128,7 @@ class DuplicateKeyError(InsForgeError):
     wants to inspect the message can do so without re-fetching it from
     the original transport error.
 
-    The ``__init__`` overrides :class:`InsForgeError`'s transport-shaped
+    The ``__init__`` overrides :class:`BackendError`'s transport-shaped
     constructor so callers raise :class:`DuplicateKeyError` (or its
     subclass) with a plain message — no need to pass a fake status
     code or body. ``status_code`` is set to ``409`` (the upstream
@@ -141,7 +147,7 @@ class DuplicateKeyError(InsForgeError):
         # Phase 3 drops these checks; ``body`` will then be free to
         # become ``None``.
         self.body = {"message": message or "duplicate key"}
-        super(InsForgeError, self).__init__(message or "duplicate key")
+        super(BackendError, self).__init__(message or "duplicate key")
 
 
 class UniqueViolationError(DuplicateKeyError):
@@ -154,7 +160,7 @@ class UniqueViolationError(DuplicateKeyError):
 
     The name carries the ``Error`` suffix required by ruff N818 to
     match the rest of the project's exception hierarchy (DataAccessError,
-    InsForgeError, DuplicateKeyError, ...). The shorter
+    BackendError, DuplicateKeyError, ...). The shorter
     ``UniqueViolation`` was the Phase 1 task-spec draft; the suffix is
     what survived into the actual implementation.
 

@@ -128,7 +128,7 @@ class AnimalsPort(Protocol):
         Adapters MUST raise :class:`app.core.data_access.UniqueViolation`
         (or a subclass) when the NCHIP already exists so the
         application layer can translate it into a 409 — the legacy
-        ``create_animal`` propagates ``InsForgeError`` for the same
+        ``create_animal`` propagates ``BackendError`` for the same
         condition, and the hexagonal path uses the data-access layer's
         Protocol-level exception so callers stay transport-free.
         """

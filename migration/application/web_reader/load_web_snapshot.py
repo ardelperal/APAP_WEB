@@ -2,7 +2,7 @@
 
 Thin orchestrators over :class:`migration.ports.web_reader_port.WebReaderPort`.
 Each function depends only on the port (never on
-:class:`~app.core.insforge.InsForgeClient` or any other transport),
+:class:`~app.core.insforge.LocalPostgresExecutor` or any other transport),
 so the body is a one-liner that can be tested against an in-memory
 fake without HTTP or InsForge SDK involvement.
 """

@@ -24,13 +24,13 @@ live there, not in the application layer. Each SQL adapter:
 The :class:`InsForgeOAuthAdapter` is a thinner wrapper: it does
 NOT execute SQL. It composes the OAuth protocol primitives
 (PKCE minting + InsForge HTTP round-trips) on top of an
-:class:`InsForgeClient` injected by the DI layer.
+:class:`LocalPostgresExecutor` injected by the DI layer.
 
-The adapters do NOT catch ``InsForgeError`` — the generic
+The adapters do NOT catch ``BackendError`` — the generic
 exception handler registered in ``app/main.py`` translates any
 unhandled error into a non-leaking 502 at the FastAPI boundary
 (§32.P4 contract preserved via the generic handler). A unit
-test that mocks the ``SqlExecutor`` to raise ``InsForgeError`` will
+test that mocks the ``SqlExecutor`` to raise ``BackendError`` will
 see the exception propagate untouched until the handler runs.
 """
 

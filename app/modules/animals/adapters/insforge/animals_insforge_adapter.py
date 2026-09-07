@@ -6,7 +6,7 @@ The only place in the slice that talks to the InsForge transport
 (AGENTS.md §22); this module is pure orchestration. Thin and
 stateless; the DI provider in :mod:`app.modules.animals.di.animals_di`
 constructs one per request from the already-pooled
-:class:`~app.core.insforge.InsForgeClient`.
+:class:`~app.core.insforge.LocalPostgresExecutor`.
 """
 
 # Deprecated 2026-09-06: this module is no longer the production

@@ -45,7 +45,7 @@ import pytest_asyncio
 os.environ.setdefault("APAP_MODE", "test")
 
 from app.core.config import get_settings  # noqa: E402  (must follow the env set)
-from app.core.insforge import InsForgeClient  # noqa: E402
+from app.core.local_backend.db import LocalPostgresExecutor  # noqa: E402
 from app.core.session import read_session, session_cookie_name  # noqa: E402
 from app.main import app as _app  # noqa: E402
 
