@@ -65,6 +65,7 @@ from datetime import date
 from typing import Any
 
 from app.core.data_access import SqlExecutor
+from app.core.forms import optional_text, required_text
 from app.core.logging import log_safe
 from app.modules.acogidas import queries
 from app.modules.animals import (
@@ -159,20 +160,6 @@ def _row_to_acogida(row: dict[str, Any]) -> Acogida:
 # --- validation helpers ---------------------------------------------------
 
 
-def _required_text(params: dict[str, Any], field_name: str) -> str:
-    value = str(params.get(field_name) or "").strip()
-    if not value:
-        raise ValueError(f"{field_name} es obligatorio y no puede estar vacio")
-    return value
-
-
-def _optional_text(params: dict[str, Any], field_name: str) -> str | None:
-    value = params.get(field_name)
-    if value is None:
-        return None
-    stripped = str(value).strip()
-    return stripped or None
-
 
 def _optional_uuid(params: dict[str, Any], field_name: str) -> str | None:
     """Same as ``_optional_text`` but stricter — a UUID-shaped string.
@@ -182,7 +169,7 @@ def _optional_uuid(params: dict[str, Any], field_name: str) -> str | None:
     DB rejects anything that isn't a valid UUID). We just trim and treat
     empty as None.
     """
-    return _optional_text(params, field_name)
+    return optional_text(params, field_name)
 
 
 def _validate_animal_exists_and_active(
@@ -268,7 +255,7 @@ def _validate_references(client: SqlExecutor, params: dict[str, Any]) -> None:
     -> entrada (optional). Fail-fast: the first invalid reference stops
     the chain. The captured SQL list in tests proves the order.
     """
-    animal_id = _required_text(params, "animal_id")
+    animal_id = required_text(params, "animal_id", error_template="{field_name} es obligatorio y no puede estar vacio")
     _validate_animal_exists_and_active(client, animal_id)
 
     casa_id = _optional_uuid(params, "casa_acogida_id")
@@ -364,7 +351,7 @@ def create_acogida(
         # rejects the link (the override was recorded for a SPECIFIC
         # casa, NOT NULL by schema).
         link_casa_id = _optional_uuid(params, "casa_acogida_id")
-        link_animal_id = _required_text(params, "animal_id")
+        link_animal_id = required_text(params, "animal_id", error_template="{field_name} es obligatorio y no puede estar vacio")
         link_sql, link_params = queries.build_acogida_link_override(
             estancia_id=acogida.id,
             override_id=override_id_raw.strip(),

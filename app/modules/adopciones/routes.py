@@ -55,6 +55,8 @@ from app.core.data_access import BackendError, SqlExecutor
 from app.core.forms import optional_value as _opt
 from app.core.middleware import base_template_context_processor
 from app.core.rbac import Permission, require_permission
+from app.modules._crud_flow import render_edit_form
+from app.modules._form_render import make_render_form
 from app.modules.adopciones import service as adopciones_service
 from app.modules.adopciones.forms import AdopcionForm
 
@@ -128,25 +130,7 @@ def _actor_user_id(user: AuthenticatedUser) -> str | None:
     return None
 
 
-def _render_form(  # noqa: PLR0913  # non-route helper; 6 args is minimal for template context
-    request: Request,
-    user: AuthenticatedUser,
-    form_data: dict[str, Any],
-    error: str | None,
-    form_action: str,
-    status_code: int = status.HTTP_200_OK,
-):
-    return _templates.TemplateResponse(
-        request=request,
-        name="adopciones/form.html",
-        context={
-            "user": user,
-            "form_data": form_data,
-            "error": error,
-            "form_action": form_action,
-        },
-        status_code=status_code,
-    )
+_render_form = make_render_form(_templates, "adopciones/form.html")
 
 
 # --- list -----------------------------------------------------------------
@@ -291,18 +275,16 @@ def edit_adopcion_form(
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_ADOPCIONES))],
     client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
-    """Edit form prefilled from the persisted row."""
-    if (early := return_early_if_response(user)) is not None:
-        return early
-    adopcion = adopciones_service.get_adopcion_by_id(client, adopcion_id)
-    if adopcion is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-    return _render_form(
-        request,
-        user,
-        _adopcion_to_form_data(adopcion),
-        None,
-        f"/adopciones/{adopcion_id}/update",
+    """Edit form prefilled from the persisted row (issue #681 — JSCPD ratchet)."""
+    return render_edit_form(
+        request=request,
+        user=user,
+        client=client,
+        entity_id=adopcion_id,
+        fetch=adopciones_service.get_adopcion_by_id,
+        to_form_data=_adopcion_to_form_data,
+        render_form=_render_form,
+        form_action=f"/adopciones/{adopcion_id}/update",
     )
 
 

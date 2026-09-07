@@ -39,6 +39,7 @@ from app.core.data_access import SqlExecutor
 from app.core.forms import optional_value as _opt
 from app.core.middleware import base_template_context_processor
 from app.core.rbac import Permission, require_permission
+from app.modules._form_render import make_render_form
 from app.modules.foster import assignment as foster_assignment_service
 from app.modules.foster import service as foster_service
 from app.modules.foster.forms import (
@@ -108,25 +109,7 @@ def _casa_to_form_data(casa: foster_service.CasaAcogida) -> dict[str, Any]:
     }
 
 
-def _render_form(  # noqa: PLR0913  # non-route helper; 6 args is minimal for template context
-    request: Request,
-    user: AuthenticatedUser,
-    form_data: dict[str, Any],
-    error: str | None,
-    form_action: str,
-    status_code: int = status.HTTP_200_OK,
-):
-    return _templates.TemplateResponse(
-        request=request,
-        name="casas_acogida/form.html",
-        context={
-            "user": user,
-            "form_data": form_data,
-            "error": error,
-            "form_action": form_action,
-        },
-        status_code=status_code,
-    )
+_render_form = make_render_form(_templates, "casas_acogida/form.html")
 
 
 # --- list -----------------------------------------------------------------

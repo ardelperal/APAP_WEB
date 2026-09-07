@@ -53,6 +53,8 @@ from app.core.data_access import SqlExecutor
 from app.core.forms import optional_value as _opt
 from app.core.middleware import base_template_context_processor
 from app.core.rbac import Permission, require_permission
+from app.modules._crud_flow import render_edit_form
+from app.modules._form_render import make_render_form
 from app.modules.materiales import service as materiales_service
 from app.modules.materiales.forms import MaterialForm
 
@@ -102,32 +104,12 @@ def _material_to_form_data(
     }
 
 
-def _render_form(  # noqa: PLR0913  # non-route helper; 6 args is minimal for template context
-    request: Request,
-    user: AuthenticatedUser,
-    form_data: dict[str, Any],
-    error: str | None,
-    form_action: str,
-    status_code: int = status.HTTP_200_OK,
-):
-    """Render ``app/templates/materiales/form.html`` with a fixed context.
-
-    Mirrors the ``_render_form`` precedent in
-    ``app/modules/foster/routes.py`` (and the same pattern in
-    adopciones / sanidad). Centralizes the template-name + context
-    keys so each handler declares only the action and error string.
-    """
-    return _templates.TemplateResponse(
-        request=request,
-        name="materiales/form.html",
-        context={
-            "user": user,
-            "form_data": form_data,
-            "error": error,
-            "form_action": form_action,
-        },
-        status_code=status_code,
-    )
+# ``_render_form`` is a partial of ``render_module_form`` that bakes in the
+# module's templates and template name (issue #681 — JSCPD ratchet).
+# The wrapper signature is unchanged so the existing 7 call sites
+# ``_render_form(request, user, form_data, error, form_action[, status_code])``
+# continue to work without edits.
+_render_form = make_render_form(_templates, "materiales/form.html")
 
 
 # --- list -----------------------------------------------------------------
@@ -265,24 +247,22 @@ def edit_material_form(
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_MATERIALES))],
     client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
-    """Edit form prefilled with the persisted row.
+    """Edit form prefilled with the persisted row (issue #681 — JSCPD ratchet).
 
     Returns 404 when the row is missing so the operator never sees a
     half-rendered form for a stale URL. The form action posts to
     ``/materiales/{id}/edit`` (same path as the GET — the verb in the
     HTTP method distinguishes intent).
     """
-    if (early := return_early_if_response(user)) is not None:
-        return early
-    material = materiales_service.get_material_by_id(client, material_id)
-    if material is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-    return _render_form(
-        request,
-        user,
-        _material_to_form_data(material),
-        None,
-        f"/materiales/{material_id}/edit",
+    return render_edit_form(
+        request=request,
+        user=user,
+        client=client,
+        entity_id=material_id,
+        fetch=materiales_service.get_material_by_id,
+        to_form_data=_material_to_form_data,
+        render_form=_render_form,
+        form_action=f"/materiales/{material_id}/edit",
     )
 
 

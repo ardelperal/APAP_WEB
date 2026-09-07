@@ -59,6 +59,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.core.data_access import BackendError, SqlExecutor
+from app.core.forms import optional_text
 
 
 class CesionConflictError(ValueError):
@@ -224,14 +225,6 @@ def _required_text(params: dict[str, Any], field: str) -> str:
     return value
 
 
-def _optional_text(params: dict[str, Any], field: str) -> str | None:
-    value = params.get(field)
-    if value is None:
-        return None
-    stripped = str(value).strip()
-    return stripped or None
-
-
 def _row_to_cesion(row: dict[str, Any]) -> Cesion:
     """Map a raw DB row dict to the public ``Cesion`` dataclass."""
     return Cesion(
@@ -286,23 +279,23 @@ def _build_cesion_insert_params(params: dict[str, Any]) -> list[Any]:
         _required_text(params, "entrada_id"),
         _required_text(params, "numero_contrato"),
         _required_text(params, "nombre_representante"),
-        _optional_text(params, "cartilla_sanitaria"),
-        _optional_text(params, "certificado_veterinario"),
-        _optional_text(params, "autorizacion_recogida"),
-        _optional_text(params, "fecha_vacuna_rabia"),
-        _optional_text(params, "numero_colegiado"),
-        _optional_text(params, "numero_colaborador"),
-        _optional_text(params, "dni_representante"),
-        _optional_text(params, "calle_representante"),
-        _optional_text(params, "numero_calle_representante"),
-        _optional_text(params, "piso_representante"),
-        _optional_text(params, "letra_representante"),
-        _optional_text(params, "localidad_representante"),
-        _optional_text(params, "provincia_representante"),
-        _optional_text(params, "cp_representante"),
-        _optional_text(params, "telefono_representante"),
-        _optional_text(params, "email_representante"),
-        _optional_text(params, "hora_cesion"),
+        optional_text(params, "cartilla_sanitaria"),
+        optional_text(params, "certificado_veterinario"),
+        optional_text(params, "autorizacion_recogida"),
+        optional_text(params, "fecha_vacuna_rabia"),
+        optional_text(params, "numero_colegiado"),
+        optional_text(params, "numero_colaborador"),
+        optional_text(params, "dni_representante"),
+        optional_text(params, "calle_representante"),
+        optional_text(params, "numero_calle_representante"),
+        optional_text(params, "piso_representante"),
+        optional_text(params, "letra_representante"),
+        optional_text(params, "localidad_representante"),
+        optional_text(params, "provincia_representante"),
+        optional_text(params, "cp_representante"),
+        optional_text(params, "telefono_representante"),
+        optional_text(params, "email_representante"),
+        optional_text(params, "hora_cesion"),
     ]
 
 
@@ -387,7 +380,7 @@ def create_cesion(
     #    cesion day; the legacy contract number (CPxxxx) carries over
     #    verbatim from ``numero_contrato``.
     fecha_param = (
-        _optional_text(params, "fecha_cesion")
+        optional_text(params, "fecha_cesion")
         or (cesion.fecha_alta or "")[:10]
     )
     contrato_rows = client.execute_sql(

@@ -52,6 +52,7 @@ from app.core.catalogs import (
     list_catalogos_pruebas as _list_catalogos_pruebas,
 )
 from app.core.data_access import SqlExecutor
+from app.core.forms import optional_text
 from app.core.logging import log_safe
 from app.modules.sanidad import queries
 from app.modules.sanidad.scheduling import schedule_periodic_task
@@ -282,14 +283,6 @@ def _required_text(params: dict[str, Any], field: str) -> str:
     return value
 
 
-def _optional_text(params: dict[str, Any], field: str) -> str | None:
-    value = params.get(field)
-    if value is None:
-        return None
-    stripped = str(value).strip()
-    return stripped or None
-
-
 def _validate_fecha_d24(fecha: str) -> str | None:
     """Pure D-24 reglas 1+2 validation: format + future-date.
 
@@ -324,12 +317,12 @@ def _build_write_params(params: dict[str, Any]) -> list[Any]:
     """Order matches ``_WRITE_COLUMNS`` for the INSERT/UPDATE placeholders."""
     return [
         _required_text(params, "animal_id"),
-        _optional_text(params, "voluntario_id"),
+        optional_text(params, "voluntario_id"),
         _required_text(params, "fecha"),
-        _optional_text(params, "tipo_actuacion_id"),
-        _optional_text(params, "veterinario"),
-        _optional_text(params, "observaciones"),
-        _optional_text(params, "material_utilizado"),
+        optional_text(params, "tipo_actuacion_id"),
+        optional_text(params, "veterinario"),
+        optional_text(params, "observaciones"),
+        optional_text(params, "material_utilizado"),
     ]
 
 
@@ -388,13 +381,13 @@ def _raise_validation_error(
                     f"({fecha_alta_date.isoformat()})"
                 )
 
-    vol_id = _optional_text(params, "voluntario_id")
+    vol_id = optional_text(params, "voluntario_id")
     if vol_id and not client.execute_sql(_CHECK_VOLUNTARIO_SQL, [vol_id]):
         raise ValueError(
             f"voluntario_id debe apuntar a un voluntario activo (inactivo: {vol_id})"
         )
 
-    tipo_id = _optional_text(params, "tipo_actuacion_id")
+    tipo_id = optional_text(params, "tipo_actuacion_id")
     if tipo_id and not client.execute_sql(_CHECK_TIPO_ACTUACION_SQL, [tipo_id]):
         raise ValueError(
             f"tipo_actuacion_id no existe en catalogos_pruebas: {tipo_id}"

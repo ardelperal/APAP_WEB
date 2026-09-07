@@ -44,6 +44,8 @@ from app.core.forms import optional_value as _opt
 from app.core.logging import log_safe
 from app.core.middleware import base_template_context_processor
 from app.core.rbac import Permission, require_permission
+from app.modules._crud_flow import render_edit_form
+from app.modules._form_render import make_render_form
 from app.modules.salud import service as salud_service
 from app.modules.salud.forms import RecomendacionForm, TerapiaForm
 
@@ -86,25 +88,11 @@ def _actor_user_id(user: AuthenticatedUser) -> str | None:
     return None
 
 
-def _render_terapia_form(  # noqa: PLR0913  # non-route helper; 6 args is minimal for template context
-    request: Request,
-    user: AuthenticatedUser,
-    form_data: dict[str, Any],
-    error: str | None,
-    form_action: str,
-    status_code: int = status.HTTP_200_OK,
-):
-    return _templates.TemplateResponse(
-        request=request,
-        name="salud/terapia_form.html",
-        context={
-            "user": user,
-            "form_data": form_data,
-            "error": error,
-            "form_action": form_action,
-        },
-        status_code=status_code,
-    )
+# ``_render_form`` (aliased to ``_render_terapia_form`` below for call-site
+# readability) is a partial of ``render_module_form`` that bakes in the
+# module's templates and template name (issue #681 — JSCPD ratchet).
+_render_form = make_render_form(_templates, "salud/terapia_form.html")
+_render_terapia_form = _render_form  # noqa: F811 — alias preserves the historical name
 
 
 def _render_terapia_form_error(
@@ -255,18 +243,16 @@ def edit_terapia_form(
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
     client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
-    """Edit form prefilled from the persisted row."""
-    if (early := return_early_if_response(user)) is not None:
-        return early
-    terapia = salud_service.get_terapia_by_id(client, terapia_id)
-    if terapia is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-    return _render_terapia_form(
-        request,
-        user,
-        _terapia_to_form_data(terapia),
-        None,
-        f"/terapias/{terapia_id}/update",
+    """Edit form prefilled from the persisted row (issue #681 — JSCPD ratchet)."""
+    return render_edit_form(
+        request=request,
+        user=user,
+        client=client,
+        entity_id=terapia_id,
+        fetch=salud_service.get_terapia_by_id,
+        to_form_data=_terapia_to_form_data,
+        render_form=_render_terapia_form,
+        form_action=f"/terapias/{terapia_id}/update",
     )
 
 
