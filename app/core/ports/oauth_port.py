@@ -8,7 +8,7 @@ The port carries three operations, one per OAuth-flow concern:
 
 1. :meth:`OAuthPort.start_google_login` — generate a PKCE pair and
    ask the backend (LocalBackend) for the Google authorization URL.
-2. :meth:`OAuthPort.exchange_insforge_oauth_code` — exchange an
+2. :meth:`OAuthPort.exchange_oauth_code` — exchange an
    LocalBackend-hosted ``oauth_code`` (the post-LocalBackend-OAuth-proxy
    flow) for an :class:`OAuthUser` (the user identity returned by
    LocalBackend). This is the production path: LocalBackend fronts Google
@@ -126,7 +126,7 @@ class OAuthPort(Protocol):
         """
         ...
 
-    def exchange_insforge_oauth_code(
+    def exchange_oauth_code(
         self,
         oauth_code: str,
         code_verifier: str,
@@ -167,7 +167,7 @@ class OAuthPort(Protocol):
 
         Legacy direct-callback path (kept for tests that pre-date
         the LocalBackend OAuth proxy rollout). New flows should call
-        :meth:`exchange_insforge_oauth_code` instead.
+        :meth:`exchange_oauth_code` instead.
 
         Args:
             code: The Google-issued authorization code.
@@ -182,7 +182,7 @@ class OAuthPort(Protocol):
         Raises:
             app.core.data_access.BackendError: When the backend
                 returns a non-2xx response. Same handling as
-                :meth:`exchange_insforge_oauth_code`.
+                :meth:`exchange_oauth_code`.
         """
         ...
 

@@ -102,7 +102,7 @@ def google_oauth_callback(payload: dict) -> dict:
 
 
 @router.post("/auth/oauth/exchange")
-def exchange_insforge_oauth_code(
+def exchange_oauth_code(
     payload: dict,
     client_type: str = Query("web"),
 ) -> dict:
@@ -111,7 +111,7 @@ def exchange_insforge_oauth_code(
     The real implementation validates the LocalBackend one-time code with
     PKCE and signs the JWT with the service key. M0 returns a
     deterministic JWT for the test, no validation. Body is JSON
-    (matches what ``AuthUsersPort.exchange_insforge_oauth_code``
+    (matches what ``AuthUsersPort.exchange_oauth_code``
     sends).
     """
     # ``client_type`` is accepted for parity with the real endpoint but
@@ -129,5 +129,5 @@ __all__ = [
     "router",
     "start_google_oauth",
     "google_oauth_callback",
-    "exchange_insforge_oauth_code",
+    "exchange_oauth_code",
 ]

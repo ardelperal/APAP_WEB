@@ -370,7 +370,7 @@ async def test_oauth_exchange_returns_jwt(
 ) -> None:
     """``POST /api/auth/oauth/exchange?client_type=web`` returns ``user`` + ``accessToken``.
 
-    Pins the contract ``LocalPostgresExecutor.exchange_insforge_oauth_code``
+    Pins the contract ``LocalPostgresExecutor.exchange_oauth_code``
     consumes (the LocalBackend-hosted OAuth proxy): the body has at least
     ``user`` and ``accessToken`` keys; the test reads ``accessToken``
     as the session JWT.

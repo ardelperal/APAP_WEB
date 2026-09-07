@@ -28,7 +28,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import IO, Any
 
-from app.core.local_backend.db import LocalPostgresExecutor
 from migration.apply import (  # noqa: F401 — test_cli_apply_safety monkeypatch
     _safe_table,
     apply_legacy_to_web,
