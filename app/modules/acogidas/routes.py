@@ -23,6 +23,7 @@ Endpoints (mounted at ``/acogidas`` by ``app/main.py``):
 
 from __future__ import annotations
 
+from functools import partial
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -143,6 +144,18 @@ def _acogida_to_form_data(acogida: acogidas_service.Acogida) -> dict[str, Any]:
 
 
 _render_form = make_render_form(_templates, "acogidas/form.html")
+
+# ``_edit_acogida_form`` is a partial of ``render_edit_form`` that bakes in
+# the per-module fetch + form_data + render_form + form_action (issue #681
+# — JSCPD ratchet). Each module's wrapper becomes a one-liner over the
+# shared helper so the per-module wrappers do not duplicate each other.
+_edit_acogida_form: Any = partial(
+    render_edit_form,
+    fetch=acogidas_service.get_acogida_by_id,
+    to_form_data=_acogida_to_form_data,
+    render_form=_render_form,
+    form_action="/acogidas/{entity_id}/update",
+)
 
 
 # --- list -----------------------------------------------------------------
@@ -321,15 +334,8 @@ def edit_acogida_form(
     client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """Render the edit form prefilled from the current stay row (issue #681 — JSCPD ratchet)."""
-    return render_edit_form(
-        request=request,
-        user=user,
-        client=client,
-        entity_id=acogida_id,
-        fetch=acogidas_service.get_acogida_by_id,
-        to_form_data=_acogida_to_form_data,
-        render_form=_render_form,
-        form_action=f"/acogidas/{acogida_id}/update",
+    return _edit_acogida_form(
+        request=request, user=user, client=client, entity_id=acogida_id,
     )
 
 

@@ -26,6 +26,7 @@ Write endpoints use ``require_permission(Permission.WRITE_SALUD)``.
 
 from __future__ import annotations
 
+from functools import partial
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -92,6 +93,14 @@ def _actor_user_id(user: AuthenticatedUser) -> str | None:
 # readability) is a partial of ``render_module_form`` that bakes in the
 # module's templates and template name (issue #681 — JSCPD ratchet).
 _render_form = make_render_form(_templates, "salud/terapia_form.html")
+_edit_terapia_form: Any = partial(
+    render_edit_form,
+    fetch=salud_service.get_terapia_by_id,
+    to_form_data=_terapia_to_form_data,
+    render_form=_render_form,
+    form_action="/terapias/{entity_id}/update",
+)
+
 _render_terapia_form = _render_form  # noqa: F811 — alias preserves the historical name
 
 
@@ -244,15 +253,8 @@ def edit_terapia_form(
     client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """Edit form prefilled from the persisted row (issue #681 — JSCPD ratchet)."""
-    return render_edit_form(
-        request=request,
-        user=user,
-        client=client,
-        entity_id=terapia_id,
-        fetch=salud_service.get_terapia_by_id,
-        to_form_data=_terapia_to_form_data,
-        render_form=_render_terapia_form,
-        form_action=f"/terapias/{terapia_id}/update",
+    return _edit_terapia_form(
+        request=request, user=user, client=client, entity_id=terapia_id,
     )
 
 

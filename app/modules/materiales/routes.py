@@ -36,6 +36,7 @@ material+tamaño+color" hint.
 
 from __future__ import annotations
 
+from functools import partial
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -110,6 +111,14 @@ def _material_to_form_data(
 # ``_render_form(request, user, form_data, error, form_action[, status_code])``
 # continue to work without edits.
 _render_form = make_render_form(_templates, "materiales/form.html")
+_edit_material_form: Any = partial(
+    render_edit_form,
+    fetch=materiales_service.get_material_by_id,
+    to_form_data=_material_to_form_data,
+    render_form=_render_form,
+    form_action="/materiales/{entity_id}/update",
+)
+
 
 
 # --- list -----------------------------------------------------------------
@@ -254,15 +263,8 @@ def edit_material_form(
     ``/materiales/{id}/edit`` (same path as the GET — the verb in the
     HTTP method distinguishes intent).
     """
-    return render_edit_form(
-        request=request,
-        user=user,
-        client=client,
-        entity_id=material_id,
-        fetch=materiales_service.get_material_by_id,
-        to_form_data=_material_to_form_data,
-        render_form=_render_form,
-        form_action=f"/materiales/{material_id}/edit",
+    return _edit_material_form(
+        request=request, user=user, client=client, entity_id=material_id,
     )
 
 

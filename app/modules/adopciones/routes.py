@@ -37,6 +37,7 @@ could previously POST / DELETE adopciones.
 
 from __future__ import annotations
 
+from functools import partial
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -131,6 +132,14 @@ def _actor_user_id(user: AuthenticatedUser) -> str | None:
 
 
 _render_form = make_render_form(_templates, "adopciones/form.html")
+_edit_adopcion_form: Any = partial(
+    render_edit_form,
+    fetch=adopciones_service.get_adopcion_by_id,
+    to_form_data=_adopcion_to_form_data,
+    render_form=_render_form,
+    form_action="/adopciones/{entity_id}/update",
+)
+
 
 
 # --- list -----------------------------------------------------------------
@@ -276,15 +285,8 @@ def edit_adopcion_form(
     client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """Edit form prefilled from the persisted row (issue #681 — JSCPD ratchet)."""
-    return render_edit_form(
-        request=request,
-        user=user,
-        client=client,
-        entity_id=adopcion_id,
-        fetch=adopciones_service.get_adopcion_by_id,
-        to_form_data=_adopcion_to_form_data,
-        render_form=_render_form,
-        form_action=f"/adopciones/{adopcion_id}/update",
+    return _edit_adopcion_form(
+        request=request, user=user, client=client, entity_id=adopcion_id,
     )
 
 
