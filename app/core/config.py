@@ -4,17 +4,16 @@ Single source of truth for runtime configuration. Values are read from
 process environment variables under the ``APAP_`` prefix, with sensible
 defaults so the app can boot in development without any extra setup.
 
-Fase 2 (issue #16) extends this with the InsForge service key, the
-Google OAuth client, the bootstrap admin email, and the session secret
-used to sign cookies. Production deployments MUST override the defaults
-for ``google_client_id``, ``google_client_secret``, ``initial_admin_email``
-and ``session_secret`` via env vars or the platform secret store.
+Fase 2 (issue #16) extends this with the Google OAuth client, the
+bootstrap admin email, and the session secret used to sign cookies.
+Production deployments MUST override the defaults for ``google_client_id``,
+``google_client_secret``, ``initial_admin_email`` and ``session_secret``
+via env vars or the platform secret store.
 
 Startup validation: ``_validate_secrets`` (called from the lifespan in
-``app/main.py``) enforces that ``insforge_service_key`` is non-empty and
-``session_secret`` is not the published placeholder and is at least 32
-characters. Validation is bypassed when ``debug is True``. See issue #275
-and AGENTS.md §32.P2.
+``app/main.py``) enforces that ``session_secret`` is not the published
+placeholder and is at least 32 characters. Validation is bypassed when
+``debug is True``. See issue #275 and AGENTS.md §32.P2.
 
 ``get_settings()`` is cached with ``functools.lru_cache(maxsize=1)`` so
 every call returns the same singleton — pydantic-settings re-reads env
@@ -53,18 +52,15 @@ class StartupConfigError(RuntimeError):
 
 
 def _validate_secrets(settings: Settings) -> None:
-    """Refuse to boot with empty / placeholder / short critical secrets.
+    """Refuse to boot with placeholder / short critical secrets.
 
     Bypassed when ``settings.debug is True`` (dev convenience). Each rejection
     emits ``log_safe("startup.config_invalid", env_var=..., reason=...)``
-    before raising. ``reason`` is one of ``"empty"`` | ``"placeholder"`` |
-    ``"too_short"``. Issue #275 / AGENTS.md §32.P2.
+    before raising. ``reason`` is one of ``"placeholder"`` | ``"too_short"``.
+    Issue #275 / AGENTS.md §32.P2.
     """
     if settings.debug:
         return
-    if not settings.insforge_service_key:
-        log_safe("startup.config_invalid", env_var="APAP_INSFORGE_SERVICE_KEY", reason="empty")
-        raise StartupConfigError("APAP_INSFORGE_SERVICE_KEY", "empty")
     if settings.session_secret == _PLACEHOLDER_SESSION_SECRET:
         log_safe("startup.config_invalid", env_var="APAP_SESSION_SECRET", reason="placeholder")
         raise StartupConfigError("APAP_SESSION_SECRET", "placeholder")
@@ -77,7 +73,7 @@ class Settings(BaseSettings):
     """Runtime settings for the APAP_WEB application.
 
     Environment variables are read with the ``APAP_`` prefix. For
-    example, ``APAP_INSFORGE_URL`` populates :attr:`insforge_url`.
+    example, ``APAP_SESSION_SECRET`` populates :attr:`session_secret`.
     """
 
     model_config = SettingsConfigDict(
@@ -90,24 +86,16 @@ class Settings(BaseSettings):
     app_name: str = "APAP_WEB"
     version: str = "0.1.0"
 
-    # --- InsForge (data, auth, storage) ---------------------------------
-    insforge_url: str = "http://localhost:7130"
-    insforge_anon_key: str = ""
-    # Privileged service key used by the app to run admin SQL (create the
-    # `authorized_users` table, seed the bootstrap admin, etc.). Must be
-    # set in production. Empty in dev so privileged ops are off by default.
-    insforge_service_key: str = ""
-
     # Coolify-hosted local backend (issue #641, #648). The only
-    # supported production transport as of 2026-09-06: when
-    # ``APAP_LOCAL_BACKEND=true`` (read by ``resolve_insforge_url``),
+    # supported production transport as of 2026-09-06: the
     # ``LocalPostgresExecutor`` (see ``app.core.local_backend.db``)
-    # runs every SQL against this DSN. ``APAP_LOCAL_DB_URL`` is
-    # the DSN (e.g. ``postgresql://apap:<pw>@apap-pg-test:5432/apap``);
+    # runs every SQL against this DSN. ``APAP_LOCAL_DB_URL`` is the
+    # DSN (e.g. ``postgresql://apap:<pw>@apap-pg-test:5432/apap``);
     # ``APAP_LOCAL_DB_SCHEMA`` is the schema name (optional,
     # defaults to ``public``; tests pass an ephemeral schema).
     local_db_url: str = ""
     local_db_schema: str = ""
+
     # --- Google OAuth (Fase 2) ------------------------------------------
     google_client_id: str = ""
     google_client_secret: str = ""

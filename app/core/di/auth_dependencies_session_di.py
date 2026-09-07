@@ -11,7 +11,7 @@ from starlette.responses import Response
 from app.core.auth import get_user_by_email
 from app.core.auth_cache import get_cached_auth, set_cached_auth
 from app.core.config import get_settings
-from app.core.data_access import InsForgeError
+from app.core.data_access import InsForgeError, SqlExecutor
 from app.core.insforge import InsForgeClient
 
 
@@ -29,14 +29,15 @@ def _deny(payload: dict | None, reason: str, *, url: str = "/unauthorized") -> R
     return RedirectResponse(url=url, status_code=302)
 
 
-def get_insforge_client_dep(request: Request) -> Iterator[InsForgeClient]:
-    """Yield the pooled InsForge client owned by the application lifespan."""
-    try:
-        client = request.app.state.sql_executor
-    except AttributeError:
-        settings = get_settings()
-        client = InsForgeClient(settings.insforge_url, settings.insforge_service_key)
-        request.app.state.sql_executor = client
+def get_insforge_client_dep(request: Request) -> Iterator[SqlExecutor]:
+    """Yield the pooled SqlExecutor owned by the application lifespan.
+
+    Kept under the historical ``get_insforge_client_dep`` name for
+    backward compatibility with the test suite (see
+    ``app/main.py:55`` re-export). The lifespan always wires
+    ``request.app.state.sql_executor`` so no fallback path is required.
+    """
+    client = request.app.state.sql_executor
     yield client
 
 

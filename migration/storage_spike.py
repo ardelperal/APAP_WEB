@@ -403,8 +403,8 @@ def main(
 
         get_settings.cache_clear()
         settings = get_settings()
-        base_url = settings.insforge_url
-        service_key = settings.insforge_service_key
+        base_url = settings.insforge_url  # type: ignore[attr-defined]  # removed in #658; rewritten in #8
+        service_key = settings.insforge_service_key  # type: ignore[attr-defined]  # removed in #658; rewritten in #8
     else:
         env_map = env
         base_url = env_map.get("APAP_INSFORGE_URL")
