@@ -1,7 +1,7 @@
 """DI helper for the migration web-reader port.
 
 Stub placeholder: the concrete web_reader adapter was retired with the
-InsForge runtime (issue #5). Until the migration package rewrite lands a
+migration package rewrite (issue #671 in this branch) provides a placeholder
 LocalBackend-backed :class:`LocalBackendWebReaderAdapter` (issue #8),
 every method on the returned port raises
 :class:`NotImplementedError` so the migration CLI fails loud per call.

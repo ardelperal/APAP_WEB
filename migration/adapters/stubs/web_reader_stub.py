@@ -1,9 +1,9 @@
 """Stub adapter for ``WebReaderPort`` — pending local-backend implementation.
 
-Replaces the deleted
-:class:`migration.adapters.insforge.web_reader_insforge_adapter.InsForgeWebReaderAdapter`.
-A real LocalBackend-backed adapter lands in the migration package
-rewrite (issue #8); until then, every method raises
+Replaces the legacy ``migration.adapters.legacy.web_reader_legacy_adapter``
+(the directory was removed with the rest of the LocalBackend runtime in
+issue #5). A real LocalBackend-backed adapter lands in the migration
+package rewrite (issue #8); until then, every method raises
 :class:`NotImplementedError` so the migration CLI fails loud per call.
 """
 
