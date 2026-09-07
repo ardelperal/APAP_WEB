@@ -44,6 +44,8 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from app.core._module_helpers._crud_flow import render_edit_form
+from app.core._module_helpers._form_render import make_render_form
 from app.core.auth_dependencies import (
     AuthenticatedUser,
     get_local_postgres_executor_dep,
@@ -55,8 +57,6 @@ from app.core.data_access import BackendError, SqlExecutor
 from app.core.forms import optional_value as _opt
 from app.core.middleware import base_template_context_processor
 from app.core.rbac import Permission, require_permission
-from app.modules._crud_flow import render_edit_form
-from app.modules._form_render import make_render_form
 from app.modules.adopciones import service as adopciones_service
 from app.modules.adopciones.forms import AdopcionForm
 
