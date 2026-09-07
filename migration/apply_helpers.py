@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     # signature). Re-imported for type checking only.
     # stub adapter in #671 is the placeholder; see web_reader_stub.
     # migration package is being rewritten in #8.
-    from migration.apply import _LocalBackendLike  # type: ignore[attr-defined]  # noqa: F401
+    from migration.apply import SqlExecutor  # noqa: F401
 
 from rapidfuzz import fuzz
 
@@ -82,7 +82,7 @@ class _VoluntariosIndex:
         # Maps normalised name -> (web_uuid, original_name).
         self._by_name: dict[str, tuple[str, str]] = {}
 
-    def load_from_db(self, client: _LocalBackendLike) -> None:
+    def load_from_db(self, client: SqlExecutor) -> None:
         """Load all active volontarios from the DB into the index (Level 1).
 
         Called once per apply run before processing acogidas / adopciones.
@@ -175,7 +175,7 @@ def _resolve_fk_value(
     legacy_value: str | None,
     lookup_table: str,
     lookup_key: str,
-    client: _LocalBackendLike,  # type: ignore[attr-defined]
+    client,  # migration apply Protocol — see #8
     vol_index: _VoluntariosIndex | None,
     *,
     fuzzy_match: bool = False,

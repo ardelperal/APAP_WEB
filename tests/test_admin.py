@@ -36,7 +36,7 @@ class _FakeLocalBackend(LocalPostgresExecutor):
         # Separate storage for get_user_by_id so it doesn't pollute list_users_response
         self._user_lookup_response: dict | None = None
 
-    def execute_sql(self, query, params=None):  # type: ignore[override]
+    def execute_sql(self, query, params=None):
         from tests.conftest import auth_reval_rows
 
         _reval = auth_reval_rows(query, params, rol=self.auth_rol)

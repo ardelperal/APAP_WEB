@@ -18,7 +18,7 @@ from typing import Any, Protocol
 from migration import MigrationError
 
 
-class _LocalBackendLike(Protocol):
+class SqlExecutor(Protocol):
     """Structural type for the web client passed to ``apply_web_to_legacy``.
 
     Mirrors the surface ``StubAuthUsersPort.execute_sql`` exposes, plus

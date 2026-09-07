@@ -25,37 +25,37 @@ from app.core.ports.auth_port import AuthUsersPort
 class StubAuthUsersPort(AuthUsersPort):
     """Placeholder :class:`AuthUsersPort` whose every method raises."""
 
-    def ensure_schema_and_seed(self, *args, **kwargs):  # type: ignore[override]
+    def ensure_schema_and_seed(self, *args, **kwargs):
         raise NotImplementedError(
             "AuthUsersPort.ensure_schema_and_seed: pending local-backend adapter, see #4b'"
         )
 
-    def get_user_by_email(self, *args, **kwargs):  # type: ignore[override]
+    def get_user_by_email(self, *args, **kwargs):
         raise NotImplementedError(
             "AuthUsersPort.get_user_by_email: pending local-backend adapter, see #4b'"
         )
 
-    def check_email_taken(self, *args, **kwargs):  # type: ignore[override]
+    def check_email_taken(self, *args, **kwargs):
         raise NotImplementedError(
             "AuthUsersPort.check_email_taken: pending local-backend adapter, see #4b'"
         )
 
-    def list_authorized_users(self, *args, **kwargs):  # type: ignore[override]
+    def list_authorized_users(self, *args, **kwargs):
         raise NotImplementedError(
             "AuthUsersPort.list_authorized_users: pending local-backend adapter, see #4b'"
         )
 
-    def add_authorized_user(self, *args, **kwargs):  # type: ignore[override]
+    def add_authorized_user(self, *args, **kwargs):
         raise NotImplementedError(
             "AuthUsersPort.add_authorized_user: pending local-backend adapter, see #4b'"
         )
 
-    def get_user_by_id(self, *args, **kwargs):  # type: ignore[override]
+    def get_user_by_id(self, *args, **kwargs):
         raise NotImplementedError(
             "AuthUsersPort.get_user_by_id: pending local-backend adapter, see #4b'"
         )
 
-    def deactivate_authorized_user(self, *args, **kwargs):  # type: ignore[override]
+    def deactivate_authorized_user(self, *args, **kwargs):
         raise NotImplementedError(
             "AuthUsersPort.deactivate_authorized_user: pending local-backend adapter, see #4b'"
         )

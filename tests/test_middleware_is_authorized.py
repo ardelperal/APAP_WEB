@@ -78,10 +78,10 @@ def test_solo_dos_call_sites_en_app() -> None:
 class _Spy(LocalPostgresExecutor):
     """LocalBackend stand-in: [] from execute_sql, no HTTP I/O."""
 
-    def __init__(self) -> None:  # type: ignore[override]
+    def __init__(self) -> None:
         self._client = None
 
-    def execute_sql(self, query, params=None):  # type: ignore[override]
+    def execute_sql(self, query, params=None):
         from tests.conftest import auth_reval_rows
 
         _reval = auth_reval_rows(query if isinstance(query, str) else "", params)
@@ -89,7 +89,7 @@ class _Spy(LocalPostgresExecutor):
             return _reval
         return []
 
-    def close(self) -> None:  # type: ignore[override]
+    def close(self) -> None:
         return None
 
 

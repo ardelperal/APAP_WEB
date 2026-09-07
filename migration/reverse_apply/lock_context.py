@@ -1,3 +1,6 @@
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from app.core.data_access import SqlExecutor  # noqa: F401
 """Lock context + snapshot helpers + path resolution for the reverse applier.
 
 Mirrors the forward applier's ``migration.apply._LockContext`` and
@@ -31,7 +34,7 @@ from migration.lock_snapshot import (
     read_snapshot,
     write_snapshot,
 )
-from migration.reverse_apply.types import _LocalBackendLike
+from migration.reverse_apply.types import SqlExecutor
 
 DIRECTION_WEB_TO_LEGACY = "web-to-legacy"
 
@@ -58,7 +61,7 @@ class _LockContext:
 
     def __init__(
         self,
-        _client: _LocalBackendLike,
+        _client: SqlExecutor,
         lock_path: Path | None,
         *,
         dry_run: bool,

@@ -59,7 +59,7 @@ from migration.reverse_apply.shadow import (
 from migration.reverse_apply.types import (
     ReverseApplyError,
     ReverseSyncStateRollbackError,
-    _LocalBackendLike,
+    SqlExecutor,
 )
 
 # Closed-vocabulary direction tags.

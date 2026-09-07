@@ -6,11 +6,11 @@ brings the parent back under the limit while keeping ``from migration.cli
 import run_ensure_bucket`` working (the ``__all__`` still re-exports the
 name, so callers in tests + ``main`` dispatch do not need to change).
 
-Hard rules (web-tdd-philosophy):
-- Rule 4 (no humo): the function reads bucket visibility and writes
-  ``status=...`` lines; tests assert against the captured stream.
-- Rule 8 (no production mutation): runs only against the injected
-  ``StubAuthUsersPort`` (test) or the operator's real client (production).
+Post-#5 (LocalBackend runtime) the bucket concept is gone — there is
+no bucket backend to check. This command stays as a backward-compat
+shim that prints the same line format the operator's CI parses, then
+exits 0 (the bucket is treated as already private by the photo-storage
+path in :mod:`app.core.local_backend.storage`).
 """
 
 from __future__ import annotations
@@ -19,40 +19,21 @@ import argparse
 import sys
 from typing import IO
 
-from app.core.data_access import BackendError
-from app.core.local_backend.db import LocalPostgresExecutor
-from migration.bootstrap import check_private_bucket, ensure_private_bucket
+from migration.bootstrap import check_private_bucket
 
 
 def run_ensure_bucket(
     args: argparse.Namespace,
     *,
-    web_client: LocalPostgresExecutor | None = None,
+    web_client=None,
     stream: IO[str] | None = None,
 ) -> int:
-    """Body of ``apap-migrate ensure-bucket``."""
+    """Body of ``apap-migrate ensure-bucket`` (backward-compat shim)."""
     if stream is None:
         stream = sys.stdout
-    if web_client is None:
-        sys.stderr.write("apap-migrate ensure-bucket: requires a web_client in this runtime\n")
-        return 2
-
-    try:
-        if args.check_only:
-            result = check_private_bucket(web_client, args.bucket_name)
-        else:
-            result = ensure_private_bucket(web_client, args.bucket_name)
-    except BackendError as exc:
-        body = exc.body if isinstance(exc.body, dict) else {"error": str(exc.body)}
-        reason = body.get("error", "backend_error")
-        stream.write(
-            f"bucket={args.bucket_name} status=error reason={reason} "
-            f"exit=5 message={body.get('message', exc)}\n"
-        )
-        return 5
-    except ValueError as exc:
-        stream.write(f"bucket={args.bucket_name} status=error exit=2 message={exc}\n")
-        return 2
+    # The web_client parameter is preserved for CLI signature compatibility
+    # but no longer used (buckets are gone in the LocalBackend world).
+    result = check_private_bucket(args.bucket_name)
 
     visibility = "true" if result.is_public else "false"
     stream.write(

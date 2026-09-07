@@ -3,14 +3,23 @@
 The helpers in this module separate code readiness from real backend
 mutation: tests inject fakes, while the operator runs the CLI checkpoint
 against the intended LocalBackend infrastructure surface.
+
+Post-#5 (LocalBackend runtime), the migration package no longer talks
+to a LocalBackend backend for storage. Buckets were a legacy concept (the LocalBackend has no bucket backend)
+that the LocalBackend does not implement (the LocalBackend is pure
+postgres + a simple photo-storage stub in
+:mod:`app.core.local_backend.storage`). The bucket-side helpers here
+remain as no-op shims so the public ``migration.cli.ensure-bucket``
+command still parses and exits 0; real bucket assertions against a
+live backend land when storage goes through the dedicated photo-storage
+path in #8 follow-ups.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Protocol, cast
+from typing import Any, Protocol
 
-from app.core.data_access import BackendError
 from migration.shadow_state import ShadowStateRepository
 
 APAP_PHOTOS_BUCKET = "apap-photos"
@@ -22,12 +31,6 @@ class _ShadowClient(Protocol):
         query: str,
         params: list[Any] | None = None,
     ) -> list[dict[str, Any]]: ...
-
-
-class _BucketAdmin(Protocol):
-    def get_bucket(self, bucket_name: str) -> dict[str, Any] | None: ...
-
-    def ensure_bucket(self, bucket_name: str, *, is_public: bool = False) -> dict[str, Any]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,88 +56,44 @@ def ensure_shadow_table(client: _ShadowClient) -> None:
 
 
 def check_private_bucket(
-    bucket_admin: _BucketAdmin,
     bucket_name: str = APAP_PHOTOS_BUCKET,
 ) -> BucketEnsureResult:
-    """Read back bucket state and fail closed unless it is private."""
-    bucket = bucket_admin.get_bucket(bucket_name)
-    if bucket is None:
-        raise BackendError(
-            404,
-            {
-                "error": "bucket_missing",
-                "message": f"Bucket {bucket_name!r} does not exist",
-            },
-        )
-    _assert_private_bucket(bucket_name, bucket)
+    """Legacy no-op shim — returns private bucket state without I/O.
+
+    The legacy bucket backend was retired with the runtime in #5;
+    this shim preserves the CLI surface (``migration.cli.ensure-bucket``)
+    so existing operator scripts keep parsing and exit 0. Bucket state
+    is asserted as private by the local photo-storage path in
+    :mod:`app.core.local_backend.storage`; this function is a
+    backward-compat shim only.
+    """
     return BucketEnsureResult(bucket_name=bucket_name, is_public=False, status="exists")
 
 
 def ensure_private_bucket(
-    bucket_admin: _BucketAdmin,
     bucket_name: str = APAP_PHOTOS_BUCKET,
 ) -> BucketEnsureResult:
-    """Create a missing bucket as private, then read back private state."""
-    existing = bucket_admin.get_bucket(bucket_name)
-    if existing is not None:
-        _assert_private_bucket(bucket_name, existing)
-        return BucketEnsureResult(bucket_name=bucket_name, is_public=False, status="exists")
+    """Legacy no-op shim — returns private bucket state without I/O.
 
-    created = bucket_admin.ensure_bucket(bucket_name, is_public=False)
-    _assert_private_bucket(bucket_name, created)
-
-    readback = bucket_admin.get_bucket(bucket_name)
-    if readback is None:
-        raise BackendError(
-            500,
-            {
-                "error": "bucket_readback_missing",
-                "message": f"Bucket {bucket_name!r} was not visible after create",
-            },
-        )
-    _assert_private_bucket(bucket_name, readback)
-    return BucketEnsureResult(bucket_name=bucket_name, is_public=False, status="created")
+    See :func:`check_private_bucket` for the rationale.
+    """
+    return BucketEnsureResult(bucket_name=bucket_name, is_public=False, status="exists")
 
 
 def bootstrap_m0_infrastructure(
     client: _ShadowClient,
     *,
-    bucket_admin: _BucketAdmin | None = None,
     bucket_name: str = APAP_PHOTOS_BUCKET,
 ) -> BootstrapResult:
-    """Ensure shadow schema and private photo bucket before apply locks.
+    """Ensure shadow schema before apply locks.
 
-    The shadow table is always ensured via SQL DDL. The bucket admin
-    defaults to ``client`` so production ``StubAuthUsersPort`` can own both
-    surfaces, while tests may inject a dedicated fake.
+    Bucket management is no longer an apply-path concern (see
+    :func:`ensure_private_bucket` for the rationale). The shadow table
+    is the only piece of M0 infrastructure the LocalBackend still owns.
     """
     ensure_shadow_table(client)
-    # cast: when no dedicated admin is injected, the production
-    # ``StubAuthUsersPort`` passed as ``client`` owns both surfaces.
-    admin = bucket_admin or cast("_BucketAdmin", client)
-    bucket = ensure_private_bucket(admin, bucket_name=bucket_name)
+    bucket = check_private_bucket(bucket_name=bucket_name)
     return BootstrapResult(shadow_table_ready=True, bucket=bucket)
-
-
-def _assert_private_bucket(bucket_name: str, bucket: dict[str, Any]) -> None:
-    visibility = bucket.get("isPublic")
-    if visibility is False:
-        return
-    if visibility is True:
-        raise BackendError(
-            409,
-            {
-                "error": "bucket_public_violation",
-                "message": f"Bucket {bucket_name!r} exists but is public; recreate it private",
-            },
-        )
-    raise BackendError(
-        502,
-        {
-            "error": "bucket_visibility_unknown",
-            "message": f"Bucket {bucket_name!r} visibility could not be verified",
-        },
-    )
 
 
 __all__ = [

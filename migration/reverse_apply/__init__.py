@@ -32,7 +32,7 @@ from migration.reverse_apply.orchestrator import apply_web_to_legacy
 from migration.reverse_apply.types import (
     ReverseApplyError,
     ReverseSyncStateRollbackError,
-    _LocalBackendLike,
+    SqlExecutor,
 )
 
 # Closed-vocabulary direction tags — also re-exported from

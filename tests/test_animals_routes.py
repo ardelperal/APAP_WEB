@@ -56,7 +56,7 @@ class _AnimalsRouteSpy(LocalPostgresExecutor):
     del problema #1 que este PR cierra).
     """
 
-    def __init__(self) -> None:  # type: ignore[override]
+    def __init__(self) -> None:
         import httpx as _httpx
 
         self._client = _httpx.Client(base_url="https://spy.example")
@@ -112,7 +112,7 @@ class _AnimalsRouteSpy(LocalPostgresExecutor):
         self.chip_change_new_chip_assigned: bool = False  # True = another animal has new_chip
         self.chip_change_old_chip_match: bool = True  # True = old_chip matches actual
 
-    def execute_sql(self, query: str, params: Any = None):  # type: ignore[override]
+    def execute_sql(self, query: str, params: Any = None):
         # Issue #143: the per-request authorization revalidation SELECT
         # (via get_user_by_email) is answered here and NOT recorded in
         # captured_queries, so the domain-SQL assertions stay unchanged.

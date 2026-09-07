@@ -167,6 +167,12 @@ class SqlExecutor(Protocol):
     Mirrors the surface ``LocalPostgresExecutor.execute_sql`` exposes; defined
     as a Protocol so tests can pass a ``FakeLocalBackend`` without
     subclassing the real client.
+
+    Bucket management methods (``get_bucket`` / ``ensure_bucket``) used
+    to live on this Protocol for the legacy LocalBackend transport; they are
+    no longer needed in the LocalBackend world — buckets are a legacy
+    concept. ``migration.cli_ensure_bucket`` becomes a no-op shim that
+    prints a deprecation notice.
     """
 
     def execute_sql(
@@ -174,10 +180,6 @@ class SqlExecutor(Protocol):
         query: str,
         params: list[Any] | None = None,
     ) -> list[dict[str, Any]]: ...
-
-    def get_bucket(self, bucket_name: str) -> dict[str, Any] | None: ...
-
-    def ensure_bucket(self, bucket_name: str, *, is_public: bool = False) -> dict[str, Any]: ...
 
 
 # --- Schema bootstrap ----------------------------------------------------

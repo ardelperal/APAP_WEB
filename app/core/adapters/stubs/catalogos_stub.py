@@ -27,32 +27,32 @@ from app.core.ports.catalogos_port import CatalogosPort
 class StubCatalogosPort(CatalogosPort):
     """Placeholder :class:`CatalogosPort` whose every method raises."""
 
-    def list_origenes(self, *args, **kwargs):  # type: ignore[override]
+    def list_origenes(self, *args, **kwargs):
         raise NotImplementedError(
             "CatalogosPort.list_origenes: pending local-backend adapter, see #4b'"
         )
 
-    def list_motivos(self, *args, **kwargs):  # type: ignore[override]
+    def list_motivos(self, *args, **kwargs):
         raise NotImplementedError(
             "CatalogosPort.list_motivos: pending local-backend adapter, see #4b'"
         )
 
-    def list_pruebas(self, *args, **kwargs):  # type: ignore[override]
+    def list_pruebas(self, *args, **kwargs):
         raise NotImplementedError(
             "CatalogosPort.list_pruebas: pending local-backend adapter, see #4b'"
         )
 
-    def list_periodicidad(self, *args, **kwargs):  # type: ignore[override]
+    def list_periodicidad(self, *args, **kwargs):
         raise NotImplementedError(
             "CatalogosPort.list_periodicidad: pending local-backend adapter, see #4b'"
         )
 
-    def list_tipos_contrato(self, *args, **kwargs):  # type: ignore[override]
+    def list_tipos_contrato(self, *args, **kwargs):
         raise NotImplementedError(
             "CatalogosPort.list_tipos_contrato: pending local-backend adapter, see #4b'"
         )
 
-    def list_especies(self, *args, **kwargs):  # type: ignore[override]
+    def list_especies(self, *args, **kwargs):
         raise NotImplementedError(
             "CatalogosPort.list_especies: pending local-backend adapter, see #4b'"
         )

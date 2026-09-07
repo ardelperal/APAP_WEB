@@ -15,7 +15,7 @@ from migration.ports.web_reader_port import WebReaderPort
 class StubWebReaderPort(WebReaderPort):
     """Placeholder :class:`WebReaderPort` whose every method raises."""
 
-    def load_web_snapshot(self, *args, **kwargs):  # type: ignore[override]
+    def load_web_snapshot(self, *args, **kwargs):
         raise NotImplementedError(
             "WebReaderPort.load_web_snapshot: pending LocalBackend adapter, see #8"
         )

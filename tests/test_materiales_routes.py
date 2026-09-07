@@ -82,7 +82,7 @@ class _NoSqlRouteClient(LocalPostgresExecutor):
     :func:`auth_reval_rows` and never re-asserted by the spy.
     """
 
-    def __init__(self) -> None:  # type: ignore[override]
+    def __init__(self) -> None:
         import httpx as _httpx
 
         self._client = _httpx.Client(base_url="https://spy.example")
@@ -91,7 +91,7 @@ class _NoSqlRouteClient(LocalPostgresExecutor):
         # rejection tests flip this to ``reader``.
         self.auth_reval_rol: str = "key_user"
 
-    def execute_sql(self, query: str, params: Any = None):  # type: ignore[override]
+    def execute_sql(self, query: str, params: Any = None):
         _reval = auth_reval_rows(query, params, rol=self.auth_reval_rol)
         if _reval is not None:
             return _reval

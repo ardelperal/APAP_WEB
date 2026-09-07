@@ -23,17 +23,17 @@ from app.core.ports.oauth_port import OAuthPort
 class StubOAuthPort(OAuthPort):
     """Placeholder :class:`OAuthPort` whose every method raises."""
 
-    def start_google_login(self, *args, **kwargs):  # type: ignore[override]
+    def start_google_login(self, *args, **kwargs):
         raise NotImplementedError(
             "OAuthPort.start_google_login: pending local-backend adapter, see #4b'"
         )
 
-    def exchange_oauth_code(self, *args, **kwargs):  # type: ignore[override]
+    def exchange_oauth_code(self, *args, **kwargs):
         raise NotImplementedError(
             "OAuthPort.exchange_oauth_code: pending local-backend adapter, see #4b'"
         )
 
-    def exchange_google_oauth_code(self, *args, **kwargs):  # type: ignore[override]
+    def exchange_google_oauth_code(self, *args, **kwargs):
         raise NotImplementedError(
             "OAuthPort.exchange_google_oauth_code: pending local-backend adapter, see #4b'"
         )

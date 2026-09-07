@@ -83,7 +83,7 @@ class _XssLocalBackend(LocalPostgresExecutor):
     that is the XSS finding the audit captures.
     """
 
-    def __init__(self) -> None:  # type: ignore[override]
+    def __init__(self) -> None:
         import httpx as _httpx
 
         self._client = _httpx.Client(base_url="https://xss-spy.example")
@@ -136,7 +136,7 @@ class _XssLocalBackend(LocalPostgresExecutor):
             }
         ]
 
-    def execute_sql(self, query, params=None):  # type: ignore[override]
+    def execute_sql(self, query, params=None):
         _reval = auth_reval_rows(query if isinstance(query, str) else "", params)
         if _reval is not None:
             return _reval
@@ -187,7 +187,7 @@ class _XssLocalBackend(LocalPostgresExecutor):
             return [dict(self.single_animal_row)]
         return []
 
-    def close(self) -> None:  # type: ignore[override]
+    def close(self) -> None:
         return None
 
 

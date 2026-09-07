@@ -63,7 +63,7 @@ class _FakeLocalBackend(LocalPostgresExecutor):
             "activo": True,
         }
 
-    def execute_sql(self, query, params=None):  # type: ignore[override]
+    def execute_sql(self, query, params=None):
         if (
             "SELECT id, email, rol, activo" in query
             and "FROM usuarios_autorizados" in query
@@ -72,7 +72,7 @@ class _FakeLocalBackend(LocalPostgresExecutor):
             return [dict(row)] if row else []
         return []
 
-    def exchange_google_oauth_code(  # type: ignore[override]
+    def exchange_google_oauth_code(
         self,
         code: str,
         code_verifier: str,
