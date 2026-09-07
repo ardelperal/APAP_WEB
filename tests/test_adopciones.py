@@ -29,7 +29,7 @@ from typing import Any
 import httpx
 import pytest
 
-from app.core.local_backend.db import LocalPostgresExecutor
+from tests.sql_executor_fake import HandlerSqlExecutor as LocalPostgresExecutor
 from app.modules.adopciones import service as adopciones_service
 
 

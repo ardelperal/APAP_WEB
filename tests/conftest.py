@@ -45,6 +45,7 @@ import pytest_asyncio
 os.environ.setdefault("APAP_MODE", "test")
 
 from app.core.config import get_settings  # noqa: E402  (must follow the env set)
+from app.core.di.local_postgres_di import get_local_postgres_executor_dep  # noqa: E402
 from app.core.local_backend.db import LocalPostgresExecutor  # noqa: E402
 from app.core.session import read_session, session_cookie_name  # noqa: E402
 from app.main import app as _app  # noqa: E402
@@ -194,7 +195,11 @@ def _install_default_local_backend_client() -> None:
 
     spy = _DefaultLocalBackendSpy()
     _app.state.sql_executor = spy
+    _app.dependency_overrides[get_local_postgres_executor_dep] = (
+        lambda: _app.state.sql_executor
+    )
     yield
+    _app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
     _app.state.__dict__.pop("sql_executor", None)
 
 
@@ -268,4 +273,3 @@ async def make_csrf_request(
         kwargs["data"] = body
 
     return await getattr(client, method.lower())(url, **kwargs)
-

@@ -44,8 +44,8 @@ from collections.abc import Iterator
 
 from fastapi import Request
 
-from app.core.adapters.stubs.oauth_stub import (
-    OAuthPort,
+from app.core.adapters.local_backend.oauth_local_backend_adapter import (
+    LocalBackendOAuthAdapter,
 )
 from app.core.config import get_settings
 from app.core.local_backend.db import LocalPostgresExecutor
@@ -85,7 +85,7 @@ def get_oauth_port(request: Request) -> Iterator[OAuthPort]:
         )
         request.app.state.sql_executor = client
     try:
-        adapter = StubOAuthPort()
+        adapter = LocalBackendOAuthAdapter(client)
         yield adapter
     finally:
         # The adapter holds no resources of its own; the client is

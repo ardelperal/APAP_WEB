@@ -48,7 +48,7 @@ def get_current_user_optional(request: Request) -> dict | None:
 def require_authorized_user(
     request: Request,
     payload: dict | None = Depends(get_current_user_optional),
-    client: AuthUsersPort = Depends(get_local_backend_client_dep),
+    client: SqlExecutor = Depends(get_local_backend_client_dep),
 ) -> Response | dict:
     """Require an authorized session revalidated against the auth backend."""
     if not payload:

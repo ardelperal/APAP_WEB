@@ -55,9 +55,6 @@ def _bypass_local_backend(monkeypatch: pytest.MonkeyPatch) -> None:
 
     spy = _AnonymousSpy()
     app.dependency_overrides[get_local_backend_client] = lambda: spy
-    monkeypatch.setattr(
-        "app.modules.animals.routes.get_local_backend_client_dep", lambda: spy
-    )
     # PR-B migrated create/update/delete to AnimalsPort via
     # Depends(get_animals_port); the hexagonal provider reads
     # ``request.app.state.sql_executor`` directly, so the spy must

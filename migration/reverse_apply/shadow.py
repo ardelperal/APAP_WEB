@@ -1,7 +1,3 @@
-from typing import TYPE_CHECKING
-from app.core.data_access import SqlExecutor
-if TYPE_CHECKING:
-    from app.core.data_access import SqlExecutor  # noqa: F401
 """Shadow-state helpers for the reverse applier.
 
 Two helpers live here:
@@ -21,7 +17,7 @@ is observational only. This module only touches the shadow table.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from migration import dni_collision as dni_collision_mod
 from migration.dni_collision import DniCollisionCounter

@@ -45,6 +45,6 @@ __all__ = [
     "DIRECTION_WEB_TO_LEGACY",
     "ReverseApplyError",
     "ReverseSyncStateRollbackError",
-    "_LocalBackendLike",
+    "SqlExecutor",
     "apply_web_to_legacy",
 ]

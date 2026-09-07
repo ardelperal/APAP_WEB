@@ -628,11 +628,8 @@ def main(
 
     owned_web_client = None
     if web_client is None:
-        from app.core.config import get_settings
-
-        settings = get_settings()
         # migration package rewrite (issue #8) will rebuild this path
-        # from settings.local_db_url; until then the web_client stays None.
+        # from local settings; until then the web_client stays None.
         web_client = owned_web_client
 
     try:

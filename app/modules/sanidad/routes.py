@@ -61,7 +61,7 @@ from app.core.auth_dependencies import (
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
-from app.core.data_access import BackendError
+from app.core.data_access import BackendError, SqlExecutor
 from app.core.logging import log_safe
 from app.core.middleware import base_template_context_processor
 from app.core.rbac import Permission, require_permission
@@ -170,7 +170,7 @@ def _render_form(  # noqa: PLR0913  # non-route helper; 7 args (incl. catalogos_
 
 
 def _load_catalogos_pruebas_for_form(
-    client: AuthUsersPort,
+    client: SqlExecutor,
     *,
     context: str,
     actuacion_id: str | None = None,
@@ -191,7 +191,7 @@ def _load_catalogos_pruebas_for_form(
 def _render_backend_error(  # noqa: PLR0913  # non-route helper; 8 args needed to rebuild the form on backend failure
     request: Request,
     user: AuthenticatedUser,
-    client: AuthUsersPort,
+    client: SqlExecutor,
     form_data: dict[str, Any],
     form_action: str,
     exc: BackendError,
@@ -229,7 +229,7 @@ def _render_backend_error(  # noqa: PLR0913  # non-route helper; 8 args needed t
 def list_actuaciones_view(
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_SALUD))],
-    client: Annotated[AuthUsersPort, Depends(get_local_backend_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_backend_client_dep)],
     animal_id: str | None = None,
 ):
     """List active actuaciones; ``?animal_id=`` filters to one animal.
@@ -267,7 +267,7 @@ def list_actuaciones_view(
 def new_actuacion_form(
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_SALUD))],
-    client: Annotated[AuthUsersPort, Depends(get_local_backend_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_backend_client_dep)],
 ):
     """Empty form for a new actuacion, with the catalogos_pruebas dropdown."""
     if (early := return_early_if_response(user)) is not None:
@@ -291,7 +291,7 @@ def create_actuacion_view(
     request: Request,
     form: Annotated[ActuacionForm, Form()],
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
-    client: Annotated[AuthUsersPort, Depends(get_local_backend_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_backend_client_dep)],
 ):  # noqa: PLR0913  # refactored to ActuacionForm
     """Create an actuacion; redirect to detail on success.
 
@@ -356,7 +356,7 @@ def actuacion_detail(
     actuacion_id: str,
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_SALUD))],
-    client: Annotated[AuthUsersPort, Depends(get_local_backend_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_backend_client_dep)],
 ):
     """Detail view; 404 when the id is missing."""
     if (early := return_early_if_response(user)) is not None:
@@ -398,7 +398,7 @@ def edit_actuacion_form(
     actuacion_id: str,
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_SALUD))],
-    client: Annotated[AuthUsersPort, Depends(get_local_backend_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_backend_client_dep)],
 ):
     """Edit form prefilled from the persisted row."""
     if (early := return_early_if_response(user)) is not None:
@@ -430,7 +430,7 @@ def update_actuacion_view(
     request: Request,
     form: Annotated[ActuacionForm, Form()],
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
-    client: Annotated[AuthUsersPort, Depends(get_local_backend_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_backend_client_dep)],
 ):  # noqa: PLR0913  # refactored to ActuacionForm
     """Update an existing actuacion; redirect to detail on success.
 
@@ -499,7 +499,7 @@ def delete_actuacion_view(
     actuacion_id: str,
     _request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
-    client: Annotated[AuthUsersPort, Depends(get_local_backend_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_backend_client_dep)],
 ):
     """Soft-delete via ``sanidad_service.delete_actuacion_sanitaria``.
 
@@ -540,7 +540,7 @@ def delete_actuacion_view(
 @router.get("/proximas-pruebas", response_class=JSONResponse)
 def proximas_pruebas(
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_SALUD))],
-    client: Annotated[AuthUsersPort, Depends(get_local_backend_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_backend_client_dep)],
     fecha_desde: Annotated[
         str,
         Query(description="ISO date (YYYY-MM-DD); lower bound of the window."),

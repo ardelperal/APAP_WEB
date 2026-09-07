@@ -30,7 +30,7 @@ from typing import Any
 import httpx
 import pytest
 
-from app.core.local_backend.db import LocalPostgresExecutor
+from tests.sql_executor_fake import HandlerSqlExecutor as LocalPostgresExecutor
 from migration.shadow_state import (
     SHADOW_TABLE_SQL,
     ShadowStateRepository,

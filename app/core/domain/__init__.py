@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from app.core.adapters.stubs.schema_bootstrap_stub import StubSchemaBootstrapPort
-
 """Domain schema bootstrap: backward-compat shim.
 
 This module is the single entry point for domain schema creation.
@@ -33,8 +31,8 @@ and is what future slices will wire into ``app/main.py``.
 """
 
 
-from app.core.adapters.stubs.schema_bootstrap_stub import (  # noqa: E402
-    SchemaBootstrapPort,
+from app.core.adapters.local_backend.schema_bootstrap_local_backend_adapter import (  # noqa: E402
+    LocalBackendSchemaBootstrapAdapter,
 )
 from app.core.data_access import SqlExecutor  # noqa: E402
 from app.core.domain_adopciones import (  # noqa: E402
@@ -115,7 +113,7 @@ __all__ = [
     "FOSTER_CAPACITY_OVERRIDES_CREATE_TABLE_SQL",
     "MATERIALES_CREATE_TABLE_SQL",
     "RECOMENDACIONES_CREATE_TABLE_SQL",
-    "AuthUsersPort",
+    "LocalPostgresExecutor",
     "ROLES_VOLUNTARIO_CREATE_TABLE_SQL",
     "TERAPIAS_CREATE_TABLE_SQL",
     "VOLUNTARIOS_CREATE_TABLE_SQL",
@@ -149,4 +147,4 @@ def ensure_domain_schema(client: SqlExecutor) -> None:
     11. ``materiales`` and ``estancia_materiales`` at the end so their
         junction FKs to ``acogidas`` and ``materiales`` resolve.
     """
-    SchemaBootstrapPort().ensure_domain_schema()
+    LocalBackendSchemaBootstrapAdapter(client).ensure_domain_schema()

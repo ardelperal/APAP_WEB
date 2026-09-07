@@ -41,7 +41,7 @@ from typing import Any
 
 import httpx
 
-from app.core.local_backend.db import LocalPostgresExecutor
+from tests.sql_executor_fake import HandlerSqlExecutor as LocalPostgresExecutor
 from app.modules.sanidad import service as sanidad_service
 
 # ---------------------------------------------------------------------------

@@ -26,7 +26,7 @@ import httpx
 import pytest
 
 from app.core.data_access import BackendError
-from app.core.local_backend.db import LocalPostgresExecutor
+from tests.sql_executor_fake import HandlerSqlExecutor as LocalPostgresExecutor
 from app.modules.cesiones import service as cesiones_service
 
 

@@ -13,7 +13,7 @@ Currently pinned:
   fix for code-quality-fixes T2 / problem #3 of the external review.
 - F-2 / F-4 (issue #119): ``return_early_if_response(value: object)``
   → ``Response | dict``; ``get_local_backend_client_dep()`` declares
-  ``Iterator[LocalPostgresExecutor]`` as return annotation.
+  ``Iterator[SqlExecutor]`` as return annotation.
 - F-3 (issue #120): the triple-duplicated "read cookie + decode
   payload" pattern is replaced by ``app.core.session.read_session_payload``;
   the call sites in ``app/main.py`` (middleware) and
@@ -41,6 +41,7 @@ from app.core.auth_dependencies import (
     return_early_if_response,
 )
 from app.core.config import get_settings
+from app.core.data_access import SqlExecutor
 from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.session import (
     session_cookie_name,
@@ -53,17 +54,17 @@ from app.core.session import (
 
 
 def test_get_local_backend_client_dep_return_annotation_is_iterator() -> None:
-    """F-4: ``get_local_backend_client_dep`` MUST declare ``Iterator[LocalPostgresExecutor]``.
+    """F-4: the dependency must declare ``Iterator[SqlExecutor]``.
 
     Without the annotation, type checkers infer the return as
     ``Any`` and every handler that does
-    ``client: LocalPostgresExecutor = Depends(get_local_backend_client_dep)``
+    ``client: SqlExecutor = Depends(get_local_backend_client_dep)``
     loses precision on every method call on ``client``.
 
     Uses ``typing.get_type_hints`` because ``from __future__ import
     annotations`` makes all annotations lazy strings; the raw
     ``inspect.signature(...).return_annotation`` returns the
-    string ``"Iterator[LocalPostgresExecutor]"``, not the resolved type.
+    string ``"Iterator[SqlExecutor]"``, not the resolved type.
     """
     from typing import get_args, get_origin, get_type_hints
 
@@ -76,8 +77,8 @@ def test_get_local_backend_client_dep_return_annotation_is_iterator() -> None:
         f"got: {return_hint!r}"
     )
     type_args = get_args(return_hint)
-    assert LocalPostgresExecutor in type_args, (
-        f"get_local_backend_client_dep return must yield LocalPostgresExecutor, "
+    assert SqlExecutor in type_args, (
+        f"get_local_backend_client_dep return must yield SqlExecutor, "
         f"got args: {type_args!r}"
     )
 
@@ -95,7 +96,7 @@ def test_get_local_backend_client_dep_is_a_generator() -> None:
     - FastAPI's dependency-injection protocol treats it the same way
       (callers that use ``dependency_overrides[...]`` continue to work
       whether they override with a generator or a plain callable).
-    - The return annotation stays ``Iterator[LocalPostgresExecutor]`` (see
+    - The return annotation stays ``Iterator[SqlExecutor]`` (see
       :func:`test_get_local_backend_client_dep_return_annotation_is_iterator`).
 
     This test is a defence-in-depth check: even if the annotation
@@ -133,7 +134,7 @@ def test_get_local_backend_client_dep_returns_pooled_client_from_app_state() -> 
     """
     from app.core.auth_dependencies import get_local_backend_client_dep  # noqa: PLC0415
 
-    pooled = LocalPostgresExecutor("http://test", "k")
+    pooled = LocalPostgresExecutor("postgresql://test:test@localhost/test")
 
     # Wire up a fake request whose ``app.state.sql_executor`` is
     # our pooled sentinel. The dep MUST hand that exact instance back.

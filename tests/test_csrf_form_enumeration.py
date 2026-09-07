@@ -92,12 +92,6 @@ def no_sql_client(
 
     spy = _NoSqlSpy()
     app.dependency_overrides[get_local_backend_client] = lambda: spy
-    monkeypatch.setattr(
-        "app.modules.animals.routes.get_local_backend_client_dep", lambda: spy
-    )
-    monkeypatch.setattr(
-        "app.modules.entradas.routes.get_local_backend_client_dep", lambda: spy
-    )
 
 
     settings = get_settings()

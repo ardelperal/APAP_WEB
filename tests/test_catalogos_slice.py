@@ -35,8 +35,8 @@ from typing import Any
 
 import pytest
 
-from app.core.adapters.stubs.catalogos_stub import (
-    StubCatalogosPort,
+from app.core.adapters.local_backend.catalogos_local_backend_adapter import (
+    LocalBackendCatalogosAdapter,
 )
 from app.core.application.catalogos import (
     list_motivos as list_motivos_uc,
@@ -255,10 +255,10 @@ class _RecordingExecutor:
 
 def test_adapter_list_origenes_uses_expected_sql() -> None:
     """The adapter uses the same SQL the legacy ``LIST_CATALOGOS_ORIGENES_SQL`` uses."""
-    from app.core.adapters.stubs.catalogos_stub import LIST_ORIGENES_SQL
+    from app.core.adapters.local_backend.catalogos_local_backend_adapter import LIST_ORIGENES_SQL
 
     executor = _RecordingExecutor()
-    StubCatalogosPort(executor).list_origenes()
+    LocalBackendCatalogosAdapter(executor).list_origenes()
     assert len(executor.calls) == 1
     query, params = executor.calls[0]
     assert query.strip() == LIST_ORIGENES_SQL.strip()
@@ -266,44 +266,44 @@ def test_adapter_list_origenes_uses_expected_sql() -> None:
 
 
 def test_adapter_list_motivos_uses_expected_sql() -> None:
-    from app.core.adapters.stubs.catalogos_stub import LIST_MOTIVOS_SQL
+    from app.core.adapters.local_backend.catalogos_local_backend_adapter import LIST_MOTIVOS_SQL
 
     executor = _RecordingExecutor()
-    StubCatalogosPort(executor).list_motivos()
+    LocalBackendCatalogosAdapter(executor).list_motivos()
     query, params = executor.calls[0]
     assert query.strip() == LIST_MOTIVOS_SQL.strip()
     assert params == []
 
 
 def test_adapter_list_pruebas_uses_expected_sql() -> None:
-    from app.core.adapters.stubs.catalogos_stub import LIST_PRUEBAS_SQL
+    from app.core.adapters.local_backend.catalogos_local_backend_adapter import LIST_PRUEBAS_SQL
 
     executor = _RecordingExecutor()
-    StubCatalogosPort(executor).list_pruebas()
+    LocalBackendCatalogosAdapter(executor).list_pruebas()
     query, params = executor.calls[0]
     assert query.strip() == LIST_PRUEBAS_SQL.strip()
     assert params == []
 
 
 def test_adapter_list_periodicidad_uses_expected_sql() -> None:
-    from app.core.adapters.stubs.catalogos_stub import (
+    from app.core.adapters.local_backend.catalogos_local_backend_adapter import (
         LIST_PERIODICIDAD_SQL,
     )
 
     executor = _RecordingExecutor()
-    StubCatalogosPort(executor).list_periodicidad()
+    LocalBackendCatalogosAdapter(executor).list_periodicidad()
     query, params = executor.calls[0]
     assert query.strip() == LIST_PERIODICIDAD_SQL.strip()
     assert params == []
 
 
 def test_adapter_list_tipos_contrato_uses_expected_sql() -> None:
-    from app.core.adapters.stubs.catalogos_stub import (
+    from app.core.adapters.local_backend.catalogos_local_backend_adapter import (
         LIST_TIPOS_CONTRATO_SQL,
     )
 
     executor = _RecordingExecutor()
-    StubCatalogosPort(executor).list_tipos_contrato()
+    LocalBackendCatalogosAdapter(executor).list_tipos_contrato()
     query, params = executor.calls[0]
     assert query.strip() == LIST_TIPOS_CONTRATO_SQL.strip()
     assert params == []
@@ -330,7 +330,7 @@ def test_adapter_list_origenes_maps_rows_to_entities() -> None:
         },
     ]
     executor = _RecordingExecutor(rows)
-    origenes = StubCatalogosPort(executor).list_origenes()
+    origenes = LocalBackendCatalogosAdapter(executor).list_origenes()
     assert len(origenes) == 2
     assert origenes[0] == Origen(
         id="a-uuid",
@@ -373,7 +373,7 @@ def test_adapter_list_periodicidad_propagates_nullable_columns() -> None:
         },
     ]
     executor = _RecordingExecutor(rows)
-    periodicidades = StubCatalogosPort(executor).list_periodicidad()
+    periodicidades = LocalBackendCatalogosAdapter(executor).list_periodicidad()
     assert periodicidades[0] == Periodicidad(
         id="a-uuid",
         codigo="Esterilización",
@@ -407,18 +407,18 @@ def test_adapter_list_origenes_coerces_activo_string_to_bool() -> None:
         },
     ]
     executor = _RecordingExecutor(rows)
-    origenes = StubCatalogosPort(executor).list_origenes()
+    origenes = LocalBackendCatalogosAdapter(executor).list_origenes()
     assert origenes[0].activo is True
 
 
 def test_adapter_returns_empty_list_when_executor_returns_empty() -> None:
     """An empty executor result yields an empty entity list."""
     executor = _RecordingExecutor([])
-    assert StubCatalogosPort(executor).list_origenes() == []
-    assert StubCatalogosPort(executor).list_motivos() == []
-    assert StubCatalogosPort(executor).list_pruebas() == []
-    assert StubCatalogosPort(executor).list_periodicidad() == []
-    assert StubCatalogosPort(executor).list_tipos_contrato() == []
+    assert LocalBackendCatalogosAdapter(executor).list_origenes() == []
+    assert LocalBackendCatalogosAdapter(executor).list_motivos() == []
+    assert LocalBackendCatalogosAdapter(executor).list_pruebas() == []
+    assert LocalBackendCatalogosAdapter(executor).list_periodicidad() == []
+    assert LocalBackendCatalogosAdapter(executor).list_tipos_contrato() == []
 
 
 def test_adapter_satisfies_catalogos_port_protocol() -> None:
@@ -429,8 +429,8 @@ def test_adapter_satisfies_catalogos_port_protocol() -> None:
     is a usable :class:`CatalogosPort`.
     """
     executor = _RecordingExecutor()
-    adapter: CatalogosPort = StubCatalogosPort(executor)
-    assert isinstance(adapter, StubCatalogosPort)
+    adapter: CatalogosPort = LocalBackendCatalogosAdapter(executor)
+    assert isinstance(adapter, LocalBackendCatalogosAdapter)
     # The Protocol's method names are present on the adapter.
     for method in (
         "list_origenes",
@@ -459,7 +459,7 @@ def test_get_catalogos_port_uses_pooled_client_when_present() -> None:
     gen = get_catalogos_port(type("R", (), {"app": app})())
     adapter = next(gen)
     try:
-        assert isinstance(adapter, StubCatalogosPort)
+        assert isinstance(adapter, LocalBackendCatalogosAdapter)
         # The adapter holds the same executor instance.
         assert adapter._executor is executor  # noqa: SLF001 — internal seam
     finally:
@@ -489,7 +489,7 @@ def test_get_catalogos_port_falls_back_when_lifespan_skipped() -> None:
     gen = get_catalogos_port(req)
     try:
         adapter = next(gen)
-        assert isinstance(adapter, StubCatalogosPort)
+        assert isinstance(adapter, LocalBackendCatalogosAdapter)
         assert isinstance(adapter._executor, LocalPostgresExecutor)  # noqa: SLF001
     finally:
         try:

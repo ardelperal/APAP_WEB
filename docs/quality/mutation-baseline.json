@@ -51,7 +51,6 @@
     "operators_filtered": "core/ReplaceBinaryOperator_BitOr_.*"
   },
   "modules": {
-    "app/core/<removed-backend-module>" (deleted in issue #664): 145,
     "app/modules/adopciones/service.py": 81,
     "migration/derivation.py": 3,
     "migration/diff_engine.py": 78

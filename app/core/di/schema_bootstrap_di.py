@@ -35,9 +35,8 @@ from collections.abc import Iterator
 
 from fastapi import Request
 
-from app.core.adapters.stubs.schema_bootstrap_stub import (
-    SchemaBootstrapPort,
-    StubSchemaBootstrapPort,
+from app.core.adapters.local_backend.schema_bootstrap_local_backend_adapter import (
+    LocalBackendSchemaBootstrapAdapter,
 )
 from app.core.config import get_settings
 from app.core.local_backend.db import LocalPostgresExecutor
@@ -79,7 +78,7 @@ def get_schema_bootstrap_port(
         )
         request.app.state.sql_executor = client
     try:
-        adapter = StubSchemaBootstrapPort()
+        adapter = LocalBackendSchemaBootstrapAdapter(client)
         yield adapter
     finally:
         # The adapter holds no resources of its own; the executor is

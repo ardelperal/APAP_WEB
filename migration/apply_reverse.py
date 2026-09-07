@@ -71,7 +71,7 @@ __all__ = [
     "DIRECTION_WEB_TO_LEGACY",
     "ReverseApplyError",
     "ReverseSyncStateRollbackError",
-    "_LocalBackendLike",
+    "SqlExecutor",
     "_LockContext",
     "_advance_preserve_shadow_state",
     "_case_insensitive_get",

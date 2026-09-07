@@ -35,9 +35,8 @@ from collections.abc import Iterator
 
 from fastapi import Request
 
-from app.core.adapters.stubs.catalogos_stub import (
-    CatalogosPort,
-    StubCatalogosPort,
+from app.core.adapters.local_backend.catalogos_local_backend_adapter import (
+    LocalBackendCatalogosAdapter,
 )
 from app.core.config import get_settings
 from app.core.local_backend.db import LocalPostgresExecutor
@@ -77,7 +76,7 @@ def get_catalogos_port(request: Request) -> Iterator[CatalogosPort]:
         )
         request.app.state.sql_executor = client
     try:
-        adapter = StubCatalogosPort()
+        adapter = LocalBackendCatalogosAdapter(client)
         yield adapter
     finally:
         # The adapter holds no resources of its own; the executor is

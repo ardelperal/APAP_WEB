@@ -14,9 +14,8 @@ from collections.abc import Iterator
 
 from fastapi import Request
 
-from app.modules.animals.adapters.stubs.animals_stub import (
-    AnimalsPort,
-    StubAnimalsPort,
+from app.modules.animals.adapters.local_backend.animals_local_backend_adapter import (
+    AnimalsLocalBackendAdapter,
 )
 from app.modules.animals.ports.animals_port import AnimalsPort
 
@@ -29,7 +28,7 @@ def get_animals_port(request: Request) -> Iterator[AnimalsPort]:
     adapter.
     """
     client = request.app.state.sql_executor
-    adapter = StubAnimalsPort()
+    adapter = AnimalsLocalBackendAdapter(client=client, storage=None)
     yield adapter
 
 

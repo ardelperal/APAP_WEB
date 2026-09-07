@@ -51,12 +51,14 @@ def _get_settings():
     ``.env`` at import time, which we want to defer until the first
     FastAPI request hits the helper).
     """
+    # lazy-import: defers settings and .env loading until dependency use.
     from app.core.config import get_settings as _cached
     return _cached()
 
 
 def _build_executor(dsn: str, *, schema: str | None) -> SqlExecutor:
     """Construct one ``LocalPostgresExecutor`` from the DSN + schema."""
+    # lazy-import: keeps the DI module independent of the concrete adapter at import.
     from app.core.local_backend.db import LocalPostgresExecutor
 
     return LocalPostgresExecutor(dsn, search_path=schema)

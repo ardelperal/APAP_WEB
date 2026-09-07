@@ -1,10 +1,13 @@
 """Port tests for the animals slice (slice-completeness gate)."""
 from __future__ import annotations
 
-from app.modules.animals.adapters.stubs.animals_stub import (
-    StubAnimalsPort,
+import httpx
+
+from app.modules.animals.adapters.local_backend.animals_local_backend_adapter import (
+    AnimalsLocalBackendAdapter,
 )
 from app.modules.animals.ports.animals_port import AnimalsPort
+from tests.sql_executor_fake import HandlerSqlExecutor
 
 
 def test_local_backend_adapter_satisfies_animals_port_protocol() -> None:
@@ -17,7 +20,7 @@ def test_local_backend_adapter_satisfies_animals_port_protocol() -> None:
     Protocol be checked via ``isinstance`` after the duck-typed
     method exists.
     """
-    adapter = StubAnimalsPort(
+    adapter = AnimalsLocalBackendAdapter(
         client=None, storage=None  # type: ignore[arg-type]
     )
     assert isinstance(adapter, AnimalsPort)
@@ -35,3 +38,17 @@ def test_local_backend_adapter_satisfies_animals_port_protocol() -> None:
         "search_animals",
     }
     assert port_methods.issubset(dir(adapter)), "adapter must implement all port methods"
+
+
+def test_adapter_without_storage_returns_placeholder_for_known_photo() -> None:
+    executor = HandlerSqlExecutor(
+        lambda _request: httpx.Response(200, json=[{"NombreFoto": "animal.jpg"}])
+    )
+    adapter = AnimalsLocalBackendAdapter(client=executor, storage=None)
+
+    photo = adapter.resolve_animal_photo("animal-1")
+
+    assert photo is not None
+    assert photo.is_placeholder is True
+    assert photo.media_type == "image/png"
+    assert b"".join(photo.stream).startswith(b"\x89PNG\r\n\x1a\n")

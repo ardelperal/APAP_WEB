@@ -1,6 +1,6 @@
 """Composition root — Cesiones slice DI.
 
-Wires ``CesionesPort`` -> ``CesionesPort`` -> LocalBackend.
+Wires ``CesionesPort`` to ``CesionesLocalBackendAdapter``.
 Mirrors ``app.modules.animals.di.animals_di.get_animals_port`` exactly:
 a sync generator that reads the pooled AuthUsersPort from request state
 and yields a fresh adapter per request.
@@ -13,9 +13,8 @@ from collections.abc import Iterator
 from fastapi import Request
 
 from app.core.data_access import SqlExecutor
-from app.modules.cesiones.adapters.stubs.cesiones_stub import (
-    CesionesPort,
-    StubCesionesPort,
+from app.modules.cesiones.adapters.local_backend.cesiones_local_backend_adapter import (
+    CesionesLocalBackendAdapter,
 )
 from app.modules.cesiones.ports.cesiones_port import CesionesPort
 
@@ -31,7 +30,7 @@ def get_cesiones_port(
     from the concrete adapter.
     """
     client: SqlExecutor = request.app.state.sql_executor
-    adapter = StubCesionesPort()
+    adapter = CesionesLocalBackendAdapter(client)
     yield adapter
 
 
