@@ -33,9 +33,7 @@ from typing import IO
 
 import migration.cli as cli_mod
 from app.core.data_access import BackendError
-from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.logging import log_safe
-from migration.apply import SqlExecutor as MigrationSqlExecutor
 from migration import MsAccessPreflightUnavailableError
 from migration.apply import (
     ApplyResult,
@@ -43,6 +41,7 @@ from migration.apply import (
     PartialApplyInterruptedError,
     SourceDriftError,
 )
+from migration.apply import SqlExecutor as MigrationSqlExecutor
 from migration.apply_reverse import apply_web_to_legacy
 from migration.cli import MIGRATION_RUNBOOK_REF
 from migration.dni_collision import DniCollisionCounter

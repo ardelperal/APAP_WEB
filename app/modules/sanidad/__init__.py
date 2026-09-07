@@ -37,7 +37,7 @@ def __getattr__(name: str):  # PEP 562 module-level __getattr__
     Importing ``batch_service`` eagerly triggers a chain that loops
     through ``app.core.catalogs`` -> ``app.core.schema_bootstrap``
     -> ``app.core.ports`` -> ``app.core.adapters.insforge`` and back,
-    because ``InsForgeAuthUsersAdapter`` also imports
+    because ``StubAuthUsersPort`` also imports
     ``SqlStatement`` from ``app.core.schema_bootstrap``. The cycle
     only resolves once ``app.main`` has primed the relevant modules
     in ``sys.modules``. Defer the import to first attribute access so

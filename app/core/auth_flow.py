@@ -56,12 +56,8 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 
 from app.core import config as config_module
-from app.core.adapters.insforge.auth_insforge_adapter import (
-    InsForgeAuthUsersAdapter,
-)
-from app.core.adapters.insforge.oauth_insforge_adapter import (
-    InsForgeOAuthAdapter,
-)
+from app.core.adapters.stubs.auth_users_stub import StubAuthUsersPort
+from app.core.adapters.stubs.oauth_stub import StubOAuthPort
 from app.core.application.oauth import (
     callback as callback_use_case,
 )
@@ -166,7 +162,7 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
         settings = config_module.get_settings()
         try:
             pkce, auth_url = start_google_login_use_case(
-                InsForgeOAuthAdapter(client),
+                StubOAuthPort(),
                 settings,
             )
         except OAuthNotConfiguredError:
@@ -226,8 +222,8 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
 
         try:
             session = callback_use_case(
-                InsForgeOAuthAdapter(client),
-                InsForgeAuthUsersAdapter(client),
+                StubOAuthPort(),
+                StubAuthUsersPort(),
                 insforge_code=insforge_code,
                 code=code,
                 code_verifier=pkce["code_verifier"],

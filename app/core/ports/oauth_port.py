@@ -95,7 +95,8 @@ class OAuthPort(Protocol):
 
     Implementations:
 
-    - :class:`app.core.adapters.insforge.oauth_insforge_adapter.InsForgeOAuthAdapter`
+    - :class:`app.core.adapters.stubs.oauth_stub.StubOAuthPort`
+      (placeholder, pending a real ``local_backend.oauth_google``-backed adapter; issue #4b').
       — production adapter, talks to InsForge via
       :class:`app.core.insforge.LocalPostgresExecutor`.
     - Test fakes (in ``tests/``) — in-memory adapters that record
