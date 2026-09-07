@@ -1048,11 +1048,11 @@ class TestWebReader:
 
     La hexagonal slice (``refactor/hexagonal-slice-migration-web``)
     mueve el read-side a ``migration/application/web_reader/`` con
-    un Protocol port y un adapter InsForge. Los tests siguen
+    un Protocol port y un adapter LocalBackend. Los tests siguen
     importando ``WebTableSpec`` + ``load_web_snapshot`` desde el
     shim ``migration.web_reader`` (backwards compat), pero el
     cliente ahora se inyecta via :class:`WebReaderPort`
-    (concretamente el :class:`InsForgeWebReaderAdapter`) en lugar
+    (concretamente el :class:`LocalBackendWebReaderAdapter`) en lugar
     del :class:`LocalPostgresExecutor` raw — el Protocol port es el seam
     que oculta el transporte al use case.
     """
@@ -1069,7 +1069,7 @@ class TestWebReader:
             )
 
         return LocalPostgresExecutor(
-            base_url="https://example.insforge.app",
+            base_url="https://example.local_backend.app",
             service_key="ik_test",
             transport=httpx.MockTransport(handler),
         )
@@ -1079,12 +1079,13 @@ class TestWebReader:
         captured: list[str] = []
         client = self._make_mock_client(captured)
 
-        from migration.adapters.insforge.web_reader_insforge_adapter import (
-            InsForgeWebReaderAdapter,
+        from migration.adapters.local_backend.web_reader_local_backend_adapter import (
+            LocalBackendWebReaderAdapter,
         )
+
         from migration.web_reader import WebTableSpec, load_web_snapshot
 
-        port = InsForgeWebReaderAdapter(client)
+        port = LocalBackendWebReaderAdapter(client)
 
         result = load_web_snapshot(
             port,
@@ -1104,13 +1105,14 @@ class TestWebReader:
         captured: list[str] = []
         client = self._make_mock_client(captured)
 
-        from migration.adapters.insforge.web_reader_insforge_adapter import (
-            InsForgeWebReaderAdapter,
+        from migration.adapters.local_backend.web_reader_local_backend_adapter import (
+            LocalBackendWebReaderAdapter,
         )
+
         from migration.web_reader import WebTableSpec, load_web_snapshot
 
         since = datetime(2026, 6, 20, 10, 0)
-        port = InsForgeWebReaderAdapter(client)
+        port = LocalBackendWebReaderAdapter(client)
 
         load_web_snapshot(
             port,
@@ -1132,17 +1134,18 @@ class TestWebReader:
             )
 
         client = LocalPostgresExecutor(
-            base_url="https://example.insforge.app",
+            base_url="https://example.local_backend.app",
             service_key="ik_test",
             transport=httpx.MockTransport(handler),
         )
 
-        from migration.adapters.insforge.web_reader_insforge_adapter import (
-            InsForgeWebReaderAdapter,
+        from migration.adapters.local_backend.web_reader_local_backend_adapter import (
+            LocalBackendWebReaderAdapter,
         )
+
         from migration.web_reader import WebTableSpec, load_web_snapshot
 
-        port = InsForgeWebReaderAdapter(client)
+        port = LocalBackendWebReaderAdapter(client)
 
         result = load_web_snapshot(
             port,
@@ -1429,7 +1432,7 @@ class TestCliReconcile:
             )
 
         client = LocalPostgresExecutor(
-            base_url="https://example.insforge.app",
+            base_url="https://example.local_backend.app",
             service_key="ik_test",
             transport=httpx.MockTransport(handler),
         )

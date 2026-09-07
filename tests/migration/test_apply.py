@@ -7,7 +7,7 @@ TDD contract — Hard Rules from web-tdd-philosophy:
   atoms.
 - **Rule 2 (DI)**: the Dysflow executor is injected via
   ``legacy_reader.set_legacy_query_executor``; the LocalPostgresExecutor is
-  the ``FakeInsForge`` instance built by ``apply_runner``. No global
+  the ``FakeLocalBackend`` instance built by ``apply_runner``. No global
   getters.
 - **Rule 3 (cardinality)**: every atom that mutates asserts
   ``result.applied`` / ``result.skipped`` / ``result.errors`` as
@@ -19,7 +19,7 @@ TDD contract — Hard Rules from web-tdd-philosophy:
   See ``test_apply_legacy_to_web_handles_empty_legacy`` (edge) and
   ``test_apply_legacy_to_web_handles_legacy_dysflow_error`` (sad).
 - **Rule 8 (no production mutation)**: never touches a real ``.accdb``
-  or a real InsForge; the ``FakeInsForge`` is hermetic.
+  or a real LocalBackend; the ``FakeLocalBackend`` is hermetic.
 
 Scope:
 
@@ -47,7 +47,7 @@ from migration.apply import (
     apply_legacy_to_web,
 )
 from migration.lock import LockInfo
-from tests.migration.conftest import FakeInsForge  # noqa: TID251 — internal import
+from tests.migration.conftest import FakeLocalBackend  # noqa: TID251 — internal import
 
 # --- 1. Happy path -------------------------------------------------------
 
@@ -67,7 +67,7 @@ def test_apply_legacy_to_web_inserts_new_rows(apply_runner) -> None:
     )
 
     result: ApplyResult = captured["result"]
-    client: FakeInsForge = captured["client"]
+    client: FakeLocalBackend = captured["client"]
 
     assert result.applied == 2
     assert result.skipped == 0
@@ -99,7 +99,7 @@ def test_apply_legacy_to_web_skips_existing_rows_by_natural_key(apply_runner) ->
     # Second run on the SAME client state — no-op.
     second = apply_runner(
         legacy_rows=legacy,
-        client=first["client"],  # reuse the seeded FakeInsForge
+        client=first["client"],  # reuse the seeded FakeLocalBackend
     )
     assert second["result"].applied == 0
     assert second["result"].skipped == 1
@@ -128,7 +128,7 @@ def test_apply_legacy_to_web_updates_changed_rows(apply_runner) -> None:
     )
 
     result: ApplyResult = captured["result"]
-    client: FakeInsForge = captured["client"]
+    client: FakeLocalBackend = captured["client"]
 
     # Row already existed → not inserted again.
     assert result.applied == 0
@@ -167,7 +167,7 @@ def test_apply_legacy_to_web_dry_run_does_not_write(apply_runner) -> None:
     )
 
     result: ApplyResult = captured["result"]
-    client: FakeInsForge = captured["client"]
+    client: FakeLocalBackend = captured["client"]
 
     assert result.applied == 2
     assert result.skipped == 0
@@ -205,7 +205,7 @@ def test_apply_legacy_to_web_records_shadow_for_divergences(apply_runner) -> Non
     )
 
     result: ApplyResult = captured["result"]
-    client: FakeInsForge = captured["client"]
+    client: FakeLocalBackend = captured["client"]
 
     assert result.applied == 0
     assert result.skipped == 3
@@ -334,7 +334,7 @@ def test_apply_legacy_to_web_releases_lock_on_error(tmp_path: Path) -> None:
     try:
         with pytest.raises(LegacyReaderError):
             apply_legacy_to_web(
-                FakeInsForge(),
+                FakeLocalBackend(),
                 "animal",
                 legacy_path="/dummy/legacy.accdb",
                 lock_path=lock_path,
@@ -390,7 +390,7 @@ def test_apply_legacy_to_web_handles_legacy_dysflow_error(
     try:
         with pytest.raises(LegacyReaderError) as excinfo:
             apply_legacy_to_web(
-                FakeInsForge(),
+                FakeLocalBackend(),
                 "animal",
                 legacy_path="/dummy/legacy.accdb",
             )

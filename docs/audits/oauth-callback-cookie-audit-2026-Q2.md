@@ -6,7 +6,7 @@ This audit documents the scope, methodology, findings, and verdict for the audit
 
 | Sección | Descripción |
 |---|---|
-| [Scope](#scope) | Cookie `apap_pkce` y el callback OAuth de Google/InsForge. |
+| [Scope](#scope) | Cookie `apap_pkce` y el callback OAuth de Google/LocalBackend. |
 | [Methodology](#methodology) | Procedimiento aplicado para reproducir y verificar el bug. |
 | [Findings](#findings) | Severidad, título, forma y detalle de cada hallazgo. |
 | [Verdict](#verdict) | Estado final del contrato `SameSite` de `apap_pkce`. |
@@ -18,7 +18,7 @@ This audit documents the scope, methodology, findings, and verdict for the audit
 |---|---|
 | Cookie auditada | `apap_pkce` (PKCE `code_verifier`) |
 | Rutas en alcance | `/login` (emisión), `/auth/callback` (consumo) |
-| Proveedor OAuth | Google / InsForge |
+| Proveedor OAuth | Google / LocalBackend |
 | Navegador de referencia | Chrome en producción |
 | Periodo de análisis | 2026 Q2 |
 
@@ -28,7 +28,7 @@ Fuera de alcance: la cookie de sesión `apap_session` (mantiene `SameSite=Strict
 
 1. Revisión del código de `app/main.py` para localizar el atributo `SameSite` aplicado a la cookie `apap_pkce` en el momento de la emisión.
 2. Inspección de logs de Coolify para reproducir la secuencia de redirecciones observada en el navegador.
-3. Captura de navegador del error `ERR_TOO_MANY_REDIRECTS` en `https://apap.romancaba.com/auth/callback?insforge_code=...`.
+3. Captura de navegador del error `ERR_TOO_MANY_REDIRECTS` en `https://apap.romancaba.com/auth/callback?oauth_code=...`.
 4. Diseño de una prueba regresiva que afirme el atributo `SameSite=Lax` sobre `apap_pkce` tras el fix.
 5. Ejecución de la prueba regresiva y verificación del flujo OAuth completo (`/login` → Google → `/auth/callback` → `/`).
 
@@ -36,7 +36,7 @@ Fuera de alcance: la cookie de sesión `apap_session` (mantiene `SameSite=Strict
 
 | Severity | Title | Form | Details |
 |---|---|---|---|
-| HIGH | `apap_pkce` emitida con `SameSite=Strict` | fixed | Bloqueaba el callback OAuth porque Chrome no enviaba la cookie en la navegación GET cross-site de vuelta desde Google/InsForge. El callback no encontraba el `code_verifier`, redirigía a `/login` y producía un bucle `ERR_TOO_MANY_REDIRECTS`. Cambio aplicado a `SameSite=Lax`. |
+| HIGH | `apap_pkce` emitida con `SameSite=Strict` | fixed | Bloqueaba el callback OAuth porque Chrome no enviaba la cookie en la navegación GET cross-site de vuelta desde Google/LocalBackend. El callback no encontraba el `code_verifier`, redirigía a `/login` y producía un bucle `ERR_TOO_MANY_REDIRECTS`. Cambio aplicado a `SameSite=Lax`. |
 
 ### Detalle del hallazgo
 
@@ -50,7 +50,7 @@ PASS: la cookie `apap_pkce` usa `SameSite=Lax` y la cookie de sesión `apap_sess
 
 ## References
 
-- Captura de usuario: Chrome muestra `ERR_TOO_MANY_REDIRECTS` en `https://apap.romancaba.com/auth/callback?insforge_code=...`.
+- Captura de usuario: Chrome muestra `ERR_TOO_MANY_REDIRECTS` en `https://apap.romancaba.com/auth/callback?oauth_code=...`.
 - Logs de Coolify: secuencia repetida `/auth/callback?... -> 302` y `/login -> 302`, con nuevas peticiones al proveedor OAuth.
 - Prueba regresiva: `tests/test_auth_flow.py::test_login_apap_pkce_cookie_uses_samesite_lax_for_oauth_callback`.
 - AGENTS.md §10 (contrato CSRF y SameSite).

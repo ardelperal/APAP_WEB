@@ -7,7 +7,7 @@ use cases depend on a typed seam (``AdminTemplateAdapter``) rather
 than the concrete Jinja object — consistent with rule §31 (domain
 services depend on Protocol abstractions, not concrete transports).
 
-The adapter does NOT talk to InsForge. The application lifespan
+The adapter does NOT talk to LocalBackend. The application lifespan
 already owns the pooled ``Jinja2Templates`` instance on
 ``app.state.templates``; the DI helper
 :func:`app.core.di.admin_di.get_admin_template_adapter` wraps it in

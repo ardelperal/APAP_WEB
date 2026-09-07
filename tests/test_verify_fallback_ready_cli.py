@@ -141,9 +141,9 @@ def test_pii_audit_check_passes_when_verdict_is_pass() -> None:
     )
 
 
-def test_round_trip_test_passes_against_fakeinsforge() -> None:
+def test_round_trip_test_passes_against_fakelocal_backend() -> None:
     """``check_round_trip_test`` runs the existing PR6 round-trip
-    test suite, which uses FakeInsForge and does not need a real
+    test suite, which uses FakeLocalBackend and does not need a real
     backend. It must pass green for the gate to be CI-clean.
     """
     result = check_round_trip_test()

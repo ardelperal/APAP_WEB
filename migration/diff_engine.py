@@ -40,7 +40,7 @@ to pick the right SQL generator.
 
 **Pure functions**: this module has NO side effects and NO I/O. It
 takes snapshots in, returns diffs out. All tests are pure unit tests
-with synthetic ``dict`` snapshots — no MCP, no Dysflow, no InsForge.
+with synthetic ``dict`` snapshots — no MCP, no Dysflow, no LocalBackend.
 """
 
 from __future__ import annotations

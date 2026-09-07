@@ -59,7 +59,7 @@ def _client_recording(
         return handler(request, body)
 
     client = LocalPostgresExecutor(
-        base_url="https://example.insforge.app",
+        base_url="https://example.local_backend.app",
         service_key="ik_test",
         transport=httpx.MockTransport(_recording_handler),
     )
@@ -398,7 +398,7 @@ def test_batch_insert_rejects_empty_records() -> None:
     assert captured == []
 
 
-def test_batch_insert_propagates_insforge_error() -> None:
+def test_batch_insert_propagates_backend_error() -> None:
     """``BackendError`` from the SQL executor surfaces verbatim.
 
     The service does NOT swallow transport errors — the route layer
@@ -460,7 +460,7 @@ def test_batch_insert_wire_sql_uses_unanimous_bool_and() -> None:
 def test_batch_insert_wire_params_include_seven_arrays_and_bool() -> None:
     """Eight positional params: 7 column arrays + 1 dry_run boolean.
 
-    Positional order matters because the InsForge driver binds by $N.
+    Positional order matters because the LocalBackend driver binds by $N.
     A reordering would silently mis-bind columns; the test pins the
     contract.
     """

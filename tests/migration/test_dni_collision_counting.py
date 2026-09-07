@@ -53,11 +53,11 @@ def test_100_row_no_edit_round_trip_reports_preserve_advances(
     from migration import legacy_reader
     from migration.apply import apply_legacy_to_web
     from migration.apply_reverse import apply_web_to_legacy
-    from tests.migration.conftest import FakeInsForge
+    from tests.migration.conftest import FakeLocalBackend
 
     monkeypatch.setenv("APAP_MIGRATION_DIR", str(tmp_path))
 
-    client = FakeInsForge()
+    client = FakeLocalBackend()
 
     # 100 legacy rows (legacy has no DNI column).
     legacy_rows = [

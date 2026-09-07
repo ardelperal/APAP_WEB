@@ -3,7 +3,7 @@
 A single passing assertion so the CI `test` job is never vacuous.
 Replaced by real unit and integration tests as application code lands.
 
-The architecture doc (`docs/architecture/architecture-insforge-stack.md § CI/CD Quality Gate`)
+The architecture doc (`docs/architecture/architecture-local-backend-stack.md § CI/CD Quality Gate`)
 promotes DeprecationWarning to error in pytest's `filterwarnings`. This
 test intentionally contains no deprecated API calls so the strictness
 flag does not fail the smoke check.

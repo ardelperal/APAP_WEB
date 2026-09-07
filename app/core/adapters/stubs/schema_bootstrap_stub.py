@@ -1,6 +1,7 @@
 """Stub adapter for ``SchemaBootstrapPort`` — pending local-backend implementation.
 
-This file replaces the deleted :class:`app.core.adapters.insforge.schema_bootstrap_insforge_adapter.InsForgeSchemaBootstrapAdapter`.
+Replaces the deleted
+:class:`app.core.adapters.insforge.schema_bootstrap_insforge_adapter.InsForgeSchemaBootstrapAdapter`.
 A real :class:`~app.core.local_backend.db.LocalPostgresExecutor`-backed
 adapter lands in a follow-up slice; until then, every method raises
 :class:`NotImplementedError` so the runtime fails loud.
@@ -33,4 +34,4 @@ class StubSchemaBootstrapPort(SchemaBootstrapPort):
         )
 
 
-__all__ = ["StubSchemaBootstrapPort"]
+__all__ = ["SchemaBootstrapPort"]

@@ -18,7 +18,7 @@ rather than raising — the caller treats missing tables as
 table is bootstrapped).
 
 The use case takes the ``SqlExecutor`` Protocol (AGENTS.md §31) and
-does NOT import ``LocalPostgresExecutor``. The lifecycle slice does not own
+does NOT import ``AuthUsersPort``. The lifecycle slice does not own
 a dedicated adapter for read-only checks; issuing 5 ``COUNT(*)``
 queries is small enough that the application layer owns its own SQL
 strings directly. The pattern matches ``close_all_on_death`` — the
@@ -96,7 +96,7 @@ class CanDeleteResult:
 
 #: Substrings of the relation-not-found error message that indicate a
 #: missing table. The check uses ``in`` so it tolerates the variant
-#: phrasings across the Python ``psycopg`` / ``asyncpg`` / InsForge
+#: phrasings across the Python ``psycopg`` / ``asyncpg`` / LocalBackend
 #: error surfaces ("relation ... does not exist",
 #: "no such table", etc.).
 _MISSING_TABLE_ERROR_MARKERS: Final[tuple[str, ...]] = (

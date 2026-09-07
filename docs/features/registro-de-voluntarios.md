@@ -53,7 +53,7 @@ a una operacion (entrada, estancia, adopcion, terapia).
 
 ## 2. Criterios de aceptacion
 
-- [x] La tabla ``voluntarios`` existe en InsForge prod con el schema
+- [x] La tabla ``voluntarios`` existe en LocalBackend prod con el schema
       definido en ``app/core/domain.py`` (9 cols, 4 legacy + 5
       mejoras).
 - [x] La tabla ``roles_voluntario`` existe con la FK a
@@ -64,7 +64,7 @@ a una operacion (entrada, estancia, adopcion, terapia).
       nombre alfabetico.
 - [x] ``get_voluntario_by_id`` devuelve el voluntario o ``None``.
 - [x] ``list_roles`` devuelve los roles del voluntario.
-- [x] Email o DNI duplicado propaga el ``InsForgeError`` de InsForge
+- [x] Email o DNI duplicado propaga el ``BackendError`` de LocalBackend
       (la ruta traduce a 409).
 - [x] Las rutas HTTP ``/voluntarios`` (list, new, create, detail,
       deactivate) estan registradas y autenticadas.
@@ -116,7 +116,7 @@ CREATE TABLE IF NOT EXISTS roles_voluntario (
 
 | Funcion | Firma | Proposito |
 |---|---|---|
-| ``create_voluntario`` | ``(client, params) -> Voluntario`` | Inserta un voluntario. Valida ``Voluntario`` obligatorio y formato de ``Email``. Propaga ``InsForgeError`` en duplicados. |
+| ``create_voluntario`` | ``(client, params) -> Voluntario`` | Inserta un voluntario. Valida ``Voluntario`` obligatorio y formato de ``Email``. Propaga ``BackendError`` en duplicados. |
 | ``list_voluntarios`` | ``(client) -> list[Voluntario]`` | Devuelve todos los activos, ordenados por nombre. |
 | ``get_voluntario_by_id`` | ``(client, voluntario_id) -> Voluntario \| None`` | Devuelve el voluntario (activo o inactivo) o ``None``. |
 | ``list_roles`` | ``(client, voluntario_id) -> list[str]`` | Devuelve los roles asignados al voluntario. |
@@ -211,7 +211,7 @@ todos en verde.
 | ``test_create_voluntario_acepta_todos_los_campos_opcionales`` | El INSERT incluye los 4 opcionales. |
 | ``test_create_voluntario_rechaza_nombre_vacio_antes_de_sql`` | Validacion antes de SQL. |
 | ``test_create_voluntario_rechaza_email_sin_formato_antes_de_sql`` | Validacion de formato. |
-| ``test_create_voluntario_propag_InsForgeError_en_email_duplicado`` | Duplicado propaga error. |
+| ``test_create_voluntario_propag_BackendError_en_email_duplicado`` | Duplicado propaga error. |
 | ``test_create_voluntario_email_vacio_se_permite`` | Email vacio -> NULL. |
 | ``test_list_voluntarios_ejecuta_select_y_devuelve_filas`` | El SELECT filtra activos y ordena. |
 | ``test_list_voluntarios_devuelve_lista_vacia_sin_filas`` | Sin filas = lista vacia. |

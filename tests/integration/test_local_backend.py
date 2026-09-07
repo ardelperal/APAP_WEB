@@ -1,9 +1,9 @@
 """Tests for the M0 local backend (issue #641, self-host-backend-coolify).
 
-The M0 milestone replaces InsForge (the managed BaaS) with a FastAPI
+The M0 milestone replaces LocalBackend (the managed BaaS) with a FastAPI
 backend served by the same process, over Postgres. The tests below
 pin the contract that ``LocalPostgresExecutor`` consumes regardless of whether
-the backend is InsForge remote or the local one.
+the backend is LocalBackend remote or the local one.
 
 This file replaces the earlier in-process uvicorn tests (which proved
 brittle because uvicorn's thread-based runner does not run the FastAPI
@@ -19,7 +19,7 @@ Hard rules (web-tdd-philosophy):
 - Rule 4 (no humo): assertions on real behaviour (JSON shapes, status
   codes), never absence-of-error.
 - Rule 8 (no production mutation): the local backend runs in-process
-  via ASGITransport; no real InsForge is contacted.
+  via ASGITransport; no real LocalBackend is contacted.
 
 M0 of the self-host-backend-coolify openspec (issue #641).
 """
@@ -36,18 +36,18 @@ from app.core.local_backend.app import create_app
 # --- URL switching (unit-level) -------------------------------------------
 
 
-def test_insforge_client_defaults_to_insforge_url() -> None:
-    """When ``APAP_LOCAL_BACKEND`` is unset, the client targets InsForge."""
+def test_local_backend_client_defaults_to_local_backend_url() -> None:
+    """When ``APAP_LOCAL_BACKEND`` is unset, the client targets LocalBackend."""
     from app.core.local_backend.db import LocalPostgresExecutor
 
     client = LocalPostgresExecutor(
-        base_url="https://insforge.example.com",
+        base_url="https://local_backend.example.com",
         service_key="dummy",
     )
-    assert client._client.base_url == "https://insforge.example.com"
+    assert client._client.base_url == "https://local_backend.example.com"
 
 
-def test_insforge_client_uses_local_default_when_flag_set(
+def test_local_backend_client_uses_local_default_when_flag_set(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """When ``APAP_LOCAL_BACKEND=true`` and ``APAP_INSFORGE_URL`` is empty,
@@ -69,19 +69,19 @@ def test_insforge_client_uses_local_default_when_flag_set(
     assert str(client._client.base_url).rstrip("/") == "http://localhost:8000"
 
 
-def test_insforge_client_local_url_overrides_local_flag(
+def test_local_backend_client_local_url_overrides_local_flag(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``APAP_INSFORGE_URL`` always wins over the local default."""
     from app.core.local_backend.db import LocalPostgresExecutor
 
     monkeypatch.setenv("APAP_LOCAL_BACKEND", "true")
-    monkeypatch.setenv("APAP_INSFORGE_URL", "https://custom-insforge.example.com")
+    monkeypatch.setenv("APAP_INSFORGE_URL", "https://custom-local_backend.example.com")
     client = LocalPostgresExecutor(
         base_url=os.environ["APAP_INSFORGE_URL"],
         service_key="dummy",
     )
-    assert client._client.base_url == "https://custom-insforge.example.com"
+    assert client._client.base_url == "https://custom-local_backend.example.com"
 
 
 # --- Local backend integration --------------------------------------------
@@ -188,7 +188,7 @@ async def test_rawsql_insert_returns_empty_rows(
 ) -> None:
     """INSERT without RETURNING returns ``{"rows": [], "rowCount": 0}``.
 
-    Pins the InsForge contract: non-SELECT queries return an empty
+    Pins the LocalBackend contract: non-SELECT queries return an empty
     rows list so the consumer (``LocalPostgresExecutor.execute_sql``) can
     safely call ``rows[0]`` after a SELECT.
     """
@@ -223,7 +223,7 @@ async def test_rawsql_error_returns_4xx(
     """A query-level error (syntax / unknown table) returns HTTP 4xx, not 5xx.
 
     Distinguishes caller mistakes (``QueryError`` → 400) from server
-    failures (``DatabaseError`` → 5xx). The InsForge contract was
+    failures (``DatabaseError`` → 5xx). The LocalBackend contract was
     4xx for query errors; this keeps that contract for the local
     backend.
     """
@@ -271,7 +271,7 @@ async def test_storage_ensure_bucket_returns_bucket_shape(
     """``POST /api/storage/buckets`` (with ``bucketName`` in body) returns
     the bucket shape used by ``LocalPostgresExecutor.ensure_bucket``.
 
-    The InsForge contract is body-based (``{"bucketName": ..., "isPublic": ...}``),
+    The LocalBackend contract is body-based (``{"bucketName": ..., "isPublic": ...}``),
     not path-based (``/buckets/{name}``), so the handler must accept the
     body form even though the tasks.md originally suggested the path
     form.
@@ -371,7 +371,7 @@ async def test_oauth_exchange_returns_jwt(
     """``POST /api/auth/oauth/exchange?client_type=web`` returns ``user`` + ``accessToken``.
 
     Pins the contract ``LocalPostgresExecutor.exchange_insforge_oauth_code``
-    consumes (the InsForge-hosted OAuth proxy): the body has at least
+    consumes (the LocalBackend-hosted OAuth proxy): the body has at least
     ``user`` and ``accessToken`` keys; the test reads ``accessToken``
     as the session JWT.
     """
@@ -380,7 +380,7 @@ async def test_oauth_exchange_returns_jwt(
         "/api/auth/oauth/exchange",
         params={"client_type": "web"},
         json={
-            "code": "insforge-code-abc",
+            "code": "local_backend-code-abc",
             "code_verifier": "verifier-abc",
         },
     )

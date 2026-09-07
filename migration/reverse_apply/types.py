@@ -18,12 +18,12 @@ from typing import Any, Protocol
 from migration import MigrationError
 
 
-class SqlExecutor(Protocol):
+class _LocalBackendLike(Protocol):
     """Structural type for the web client passed to ``apply_web_to_legacy``.
 
-    Mirrors the surface ``LocalPostgresExecutor.execute_sql`` exposes, plus
+    Mirrors the surface ``StubAuthUsersPort.execute_sql`` exposes, plus
     the private ``apap-photos`` bucket accessors that the bootstrap
-    uses. The :class:`FakeInsForge` test fixture satisfies the
+    uses. The :class:`FakeLocalBackend` test fixture satisfies the
     protocol by duck typing.
     """
 
@@ -68,5 +68,5 @@ class ReverseSyncStateRollbackError(ReverseApplyError):
 __all__ = [
     "ReverseApplyError",
     "ReverseSyncStateRollbackError",
-    "SqlExecutor",
+    "_LocalBackendLike",
 ]

@@ -10,7 +10,7 @@ event log the single source of truth for state derivation.
 The test uses an in-memory ``FakeSqlExecutor`` that records every
 ``execute_sql`` call and returns canned rows so the use case can be
 asserted without a live database. The pattern mirrors the adapter test
-in ``tests/test_lifecycle_slice.py::test_lifecycle_insforge_adapter_implements_lifecycle_port``.
+in ``tests/test_lifecycle_slice.py::test_lifecycle_local_backend_adapter_implements_lifecycle_port``.
 """
 from __future__ import annotations
 

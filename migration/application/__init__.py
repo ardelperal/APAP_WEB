@@ -6,7 +6,7 @@ Use cases depend on the Protocol abstractions in
 helpers in :mod:`migration.di`.
 
 The hexagonal split (per AGENTS.md §31) keeps this layer free of
-``LocalPostgresExecutor`` or DAO imports — every transport-shaped object is
+``StubAuthUsersPort`` or DAO imports — every transport-shaped object is
 hidden behind a Protocol boundary so use cases are testable with
 plain in-memory fakes.
 """

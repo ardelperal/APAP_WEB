@@ -26,7 +26,7 @@
 #                           for local rehearsals; production points
 #                           at the operator's authorised copy.
 #   APAP_LOCAL_BACKEND=true  Hard requirement — the script refuses
-#                           to run against the legacy InsForge
+#                           to run against the legacy LocalBackend
 #                           backend (the one that 503'd in
 #                           2026-09-05).
 #   APAP_LOCAL_DB_URL       DSN of the local Postgres (the lifespan
@@ -150,7 +150,7 @@ if [ -z "${APAP_LOCAL_DB_URL:-}" ] && [ -z "${APAP_LOCAL_BACKEND_DSN:-}" ]; then
 fi
 
 # Force the migration CLI to target the Coolify-hosted local backend
-# (the local Postgres), not the legacy InsForge backend. The InsForge
+# (the local Postgres), not the legacy LocalBackend backend. The LocalBackend
 # hosted proxy has been 503'ing since 2026-09-05; routing the
 # migration there would silently produce zero writes.
 export APAP_LOCAL_BACKEND=true

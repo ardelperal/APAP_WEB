@@ -28,7 +28,7 @@ topic `sdd/quality-gates-expansion/proposal`); source analysis Engram `#24073`
 | 3 | Property-based testing | `hypothesis` | `tests/property/` + first targets = `_row_to_*` helpers |
 | 4 | Formal DRY detection | `jscpd` | new `scripts/check_jscpd.py` (mirrors §21) |
 | 5 | Mutation-sites count pre-PR | AST/scan counter | new `scripts/check_mutation_sites.py` |
-| Bonus A | Adapter exclusion from coverage floor | `pyproject.toml` + `ci.yml` | `app/core/insforge.py` excluded from `fail_under` |
+| Bonus A | Adapter exclusion from coverage floor | `pyproject.toml` + `ci.yml` | `app/core/local_backend.py` excluded from `fail_under` |
 | Bonus B | "QA-through-UI only" explicit in §23 | AGENTS.md text clarification | feature branch + PR (per §17.3) |
 | Hooks | Pre-commit (advisory) + Pre-push (advisory) | git hooks | touches `git-hooks/` (per §15.5; user OK granted this session) |
 
@@ -415,9 +415,9 @@ test job; does NOT change `fail_under` and does NOT touch any AGENTS.md
 rule text.
 **Defaults applied:** none.
 
-#### Requirement: REQ-QG-ADAPT-1 — `app/core/insforge.py` is excluded from the coverage floor without lowering the floor
+#### Requirement: REQ-QG-ADAPT-1 — `app/core/local_backend.py` is excluded from the coverage floor without lowering the floor
 
-The system MUST add `app/core/insforge.py` to the `omit` list under
+The system MUST add `app/core/local_backend.py` to the `omit` list under
 `[tool.coverage.run]` in `pyproject.toml`. The `fail_under` value under
 `[tool.coverage.report]` SHALL remain unchanged (currently 85, per the
 combined `app` + `migration` measurement). The `--cov-fail-under=85`
@@ -427,9 +427,9 @@ enforce 100% line coverage on `CRITICAL_HELPERS` (§11) — Bonus A does
 NOT weaken that gate, it only removes one transport-layer file from the
 global percentage.
 
-**Rationale:** `app/core/insforge.py` is the transport-layer adapter to
-InsForge. Per §33.4 and §18.4, it is the only place allowed to talk
-to InsForge. Per the legacy-vs-web exclusion principle, an adapter is
+**Rationale:** `app/core/local_backend.py` is the transport-layer adapter to
+LocalBackend. Per §33.4 and §18.4, it is the only place allowed to talk
+to LocalBackend. Per the legacy-vs-web exclusion principle, an adapter is
 exactly the kind of module that should not count toward the production-
 logic floor — its tests run under `httpx.MockTransport` and contribute
 to branch coverage without exercising real product semantics.
@@ -438,7 +438,7 @@ to branch coverage without exercising real product semantics.
 
 - **SCN-QG-ADAPT-1-1** — Given a fresh `pytest --cov=app --cov=migration
   --cov-report=json` run on `main`, WHEN `coverage.json` is parsed, THEN
-  the file entry for `app/core/insforge.py` SHALL appear with
+  the file entry for `app/core/local_backend.py` SHALL appear with
   `summary.excluded = true` (or equivalent marker under the omit list).
 
 - **SCN-QG-ADAPT-1-2** — Given the same run, WHEN the `--cov-fail-under=85`
@@ -446,7 +446,7 @@ to branch coverage without exercising real product semantics.
   pre-exclusion value) AND the post-exclusion measured percentage SHALL
   remain at or above 85.
 
-- **SCN-QG-ADAPT-1-3** — Given `app/core/insforge.py` removed from the
+- **SCN-QG-ADAPT-1-3** — Given `app/core/local_backend.py` removed from the
   omit list, WHEN the test job runs, THEN the global coverage
   percentage SHALL drop by some measurable amount AND `fail_under` SHALL
   fail — proving the exclusion is load-bearing for the global number.

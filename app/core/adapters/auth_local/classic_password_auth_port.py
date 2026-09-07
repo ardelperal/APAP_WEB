@@ -2,8 +2,8 @@
 
 The local backend stores password hashes as argon2id in the
 ``usuarios_autorizados.password_hash`` column (added in migration
-007). The InsForge adapter is the fallback for InsForge deployments
-(see ``app/core/adapters/insforge/auth_insforge_adapter.py`` for the
+007). The LocalBackend adapter is the fallback for LocalBackend deployments
+(see ``app/core/adapters/local-backend/auth_local_backend_adapter.py`` for the
 no-op defaults).
 
 Argon2id parameters (RFC 9106, OWASP 2024 recommendation):

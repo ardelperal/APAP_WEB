@@ -25,7 +25,7 @@ This file exercises:
    surface the rows.
 
 Mirrors the pattern of ``tests/test_domain.py`` (httpx.MockTransport +
-captured bodies) so no real InsForge instance is touched.
+captured bodies) so no real LocalBackend instance is touched.
 """
 
 from __future__ import annotations
@@ -75,7 +75,7 @@ def _client_recording(handler) -> tuple[LocalPostgresExecutor, list[dict[str, An
         return handler(request, body)
 
     return LocalPostgresExecutor(
-        base_url="https://example.insforge.app",
+        base_url="https://example.local_backend.app",
         service_key="ik_test",
         transport=httpx.MockTransport(_recording_handler),
     ), captured
@@ -523,7 +523,7 @@ def test_ensure_catalogs_is_idempotent_on_repeated_runs() -> None:
 
     The recording client returns the same 200/[] for every call, so a
     repeat run is exactly the same SQL — the function must accept this
-    silently. Real InsForge's ON CONFLICT DO NOTHING semantics close
+    silently. Real LocalBackend's ON CONFLICT DO NOTHING semantics close
     the loop end-to-end.
     """
     client, captured = _client_recording(lambda req, body: _json_response(200, []))
@@ -548,7 +548,7 @@ def test_ensure_catalogs_raises_when_create_table_fails() -> None:
         return _json_response(500, {"error": "boom"})
 
     client = LocalPostgresExecutor(
-        base_url="https://example.insforge.app",
+        base_url="https://example.local_backend.app",
         service_key="ik_test",
         transport=httpx.MockTransport(handler),
     )
@@ -570,7 +570,7 @@ def _client_returning(body: list[dict[str, Any]]) -> tuple[LocalPostgresExecutor
         return _json_response(200, body)
 
     return LocalPostgresExecutor(
-        base_url="https://example.insforge.app",
+        base_url="https://example.local_backend.app",
         service_key="ik_test",
         transport=httpx.MockTransport(_hh),
     ), captured

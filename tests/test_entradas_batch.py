@@ -47,7 +47,7 @@ def _client_recording(
         return handler(request, body)
 
     client = LocalPostgresExecutor(
-        base_url="https://example.insforge.app",
+        base_url="https://example.local_backend.app",
         service_key="ik_test",
         transport=httpx.MockTransport(_recording_handler),
     )
@@ -359,7 +359,7 @@ def test_commit_batch_raises_conflict_when_db_violates_natural_key() -> None:
     client.close()
 
 
-def test_commit_batch_propagates_unsupported_insforge_error() -> None:
+def test_commit_batch_propagates_unsupported_backend_error() -> None:
     batch_id = "33333333-3333-3333-3333-333333333333"
     staging_rows = [_staging_row(batch_id, 1, animal_id=animals_key(1))]
 

@@ -24,7 +24,7 @@ def test_auth_classic_slice_is_tested_by_integration_tests() -> None:
 
     The real coverage for ``ClassicPasswordAuthPort`` (set_password,
     verify_password, argon2id hashing, NULL-hash guard, inactive-user
-    guard, InsForge no-op fallback) is in
+    guard, LocalBackend no-op fallback) is in
     ``tests/integration/test_self_host_auth.py``. This file exists so
     the slice-completeness gate sees at least one ``test_auth_classic*``
     file. Delete it when the M1 slice grows a dedicated per-layer

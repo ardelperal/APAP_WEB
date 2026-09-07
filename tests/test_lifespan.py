@@ -269,10 +269,10 @@ async def test_lifespan_validates_secrets_before_constructing_local_postgres_exe
 # ---------------------------------------------------------------------------
 # Issue #260: pooled httpx.Client on app.state
 #
-# (legacy comment; the old ``get_local_postgres_executor_dep`` instantiated
+# (legacy comment; the old ``get_local_backend_client_dep`` instantiated
 # a fresh ``LocalPostgresExecutor`` on every
 # request and closed it in the dependency's ``finally`` block. That
-# paid the TCP+TLS handshake cost to InsForge on every request.
+# paid the TCP+TLS handshake cost to LocalBackend on every request.
 #
 # After #260, the lifespan creates ONE ``LocalPostgresExecutor``, stores it on
 # ``app.state.sql_executor`` for the dep to hand out, and closes it

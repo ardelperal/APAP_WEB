@@ -1,7 +1,7 @@
 """Post-callback session payload domain value object.
 
 The OAuth callback use case returns an
-:class:`AuthenticatedSession` once the email returned by InsForge
+:class:`AuthenticatedSession` once the email returned by LocalBackend
 has been resolved against ``usuarios_autorizados``. The route
 layer projects it to the signed ``apap_session`` payload via
 :func:`app.core.csrf.issue_csrf_to_session`.
@@ -10,7 +10,7 @@ The class is a frozen dataclass so the use case can return it as
 a value object across the port boundary. The ``is_authorized`` flag
 defaults to ``False`` if the source row's projection is incomplete
 (rule §6 — security defaults deny, not permit), although in
-practice every read path in :mod:`app.core.adapters.insforge`
+practice every read path in :mod:`app.core.adapters.local_backend`
 projects the ``activo`` column so the default is never hit.
 """
 from __future__ import annotations

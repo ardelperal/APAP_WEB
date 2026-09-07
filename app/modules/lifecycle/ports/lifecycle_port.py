@@ -1,11 +1,9 @@
 """Port for the lifecycle slice (LIFECYCLE-03, PR-A work-unit A4).
 
 The port is the contract between the use cases (``application/`` in
-PR-B) and the adapters (InsForge in PR-B, retired in #668; the
-follow-up adds a ``LocalPostgresExecutor``-backed implementation).
-Access via the legacy
+PR-B) and the adapters (LocalBackend in PR-B, Access via the legacy
 adapter when it lands). The Protocol depends on
-``app.core.data_access.SqlExecutor`` — never on ``LocalPostgresExecutor``
+``app.core.data_access.SqlExecutor`` — never on ``AuthUsersPort``
 (AGENTS.md §31).
 """
 

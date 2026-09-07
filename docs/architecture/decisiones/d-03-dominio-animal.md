@@ -19,7 +19,7 @@ El legacy Access distribuía el "animal" en varias tablas (TbFichaAnimal, TbActu
 - [`discovery/feature-01-animal-lifecycle.md`](../discovery/feature-01-animal-lifecycle.md) define Animal como entidad pivotante.
 - [`legacy-lifecycle-transition-rules.md`](../legacy-lifecycle-transition-rules.md) documenta cómo el legacy gestiona la unidad animal.
 - [`roadmap.md`](../roadmap.md) § Fases 4, 5, 6 y 7 parten del pivote Animal.
-- Las tablas `animales`, `actuaciones_sanitarias`, `contratos`, `adopciones` se referencian en [`app/core/insforge.py`](../../app/core/insforge.py) con `animal_id` como FK principal.
+- Las tablas `animales`, `actuaciones_sanitarias`, `contratos`, `adopciones` se referencian en [`app/core/local_backend.py`](../../app/core/local_backend.py) con `animal_id` como FK principal.
 
 ## Options considered
 

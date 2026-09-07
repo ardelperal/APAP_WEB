@@ -21,7 +21,7 @@ El equipo es de un mantenedor único. Un split `main` + `staging` añade fricci�
 - Establecido por el usuario el 2026-07-03.
 - Codificado en [`AGENTS.md`](../../AGENTS.md) §15 y [`proceso.md`](../proceso.md) P4.
 - [`codebase/merge-workflow.md`](../codebase/merge-workflow.md) documenta la política.
-- [`architecture-insforge-stack.md`](../architecture-insforge-stack.md) § "Branch and deployment policy" describe el deploy desde `main`.
+- [`architecture-local-backend-stack.md`](../architecture-local-backend-stack.md) § "Branch and deployment policy" describe el deploy desde `main`.
 
 ## Options considered
 

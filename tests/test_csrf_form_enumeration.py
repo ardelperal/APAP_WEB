@@ -24,7 +24,7 @@ from app.main import app
 
 
 class _NoSqlSpy:
-    """InsForge stand-in that returns no rows."""
+    """LocalBackend stand-in that returns no rows."""
 
     def execute_sql(self, query: str, params: Any = None):  # type: ignore[no-untyped-def]
         return []
@@ -87,16 +87,16 @@ _NON_SAFE_ROUTES = _enumerate_non_safe_routes()
 def no_sql_client(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> httpx.AsyncClient:
-    """Client pre-loaded with a session; InsForge dep is a no-op."""
-    from app.core.di.local_postgres_di import get_local_postgres_executor_dep
+    """Client pre-loaded with a session; LocalBackend dep is a no-op."""
+    from app.main import get_local_backend_client
 
     spy = _NoSqlSpy()
-    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy
+    app.dependency_overrides[get_local_backend_client] = lambda: spy
     monkeypatch.setattr(
-        "app.modules.animals.routes.get_local_postgres_executor_dep", lambda: spy
+        "app.modules.animals.routes.get_local_backend_client_dep", lambda: spy
     )
     monkeypatch.setattr(
-        "app.modules.entradas.routes.get_local_postgres_executor_dep", lambda: spy
+        "app.modules.entradas.routes.get_local_backend_client_dep", lambda: spy
     )
 
 
@@ -113,7 +113,7 @@ def no_sql_client(
     )
     client.cookies.set(session_cookie_name(), token)
     yield client
-    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
+    app.dependency_overrides.pop(get_local_backend_client, None)
 
 
 @pytest.mark.parametrize("method,path", _NON_SAFE_ROUTES)

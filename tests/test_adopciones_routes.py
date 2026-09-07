@@ -22,12 +22,12 @@ from typing import Any
 import httpx
 import pytest
 
+from app.core.auth_dependencies import get_local_backend_client_dep
 from app.core.config import get_settings
 from app.core.data_access import BackendError
-from app.core.di.local_postgres_di import get_local_postgres_executor_dep
 from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.session import session_cookie_name, write_session
-from app.main import app
+from app.main import app, get_local_backend_client
 from app.modules.adopciones import service as adopciones_service
 from tests.conftest import auth_reval_rows, make_csrf_request
 
@@ -66,11 +66,11 @@ class _NoSqlRouteClient(LocalPostgresExecutor):
 @pytest.fixture
 def route_client() -> _NoSqlRouteClient:
     spy = _NoSqlRouteClient()
-    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy
-    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy
+    app.dependency_overrides[get_local_backend_client] = lambda: spy
+    app.dependency_overrides[get_local_backend_client_dep] = lambda: spy
     yield spy
-    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
-    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
+    app.dependency_overrides.pop(get_local_backend_client, None)
+    app.dependency_overrides.pop(get_local_backend_client_dep, None)
 
 
 def _login_as_key_user(client: httpx.AsyncClient) -> None:
@@ -360,7 +360,7 @@ async def test_create_adopcion_translates_duplicate_to_409(
     """P1-1 (readability review 2026-07-04): UNIQUE clash -> 409 form.
 
     The service raises ``AdopcionConflictError`` (a ``ValueError``
-    subclass) when InsForge returns 409 on the natural-key. The route
+    subclass) when LocalBackend returns 409 on the natural-key. The route
     catches the subclass BEFORE the generic ``ValueError`` so the
     operator sees a 409 with the Spanish conflict message, not a
     generic 422.
@@ -394,7 +394,7 @@ async def test_create_adopcion_translates_duplicate_to_409(
     assert 'value="María García López"' in body
 
 
-async def test_create_adopcion_translates_insforge_error_to_422(
+async def test_create_adopcion_translates_backend_error_to_422(
     client: httpx.AsyncClient,
     route_client: _NoSqlRouteClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -437,7 +437,7 @@ async def test_create_adopcion_translates_insforge_error_to_422(
     assert response.status_code == 422
     body = response.text
     assert "No se pudo guardar la adopción" in body
-    # The raw InsForge message is included so the operator can act on it.
+    # The raw LocalBackend message is included so the operator can act on it.
     assert "violates check constraint" in body
     # Operator input is preserved.
     assert 'value="María García López"' in body

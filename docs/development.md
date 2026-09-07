@@ -6,9 +6,9 @@
 
 Esta guía lleva a un nuevo desarrollador desde un clone limpio hasta un test en verde en la aplicación APAP. Es la referencia canónica para los comandos locales. El workflow de CI (entregado en una PR anterior) y el job de deploy Coolify (CD-01, issue #1) llaman a los mismos comandos: el trabajo normal integra en `staging`, y producción queda guardada por `main`.
 
-No posee el setup por desarrollador ni la configuración de secretos InsForge — eso vive en [`docs/setup.md`](setup.md). No posee las decisiones de arquitectura — eso vive en [`docs/architecture/architecture-insforge-stack.md`](../architecture/architecture-insforge-stack.md). No posee la disciplina de proceso por issue — eso vive en [`docs/proceso.md`](proceso.md).
+No posee el setup por desarrollador ni la configuración de secretos LocalBackend — eso vive en [`docs/setup.md`](setup.md). No posee las decisiones de arquitectura — eso vive en [`docs/architecture/architecture-local-backend-stack.md`](../architecture/architecture-local-backend-stack.md). No posee la disciplina de proceso por issue — eso vive en [`docs/proceso.md`](proceso.md).
 
-Para setup del entorno por desarrollador y credenciales de InsForge MCP, ver [`docs/setup.md`](setup.md). Para las decisiones de arquitectura que dan forma a este flujo, ver [`docs/architecture/architecture-insforge-stack.md`](../architecture/architecture-insforge-stack.md).
+Para setup del entorno por desarrollador y credenciales de LocalBackend MCP, ver [`docs/setup.md`](setup.md). Para las decisiones de arquitectura que dan forma a este flujo, ver [`docs/architecture/architecture-local-backend-stack.md`](../architecture/architecture-local-backend-stack.md).
 
 ## Prerrequisitos
 
@@ -19,7 +19,7 @@ Para setup del entorno por desarrollador y credenciales de InsForge MCP, ver [`d
 | Git | 2.30+ | Para trabajar con feature branches. |
 | GNU Make | cualquiera reciente | Opcional pero recomendado. El `Makefile` es la entrada de conveniencia; los comandos canónicos también funcionan directamente. |
 | Node.js | 18+ | Necesario para `npx @tailwindcss/cli` (build de CSS, Fase 1+). |
-| Cuenta InsForge | free tier | Para la integración del MCP. Ver `docs/setup.md`. |
+| Cuenta LocalBackend | free tier | Para la integración del MCP. Ver `docs/setup.md`. |
 
 Los usuarios de Windows pueden correr los mismos comandos en PowerShell. Los equivalentes cross-platform se listan bajo cada paso.
 
@@ -293,7 +293,7 @@ El workflow de GitHub Actions corre los mismos comandos locales en pull requests
 | `ci / test` | `python -m pytest -W error::DeprecationWarning` | Tests unitarios/integración con deprecations promovidas a error. |
 | `ci / build` | `python -m build` | Validación de build del paquete. |
 
-El workflow también incluye un job `ci / e2e` que corre la suite Playwright (9 tests contra un Chromium headless contra `scripts/dev_server_no_lifespan.py`). El server arranca sin el bootstrap de InsForge (lifespan no-op) así que las rutas públicas (`/`, `/healthz`, `/unauthorized`, redirect a `/login`) sirven y se pueden validar sin backend real. Para correrlo en local:
+El workflow también incluye un job `ci / e2e` que corre la suite Playwright (9 tests contra un Chromium headless contra `scripts/dev_server_no_lifespan.py`). El server arranca sin el bootstrap de LocalBackend (lifespan no-op) así que las rutas públicas (`/`, `/healthz`, `/unauthorized`, redirect a `/login`) sirven y se pueden validar sin backend real. Para correrlo en local:
 
 ```bash
 python -m pip install -e ".[dev]"
@@ -359,8 +359,8 @@ La sección `openspec/changes/ci-cd-foundation/design.md § Future work` lista c
 
 ## Dónde mirar a continuación
 
-- [`docs/setup.md`](setup.md) — setup por desarrollador y credenciales InsForge MCP.
-- [`docs/architecture/architecture-insforge-stack.md`](../architecture/architecture-insforge-stack.md) — decisiones de stack, política de dependencias y políticas de CI/CD y testing.
+- [`docs/setup.md`](setup.md) — setup por desarrollador y credenciales LocalBackend MCP.
+- [`docs/architecture/architecture-local-backend-stack.md`](../architecture/architecture-local-backend-stack.md) — decisiones de stack, política de dependencias y políticas de CI/CD y testing.
 - [`docs/roadmap.md`](../docs/roadmap.md) — hoja de ruta viva del proyecto.
 - [`openspec/changes/ci-cd-foundation/`](../openspec/changes/ci-cd-foundation/) — change de SDD que planifica el pipeline de despliegue completo (PR 1 = superficie local; PR 2 = CI; PR 3 = CD).
 - `pyproject.toml` — configuración canónica de pytest (deprecation strictness) y ruff (reglas de lint). La verja de calidad del doc de arquitectura está codificada aquí.

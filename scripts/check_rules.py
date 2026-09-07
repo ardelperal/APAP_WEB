@@ -1302,7 +1302,7 @@ def _check_csrf_samesite_strict(
     regression that weakens the CSRF defense-in-depth posture.
 
     The short-lived ``apap_pkce`` OAuth verifier cookie is intentionally
-    excluded: Google/InsForge returns to ``/auth/callback`` through a
+    excluded: Google/LocalBackend returns to ``/auth/callback`` through a
     top-level cross-site GET and browsers do not send ``Strict`` cookies
     on that navigation. ``Lax`` is the safe OAuth-compatible setting for
     that verifier cookie.

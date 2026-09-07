@@ -8,7 +8,7 @@
   and exposes staging preview via ``dry_run=true``. **Lazy-imported via
   ``__getattr__``** because importing ``app.core.catalogs`` from
   ``batch_service`` re-triggers the pre-existing
-  ``app.core.schema_bootstrap`` ↔ ``app.core.adapters.insforge``
+  ``app.core.schema_bootstrap`` ↔ ``app.core.adapters.local_backend``
   circular import until ``app.main`` is loaded first. Lazy-loading
   breaks the dependency on this module's ``__init__`` ordering
   (HEALTH-05 / #54).
@@ -36,8 +36,8 @@ def __getattr__(name: str):  # PEP 562 module-level __getattr__
 
     Importing ``batch_service`` eagerly triggers a chain that loops
     through ``app.core.catalogs`` -> ``app.core.schema_bootstrap``
-    -> ``app.core.ports`` -> ``app.core.adapters.insforge`` and back,
-    because ``StubAuthUsersPort`` also imports
+    -> ``app.core.ports`` -> ``app.core.adapters.local_backend`` and back,
+    because ``AuthUsersPort`` also imports
     ``SqlStatement`` from ``app.core.schema_bootstrap``. The cycle
     only resolves once ``app.main`` has primed the relevant modules
     in ``sys.modules``. Defer the import to first attribute access so

@@ -7,7 +7,7 @@ challenge is the SHA-256 of the verifier, sent to the authorization
 server in the auth request (RFC 7636).
 
 The actual generation lives in :func:`app.core.pkce.generate_pkce_pair`
-(an :class:`app.core.insforge`-free helper that uses
+(an :class:`app.core.local_backend`-free helper that uses
 :mod:`secrets` and :mod:`hashlib`). The adapter calls it and wraps
 the tuple in a :class:`PkcePair` so the application layer sees a
 typed value object rather than a bare ``tuple[str, str]``.

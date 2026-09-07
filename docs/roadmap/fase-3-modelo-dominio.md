@@ -36,12 +36,12 @@ cerrado — `usuarios_autorizados` (#25), `animals`/`voluntarios` (#26), `animal
 - [d-03-dominio-animal.md](../architecture/decisiones/d-03-dominio-animal.md) — dominio centrado en animal.
 - [d-04-paridad-campos-legacy.md](../architecture/decisiones/d-04-paridad-campos-legacy.md) — paridad de campos con el Access legacy.
 - [d-05-fidelidad-legacy-superset.md](../architecture/decisiones/d-05-fidelidad-legacy-superset.md) — superset funcional del legacy (P1).
-- [d-20-stack-fastapi-htmx-insforge.md](../architecture/decisiones/d-20-stack-fastapi-htmx-insforge.md) § "Data model policy".
+- [d-20-stack-fastapi-htmx-local_backend.md](../architecture/decisiones/d-20-stack-fastapi-htmx-local_backend.md) § "Data model policy".
 - [d-33-tdd-estricto.md](../architecture/decisiones/d-33-tdd-estricto.md) — TDD estricto.
 
 ## Documentación de referencia
 
-- [docs/architecture/architecture-insforge-stack.md](../architecture/architecture-insforge-stack.md) § "Data model policy".
+- [docs/architecture/architecture-local-backend-stack.md](../architecture/architecture-local-backend-stack.md) § "Data model policy".
 - [docs/discovery/data-model-notes.md](../discovery/data-model-notes.md).
 - [docs/discovery/data-model-completeness.md](../discovery/data-model-completeness.md).
 - [docs/legacy-lifecycle-transition-rules.md](../legacy-lifecycle-transition-rules.md) — reglas de transición del animal.
@@ -51,14 +51,14 @@ cerrado — `usuarios_autorizados` (#25), `animals`/`voluntarios` (#26), `animal
 
 - **Animales y voluntarios tienen entidades separadas**: la casa de acogida (`TbAcogidaCasas`) no es un voluntario del sistema ([legacy-volunteer-roles.md](../legacy-volunteer-roles.md) §3).
 - **Paridad de campos con el Access**: cada campo del animal en `TbFichaAnimal` tiene su equivalente en `animals`; un gap abre `type:bug gap:legacy` (P1, D-04).
-- **InsForgeClient solo bajo `adapters/` y `di/`**: ningún módulo toca el cliente directamente (§33 de AGENTS, regla de hexagonal).
+- **LocalBackendClient solo bajo `adapters/` y `di/`**: ningún módulo toca el cliente directamente (§33 de AGENTS, regla de hexagonal).
 - **Tablas se crean idempotentemente**: cada `ensure_domain_schema` puede correr más de una vez sin error.
 
 ## Contributor checklist
 
 - [ ] Si añade una tabla nueva, documente la equivalencia con el legacy (campo a campo) en un ADR o en [docs/discovery/data-model-completeness.md](../discovery/data-model-completeness.md).
 - [ ] Si descubre un campo del Access sin equivalente en `animals`, abra issue `type:bug gap:legacy` (P1).
-- [ ] Si añade un slice de modelo, siga la regla §33: `app/modules/<slice>/` con `domain/`, `ports/`, `application/`, `adapters/insforge/`, `di/`, `routes.py` fino.
+- [ ] Si añade un slice de modelo, siga la regla §33: `app/modules/<slice>/` con `domain/`, `ports/`, `application/`, `adapters/local-backend/`, `di/`, `routes.py` fino.
 - [ ] Si implementa `state resolver` (#33), cubra con tests los seis invariantes de [legacy-lifecycle-transition-rules.md §7.2](../legacy-lifecycle-transition-rules.md).
 
 ## Navigation

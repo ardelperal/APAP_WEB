@@ -140,16 +140,16 @@ def test_base_template_defaults_to_base_html_when_state_missing() -> None:
 
 
 @pytest.fixture(autouse=True)
-def _stub_insforge_for_reval() -> None:
+def _stub_local_backend_for_reval() -> None:
     """``GET /`` revalidates auth; the unit-level deps spy covers it.
 
-    ``GET /login`` does not hit InsForge but ``require_authorized_user``
+    ``GET /login`` does not hit LocalBackend but ``require_authorized_user``
     on ``GET /`` and the auto-dependency cache mean the stub from
     ``tests/test_pages.py`` is the safest defensive fixture. We
     don't need it for ``/login`` itself, but installing it keeps the
     global dep cache clean across the test session.
     """
-    from app.core.di.local_postgres_di import get_local_postgres_executor_dep
+    from app.main import get_local_backend_client
     from tests.conftest import auth_reval_rows
 
     class _RevalOnlySpy:
@@ -160,9 +160,9 @@ def _stub_insforge_for_reval() -> None:
         def close(self) -> None:
             return None
 
-    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: _RevalOnlySpy()
+    app.dependency_overrides[get_local_backend_client] = lambda: _RevalOnlySpy()
     yield
-    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
+    app.dependency_overrides.pop(get_local_backend_client, None)
 
 
 _DESKTOP_UA = (

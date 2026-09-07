@@ -121,15 +121,15 @@ def test_discovery_finds_a_hexagonal_slice(tmp_path: Path) -> None:
                 "class FooPort(Protocol):\n    def get(self) -> str: ...\n"
             ),
             "app/core/application/foo/get_thing.py": "def get_thing() -> str: return ''\n",
-            "app/core/adapters/insforge/foo_insforge_adapter.py": (
+            "app/core/adapters/local-backend/foo_local_backend_adapter.py": (
                 "from app.core.ports.foo_port import FooPort\n"
-                "class InsForgeFooAdapter(FooPort):\n    def get(self) -> str: return ''\n"
+                "class LocalBackendFooAdapter(FooPort):\n    def get(self) -> str: return ''\n"
             ),
             "app/core/di/foo_di.py": (
-                "from app.core.adapters.insforge.foo_insforge_adapter import (\n"
-                "    InsForgeFooAdapter,\n"
+                "from app.core.adapters.local_backend.foo_local_backend_adapter import (\n"
+                "    LocalBackendFooAdapter,\n"
                 ")\n"
-                "def get_foo() -> InsForgeFooAdapter:\n    return InsForgeFooAdapter(None)\n"
+                "def get_foo() -> LocalBackendFooAdapter:\n    return LocalBackendFooAdapter(None)\n"
             ),
         },
     )
@@ -246,14 +246,14 @@ def test_adapter_in_di_passes_when_wired(tmp_path: Path) -> None:
                 "from typing import Protocol\n"
                 "class FooPort(Protocol):\n    def get(self) -> str: ...\n"
             ),
-            "app/core/adapters/insforge/foo_insforge_adapter.py": (
+            "app/core/adapters/local-backend/foo_local_backend_adapter.py": (
                 "from app.core.ports.foo_port import FooPort\n"
-                "class InsForgeFooAdapter(FooPort):\n"
+                "class LocalBackendFooAdapter(FooPort):\n"
                 "    def get(self) -> str: return ''\n"
             ),
             "app/core/di/foo_di.py": (
-                "from app.core.adapters.insforge.foo_insforge_adapter import InsForgeFooAdapter\n"
-                "def get_foo() -> InsForgeFooAdapter: return InsForgeFooAdapter(None)\n"
+                "from app.core.adapters.local_backend.foo_local_backend_adapter import LocalBackendFooAdapter\n"
+                "def get_foo() -> LocalBackendFooAdapter: return LocalBackendFooAdapter(None)\n"
             ),
             "app/core/application/foo/x.py": "def x() -> str: return ''\n",
             "tests/test_foo_application.py": "def test_x() -> None: pass\n",
@@ -273,9 +273,9 @@ def test_adapter_in_di_fails_when_adapter_not_imported(tmp_path: Path) -> None:
                 "from typing import Protocol\n"
                 "class FooPort(Protocol):\n    def get(self) -> str: ...\n"
             ),
-            "app/core/adapters/insforge/foo_insforge_adapter.py": (
+            "app/core/adapters/local-backend/foo_local_backend_adapter.py": (
                 "from app.core.ports.foo_port import FooPort\n"
-                "class InsForgeFooAdapter(FooPort):\n"
+                "class LocalBackendFooAdapter(FooPort):\n"
                 "    def get(self) -> str: return ''\n"
             ),
             "app/core/di/foo_di.py": (
@@ -292,7 +292,7 @@ def test_adapter_in_di_fails_when_adapter_not_imported(tmp_path: Path) -> None:
 
 
 def test_queries_module_is_not_required_in_di(tmp_path: Path) -> None:
-    """``<slice>_insforge_queries.py`` is used by the adapter, not by di.
+    """``<slice>_local_backend_queries.py`` is used by the adapter, not by di.
 
     The check excludes these so the gate does not pick a fight with
     a valid adapter layout.
@@ -305,18 +305,18 @@ def test_queries_module_is_not_required_in_di(tmp_path: Path) -> None:
                 "from typing import Protocol\n"
                 "class FooPort(Protocol):\n    def get(self) -> str: ...\n"
             ),
-            "app/core/adapters/insforge/foo_insforge_adapter.py": (
-                "from app.core.adapters.insforge.foo_insforge_queries import QUERY\n"
+            "app/core/adapters/local-backend/foo_local_backend_adapter.py": (
+                "from app.core.adapters.local_backend.foo_local_backend_queries import QUERY\n"
                 "from app.core.ports.foo_port import FooPort\n"
-                "class InsForgeFooAdapter(FooPort):\n"
+                "class LocalBackendFooAdapter(FooPort):\n"
                 "    def get(self) -> str: return ''\n"
             ),
-            "app/core/adapters/insforge/foo_insforge_queries.py": (
+            "app/core/adapters/local-backend/foo_local_backend_queries.py": (
                 "QUERY = 'SELECT 1'\n"
             ),
             "app/core/di/foo_di.py": (
-                "from app.core.adapters.insforge.foo_insforge_adapter import InsForgeFooAdapter\n"
-                "def get_foo() -> InsForgeFooAdapter: return InsForgeFooAdapter(None)\n"
+                "from app.core.adapters.local_backend.foo_local_backend_adapter import LocalBackendFooAdapter\n"
+                "def get_foo() -> LocalBackendFooAdapter: return LocalBackendFooAdapter(None)\n"
             ),
             "app/core/application/foo/x.py": "def x() -> str: return ''\n",
             "tests/test_foo_application.py": "def test_x() -> None: pass\n",
@@ -346,7 +346,7 @@ def test_application_adapter_free_passes_when_clean(tmp_path: Path) -> None:
                 "from app.core.ports.foo_port import FooPort\n"
                 "def use(p: FooPort) -> str: return p.get()\n"
             ),
-            "app/core/adapters/insforge/foo_insforge_adapter.py": "x = 1\n",
+            "app/core/adapters/local-backend/foo_local_backend_adapter.py": "x = 1\n",
             "app/core/di/foo_di.py": "x = 1\n",
             "tests/test_foo_application.py": "def test_x() -> None: pass\n",
         },
@@ -356,7 +356,7 @@ def test_application_adapter_free_passes_when_clean(tmp_path: Path) -> None:
 
 
 def test_application_adapter_free_fails_on_concrete_import(tmp_path: Path) -> None:
-    """Application importing the InsForge-shaped adapter is a violation."""
+    """Application importing the LocalBackend-shaped adapter is a violation."""
     checker = _load_checker()
     _tree(
         tmp_path,
@@ -366,14 +366,14 @@ def test_application_adapter_free_fails_on_concrete_import(tmp_path: Path) -> No
                 "class FooPort(Protocol):\n    def get(self) -> str: ...\n"
             ),
             "app/core/application/foo/x.py": (
-                "from app.core.adapters.insforge.foo_insforge_adapter import (\n"
-                "    InsForgeFooAdapter,\n"
+                "from app.core.adapters.local_backend.foo_local_backend_adapter import (\n"
+                "    LocalBackendFooAdapter,\n"
                 ")\n"
-                "def use() -> InsForgeFooAdapter: return InsForgeFooAdapter()\n"
+                "def use() -> LocalBackendFooAdapter: return LocalBackendFooAdapter()\n"
             ),
-            "app/core/adapters/insforge/foo_insforge_adapter.py": "x = 1\n",
+            "app/core/adapters/local-backend/foo_local_backend_adapter.py": "x = 1\n",
             "app/core/di/foo_di.py": (
-                "from app.core.adapters.insforge.foo_insforge_adapter import InsForgeFooAdapter\n"
+                "from app.core.adapters.local_backend.foo_local_backend_adapter import LocalBackendFooAdapter\n"
             ),
             "tests/test_foo_application.py": "def test_x() -> None: pass\n",
         },
@@ -478,14 +478,14 @@ def test_baselined_violation_passes_and_new_one_fails(tmp_path: Path) -> None:
                 "class FooPort(Protocol):\n    def get(self) -> str: ...\n"
             ),
             "app/core/application/foo/x.py": (
-                "from app.core.adapters.insforge.foo_insforge_adapter import (\n"
-                "    InsForgeFooAdapter,\n"
+                "from app.core.adapters.local_backend.foo_local_backend_adapter import (\n"
+                "    LocalBackendFooAdapter,\n"
                 ")\n"
-                "def use() -> InsForgeFooAdapter: return InsForgeFooAdapter()\n"
+                "def use() -> LocalBackendFooAdapter: return LocalBackendFooAdapter()\n"
             ),
-            "app/core/adapters/insforge/foo_insforge_adapter.py": "x = 1\n",
+            "app/core/adapters/local-backend/foo_local_backend_adapter.py": "x = 1\n",
             "app/core/di/foo_di.py": (
-                "from app.core.adapters.insforge.foo_insforge_adapter import InsForgeFooAdapter\n"
+                "from app.core.adapters.local_backend.foo_local_backend_adapter import LocalBackendFooAdapter\n"
             ),
             "tests/test_foo_application.py": "def test_x() -> None: pass\n",
         },

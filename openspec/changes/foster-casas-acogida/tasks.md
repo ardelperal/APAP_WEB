@@ -38,4 +38,4 @@ skill_resolution: paths-injected
 
 | Commit | Work unit | SDD tasks | Verification | Access sync |
 |---|---|---|---|---|
-| _TBD_ | FOSTER-01 (schema + service + routes + templates) | 1.1-2.5 | _TBD_ | N/A (InsForge is target; legacy `TbAcogidaCasas` is read-only reference) |
+| _TBD_ | FOSTER-01 (schema + service + routes + templates) | 1.1-2.5 | _TBD_ | N/A (LocalBackend is target; legacy `TbAcogidaCasas` is read-only reference) |

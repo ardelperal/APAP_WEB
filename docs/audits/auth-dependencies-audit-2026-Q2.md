@@ -18,19 +18,19 @@ This audit documents the scope, methodology, findings, and verdict for the audit
 |---|---|
 | Fichero auditado | `app/core/auth_dependencies.py` |
 | Líneas auditadas | 142 |
-| Funciones públicas | 4 (`get_insforge_client_dep`, `get_current_user_optional`, `return_early_if_response`, `require_authorized_user`) |
+| Funciones públicas | 4 (`get_local_backend_client_dep`, `get_current_user_optional`, `return_early_if_response`, `require_authorized_user`) |
 | Cross-references | `app/main.py` (middleware + helper `_redirect`), `app/core/session.py` (`read_session`, `session_cookie_name`), `app/core/csrf.py` (PR-5B, planificado) |
 | Auditores | `sdd-apply` PR-5A sobre `hardening-2026-q2/slice-5a-audit-doc` desde `staging` (bd8a98e) |
 | Fecha | 2026-06-27 |
 
 ### Funciones auditadas
 
-### `get_insforge_client_dep()` — línea 40
+### `get_local_backend_client_dep()` — línea 40
 
 | Aspecto | Detalle |
 |---|---|
-| Firma | `def get_insforge_client_dep():` (sin anotación, generator) |
-| Retorno | `Iterator[InsForgeClient]` (implícito) |
+| Firma | `def get_local_backend_client_dep():` (sin anotación, generator) |
+| Retorno | `Iterator[LocalBackendClient]` (implícito) |
 | Callers | 5 sitios en `app/modules/{animals,entradas,voluntarios}/routes.py`; tests vía `app.dependency_overrides[...]` |
 | Cobertura | Indirecta — ejercida por cada test de ruta que use `app.dependency_overrides` |
 | Hallazgos | Falta anotación de tipo de retorno (LOW-2); contrato de gestión de recursos correcto |
@@ -103,7 +103,7 @@ Comprobación de cobertura CSRF: grep de `csrf_token` en `app/templates/` devuel
 | HIGH | Sin defensa CSRF en ningún formulario POST | deferred (PR-5B) | Una cookie `apap_session` robada o reusada (p. ej. vía XSS, leak de log) permite a un atacante impersonar al usuario en POSTs a los 10 handlers. Comportamiento actual: `apap_session` y `apap_pkce` llevan `samesite="lax"` (app/main.py:261, :307). Sin validación de token. Mitigación: PR-5B implementa `app/core/csrf.py::CsrfMiddleware`, fija `samesite="strict"`, inyecta `<input type="hidden" name="csrf_token">` en las 8 plantillas de formulario. Spec REQ-ah-5..10. Estado: TRACKED — PR-5B (siguiente slice de este cambio). |
 | MEDIUM | Parámetro de `return_early_if_response` tipado como `object`; debería ser `Response \| dict` | deferred (FOLLOW-UP #1) | El helper acepta cualquier valor y solo comprueba `isinstance(value, Response)`. Mitigación: tighten a `Response \| dict`; actualizar los 2 call sites en `app/main.py` para que solo pasen `Response \| dict`. Tighten puro de tipos, sin cambio de comportamiento. Bundle con F-4. | <!-- alantyle-ignore:ALAN003 -->
 | MEDIUM | Triple duplicación del patrón "leer cookie de sesión + decodificar payload" | deferred (FOLLOW-UP #2) | El mismo snippet de 4 líneas copy-pasted en tres ubicaciones. Mitigación: extraer leaf helper `read_session_payload(request) -> dict \| None` en `app/core/auth_dependencies.py` (o `app/core/session.py`); que `get_current_user_optional`, `protect_user_facing_routes` y `CsrfMiddleware` lo llamen. Recomendado co-shipped con PR-5B. | <!-- alantyle-ignore:ALAN003 -->
-| MEDIUM | Falta anotación de tipo de retorno en `get_insforge_client_dep` | deferred (FOLLOW- #1, bundle con F-2) | El type checker trata el retorno como `Any`. Mitigación: añadir `from collections.abc import Iterator` y anotar como `Iterator[InsForgeClient]`. Cambio de una línea, delta de comportamiento cero. | <!-- alantyle-ignore:ALAN003 -->
+| MEDIUM | Falta anotación de tipo de retorno en `get_local_backend_client_dep` | deferred (FOLLOW- #1, bundle con F-2) | El type checker trata el retorno como `Any`. Mitigación: añadir `from collections.abc import Iterator` y anotar como `Iterator[LocalBackendClient]`. Cambio de una línea, delta de comportamiento cero. | <!-- alantyle-ignore:ALAN003 -->
 | LOW | Helper local `_redirect` en `app/main.py:115` redundante con `RedirectResponse` inline | deferred (documented only) | Mitigación: consolidar en `app/core/redirects.py::redirect(path: str) -> RedirectResponse` e importar desde ambos. Fuera del alcance del Slice 5 (spec §Out of scope lo difiere explícitamente). |
 | LOW | Dos llamadas casi idénticas a `RedirectResponse` en `require_authorized_user` | no action | Dos early-return; la legibilidad es OK. Sin acción. Documentado por completitud. |
 | LOW | Import legacy `from app.modules.animals.routes import require_authorized_user` en un test | deferred (documented only) | `tests/test_auth_session_is_authorized.py:52` importa desde `app.modules.animals.routes` (camino legacy); el import canónico es `app.core.auth_dependencies`. Mitigación: actualizar import. Limpieza trivial, diferida a un pass de tests-cleanup. |
@@ -148,7 +148,7 @@ El hallazgo HIGH único (F-1, defensa CSRF ausente) es el alcance explícito de 
 
 ### Slice #420-7 Addendum — 2026-08-05 (auth-dependencies)
 
-**Scope**: mover `app/core/auth_dependencies.py` (9 deps FastAPI, ~419 líneas) a `app/core/di/auth_dependencies_di.py` según el layout §33.3. Reducir el original a un re-export shim. Aplicar el fix §32.P4 sobre `InsForgeError` en `require_authorized_user` en el mismo PR. Refrescar este audit doc y añadir el pin test arquitectónico.
+**Scope**: mover `app/core/auth_dependencies.py` (9 deps FastAPI, ~419 líneas) a `app/core/di/auth_dependencies_di.py` según el layout §33.3. Reducir el original a un re-export shim. Aplicar el fix §32.P4 sobre `BackendError` en `require_authorized_user` en el mismo PR. Refrescar este audit doc y añadir el pin test arquitectónico.
 
 Ficheros cambiados (5 totales — corregido del tally previo de 4):
 
@@ -163,20 +163,20 @@ Ficheros cambiados (5 totales — corregido del tally previo de 4):
 1. CodeGraph caller map de los 9 símbolos: 35 ficheros consumer (corregido del 19 del design — el conteo previo era una muestra parcial; la superficie real incluye `app/core/admin_handlers.py`, `app/core/auth_flow.py`, `app/core/rbac.py`, cada `app/modules/*/routes.py` más 3 `batch_routes.py`, el cuerpo lifespan de `app/main.py` y 16 ficheros de test). El enfoque shim es transparente para todos.
 2. AST diff: el cuerpo del shim post-fix es `from app.core.di.auth_dependencies_di import *` + `from app.core.logging import log_safe` + `from app.core.session import read_session_payload` más un docstring de módulo; sin lógica. Los re-exports extra de `log_safe` / `read_session_payload` permiten que los patches `monkeypatch.setattr("app.core.auth_dependencies.log_safe", ...)` de los tests existentes se propaguen a las llamadas del módulo di (el módulo di resuelve estos nombres vía `_shim().<name>` en tiempo de llamada).
 3. Comparación de firmas: `inspect.signature()` para cada uno de los 9 nombres coincide byte a byte entre shim y módulo di (átomo 5 del pin test).
-4. Revisión §32.P4: identificado el camino de `InsForgeError` sin manejar en `require_authorized_user` → paso de revalidación → diseñado Variante A.
+4. Revisión §32.P4: identificado el camino de `BackendError` sin manejar en `require_authorized_user` → paso de revalidación → diseñado Variante A.
 5. Fix DI↔shim cycle (gate correction 1): el previo `from app.core import auth_dependencies as _shim` a nivel de módulo creaba un ciclo order-dependent. Un proceso fresh que importara el módulo di primero disparaba una carga parcial del shim; el `from app.core.di.auth_dependencies_di import *` del shim corría entonces contra el módulo di parcial (los 9 símbolos públicos están definidos después del import shim module-level del módulo di) y el shim terminaba sin sus 9 re-exports consumer-facing. La fix reemplaza el binding module-level con un helper de lookup lazy `_shim()` dentro del módulo di — ver `:func:app.core.di.auth_dependencies_di._shim`. El shim no cambia estructuralmente; solo cambia la estrategia de import del módulo di. El fresh-process regression test `tests/test_auth_dependencies_slice.py::test_shim_exports_resolve_when_di_module_imported_first` pinea el invariante.
 6. Lazy-import cycle (#226): documentado en `docs/architecture/decisiones-proyecto.md`; el import module-level desde `app.core.auth` no cambia. El nuevo módulo di ya no importa el shim a nivel de módulo — busca el shim en tiempo de llamada vía `_shim()` — así que el ciclo module-level previo desaparece. Esta decisión (Opción A en observación de Engram #24065) es la forma canónica para los 11 slices de módulo que siguen.
 
 | Severity | Title | Form | Details |
 |---|---|---|---|
-| CRITICAL | §32.P4: `InsForgeError` desde `get_user_by_email` escaparía como 500 (issue #294) | fixed | Variante A en el mismo PR — `try/except InsForgeError` envuelve la única llamada `get_user_by_email(client, email)`, emite `log_safe("auth.denied", reason="db_unreachable", user_id=...)`, devuelve `RedirectResponse("/unauthorized", 302)`. El cache no se envenena (átomo 4 negative guard vía el `call_count` de la fixture `set_cached_auth`). |
+| CRITICAL | §32.P4: `BackendError` desde `get_user_by_email` escaparía como 500 (issue #294) | fixed | Variante A en el mismo PR — `try/except BackendError` envuelve la única llamada `get_user_by_email(client, email)`, emite `log_safe("auth.denied", reason="db_unreachable", user_id=...)`, devuelve `RedirectResponse("/unauthorized", 302)`. El cache no se envenena (átomo 4 negative guard vía el `call_count` de la fixture `set_cached_auth`). |
 | CRITICAL | DI↔shim cycle order-dependent module-level (gate correction 1) | fixed | Un proceso fresh que importara el módulo di primero rompía todos los paths `from app.core.auth_dependencies import <name>` de los consumers con `ImportError`. Reemplazado el module-level `from app.core import auth_dependencies as _shim` del módulo di por un helper de lookup lazy `_shim()`. Shim no cambia estructuralmente. Pineado por el nuevo átomo 8 fresh-process regression test (una invocación `subprocess` que limpia `sys.modules` y luego importa el módulo di primero). |
 | INFO | Import module-level desde `app.core.auth` (cycle #226) — convención preexistente | no action | Documentado en `docs/architecture/decisiones-proyecto.md`; sin cambios. |
-| INFO | Constraint R04 leak, set completo (gate correction 3) | no action | El átomo 3 actualizado aplica el set completo: (a) sin palabras clave raw de SQL en literales string de código, (b) sin construcción de `InsForgeClient(...)` fuera del único sitio de fallback permitido, (c) sin acceso directo a `app.core.auth_cache` fuera del facade `get_cached_auth` / `set_cached_auth`. Pineado por el átomo 3 con el AST helper `_module_r04_violations`. |
+| INFO | Constraint R04 leak, set completo (gate correction 3) | no action | El átomo 3 actualizado aplica el set completo: (a) sin palabras clave raw de SQL en literales string de código, (b) sin construcción de `LocalBackendClient(...)` fuera del único sitio de fallback permitido, (c) sin acceso directo a `app.core.auth_cache` fuera del facade `get_cached_auth` / `set_cached_auth`. Pineado por el átomo 3 con el AST helper `_module_r04_violations`. |
 | INFO | Shim de 24 líneas, bien por debajo del cap de 50 líneas (gate correction 4) | no action | Sin nueva entrada `BASELINE` requerida (Regla §21). |
 | INFO | Módulo di de 443 líneas (gate correction 4) | no action | Aún dentro del presupuesto de 700 líneas (átomo 6 + Regla §21). |
 | INFO | El Protocol `AuthCacheBackend` existe pero el facade module-level `get_cached_auth` / `set_cached_auth` lo bypassea | no action | Deuda preexistente (issue #287); fuera del alcance de este slice. |
-| INFO | `app.dependency_overrides[<key>]` sigue funcionando para `get_insforge_client`, `get_insforge_client_dep`, `get_current_user_optional` | no action | El primero viene de `app.main` (sin cambios); los otros dos son re-exportados por el shim con identidad (`shim.<X> is di.<X>`, átomo 2). Sin cambios necesarios. |
+| INFO | `app.dependency_overrides[<key>]` sigue funcionando para `get_local_backend_client`, `get_local_backend_client_dep`, `get_current_user_optional` | no action | El primero viene de `app.main` (sin cambios); los otros dos son re-exportados por el shim con identidad (`shim.<X> is di.<X>`, átomo 2). Sin cambios necesarios. |
 
 **Verdict**: PASS — slice migrado a `app/core/di/`, 9 firmas byte-idénticas (pin test átomo 5), fix §32.P4 en su sitio con negative guard de cache poisoning (pin test átomo 4), ningún import path de consumer roto en ninguno de los dos órdenes de import (pin test átomos 1, 2 y el nuevo átomo 8 fresh-process regression test), los 49 tests existentes pasan sin modificación, addendum del audit doc enviado.
 

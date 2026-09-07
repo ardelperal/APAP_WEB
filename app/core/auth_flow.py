@@ -6,7 +6,7 @@ The domain logic has been migrated to the hexagonal slice:
   - :mod:`app.core.domain.oauth`          — entities + Protocol errors
   - :mod:`app.core.ports.oauth_port`      — :class:`OAuthPort` Protocol
   - :mod:`app.core.application.oauth`     — use cases (one per file)
-  - :mod:`app.core.adapters.insforge.oauth_insforge_adapter` — InsForge adapter
+  - :mod:`app.core.adapters.local_backend.oauth_local_backend_adapter` — LocalBackend adapter
   - :mod:`app.core.di.oauth_di`           — FastAPI DI provider
 
 The route handlers below are now THIN: each one parses the
@@ -17,10 +17,10 @@ Issue #336: extracted from ``create_app`` to reduce the factory's
 cyclomatic complexity (CC) and line count.
 
 Issue judgment-day 2026-08-04 BLOCKER §31 (the legacy
-``auth_flow.py:21`` imported :class:`LocalPostgresExecutor` and
+``auth_flow.py:21`` imported :class:`AuthUsersPort` and
 :class:`BackendError` directly) is now fixed: this module no
-longer imports any InsForge-shaped symbol. The adapter wraps the
-InsForge client; the use cases depend on the Protocol.
+longer imports any LocalBackend-shaped symbol. The adapter wraps the
+LocalBackend client; the use cases depend on the Protocol.
 
 Issue judgment-day 2026-08-04 §32.P4 (the legacy 165-166 caught a
 bare ``BackendError`` and silently turned every transport failure
@@ -56,7 +56,6 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 
 from app.core import config as config_module
-from app.core.adapters.stubs.auth_users_stub import StubAuthUsersPort
 from app.core.adapters.stubs.oauth_stub import StubOAuthPort
 from app.core.application.oauth import (
     callback as callback_use_case,
@@ -70,7 +69,7 @@ from app.core.application.oauth import (
 from app.core.application.oauth import (
     start_google_login as start_google_login_use_case,
 )
-from app.core.auth_dependencies import get_insforge_client_dep
+from app.core.auth_dependencies import get_local_backend_client_dep
 from app.core.csrf import issue_csrf_to_session
 from app.core.data_access import BackendError
 from app.core.domain.oauth import (
@@ -78,7 +77,6 @@ from app.core.domain.oauth import (
     OAuthNotConfiguredError,
     UserNotAuthorizedError,
 )
-from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.logging import log_safe
 from app.core.session import (
     read_session,
@@ -122,7 +120,7 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
     The route handlers are THIN: each one handles only transport
     concerns (cookie parsing, redirect building, template
     rendering) and delegates the domain decision to a use case in
-    :mod:`app.core.application.oauth`. The :class:`LocalPostgresExecutor`
+    :mod:`app.core.application.oauth`. The :class:`AuthUsersPort`
     is constructed per-request by the shim helpers
     (no DI; the legacy shape is preserved).
     """
@@ -150,13 +148,13 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
 
     @app.get("/auth/google")
     def start_google_login(
-        client: Annotated[LocalPostgresExecutor, Depends(get_insforge_client_dep)],
+        client: Annotated[AuthUsersPort, Depends(get_local_backend_client_dep)],
     ) -> Response:
-        """Start the Google OAuth flow via InsForge.
+        """Start the Google OAuth flow via LocalBackend.
 
         Generates a PKCE pair (now inside the adapter), stores the
         verifier in a short-lived ``apap_pkce`` cookie, asks
-        InsForge for the Google auth URL, and redirects the user
+        LocalBackend for the Google auth URL, and redirects the user
         there.
         """
         settings = config_module.get_settings()
@@ -178,7 +176,7 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
             httponly=True,
             secure=True,
             # OAuth returns to /auth/callback via a top-level cross-site GET
-            # from Google/InsForge. SameSite=Strict is not sent on that
+            # from Google/LocalBackend. SameSite=Strict is not sent on that
             # navigation, so the callback cannot read the verifier and starts
             # a /callback -> /login loop. Lax keeps the verifier out of
             # cross-site subrequests/forms while allowing the OAuth callback.
@@ -190,24 +188,24 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
     @app.get("/auth/callback")
     def callback(
         request: Request,
-        client: Annotated[LocalPostgresExecutor, Depends(get_insforge_client_dep)],
-        insforge_code: str | None = None,
-        code: str | None = None,  # legacy direct-callback (pre-InsForge-proxy)
+        client: Annotated[AuthUsersPort, Depends(get_local_backend_client_dep)],
+        oauth_code: str | None = None,
+        code: str | None = None,  # legacy direct-callback (pre-LocalBackend-proxy)
     ) -> Response:
-        """Exchange the OAuth code for an InsForge JWT and issue a session.
+        """Exchange the OAuth code for an LocalBackend JWT and issue a session.
 
-        InsForge's hosted OAuth proxy fronts Google and other providers
+        LocalBackend's hosted OAuth proxy fronts Google and other providers
         with a two-step flow: APAP starts the flow at ``/login`` (which
         hits ``GET /api/auth/oauth/google`` and gets back a Google OAuth
-        URL); after consent, Google → InsForge → APAP with
-        ``?insforge_code=<temporary>``; APAP then exchanges that code
+        URL); after consent, Google → LocalBackend → APAP with
+        ``?oauth_code=<temporary>``; APAP then exchanges that code
         here via ``POST /api/auth/oauth/exchange``. The legacy
         ``?code=<google-code>`` direct-callback parameter is also
         accepted so existing test suites and any direct callbacks keep
         working.
 
         The ``code_verifier`` is recovered from the short-lived PKCE
-        cookie minted at ``/login``. The email returned by InsForge is
+        cookie minted at ``/login``. The email returned by LocalBackend is
         checked against ``usuarios_autorizados``; authorized users get
         a signed session cookie, everyone else is redirected to
         ``/unauthorized``.
@@ -223,14 +221,14 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
         try:
             session = callback_use_case(
                 StubOAuthPort(),
-                StubAuthUsersPort(),
-                insforge_code=insforge_code,
+                AuthUsersPort(),
+                oauth_code=oauth_code,
                 code=code,
                 code_verifier=pkce["code_verifier"],
                 redirect_uri=settings.google_redirect_uri,
             )
         except CallbackInvalidError:
-            # No code supplied (neither insforge_code nor code). The
+            # No code supplied (neither oauth_code nor code). The
             # user landed here with a stale cookie. Bounce to /login
             # so they can re-start the flow.
             return _redirect("/login")

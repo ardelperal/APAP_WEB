@@ -21,7 +21,7 @@ from typing import Any
 
 from migration import dni_collision as dni_collision_mod
 from migration.dni_collision import DniCollisionCounter
-from migration.reverse_apply.types import SqlExecutor
+from migration.reverse_apply.types import _LocalBackendLike
 from migration.shadow_state import ShadowStateRepository
 
 DIRECTION_WEB_TO_LEGACY = "web-to-legacy"
@@ -29,7 +29,7 @@ DIRECTION_WEB_TO_LEGACY = "web-to-legacy"
 
 def _advance_preserve_shadow_state(
     *,
-    client: SqlExecutor,
+    client: _LocalBackendLike,
     mapping: Any,
     web_row: dict[str, Any],
     legacy_pk: str,
@@ -86,7 +86,7 @@ def _advance_preserve_shadow_state(
 
 def _record_drift_needs_review(
     *,
-    client: SqlExecutor,
+    client: _LocalBackendLike,
     mapping: Any,
     web_row: dict[str, Any],
     legacy_pk: str,

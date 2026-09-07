@@ -3,7 +3,7 @@
 The local FastAPI router (``app.core.local_backend.api``) uses this
 executor to run SQL against the same Postgres instance that the
 integration tests use. The shape of the return value matches what
-``LocalPostgresExecutor.execute_sql`` consumes (``{"rows": [...], "rowCount": N}``).
+``AuthUsersPort.execute_sql`` consumes (``{"rows": [...], "rowCount": N}``).
 
 Why a separate module:
 - The local backend runs as a separate app from ``app.main`` (the
@@ -18,7 +18,7 @@ Hard rules (web-tdd-philosophy):
 - Rule 4 (no humo): tests assert return shapes, placeholder style,
   error classification — never absence-of-error.
 - Rule 8 (no production mutation): tests run against the
-  self_host_schema ephemeral Postgres; no real InsForge touched.
+  self_host_schema ephemeral Postgres; no real LocalBackend touched.
 """
 
 from __future__ import annotations
@@ -153,7 +153,7 @@ class LocalPostgresExecutor:
                     assert description_list is not None
                     columns = [col[0] for col in description_list]
                     # The producer side is psycopg's default tuple factory;
-                    # the consumer side (``LocalPostgresExecutor.execute_sql``)
+                    # the consumer side (``AuthUsersPort.execute_sql``)
                     # expects ``list[dict[str, Any]]``. We map tuples to dicts
                     # here so the contract is uniform.
                     rows = [

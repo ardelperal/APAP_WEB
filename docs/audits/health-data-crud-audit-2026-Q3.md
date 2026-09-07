@@ -28,7 +28,7 @@ This audit documents the scope, methodology, findings, and verdict for the audit
 1. Revisión del SQL de escritura para asegurar que los parámetros del `UPDATE` se enlazan como `$2..$8` después del identificador `$1`, y que la regla D-24 usa una forma SQL ejecutable con `FROM checked_animal`. <!-- alantyle-ignore:ALAN003 -->
 2. Revisión del orden de arranque para que los catálogos existan antes de crear tablas de dominio con FKs a `catalogos_pruebas` y `catalogos_tipos_contrato`.
 3. Revisión del límite de capas: las rutas de sanidad no importan helpers SQL de catálogos; delegan en `app.modules.sanidad.service`.
-4. Separación del tratamiento de errores: `ValueError` vuelve al formulario con 422; `InsForgeError` se registra con `log_safe` y devuelve respuesta 503 en los flujos de escritura afectados.
+4. Separación del tratamiento de errores: `ValueError` vuelve al formulario con 422; `BackendError` se registra con `log_safe` y devuelve respuesta 503 en los flujos de escritura afectados.
 5. Adición de pruebas de regresión para SQL, D-24, orden de bootstrap y rutas de error.
 
 ## Findings
@@ -38,13 +38,13 @@ This audit documents the scope, methodology, findings, and verdict for the audit
 | BLOCKER | `UPDATE` enlazaba columnas con placeholders incorrectos y referenciaba `checked_animal.fecha_alta` sin `FROM checked_animal` | fixed | SQL corregido y cubierto por pruebas de forma ejecutable y contrato D-24. | <!-- alantyle-ignore:ALAN003 -->
 | BLOCKER | Un backend limpio podía fallar al crear FKs de dominio antes de las tablas de catálogo | fixed | `ensure_catalogs` se ejecuta antes de `ensure_domain_schema`; tests de lifespan actualizados. |
 | CRITICAL | La ruta importaba directamente `list_catalogos_pruebas`, saltándose la capa de servicio | fixed | Se añadió wrapper de servicio y las rutas delegan en `sanidad_service`. |
-| CRITICAL | `InsForgeError` se trataba como validación 422 o podía escapar sin control en delete | fixed | `ValueError` y `InsForgeError` tienen ramas separadas; backend caído devuelve 503 y queda logueado. |
+| CRITICAL | `BackendError` se trataba como validación 422 o podía escapar sin control en delete | fixed | `ValueError` y `BackendError` tienen ramas separadas; backend caído devuelve 503 y queda logueado. |
 | MEDIUM | La recuperación por error podía volver a fallar al recargar catálogos | fixed | Carga de catálogos tolerante a fallo, con log y lista vacía como fallback. |
 | MEDIUM | El CRUD gestiona datos sanitarios y necesitaba evidencia de auditoría | fixed | Este documento fija alcance, metodología, hallazgos y veredicto. |
 
 ## Verdict
 
-PASS: el flujo de datos sanitarios queda alineado con las reglas del proyecto. Las rutas actúan como pegamento HTTP, el servicio es dueño del SQL y la validación, los formularios llevan CSRF, los logs pasan por `log_safe` y la respuesta es resiliente ante indisponibilidad de InsForge. Riesgo residual: si InsForge no está disponible, el usuario no puede guardar ni borrar actuaciones; la respuesta es 503 y debe reintentarse cuando el backend se recupere.
+PASS: el flujo de datos sanitarios queda alineado con las reglas del proyecto. Las rutas actúan como pegamento HTTP, el servicio es dueño del SQL y la validación, los formularios llevan CSRF, los logs pasan por `log_safe` y la respuesta es resiliente ante indisponibilidad de LocalBackend. Riesgo residual: si LocalBackend no está disponible, el usuario no puede guardar ni borrar actuaciones; la respuesta es 503 y debe reintentarse cuando el backend se recupere.
 
 ## References
 

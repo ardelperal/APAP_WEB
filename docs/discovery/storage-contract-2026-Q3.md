@@ -2,7 +2,7 @@
 
 ## Scope
 
-PR4a records the deployed InsForge storage contract needed by PR4b.
+PR4a records the deployed LocalBackend storage contract needed by PR4b.
 Agent-side probe remains GET/HEAD-only and refuses POST, PUT, PATCH, and DELETE
 before any network transport receives a request. Operator-supplied reversible
 sentinel evidence is persisted only as redacted status/shape categories.

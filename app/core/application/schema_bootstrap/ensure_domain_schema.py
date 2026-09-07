@@ -7,7 +7,7 @@ Thin orchestrator over :class:`SchemaBootstrapPort`. Hexagonal contract:
 - Outputs: none — the side effect (DDL emitted against the backend) is
   owned by the adapter.
 - Side effects: schema mutations on whichever backend the adapter
-  talks to. In production that is InsForge; in tests it is whatever
+  talks to. In production that is LocalBackend; in tests it is whatever
   fake implements the port.
 
 The split between the use case and the adapter is deliberate: the

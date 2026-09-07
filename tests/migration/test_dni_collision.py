@@ -57,7 +57,7 @@ class _FakeShadowState:
 
     Captures every ``upsert`` and ``update_reconciliation_status``
     call so tests can assert the per-row shape without spinning up
-    the real repository (which would require an InsForge-like
+    the real repository (which would require an LocalBackend-like
     transport).
     """
 
@@ -153,15 +153,15 @@ def test_forward_legacy_produces_zero_dni_collisions(
     entire run.
 
     The atom runs the apply pipeline end-to-end through a fake
-    executor + ``FakeInsForge`` (no real backend mutation).
+    executor + ``FakeLocalBackend`` (no real backend mutation).
     """
     monkeypatch.setenv("APAP_MIGRATION_DIR", str(tmp_path))
 
     # Import the conftest fake so this test stays in the same
     # hermetic surface as the rest of ``tests/migration``.
-    from tests.migration.conftest import FakeInsForge
+    from tests.migration.conftest import FakeLocalBackend
 
-    client = FakeInsForge()
+    client = FakeLocalBackend()
     counter = DniCollisionCounter()
     legacy_rows = [
         {"Voluntario": "alice", "Tel1": "+34600123456", "Tel2": None, "Email": "alice@example.org"},

@@ -105,7 +105,7 @@ def test_classifier_matches_documented_classes() -> None:
         "cli_apply_reverse.py",
         "bootstrap.py",
         "mappings/__init__.py",
-        "adapters/insforge/web_reader_insforge_adapter.py",
+        "adapters/local-backend/web_reader_local_backend_adapter.py",
         "di/web_reader_di.py",
         "reverse_apply/orchestrator.py",
         "reverse_apply/per_row.py",
@@ -257,7 +257,7 @@ def test_access_bound_module_must_not_import_app(tmp_path: Path) -> None:
         checker.ACCESS_BOUND_FILENAMES = frozenset(original)
 
     assert len(violations) == 1
-    assert "app.core.insforge" in violations[0]
+    assert "app.core.local_backend" in violations[0]
 
 
 def test_access_bound_module_may_import_intra_migration(tmp_path: Path) -> None:

@@ -7,7 +7,7 @@ Query/service separation:
   and talks to the SQL executor.
 
 Rule section-22 - the seam is testable. The shape of the SQL is asserted in
-unit tests without spinning up transport, InsForge, or HTTP.
+unit tests without spinning up transport, LocalBackend, or HTTP.
 
 Rule section-4 - column lists and SQL templates live in exactly one place.
 All builders here share the same column constants derived from the

@@ -17,7 +17,7 @@
 - [ ] M0.2.3 storage.py (boto3 MinIO)
 - [ ] M0.2.4 api.py (FastAPI router)
 - [ ] M0.2.5 health.py (/healthz)
-- [ ] M0.3.1 InsForgeClient default URL
+- [ ] M0.3.1 LocalBackendClient default URL
 - [ ] M0.3.2 local_backend router mount
 - [ ] M0.3.3 E2E test: local URL
 - [ ] M0.3.4 E2E test: app talks to local API
@@ -26,7 +26,7 @@
 - [ ] M0.4.3 migration idempotent test
 - [ ] M0.5.1 web_to_legacy_check_only vs local
 - [ ] M0.5.2 E2E legacy_postgres
-- [ ] M0.5.3 standalone InsForgeClient CI mode
+- [ ] M0.5.3 standalone LocalBackendClient CI mode
 - [ ] M1.1.1 0050_add_password_hash.sql
 - [ ] M1.1.2 0051_create_magic_link_tokens.sql
 - [ ] M1.1.3 apply migrations
@@ -35,7 +35,7 @@
 - [ ] M1.2.2 magic_link_port.py
 - [ ] M1.3.1 classic_password_auth_port.py (argon2id)
 - [ ] M1.3.2 magic_link_port.py
-- [ ] M1.3.3 InsForge no-op default
+- [ ] M1.3.3 LocalBackend no-op default
 - [ ] M1.4.1 POST /api/auth/login
 - [ ] M1.4.2 POST /api/auth/logout
 - [ ] M1.4.3 POST /api/auth/forgot-password
@@ -45,7 +45,7 @@
 - [ ] M1.5.1 test_classic_password_auth.py
 - [ ] M1.5.2 test_magic_link.py
 - [ ] M1.5.3 test_local_backend_auth.py
-- [ ] M1.6.1 oauth_insforge_adapter unchanged
+- [ ] M1.6.1 oauth_local_backend_adapter unchanged
 - [ ] M1.6.2 password_hash NULL → Google only
 - [ ] M1.6.3 password set → both flows
 - [ ] M2.1.1 coolify.yaml

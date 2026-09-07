@@ -1,6 +1,7 @@
 """Stub adapter for ``OAuthPort`` — pending local-backend implementation.
 
-This file replaces the deleted :class:`app.core.adapters.insforge.oauth_insforge_adapter.InsForgeOAuthAdapter`.
+Replaces the deleted
+:class:`app.core.adapters.insforge.oauth_insforge_adapter.InsForgeOAuthAdapter`.
 A real :class:`~app.core.local_backend.oauth_google`-backed adapter lands
 in a follow-up slice; until then, every method raises
 :class:`NotImplementedError` so the runtime fails loud per route.
@@ -22,20 +23,20 @@ from app.core.ports.oauth_port import OAuthPort
 class StubOAuthPort(OAuthPort):
     """Placeholder :class:`OAuthPort` whose every method raises."""
 
-    def start_google_login(self, *args, **kwargs):
+    def start_google_login(self, *args, **kwargs):  # type: ignore[override]
         raise NotImplementedError(
             "OAuthPort.start_google_login: pending local-backend adapter, see #4b'"
         )
 
-    def exchange_insforge_oauth_code(self, *args, **kwargs):
+    def exchange_insforge_oauth_code(self, *args, **kwargs):  # type: ignore[override]
         raise NotImplementedError(
             "OAuthPort.exchange_insforge_oauth_code: pending local-backend adapter, see #4b'"
         )
 
-    def exchange_google_oauth_code(self, *args, **kwargs):
+    def exchange_google_oauth_code(self, *args, **kwargs):  # type: ignore[override]
         raise NotImplementedError(
             "OAuthPort.exchange_google_oauth_code: pending local-backend adapter, see #4b'"
         )
 
 
-__all__ = ["StubOAuthPort"]
+__all__ = ["OAuthPort"]

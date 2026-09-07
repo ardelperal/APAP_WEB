@@ -24,19 +24,19 @@ tests.
 
 - [x] **0.1.4** `app/core/local_backend/rawsql.py` — `POST /api/database/advance/rawsql` handler
   - [x] **0.1.4.1** Reuses `LocalPostgresExecutor` from `request.app.state`
-  - [x] **0.1.4.2** Returns `{"rows": [...], "rowCount": N}` matching `InsForgeClient.execute_sql` consumer
+  - [x] **0.1.4.2** Returns `{"rows": [...], "rowCount": N}` matching `LocalBackendClient.execute_sql` consumer
   - [x] **0.1.4.3** Maps `QueryError` → HTTP 400, `DatabaseError` → HTTP 503 (or 500)
   - [x] **0.1.4.4** TDD: integration test with full round-trip (INSERT then SELECT)
 
 - [x] **0.1.5** `app/core/local_backend/storage.py` — `GET /api/storage/buckets` and `POST /api/storage/buckets/{name}` handlers
-  - [x] **0.1.5.1** `GET` returns `[{"bucketName": ..., "isPublic": ..., "files": ...}, ...]` (matching `InsForgeClient.get_bucket` consumer)
+  - [x] **0.1.5.1** `GET` returns `[{"bucketName": ..., "isPublic": ..., "files": ...}, ...]` (matching `LocalBackendClient.get_bucket` consumer)
   - [x] **0.1.5.2** `POST` returns the bucket shape, creates the bucket on demand
   - [x] **0.1.5.3** M0 stub: hard-coded `apap-photos` bucket with `isPublic=false, files=0`; M2 replaces with MinIO
 
 - [x] **0.1.6** `app/core/local_backend/oauth_google.py` — OAuth flow stub
   - [x] **0.1.6.1** `POST /api/auth/oauth/google?code_challenge=...&redirect_uri=...` returns `{"authUrl": "https://accounts.google.com/..."}`
   - [x] **0.1.6.2** `POST /api/auth/oauth/google/callback` with `{"code", "code_verifier", "redirect_uri"}` returns `{"token": "<session_jwt>", "user": {"id", "email"}}`
-  - [x] **0.1.6.3** `POST /api/auth/oauth/exchange?client_type=web` accepts `insforge_code` and returns the same JWT
+  - [x] **0.1.6.3** `POST /api/auth/oauth/exchange?client_type=web` accepts `oauth_code` and returns the same JWT
   - [x] **0.1.6.4** M0 stub: deterministic session JWT and hard-coded user (`id="local-user"`, `email="local@apap"`)
   - [x] **0.1.6.5** M3 replaces with real Google OAuth; M0 keeps the same shapes
 
@@ -50,24 +50,24 @@ tests.
 
 - [x] **0.2.1** `test_healthz_returns_db_status` — uses `httpx.AsyncClient(ASGITransport=app)`; asserts 200 + body shape
 - [x] **0.2.2** `test_rawsql_select_roundtrip` — INSERT via API → SELECT via API → row matches
-- [x] **0.2.3** `test_rawsql_insert_returns_empty_rows` — INSERT returns `{"rows": [], "rowCount": 0}` (InsForge contract)
+- [x] **0.2.3** `test_rawsql_insert_returns_empty_rows` — INSERT returns `{"rows": [], "rowCount": 0}` (LocalBackend contract)
 - [x] **0.2.4** `test_rawsql_error_returns_4xx` — query-level error → HTTP 400
 - [x] **0.2.5** `test_storage_list_buckets` — GET returns the bucket list shape
 - [x] **0.2.6** `test_storage_get_bucket_creates_on_demand` — GET auto-creates the bucket
 - [x] **0.2.7** `test_oauth_google_start_returns_auth_url` — POST start returns the auth URL shape
 - [x] **0.2.8** `test_oauth_google_callback_returns_jwt` — POST callback returns token + user
-- [x] **0.2.9** `test_oauth_exchange_returns_jwt` — POST exchange accepts insforge_code
-- [x] **0.2.10** `test_insforge_client_targets_local_backend` — the existing
+- [x] **0.2.9** `test_oauth_exchange_returns_jwt` — POST exchange accepts oauth_code
+- [x] **0.2.10** `test_local_backend_client_targets_local_backend` — the existing
   URL-switching test already covers this; update the existing test to
   point at the local backend (or add a new test that uses the local
   backend URL).
 
-  Status: covered by `test_insforge_client_local_url_overrides_local_flag`
-  which sets `APAP_INSFORGE_URL=https://custom-insforge.example.com` and
+  Status: covered by `test_local_backend_client_local_url_overrides_local_flag`
+  which sets `APAP_INSFORGE_URL=https://custom-local_backend.example.com` and
   asserts the client targets that URL even with `APAP_LOCAL_BACKEND=true`
   set. The reverse — client targets `http://localhost:8000` when the
   flag is set and no explicit URL — is covered by
-  `test_insforge_client_uses_local_default_when_flag_set` (asserts the
+  `test_local_backend_client_uses_local_default_when_flag_set` (asserts the
   base URL equals `http://localhost:8000`).
 
 ### 0.3 Verify-fallback-ready gate
@@ -75,12 +75,12 @@ tests.
 - [x] **0.3.1** Run the gate against the new local backend:
   `python -m migration.cli_verify_fallback_ready --ci-only`. All 3
   CI checks should pass:
-  - `round_trip_test` (uses `FakeInsForge`, independent of the new local
+  - `round_trip_test` (uses `FakeLocalBackend`, independent of the new local
     backend — should keep passing)
   - `pii_audit_verdict` (parses the audit doc — should keep passing)
   - `web_to_legacy_check_only` (runs `apply --direction web-to-legacy
     --check-only` — should now exercise the LOCAL backend path, not
-    InsForge remote). **M0 may require fixture wiring** for the local
+    LocalBackend remote). **M0 may require fixture wiring** for the local
     backend in the gate's runner. If the gate runner cannot stand up
     the local backend (e.g. it runs in a different test scope), the
     gate can be run manually against a running local backend.
@@ -102,7 +102,7 @@ tests.
 
 ### 0.5 No migrations or main.py changes (M0)
 
-- [x] **0.5.1** `app/main.py` is **not** touched in M0 (the InsForgeClient
+- [x] **0.5.1** `app/main.py` is **not** touched in M0 (the LocalBackendClient
   change from the previous session is the only modification).
   The local backend runs as a separate app, in a separate process (M2)
   or in-process (M0 tests).

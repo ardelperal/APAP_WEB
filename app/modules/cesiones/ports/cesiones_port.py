@@ -1,6 +1,6 @@
 """Port interface for the Cesiones slice.
 
-Expressed in domain vocabulary; no InsForge, no SQL.
+Expressed in domain vocabulary; no LocalBackend, no SQL.
 runtime_checkable so the DI generator can validate adapters.
 """
 

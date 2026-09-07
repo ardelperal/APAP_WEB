@@ -40,7 +40,7 @@ def _json_response(status_code: int, body: Any) -> httpx.Response:
     )
 
 
-def _mock_insforge_handler():
+def _mock_local_backend_handler():
     """Returns a handler that always returns an empty list (no real SQL needed for these tests)."""
 
     def handler(request: httpx.Request) -> httpx.Response:

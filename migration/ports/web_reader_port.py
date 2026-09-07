@@ -1,8 +1,8 @@
-"""Hexagonal port for reading from the web (InsForge) backend during migration.
+"""Hexagonal port for reading from the web (LocalBackend) backend during migration.
 
 Defines the abstract surface that the migration use cases depend on
 when they need to fetch rows from the web backend. Adapters under
-:mod:`migration.adapters.insforge` implement this Protocol; tests
+:mod:`migration.adapters.local_backend` implement this Protocol; tests
 substitute in-memory fakes that satisfy it structurally.
 
 Hexagonal taxonomy (mirrors :mod:`app.core.ports.catalogos_port`):
@@ -10,8 +10,8 @@ Hexagonal taxonomy (mirrors :mod:`app.core.ports.catalogos_port`):
 - **Domain**      (:class:`WebTableSpec` here)          — input shape.
 - **Port**        (this module)                          — abstract surface.
 - **Application** (:mod:`migration.application.web_reader`) — use case.
-- **Adapter**     (:mod:`migration.adapters.insforge.web_reader_insforge_adapter`)
-                                                       — InsForge impl.
+- **Adapter**     (:mod:`migration.adapters.local_backend.web_reader_local_backend_adapter`)
+                                                       — LocalBackend impl.
 - **DI**          (:mod:`migration.di.web_reader_di`)   — wiring.
 
 Rule §31 (domain services depend on Protocol abstractions): every
@@ -19,10 +19,10 @@ method here takes no concrete backend client; the adapter chooses its
 own transport. Rule §22 (SQL/service separation): the SQL lives in the
 adapter, not in the port.
 
-Why this port is narrower than the apply layer's ``SqlExecutor``
+Why this port is narrower than the apply layer's ``_LocalBackendLike``
 ==============================================================================
 
-``SqlExecutor`` (in :mod:`migration.apply`) declares
+``_LocalBackendLike`` (in :mod:`migration.apply`) declares
 ``execute_sql`` + ``get_bucket`` + ``ensure_bucket`` because
 ``apply_legacy_to_web`` is a write pipeline that bootstraps the
 shadow table and the private photo bucket before any per-row INSERT.
@@ -58,7 +58,7 @@ from typing import Any, Protocol
 class WebTableSpec:
     """Specification of a web table to read during migration.
 
-    ``web_table`` is the table name on the InsForge side
+    ``web_table`` is the table name on the LocalBackend side
     (``animales``, ``voluntarios``, ...). ``columns`` are the
     columns to project in the ``SELECT``. ``since`` is the
     incremental-sync cursor: when set, the SQL includes
@@ -84,8 +84,8 @@ class WebReaderPort(Protocol):
 
     Implementations:
 
-    - :class:`migration.adapters.insforge.web_reader_insforge_adapter.InsForgeWebReaderAdapter`
-      — production adapter, talks to InsForge via
+    - :class:`migration.adapters.local_backend.web_reader_local_backend_adapter.LocalBackendWebReaderAdapter`
+      — production adapter, talks to LocalBackend via
       :class:`~app.core.data_access.SqlExecutor`.
     - Test fakes (in ``tests/``) — in-memory list-backed fakes for
       unit tests on the application layer.

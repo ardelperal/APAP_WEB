@@ -1,6 +1,6 @@
 """Hexagonal port for the schema-bootstrap surface.
 
-The application layer depends on this :class:`Protocol`; the InsForge
+The application layer depends on this :class:`Protocol`; the LocalBackend
 adapter implements it. Tests can implement it with an in-memory fake
 without spinning up transport or HTTP.
 
@@ -20,7 +20,7 @@ Hexagonal taxonomy:
 
 - **Port**    (this module)                              — abstract surface.
 - **Application** (:mod:`app.core.application.schema_bootstrap`) — use cases.
-- **Adapter** (:mod:`app.core.adapters.insforge.schema_bootstrap_insforge_adapter`) — InsForge impl.
+- **Adapter** (:mod:`app.core.adapters.local_backend.schema_bootstrap_local_backend_adapter`) — LocalBackend impl.
 - **DI**      (:mod:`app.core.di.schema_bootstrap_di`)    — wiring.
 
 Rule §31 (domain services depend on Protocol abstractions): every
@@ -63,9 +63,8 @@ class SchemaBootstrapPort(Protocol):
 
     Implementations:
 
-    - :class:`app.core.adapters.stubs.schema_bootstrap_stub.StubSchemaBootstrapPort`
-      (placeholder, pending a real ``LocalPostgresExecutor`-backed adapter; issue #4b').
-      — production adapter, talks to InsForge via :class:`SqlExecutor`.
+    - :class:`app.core.adapters.local_backend.schema_bootstrap_local_backend_adapter.SchemaBootstrapPort`
+      — production adapter, talks to LocalBackend via :class:`SqlExecutor`.
     - Test fakes (in ``tests/``) — in-memory adapters that record calls
       or raise on demand without any transport.
     """

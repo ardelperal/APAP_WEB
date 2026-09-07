@@ -68,7 +68,7 @@ env/
 tailwindcss/node_modules/
 tailwindcss/package-lock.json
 
-# Tool config with secrets in plaintext (InsForge API key)
+# Tool config with secrets in plaintext
 # DO NOT commit. Use environment variables instead.
 opencode.json
 

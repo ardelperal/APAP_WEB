@@ -386,7 +386,7 @@ jobs:
         #
         # There is NO .gitleaksignore, and none is needed: the historical false
         # positive from #381 (a storage-object filename fixture in
-        # tests/migration/test_insforge_storage_methods.py) does not fire under
+        # a retired migration storage-methods test (deleted in issue #670) does not fire under
         # the pinned digest below. This comment used to claim an allowlist file
         # that was never committed — see #495. The retired file, with its one
         # documented entry, is on archive/tmp-test-merge5-staged-2026-08-09.
@@ -1081,9 +1081,9 @@ jobs:
       - name: Install Playwright chromium browser
         run: python -m playwright install --with-deps chromium
 
-      - name: Start APAP_WEB server (no lifespan, no InsForge)
+      - name: Start APAP_WEB server (no lifespan, no LocalBackend bootstrap)
         # The dev server (scripts/dev_server_no_lifespan.py) skips the
-        # InsForge bootstrap so the app can start in CI without a real
+        # LocalBackend bootstrap so the app can start in CI without a real
         # backend. Public HTML routes serve fine; data routes 500
         # (the e2e suite doesn't exercise those).
         #

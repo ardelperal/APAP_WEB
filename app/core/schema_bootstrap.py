@@ -4,7 +4,7 @@ This module keeps the legacy import surface
 (``from app.core.schema_bootstrap import SqlStatement,
 run_idempotent_sql``) alive while the canonical hexagonal
 implementation lives under :mod:`app.core.application.schema_bootstrap`
-and :mod:`app.core.adapters.insforge.schema_bootstrap_insforge_adapter`.
+and :mod:`app.core.adapters.local_backend.schema_bootstrap_local_backend_adapter`.
 
 The canonical "via port" use case is
 :func:`app.core.application.schema_bootstrap.run_idempotent_sql.run_idempotent_sql`,
@@ -45,7 +45,7 @@ def run_idempotent_sql(
     swallowing or translating the original database exception.
 
     The ``client`` parameter is typed as the :class:`SqlExecutor`
-    Protocol (issue #259) rather than the concrete ``LocalPostgresExecutor``,
+    Protocol (issue #259) rather than the concrete ``AuthUsersPort``,
     so this primitive stays backend-agnostic and can drive the future
     legacy-Access adapter without a separate bootstrap path.
     """

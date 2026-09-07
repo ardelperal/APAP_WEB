@@ -19,12 +19,12 @@ from typing import Any
 
 from migration import semantic_events as semantic_events_mod
 from migration.reverse_apply.io_helpers import _case_insensitive_get
-from migration.reverse_apply.types import SqlExecutor
+from migration.reverse_apply.types import _LocalBackendLike
 
 
 def _emit_reversed_lifecycle_events_for_changed_derived(
     *,
-    client: SqlExecutor,
+    client: _LocalBackendLike,
     mapping: Any,
     existing_legacy_row: dict[str, Any],
     web_row: dict[str, Any],

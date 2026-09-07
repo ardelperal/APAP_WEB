@@ -39,7 +39,7 @@ Antes de tocar la base de datos, confirme lo siguiente:
 
 - [ ] Ha leído este runbook por completo.
 - [ ] Dispone del valor de `APAP_INITIAL_ADMIN_EMAIL` (el correo del operador configurado en Coolify).
-- [ ] Tiene acceso administrativo de shell a InsForge/Postgres (mediante las herramientas MCP `run-raw-sql`/`get-table-schema`, o una conexión `psql` directa con las credenciales almacenadas en Coolify).
+- [ ] Tiene acceso administrativo de shell a LocalBackend/Postgres (mediante las herramientas MCP `run-raw-sql`/`get-table-schema`, o una conexión `psql` directa con las credenciales almacenadas en Coolify).
 - [ ] El despliegue Coolify en vivo está en `main` y es accesible. El SQL de recuperación apunta a la misma base de datos con la que habla la aplicación en ejecución.
 - [ ] Ningún otro operador ejecuta un bootstrap paralelo (no debe ocurrir: el arranque está limitado por el filtro de desarrollador activo; aún así, conviene confirmar que el contenedor no está en medio de un reinicio).
 - [ ] Ha tomado una copia de seguridad de la tabla `usuarios_autorizados` antes de ejecutar el INSERT manual (`SELECT * FROM public.usuarios_autorizados` a un archivo). <!-- alantyle-ignore:ALAN003 -->
@@ -52,7 +52,7 @@ No se requiere redespliegue ni reinicio para que el INSERT manual sea visible. L
 
 ### SQL de recuperación manual
 
-Conéctese a la base de datos Postgres de producción (InsForge) y ejecute el siguiente INSERT. El esquema utiliza **nombres de columna en castellano**: `anadido_por` (no `added_by`), `fecha_alta` (no `created_at`). Usar el nombre de columna equivocado hará que el INSERT introduzca silenciosamente `NULL` o que la sentencia falle.
+Conéctese a la base de datos Postgres de producción (LocalBackend) y ejecute el siguiente INSERT. El esquema utiliza **nombres de columna en castellano**: `anadido_por` (no `added_by`), `fecha_alta` (no `created_at`). Usar el nombre de columna equivocado hará que el INSERT introduzca silenciosamente `NULL` o que la sentencia falle.
 
 ```sql
 INSERT INTO public.usuarios_autorizados
@@ -128,7 +128,7 @@ Si el INSERT se ejecutó con un rol equivocado (por ejemplo, `reader` en lugar d
 
 ## Documentos relacionados
 
-- `app/core/auth.py` — `DEACTIVATE_USER_SQL`, `SEED_ADMIN_SQL`, `deactivate_authorized_user`, `ensure_schema_and_seed` (migrated: las consultas SQL residen ahora en `app/core/adapters/insforge/auth_insforge_queries.py`; el contrato público no cambia).
+- `app/core/auth.py` — `DEACTIVATE_USER_SQL`, `SEED_ADMIN_SQL`, `deactivate_authorized_user`, `ensure_schema_and_seed` (migrated: las consultas SQL residen ahora en `app/core/adapters/local-backend/auth_local_backend_queries.py`; el contrato público no cambia).
 - `app/main.py` — ruta `admin_deactivate_user` que captura `ValueError` y re-renderiza `admin.html` (issue #279).
 - `templates/admin.html` — renderizado del mensaje flash para `error_message`.
 - `tests/test_auth.py` — cinco casos nuevos: bloqueo del último desarrollador, autodesactivación OK, SEED cuando sólo existen desarrolladores inactivos, ámbito de rol (reader/admin/key_user no afectados).

@@ -62,7 +62,7 @@ The SQL strings live in `app/modules/acogidas/queries.py` per AGENTS.md §22: `_
 | POST | `/acogidas/{id}/close` | WRITE_ACOGIDAS | Lifecycle event: sets `fecha_final = CURRENT_DATE`. |
 | POST | `/acogidas/{id}/delete` | WRITE_ACOGIDAS | Soft-delete: `activo = false` + `fecha_baja = now()`. |
 
-Status codes: 200 on renders, 303 See Other on success, 404 when the stay is missing or already inactive on delete, 422 on validation failure or FK violation, 500 on unhandled transport errors. The route translates `InsForgeError` 4xx to 422 with a Spanish-friendly message that includes the violating constraint name when present.
+Status codes: 200 on renders, 303 See Other on success, 404 when the stay is missing or already inactive on delete, 422 on validation failure or FK violation, 500 on unhandled transport errors. The route translates `BackendError` 4xx to 422 with a Spanish-friendly message that includes the violating constraint name when present.
 
 ## Service layer
 
@@ -87,7 +87,7 @@ Legacy route → service → queries layout (per AGENTS.md §1 + §22). This sli
 
 - The `fecha_final` column is patch-only. A partial update that omits the key leaves the column untouched; a form that sends `""` sets `NULL` (reopen) (issue #141).
 - The species gate runs in the route layer via `_enforce_species_gate`. The service does not consult it, so any future direct service caller must replicate the gate (D-GC-05).
-- `_validate_references` runs FK checks BEFORE the INSERT, but a concurrent deactivate between the SELECT and the INSERT can still produce a PostgreSQL FK violation. The route catches the resulting `InsForgeError` and translates it to 422 (issue #139 P1 #4).
+- `_validate_references` runs FK checks BEFORE the INSERT, but a concurrent deactivate between the SELECT and the INSERT can still produce a PostgreSQL FK violation. The route catches the resulting `BackendError` and translates it to 422 (issue #139 P1 #4).
 - `close_acogida` is NOT filtered by `activo`. It can close an already-soft-deleted stay in data-cleanup flows. `delete_acogida` is the canonical soft-delete path.
 - The override link UPDATE is scoped to `casa_acogida_id` + `animal_id`. A forged `override_id` from another operator cannot link to a different stay (judgment-day CRITICAL §1.2 / HIGH §3.2 follow-up).
 - `compute_duracion` raises `ValueError` when `fecha_final < fecha_inicio`. The route surfaces this as 422 with the operator's input preserved.

@@ -749,7 +749,7 @@ def get_proximas_pruebas(
     ``estado`` column.
 
     Args:
-        client: the SqlExecutor (production ``LocalPostgresExecutor`` or the
+        client: the SqlExecutor (production ``AuthUsersPort`` or the
             integration conftest's ``self_host_schema``).
         fecha_desde: lower bound of the window (inclusive).
         fecha_hasta: upper bound (inclusive). Also drives the

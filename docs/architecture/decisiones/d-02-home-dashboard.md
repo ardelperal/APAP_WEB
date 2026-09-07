@@ -8,7 +8,7 @@ La página principal (`/`) muestra tarjetas con pendientes operativos: entradas 
 
 - `/` es una bandeja operativa, no un welcome estático.
 - Tarjetas por dominio (animales, voluntarios, entradas, seguimientos).
-- Realtime vía InsForge Realtime queda diferido a una segunda iteración.
+- Realtime vía LocalBackend Realtime queda diferido a una segunda iteración.
 
 ## Problem statement
 
@@ -51,8 +51,8 @@ El Access legacy mostraba al entrar una "bandeja de pendientes" con lo que el vo
 
 - La home depende de queries agregadas por dominio — son el primer consumidor del `queries/` layer.
 - Las tarjetas son componentes reutilizables (ver D-12 design system pendiente).
-- Los conteos deben ser tolerantes a InsForge caído (degradación a estado "sin datos" con `aria-live=polite`).
-- Cuando se active realtime, las tarjetas son el primer consumidor de [`insforge_realtime`](../../app/core/insforge.py).
+- Los conteos deben ser tolerantes a LocalBackend caído (degradación a estado "sin datos" con `aria-live=polite`).
+- Cuando se active realtime, las tarjetas son el primer consumidor de [`local_backend_realtime`](../../app/core/local_backend.py).
 
 ## When this changes
 

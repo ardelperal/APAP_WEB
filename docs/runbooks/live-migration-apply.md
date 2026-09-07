@@ -2,9 +2,9 @@
 
 # live-migration-apply.md
 
-> **Alcance**: pipeline forward de PR3/M1 para la migración legacy ACCDB → InsForge. Cubre cada error de apply (salidas 5/6/7), cada evidencia, dry-run, pre-flight y reversión.
+> **Alcance**: pipeline forward de PR3/M1 para la migración legacy ACCDB → LocalBackend. Cubre cada error de apply (salidas 5/6/7), cada evidencia, dry-run, pre-flight y reversión.
 
-> **Audiencia**: operador con Microsoft Access Database Engine, `.accdb` legado y clave de servicio de InsForge. No aplica a producción.
+> **Audiencia**: operador con Microsoft Access Database Engine, `.accdb` legado y clave de servicio de LocalBackend. No aplica a producción.
 
 ## Quick Navigation
 
@@ -43,7 +43,7 @@ Antes de ejecutar `apap-migrate apply` por primera vez en una estación del oper
 - [ ] **`psutil` instalado e importable** (`python -c "import psutil; print(psutil.__version__)"`). Sin `psutil`, el preflight MSACCESS falla cerrado con `reason=psutil_missing`. El runbook documenta esto como requisito duro, no advertencia soft-fail.
 - [ ] **Microsoft Access Database Engine** (redistribuible) instalado (`python -c "import pyodbc; print(pyodbc.drivers())"` debe listar `Microsoft Access Driver (*.accdb)`). El ejecutor (`migration/legacy_access_client.py`) eleva `LegacyReaderError` (CLI exit 5, reason `legacy_read_failed`) si falta el driver.
 - [ ] **Microsoft Access está cerrado** en la estación del operador. El preflight MSACCESS (`migration/lock.check_msaccess_running`) eleva `MsAccessRunningError` (CLI exit 5, reason `msaccess_running`) cuando cualquier proceso `MSACCESS.EXE` está vivo. Cierre el frontend de Access y reintente.
-- [ ] **El bucket privado `apap-photos` de InsForge existe** y es privado (`isPublic=false`). El bootstrap (M0) se ejecutó con éxito — consulte `docs/runbooks/live-migration-m0-bootstrap.md` para el checkpoint del operador `ensure-bucket`. Un bucket ausente o público aborta con `infra_bootstrap_failed`.
+- [ ] **El bucket privado `apap-photos` de LocalBackend existe** y es privado (`isPublic=false`). El bootstrap (M0) se ejecutó con éxito — consulte `docs/runbooks/live-migration-m0-bootstrap.md` para el checkpoint del operador `ensure-bucket`. Un bucket ausente o público aborta con `infra_bootstrap_failed`.
 - [ ] **`APAP_MIGRATION_DIR`** apunta a un directorio escribible para `migration.lock`, `migration.lock_snapshot.json` y `migration.partial_apply.json`. Por defecto: `./migration/`.
 - [ ] **`APAP_INSFORGE_URL`** y **`APAP_INSFORGE_SERVICE_KEY`** están fijados en el entorno del operador (o el cargador de configuración de producción los recoge). El apply necesita privilegio de service key para escribir filas en la tabla shadow y operaciones sobre el bucket.
 - [ ] **`APAP_LEGACY_ACCDB_PATH`** apunta al `.accdb` legado con acceso de lectura. La variable se documenta en `migration/legacy_access_client.py`.
@@ -131,7 +131,7 @@ Los campos `accdb_sha256_changed`, `photos_dir_sha256_changed`, `photos_file_cou
 
 - `migration.partial_apply.json` **nunca** se reanuda automáticamente. PR3 bloquea el siguiente apply con salida 7 (`partial_apply_interrupted`) hasta que el operador elimine el archivo manualmente. La reanudación automática es una tarea de seguimiento (per `tasks.md` 9.1; programada antes de la compuerta M2 fallback-ready).
 - `migration.lock_snapshot.json` **nunca** se fusiona automáticamente entre ejecuciones. Cada apply sobrescribe el snapshot previo con las huellas nuevas. El drift se detecta en la siguiente ejecución; el operador decide.
-- La configuración de bucket público **nunca** se recupera automáticamente. `bootstrap_m0_infrastructure` aborta el apply con `infra_bootstrap_failed` (salida 5) si el bucket falta o es público. El operador debe arreglar el bucket mediante el MCP de InsForge antes de reintentar.
+- La configuración de bucket público **nunca** se recupera automáticamente. `bootstrap_m0_infrastructure` aborta el apply con `infra_bootstrap_failed` (salida 5) si el bucket falta o es público. El operador debe arreglar el bucket mediante el MCP de LocalBackend antes de reintentar.
 
 ### Lo que no se registra
 
@@ -210,8 +210,8 @@ Use esta sección cuando aparezca alguna de las siguientes señales:
 Además de la lista global anterior, cada operador de PR4b debe verificar:
 
 - [ ] **El bucket `apap-photos` existe y es privado** — verificado por `python -m migration ensure-bucket apap-photos --check-only` que devuelve `is_public=false`. Un bucket público debe recrearse como privado antes de reintentar cualquier operación de fotos.
-- [ ] **El spike de contrato de almacenamiento es PASS** — confirmado por `docs/discovery/storage-contract-2026-Q3.md` cargando `Verdict: PASS` y `PR4b gate: PASS`. Los endpoints canónicos pineados + cabeceras de autenticación en ese artefacto deben coincidir con los métodos `upload_object`/`download`/`delete` de `app/core/insforge.py`.
-- [ ] **InsForge en vivo alcanzable** — `python -c "import httpx; httpx.get(settings.insforge_url + '/api/storage/buckets', headers={'Authorization': f'Bearer {settings.insforge_service_key}'})"` devuelve 2xx. La accesibilidad de red es un precondición para cualquier migración o display de fotos.
+- [ ] **El spike de contrato de almacenamiento es PASS** — confirmado por `docs/discovery/storage-contract-2026-Q3.md` cargando `Verdict: PASS` y `PR4b gate: PASS`. Los endpoints canónicos pineados + cabeceras de autenticación en ese artefacto deben coincidir con los métodos `upload_object`/`download`/`delete` de `app/core/local_backend.py`.
+- [ ] **LocalBackend en vivo alcanzable** — `python -c "import httpx; httpx.get(settings.local_backend_url + '/api/storage/buckets', headers={'Authorization': f'Bearer {settings.local_backend_service_key}'})"` devuelve 2xx. La accesibilidad de red es un precondición para cualquier migración o display de fotos.
 - [ ] **`APAP_INSFORGE_URL` + `APAP_INSFORGE_SERVICE_KEY`** están cargados por `app.core.config.get_settings` desde el entorno del operador. Los CLIs (`apap-migrate`, `python -m migration storage_spike`) invocan `get_settings.cache_clear()` + recarga para que el env tenga precedencia sobre cualquier `.env` obsoleto.
 - [ ] **El directorio de fotos es estable** — sin ediciones concurrentes sobre `URLDirectorioDocumentacion` durante toda la duración del apply. La detección de drift (salida 6) aborta ante cualquier cambio.
 - [ ] **El veredicto de auditoría es PASS** — `docs/audits/pii-live-migration-2026-Q3.md` carga `Verdict: PASS`. La aceptación de M1 queda bloqueada sin él.
@@ -228,7 +228,7 @@ El flujo PR4b es una migración forward que se ejecuta sobre el apply estándar 
 
    `--check-only` no escribe el snapshot, no bloquea y no emite objetos `apap-photos`. Sólo cuenta filas legadas y emite la línea `would insert=N` para revisión.
 
-2. **Apply real** — ejecuta el pipeline forward. La pasada de fotos se ejecuta como parte de la escritura de la tabla `animal`; las fotos por fila se suben vía `InsForgeClient.upload_object` (flujo S3-compatible de tres pasos: estrategia → transferencia → confirmación opcional). Los bytes duplicados se omiten porque el cliente propone `filename=<sha256>.<ext>` y el servidor deduplica por la clave.
+2. **Apply real** — ejecuta el pipeline forward. La pasada de fotos se ejecuta como parte de la escritura de la tabla `animal`; las fotos por fila se suben vía `LocalBackendClient.upload_object` (flujo S3-compatible de tres pasos: estrategia → transferencia → confirmación opcional). Los bytes duplicados se omiten porque el cliente propone `filename=<sha256>.<ext>` y el servidor deduplica por la clave.
 
        apap-migrate apply --table animal \
            --legacy-path $APAP_LEGACY_ACCDB_PATH
@@ -269,7 +269,7 @@ El flujo PR4b es una migración forward que se ejecuta sobre el apply estándar 
 
 | Ruta | Ciclo de vida |
 |---|---|
-| `apap-photos` (bucket InsForge) | Creado por el bootstrap M0; carga los objetos de foto. nunca auto-eliminado por el apply. |
+| `apap-photos` (bucket LocalBackend) | Creado por el bootstrap M0; carga los objetos de foto. nunca auto-eliminado por el apply. |
 | `animales.nombrefoto` (columna web) | Fijada por fila por la pasada de fotos; almacena la clave **devuelta** (el servidor puede renombrar). |
 | `migration_report.json` → `warnings` | Array de entradas `photo.<razón>` (filas centinela por fotos ausentes / corruptas / no soportadas). |
 | `migration_report.json` → `counts.apap_photos` | `{count_legacy: N, count_web: N}` (objetos vs filas que los referencian). |
@@ -290,12 +290,12 @@ La reversión de PR4b se dispone sobre la §"Reversión" global anterior. El ord
 1. **Desactive el display primero** — fije `app_settings.FOTO_ROUTE_ENABLED=false` (feature flag, no enviado en PR4b) para que `GET /animales/{id}/foto` devuelva 404 en lugar de bytes. Esta es la reversión más segura en producción: el bucket queda intacto, las filas quedan intactas y los usuarios no ven imágenes rotas.
 2. **Verifique que el bucket está respaldado** — ejecute `apap-migrate status --photos > photos_before_rollback.json` antes de cualquier paso destructivo. El operador debe contar con una instantánea de `photos_before_rollback.json` (o una copia externa del bucket) antes de eliminar nada.
 3. **Marque filas como centinela** — si el problema es display corrupto en lugar de almacenamiento ausente, ejecute `apap-migrate reconcile --interactive --table animales` y elija `mark sentinel` por fila. La ruta sirve entonces el placeholder sin E/S de almacenamiento.
-4. **Elimine el bucket** (último recurso, nunca sin respaldo) — `delete-bucket apap-photos` vía el MCP de InsForge. Tras la eliminación del bucket, `GET /animales/{id}/foto` continúa devolviendo 200 con PNG de placeholder (la ruta captura el 404 de almacenamiento y cae al fallback). Las filas `animales.nombrefoto` conservan la clave SHA-256 pero devuelven `404` en la comprobación de status del siguiente apply; el operador resuelve con `apap-migrate reconcile --interactive`.
+4. **Elimine el bucket** (último recurso, nunca sin respaldo) — `delete-bucket apap-photos` vía el MCP de LocalBackend. Tras la eliminación del bucket, `GET /animales/{id}/foto` continúa devolviendo 200 con PNG de placeholder (la ruta captura el 404 de almacenamiento y cae al fallback). Las filas `animales.nombrefoto` conservan la clave SHA-256 pero devuelven `404` en la comprobación de status del siguiente apply; el operador resuelve con `apap-migrate reconcile --interactive`.
 
 La reversión nunca es destructiva de:
 
 - El `.accdb` legado (contrato de sólo lectura).
-- Las tablas de dominio de InsForge (`animales`, `voluntarios`, `entradas`).
+- Las tablas de dominio de LocalBackend (`animales`, `voluntarios`, `entradas`).
 - La tabla `web_only_feature_shadow` (historial de auditoría/divergencia).
 - El `migration.lock_snapshot.json` (los re-applies lo sobrescriben).
 
@@ -363,7 +363,7 @@ Si el runbook no resuelve el incidente:
 - `migration/dni_collision.py` — `record_dni_collision` para columnas preserve.
 - `migration/shadow_state.py` — DDL de `web_only_feature_shadow`.
 - `migration/storage_spike.py` — spike del contrato de almacenamiento (PR4b gate).
-- `app/core/insforge.py` — `upload_object` (flujo S3 de tres pasos).
+- `app/core/local_backend.py` — `upload_object` (flujo S3 de tres pasos).
 - `app/core/logging.py` — lista de redacción de PII (quince entradas tras PR4b).
 - `docs/runbooks/live-migration-m0-bootstrap.md` — bootstrap de infraestructura (M0).
 - `docs/audits/pii-live-migration-2026-Q3.md` — veredicto de auditoría PII.

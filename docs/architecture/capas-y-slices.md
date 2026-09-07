@@ -43,7 +43,7 @@ adapters      application             app/core/adapters/**
 
 The row that matters most is **`application` must not import
 `adapters`**. That is the hexagon. A use case declares what it needs as
-a port Protocol; the concrete InsForge adapter is wired in by
+a port Protocol; the concrete LocalBackend adapter is wired in by
 `app/core/di/<slice>_di.py` and arrives as a constructor or dependency
 argument. If a use case imports an adapter, the port is decoration and
 the slice is not testable without a network.
@@ -55,7 +55,7 @@ route may call a use case; a use case may never call a route.
 
 `domain`, `ports`, and `application` must not import a web framework or
 a storage vendor: `fastapi`, `starlette`, `jinja2`, `httpx`, `requests`,
-`insforge`, `sqlalchemy`, `psycopg`. If a use case needs one of them, it
+`local_backend`, `sqlalchemy`, `psycopg`. If a use case needs one of them, it
 needs a port instead.
 
 This is the tree-wide generalisation of the per-slice invariants in
@@ -69,7 +69,7 @@ A slice is one business capability owning a column through every layer:
 app/core/domain/auth/**                     entities
 app/core/ports/auth_port.py                 the Protocol
 app/core/application/auth/**                use cases
-app/core/adapters/insforge/auth_insforge_*  the InsForge implementation
+app/core/adapters/local-backend/auth_local_backend_*  the LocalBackend implementation
 app/core/di/auth_di.py                      the wiring
 app/modules/<slice>/{routes,service,queries}.py   the web surface
 ```

@@ -21,9 +21,8 @@ import httpx
 import pytest
 
 from app.core.config import get_settings
-from app.core.di.local_postgres_di import get_local_postgres_executor_dep
 from app.core.session import session_cookie_name, write_session
-from app.main import app
+from app.main import app, get_local_backend_client
 from app.modules.adopciones import service as adopciones_service
 from app.modules.animals.di.animals_di import get_animals_port
 from app.modules.animals.domain.animal import Animal, Especie, Sexo
@@ -32,8 +31,8 @@ from app.modules.voluntarios.di import get_voluntarios_port
 from app.modules.voluntarios.domain.voluntario import Voluntario
 
 
-class _InsForgeSpy:
-    """In-process InsForge stand-in. Routes use the service modules,
+class _LocalBackendSpy:
+    """In-process LocalBackend stand-in. Routes use the service modules,
     so we override the SERVICES directly rather than mocking SQL."""
 
     def execute_sql(self, query: str, params: Any = None) -> Any:  # type: ignore[no-untyped-def]
@@ -50,7 +49,7 @@ class _InsForgeSpy:
     def __getattr__(self, name: str) -> Any:  # type: ignore[no-untyped-def]
         # Strict mode: unmocked methods surface as test failures.
         raise NotImplementedError(
-            f"_InsForgeSpy.{name} is not mocked. Add an explicit method "
+            f"_LocalBackendSpy.{name} is not mocked. Add an explicit method "
             f"to the spy in this test instead of relying on no-op fallback."
         )
 
@@ -98,24 +97,24 @@ class _VoluntariosPortStub:
 
 
 @pytest.fixture
-def spy_insforge(monkeypatch: pytest.MonkeyPatch) -> _InsForgeSpy:
-    spy = _InsForgeSpy()
+def spy_local_backend(monkeypatch: pytest.MonkeyPatch) -> _LocalBackendSpy:
+    spy = _LocalBackendSpy()
     app.state.sql_executor = spy
-    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy
+    app.dependency_overrides[get_local_backend_client] = lambda: spy
     app.dependency_overrides[get_animals_port] = _AnimalsPortStub
     app.dependency_overrides[get_voluntarios_port] = _VoluntariosPortStub
     monkeypatch.setattr(
-        "app.modules.animals.routes.get_local_postgres_executor_dep", lambda: spy
+        "app.modules.animals.routes.get_local_backend_client_dep", lambda: spy
     )
     monkeypatch.setattr(
-        "app.modules.entradas.routes.get_local_postgres_executor_dep", lambda: spy
+        "app.modules.entradas.routes.get_local_backend_client_dep", lambda: spy
     )
     monkeypatch.setattr(
-        "app.modules.adopciones.routes.get_local_postgres_executor_dep", lambda: spy
+        "app.modules.adopciones.routes.get_local_backend_client_dep", lambda: spy
     )
 
     # Stub the legacy services (entradas, adopciones — not yet hexagonal)
-    # so they return plausible objects without hitting InsForge SQL.
+    # so they return plausible objects without hitting LocalBackend SQL.
     monkeypatch.setattr(
         entradas_service, "get_entrada_by_id",
         lambda _c, _id: entradas_service.Entrada(
@@ -164,7 +163,7 @@ def spy_insforge(monkeypatch: pytest.MonkeyPatch) -> _InsForgeSpy:
     )
 
     yield spy
-    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
+    app.dependency_overrides.pop(get_local_backend_client, None)
     app.dependency_overrides.pop(get_animals_port, None)
     app.dependency_overrides.pop(get_voluntarios_port, None)
     del app.state.sql_executor
@@ -230,7 +229,7 @@ _FORM_ROUTES: list[tuple[str, str]] = [
 @pytest.mark.parametrize("url_path,form_description", _FORM_ROUTES)
 async def test_post_form_renders_csrf_token_input(
     logged_in_client: httpx.AsyncClient,
-    spy_insforge: _InsForgeSpy,
+    spy_local_backend: _LocalBackendSpy,
     url_path: str,
     form_description: str,
 ) -> None:

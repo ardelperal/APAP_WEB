@@ -28,15 +28,14 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from app.core.di.local_postgres_di import get_local_postgres_executor_dep
 from app.core.session import session_cookie_name
-from app.main import app
+from app.main import app, get_local_backend_client
 
 
-class _StubInsForge:
-    """Stub for the protected routes that need InsForge.
+class _StubLocalBackend:
+    """Stub for the protected routes that need LocalBackend.
 
-    The /logout handler does NOT call InsForge (just clears the
+    The /logout handler does NOT call LocalBackend (just clears the
     cookie and redirects), so this stub is only used by the
     follow-up ``GET /`` request to verify the session is empty.
     """
@@ -46,7 +45,7 @@ class _StubInsForge:
 
     def __getattr__(self, name: str) -> object:  # noqa: D401
         raise NotImplementedError(
-            f"_StubInsForge.{name} is not mocked. Add an explicit method."
+            f"_StubLocalBackend.{name} is not mocked. Add an explicit method."
         )
 
     def close(self) -> None:  # noqa: D401
@@ -58,15 +57,15 @@ class _StubInsForge:
 
 
 @pytest.fixture
-def stub_insforge():
-    fake = _StubInsForge()
-    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: fake
+def stub_local_backend():
+    fake = _StubLocalBackend()
+    app.dependency_overrides[get_local_backend_client] = lambda: fake
     yield fake
-    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
+    app.dependency_overrides.pop(get_local_backend_client, None)
 
 
 async def test_logout_returns_302_to_root(
-    client: httpx.AsyncClient, stub_insforge: _StubInsForge
+    client: httpx.AsyncClient, stub_local_backend: _StubLocalBackend
 ) -> None:
     """``GET /logout`` MUST 302 to ``/`` (not to /login directly).
 
@@ -79,7 +78,7 @@ async def test_logout_returns_302_to_root(
 
 
 async def test_session_cookie_path_matches_logout_clearing_path(
-    client: httpx.AsyncClient, stub_insforge: _StubInsForge
+    client: httpx.AsyncClient, stub_local_backend: _StubLocalBackend
 ) -> None:
     """The create-time session cookie and the logout clearing cookie MUST share the same Path.
 
@@ -97,7 +96,7 @@ async def test_session_cookie_path_matches_logout_clearing_path(
     from app.core.session import write_session
 
     # Hit /auth/callback manually (it doesn't go through OAuth because
-    # the InsForge exchange is stubbed below). We need a route that
+    # the LocalBackend exchange is stubbed below). We need a route that
     # actually sets the session cookie; the simplest is to inject
     # the cookie via client.cookies.set, then assert the clearing
     # round-trip works.
@@ -148,7 +147,7 @@ async def test_session_cookie_path_matches_logout_clearing_path(
 
 
 def test_logout_clearing_cookie_attributes_match_creation(
-    client: httpx.AsyncClient, stub_insforge: _StubInsForge
+    client: httpx.AsyncClient, stub_local_backend: _StubLocalBackend
 ) -> None:
     """The clearing cookie MUST share Path / Secure / SameSite with the create-time cookie.
 
@@ -183,7 +182,7 @@ def test_logout_clearing_cookie_attributes_match_creation(
     )
     # SameSite: the session cookie must stay Strict. The apap_pkce OAuth
     # verifier cookie is intentionally Lax so the top-level callback GET can
-    # carry it back from Google/InsForge.
+    # carry it back from Google/LocalBackend.
     assert 'session_cookie_name(),\n            session_token' in combined
     assert 'samesite="strict"' in combined, (
         "auth source (app/main.py or app/core/auth_flow.py): "
@@ -199,7 +198,7 @@ def test_logout_clearing_cookie_attributes_match_creation(
 
 
 async def test_logout_then_protected_route_redirects_to_login(
-    client: httpx.AsyncClient, stub_insforge: _StubInsForge
+    client: httpx.AsyncClient, stub_local_backend: _StubLocalBackend
 ) -> None:
     """After /logout, GET / (protected) MUST 302 to /login.
 

@@ -400,7 +400,7 @@ Supuestos:
 | Bloqueador | Impacto | Mitigación propuesta |
 |---|---|---|
 | El mock `GET /e2e/login` sólo emite cookies con rol `developer` | Los gates de `writer`, `key_user` y `reader` no son ejercitables con el mock. `test_rbac_writer_vs_developer.py` queda como regression parcial. | Sembrar `usuarios_autorizados` desde la capa de tests con rol `writer` y `reader`; el mock debería aceptar `?rol=` como parámetro (issue de seguimiento). |
-| La base de datos de desarrollo (InsForge) puede no estar disponible en CI | Los tests autenticados fallarán en datos con 500 si InsForge está caído. | El mock ya pre-puebla la auth cache, pero las queries SQL reales siguen requiriendo InsForge. Documentar en el README del workflow E2E la dependencia. |
+| La base de datos de desarrollo (LocalBackend) puede no estar disponible en CI | Los tests autenticados fallarán en datos con 500 si LocalBackend está caído. | El mock ya pre-puebla la auth cache, pero las queries SQL reales siguen requiriendo LocalBackend. Documentar en el README del workflow E2E la dependencia. |
 | `playwright install chromium` añade ~150 MB a la imagen CI | El job E2E ya está documentado como opcional. | Mantener `APAP_E2E_SKIP=1` por defecto hasta que se decida levantar el job. |
 | El campo `chip` en `animales` exige unicidad | El orden de los tests CRUD puede chocar si comparten fixtures. | Sembrar el `chip` con `uuid.uuid4().hex[:10]` por test. |
 

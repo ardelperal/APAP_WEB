@@ -31,7 +31,7 @@ from migration.lock_snapshot import (
     read_snapshot,
     write_snapshot,
 )
-from migration.reverse_apply.types import SqlExecutor
+from migration.reverse_apply.types import _LocalBackendLike
 
 DIRECTION_WEB_TO_LEGACY = "web-to-legacy"
 
@@ -58,7 +58,7 @@ class _LockContext:
 
     def __init__(
         self,
-        _client: SqlExecutor,
+        _client: _LocalBackendLike,
         lock_path: Path | None,
         *,
         dry_run: bool,

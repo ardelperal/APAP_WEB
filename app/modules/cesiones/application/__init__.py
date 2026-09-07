@@ -1,7 +1,7 @@
 """Application layer — Cesiones slice.
 
 One file per use case. Each use case is a plain function that
-orchestrates domain + port. No SQL, no InsForge, no HTTP.
+orchestrates domain + port. No SQL, no LocalBackend, no HTTP.
 """
 
 from __future__ import annotations

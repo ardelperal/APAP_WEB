@@ -3,7 +3,7 @@
 The local backend is a **separate FastAPI app** — not a router mounted
 on ``app.main``. The user-approved architecture in the session prior
 to this one keeps the lifespans independent: ``app.main`` provisions
-the schema against InsForge (or against the local DB when
+the schema against LocalBackend (or against the local DB when
 ``APAP_LOCAL_BACKEND=true``); the local backend has its own lifespan
 that constructs the ``LocalPostgresExecutor`` from
 ``APAP_LOCAL_DB_URL``.

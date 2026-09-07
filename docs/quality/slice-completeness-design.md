@@ -22,7 +22,7 @@ one python file under any of:
 
 - `app/core/application/<slice>/`
 - `app/core/ports/<slice>_port.py`
-- `app/core/adapters/insforge/<slice>_*insforge*`
+- `app/core/adapters/local-backend/<slice>_*local_backend*`
 - `app/core/di/<slice>_di.py`
 - `app/modules/<slice>/`
 
@@ -61,13 +61,13 @@ but documented alternative idiom).
 ### 2. `adapter-in-di` — the concrete adapter is wired from `di/`
 
 For every concrete adapter file under
-`app/core/adapters/insforge/<slice>_insforge_*.py`, the file
+`app/core/adapters/local-backend/<slice>_local_backend_*.py`, the file
 `app/core/di/<slice>_di.py` must reference that adapter's module
 (import or string name appears in source).
 
 Detection: AST-walk `app/core/di/<slice>_di.py` imports; flag any
-adapter file in `insforge/<slice>_*` that no `di/<slice>_di.py` import
-list contains. For non-InsForge adapters
+adapter file in `local_backend/<slice>_*` that no `di/<slice>_di.py` import
+list contains. For non-LocalBackend adapters
 (`app/core/adapters/admin_template_adapter.py` etc.) the matching
 `di/<slice>_di.py` must reference the module too.
 
@@ -84,7 +84,7 @@ wired, and unused adapters are caught by the linter/`vulture`.
 ### 3. `application-adapter-free` — `application/<slice>/*.py` does not import a concrete adapter
 
 For every file under `app/core/application/<slice>/`, walk its
-imports and flag any `from app.core.adapters.insforge.<slice>_insforge_*
+imports and flag any `from app.core.adapters.local_backend.<slice>_local_backend_*
 import ...` (or other concrete-adapter submodule).
 
 Detection: AST-walk, match against the slice's concrete-adapter path.
@@ -97,8 +97,8 @@ which slice consumes the violation without grepping across 53 keys.
 Same logic, finer key, dedicated ratchet.
 
 **Failure mode (silence risk):** symbol-name drift. If a file imports
-`from app.core.adapters.insforge.<slice>_insforge_adapter import
-InsForgeXAdapter as _Adapter`, the import line still resolves to the
+`from app.core.adapters.local_backend.<slice>_local_backend_adapter import
+LocalBackendXAdapter as _Adapter`, the import line still resolves to the
 adapter module — AST-walk detects the target module regardless of alias.
 
 ### 4. `tests-per-layer` — at least one test file per layer
@@ -114,7 +114,7 @@ Layers detected by re-using `check_layers.classify_layer`:
 | `domain` | under `app/core/domain/<slice>/` (or `app/core/<slice>.py` / `app/core/<slice>*.py` for flat-domain slices like `catalogos`) |
 | `ports` | `app/core/ports/<slice>_port.py` |
 | `application` | under `app/core/application/<slice>/` |
-| `adapters` | under `app/core/adapters/insforge/<slice>_*` (or `app/core/adapters/<slice>_*` for non-InsForge) |
+| `adapters` | under `app/core/adapters/local-backend/<slice>_*` (or `app/core/adapters/<slice>_*` for non-LocalBackend) |
 | `di` | `app/core/di/<slice>_di.py` |
 | `delivery` | under `app/modules/<slice>/` |
 
@@ -182,6 +182,6 @@ collectors:
 - `migration/` — Step 3 of the roadmap.
 - Coverage / mutation / docstring-ratchet concerns — orthogonal to
   "slice is complete" and already covered elsewhere.
-- Non-InsForge adapter modules other than the
+- Non-LocalBackend adapter modules other than the
   `<slice>_*_adapter.py` stem pattern — accepted but rare
   (`admin_template_adapter.py` is the one example).

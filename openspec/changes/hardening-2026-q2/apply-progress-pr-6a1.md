@@ -35,7 +35,7 @@ PR-6A.1's overage is consistent with the project's existing pattern: PR-5B2's `a
 |---|---|---|
 | `app/core/logging.py` | Created (195 LOC) | `JsonFormatter`, `RedactionFilter`, `configure_logging(settings)`, `log_safe(event, **fields)`, `REDACTED_FIELDS` (12-entry closed list per round-2 fix SB-5). |
 | `app/core/config.py` | Modified (+6 lines) | New `Settings.log_level: str = "INFO"` driving the root logger level set by `configure_logging`. |
-| `app/main.py` | Modified (+17/-5 lines) | Lifespan calls `configure_logging(settings)` as the FIRST line so startup errors (bad InsForge URL, schema down) are captured with PII redaction. |
+| `app/main.py` | Modified (+17/-5 lines) | Lifespan calls `configure_logging(settings)` as the FIRST line so startup errors (bad LocalBackend URL, schema down) are captured with PII redaction. |
 | `tests/test_logging.py` | Created (412 LOC, 32 tests) | REQ-1 idempotency + handler invariants; REQ-2 redaction semantics (every closed-list field, case-insensitive, `_`/`-` equivalence, descriptive names NOT redacted); REQ-3 RedactionFilter as second line of defense; REQ-4 JSON format. |
 | `tests/test_logging_redaction_adversarial.py` | Created (163 LOC, 42 tests) | Parametrized over the 12-field closed list's common variants (case, dash, uppercase) AND the descriptive-not-redacted boundary (`user_email_address`, `e_mail`, `csrf_token_age_seconds`, etc.). |
 
@@ -63,7 +63,7 @@ The RedactionFilter mutates `LogRecord.__dict__` (not `setattr`) so keys that ar
 
 1. **Review budget overflow (789 LOC vs 400 budget).** Same rationale as PR-5B2: the test suite (575 LOC across two parametrized files) is the largest single cost and cannot be trimmed without compromising the security contract (each test pins a different aspect of the closed-list redaction invariant). Documented per the project's existing pattern.
 2. **`log_safe()` import path.** The brief uses `log_safe(event, **fields)` directly (imported from `app.core.logging`); the design.md uses the same shape. The `csrf.disabled` / `csrf.rejected` events use this signature verbatim in PR-6A.2.
-3. **`configure_logging` is called from lifespan, not from a FastAPI startup event.** The pattern is consistent with the existing lifespan logic (which already does the InsForge bootstrap). Tests using `httpx.ASGITransport` do NOT trigger the lifespan automatically; only the explicit `tests/test_lifespan.py` exercises it, so the test suite is hermetic with respect to the new handler attachment.
+3. **`configure_logging` is called from lifespan, not from a FastAPI startup event.** The pattern is consistent with the existing lifespan logic (which already does the LocalBackend bootstrap). Tests using `httpx.ASGITransport` do NOT trigger the lifespan automatically; only the explicit `tests/test_lifespan.py` exercises it, so the test suite is hermetic with respect to the new handler attachment.
 4. **No manual log-format verification.** The end-to-end test (`test_json_formatter_renders_to_stdout_format`) covers the format contract via a `StringIO` substitution; a live JSON-line capture in staging is part of the Slice 6 UAT sign-off (handled via `feature-acceptance-uat` skill post-merge).
 
 ## Persistence

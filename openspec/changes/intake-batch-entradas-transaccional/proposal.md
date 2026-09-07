@@ -38,7 +38,7 @@ La staging table es física (`entradas_batch_staging`) y no un stash en sesión,
 
 ### D-BATCH-02: Atomicidad vía transacción PostgREST
 
-InsForge expone `client.execute_sql(sql, params)` por statement. Para atomicidad multi-row en una sola transacción usaremos un SAVEPOINT/RPC o un script multi-statement ejecutado por el `sql_runner` de la migración. La decisión técnica final se documenta en `design.md` §"Atomicidad".
+LocalBackend expone `client.execute_sql(sql, params)` por statement. Para atomicidad multi-row en una sola transacción usaremos un SAVEPOINT/RPC o un script multi-statement ejecutado por el `sql_runner` de la migración. La decisión técnica final se documenta en `design.md` §"Atomicidad".
 
 ### D-BATCH-03: Cross-batch uniqueness es validación de servicio, no solo DB
 
@@ -62,7 +62,7 @@ Templates y mensajes en castellano de España. Etiquetas: "Entradas en lote", "P
 
 | Riesgo | Mitigación |
 |---|---|
-| Atomicidad no garantizada por InsForge/PostgREST vía `execute_sql` por statement | Validar en `design.md` el patrón real (script SQL transaccional ejecutado por el `sql_runner` de la migración, o endpoint RPC si InsForge lo soporta) y cubrir con test de integración que pruebe rollback |
+| Atomicidad no garantizada por LocalBackend/PostgREST vía `execute_sql` por statement | Validar en `design.md` el patrón real (script SQL transaccional ejecutado por el `sql_runner` de la migración, o endpoint RPC si LocalBackend lo soporta) y cubrir con test de integración que pruebe rollback |
 | Tabla staging crece sin limpieza | `cancel_batch` y `commit_batch` limpian staging en cualquier salida; opcional: cron de purga de batches >24h (scope fuera) |
 | Cross-batch uniqueness añade latencia | O(N) en memoria sobre el array del batch; despreciable para N<100 (caso operativo real) |
 | Form con N filas dinámicas | Decisión: empezar con N fijo (5 filas) en template, con botón "Añadir fila" vía HTMX (ya usado en otros formularios del repo) |

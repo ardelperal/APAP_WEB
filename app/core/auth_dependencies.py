@@ -26,7 +26,7 @@ signatures, the §32.P4 fix, and the fresh-process regression test.
 from app.core.di.auth_dependencies_di import *  # noqa: F401,F403
 from app.core.di.local_postgres_di import (  # noqa: F401  - re-export so the ~35 consumer files
     # modules that switched to ``get_local_postgres_executor_dep``
-    # in this InsForge deprecation migration do not have to import
+    # in this LocalBackend deprecation migration do not have to import
     # from the di subpackage directly.
     get_local_postgres_executor_dep,
 )

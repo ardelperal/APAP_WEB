@@ -1,12 +1,12 @@
 """OAuth flow handlers for the local backend (M0 of self-host-backend-coolify).
 
-Three endpoints mirror what ``LocalPostgresExecutor`` consumes for the
+Three endpoints mirror what ``AuthUsersPort`` consumes for the
 Google OAuth proxy flow:
 
 - ``GET  /api/auth/oauth/google`` (start) → ``{"authUrl": "https://..."}``
 - ``POST /api/auth/oauth/google/callback`` (legacy direct Google) →
   ``{"token": "<jwt>", "user": {"id", "email"}}``
-- ``POST /api/auth/oauth/exchange`` (InsForge-hosted proxy) →
+- ``POST /api/auth/oauth/exchange`` (LocalBackend-hosted proxy) →
   ``{"user": {"id", "email"}, "accessToken": "<jwt>", "csrfToken": "..."}``
 
 M0 stubs the URL and the JWT deterministically so the rest of the
@@ -37,7 +37,7 @@ router = APIRouter()
 def _make_signed_jwt(email: str) -> str:
     """Return a minimal signed JWT for the stub OAuth response.
 
-    The real InsForge returns a JWT signed with a service key. M0
+    The real LocalBackend returns a JWT signed with a service key. M0
     stubs the shape (``header.payload.signature``) so the client can
     parse it; the signature is not verified in M0 (the client just
     sets a cookie and reads the payload). M3 uses a real signing key.
@@ -93,7 +93,7 @@ def google_oauth_callback(payload: dict) -> dict:
     The real implementation validates the Google code with PKCE and
     signs the JWT with the service key. M0 returns a deterministic JWT
     for the test, no validation. Body is JSON (matches what
-    ``LocalPostgresExecutor.exchange_google_oauth_code`` sends).
+    ``AuthUsersPort.exchange_google_oauth_code`` sends).
     """
     return {
         "token": _make_signed_jwt(_LOCAL_USER["email"]),
@@ -106,12 +106,12 @@ def exchange_insforge_oauth_code(
     payload: dict,
     client_type: str = Query("web"),
 ) -> dict:
-    """Return a stub session JWT (M0) for the InsForge-hosted OAuth proxy.
+    """Return a stub session JWT (M0) for the LocalBackend-hosted OAuth proxy.
 
-    The real implementation validates the InsForge one-time code with
+    The real implementation validates the LocalBackend one-time code with
     PKCE and signs the JWT with the service key. M0 returns a
     deterministic JWT for the test, no validation. Body is JSON
-    (matches what ``LocalPostgresExecutor.exchange_insforge_oauth_code``
+    (matches what ``AuthUsersPort.exchange_insforge_oauth_code``
     sends).
     """
     # ``client_type`` is accepted for parity with the real endpoint but

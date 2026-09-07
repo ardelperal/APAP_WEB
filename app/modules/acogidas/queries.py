@@ -8,7 +8,7 @@ executor.
 
 Rule §22 — the seam is testable: the shape of the SQL is assertable
 in a plain unit test (see ``tests/test_acogidas_queries.py``) without
-spinning up transport, InsForge, or HTTP. The service layer stays
+spinning up transport, LocalBackend, or HTTP. The service layer stays
 focused on dataclasses, mapping, validation, and orchestration.
 
 Rule §1 — routes must never import from this module. The graph is

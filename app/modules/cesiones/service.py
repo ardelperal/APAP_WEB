@@ -27,7 +27,7 @@ in a single ``create_cesion`` call:
 
 - Legacy table ``TbCesionPorPropietario`` (Access backend
   ``Registro_APAP_Alcala_datos_18.accdb``) -> new table
-  ``cesiones_propietario`` in InsForge.
+  ``cesiones_propietario`` in LocalBackend.
 - Legacy relationship ``TbEntradasTbCesionPorPropietario`` (1-a-1 by
   IDEntrada) -> web FK ``entrada_id UUID NOT NULL UNIQUE REFERENCES
   entradas(id)``.
@@ -65,9 +65,9 @@ class CesionConflictError(ValueError):
     """Raised when an attempt to create a cesión collides with the
     1-a-1 UNIQUE FK on ``cesiones_propietario.entrada_id``. Mirrors
     ``EntradaConflictError`` in the entradas module — both translate
-    InsForge's 409 envelope into a domain-meaningful exception that
+    LocalBackend's 409 envelope into a domain-meaningful exception that
     routes can render as a 409 form error without depending on the
-    InsForge envelope shape.
+    LocalBackend envelope shape.
     """
 
 

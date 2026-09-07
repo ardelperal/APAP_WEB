@@ -8,7 +8,7 @@ single application-layer entry point for hexagonal photo
 streaming. Delegates to
 :class:`~app.modules.animals.ports.AnimalsPort` so the application
 code stays transport-agnostic (AGENTS.md §31) — no FastAPI, no
-InsForge storage client, no Jinja in this file.
+LocalBackend storage client, no Jinja in this file.
 
 The use case enforces the only pre-flight invariant the legacy
 ``photo_service.resolve_animal_photo`` did: ``animal_id`` is

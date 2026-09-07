@@ -583,7 +583,7 @@ interface OtherHealthEvent extends HealthEventBase {
 
 Este documento sirve como fuente de verdad para la implementación del módulo de salud en APAP_WEB. El siguiente paso es:
 
-1. **Crear el esquema de base de datos** en InsForge/PostgreSQL basado en las tablas documentadas
+1. **Crear el esquema de base de datos** en LocalBackend/PostgreSQL basado en las tablas documentadas
 2. **Implementar el servicio de salud** (`health.service.ts`) con las operaciones CRUD
 3. **Crear los componentes UI** siguiendo el flujo de navegación documentado
 4. **Implementar validaciones** según las reglas documentadas

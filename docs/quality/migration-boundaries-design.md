@@ -48,7 +48,7 @@ the file's class.
 
 | Class         | Files (POSIX relative to repo root)                                                                                                                                                                                                                                                                                                                              |
 |---------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **pure**      | `derivation.py`, `diff_engine.py`, `reconcile.py`, `lock.py`, `lock_snapshot.py`, `dni_collision.py`, `sync_state.py`, `shadow_state.py`, `reporting.py`, `semantic_events.py`, `web_reader.py`, `reverse_apply/io_helpers.py`, `reverse_apply/lifecycle.py`, `reverse_apply/lock_context.py`, `reverse_apply/shadow.py`, `reverse_apply/types.py`, `ports/web_reader_port.py`, `application/web_reader/load_web_snapshot.py`, `adapters/insforge/web_reader_insforge_adapter.py`, `di/web_reader_di.py` |
+| **pure**      | `derivation.py`, `diff_engine.py`, `reconcile.py`, `lock.py`, `lock_snapshot.py`, `dni_collision.py`, `sync_state.py`, `shadow_state.py`, `reporting.py`, `semantic_events.py`, `web_reader.py`, `reverse_apply/io_helpers.py`, `reverse_apply/lifecycle.py`, `reverse_apply/lock_context.py`, `reverse_apply/shadow.py`, `reverse_apply/types.py`, `ports/web_reader_port.py`, `application/web_reader/load_web_snapshot.py`, `adapters/local-backend/web_reader_local_backend_adapter.py`, `di/web_reader_di.py` |
 | **access-bound** | `legacy_access_client.py`, `legacy_reader.py`                                                                                                                                                                                                                                                                                                                |
 | **orchestration** | everything else under `migration/` (`__init__.py`, `__main__.py`, `apply.py`, `apply_reverse.py`, `cli.py`, `cli_apply_reverse.py`, `cli_format.py`, `cli_volunteer_dedup.py`, `bootstrap.py`, `volunteer_dedup.py`, `storage_spike.py`, `mappings/__init__.py`, `reverse_apply/orchestrator.py`, `reverse_apply/per_row.py`) |
 
@@ -66,7 +66,7 @@ A pure module's imports must resolve to stdlib OR to a sibling <!-- alantyle-ign
 |---------------------------|------------------------------------------------------------------------------------------------------------|
 | `app`                     | Pure modules must not depend on the application layer. They run in the operator CLI, not in FastAPI.        |
 | `migration.legacy_*`      | Keep the Access-bound seam quarantined — a pure module that imports the legacy reader pulls Windows-only code into a Linux-CI-runnable test path. |
-| `pyodbc`, `psycopg`, `psycopg2`, `sqlalchemy`, `insforge`, `pymysql` | Third-party DB drivers. A pure module does not talk to a DB.                              |
+| `pyodbc`, `psycopg`, `psycopg2`, `sqlalchemy`, `local_backend`, `pymysql` | Third-party DB drivers. A pure module does not talk to a DB.                              |
 | `httpx`, `requests`, `aiohttp`, `urllib3` | Third-party HTTP clients. A pure module does not make outbound HTTP.                       |
 | `yaml`, `pydantic`, `rapidfuzz` | Project-dep packages that imply a heavier contract than stdlib. The hexagonal sub-slice uses dataclasses; the dedup helper that needs `rapidfuzz` is orchestration, not pure. |
 | `win32com`, `win32api`, `pythonwin` | Microsoft Windows bindings; would never import on Linux CI.                                |
@@ -74,7 +74,7 @@ A pure module's imports must resolve to stdlib OR to a sibling <!-- alantyle-ign
 The list is closed: it grows when a new external service is added; it
 shrinks when a pure module is migrated to stdlib. `check_migration_boundaries.py`
 matches the first dotted segment of every `Import`/`ImportFrom`, so
-`from app.core.insforge import X` and `from migration.legacy_reader import X`
+`from app.core.local_backend import X` and `from migration.legacy_reader import X`
 both surface.
 
 ### 3.2 Access-bound modules — `ACCESS_BOUND_FORBIDDEN_APP_PREFIXES`
@@ -83,19 +83,19 @@ Access-bound modules may import stdlib, `migration.*` siblings, and
 Access bindings (`pyodbc`, `ctypes.wintypes`, etc.). They may not
 import from `app/` — the entire `app/` tree is forbidden. This protects
 the runtime-boundary contract (`tests/migration/test_runtime_boundary.py`)
-and keeps the Access seam free of FastAPI / InsForge coupling.
+and keeps the Access seam free of FastAPI / LocalBackend coupling.
 
 ### 3.3 Orchestration modules — `ORCHESTRATION_FORBIDDEN_APP_PREFIXES`
 
 Orchestration modules may import anything in `migration.*` and any
 `app.core.*` module (the cross-cutting infrastructure: `app.core.logging`,
-`app.core.data_access`, `app.core.insforge`). They must not import any
+`app.core.data_access`, `app.core.local_backend`). They must not import any
 `app.modules.*` module — business logic is not part of the migration's
 concern, and a route handler pulling `from app.modules.animals import X`
 into the CLI would be a layering violation in the opposite direction. <!-- alantyle-ignore:ALAN004 -->
 
 `app.modules.*` is the single forbidden prefix. The hexagonal refactor
-will tighten this further (e.g. forbidding the concrete `InsForgeClient`
+will tighten this further (e.g. forbidding the concrete `LocalBackendClient`
 in favour of the `SqlExecutor` Protocol), but that is a follow-up — the
 first cut freezes the existing imports as the baseline and binds the
 direction of the build.
@@ -127,7 +127,7 @@ orchestration), the gate asserts that at least one test file under
 | `reverse_apply/*`               | `tests/migration/test_reverse_apply.py`                                       |
 | `semantic_events.py`            | `tests/test_semantic_events.py`                                               |
 | `shadow_state.py`               | `tests/migration/test_shadow_state.py`                                        |
-| `storage_spike.py`              | `tests/migration/test_insforge_storage_methods.py`, `tests/migration/test_storage_contract_evidence.py` |
+| `storage_spike.py`              | `tests/migration/test_storage_methods.py`, `tests/migration/test_storage_contract_evidence.py` |
 | `sync_state.py`                 | `tests/migration/test_apply.py`, `tests/migration/test_round_trip.py`         |
 | `volunteer_dedup.py`            | `tests/migration/test_volunteer_dedup.py`                                     |
 | `web_reader.py`                 | `tests/migration/test_round_trip.py`                                          |
@@ -173,7 +173,7 @@ A second pass with the BASELINE filled in exits 0 against the same tree.
 | Rule                          | What a broken measurement looks like                                                                  | How the gate fails on it                                                                                  |
 |-------------------------------|--------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------|
 | Pure-module forbidden imports | A "pure" module silently grows a DB / HTTP dep and the gate misses it.                                | AST walks every `Import`/`ImportFrom`, not just the file's filename. A new `import sqlalchemy` in `derivation.py` fails the build immediately, not via PR review. |
-| Access-bound forbidden imports | The legacy seam starts importing FastAPI / InsForge.                                                  | Same AST walk; `from app.core.insforge import ...` in `legacy_access_client.py` fails the build.          |
+| Access-bound forbidden imports | The legacy seam starts importing FastAPI / LocalBackend.                                                  | Same AST walk; `from app.core.local_backend import ...` in `legacy_access_client.py` fails the build.          |
 | Orchestration forbidden imports | A CLI module starts importing business logic (`from app.modules.animals import ...`).                | AST walk restricted to `app.modules.*` prefix; any new import there fails the build.                       |
 | Tests-per-module              | A new migration module lands with no test, and the regression gate is silent until something breaks.  | Module-vs-test mapping is checked against the **filesystem** (no skipped modules), so adding `migration/foo.py` without a referencing test fails the build. |
 

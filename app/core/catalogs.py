@@ -321,7 +321,7 @@ def ensure_catalogs(client: SqlExecutor) -> None:
 
     Args:
         client: Any backend client satisfying the :class:`SqlExecutor`
-            Protocol. ``LocalPostgresExecutor`` is one such implementation;
+            Protocol. ``AuthUsersPort`` is one such implementation;
             the parameter is typed as the Protocol so the function
             stays backend-agnostic.
     """
@@ -345,7 +345,7 @@ def ensure_catalogs(client: SqlExecutor) -> None:
 # No row transformation is needed because ``execute_sql`` already
 # returns ``list[dict[str, Any]]``. All wrappers depend on the
 # :class:`SqlExecutor` Protocol (issue #259) rather than the concrete
-# :class:`LocalPostgresExecutor` so the catalog readers stay
+# :class:`AuthUsersPort` so the catalog readers stay
 # backend-agnostic.
 
 

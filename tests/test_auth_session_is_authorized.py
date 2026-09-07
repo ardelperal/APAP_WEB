@@ -20,8 +20,8 @@ Decisiones de diseno del test:
 
 - El test de callback (test 1) es un route test contra ``/auth/callback``
   porque es la unica ruta donde se observa el bug P0. El override
-  ``app.dependency_overrides[get_local_postgres_executor_dep]`` se aplica aqui
-  porque la ruta vive en ``app.main`` y usa ``Depends(get_local_postgres_executor_dep)``
+  ``app.dependency_overrides[get_local_backend_client]`` se aplica aqui
+  porque la ruta vive en ``app.main`` y usa ``Depends(get_local_backend_client)``
   directamente.
 - Los tests 2 y 3 son unit tests de la funcion ``require_authorized_user``
   (importada desde ``app.modules.animals.routes``, donde vive el codigo
@@ -29,11 +29,11 @@ Decisiones de diseno del test:
   funciones puras con un ``payload`` explicito, no como route tests,
   porque las rutas protegidas (``/animales``, ``/voluntarios``)
   instancian un ``LocalPostgresExecutor`` real via la dep local ``_client_dep``
-  (que no pasa por ``Depends(get_local_postgres_executor_dep)``); invocarla como
+  (que no pasa por ``Depends(get_local_backend_client)``); invocarla como
   unitaria mantiene el test enfocado en la guarda de auth y evita
   ruido de red en CI.
 
-Patron: ``app.dependency_overrides[get_local_postgres_executor_dep]`` con un
+Patron: ``app.dependency_overrides[get_local_backend_client]`` con un
 ``LocalPostgresExecutor`` falso, igual que ``tests/test_auth_flow.py``.
 """
 
@@ -46,17 +46,14 @@ import httpx
 import pytest
 from fastapi.responses import RedirectResponse
 
-from app.core.di.local_postgres_di import get_local_postgres_executor_dep
 from app.core.local_backend.db import LocalPostgresExecutor
-from app.core.local_backend.oauth_google import exchange_insforge_oauth_code
-from app.core.ports.oauth_port import OAuthUser
 from app.core.session import session_cookie_name, write_session
-from app.main import app
+from app.main import app, get_local_backend_client
 from app.modules.animals.routes import require_authorized_user
 
 
-class _FakeInsForge(LocalPostgresExecutor):
-    """Stand-in en proceso del cliente InsForge para el test de sesion."""
+class _FakeLocalBackend(LocalPostgresExecutor):
+    """Stand-in en proceso del cliente LocalBackend para el test de sesion."""
 
     def __init__(self) -> None:
         self.get_user_by_email_response: dict | None = {
@@ -81,28 +78,29 @@ class _FakeInsForge(LocalPostgresExecutor):
         code_verifier: str,
         redirect_uri: str,
     ):
+        from app.core.local_backend import OAuthExchangeResult, OAuthUser
 
         row = self.get_user_by_email_response or {}
-        return exchange_insforge_oauth_code(
-            token="jwt-from-insforge",
+        return OAuthExchangeResult(
+            token="jwt-from-local_backend",
             user=OAuthUser(id=str(row.get("id", "u-x")), email=str(row.get("email", ""))),
         )
 
 
 @pytest.fixture
-def fake_insforge() -> _FakeInsForge:
-    """Sustituye ``get_local_postgres_executor_dep`` por el fake durante el test."""
-    fake = _FakeInsForge()
-    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: fake
+def fake_local_backend() -> _FakeLocalBackend:
+    """Sustituye ``get_local_backend_client`` por el fake durante el test."""
+    fake = _FakeLocalBackend()
+    app.dependency_overrides[get_local_backend_client] = lambda: fake
     yield fake
-    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
+    app.dependency_overrides.pop(get_local_backend_client, None)
 
 
 # --- /auth/callback escribe is_authorized --------------------------------
 
 
 async def test_callback_escribe_is_authorized_en_sesion(
-    client: httpx.AsyncClient, fake_insforge: _FakeInsForge
+    client: httpx.AsyncClient, fake_local_backend: _FakeLocalBackend
 ) -> None:
     """Tras un callback exitoso, el payload de sesion incluye ``is_authorized``
     tomado del campo ``activo`` del registro de ``usuarios_autorizados``.
@@ -119,7 +117,7 @@ async def test_callback_escribe_is_authorized_en_sesion(
         {"code_verifier": "verifier-abc"}, secret=settings.session_secret
     )
     client.cookies.set("apap_pkce", pkce_token)
-    fake_insforge.get_user_by_email_response = {
+    fake_local_backend.get_user_by_email_response = {
         "id": "u-1",
         "email": "user@example.com",
         "rol": "key_user",
@@ -165,7 +163,7 @@ def _invoke_require(payload: dict[str, Any] | None) -> RedirectResponse | dict:
     """
     # ``request`` no se usa cuando el payload ya viene resuelto; pasamos
     # un MagicMock solo para satisfacer la firma.
-    fake = _FakeInsForge()
+    fake = _FakeLocalBackend()
     if payload is not None:
         fake.get_user_by_email_response = {
             "id": "u-db",

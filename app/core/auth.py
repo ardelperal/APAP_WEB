@@ -5,7 +5,7 @@ The auth users module has been migrated to a hexagonal slice:
   - :mod:`app.core.domain.auth`       — entities (``AuthorizedUser``, ``Rol``)
   - :mod:`app.core.ports.auth_port`   — :class:`AuthUsersPort` Protocol
   - :mod:`app.core.application.auth`  — use cases (one per file)
-  - :mod:`app.core.adapters.insforge.auth_insforge_adapter` — InsForge adapter
+  - :mod:`app.core.adapters.stubs.auth_users_stub` — stub placeholder (pending local-backend adapter, see #6')
   - :mod:`app.core.di.auth_di`        — FastAPI DI provider
 
 This module preserves the pre-Phase-1 API so the existing callers
@@ -14,8 +14,8 @@ This module preserves the pre-Phase-1 API so the existing callers
 working without a signature change. Every shim function:
 
 1. Accepts the legacy first argument (``client: SqlExecutor`` — the
-   LocalPostgresExecutor satisfies the Protocol structurally).
-2. Constructs a fresh :class:`StubAuthUsersPort` from the
+   AuthUsersPort satisfies the Protocol structurally).
+2. Constructs a fresh :class:`AuthUsersPort` from the
    client (cheap, no I/O).
 3. Delegates to the new use case.
 4. Converts the use case's :class:`~app.core.domain.auth.user.AuthorizedUser`
@@ -42,7 +42,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.core.adapters.stubs.auth_users_stub import StubAuthUsersPort
+from app.core.adapters.stubs.auth_users_stub import (
+    AuthUsersPort,
+)
 from app.core.application.auth._has_other_active_developers import (
     has_other_active_developers as _has_other_active_developers_use_case,
 )
@@ -91,21 +93,14 @@ __all__ = [
 ]
 
 
-def _adapter(client: SqlExecutor) -> StubAuthUsersPort:
-    """Build a fresh :class:`StubAuthUsersPort`.
+def _adapter(client: SqlExecutor) -> AuthUsersPort:
+    """Build a fresh :class:`AuthUsersPort` from the legacy client.
 
-    The InsForge adapter was deleted in issue #666; until a real
-    :class:`~app.core.local_backend.db.LocalPostgresExecutor`-backed
-    adapter lands (tracked as the follow-up), the stub raises
-    :class:`NotImplementedError` on every method call so the runtime
-    fails loud per route.
-
-    The ``client`` parameter is preserved for signature compatibility
-    with the previous ``StubAuthUsersPort``; the stub does not
-    consume it (the stub is stateless and has no resources of its own).
+    The adapter is stateless and cheap to construct; this is the
+    one line of glue that translates "caller has an SqlExecutor"
+    to "use case needs an :class:`AuthUsersPort`".
     """
-    del client  # unused — kept for signature compatibility.
-    return StubAuthUsersPort()
+    return AuthUsersPort()
 
 
 def _to_dict_or_none(user):
@@ -124,7 +119,7 @@ def ensure_schema_and_seed(
 
     The ``settings.initial_admin_email`` flag still drives whether
     the bootstrap admin is seeded (the use case short-circuits on
-    an empty value). The actual DDL + INSERT live in the InsForge
+    an empty value). The actual DDL + INSERT live in the LocalBackend
     adapter.
     """
     _ensure_schema_and_seed_use_case(_adapter(client), settings)

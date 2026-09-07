@@ -10,11 +10,11 @@ prior to this one. This design revises the earlier draft to match.
 The local backend is a **separate FastAPI app** — not a router mounted
 on `app.main`. The reasons:
 
-- The `app.main` lifespan provisions the schema against InsForge (or
+- The `app.main` lifespan provisions the schema against LocalBackend (or
   against the local DB when `APAP_LOCAL_BACKEND=true`). The local
   backend app has its own lifespan that constructs the
   `LocalPostgresExecutor` from `APAP_LOCAL_DB_URL`.
-- The `InsForgeClient` already speaks HTTP. It points at the local
+- The `LocalBackendClient` already speaks HTTP. It points at the local
   backend via the existing `APAP_INSFORGE_URL` (or the default
   `http://localhost:8000/api` set by `APAP_LOCAL_BACKEND=true`).
 - Tests can stand up the local app in-process via
@@ -50,7 +50,7 @@ documented path.
 
 ### 0.3 The `LocalPostgresExecutor` (psycopg wrapper)
 
-The `InsForgeClient` calls `execute_sql(query, params)`. The
+The `LocalBackendClient` calls `execute_sql(query, params)`. The
 Protocol is `app.core.data_access.SqlExecutor`. The local executor
 satisfies the same Protocol:
 
@@ -157,14 +157,14 @@ def create_app() -> FastAPI:
     return app
 ```
 
-### 0.5 Endpoint shapes (pinned to what `InsForgeClient` consumes)
+### 0.5 Endpoint shapes (pinned to what `LocalBackendClient` consumes)
 
-The `InsForgeClient` has been audited for the exact shapes it
+The `LocalBackendClient` has been audited for the exact shapes it
 consumes. Each handler matches.
 
 #### 0.5.1 `GET /healthz`
 
-`app/core/insforge.py` does not call `/healthz` directly; the
+`app/core/local_backend.py` does not call `/healthz` directly; the
 integration test setup calls it to confirm the app is alive.
 
 Returns:
@@ -174,7 +174,7 @@ Returns:
 
 #### 0.5.2 `POST /api/database/advance/rawsql`
 
-Consumed by `InsForgeClient.execute_sql`. Body:
+Consumed by `LocalBackendClient.execute_sql`. Body:
 ```json
 {"query": "SELECT ...", "params": ["a", 1]}
 ```
@@ -195,13 +195,13 @@ without RETURNING). The `rowCount` is the number of rows returned
 
 #### 0.5.3 `GET /api/storage/buckets`
 
-Consumed by `InsForgeClient.get_bucket` (which iterates the list
+Consumed by `LocalBackendClient.get_bucket` (which iterates the list
 and picks the one matching `name`). Returns:
 ```json
 [{"bucketName": "apap-photos", "isPublic": false, "files": 0}, ...]
 ```
 
-The list shape matches InsForge's actual API. M0 returns a
+The list shape matches LocalBackend's actual API. M0 returns a
 hard-coded `apap-photos` bucket with `isPublic=false, files=0`; M2
 will use MinIO's `list_buckets` instead.
 
@@ -217,7 +217,7 @@ Returns the bucket shape:
 {"bucketName": "apap-photos", "isPublic": false, "files": 0}
 ```
 
-For M0: always creates the bucket and returns its shape. (InsForge
+For M0: always creates the bucket and returns its shape. (LocalBackend
 treats 200 and 201 as success; M0 always returns 200 for
 simplicity — `ensure_bucket` does not depend on the status code.)
 
@@ -239,8 +239,8 @@ The stub lets the rest of the app (Google login flow in
 `app/core/auth_flow.py`) exercise the path end-to-end.
 
 A `POST /api/auth/oauth/exchange?client_type=web` endpoint is also
-required by the InsForgeClient's `exchange_insforge_oauth_code` flow.
-The stub accepts an `insforge_code` (returned by the stub
+required by the LocalBackendClient's `exchange_local_backend_oauth_code` flow.
+The stub accepts an `oauth_code` (returned by the stub
 `/callback`) and returns the same JWT.
 
 ### 0.6 Test strategy
@@ -323,7 +323,7 @@ def local_backend_url(self_host_schema):
 |---|---|---|
 | App FastAPI independent | YES (per user) | Clean separation; uvicorn in tests is brittle; lifespan runs correctly in `ASGITransport` |
 | `httpx.ASGITransport` for tests | YES | `uvicorn.Server` thread does not run lifespan reliably; `ASGITransport` does |
-| `LocalPostgresExecutor` class | YES | Matches `SqlExecutor` Protocol; the existing `InsForgeClient` can target it via the same `execute_sql` interface |
+| `LocalPostgresExecutor` class | YES | Matches `SqlExecutor` Protocol; the existing `LocalBackendClient` can target it via the same `execute_sql` interface |
 | `LocalPostgresExecutor` lives in `app/core/local_backend/` | YES | The local backend is its own module; the executor is a private detail of that module |
 | Schema routing via `search_path` env var | YES | The integration conftest already provisions schemas by name; reusing the env var means the test can use the conftest's schema without a re-provision |
 | File split (`rawsql.py`, `storage.py`, etc.) | YES | AGENTS.md rule 21 (700-line budget) |
@@ -346,10 +346,10 @@ tests/integration/test_local_backend.py
 
 ### 0.9 Files NOT touched (M0)
 
-- `app/main.py` — no change (the InsForgeClient modification from the
+- `app/main.py` — no change (the LocalBackendClient modification from the
   previous session is already in; no further modification needed because
   the local backend runs as a separate app)
-- `app/core/insforge.py` — no change
+- `app/core/local_backend.py` — no change
 - `app/core/data_access.py` — no change (the Protocol is unchanged;
   `LocalPostgresExecutor` is an implementation of it)
 - `migration/cli_verify_fallback_ready.py` — no change (the gate

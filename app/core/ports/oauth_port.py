@@ -1,27 +1,27 @@
 """Hexagonal port for the OAuth login flow surface.
 
 The application layer depends on this :class:`Protocol`; the
-InsForge adapter implements it. Tests can implement it with an
-in-memory fake without spinning up transport, InsForge, or HTTP.
+LocalBackend adapter implements it. Tests can implement it with an
+in-memory fake without spinning up transport, LocalBackend, or HTTP.
 
 The port carries three operations, one per OAuth-flow concern:
 
 1. :meth:`OAuthPort.start_google_login` — generate a PKCE pair and
-   ask the backend (InsForge) for the Google authorization URL.
+   ask the backend (LocalBackend) for the Google authorization URL.
 2. :meth:`OAuthPort.exchange_insforge_oauth_code` — exchange an
-   InsForge-hosted ``insforge_code`` (the post-InsForge-OAuth-proxy
+   LocalBackend-hosted ``oauth_code`` (the post-LocalBackend-OAuth-proxy
    flow) for an :class:`OAuthUser` (the user identity returned by
-   InsForge). This is the production path: InsForge fronts Google
+   LocalBackend). This is the production path: LocalBackend fronts Google
    and forwards the user back to the app with a temporary
-   ``insforge_code`` query parameter.
+   ``oauth_code`` query parameter.
 3. :meth:`OAuthPort.exchange_google_oauth_code` — exchange a direct
-   Google-issued ``code`` (the pre-InsForge-OAuth-proxy flow) for an
+   Google-issued ``code`` (the pre-LocalBackend-OAuth-proxy flow) for an
    :class:`OAuthUser`. Kept so existing test suites that pre-date
-   the InsForge OAuth-proxy rollout keep working.
+   the LocalBackend OAuth-proxy rollout keep working.
 
 The :class:`OAuthUser` value object is the shape the port returns
 for the two exchange methods. It is intentionally minimal: just
-``id`` and ``email`` (the only fields the InsForge REST contract
+``id`` and ``email`` (the only fields the LocalBackend REST contract
 returns in the post-exchange ``user`` payload). The application
 layer then looks the email up in ``usuarios_autorizados`` via the
 :class:`~app.core.ports.auth_port.AuthUsersPort` to resolve the
@@ -44,14 +44,14 @@ Hexagonal taxonomy:
 - Domain   :mod:`app.core.domain.oauth` — entities + Protocol errors.
 - Port     (this module) — abstract surface.
 - Application :mod:`app.core.application.oauth` — use cases.
-- Adapter  :mod:`app.core.adapters.insforge.oauth_insforge_adapter` — InsForge impl.
+- Adapter  :mod:`app.core.adapters.local_backend.oauth_local_backend_adapter` — LocalBackend impl.
 - DI       :mod:`app.core.di.oauth_di` — wiring.
 
 Rule §31 (domain services depend on Protocol abstractions): every
 method here takes no concrete backend client; the adapter chooses its
 own transport.
 Rule §22 (SQL/service separation): no SQL lives here; the
-:class:`app.core.insforge.LocalPostgresExecutor` calls the HTTP endpoints
+:class:`app.core.local_backend.AuthUsersPort` calls the HTTP endpoints
 the adapter wraps.
 """
 
@@ -68,7 +68,7 @@ from app.core.domain.oauth import PkcePair
 class OAuthUser:
     """The user identity returned by the backend after a code exchange.
 
-    Mirrors the documented InsForge exchange response
+    Mirrors the documented LocalBackend exchange response
     ``{"user": {"id": ..., "email": ...}, "accessToken": ...}``. Only
     the two fields the OAuth flow actually needs are surfaced; the
     full ``accessToken`` (the bearer JWT the app stores in the
@@ -78,7 +78,7 @@ class OAuthUser:
     re-validates on every request.
 
     Attributes:
-        id: The InsForge user id (a UUID-shaped string). The
+        id: The LocalBackend user id (a UUID-shaped string). The
             application layer uses this as a non-PII identifier in
             ``log_safe`` events.
         email: The user's email at exchange time. The application
@@ -95,10 +95,9 @@ class OAuthPort(Protocol):
 
     Implementations:
 
-    - :class:`app.core.adapters.stubs.oauth_stub.StubOAuthPort`
-      (placeholder, pending a real ``local_backend.oauth_google``-backed adapter; issue #4b').
-      — production adapter, talks to InsForge via
-      :class:`app.core.insforge.LocalPostgresExecutor`.
+    - :class:`app.core.adapters.local_backend.oauth_local_backend_adapter.OAuthPort`
+      — production adapter, talks to LocalBackend via
+      :class:`app.core.local_backend.AuthUsersPort`.
     - Test fakes (in ``tests/``) — in-memory adapters that record
       calls or raise on demand without any transport.
     """
@@ -129,25 +128,25 @@ class OAuthPort(Protocol):
 
     def exchange_insforge_oauth_code(
         self,
-        insforge_code: str,
+        oauth_code: str,
         code_verifier: str,
     ) -> OAuthUser:
-        """Exchange an InsForge-hosted ``insforge_code`` for the user identity.
+        """Exchange an LocalBackend-hosted ``oauth_code`` for the user identity.
 
-        This is the production post-InsForge-OAuth-proxy path:
-        InsForge's hosted proxy fronts Google (and other providers)
+        This is the production post-LocalBackend-OAuth-proxy path:
+        LocalBackend's hosted proxy fronts Google (and other providers)
         with its own OAuth flow, then redirects the user back to the
-        app with ``?insforge_code=<temporary>``. The app exchanges
+        app with ``?oauth_code=<temporary>``. The app exchanges
         that code here with the PKCE verifier minted at
         ``/login`` time.
 
         Args:
-            insforge_code: The temporary code in the callback URL.
+            oauth_code: The temporary code in the callback URL.
             code_verifier: The PKCE verifier from the ``apap_pkce``
                 cookie.
 
         Returns:
-            The :class:`OAuthUser` resolved by InsForge.
+            The :class:`OAuthUser` resolved by LocalBackend.
 
         Raises:
             app.core.data_access.BackendError: When the backend
@@ -167,7 +166,7 @@ class OAuthPort(Protocol):
         """Exchange a direct Google-issued ``code`` for the user identity.
 
         Legacy direct-callback path (kept for tests that pre-date
-        the InsForge OAuth proxy rollout). New flows should call
+        the LocalBackend OAuth proxy rollout). New flows should call
         :meth:`exchange_insforge_oauth_code` instead.
 
         Args:
@@ -178,7 +177,7 @@ class OAuthPort(Protocol):
                 match the one used in the start step).
 
         Returns:
-            The :class:`OAuthUser` resolved by InsForge.
+            The :class:`OAuthUser` resolved by LocalBackend.
 
         Raises:
             app.core.data_access.BackendError: When the backend

@@ -105,7 +105,7 @@ skill_resolution: paths-injected
 
 - [ ] 3.9.1 Crear `specs/rbac/spec.md` documentando el modelo RBAC:
   roles (developer, admin, operador), permisos por rol, endpoints protegidos,
-  tabla de roles en InsForge. Depende de: 3.11 (UX foundation para el panel admin).
+  tabla de roles en LocalBackend. Depende de: 3.11 (UX foundation para el panel admin).
 
 ## Task 3.10 — Foundation tasks engine (#7)
 

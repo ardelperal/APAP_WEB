@@ -25,7 +25,7 @@ This README documents the domain, tables, endpoints, and risks of the `voluntari
 
 El módulo `voluntarios` cubre el alta, consulta y baja lógica de las personas voluntarias. La tabla `voluntarios` es el registro maestro: nombre obligatorio, dos teléfonos, email y DNI opcionales, todos con `activo` para el soft-delete. La tabla `roles_voluntario` es la unión que asigna uno o varios roles operativos (`intake`, `seguimiento`, `acogida`, `salud`) a cada voluntario activo.
 
-La validación previa al SQL exige nombre no vacío y email con formato básico cuando se proporciona. La unicidad de `email` y `DNI` queda en manos de la base de datos: un duplicado propaga el `InsForgeError` y la ruta lo traduce a `409` con mensaje en español. El borrado es siempre lógico: se preservan las FK de intakes, estancias de acogida, adopciones y terapias para no romper la trazabilidad histórica.
+La validación previa al SQL exige nombre no vacío y email con formato básico cuando se proporciona. La unicidad de `email` y `DNI` queda en manos de la base de datos: un duplicado propaga el `BackendError` y la ruta lo traduce a `409` con mensaje en español. El borrado es siempre lógico: se preservan las FK de intakes, estancias de acogida, adopciones y terapias para no romper la trazabilidad histórica.
 
 ## Tables
 
@@ -54,7 +54,7 @@ El `csrf_token` se inyecta en cada `TemplateResponse` por `csrf_token_context_pr
 
 Funciones públicas del módulo (exportadas desde `app/modules/voluntarios/__init__.py`).
 
-- `create_voluntario(client, params) -> Voluntario` — Valida nombre y formato de email. Inserta y devuelve la fila. Propaga `InsForgeError` sin cambios para que la ruta traduzca a 409.
+- `create_voluntario(client, params) -> Voluntario` — Valida nombre y formato de email. Inserta y devuelve la fila. Propaga `BackendError` sin cambios para que la ruta traduzca a 409.
 - `list_voluntarios(client) -> list[Voluntario]` — Lista alfabética de activos.
 - `get_voluntario_by_id(client, voluntario_id) -> Voluntario | None` — Un voluntario por id o `None`.
 - `list_roles(client, voluntario_id) -> list[str]` — Roles asignados al voluntario, ordenados.
@@ -64,12 +64,12 @@ Enum exportado: `RolVoluntario` (intake, seguimiento, acogida, salud). `VALID_RO
 
 ## Layer type
 
-Legacy route → service layout sin `queries.py`. El módulo es uno de los previos al seam de AGENTS.md §22: SQL y validación conviven en `service.py`. El patrón destino está en `app/modules/animals/adapters/insforge/`.
+Legacy route → service layout sin `queries.py`. El módulo es uno de los previos al seam de AGENTS.md §22: SQL y validación conviven en `service.py`. El patrón destino está en `app/modules/animals/adapters/local-backend/`.
 
 ## Risks and gotchas
 
 - **TOCTOU cerrado en `deactivate_voluntario`**: el `UPDATE` con `WHERE id = $1 AND activo = true RETURNING id` pliega el check de existencia bajo el row lock de PostgreSQL. Dos llamadas concurrentes producen exactamente un `True` y un `False`. El adaptador de animales usa el mismo patrón de soft-delete atómico.
-- **Duplicado de email o DNI**: la base impone `UNIQUE`. Un duplicado propaga `InsForgeError` y la ruta traduce a `409` con mensaje en español.
+- **Duplicado de email o DNI**: la base impone `UNIQUE`. Un duplicado propaga `BackendError` y la ruta traduce a `409` con mensaje en español.
 - **Validación de email superficial**: la regla `_validate_create_params` solo exige presencia de `@`. La validación real (RFC 5322, dominio válido) queda pendiente.
 - **Borrado preserva FK**: desactivar un voluntario no rompe las referencias de intakes, estancias, adopciones ni terapias. La trazabilidad histórica se mantiene.
 - **Roles no se validan en este módulo**: la asignación de `roles_voluntario` pertenece a otro slice. `list_roles` es de solo lectura y devuelve los `tipo_rol` ya almacenados.
@@ -86,6 +86,6 @@ Legacy route → service layout sin `queries.py`. El módulo es uno de los previ
 - [ ] Cada endpoint de la tabla existe en `routes.py`.
 - [ ] Cada función pública aparece en `__init__.py` o se exporta por convención.
 - [ ] El patrón TOCTOU del `UPDATE` no se ha refactorizado a `SELECT` + `UPDATE` (engram:14518 ya lo marcó).
-- [ ] La ruta traduce `InsForgeError(status_code=409)` a 409 con mensaje en español.
+- [ ] La ruta traduce `BackendError(status_code=409)` a 409 con mensaje en español.
 - [ ] Los cross-references resuelven a archivos existentes.
 - [ ] El README cabe en 5 minutos.

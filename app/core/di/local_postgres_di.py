@@ -1,6 +1,6 @@
 """DI provider for the ``LocalPostgresExecutor`` (Coolify-hosted local backend).
 
-Mirrors the shape of ``get_insforge_client_dep`` so the rest of the
+Mirrors the shape of ``get_local_backend_client_dep`` so the rest of the
 slice can migrate adapter-by-adapter without a single global cut-over.
 Each call returns a fresh ``LocalPostgresExecutor`` wrapping the
 DSN stored in ``APAP_LOCAL_DB_URL`` (``APAP_LOCAL_DB_SCHEMA`` optional,
@@ -10,12 +10,12 @@ Migration plan:
 
 - Today (this commit): the helper exists; no caller has migrated.
 - Subsequent commits: per-module migration replaces
-  ``LocalPostgresExecutor`` with ``LocalPostgresExecutor`` (sanidad,
+  ``AuthUsersPort`` with ``LocalPostgresExecutor`` (sanidad,
   foster, entradas, etc.). Each migration is its own commit
   with its own verification.
 - Final commit: ``app/main.py`` switches the lifespan from
-  ``LocalPostgresExecutor`` to ``LocalPostgresExecutor``; the legacy
-  ``get_insforge_client_dep`` is removed (or kept only for tests
+  ``AuthUsersPort`` to ``LocalPostgresExecutor``; the legacy
+  ``get_local_backend_client_dep`` is removed (or kept only for tests
   that pin the deprecation).
 """
 from __future__ import annotations

@@ -10,7 +10,7 @@ La arquitectura es **hexagonal con slices verticales** (épica #420). Esta regla
 
 ### 33.1 Las dos ubicaciones
 
-- **`app/core/<layer>/<slice>/`** — capacidad transversal. Hoy: `auth-users` (#414), `catalogos` (#415), `schema-bootstrap` (#416). Los layers son carpetas globales (`domain/`, `ports/`, `application/`, `adapters/insforge/`, `di/`) y el slice es un subdirectorio dentro de cada uno.
+- **`app/core/<layer>/<slice>/`** — capacidad transversal. Hoy: `auth-users` (#414), `catalogos` (#415), `schema-bootstrap` (#416). Los layers son carpetas globales (`domain/`, `ports/`, `application/`, `adapters/local-backend/`, `di/`) y el slice es un subdirectorio dentro de cada uno.
 - **`app/modules/<slice>/`** — capacidad de negocio. El slice posee toda su pila en **una** carpeta.
 
 ### 33.2 La regla que decide
@@ -30,16 +30,16 @@ app/modules/<slice>/
 ├── domain/                          # entidades puras y reglas, sin I/O
 ├── ports/<slice>_port.py            # Protocol: lo que el use case necesita
 ├── application/                     # un use case por archivo
-├── adapters/insforge/
-│   ├── <slice>_insforge_adapter.py  # implementa el port
-│   └── <slice>_insforge_queries.py  # el SQL vive aquí (ver [code-quality-rules.md](code-quality-rules.md) §22)
+├── adapters/local-backend/
+│   ├── <slice>_local_backend_adapter.py  # implementa el port
+│   └── <slice>_local_backend_queries.py  # el SQL vive aquí (ver [code-quality-rules.md](code-quality-rules.md) §22)
 ├── di/<slice>_di.py                 # composition root del slice
 └── routes.py                        # delgado: parsea, delega, renderiza (ver [module-size-budgets.md](module-size-budgets.md) §28)
 ```
 
 ### 33.4 Lo que se sostiene en cualquiera de las dos ubicaciones
 
-- `InsForgeClient` e `InsForgeError` se importan **solo** bajo `adapters/` y `di/`, más `app/main.py` que construye el cliente pooled. `domain/`, `ports/` y `application/` son transport-agnostic (§31 es la forma general de esto).
+- `LocalBackendClient` e `BackendError` se importan **solo** bajo `adapters/` y `di/`, más `app/main.py` que construye el cliente pooled. `domain/`, `ports/` y `application/` son transport-agnostic (§31 es la forma general de esto).
 - No se crean `service.py` nuevos que ejecuten SQL. Esa es la capa que este refactor retira; §1 y §5 la describen porque sigue presente en módulos no convertidos, no porque código nuevo deba parecérseles.
 - Los criterios de aceptación nombran la **capacidad** (almacenar un archivo, enviar una notificación), nunca el vendor que la provee.
 - Cada slice envía un test pin arquitectónico que falla cuando un import de transporte se filtra a la capa equivocada. Una regla sin gate es [anti-patterns.md](anti-patterns.md) §32.P3.
@@ -58,10 +58,10 @@ APAP_WEB corre como **app web O app legacy Access/VBA, nunca ambas a la vez**. L
 
 | Modo | Backend | Ruta de código |
 |---|---|---|
-| **Web** | InsForge (PostgREST-compatible PostgreSQL BaaS) | `app/core/insforge.py` → InsForgeClient |
+| **Web** | LocalBackend (PostgREST-compatible PostgreSQL BaaS) | `app/core/local_backend.py` → LocalBackendClient |
 | **Legacy** | Tablas vinculadas `.accdb` de Access (esquema legacy `Tb*`) | `app.core` delega a un adaptador legacy que lee vía DAO o Dysflow |
 
-La **selección de modo** es configuración de runtime (env-flag o `Settings.mode`). Cuando `mode = "web"`, la app habla con InsForge exclusivamente. Cuando `mode = "legacy"`, habla con el backend Access exclusivamente. Los dos nunca corren contra el mismo dataset en la misma sesión.
+La **selección de modo** es configuración de runtime (env-flag o `Settings.mode`). Cuando `mode = "web"`, la app habla con LocalBackend exclusivamente. Cuando `mode = "legacy"`, habla con el backend Access exclusivamente. Los dos nunca corren contra el mismo dataset en la misma sesión.
 
 ### 18.1 Función de sync obligatoria (HARD) <!-- alantyle-ignore:ALAN003 -->
 
@@ -106,14 +106,14 @@ El CLI envía `apap-migrate reconcile <flags>` como punto de entrada.
 El mode-toggle y la función de sync se enforzan en tres capas:
 
 1. **Settings** (`app/core/config.py`) lee el env `APAP_MODE` (`web` | `legacy`). El arranque falla rápido si tanto `APAP_INSFORGE_URL` como `APAP_LEGACY_ACCDB_PATH` son alcanzables.
-2. **`InsForgeClient`** es el único objeto permitido para hablar con InsForge. **`LegacyAdapter`** es el único objeto permitido para hablar con el backend Access. El código de service importa uno, nunca ambos.
+2. **`LocalBackendClient`** es el único objeto permitido para hablar con LocalBackend. **`LegacyAdapter`** es el único objeto permitido para hablar con el backend Access. El código de service importa uno, nunca ambos.
 3. **`migration/`** es el único paquete permitido para leer ambos backends. El código de route + service no debe importar `migration/`.
 
 **Aplicación**: revisión de PR + `tests/test_mode_isolation.py` (test atómico que confirma que un único request lee de exactamente un backend).
 
 ## §31 — Los services de dominio dependen de abstracciones Protocol
 
-Los services de dominio deben depender de abstracciones Protocol, nunca de clientes backend concretos. `app.core.data_access.SqlExecutor`, introducido en #259, es el precedente. Ejemplo: `def list_items(client: SqlExecutor) -> list[Item]: ...` — no `client: InsForgeClient`.
+Los services de dominio deben depender de abstracciones Protocol, nunca de clientes backend concretos. `app.core.data_access.SqlExecutor`, introducido en #259, es el precedente. Ejemplo: `def list_items(client: SqlExecutor) -> list[Item]: ...` — no `client: LocalBackendClient`.
 
 §33 es la forma con forma de slice de esta regla: el Protocol es el port propio del slice en `ports/<slice>_port.py`, expresado en términos de dominio más que como un ejecutor SQL genérico.
 
@@ -123,14 +123,14 @@ Los services de dominio deben depender de abstracciones Protocol, nunca de clien
 - **Una ubicación por slice**: dos consumidores y sin razón propia → `core`; razón de negocio propia → `modules/`. En duda, módulo.
 - **Modo exclusivo**: el backend es exactamente uno por sesión — el mode toggle vive en `Settings.mode`.
 - **Sync idempotente + auditable + lockable**: cada fila escrita se loguea y la sync puede re-ejecutarse sin daño.
-- **Protocol como abstracción**: ninguna firma de service de dominio acepta `InsForgeClient` directamente.
+- **Protocol como abstracción**: ninguna firma de service de dominio acepta `LocalBackendClient` directamente.
 
 ## Contributor checklist
 
 - [ ] Antes de crear un slice, aplicó §33.2 y justificó la ubicación en el PR.
-- [ ] Cada nuevo slice convertido incluye `domain/`, `ports/`, `application/`, `adapters/insforge/`, `di/` y un pin test de capas.
-- [ ] Ningún slice nuevo introduce SQL fuera de `adapters/insforge/<slice>_insforge_queries.py`.
-- [ ] Las funciones de service de dominio reciben `Protocol` o `SqlExecutor`, no `InsForgeClient`.
+- [ ] Cada nuevo slice convertido incluye `domain/`, `ports/`, `application/`, `adapters/local-backend/`, `di/` y un pin test de capas.
+- [ ] Ningún slice nuevo introduce SQL fuera de `adapters/local-backend/<slice>_local_backend_queries.py`.
+- [ ] Las funciones de service de dominio reciben `Protocol` o `SqlExecutor`, no `LocalBackendClient`.
 - [ ] Si toca el mode toggle o el sync, leyó `migration/cli.py` y respeta §18.3.
 
 ## Navigation

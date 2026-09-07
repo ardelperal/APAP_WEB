@@ -39,4 +39,4 @@ skill_resolution: paths-injected
 
 | Commit | Work unit | SDD tasks | Verification | Access sync |
 |---|---|---|---|---|
-| _TBD_ | ADOPT-01 (migration + service + routes + templates + tests) | 1.1-3.2 | _TBD_ | N/A (InsForge is target; legacy `TbAdopcion` is read-only reference) |
+| _TBD_ | ADOPT-01 (migration + service + routes + templates + tests) | 1.1-3.2 | _TBD_ | N/A (LocalBackend is target; legacy `TbAdopcion` is read-only reference) |

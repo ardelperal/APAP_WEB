@@ -23,7 +23,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.core.auth_dependencies import (
-    get_local_postgres_executor_dep,  # noqa: F401  - InsForge deprecation migration
+    get_local_postgres_executor_dep,  # noqa: F401  - LocalBackend deprecation migration
     require_authorized_user,
 )
 from app.core.csrf import csrf_token_context_processor

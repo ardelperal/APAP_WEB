@@ -8,7 +8,7 @@ validation pipeline, and talks to the SQL executor.
 
 Rule §22 — the seam is testable. The shape of the SQL is asserted in
 ``tests/test_salud_queries.py`` without spinning up transport,
-InsForge, or HTTP. The service layer stays focused on dataclasses,
+LocalBackend, or HTTP. The service layer stays focused on dataclasses,
 mapping, validation, and orchestration.
 
 Rule §1 — routes must never import from this module. The graph is

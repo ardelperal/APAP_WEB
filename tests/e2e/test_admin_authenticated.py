@@ -157,11 +157,11 @@ def test_authenticated_admin_renders_panel(
       to ``/unauthorized``.
 
     The exact response body is intentionally NOT asserted: the dev
-    server has no InsForge backend, so the admin panel's
+    server has no LocalBackend backend, so the admin panel's
     ``AuthUsersPort.list_authorized_users()`` call 500s. What the
     test pins is the AUTH path — that the cookie contract wires
     the request past both middleware gates — not the
-    data-fetching path. The data-fetching path needs InsForge
+    data-fetching path. The data-fetching path needs LocalBackend
     (separate work unit).
     """
     response = authenticated_page.goto(f"{base_url}/admin")
@@ -173,10 +173,10 @@ def test_authenticated_admin_renders_panel(
     # 401      → auth gate accepted the cookie but the dev dep
     #              rejected the session payload (a regression in
     #              write_session / read_session_payload).
-    # 500      → InsForge-dependent render failed. EXPECTED on the
+    # 500      → LocalBackend-dependent render failed. EXPECTED on the
     #              dev server with no backend; the test passes
     #              because the auth path is verified. A future
-    #              follow-up that wires InsForge will turn this into
+    #              follow-up that wires LocalBackend will turn this into
     #              a 200 and the assertion stays green.
     assert response.status not in (303, 307, 401), (
         f"authenticated /admin must pass the auth gate, got {response.status}. "
@@ -198,7 +198,7 @@ def test_session_cookie_persists_across_requests(
     fill would fail on the second or third request with a redirect
     (303 / 307) to ``/login``.
 
-    500 is acceptable on this dev server (InsForge is not
+    500 is acceptable on this dev server (LocalBackend is not
     configured; the admin panel's ``AuthUsersPort`` call 500s on
     data fetch). What we pin is the auth path.
     """

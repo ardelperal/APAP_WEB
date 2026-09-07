@@ -36,7 +36,7 @@ Legacy tiene `TbAcogidaCasas` (casa) y `TbAcogidaAnimal` (estancia) como dos tab
 
 ### D-FOSTER-02: Mejoras justificadas
 
-- `id` UUID PK en vez de `IDAcogidaCasa` INT legacy: estable para FK desde `acogidas.casa_acogida_id` (que FOSTER-02 añadirá) y portable a InsForge/PostgREST.
+- `id` UUID PK en vez de `IDAcogidaCasa` INT legacy: estable para FK desde `acogidas.casa_acogida_id` (que FOSTER-02 añadirá) y portable a LocalBackend/PostgREST.
 - `capacidad` INTEGER NOT NULL CHECK (capacidad > 0): el legacy no tiene este campo pero la discovery 2.2 lo documenta explícitamente como regla de capacidad ("Current count = active foster stays, max capacity per foster home"). Sin esta columna no se puede implementar FOSTER-03. Documentado como gap P1.
 - `coche` y los campos `Sí`/`No` con tildes: preservamos la tilde (mismo patrón que `cesiones_propietario`).
 - `activo` BOOLEAN + `fecha_baja` TIMESTAMP: el patrón soft-delete del proyecto (mirror de `animales`, `voluntarios`, `entradas`). El legacy usa solo `FechaBaja`; web usa ambos para queries eficientes (`activo=true` vs `fecha_baja IS NULL`).

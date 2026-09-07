@@ -1,6 +1,6 @@
 # APAP_WEB
 
-> Reescritura web server-rendered del Access/VBA de APAP para gestión de animales, voluntarios y operaciones del refugio; FastAPI + Jinja2 + InsForge, desplegada en Coolify.
+> Reescritura web server-rendered del Access/VBA de APAP para gestión de animales, voluntarios y operaciones del refugio; FastAPI + Jinja2 + LocalBackend, desplegada en Coolify.
 
 ![build](https://img.shields.io/github/actions/workflow/status/ardelperal/APAP_WEB/ci.yml?branch=main&label=build)
 ![license](https://img.shields.io/badge/license-proprietary-blue)
@@ -38,7 +38,7 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 
 Abra `http://127.0.0.1:8000/healthz` para el JSON health probe.
 Para llegar a `/login` configure primero las variables `APAP_GOOGLE_*` listadas en [DOCS.md → Variables de entorno](DOCS.md#variables-de-entorno).
-El setup completo — MCP de InsForge, gestión de secretos, atajos `make` — vive en [docs/setup.md](docs/setup.md).
+El setup completo — MCP de LocalBackend, gestión de secretos, atajos `make` — vive en [docs/setup.md](docs/setup.md).
 
 ## ¿Qué es APAP_WEB?
 
@@ -50,10 +50,10 @@ Esta reescritura conserva cada capacidad legacy o la reemplaza por un equivalent
    Cada capacidad del Access usada por el equipo se conserva o se documenta como divergencia en [docs/architecture/decisiones-proyecto.md](docs/architecture/decisiones-proyecto.md).
    Las brechas se tratan como `type:bug gap:legacy`, nunca como omisión silenciosa.
 2. **Acceso allowlisted por Google OAuth.**
-   La autenticación delega en Google (proxy OAuth de InsForge).
+   La autenticación delega en Google (proxy OAuth de LocalBackend).
    La autorización es una allowlist en `usuarios_autorizados`, revalidada por request con caché TTL configurable (`APAP_AUTH_CACHE_TTL_SECONDS`, 300 por defecto).
 3. **Server-rendered, JS mínimo, auditable.**
-   Plantillas Jinja2, Tailwind v4 CSS-first, cliente `httpx` por request hacia InsForge.
+   Plantillas Jinja2, Tailwind v4 CSS-first, cliente `httpx` por request hacia LocalBackend.
    Cada POST pasa por el middleware CSRF, y toda emisión de log usa `log_safe(...)` con redacción automática de doce campos de PII.
 
 ## Estado del proyecto

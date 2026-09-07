@@ -170,13 +170,13 @@ def check_round_trip_test() -> CheckResult:
 
     The CI-runnable condition is that the round-trip test suite (PR6,
     M2 closure) passes against the real backend. We shell out to
-    pytest because the test suite has its own fixtures (FakeInsForge
+    pytest because the test suite has its own fixtures (FakeLocalBackend
     seed, ephemeral_postgres, etc.) that the gate should not have to
     reproduce. The contract: the test exits 0 = round-trip is green.
 
     The check uses ``APAP_TEST_POSTGRES_DSN`` if the CI integration
     job sets it; otherwise the round-trip test falls back to
-    FakeInsForge (which is the pre-PR6 verification path). Either
+    FakeLocalBackend (which is the pre-PR6 verification path). Either
     way, exit 0 is the gate.
     """
     rc, stdout, stderr = _run_subprocess_check(
@@ -254,13 +254,13 @@ def check_web_to_legacy_check_only() -> CheckResult:
     copy-before-mutate discipline).
 
     M0 of self-host-backend-coolify (issue #641): the CLI's
-    ``LocalPostgresExecutor`` now points at the local backend when
+    ``StubAuthUsersPort`` now points at the local backend when
     ``APAP_LOCAL_BACKEND=true`` and ``APAP_INSFORGE_URL`` targets it.
     If ``APAP_LOCAL_DB_URL`` is set in the parent env, this check
     auto-wires both: it provisions an ephemeral APAP schema, spawns
     the local backend on a free port, runs the migration CLI against
     it, and tears everything down. Without ``APAP_LOCAL_DB_URL`` the
-    check falls back to the operator's manual setup (InsForge remote
+    check falls back to the operator's manual setup (LocalBackend remote
     must be reachable).
 
     This is a soft check: if the CLI returns non-zero, we report FAIL
@@ -278,7 +278,7 @@ def check_web_to_legacy_check_only() -> CheckResult:
     # M0 fixture wiring: if APAP_LOCAL_DB_URL is set, stand up the
     # local backend in-process with a fresh ephemeral schema, run the
     # check, then tear down. Otherwise inherit the parent's env
-    # (operator must ensure the target — InsForge or local — is reachable).
+    # (operator must ensure the target — LocalBackend or local — is reachable).
     extra_env: dict[str, str] = {}
     backend_proc = None
     ephemeral_schema: str | None = None

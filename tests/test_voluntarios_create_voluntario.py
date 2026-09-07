@@ -98,7 +98,7 @@ class TestCreateVoluntarioAdapterErrors:
         with pytest.raises(UniqueViolationError):
             create_voluntario(port, nombre="Ana Garcia", email="ana@example.com")  # type: ignore[arg-type]
 
-    def test_insforge_error_propagates(self) -> None:
+    def test_backend_error_propagates(self) -> None:
         port = _FakeVoluntariosPort(error=RuntimeError("network"))
         with pytest.raises(RuntimeError):
             create_voluntario(port, nombre="Ana Garcia")  # type: ignore[arg-type]

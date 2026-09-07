@@ -42,7 +42,7 @@ def _make_web_client(
     handler: Callable[[httpx.Request], httpx.Response],
 ) -> LocalPostgresExecutor:
     return LocalPostgresExecutor(
-        base_url="https://example.insforge.app",
+        base_url="https://example.local_backend.app",
         service_key="ik_test",
         transport=httpx.MockTransport(handler),
     )

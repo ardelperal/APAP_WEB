@@ -29,10 +29,9 @@ from pathlib import Path
 import httpx
 import pytest
 
-from app.core.di.local_postgres_di import get_local_postgres_executor_dep
 from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.session import session_cookie_name, write_session
-from app.main import app
+from app.main import app, get_local_backend_client
 from tests.conftest import auth_reval_rows, make_csrf_request
 
 # Four XSS payloads from spec REQ-XSS-2 — chosen so each spans a
@@ -69,11 +68,11 @@ def _login_as_key_user(client: httpx.AsyncClient) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Spy InsForge client — returns rows with XSS payloads in user columns.
+# Spy LocalBackend client — returns rows with XSS payloads in user columns.
 # ---------------------------------------------------------------------------
 
 
-class _XssInsForge(LocalPostgresExecutor):
+class _XssLocalBackend(LocalPostgresExecutor):
     """Stand-in for ``LocalPostgresExecutor`` that returns XSS-laden rows.
 
     Pattern matches SQL fragments (same shape as the real routes) so
@@ -193,16 +192,16 @@ class _XssInsForge(LocalPostgresExecutor):
 
 
 @pytest.fixture
-def xss_insforge() -> _XssInsForge:
-    spy = _XssInsForge()
-    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy
+def xss_local_backend() -> _XssLocalBackend:
+    spy = _XssLocalBackend()
+    app.dependency_overrides[get_local_backend_client] = lambda: spy
     # Epic #420 migrated the animals routes to Depends(get_animals_port);
     # the hexagonal provider reads ``state.sql_executor`` directly, so
     # the state must also be wired for these tests (which exercise the
     # animals detail/edit routes after migration).
     app.state.sql_executor = spy
     yield spy
-    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
+    app.dependency_overrides.pop(get_local_backend_client, None)
     app.state.__dict__.pop("sql_executor", None)
 
 
@@ -236,11 +235,11 @@ async def test_handler_does_not_leak_xss_payload(
     method: str,
     url: str,
     client: httpx.AsyncClient,
-    xss_insforge: _XssInsForge,  # noqa: ARG001 — fixture installs the spy
+    xss_local_backend: _XssLocalBackend,  # noqa: ARG001 — fixture installs the spy
 ) -> None:
     """Every HTMLResponse route MUST escape the XSS payloads from spec.
 
-    The fixture ``xss_insforge`` returns rows whose user-controlled
+    The fixture ``xss_local_backend`` returns rows whose user-controlled
     columns contain each of the four spec patterns. The route renders
     the row through a Jinja2 template; autoescape is the only line of
     defense, so the literal payload must NOT appear in the rendered
@@ -284,7 +283,7 @@ async def test_handler_does_not_leak_xss_payload(
 
 async def test_animal_create_post_re_renders_form_with_xss_escaped(
     client: httpx.AsyncClient,
-    xss_insforge: _XssInsForge,  # noqa: ARG001
+    xss_local_backend: _XssLocalBackend,  # noqa: ARG001
 ) -> None:
     """POST ``/animales`` with XSS in every field — body MUST escape it.
 

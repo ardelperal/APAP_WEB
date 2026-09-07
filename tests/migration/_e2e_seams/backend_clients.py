@@ -1,8 +1,8 @@
-"""Test seam: real-backend clients that satisfy the migration _InsForgeLike protocol.
+"""Test seam: real-backend clients that satisfy the migration _LocalBackendLike protocol.
 
 This module lets the E2E migration tests run ``apply_legacy_to_web`` and
 ``apply_web_to_legacy`` against a real database (Postgres ephemeral or
-InsForge) rather than the FakeInsForge in-memory shim used by the rest
+LocalBackend) rather than the FakeLocalBackend in-memory shim used by the rest
 of the migration test suite.
 
 The seam wraps existing clients:
@@ -14,14 +14,14 @@ The seam wraps existing clients:
     the web-only feature shadow state table. Migrations need the
     catalogos to resolve the contrato type FK, so we seed them.
 
-  * ``InsForgeBackendClient`` is a thin wrapper over the production
-    ``app.core.insforge.LocalPostgresExecutor`` (which already exposes the
+  * ``LocalBackendBackendClient`` is a thin wrapper over the production
+    ``app.core.local_backend.LocalPostgresExecutor`` (which already exposes the
     same ``execute_sql`` signature). It is used in CI when an
-    InsForge project is provisioned; locally, when no InsForge env
+    LocalBackend project is provisioned; locally, when no LocalBackend env
     vars are set, the E2E atom uses the Postgres backend.
 
 The two clients are NOT mutually exclusive — the test atom picks one
-based on the ``APAP_INSFORGE_URL`` env var. The InsForge client is
+based on the ``APAP_INSFORGE_URL`` env var. The LocalBackend client is
 preferred when available because it is the production target.
 """
 
@@ -31,10 +31,10 @@ import os
 from typing import Any, Protocol
 
 
-class InsForgeLike(Protocol):
+class LocalBackendLike(Protocol):
     """Structural type satisfied by both backend clients.
 
-    Mirrors the migration ``_InsForgeLike`` protocol in
+    Mirrors the migration ``_LocalBackendLike`` protocol in
     ``migration/apply.py``. We re-declare it here so the test seam
     does not need to import from the migration package (which would
     require sys.path manipulation from the test runner).
@@ -49,7 +49,7 @@ class InsForgeLike(Protocol):
 
 class PostgresBackendClient:
     """Adapter that exposes the integration conftest's ephemeral Postgres
-    as an ``_InsForgeLike`` and a (mock) ``_BucketAdmin``.
+    as an ``_LocalBackendLike`` and a (mock) ``_BucketAdmin``.
 
     The ``ephemeral_postgres`` fixture is session-scoped; the schema
     is provisioned by the integration conftest with the APAP_WEB
@@ -65,7 +65,7 @@ class PostgresBackendClient:
     E2E atom is focused on the SQL flow.
 
     The shape returned by ``get_bucket`` / ``ensure_bucket`` mirrors
-    what the production InsForge client returns: a dict with
+    what the production LocalBackend client returns: a dict with
     ``name`` and ``isPublic`` keys (and ``files`` for ``get_bucket``).
     """
 
@@ -96,19 +96,19 @@ class PostgresBackendClient:
         return bucket
 
 
-class InsForgeBackendClient:
+class LocalBackendBackendClient:
     """Adapter that uses the production ``LocalPostgresExecutor``.
 
     This is the same code path that runs in production — the E2E
     atom exercises the actual production client against a real
-    InsForge project. The ``INSFORGE_URL`` and ``INSFORGE_API_KEY``
+    LocalBackend project. The ``INSFORGE_URL`` and ``INSFORGE_API_KEY``
     env vars configure the connection.
 
     The CI integration job supplies both env vars via the
-    ``insforge`` service in ``.github/workflows/ci.yml``. Local
+    ``local_backend`` service in ``.github/workflows/ci.yml``. Local
     runs without these env vars fall back to the Postgres backend
     in the test atom itself; the E2E atom does not silently
-    default to InsForge.
+    default to LocalBackend.
     """
 
     def __init__(self, url: str, api_key: str) -> None:
@@ -126,8 +126,8 @@ class InsForgeBackendClient:
         return self._client.execute_sql(query, params)
 
 
-def get_insforge_credentials() -> tuple[str, str] | None:
-    """Read the InsForge connection from the environment.
+def get_local_backend_credentials() -> tuple[str, str] | None:
+    """Read the LocalBackend connection from the environment.
 
     Returns ``(url, api_key)`` or ``None`` if either is missing.
     The function exists so the test atom has a single place to

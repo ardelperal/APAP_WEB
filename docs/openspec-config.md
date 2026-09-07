@@ -68,9 +68,9 @@ context: |
   Project: APAP — Registro de Protectoras de Animales de Alcalá (web migration)
   Backend: FastAPI 0.136.3, Jinja2 3.1.x, Pydantic 2.13.4, HTTPX 0.28.1, Uvicorn 0.49.0
   Frontend: HTMX 2.0.4 + Tailwind CSS 4.3.1 (CSS-first, Node.js CLI)
-  BaaS: InsForge (PostgreSQL + PostgREST, Auth via Google OAuth, Storage, Functions)
+  BaaS: LocalBackend (PostgreSQL + PostgREST, Auth via Google OAuth, Storage, Functions)
   Deployment: Coolify on project VPS
-  Auth model: Google OAuth (InsForge) + allowlist authorization in FastAPI middleware
+  Auth model: Google OAuth (LocalBackend) + allowlist authorization in FastAPI middleware
   Legacy: APAP_ACTUAL (Access/VBA) — reference only, not runtime target
   Current state: FastAPI application code exists under app/ with pytest coverage under tests/; active SDD change intake-entradas-crud is in progress
 
@@ -84,7 +84,7 @@ rules:
     - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
     - Use professional Spanish (Spain) for all SDD artifacts
   design:
-    - Follow FastAPI + HTMX architecture in docs/architecture/architecture-insforge-stack.md
+    - Follow FastAPI + HTMX architecture in docs/architecture/architecture-local-backend-stack.md
     - Prefer server-rendered pages over SPA
     - Keep business rules in FastAPI, not HTMX snippets
   tasks:
@@ -133,7 +133,7 @@ testing:
 - **Skill-caso-verificado**: el patrón proviene de `Gentleman-Programming/gentle-ai`. No se inventa localmente.
 - **Single-source-of-truth**: este doc resume el YAML, no lo duplica. La excepción es la sección "Synthesized Convention Example", que es verbatim.
 - **Castellano-peninsular**: la prosa va en Castellano peninsular formal (usted). El bloque YAML se mantiene intacto en inglés.
-- **Path-references**: las rutas que aparecen en el YAML (por ejemplo, `docs/architecture/architecture-insforge-stack.md`) son rutas lógicas del proyecto. Si alguna no resuelve, prima el código y se abre un issue `type:bug gap:docs`.
+- **Path-references**: las rutas que aparecen en el YAML (por ejemplo, `docs/architecture/architecture-local-backend-stack.md`) son rutas lógicas del proyecto. Si alguna no resuelve, prima el código y se abre un issue `type:bug gap:docs`.
 
 ## Contributor checklist
 

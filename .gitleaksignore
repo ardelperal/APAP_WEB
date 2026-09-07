@@ -6,6 +6,6 @@
 #
 # Format: <fingerprint>  (see `gitleaks dir --report-format json` for the value)
 
-# (allowlist for tests/migration/test_insforge_storage_methods.py was retired
-# in issue #670 along with the rest of the InsForge test fakes; the file is
-# gone and this entry is now dead config)
+# (allowlist entries for the legacy migration storage tests were retired
+# in the test-fakes cleanup slice; the test files are gone and this
+# section is now dead config kept for the historical record of issue #381.)

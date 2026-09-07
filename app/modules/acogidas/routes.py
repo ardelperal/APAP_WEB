@@ -487,7 +487,7 @@ def _format_persisted_error(exc: BackendError, entity_label: str) -> str:
 
     Issue #139 P1 #4 (TOCTOU mitigation): the service catches a 4xx
     ``BackendError`` and propagates it as-is. The route translates the
-    opaque InsForge body into an operator-facing message. PostgreSQL FK
+    opaque LocalBackend body into an operator-facing message. PostgreSQL FK
     violations arrive as PostgREST 400 with a body that mentions the
     constraint name (e.g. ``acogidas_animal_id_fkey``); for any other
     shape we fall back to the raw body so the operator can still

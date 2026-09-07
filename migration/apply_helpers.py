@@ -16,10 +16,12 @@ import unicodedata
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    # ``SqlExecutor`` lives in ``migration.apply`` (kept there because
+    # ``_LocalBackendLike`` lives in ``migration.apply`` (kept there because
     # it is the structural type of the public ``apply_legacy_to_web``
     # signature). Re-imported for type checking only.
-    from migration.apply import SqlExecutor  # noqa: F401
+    # ``migration.apply._LocalBackendLike`` was retired in #5 (InsForge runtime deleted); the
+    # migration package is being rewritten in #8.
+    from migration.apply import _LocalBackendLike  # type: ignore[attr-defined]  # noqa: F401
 
 from rapidfuzz import fuzz
 
@@ -80,7 +82,7 @@ class _VoluntariosIndex:
         # Maps normalised name -> (web_uuid, original_name).
         self._by_name: dict[str, tuple[str, str]] = {}
 
-    def load_from_db(self, client: SqlExecutor) -> None:
+    def load_from_db(self, client: _LocalBackendLike) -> None:
         """Load all active volontarios from the DB into the index (Level 1).
 
         Called once per apply run before processing acogidas / adopciones.
@@ -173,7 +175,7 @@ def _resolve_fk_value(
     legacy_value: str | None,
     lookup_table: str,
     lookup_key: str,
-    client: SqlExecutor,
+    client: _LocalBackendLike,  # type: ignore[attr-defined]
     vol_index: _VoluntariosIndex | None,
     *,
     fuzzy_match: bool = False,

@@ -373,7 +373,7 @@ def test_deactivate_voluntario_filters_from_active_list(
     - Visit /voluntarios and verify the unique nombre is no longer in
       the list (the list query filters ``activo = true`` per
       ``LIST_VOLUNTARIOS_SQL`` in
-      ``app/modules/voluntarios/adapters/insforge/voluntarios_insforge_queries.py``).
+      ``app/modules/voluntarios/adapters/local-backend/voluntarios_local_backend_queries.py``).
 
     This is the test that documents the user-visible consequence of
     the soft-delete: although the detail page can still be reached

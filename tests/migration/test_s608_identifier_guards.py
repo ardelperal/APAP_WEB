@@ -14,10 +14,10 @@ AGENTS.md §32.P3, "rules declared without a gate".
 from __future__ import annotations
 
 import pytest
-
-from migration.adapters.insforge.web_reader_insforge_adapter import (
+from migration.adapters.local_backend.web_reader_local_backend_adapter import (
     _build_web_select_sql,
 )
+
 from migration.legacy_reader import TableSpec, _build_select_sql
 from migration.ports.web_reader_port import WebTableSpec
 
@@ -66,7 +66,7 @@ class TestLegacyReaderSelectGuard:
 
 
 class TestWebReaderSelectGuard:
-    """``migration/adapters/insforge/web_reader_insforge_adapter.py``."""
+    """``migration/adapters/local-backend/web_reader_local_backend_adapter.py``."""
 
     def test_rejects_unsafe_table_name(self) -> None:
         spec = WebTableSpec(web_table=INJECTION, columns=("id",))

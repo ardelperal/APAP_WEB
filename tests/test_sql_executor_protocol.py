@@ -42,13 +42,13 @@ def test_sql_executor_rejects_an_object_without_execute_sql() -> None:
     assert not isinstance(_MissingExecuteSql(), SqlExecutor)
 
 
-def test_insforge_client_satisfies_sql_executor_without_inheritance() -> None:
+def test_local_backend_client_satisfies_sql_executor_without_inheritance() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/api/database/advance/rawsql"
         return httpx.Response(200, json={"rows": [{"value": 1}]})
 
     client = LocalPostgresExecutor(
-        "https://example.insforge.test",
+        "https://example.local_backend.test",
         "service-key",
         transport=httpx.MockTransport(handler),
     )
@@ -67,7 +67,7 @@ def test_catalog_reader_accepts_sql_executor_contract() -> None:
     assert hints["client"] is SqlExecutor
 
 
-def test_domain_services_do_not_depend_on_concrete_insforge_client() -> None:
+def test_domain_services_do_not_depend_on_concrete_local_backend_client() -> None:
     violations: list[str] = []
 
     for path in _SERVICE_PATHS:
@@ -79,7 +79,7 @@ def test_domain_services_do_not_depend_on_concrete_insforge_client() -> None:
                 imports_sql_executor = imports_sql_executor or any(
                     alias.name == "SqlExecutor" for alias in node.names
                 )
-            if isinstance(node, ast.ImportFrom) and node.module == "app.core.insforge":
+            if isinstance(node, ast.ImportFrom) and node.module == "app.core.local_backend":
                 if any(alias.name == "LocalPostgresExecutor" for alias in node.names):
                     violations.append(f"{path}:{node.lineno} imports LocalPostgresExecutor")
             if isinstance(node, ast.Name) and node.id == "LocalPostgresExecutor":

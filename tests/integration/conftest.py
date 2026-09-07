@@ -12,7 +12,7 @@ catalogos_* CREATE TABLE statements are inlined here (issue #329 follow-up:
 to ``catalogos_tipos_contrato`` failed on a fresh service container and
 poisoned the rest of the transaction). Keeping them inline (rather than a
 new ``app/core/domain_catalogos.py``) preserves the conftest's "stdlib-only,
-no InsForge coupling" property and matches the close-scope fix.
+no LocalBackend coupling" property and matches the close-scope fix.
 """
 
 from __future__ import annotations
@@ -94,10 +94,10 @@ def _to_client_placeholder_style(query: str) -> str:
     ``queries.py``) so that:
 
     - The production code path (``LocalPostgresExecutor.execute_sql`` — HTTP
-      to the InsForge API) is untouched. InsForge's server receives
+      to the LocalBackend API) is untouched. LocalBackend's server receives
       ``$N`` placeholders, which it binds natively.
     - The integration tests run against any Postgres (not just
-      InsForge): psycopg3 is server-agnostic and translates ``%s`` to
+      LocalBackend): psycopg3 is server-agnostic and translates ``%s`` to
       ``$N`` automatically.
 
     Alternative architectures that we tried and rejected:
@@ -151,11 +151,11 @@ def _expand_params_for_placeholder_style(
     return rewritten, expanded
 
 # catalogos_* CREATE TABLE statements (issue #329 follow-up).
-# Schemas verified 2026-08-01 against the InsForge project's underlying
-# Postgres via `insforge.get-table-schema` MCP. The integration tests use raw
+# Schemas verified 2026-08-01 against the LocalBackend project's underlying
+# Postgres via `local_backend.get-table-schema` MCP. The integration tests use raw
 # psycopg against the service container — these CREATE TABLE IF NOT EXISTS
 # statements are the only thing needed to make the ephemeral schema match
-# the InsForge domain + catalogos layout.
+# the LocalBackend domain + catalogos layout.
 CATALOGOS_MOTIVOS_CREATE_TABLE_SQL = """\
 CREATE TABLE IF NOT EXISTS catalogos_motivos (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -476,7 +476,7 @@ def self_host_schema(ephemeral_postgres):
     """
     from pathlib import Path
 
-    from app.core.adapters.insforge.auth_insforge_queries import (
+    from app.core.adapters.local_backend.auth_local_backend_queries import (
         CREATE_TABLE_SQL as USUARIOS_AUTORIZADOS_CREATE_SQL,
     )
 

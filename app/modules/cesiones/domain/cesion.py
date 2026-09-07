@@ -1,6 +1,6 @@
 """Pure domain types for the Cesiones slice.
 
-No I/O, no InsForge, no FastAPI, no SQL.
+No I/O, no LocalBackend, no FastAPI, no SQL.
 Extracted from ``app.modules.cesiones.service`` per HR-2.
 """
 
@@ -11,9 +11,9 @@ class CesionConflictError(ValueError):
     """Raised when an attempt to create a cesión collides with the
     1-a-1 UNIQUE FK on ``cesiones_propietario.entrada_id``. Mirrors
     ``EntradaConflictError`` in the entradas module — both translate
-    InsForge's 409 envelope into a domain-meaningful exception that
+    LocalBackend's 409 envelope into a domain-meaningful exception that
     routes can render as a 409 form error without depending on the
-    InsForge envelope shape.
+    LocalBackend envelope shape.
     """
 
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.core.adapters.stubs.schema_bootstrap_stub import StubSchemaBootstrapPort
+
 """Domain schema bootstrap: backward-compat shim.
 
 This module is the single entry point for domain schema creation.
@@ -23,7 +25,7 @@ The sub-modules are:
     domain_terapias      — terapias, recomendaciones tables
 
 Source of truth for the SQL that creates the domain tables in the
-InsForge backend. The :func:`ensure_domain_schema` function is the
+LocalBackend backend. The :func:`ensure_domain_schema` function is the
 legacy ``client``-typed entry point that ``app.main`` calls on
 startup; the canonical "via port" use case lives at
 :func:`app.core.application.schema_bootstrap.ensure_domain_schema.ensure_domain_schema`
@@ -32,7 +34,7 @@ and is what future slices will wire into ``app/main.py``.
 
 
 from app.core.adapters.stubs.schema_bootstrap_stub import (  # noqa: E402
-    StubSchemaBootstrapPort,
+    SchemaBootstrapPort,
 )
 from app.core.data_access import SqlExecutor  # noqa: E402
 from app.core.domain_adopciones import (  # noqa: E402
@@ -86,7 +88,7 @@ from app.core.domain_voluntarios import (  # noqa: F401  # noqa: E402
     ROLES_VOLUNTARIO_CREATE_TABLE_SQL,
     VOLUNTARIOS_CREATE_TABLE_SQL,
 )
-from app.core.local_backend.db import LocalPostgresExecutor
+from app.core.local_backend.db import LocalPostgresExecutor  # noqa: E402
 
 __all__ = [
     "ACOGIDAS_ADD_CASA_FK_SQL",
@@ -113,7 +115,7 @@ __all__ = [
     "FOSTER_CAPACITY_OVERRIDES_CREATE_TABLE_SQL",
     "MATERIALES_CREATE_TABLE_SQL",
     "RECOMENDACIONES_CREATE_TABLE_SQL",
-    "LocalPostgresExecutor",
+    "AuthUsersPort",
     "ROLES_VOLUNTARIO_CREATE_TABLE_SQL",
     "TERAPIAS_CREATE_TABLE_SQL",
     "VOLUNTARIOS_CREATE_TABLE_SQL",
@@ -124,14 +126,8 @@ __all__ = [
 def ensure_domain_schema(client: SqlExecutor) -> None:
     """Create the domain tables (idempotent) in dependency order.
 
-    Backward-compat shim: builds a :class:`StubSchemaBootstrapPort`
-    and delegates to :meth:`StubSchemaBootstrapPort.ensure_domain_schema`.
-
-    The InsForge adapter was deleted in issue #666; until a real
-    :class:`~app.core.local_backend.db.LocalPostgresExecutor`-backed
-    adapter lands (tracked as the follow-up), the stub raises
-    :class:`NotImplementedError` on every method call. The ``client``
-    parameter is preserved for signature compatibility.
+    Backward-compat shim: builds an :class:`SchemaBootstrapPort`
+    from ``client`` and delegates to :meth:`SchemaBootstrapPort.ensure_domain_schema`.
 
     The dependency order is preserved exactly so lifespan replays and
     ``tests/test_domain.py`` assertions (which pin the SQL emission
@@ -153,4 +149,4 @@ def ensure_domain_schema(client: SqlExecutor) -> None:
     11. ``materiales`` and ``estancia_materiales`` at the end so their
         junction FKs to ``acogidas`` and ``materiales`` resolve.
     """
-    StubSchemaBootstrapPort().ensure_domain_schema()
+    SchemaBootstrapPort().ensure_domain_schema()

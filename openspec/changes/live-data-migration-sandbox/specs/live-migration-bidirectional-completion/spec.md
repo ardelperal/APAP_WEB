@@ -72,7 +72,7 @@ For each migrated row in `animal`, `entrada`, `voluntario`, the round-trip `lega
 
 `tests/migration/test_round_trip.py` MUST contain fixture-first tests that:
 1. Set up a legacy snapshot (in-memory via fake executor) with N rows per table.
-2. Run `apply_legacy_to_web` against an in-memory web (FakeInsForge).
+2. Run `apply_legacy_to_web` against an in-memory web (FakeLocalBackend).
 3. Optionally mutate some web rows to simulate in-flight edits.
 4. Run `apply_web_to_legacy` against the same fake executor.
 5. Assert: counts preserved per table, NCHIP/Voluntario/IdEntrada preserved, source_hash preserved, no orphan shadow rows.

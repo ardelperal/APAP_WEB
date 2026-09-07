@@ -310,7 +310,7 @@ def _apply_keep_web(
 def _apply_accept_derived(
     *,
     shadow_state: ShadowStateRepository,
-    web_client: LocalPostgresExecutor,
+    web_client: StubAuthUsersPort  # type: ignore[name-defined],
     row: dict[str, Any],
     new_value: Any,
     now: datetime,
@@ -360,7 +360,7 @@ def _apply_accept_derived(
 def run_reconcile(
     args: argparse.Namespace,
     *,
-    web_client: LocalPostgresExecutor | None = None,
+    web_client: StubAuthUsersPort  # type: ignore[name-defined] | None = None,
     shadow_state: ShadowStateRepository | None = None,
     prompt: _PromptReader | None = None,
     stream: IO[str] | None = None,
@@ -375,7 +375,7 @@ def run_reconcile(
     Args:
         args: the parsed argparse namespace (carries ``--interactive``,
             ``--check-only``, ``--table``, ``--since``).
-        web_client: the InsForge REST client. Used to build the
+        web_client: the LocalBackend REST client. Used to build the
             ``shadow_state`` when not injected, and to run the
             ``UPDATE {table}`` in option (b). Tests inject a
             ``httpx.MockTransport``-backed client.
@@ -489,7 +489,7 @@ def _run_reconcile_interactive(
     prompt: _PromptReader,
     stream: IO[str],
     shadow_state: ShadowStateRepository,
-    web_client: LocalPostgresExecutor | None,
+    web_client: StubAuthUsersPort  # type: ignore[name-defined] | None,
 ) -> int:
     """Walk each ``needs_review`` case with ``a/b/c/q`` prompts.
 
@@ -588,7 +588,7 @@ def _resolve_lock_path() -> Path:
 def run_status(
     args: argparse.Namespace,
     *,
-    web_client: LocalPostgresExecutor | None = None,
+    web_client: StubAuthUsersPort  # type: ignore[name-defined] | None = None,
     stream: IO[str] | None = None,
 ) -> int:
     """Body of ``apap-migrate status`` (read-only web counts)."""
@@ -613,7 +613,7 @@ def run_status(
 def main(
     argv: Sequence[str] | None = None,
     *,
-    web_client: LocalPostgresExecutor | None = None,
+    web_client: StubAuthUsersPort  # type: ignore[name-defined] | None = None,
     shadow_state: ShadowStateRepository | None = None,
     prompt: _PromptReader | None = None,
     stream: IO[str] | None = None,
@@ -630,14 +630,14 @@ def main(
     parser = build_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)
 
-    owned_web_client: LocalPostgresExecutor | None = None
+    owned_web_client: StubAuthUsersPort  # type: ignore[name-defined] | None = None
     if web_client is None:
         from app.core.config import get_settings
 
         settings = get_settings()
-        owned_web_client = LocalPostgresExecutor(
-            settings.insforge_url,  # type: ignore[attr-defined]  # removed in #658; rewritten in #8
-            settings.insforge_service_key,  # type: ignore[attr-defined]  # removed in #658; rewritten in #8
+        owned_web_client = StubAuthUsersPort  # type: ignore[name-defined](
+            settings.local_backend_url,  # type: ignore[attr-defined]  # removed in #658; rewritten in #8
+            settings.local_backend_service_key,  # type: ignore[attr-defined]  # removed in #658; rewritten in #8
         )
         web_client = owned_web_client
 
@@ -651,7 +651,7 @@ def main(
                 stream=stream,
             )
         if args.command == "apply":
-            return run_apply(args, web_client=web_client, stream=stream)  # type: ignore[arg-type]  # cli dispatcher retired in #8
+            return run_apply(args, web_client=web_client, stream=stream)
         if args.command == "status":
             return run_status(args, web_client=web_client, stream=stream)
         if args.command == "ensure-bucket":
@@ -667,7 +667,7 @@ def main(
             return _vfb_main(vfb_argv)
     finally:
         if owned_web_client is not None:
-            pass  # LocalPostgresExecutor has no close() method; connection is per-call.
+            owned_web_client.close()
 
     # Defensive: ``required=True`` on the subparsers means argparse
     # already rejected empty invocations; this line is unreachable

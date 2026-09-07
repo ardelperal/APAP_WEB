@@ -26,7 +26,7 @@ Five cases pin the voluntarios CRUD contract end-to-end:
 5. Deactivate (POST /voluntarios/{id}/deactivate → 303 to /voluntarios;
    the voluntario no longer appears in the active list — the list
    query filters ``activo = true`` per ``LIST_VOLUNTARIOS_SQL`` in
-   ``app/modules/voluntarios/adapters/insforge/voluntarios_insforge_queries.py``).
+   ``app/modules/voluntarios/adapters/local-backend/voluntarios_local_backend_queries.py``).
 
 The tests skip cleanly when ``APAP_E2E_AUTH_SECRET`` is unset (the OAuth
 mock cannot authenticate). Each voluntario uses a uuid-suffixed nombre

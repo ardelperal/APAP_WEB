@@ -23,7 +23,7 @@ This update reconstructs the missing proposal/spec from current `tasks.md` and `
 | 0.1–0.6 | Complete | Local quality surface exists and was previously verified. |
 | 1.1–1.4 | Complete | `.github/workflows/ci.yml`, `tests/test_ci_workflow.py`, and `.github/branch-protection.md` exist. |
 | 2.1, 2.2, 2.4 | Complete | Deploy job, Coolify webhook step, and deploy secret-leak scan exist in `.github/workflows/ci.yml`. |
-| 2.3 | N/A / completed by decision | InsForge hosting deployment is obsolete for APAP_WEB; app deploys as FastAPI Docker app through Coolify, while InsForge is BaaS only. |
+| 2.3 | N/A / completed by decision | LocalBackend hosting deployment is obsolete for APAP_WEB; app deploys as FastAPI Docker app through Coolify, while LocalBackend is BaaS only. |
 | 3.1–3.2 | Complete | Reconstructed spec includes deferred staging/UAT and two-environment Coolify requirements/scenarios. |
 | 3.3 | Complete | `design.md § Future work` lists CD-03, ENV-01, CD-04, UAT-01..03, E2E-01..06, E2E-M1..M4, WORKER-01..04 out of scope. |
 
@@ -58,7 +58,7 @@ The CD-03, ENV-01, CD-04, UAT, E2E, mobile E2E, and worker items remain unchecke
 | `291a39be98f15b5b11645e25af49d8e28d387d16` | `ci(ci-cd-foundation): add GitHub Actions workflow` | 1.1–1.4 | `git log --name-status` shows `.github/workflows/ci.yml`, `.github/branch-protection.md`, and `tests/test_ci_workflow.py`; CI workflow is parsed by GitHub Actions on push. | N/A |
 | `de7f6d75b4ba2302026f56b2c49ea15bd66c4550` | `fix(ci): make GitHub Actions workflow valid` | 1.1–1.4 | `git log --name-status` shows workflow/test corrections after the initial CI commit; `tests/test_ci_workflow.py` verifies workflow shape and branch-protection doc checks. | N/A |
 | `225ef9c33237a7ed00a9bf14de521f79caf290bd` | `feat(ci): add deploy job to CI workflow (CD-01, issue #1)` | 2.1, 2.2, 2.4 | `git log --name-status` shows `.github/workflows/ci.yml` and `tests/test_ci_workflow.py`; current workflow contains deploy gating, Coolify webhook, and deploy secret scan. | N/A |
-| `93cfb956f0a0aed5a4a539c212e1bfc382b4a3d3` | `docs(ci-cd): marcar CD-02 (insforge_create-deployment) como N/A` | 2.3 | `git log --name-status` shows SDD design/tasks decision that InsForge hosting deploy is N/A; APAP_WEB deploy target is Coolify. | N/A |
+| `93cfb956f0a0aed5a4a539c212e1bfc382b4a3d3` | `docs(ci-cd): marcar CD-02 (local_backend_create-deployment) como N/A` | 2.3 | `git log --name-status` shows SDD design/tasks decision that LocalBackend hosting deploy is N/A; APAP_WEB deploy target is Coolify. | N/A |
 
 ## Files changed by this status update
 
@@ -67,11 +67,11 @@ The CD-03, ENV-01, CD-04, UAT, E2E, mobile E2E, and worker items remain unchecke
 | `openspec/changes/ci-cd-foundation/proposal.md` | Created | Minimal reconstructed proposal from current design/tasks. |
 | `openspec/changes/ci-cd-foundation/specs/ci-cd-pipeline/spec.md` | Created | Minimal full spec for the new `ci-cd-pipeline` capability. |
 | `openspec/changes/ci-cd-foundation/tasks.md` | Updated | Marked `2.3` N/A complete, marked `3.1–3.3` complete from spec/design evidence, preserved operator blockers, and updated stale branch-policy wording. |
-| `openspec/changes/ci-cd-foundation/design.md` | Updated | Clarified current `staging` policy and removed obsolete InsForge-hosting assumptions. |
+| `openspec/changes/ci-cd-foundation/design.md` | Updated | Clarified current `staging` policy and removed obsolete LocalBackend-hosting assumptions. |
 | `openspec/changes/ci-cd-foundation/apply-progress.md` | Rewritten | Replaced stale 10/31 status with current archive-blocker status. |
 | `docs/development.md` | Updated | Scoped branch/deploy wording to current `staging` normal-work policy and `main` production trigger. |
 | `.github/branch-protection.md` | Updated | Scoped branch-protection instructions to the active protected branch policy instead of `main` only. |
-| `docs/architecture/architecture-insforge-stack.md` | Updated | Scoped branch/deploy policy to current `staging` normal-work and `main` production split. |
+| `docs/architecture/architecture-local-backend-stack.md` | Updated | Scoped branch/deploy policy to current `staging` normal-work and `main` production split. |
 | `docs/roadmap.md` | Updated | Replaced stale pre-MVC main-only workflow wording with current staging-first policy. |
 
 ## Status

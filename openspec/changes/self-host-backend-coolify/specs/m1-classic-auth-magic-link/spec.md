@@ -44,7 +44,7 @@ The Protocol `app/core/ports/auth_port.py` adds two new methods:
 - `verify_password(email: str, password: str) -> AuthorizedUser | None`
 - `set_password(email: str, password: str) -> None`
 
-The InsForge adapter gains a no-op default (returns None for
+The LocalBackend adapter gains a no-op default (returns None for
 `verify_password`, raises for `set_password`) so the migration does
 not break the existing OAuth path. The new local adapter implements
 both.
@@ -229,7 +229,7 @@ implements `AuthUsersPort` with the password methods, plus a new
 - GIVEN `APAP_LOCAL_BACKEND=true`
 - WHEN the app starts
 - THEN `AuthUsersPort` is bound to `ClassicPasswordAuthPort` (with the
-  InsForge adapter as fallback for the OAuth-only methods)
+  LocalBackend adapter as fallback for the OAuth-only methods)
 - AND `MagicLinkPort` is bound to the local Postgres-backed implementation
 - AND the operator can call the new endpoints without re-deploying
 
@@ -263,7 +263,7 @@ implements `AuthUsersPort` with the password methods, plus a new
 - [ ] `GET /api/auth/magic?token=...` rejects an invalid/expired/used token
 - [ ] `POST /api/auth/reset-password` updates the password hash
 - [ ] `GET /admin/magic-links` is admin-only
-- [ ] Google OAuth still works (no breaking changes to `oauth_insforge_adapter`)
+- [ ] Google OAuth still works (no breaking changes to `oauth_local_backend_adapter`)
 - [ ] Tests: `test_classic_password_auth.py` (login, wrong password,
       hash timing), `test_magic_link.py` (create/consume, expiry, one-time-use)
 - [ ] `docs/runbooks/self-host-backend.md` has a "reset password" section

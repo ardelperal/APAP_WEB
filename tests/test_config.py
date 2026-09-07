@@ -45,17 +45,17 @@ def test_settings_exposes_app_metadata() -> None:
     assert settings.version
 
 
-def test_settings_does_not_expose_insforge_fields() -> None:
-    """The InsForge fields are gone (issue #658). The backend is now the
+def test_settings_does_not_expose_local_backend_fields() -> None:
+    """The LocalBackend fields are gone (issue #658). The backend is now the
     Coolify-hosted local Postgres via ``APAP_LOCAL_DB_URL``."""
     settings = Settings(_env_file=None)
 
-    for attr_name in ("insforge_url", "insforge_anon_key", "insforge_service_key"):
+    for attr_name in ("local_backend_url", "local_backend_anon_key", "local_backend_service_key"):
         with pytest.raises(AttributeError):
             getattr(settings, attr_name)
 
 
-def test_settings_does_not_pick_up_apap_insforge_env() -> None:
+def test_settings_does_not_pick_up_apap_local_backend_env() -> None:
     """Setting ``APAP_INSFORGE_*`` env vars has no effect (no such field)."""
     import pytest
 
@@ -64,13 +64,13 @@ def test_settings_does_not_pick_up_apap_insforge_env() -> None:
         mp.setenv("APAP_INSFORGE_SERVICE_KEY", "ik_should_be_ignored")
         settings = Settings(_env_file=None)
 
-    for attr_name in ("insforge_url", "insforge_service_key"):
+    for attr_name in ("local_backend_url", "local_backend_service_key"):
         with pytest.raises(AttributeError):
             getattr(settings, attr_name)
 
 
-def test_validate_secrets_does_not_require_insforge_service_key() -> None:
-    """The startup validator no longer checks the InsForge service key."""
+def test_validate_secrets_does_not_require_local_backend_service_key() -> None:
+    """The startup validator no longer checks the LocalBackend service key."""
     import pytest
 
     from app.core.config import _validate_secrets
@@ -78,7 +78,7 @@ def test_validate_secrets_does_not_require_insforge_service_key() -> None:
     with pytest.MonkeyPatch.context() as mp:
         mp.setenv("APAP_SESSION_SECRET", "a" * 32)
         settings = Settings(_env_file=None)
-    # Should not raise; the InsForge gate is gone.
+    # Should not raise; the LocalBackend gate is gone.
     _validate_secrets(settings)
 
 

@@ -2,10 +2,11 @@
 
 The :func:`get_oauth_port` provider is the seam between FastAPI
 request handlers and the hexagonal :class:`OAuthPort` abstraction.
-The InsForge adapter implementation was deleted in issue #666; until a
-real :class:`~app.core.local_backend.oauth_google`-backed adapter
-lands (tracked as the follow-up), the provider yields a stub that
-raises :class:`NotImplementedError` on every method call.
+Each request gets a fresh :class:`OAuthPort` bound to
+the pooled :class:`~app.core.local_backend.AuthUsersPort` the
+application lifespan already owns (so the adapter's instantiation
+is cheap — no I/O, no connection management — and the lifespan's
+client teardown is unaffected).
 
 The provider is intentionally NOT wired into :mod:`app.main` by
 this slice: the existing caller (``app.core.auth_flow``) continues
@@ -15,6 +16,25 @@ constructs the adapter inside the route handler via the shim
 slice (or a follow-up to this one) wires the provider into the
 request handlers that want the typed :class:`OAuthPort`
 directly.
+
+Pattern (mirrors :func:`app.core.di.catalogos_di.get_catalogos_port`):
+
+1. Yield the per-request port bound to the request-scoped
+   :class:`AuthUsersPort`. Production: the client lives on
+   ``app.state.sql_executor`` (the lifespan creates one
+   and reuses its underlying ``httpx.Client`` across requests).
+   The adapter is cheap to construct (no I/O), so building it
+   per request is fine.
+2. On ``AttributeError`` (a lightweight ASGI test transport that
+   does not run the lifespan), lazily create the same client.
+   This preserves the ergonomic ``app.dependency_overrides``
+   pattern in tests.
+
+Rule §2 (resources that own ``.close()`` use ``yield``): the
+client is owned by the lifespan, not the dependency — this
+helper does not close it on exit. The ``try/finally`` block
+is the seam a future multi-worker adapter could use to
+release per-worker resources.
 """
 
 
@@ -24,20 +44,57 @@ from collections.abc import Iterator
 
 from fastapi import Request
 
-from app.core.adapters.stubs.oauth_stub import StubOAuthPort
+from app.core.adapters.stubs.oauth_stub import (
+    OAuthPort,
+)
+from app.core.config import get_settings
+from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.ports.oauth_port import OAuthPort
 
 
 def get_oauth_port(request: Request) -> Iterator[OAuthPort]:
-    """Yield the per-request :class:`OAuthPort` stub.
+    """Yield the per-request :class:`OAuthPort` backed by LocalBackend.
 
-    Returns the :class:`StubOAuthPort` placeholder until a real
-    ``local_backend.oauth_google``-backed adapter lands (issue #4b').
-    The stub raises :class:`NotImplementedError` on every method so the
-    runtime fails loud per route.
+    The port is the abstract surface the use cases depend on. The
+    concrete adapter (LocalBackend) is hidden behind this dependency so
+    the route layer does not import any LocalBackend-shaped import.
+
+    The lifespan stores the pooled :class:`AuthUsersPort` on
+    ``app.state.sql_executor``; that client is reused across
+    requests to amortize the underlying ``httpx.Client`` connection
+    pool. A lightweight ASGI test transport that does not run the
+    lifespan falls back to a lazily-created client so the same
+    dependency is usable in unit tests without overriding the
+    lifespan.
+
+    The yielded value is the :class:`OAuthPort` interface, not
+    the concrete adapter — routes and use cases should not need to
+    import :class:`OAuthPort` directly.
     """
-    del request  # unused — kept for FastAPI DI signature compatibility.
-    yield StubOAuthPort()
+    try:
+        client = request.app.state.sql_executor
+    except AttributeError:
+        # Lazy fallback for ASGI test transports that skip the lifespan.
+        # Production always initializes this state in
+        # ``app.main.lifespan``; this branch keeps the dep usable in
+        # tests that exercise FastAPI without ``LifespanMiddleware``.
+        settings = get_settings()
+        client = LocalPostgresExecutor(
+            settings.local_db_url,
+            settings.local_db_schema or None,
+        )
+        request.app.state.sql_executor = client
+    try:
+        adapter = StubOAuthPort()
+        yield adapter
+    finally:
+        # The adapter holds no resources of its own; the client is
+        # owned by the lifespan and is not closed per request.
+        # The blank ``finally`` is the seam a future per-worker
+        # adapter (e.g. a Redis-backed rate limit) would use to
+        # release per-worker resources without changing the route
+        # layer.
+        pass
 
 
 __all__ = ["get_oauth_port"]

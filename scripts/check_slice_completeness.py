@@ -339,7 +339,7 @@ def _is_adapter_file(rel: str) -> bool:
 
 
 def _module_path_for(rel: str) -> str:
-    """Convert ``app/core/adapters/insforge/foo.py`` to its dotted module."""
+    """Convert ``app/core/adapters/local-backend/foo.py`` to its dotted module."""
     return rel.removesuffix(".py").replace("/", ".")
 
 
@@ -435,7 +435,7 @@ def _forbidden_adapter_prefixes(slice_name: str) -> list[str]:
     """Dotted module prefixes ``application/<slice>/**`` must avoid."""
     return [
         f"app.core.adapters.{slice_name}_",
-        f"app.core.adapters.insforge.{slice_name}_",
+        f"app.core.adapters.local_backend.{slice_name}_",
     ]
 
 

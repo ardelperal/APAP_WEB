@@ -1,7 +1,7 @@
 """Voluntarios routes: list, create, get, deactivate (soft), roles.
 
 Thin HTTP layer over the hexagonal use cases and :class:`VoluntariosPort`.
-No direct InsForge / SQL imports here (AGENTS.md §31).
+No direct LocalBackend / SQL imports here (AGENTS.md §31).
 
 Auth: any active user from ``usuarios_autorizados`` (i.e. any
 authorized user) can read and create voluntarios. The admin panel

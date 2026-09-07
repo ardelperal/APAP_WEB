@@ -44,7 +44,7 @@ Los routers se montan desde `app/main.py` con el prefijo `/sanidad` (HEALTH-01) 
 |---|---|---|---|
 | GET | `/sanidad` | READ | Lista de actuaciones activas. `?animal_id=` filtra por animal (LIMIT 100). |
 | GET | `/sanidad/new` | READ | Formulario vacío con dropdown de `catalogos_pruebas`. |
-| POST | `/sanidad` | WRITE | Crea actuación. `303` al detalle, `422` en validación, `503` en `InsForgeError`. |
+| POST | `/sanidad` | WRITE | Crea actuación. `303` al detalle, `422` en validación, `503` en `BackendError`. |
 | GET | `/sanidad/{id}` | READ | Detalle con el `tipo_actuacion` resuelto del catálogo. |
 | GET | `/sanidad/{id}/edit` | READ | Formulario de edición prefilled. |
 | POST | `/sanidad/{id}/update` | WRITE | Update. Mismo contrato 303/422/503 que el alta. |
@@ -53,7 +53,7 @@ Los routers se montan desde `app/main.py` con el prefijo `/sanidad` (HEALTH-01) 
 | POST | `/sanidad/actuaciones/batch` | WRITE | Lote atómico. `dry_run=true` previsualiza sin commit. `422` por debajo de 5 registros o por validación fallida. `303` en commit correcto. |
 | GET | `/animales/{animal_id}/salud/resumen` | READ | Resumen de la última actuación por tipo para un animal. La ruta HTTP vive en `app/modules/animals/routes.py`; la función `get_resumen_sanitario` se importa desde `app.modules.sanidad`. |
 
-Los códigos `503` mapean `InsForgeError`; el `csrf_token` se inyecta por `csrf_token_context_processor` (AGENTS.md §10).
+Los códigos `503` mapean `BackendError`; el `csrf_token` se inyecta por `csrf_token_context_processor` (AGENTS.md §10).
 
 ## Service layer
 

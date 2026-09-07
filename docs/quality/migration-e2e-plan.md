@@ -3,7 +3,7 @@
 > Plan de testing E2E para el path crítico de migration bidireccional. Source of truth del plan de testing; el issue #637 es el tracker.
 > Generado 2026-08-31 tras el user directive: "la herramienta tiene que tener la capacidad de pasar los datos de una base de datos a otra en cualquier momento ... IMPORTANTÍSIMO".
 >
-> **Actualizado 2026-08-31**: el approach se ajustó — el fixture `es` el .accdb backend real del operador (no un sintético). El backend de destino es el backend real del operador (InsForge en CI, Postgres local como fallback). Ver §"Decisión revisada" abajo.
+> **Actualizado 2026-08-31**: el approach se ajustó — el fixture `es` el .accdb backend real del operador (no un sintético). El backend de destino es el backend real del operador (LocalBackend en CI, Postgres local como fallback). Ver §"Decisión revisada" abajo.
 
 ## Contexto y motivación
 
@@ -23,14 +23,14 @@ El usuario explícitamente pidió que la herramienta tenga **capacidad de pasar 
 
 | Capa | Lo que se testea | Lo que falta |
 |---|---|---|
-| Unit con `FakeInsForge` | Mapeos YAML, SQL shape, error mapping, idempotencia, rollback | Postgres real |
+| Unit con `FakeLocalBackend` | Mapeos YAML, SQL shape, error mapping, idempotencia, rollback | Postgres real |
 | Runtime boundary | pyodbc fake con `monkeypatch` (no toca Access) | Access real |
 | Round-trip | 5 átomos forward+reverse con fake bidireccional | Ambas DBs reales simultáneamente |
 | Migration E2E | **0 tests** | `TODO` |
 
 El `test_round_trip.py` actual es el más cercano a E2E pero **explícitamente no toca DBs reales** (Hard Rule 8 — no production mutation). El comentario del módulo es claro:
 
-> These atoms exercise the invariants end-to-end through `FakeInsForge` + the injected legacy executor + the injected legacy write seam. **No real pyodbc / Access / InsForge mutation occurs.**
+> These atoms exercise the invariants end-to-end through `FakeLocalBackend` + the injected legacy executor + the injected legacy write seam. **No real pyodbc / Access / LocalBackend mutation occurs.**
 
 ## Restricción arquitectónica: D-31
 
