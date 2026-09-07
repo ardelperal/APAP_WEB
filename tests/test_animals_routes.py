@@ -905,3 +905,59 @@ async def test_write_route_rejects_reader_with_403(
 # cannot distinguish between these multiple statement types in a single test.
 # Service-level coverage for change_animal_chip lives in test_chip_cascade.py.
 # TODO(#N): add route-level chip tests with proper multi-statement spy support.
+
+
+@pytest.mark.asyncio
+async def test_change_chip_route_rejects_reader_with_403(
+    client: httpx.AsyncClient,
+    animals_spy: _AnimalsRouteSpy,
+) -> None:
+    """Reader rol is forbidden on PATCH /animales/{id}/chip (issue #679).
+
+    Pre-#679 the chip-change handler depended on
+    ``require_authorized_user`` only — any authenticated user (including
+    ``reader``) could rewrite the chip across the 6 cascade tables.
+    After the fix the handler depends on
+    ``require_permission(Permission.WRITE_ANIMALES)`` like every other
+    write route in this module, so a reader is rejected with 403 BEFORE
+    any chip-lookup SELECT is emitted.
+
+    The test uses a JSON body (``ChipChangePayload`` is a Pydantic
+    model, not a ``Form()``), so ``make_csrf_request`` cannot drive it;
+    the request goes through ``client.patch`` directly with the CSRF
+    token in the ``X-CSRFToken`` header (the ``CsrfMiddleware`` accepts
+    either form field or header).
+    """
+    animals_spy.auth_reval_rol = "reader"
+    _login_as_reader(client)
+
+    cookie = client.cookies.get(session_cookie_name())
+    assert cookie is not None
+    from app.core.config import get_settings
+    from app.core.session import read_session
+
+    payload = read_session(cookie, secret=get_settings().session_secret)
+    assert payload is not None
+    csrf_token = payload.get("csrf_token")
+    assert isinstance(csrf_token, str) and csrf_token
+
+    response = await client.patch(
+        "/animales/abc-123/chip",
+        headers={"X-CSRFToken": csrf_token, "Content-Type": "application/json"},
+        json={"new_chip": "985112004409999", "reason": "reader-bypass-probe"},
+    )
+
+    assert response.status_code == 403, (
+        f"reader rol MUST be rejected on PATCH /animales/{{id}}/chip; "
+        f"got {response.status_code} body={response.text!r}"
+    )
+    # The 403 short-circuits BEFORE the chip-lookup SELECT is emitted.
+    chip_lookup_queries = [
+        q
+        for q in animals_spy.captured_queries
+        if "select nchip from animals where id" in q.lower()
+        or "select id from animals where nchip" in q.lower()
+    ]
+    assert not chip_lookup_queries, (
+        f"reader PATCH MUST NOT emit chip-lookup SQL; got: {chip_lookup_queries!r}"
+    )
