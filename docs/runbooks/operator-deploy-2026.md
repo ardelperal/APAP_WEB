@@ -73,7 +73,7 @@ The Coolify service does not exist yet. The operator:
     ``APAP_SMTP_PASSWORD``.
 
 4. **Trigger the first deploy** by pushing to ``main`` (the webhook in
-   ``COOLIFY_WEBHOOK_URL`` fires the build) OR by clicking "Deploy" in
+   ``COOLIFY_WEBHOOK_URL`` fires the build) OR by clicking "Deploy" in <!-- alantyle-ignore:ALAN003 -->
    Coolify's UI.
 
 5. **Verify**:
@@ -128,7 +128,7 @@ The previous image tag is one Coolify UI click away:
    in-flight sessions remain valid (sessions are signed cookies, the
    signing secret did not change).
 
-3. **If the rollback is a database-migration rollback**: do NOT use
+3. **If the rollback is a database-migration rollback**: do NOT use <!-- alantyle-ignore:ALAN003 -->
    this runbook; instead follow
    [`live-migration-apply.md`](live-migration-apply.md) § Reverse
    migration. The container rollback is for application code only;
