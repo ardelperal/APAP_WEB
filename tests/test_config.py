@@ -23,8 +23,6 @@ def test_settings_loads_with_defaults() -> None:
     """Settings loads with sensible defaults when no env vars are set."""
     settings = Settings(_env_file=None)
 
-    assert settings.insforge_url.startswith("http")
-    assert settings.insforge_anon_key == ""
     assert settings.debug is False
 
 
@@ -33,11 +31,9 @@ def test_settings_uses_apap_env_prefix() -> None:
     import pytest
 
     with pytest.MonkeyPatch.context() as mp:
-        mp.setenv("APAP_INSFORGE_URL", "https://custom.example.com")
         mp.setenv("APAP_DEBUG", "true")
         settings = Settings(_env_file=None)
 
-    assert settings.insforge_url == "https://custom.example.com"
     assert settings.debug is True
 
 
@@ -49,22 +45,41 @@ def test_settings_exposes_app_metadata() -> None:
     assert settings.version
 
 
-def test_settings_loads_insforge_service_key_default() -> None:
-    """The InsForge service key is empty by default (privileged ops off in dev)."""
+def test_settings_does_not_expose_insforge_fields() -> None:
+    """The InsForge fields are gone (issue #658). The backend is now the
+    Coolify-hosted local Postgres via ``APAP_LOCAL_DB_URL``."""
     settings = Settings(_env_file=None)
 
-    assert settings.insforge_service_key == ""
+    for attr_name in ("insforge_url", "insforge_anon_key", "insforge_service_key"):
+        with pytest.raises(AttributeError):
+            getattr(settings, attr_name)
 
 
-def test_settings_reads_insforge_service_key_from_env() -> None:
-    """The InsForge service key can be injected via env for admin operations."""
+def test_settings_does_not_pick_up_apap_insforge_env() -> None:
+    """Setting ``APAP_INSFORGE_*`` env vars has no effect (no such field)."""
     import pytest
 
     with pytest.MonkeyPatch.context() as mp:
-        mp.setenv("APAP_INSFORGE_SERVICE_KEY", "ik_test_service_key")
+        mp.setenv("APAP_INSFORGE_URL", "https://legacy.example.com")
+        mp.setenv("APAP_INSFORGE_SERVICE_KEY", "ik_should_be_ignored")
         settings = Settings(_env_file=None)
 
-    assert settings.insforge_service_key == "ik_test_service_key"
+    for attr_name in ("insforge_url", "insforge_service_key"):
+        with pytest.raises(AttributeError):
+            getattr(settings, attr_name)
+
+
+def test_validate_secrets_does_not_require_insforge_service_key() -> None:
+    """The startup validator no longer checks the InsForge service key."""
+    import pytest
+
+    from app.core.config import _validate_secrets
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("APAP_SESSION_SECRET", "a" * 32)
+        settings = Settings(_env_file=None)
+    # Should not raise; the InsForge gate is gone.
+    _validate_secrets(settings)
 
 
 def test_settings_loads_google_oauth_config_defaults() -> None:
@@ -147,9 +162,10 @@ def test_get_settings_cache_clear_permite_releer_el_entorno() -> None:
     get_settings()  # warm the cache with the current env
 
     with pytest.MonkeyPatch.context() as mp:
-        mp.setenv("APAP_INSFORGE_URL", "https://cache-clear.example.com")
+        mp.setenv("APAP_DEBUG", "false")
         # While cached, env changes are NOT visible (intentional).
-        assert get_settings().insforge_url != "https://cache-clear.example.com"
+        cached = get_settings()
         # After cache_clear, the new env value is picked up.
         get_settings.cache_clear()
-        assert get_settings().insforge_url == "https://cache-clear.example.com"
+        reread = get_settings()
+        assert cached is not reread

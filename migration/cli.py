@@ -636,8 +636,8 @@ def main(
 
         settings = get_settings()
         owned_web_client = InsForgeClient(
-            settings.insforge_url,
-            settings.insforge_service_key,
+            settings.insforge_url,  # type: ignore[attr-defined]  # removed in #658; rewritten in #8
+            settings.insforge_service_key,  # type: ignore[attr-defined]  # removed in #658; rewritten in #8
         )
         web_client = owned_web_client
 

@@ -13,6 +13,18 @@ Las notas detalladas por tag viven en GitHub Releases; este changelog agrega los
 
 ### Removed
 
+- `chore(secrets)`: drop InsForge settings fields and validation gate (closes #658):
+    - `app/core/config.py`: drop fields `insforge_url`, `insforge_anon_key`, `insforge_service_key`; drop the `_validate_secrets` gate for `APAP_INSFORGE_SERVICE_KEY`; update module + `Settings` docstrings.
+    - `app/core/di/auth_dependencies_session_di.py`: drop the dead `AttributeError` fallback in `get_insforge_client_dep` that constructed `InsForgeClient(settings.insforge_url, ...)` — the lifespan always wires `sql_executor`. Function now just yields `request.app.state.sql_executor`.
+    - `app/core/tasks/scheduler.py`: replace `InsForgeClient(settings.insforge_url, settings.insforge_service_key)` with `LocalPostgresExecutor(settings.local_db_url)`; drop the `client.close()` call (LocalPostgresExecutor manages per-call connections).
+    - `tests/test_config.py`: replace 5 atoms that asserted `insforge_*` field existence with atoms that assert `AttributeError` on access and that `_validate_secrets` does not require the InsForge key.
+
+### Notes
+
+- `migration/cli.py:639-640` and `migration/storage_spike.py:406-407` still read the removed fields. These are CLI-tool paths covered by issue #8 (migration package rewrite); the migration tests don't run on PR CI.
+
+## v0.1.0 — 2026-08-01
+
 - `chore(config)`: drop InsForge from the deployment surface (closes #654):
     - `Dockerfile`: drop `ENV APAP_INSFORGE_URL=http://localhost:7130` (the container no longer references InsForge).
     - `coolify/apap-web-coolify.yaml`: drop `APAP_INSFORGE_URL` and `APAP_INSFORGE_SERVICE_KEY` from the env list and the operator secret list.
