@@ -37,7 +37,7 @@ Antes del primer deploy real, el mantenedor debe:
 ## Documentación de referencia
 
 - [docs/setup.md](../setup.md) — setup por desarrollador.
-- [docs/architecture/architecture-local-backend-stack.md](../architecture/architecture-local-backend-stack.md) — decisiones de stack (a traducir al castellano; ver [transversales.md § Dev workflow](transversales.md)).
+- [docs/architecture/architecture-local-backend-stack.md](../architecture/architecture-local-backend-stack.md) — composición y límites vigentes del stack LocalBackend.
 - `openspec/changes/ci-cd-foundation/` — propuesta, diseño, tareas, spec, apply-progress.
 
 ## Core invariants
