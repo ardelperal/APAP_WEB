@@ -1,0 +1,37 @@
+name: Cambio de documentación
+description: Proponga una corrección o mejora de la documentación del proyecto.
+title: "docs: "
+labels:
+  - "type:docs"
+body:
+  - type: textarea
+    id: problema-contexto
+    attributes:
+      label: Problema y contexto
+      description: Describa qué documentación falta, es incorrecta o está desactualizada.
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidencia-fuente
+    attributes:
+      label: Evidencia de origen
+      description: Indique las fuentes verificables que respaldan el cambio.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alcance-propuesto
+    attributes:
+      label: Alcance propuesto
+      description: Delimite los documentos y contenidos que deben cambiar.
+    validations:
+      required: true
+
+  - type: textarea
+    id: criterios-aceptacion
+    attributes:
+      label: Criterios de aceptación
+      description: Enumere las condiciones objetivas que demostrarán que el cambio está completo.
+    validations:
+      required: true
