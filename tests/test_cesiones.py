@@ -26,8 +26,8 @@ import httpx
 import pytest
 
 from app.core.data_access import BackendError
-from tests.sql_executor_fake import HandlerSqlExecutor as LocalPostgresExecutor
 from app.modules.cesiones import service as cesiones_service
+from tests.sql_executor_fake import HandlerSqlExecutor as LocalPostgresExecutor
 
 
 def _json_response(status_code: int, body: Any) -> httpx.Response:

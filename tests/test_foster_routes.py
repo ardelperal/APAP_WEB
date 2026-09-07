@@ -95,6 +95,7 @@ class _NoSqlRouteClient(LocalPostgresExecutor):
 @pytest.fixture
 def route_client() -> _NoSqlRouteClient:
     spy = _NoSqlRouteClient()
+    app.state.sql_executor = spy
     app.dependency_overrides[get_local_backend_client] = lambda: spy
     app.dependency_overrides[get_local_backend_client_dep] = lambda: spy
     yield spy
@@ -970,4 +971,3 @@ async def test_casa_acogida_detail_shows_overrides_for_developer(
     body = response.text
     assert "Histórico de overrides" in body
     assert "caso urgente PII marker" in body
-

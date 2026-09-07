@@ -78,6 +78,7 @@ class _NoSqlRouteClient(LocalPostgresExecutor):
 @pytest.fixture
 def route_client() -> _NoSqlRouteClient:
     spy = _NoSqlRouteClient()
+    app.state.sql_executor = spy
     app.dependency_overrides[get_local_backend_client] = lambda: spy
     app.dependency_overrides[get_local_backend_client_dep] = lambda: spy
     app.dependency_overrides[get_animals_port] = lambda: spy.animals_port

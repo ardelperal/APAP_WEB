@@ -14,7 +14,6 @@ from typing import Any
 import httpx
 import pytest
 
-from tests.sql_executor_fake import HandlerSqlExecutor as LocalPostgresExecutor
 from app.modules.entradas.service import (
     Entrada,
     EntradaConflictError,
@@ -24,6 +23,7 @@ from app.modules.entradas.service import (
     list_entradas,
     update_entrada,
 )
+from tests.sql_executor_fake import HandlerSqlExecutor as LocalPostgresExecutor
 
 
 def _json_response(status_code: int, body: Any) -> httpx.Response:

@@ -22,6 +22,7 @@ import uuid
 import httpx
 import pytest
 
+from app.core.auth_dependencies import get_local_postgres_executor_dep
 from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_local_backend_client
@@ -182,8 +183,10 @@ class _FakeTasksLocalBackend(LocalPostgresExecutor):
 def fake_tasks_local_backend() -> _FakeTasksLocalBackend:
     fake = _FakeTasksLocalBackend()
     app.dependency_overrides[get_local_backend_client] = lambda: fake
+    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: fake
     yield fake
     app.dependency_overrides.pop(get_local_backend_client, None)
+    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
 
 
 # ---------------------------------------------------------------------------

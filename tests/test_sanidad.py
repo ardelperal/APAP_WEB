@@ -25,8 +25,8 @@ from typing import Any
 import httpx
 import pytest
 
-from tests.sql_executor_fake import HandlerSqlExecutor as LocalPostgresExecutor
 from app.modules.sanidad import service as sanidad_service
+from tests.sql_executor_fake import HandlerSqlExecutor as LocalPostgresExecutor
 
 
 def _json_response(status_code: int, body: Any) -> httpx.Response:

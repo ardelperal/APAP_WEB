@@ -26,9 +26,9 @@ from typing import Any
 import httpx
 import pytest
 
-from tests.sql_executor_fake import HandlerSqlExecutor as LocalPostgresExecutor
 from app.modules.materiales import estancia_material_service
 from app.modules.materiales import service as materiales_service
+from tests.sql_executor_fake import HandlerSqlExecutor as LocalPostgresExecutor
 
 # --- helpers --------------------------------------------------------------
 
