@@ -1,7 +1,7 @@
 """Stub adapter for ``CesionesPort`` — pending local-backend implementation.
 
 Replaces the deleted
-:class:`app.modules.cesiones.adapters.insforge.cesiones_insforge_adapter.CesionesPort`.
+:class:`app.modules.cesiones.adapters.stubs.cesiones_stub` (the legacy LocalBackend module, retired in issue #5).
 A real :class:`~app.core.local_backend.db.LocalPostgresExecutor`-backed
 adapter lands in a follow-up slice; until then, every method raises
 :class:`NotImplementedError` so the runtime fails loud per route.
