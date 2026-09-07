@@ -13,6 +13,14 @@ Las notas detalladas por tag viven en GitHub Releases; este changelog agrega los
 
 ### Removed
 
+- `refactor`: drop InsForge auth/oauth/catalogos/schema_bootstrap adapters + port stubs in their place (closes #666):
+    - `app/core/adapters/insforge/auth_insforge_adapter.py`: deleted (223 lines).
+    - `app/core/adapters/insforge/auth_insforge_queries.py`: deleted (132 lines, pure SQL).
+    - `app/core/adapters/insforge/oauth_insforge_adapter.py`: deleted (3 `# type: ignore` annotations from #664 dropped).
+    - `app/core/adapters/insforge/catalogos_insforge_adapter.py`: deleted (~150 lines).
+    - `app/core/adapters/insforge/schema_bootstrap_insforge_adapter.py`: deleted (~80 lines).
+    - `app/core/adapters/insforge/__init__.py`: deleted.
+    - `app/core/adapters/insforge/`: directory removed.
 - `refactor`: delete InsForge runtime + rename `InsForgeError` → `BackendError` (closes #664):
     - `app/core/insforge.py`: deleted (706 lines, the `LocalPostgresExecutor` HTTP client).
     - `app/core/insforge_url.py`: deleted (62 lines, `resolve_insforge_url` helper).

@@ -15,7 +15,7 @@ working without a signature change. Every shim function:
 
 1. Accepts the legacy first argument (``client: SqlExecutor`` — the
    LocalPostgresExecutor satisfies the Protocol structurally).
-2. Constructs a fresh :class:`InsForgeAuthUsersAdapter` from the
+2. Constructs a fresh :class:`StubAuthUsersPort` from the
    client (cheap, no I/O).
 3. Delegates to the new use case.
 4. Converts the use case's :class:`~app.core.domain.auth.user.AuthorizedUser`
@@ -42,9 +42,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.core.adapters.insforge.auth_insforge_adapter import (
-    InsForgeAuthUsersAdapter,
-)
+from app.core.adapters.stubs.auth_users_stub import StubAuthUsersPort
 from app.core.application.auth._has_other_active_developers import (
     has_other_active_developers as _has_other_active_developers_use_case,
 )
@@ -93,14 +91,21 @@ __all__ = [
 ]
 
 
-def _adapter(client: SqlExecutor) -> InsForgeAuthUsersAdapter:
-    """Build a fresh :class:`InsForgeAuthUsersAdapter` from the legacy client.
+def _adapter(client: SqlExecutor) -> StubAuthUsersPort:
+    """Build a fresh :class:`StubAuthUsersPort`.
 
-    The adapter is stateless and cheap to construct; this is the
-    one line of glue that translates "caller has an SqlExecutor"
-    to "use case needs an :class:`AuthUsersPort`".
+    The InsForge adapter was deleted in issue #666; until a real
+    :class:`~app.core.local_backend.db.LocalPostgresExecutor`-backed
+    adapter lands (tracked as the follow-up), the stub raises
+    :class:`NotImplementedError` on every method call so the runtime
+    fails loud per route.
+
+    The ``client`` parameter is preserved for signature compatibility
+    with the previous ``StubAuthUsersPort``; the stub does not
+    consume it (the stub is stateless and has no resources of its own).
     """
-    return InsForgeAuthUsersAdapter(client)
+    del client  # unused — kept for signature compatibility.
+    return StubAuthUsersPort()
 
 
 def _to_dict_or_none(user):

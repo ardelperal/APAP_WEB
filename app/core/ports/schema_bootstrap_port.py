@@ -63,7 +63,8 @@ class SchemaBootstrapPort(Protocol):
 
     Implementations:
 
-    - :class:`app.core.adapters.insforge.schema_bootstrap_insforge_adapter.InsForgeSchemaBootstrapAdapter`
+    - :class:`app.core.adapters.stubs.schema_bootstrap_stub.StubSchemaBootstrapPort`
+      (placeholder, pending a real ``LocalPostgresExecutor`-backed adapter; issue #4b').
       — production adapter, talks to InsForge via :class:`SqlExecutor`.
     - Test fakes (in ``tests/``) — in-memory adapters that record calls
       or raise on demand without any transport.
