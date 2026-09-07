@@ -236,7 +236,7 @@ def test_no_workflow_runs_on_a_floating_runner() -> None:
     """Hard Rule 15, across every workflow rather than one job (issue #520).
 
     Four workflows sat on `ubuntu-latest` for as long as they have existed — deploy,
-    pr-name, pr-size, insforge-keep-alive — while the only runner check in this
+    pr-name, pr-size, plus the now-retired insforge-keep-alive (issue #656) — while the only runner check in this
     repository looked at the `security` job alone and stayed green throughout. A pin
     that covers one job of six workflows is a pin of that job, not of the rule.
 
