@@ -1024,18 +1024,22 @@ def test_ci_workflow_pr_size_job_is_wired() -> None:
 
 def test_verify_coolify_contract_workflow_exists() -> None:
     """Release-side CI/CD reform (Gap 3): the isolated deploy-contract gate must
-    live in its own workflow with minimum permissions and a non-self-hosted runner.
+    live in its own workflow with minimum permissions on the project self-hosted
+    runner.
 
     The whole point of the gap-3 reform is that the verifier CANNOT depend on
     the tree it validates — that is the gentle-ai ``internal/releasepolicy/policy.go``
-    pattern. Putting the verifier on the project self-hosted runner (which is
-    pinned to the same Coolify webhook that consumes the contract) would collapse
-    the isolation: a corrupted contract would also corrupt the runner that runs
-    the check. The workflow MUST therefore run on ``ubuntu-latest`` and hold
-    ONLY ``contents: read``.
+    pattern. Isolation is structural (the canonical expected config lives inside
+    the verifier module's ``_CANONICAL_YAML`` literal), not runner-based: the
+    workflow runs on the same self-hosted runner as the deploy pipeline without
+    weakening the guarantee.
 
-    Removing the workflow, weakening the permissions, or moving the runner to
-    the self-hosted label set is a blocked change
+    The workflow MUST target the project self-hosted label set so it does not
+    burn GitHub Actions minutes on every PR and push to main. It MUST hold ONLY
+    ``contents: read`` so it cannot mutate anything it is supposed to verify.
+
+    Removing the workflow, weakening the permissions, or moving the runner away
+    from the project self-hosted label set is a blocked change
     (apap-orchestrator-discipline.md §17).
     """
     assert VERIFY_COOLIFY_CONTRACT_WORKFLOW_PATH.is_file(), (
@@ -1071,14 +1075,22 @@ def test_verify_coolify_contract_workflow_exists() -> None:
             "minimum permissions are contents: read"
         )
 
-    # Runner: ubuntu-latest. NOT the self-hosted label set. Putting this
-    # verifier on the project runner would make it inherit any drift in the
-    # deploy pipeline that consumes the contract it validates.
-    assert "runs-on: ubuntu-latest" in workflow
-    assert "[self-hosted" not in workflow, (
-        "verify-coolify-contract.yml must run on ubuntu-latest, not the "
-        "project self-hosted runner — see the comment block at the top of "
-        "the workflow for why"
+    # Runner: the project self-hosted label set (apap-coolify-noble on
+    # Oracle VPS). The verifier MUST target the same runner the rest of
+    # the repo's workflows target — burning GitHub Actions minutes on a
+    # workflow that fires on every PR and push to main is a regression
+    # of the cost model. ``ubuntu-latest`` is explicitly forbidden.
+    expected_runner_labels = [
+        "[self-hosted, Linux, ARM64, apap, oracle, coolify, noble]",
+    ]
+    assert any(label in workflow for label in expected_runner_labels), (
+        f"verify-coolify-contract.yml must target the project self-hosted "
+        f"runner label set; expected one of {expected_runner_labels}, "
+        f"got workflow content: {workflow!r}"
+    )
+    assert "runs-on: ubuntu-latest" not in workflow, (
+        "verify-coolify-contract.yml must NOT use ubuntu-latest; "
+        "the project self-hosted runner is provisioned for this gate"
     )
 
     # Concurrency: same FIFO pattern as ci.yml (issue #530). A cancel-in-progress
