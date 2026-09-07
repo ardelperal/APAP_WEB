@@ -1,14 +1,13 @@
 """Composition root for the lifecycle slice (LIFECYCLE-03 PR-B).
 
-Wires the
-:class:`~app.modules.lifecycle.adapters.insforge.lifecycle_insforge_adapter.InsForgeLifecycleAdapter`
+Wires a :class:`StubLifecyclePort` (pending a real
+``LocalPostgresExecutor``-backed adapter in the follow-up to #668)
 into the
 :class:`~app.modules.lifecycle.ports.lifecycle_port.LifecyclePort`
-Protocol that the application layer consumes. The wiring is a single
-factory function -- there is no per-request state in the lifecycle
-slice (the adapter is stateless beyond the injected
-:class:`~app.core.data_access.SqlExecutor`), so the composition
-root is also stateless.
+Protocol that the application layer consumes. The InsForge adapter
+implementation was deleted in issue #668; the stub raises
+:class:`NotImplementedError` on every method call so the runtime fails
+loud.
 
 Per AGENTS.md §33.4: ``LocalPostgresExecutor`` and ``BackendError`` are
 imported only under ``adapters/`` and ``di/`` (plus ``app/main.py``
@@ -21,33 +20,25 @@ LIFECYCLE-03 (issue #33) PR-B.
 from __future__ import annotations
 
 from app.core.data_access import SqlExecutor
-from app.modules.lifecycle.adapters.insforge.lifecycle_insforge_adapter import (
-    InsForgeLifecycleAdapter,
-)
+from app.modules.lifecycle.adapters.stubs.lifecycle_stub import StubLifecyclePort
 from app.modules.lifecycle.ports.lifecycle_port import LifecyclePort
 
 
 def build_lifecycle_port(executor: SqlExecutor) -> LifecyclePort:
-    """Return the slice's :class:`LifecyclePort` bound to ``executor``.
+    """Return the slice's :class:`LifecyclePort` stub placeholder.
 
-    The factory is intentionally a single line so callers can wire
-    it through a FastAPI dependency (``Depends``) without ceremony:
+    The InsForge adapter was deleted in issue #668; until a real
+    :class:`~app.core.local_backend.db.LocalPostgresExecutor`-backed
+    adapter lands (tracked as the follow-up), the stub raises
+    :class:`NotImplementedError` on every method call so the runtime
+    fails loud per route.
 
-    .. code-block:: python
-
-        def get_lifecycle_port(
-            executor: SqlExecutor = Depends(get_sql_executor),
-        ) -> LifecyclePort:
-            return build_lifecycle_port(executor)
-
-    PR-C's callsite rewrites reach this factory through
-    ``app.modules.animals.lifecycle_events.actualizar_estado_animal``
-    which builds the port per request and delegates to the domain
-    cascade. The simplified ``_EVENT_TYPE_TO_STATE`` map that lived
-    in lifecycle_events.py before LIFECYCLE-03 PR-C was the P1
-    fidelity gap; it is replaced by this wired cascade.
+    The ``executor`` parameter is preserved for signature compatibility
+    with the previous ``InsForgeLifecycleAdapter``; the stub does not
+    consume it (the stub is stateless and has no resources of its own).
     """
-    return InsForgeLifecycleAdapter(executor)
+    del executor  # unused — kept for signature compatibility.
+    return StubLifecyclePort()
 
 
 __all__ = ["build_lifecycle_port"]
