@@ -12,6 +12,16 @@ WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 #: Deploy lives in its own workflow so a merge does not re-run ci.yml just to
 #: satisfy its `needs`. The deploy guards moved here with it.
 DEPLOY_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "deploy.yml"
+#: Isolated deploy-contract gate. Part of the release-side CI/CD reform.
+#: Lives in its own workflow to demonstrate isolation from the deploy
+#: pipeline that consumes the contract it validates (gentle-ai
+#: internal/releasepolicy/policy.go pattern).
+VERIFY_COOLIFY_CONTRACT_WORKFLOW_PATH = (
+    REPO_ROOT / ".github" / "workflows" / "verify-coolify-contract.yml"
+)
+VERIFY_COOLIFY_CONTRACT_SCRIPT_PATH = (
+    REPO_ROOT / "scripts" / "verify_coolify_contract.py"
+)
 MAKEFILE_PATH = REPO_ROOT / "Makefile"
 CHECK_RULES_SCRIPT_PATH = REPO_ROOT / "scripts" / "check_rules.py"
 BRANCH_PROTECTION_PATH = REPO_ROOT / ".github" / "branch-protection.md"
@@ -1009,6 +1019,84 @@ def test_ci_workflow_pr_size_job_is_wired() -> None:
     assert "size:exception" in pr_size, (
         "pr-size.yml must read the 'size:exception' label (AGENTS.md §15.6) — "
         "it is the only acceptable override for the 400-line budget"
+    )
+
+
+def test_verify_coolify_contract_workflow_exists() -> None:
+    """Release-side CI/CD reform (Gap 3): the isolated deploy-contract gate must
+    live in its own workflow with minimum permissions and a non-self-hosted runner.
+
+    The whole point of the gap-3 reform is that the verifier CANNOT depend on
+    the tree it validates — that is the gentle-ai ``internal/releasepolicy/policy.go``
+    pattern. Putting the verifier on the project self-hosted runner (which is
+    pinned to the same Coolify webhook that consumes the contract) would collapse
+    the isolation: a corrupted contract would also corrupt the runner that runs
+    the check. The workflow MUST therefore run on ``ubuntu-latest`` and hold
+    ONLY ``contents: read``.
+
+    Removing the workflow, weakening the permissions, or moving the runner to
+    the self-hosted label set is a blocked change
+    (apap-orchestrator-discipline.md §17).
+    """
+    assert VERIFY_COOLIFY_CONTRACT_WORKFLOW_PATH.is_file(), (
+        f"{VERIFY_COOLIFY_CONTRACT_WORKFLOW_PATH} must exist; the release-side "
+        "reform depends on this workflow firing on every PR and push to main"
+    )
+    assert VERIFY_COOLIFY_CONTRACT_SCRIPT_PATH.is_file(), (
+        f"{VERIFY_COOLIFY_CONTRACT_SCRIPT_PATH} must exist; the workflow "
+        "delegates the actual diffing to this script so local + CI share code"
+    )
+
+    workflow = VERIFY_COOLIFY_CONTRACT_WORKFLOW_PATH.read_text(encoding="utf-8")
+
+    # Triggers: pull_request to main, push to main, workflow_dispatch.
+    # No tag push (this is a contract gate, not a release gate). No schedule
+    # (the contract is checked on every PR — a weekly run would let drift land
+    # on main for up to 7 days).
+    assert "pull_request:" in workflow
+    assert "branches: [main]" in workflow
+    assert "push:" in workflow
+    assert "workflow_dispatch:" in workflow
+
+    # Permissions: contents: read only. Anything stronger collapses the
+    # isolation the workflow exists to demonstrate.
+    assert "permissions:" in workflow
+    assert "contents: read" in workflow
+    # No write permissions of any kind.
+    for forbidden in ("contents: write", "issues: write", "pull-requests: write",
+                      "actions: write", "packages: write", "deployments: write",
+                      "id-token: write"):
+        assert forbidden not in workflow, (
+            f"verify-coolify-contract.yml must NOT carry {forbidden!r}; "
+            "minimum permissions are contents: read"
+        )
+
+    # Runner: ubuntu-latest. NOT the self-hosted label set. Putting this
+    # verifier on the project runner would make it inherit any drift in the
+    # deploy pipeline that consumes the contract it validates.
+    assert "runs-on: ubuntu-latest" in workflow
+    assert "[self-hosted" not in workflow, (
+        "verify-coolify-contract.yml must run on ubuntu-latest, not the "
+        "project self-hosted runner — see the comment block at the top of "
+        "the workflow for why"
+    )
+
+    # Concurrency: same FIFO pattern as ci.yml (issue #530). A cancel-in-progress
+    # would silently drop a red run from the rollup.
+    assert "concurrency:" in workflow
+    assert "cancel-in-progress: false" in workflow
+
+    # The workflow MUST delegate to the script (not inline the verifier
+    # in a heredoc), and the script invocation must match the Makefile target
+    # byte-for-byte so local and CI cannot drift.
+    assert "python scripts/verify_coolify_contract.py" in workflow
+    make_recipe = _make_target_command("verify-coolify-contract")
+    workflow_command = "python scripts/verify_coolify_contract.py coolify/apap-web-coolify.yaml"
+    normalized_make_recipe = make_recipe.replace("$(PYTHON)", "python", 1)
+    assert normalized_make_recipe == workflow_command, (
+        "make verify-coolify-contract must invoke the exact same command "
+        f"as the workflow; got make={normalized_make_recipe!r}, "
+        f"workflow={workflow_command!r}"
     )
 
 
