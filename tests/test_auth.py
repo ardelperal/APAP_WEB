@@ -1,9 +1,4 @@
-"""Tests for the usuarios_autorizados schema, bootstrap seed and CRUD.
-
-All tests use a real ``LocalPostgresExecutor`` with an ``httpx.MockTransport``
-so we exercise the SQL strings, params, and response parsing without
-hitting the network.
-"""
+"""Tests for the usuarios_autorizados schema, bootstrap seed and CRUD."""
 
 from __future__ import annotations
 
@@ -23,7 +18,8 @@ from app.core.auth import (
     list_authorized_users,
 )
 from app.core.config import Settings
-from app.core.local_backend.db import LocalPostgresExecutor
+from app.core.data_access import SqlExecutor
+from tests.sql_executor_fake import HandlerSqlExecutor
 
 
 def _json_response(status_code: int, body: Any) -> httpx.Response:
@@ -34,12 +30,8 @@ def _json_response(status_code: int, body: Any) -> httpx.Response:
     )
 
 
-def _client(handler) -> LocalPostgresExecutor:
-    return LocalPostgresExecutor(
-        base_url="https://example.local_backend.app",
-        service_key="ik_test",
-        transport=httpx.MockTransport(handler),
-    )
+def _client(handler) -> SqlExecutor:
+    return HandlerSqlExecutor(handler)
 
 
 def _settings(**overrides) -> Settings:

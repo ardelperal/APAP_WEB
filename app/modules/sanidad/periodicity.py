@@ -82,8 +82,9 @@ class PeriodicidadRule:
         # (e.g. Jan 31 + 1 month → Feb 28/29, not Mar 2/3).
         assert self.periodicidad_meses is not None  # guarded by is_recurring()
         try:
+            # lazy-import: optional dependency with a deterministic fallback.
             from dateutil.relativedelta import (
-                relativedelta,  # lazy-import: optional dep; fallback below
+                relativedelta,
             )
         except ImportError:  # pragma: no cover
             # Fallback for environments without dateutil: manual month arithmetic.
@@ -235,4 +236,3 @@ def _priority_from_date(due_date: date) -> str:
     if days_overdue > 0:
         return "normal"
     return "baja"
-

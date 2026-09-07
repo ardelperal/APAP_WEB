@@ -245,11 +245,11 @@ def test_local_backend_auth_port_verify_password_returns_none(
     The default is overridden by the local adapter when
     ``APAP_LOCAL_BACKEND=true`` is set.
     """
-    from app.core.adapters.stubs.auth_users_stub import (
-        StubAuthUsersPort,
+    from app.core.adapters.local_backend.auth_local_backend_adapter import (
+        LocalBackendAuthUsersAdapter,
     )
 
-    adapter = StubAuthUsersPort(executor=None)
+    adapter = LocalBackendAuthUsersAdapter(executor=None)
     # verify_password is not implemented on LocalBackend; calling it should
     # raise AttributeError or return None. The migration must add the
     # method. After the migration it returns None (LocalBackend has no
@@ -262,10 +262,10 @@ def test_local_backend_auth_port_set_password_raises() -> None:
     """The LocalBackend adapter's default ``set_password`` raises
     ``NotImplementedError`` — LocalBackend cannot store password hashes.
     """
-    from app.core.adapters.stubs.auth_users_stub import (
-        StubAuthUsersPort,
+    from app.core.adapters.local_backend.auth_local_backend_adapter import (
+        LocalBackendAuthUsersAdapter,
     )
 
-    adapter = StubAuthUsersPort(executor=None)
+    adapter = LocalBackendAuthUsersAdapter(executor=None)
     with pytest.raises(NotImplementedError):
         adapter.set_password("ana@test.com", "anything")

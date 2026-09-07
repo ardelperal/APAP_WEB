@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from app.modules.cesiones.adapters.stubs.cesiones_stub import (
-    CesionesPort,
+from app.modules.cesiones.adapters.local_backend.cesiones_local_backend_adapter import (
+    CesionesLocalBackendAdapter,
 )
 
-__all__ = ["CesionesPort"]
+__all__ = ["CesionesLocalBackendAdapter"]

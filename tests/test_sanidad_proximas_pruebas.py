@@ -158,7 +158,7 @@ class TestProximaPruebaEstado:
     """
 
     def test_estado_vencida_when_proxima_before_hasta(self) -> None:
-        from app.modules.sanidad.service import _compute_estado
+        from app.modules.sanidad.proximas import _compute_estado
 
         estado = _compute_estado(
             fecha_proxima=date(2026, 6, 15),
@@ -170,7 +170,7 @@ class TestProximaPruebaEstado:
     def test_estado_proxima_when_proxima_within_30_days_after_hasta(
         self,
     ) -> None:
-        from app.modules.sanidad.service import _compute_estado
+        from app.modules.sanidad.proximas import _compute_estado
 
         estado = _compute_estado(
             fecha_proxima=date(2027, 1, 15),
@@ -181,7 +181,7 @@ class TestProximaPruebaEstado:
         assert estado == "proxima"
 
     def test_estado_futura_when_proxima_far_after_hasta(self) -> None:
-        from app.modules.sanidad.service import _compute_estado
+        from app.modules.sanidad.proximas import _compute_estado
 
         estado = _compute_estado(
             fecha_proxima=date(2027, 6, 30),

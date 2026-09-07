@@ -92,7 +92,7 @@ def check_round_trip_test() -> CheckResult:
     """
     rc, stdout, stderr = _run_subprocess_check(
         [
-            "python",
+            sys.executable,
             "-m",
             "pytest",
             ROUND_TRIP_TEST,
@@ -255,7 +255,7 @@ def check_web_to_legacy_check_only() -> CheckResult:
     try:
         rc, stdout, stderr = _run_subprocess_check(
             [
-                "python",
+                sys.executable,
                 "-m",
                 "migration",
                 "apply",

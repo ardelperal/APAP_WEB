@@ -81,6 +81,7 @@ class _MockCesionesPort:
 @pytest.fixture
 def route_client() -> _NoSqlRouteClient:
     spy = _NoSqlRouteClient()
+    app.state.sql_executor = spy
     # Override the DI so get_cesiones_port reads this spy (not the
     # _DefaultLocalBackendSpy from the client fixture).
     app.dependency_overrides[get_local_backend_client] = lambda: spy
@@ -396,5 +397,4 @@ async def test_create_cesion_rejects_reader_with_403(
     )
 
     assert response.status_code == 403
-
 

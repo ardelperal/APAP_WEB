@@ -68,5 +68,5 @@ class ReverseSyncStateRollbackError(ReverseApplyError):
 __all__ = [
     "ReverseApplyError",
     "ReverseSyncStateRollbackError",
-    "_LocalBackendLike",
+    "SqlExecutor",
 ]

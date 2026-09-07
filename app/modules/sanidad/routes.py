@@ -61,10 +61,11 @@ from app.core.auth_dependencies import (
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
-from app.core.data_access import BackendError
+from app.core.data_access import BackendError, SqlExecutor
 from app.core.logging import log_safe
 from app.core.middleware import base_template_context_processor
 from app.core.rbac import Permission, require_permission
+from app.modules.sanidad import proximas as sanidad_proximas
 from app.modules.sanidad import service as sanidad_service
 from app.modules.sanidad.forms import ActuacionForm
 
@@ -170,7 +171,7 @@ def _render_form(  # noqa: PLR0913  # non-route helper; 7 args (incl. catalogos_
 
 
 def _load_catalogos_pruebas_for_form(
-    client: AuthUsersPort,
+    client: SqlExecutor,
     *,
     context: str,
     actuacion_id: str | None = None,
@@ -191,7 +192,7 @@ def _load_catalogos_pruebas_for_form(
 def _render_backend_error(  # noqa: PLR0913  # non-route helper; 8 args needed to rebuild the form on backend failure
     request: Request,
     user: AuthenticatedUser,
-    client: AuthUsersPort,
+    client: SqlExecutor,
     form_data: dict[str, Any],
     form_action: str,
     exc: BackendError,
@@ -229,7 +230,7 @@ def _render_backend_error(  # noqa: PLR0913  # non-route helper; 8 args needed t
 def list_actuaciones_view(
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_SALUD))],
-    client: Annotated[AuthUsersPort, Depends(get_local_backend_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_backend_client_dep)],
     animal_id: str | None = None,
 ):
     """List active actuaciones; ``?animal_id=`` filters to one animal.
@@ -267,7 +268,7 @@ def list_actuaciones_view(
 def new_actuacion_form(
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_SALUD))],
-    client: Annotated[AuthUsersPort, Depends(get_local_backend_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_backend_client_dep)],
 ):
     """Empty form for a new actuacion, with the catalogos_pruebas dropdown."""
     if (early := return_early_if_response(user)) is not None:
@@ -291,7 +292,7 @@ def create_actuacion_view(
     request: Request,
     form: Annotated[ActuacionForm, Form()],
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
-    client: Annotated[AuthUsersPort, Depends(get_local_backend_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_backend_client_dep)],
 ):  # noqa: PLR0913  # refactored to ActuacionForm
     """Create an actuacion; redirect to detail on success.
 
@@ -356,7 +357,7 @@ def actuacion_detail(
     actuacion_id: str,
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_SALUD))],
-    client: Annotated[AuthUsersPort, Depends(get_local_backend_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_backend_client_dep)],
 ):
     """Detail view; 404 when the id is missing."""
     if (early := return_early_if_response(user)) is not None:
@@ -398,7 +399,7 @@ def edit_actuacion_form(
     actuacion_id: str,
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_SALUD))],
-    client: Annotated[AuthUsersPort, Depends(get_local_backend_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_backend_client_dep)],
 ):
     """Edit form prefilled from the persisted row."""
     if (early := return_early_if_response(user)) is not None:
@@ -430,7 +431,7 @@ def update_actuacion_view(
     request: Request,
     form: Annotated[ActuacionForm, Form()],
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
-    client: Annotated[AuthUsersPort, Depends(get_local_backend_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_backend_client_dep)],
 ):  # noqa: PLR0913  # refactored to ActuacionForm
     """Update an existing actuacion; redirect to detail on success.
 
@@ -499,7 +500,7 @@ def delete_actuacion_view(
     actuacion_id: str,
     _request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
-    client: Annotated[AuthUsersPort, Depends(get_local_backend_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_backend_client_dep)],
 ):
     """Soft-delete via ``sanidad_service.delete_actuacion_sanitaria``.
 
@@ -540,7 +541,7 @@ def delete_actuacion_view(
 @router.get("/proximas-pruebas", response_class=JSONResponse)
 def proximas_pruebas(
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_SALUD))],
-    client: Annotated[AuthUsersPort, Depends(get_local_backend_client_dep)],
+    client: Annotated[SqlExecutor, Depends(get_local_backend_client_dep)],
     fecha_desde: Annotated[
         str,
         Query(description="ISO date (YYYY-MM-DD); lower bound of the window."),
@@ -562,19 +563,43 @@ def proximas_pruebas(
 
     Returns one row per (animal, tipo_prueba) whose next due date
     falls inside the ``[fecha_desde, fecha_hasta]`` window. See
-    ``sanidad.service.get_proximas_pruebas`` for the contract.
+    ``sanidad.proximas.get_proximas_pruebas`` for the contract.
 
-    Auth: any operator with ``READ_SALUD`` (per AGENTS §21 RBAC; same
-    auth model as the list endpoints above). The reader rol can call
-    this endpoint to scan the schedule; writers use it to triage
-    the next batch of vaccinations.
+    Auth: ``READ_SALUD`` (same RBAC model as the other list endpoints).
+    Empty window or fully-filtered window → ``[]``.
+    """
+    desde, hasta = _parse_proximas_window(fecha_desde, fecha_hasta)
 
-    Response shape:
-        ``[{"chip": "...", "nombre": "...", "tipo_codigo": "...",
-        "fecha_ultima": "YYYY-MM-DD", "fecha_proxima": "YYYY-MM-DD",
-        "periodicidad_meses": N, "estado": "vencida|proxima|futura"}, ...]``
+    items = sanidad_proximas.get_proximas_pruebas(
+        client,
+        desde,
+        hasta,
+        animal_id=animal_id,
+        tipo_prueba_codigo=tipo_prueba_codigo,
+    )
+    payload = sanidad_proximas.serialize_proximas_pruebas(items)
+    log_safe(
+        "sanidad.proximas_pruebas",
+        actor=user["email"] if isinstance(user, dict) else None,
+        desde=fecha_desde,
+        hasta=fecha_hasta,
+        animal_id=animal_id,
+        tipo=tipo_prueba_codigo,
+        rows=len(payload),
+    )
+    return JSONResponse(payload)
 
-    Empty window → ``[]``. Filters that exclude every row → ``[]``.
+
+def _parse_proximas_window(
+    fecha_desde: str,
+    fecha_hasta: str,
+) -> tuple[date, date]:
+    """Validate the operator-supplied window and return ``(desde, hasta)``.
+
+    Both endpoints MUST be ISO dates (``YYYY-MM-DD``); ``fecha_desde``
+    MUST be ``<= fecha_hasta``. Anything else raises an HTTP 400 with
+    a specific detail so the UI can surface it to the operator without
+    a generic 500.
     """
     try:
         desde = date.fromisoformat(fecha_desde)
@@ -594,32 +619,4 @@ def proximas_pruebas(
             detail="fecha_desde must be <= fecha_hasta",
         )
 
-    items = sanidad_service.get_proximas_pruebas(
-        client,
-        desde,
-        hasta,
-        animal_id=animal_id,
-        tipo_prueba_codigo=tipo_prueba_codigo,
-    )
-    payload = [
-        {
-            "chip": item.chip,
-            "nombre": item.nombre,
-            "tipo_codigo": item.tipo_codigo,
-            "fecha_ultima": item.fecha_ultima.isoformat(),
-            "fecha_proxima": item.fecha_proxima.isoformat(),
-            "periodicidad_meses": item.periodicidad_meses,
-            "estado": item.estado,
-        }
-        for item in items
-    ]
-    log_safe(
-        "sanidad.proximas_pruebas",
-        actor=user["email"] if isinstance(user, dict) else None,
-        desde=fecha_desde,
-        hasta=fecha_hasta,
-        animal_id=animal_id,
-        tipo=tipo_prueba_codigo,
-        rows=len(payload),
-    )
-    return JSONResponse(payload)
+    return desde, hasta

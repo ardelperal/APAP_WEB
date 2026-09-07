@@ -1,6 +1,3 @@
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from app.core.data_access import SqlExecutor  # noqa: F401
 """Lock context + snapshot helpers + path resolution for the reverse applier.
 
 Mirrors the forward applier's ``migration.apply._LockContext`` and

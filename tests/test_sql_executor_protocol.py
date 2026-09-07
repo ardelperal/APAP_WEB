@@ -6,8 +6,6 @@ import ast
 from pathlib import Path
 from typing import Any, get_type_hints
 
-import httpx
-
 from app.core.data_access import SqlExecutor
 from app.core.local_backend.db import LocalPostgresExecutor
 
@@ -43,20 +41,9 @@ def test_sql_executor_rejects_an_object_without_execute_sql() -> None:
 
 
 def test_local_backend_client_satisfies_sql_executor_without_inheritance() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/api/database/advance/rawsql"
-        return httpx.Response(200, json={"rows": [{"value": 1}]})
+    client = LocalPostgresExecutor("postgresql://test:test@localhost/test")
 
-    client = LocalPostgresExecutor(
-        "https://example.local_backend.test",
-        "service-key",
-        transport=httpx.MockTransport(handler),
-    )
-    try:
-        assert isinstance(client, SqlExecutor)
-        assert client.execute_sql("SELECT 1") == [{"value": 1}]
-    finally:
-        client.close()
+    assert isinstance(client, SqlExecutor)
 
 
 def test_catalog_reader_accepts_sql_executor_contract() -> None:

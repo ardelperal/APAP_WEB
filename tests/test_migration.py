@@ -27,7 +27,6 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from app.core.local_backend.db import LocalPostgresExecutor
 from migration import (
     FkLookupError,
     LockActiveError,
@@ -43,6 +42,7 @@ from migration.mappings import (
     load_mapping,
 )
 from migration.reporting import Conflict, Diff
+from tests.sql_executor_fake import HandlerSqlExecutor
 
 # --- helpers --------------------------------------------------------------
 
@@ -1057,8 +1057,8 @@ class TestWebReader:
     que oculta el transporte al use case.
     """
 
-    def _make_mock_client(self, captured: list[str]) -> LocalPostgresExecutor:
-        """Construye un LocalPostgresExecutor con MockTransport que captura el SQL enviado."""
+    def _make_mock_client(self, captured: list[str]) -> HandlerSqlExecutor:
+        """Construye un SqlExecutor falso que captura el SQL enviado."""
 
         def handler(request: httpx.Request) -> httpx.Response:
             captured.append(request.content.decode())
@@ -1068,7 +1068,7 @@ class TestWebReader:
                 headers={"content-type": "application/json"},
             )
 
-        return LocalPostgresExecutor(
+        return HandlerSqlExecutor(
             base_url="https://example.local_backend.app",
             service_key="ik_test",
             transport=httpx.MockTransport(handler),
@@ -1133,7 +1133,7 @@ class TestWebReader:
                 headers={"content-type": "application/json"},
             )
 
-        client = LocalPostgresExecutor(
+        client = HandlerSqlExecutor(
             base_url="https://example.local_backend.app",
             service_key="ik_test",
             transport=httpx.MockTransport(handler),
@@ -1431,7 +1431,7 @@ class TestCliReconcile:
                 headers={"content-type": "application/json"},
             )
 
-        client = LocalPostgresExecutor(
+        client = HandlerSqlExecutor(
             base_url="https://example.local_backend.app",
             service_key="ik_test",
             transport=httpx.MockTransport(handler),

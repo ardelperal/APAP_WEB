@@ -48,9 +48,6 @@ def _bypass_local_backend_dependency(monkeypatch: pytest.MonkeyPatch) -> None:
 
     spy = _PassThroughSpy()
     app.dependency_overrides[get_local_backend_client] = lambda: spy
-    monkeypatch.setattr(
-        "app.modules.animals.routes.get_local_backend_client_dep", lambda: spy
-    )
     yield
     app.dependency_overrides.pop(get_local_backend_client, None)
 

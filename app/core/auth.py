@@ -5,7 +5,7 @@ The auth users module has been migrated to a hexagonal slice:
   - :mod:`app.core.domain.auth`       — entities (``AuthorizedUser``, ``Rol``)
   - :mod:`app.core.ports.auth_port`   — :class:`AuthUsersPort` Protocol
   - :mod:`app.core.application.auth`  — use cases (one per file)
-  - :mod:`app.core.adapters.stubs.auth_users_stub` — stub placeholder (pending local-backend adapter, see #6')
+  - :mod:`app.core.adapters.local_backend.auth_local_backend_adapter` — production adapter
   - :mod:`app.core.di.auth_di`        — FastAPI DI provider
 
 This module preserves the pre-Phase-1 API so the existing callers
@@ -42,8 +42,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.core.adapters.stubs.auth_users_stub import (
-    AuthUsersPort,
+from app.core.adapters.local_backend.auth_local_backend_adapter import (
+    LocalBackendAuthUsersAdapter,
 )
 from app.core.application.auth._has_other_active_developers import (
     has_other_active_developers as _has_other_active_developers_use_case,
@@ -68,6 +68,7 @@ from app.core.application.auth.list_authorized_users import (
 )
 from app.core.config import Settings
 from app.core.data_access import SqlExecutor
+from app.core.ports.auth_port import AuthUsersPort
 from app.core.roles import Rol
 
 # Derivado del enum (regla 4 del code quality: una sola fuente de verdad
@@ -100,7 +101,7 @@ def _adapter(client: SqlExecutor) -> AuthUsersPort:
     one line of glue that translates "caller has an SqlExecutor"
     to "use case needs an :class:`AuthUsersPort`".
     """
-    return AuthUsersPort()
+    return LocalBackendAuthUsersAdapter(client)
 
 
 def _to_dict_or_none(user):

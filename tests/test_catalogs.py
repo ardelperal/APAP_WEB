@@ -24,8 +24,8 @@ This file exercises:
 4. Read helpers (``list_catalogos_<name>``) call the expected SQL and
    surface the rows.
 
-Mirrors the pattern of ``tests/test_domain.py`` (httpx.MockTransport +
-captured bodies) so no real LocalBackend instance is touched.
+Mirrors the deterministic ``SqlExecutor`` fake pattern in
+``tests/test_domain.py`` so no real database is touched.
 """
 
 from __future__ import annotations
@@ -50,8 +50,8 @@ from app.core.catalogs import (
     list_catalogos_pruebas,
     list_catalogos_tipos_contrato,
 )
-from app.core.data_access import BackendError
-from app.core.local_backend.db import LocalPostgresExecutor
+from app.core.data_access import BackendError, SqlExecutor
+from tests.sql_executor_fake import HandlerSqlExecutor
 
 # --- helpers --------------------------------------------------------------
 
@@ -64,8 +64,8 @@ def _json_response(status_code: int, body: Any) -> httpx.Response:
     )
 
 
-def _client_recording(handler) -> tuple[LocalPostgresExecutor, list[dict[str, Any]]]:
-    """Build a client whose MockTransport records every call's JSON body."""
+def _client_recording(handler) -> tuple[SqlExecutor, list[dict[str, Any]]]:
+    """Build a SQL executor that records every call's request body."""
     captured: list[dict[str, Any]] = []
 
     def _recording_handler(request: httpx.Request) -> httpx.Response:
@@ -74,11 +74,7 @@ def _client_recording(handler) -> tuple[LocalPostgresExecutor, list[dict[str, An
         captured.append(body)
         return handler(request, body)
 
-    return LocalPostgresExecutor(
-        base_url="https://example.local_backend.app",
-        service_key="ik_test",
-        transport=httpx.MockTransport(_recording_handler),
-    ), captured
+    return HandlerSqlExecutor(_recording_handler), captured
 
 
 def _column_names(sql: str) -> set[str]:
@@ -547,11 +543,7 @@ def test_ensure_catalogs_raises_when_create_table_fails() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return _json_response(500, {"error": "boom"})
 
-    client = LocalPostgresExecutor(
-        base_url="https://example.local_backend.app",
-        service_key="ik_test",
-        transport=httpx.MockTransport(handler),
-    )
+    client = HandlerSqlExecutor(handler)
     with pytest.raises(BackendError):
         ensure_catalogs(client)
     client.close()
@@ -560,7 +552,7 @@ def test_ensure_catalogs_raises_when_create_table_fails() -> None:
 # --- list_catalogos_* read helpers ---------------------------------------
 
 
-def _client_returning(body: list[dict[str, Any]]) -> tuple[LocalPostgresExecutor, list[dict[str, Any]]]:
+def _client_returning(body: list[dict[str, Any]]) -> tuple[SqlExecutor, list[dict[str, Any]]]:
     """Build a client that always returns the same body and records calls."""
     captured: list[dict[str, Any]] = []
 
@@ -569,11 +561,7 @@ def _client_returning(body: list[dict[str, Any]]) -> tuple[LocalPostgresExecutor
         captured.append(body_json)
         return _json_response(200, body)
 
-    return LocalPostgresExecutor(
-        base_url="https://example.local_backend.app",
-        service_key="ik_test",
-        transport=httpx.MockTransport(_hh),
-    ), captured
+    return HandlerSqlExecutor(_hh), captured
 
 
 def test_list_catalogos_origenes_uses_expected_sql() -> None:

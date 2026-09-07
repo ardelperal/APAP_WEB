@@ -21,8 +21,8 @@ LIFECYCLE-03 (issue #33) PR-B.
 from __future__ import annotations
 
 from app.core.data_access import SqlExecutor
-from app.modules.lifecycle.adapters.stubs.lifecycle_stub import (
-    LifecyclePort,
+from app.modules.lifecycle.adapters.local_backend.lifecycle_local_backend_adapter import (
+    LocalBackendLifecycleAdapter,
 )
 from app.modules.lifecycle.ports.lifecycle_port import LifecyclePort
 
@@ -47,7 +47,7 @@ def build_lifecycle_port(executor: SqlExecutor) -> LifecyclePort:
     in lifecycle_events.py before LIFECYCLE-03 PR-C was the P1
     fidelity gap; it is replaced by this wired cascade.
     """
-    return LifecyclePort()
+    return LocalBackendLifecycleAdapter(executor)
 
 
 __all__ = ["build_lifecycle_port"]

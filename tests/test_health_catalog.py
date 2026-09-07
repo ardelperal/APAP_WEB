@@ -41,8 +41,8 @@ from typing import Any
 
 import httpx
 
-from app.core.local_backend.db import LocalPostgresExecutor
 from app.modules.sanidad import service as sanidad_service
+from tests.sql_executor_fake import HandlerSqlExecutor as LocalPostgresExecutor
 
 # ---------------------------------------------------------------------------
 # mock transport helpers (same pattern as test_sanidad.py)

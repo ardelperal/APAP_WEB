@@ -281,7 +281,7 @@ def build_acogida_list(activas_solo: bool) -> tuple[str, list[Any]]:
 
 
 def build_acogida_update(
-    acogida_id: str, params: dict[str, Any]
+    _acogida_id: str, params: dict[str, Any]
 ) -> tuple[str, list[Any]]:
     """Partial-update builder for the catalog.
 

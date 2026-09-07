@@ -1,23 +1,8 @@
-"""Tests for the live LocalBackend response shape of ``/api/database/advance/rawsql``.
-
-Pins the contract every ``client.execute_sql(...)`` call site depends
-on. The current production bug (commit e56e418 / ETL move) is that
-``execute_sql`` returns the FULL response body
-(``{"rows": [...], "rowCount": 1, "fields": [...]}``), but the call
-sites do ``rows[0] if rows else None`` expecting a ``list[dict]``,
-which raises ``KeyError: 0``.
-
-The fix: ``execute_sql`` MUST return ``body["rows"]`` (a list of
-dicts). The fakes in tests/ that return ``[dict]`` for ``execute_sql``
-need to be updated to also return the wrapped envelope, or this
-test must also pin the public shape (a list of dicts).
-
-These tests run against the LIVE LocalBackend (proxied through
-``local_backend_run-raw-sql``) to catch shape drift the way the OAuth
-``oauth_code`` bug did on 2026-06-28.
-"""
+"""Tests for the public ``SqlExecutor.execute_sql`` response shape."""
 
 from __future__ import annotations
+
+from unittest.mock import patch
 
 from app.core.local_backend.db import LocalPostgresExecutor
 
@@ -34,23 +19,15 @@ def test_execute_sql_returns_list_of_dicts_not_envelope() -> None:
     ``KeyError: 0`` in production. The fakes in tests/ happened to
     return ``[dict]`` directly, so the bug only surfaced live.
     """
-    # We cannot hit LocalBackend from unit tests (would require network
-    # and a real API key). Instead, this test reads the in-source
-    # contract: the function's body MUST do ``body["rows"]`` (or
-    # equivalent shape extraction), NOT return ``_safe_json(response)``
-    # directly.
-    from pathlib import Path
+    executor = LocalPostgresExecutor("postgresql://unused")
+    expected = [{"id": "row-1"}]
 
-    source = Path("app/core/local_backend.py").read_text(encoding="utf-8")
-    # The function MUST extract the "rows" key from the JSON body.
-    # The current bug: it returns the full envelope.
-    assert 'body["rows"]' in source or "body['rows']" in source, (
-        "app/core/local_backend.py::execute_sql does not extract the 'rows' "
-        "key from the LocalBackend response envelope. Call sites do "
-        "'rows[0] if rows else None' expecting a list of dicts, but "
-        "they get the full body {'rows': [...], 'rowCount': N, 'fields': [...]} "
-        "and crash with KeyError: 0. See the 2026-06-28 production outage."
-    )
+    with patch.object(executor, "execute", return_value=expected):
+        result = executor.execute_sql("SELECT id FROM example")
+
+    assert result == expected
+    assert isinstance(result, list)
+    assert isinstance(result[0], dict)
 
 
 def test_execute_sql_type_hint_matches_public_shape() -> None:

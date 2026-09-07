@@ -541,7 +541,7 @@ _LAZY_CYCLE = (
 )
 
 BASELINE: Mapping[str, str] = {
-    "app/core/adapters/local-backend/auth_local_backend_adapter.py -> app.core.application.auth._domain_errors [layer-direction]": _EPIC_420,
+    "app/core/adapters/local_backend/auth_local_backend_adapter.py -> app.core.application.auth._domain_errors [layer-direction]": _EPIC_420,
     "app/core/admin_handlers.py -> app.core.adapters.admin_template_adapter [layer-direction]": _EPIC_420,
     "app/core/admin_handlers.py -> app.core.application.admin.add_user [layer-direction]": _EPIC_420,
     "app/core/admin_handlers.py -> app.core.application.admin.deactivate_user [layer-direction]": _EPIC_420,
@@ -577,6 +577,7 @@ BASELINE: Mapping[str, str] = {
     "app/core/auth.py -> app.core.application.auth.get_user_by_id [layer-direction]": _EPIC_420,
     "app/core/auth.py -> app.core.application.auth.list_authorized_users [layer-direction]": _EPIC_420,
     "app/core/auth_dependencies.py -> app.core.di.auth_dependencies_di [layer-direction]": _EPIC_420,
+    "app/core/auth_dependencies.py -> app.core.di.local_postgres_di [layer-direction]": _EPIC_420,
     "app/core/auth_flow.py -> app.core.adapters.local_backend.auth_local_backend_adapter [layer-direction]": _EPIC_420,
     "app/core/auth_flow.py -> app.core.adapters.local_backend.oauth_local_backend_adapter [layer-direction]": _EPIC_420,
     "app/core/auth_flow.py -> app.core.application.oauth [layer-direction]": _EPIC_420,
@@ -584,7 +585,10 @@ BASELINE: Mapping[str, str] = {
     "app/core/auth_flow.py -> app.core.application.oauth.login_page [layer-direction]": _EPIC_420,
     "app/core/auth_flow.py -> app.core.application.oauth.logout [layer-direction]": _EPIC_420,
     "app/core/auth_flow.py -> app.core.application.oauth.start_google_login [layer-direction]": _EPIC_420,
+    "app/core/local_backend/app.py -> app.core.adapters.auth_local.magic_link_port [layer-direction]": _EPIC_420,
     "app/core/domain/__init__.py -> app.core.adapters.local_backend.schema_bootstrap_local_backend_adapter [layer-direction]": _EPIC_420,
+    "app/core/domain/__init__.py -> app.core.data_access [layer-direction]": _EPIC_420,
+    "app/core/domain/__init__.py -> app.core.local_backend.db [layer-direction]": _EPIC_420,
     "app/core/domain/__init__.py -> app.core.local_backend [layer-direction]": _EPIC_420,
     "app/core/domain/auth/rol.py -> app.core.roles [layer-direction]": _EPIC_420,
     "app/core/domain/oauth/session.py -> app.core.domain.auth.rol [slice-boundary]": _EPIC_420,

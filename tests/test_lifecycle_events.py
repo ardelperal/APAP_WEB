@@ -17,9 +17,8 @@ Covers:
   event via ``ON CONFLICT (animal_id, event_type, event_timestamp) DO
   NOTHING`` so the same (animal, type, ts) row is created at most once.
 
-The tests use ``httpx.MockTransport`` to exercise ``record_event``
-end-to-end without touching the network, mirroring the pattern in
-``tests/test_domain.py``.
+The tests use a deterministic ``SqlExecutor`` fake to exercise
+``record_event`` without touching the network.
 """
 
 from __future__ import annotations
@@ -31,7 +30,6 @@ import httpx
 import pytest
 
 from app.core.data_access import SqlExecutor
-from app.core.local_backend.db import LocalPostgresExecutor
 from app.modules.animals.lifecycle_events import (
     CAUSAL_PAIR_DECISION_ID,
     CORE_EVENT_TYPES,
@@ -41,6 +39,7 @@ from app.modules.animals.lifecycle_events import (
     record_event,
     validate_causal_pair,
 )
+from tests.sql_executor_fake import HandlerSqlExecutor
 
 # --- helpers -------------------------------------------------------------
 
@@ -55,8 +54,8 @@ def _json_response(status_code: int, body: Any) -> httpx.Response:
 
 def _client_recording(
     handler,
-) -> tuple[LocalPostgresExecutor, list[dict[str, Any]]]:
-    """Build a client whose MockTransport records every call's JSON body."""
+) -> tuple[SqlExecutor, list[dict[str, Any]]]:
+    """Build a SQL executor that records every call's request body."""
     captured: list[dict[str, Any]] = []
 
     def _recording_handler(request: httpx.Request) -> httpx.Response:
@@ -65,11 +64,7 @@ def _client_recording(
         captured.append(body)
         return handler(request, body)
 
-    client = LocalPostgresExecutor(
-        base_url="https://example.local_backend.app",
-        service_key="ik_test",
-        transport=httpx.MockTransport(_recording_handler),
-    )
+    client = HandlerSqlExecutor(_recording_handler)
     return client, captured
 
 

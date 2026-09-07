@@ -1,6 +1,3 @@
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from app.core.data_access import SqlExecutor  # noqa: F401
 """Lifecycle event helpers for the reverse applier.
 
 The reverse applier emits :class:`LifecycleEvent` records with

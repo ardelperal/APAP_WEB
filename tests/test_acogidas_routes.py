@@ -50,12 +50,14 @@ import pytest
 
 from app.core.auth_dependencies import get_local_backend_client_dep
 from app.core.config import get_settings
+from app.core.di.local_postgres_di import get_local_postgres_executor_dep
 from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_local_backend_client
 from app.modules.acogidas import service as acogidas_service
 from app.modules.animals.di.animals_di import get_animals_port
 from tests.conftest import auth_reval_rows, make_csrf_request
+from tests.sql_executor_fake import HandlerSqlExecutor
 
 
 class _NoSqlRouteClient(LocalPostgresExecutor):
@@ -96,10 +98,12 @@ def route_client() -> _NoSqlRouteClient:
     spy = _NoSqlRouteClient()
     app.dependency_overrides[get_local_backend_client] = lambda: spy
     app.dependency_overrides[get_local_backend_client_dep] = lambda: spy
+    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy
     app.dependency_overrides[get_animals_port] = lambda: spy.animals_port
     yield spy
     app.dependency_overrides.pop(get_local_backend_client, None)
     app.dependency_overrides.pop(get_local_backend_client_dep, None)
+    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
     app.dependency_overrides.pop(get_animals_port, None)
 
 
@@ -1087,8 +1091,8 @@ def _install_feed_client(
     captured: list[dict[str, Any]],
     insert_row: dict[str, Any] | None = None,
     update_row: dict[str, Any] | None = None,
-) -> LocalPostgresExecutor:
-    """Inject an httpx.MockTransport-backed real LocalPostgresExecutor.
+) -> HandlerSqlExecutor:
+    """Inject a deterministic SQL executor into the route dependencies.
 
     Returns the client so callers can ``.close()`` after the test.
     The dependency override lets the real service code path run
@@ -1101,13 +1105,14 @@ def _install_feed_client(
         captured.append(body)
         return _feed_handler(insert_row=insert_row, update_row=update_row)(request)
 
-    client = LocalPostgresExecutor(
+    client = HandlerSqlExecutor(
         base_url="https://example.local_backend.app",
         service_key="ik_test",
         transport=httpx.MockTransport(_recording),
     )
     app.dependency_overrides[get_local_backend_client] = lambda: client
     app.dependency_overrides[get_local_backend_client_dep] = lambda: client
+    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: client
     app.dependency_overrides[get_animals_port] = object
     return client
 
@@ -1151,6 +1156,7 @@ async def test_post_create_with_fecha_final_persists(
         feed_client.close()
         app.dependency_overrides.pop(get_local_backend_client, None)
         app.dependency_overrides.pop(get_local_backend_client_dep, None)
+        app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
         app.dependency_overrides.pop(get_animals_port, None)
 
     insert_call = next(c for c in captured if "INSERT INTO acogidas" in c["query"])
@@ -1200,6 +1206,7 @@ async def test_post_update_reopens_when_fecha_final_empty(
         feed_client.close()
         app.dependency_overrides.pop(get_local_backend_client, None)
         app.dependency_overrides.pop(get_local_backend_client_dep, None)
+        app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
         app.dependency_overrides.pop(get_animals_port, None)
 
     update_call = next(c for c in captured if "UPDATE acogidas SET" in c["query"])

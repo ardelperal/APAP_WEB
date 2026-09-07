@@ -103,16 +103,6 @@ def spy_local_backend(monkeypatch: pytest.MonkeyPatch) -> _LocalBackendSpy:
     app.dependency_overrides[get_local_backend_client] = lambda: spy
     app.dependency_overrides[get_animals_port] = _AnimalsPortStub
     app.dependency_overrides[get_voluntarios_port] = _VoluntariosPortStub
-    monkeypatch.setattr(
-        "app.modules.animals.routes.get_local_backend_client_dep", lambda: spy
-    )
-    monkeypatch.setattr(
-        "app.modules.entradas.routes.get_local_backend_client_dep", lambda: spy
-    )
-    monkeypatch.setattr(
-        "app.modules.adopciones.routes.get_local_backend_client_dep", lambda: spy
-    )
-
     # Stub the legacy services (entradas, adopciones — not yet hexagonal)
     # so they return plausible objects without hitting LocalBackend SQL.
     monkeypatch.setattr(

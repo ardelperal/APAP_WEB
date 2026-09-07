@@ -87,7 +87,7 @@ def start_google_oauth(
 
 
 @router.post("/auth/oauth/google/callback")
-def google_oauth_callback(payload: dict) -> dict:
+def google_oauth_callback(_payload: dict) -> dict:
     """Return a stub session JWT (M0) for the legacy direct-callback path.
 
     The real implementation validates the Google code with PKCE and
@@ -103,7 +103,7 @@ def google_oauth_callback(payload: dict) -> dict:
 
 @router.post("/auth/oauth/exchange")
 def exchange_oauth_code(
-    payload: dict,
+    _payload: dict,
     client_type: str = Query("web"),
 ) -> dict:
     """Return a stub session JWT (M0) for the LocalBackend-hosted OAuth proxy.

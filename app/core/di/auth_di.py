@@ -22,9 +22,8 @@ from collections.abc import Iterator
 
 from fastapi import Request
 
-from app.core.adapters.stubs.auth_users_stub import (
-    AuthUsersPort,
-    StubAuthUsersPort,
+from app.core.adapters.local_backend.auth_local_backend_adapter import (
+    LocalBackendAuthUsersAdapter,
 )
 from app.core.ports.auth_port import AuthUsersPort
 
@@ -43,5 +42,5 @@ def get_auth_users_port(
     cleanup.
     """
     client = request.app.state.sql_executor
-    adapter = StubAuthUsersPort()
+    adapter = LocalBackendAuthUsersAdapter(client)
     yield adapter
