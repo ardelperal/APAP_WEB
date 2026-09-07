@@ -58,7 +58,9 @@ def render_edit_form(  # noqa: PLR0913  # 8 kwargs needed: request, user, client
     # ``app.core.auth_dependencies`` (the helper itself is a thin wrapper
     # around the auth cache that ``_crud_flow`` does not otherwise
     # need). The lazy import keeps the module graph acyclic.
-    from app.core.auth_dependencies import return_early_if_response  # lazy-import: avoids circular import through app.core.auth_dependencies
+    from app.core.auth_dependencies import (
+        return_early_if_response,  # lazy-import: avoids circular import through app.core.auth_dependencies
+    )
 
     if (early := return_early_if_response(user)) is not None:
         return early
