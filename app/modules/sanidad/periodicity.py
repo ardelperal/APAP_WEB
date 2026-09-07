@@ -82,8 +82,8 @@ class PeriodicidadRule:
         # (e.g. Jan 31 + 1 month → Feb 28/29, not Mar 2/3).
         assert self.periodicidad_meses is not None  # guarded by is_recurring()
         try:
-            from dateutil.relativedelta import (
-                relativedelta,  # lazy-import: optional dep; fallback below
+            from dateutil.relativedelta import (  # lazy-import: optional dep; fallback below
+                relativedelta,
             )
         except ImportError:  # pragma: no cover
             # Fallback for environments without dateutil: manual month arithmetic.

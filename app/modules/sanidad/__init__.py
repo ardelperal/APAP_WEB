@@ -45,7 +45,9 @@ def __getattr__(name: str):  # PEP 562 module-level __getattr__
     the cycle in.
     """
     if name == "sanidad_batch_service":
-        from app.modules.sanidad import batch_service as sanidad_batch_service
+        from app.modules.sanidad import (  # lazy-import: defer to break circular dep at first access
+            batch_service as sanidad_batch_service,
+        )
 
         # Cache the attribute on the module so subsequent lookups skip
         # the lazy machinery.
