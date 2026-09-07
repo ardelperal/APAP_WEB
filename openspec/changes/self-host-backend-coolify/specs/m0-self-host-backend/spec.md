@@ -10,21 +10,21 @@ base changes when the operator flips the flag.
 
 The `LocalBackendClient` constructor already accepts a `base_url` parameter
 (the URL of the LocalBackend REST API). When `APAP_LOCAL_BACKEND=true` is
-set and the existing `APAP_LOCAL_BACKEND_URL` env var is empty, the
+set and the existing `APAP_INSFORGE_URL` env var is empty, the
 constructor MUST default `base_url` to the local backend URL
 (`http://localhost:8000/api`).
 
 #### Scenario: local backend selected
 
 - GIVEN `APAP_LOCAL_BACKEND=true` is set
-- AND `APAP_LOCAL_BACKEND_URL` is empty
+- AND `APAP_INSFORGE_URL` is empty
 - WHEN `LocalBackendClient(base_url="", service_key="...")` is constructed
 - THEN `self._client.base_url` equals `http://localhost:8000/api`
 
 #### Scenario: remote LocalBackend still works
 
 - GIVEN `APAP_LOCAL_BACKEND` is unset or false
-- AND `APAP_LOCAL_BACKEND_URL=https://c3uc9dk6.eu-central.local_backend.app` is set
+- AND `APAP_INSFORGE_URL=https://c3uc9dk6.eu-central.local_backend.app` is set
 - WHEN the same construction runs
 - THEN `self._client.base_url` equals the configured LocalBackend URL
 

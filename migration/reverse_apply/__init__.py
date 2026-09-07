@@ -18,7 +18,7 @@ was a single 1165-line module that exceeded the 700-line budget
   context manager + ``_write_or_check_snapshot`` + path defaults.
 - :mod:`migration.reverse_apply.io_helpers` — case-insensitive PK
   matching + JSON hash + web→legacy row mapping + SELECT builder.
-- :mod:`migration.reverse_apply.types` — ``SqlExecutor`` Protocol
+- :mod:`migration.reverse_apply.types` — ``_LocalBackendLike`` Protocol
   + ``ReverseApplyError`` exception hierarchy.
 
 Backwards-compat: ``migration.apply_reverse`` is a thin shim that
@@ -32,7 +32,7 @@ from migration.reverse_apply.orchestrator import apply_web_to_legacy
 from migration.reverse_apply.types import (
     ReverseApplyError,
     ReverseSyncStateRollbackError,
-    SqlExecutor,
+    _LocalBackendLike,
 )
 
 # Closed-vocabulary direction tags — also re-exported from
@@ -45,6 +45,6 @@ __all__ = [
     "DIRECTION_WEB_TO_LEGACY",
     "ReverseApplyError",
     "ReverseSyncStateRollbackError",
-    "SqlExecutor",
+    "_LocalBackendLike",
     "apply_web_to_legacy",
 ]

@@ -10,7 +10,7 @@ Hard rules (web-tdd-philosophy):
 - Rule 4 (no humo): the function reads bucket visibility and writes
   ``status=...`` lines; tests assert against the captured stream.
 - Rule 8 (no production mutation): runs only against the injected
-  ``LocalPostgresExecutor`` (test) or the operator's real client (production).
+  ``StubAuthUsersPort`` (test) or the operator's real client (production).
 """
 
 from __future__ import annotations
@@ -39,9 +39,9 @@ def run_ensure_bucket(
 
     try:
         if args.check_only:
-            result = check_private_bucket(web_client, args.bucket_name)  # type: ignore[arg-type]  # cli_ensure_bucket retired in #8
+            result = check_private_bucket(web_client, args.bucket_name)
         else:
-            result = ensure_private_bucket(web_client, args.bucket_name)  # type: ignore[arg-type]  # cli_ensure_bucket retired in #8
+            result = ensure_private_bucket(web_client, args.bucket_name)
     except BackendError as exc:
         body = exc.body if isinstance(exc.body, dict) else {"error": str(exc.body)}
         reason = body.get("error", "backend_error")

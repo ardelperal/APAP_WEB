@@ -220,7 +220,7 @@ def missing_credentials_result(storage_path: str) -> StorageProbeResult:
             "object_head": {"with_auth_status": None, "without_auth_status": None},
             "decision_reason": (
                 "Live probe did not run: missing "
-                "APAP_LOCAL_BACKEND_URL/APAP_INSFORGE_SERVICE_KEY"
+                "APAP_INSFORGE_URL/APAP_INSFORGE_SERVICE_KEY"
             ),
         }
     )
@@ -310,7 +310,7 @@ def write_discovery_document(result: StorageProbeResult, output_path: str | Path
     if evidence["status"] == "missing_credentials":
         live_note = (
             "\n- Live probe did not run: missing "
-            "APAP_LOCAL_BACKEND_URL/APAP_INSFORGE_SERVICE_KEY"
+            "APAP_INSFORGE_URL/APAP_INSFORGE_SERVICE_KEY"
         )
     presigned_note = ""
     if evidence.get("returned_url_exposure") == "server-stream-only":
@@ -407,7 +407,7 @@ def main(
         service_key = settings.local_backend_service_key  # type: ignore[attr-defined]  # removed in #658; rewritten in #8
     else:
         env_map = env
-        base_url = env_map.get("APAP_LOCAL_BACKEND_URL")
+        base_url = env_map.get("APAP_INSFORGE_URL")
         service_key = env_map.get("APAP_INSFORGE_SERVICE_KEY")
     out = sys.stdout if stream is None else stream
 

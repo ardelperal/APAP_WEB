@@ -15,7 +15,7 @@ El proyecto tiene un único cliente HTTP — `app.core.local_backend.LocalBacken
 
 El constructor toma `base_url` y `service_key`. La service key es la autenticación bearer para operaciones privilegiadas. El cliente es **stateless** — un objeto por request, instanciado en cada llamada.
 
-### Login (`app/core/auth_flow.py` + `app/core/adapters/local_backend/oauth_local_backend_adapter.py`)
+### Login (`app/core/auth_flow.py` + `app/core/adapters/local-backend/oauth_local_backend_adapter.py`)
 
 El único flow de login es **Google OAuth via LocalBackend**:
 
@@ -28,7 +28,7 @@ El único flow de login es **Google OAuth via LocalBackend**:
 
 ### Tabla `usuarios_autorizados` (auth)
 
-Schema actual (`app/core/adapters/local_backend/auth_local_backend_queries.py`):
+Schema actual (`app/core/adapters/local-backend/auth_local_backend_queries.py`):
 
 ```sql
 CREATE TABLE IF NOT EXISTS usuarios_autorizados (
@@ -104,7 +104,7 @@ El primer y segundo checks pasan siempre (mientras el código no rompa). El terc
 ### Variables de entorno
 
 **Eliminar** (cuando se usa `APAP_LOCAL_BACKEND=true`):
-- `APAP_LOCAL_BACKEND_URL`
+- `APAP_INSFORGE_URL`
 - `APAP_INSFORGE_SERVICE_KEY`
 - `APAP_INSFORGE_ANON_KEY`
 

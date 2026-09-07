@@ -128,7 +128,7 @@ Si el INSERT se ejecutó con un rol equivocado (por ejemplo, `reader` en lugar d
 
 ## Documentos relacionados
 
-- `app/core/auth.py` — `DEACTIVATE_USER_SQL`, `SEED_ADMIN_SQL`, `deactivate_authorized_user`, `ensure_schema_and_seed` (migrated: las consultas SQL residen ahora en `app/core/adapters/local_backend/auth_local_backend_queries.py`; el contrato público no cambia).
+- `app/core/auth.py` — `DEACTIVATE_USER_SQL`, `SEED_ADMIN_SQL`, `deactivate_authorized_user`, `ensure_schema_and_seed` (migrated: las consultas SQL residen ahora en `app/core/adapters/local-backend/auth_local_backend_queries.py`; el contrato público no cambia).
 - `app/main.py` — ruta `admin_deactivate_user` que captura `ValueError` y re-renderiza `admin.html` (issue #279).
 - `templates/admin.html` — renderizado del mensaje flash para `error_message`.
 - `tests/test_auth.py` — cinco casos nuevos: bloqueo del último desarrollador, autodesactivación OK, SEED cuando sólo existen desarrolladores inactivos, ámbito de rol (reader/admin/key_user no afectados).

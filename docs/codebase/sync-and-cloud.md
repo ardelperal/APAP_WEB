@@ -19,7 +19,7 @@ Esta página posee el contrato de exclusividad runtime entre los modos web y leg
 |---|---|---|
 | `APAP_MODE` | `web` (default) | El servicio habla exclusivamente con LocalBackend. |
 | `APAP_MODE` | `legacy` | El servicio habla exclusivamente con el backend Access. |
-| `APAP_LOCAL_BACKEND_URL` + `APAP_LEGACY_ACCDB_PATH` | Ambos alcanzables | Startup falla rápido; un modo y solo uno puede vivir en runtime. |
+| `APAP_INSFORGE_URL` + `APAP_LEGACY_ACCDB_PATH` | Ambos alcanzables | Startup falla rápido; un modo y solo uno puede vivir en runtime. |
 
 ## CLI de reconciliación (§18.2)
 

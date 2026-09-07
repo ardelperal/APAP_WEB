@@ -21,9 +21,8 @@ import httpx
 import pytest
 
 from app.core.config import get_settings
-from app.core.di.local_postgres_di import get_local_postgres_executor_dep
 from app.core.session import session_cookie_name, write_session
-from app.main import app
+from app.main import app, get_local_backend_client
 from app.modules.adopciones import service as adopciones_service
 from app.modules.animals.di.animals_di import get_animals_port
 from app.modules.animals.domain.animal import Animal, Especie, Sexo
@@ -101,17 +100,17 @@ class _VoluntariosPortStub:
 def spy_local_backend(monkeypatch: pytest.MonkeyPatch) -> _LocalBackendSpy:
     spy = _LocalBackendSpy()
     app.state.sql_executor = spy
-    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy
+    app.dependency_overrides[get_local_backend_client] = lambda: spy
     app.dependency_overrides[get_animals_port] = _AnimalsPortStub
     app.dependency_overrides[get_voluntarios_port] = _VoluntariosPortStub
     monkeypatch.setattr(
-        "app.modules.animals.routes.get_local_postgres_executor_dep", lambda: spy
+        "app.modules.animals.routes.get_local_backend_client_dep", lambda: spy
     )
     monkeypatch.setattr(
-        "app.modules.entradas.routes.get_local_postgres_executor_dep", lambda: spy
+        "app.modules.entradas.routes.get_local_backend_client_dep", lambda: spy
     )
     monkeypatch.setattr(
-        "app.modules.adopciones.routes.get_local_postgres_executor_dep", lambda: spy
+        "app.modules.adopciones.routes.get_local_backend_client_dep", lambda: spy
     )
 
     # Stub the legacy services (entradas, adopciones — not yet hexagonal)
@@ -164,7 +163,7 @@ def spy_local_backend(monkeypatch: pytest.MonkeyPatch) -> _LocalBackendSpy:
     )
 
     yield spy
-    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
+    app.dependency_overrides.pop(get_local_backend_client, None)
     app.dependency_overrides.pop(get_animals_port, None)
     app.dependency_overrides.pop(get_voluntarios_port, None)
     del app.state.sql_executor

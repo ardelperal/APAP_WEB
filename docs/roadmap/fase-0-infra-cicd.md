@@ -37,7 +37,7 @@ Antes del primer deploy real, el mantenedor debe:
 ## Documentación de referencia
 
 - [docs/setup.md](../setup.md) — setup por desarrollador.
-- [docs/architecture/architecture-local_backend-stack.md](../architecture/architecture-local_backend-stack.md) — decisiones de stack (a traducir al castellano; ver [transversales.md § Dev workflow](transversales.md)).
+- [docs/architecture/architecture-local-backend-stack.md](../architecture/architecture-local-backend-stack.md) — decisiones de stack (a traducir al castellano; ver [transversales.md § Dev workflow](transversales.md)).
 - `openspec/changes/ci-cd-foundation/` — propuesta, diseño, tareas, spec, apply-progress.
 
 ## Core invariants
@@ -48,7 +48,7 @@ Antes del primer deploy real, el mantenedor debe:
 
 ## Contributor checklist
 
-- [ ] Si un nuevo gate CI/CD entra en producción, actualice esta página y cruce referencia con [docs/architecture/architecture-local_backend-stack.md](../architecture/architecture-local_backend-stack.md).
+- [ ] Si un nuevo gate CI/CD entra en producción, actualice esta página y cruce referencia con [docs/architecture/architecture-local-backend-stack.md](../architecture/architecture-local-backend-stack.md).
 - [ ] Si crea el DNS o activa branch protection, retire los pendientes de "no automatizable" en la misma PR.
 - [ ] Si añade un paso al job `deploy`, pinee la condición en `tests/test_ci_workflow.py` (§32.P7).
 - [ ] Si un secret nuevo entra en `Settings`, siga §32.P2: pydantic falla o el lifespan rehúsa servir.

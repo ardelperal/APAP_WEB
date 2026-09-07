@@ -8,14 +8,13 @@ import httpx
 import pytest
 
 from app.core.data_access import BackendError
-from app.core.di.local_postgres_di import get_local_postgres_executor_dep
 from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.session import session_cookie_name, write_session
-from app.main import app
+from app.main import app, get_local_backend_client
 from tests.conftest import make_csrf_request
 
 
-class _FakeSqlExecutor(LocalPostgresExecutor):
+class _FakeLocalBackend(LocalPostgresExecutor):
     def __init__(self) -> None:
         self.list_users_response: list[dict] = []
         self.add_user_response: dict = {
@@ -70,9 +69,9 @@ class _FakeSqlExecutor(LocalPostgresExecutor):
 
 
 @pytest.fixture
-def fake_sql_executor() -> _FakeSqlExecutor:
-    fake = _FakeSqlExecutor()
-    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: fake
+def fake_local_backend() -> _FakeLocalBackend:
+    fake = _FakeLocalBackend()
+    app.dependency_overrides[get_local_backend_client] = lambda: fake
     # Slice 6 (admin handlers): the admin routes now compose AuthUsersPort
     # via the ``get_auth_users_port`` dep, which resolves the client from
     # ``app.state.sql_executor``. Set it here so both the legacy
@@ -100,7 +99,7 @@ def fake_sql_executor() -> _FakeSqlExecutor:
         ],
     )
     yield fake
-    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
+    app.dependency_overrides.pop(get_local_backend_client, None)
 
 
 def _login_as(
@@ -148,11 +147,11 @@ async def test_admin_redirects_to_login_when_not_authed(
 
 
 async def test_admin_redirects_to_unauthorized_when_rol_not_developer(
-    client: httpx.AsyncClient, fake_sql_executor: _FakeSqlExecutor
+    client: httpx.AsyncClient, fake_local_backend: _FakeLocalBackend
 ) -> None:
     from app.core.config import get_settings
 
-    fake_sql_executor.auth_rol = "key_user"  # issue #143: DB revalidation says key_user
+    fake_local_backend.auth_rol = "key_user"  # issue #143: DB revalidation says key_user
     _login_as(
         client,
         get_settings().session_secret,
@@ -168,11 +167,11 @@ async def test_admin_redirects_to_unauthorized_when_rol_not_developer(
 
 
 async def test_admin_renders_user_table_for_developer(
-    client: httpx.AsyncClient, fake_sql_executor: _FakeSqlExecutor
+    client: httpx.AsyncClient, fake_local_backend: _FakeLocalBackend
 ) -> None:
     from app.core.config import get_settings
 
-    fake_sql_executor.list_users_response = [
+    fake_local_backend.list_users_response = [
         {
             "id": "u-1",
             "email": "ana@example.com",
@@ -209,7 +208,7 @@ async def test_admin_renders_user_table_for_developer(
 
 
 async def test_admin_add_user_inserts_and_renders_admin_page(
-    client: httpx.AsyncClient, fake_sql_executor: _FakeSqlExecutor
+    client: httpx.AsyncClient, fake_local_backend: _FakeLocalBackend
 ) -> None:
     """On success the admin page re-renders with no error message."""
     from app.core.config import get_settings
@@ -235,7 +234,7 @@ async def test_admin_add_user_inserts_and_renders_admin_page(
 
 
 async def test_admin_add_user_with_duplicate_email_shows_error(
-    client: httpx.AsyncClient, fake_sql_executor: _FakeSqlExecutor
+    client: httpx.AsyncClient, fake_local_backend: _FakeLocalBackend
 ) -> None:
     """When the email is already authorized the admin page re-renders with error context."""
     from app.core.config import get_settings
@@ -248,7 +247,7 @@ async def test_admin_add_user_with_duplicate_email_shows_error(
         user_id="u-root",
     )
     # Simulate the pre-check returning an existing user
-    fake_sql_executor.add_user_response = None  # not used for pre-check
+    fake_local_backend.add_user_response = None  # not used for pre-check
 
     def execute_sql(query, params=None):
         from tests.conftest import auth_reval_rows
@@ -263,7 +262,7 @@ async def test_admin_add_user_with_duplicate_email_shows_error(
         return []
 
     # Override the fake to return duplicate on pre-check
-    fake_sql_executor.execute_sql = execute_sql
+    fake_local_backend.execute_sql = execute_sql
 
     response = await make_csrf_request(
         client,
@@ -277,7 +276,7 @@ async def test_admin_add_user_with_duplicate_email_shows_error(
 
 
 async def test_admin_add_user_with_invalid_role_redirects_without_calling_sql(
-    client: httpx.AsyncClient, fake_sql_executor: _FakeSqlExecutor
+    client: httpx.AsyncClient, fake_local_backend: _FakeLocalBackend
 ) -> None:
     """An invalid rol short-circuits before any SQL is sent."""
     from app.core.config import get_settings
@@ -289,7 +288,7 @@ async def test_admin_add_user_with_invalid_role_redirects_without_calling_sql(
         email="root@example.com",
         user_id="u-root",
     )
-    fake_sql_executor.add_user_response = {"id": "should-not-be-used"}
+    fake_local_backend.add_user_response = {"id": "should-not-be-used"}
 
     response = await make_csrf_request(
         client,
@@ -303,11 +302,11 @@ async def test_admin_add_user_with_invalid_role_redirects_without_calling_sql(
 
 
 async def test_admin_add_user_rejects_non_developer(
-    client: httpx.AsyncClient, fake_sql_executor: _FakeSqlExecutor
+    client: httpx.AsyncClient, fake_local_backend: _FakeLocalBackend
 ) -> None:
     from app.core.config import get_settings
 
-    fake_sql_executor.auth_rol = "key_user"  # issue #143: DB revalidation says key_user
+    fake_local_backend.auth_rol = "key_user"  # issue #143: DB revalidation says key_user
     _login_as(
         client,
         get_settings().session_secret,
@@ -331,11 +330,11 @@ async def test_admin_add_user_rejects_non_developer(
 
 
 async def test_admin_deactivate_user_updates_and_redirects(
-    client: httpx.AsyncClient, fake_sql_executor: _FakeSqlExecutor
+    client: httpx.AsyncClient, fake_local_backend: _FakeLocalBackend
 ) -> None:
     from app.core.config import get_settings
 
-    fake_sql_executor.deactivate_user_response = {
+    fake_local_backend.deactivate_user_response = {
         "id": "u-1",
         "email": "a@b.com",
         "rol": "key_user",
@@ -360,11 +359,11 @@ async def test_admin_deactivate_user_updates_and_redirects(
 
 
 async def test_admin_deactivate_user_rejects_non_developer(
-    client: httpx.AsyncClient, fake_sql_executor: _FakeSqlExecutor
+    client: httpx.AsyncClient, fake_local_backend: _FakeLocalBackend
 ) -> None:
     from app.core.config import get_settings
 
-    fake_sql_executor.auth_rol = "key_user"  # issue #143: DB revalidation says key_user
+    fake_local_backend.auth_rol = "key_user"  # issue #143: DB revalidation says key_user
     _login_as(
         client,
         get_settings().session_secret,
@@ -384,7 +383,7 @@ async def test_admin_deactivate_user_rejects_non_developer(
 
 
 async def test_admin_deactivate_user_renders_flash_error_when_last_developer(
-    client: httpx.AsyncClient, fake_sql_executor: _FakeSqlExecutor
+    client: httpx.AsyncClient, fake_local_backend: _FakeLocalBackend
 ) -> None:
     """When deactivate_authorized_user raises ValueError, admin.html re-renders with flash.
 
@@ -396,9 +395,9 @@ async def test_admin_deactivate_user_renders_flash_error_when_last_developer(
 
     # Set up: deactivate returns empty (guard fires), list_users is empty.
     # _user_lookup_response has the developer so the ValueError fires.
-    fake_sql_executor.deactivate_user_response = None  # zero rows from UPDATE → guard fires
-    fake_sql_executor.list_users_response = []  # list_users returns empty in error path
-    fake_sql_executor._user_lookup_response = {
+    fake_local_backend.deactivate_user_response = None  # zero rows from UPDATE → guard fires
+    fake_local_backend.list_users_response = []  # list_users returns empty in error path
+    fake_local_backend._user_lookup_response = {
         "id": "only-dev",
         "email": "only-dev@example.com",
         "rol": "developer",
@@ -406,7 +405,7 @@ async def test_admin_deactivate_user_renders_flash_error_when_last_developer(
         "fecha_alta": "2026-06-17T00:00:00Z",
     }
     # Track deactivate_user_id so SELECT EXISTS query uses it
-    fake_sql_executor.deactivate_user_id = "only-dev"
+    fake_local_backend.deactivate_user_id = "only-dev"
 
     _login_as(
         client,
@@ -442,7 +441,7 @@ async def test_admin_deactivate_user_renders_flash_error_when_last_developer(
 
 
 async def test_admin_redirects_to_unauthorized_when_is_authorized_false(
-    client: httpx.AsyncClient, fake_sql_executor: _FakeSqlExecutor
+    client: httpx.AsyncClient, fake_local_backend: _FakeLocalBackend
 ) -> None:
     from app.core.config import get_settings
 
@@ -462,7 +461,7 @@ async def test_admin_redirects_to_unauthorized_when_is_authorized_false(
 
 
 async def test_admin_add_user_redirects_when_is_authorized_false(
-    client: httpx.AsyncClient, fake_sql_executor: _FakeSqlExecutor
+    client: httpx.AsyncClient, fake_local_backend: _FakeLocalBackend
 ) -> None:
     from app.core.config import get_settings
 
@@ -487,7 +486,7 @@ async def test_admin_add_user_redirects_when_is_authorized_false(
 
 
 async def test_admin_deactivate_user_redirects_when_is_authorized_false(
-    client: httpx.AsyncClient, fake_sql_executor: _FakeSqlExecutor
+    client: httpx.AsyncClient, fake_local_backend: _FakeLocalBackend
 ) -> None:
     from app.core.config import get_settings
 
@@ -526,7 +525,7 @@ class TestBackendErrorGlobalHandler:
     handler must exist and be exercised by tests."""
 
     async def test_admin_add_user_returns_502_on_non_duplicate_backend_error(
-        self, client: httpx.AsyncClient, fake_sql_executor: _FakeSqlExecutor
+        self, client: httpx.AsyncClient, fake_local_backend: _FakeLocalBackend
     ) -> None:
         """A non-duplicate BackendError (e.g. 5xx from upstream) returns
         502, not 500, per the §32.P4 anti-pattern fix."""
@@ -564,7 +563,7 @@ class TestBackendErrorGlobalHandler:
                 raise BackendError(503, "service unavailable")
             return []
 
-        fake_sql_executor.execute_sql = execute_sql
+        fake_local_backend.execute_sql = execute_sql
 
         response = await make_csrf_request(
             client,

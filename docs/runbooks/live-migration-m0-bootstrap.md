@@ -21,7 +21,7 @@ Abra este runbook antes de la primera ejecución de migración de datos en vivo 
 ## Lista de comprobación previa
 
 - Las pruebas de código del PR2 pasan en verde; no ejecute este runbook contra LocalBackend como parte del pytest ordinario.
-- `APAP_LOCAL_BACKEND_URL` apunta al backend APAP previsto.
+- `APAP_INSFORGE_URL` apunta al backend APAP previsto.
 - `APAP_INSFORGE_SERVICE_KEY` está disponible sólo en el shell del operador, nunca en el repositorio.
 - No se está ejecutando una importación real de datos en esta unidad de trabajo; este paso sólo prepara y verifica infraestructura.
 

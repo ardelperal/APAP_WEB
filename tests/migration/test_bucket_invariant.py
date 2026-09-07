@@ -19,7 +19,7 @@ from app.core.local_backend.db import LocalPostgresExecutor
 from migration import legacy_reader
 from migration.apply import apply_legacy_to_web
 from migration.cli import main
-from tests.migration.conftest import FakeSqlExecutor  # noqa: TID251
+from tests.migration.conftest import FakeLocalBackend  # noqa: TID251
 
 APAP_PHOTOS = "apap-photos"
 
@@ -168,7 +168,7 @@ def test_missing_bucket_auto_create_is_private_and_idempotent() -> None:
 def test_cli_ensure_bucket_check_only_confirms_existing_private_bucket() -> None:
     """Operator checkpoint can read back private state without writing."""
 
-    class BucketFake(FakeSqlExecutor):
+    class BucketFake(FakeLocalBackend):
         def get_bucket(self, bucket_name: str) -> dict[str, Any] | None:
             assert bucket_name == APAP_PHOTOS
             return {"bucketName": APAP_PHOTOS, "isPublic": False}
@@ -193,7 +193,7 @@ def test_cli_ensure_bucket_check_only_confirms_existing_private_bucket() -> None
 def test_cli_ensure_bucket_missing_auto_create() -> None:
     """Mutation path creates a missing bucket private and reports it."""
 
-    class BucketFake(FakeSqlExecutor):
+    class BucketFake(FakeLocalBackend):
         def __init__(self) -> None:
             super().__init__()
             self.buckets: dict[str, dict[str, Any]] = {}
@@ -255,7 +255,7 @@ def test_apply_bootstrap_failure_does_not_acquire_lock_or_read_legacy(
     """
     events: list[str] = []
 
-    class FailingBucketFake(FakeSqlExecutor):
+    class FailingBucketFake(FakeLocalBackend):
         def get_bucket(self, bucket_name: str) -> dict[str, Any] | None:
             events.append("get_bucket")
             return {"bucketName": bucket_name, "isPublic": True}
@@ -314,7 +314,7 @@ def test_apply_ensures_private_bucket_before_lock(
     """Apply pre-flight prepares storage infra before lock/read work."""
     events: list[str] = []
 
-    class BucketFake(FakeSqlExecutor):
+    class BucketFake(FakeLocalBackend):
         def __init__(self) -> None:
             super().__init__()
             self.bucket: dict[str, Any] | None = None

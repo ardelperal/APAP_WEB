@@ -69,7 +69,7 @@ A slice is one business capability owning a column through every layer:
 app/core/domain/auth/**                     entities
 app/core/ports/auth_port.py                 the Protocol
 app/core/application/auth/**                use cases
-app/core/adapters/local_backend/auth_local_backend_*  the LocalBackend implementation
+app/core/adapters/local-backend/auth_local_backend_*  the LocalBackend implementation
 app/core/di/auth_di.py                      the wiring
 app/modules/<slice>/{routes,service,queries}.py   the web surface
 ```

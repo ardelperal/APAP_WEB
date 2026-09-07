@@ -1,21 +1,12 @@
 """Stub adapter for ``VoluntariosPort`` — pending local-backend implementation.
 
 Replaces the deleted
-:class:`app.modules.voluntarios.adapters.local_backend.voluntarios_local_backend_adapter.VoluntariosLocalBackendAdapter`
-and its 3 sibling modules under ``app.modules.voluntarios.adapters.local_backend.*``.
-A real :class:`~app.core.local_backend.db.LocalPostgresExecutor`-backed
-adapter lands in a follow-up slice; until then, every method raises
+:class:`app.modules.voluntarios.adapters.insforge.voluntarios_insforge_adapter.VoluntariosPort`
+and its 3 sibling modules under
+``app.modules.voluntarios.adapters.insforge.*``. A real
+:class:`~app.core.local_backend.db.LocalPostgresExecutor`-backed adapter
+lands in a follow-up slice; until then, every method raises
 :class:`NotImplementedError` so the runtime fails loud per route.
-
-Affected routes (return 500 until the real adapter lands):
-
-- ``GET /voluntarios`` (list_voluntarios)
-- ``GET /voluntarios/<id>`` (get_voluntario_by_id)
-- ``POST /voluntarios`` (create_voluntario)
-- ``POST /voluntarios/<id>/deactivate`` (deactivate_voluntario)
-- ``GET /voluntarios/<id>/roles`` (list_voluntario_roles)
-- ``POST /voluntarios/<id>/roles`` (assign_voluntario_role)
-- ``DELETE /voluntarios/<id>/roles/<role>`` (remove_voluntario_role)
 
 See issue #6' for the follow-up that replaces this stub with a real
 local-backend implementation.
@@ -65,4 +56,4 @@ class StubVoluntariosPort(VoluntariosPort):
         )
 
 
-__all__ = ["StubVoluntariosPort"]
+__all__ = ["VoluntariosPort"]

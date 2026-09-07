@@ -417,7 +417,7 @@ def test_cli_without_credentials_writes_blocked_document_without_network(
     assert payload["status"] == "missing_credentials"
     assert payload["pr4b_gate"] == "BLOCKED"
     assert "Verdict: BLOCKED" in text
-    assert "Live probe did not run: missing APAP_LOCAL_BACKEND_URL/APAP_INSFORGE_SERVICE_KEY" in text
+    assert "Live probe did not run: missing APAP_INSFORGE_URL/APAP_INSFORGE_SERVICE_KEY" in text
     assert network_calls == []
 
 

@@ -6,7 +6,7 @@ or ``apply`` can write to it. The bootstrap helper is idempotent:
 
 Hard Rules honoured:
 
-- **Rule 1 (fixture gate)**: each atom builds its own ``FakeSqlExecutor``.
+- **Rule 1 (fixture gate)**: each atom builds its own ``FakeLocalBackend``.
 - **Rule 8 (no production mutation)**: the helper is exercised against
   the fake — never against a real LocalBackend.
 - **Rule 4 (no humo)**: assertions on the captured queries (the SQL
@@ -19,13 +19,13 @@ from migration.apply import (
     BOOTSTRAP_SHADOW_TABLE_SQL,
     _bootstrap_shadow_state,
 )
-from tests.migration.conftest import FakeSqlExecutor  # noqa: TID251
+from tests.migration.conftest import FakeLocalBackend  # noqa: TID251
 
 # --- 1. Bootstrap creates the shadow table when missing -------------
 
 
 def test_bootstrap_shadow_state_creates_table_if_missing(
-    web_client: FakeSqlExecutor,
+    web_client: FakeLocalBackend,
 ) -> None:
     """First-run path: the helper issues the CREATE TABLE statement.
 
@@ -51,7 +51,7 @@ def test_bootstrap_shadow_state_creates_table_if_missing(
 
 
 def test_bootstrap_shadow_state_no_op_if_table_exists(
-    web_client: FakeSqlExecutor,
+    web_client: FakeLocalBackend,
 ) -> None:
     """Second-run path: the helper still emits the CREATE TABLE but
     LocalBackend treats it as a no-op (``IF NOT EXISTS``).

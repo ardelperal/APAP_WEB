@@ -13,10 +13,9 @@ from pathlib import Path
 import httpx
 import pytest
 
-from app.core.di.local_postgres_di import get_local_postgres_executor_dep
 from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.session import session_cookie_name, write_session
-from app.main import app
+from app.main import app, get_local_backend_client
 
 
 def _read(rel: str) -> str:
@@ -97,9 +96,9 @@ class _Spy(LocalPostgresExecutor):
 @pytest.fixture
 def spy_local_backend() -> _Spy:
     s = _Spy()
-    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: s
+    app.dependency_overrides[get_local_backend_client] = lambda: s
     yield s
-    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
+    app.dependency_overrides.pop(get_local_backend_client, None)
 
 
 def _login_pre_fix(client: httpx.AsyncClient) -> None:

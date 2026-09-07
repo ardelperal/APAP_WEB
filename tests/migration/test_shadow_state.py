@@ -9,11 +9,11 @@ from __future__ import annotations
 
 from migration.apply import _bootstrap_shadow_state
 from migration.shadow_state import ShadowStateRepository
-from tests.migration.conftest import FakeSqlExecutor  # noqa: TID251
+from tests.migration.conftest import FakeLocalBackend  # noqa: TID251
 
 
 def test_shadow_repository_ensure_table_replays_idempotent_ddl(
-    web_client: FakeSqlExecutor,
+    web_client: FakeLocalBackend,
 ) -> None:
     """Two ensure calls emit only idempotent CREATE statements.
 
@@ -42,7 +42,7 @@ def test_shadow_repository_ensure_table_replays_idempotent_ddl(
 
 def test_apply_bootstrap_uses_shadow_repository_contract(
     monkeypatch,
-    web_client: FakeSqlExecutor,
+    web_client: FakeLocalBackend,
 ) -> None:
     """The apply bootstrap delegates schema readiness to the repository.
 
@@ -53,7 +53,7 @@ def test_apply_bootstrap_uses_shadow_repository_contract(
     calls: list[str] = []
 
     class SpyShadowStateRepository:
-        def __init__(self, client: FakeSqlExecutor) -> None:
+        def __init__(self, client: FakeLocalBackend) -> None:
             assert client is web_client
 
         def ensure_table(self) -> None:

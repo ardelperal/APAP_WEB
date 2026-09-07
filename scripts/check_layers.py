@@ -541,7 +541,7 @@ _LAZY_CYCLE = (
 )
 
 BASELINE: Mapping[str, str] = {
-    "app/core/adapters/local_backend/auth_local_backend_adapter.py -> app.core.application.auth._domain_errors [layer-direction]": _EPIC_420,
+    "app/core/adapters/local-backend/auth_local_backend_adapter.py -> app.core.application.auth._domain_errors [layer-direction]": _EPIC_420,
     "app/core/admin_handlers.py -> app.core.adapters.admin_template_adapter [layer-direction]": _EPIC_420,
     "app/core/admin_handlers.py -> app.core.application.admin.add_user [layer-direction]": _EPIC_420,
     "app/core/admin_handlers.py -> app.core.application.admin.deactivate_user [layer-direction]": _EPIC_420,

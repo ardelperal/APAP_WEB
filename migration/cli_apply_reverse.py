@@ -32,7 +32,7 @@ from datetime import UTC, datetime
 from typing import IO
 
 import migration.cli as cli_mod
-from app.core.data_access import BackendError
+from app.core.local_backend.db import BackendError
 from app.core.logging import log_safe
 from migration import MsAccessPreflightUnavailableError
 from migration.apply import (
@@ -41,7 +41,6 @@ from migration.apply import (
     PartialApplyInterruptedError,
     SourceDriftError,
 )
-from migration.apply import SqlExecutor as MigrationSqlExecutor
 from migration.apply_reverse import apply_web_to_legacy
 from migration.cli import MIGRATION_RUNBOOK_REF
 from migration.dni_collision import DniCollisionCounter
@@ -138,7 +137,7 @@ def _emit_migration_report(
 def run_apply(
     args: argparse.Namespace,
     *,
-    web_client: MigrationSqlExecutor | None = None,
+    web_client: object | None = None,
     stream: IO[str] | None = None,
 ) -> int:
     """Body of ``apap-migrate apply`` (PR3 / M1 forward + PR6 / M2 reverse).

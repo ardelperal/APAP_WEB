@@ -66,7 +66,7 @@ class TestLegacyReaderSelectGuard:
 
 
 class TestWebReaderSelectGuard:
-    """``migration/adapters/local_backend/web_reader_local_backend_adapter.py``."""
+    """``migration/adapters/local-backend/web_reader_local_backend_adapter.py``."""
 
     def test_rejects_unsafe_table_name(self) -> None:
         spec = WebTableSpec(web_table=INJECTION, columns=("id",))

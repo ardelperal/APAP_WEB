@@ -105,7 +105,7 @@ def test_classifier_matches_documented_classes() -> None:
         "cli_apply_reverse.py",
         "bootstrap.py",
         "mappings/__init__.py",
-        "adapters/local_backend/web_reader_local_backend_adapter.py",
+        "adapters/local-backend/web_reader_local_backend_adapter.py",
         "di/web_reader_di.py",
         "reverse_apply/orchestrator.py",
         "reverse_apply/per_row.py",

@@ -339,7 +339,7 @@ def _is_adapter_file(rel: str) -> bool:
 
 
 def _module_path_for(rel: str) -> str:
-    """Convert ``app/core/adapters/local_backend/foo.py`` to its dotted module."""
+    """Convert ``app/core/adapters/local-backend/foo.py`` to its dotted module."""
     return rel.removesuffix(".py").replace("/", ".")
 
 

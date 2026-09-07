@@ -157,7 +157,7 @@ The spike outcome is recorded in `docs/discovery/storage-contract-2026-Q3.md` an
 
 #### Scenario: Spike pins canonical download-strategy path
 
-- GIVEN the deployed LocalBackend instance is reachable with `APAP_LOCAL_BACKEND_URL` + `APAP_INSFORGE_SERVICE_KEY`
+- GIVEN the deployed LocalBackend instance is reachable with `APAP_INSFORGE_URL` + `APAP_INSFORGE_SERVICE_KEY`
 - WHEN an operator runs `python -m migration.storage_spike --probe download_strategy --path apap-photos/<sha256>.jpg` (a read-only command shipped with PR4's first commit, see `tests/migration/test_photo_storage.py::test_storage_spike_records_path`)
 - THEN the spike records the actual returned `url` shape, status code, and response headers
 - AND `docs/discovery/storage-contract-2026-Q3.md` is updated with the pinned canonical path + auth header

@@ -34,7 +34,7 @@ Adicionalmente, introduce un flujo de **login clásico email/password con magic 
 
 | ID | Decisión | Justificación |
 |---|---|---|
-| **D-SELF-01** | API propia en FastAPI en el mismo proceso de la app, no side-car | Reduce superficie operacional. La hexagonal architecture permite que `LocalBackendClient` apunte a la nueva API sin reescribir la app (mismo JSON). Si en el futuro el tráfico crece, la API se mueve a un side-car con un cambio de URL en `APAP_LOCAL_BACKEND_URL`. |
+| **D-SELF-01** | API propia en FastAPI en el mismo proceso de la app, no side-car | Reduce superficie operacional. La hexagonal architecture permite que `LocalBackendClient` apunte a la nueva API sin reescribir la app (mismo JSON). Si en el futuro el tráfico crece, la API se mueve a un side-car con un cambio de URL en `APAP_INSFORGE_URL`. |
 | **D-SELF-02** | Mantener `LocalBackendClient` como Port backend-agnostic | Regla §31 (domain depende de Protocol, no de transport). Migrar el código que llama a `LocalBackendClient` al nuevo Port sería reescribir la app entera. Mantener el cliente con un nuevo `base_url` es un cambio de una línea por llamada. |
 | **D-SELF-03** | Postgres de Coolify como destino de la migration | `coolify-db` ya existe y corre Postgres 16. Cero infra nueva. El schema se crea en una migration SQL idempotente (mismo patrón que `apply_sql_migrations`). |
 | **D-SELF-04** | MinIO local (no servicio externo) | Todo el stack self-hosted, control operacional completo. Migrar a R2/Backblaze/S3 real es cambiar 2 env vars + 1 línea de config en el adapter — el Port está bien aislado. |
@@ -83,7 +83,7 @@ Adicionalmente, introduce un flujo de **login clásico email/password con magic 
 | Costo operacional | Bajo (1 servicio) | Medio (2 servicios + orchestration) |
 | Hoy (Fase 1) | ✅ Recomendado | ❌ YAGNI |
 
-**Recomendación**: Mismo proceso durante Fase 1. **Si el tráfico crece**, migrar a side-car es cambiar `APAP_LOCAL_BACKEND_URL` de `http://localhost:8000/api` a `http://api-internal:8000/api` y separar el deployment. El `LocalBackendClient` se queda igual.
+**Recomendación**: Mismo proceso durante Fase 1. **Si el tráfico crece**, migrar a side-car es cambiar `APAP_INSFORGE_URL` de `http://localhost:8000/api` a `http://api-internal:8000/api` y separar el deployment. El `LocalBackendClient` se queda igual.
 
 ## Decisiones operacionales
 

@@ -8,7 +8,7 @@ Esta página posee la definición de qué es APAP_WEB, qué no es y qué invaria
 
 | It is | Evidence in this repo |
 |---|---|
-| Reescritura web server-rendered del Access/VBA legacy de APAP | [`README.md`](../../README.md), [Arquitectura LocalBackend](../architecture/architecture-local_backend-stack.md) |
+| Reescritura web server-rendered del Access/VBA legacy de APAP | [`README.md`](../../README.md), [Arquitectura LocalBackend](../architecture/architecture-local-backend-stack.md) |
 | App FastAPI + Jinja2 + HTMX con datos en LocalBackend (PostgreSQL) | [`app/main.py`](../../app/main.py), [`app/core/local_backend.py`](../../app/core/local_backend.py) |
 | Proyecto hexagonal con vertical slices en migración | [`app/core/<layer>/<slice>/`](../../app/core/) para capacidades transversales; [`app/modules/<slice>/`](../../app/modules/) cuando la hexagonal vive en un módulo de negocio; [AGENTS.md](../../AGENTS.md) §33.2 |
 | OpenSpec-driven: cada capacidad grande se describe antes de codear | [`openspec/specs/`](../../openspec/specs/), [`openspec/changes/`](../../openspec/changes/) |

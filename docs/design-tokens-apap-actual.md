@@ -130,4 +130,4 @@ the color/typography tokens are superseded by this file.
 
 ## Navigation
 
-Previous: [Architecture LocalBackend stack](architecture/architecture-local_backend-stack.md) | Next: [Setup local](setup.md)
+Previous: [Architecture LocalBackend stack](architecture/architecture-local-backend-stack.md) | Next: [Setup local](setup.md)

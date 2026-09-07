@@ -29,7 +29,7 @@ Constraints:
 
 Hard Rules honoured (web-tdd-philosophy):
 
-- Rule 1 (fixture gate): every test builds its own FakeSqlExecutor +
+- Rule 1 (fixture gate): every test builds its own FakeLocalBackend +
   StringIO stream + monkeypatched ``apply_legacy_to_web``.
 - Rule 4 (no humo): assertions pin concrete substring occurrences in
   the captured stream, not absence-of-error.
@@ -57,7 +57,7 @@ from migration.apply import (
 )
 from migration.cli import run_apply
 from migration.legacy_reader import LegacyReaderError
-from tests.migration.conftest import FakeSqlExecutor  # noqa: TID251
+from tests.migration.conftest import FakeLocalBackend  # noqa: TID251
 
 # --------------------------------------------------------------------------
 # Helpers
@@ -82,7 +82,7 @@ def _make_args(
 
 def _run_apply_with_exception(
     monkeypatch: pytest.MonkeyPatch,
-    web_client: FakeSqlExecutor,
+    web_client: FakeLocalBackend,
     exc: BaseException,
 ) -> tuple[int, str]:
     """Drive ``run_apply`` with ``apply_legacy_to_web`` patched to raise ``exc``.
@@ -122,7 +122,7 @@ class TestExitCodeMapping:
     def test_msaccess_running_returns_exit_5(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        web_client: FakeSqlExecutor,
+        web_client: FakeLocalBackend,
     ) -> None:
         rc, out = _run_apply_with_exception(
             monkeypatch,
@@ -136,7 +136,7 @@ class TestExitCodeMapping:
     def test_msaccess_preflight_unavailable_returns_exit_5(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        web_client: FakeSqlExecutor,
+        web_client: FakeLocalBackend,
     ) -> None:
         rc, out = _run_apply_with_exception(
             monkeypatch,
@@ -152,7 +152,7 @@ class TestExitCodeMapping:
     def test_source_drift_returns_exit_6(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        web_client: FakeSqlExecutor,
+        web_client: FakeLocalBackend,
     ) -> None:
         rc, out = _run_apply_with_exception(
             monkeypatch,
@@ -172,7 +172,7 @@ class TestExitCodeMapping:
     def test_partial_apply_interrupted_returns_exit_7(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        web_client: FakeSqlExecutor,
+        web_client: FakeLocalBackend,
     ) -> None:
         rc, out = _run_apply_with_exception(
             monkeypatch,
@@ -197,7 +197,7 @@ class TestExitCodeMapping:
     def test_legacy_reader_error_returns_exit_5(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        web_client: FakeSqlExecutor,
+        web_client: FakeLocalBackend,
     ) -> None:
         rc, out = _run_apply_with_exception(
             monkeypatch,
@@ -211,7 +211,7 @@ class TestExitCodeMapping:
     def test_backend_error_returns_exit_5(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        web_client: FakeSqlExecutor,
+        web_client: FakeLocalBackend,
     ) -> None:
         rc, out = _run_apply_with_exception(
             monkeypatch,
@@ -277,7 +277,7 @@ class TestOutputSafety:
     def test_no_traceback_in_operator_stream(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        web_client: FakeSqlExecutor,
+        web_client: FakeLocalBackend,
         exc: BaseException,
     ) -> None:
         """Operator output never contains a Python traceback.
@@ -326,7 +326,7 @@ class TestOutputSafety:
     def test_no_raw_pii_in_operator_stream(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        web_client: FakeSqlExecutor,
+        web_client: FakeLocalBackend,
         exc: BaseException,
     ) -> None:
         """Operator output never embeds PII column names or values.
@@ -375,7 +375,7 @@ class TestOutputSafety:
     def test_no_raw_filesystem_paths_in_operator_stream(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        web_client: FakeSqlExecutor,
+        web_client: FakeLocalBackend,
         exc: BaseException,
     ) -> None:
         """Operator output never embeds filesystem paths.
@@ -435,7 +435,7 @@ class TestOutputSafety:
     def test_runbook_reference_present_and_stable(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        web_client: FakeSqlExecutor,
+        web_client: FakeLocalBackend,
         exc: BaseException,
     ) -> None:
         """Operator output always names the migration apply runbook.
@@ -483,7 +483,7 @@ class TestOutputSafety:
     def test_output_is_single_categorical_line(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        web_client: FakeSqlExecutor,
+        web_client: FakeLocalBackend,
         exc: BaseException,
     ) -> None:
         """Operator output is ONE line with the contract shape.
@@ -520,7 +520,7 @@ class TestPayloadsNotLeaked:
     def test_msaccess_pids_not_in_stream(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        web_client: FakeSqlExecutor,
+        web_client: FakeLocalBackend,
     ) -> None:
         # The PIDs are integers; if the CLI ever prints them, the
         # digit pattern would surface in the stream.
@@ -536,7 +536,7 @@ class TestPayloadsNotLeaked:
     def test_partial_apply_evidence_not_in_stream(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        web_client: FakeSqlExecutor,
+        web_client: FakeLocalBackend,
     ) -> None:
         # The evidence dict carries ``progress_applied`` and
         # ``table_name``; none of these surface in the operator stream.
@@ -563,7 +563,7 @@ class TestPayloadsNotLeaked:
     def test_local_backend_body_message_not_in_stream(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        web_client: FakeSqlExecutor,
+        web_client: FakeLocalBackend,
     ) -> None:
         # BackendError.body["message"] can carry server-side internal
         # details (table names, status codes). The CLI MUST NOT echo it.
@@ -585,7 +585,7 @@ class TestPayloadsNotLeaked:
     def test_legacy_reader_raw_message_not_in_stream(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        web_client: FakeSqlExecutor,
+        web_client: FakeLocalBackend,
     ) -> None:
         rc, out = _run_apply_with_exception(
             monkeypatch,
@@ -616,7 +616,7 @@ class TestCategoricalReasonStability:
     def test_msaccess_running_reason_stable(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        web_client: FakeSqlExecutor,
+        web_client: FakeLocalBackend,
         exc_factory,
     ) -> None:
         rc1, out1 = _run_apply_with_exception(
@@ -656,7 +656,7 @@ class TestDryRunUnaffected:
     def test_dry_run_with_msaccess_executor_raises_does_not_propagate(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        web_client: FakeSqlExecutor,
+        web_client: FakeLocalBackend,
     ) -> None:
         """If ``apply_legacy_to_web`` were to raise on dry-run, the CLI would surface it.
 

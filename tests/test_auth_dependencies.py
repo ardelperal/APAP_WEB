@@ -8,11 +8,11 @@ of the route-level tests in ``test_admin.py`` / ``test_animals.py`` /
 
 Currently pinned:
 
-- ``get_local_postgres_executor_dep`` closes the ``httpx.Client`` it creates
+- ``get_local_backend_client_dep`` closes the ``httpx.Client`` it creates
   for each request (no resource leak across requests). This is the
   fix for code-quality-fixes T2 / problem #3 of the external review.
 - F-2 / F-4 (issue #119): ``return_early_if_response(value: object)``
-  → ``Response | dict``; ``get_local_postgres_executor_dep()`` declares
+  → ``Response | dict``; ``get_local_backend_client_dep()`` declares
   ``Iterator[LocalPostgresExecutor]`` as return annotation.
 - F-3 (issue #120): the triple-duplicated "read cookie + decode
   payload" pattern is replaced by ``app.core.session.read_session_payload``;
@@ -36,7 +36,7 @@ from starlette.responses import Response as _Response
 from app.core import auth_cache as _auth_cache
 from app.core.auth_dependencies import (
     get_current_user_optional,
-    get_local_postgres_executor_dep,
+    get_local_backend_client_dep,
     require_authorized_user,
     return_early_if_response,
 )
@@ -48,16 +48,16 @@ from app.core.session import (
 )
 
 # ---------------------------------------------------------------------------
-# F-4 (issue #119): get_local_postgres_executor_dep return annotation
+# F-4 (issue #119): get_local_backend_client_dep return annotation
 # ---------------------------------------------------------------------------
 
 
 def test_get_local_backend_client_dep_return_annotation_is_iterator() -> None:
-    """F-4: ``get_local_postgres_executor_dep`` MUST declare ``Iterator[LocalPostgresExecutor]``.
+    """F-4: ``get_local_backend_client_dep`` MUST declare ``Iterator[LocalPostgresExecutor]``.
 
     Without the annotation, type checkers infer the return as
     ``Any`` and every handler that does
-    ``client: LocalPostgresExecutor = Depends(get_local_postgres_executor_dep)``
+    ``client: LocalPostgresExecutor = Depends(get_local_backend_client_dep)``
     loses precision on every method call on ``client``.
 
     Uses ``typing.get_type_hints`` because ``from __future__ import
@@ -67,17 +67,17 @@ def test_get_local_backend_client_dep_return_annotation_is_iterator() -> None:
     """
     from typing import get_args, get_origin, get_type_hints
 
-    hints = get_type_hints(get_local_postgres_executor_dep)
+    hints = get_type_hints(get_local_backend_client_dep)
     return_hint = hints["return"]
     # ``typing.get_type_hints`` may return a fresh ``Iterator[...]``
     # object on each call, so compare by origin + args rather than ``is``.
     assert get_origin(return_hint) is Iterator, (
-        f"get_local_postgres_executor_dep return must be an Iterator, "
+        f"get_local_backend_client_dep return must be an Iterator, "
         f"got: {return_hint!r}"
     )
     type_args = get_args(return_hint)
     assert LocalPostgresExecutor in type_args, (
-        f"get_local_postgres_executor_dep return must yield LocalPostgresExecutor, "
+        f"get_local_backend_client_dep return must yield LocalPostgresExecutor, "
         f"got args: {type_args!r}"
     )
 
@@ -101,8 +101,8 @@ def test_get_local_backend_client_dep_is_a_generator() -> None:
     This test is a defence-in-depth check: even if the annotation
     changes, the body must still be a generator function.
     """
-    assert inspect.isgeneratorfunction(get_local_postgres_executor_dep), (
-        "get_local_postgres_executor_dep must be a generator function "
+    assert inspect.isgeneratorfunction(get_local_backend_client_dep), (
+        "get_local_backend_client_dep must be a generator function "
         "(uses yield) so the dep hands out the pooled client via the "
         "same Iterator[LocalPostgresExecutor] protocol FastAPI expects"
     )
@@ -131,7 +131,7 @@ def test_get_local_backend_client_dep_returns_pooled_client_from_app_state() -> 
     pooling refactor would regress to "no pooling" without any test
     noticing.
     """
-    from app.core.auth_dependencies import get_local_postgres_executor_dep  # noqa: PLC0415
+    from app.core.auth_dependencies import get_local_backend_client_dep  # noqa: PLC0415
 
     pooled = LocalPostgresExecutor("http://test", "k")
 
@@ -146,7 +146,7 @@ def test_get_local_backend_client_dep_returns_pooled_client_from_app_state() -> 
     class _Request:
         app = _App()
 
-    gen = get_local_postgres_executor_dep(request=_Request())
+    gen = get_local_backend_client_dep(request=_Request())
     try:
         handed_out = next(gen)
     finally:
@@ -157,7 +157,7 @@ def test_get_local_backend_client_dep_returns_pooled_client_from_app_state() -> 
         gen.close()
 
     assert handed_out is pooled, (
-        "get_local_postgres_executor_dep MUST return the same LocalPostgresExecutor "
+        "get_local_backend_client_dep MUST return the same LocalPostgresExecutor "
         "stored on app.state.sql_executor — pooling breaks if the "
         "dep returns anything else"
     )
@@ -177,7 +177,7 @@ def test_get_local_backend_client_dep_does_not_close_pooled_client() -> None:
     ``close()`` on the client it yields. We verify by tracking every
     ``close()`` call on the pooled sentinel.
     """
-    from app.core.auth_dependencies import get_local_postgres_executor_dep  # noqa: PLC0415
+    from app.core.auth_dependencies import get_local_backend_client_dep  # noqa: PLC0415
 
     close_calls: list[None] = []
 
@@ -197,7 +197,7 @@ def test_get_local_backend_client_dep_does_not_close_pooled_client() -> None:
     class _Request:
         app = _App()
 
-    gen = get_local_postgres_executor_dep(request=_Request())
+    gen = get_local_backend_client_dep(request=_Request())
     try:
         next(gen)
     finally:
@@ -208,7 +208,7 @@ def test_get_local_backend_client_dep_does_not_close_pooled_client() -> None:
         gen.close()
 
     assert close_calls == [], (
-        f"get_local_postgres_executor_dep MUST NOT close the pooled client "
+        f"get_local_backend_client_dep MUST NOT close the pooled client "
         f"(lifespan owns the lifecycle). close() calls observed: "
         f"{close_calls!r}"
     )
@@ -462,8 +462,7 @@ async def test_middleware_pasa_con_is_authorized_true(
 ) -> None:
     """``/animales`` with ``is_authorized=True`` reaches the route handler."""
     from app.core.config import get_settings
-    from app.core.di.local_postgres_di import get_local_postgres_executor_dep
-    from app.main import app
+    from app.main import app, get_local_backend_client
 
     # The route handler needs an LocalBackend client; without a stub the
     # lifespan tries to reach the real backend and the test errors with
@@ -491,7 +490,7 @@ async def test_middleware_pasa_con_is_authorized_true(
         def __getattr__(self, name: str) -> object:
             raise NotImplementedError(f"_StubLocalBackend.{name} not mocked")
 
-    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: _StubLocalBackend()
+    app.dependency_overrides[get_local_backend_client] = lambda: _StubLocalBackend()
     try:
         client.cookies.set(
             session_cookie_name(),
@@ -508,7 +507,7 @@ async def test_middleware_pasa_con_is_authorized_true(
         r = await client.get("/animales", follow_redirects=False)
         assert r.headers.get("location") not in ("/unauthorized", "/login")
     finally:
-        app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
+        app.dependency_overrides.pop(get_local_backend_client, None)
 
 
 # ---------------------------------------------------------------------------

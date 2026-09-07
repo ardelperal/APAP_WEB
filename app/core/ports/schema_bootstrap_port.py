@@ -63,8 +63,7 @@ class SchemaBootstrapPort(Protocol):
 
     Implementations:
 
-    - :class:`app.core.adapters.stubs.schema_bootstrap_stub.StubSchemaBootstrapPort`
-      (placeholder, pending a real ``LocalPostgresExecutor`-backed adapter; issue #4b').
+    - :class:`app.core.adapters.local_backend.schema_bootstrap_local_backend_adapter.SchemaBootstrapPort`
       — production adapter, talks to LocalBackend via :class:`SqlExecutor`.
     - Test fakes (in ``tests/``) — in-memory adapters that record calls
       or raise on demand without any transport.

@@ -41,7 +41,7 @@ cerrado — `usuarios_autorizados` (#25), `animals`/`voluntarios` (#26), `animal
 
 ## Documentación de referencia
 
-- [docs/architecture/architecture-local_backend-stack.md](../architecture/architecture-local_backend-stack.md) § "Data model policy".
+- [docs/architecture/architecture-local-backend-stack.md](../architecture/architecture-local-backend-stack.md) § "Data model policy".
 - [docs/discovery/data-model-notes.md](../discovery/data-model-notes.md).
 - [docs/discovery/data-model-completeness.md](../discovery/data-model-completeness.md).
 - [docs/legacy-lifecycle-transition-rules.md](../legacy-lifecycle-transition-rules.md) — reglas de transición del animal.
@@ -58,7 +58,7 @@ cerrado — `usuarios_autorizados` (#25), `animals`/`voluntarios` (#26), `animal
 
 - [ ] Si añade una tabla nueva, documente la equivalencia con el legacy (campo a campo) en un ADR o en [docs/discovery/data-model-completeness.md](../discovery/data-model-completeness.md).
 - [ ] Si descubre un campo del Access sin equivalente en `animals`, abra issue `type:bug gap:legacy` (P1).
-- [ ] Si añade un slice de modelo, siga la regla §33: `app/modules/<slice>/` con `domain/`, `ports/`, `application/`, `adapters/local_backend/`, `di/`, `routes.py` fino.
+- [ ] Si añade un slice de modelo, siga la regla §33: `app/modules/<slice>/` con `domain/`, `ports/`, `application/`, `adapters/local-backend/`, `di/`, `routes.py` fino.
 - [ ] Si implementa `state resolver` (#33), cubra con tests los seis invariantes de [legacy-lifecycle-transition-rules.md §7.2](../legacy-lifecycle-transition-rules.md).
 
 ## Navigation

@@ -8,7 +8,7 @@ The port carries three operations, one per OAuth-flow concern:
 
 1. :meth:`OAuthPort.start_google_login` — generate a PKCE pair and
    ask the backend (LocalBackend) for the Google authorization URL.
-2. :meth:`OAuthPort.exchange_local_backend_oauth_code` — exchange an
+2. :meth:`OAuthPort.exchange_insforge_oauth_code` — exchange an
    LocalBackend-hosted ``oauth_code`` (the post-LocalBackend-OAuth-proxy
    flow) for an :class:`OAuthUser` (the user identity returned by
    LocalBackend). This is the production path: LocalBackend fronts Google
@@ -51,7 +51,7 @@ Rule §31 (domain services depend on Protocol abstractions): every
 method here takes no concrete backend client; the adapter chooses its
 own transport.
 Rule §22 (SQL/service separation): no SQL lives here; the
-:class:`app.core.local_backend.LocalPostgresExecutor` calls the HTTP endpoints
+:class:`app.core.local_backend.AuthUsersPort` calls the HTTP endpoints
 the adapter wraps.
 """
 
@@ -95,10 +95,9 @@ class OAuthPort(Protocol):
 
     Implementations:
 
-    - :class:`app.core.adapters.stubs.oauth_stub.StubOAuthPort`
-      (placeholder, pending a real ``local_backend.oauth_google``-backed adapter; issue #4b').
+    - :class:`app.core.adapters.local_backend.oauth_local_backend_adapter.OAuthPort`
       — production adapter, talks to LocalBackend via
-      :class:`app.core.local_backend.LocalPostgresExecutor`.
+      :class:`app.core.local_backend.AuthUsersPort`.
     - Test fakes (in ``tests/``) — in-memory adapters that record
       calls or raise on demand without any transport.
     """
@@ -127,7 +126,7 @@ class OAuthPort(Protocol):
         """
         ...
 
-    def exchange_local_backend_oauth_code(
+    def exchange_insforge_oauth_code(
         self,
         oauth_code: str,
         code_verifier: str,
@@ -168,7 +167,7 @@ class OAuthPort(Protocol):
 
         Legacy direct-callback path (kept for tests that pre-date
         the LocalBackend OAuth proxy rollout). New flows should call
-        :meth:`exchange_local_backend_oauth_code` instead.
+        :meth:`exchange_insforge_oauth_code` instead.
 
         Args:
             code: The Google-issued authorization code.
@@ -183,7 +182,7 @@ class OAuthPort(Protocol):
         Raises:
             app.core.data_access.BackendError: When the backend
                 returns a non-2xx response. Same handling as
-                :meth:`exchange_local_backend_oauth_code`.
+                :meth:`exchange_insforge_oauth_code`.
         """
         ...
 

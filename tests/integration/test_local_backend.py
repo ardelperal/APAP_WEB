@@ -50,7 +50,7 @@ def test_local_backend_client_defaults_to_local_backend_url() -> None:
 def test_local_backend_client_uses_local_default_when_flag_set(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """When ``APAP_LOCAL_BACKEND=true`` and ``APAP_LOCAL_BACKEND_URL`` is empty,
+    """When ``APAP_LOCAL_BACKEND=true`` and ``APAP_INSFORGE_URL`` is empty,
     the client targets ``http://localhost:8000`` (the local backend).
 
     Note: the ``base_url`` is intentionally without a trailing
@@ -62,7 +62,7 @@ def test_local_backend_client_uses_local_default_when_flag_set(
     from app.core.local_backend.db import LocalPostgresExecutor
 
     monkeypatch.setenv("APAP_LOCAL_BACKEND", "true")
-    monkeypatch.delenv("APAP_LOCAL_BACKEND_URL", raising=False)
+    monkeypatch.delenv("APAP_INSFORGE_URL", raising=False)
     client = LocalPostgresExecutor(base_url="", service_key="dummy")
     # ``httpx.Client.base_url`` is a ``URL`` object; compare via ``str``
     # so the assertion works regardless of trailing-slash normalization.
@@ -72,13 +72,13 @@ def test_local_backend_client_uses_local_default_when_flag_set(
 def test_local_backend_client_local_url_overrides_local_flag(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``APAP_LOCAL_BACKEND_URL`` always wins over the local default."""
+    """``APAP_INSFORGE_URL`` always wins over the local default."""
     from app.core.local_backend.db import LocalPostgresExecutor
 
     monkeypatch.setenv("APAP_LOCAL_BACKEND", "true")
-    monkeypatch.setenv("APAP_LOCAL_BACKEND_URL", "https://custom-local_backend.example.com")
+    monkeypatch.setenv("APAP_INSFORGE_URL", "https://custom-local_backend.example.com")
     client = LocalPostgresExecutor(
-        base_url=os.environ["APAP_LOCAL_BACKEND_URL"],
+        base_url=os.environ["APAP_INSFORGE_URL"],
         service_key="dummy",
     )
     assert client._client.base_url == "https://custom-local_backend.example.com"
@@ -370,7 +370,7 @@ async def test_oauth_exchange_returns_jwt(
 ) -> None:
     """``POST /api/auth/oauth/exchange?client_type=web`` returns ``user`` + ``accessToken``.
 
-    Pins the contract ``LocalPostgresExecutor.exchange_local_backend_oauth_code``
+    Pins the contract ``LocalPostgresExecutor.exchange_insforge_oauth_code``
     consumes (the LocalBackend-hosted OAuth proxy): the body has at least
     ``user`` and ``accessToken`` keys; the test reads ``accessToken``
     as the session JWT.

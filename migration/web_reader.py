@@ -15,7 +15,7 @@ The web-reader concern has been migrated to a hexagonal slice
   (:class:`migration.adapters.local_backend.web_reader_local_backend_adapter.LocalBackendWebReaderAdapter`)
   talks to LocalBackend via a
   :class:`~app.core.data_access.SqlExecutor`; the use case never
-  imports :class:`~app.core.local_backend.LocalPostgresExecutor` directly.
+  imports :class:`~app.core.local_backend.StubAuthUsersPort` directly.
 
 This module is the single re-export point that preserves the
 pre-slice import surface so existing callers
@@ -24,7 +24,7 @@ working without change. New code MUST import from the canonical
 homes above; this shim exists only for backwards compatibility.
 
 History (non-contract): the pre-slice module imported
-:class:`~app.core.local_backend.LocalPostgresExecutor` directly, which judgment-day
+:class:`~app.core.local_backend.StubAuthUsersPort` directly, which judgment-day
 2026-08-04 flagged as CRITICAL because it violated §31 (domain
 depends on Protocol, not on a concrete client). The hexagonal
 slice restores the boundary.

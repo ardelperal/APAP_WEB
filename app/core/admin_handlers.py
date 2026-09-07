@@ -11,7 +11,7 @@ application-layer use cases:
 Each handler composes the :class:`AuthUsersPort` (PR #414 data seam)
 and the :class:`AdminTemplateAdapter` (this slice's renderer seam)
 through FastAPI ``Depends`` providers — the route bodies never import
-``LocalPostgresExecutor`` or ``Jinja2Templates`` directly.
+``AuthUsersPort`` or ``Jinja2Templates`` directly.
 
 ``register_admin_routes`` keeps the same signature as the pre-Phase-1
 module so ``app/main.py::create_app`` does not need to change.

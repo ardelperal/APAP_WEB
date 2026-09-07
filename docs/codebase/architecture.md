@@ -10,7 +10,7 @@ La arquitectura es **hexagonal con slices verticales** (épica #420). Esta regla
 
 ### 33.1 Las dos ubicaciones
 
-- **`app/core/<layer>/<slice>/`** — capacidad transversal. Hoy: `auth-users` (#414), `catalogos` (#415), `schema-bootstrap` (#416). Los layers son carpetas globales (`domain/`, `ports/`, `application/`, `adapters/local_backend/`, `di/`) y el slice es un subdirectorio dentro de cada uno.
+- **`app/core/<layer>/<slice>/`** — capacidad transversal. Hoy: `auth-users` (#414), `catalogos` (#415), `schema-bootstrap` (#416). Los layers son carpetas globales (`domain/`, `ports/`, `application/`, `adapters/local-backend/`, `di/`) y el slice es un subdirectorio dentro de cada uno.
 - **`app/modules/<slice>/`** — capacidad de negocio. El slice posee toda su pila en **una** carpeta.
 
 ### 33.2 La regla que decide
@@ -30,7 +30,7 @@ app/modules/<slice>/
 ├── domain/                          # entidades puras y reglas, sin I/O
 ├── ports/<slice>_port.py            # Protocol: lo que el use case necesita
 ├── application/                     # un use case por archivo
-├── adapters/local_backend/
+├── adapters/local-backend/
 │   ├── <slice>_local_backend_adapter.py  # implementa el port
 │   └── <slice>_local_backend_queries.py  # el SQL vive aquí (ver [code-quality-rules.md](code-quality-rules.md) §22)
 ├── di/<slice>_di.py                 # composition root del slice
@@ -105,7 +105,7 @@ El CLI envía `apap-migrate reconcile <flags>` como punto de entrada.
 
 El mode-toggle y la función de sync se enforzan en tres capas:
 
-1. **Settings** (`app/core/config.py`) lee el env `APAP_MODE` (`web` | `legacy`). El arranque falla rápido si tanto `APAP_LOCAL_BACKEND_URL` como `APAP_LEGACY_ACCDB_PATH` son alcanzables.
+1. **Settings** (`app/core/config.py`) lee el env `APAP_MODE` (`web` | `legacy`). El arranque falla rápido si tanto `APAP_INSFORGE_URL` como `APAP_LEGACY_ACCDB_PATH` son alcanzables.
 2. **`LocalBackendClient`** es el único objeto permitido para hablar con LocalBackend. **`LegacyAdapter`** es el único objeto permitido para hablar con el backend Access. El código de service importa uno, nunca ambos.
 3. **`migration/`** es el único paquete permitido para leer ambos backends. El código de route + service no debe importar `migration/`.
 
@@ -128,8 +128,8 @@ Los services de dominio deben depender de abstracciones Protocol, nunca de clien
 ## Contributor checklist
 
 - [ ] Antes de crear un slice, aplicó §33.2 y justificó la ubicación en el PR.
-- [ ] Cada nuevo slice convertido incluye `domain/`, `ports/`, `application/`, `adapters/local_backend/`, `di/` y un pin test de capas.
-- [ ] Ningún slice nuevo introduce SQL fuera de `adapters/local_backend/<slice>_local_backend_queries.py`.
+- [ ] Cada nuevo slice convertido incluye `domain/`, `ports/`, `application/`, `adapters/local-backend/`, `di/` y un pin test de capas.
+- [ ] Ningún slice nuevo introduce SQL fuera de `adapters/local-backend/<slice>_local_backend_queries.py`.
 - [ ] Las funciones de service de dominio reciben `Protocol` o `SqlExecutor`, no `LocalBackendClient`.
 - [ ] Si toca el mode toggle o el sync, leyó `migration/cli.py` y respeta §18.3.
 

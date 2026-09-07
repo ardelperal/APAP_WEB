@@ -63,7 +63,7 @@ tests.
   backend URL).
 
   Status: covered by `test_local_backend_client_local_url_overrides_local_flag`
-  which sets `APAP_LOCAL_BACKEND_URL=https://custom-local_backend.example.com` and
+  which sets `APAP_INSFORGE_URL=https://custom-local_backend.example.com` and
   asserts the client targets that URL even with `APAP_LOCAL_BACKEND=true`
   set. The reverse — client targets `http://localhost:8000` when the
   flag is set and no explicit URL — is covered by

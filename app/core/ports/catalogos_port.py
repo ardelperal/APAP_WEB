@@ -49,7 +49,7 @@ class CatalogosPort(Protocol):
 
     Implementations:
 
-    - :class:`app.core.adapters.local_backend.catalogos_local_backend_adapter.LocalBackendCatalogosAdapter`
+    - :class:`app.core.adapters.local_backend.catalogos_local_backend_adapter.CatalogosPort`
       — production adapter, talks to LocalBackend via :class:`SqlExecutor`.
     - Test fakes (in ``tests/``) — in-memory list-backed fakes for
       unit tests on the application layer.

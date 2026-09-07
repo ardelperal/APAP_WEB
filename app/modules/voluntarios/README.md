@@ -64,7 +64,7 @@ Enum exportado: `RolVoluntario` (intake, seguimiento, acogida, salud). `VALID_RO
 
 ## Layer type
 
-Legacy route → service layout sin `queries.py`. El módulo es uno de los previos al seam de AGENTS.md §22: SQL y validación conviven en `service.py`. El patrón destino está en `app/modules/animals/adapters/local_backend/`.
+Legacy route → service layout sin `queries.py`. El módulo es uno de los previos al seam de AGENTS.md §22: SQL y validación conviven en `service.py`. El patrón destino está en `app/modules/animals/adapters/local-backend/`.
 
 ## Risks and gotchas
 

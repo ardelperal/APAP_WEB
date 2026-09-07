@@ -107,7 +107,7 @@ def test_application_may_not_import_adapters(tmp_path: Path) -> None:
     _tree(
         tmp_path,
         {
-            "app/core/adapters/local_backend/auth_local_backend_adapter.py": "",
+            "app/core/adapters/local-backend/auth_local_backend_adapter.py": "",
             "app/core/application/auth/get_user.py": (
                 "from app.core.adapters.stubs.auth_users_stub import Adapter\n"
             ),
@@ -127,7 +127,7 @@ def test_di_may_wire_adapters_into_application(tmp_path: Path) -> None:
     _tree(
         tmp_path,
         {
-            "app/core/adapters/local_backend/auth_local_backend_adapter.py": "",
+            "app/core/adapters/local-backend/auth_local_backend_adapter.py": "",
             "app/core/application/auth/get_user.py": "",
             "app/core/di/auth_di.py": (
                 "from app.core.adapters.stubs.auth_users_stub import Adapter\n"
@@ -271,13 +271,13 @@ def test_adapter_slice_is_split_on_the_vendor_segment(tmp_path: Path) -> None:
         tmp_path,
         {
             "app/core/ports/schema_bootstrap_port.py": "",
-            "app/core/adapters/local_backend/schema_bootstrap_local_backend_adapter.py": (
+            "app/core/adapters/local-backend/schema_bootstrap_local_backend_adapter.py": (
                 "from app.core.ports.schema_bootstrap_port import SchemaBootstrapPort\n"
             ),
         },
     )
 
-    rel = "app/core/adapters/local_backend/schema_bootstrap_local_backend_adapter.py"
+    rel = "app/core/adapters/local-backend/schema_bootstrap_local_backend_adapter.py"
     assert checker.classify_slice(rel, "adapters") == "schema_bootstrap"
 
     violations, _notices = checker.check_tree(tmp_path, baseline={})

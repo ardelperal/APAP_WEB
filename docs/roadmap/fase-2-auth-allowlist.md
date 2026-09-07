@@ -26,7 +26,7 @@ cerrado — Issue **#16** mergeada en `main` como `1d22349`. Login con Google OA
 
 ## Documentación de referencia
 
-- [docs/architecture/architecture-local_backend-stack.md](../architecture/architecture-local_backend-stack.md) § "Authentication and authorization".
+- [docs/architecture/architecture-local-backend-stack.md](../architecture/architecture-local-backend-stack.md) § "Authentication and authorization".
 - [docs/architecture/decisiones-proyecto.md](../architecture/decisiones-proyecto.md) § D-01, D-03, D-20, D-40.
 
 ## Core invariants
@@ -41,7 +41,7 @@ cerrado — Issue **#16** mergeada en `main` como `1d22349`. Login con Google OA
 - [ ] Si añade un nuevo rol o un nuevo flujo OAuth, regístrelo en un ADR antes de implementar.
 - [ ] Si modifica el middleware de allowlist, cubra con tests la regresión documentada en [docs/audits/auth-revalidation-2026-Q3.md](../audits/auth-revalidation-2026-Q3.md).
 - [ ] Si toca un secret (`APAP_SESSION_SECRET`, `APAP_OAUTH_CLIENT_ID`, etc.), siga [docs/runbooks/cookie-rotation.md](../runbooks/cookie-rotation.md) y §32.P2.
-- [ ] Si rota el secret OAuth o cambia el redirect URI, abra runbook de rotación y refresque `APAP_LOCAL_BACKEND_URL` en Coolify.
+- [ ] Si rota el secret OAuth o cambia el redirect URI, abra runbook de rotación y refresque `APAP_INSFORGE_URL` en Coolify.
 
 ## Navigation
 

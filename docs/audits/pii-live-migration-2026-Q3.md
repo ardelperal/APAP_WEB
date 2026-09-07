@@ -71,7 +71,7 @@ Además, el runbook operator `docs/runbooks/live-migration-apply.md` carga el wo
 
 ### Re-audit de layering del issue #233 (2026-07-20)
 
-El árbol fail-closed vive en `adapters/local_backend/animals_local_backend_photo.py`. La ruta solo aplica auth, traduce 404 y construye el streaming response. Los tests de ruta y adaptador verifican el boundary preservado.
+El árbol fail-closed vive en `adapters/local-backend/animals_local_backend_photo.py`. La ruta solo aplica auth, traduce 404 y construye el streaming response. Los tests de ruta y adaptador verifican el boundary preservado.
 
 ## Findings
 
@@ -175,7 +175,7 @@ El operador must revisar y aceptar este verdict como parte de la M1 acceptance g
 
 - `app/core/logging.py::REDACTED_FIELDS` (15 entradas).
 - `app/main.py:148` (`PUBLIC_PATHS` 5-entry shape).
-- `app/modules/animals/adapters/local_backend/animals_local_backend_photo.py` (placeholder, sentinel y resolución de media type).
+- `app/modules/animals/adapters/local-backend/animals_local_backend_photo.py` (placeholder, sentinel y resolución de media type).
 - `app/modules/animals/routes.py` (auth short-circuit + 404 translation + Response build).
 - `migration/mappings/voluntario.yaml` (`DNI: legacy_column: null`).
 - `migration/apply.py` (`apply_legacy_to_web(dni_collision_counter=...)` DI seam).

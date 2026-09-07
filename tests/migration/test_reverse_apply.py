@@ -42,13 +42,13 @@ Hard Rules from web-tdd-philosophy honoured:
 - **Rule 2 (DI)**: the legacy executor is injected via
   ``legacy_reader.set_legacy_query_executor`` (reads) and
   ``legacy_reader.set_legacy_write_executor`` (writes); the web
-  client is the ``FakeSqlExecutor`` instance built by ``apply_runner``.
+  client is the ``FakeLocalBackend`` instance built by ``apply_runner``.
 - **Rule 4 (no humo)**: assertions on values (row counts, hash
   prefixes, file contents), never "no exception raised".
 - **Rule 5 (three paths)**: each slice ships happy + sad + edge.
   See ``test_apply_web_to_legacy_dry_run_does_not_write`` (edge)
   and ``test_apply_web_to_legacy_dry_run_reports_zero`` (sad).
-- **Rule 8 (no production mutation)**: ``FakeSqlExecutor`` holds rows
+- **Rule 8 (no production mutation)**: ``FakeLocalBackend`` holds rows
   in memory only; the legacy executor is a fake callable.
 """
 
@@ -68,7 +68,7 @@ from migration.apply_reverse import (
     apply_web_to_legacy,
 )
 from migration.mappings import load_mapping
-from tests.migration.conftest import FakeSqlExecutor  # noqa: TID251 — internal import
+from tests.migration.conftest import FakeLocalBackend  # noqa: TID251 — internal import
 
 # --- shared helpers -------------------------------------------------------
 
@@ -132,7 +132,7 @@ def reverse_runner(
     """Callable wrapper around :func:`apply_web_to_legacy`.
 
     Returns a function that:
-    - seeds the web ``FakeSqlExecutor`` from ``web_seed``;
+    - seeds the web ``FakeLocalBackend`` from ``web_seed``;
     - injects ``legacy_rows`` (for the read seam);
     - injects a write seam (captured into ``writes``);
     - resolves the lock path to the test's ``tmp_path``;
@@ -158,7 +158,7 @@ def reverse_runner(
         sync_state_path: Path | None = None,
         web_snapshot_override: dict[str, list[dict[str, Any]]] | None = None,
     ) -> dict[str, Any]:
-        client = FakeSqlExecutor()
+        client = FakeLocalBackend()
         if web_seed:
             for table, rows in web_seed.items():
                 client.seed(table, rows)
@@ -689,7 +689,7 @@ def test_sync_state_rollback_on_legacy_write_failure(
     legacy_reader.set_legacy_query_executor(_stub_legacy_read([]))
     legacy_reader.set_legacy_write_executor(_explode_writer)
     try:
-        client = FakeSqlExecutor()
+        client = FakeLocalBackend()
         client.seed(
             "voluntarios",
             [{"voluntario": "alice", "email": "new@x", "tel1": None, "tel2": None}],
@@ -725,7 +725,7 @@ def test_sync_state_rollback_on_legacy_write_failure(
 
 def test_drift_detection_on_rowcount_zero_records_needs_review(tmp_path: Path) -> None:
     mapping = load_mapping("voluntario")
-    client = FakeSqlExecutor()
+    client = FakeLocalBackend()
     with pytest.raises(ValueError, match="natural key"):
         _reverse_apply_one_row(
             client=client,
@@ -774,7 +774,7 @@ def test_drift_detection_on_rowcount_zero_records_needs_review(tmp_path: Path) -
 
 def test_case_insensitive_legacy_pk_fallback(tmp_path: Path) -> None:
     mapping = load_mapping("voluntario")
-    client = FakeSqlExecutor()
+    client = FakeLocalBackend()
     writes: list[tuple[str, list[Any]]] = []
     dry_run_outcome = _reverse_apply_one_row(
         client=client,
@@ -826,7 +826,7 @@ def test_lifecycle_reversed_emitted_on_state_change(
     import migration.apply_reverse as apply_reverse_mod
 
     mapping = load_mapping("animal")
-    client = FakeSqlExecutor()
+    client = FakeLocalBackend()
     calls: list[dict[str, Any]] = []
     original = apply_reverse_mod._emit_reversed_lifecycle_events_for_changed_derived
 
@@ -868,7 +868,7 @@ def test_lifecycle_reversed_emitted_on_state_change(
 
 def test_preserve_column_advanced_on_happy_path_round_trip(tmp_path: Path) -> None:
     mapping = load_mapping("voluntario")
-    client = FakeSqlExecutor()
+    client = FakeLocalBackend()
     outcome = _reverse_apply_one_row(
         client=client,
         mapping=mapping,
@@ -925,7 +925,7 @@ def test_apply_web_to_legacy_raises_on_partial_apply_interrupted(
         progress_total=10,
         reason="test",
     )
-    client = FakeSqlExecutor()
+    client = FakeLocalBackend()
     client.seed(
         "voluntarios",
         [{"voluntario": "alice", "email": "a@x", "tel1": None, "tel2": None}],
@@ -955,7 +955,7 @@ def test_apply_web_to_legacy_propagates_msaccess_preflight_unavailable(
     def _preflight_unavailable() -> list[int]:
         raise MsAccessPreflightUnavailableError(reason="psutil unavailable in test")
 
-    client = FakeSqlExecutor()
+    client = FakeLocalBackend()
     client.seed(
         "voluntarios",
         [{"voluntario": "alice", "email": "a@x", "tel1": None, "tel2": None}],
@@ -998,7 +998,7 @@ def test_apply_web_to_legacy_returns_error_on_web_query_failure(
     # Must patch at the orchestrator's binding, not the source module.
     monkeypatch.setattr(orchestrator_mod, "bootstrap_m0_infrastructure", lambda c: None)
 
-    client = FakeSqlExecutor()
+    client = FakeLocalBackend()
 
     def _failing_execute_sql(sql: str) -> list[dict[str, Any]]:
         raise RuntimeError("web DB connection refused")
@@ -1026,7 +1026,7 @@ def test_apply_web_to_legacy_propagates_legacy_read_failure(
     """Lines 180-185: a legacy snapshot read failure logs
     ``apply.legacy_read_failed`` and re-raises so the operator sees
     the categorical error and the apply run aborts."""
-    client = FakeSqlExecutor()
+    client = FakeLocalBackend()
     client.seed(
         "voluntarios",
         [{"voluntario": "alice", "email": "a@x", "tel1": None, "tel2": None}],
@@ -1147,7 +1147,7 @@ def test_apply_web_to_legacy_keyboard_interrupt_writes_partial(
     monkeypatch.setattr(orchestrator_mod, "_reverse_apply_one_row", _raise_interrupt)
     monkeypatch.setattr(lr_mod, "load_legacy_snapshot_batched", _empty_batch)
 
-    client = FakeSqlExecutor()
+    client = FakeLocalBackend()
     client.seed(
         "voluntarios",
         [{"voluntario": "alice", "email": "a@x", "tel1": None, "tel2": None}],
@@ -1207,7 +1207,7 @@ def test_apply_web_to_legacy_msaccess_running_error(
 
     monkeypatch.setattr(orchestrator_mod, "check_msaccess_running", _running_pids)
 
-    client = FakeSqlExecutor()
+    client = FakeLocalBackend()
     client.seed(
         "voluntarios",
         [{"voluntario": "alice", "email": "a@x", "tel1": None, "tel2": None}],
@@ -1283,7 +1283,7 @@ def test_apply_web_to_legacy_legacy_write_commit_failed(
         orchestrator_mod, "_reverse_apply_one_row", _raise_commit_fail
     )
 
-    client = FakeSqlExecutor()
+    client = FakeLocalBackend()
     client.seed(
         "voluntarios",
         [{"voluntario": "alice", "email": "a@x", "tel1": None, "tel2": None}],

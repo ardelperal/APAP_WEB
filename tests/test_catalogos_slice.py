@@ -3,7 +3,7 @@
 The new slice (``app/core/catalogos/``,
 ``app/core/ports/catalogos_port.py``,
 ``app/core/application/catalogos/``,
-``app/core/adapters/local_backend/catalogos_local_backend_adapter.py``,
+``app/core/adapters/local-backend/catalogos_local_backend_adapter.py``,
 ``app/core/di/catalogos_di.py``) is the pattern-defining slice for
 the broader refactor. These tests pin the **new** pattern at three
 levels:

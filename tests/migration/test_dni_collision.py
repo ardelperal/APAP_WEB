@@ -153,15 +153,15 @@ def test_forward_legacy_produces_zero_dni_collisions(
     entire run.
 
     The atom runs the apply pipeline end-to-end through a fake
-    executor + ``FakeSqlExecutor`` (no real backend mutation).
+    executor + ``FakeLocalBackend`` (no real backend mutation).
     """
     monkeypatch.setenv("APAP_MIGRATION_DIR", str(tmp_path))
 
     # Import the conftest fake so this test stays in the same
     # hermetic surface as the rest of ``tests/migration``.
-    from tests.migration.conftest import FakeSqlExecutor
+    from tests.migration.conftest import FakeLocalBackend
 
-    client = FakeSqlExecutor()
+    client = FakeLocalBackend()
     counter = DniCollisionCounter()
     legacy_rows = [
         {"Voluntario": "alice", "Tel1": "+34600123456", "Tel2": None, "Email": "alice@example.org"},

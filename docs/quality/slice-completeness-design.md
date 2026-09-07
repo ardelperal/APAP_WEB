@@ -22,7 +22,7 @@ one python file under any of:
 
 - `app/core/application/<slice>/`
 - `app/core/ports/<slice>_port.py`
-- `app/core/adapters/local_backend/<slice>_*local_backend*`
+- `app/core/adapters/local-backend/<slice>_*local_backend*`
 - `app/core/di/<slice>_di.py`
 - `app/modules/<slice>/`
 
@@ -61,7 +61,7 @@ but documented alternative idiom).
 ### 2. `adapter-in-di` — the concrete adapter is wired from `di/`
 
 For every concrete adapter file under
-`app/core/adapters/local_backend/<slice>_local_backend_*.py`, the file
+`app/core/adapters/local-backend/<slice>_local_backend_*.py`, the file
 `app/core/di/<slice>_di.py` must reference that adapter's module
 (import or string name appears in source).
 
@@ -114,7 +114,7 @@ Layers detected by re-using `check_layers.classify_layer`:
 | `domain` | under `app/core/domain/<slice>/` (or `app/core/<slice>.py` / `app/core/<slice>*.py` for flat-domain slices like `catalogos`) |
 | `ports` | `app/core/ports/<slice>_port.py` |
 | `application` | under `app/core/application/<slice>/` |
-| `adapters` | under `app/core/adapters/local_backend/<slice>_*` (or `app/core/adapters/<slice>_*` for non-LocalBackend) |
+| `adapters` | under `app/core/adapters/local-backend/<slice>_*` (or `app/core/adapters/<slice>_*` for non-LocalBackend) |
 | `di` | `app/core/di/<slice>_di.py` |
 | `delivery` | under `app/modules/<slice>/` |
 

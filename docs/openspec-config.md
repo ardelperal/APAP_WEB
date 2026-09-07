@@ -84,7 +84,7 @@ rules:
     - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
     - Use professional Spanish (Spain) for all SDD artifacts
   design:
-    - Follow FastAPI + HTMX architecture in docs/architecture/architecture-local_backend-stack.md
+    - Follow FastAPI + HTMX architecture in docs/architecture/architecture-local-backend-stack.md
     - Prefer server-rendered pages over SPA
     - Keep business rules in FastAPI, not HTMX snippets
   tasks:
@@ -133,7 +133,7 @@ testing:
 - **Skill-caso-verificado**: el patrón proviene de `Gentleman-Programming/gentle-ai`. No se inventa localmente.
 - **Single-source-of-truth**: este doc resume el YAML, no lo duplica. La excepción es la sección "Synthesized Convention Example", que es verbatim.
 - **Castellano-peninsular**: la prosa va en Castellano peninsular formal (usted). El bloque YAML se mantiene intacto en inglés.
-- **Path-references**: las rutas que aparecen en el YAML (por ejemplo, `docs/architecture/architecture-local_backend-stack.md`) son rutas lógicas del proyecto. Si alguna no resuelve, prima el código y se abre un issue `type:bug gap:docs`.
+- **Path-references**: las rutas que aparecen en el YAML (por ejemplo, `docs/architecture/architecture-local-backend-stack.md`) son rutas lógicas del proyecto. Si alguna no resuelve, prima el código y se abre un issue `type:bug gap:docs`.
 
 ## Contributor checklist
 

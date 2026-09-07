@@ -130,7 +130,7 @@
 | `tests/test_health_catalog.py` | meta | n/a | yes | fast | keep |
 | `tests/test_import_cycles.py` | meta | n/a | yes | fast | keep |
 | `tests/test_local_backend.py` | client unit | `httpx.MockTransport` | yes | fast | keep |
-| `tests/test_local_backend_error_handler.py` | unit | none | yes | fast | keep |
+| `tests/test_backend_error_handler.py` | unit | none | yes | fast | keep |
 | `tests/test_layers.py` | meta | filesystem scan | yes | fast | keep |
 | `tests/test_lifecycle_*.py` (8 files) | service unit | `FakeSqlExecutor` | yes | fast | keep — **add** integration atom for the append-only trigger |
 | `tests/test_lifespan.py` | boot unit | spy | yes | fast | keep |
@@ -165,7 +165,7 @@
 | `tests/test_semantic_events.py` | service unit | `FakeSqlExecutor` | yes | fast | keep |
 | `tests/test_session.py`, `test_session_rotation.py` | unit | none | yes | fast | keep |
 | `tests/test_shadow_state.py` | migration unit | `FakeLocalBackend` | yes | fast | keep |
-| `tests/test_slice_completeness.py`, `test_slice_local_backend_error_handler.py`, `tests/test_catalogos_slice.py`, `tests/test_admin_slice.py`, `tests/test_layers.py` | meta | n/a | yes | fast | keep |
+| `tests/test_slice_completeness.py`, `test_slice_backend_error_handler.py`, `tests/test_catalogos_slice.py`, `tests/test_admin_slice.py`, `tests/test_layers.py` | meta | n/a | yes | fast | keep |
 | `tests/test_smoke.py` | unit | none | yes | fast | keep (deprecation-warning guard) |
 | `tests/test_sql_executor_protocol.py`, `test_sql_runner.py` | unit | none | yes | fast | keep |
 | `tests/test_startup_config_validation.py` | config unit | env | yes | fast | keep |

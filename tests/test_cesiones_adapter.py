@@ -130,7 +130,7 @@ class TestCesionConflictError:
 # ---------------------------------------------------------------------------
 
 
-class TestCesionesInsforgeAdapter:
+class TestStubCesionesPort:
     def test_adapter_implements_port_protocol(self) -> None:
         """StubCesionesPort satisfies CesionesPort at runtime."""
         adapter = StubCesionesPort(object())

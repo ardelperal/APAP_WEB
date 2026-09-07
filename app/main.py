@@ -1,7 +1,7 @@
 """FastAPI application entrypoint for APAP_WEB.
 
 The application is built following the skeleton outlined in
-``docs/architecture/architecture-local_backend-stack.md`` and the acceptance criteria
+``docs/architecture/architecture-local-backend-stack.md`` and the acceptance criteria
 of issue #17 (Fase 1 — esqueleto) and #16 (Fase 2 — auth). It exposes:
 
 - ``GET /``              → marketing landing page (auth required)
@@ -125,7 +125,7 @@ async def lifespan(_: FastAPI):
         from app.core.config import _validate_secrets
         _validate_secrets(settings)
     # LocalPostgresExecutor wraps the DSN + schema from Settings.
-    # This replaces the deprecated LocalPostgresExecutor (commit f68b4cc)
+    # This replaces the deprecated AuthUsersPort (commit f68b4cc)
     # as the only supported production transport. The executor
     # satisfies the SqlExecutor Protocol so the four bootstrap
     # functions (ensure_schema_and_seed, ensure_catalogs,

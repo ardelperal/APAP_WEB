@@ -1,6 +1,6 @@
 """``GET /healthz`` endpoint for the local backend (M0 of self-host-backend-coolify).
 
-Returns the healthcheck envelope ``LocalPostgresExecutor`` and the
+Returns the healthcheck envelope ``AuthUsersPort`` and the
 integration tests expect:
 
   ``{"db": "up"|"down", "storage": "up"|"down", "oauth": "configured"|"missing"}``
@@ -35,7 +35,7 @@ def healthz() -> dict:
     """Return the healthcheck envelope.
 
     No dependencies on ``app.state`` here — the handler is a pure
-    function of the environment. The ``LocalPostgresExecutor`` constructor
+    function of the environment. The ``AuthUsersPort`` constructor
     (which the test fixture does) does not call ``/healthz`` directly;
     the integration tests do.
     """

@@ -14,10 +14,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    # ``SqlExecutor`` lives in ``migration.apply`` (kept there because
+    # ``_LocalBackendLike`` lives in ``migration.apply`` (kept there because
     # it is the structural type of the public ``apply_legacy_to_web``
     # signature). Re-imported for type checking only.
-    from migration.apply import SqlExecutor  # noqa: F401
+    # ``migration.apply._LocalBackendLike`` was retired in #5 (InsForge runtime deleted); the
+    # migration package is being rewritten in #8.
+    from migration.apply import _LocalBackendLike  # type: ignore[attr-defined]  # noqa: F401
 
 
 from app.core import logging as logging_mod
@@ -28,7 +30,7 @@ from migration.shadow_state import ShadowStateRepository
 
 def _apply_one_row(
     *,
-    client: SqlExecutor,
+    client: _LocalBackendLike,
     mapping: Any,
     web_table: str,
     legacy_row: dict[str, Any],
@@ -113,7 +115,7 @@ def _apply_one_row(
 
 
 def _fetch_web_row_by_key(
-    client: SqlExecutor, mapping: Any, legacy_pk: str
+    client: _LocalBackendLike, mapping: Any, legacy_pk: str
 ) -> dict[str, Any] | None:
     """Return the existing web row matching ``legacy_pk``, or ``None``.
 
@@ -131,7 +133,7 @@ def _fetch_web_row_by_key(
 
 
 def _insert_web_row(
-    client: SqlExecutor, web_table: str, web_row: dict[str, Any]
+    client: _LocalBackendLike, web_table: str, web_row: dict[str, Any]
 ) -> list[dict[str, Any]]:
     """INSERT ``web_row`` into ``web_table`` and return the ``RETURNING`` row.
 
@@ -158,7 +160,7 @@ def _insert_web_row(
 
 def _record_shadow_divergence(
     *,
-    client: SqlExecutor,
+    client: _LocalBackendLike,
     table_name: str,
     legacy_pk: str,
     web_pk: str | None,

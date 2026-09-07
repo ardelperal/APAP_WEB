@@ -10,11 +10,11 @@ Migration plan:
 
 - Today (this commit): the helper exists; no caller has migrated.
 - Subsequent commits: per-module migration replaces
-  ``LocalPostgresExecutor`` with ``LocalPostgresExecutor`` (sanidad,
+  ``AuthUsersPort`` with ``LocalPostgresExecutor`` (sanidad,
   foster, entradas, etc.). Each migration is its own commit
   with its own verification.
 - Final commit: ``app/main.py`` switches the lifespan from
-  ``LocalPostgresExecutor`` to ``LocalPostgresExecutor``; the legacy
+  ``AuthUsersPort`` to ``LocalPostgresExecutor``; the legacy
   ``get_local_backend_client_dep`` is removed (or kept only for tests
   that pin the deprecation).
 """

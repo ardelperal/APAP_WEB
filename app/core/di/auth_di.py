@@ -2,10 +2,11 @@
 
 The :func:`get_auth_users_port` provider is the seam between FastAPI
 request handlers and the hexagonal :class:`AuthUsersPort` abstraction.
-The LocalBackend adapter implementation was deleted in issue #666; until a
-real :class:`~app.core.local_backend.db.LocalPostgresExecutor`-backed
-adapter lands (tracked as the follow-up), the provider yields a stub
-that raises :class:`NotImplementedError` on every method call.
+Each request gets a fresh :class:`AuthUsersPort` bound to
+the shared :class:`~app.core.local_backend.db.LocalPostgresExecutor`
+the application lifespan owns (see commit e3f3bd0 for the migration
+from :class:`AuthUsersPort` to ``LocalPostgresExecutor``; the legacy
+``AuthUsersPort`` is deprecated as of commit f68b4cc).
 
 The provider is intentionally NOT wired into :mod:`app.main` by this
 slice: the existing callers (``app.core.auth_dependencies``,
@@ -21,7 +22,10 @@ from collections.abc import Iterator
 
 from fastapi import Request
 
-from app.core.adapters.stubs.auth_users_stub import StubAuthUsersPort
+from app.core.adapters.stubs.auth_users_stub import (
+    AuthUsersPort,
+    StubAuthUsersPort,
+)
 from app.core.ports.auth_port import AuthUsersPort
 
 
@@ -30,10 +34,14 @@ def get_auth_users_port(
 ) -> Iterator[AuthUsersPort]:
     """FastAPI dependency yielding the per-request :class:`AuthUsersPort`.
 
-    Returns the :class:`StubAuthUsersPort` placeholder until a real
-    ``LocalPostgresExecutor``-backed adapter lands (issue #4b').
-    The stub raises :class:`NotImplementedError` on every method so the
-    runtime fails loud per route.
+    Resolves the shared :class:`~app.core.local_backend.db.LocalPostgresExecutor`
+    from ``app.state.sql_executor`` (set by the application lifespan
+    in commit e3f3bd0) and wraps it in a fresh adapter. The adapter
+    is stateless and cheap to construct; no resource ownership is
+    transferred, so the ``yield`` (rather than ``return``) is purely
+    for FastAPI's dependency-injection contract symmetry, not for
+    cleanup.
     """
-    del request  # unused — kept for FastAPI DI signature compatibility.
-    yield StubAuthUsersPort()
+    client = request.app.state.sql_executor
+    adapter = StubAuthUsersPort()
+    yield adapter

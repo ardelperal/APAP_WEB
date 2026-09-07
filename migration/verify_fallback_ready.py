@@ -162,8 +162,8 @@ def check_web_to_legacy_check_only() -> CheckResult:
     copy-before-mutate discipline).
 
     M0 of self-host-backend-coolify (issue #641): the CLI's
-    ``LocalPostgresExecutor`` now points at the local backend when
-    ``APAP_LOCAL_BACKEND=true`` and ``APAP_LOCAL_BACKEND_URL`` targets it.
+    ``StubAuthUsersPort`` now points at the local backend when
+    ``APAP_LOCAL_BACKEND=true`` and ``APAP_INSFORGE_URL`` targets it.
     If ``APAP_LOCAL_DB_URL`` is set in the parent env, this check
     auto-wires both: it provisions an ephemeral APAP schema, spawns
     the local backend on a free port, runs the migration CLI against
@@ -244,7 +244,7 @@ def check_web_to_legacy_check_only() -> CheckResult:
                 )
             extra_env = {
                 "APAP_LOCAL_BACKEND": "true",
-                "APAP_LOCAL_BACKEND_URL": f"http://127.0.0.1:{port}",
+                "APAP_INSFORGE_URL": f"http://127.0.0.1:{port}",
                 # Dummy key — the local backend does not authenticate.
                 "APAP_INSFORGE_SERVICE_KEY": "local-backend-dummy-key",
             }

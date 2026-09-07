@@ -2,7 +2,7 @@
 
 This module lets the E2E migration tests run ``apply_legacy_to_web`` and
 ``apply_web_to_legacy`` against a real database (Postgres ephemeral or
-LocalBackend) rather than the FakeSqlExecutor in-memory shim used by the rest
+LocalBackend) rather than the FakeLocalBackend in-memory shim used by the rest
 of the migration test suite.
 
 The seam wraps existing clients:
@@ -21,7 +21,7 @@ The seam wraps existing clients:
     vars are set, the E2E atom uses the Postgres backend.
 
 The two clients are NOT mutually exclusive — the test atom picks one
-based on the ``APAP_LOCAL_BACKEND_URL`` env var. The LocalBackend client is
+based on the ``APAP_INSFORGE_URL`` env var. The LocalBackend client is
 preferred when available because it is the production target.
 """
 
@@ -134,7 +134,7 @@ def get_local_backend_credentials() -> tuple[str, str] | None:
     look up the env vars; later changes (e.g. reading from a
     config file) are localised here.
     """
-    url = os.environ.get("APAP_LOCAL_BACKEND_URL") or os.environ.get("INSFORGE_URL")
+    url = os.environ.get("APAP_INSFORGE_URL") or os.environ.get("INSFORGE_URL")
     key = os.environ.get(
         "APAP_INSFORGE_SERVICE_KEY"
     ) or os.environ.get("INSFORGE_API_KEY")

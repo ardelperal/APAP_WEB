@@ -57,7 +57,7 @@ def _run(
         "APAP_LOCAL_DB_URL",
         "APAP_LOCAL_DB_SCHEMA",
         "APAP_LOCAL_BACKEND",
-        "APAP_LOCAL_BACKEND_URL",
+        "APAP_INSFORGE_URL",
         "APAP_LEGACY_ACCDB_PATH",
     ):
         env.pop(key, None)

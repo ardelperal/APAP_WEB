@@ -17,7 +17,7 @@ Issue #336: extracted from ``create_app`` to reduce the factory's
 cyclomatic complexity (CC) and line count.
 
 Issue judgment-day 2026-08-04 BLOCKER §31 (the legacy
-``auth_flow.py:21`` imported :class:`LocalPostgresExecutor` and
+``auth_flow.py:21`` imported :class:`AuthUsersPort` and
 :class:`BackendError` directly) is now fixed: this module no
 longer imports any LocalBackend-shaped symbol. The adapter wraps the
 LocalBackend client; the use cases depend on the Protocol.
@@ -56,7 +56,6 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 
 from app.core import config as config_module
-from app.core.adapters.stubs.auth_users_stub import StubAuthUsersPort
 from app.core.adapters.stubs.oauth_stub import StubOAuthPort
 from app.core.application.oauth import (
     callback as callback_use_case,
@@ -78,7 +77,6 @@ from app.core.domain.oauth import (
     OAuthNotConfiguredError,
     UserNotAuthorizedError,
 )
-from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.logging import log_safe
 from app.core.session import (
     read_session,
@@ -122,7 +120,7 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
     The route handlers are THIN: each one handles only transport
     concerns (cookie parsing, redirect building, template
     rendering) and delegates the domain decision to a use case in
-    :mod:`app.core.application.oauth`. The :class:`LocalPostgresExecutor`
+    :mod:`app.core.application.oauth`. The :class:`AuthUsersPort`
     is constructed per-request by the shim helpers
     (no DI; the legacy shape is preserved).
     """
@@ -150,7 +148,7 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
 
     @app.get("/auth/google")
     def start_google_login(
-        client: Annotated[LocalPostgresExecutor, Depends(get_local_backend_client_dep)],
+        client: Annotated[AuthUsersPort, Depends(get_local_backend_client_dep)],
     ) -> Response:
         """Start the Google OAuth flow via LocalBackend.
 
@@ -190,7 +188,7 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
     @app.get("/auth/callback")
     def callback(
         request: Request,
-        client: Annotated[LocalPostgresExecutor, Depends(get_local_backend_client_dep)],
+        client: Annotated[AuthUsersPort, Depends(get_local_backend_client_dep)],
         oauth_code: str | None = None,
         code: str | None = None,  # legacy direct-callback (pre-LocalBackend-proxy)
     ) -> Response:
@@ -223,7 +221,7 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
         try:
             session = callback_use_case(
                 StubOAuthPort(),
-                StubAuthUsersPort(),
+                AuthUsersPort(),
                 oauth_code=oauth_code,
                 code=code,
                 code_verifier=pkce["code_verifier"],

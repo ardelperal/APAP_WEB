@@ -12,7 +12,7 @@ This shim re-exports:
   / ``DIRECTION_LEGACY_TO_WEB``).
 - The typed-exception hierarchy (``ReverseApplyError`` /
   ``ReverseSyncStateRollbackError``).
-- The ``SqlExecutor`` structural type.
+- The ``_LocalBackendLike`` structural type.
 - The private helpers the 14 ``test_reverse_apply.py`` atoms +
   5 ``test_round_trip.py`` atoms reach into via this module path:
 
@@ -59,7 +59,7 @@ from migration.reverse_apply.shadow import (
 from migration.reverse_apply.types import (
     ReverseApplyError,
     ReverseSyncStateRollbackError,
-    SqlExecutor,
+    _LocalBackendLike,
 )
 
 # Closed-vocabulary direction tags.
@@ -71,7 +71,7 @@ __all__ = [
     "DIRECTION_WEB_TO_LEGACY",
     "ReverseApplyError",
     "ReverseSyncStateRollbackError",
-    "SqlExecutor",
+    "_LocalBackendLike",
     "_LockContext",
     "_advance_preserve_shadow_state",
     "_case_insensitive_get",

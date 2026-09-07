@@ -1,10 +1,9 @@
 """Composition root — Cesiones slice DI.
 
-Wires ``CesionesPort`` -> ``StubCesionesPort`` (pending a real
-``LocalPostgresExecutor``-backed adapter in the follow-up to #668).
-The LocalBackend adapter implementation was deleted in issue #668; the
-stub raises :class:`NotImplementedError` on every method call so the
-runtime fails loud per route.
+Wires ``CesionesPort`` -> ``CesionesPort`` -> LocalBackend.
+Mirrors ``app.modules.animals.di.animals_di.get_animals_port`` exactly:
+a sync generator that reads the pooled AuthUsersPort from request state
+and yields a fresh adapter per request.
 """
 
 from __future__ import annotations
@@ -13,22 +12,27 @@ from collections.abc import Iterator
 
 from fastapi import Request
 
-from app.modules.cesiones.adapters.stubs.cesiones_stub import StubCesionesPort
+from app.core.data_access import SqlExecutor
+from app.modules.cesiones.adapters.stubs.cesiones_stub import (
+    CesionesPort,
+    StubCesionesPort,
+)
 from app.modules.cesiones.ports.cesiones_port import CesionesPort
 
 
 def get_cesiones_port(
     request: Request,
 ) -> Iterator[CesionesPort]:
-    """Yield a :class:`CesionesPort` backed by the stub placeholder.
+    """Yield a ``CesionesPort`` wired to an LocalBackend-backed adapter.
 
-    Returns the :class:`StubCesionesPort` placeholder until a real
-    ``LocalPostgresExecutor``-backed adapter lands (issue #6').
-    The stub raises :class:`NotImplementedError` on every method so the
-    runtime fails loud per route.
+    Reads the pooled :class:`~app.core.local_backend.AuthUsersPort` from
+    ``request.app.state.sql_executor`` (managed by the app lifespan).
+    Yields a fresh adapter per request so the route layer is decoupled
+    from the concrete adapter.
     """
-    del request  # unused — kept for FastAPI DI signature compatibility.
-    yield StubCesionesPort()
+    client: SqlExecutor = request.app.state.sql_executor
+    adapter = StubCesionesPort()
+    yield adapter
 
 
 __all__ = ["get_cesiones_port"]

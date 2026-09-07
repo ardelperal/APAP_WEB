@@ -28,9 +28,8 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from app.core.di.local_postgres_di import get_local_postgres_executor_dep
 from app.core.session import session_cookie_name
-from app.main import app
+from app.main import app, get_local_backend_client
 
 
 class _StubLocalBackend:
@@ -60,9 +59,9 @@ class _StubLocalBackend:
 @pytest.fixture
 def stub_local_backend():
     fake = _StubLocalBackend()
-    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: fake
+    app.dependency_overrides[get_local_backend_client] = lambda: fake
     yield fake
-    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
+    app.dependency_overrides.pop(get_local_backend_client, None)
 
 
 async def test_logout_returns_302_to_root(

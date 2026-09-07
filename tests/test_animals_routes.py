@@ -27,10 +27,9 @@ import pytest
 from fastapi.responses import HTMLResponse
 
 from app.core.data_access import UniqueViolationError
-from app.core.di.local_postgres_di import get_local_postgres_executor_dep
 from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.session import session_cookie_name, write_session
-from app.main import app
+from app.main import app, get_local_backend_client
 from app.modules.animals import routes as animals_routes
 from app.modules.animals.di.animals_di import get_animals_port
 from app.modules.animals.domain.animal import Animal, Especie, Sexo
@@ -225,9 +224,9 @@ class _AnimalsPortStub:
 @pytest.fixture
 def animals_spy() -> _AnimalsRouteSpy:
     spy = _AnimalsRouteSpy()
-    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy
+    app.dependency_overrides[get_local_backend_client] = lambda: spy
     yield spy
-    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
+    app.dependency_overrides.pop(get_local_backend_client, None)
 
 
 @pytest.fixture

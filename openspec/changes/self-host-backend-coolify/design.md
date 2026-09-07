@@ -15,7 +15,7 @@ on `app.main`. The reasons:
   backend app has its own lifespan that constructs the
   `LocalPostgresExecutor` from `APAP_LOCAL_DB_URL`.
 - The `LocalBackendClient` already speaks HTTP. It points at the local
-  backend via the existing `APAP_LOCAL_BACKEND_URL` (or the default
+  backend via the existing `APAP_INSFORGE_URL` (or the default
   `http://localhost:8000/api` set by `APAP_LOCAL_BACKEND=true`).
 - Tests can stand up the local app in-process via
   `httpx.AsyncClient(ASGITransport=app)` which executes the lifespan

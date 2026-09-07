@@ -2,7 +2,7 @@
 
 [Back to Codebase Guide](../CODEBASE-GUIDE.md)
 
-Esta página posee el catálogo de superficies que expone el sistema (HTTP, OAuth, storage, healthcheck) y por dónde fluye cada una. No posee el detalle de comportamiento de cada ruta — eso vive en el `routes.py` del módulo afectado — ni el contrato de stack — eso es [Arquitectura LocalBackend](../architecture/architecture-local_backend-stack.md).
+Esta página posee el catálogo de superficies que expone el sistema (HTTP, OAuth, storage, healthcheck) y por dónde fluye cada una. No posee el detalle de comportamiento de cada ruta — eso vive en el `routes.py` del módulo afectado — ni el contrato de stack — eso es [Arquitectura LocalBackend](../architecture/architecture-local-backend-stack.md).
 
 ## Core invariants
 

@@ -61,17 +61,16 @@ class _AnonymousSpy:
 
 
 @pytest.fixture
-def _bypass_sql_executor(monkeypatch: pytest.MonkeyPatch) -> None:
-    from app.core.di.local_postgres_di import get_local_postgres_executor_dep
-    from app.main import app
+def _bypass_local_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.main import app, get_local_backend_client
 
     spy = _AnonymousSpy()
-    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy
+    app.dependency_overrides[get_local_backend_client] = lambda: spy
     monkeypatch.setattr(
-        "app.modules.animals.routes.get_local_postgres_executor_dep", lambda: spy
+        "app.modules.animals.routes.get_local_backend_client_dep", lambda: spy
     )
     yield
-    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
+    app.dependency_overrides.pop(get_local_backend_client, None)
 
 
 def _login(client: httpx.AsyncClient) -> None:
@@ -104,7 +103,7 @@ def _animal_form_data() -> dict[str, str]:
 
 async def test_csrf_rejected_event_name_preserved(
     client: httpx.AsyncClient,
-    _bypass_sql_executor: None,
+    _bypass_local_backend: None,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """The Slice 6 swap to ``log_safe`` MUST keep the ``csrf.rejected`` event name.
@@ -147,7 +146,7 @@ async def test_csrf_rejected_event_name_preserved(
 
 async def test_csrf_rejected_does_not_leak_session_token_in_log(
     client: httpx.AsyncClient,
-    _bypass_sql_executor: None,
+    _bypass_local_backend: None,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Round-2 fix SB-5: the redacted session-bound csrf_token MUST NOT
@@ -180,7 +179,7 @@ async def test_csrf_rejected_does_not_leak_session_token_in_log(
 
 async def test_csrf_disabled_event_name_emitted_when_feature_flag_off(
     client: httpx.AsyncClient,
-    _bypass_sql_executor: None,
+    _bypass_local_backend: None,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:

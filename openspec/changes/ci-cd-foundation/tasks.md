@@ -113,7 +113,7 @@ The following tasks are NOT in scope for this change. They are tracked here as t
 - [ ] D1.1 Harden the existing `staging` branch with branch protection requiring the CI workflow to pass.
 - [ ] D1.2 Update the `deploy` job in `.github/workflows/ci.yml` to gate production merge on `uat_releases.production_gate_status = passed` (or explicit override with reviewer identity).
 - [ ] D1.3 Update `docs/development.md` to describe the new flow: PR to staging → UAT → merge to main; include the technical/internal-skip clause.
-- [ ] D1.4 Update `docs/architecture/architecture-local_backend-stack.md § Branch and deployment policy` to mark the transition as complete and reflect the post-staging state.
+- [ ] D1.4 Update `docs/architecture/architecture-local-backend-stack.md § Branch and deployment policy` to mark the transition as complete and reflect the post-staging state.
 
 ## DEFERRED — ENV-01 implementation (trigger: CD-03 complete)
 

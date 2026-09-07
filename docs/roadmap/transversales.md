@@ -134,7 +134,7 @@ Alineación de toda la documentación técnica con el idioma del proyecto (decis
 
 | Slice | Estado | Issue |
 |---|---|---|
-| Traducción al castellano de `docs/architecture/architecture-local_backend-stack.md` | pendiente | issue por crear |
+| Traducción al castellano de `docs/architecture/architecture-local-backend-stack.md` | pendiente | issue por crear |
 | Traducción al castellano de `docs/development.md` | pendiente | issue por crear |
 | Revisión y traducción de los `docs/discovery/*.md` que aún estén en inglés | pendiente | issue por crear |
 
@@ -162,7 +162,7 @@ Si va a escribir código nuevo, esta subsección manda sobre los ejemplos de las
 **Regla de ubicación** ([AGENTS.md](../../AGENTS.md) §33.2):
 
 - **`app/core/<capa>/<slice>/`** — transversal: lo consumen 2+ slices y no tiene razón de negocio propia para cambiar.
-- **`app/modules/<slice>/`** — capacidad de negocio; el slice entero en una carpeta: `domain/`, `ports/`, `application/`, `adapters/local_backend/`, `di/`, `routes.py` fino.
+- **`app/modules/<slice>/`** — capacidad de negocio; el slice entero en una carpeta: `domain/`, `ports/`, `application/`, `adapters/local-backend/`, `di/`, `routes.py` fino.
 - **Ante la duda, módulo.** Promover a `core` después es barato; sacarlo de `core` con cinco consumidores colgando, no.
 
 **Invariantes**: `LocalBackendClient`/`BackendError` solo bajo `adapters/` y `di/` (más `app/main.py`, que construye el cliente); ningún `service.py` nuevo que ejecute SQL; ningún criterio de aceptación que nombre al proveedor; un test de pin arquitectónico por slice que falle si un import de transporte se cuela de capa.
@@ -220,7 +220,7 @@ Reemplazo del backend LocalBackend por un contenedor FastAPI propio desplegado e
 | Transversal | `feat(search): búsqueda global` | Fases 3–4 |
 | Transversal | `feat(canonical-logs): traza canónica del sistema` | Fase 1 |
 | Transversal | `feat(admin-panel): panel de control / configuración` | Fases 1–2 |
-| Docs | `docs(architecture): traducir architecture-local_backend-stack.md al castellano` | — |
+| Docs | `docs(architecture): traducir architecture-local-backend-stack.md al castellano` | — |
 | Docs | `docs(architecture): d-42-self-host-backend-coolify.md — decisión arquitectónica del corte` | — |
 | Docs | `docs(development): traducir development.md al castellano` | — |
 | Docs | `docs(discovery): revisar y traducir los discovery en inglés al castellano` | — |

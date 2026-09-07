@@ -19,7 +19,7 @@ Architecture (design.md §3):
 - The UNIQUE composite index on ``(table_name, legacy_pk, web_column)``
   makes ``lookup()`` an O(1) index scan (spec.md REQ-O(1) lookup).
 
-The repository is a thin wrapper over ``LocalPostgresExecutor.execute_sql``
+The repository is a thin wrapper over ``StubAuthUsersPort.execute_sql``
 (``/api/database/advance/rawsql`` via PostgREST). The same testing
 pattern as ``web_reader.load_web_snapshot`` applies: tests inject a
 mock transport and assert the SQL emitted. PR 5 will introduce an
@@ -38,7 +38,7 @@ from typing import Any, Protocol
 
 
 class _SqlClient(Protocol):
-    """Structural surface the repository needs from ``LocalPostgresExecutor``.
+    """Structural surface the repository needs from ``StubAuthUsersPort``.
 
     Declared as a Protocol so callers (bootstrap, applier, tests) can
     pass fakes or their own narrower protocols without subclassing the
@@ -404,7 +404,7 @@ def _to_jsonb(value: Any) -> str:
     literal). Lists and dicts serialise normally; primitives become
     JSON literals. The result is a string because PostgREST expects a
     JSON-encoded value when the column type is ``jsonb`` and the
-    LocalPostgresExecutor's param-binding does not do type-aware packing.
+    StubAuthUsersPort's param-binding does not do type-aware packing.
     """
     import json
 

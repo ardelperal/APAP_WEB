@@ -12,7 +12,7 @@ tables. The full ``legacy -> web -> legacy`` loop MUST preserve:
   shadow row).
 
 These atoms exercise the invariants end-to-end through
-``FakeSqlExecutor`` + the injected legacy executor + the injected
+``FakeLocalBackend`` + the injected legacy executor + the injected
 legacy write seam (PR6 added ``set_legacy_write_executor`` parallel
 to ``set_legacy_query_executor``). No real pyodbc / Access /
 LocalBackend mutation occurs.
@@ -26,7 +26,7 @@ Hard Rules honoured:
 - **Rule 3 (cardinality)**: every mutating atom asserts
   ``result.applied`` / ``result.skipped`` as concrete numbers.
 - **Rule 4 (no humo)**: assertions on values, never absence-of-error.
-- **Rule 8 (no production mutation)**: ``FakeSqlExecutor`` + injected
+- **Rule 8 (no production mutation)**: ``FakeLocalBackend`` + injected
   executor fakes; zero real backend touches.
 
 Five atoms (per ``tasks.md`` 6.1 PR6):
@@ -61,7 +61,7 @@ import pytest
 from migration import legacy_reader
 from migration.apply import apply_legacy_to_web
 from migration.apply_reverse import apply_web_to_legacy
-from tests.migration.conftest import FakeSqlExecutor  # noqa: TID251 — internal import
+from tests.migration.conftest import FakeLocalBackend  # noqa: TID251 — internal import
 
 # --- shared round-trip runner ------------------------------------------
 
@@ -152,7 +152,7 @@ def round_trip_runner(
         missing_pks: set[str] | None = None,
         forward_count: int | None = None,
     ) -> dict[str, Any]:
-        client = FakeSqlExecutor()
+        client = FakeLocalBackend()
         if web_seed:
             for table, rs in web_seed.items():
                 client.seed(table, rs)
@@ -399,7 +399,7 @@ def test_round_trip_100_voluntarios_preserves_dni(round_trip_runner) -> None:
     # shadow upsert; the production ``ShadowStateRepository``
     # serialises via ``_to_jsonb(None)`` which returns the JSON
     # literal ``"null"`` (Postgres casts that to JSONB null). The
-    # FakeSqlExecutor stores the JSON-encoded string verbatim so the
+    # FakeLocalBackend stores the JSON-encoded string verbatim so the
     # assertion compares against the same shape the production SQL
     # receives. The reverse applier never writes a real
     # ``preserved_value`` for a preserve column without a
@@ -565,7 +565,7 @@ def test_round_trip_detects_unsynced_edits_as_needs_review(
 
     # The reverse apply issued 5 UPDATEs (one per edited row); the
     # legacy write seam reported rowcount=0 for each, so the diff
-    # handler routed them to shadow. ``FakeSqlExecutor`` does not
+    # handler routed them to shadow. ``FakeLocalBackend`` does not
     # capture the ``origin_direction`` column (it indexes the
     # upsert param list up to index 7; ``origin_direction`` is
     # index 8); the test pins the spec contract via
@@ -609,7 +609,7 @@ def test_round_trip_counts_preserved(round_trip_runner) -> None:
     ``MigrationReport.collisions[table]["count_legacy"]`` /
     ``count_web`` (PR3 added; PR6 leaves them unchanged). Today the
     round-trip runner carries the counts directly via the web
-    table, so the assertion is on the FakeSqlExecutor row count.
+    table, so the assertion is on the FakeLocalBackend row count.
     """
     legacy_rows = [
         {

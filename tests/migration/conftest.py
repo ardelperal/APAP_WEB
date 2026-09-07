@@ -10,10 +10,10 @@ Hard Rules honoured (web-tdd-philosophy):
   executor is injected via ``migration.legacy_reader.set_legacy_query_executor``
   in the ``set_legacy`` fixture (the same seam PR-3 of
   ``web-only-feature-preservation`` left open).
-- **Rule 7 — single harness form**: exactly one fake (``FakeSqlExecutor``).
+- **Rule 7 — single harness form**: exactly one fake (``FakeLocalBackend``).
   Tests reuse it; no ``MockClient`` / ``StubClient`` / ``SpyClient``
   variants.
-- **Rule 8 — no production mutation**: ``FakeSqlExecutor`` holds rows
+- **Rule 8 — no production mutation**: ``FakeLocalBackend`` holds rows
   in memory only. The Dysflow mock returns canned rows from a dict,
   never touches a real ``.accdb``.
 
@@ -40,6 +40,7 @@ from typing import Any
 
 import pytest
 
+from app.core.data_access import BackendError
 from migration import legacy_reader
 from migration import lock as _migration_lock
 from migration.apply import (
@@ -49,45 +50,244 @@ from migration.apply import (
 )
 
 
-class FakeSqlExecutor:
-    """In-memory test fake for the migration package web_client interface.
+class FakeLocalBackend:
+    """In-memory ``LocalPostgresExecutor`` replacement.
 
-    Replaces the LocalBackend-backed fake that lived here before issue #669.
-    The LocalBackend client module was deleted in #664; the migration
-    package itself is being rewritten in #8. Until then, this stub
-    captures calls for assertions and returns empty rows on every
-    ``execute_sql`` so the apply_runner fixture can still drive the
-    code paths the migration tests exercise.
+    Routes a handful of SQL shapes:
+
+    - ``CREATE TABLE IF NOT EXISTS web_only_feature_shadow`` — bootstrap,
+      returns ``[]``.
+    - ``INSERT INTO web_only_feature_shadow ...`` — appends the params
+      payload (no column parsing) so tests can assert what was logged.
+    - ``INSERT INTO <table> (...) RETURNING <cols>`` — extracts the
+      column list, builds a row dict from params, returns a copy with
+      a synthetic ``id``.
+    - ``SELECT ... FROM <table>`` — returns the current rows; honors
+      a simple ``WHERE col = $1`` by filtering on ``col``.
+    - ``SELECT COUNT(*) FROM <table>`` — returns ``{"count": N}``.
+
+    Unknown shapes return ``[]`` so a test that does not pre-load the
+    table sees an empty result (Hard Rule 4: no humo, but a stub is
+    not a "no exception" pass — the test asserts the post-state of
+    ``tables[table]`` explicitly).
 
     The instance is fresh per test via the ``web_client`` fixture; no
     cross-test contamination.
     """
 
     def __init__(self) -> None:
-        self.queries: list[tuple[str, list[object] | None]] = []
-        self.tables: dict[str, list[dict[str, object]]] = {}
-        self.buckets: dict[str, dict[str, object]] = {}
+        # Mirrors the real LocalBackend envelope shape so ``rows[0]`` calls
+        # in production code path (e.g. when ``RETURNING`` returns rows)
+        # work without modification.
+        self.queries: list[tuple[str, list[Any] | None]] = []
+        self.tables: dict[str, list[dict[str, Any]]] = {}
+        self.buckets: dict[str, dict[str, Any]] = {}
 
-    def seed(self, table: str, rows: list[dict[str, object]]) -> None:
+    # --- public helpers used by tests --------------------------------
+    def seed(self, table: str, rows: list[dict[str, Any]]) -> None:
+        """Pre-load ``table`` with ``rows`` (Hard Rule 1)."""
         self.tables[table] = [dict(r) for r in rows]
 
-    def all_rows(self, table: str) -> list[dict[str, object]]:
+    def all_rows(self, table: str) -> list[dict[str, Any]]:
+        """Return a copy of every row currently in ``table``."""
         return [dict(r) for r in self.tables.get(table, [])]
 
-    def get_bucket(self, bucket_name: str) -> dict[str, object] | None:
+    def get_bucket(self, bucket_name: str) -> dict[str, Any] | None:
+        """Return a copy of bucket metadata, or ``None`` on miss."""
         bucket = self.buckets.get(bucket_name)
         return dict(bucket) if bucket is not None else None
 
-    def ensure_bucket(self, bucket_name: str, *, is_public: bool = False) -> dict[str, object]:
-        raise NotImplementedError(
-            "FakeSqlExecutor.ensure_bucket: pending #8 migration package rewrite"
-        )
+    def ensure_bucket(self, bucket_name: str, *, is_public: bool = False) -> dict[str, Any]:
+        """Create a missing bucket as private; fail closed on public state."""
+        if is_public:
+            raise ValueError("FakeLocalBackend only supports private buckets")
+        existing = self.buckets.get(bucket_name)
+        if existing is not None:
+            if existing.get("isPublic") is not False:
+                raise BackendError(
+                    409,
+                    {
+                        "error": "bucket_public_violation",
+                        "message": f"Bucket {bucket_name!r} exists but is public",
+                    },
+                )
+            return dict(existing)
+        bucket = {"bucketName": bucket_name, "isPublic": False}
+        self.buckets[bucket_name] = bucket
+        return dict(bucket)
 
+    # --- duck-typed LocalPostgresExecutor surface ----------------------------
     def execute_sql(
-        self, query: str, params: list[object] | None = None
-    ) -> list[dict[str, object]]:
-        self.queries.append((query, list(params) if params is not None else None))
+        self,
+        query: str,
+        params: list[Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        self.queries.append((query, params))
+        q = query.strip()
+        upper = q.upper()
+
+        # --- bootstrap -------------------------------------------------
+        if upper.startswith("CREATE TABLE"):
+            # CREATE TABLE IF NOT EXISTS — no-op on second run.
+            return []
+
+        # --- shadow-state writes --------------------------------------
+        if upper.startswith("INSERT INTO WEB_ONLY_FEATURE_SHADOW"):
+            shadow = self.tables.setdefault("WEB_ONLY_FEATURE_SHADOW", [])
+            payload = {
+                "table_name": (params or [None])[0],
+                "legacy_pk": (params or [None, None])[1] if params else None,
+                "web_pk": (params or [None, None, None])[2] if params else None,
+                "web_column": (params or [None, None, None, None])[3] if params else None,
+                "preserved_value": (params or [None, None, None, None, None])[4]
+                if params
+                else None,
+                "strategy": (params or [None, None, None, None, None, None])[5]
+                if params
+                else None,
+                "reconciliation_status": (params or [None, None, None, None, None, None, None, None])[7]
+                if params and len(params) > 7
+                else None,
+                "params": list(params or []),
+                "query": query,
+            }
+            if "ON CONFLICT" in upper:
+                for idx, row in enumerate(shadow):
+                    if (
+                        row.get("table_name") == payload["table_name"]
+                        and row.get("legacy_pk") == payload["legacy_pk"]
+                        and row.get("web_column") == payload["web_column"]
+                    ):
+                        shadow[idx] = payload
+                        break
+                else:
+                    shadow.append(payload)
+            else:
+                shadow.append(payload)
+            return []
+
+        # --- shadow-state reads ---------------------------------------
+        if upper.startswith("SELECT COUNT(*)"):
+            # SELECT COUNT(*) FROM <table>
+            tail = q.upper().split("FROM", 1)[1].strip().rstrip(";")
+            table = tail.split()[0].strip('"').lower()
+            return [{"count": len(self.tables.get(table, []))}]
+
+        if upper.startswith("SELECT "):
+            return self._route_select(q, params)
+
+        # --- INSERT INTO <table> (domain tables) ---------------------
+        if upper.startswith("INSERT INTO "):
+            return self._route_insert(q, params)
+
+        # --- UPDATE <table> SET ... -----------------------------------
+        if upper.startswith("UPDATE "):
+            # We don't mutate state on UPDATE in this slice; the apply
+            # path emits a record-only ``UPDATE`` in the no-op case via
+            # the shadow log (a real ``UPDATE`` would still execute on
+            # the live DB; this fake records the call for assertions).
+            # PR6 reverse applier relies on ``update_reconciliation_status``
+            # which UPDATEs the shadow table — the fake routes those
+            # UPDATEs to the matching shadow row so test atoms can
+            # assert ``review_reasons`` / ``status`` propagation.
+            if "WEB_ONLY_FEATURE_SHADOW" in upper:
+                self._apply_shadow_update(q, params)
+                return []
+            return []
+
+        # Defensive: a query we don't recognise returns empty. Tests
+        # that NEED a non-empty result for an unknown shape must seed
+        # the table explicitly — the fake never invents data.
         return []
+
+    # --- internals --------------------------------------------------
+
+    def _apply_shadow_update(
+        self, query: str, params: list[Any] | None
+    ) -> None:
+        """Apply an UPDATE against ``web_only_feature_shadow`` to the in-memory store.
+
+        PR6 reverse applier relies on ``update_reconciliation_status``
+        (``migration.shadow_state.ShadowStateRepository``) to stamp
+        the categorical review reasons on the reverse drift rows.
+        The production SQL is parameterised in column order:
+        ``SET reconciliation_status = %s, review_reasons = %s,
+        last_reconciled_at = %s WHERE table_name = %s AND
+        legacy_pk = %s AND web_column = %s``. The fake parses
+        the WHERE clause and applies the SET clause to the
+        matching in-memory shadow row.
+        """
+        shadow = self.tables.setdefault("WEB_ONLY_FEATURE_SHADOW", [])
+        if not params:
+            return
+        # The production SQL parameter order (see migration/shadow_state.py):
+        # params[0]=status, params[1]=review_reasons (JSON string),
+        # params[2]=last_reconciled_at (ISO or None),
+        # params[3]=table_name, params[4]=legacy_pk, params[5]=web_column.
+        try:
+            normalized = list(params) + [None] * (6 - len(params))
+            status = normalized[0]
+            review_reasons_json = normalized[1]
+            last_reconciled_at = normalized[2]
+            table_name = normalized[3]
+            legacy_pk = normalized[4]
+            web_column = normalized[5]
+        except (IndexError, TypeError):
+            return
+        for row in shadow:
+            if (
+                row.get("table_name") == table_name
+                and row.get("legacy_pk") == str(legacy_pk)
+                and row.get("web_column") == web_column
+            ):
+                row["reconciliation_status"] = status
+                row["review_reasons"] = review_reasons_json
+                row["last_reconciled_at"] = last_reconciled_at
+                break
+
+    def _route_select(
+        self, query: str, params: list[Any] | None
+    ) -> list[dict[str, Any]]:
+        # Naive parser: ``SELECT ... FROM <table>[ WHERE <col> = $1]``
+        upper = query.upper()
+        table = upper.split("FROM", 1)[1].strip().split()[0].rstrip(";").strip('"')
+        table = table.lower()
+        rows = list(self.tables.get(table, []))
+
+        if "WHERE" not in upper:
+            return rows
+
+        # Extract ``col = $N`` from WHERE; match against params[N-1].
+        where_clause = upper.split("WHERE", 1)[1]
+        eq_token = where_clause.split()[0]  # best-effort first token
+        col = eq_token.strip('"').lower()
+        if params:
+            value = params[0]
+            return [r for r in rows if str(r.get(col)) == str(value)]
+        return rows
+
+    def _route_insert(
+        self, query: str, params: list[Any] | None
+    ) -> list[dict[str, Any]]:
+        # ``INSERT INTO <table> (col1, col2, ...) VALUES ($1, $2, ...) RETURNING ...``
+        upper = query.upper()
+        # Parse table name (handle quoted identifier).
+        after_insert = upper.split("INSERT INTO", 1)[1].strip()
+        head = after_insert.split("(", 1)[0].strip()
+        table = head.strip('"').lower()
+
+        # Parse column list between first ( and matching ).
+        cols_section = after_insert.split("(", 1)[1].split(")", 1)[0]
+        cols = [c.strip().strip('"').lower() for c in cols_section.split(",")]
+
+        row: dict[str, Any] = {}
+        for col, value in zip(cols, params or [], strict=False):
+            row[col] = value
+        # Synthetic web_pk so callers can record the mapping. The real
+        # DB does this server-side (DEFAULT gen_random_uuid()).
+        row.setdefault("id", f"web-{len(self.tables.get(table, [])) + 1}")
+        self.tables.setdefault(table, []).append(row)
+        return [row]
 
 
 # --- pytest fixtures ------------------------------------------------------
@@ -105,9 +305,9 @@ def legacy_dummy_path(tmp_path: Path) -> str:
 
 
 @pytest.fixture
-def web_client() -> FakeSqlExecutor:
+def web_client() -> FakeLocalBackend:
     """Fresh in-memory LocalPostgresExecutor per test (Hard Rule 1)."""
-    return FakeSqlExecutor()
+    return FakeLocalBackend()
 
 
 @pytest.fixture
@@ -132,14 +332,14 @@ def apply_runner() -> Any:
         legacy_rows: list[dict[str, Any]] | None = None,
         seed: dict[str, list[dict[str, Any]]] | None = None,
         dry_run: bool = False,
-        client: FakeSqlExecutor | None = None,
+        client: FakeLocalBackend | None = None,
         table_name: str = "animal",
         legacy_path: str | None = None,
         lock_path: Path | None = None,
         since: Any = None,
         batch_size: int = 100,
     ) -> Any:
-        client = client or FakeSqlExecutor()
+        client = client or FakeLocalBackend()
         if seed:
             for table, rows in seed.items():
                 client.seed(table, rows)
@@ -274,7 +474,7 @@ def _default_msaccess_preflight(
 
 __all__ = [
     "BOOTSTRAP_SHADOW_TABLE_SQL",
-    "FakeSqlExecutor",
+    "FakeLocalBackend",
     "_SAFE_TABLE_NAME",
     "apply_runner",
     "legacy_dummy_path",

@@ -16,16 +16,16 @@ exceptions; it never inspects ``status_code`` / ``body`` envelopes.
 Inheritance note for Phase 1
 ----------------------------
 
-:class:`BackendError` (formerly :class:`BackendError`) lives in this
-module so :class:`DuplicateKeyError` can inherit from it cleanly —
-preserving backward compatibility with the (pre-Phase-1) world where
-service-layer code catches ``except BackendError`` to inspect 409
-bodies for uniqueness violations. ``DuplicateKeyError`` inherits from
-both :class:`DataAccessError` (the universal Protocol base) and
-:class:`BackendError` (for backward compatibility during the incremental
-migration). The legacy name ``BackendError`` is preserved as an alias
-of :class:`BackendError` until every ``except BackendError`` clause is
-migrated (issue #7).
+:class:`BackendError` lives in this module so :class:`DuplicateKeyError`
+can inherit from it cleanly — preserving backward compatibility with
+the (pre-Phase-1) world where service-layer code catches
+``except BackendError`` to inspect 409 bodies for uniqueness
+violations. ``DuplicateKeyError`` inherits from both
+:class:`DataAccessError` (the universal Protocol base) and
+:class:`BackendError` (for backward compatibility during the
+incremental migration). When the Legacy Access adapter lands in
+Phase 3 the same pattern can be applied: its ``LegacyReaderError``
+will inherit from :class:`DataAccessError` only.
 
 §31 (Domain services depend on Protocol abstractions)
 §32.P4 (Partial exception handling — fix by catching Protocol exceptions)
@@ -67,49 +67,43 @@ class DataAccessError(Exception):
     transport error so an operator postmortem can still see it in the
     traceback without domain code having to know the transport shape.
 
-    This is the universal Protocol base — every backend adapter (the
-    Coolify local Postgres one, the future legacy Access one, ...) subclasses
-    :class:`DataAccessError` directly. A future ``except DataAccessError``
-    clause catches every adapter failure at once.
+    This is the universal Protocol base — the legacy Access adapter (when
+    it lands) will subclass this directly, and the LocalBackend adapter's
+    transport error (:class:`BackendError`) ALSO inherits from this so a
+    future ``except DataAccessError`` clause catches everything at once.
     """
 
 
 class BackendError(DataAccessError):
-    """Raised when a backend returns a non-2xx response.
+    """Raised when the LocalBackend API returns a non-2xx response.
 
-    Replaces the legacy :class:`BackendError` (kept as a deprecated alias
-    below for backward compatibility with code that has not yet migrated).
-    Lives in this module (rather than alongside a specific adapter) so the
-    Protocol-level :class:`DuplicateKeyError` can inherit from it without
-    a circular import — adapters translate 409 uniqueness violations to
-    ``DuplicateKeyError`` for domain code, but service-layer code that has
-    not yet migrated to Protocol exceptions keeps catching
-    ``except BackendError`` and ``__cause__`` preservation continues to
-    work because ``DuplicateKeyError`` is ``isinstance``-equivalent to
-    ``BackendError`` (via the alias).
+    Lives in this module (rather than :mod:`app.core.local_backend`) so the
+    Protocol-level :class:`DuplicateKeyError` can inherit from it
+    without a circular import — the LocalBackend adapter translates 409
+    uniqueness violations to ``DuplicateKeyError`` for domain code, but
+    service-layer code that has not yet migrated to Protocol exceptions
+    (Phase 3) keeps catching ``except BackendError`` and ``__cause__``
+    preservation continues to work because ``DuplicateKeyError`` is
+    ``isinstance``-equivalent to ``BackendError``.
 
-    The ``status_code`` and ``body`` attributes preserve the upstream envelope
-    for callers that still inspect it during the migration.
+    The class no longer subclasses :class:`RuntimeError` directly — that
+    was the case while it lived in :mod:`app.core.local_backend` and is now
+    redundant because ``DataAccessError`` is already an ``Exception``
+    subclass. A repository-wide grep confirmed nothing depends on
+    ``except RuntimeError`` for ``BackendError``.
     """
 
     def __init__(self, status_code: int, body: Any) -> None:
         self.status_code = status_code
         self.body = body
-        super().__init__(f"backend {status_code}: {body!r}")
-
-
-# Deprecated alias — kept until every ``except BackendError`` clause is
-# migrated. The symbol resolves to the new :class:`BackendError`, so
-# ``except BackendError`` keeps matching the same instance type. Removal
-# is tracked in issue #7 (test fakes retirement).
-BackendError = BackendError
+        super().__init__(f"LocalBackend {status_code}: {body!r}")
 
 
 class DuplicateKeyError(BackendError):
     """Raised when SQL INSERT/UPDATE violates a uniqueness constraint.
 
-    Adapters catch 409 responses whose body carries the Postgres
-    ``23505`` SQLSTATE or whose message contains the substring
+    The LocalBackend adapter catches 409 responses whose body carries the
+    Postgres ``23505`` SQLSTATE or whose message contains the substring
     ``"duplicate"`` / ``"unique"`` and raises this exception. Domain
     code catches :class:`DuplicateKeyError` (or its more specific
     subclass :class:`UniqueViolation`) without knowing the transport

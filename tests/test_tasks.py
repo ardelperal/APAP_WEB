@@ -22,10 +22,9 @@ import uuid
 import httpx
 import pytest
 
-from app.core.di.local_postgres_di import get_local_postgres_executor_dep
 from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.session import session_cookie_name, write_session
-from app.main import app
+from app.main import app, get_local_backend_client
 from tests.conftest import make_csrf_request
 
 # ---------------------------------------------------------------------------
@@ -182,9 +181,9 @@ class _FakeTasksLocalBackend(LocalPostgresExecutor):
 @pytest.fixture
 def fake_tasks_local_backend() -> _FakeTasksLocalBackend:
     fake = _FakeTasksLocalBackend()
-    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: fake
+    app.dependency_overrides[get_local_backend_client] = lambda: fake
     yield fake
-    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
+    app.dependency_overrides.pop(get_local_backend_client, None)
 
 
 # ---------------------------------------------------------------------------

@@ -113,7 +113,7 @@ def callback(
             whole route.
     """
     if oauth_code:
-        oauth_user = oauth_port.exchange_local_backend_oauth_code(
+        oauth_user = oauth_port.exchange_insforge_oauth_code(
             oauth_code=oauth_code,
             code_verifier=code_verifier,
         )

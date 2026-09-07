@@ -19,10 +19,10 @@ method here takes no concrete backend client; the adapter chooses its
 own transport. Rule §22 (SQL/service separation): the SQL lives in the
 adapter, not in the port.
 
-Why this port is narrower than the apply layer's ``SqlExecutor``
+Why this port is narrower than the apply layer's ``_LocalBackendLike``
 ==============================================================================
 
-``SqlExecutor`` (in :mod:`migration.apply`) declares
+``_LocalBackendLike`` (in :mod:`migration.apply`) declares
 ``execute_sql`` + ``get_bucket`` + ``ensure_bucket`` because
 ``apply_legacy_to_web`` is a write pipeline that bootstraps the
 shadow table and the private photo bucket before any per-row INSERT.

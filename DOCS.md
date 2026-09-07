@@ -8,7 +8,7 @@
 
 > **Scope**: APAP_WEB es una aplicación web server-rendered (FastAPI + Jinja2 + LocalBackend) que reemplaza el legacy Access/VBA.
 >
-> Este doc describe las superficies externas. Las decisiones arquitectónicas viven en [docs/architecture/architecture-local_backend-stack.md](docs/architecture/architecture-local_backend-stack.md).
+> Este doc describe las superficies externas. Las decisiones arquitectónicas viven en [docs/architecture/architecture-local-backend-stack.md](docs/architecture/architecture-local-backend-stack.md).
 
 ---
 
@@ -41,7 +41,7 @@ Cada documento del repo ocupa un único rol. Este índice es la única ruta reco
 | [docs/proceso.md](docs/proceso.md) | Playbook operativo: preflight → issue → TDD → merge → cierre. |
 | [docs/setup.md](docs/setup.md) | Setup local por desarrollador. |
 | [docs/CODEBASE-GUIDE.md](docs/CODEBASE-GUIDE.md) | Overview de módulos (Tier 2 de #464, parcial). |
-| [docs/architecture/architecture-local_backend-stack.md](docs/architecture/architecture-local_backend-stack.md) | Stack target, reglas LocalBackend, despliegue. |
+| [docs/architecture/architecture-local-backend-stack.md](docs/architecture/architecture-local-backend-stack.md) | Stack target, reglas LocalBackend, despliegue. |
 | [docs/architecture/decisiones-proyecto.md](docs/architecture/decisiones-proyecto.md) | Registro formal de decisiones arquitectónicas (D-01…). |
 | [docs/audits/](docs/audits/) | Auditorías por slice sensible (CSRF, RBAC, XSS, cookies). |
 | [docs/runbooks/](docs/runbooks/) | Runbooks de operador (rotación de cookie, auth cache multi-worker). |
@@ -103,7 +103,7 @@ Todas las variables llevan prefijo `APAP_`. La single source of truth es [`app/c
 
 | Variable | Descripción | Default |
 |---|---|---|
-| `APAP_LOCAL_BACKEND_URL` | URL base de LocalBackend (PostgREST-compatible). | `http://localhost:7130` |
+| `APAP_INSFORGE_URL` | URL base de LocalBackend (PostgREST-compatible). | `http://localhost:7130` |
 | `APAP_INSFORGE_ANON_KEY` | JWT anónimo para uso cliente; el servidor no la usa hoy. | `""` |
 | `APAP_INSFORGE_SERVICE_KEY` | Service key con privilegios para admin SQL (bootstrap, seed, gestión de usuarios). Vacía desactiva operaciones privilegiadas. | `""` |
 | `APAP_GOOGLE_CLIENT_ID` | OAuth client id de Google. | `""` |
@@ -138,7 +138,7 @@ APAP_WEB compone varias superficies (HTTP, OAuth Google, LocalBackend, CSRF, rat
 | Cookie firmada con secreto rotado | 302 → `/login` | `itsdangerous` + middleware auth |
 | Rate limit OAuth superado (10/min/IP) | 429 | rate limit + OAuth Google |
 | Rate limit write superado (60/min/user o 30/min/IP) | 429 | rate limit + router del módulo |
-| `APAP_LOCAL_BACKEND_URL` inalcanzable al arranque | lifespan lanza `StartupConfigError` | `httpx.Client` + LocalBackend |
+| `APAP_INSFORGE_URL` inalcanzable al arranque | lifespan lanza `StartupConfigError` | `httpx.Client` + LocalBackend |
 | LocalBackend devuelve 401 al a service key | 500 con `log_safe("local_backend.unauthorized")` | `LocalBackendClient` + `log_safe` |
 | Usuario desactivado, caché vigente | sigue autorizado hasta `APAP_AUTH_CACHE_TTL_SECONDS` | caché TTL + `usuarios_autorizados` |
 | `APAP_SESSION_SECRET` placeholder en producción (`debug=False`) | lifespan lanza `StartupConfigError` | `Settings._validate_secrets` |
@@ -156,7 +156,7 @@ APAP_WEB compone varias superficies (HTTP, OAuth Google, LocalBackend, CSRF, rat
 | Hoja de ruta viva | [docs/roadmap.md](docs/roadmap.md) |
 | Setup local por desarrollador | [docs/setup.md](docs/setup.md) |
 | Decisiones arquitectónicas | [docs/architecture/decisiones-proyecto.md](docs/architecture/decisiones-proyecto.md) |
-| Stack target y reglas LocalBackend | [docs/architecture/architecture-local_backend-stack.md](docs/architecture/architecture-local_backend-stack.md) |
+| Stack target y reglas LocalBackend | [docs/architecture/architecture-local-backend-stack.md](docs/architecture/architecture-local-backend-stack.md) |
 | Workflow de contribución | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Cambios por versión | [CHANGELOG.md](CHANGELOG.md) |
 | Disclosure de vulnerabilidades | [SECURITY.md](SECURITY.md) |

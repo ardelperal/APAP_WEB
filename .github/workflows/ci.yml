@@ -386,7 +386,7 @@ jobs:
         #
         # There is NO .gitleaksignore, and none is needed: the historical false
         # positive from #381 (a storage-object filename fixture in
-        # tests/migration/test_insforge_storage_methods.py (retired in issue #670)) does not fire under
+        # a retired migration storage-methods test (deleted in issue #670) does not fire under
         # the pinned digest below. This comment used to claim an allowlist file
         # that was never committed — see #495. The retired file, with its one
         # documented entry, is on archive/tmp-test-merge5-staged-2026-08-09.

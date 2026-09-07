@@ -29,10 +29,9 @@ from pathlib import Path
 import httpx
 import pytest
 
-from app.core.di.local_postgres_di import get_local_postgres_executor_dep
 from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.session import session_cookie_name, write_session
-from app.main import app
+from app.main import app, get_local_backend_client
 from tests.conftest import auth_reval_rows, make_csrf_request
 
 # Four XSS payloads from spec REQ-XSS-2 — chosen so each spans a
@@ -195,14 +194,14 @@ class _XssLocalBackend(LocalPostgresExecutor):
 @pytest.fixture
 def xss_local_backend() -> _XssLocalBackend:
     spy = _XssLocalBackend()
-    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy
+    app.dependency_overrides[get_local_backend_client] = lambda: spy
     # Epic #420 migrated the animals routes to Depends(get_animals_port);
     # the hexagonal provider reads ``state.sql_executor`` directly, so
     # the state must also be wired for these tests (which exercise the
     # animals detail/edit routes after migration).
     app.state.sql_executor = spy
     yield spy
-    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
+    app.dependency_overrides.pop(get_local_backend_client, None)
     app.state.__dict__.pop("sql_executor", None)
 
 

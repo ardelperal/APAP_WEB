@@ -7,7 +7,7 @@ Esta página posee el mapa de ownership por paquete y la regla de §33 para colo
 ## Core invariants
 
 - **Regla §33.2**: dos consumidores o más sin razón de cambio propia → `app/core/<layer>/<slice>/`. Razón de negocio propia → `app/modules/<slice>/`. En la duda, módulo.
-- **Layout hexagonal (§33.3)**: dentro de un slice convertido, `domain/`, `ports/`, `application/`, `adapters/local_backend/`, `di/`. SQL solo en `adapters/local_backend/<slice>_local_backend_queries.py`.
+- **Layout hexagonal (§33.3)**: dentro de un slice convertido, `domain/`, `ports/`, `application/`, `adapters/local-backend/`, `di/`. SQL solo en `adapters/local-backend/<slice>_local_backend_queries.py`.
 - **API pública por paquete (§27)**: cross-module imports llegan a `app.modules.<B>` por su `__init__.py`, nunca a un submódulo.
 - **Ratchets shrink-only**: módulos sobre 700 líneas (§21) y handlers sobre 50 líneas (§28) viven en `BASELINE` que solo decrece.
 
@@ -38,8 +38,8 @@ Esta página posee el mapa de ownership por paquete y la regla de §33 para colo
 |---|---|---|
 | ¿Lo consumen dos o más slices? | No | `app/modules/<slice>/` (default) |
 | ¿Tiene razón de negocio propia para cambiar? | No | Considere `app/core/` solo si hay ≥ 2 consumidores |
-| ¿Ejecuta SQL? | — | `queries.py` (legacy) o `adapters/local_backend/<slice>_local_backend_queries.py` (hexagonal) |
-| ¿Importa `LocalBackendClient`? | — | Solo bajo `adapters/local_backend/` y `di/` del slice, o `app/main.py` (§33.4) |
+| ¿Ejecuta SQL? | — | `queries.py` (legacy) o `adapters/local-backend/<slice>_local_backend_queries.py` (hexagonal) |
+| ¿Importa `LocalBackendClient`? | — | Solo bajo `adapters/local-backend/` y `di/` del slice, o `app/main.py` (§33.4) |
 | ¿Es infra transversal nueva (auth, catalogos, schema)? | — | `app/core/<layer>/<slice>/` con los cinco subpaquetes del §33.3 |
 
 ## Linter → regla → detector
@@ -65,7 +65,7 @@ Esta página posee el mapa de ownership por paquete y la regla de §33 para colo
 ## Contributor checklist
 
 - [ ] Si añade un módulo a `app/modules/`, defina su `__init__.py` con la API pública antes de que otro módulo lo consuma (regla §27).
-- [ ] Si convierte un módulo a hexagonal, reemplace `service.py` por `application/<use_case>.py` y mueva el SQL a `adapters/local_backend/<slice>_local_backend_queries.py` (§33.3).
+- [ ] Si convierte un módulo a hexagonal, reemplace `service.py` por `application/<use_case>.py` y mueva el SQL a `adapters/local-backend/<slice>_local_backend_queries.py` (§33.3).
 - [ ] Si añade un módulo a `app/`, verifique que está dentro del presupuesto de 700 líneas (§21) y que ningún handler supera 50 líneas (§28).
 - [ ] Si añade un linter nuevo, declárelo en `ci.yml` dentro del job `lint` y agregue un test en `tests/` que pinea el gate.
 - [ ] Si añade un script de seed o backfill, declárelo en `scripts/` y agregue el prefijo `seed*` o `backfill*` (mapa de `judgment-day` en AGENTS §17.2).

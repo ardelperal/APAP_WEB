@@ -43,17 +43,16 @@ class _PassThroughSpy:
 
 
 @pytest.fixture
-def _bypass_sql_executor_dependency(monkeypatch: pytest.MonkeyPatch) -> None:
-    from app.core.di.local_postgres_di import get_local_postgres_executor_dep
-    from app.main import app
+def _bypass_local_backend_dependency(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.main import app, get_local_backend_client
 
     spy = _PassThroughSpy()
-    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy
+    app.dependency_overrides[get_local_backend_client] = lambda: spy
     monkeypatch.setattr(
-        "app.modules.animals.routes.get_local_postgres_executor_dep", lambda: spy
+        "app.modules.animals.routes.get_local_backend_client_dep", lambda: spy
     )
     yield
-    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
+    app.dependency_overrides.pop(get_local_backend_client, None)
 
 
 def _login_as_key_user(
@@ -75,7 +74,7 @@ def _login_as_key_user(
 
 
 async def test_make_csrf_request_attaches_token_from_session_cookie(
-    client: httpx.AsyncClient, _bypass_sql_executor_dependency: None
+    client: httpx.AsyncClient, _bypass_local_backend_dependency: None
 ) -> None:
     """When the client carries a session with ``csrf_token``, the helper attaches it."""
     _login_as_key_user(client)
@@ -97,7 +96,7 @@ async def test_make_csrf_request_attaches_token_from_session_cookie(
 
 
 async def test_make_csrf_request_without_session_cookie_is_rejected(
-    client: httpx.AsyncClient, _bypass_sql_executor_dependency: None
+    client: httpx.AsyncClient, _bypass_local_backend_dependency: None
 ) -> None:
     """When the client has no session, the helper cannot attach a token -> 302/403."""
     response = await make_csrf_request(
@@ -117,7 +116,7 @@ async def test_make_csrf_request_without_session_cookie_is_rejected(
 
 
 async def test_make_csrf_request_explicit_token_override(
-    client: httpx.AsyncClient, _bypass_sql_executor_dependency: None
+    client: httpx.AsyncClient, _bypass_local_backend_dependency: None
 ) -> None:
     """Explicit ``csrf_token=`` overrides the session read."""
     _login_as_key_user(client, csrf_token="session-A-token")
@@ -140,7 +139,7 @@ async def test_make_csrf_request_explicit_token_override(
 
 
 async def test_make_csrf_request_attaches_token_to_form_data_too(
-    client: httpx.AsyncClient, _bypass_sql_executor_dependency: None
+    client: httpx.AsyncClient, _bypass_local_backend_dependency: None
 ) -> None:
     """When ``form_data`` is given, the helper ALSO adds the token to the form."""
     _login_as_key_user(client, csrf_token="form-path-token")
@@ -162,7 +161,7 @@ async def test_make_csrf_request_attaches_token_to_form_data_too(
 
 
 async def test_make_csrf_request_get_request_is_not_token_gated(
-    client: httpx.AsyncClient, _bypass_sql_executor_dependency: None
+    client: httpx.AsyncClient, _bypass_local_backend_dependency: None
 ) -> None:
     """GET requests bypass CSRF entirely (SAFE_METHODS)."""
     response = await make_csrf_request(client, "GET", "/animales")

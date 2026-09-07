@@ -48,11 +48,11 @@ from typing import Any
 import httpx
 import pytest
 
+from app.core.auth_dependencies import get_local_backend_client_dep
 from app.core.config import get_settings
-from app.core.di.local_postgres_di import get_local_postgres_executor_dep
 from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.session import session_cookie_name, write_session
-from app.main import app
+from app.main import app, get_local_backend_client
 from app.modules.acogidas import service as acogidas_service
 from app.modules.animals.di.animals_di import get_animals_port
 from tests.conftest import auth_reval_rows, make_csrf_request
@@ -94,12 +94,12 @@ class _NoSqlRouteClient(LocalPostgresExecutor):
 @pytest.fixture
 def route_client() -> _NoSqlRouteClient:
     spy = _NoSqlRouteClient()
-    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy
-    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy
+    app.dependency_overrides[get_local_backend_client] = lambda: spy
+    app.dependency_overrides[get_local_backend_client_dep] = lambda: spy
     app.dependency_overrides[get_animals_port] = lambda: spy.animals_port
     yield spy
-    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
-    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
+    app.dependency_overrides.pop(get_local_backend_client, None)
+    app.dependency_overrides.pop(get_local_backend_client_dep, None)
     app.dependency_overrides.pop(get_animals_port, None)
 
 
@@ -1106,8 +1106,8 @@ def _install_feed_client(
         service_key="ik_test",
         transport=httpx.MockTransport(_recording),
     )
-    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: client
-    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: client
+    app.dependency_overrides[get_local_backend_client] = lambda: client
+    app.dependency_overrides[get_local_backend_client_dep] = lambda: client
     app.dependency_overrides[get_animals_port] = object
     return client
 
@@ -1149,8 +1149,8 @@ async def test_post_create_with_fecha_final_persists(
         assert response.headers["location"] == "/acogidas/acog-123"
     finally:
         feed_client.close()
-        app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
-        app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
+        app.dependency_overrides.pop(get_local_backend_client, None)
+        app.dependency_overrides.pop(get_local_backend_client_dep, None)
         app.dependency_overrides.pop(get_animals_port, None)
 
     insert_call = next(c for c in captured if "INSERT INTO acogidas" in c["query"])
@@ -1198,8 +1198,8 @@ async def test_post_update_reopens_when_fecha_final_empty(
         assert response.headers["location"] == "/acogidas/acog-123"
     finally:
         feed_client.close()
-        app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
-        app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
+        app.dependency_overrides.pop(get_local_backend_client, None)
+        app.dependency_overrides.pop(get_local_backend_client_dep, None)
         app.dependency_overrides.pop(get_animals_port, None)
 
     update_call = next(c for c in captured if "UPDATE acogidas SET" in c["query"])

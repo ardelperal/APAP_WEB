@@ -34,7 +34,7 @@ The atoms cover the four properties the user explicitly asked for:
 
 Backend preference:
 
-  * If ``APAP_LOCAL_BACKEND_URL`` (or ``INSFORGE_URL``) + service key env
+  * If ``APAP_INSFORGE_URL`` (or ``INSFORGE_URL``) + service key env
     vars are set AND the URL responds 200 to a probe query → the
     atom uses ``LocalBackendBackendClient`` (production code path).
   * Otherwise the atom uses ``PostgresBackendClient`` against
@@ -251,7 +251,7 @@ def backend_client(
     """Yield the backend client to use for the apply.
 
     Preference order:
-      1. ``LocalBackendBackendClient`` when ``APAP_LOCAL_BACKEND_URL`` (or
+      1. ``LocalBackendBackendClient`` when ``APAP_INSFORGE_URL`` (or
          ``INSFORGE_URL``) + service key are set AND the URL responds.
       2. ``PostgresBackendClient`` (via ``postgres_backend``) otherwise.
 
@@ -350,7 +350,7 @@ def test_e2e_apply_legacy_to_web_idempotent(
     # and the destination table. This is the same failure mode the
     # chip-cascade integration atom surfaced (see audit #631, #635);
     # fail loud here so the operator knows the apply path is broken
-    # against the real backend, not the FakeSqlExecutor.
+    # against the real backend, not the FakeLocalBackend.
     assert result_1.applied + result_1.skipped > 0, (
         f"Apply returned zero rows. errors[:3]={result_1.errors[:3]!r}"
     )

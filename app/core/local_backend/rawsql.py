@@ -1,7 +1,7 @@
 """``POST /api/database/advance/rawsql`` handler (M0 of self-host-backend-coolify).
 
 The LocalBackend REST API exposes a privileged ``/api/database/advance/rawsql``
-endpoint that ``LocalPostgresExecutor.execute_sql`` consumes. The local backend
+endpoint that ``AuthUsersPort.execute_sql`` consumes. The local backend
 re-implements that endpoint against a Postgres connection, reusing the
 ``LocalPostgresExecutor`` from ``app.core.local_backend.db`` so the
 contract (``{"rows": [...], "rowCount": N}``) is identical to LocalBackend's.
@@ -38,7 +38,7 @@ async def execute_rawsql(
 ) -> dict[str, Any]:
     """Execute a raw SQL statement and return the rows.
 
-    Body shape (matches what the production ``LocalPostgresExecutor`` sends):
+    Body shape (matches what the production ``AuthUsersPort`` sends):
         ``{"query": str, "params": list | None}``
 
     Response shape (matches LocalBackend's envelope):

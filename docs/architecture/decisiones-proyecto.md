@@ -100,4 +100,4 @@ Capacidades heredadas del comportamiento del Access legacy, en `docs/legacy-*.md
 
 ## Navigation
 
-Previous: [Arquitectura LocalBackend](architecture-local_backend-stack.md) | Next: [Capas y slices](capas-y-slices.md)
+Previous: [Arquitectura LocalBackend](architecture-local-backend-stack.md) | Next: [Capas y slices](capas-y-slices.md)

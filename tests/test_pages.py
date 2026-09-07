@@ -9,9 +9,8 @@ import httpx
 import pytest
 
 from app.core.config import get_settings
-from app.core.di.local_postgres_di import get_local_postgres_executor_dep
 from app.core.session import session_cookie_name, write_session
-from app.main import app
+from app.main import app, get_local_backend_client
 from tests.conftest import auth_reval_rows
 
 
@@ -34,9 +33,9 @@ class _RevalOnlySpy:
 
 @pytest.fixture(autouse=True)
 def _stub_local_backend_for_reval() -> None:
-    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: _RevalOnlySpy()
+    app.dependency_overrides[get_local_backend_client] = lambda: _RevalOnlySpy()
     yield
-    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
+    app.dependency_overrides.pop(get_local_backend_client, None)
 
 
 def _login_as_authorized_user(client: httpx.AsyncClient) -> None:

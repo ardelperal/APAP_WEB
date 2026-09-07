@@ -504,7 +504,7 @@ def post_apply_diff(
     direction: Literal["legacy-to-web", "web-to-legacy"],
     applied_diffs: Sequence[Diff],
     table_mappings: Mapping[str, TableMapping],
-    web_client: SqlExecutor,
+    web_client: StubAuthUsersPortProtocol,
     shadow_state: _ShadowStateWriter,
     sync_state: SyncStateProtocol,
     created_by: str | None = None,
@@ -816,7 +816,7 @@ def _build_derived_inputs(
 
 def _persist_lifecycle_event(
     *,
-    web_client: SqlExecutor,
+    web_client: StubAuthUsersPortProtocol,
     event: LifecycleEvent,
     diff: Diff,
     created_by: str,
@@ -933,15 +933,15 @@ def _resolve_animal_id(
 # actually uses (``execute_sql`` for the web client; ``sync_state`` is
 # accepted for future extensibility but is currently unused by the hook
 # body because the animal_id FK is read from ``diff.web_row``). The
-# real ``LocalPostgresExecutor`` + ``SyncState`` satisfy both protocols
+# real ``StubAuthUsersPort`` + ``SyncState`` satisfy both protocols
 # structurally (duck-typed; no inheritance required).
 
 
-class SqlExecutor(Protocol):
+class StubAuthUsersPortProtocol(Protocol):
     """Structural type for the web client passed to ``post_apply_diff``.
 
     Mirrors the ``execute_sql`` surface used by the lifecycle-event
-    persister. The real ``LocalPostgresExecutor`` satisfies this without any
+    persister. The real ``StubAuthUsersPort`` satisfies this without any
     inheritance (duck-typed).
     """
 

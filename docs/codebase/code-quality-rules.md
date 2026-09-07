@@ -42,7 +42,7 @@ Si su PR introduce o cambia una rotación de secretos, paso manual de deploy, in
 
 Los services nuevos o refactorizados separan **construcción de query** de **validación/orquestación**. Los strings SQL y su shaping de parámetros viven en un `queries.py` dedicado (o módulo builder) por módulo de feature; el service importa esos builders, aplica validación de dominio y habla con el cliente. El punto es testeabilidad: la forma del SQL debe ser asertable en un test unitario plano sin levantar transporte, LocalBackend o HTTP.
 
-En un slice convertido este seam es `adapters/local_backend/<slice>_local_backend_queries.py`, junto al adapter que lo usa ([architecture.md](architecture.md) §33.3). SQL nunca aparece en `application/`.
+En un slice convertido este seam es `adapters/local-backend/<slice>_local_backend_queries.py`, junto al adapter que lo usa ([architecture.md](architecture.md) §33.3). SQL nunca aparece en `application/`.
 
 **Incorrecto** — SQL interpolado inline entre validación y mapeo (untesteable sin transporte)
 
@@ -92,7 +92,7 @@ Los docstrings son parte del contrato de código: las afirmaciones sobre comport
 - **Dependencias no deprecadas**: pinea al suelo current major.minor, valida con context7 antes.
 - **Audit doc por feature sensible**: auth, secrets, CSRF, PII, XSS, idempotencia → `docs/audits/<feature>-audit-YYYY-Qn.md`.
 - **Runbook por acción del operador**: rotación, deploy manual, cache invalidation, cron, env-var → `docs/runbooks/<thing>.md`.
-- **Query builder como seam**: SQL solo en `queries.py` (legacy) o `adapters/local_backend/<slice>_local_backend_queries.py` (hexagonal).
+- **Query builder como seam**: SQL solo en `queries.py` (legacy) o `adapters/local-backend/<slice>_local_backend_queries.py` (hexagonal).
 - **Docstrings sincronizados con tests**: cada afirmación conductual tiene un test que la prueba.
 
 ## Contributor checklist

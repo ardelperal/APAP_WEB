@@ -20,7 +20,7 @@ rules:
     - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
     - Use professional Spanish (Spain) for all SDD artifacts
   design:
-    - Follow FastAPI + HTMX architecture in docs/architecture/architecture-local_backend-stack.md
+    - Follow FastAPI + HTMX architecture in docs/architecture/architecture-local-backend-stack.md
     - Prefer server-rendered pages over SPA
     - Keep business rules in FastAPI, not HTMX snippets
   tasks:

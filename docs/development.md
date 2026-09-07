@@ -6,9 +6,9 @@
 
 Esta guía lleva a un nuevo desarrollador desde un clone limpio hasta un test en verde en la aplicación APAP. Es la referencia canónica para los comandos locales. El workflow de CI (entregado en una PR anterior) y el job de deploy Coolify (CD-01, issue #1) llaman a los mismos comandos: el trabajo normal integra en `staging`, y producción queda guardada por `main`.
 
-No posee el setup por desarrollador ni la configuración de secretos LocalBackend — eso vive en [`docs/setup.md`](setup.md). No posee las decisiones de arquitectura — eso vive en [`docs/architecture/architecture-local_backend-stack.md`](../architecture/architecture-local_backend-stack.md). No posee la disciplina de proceso por issue — eso vive en [`docs/proceso.md`](proceso.md).
+No posee el setup por desarrollador ni la configuración de secretos LocalBackend — eso vive en [`docs/setup.md`](setup.md). No posee las decisiones de arquitectura — eso vive en [`docs/architecture/architecture-local-backend-stack.md`](../architecture/architecture-local-backend-stack.md). No posee la disciplina de proceso por issue — eso vive en [`docs/proceso.md`](proceso.md).
 
-Para setup del entorno por desarrollador y credenciales de LocalBackend MCP, ver [`docs/setup.md`](setup.md). Para las decisiones de arquitectura que dan forma a este flujo, ver [`docs/architecture/architecture-local_backend-stack.md`](../architecture/architecture-local_backend-stack.md).
+Para setup del entorno por desarrollador y credenciales de LocalBackend MCP, ver [`docs/setup.md`](setup.md). Para las decisiones de arquitectura que dan forma a este flujo, ver [`docs/architecture/architecture-local-backend-stack.md`](../architecture/architecture-local-backend-stack.md).
 
 ## Prerrequisitos
 
@@ -360,7 +360,7 @@ La sección `openspec/changes/ci-cd-foundation/design.md § Future work` lista c
 ## Dónde mirar a continuación
 
 - [`docs/setup.md`](setup.md) — setup por desarrollador y credenciales LocalBackend MCP.
-- [`docs/architecture/architecture-local_backend-stack.md`](../architecture/architecture-local_backend-stack.md) — decisiones de stack, política de dependencias y políticas de CI/CD y testing.
+- [`docs/architecture/architecture-local-backend-stack.md`](../architecture/architecture-local-backend-stack.md) — decisiones de stack, política de dependencias y políticas de CI/CD y testing.
 - [`docs/roadmap.md`](../docs/roadmap.md) — hoja de ruta viva del proyecto.
 - [`openspec/changes/ci-cd-foundation/`](../openspec/changes/ci-cd-foundation/) — change de SDD que planifica el pipeline de despliegue completo (PR 1 = superficie local; PR 2 = CI; PR 3 = CD).
 - `pyproject.toml` — configuración canónica de pytest (deprecation strictness) y ruff (reglas de lint). La verja de calidad del doc de arquitectura está codificada aquí.

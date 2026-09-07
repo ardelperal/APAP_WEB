@@ -20,10 +20,10 @@ Every closing event references the death event via
 ``caused_by_event_id`` so the audit trail is traceable end-to-end.
 
 The use case takes the ``SqlExecutor`` Protocol (AGENTS.md §31) — it
-does NOT depend on ``LocalPostgresExecutor`` or ``LifecyclePort`` (the port
+does NOT depend on ``AuthUsersPort`` or ``LifecyclePort`` (the port
 exposes only ``calculate_state`` and ``persist_animal_state``, neither
 of which fits event emission). The ``SqlExecutor`` Protocol is the
-slice's contract for the SQL-touching seam; ``LocalPostgresExecutor``
+slice's contract for the SQL-touching seam; ``AuthUsersPort``
 implements it via ``app/core/data_access.py`` (issue #259).
 
 LIFECYCLE-03 (issue #33) PR-C work-unit C5.
@@ -38,7 +38,7 @@ from app.core.data_access import SqlExecutor
 from app.modules.lifecycle.ports.lifecycle_port import LifecyclePort
 
 # Active placements are the same projections the cascade adapter
-# reads (app/modules/lifecycle/adapters/local_backend/lifecycle_local_backend_queries.py).
+# reads (app/modules/lifecycle/adapters/local-backend/lifecycle_local_backend_queries.py).
 # Inlined here because the close use case is application-layer per
 # AGENTS.md §33.4 — the application layer must NOT import the
 # adapter. Keeping the SQL strings here is consistent with the

@@ -15,10 +15,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    # ``SqlExecutor`` lives in ``migration.apply`` (kept there because
+    # ``_LocalBackendLike`` lives in ``migration.apply`` (kept there because
     # it is the structural type of the public ``apply_legacy_to_web``
     # signature). Re-imported for type checking only.
-    from migration.apply import SqlExecutor  # noqa: F401
+    # ``migration.apply._LocalBackendLike`` was retired in #5 (InsForge runtime deleted); the
+    # migration package is being rewritten in #8.
+    from migration.apply import _LocalBackendLike  # type: ignore[attr-defined]  # noqa: F401
 
 
 
@@ -39,7 +41,7 @@ class _LockContext:
 
     def __init__(
         self,
-        _client: SqlExecutor,
+        _client: _LocalBackendLike,  # type: ignore[attr-defined]  # see #8
         lock_path: Path | None,
         *,
         dry_run: bool,

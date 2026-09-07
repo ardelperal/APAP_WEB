@@ -2,7 +2,7 @@
 
 Thin orchestrators over :class:`migration.ports.web_reader_port.WebReaderPort`.
 Each function depends only on the port (never on
-:class:`~app.core.local_backend.LocalPostgresExecutor` or any other transport),
+:class:`~app.core.local_backend.StubAuthUsersPort` or any other transport),
 so the body is a one-liner that can be tested against an in-memory
 fake without HTTP or LocalBackend SDK involvement.
 """

@@ -60,7 +60,7 @@ def test_settings_does_not_pick_up_apap_local_backend_env() -> None:
     import pytest
 
     with pytest.MonkeyPatch.context() as mp:
-        mp.setenv("APAP_LOCAL_BACKEND_URL", "https://legacy.example.com")
+        mp.setenv("APAP_INSFORGE_URL", "https://legacy.example.com")
         mp.setenv("APAP_INSFORGE_SERVICE_KEY", "ik_should_be_ignored")
         settings = Settings(_env_file=None)
 
