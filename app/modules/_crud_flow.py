@@ -34,6 +34,8 @@ from typing import Any
 from fastapi import HTTPException, Request, status
 from fastapi.responses import HTMLResponse, Response
 
+from app.core.auth_dependencies import return_early_if_response
+
 
 def render_edit_form(  # noqa: PLR0913  # 8 kwargs needed: request, user, client, entity_id, fetch, to_form_data, render_form, form_action
     *,
@@ -52,16 +54,6 @@ def render_edit_form(  # noqa: PLR0913  # 8 kwargs needed: request, user, client
     one; 404s when the entity does not exist; otherwise renders the
     module's standard form template via ``render_form``.
     """
-    # ``return_early_if_response`` is a no-op happy-path helper that
-    # returns ``None`` when the user is authorised; importing it at
-    # module level would create a circular dependency through
-    # ``app.core.auth_dependencies`` (the helper itself is a thin wrapper
-    # around the auth cache that ``_crud_flow`` does not otherwise
-    # need). The lazy import keeps the module graph acyclic.
-    from app.core.auth_dependencies import (
-        return_early_if_response,  # lazy-import: avoids circular import through app.core.auth_dependencies
-    )
-
     if (early := return_early_if_response(user)) is not None:
         return early
     entity = fetch(client, entity_id)
