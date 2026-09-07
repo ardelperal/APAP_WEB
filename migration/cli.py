@@ -310,7 +310,7 @@ def _apply_keep_web(
 def _apply_accept_derived(
     *,
     shadow_state: ShadowStateRepository,
-    web_client: StubAuthUsersPort  # type: ignore[name-defined],
+    web_client,
     row: dict[str, Any],
     new_value: Any,
     now: datetime,
@@ -360,7 +360,7 @@ def _apply_accept_derived(
 def run_reconcile(
     args: argparse.Namespace,
     *,
-    web_client: StubAuthUsersPort  # type: ignore[name-defined] | None = None,
+    web_client,
     shadow_state: ShadowStateRepository | None = None,
     prompt: _PromptReader | None = None,
     stream: IO[str] | None = None,
@@ -588,7 +588,6 @@ def _resolve_lock_path() -> Path:
 def run_status(
     args: argparse.Namespace,
     *,
-    web_client: StubAuthUsersPort  # type: ignore[name-defined] | None = None,
     stream: IO[str] | None = None,
 ) -> int:
     """Body of ``apap-migrate status`` (read-only web counts)."""
@@ -613,7 +612,6 @@ def run_status(
 def main(
     argv: Sequence[str] | None = None,
     *,
-    web_client: StubAuthUsersPort  # type: ignore[name-defined] | None = None,
     shadow_state: ShadowStateRepository | None = None,
     prompt: _PromptReader | None = None,
     stream: IO[str] | None = None,
@@ -635,10 +633,9 @@ def main(
         from app.core.config import get_settings
 
         settings = get_settings()
-        owned_web_client = StubAuthUsersPort  # type: ignore[name-defined](
-            settings.local_backend_url,  # type: ignore[attr-defined]  # removed in #658; rewritten in #8
-            settings.local_backend_service_key,  # type: ignore[attr-defined]  # removed in #658; rewritten in #8
-        )
+        # migration package rewrite (issue #8) will rebuild this path
+        # from settings.local_db_url; until then the web_client stays None.
+        owned_web_client = None
         web_client = owned_web_client
 
     try:

@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     # ``_LocalBackendLike`` lives in ``migration.apply`` (kept there because
     # it is the structural type of the public ``apply_legacy_to_web``
     # signature). Re-imported for type checking only.
-    # ``migration.apply._LocalBackendLike`` was retired in #5 (InsForge runtime deleted); the
+    # stub adapter in #671 is the placeholder; see web_reader_stub.
     # migration package is being rewritten in #8.
     from migration.apply import _LocalBackendLike  # type: ignore[attr-defined]  # noqa: F401
 
