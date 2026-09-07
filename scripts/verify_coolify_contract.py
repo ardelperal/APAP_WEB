@@ -42,7 +42,7 @@ service:
   name: apap-web
   description: |
     APAP_WEB FastAPI application + the local_backend API in the same
-    process. The container replaces InsForge in production via the
+    process. The container replaces LocalBackend in production via the
     APAP_LOCAL_BACKEND=true switch (issue #641 / M0-M3.4).
   image: ghcr.io/ardelperal/apap-web:v{short_sha}
   port: 8000
