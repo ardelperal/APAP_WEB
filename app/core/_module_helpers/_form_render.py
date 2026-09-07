@@ -83,4 +83,20 @@ def make_render_form(
     )
 
 
-__all__ = ["render_module_form", "make_render_form"]
+__all__ = ["render_module_form", "make_render_form", "list_entities"]
+
+
+def list_entities(
+    client: Any,
+    sql: str,
+    params: list[Any] | tuple[Any, ...] | None,
+    row_mapper: Callable[[dict[str, Any]], Any],
+) -> list[Any]:
+    """Run a ``SELECT`` and project each row through ``row_mapper``.
+
+    Centralises the ``execute_sql + list comprehension`` pair that every
+    list endpoint shares, so each ``list_<entity>`` service function is
+    a one-line ``return list_entities(...)`` (issue #681 — JSCPD ratchet).
+    """
+    rows = client.execute_sql(sql, params)
+    return [row_mapper(row) for row in rows]

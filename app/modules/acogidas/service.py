@@ -64,6 +64,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
+from app.core._module_helpers._form_render import list_entities
 from app.core.data_access import SqlExecutor
 from app.core.forms import optional_text, required_text
 from app.core.logging import log_safe
@@ -385,8 +386,7 @@ def list_acogidas(
     active and closed, sorted by ``fecha_inicio DESC``.
     """
     sql, params = queries.build_acogida_list(activas_solo)
-    rows = client.execute_sql(sql, params)
-    return [_row_to_acogida(row) for row in rows]
+    return list_entities(client, sql, params, _row_to_acogida)
 
 
 def get_acogida_by_id(

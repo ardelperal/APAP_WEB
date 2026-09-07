@@ -44,7 +44,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from app.core._module_helpers._crud_flow import render_edit_form
+from app.core._module_helpers._crud_flow import render_detail, render_edit_form
 from app.core._module_helpers._form_render import make_render_form
 from app.core.auth_dependencies import (
     AuthenticatedUser,
@@ -252,16 +252,16 @@ def adopcion_detail(
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_ADOPCIONES))],
     client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
-    """Detail view; 404 when the id is missing."""
-    if (early := return_early_if_response(user)) is not None:
-        return early
-    adopcion = adopciones_service.get_adopcion_by_id(client, adopcion_id)
-    if adopcion is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-    return _templates.TemplateResponse(
+    """Detail view; 404 when the id is missing (issue #681 — JSCPD ratchet)."""
+    return render_detail(
+        templates=_templates,
         request=request,
-        name="adopciones/detail.html",
-        context={"user": user, "adopcion": adopcion},
+        user=user,
+        client=client,
+        entity_id=adopcion_id,
+        fetch=adopciones_service.get_adopcion_by_id,
+        template_name="adopciones/detail.html",
+        context_key="adopcion",
     )
 
 

@@ -43,7 +43,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from app.core._module_helpers._crud_flow import render_edit_form
+from app.core._module_helpers._crud_flow import render_detail, render_edit_form
 from app.core._module_helpers._form_render import make_render_form
 from app.core.auth_dependencies import (
     AuthenticatedUser,
@@ -219,21 +219,21 @@ def material_detail(
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_MATERIALES))],
     client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
-    """Detail view. Returns 404 when the row is missing.
+    """Detail view. Returns 404 when the row is missing (issue #681 — JSCPD ratchet).
 
     PR C integrates the assigned-estancias section (uses
     ``list_materials_for_estancia``); for PR B this section is rendered
     as an empty placeholder per the SDD tasks plan (#15905 §B.2.3).
     """
-    if (early := return_early_if_response(user)) is not None:
-        return early
-    material = materiales_service.get_material_by_id(client, material_id)
-    if material is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-    return _templates.TemplateResponse(
+    return render_detail(
+        templates=_templates,
         request=request,
-        name="materiales/detail.html",
-        context={"user": user, "material": material},
+        user=user,
+        client=client,
+        entity_id=material_id,
+        fetch=materiales_service.get_material_by_id,
+        template_name="materiales/detail.html",
+        context_key="material",
     )
 
 

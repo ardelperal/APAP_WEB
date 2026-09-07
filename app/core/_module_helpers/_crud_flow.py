@@ -68,4 +68,35 @@ def render_edit_form(  # noqa: PLR0913  # 8 kwargs needed: request, user, client
     )
 
 
-__all__ = ["render_edit_form"]
+def render_detail(
+    *,  # noqa: PLR0913  # 8 kwargs needed: templates, request, user, client, entity_id, fetch, template_name, context_key
+    templates: Any,
+    request: Request,
+    user: Any,
+    client: Any,
+    entity_id: str,
+    fetch: Callable[[Any, str], Any],
+    template_name: str,
+    context_key: str = "entity",
+) -> Response:
+    """Render the detail view for an entity fetched by id (issue #681 — JSCPD ratchet).
+
+    Returns early with the auth-redirect response if the auth gate sends
+    one; 404s when the entity does not exist; otherwise renders the
+    module's detail template with ``{context_key: entity}`` in the
+    template context (per-module templates consume different context
+    keys, e.g. ``adopcion`` vs ``material``).
+    """
+    if (early := return_early_if_response(user)) is not None:
+        return early
+    entity = fetch(client, entity_id)
+    if entity is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    return templates.TemplateResponse(
+        request=request,
+        name=template_name,
+        context={context_key: entity, "user": user},
+    )
+
+
+__all__ = ["render_edit_form", "render_detail"]
