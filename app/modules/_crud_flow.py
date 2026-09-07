@@ -53,11 +53,13 @@ def render_edit_form(  # noqa: PLR0913  # 8 kwargs needed: request, user, client
     module's standard form template via ``render_form``.
     """
     # ``return_early_if_response`` is a no-op happy-path helper that
-    # returns ``None`` when the user is authorised; importing it here
-    # would create a circular dependency through ``app.core.auth_dependencies``,
-    # so each caller invokes it inside the wrapper before delegating.
+    # returns ``None`` when the user is authorised; importing it at
+    # module level would create a circular dependency through
+    # ``app.core.auth_dependencies`` (the helper itself is a thin wrapper
+    # around the auth cache that ``_crud_flow`` does not otherwise
+    # need). The lazy import keeps the module graph acyclic.
     from app.core.auth_dependencies import (
-        return_early_if_response,  # noqa: PLC0415 - lazy import is intentional
+        return_early_if_response,  # lazy-import: avoids circular import through app.core.auth_dependencies; the lookup is cheap and the helper has no I/O
     )
 
     if (early := return_early_if_response(user)) is not None:
