@@ -61,10 +61,6 @@ service:
       value: "true"
     - name: APAP_LOCAL_DB_URL
       value: ""
-    - name: APAP_INSFORGE_URL
-      value: ""
-    - name: APAP_INSFORGE_SERVICE_KEY
-      value: ""
     - name: APAP_SMTP_HOST
       value: ""
     - name: APAP_SMTP_PORT
