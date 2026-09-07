@@ -24,11 +24,11 @@ from tests.conftest import make_csrf_request
 class _NoSqlRouteClient(LocalPostgresExecutor):
     """Client spy that fails if a route executes SQL directly."""
 
-    def __init__(self) -> None:  # type: ignore[override]
+    def __init__(self) -> None:
         import httpx as _httpx
         self._client = _httpx.Client(base_url="https://spy.example")
 
-    def execute_sql(self, query: str, params: Any = None):  # type: ignore[override]
+    def execute_sql(self, query: str, params: Any = None):
         # Only allow auth_reval queries (used by require_authorized_user)
         if "usuarios_autorizados" in query and "email" in query.lower():
             return [{"id": "u-ana", "email": "ana@example.com", "rol": "key_user", "is_authorized": True}]

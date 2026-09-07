@@ -1,3 +1,7 @@
+from typing import TYPE_CHECKING
+from app.core.data_access import SqlExecutor
+if TYPE_CHECKING:
+    from app.core.data_access import SqlExecutor  # noqa: F401
 """Shadow-state helpers for the reverse applier.
 
 Two helpers live here:
@@ -17,11 +21,11 @@ is observational only. This module only touches the shadow table.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from migration import dni_collision as dni_collision_mod
 from migration.dni_collision import DniCollisionCounter
-from migration.reverse_apply.types import _LocalBackendLike
+from migration.reverse_apply.types import SqlExecutor
 from migration.shadow_state import ShadowStateRepository
 
 DIRECTION_WEB_TO_LEGACY = "web-to-legacy"
@@ -29,7 +33,7 @@ DIRECTION_WEB_TO_LEGACY = "web-to-legacy"
 
 def _advance_preserve_shadow_state(
     *,
-    client: _LocalBackendLike,
+    client: SqlExecutor,
     mapping: Any,
     web_row: dict[str, Any],
     legacy_pk: str,
@@ -86,7 +90,7 @@ def _advance_preserve_shadow_state(
 
 def _record_drift_needs_review(
     *,
-    client: _LocalBackendLike,
+    client: SqlExecutor,
     mapping: Any,
     web_row: dict[str, Any],
     legacy_pk: str,

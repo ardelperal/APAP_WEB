@@ -32,7 +32,7 @@ from datetime import UTC, datetime
 from typing import IO
 
 import migration.cli as cli_mod
-from app.core.local_backend.db import BackendError
+from app.core.data_access import BackendError
 from app.core.logging import log_safe
 from migration import MsAccessPreflightUnavailableError
 from migration.apply import (
@@ -137,7 +137,7 @@ def _emit_migration_report(
 def run_apply(
     args: argparse.Namespace,
     *,
-    web_client: object | None = None,
+    web_client,
     stream: IO[str] | None = None,
 ) -> int:
     """Body of ``apap-migrate apply`` (PR3 / M1 forward + PR6 / M2 reverse).

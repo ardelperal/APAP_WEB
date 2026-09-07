@@ -71,7 +71,7 @@ class _NoSqlRouteClient(LocalPostgresExecutor):
     failing test names the offending query.
     """
 
-    def __init__(self) -> None:  # type: ignore[override]
+    def __init__(self) -> None:
         import httpx as _httpx
 
         self._client = _httpx.Client(base_url="https://spy.example")
@@ -81,7 +81,7 @@ class _NoSqlRouteClient(LocalPostgresExecutor):
         # ``require_writer_user`` produces 403 BEFORE any handler SQL.
         self.auth_reval_rol: str = "key_user"
 
-    def execute_sql(self, query: str, params: Any = None):  # type: ignore[override]
+    def execute_sql(self, query: str, params: Any = None):
         # Issue #143: require_authorized_user revalidates authorization per
         # request via the get_user_by_email service; that SELECT flows
         # through this client and is allowed. Any OTHER direct SQL from a

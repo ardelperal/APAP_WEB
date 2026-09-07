@@ -484,7 +484,7 @@ def test_main_passes_when_pending_module_is_measured_within_grace(
 
     class _FrozenDate(date):
         @classmethod
-        def today(cls) -> _FrozenDate:  # type: ignore[override]
+        def today(cls) -> _FrozenDate:
             return _FrozenDate.fromisoformat(today.isoformat())
 
     monkeypatch.setattr(cm, "date", _FrozenDate)
@@ -526,7 +526,7 @@ def test_main_fails_when_pending_module_overdue(
 
     class _FrozenDate(date):
         @classmethod
-        def today(cls) -> _FrozenDate:  # type: ignore[override]
+        def today(cls) -> _FrozenDate:
             return _FrozenDate.fromisoformat(today.isoformat())
 
     monkeypatch.setattr(cm, "date", _FrozenDate)

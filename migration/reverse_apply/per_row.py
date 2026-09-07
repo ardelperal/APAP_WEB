@@ -43,12 +43,12 @@ from migration.reverse_apply.io_helpers import (
     _compute_source_hash,
     _web_to_legacy_row,
 )
-from migration.reverse_apply.types import _LocalBackendLike
+from migration.reverse_apply.types import SqlExecutor
 
 
 def _reverse_apply_one_row(
     *,
-    client: _LocalBackendLike,
+    client: SqlExecutor,
     mapping: Any,
     web_row: dict[str, Any],
     legacy_path: str,

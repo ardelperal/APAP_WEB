@@ -53,7 +53,7 @@ class _NoSqlRouteClient(LocalPostgresExecutor):
     below.
     """
 
-    def __init__(self) -> None:  # type: ignore[override]
+    def __init__(self) -> None:
         import httpx as _httpx
 
         self._client = _httpx.Client(base_url="https://spy.example")
@@ -64,7 +64,7 @@ class _NoSqlRouteClient(LocalPostgresExecutor):
         self.auth_reval_rol: str = "key_user"
         self.animals_port = object()
 
-    def execute_sql(self, query: str, params: Any = None):  # type: ignore[override]
+    def execute_sql(self, query: str, params: Any = None):
         # Issue #143: require_authorized_user revalidates authorization per
         # request via the get_user_by_email service; that SELECT flows
         # through this client and is allowed. Any OTHER direct SQL from a

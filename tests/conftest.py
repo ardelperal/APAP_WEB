@@ -143,12 +143,12 @@ def _install_default_local_backend_client() -> None:
     non-autouse, so the override wins for that test.
     """
     class _DefaultLocalBackendSpy(LocalPostgresExecutor):
-        def __init__(self) -> None:  # type: ignore[override]
+        def __init__(self) -> None:
             import httpx as _httpx
             self._client = _httpx.Client(base_url="https://default-spy.example")
             self.execute_sql_calls: list[tuple[str, list[object]]] = []
 
-        def execute_sql(  # type: ignore[override]
+        def execute_sql(
             self, sql: str, params: list[object] | None = None
         ) -> list[dict[str, object]]:
             self.execute_sql_calls.append((sql, list(params or [])))

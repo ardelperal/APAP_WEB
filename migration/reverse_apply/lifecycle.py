@@ -1,3 +1,6 @@
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from app.core.data_access import SqlExecutor  # noqa: F401
 """Lifecycle event helpers for the reverse applier.
 
 The reverse applier emits :class:`LifecycleEvent` records with
@@ -19,12 +22,12 @@ from typing import Any
 
 from migration import semantic_events as semantic_events_mod
 from migration.reverse_apply.io_helpers import _case_insensitive_get
-from migration.reverse_apply.types import _LocalBackendLike
+from migration.reverse_apply.types import SqlExecutor
 
 
 def _emit_reversed_lifecycle_events_for_changed_derived(
     *,
-    client: _LocalBackendLike,
+    client: SqlExecutor,
     mapping: Any,
     existing_legacy_row: dict[str, Any],
     web_row: dict[str, Any],

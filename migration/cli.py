@@ -488,7 +488,7 @@ def _run_reconcile_interactive(
     prompt: _PromptReader,
     stream: IO[str],
     shadow_state: ShadowStateRepository,
-    web_client: StubAuthUsersPort  # type: ignore[name-defined] | None,
+    web_client,
 ) -> int:
     """Walk each ``needs_review`` case with ``a/b/c/q`` prompts.
 
@@ -587,14 +587,12 @@ def _resolve_lock_path() -> Path:
 def run_status(
     args: argparse.Namespace,
     *,
+    web_client,
     stream: IO[str] | None = None,
 ) -> int:
     """Body of ``apap-migrate status`` (read-only web counts)."""
     if stream is None:
         stream = sys.stdout
-    if web_client is None:
-        sys.stderr.write("apap-migrate status: requires a web_client in this runtime\n")
-        return 2
 
     tables = [args.table] if args.table else list_available_tables()
     for table in tables:
@@ -611,6 +609,7 @@ def run_status(
 def main(
     argv: Sequence[str] | None = None,
     *,
+    web_client=None,
     shadow_state: ShadowStateRepository | None = None,
     prompt: _PromptReader | None = None,
     stream: IO[str] | None = None,
@@ -627,14 +626,13 @@ def main(
     parser = build_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)
 
-    owned_web_client: StubAuthUsersPort  # type: ignore[name-defined] | None = None
+    owned_web_client = None
     if web_client is None:
         from app.core.config import get_settings
 
         settings = get_settings()
         # migration package rewrite (issue #8) will rebuild this path
         # from settings.local_db_url; until then the web_client stays None.
-        owned_web_client = None
         web_client = owned_web_client
 
     try:
