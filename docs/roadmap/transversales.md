@@ -134,7 +134,7 @@ Alineación de toda la documentación técnica con el idioma del proyecto (decis
 
 | Slice | Estado | Issue |
 |---|---|---|
-| Traducción al castellano de `docs/architecture/architecture-local-backend-stack.md` | pendiente | issue por crear |
+| Documentación actual en castellano de `docs/architecture/architecture-local-backend-stack.md` | completada | issue #676 |
 | Traducción al castellano de `docs/development.md` | pendiente | issue por crear |
 | Revisión y traducción de los `docs/discovery/*.md` que aún estén en inglés | pendiente | issue por crear |
 

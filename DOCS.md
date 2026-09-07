@@ -6,7 +6,7 @@
 
 Índice técnico navegable de APAP_WEB. Para empezar, vea el [README](README.md); para reglas de agente, [AGENTS.md](AGENTS.md); para el playbook operativo, [docs/proceso.md](docs/proceso.md).
 
-> **Scope**: APAP_WEB es una aplicación web server-rendered (FastAPI + Jinja2 + LocalBackend) que reemplaza el legacy Access/VBA.
+> **Scope**: APAP_WEB es una aplicación web server-rendered (FastAPI + Jinja2 + PostgreSQL local) que reemplaza el legacy Access/VBA.
 >
 > Este doc describe las superficies externas. Las decisiones arquitectónicas viven en [docs/architecture/architecture-local-backend-stack.md](docs/architecture/architecture-local-backend-stack.md).
 
@@ -41,7 +41,7 @@ Cada documento del repo ocupa un único rol. Este índice es la única ruta reco
 | [docs/proceso.md](docs/proceso.md) | Playbook operativo: preflight → issue → TDD → merge → cierre. |
 | [docs/setup.md](docs/setup.md) | Setup local por desarrollador. |
 | [docs/CODEBASE-GUIDE.md](docs/CODEBASE-GUIDE.md) | Overview de módulos (Tier 2 de #464, parcial). |
-| [docs/architecture/architecture-local-backend-stack.md](docs/architecture/architecture-local-backend-stack.md) | Stack target, reglas LocalBackend, despliegue. |
+| [docs/architecture/architecture-local-backend-stack.md](docs/architecture/architecture-local-backend-stack.md) | Composición LocalBackend actual, límites de datos, auth, storage y migración. |
 | [docs/architecture/decisiones-proyecto.md](docs/architecture/decisiones-proyecto.md) | Registro formal de decisiones arquitectónicas (D-01…). |
 | [docs/audits/](docs/audits/) | Auditorías por slice sensible (CSRF, RBAC, XSS, cookies). |
 | [docs/runbooks/](docs/runbooks/) | Runbooks de operador (rotación de cookie, auth cache multi-worker). |
@@ -103,9 +103,8 @@ Todas las variables llevan prefijo `APAP_`. La single source of truth es [`app/c
 
 | Variable | Descripción | Default |
 |---|---|---|
-| `APAP_INSFORGE_URL` | URL base de LocalBackend (PostgREST-compatible). | `http://localhost:7130` |
-| `APAP_INSFORGE_ANON_KEY` | JWT anónimo para uso cliente; el servidor no la usa hoy. | `""` |
-| `APAP_INSFORGE_SERVICE_KEY` | Service key con privilegios para admin SQL (bootstrap, seed, gestión de usuarios). Vacía desactiva operaciones privilegiadas. | `""` |
+| `APAP_LOCAL_DB_URL` | DSN de PostgreSQL usado por `LocalPostgresExecutor`. | `""` |
+| `APAP_LOCAL_DB_SCHEMA` | `search_path` opcional para PostgreSQL. | `""` |
 | `APAP_GOOGLE_CLIENT_ID` | OAuth client id de Google. | `""` |
 | `APAP_GOOGLE_CLIENT_SECRET` | OAuth client secret de Google. | `""` |
 | `APAP_GOOGLE_REDIRECT_URI` | Callback OAuth registrado en Google; debe coincidir exacto. | `http://127.0.0.1:8000/auth/callback` |
@@ -127,7 +126,7 @@ Todas las variables llevan prefijo `APAP_`. La single source of truth es [`app/c
 
 ## Matriz de visibilidad de estados
 
-APAP_WEB compone varias superficies (HTTP, OAuth Google, LocalBackend, CSRF, rate limit, caché de authorization). Esta matriz nombra los escenarios cross-surface y la razón esperada de cada uno.
+APAP_WEB compone varias superficies (HTTP, OAuth Google, PostgreSQL, CSRF, rate limit, caché de authorization). Esta matriz nombra los escenarios cross-surface y la razón esperada.
 
 | Escenario | Razón esperada | Superficies |
 |---|---|---|
@@ -138,8 +137,7 @@ APAP_WEB compone varias superficies (HTTP, OAuth Google, LocalBackend, CSRF, rat
 | Cookie firmada con secreto rotado | 302 → `/login` | `itsdangerous` + middleware auth |
 | Rate limit OAuth superado (10/min/IP) | 429 | rate limit + OAuth Google |
 | Rate limit write superado (60/min/user o 30/min/IP) | 429 | rate limit + router del módulo |
-| `APAP_INSFORGE_URL` inalcanzable al arranque | lifespan lanza `StartupConfigError` | `httpx.Client` + LocalBackend |
-| LocalBackend devuelve 401 al a service key | 500 con `log_safe("local_backend.unauthorized")` | `LocalBackendClient` + `log_safe` |
+| `APAP_LOCAL_DB_URL` vacío o inalcanzable al arranque | el bootstrap propaga `DatabaseError` y el servicio no arranca | `LocalPostgresExecutor` + lifespan |
 | Usuario desactivado, caché vigente | sigue autorizado hasta `APAP_AUTH_CACHE_TTL_SECONDS` | caché TTL + `usuarios_autorizados` |
 | `APAP_SESSION_SECRET` placeholder en producción (`debug=False`) | lifespan lanza `StartupConfigError` | `Settings._validate_secrets` |
 | `APAP_AUTH_CACHE_BACKEND` distinto de `in_process` | lifespan lanza `StartupConfigError` | `Settings` |

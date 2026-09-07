@@ -33,15 +33,15 @@ Cualquier dependencia que cree un objeto con método `.close()` debe usar `yield
 **Incorrecto** — recurso filtrado en cada request
 
 ```python
-def get_client() -> LocalBackendClient:
-    return LocalBackendClient(url, key)
+def get_client() -> ClosableClient:
+    return ClosableClient()
 ```
 
 **Correcto** — cerrado tras cada request
 
 ```python
 def get_client():
-    client = LocalBackendClient(url, key)
+    client = ClosableClient()
     try:
         yield client
     finally:
@@ -56,8 +56,8 @@ def get_client():
 
 ```python
 def get_client():
-    settings = get_settings()   # parses .env on every call
-    return LocalBackendClient(settings.url, settings.key)
+    settings = Settings()   # parses .env on every call
+    return ClosableClient(settings.url)
 ```
 
 **Correcto**

@@ -56,7 +56,7 @@ Antes de que cualquier slice dirigido por un subagent aterrice en `main`, el orc
 - Security gates (gatekeepers, advisories de capacidad, mecanismos de override, flags de bypass, switches administrativos manuales).
 - Scripts de migración, escrituras SQL crudas, fixtures que tocan datos con forma real.
 
-Un mapa no exhaustivo de archivos que disparan automáticamente `judgment-day` (cuando se modifican, no solo se leen): `app/core/auth*`, `app/core/csrf*`, `app/core/session*`, `app/core/logging*`, `app/core/migration/`, `app/core/local_backend.py` cuando se usa para escrituras, cualquier `scripts/seed*` o `scripts/backfill*`, `scripts/check_rules.py`, `scripts/pytest_plugin/coverage_gate.py`. El orchestrator debe correr `judgment-day` si el diff toca alguna de estas rutas aunque el cambio parezca cosmético.
+Un mapa no exhaustivo de archivos que disparan automáticamente `judgment-day` (cuando se modifican, no solo se leen): `app/core/auth*`, `app/core/csrf*`, `app/core/session*`, `app/core/logging*`, `app/core/migration/`, `app/core/local_backend/` cuando se usa para escrituras, cualquier `scripts/seed*` o `scripts/backfill*`, `scripts/check_rules.py`, `scripts/pytest_plugin/coverage_gate.py`. El orchestrator debe correr `judgment-day` si el diff toca alguna de estas rutas aunque el cambio parezca cosmético.
 
 **Incorrecto** — orchestrator mergea un fix de CSRF sin `judgment-day`
 

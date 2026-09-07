@@ -18,7 +18,8 @@ Esta página posee el mapa de ownership por paquete y la regla de §33 para colo
 | [`app/main.py`](../../app/main.py) | Composition root del servidor FastAPI, registro de routers, ciclo de vida. |
 | [`app/core/`](../../app/core/) | Capacidades transversales convertidas a hexagonal: auth, oauth, catalogos, schema_bootstrap, admin. |
 | [`app/modules/animals/`](../../app/modules/animals/) | Slice hexagonal completo: las once capacidades y todas las rutas usan `AnimalsPort`; no quedan shims legacy. |
-| [`app/core/local_backend.py`](../../app/core/local_backend.py) | Cliente HTTP único hacia LocalBackend; nadie más lo importa fuera de `adapters/` y `di/`. |
+| [`app/core/local_backend/db.py`](../../app/core/local_backend/db.py) | `LocalPostgresExecutor`, implementación PostgreSQL del contrato `SqlExecutor`. |
+| [`app/core/local_backend/app.py`](../../app/core/local_backend/app.py) | Factory FastAPI separada para contratos de compatibilidad, pruebas y verificadores de fallback. |
 | `app/core/auth*.py`, `csrf.py`, `session.py` | Defensa en profundidad: allowlist, CSRF, cookies firmadas. |
 | [`app/core/migration/`](../../app/core/migration/) | Sync bidireccional web ↔ legacy; único paquete que lee ambos backends. |
 | [`app/modules/<slice>/`](../../app/modules/) | Capacidades de negocio en layout legacy `routes.py / service.py / queries.py` mientras esperan conversión. |
@@ -39,7 +40,7 @@ Esta página posee el mapa de ownership por paquete y la regla de §33 para colo
 | ¿Lo consumen dos o más slices? | No | `app/modules/<slice>/` (default) |
 | ¿Tiene razón de negocio propia para cambiar? | No | Considere `app/core/` solo si hay ≥ 2 consumidores |
 | ¿Ejecuta SQL? | — | `queries.py` (legacy) o `adapters/local-backend/<slice>_local_backend_queries.py` (hexagonal) |
-| ¿Importa `LocalBackendClient`? | — | Solo bajo `adapters/local-backend/` y `di/` del slice, o `app/main.py` (§33.4) |
+| ¿Necesita acceso genérico a SQL? | — | Reciba `SqlExecutor`; `app/main.py` construye `LocalPostgresExecutor`. |
 | ¿Es infra transversal nueva (auth, catalogos, schema)? | — | `app/core/<layer>/<slice>/` con los cinco subpaquetes del §33.3 |
 
 ## Linter → regla → detector

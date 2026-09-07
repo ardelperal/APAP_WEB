@@ -39,7 +39,7 @@ app/modules/<slice>/
 
 ### 33.4 Lo que se sostiene en cualquiera de las dos ubicaciones
 
-- `LocalBackendClient` e `BackendError` se importan **solo** bajo `adapters/` y `di/`, más `app/main.py` que construye el cliente pooled. `domain/`, `ports/` y `application/` son transport-agnostic (§31 es la forma general de esto).
+- `LocalPostgresExecutor` se construye en composition roots. `domain/`, `ports/` y `application/` dependen de `Protocol` y permanecen ajenos a `psycopg` (§31 es la forma general).
 - No se crean `service.py` nuevos que ejecuten SQL. Esa es la capa que este refactor retira; §1 y §5 la describen porque sigue presente en módulos no convertidos, no porque código nuevo deba parecérseles.
 - Los criterios de aceptación nombran la **capacidad** (almacenar un archivo, enviar una notificación), nunca el vendor que la provee.
 - Cada slice envía un test pin arquitectónico que falla cuando un import de transporte se filtra a la capa equivocada. Una regla sin gate es [anti-patterns.md](anti-patterns.md) §32.P3.
@@ -52,16 +52,16 @@ app/modules/<slice>/
 
 **Aplicación**: revisión de PR contra §33.2, más los pin tests por slice de §33.4. El índice de slices, orden de ejecución y definición de hecho viven en el issue #420.
 
-## §18 — Exclusión mutua web ↔ legacy + sync obligatoria (nivel proyecto)
+## §18 — Aislamiento web ↔ legacy + sync obligatoria (nivel proyecto)
 
-APAP_WEB corre como **app web O app legacy Access/VBA, nunca ambas a la vez**. Los dos modos comparten el modelo de dominio (animales, voluntarios, entradas, acogidas, adopciones, sanidad, etc.) pero el backend de ejecución difiere:
+APAP_WEB sirve requests contra PostgreSQL. El legacy Access/VBA participa como origen o destino solo durante operaciones explícitas del paquete `migration/`.
 
 | Modo | Backend | Ruta de código |
 |---|---|---|
-| **Web** | LocalBackend (PostgREST-compatible PostgreSQL BaaS) | `app/core/local_backend.py` → LocalBackendClient |
-| **Legacy** | Tablas vinculadas `.accdb` de Access (esquema legacy `Tb*`) | `app.core` delega a un adaptador legacy que lee vía DAO o Dysflow |
+| **Web** | PostgreSQL | `app/main.py` → `app/core/local_backend/db.py::LocalPostgresExecutor` |
+| **Legacy** | Archivo `.accdb` de Access | Adapters bajo `migration/` durante apply o reconcile |
 
-La **selección de modo** es configuración de runtime (env-flag o `Settings.mode`). Cuando `mode = "web"`, la app habla con LocalBackend exclusivamente. Cuando `mode = "legacy"`, habla con el backend Access exclusivamente. Los dos nunca corren contra el mismo dataset en la misma sesión.
+No existe un selector de backend de datos en `Settings`. Su campo `mode` distingue `web` y `test` para middleware; la coordinación entre PostgreSQL y Access pertenece al CLI de migración.
 
 ### 18.1 Función de sync obligatoria (HARD) <!-- alantyle-ignore:ALAN003 -->
 
@@ -97,23 +97,23 @@ El CLI envía `apap-migrate reconcile <flags>` como punto de entrada.
 
 - ❌ Rutas de código que leen ambos backends en el mismo request. Elija uno por request.
 - ❌ Rutas de código que escriben a un modo mientras leen del otro. Elija uno por request.
-- ❌ Configuración que permita que ambos backends estén vivos simultáneamente (env-flag gate al arranque, fail-fast si ambos son alcanzables).
+- ❌ Rutas web que importan adapters de Access o el paquete `migration/`.
 - ❌ Runs de sync que no comprueben idempotencia antes de aplicar. Use el diff engine.
 - ❌ Runs de sync sin auditoría `log_safe`. Cada fila escrita se loguea.
 
 ### 18.4 Aplicación
 
-El mode-toggle y la función de sync se enforzan en tres capas:
+El aislamiento y la función de sync se aplican en tres capas:
 
-1. **Settings** (`app/core/config.py`) lee el env `APAP_MODE` (`web` | `legacy`). El arranque falla rápido si tanto `APAP_INSFORGE_URL` como `APAP_LEGACY_ACCDB_PATH` son alcanzables.
-2. **`LocalBackendClient`** es el único objeto permitido para hablar con LocalBackend. **`LegacyAdapter`** es el único objeto permitido para hablar con el backend Access. El código de service importa uno, nunca ambos.
-3. **`migration/`** es el único paquete permitido para leer ambos backends. El código de route + service no debe importar `migration/`.
+1. **Settings** (`app/core/config.py`) aporta `APAP_LOCAL_DB_URL` y el esquema opcional.
+2. **`LocalPostgresExecutor`** implementa `SqlExecutor`; services y casos de uso dependen del contrato, no de `psycopg`.
+3. **`migration/`** es el único paquete permitido para coordinar PostgreSQL y Access. Routes y services no deben importarlo.
 
-**Aplicación**: revisión de PR + `tests/test_mode_isolation.py` (test atómico que confirma que un único request lee de exactamente un backend).
+**Aplicación**: revisión de imports y `scripts/check_migration_boundaries.py`.
 
 ## §31 — Los services de dominio dependen de abstracciones Protocol
 
-Los services de dominio deben depender de abstracciones Protocol, nunca de clientes backend concretos. `app.core.data_access.SqlExecutor`, introducido en #259, es el precedente. Ejemplo: `def list_items(client: SqlExecutor) -> list[Item]: ...` — no `client: LocalBackendClient`.
+Los services de dominio deben depender de abstracciones Protocol, nunca de clientes backend concretos. `app.core.data_access.SqlExecutor` es el precedente. Ejemplo: `def list_items(client: SqlExecutor) -> list[Item]: ...`.
 
 §33 es la forma con forma de slice de esta regla: el Protocol es el port propio del slice en `ports/<slice>_port.py`, expresado en términos de dominio más que como un ejecutor SQL genérico.
 
@@ -121,17 +121,17 @@ Los services de dominio deben depender de abstracciones Protocol, nunca de clien
 
 - **Hexagonal como target**: el layout `app/core/<layer>/<slice>/` cumple §33.3; los `service.py` planos en `app/modules/` son deuda en conversión, no patrón a imitar.
 - **Una ubicación por slice**: dos consumidores y sin razón propia → `core`; razón de negocio propia → `modules/`. En duda, módulo.
-- **Modo exclusivo**: el backend es exactamente uno por sesión — el mode toggle vive en `Settings.mode`.
+- **Runtime web único**: los requests usan PostgreSQL; Access queda fuera de la aplicación web.
 - **Sync idempotente + auditable + lockable**: cada fila escrita se loguea y la sync puede re-ejecutarse sin daño.
-- **Protocol como abstracción**: ninguna firma de service de dominio acepta `LocalBackendClient` directamente.
+- **Protocol como abstracción**: ninguna firma de service de dominio depende de `LocalPostgresExecutor` directamente.
 
 ## Contributor checklist
 
 - [ ] Antes de crear un slice, aplicó §33.2 y justificó la ubicación en el PR.
 - [ ] Cada nuevo slice convertido incluye `domain/`, `ports/`, `application/`, `adapters/local-backend/`, `di/` y un pin test de capas.
 - [ ] Ningún slice nuevo introduce SQL fuera de `adapters/local-backend/<slice>_local_backend_queries.py`.
-- [ ] Las funciones de service de dominio reciben `Protocol` o `SqlExecutor`, no `LocalBackendClient`.
-- [ ] Si toca el mode toggle o el sync, leyó `migration/cli.py` y respeta §18.3.
+- [ ] Las funciones de service de dominio reciben `Protocol` o `SqlExecutor`, no `LocalPostgresExecutor`.
+- [ ] Si toca el sync, leyó `migration/cli.py` y respeta §18.3.
 
 ## Navigation
 

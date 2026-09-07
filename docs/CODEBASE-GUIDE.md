@@ -39,12 +39,13 @@
               │                                │
               └───────────────┬────────────────┘
                               ▼
-              app/core/local_backend.py  (LocalBackendClient)
+              app/core/local_backend/db.py
+              LocalPostgresExecutor
                               ▼
-              LocalBackend  —  PostgreSQL · Auth · Storage
+                        PostgreSQL
 ```
 
-> **Todo request entra por una route delgada, cruza exactamente una capa de dominio y sale por un único cliente hacia LocalBackend; lo que rompe esa línea recta es lo que los gates rechazan.**
+> **Todo request entra por una route delgada y accede a PostgreSQL mediante un port o `SqlExecutor`; lo que rompe esa dirección de dependencias es lo que los gates rechazan.**
 >
 > La hexagonal puede vivir dentro del propio módulo (`app/modules/animals/`, regla §33.2) cuando el slice tiene razón de negocio propia; sólo se promueve a `app/core/<layer>/<slice>/` cuando dos o más consumidores lo comparten. La transición actual es in-place capa por capa, no extracción masiva.
 
@@ -57,7 +58,7 @@
 | [Interfaces](codebase/interfaces.md) | Qué superficies expone el sistema (HTTP, OAuth, storage) y por dónde fluye cada una. |
 | [Integrations](codebase/integrations.md) | Adaptadores externos (LocalBackend, CodeGraph, Dysflow, Coolify, GitHub) y sus límites de configuración. |
 | [Maintainer playbook](codebase/maintainer-playbook.md) | Workflow operativo de mantenedor y checklists por tipo de cambio. |
-| [Sync and cloud](codebase/sync-and-cloud.md) | Web ↔ legacy, mode toggle y CLI de reconciliación. |
+| [Sync and cloud](codebase/sync-and-cloud.md) | Aislamiento web ↔ legacy y CLI de reconciliación. |
 | [Reference map](codebase/reference-map.md) | Trazabilidad entre docs, specs y código. |
 | [Missing sources](codebase/missing-sources.md) | Subsistemas que el lector podría esperar y no existen. | <!-- alantyle-ignore:ALAN004 -->
 
@@ -88,7 +89,7 @@
 |---|---|---|
 | Producto, stack, quick start | [`README.md`](../README.md) | Punto de entrada para quien abre el repo. |
 | Reglas y guardarraíles del proyecto | [`AGENTS.md`](../AGENTS.md) | Las 33 reglas y sus detectores. |
-| Contrato de stack LocalBackend | [`docs/architecture/architecture-local-backend-stack.md`](architecture/architecture-local-backend-stack.md) | Decisiones de stack, reglas LocalBackend, target de despliegue. |
+| Arquitectura LocalBackend actual | [`docs/architecture/architecture-local-backend-stack.md`](architecture/architecture-local-backend-stack.md) | Composición, límites de datos, auth, storage y migración. |
 | Playbook operativo por issue | [`docs/proceso.md`](proceso.md) | De `open` a `closed` con evidencia, según §16 de AGENTS. |
 | Roadmap de fases | [`docs/roadmap.md`](roadmap.md) | Fases del producto y estado actual. |
 | Decisiones de proyecto | [`docs/architecture/decisiones-proyecto.md`](architecture/decisiones-proyecto.md) | Registro formal de divergencias con el legacy. |
