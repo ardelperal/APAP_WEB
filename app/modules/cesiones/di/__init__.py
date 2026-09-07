@@ -1,9 +1,10 @@
 """Composition root — Cesiones slice DI.
 
-Wires ``CesionesPort`` -> ``CesionesInsforgeAdapter`` -> InsForge.
-Mirrors ``app.modules.animals.di.animals_di.get_animals_port`` exactly:
-a sync generator that reads the pooled LocalPostgresExecutor from request state
-and yields a fresh adapter per request.
+Wires ``CesionesPort`` -> ``StubCesionesPort`` (pending a real
+``LocalPostgresExecutor``-backed adapter in the follow-up to #668).
+The InsForge adapter implementation was deleted in issue #668; the
+stub raises :class:`NotImplementedError` on every method call so the
+runtime fails loud per route.
 """
 
 from __future__ import annotations
@@ -12,26 +13,22 @@ from collections.abc import Iterator
 
 from fastapi import Request
 
-from app.core.data_access import SqlExecutor
-from app.modules.cesiones.adapters.insforge.cesiones_insforge_adapter import (
-    CesionesInsforgeAdapter,
-)
+from app.modules.cesiones.adapters.stubs.cesiones_stub import StubCesionesPort
 from app.modules.cesiones.ports.cesiones_port import CesionesPort
 
 
 def get_cesiones_port(
     request: Request,
 ) -> Iterator[CesionesPort]:
-    """Yield a ``CesionesPort`` wired to an InsForge-backed adapter.
+    """Yield a :class:`CesionesPort` backed by the stub placeholder.
 
-    Reads the pooled :class:`~app.core.insforge.LocalPostgresExecutor` from
-    ``request.app.state.insforge_client`` (managed by the app lifespan).
-    Yields a fresh adapter per request so the route layer is decoupled
-    from the concrete adapter.
+    Returns the :class:`StubCesionesPort` placeholder until a real
+    ``LocalPostgresExecutor``-backed adapter lands (issue #6').
+    The stub raises :class:`NotImplementedError` on every method so the
+    runtime fails loud per route.
     """
-    client: SqlExecutor = request.app.state.sql_executor
-    adapter = CesionesInsforgeAdapter(client)
-    yield adapter
+    del request  # unused — kept for FastAPI DI signature compatibility.
+    yield StubCesionesPort()
 
 
 __all__ = ["get_cesiones_port"]

@@ -13,6 +13,16 @@ Las notas detalladas por tag viven en GitHub Releases; este changelog agrega los
 
 ### Removed
 
+- `refactor`: drop per-module InsForge adapter trees (animals, cesiones, lifecycle, voluntarios, closes #668):
+    - `app/modules/animals/adapters/insforge/`: directory removed (8 files, 1567 lines).
+    - `app/modules/cesiones/adapters/insforge/`: directory removed (2 files).
+    - `app/modules/lifecycle/adapters/insforge/`: directory removed (3 files).
+    - `app/modules/voluntarios/adapters/insforge/`: directory removed (5 files).
+    - Total: 18 files, ~1700 lines deleted.
+    - Replacement: 4 stub adapters under `app/modules/<module>/adapters/stubs/<module>_stub.py` — `StubAnimalsPort` (11 methods), `StubCesionesPort` (3 methods), `StubLifecyclePort` (2 methods), `StubVoluntariosPort` (7 methods). Each stub satisfies its Protocol structurally and raises `NotImplementedError("<port>.<method>: pending local-backend adapter, see #6'")` on every method call.
+    - DI providers updated: `app/modules/animals/di/animals_di.py`, `app/modules/cesiones/di/__init__.py`, `app/modules/lifecycle/di/lifecycle_di.py`, `app/modules/voluntarios/di/__init__.py` yield the stubs.
+    - Port docstrings updated in `app/modules/lifecycle/ports/lifecycle_port.py` and `app/modules/voluntarios/ports/voluntarios_port.py` to point to the stub classes.
+    - Affected routes return 500 with a `NotImplementedError` until a real `LocalPostgresExecutor`-backed adapter lands (issue #6').
 - `refactor`: drop InsForge auth/oauth/catalogos/schema_bootstrap adapters + port stubs in their place (closes #666):
     - `app/core/adapters/insforge/auth_insforge_adapter.py`: deleted (223 lines).
     - `app/core/adapters/insforge/auth_insforge_queries.py`: deleted (132 lines, pure SQL).
