@@ -91,6 +91,36 @@ def _validate_fecha_d24(fecha: str) -> str | None:
     return None
 
 
+# --- window parsing for the proximity report (issue #652) ----------------
+
+
+def parse_proximas_window(
+    fecha_desde: str, fecha_hasta: str
+) -> tuple[date, date]:
+    """Parse and validate the proximity report window.
+
+    Pure data validation: lifted out of the route handler so the
+    HTTP boundary stays HTTP-only (AGENTS.md rule 28). Raises
+    ``ValueError`` with a Spanish message on bad input; callers
+    translate to ``HTTPException`` at the HTTP boundary.
+
+    Empty strings, malformed ISO dates, and ``desde > hasta`` all
+    raise. The error messages are operator-facing because the route
+    handler surfaces them verbatim in a 400 response.
+    """
+    try:
+        desde = date.fromisoformat(fecha_desde)
+        hasta = date.fromisoformat(fecha_hasta)
+    except ValueError as exc:
+        raise ValueError(
+            "fecha_desde and fecha_hasta must be ISO dates (YYYY-MM-DD): "
+            f"{exc}"
+        ) from exc
+    if desde > hasta:
+        raise ValueError("fecha_desde must be <= fecha_hasta")
+    return desde, hasta
+
+
 # --- CTE disambiguation ---------------------------------------------------
 
 
