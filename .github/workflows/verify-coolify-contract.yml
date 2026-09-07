@@ -1,0 +1,74 @@
+# verify-coolify-contract.yml
+#
+# Isolated deploy-contract gate. Part of the APAP_WEB release-side
+# CI/CD reform (Gap 3 of the prior analysis).
+#
+# Runs on the project self-hosted runner (``apap-coolify-noble`` on
+# the Oracle VPS) to avoid consuming GitHub Actions minutes — every
+# other workflow in the repo already targets this label set, so the
+# runner is provisioned, kept warm by the weekly schedule, and ready
+# to absorb this extra gate. Isolation from the tree it validates is
+# structural, not runner-based: the canonical expected config lives
+# inside the verifier module (``_CANONICAL_YAML`` literal), so the
+# verifier cannot depend on the tree it validates regardless of which
+# runner executes it. Mirrors gentle-ai's
+# ``internal/releasepolicy/policy.go`` pattern.
+#
+# Permissions are ``contents: read`` ONLY. The verifier does not
+# write, push, tag, deploy, or query other workflows. Removing the
+# workflow or weakening its permissions is a blocked change
+# (apap-orchestrator-discipline.md §17).
+
+name: verify-coolify-contract
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# FIFO per ref, never cancel. Same pattern as ci.yml (issue #530):
+# the runner pool is one machine wide and a cancelled run throws away
+# work the only eligible runner had already consumed.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify-coolify-contract:
+    name: verify-coolify-contract
+    # Project self-hosted runner (apap-coolify-noble on Oracle VPS,
+    # Ubuntu 24.04 Noble). Same label set used by every other workflow
+    # in the repo. Switching away from ubuntu-latest saves GitHub
+    # Actions minutes on a workflow that fires on every PR and push
+    # to main.
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+
+      - name: Set up Python
+        # The self-hosted runner image ships no Python (unlike
+        # GitHub-hosted `ubuntu-latest`); every job that runs
+        # ``python scripts/...`` must install one explicitly or it
+        # exits 127 in ten seconds. ``python-version-file:
+        # pyproject.toml`` keeps local and CI on the same interpreter.
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.4.0
+        with:
+          python-version-file: pyproject.toml
+
+      - name: Install pyyaml (defense-in-depth)
+        # pyyaml is already declared in [dev]; this step exists as a
+        # defense-in-depth anchor so the verifier cannot silently
+        # regress to importing a package that is not declared as a
+        # dev dependency. Same pattern as the security job's
+        # ``apt-get install`` guards (issue #531).
+        run: python -m pip install "pyyaml>=6.0"
+
+      - name: Verify coolify deploy contract
+        run: python scripts/verify_coolify_contract.py coolify/apap-web-coolify.yaml

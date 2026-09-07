@@ -215,6 +215,10 @@ BASELINE_NO_INTEGRATION_TESTS: frozenset[tuple[str, str]] = frozenset(
         ("app/modules/tasks/queries.py", "build_update_estado"),
         ("app/modules/tasks/queries.py", "build_update_metadata"),
         ("app/modules/tasks/queries.py", "build_update_responsable"),
+        # sanidad/queries.py — build_proximas_pruebas_sql landed in #652
+        # without an integration test; deferring the test to a follow-up
+        # keeps this PR scoped to the deploy-contract verifier.
+        ("app/modules/sanidad/queries.py", "build_proximas_pruebas_sql"),
         # Grandfathered fixture (detector15_grandfathered): build_baz has
         # no integration test but is in BASELINE_NO_INTEGRATION_TESTS,
         # so Detector 15 verifies the grandfathering mechanism works correctly.

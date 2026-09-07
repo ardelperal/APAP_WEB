@@ -47,7 +47,6 @@ rol with 403 BEFORE the handler runs.
 
 from __future__ import annotations
 
-from datetime import date
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -65,6 +64,7 @@ from app.core.data_access import BackendError
 from app.core.logging import log_safe
 from app.core.middleware import base_template_context_processor
 from app.core.rbac import Permission, require_permission
+from app.modules.sanidad import _helpers as sanidad_helpers
 from app.modules.sanidad import service as sanidad_service
 from app.modules.sanidad.forms import ActuacionForm
 
@@ -538,6 +538,39 @@ def delete_actuacion_view(
 
 
 @router.get("/proximas-pruebas", response_class=JSONResponse)
+def _proximas_item_to_payload(item: sanidad_service.ProximaPrueba) -> dict[str, Any]:
+    """Project one ``ProximaPrueba`` dataclass to the JSON shape of the endpoint."""
+    return {
+        "chip": item.chip,
+        "nombre": item.nombre,
+        "tipo_codigo": item.tipo_codigo,
+        "fecha_ultima": item.fecha_ultima.isoformat(),
+        "fecha_proxima": item.fecha_proxima.isoformat(),
+        "periodicidad_meses": item.periodicidad_meses,
+        "estado": item.estado,
+    }
+
+
+def _log_proximas_request(
+    user: AuthenticatedUser,
+    *,
+    fecha_desde: str,
+    fecha_hasta: str,
+    animal_id: str | None,
+    tipo_prueba_codigo: str | None,
+    rows: int,
+) -> None:
+    log_safe(
+        "sanidad.proximas_pruebas",
+        actor=user["email"] if isinstance(user, dict) else None,
+        desde=fecha_desde,
+        hasta=fecha_hasta,
+        animal_id=animal_id,
+        tipo=tipo_prueba_codigo,
+        rows=rows,
+    )
+
+
 def proximas_pruebas(
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_SALUD))],
     client: Annotated[AuthUsersPort, Depends(get_local_backend_client_dep)],
@@ -554,45 +587,22 @@ def proximas_pruebas(
         Query(description="Optional UUID filter by animal."),
     ] = None,
     tipo_prueba_codigo: Annotated[
-        str | None,
-        Query(description="Optional filter by catalogos_periodicidad.codigo."),
+        str | None, Query(description="Optional filter by catalogos_periodicidad.codigo.")
     ] = None,
 ) -> JSONResponse:
-    """JSON endpoint for the proximity report (issue #652).
+    """JSON proximity report (issue #652): rows in ``[fecha_desde, fecha_hasta]``.
 
-    Returns one row per (animal, tipo_prueba) whose next due date
-    falls inside the ``[fecha_desde, fecha_hasta]`` window. See
-    ``sanidad.service.get_proximas_pruebas`` for the contract.
-
-    Auth: any operator with ``READ_SALUD`` (per AGENTS §21 RBAC; same
-    auth model as the list endpoints above). The reader rol can call
-    this endpoint to scan the schedule; writers use it to triage
-    the next batch of vaccinations.
-
-    Response shape:
-        ``[{"chip": "...", "nombre": "...", "tipo_codigo": "...",
-        "fecha_ultima": "YYYY-MM-DD", "fecha_proxima": "YYYY-MM-DD",
-        "periodicidad_meses": N, "estado": "vencida|proxima|futura"}, ...]``
-
-    Empty window → ``[]``. Filters that exclude every row → ``[]``.
+    Auth: any operator with ``READ_SALUD``. Returns ``[]`` for empty
+    windows. Response shape: ``[{chip, nombre, tipo_codigo,
+    fecha_ultima, fecha_proxima, periodicidad_meses, estado}, ...]``.
     """
     try:
-        desde = date.fromisoformat(fecha_desde)
-        hasta = date.fromisoformat(fecha_hasta)
+        desde, hasta = sanidad_helpers.parse_proximas_window(fecha_desde, fecha_hasta)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                "fecha_desde and fecha_hasta must be ISO dates "
-                f"(YYYY-MM-DD): {exc}"
-            ),
+            detail=str(exc),
         ) from exc
-
-    if desde > hasta:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="fecha_desde must be <= fecha_hasta",
-        )
 
     items = sanidad_service.get_proximas_pruebas(
         client,
@@ -601,25 +611,13 @@ def proximas_pruebas(
         animal_id=animal_id,
         tipo_prueba_codigo=tipo_prueba_codigo,
     )
-    payload = [
-        {
-            "chip": item.chip,
-            "nombre": item.nombre,
-            "tipo_codigo": item.tipo_codigo,
-            "fecha_ultima": item.fecha_ultima.isoformat(),
-            "fecha_proxima": item.fecha_proxima.isoformat(),
-            "periodicidad_meses": item.periodicidad_meses,
-            "estado": item.estado,
-        }
-        for item in items
-    ]
-    log_safe(
-        "sanidad.proximas_pruebas",
-        actor=user["email"] if isinstance(user, dict) else None,
-        desde=fecha_desde,
-        hasta=fecha_hasta,
+    payload = [_proximas_item_to_payload(item) for item in items]
+    _log_proximas_request(
+        user,
+        fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta,
         animal_id=animal_id,
-        tipo=tipo_prueba_codigo,
+        tipo_prueba_codigo=tipo_prueba_codigo,
         rows=len(payload),
     )
     return JSONResponse(payload)

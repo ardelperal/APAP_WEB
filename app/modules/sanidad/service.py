@@ -42,7 +42,7 @@ mapping all live here.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from typing import Any
 
 from app.core.catalogs import (
@@ -125,16 +125,6 @@ _UPDATE_RETURNING_COLUMNS: tuple[str, ...] = tuple(
 # returns 0 rows.
 _CHECK_ANIMAL_SQL: str = (
     "SELECT id FROM animales WHERE id = $1 AND activo = true"
-)
-
-
-_CHECK_VOLUNTARIO_SQL: str = (
-    "SELECT id FROM voluntarios WHERE id = $1 AND activo = true"
-)
-
-
-_CHECK_TIPO_ACTUACION_SQL: str = (
-    "SELECT id FROM catalogos_pruebas WHERE id = $1"
 )
 
 
@@ -253,26 +243,27 @@ RETURNING id
 """
 
 
-def _row_to_actuacion_sanitaria(row: dict[str, Any]) -> ActuacionSanitaria:
-    return ActuacionSanitaria(
-        id=str(row["id"]),
-        animal_id=str(row["animal_id"]),
-        fecha=str(row["fecha"]),
-        tipo_actuacion_id=(
-            str(row["tipo_actuacion_id"])
-            if row.get("tipo_actuacion_id")
-            else None
-        ),
-        veterinario=row.get("veterinario"),
-        observaciones=row.get("observaciones"),
-        voluntario_id=(
-            str(row["voluntario_id"]) if row.get("voluntario_id") else None
-        ),
-        material_utilizado=row.get("material_utilizado"),
-        fecha_alta=str(row["fecha_alta"]) if row.get("fecha_alta") else None,
-        updated_at=str(row["updated_at"]) if row.get("updated_at") else None,
-        activo=bool(row.get("activo", True)),
-    )
+# Module-private helpers that ARE NOT in WATCHED_DUPLICATE_HELPERS
+# (``_row_to_actuacion_sanitaria``, ``_validate_fecha_d24``) and the
+# ``_raise_validation_error`` helper (which calls the duplicates)
+# were lifted to ``app.modules.sanidad._helpers`` so this module fits
+# the 700-line AGENTS.md rule 21 budget.
+#
+# ``_required_text`` and ``_optional_text`` stay in this module
+# because they are part of ``WATCHED_DUPLICATE_HELPERS`` (AGENTS.md
+# rule 25, issue #227) and the BASELINE only shrinks — adding a
+# sixth file with these definitions would create a new violation.
+# They will move to a shared module together with the rest of the
+# #227 cleanup.
+
+
+# --- FK-existence disambiguation -------------------------------------------
+#
+# The disambiguation SELECTs are NOT part of the success path, so they
+# live next to the only function that uses them. The function itself
+# lives in ``app.modules.sanidad._helpers`` to keep ``service.py``
+# under the 700-line budget. The success-path CTE lives in
+# ``app/modules/sanidad/queries.py`` (issue #22 seam).
 
 
 def _required_text(params: dict[str, Any], field: str) -> str:
@@ -290,36 +281,6 @@ def _optional_text(params: dict[str, Any], field: str) -> str | None:
     return stripped or None
 
 
-def _validate_fecha_d24(fecha: str) -> str | None:
-    """Pure D-24 reglas 1+2 validation: format + future-date.
-
-    Returns ``None`` when ``fecha`` is valid; returns a Spanish error
-    message (suitable for surfacing to the operator via a 422 form
-    re-render) when it violates one of the rules.
-
-    **D-24 regla 3** (fecha anterior a ``animales.fecha_alta``) is NOT
-    covered by this helper — that check needs the animal row, so it
-    lives in the INSERT/UPDATE CTE (``checked_animal`` filter) and the
-    disambiguation path of :func:`_raise_validation_error`. Splitting
-    the validation in two layers keeps the no-DB validation cheap and
-    the FK + fecha_alta check atomic with the write (CRITICAL-1).
-
-    Parameters
-    ----------
-    fecha:
-        The ``fecha`` value from the form, after ``_required_text`` has
-        stripped whitespace. Empty / None callers should run ``_required_text``
-        first; this helper assumes a non-empty string.
-    """
-    try:
-        parsed = date.fromisoformat(fecha)
-    except ValueError:
-        return "fecha debe tener formato YYYY-MM-DD"
-    if parsed > date.today():
-        return f"fecha no puede ser futura (hoy es {date.today().isoformat()})"
-    return None
-
-
 def _build_write_params(params: dict[str, Any]) -> list[Any]:
     """Order matches ``_WRITE_COLUMNS`` for the INSERT/UPDATE placeholders."""
     return [
@@ -333,80 +294,27 @@ def _build_write_params(params: dict[str, Any]) -> list[Any]:
     ]
 
 
-def _raise_validation_error(
-    client: SqlExecutor, params: dict[str, Any]
-) -> None:
-    """Disambiguate a 0-row CTE result by re-running each check.
+# --- FK-existence disambiguation -------------------------------------------
+#
+# The disambiguation SELECTs are NOT part of the success path, so they
+# live next to the only function that uses them. The function itself
+# (which calls them) lives in ``app.modules.sanidad._helpers`` to keep
+# ``service.py`` under the 700-line budget. The success-path CTE
+# lives in ``app/modules/sanidad/queries.py`` (issue #22 seam).
+#
+# These constants MUST sit ABOVE the ``_helpers`` import block below:
+# ``_helpers`` imports them by name (so does ``_raise_validation_error``),
+# and the import block at line 260 executes before any function body,
+# so anything defined further down is invisible to ``_helpers`` at
+# import time. Define them early.
+_CHECK_VOLUNTARIO_SQL: str = (
+    "SELECT id FROM voluntarios WHERE id = $1 AND activo = true"
+)
 
-    Invoked ONLY after the atomic CTE returned 0 rows. The disambiguation
-    SELECTs are NOT part of the success path, so the TOCTOU window for
-    the success path remains closed. The disambiguation exists purely for
-    operator UX: a specific error message lets the form re-render with a
-    field-level hint instead of a generic "FK validation failed".
 
-    Handles the D-24 regla 3 disambiguation too: if the animal exists,
-    is active, AND has a ``fecha_alta`` that is after the form's ``fecha``,
-    raise the D-24-specific message. The animal row's ``fecha_alta`` is
-    formatted as ISO date for the operator-facing string.
-    """
-    animal_id = _required_text(params, "animal_id")
-    animal_rows = client.execute_sql(
-        "SELECT id, activo, fecha_alta FROM animales WHERE id = $1",
-        [animal_id],
-    )
-    if not animal_rows:
-        raise ValueError(
-            f"animal_id debe apuntar a un animal activo (no encontrado: {animal_id})"
-        )
-    if not animal_rows[0].get("activo", False):
-        raise ValueError(
-            f"animal_id debe apuntar a un animal activo (inactivo: {animal_id})"
-        )
-
-    # Animal exists and is active. Now check D-24 regla 3:
-    # fecha anterior a animales.fecha_alta (si fecha_alta no es NULL).
-    fecha = _required_text(params, "fecha")
-    fecha_alta_raw = animal_rows[0].get("fecha_alta")
-    if fecha_alta_raw:
-        try:
-            fecha_parsed = date.fromisoformat(fecha)
-        except ValueError:
-            # _validate_fecha_d24 already raised on a bad format, so we
-            # never reach this branch in practice. If we do (e.g. a
-            # future caller bypasses _validate_fecha_d24), fall through to
-            # the other checks instead of crashing with a confusing
-            # date error here.
-            fecha_parsed = None
-        if fecha_parsed is not None:
-            if isinstance(fecha_alta_raw, datetime):
-                fecha_alta_date = fecha_alta_raw.date()
-            else:
-                fecha_alta_date = date.fromisoformat(str(fecha_alta_raw)[:10])
-            if fecha_parsed < fecha_alta_date:
-                raise ValueError(
-                    f"fecha es anterior al alta del animal "
-                    f"({fecha_alta_date.isoformat()})"
-                )
-
-    vol_id = _optional_text(params, "voluntario_id")
-    if vol_id and not client.execute_sql(_CHECK_VOLUNTARIO_SQL, [vol_id]):
-        raise ValueError(
-            f"voluntario_id debe apuntar a un voluntario activo (inactivo: {vol_id})"
-        )
-
-    tipo_id = _optional_text(params, "tipo_actuacion_id")
-    if tipo_id and not client.execute_sql(_CHECK_TIPO_ACTUACION_SQL, [tipo_id]):
-        raise ValueError(
-            f"tipo_actuacion_id no existe en catalogos_pruebas: {tipo_id}"
-        )
-
-    # Should not happen in practice (one of the SELECTs above would have
-    # raised). Keep an explicit message so a future regression is loud,
-    # not silent.
-    raise ValueError(
-        "FK validation failed (animal_id, voluntario_id, tipo_actuacion_id) — "
-        "none matched"
-    )
+_CHECK_TIPO_ACTUACION_SQL: str = (
+    "SELECT id FROM catalogos_pruebas WHERE id = $1"
+)
 
 
 # --- public API -----------------------------------------------------------
@@ -769,3 +677,18 @@ def get_proximas_pruebas(
     )
     rows = client.execute_sql(sql, params)
     return [_row_to_proxima_prueba(row, fecha_hasta) for row in rows]
+
+# --- helpers import (E402) -----------------------------------------------
+#
+# Imported at the bottom of the module on purpose: every name brought
+# in here (``_raise_validation_error``, ``_row_to_actuacion_sanitaria``,
+# ``_validate_fecha_d24``) is defined in ``_helpers``, which in turn
+# imports ``_required_text``, ``_optional_text`` and the FK-check SQL
+# constants from THIS module. Placing the import last guarantees
+# every name is already in this module's namespace when the helpers
+# load (no runtime circular-import hazard).
+from app.modules.sanidad._helpers import (  # noqa: E402
+    _raise_validation_error,
+    _row_to_actuacion_sanitaria,
+    _validate_fecha_d24,
+)
