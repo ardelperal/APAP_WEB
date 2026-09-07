@@ -66,9 +66,10 @@ TERAPIA_SELECT_COLUMNS: Final[tuple[str, ...]] = (
 # Lifecycle gate (issue #46 follow-up):
 #   The ``checked_animal`` CTE LEFT JOINs ``animal_current_state`` so a
 #   terapia INSERT is short-circuited when the animal is in any of the
-#   blocked states: ``Incoherente`` plus the ``Fallecido (*)`` variants
-#   (Albergue / Acogida / Adoptado / Entregado / Desconocido). The
-#   LEFT JOIN keeps healthy animals (no row in ``animal_current_state``
+#   blocked states: ``Incoherente`` plus the ``Fallecido (*)`` variants.
+#   The full set of blocked labels is Albergue, Acogida, Adoptado,
+#   Entregado, and Desconocido. The LEFT JOIN keeps healthy animals
+#   (no row in ``animal_current_state``
 #   yet — their first actuation event has not landed) reachable; the
 #   ``IS NULL`` arm of the predicate passes the row through. The
 #   ``LIKE 'Fallecido%'`` pattern matches the canonical DB labels

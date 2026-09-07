@@ -27,6 +27,7 @@ infrastructure, not replacing it).  New roles use the PERMISSIONS matrix.
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Callable
 from enum import StrEnum
 
@@ -211,10 +212,8 @@ def require_permission(
         # Try to resolve as a new RBAC role
         role: Role | None = None
         if rol_str:
-            try:
+            with contextlib.suppress(ValueError):
                 role = Role(rol_str)
-            except ValueError:
-                pass
 
         if role is not None:
             # New RBAC role: use the permissions matrix

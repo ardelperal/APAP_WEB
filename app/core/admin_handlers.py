@@ -99,7 +99,7 @@ def register_admin_routes(app: FastAPI, templates) -> None:
         return response
 
     @app.post("/admin/users")
-    def admin_add_user(
+    def admin_add_user(  # noqa: PLR0913  # 4 FastAPI deps (request, current_user, auth_port, template_adapter) + 2 form fields (email, rol); cannot be reduced without bundling the deps into a custom container
         request: Request,
         current_user: Annotated[Response | dict, Depends(require_developer_user_redirect)],
         auth_port: Annotated[AuthUsersPort, Depends(get_auth_users_port)],

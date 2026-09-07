@@ -32,7 +32,7 @@ Hard rules (apap-architecture HR-7, HR-8, HR-9):
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 
@@ -127,7 +127,7 @@ async def start_magic_link(request: Request, payload: dict[str, object]) -> dict
 async def verify_magic_link(
     request: Request,
     response: Response,
-    token: str = Query(...),
+    token: Annotated[str, Query(...)],
 ) -> Response:
     """Consume the token, set the session cookie, redirect home.
 

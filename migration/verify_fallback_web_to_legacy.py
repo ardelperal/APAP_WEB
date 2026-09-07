@@ -91,7 +91,7 @@ def _run_subprocess_check(
     env = None
     if extra_env:
         env = {**os.environ, **extra_env}
-    proc = subprocess.run(
+    proc = subprocess.run(  # noqa: S603 — args is a built argv list, no shell expansion.
         args,
         cwd=cwd,
         capture_output=True,

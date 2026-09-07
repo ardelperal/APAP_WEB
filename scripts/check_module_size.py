@@ -50,7 +50,11 @@ SCAN_DIRS = ("app", "migration")
 #: fails on any drift between this dict and the real tree. Never add a
 #: new entry: split the module instead.
 BASELINE: dict[str, int] = {
-    "migration/apply.py": 1058,
+    # NOTE: ``migration/apply.py`` shrunk below MAX_LINES (700) during
+    # the InsForge retirement (chore(insforge) series on main) and
+    # was removed from BASELINE to satisfy ``test_baseline_matches_measured_tree``.
+    # The remaining offender is ``migration/reconcile.py`` at 976 lines;
+    # split it (or shrink it below 700) to retire the last BASELINE entry.
     "migration/reconcile.py": 976,
 }
 

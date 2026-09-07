@@ -65,8 +65,8 @@ def _post_create_schedule(client: SqlExecutor, actuacion: ActuacionSanitaria) ->
     """
     try:
         schedule_periodic_task(client, actuacion, _list_catalogos_periodicidad(client))
-    except Exception:
-        pass  # non-fatal
+    except Exception as exc:
+        log_safe("sanidad.post_create_schedule", level="warning", exc=exc)
 
 
 @dataclass(frozen=True, slots=True)
