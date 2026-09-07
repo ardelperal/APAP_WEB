@@ -24,6 +24,7 @@ TAILWIND_OUTPUT ?= app/static/css/output.css
         check-docstring-coverage check-complexity check-ruff-ratchet \
         check-vulture-guard check-jscpd check-mutation-sites \
         check-import-cycles check-workflows check-test-classification check-crap \
+        verify-coolify-contract \
         quality-report \
         mutation build all clean css css-watch serve run
 
@@ -160,6 +161,15 @@ check-import-cycles:
 check-workflows:
 	$(PYTHON) scripts/check_workflows.py
 
+# verify-coolify-contract — isolated deploy-contract gate (release-side
+# CI/CD reform, Gap 3). Mirrors gentle-ai's internal/releasepolicy/policy.go
+# pattern: the canonical expected Coolify config is embedded as a constant
+# inside scripts/verify_coolify_contract.py, so the verifier cannot depend
+# on the tree it validates. The CLI invocation matches the workflow step
+# verbatim (verified by tests/test_ci_workflow.py::test_verify_coolify_contract_workflow_exists).
+verify-coolify-contract:
+	$(PYTHON) scripts/verify_coolify_contract.py coolify/apap-web-coolify.yaml
+
 # check-test-classification -- issue #631. Companion to the test audit
 # docs/quality/test-audit.md (2026-08-31). Every domain whose unit tests
 # mock SQL via httpx.MockTransport must have a matching
@@ -208,7 +218,7 @@ verify: lint check-rules check-alantyle check-module-size check-route-size check
         check-test-classification check-slice-completeness check-migration-boundaries \
         check-docstring-coverage check-complexity check-ruff-ratchet \
         check-vulture-guard check-jscpd check-mutation-sites \
-        check-import-cycles check-workflows typecheck check-crap quality-report
+        check-import-cycles check-workflows verify-coolify-contract typecheck check-crap quality-report
 	@echo "verify: all CI pull-request gates passed."
 
 # mutation — issue #431. Runs the cosmic-ray session for the curated target
