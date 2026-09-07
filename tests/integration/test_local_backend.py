@@ -104,8 +104,20 @@ async def local_backend_client(self_host_schema):
     """
     os.environ["APAP_LOCAL_DB_URL"] = os.environ["APAP_TEST_POSTGRES_DSN"]
     os.environ["APAP_LOCAL_DB_SCHEMA"] = self_host_schema.schema
+    # Issue #680: the rawsql compatibility endpoint requires a
+    # ``Authorization: Bearer <token>`` header; the existing
+    # round-trip tests below call it directly so we provision a
+    # matching token here. ``APAP_RAWSQL_AUTH_TOKEN`` is the same
+    # secret the unit tests in ``tests/test_rawsql_auth.py`` exercise;
+    # keep the literal here and the test cookie in sync.
+    rawsql_token = "test-rawsql-bearer-token-" + "a" * 24
+    os.environ["APAP_RAWSQL_AUTH_TOKEN"] = rawsql_token
 
     app = create_app()
+    # Stash the token on the app so the tests below can reach it
+    # through ``client`` (yielded by the fixture) without re-reading
+    # ``os.environ`` after each request.
+    app.state.rawsql_test_token = rawsql_token
     async with app.router.lifespan_context(app):
         client = httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),
@@ -151,6 +163,7 @@ async def test_rawsql_select_roundtrip(
     # own migrations; tests use the conftest's ephemeral schema).
     await client.post(
         "/api/database/advance/rawsql",
+        headers={"Authorization": "Bearer " + os.environ["APAP_RAWSQL_AUTH_TOKEN"]},
         json={
             "query": (
                 'CREATE TABLE IF NOT EXISTS "rawsql_roundtrip" ('
@@ -161,6 +174,7 @@ async def test_rawsql_select_roundtrip(
     )
     await client.post(
         "/api/database/advance/rawsql",
+        headers={"Authorization": "Bearer " + os.environ["APAP_RAWSQL_AUTH_TOKEN"]},
         json={
             "query": (
                 'INSERT INTO "rawsql_roundtrip" (id, label) '
@@ -171,6 +185,7 @@ async def test_rawsql_select_roundtrip(
     )
     r = await client.post(
         "/api/database/advance/rawsql",
+        headers={"Authorization": "Bearer " + os.environ["APAP_RAWSQL_AUTH_TOKEN"]},
         json={
             "query": 'SELECT id, label FROM "rawsql_roundtrip" ORDER BY id',
             "params": [],
@@ -195,6 +210,7 @@ async def test_rawsql_insert_returns_empty_rows(
     client = local_backend_client
     await client.post(
         "/api/database/advance/rawsql",
+        headers={"Authorization": "Bearer " + os.environ["APAP_RAWSQL_AUTH_TOKEN"]},
         json={
             "query": (
                 'CREATE TABLE IF NOT EXISTS "rawsql_insert" ('
@@ -205,6 +221,7 @@ async def test_rawsql_insert_returns_empty_rows(
     )
     r = await client.post(
         "/api/database/advance/rawsql",
+        headers={"Authorization": "Bearer " + os.environ["APAP_RAWSQL_AUTH_TOKEN"]},
         json={
             "query": 'INSERT INTO "rawsql_insert" (id) VALUES ($1)',
             "params": [42],
@@ -230,6 +247,7 @@ async def test_rawsql_error_returns_4xx(
     client = local_backend_client
     r = await client.post(
         "/api/database/advance/rawsql",
+        headers={"Authorization": "Bearer " + os.environ["APAP_RAWSQL_AUTH_TOKEN"]},
         json={
             "query": "SELECT * FROM does_not_exist",
             "params": [],

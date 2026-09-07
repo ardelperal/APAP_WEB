@@ -64,9 +64,22 @@ def _validate_secrets(settings: Settings) -> None:
     if settings.session_secret == _PLACEHOLDER_SESSION_SECRET:
         log_safe("startup.config_invalid", env_var="APAP_SESSION_SECRET", reason="placeholder")
         raise StartupConfigError("APAP_SESSION_SECRET", "placeholder")
-    if len(settings.session_secret) < 32:
+    if len(settings.session_secret) < settings.shared_secret_min_length:
         log_safe("startup.config_invalid", env_var="APAP_SESSION_SECRET", reason="too_short")
         raise StartupConfigError("APAP_SESSION_SECRET", "too_short")
+    # Issue #680: the rawsql compatibility endpoint is a privileged
+    # SQL-execution surface that can run any query against Postgres.
+    # An empty or weak shared token would leave the endpoint either
+    # denying every legitimate caller (empty + debug off — current
+    # behaviour) or accepting any caller whose header matches a
+    # guessable string (short token). Refuse to boot rather than
+    # silently degrade either way.
+    if not settings.rawsql_auth_token:
+        log_safe("startup.config_invalid", env_var="APAP_RAWSQL_AUTH_TOKEN", reason="empty")
+        raise StartupConfigError("APAP_RAWSQL_AUTH_TOKEN", "empty")
+    if len(settings.rawsql_auth_token) < settings.shared_secret_min_length:
+        log_safe("startup.config_invalid", env_var="APAP_RAWSQL_AUTH_TOKEN", reason="too_short")
+        raise StartupConfigError("APAP_RAWSQL_AUTH_TOKEN", "too_short")
 
 
 class Settings(BaseSettings):
@@ -118,6 +131,28 @@ class Settings(BaseSettings):
     # row in production, but the mock pre-populates the in-process
     # auth cache so the DB row is bypassed during E2E runs.
     e2e_auth_default_email: str = "e2e@apap.local"
+
+    # --- LocalBackend rawsql shared-secret auth (issue #680) ----------
+    # Bearer token that gates ``POST /api/database/advance/rawsql``
+    # (``app/core/local_backend/rawsql.py``). The handler REJECTS
+    # every request unless the ``Authorization: Bearer <token>``
+    # header matches this value exactly (constant-time comparison).
+    # When empty, the handler rejects every request — there is no
+    # default token, even in dev (the operator must set the env var
+    # explicitly to opt into the endpoint). ``_validate_secrets`` also
+    # refuses to start production with an empty or weak value.
+    # Migration scripts that already speak to the executor directly
+    # (e.g. ``migration/verify_fallback_ready.py``) never hit this
+    # HTTP surface; the migration CLI can set the env var when it
+    # needs the fallback compatibility endpoint.
+    rawsql_auth_token: str = ""
+
+    # --- Shared-secret length floor (issue #680) -----------------------
+    # Minimum acceptable length for any operator-supplied shared secret.
+    # Below this length, ``_validate_secrets`` refuses to boot.
+    # 32 chars is the same floor as ``session_secret`` and mirrors
+    # the entropy budget the operator is expected to maintain.
+    shared_secret_min_length: int = 32
 
     # --- Bootstrap (Fase 2) ---------------------------------------------
     # Email of the first `developer` user, seeded on first startup if
