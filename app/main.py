@@ -39,7 +39,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -58,12 +58,10 @@ from app.core.auth_flow import register_auth_flow_routes
 from app.core.catalogs import ensure_catalogs
 from app.core.csrf import csrf_token_context_processor
 from app.core.dashboard_data import DASHBOARD_PENDING_CARDS, DASHBOARD_SHORTCUTS
-from app.core.di.insforge_error_handler_di import get_insforge_error_handler_port
 from app.core.domain import ensure_domain_schema
 from app.core.e2e_auth import register_e2e_auth_routes
-from app.core.insforge_error_handler import register_insforge_error_handler
 from app.core.local_backend.db import LocalPostgresExecutor
-from app.core.logging import configure_logging
+from app.core.logging import configure_logging, log_safe
 from app.core.middleware import (
     DISABLED_DOC_PATHS as _DISABLED_DOC_PATHS,  # noqa: F401  - re-export for parity with PUBLIC_PATHS
 )
@@ -270,9 +268,24 @@ def _register_unauthorized_handler(app: FastAPI, templates, settings) -> None:
 
 app = create_app()
 
-# §32.P4 (issues #277, #278): register a global handler that converts
-# any unhandled InsForgeError into a non-leaking 502. Lives in its own
-# module so the §21 700-line budget on ``app/main.py`` stays intact.
-# Slice #420: the handler now receives the translation port via DI
-# (the adapter is the only file that imports InsForgeError).
-register_insforge_error_handler(app, get_insforge_error_handler_port())
+# §32.P4 (issues #277, #278): a route that catches only its domain
+# error (``ValueError``) and lets transport errors propagate uncaught
+# becomes a 500. The generic handler below turns every unhandled
+# exception into a non-leaking 502 with ``log_safe`` observability.
+# The InsForge-specific binding (issue #277) is gone with the
+# InsForge error-handler slice (issue #662); the §32.P4 contract is
+# preserved as a generic handler instead of an InsForge-specific one.
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(
+    request: Request, exc: Exception
+) -> JSONResponse:
+    log_safe(
+        "server.unhandled_error",
+        path=request.url.path,
+        method=request.method,
+        exc_type=type(exc).__name__,
+    )
+    return JSONResponse(
+        status_code=502,
+        content={"detail": "Internal server error"},
+    )
