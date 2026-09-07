@@ -13,7 +13,7 @@ The token is required for:
 - Any future caller of the LocalBackend compatibility HTTP surface (e.g. an admin script, a back-office tool).
 - Any new mount of ``app.core.local_backend.app:create_app`` that wants to use the rawsql endpoint.
 
-The token is NOT required for:
+The token is not required for:
 
 - Production traffic served by ``app.main:app`` (the main app does not mount the rawsql router).
 - Migration CLI runs (``python -m migration apply`` / ``reconcile``), which use ``LocalPostgresExecutor`` in-process and never hit HTTP.

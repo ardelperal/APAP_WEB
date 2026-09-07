@@ -21,7 +21,7 @@ This audit documents the scope, methodology, findings, and verdict for the secur
 | Settings | `Settings.rawsql_auth_token`, `Settings.shared_secret_min_length` |
 | Tests | `tests/test_rawsql_auth.py` (unit, 9 casos), `tests/integration/test_local_backend.py` (integration, 6 round-trip cases con header) |
 | AGENTS.md | §6 (auth default-deny), §11 (CRITICAL_HELPERS 100%), §32.P2 (secret validation al arranque) |
-| Mitigante pre-existente | El endpoint NO se monta en ``app.main`` — solo en ``app.core.local_backend.app.create_app`` (usado por los verificadores de migración y por los tests de integración). Hoy no es explotable en producción; este PR elimina la bomba latente. |
+| Mitigante pre-existente | El endpoint no se monta en ``app.main`` — solo en ``app.core.local_backend.app.create_app`` (usado por los verificadores de migración y por los tests de integración). Hoy no es explotable en producción; este PR elimina la bomba latente. |
 | Dependencias | Ninguna añadida (usa ``hmac`` stdlib y ``fastapi.Header`` ya importados). |
 | Fecha | 2026-09-07 |
 
@@ -29,13 +29,13 @@ Fuera de alcance: autorización granular por usuario sobre rawsql (no hay sesió
 
 ## Methodology
 
-1. **Clasificación del activo (HR / apap-security §1)**: el endpoint ejecuta SQL arbitrario contra Postgres. Cualquier request sin auth equivale a ``GRANT ALL`` sobre la DB local. Severidad High como defecto de código, Low en el despliegue actual por el mitigante de arriba.
-2. **Default-deny en startup (HR-1 / §6)**: ``Settings.rawsql_auth_token`` es string vacío por defecto. ``_validate_secrets`` rechaza arrancar producción con token vacío o más corto que ``shared_secret_min_length`` (32). En modo debug, la validación se omite — el handler en sí sigue siendo default-deny porque lee el token desde settings y rechaza cuando está vacío.
+1. **Clasificación del activo (hr / apap-security §1)**: el endpoint ejecuta SQL arbitrario contra Postgres. Cualquier request sin auth equivale a ``GRANT ALL`` sobre la DB local. Severidad High como defecto de código, Low en el despliegue actual por el mitigante de arriba.
+2. **Default-deny en startup (hr-1 / §6)**: ``Settings.rawsql_auth_token`` es string vacío por defecto. ``_validate_secrets`` rechaza arrancar producción con token vacío o más corto que ``shared_secret_min_length`` (32). En modo debug, la validación se omite — el handler en sí sigue siendo default-deny porque lee el token desde settings y rechaza cuando está vacío.
 3. **Validación en runtime**: ``_require_rawsql_token`` extrae el header, lo compara con ``hmac.compare_digest`` (no operador ``==``, que es vulnerable a timing attacks), y rechaza con 401 + ``WWW-Authenticate: Bearer`` antes de tocar ``app.state.local_postgres_executor``. El handler solo llama al helper; el resto del flujo no cambia.
-4. **Tests unitarios (HR-13, 100% coverage del helper)**: nueve casos en ``tests/test_rawsql_auth.py`` cubren header ausente, header vacío, esquema incorrecto (Basic/Token/Digest/bearer minúscula), token correcto, whitespace trailing, token con un carácter cambiado, configured-token vacío (server-side), configured-token vacío + header vacío (doble vacío), prefix-match de 10 caracteres sobre un token de 40.
+4. **Tests unitarios (hr-13, 100% coverage del helper)**: nueve casos en ``tests/test_rawsql_auth.py`` cubren header ausente, header vacío, esquema incorrecto (Basic/Token/Digest/bearer minúscula), token correcto, whitespace trailing, token con un carácter cambiado, configured-token vacío (server-side), configured-token vacío + header vacío (doble vacío), prefix-match de 10 caracteres sobre un token de 40.
 5. **Tests de integración actualizados**: el fixture ``local_backend_client`` provisiona ``APAP_RAWSQL_AUTH_TOKEN`` y las 6 llamadas existentes a ``/api/database/advance/rawsql`` reciben ``headers={"Authorization": "Bearer " + os.environ["APAP_RAWSQL_AUTH_TOKEN"]}``. Los tests de integración están fuera del ``pytest`` de CI (``--ignore=tests/integration``), pero el cambio mantiene paridad con el handler.
-6. **Cobertura CRITICAL_HELPERS (HR-13 / §11)**: el helper ``_require_rawsql_token`` cae dentro del gate de coverage porque es función pura testeable sin side-effects.
-7. **Sin logs sensibles (HR-7/HR-8 / §9)**: el helper no loguea el token ni el header. Solo ``log_safe("startup.config_invalid", env_var=..., reason=...)`` se emite al fallar la validación de startup, y nunca contiene el valor del token.
+6. **Cobertura CRITICAL_HELPERS (hr-13 / §11)**: el helper ``_require_rawsql_token`` cae dentro del gate de coverage porque es función pura testeable sin side-effects.
+7. **Sin logs sensibles (hr-7/hr-8 / §9)**: el helper no loguea el token ni el header. Solo ``log_safe("startup.config_invalid", env_var=..., reason=...)`` se emite al fallar la validación de startup, y nunca contiene el valor del token.
 
 ## Findings
 
