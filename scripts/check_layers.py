@@ -23,7 +23,7 @@ public package root, and inside ``app/core/**`` it does not happen at
 all outside ``di``.
 
 **Axis 3 -- inner-layer purity.** ``domain`` and ``application`` must not
-import a web framework or a storage vendor (``fastapi``, ``insforge``,
+import a web framework or a storage vendor (``fastapi``, ``local_backend``,
 ``httpx``, ...). This generalises the per-slice invariants in
 ``tests/test_catalogos_slice.py`` so a *new* slice cannot forget them.
 
@@ -96,7 +96,7 @@ ALLOWED_IMPORTS: dict[str, frozenset[str]] = {
     # needs the vendor client that lives in infrastructure.
     "adapters": frozenset({"domain", "ports", "adapters", "infrastructure"}),
     # Cross-cutting technical services (session, csrf, logging, the
-    # InsForge client itself). May depend on the port Protocols it
+    # LocalBackend client itself). May depend on the port Protocols it
     # implements against, never on use cases or delivery.
     "infrastructure": frozenset({"domain", "ports", "infrastructure"}),
     # Composition root. The one place allowed to see the whole graph
@@ -121,7 +121,7 @@ FORBIDDEN_IN_PURE_LAYERS = frozenset(
         "jinja2",
         "httpx",
         "requests",
-        "insforge",
+        "local_backend",
         "sqlalchemy",
         "psycopg",
         "psycopg2",
@@ -327,7 +327,7 @@ def _slice_from_subpackage(parts: list[str], stem: str, layer: str) -> str | Non
     if layer == "adapters":
         # ``app/core/adapters/<vendor>/<slice>_<vendor>_<role>.py`` —
         # split on the vendor segment, not on the first underscore, or
-        # ``schema_bootstrap_insforge_adapter`` reads as ``schema``.
+        # ``schema_bootstrap_local_backend_adapter`` reads as ``schema``.
         vendor = parts[3]
         marker = f"_{vendor}"
         if len(parts) >= DEPTH_AT_SEGMENT_4 and marker in stem:
@@ -541,7 +541,7 @@ _LAZY_CYCLE = (
 )
 
 BASELINE: Mapping[str, str] = {
-    "app/core/adapters/insforge/auth_insforge_adapter.py -> app.core.application.auth._domain_errors [layer-direction]": _EPIC_420,
+    "app/core/adapters/local_backend/auth_local_backend_adapter.py -> app.core.application.auth._domain_errors [layer-direction]": _EPIC_420,
     "app/core/admin_handlers.py -> app.core.adapters.admin_template_adapter [layer-direction]": _EPIC_420,
     "app/core/admin_handlers.py -> app.core.application.admin.add_user [layer-direction]": _EPIC_420,
     "app/core/admin_handlers.py -> app.core.application.admin.deactivate_user [layer-direction]": _EPIC_420,
@@ -568,7 +568,7 @@ BASELINE: Mapping[str, str] = {
     "app/core/application/oauth/login_page.py -> app.core.config [layer-direction]": _EPIC_420,
     "app/core/application/oauth/logout.py -> app.core.session [layer-direction]": _EPIC_420,
     "app/core/application/oauth/start_google_login.py -> app.core.config [layer-direction]": _EPIC_420,
-    "app/core/auth.py -> app.core.adapters.insforge.auth_insforge_adapter [layer-direction]": _EPIC_420,
+    "app/core/auth.py -> app.core.adapters.local_backend.auth_local_backend_adapter [layer-direction]": _EPIC_420,
     "app/core/auth.py -> app.core.application.auth._has_other_active_developers [layer-direction]": _EPIC_420,
     "app/core/auth.py -> app.core.application.auth.add_authorized_user [layer-direction]": _EPIC_420,
     "app/core/auth.py -> app.core.application.auth.deactivate_authorized_user [layer-direction]": _EPIC_420,
@@ -577,15 +577,15 @@ BASELINE: Mapping[str, str] = {
     "app/core/auth.py -> app.core.application.auth.get_user_by_id [layer-direction]": _EPIC_420,
     "app/core/auth.py -> app.core.application.auth.list_authorized_users [layer-direction]": _EPIC_420,
     "app/core/auth_dependencies.py -> app.core.di.auth_dependencies_di [layer-direction]": _EPIC_420,
-    "app/core/auth_flow.py -> app.core.adapters.insforge.auth_insforge_adapter [layer-direction]": _EPIC_420,
-    "app/core/auth_flow.py -> app.core.adapters.insforge.oauth_insforge_adapter [layer-direction]": _EPIC_420,
+    "app/core/auth_flow.py -> app.core.adapters.local_backend.auth_local_backend_adapter [layer-direction]": _EPIC_420,
+    "app/core/auth_flow.py -> app.core.adapters.local_backend.oauth_local_backend_adapter [layer-direction]": _EPIC_420,
     "app/core/auth_flow.py -> app.core.application.oauth [layer-direction]": _EPIC_420,
     "app/core/auth_flow.py -> app.core.application.oauth.callback [layer-direction]": _EPIC_420,
     "app/core/auth_flow.py -> app.core.application.oauth.login_page [layer-direction]": _EPIC_420,
     "app/core/auth_flow.py -> app.core.application.oauth.logout [layer-direction]": _EPIC_420,
     "app/core/auth_flow.py -> app.core.application.oauth.start_google_login [layer-direction]": _EPIC_420,
-    "app/core/domain/__init__.py -> app.core.adapters.insforge.schema_bootstrap_insforge_adapter [layer-direction]": _EPIC_420,
-    "app/core/domain/__init__.py -> app.core.insforge [layer-direction]": _EPIC_420,
+    "app/core/domain/__init__.py -> app.core.adapters.local_backend.schema_bootstrap_local_backend_adapter [layer-direction]": _EPIC_420,
+    "app/core/domain/__init__.py -> app.core.local_backend [layer-direction]": _EPIC_420,
     "app/core/domain/auth/rol.py -> app.core.roles [layer-direction]": _EPIC_420,
     "app/core/domain/oauth/session.py -> app.core.domain.auth.rol [slice-boundary]": _EPIC_420,
     "app/core/domain/oauth/session.py -> app.core.domain.auth.user [slice-boundary]": _EPIC_420,

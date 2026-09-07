@@ -15,7 +15,7 @@ placement IDs (legacy PKs). The domain function consumes the same
 field names (``FSalida`` / ``FFinal`` / ``FDevolucion`` /
 ``FDefuncion`` / ``UltimoEstadoAntesDeFallecido``), so no
 ``_legacy_to_web_row`` mapper is needed — the projection happens in
-the InsForge adapter's SQL (``entradas.id AS "IDEntrada"`` etc.) and
+the LocalBackend adapter's SQL (``entradas.id AS "IDEntrada"`` etc.) and
 the migration layer reads the legacy-shape rows directly.
 
 The companion comparator ``compare_derived_to_stored`` implements the

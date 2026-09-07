@@ -71,7 +71,7 @@ from migration_boundaries_policy import (  # noqa: E402, I001 - needs the sys.pa
 #: bindings (the project's existing pattern, per
 #: ``tests/migration/test_runtime_boundary.py``) but must never import
 #: from ``app/`` — that would couple the Access seam to FastAPI /
-#: InsForge, which is the runtime-boundary contract.
+#: LocalBackend, which is the runtime-boundary contract.
 ACCESS_BOUND_FILENAMES: frozenset[str] = frozenset(
     {
         "legacy_access_client.py",
@@ -159,7 +159,7 @@ def _is_access_bound_violation(module: str) -> str | None:
 #: ``app.core.*`` module (cross-cutting infrastructure). It MUST NOT
 #: import any ``app.modules.*`` module — business logic is not part of
 #: the migration's concern. The hexagonal refactor will tighten the
-#: ``app.core.insforge`` / ``app.core.data_access`` distinction later.
+#: ``app.core.local_backend`` / ``app.core.data_access`` distinction later.
 ORCHESTRATION_FORBIDDEN_APP_PREFIXES: frozenset[str] = frozenset({"app.modules"})
 
 

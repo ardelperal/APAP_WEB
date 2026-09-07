@@ -53,7 +53,7 @@ The required-field contract comes from Access `TbFichaAnimal.Required=True` plus
 | `animal_current_state` | `animal_id`, `current_state`, `derived_at` | Derived view materialised from the event log. |
 | `entradas`, `acogidas`, `adopciones`, `actuaciones_sanitarias`, `terapias` | `NCHIP` columns | Cascade targets of the chip-change saga. |
 
-Read and lifecycle SQL lives in `adapters/insforge/animals_insforge_queries.py`; CRUD SQL lives in `animals_insforge_write_queries.py`; chip SQL lives in `animals_insforge_chip_cascade.py`.
+Read and lifecycle SQL lives in `adapters/local_backend/animals_local_backend_queries.py`; CRUD SQL lives in `animals_local_backend_write_queries.py`; chip SQL lives in `animals_local_backend_chip_cascade.py`.
 
 ## Endpoints
 
@@ -90,7 +90,7 @@ Status codes: 200 on renders, 303 See Other on success, 404 when the id is missi
 | `Especie`, `Sexo`, `LifecycleEventType` | Domain enums. |
 | `CausalPairViolation` | Typed exception for D-23 violations. |
 
-The chip saga lives in `adapters/insforge/animals_insforge_chip_cascade.py`. The photo resolver lives in `adapters/insforge/animals_insforge_photo.py`. The lifecycle event log still exposes its established package API while the port owns persistence.
+The chip saga lives in `adapters/local_backend/animals_local_backend_chip_cascade.py`. The photo resolver lives in `adapters/local_backend/animals_local_backend_photo.py`. The lifecycle event log still exposes its established package API while the port owns persistence.
 
 ## Layer type
 
@@ -130,9 +130,9 @@ The hexagonal `Animal` entity carries all 28 application-facing fields. The writ
 
 The module is one package with one router and focused hexagonal components:
 
-- `adapters/insforge/animals_insforge_chip_cascade.py` — the chip cascade saga (LIFECYCLE-04, issue #29).
+- `adapters/local_backend/animals_local_backend_chip_cascade.py` — the chip cascade saga (LIFECYCLE-04, issue #29).
 - `lifecycle_events.py` — the append-only event log writer with the D-23 causal-pair rule (issue #32).
-- `adapters/insforge/animals_insforge_photo.py` — the streaming photo resolver for the `apap-photos` bucket (issue #285).
+- `adapters/local_backend/animals_local_backend_photo.py` — the streaming photo resolver for the `apap-photos` bucket (issue #285).
 
 The species, sex, and lifecycle event enums live in the corresponding sub-modules to keep the cross-module import surface narrow.
 
@@ -164,7 +164,7 @@ The proposals cover the contracts:
 | `tests/test_animals_public_api.py` | Package re-export of the hexagonal primary-key lookup. |
 | `tests/test_animal_search.py` | Search query atoms (filters, pagination, count). |
 | `tests/test_animals_foto_route.py` | Photo streaming contract. |
-| `tests/test_animals_insforge_adapter.py` | Adapter CRUD, chip and `PhotoAsset` fail-closed paths. |
+| `tests/test_animals_local_backend_adapter.py` | Adapter CRUD, chip and `PhotoAsset` fail-closed paths. |
 
 ## Files inventory
 
@@ -185,12 +185,12 @@ The proposals cover the contracts:
 | `application/record_lifecycle_event.py` | Hexagonal use case for the lifecycle-event write (#609). |
 | `application/list_lifecycle_events.py` | Hexagonal use case for the chronological timeline read. |
 | `application/resolve_animal_photo.py` | Hexagonal use case for photo resolution. |
-| `adapters/insforge/animals_insforge_adapter.py` | InsForge-backed `AnimalsPort` implementation. |
-| `adapters/insforge/animals_insforge_mappers.py` | Row-to-domain mapping for the InsForge adapter. |
-| `adapters/insforge/animals_insforge_photo.py` | Storage adapter for photo download, fallback, safe logging and deterministic stream cleanup. |
-| `adapters/insforge/animals_insforge_queries.py` | Read and lifecycle SQL seam for the InsForge adapter (AGENTS.md §22). |
-| `adapters/insforge/animals_insforge_write_queries.py` | CRUD SQL seam, split to satisfy the mutation-site ceiling. |
-| `adapters/insforge/animals_insforge_lifecycle.py` | Lifecycle persistence orchestration, split to satisfy the mutation-site ceiling. |
+| `adapters/local_backend/animals_local_backend_adapter.py` | LocalBackend-backed `AnimalsPort` implementation. |
+| `adapters/local_backend/animals_local_backend_mappers.py` | Row-to-domain mapping for the LocalBackend adapter. |
+| `adapters/local_backend/animals_local_backend_photo.py` | Storage adapter for photo download, fallback, safe logging and deterministic stream cleanup. |
+| `adapters/local_backend/animals_local_backend_queries.py` | Read and lifecycle SQL seam for the LocalBackend adapter (AGENTS.md §22). |
+| `adapters/local_backend/animals_local_backend_write_queries.py` | CRUD SQL seam, split to satisfy the mutation-site ceiling. |
+| `adapters/local_backend/animals_local_backend_lifecycle.py` | Lifecycle persistence orchestration, split to satisfy the mutation-site ceiling. |
 | `forms.py` | `AnimalForm` Pydantic v2 model. |
 | `lifecycle_events.py` | Event log writer + D-23 causal-pair rule (LIFECYCLE-02). |
 
@@ -222,7 +222,7 @@ The `closes-with-trazability` comment on each merge cites the relevant commit SH
 - [ ] Every endpoint table entry resolves to a real route in `app/modules/animals/routes.py`.
 - [ ] Every function in the Application and port section resolves to an application use case or `AnimalsPort` method.
 - [ ] Every table and column name matches the queries or DDL that defines it.
-- [ ] The Layer type section matches the hexagonal folder shape: `domain/`, `ports/`, `application/`, `adapters/insforge/`, `di/`, `routes.py` and `forms.py`.
+- [ ] The Layer type section matches the hexagonal folder shape: `domain/`, `ports/`, `application/`, `adapters/local_backend/`, `di/`, `routes.py` and `forms.py`.
 - [ ] Cross-references resolve to files that exist at the linked paths.
 - [ ] No Spanish tuteo or voseo: read once in voice. Castellano peninsular formal in every paragraph.
 - [ ] No marketing fluff. No emoji in headings or body.

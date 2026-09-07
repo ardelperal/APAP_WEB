@@ -3,7 +3,7 @@
 Each function in this package is a thin orchestrator that delegates to
 the :class:`SchemaBootstrapPort` interface. The use cases do NOT do
 validation, query construction, or I/O — those concerns live in the
-adapter (:mod:`app.core.adapters.insforge.schema_bootstrap_insforge_adapter`).
+adapter (:mod:`app.core.adapters.local_backend.schema_bootstrap_local_backend_adapter`).
 The single-line delegation is deliberate: it makes the orchestrator
 trivially testable (a single ``port.<method>()`` call, mocked at the
 port boundary) and keeps the seam between "what the app wants to do"
@@ -13,7 +13,7 @@ Hexagonal taxonomy:
 
 - Port      :mod:`app.core.ports.schema_bootstrap_port` (Protocol)
 - THIS      :mod:`app.core.application.schema_bootstrap` (use cases)
-- Adapter   :mod:`app.core.adapters.insforge.schema_bootstrap_insforge_adapter`
+- Adapter   :mod:`app.core.adapters.local_backend.schema_bootstrap_local_backend_adapter`
 - DI        :mod:`app.core.di.schema_bootstrap_di`
 """
 

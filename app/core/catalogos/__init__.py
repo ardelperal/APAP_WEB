@@ -8,14 +8,14 @@ database ``TbOrigenEntrada``, ``TbMotivosEntrada``, ``TbNombrePruebas``,
 Hexagonal layout (refactor/hexagonal-slice-catalogos):
 
 - This package (``app.core.catalogos``)                  — pure dataclasses; no
-  I/O imports, no SQL, no InsForge dependency. The single source of
+  I/O imports, no SQL, no LocalBackend dependency. The single source of
   truth for the in-memory shape of each catalog row.
 - ``app.core.ports.catalogos_port.CatalogosPort``        — the ``Protocol``
   the application layer depends on; the adapter implements it.
 - ``app.core.application.catalogos.list_*``              — use-case functions
   that delegate to the port.
-- ``app.core.adapters.insforge.catalogos_insforge_adapter`` — the only
-  module that imports ``app.core.insforge`` and shapes the SQL.
+- ``app.core.adapters.local_backend.catalogos_local_backend_adapter`` — the only
+  module that imports ``app.core.local_backend`` and shapes the SQL.
 - ``app.core.di.catalogos_di.get_catalogos_port``        — FastAPI wiring.
 
 .. note::

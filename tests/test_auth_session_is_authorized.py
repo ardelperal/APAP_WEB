@@ -48,15 +48,15 @@ from fastapi.responses import RedirectResponse
 
 from app.core.di.local_postgres_di import get_local_postgres_executor_dep
 from app.core.local_backend.db import LocalPostgresExecutor
-from app.core.local_backend.oauth_google import exchange_insforge_oauth_code
+from app.core.local_backend.oauth_google import exchange_local_backend_oauth_code
 from app.core.ports.oauth_port import OAuthUser
 from app.core.session import session_cookie_name, write_session
 from app.main import app
 from app.modules.animals.routes import require_authorized_user
 
 
-class _FakeInsForge(LocalPostgresExecutor):
-    """Stand-in en proceso del cliente InsForge para el test de sesion."""
+class _FakeSqlExecutor(LocalPostgresExecutor):
+    """Stand-in en proceso del cliente LocalBackend para el test de sesion."""
 
     def __init__(self) -> None:
         self.get_user_by_email_response: dict | None = {
@@ -83,16 +83,16 @@ class _FakeInsForge(LocalPostgresExecutor):
     ):
 
         row = self.get_user_by_email_response or {}
-        return exchange_insforge_oauth_code(
-            token="jwt-from-insforge",
+        return exchange_local_backend_oauth_code(
+            token="jwt-from-local_backend",
             user=OAuthUser(id=str(row.get("id", "u-x")), email=str(row.get("email", ""))),
         )
 
 
 @pytest.fixture
-def fake_insforge() -> _FakeInsForge:
+def fake_sql_executor() -> _FakeSqlExecutor:
     """Sustituye ``get_local_postgres_executor_dep`` por el fake durante el test."""
-    fake = _FakeInsForge()
+    fake = _FakeSqlExecutor()
     app.dependency_overrides[get_local_postgres_executor_dep] = lambda: fake
     yield fake
     app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
@@ -102,7 +102,7 @@ def fake_insforge() -> _FakeInsForge:
 
 
 async def test_callback_escribe_is_authorized_en_sesion(
-    client: httpx.AsyncClient, fake_insforge: _FakeInsForge
+    client: httpx.AsyncClient, fake_sql_executor: _FakeSqlExecutor
 ) -> None:
     """Tras un callback exitoso, el payload de sesion incluye ``is_authorized``
     tomado del campo ``activo`` del registro de ``usuarios_autorizados``.
@@ -119,7 +119,7 @@ async def test_callback_escribe_is_authorized_en_sesion(
         {"code_verifier": "verifier-abc"}, secret=settings.session_secret
     )
     client.cookies.set("apap_pkce", pkce_token)
-    fake_insforge.get_user_by_email_response = {
+    fake_sql_executor.get_user_by_email_response = {
         "id": "u-1",
         "email": "user@example.com",
         "rol": "key_user",
@@ -165,7 +165,7 @@ def _invoke_require(payload: dict[str, Any] | None) -> RedirectResponse | dict:
     """
     # ``request`` no se usa cuando el payload ya viene resuelto; pasamos
     # un MagicMock solo para satisfacer la firma.
-    fake = _FakeInsForge()
+    fake = _FakeSqlExecutor()
     if payload is not None:
         fake.get_user_by_email_response = {
             "id": "u-db",

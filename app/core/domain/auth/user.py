@@ -1,7 +1,7 @@
 """Domain entity for a row of ``usuarios_autorizados``.
 
 The dataclass is the canonical shape the application and port layers
-exchange; adapters map their transport rows (InsForge dict, future
+exchange; adapters map their transport rows (LocalBackend dict, future
 Access DAO Recordset) to this entity via :meth:`from_row`. The class
 is immutable (``frozen=True``) per AGENTS.md §1 (no in-place mutation
 across the layered boundary).
@@ -9,7 +9,7 @@ across the layered boundary).
 Why ``added_by`` and ``added_at`` are optional
 ----------------------------------------------
 
-The legacy SELECT statements in :mod:`app.core.adapters.insforge.auth_insforge_queries`
+The legacy SELECT statements in :mod:`app.core.adapters.local_backend.auth_local_backend_queries`
 do NOT return ``added_by`` or ``fecha_alta`` for every path:
 
 - ``GET_USER_BY_EMAIL_SQL`` (used by the auth-revalidation cache
@@ -24,7 +24,7 @@ do NOT return ``added_by`` or ``fecha_alta`` for every path:
   as ``anadido_por`` in the INSERT.
 
 The admin tests' SQL pattern matching
-(``tests/test_admin.py::_FakeInsForge.execute_sql``) keys on the
+(``tests/test_admin.py::_FakeLocalBackend.execute_sql``) keys on the
 exact substring ``"SELECT id, email, rol, activo FROM
 usuarios_autorizados WHERE id = $1"`` — adding columns to the
 projection would break those tests. So the entity exposes
@@ -73,7 +73,7 @@ class AuthorizedUser:
     def from_row(cls, row: dict[str, Any]) -> AuthorizedUser:
         """Build an :class:`AuthorizedUser` from a transport-shaped dict.
 
-        The InsForge adapter receives rows shaped like
+        The LocalBackend adapter receives rows shaped like
         ``{"id": ..., "email": ..., "rol": ..., "activo": ...}``
         (lowercase Spanish column names, matching the production
         schema in :mod:`app.core.schema_bootstrap`). The ``added_by``

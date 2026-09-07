@@ -3,7 +3,7 @@
 PR-A of epic #420.  The port is the contract between the use cases
 (``application/``) and the adapters (``adapters/stubs/`` — pending a real
 ``LocalPostgresExecutor``-backed adapter in the follow-up to #668).  No
-FastAPI, no InsForge, no Jinja in this file.
+FastAPI, no LocalBackend, no Jinja in this file.
 
 Adapters MUST translate transport-level errors into the
 Protocol-level exceptions declared in :mod:`app.core.data_access`.

@@ -66,7 +66,7 @@ def _client_recording(
         return handler(request, body)
 
     client = LocalPostgresExecutor(
-        base_url="https://example.insforge.app",
+        base_url="https://example.local_backend.app",
         service_key="ik_test",
         transport=httpx.MockTransport(_recording_handler),
     )

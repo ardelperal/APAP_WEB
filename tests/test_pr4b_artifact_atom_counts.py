@@ -10,7 +10,7 @@ remediation batch shipped 11 new atoms (was 59 PR4b-shipped, became
 "**75 atoms**" — a 5-atom drift carried over from a draft where
 some per-file counts were inadvertently double-counted. The drift
 slipped past the 4R remediation's full gate (which only checked
-``pytest tests/migration/test_insforge_storage_methods.py ...
+``pytest tests/migration/test_storage_methods.py ...
 tests/test_pii_audit_doc.py -v`` returned green; it never asserted the
 headline count).
 
@@ -40,7 +40,7 @@ Hard rules honoured (web-tdd-philosophy):
   shape (regex against markdown), not internal line numbers; future
   paragraph reshuffling in the artifacts still trips the same atom.
 - Rule 8 (no production mutation): pure read against the repo tree
-  + a sandboxed ``pytest --collect-only`` (no InsForge / no Access).
+  + a sandboxed ``pytest --collect-only`` (no LocalBackend / no Access).
 """
 
 from __future__ import annotations
@@ -59,7 +59,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 PER_FILE_ATOM_COUNTS: dict[str, int] = {
     "tests/test_log_safe_redaction.py": 15,
     "tests/test_animals_foto_route.py": 15,  # PR-C deleted 3 redundant atoms (test_foto_streaming_route / test_photo_outcome_streaming / test_animal_photo_resolution all moved here or were absorbed)
-    "tests/migration/test_insforge_storage_methods.py": 34,
+    "tests/migration/test_storage_methods.py": 34,
     "tests/test_pii_audit_doc.py": 7,
 }
 EXPECTED_TOTAL: int = sum(PER_FILE_ATOM_COUNTS.values())  # 71 (PR-C: -3 atoms retired from test_animals_foto_route)
@@ -88,7 +88,7 @@ def _collect_only_count() -> int:
     """Run ``pytest --collect-only`` on the four PR4b modules; return the count.
 
     The CLI invocation mirrors the one used by the PR4b 4.6 verification
-    gate (``pytest tests/migration/test_insforge_storage_methods.py
+    gate (``pytest tests/migration/test_storage_methods.py
     tests/test_log_safe_redaction.py tests/test_animals_foto_route.py
     tests/test_pii_audit_doc.py -v``). The parse extracts the trailing
     ``"N tests collected"`` line.
@@ -100,7 +100,7 @@ def _collect_only_count() -> int:
             "pytest",
             "--collect-only",
             "-q",
-            "tests/migration/test_insforge_storage_methods.py",
+            "tests/migration/test_storage_methods.py",
             "tests/test_log_safe_redaction.py",
             "tests/test_animals_foto_route.py",
             "tests/test_pii_audit_doc.py",
@@ -171,7 +171,7 @@ def test_pr4b_artifact_headline_atom_counts_match_pytest() -> None:
     This is the drift guard. Earlier versions of apply-progress.md and
     tasks.md claimed "**75 atoms**" (drift = +5) because the draft
     author double-counted the per-chunk timeout atoms that are
-    ALREADY inside the 30-atom ``tests/migration/test_insforge_storage_methods.py``
+    ALREADY inside the 30-atom ``tests/migration/test_storage_methods.py``
     total. The audit doc's Verdict bullets and acceptance evidence
     index use per-file numbers that the audit's own headline
     recomputes from the per-file table — there is no single

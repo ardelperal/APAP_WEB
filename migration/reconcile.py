@@ -529,7 +529,7 @@ def post_apply_diff(
             for each diff. A missing mapping for a diff's table
             produces an entry in ``errors`` (the batch continues —
             one bad mapping does NOT abort the run, regla #13474 v2).
-        web_client: InsForge REST client used only for the
+        web_client: LocalBackend REST client used only for the
             ``animal_lifecycle_events`` INSERT path (per-column
             reconciliation writes via ``shadow_state``).
         shadow_state: writer for ``web_only_feature_shadow``. Must

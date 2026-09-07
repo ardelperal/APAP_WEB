@@ -3,7 +3,7 @@
 The single application-layer entry point for NCHIP lookups.
 Delegates to :class:`~app.modules.animals.ports.AnimalsPort` so
 the application code stays transport-agnostic (AGENTS.md §31) —
-no FastAPI, no InsForge, no Jinja in this file.
+no FastAPI, no LocalBackend, no Jinja in this file.
 
 Empty / whitespace NCHIP short-circuits to ``None`` so the caller
 does not have to validate the input.

@@ -1,4 +1,4 @@
-"""Read-only InsForge storage contract probe for PR4a.
+"""Read-only LocalBackend storage contract probe for PR4a.
 
 This module intentionally does not implement media upload/download helpers.
 It only probes the deployed storage contract with safe read methods so PR4b
@@ -220,7 +220,7 @@ def missing_credentials_result(storage_path: str) -> StorageProbeResult:
             "object_head": {"with_auth_status": None, "without_auth_status": None},
             "decision_reason": (
                 "Live probe did not run: missing "
-                "APAP_INSFORGE_URL/APAP_INSFORGE_SERVICE_KEY"
+                "APAP_LOCAL_BACKEND_URL/APAP_INSFORGE_SERVICE_KEY"
             ),
         }
     )
@@ -310,7 +310,7 @@ def write_discovery_document(result: StorageProbeResult, output_path: str | Path
     if evidence["status"] == "missing_credentials":
         live_note = (
             "\n- Live probe did not run: missing "
-            "APAP_INSFORGE_URL/APAP_INSFORGE_SERVICE_KEY"
+            "APAP_LOCAL_BACKEND_URL/APAP_INSFORGE_SERVICE_KEY"
         )
     presigned_note = ""
     if evidence.get("returned_url_exposure") == "server-stream-only":
@@ -342,7 +342,7 @@ def write_discovery_document(result: StorageProbeResult, output_path: str | Path
 
 ## Scope
 
-PR4a records the deployed InsForge storage contract needed by PR4b.
+PR4a records the deployed LocalBackend storage contract needed by PR4b.
 Agent-side probe remains GET/HEAD-only and refuses POST, PUT, PATCH, and DELETE
 before any network transport receives a request. Operator-supplied reversible
 sentinel evidence is persisted only as redacted status/shape categories.
@@ -387,7 +387,7 @@ def main(
     """CLI entry point for ``python -m migration.storage_spike``."""
     parser = argparse.ArgumentParser(
         prog="python -m migration.storage_spike",
-        description="Read-only InsForge storage contract probe for PR4a.",
+        description="Read-only LocalBackend storage contract probe for PR4a.",
     )
     parser.add_argument("--probe", choices=["download_strategy"], required=True)
     parser.add_argument("--path", dest="storage_path", required=True)
@@ -403,11 +403,11 @@ def main(
 
         get_settings.cache_clear()
         settings = get_settings()
-        base_url = settings.insforge_url  # type: ignore[attr-defined]  # removed in #658; rewritten in #8
-        service_key = settings.insforge_service_key  # type: ignore[attr-defined]  # removed in #658; rewritten in #8
+        base_url = settings.local_backend_url  # type: ignore[attr-defined]  # removed in #658; rewritten in #8
+        service_key = settings.local_backend_service_key  # type: ignore[attr-defined]  # removed in #658; rewritten in #8
     else:
         env_map = env
-        base_url = env_map.get("APAP_INSFORGE_URL")
+        base_url = env_map.get("APAP_LOCAL_BACKEND_URL")
         service_key = env_map.get("APAP_INSFORGE_SERVICE_KEY")
     out = sys.stdout if stream is None else stream
 

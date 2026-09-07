@@ -7,7 +7,7 @@ list_lifecycle_events #610). The single application-layer entry
 point for hexagonal chip cascading. Delegates to
 :class:`~app.modules.animals.ports.AnimalsPort` so the application
 code stays transport-agnostic (AGENTS.md §31) — no FastAPI, no
-InsForge, no Jinja in this file.
+LocalBackend, no Jinja in this file.
 
 The use case enforces the two pre-flight invariants the legacy
 ``chip_service.change_animal_chip`` did in addition to the

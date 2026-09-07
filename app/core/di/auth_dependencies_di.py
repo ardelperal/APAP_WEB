@@ -18,7 +18,7 @@ from typing_extensions import TypedDict
 from app.core.config import get_settings
 from app.core.di.auth_dependencies_session_di import (
     get_current_user_optional,
-    get_insforge_client_dep,
+    get_local_backend_client_dep,
     require_authorized_user,
 )
 from app.core.roles import Rol
@@ -279,7 +279,7 @@ def require_developer_user_redirect(
 __all__ = [
     "AuthenticatedUser",
     "is_authenticated_user",
-    "get_insforge_client_dep",
+    "get_local_backend_client_dep",
     "get_current_user_optional",
     "return_early_if_response",
     "require_authorized_user",

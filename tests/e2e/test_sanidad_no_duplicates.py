@@ -143,7 +143,7 @@ def test_duplicate_same_animal_fecha_tipo_returns_409(
 
     D-24 / legacy §8.2: ``MismaPruebaYFechaParaNChip`` is enforced by a
     UNIQUE constraint on (animal_id, fecha, tipo_actuacion_id). The service
-    translates InsForge's 409 into a 409 HTML response with a Spanish
+    translates LocalBackend's 409 into a 409 HTML response with a Spanish
     operator-facing message.
     """
     page, csrf_token = authenticated_session

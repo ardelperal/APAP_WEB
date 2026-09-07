@@ -1,7 +1,7 @@
 """Stub adapter for ``LifecyclePort`` — pending local-backend implementation.
 
 Replaces the deleted
-:class:`app.modules.lifecycle.adapters.insforge.lifecycle_insforge_adapter.InsForgeLifecycleAdapter`.
+:class:`app.modules.lifecycle.adapters.local_backend.lifecycle_local_backend_adapter.LocalBackendLifecycleAdapter`.
 A real :class:`~app.core.local_backend.db.LocalPostgresExecutor`-backed
 adapter lands in a follow-up slice; until then, every method raises
 :class:`NotImplementedError` so the runtime fails loud per route.

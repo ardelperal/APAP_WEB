@@ -5,13 +5,13 @@ Reprioritize APAP_WEB roadmap around making the backend operational now, migrati
 
 ---
 
-## 1. InsForge Backend — Current State (READ-ONLY inspection)
+## 1. LocalBackend Backend — Current State (READ-ONLY inspection)
 
 ### Evidence (MCP `get-backend-metadata`, `get-table-schema`)
 
 | Capability | Current State | Evidence |
 |---|---|---|
-| Database | ✅ Live PostgreSQL via InsForge | Endpoint: `c3uc9dk6.eu-central.insforge.app` |
+| Database | ✅ Live PostgreSQL via LocalBackend | Endpoint: `c3uc9dk6.eu-central.local_backend.app` |
 | Domain tables | ✅ Exist, all EMPTY (0 rows) | `animales`, `voluntarios`, `entradas`, `acogidas`, `adopciones`, `actuacion_sanitaria`, `animal_current_state`, `animal_lifecycle_events`, `cesiones_propietario` |
 | Shadow/migration tables | ✅ `web_only_feature_shadow` (DDL exists in `migration/shadow_state.py`, NOT YET created in DB) | Code confirmed; MCP query returned no such table |
 | Catalog tables | ✅ Populated (21 motivos, 7 origenes, 12 periodicidad, 13 pruebas, 8 tipos_contrato) | `catalogos_*` have real data |
@@ -20,7 +20,7 @@ Reprioritize APAP_WEB roadmap around making the backend operational now, migrati
 | Custom functions | ❌ None deployed | `functions: []` |
 | `web_sql_migrations` table | ✅ Exists, 2 rows | Migration DDL tracking table present |
 
-### InsForge `animales` Schema (from `get-table-schema`)
+### LocalBackend `animales` Schema (from `get-table-schema`)
 
 Columns (23 total): `id` (uuid, PK), `nchip` (text, NOT NULL, unique key), `traenchip`, `fimplantacionchip`, `nombreanimal`, `especie`, `sexo`, `raza`, `color`, `pelo`, `tamano`, `caracter`.
 
@@ -61,8 +61,8 @@ Columns (9 total): `id` (uuid, PK), `voluntario` (text, NOT NULL), `tel1`, `tel2
 | Blocker | File | Evidence |
 |---|---|---|
 | **`execute_legacy_sql` is a stub** | `migration/dysflow_client.py:50` | `raise NotImplementedError("execute_legacy_sql will be implemented when Dysflow MCP is wired in a later slice")` — ALL actual legacy reads will fail |
-| **`web_only_feature_shadow` table NOT created in InsForge** | InsForge DB | MCP query shows table does not exist; bootstrap code exists but has never run against the real DB |
-| **Storage bucket does not exist** | InsForge | `list-buckets` returns `[]`; no `apap-photos` or equivalent bucket; DOC-04 (#59) not started |
+| **`web_only_feature_shadow` table NOT created in LocalBackend** | LocalBackend DB | MCP query shows table does not exist; bootstrap code exists but has never run against the real DB |
+| **Storage bucket does not exist** | LocalBackend | `list-buckets` returns `[]`; no `apap-photos` or equivalent bucket; DOC-04 (#59) not started |
 | **`web_to_legacy` migration not implemented** | `migration/apply.py:11` | Comment: "Direction (this slice): legacy_to_web only. The reverse direction is a future PR." |
 | **`migrate reconcile` interactive mode requires `created_by` UUID** | `migration/reconcile.py:543` | `if created_by is None: errors.append(...)` — operator automation needed |
 | **No `migrate apply --legacy-path` validation** | `migration/apply.py:229` | No pre-flight MSACCESS.EXE check in the apply path (only in `lock.py::check_msaccess_running()` which is not wired into the apply flow) |
@@ -118,14 +118,14 @@ Columns (9 total): `id` (uuid, PK), `voluntario` (text, NOT NULL), `tel1`, `tel2
 
 ### What "Usable Private Sandbox" Means
 
-A developer can run a full `apap-migrate apply` on their own legacy `.accdb` copy, get real animals + photos into InsForge, and use the web app with real data — without affecting production.
+A developer can run a full `apap-migrate apply` on their own legacy `.accdb` copy, get real animals + photos into LocalBackend, and use the web app with real data — without affecting production.
 
 ### Required Components for the Slice
 
 #### Phase A: Migration Infrastructure (hard blockers)
 
 1. **`execute_legacy_sql` Dysflow wiring** — wire `dysflow_query_execute` into `migration/dysflow_client.py`. This is the ONLY missing piece that blocks ALL legacy reads.
-2. **`web_only_feature_shadow` bootstrap** — run `ShadowStateRepository.ensure_table()` against InsForge to create the shadow table (one `execute_sql` call).
+2. **`web_only_feature_shadow` bootstrap** — run `ShadowStateRepository.ensure_table()` against LocalBackend to create the shadow table (one `execute_sql` call).
 3. **`apap-migrate status --table`** — verify counts before/after without touching production.
 
 #### Phase B: Animal Data Migration
@@ -135,9 +135,9 @@ A developer can run a full `apap-migrate apply` on their own legacy `.accdb` cop
 
 #### Phase C: Photo Storage (new work)
 
-6. **Create InsForge bucket** — `apap-photos` (private bucket, auth-required for upload, public-read for display URLs via signed/expiring tokens).
+6. **Create LocalBackend bucket** — `apap-photos` (private bucket, auth-required for upload, public-read for display URLs via signed/expiring tokens).
 7. **Photo migration mapping** — extend `animal.yaml` with a `storage` mapping: `{legacy_path: "URLDirectorioFotos", web_bucket: "apap-photos", filename_pattern: "{NCHIP}.{ext}"}`.
-8. **File copy + upload** — read photo from legacy path, compute SHA-256, check if already uploaded (idempotency), upload to InsForge bucket, update `animales.nombrefoto` with storage reference.
+8. **File copy + upload** — read photo from legacy path, compute SHA-256, check if already uploaded (idempotency), upload to LocalBackend bucket, update `animales.nombrefoto` with storage reference.
 
 #### Phase D: Volunteer + PII Protection (separate concern)
 
@@ -169,9 +169,9 @@ apap-migrate status --table animal
 
 | Capability | Current State | Evidence | Blocker | Required Work |
 |---|---|---|---|---|
-| **Tables (domain)** | ✅ Exist in InsForge, all empty | `get-backend-metadata` | None | None |
+| **Tables (domain)** | ✅ Exist in LocalBackend, all empty | `get-backend-metadata` | None | None |
 | **Tables (shadow)** | ❌ `web_only_feature_shadow` NOT created | MCP query returned no rows | `ensure_table()` never run | Run `ShadowStateRepository.ensure_table()` once |
-| **Catalog data** | ✅ 5 catalogs populated | InsForge has 21+7+12+13+8 rows | None | None |
+| **Catalog data** | ✅ 5 catalogs populated | LocalBackend has 21+7+12+13+8 rows | None | None |
 | **Auth (Google OAuth)** | ✅ Working | `authorized_users` has 1 row | None | None |
 | **Storage (buckets)** | ❌ No bucket exists | `list-buckets: []` | No bucket created | Create `apap-photos` bucket via MCP |
 | **Animal mapping** | ✅ `animal.yaml` complete (22 columns) | File reviewed | None | None |
@@ -190,7 +190,7 @@ apap-migrate status --table animal
 | **Migrate reconcile CLI** | ✅ `--check-only` and `--interactive` | `cli.py` reviewed | Requires `created_by` UUID for lifecycle events | Operator passes `--operator-uuid` or automation handles |
 | **Migrate status CLI** | ✅ Implemented | `cli.py:653` | None | None |
 | **web→legacy migration** | ❌ Not implemented | `apply.py:11` comment | Future PR | Not needed for Phase 1 |
-| **Animal photo → InsForge storage** | ❌ No mapping or code | Missing | DOC-04 (#59) not started | New mapping + file copy logic |
+| **Animal photo → LocalBackend storage** | ❌ No mapping or code | Missing | DOC-04 (#59) not started | New mapping + file copy logic |
 | **Idempotency (animal photos)** | ❌ Not implemented for files | SHA-256 hash exists for rows but not files | DOC-04 (#59) not started | Compute `SHA-256(file)` before upload |
 | **PII minimization (voluntarios)** | ❌ Full `dni`, `tel1`, `tel2`, `email` mapped | `voluntario.yaml` | Requires user decision | First slice: exclude `dni`, use only `voluntario` name |
 | **Animal photos public visibility** | ❌ No signed URL / public policy | No bucket exists | DOC-04 (#59) | Private bucket; display via `/api/storage/...` signed URLs |
@@ -218,7 +218,7 @@ apap-migrate status --table animal
 
 **Create ONE new issue** named:
 
-> **`migration-01: apply legacy animals + photos into InsForge (sandbox-ready)`**
+> **`migration-01: apply legacy animals + photos into LocalBackend (sandbox-ready)`**
 
 Scope:
 1. Wire `execute_legacy_sql` Dysflow MCP
@@ -242,15 +242,15 @@ Scope:
 ### Contradiction 1: Volunteer PII — `dni` UNIQUE constraint
 
 - `voluntario.yaml` maps `dni` as a web-only column with NO legacy source
-- `voluntarios.dni` has a UNIQUE constraint in InsForge (`voluntarios_dni_key`)
+- `voluntarios.dni` has a UNIQUE constraint in LocalBackend (`voluntarios_dni_key`)
 - Legacy `TbVoluntarios.DNI` is PII (Spanish national ID)
 - **If we migrate volunteers without DNI, we lose the UNIQUE constraint enforcement** (can't deduplicate by DNI if we don't have it)
-- **Question**: Should `dni` be migrated? If yes: explicit consent required for PII. If no: remove UNIQUE constraint on `dni` in InsForge schema (breaking change)
+- **Question**: Should `dni` be migrated? If yes: explicit consent required for PII. If no: remove UNIQUE constraint on `dni` in LocalBackend schema (breaking change)
 
 ### Contradiction 2: Photo visibility — public vs. private
 
 - Legacy photos in `URLDirectorioFotos` are accessible to anyone with file system access
-- InsForge bucket can be private (auth required) or public
+- LocalBackend bucket can be private (auth required) or public
 - Animal ID photos are **intended for public display** (shelter website)
 - **Question**: Should the `apap-photos` bucket be public-read (simpler, but anyone with bucket URL can access) or private with signed URLs (more secure, but requires per-request signing)?
 
@@ -262,9 +262,9 @@ Scope:
 
 ### Contradiction 4: Destination environment
 
-- InsForge backend is at `c3uc9dk6.eu-central.insforge.app`
+- LocalBackend backend is at `c3uc9dk6.eu-central.local_backend.app`
 - This is a shared/development environment
-- **Question**: Is this the target for the sandbox, or should a separate InsForge project be created for the sandbox? What data isolation is expected?
+- **Question**: Is this the target for the sandbox, or should a separate LocalBackend project be created for the sandbox? What data isolation is expected?
 
 ### Contradiction 5: Real volunteer/adopter data — PII scope
 
@@ -281,12 +281,12 @@ Scope:
 |---|---|---|
 | **`execute_legacy_sql` stub** — no legacy reads possible | **CRITICAL** | Wire Dysflow MCP before any migration work |
 | **`web_only_feature_shadow` not created** — shadow writes fail silently | **HIGH** | Run `ensure_table()` as first step of bootstrap |
-| **No photo storage** — `NombreFoto` points to non-existent InsForge path | **HIGH** | Create `apap-photos` bucket + implement photo mapping before animal migration |
+| **No photo storage** — `NombreFoto` points to non-existent LocalBackend path | **HIGH** | Create `apap-photos` bucket + implement photo mapping before animal migration |
 | **`dni` UNIQUE constraint collision** — duplicate volunteer names in legacy | **MEDIUM** | First slice: exclude `dni`; or deduplicate before migration |
 | **Legacy photo directory inaccessible** — filesystem path not reachable | **HIGH** | Verify `URLDirectorioFotos` accessibility before planning |
 | **PII in logs** — `log_safe` captures `nchip` which traces to owner | **MEDIUM** | Apply redaction list (already in place per AGENTS.md §9) |
 | **No `check_msaccess_running` in apply path** — concurrent write risk | **MEDIUM** | Wire `check_msaccess_running()` into `apply_legacy_to_web` pre-flight |
-| **InsForge bucket name collision** — `apap-photos` might already exist in another project | **LOW** | Check `list-buckets` before creating |
+| **LocalBackend bucket name collision** — `apap-photos` might already exist in another project | **LOW** | Check `list-buckets` before creating |
 | **Large photo migration timeout** — thousands of photos × network latency | **MEDIUM** | Batch upload with concurrency limit; implement resumable uploads |
 | **Access `.accdb` locked by another user** — Dysflow fails | **MEDIUM** | `lock.py` has PID-based lock; apply path needs `check_msaccess_running()` wired |
 
@@ -305,7 +305,7 @@ SLICE-0 (Infrastructure — 1 day):
 
 SLICE-1 (Animals only, no photos — 2 days):
   □ apap-migrate apply --legacy-path <dev-accdb> --table animal
-  □ Verify: InsForge animales count == legacy TbFichaAnimal count
+  □ Verify: LocalBackend animales count == legacy TbFichaAnimal count
   □ Verify: apap-migrate reconcile --check-only returns 0 needs_review
 
 SLICE-2 (Photos — 2 days):
@@ -313,7 +313,7 @@ SLICE-2 (Photos — 2 days):
   □ SHA-256 idempotency check
   □ Upload {NCHIP}.{ext} → apap-photos/{NCHIP}.{ext}
   □ Update animales.nombrefoto with bucket reference
-  □ Verify: InsForge photos accessible via signed URL
+  □ Verify: LocalBackend photos accessible via signed URL
 
 SLICE-3 (Volunteers minimal — 1 day, PENDING USER DECISION):
   □ Map only 'voluntario' name column
@@ -355,10 +355,10 @@ The bidirectional mandate requires `web_to_legacy` for full round-trip. For the 
 
 | Evidence | Source | Location |
 |---|---|---|
-| `animales` schema (23 columns) | `insforge.get-table-schema("animales")` | InsForge MCP |
-| `voluntarios` schema (9 columns, dni UNIQUE) | `insforge.get-table-schema("voluntarios")` | InsForge MCP |
-| `web_only_feature_shadow` absent | `insforge.get-backend-metadata()` | InsForge MCP |
-| No storage buckets | `insforge.list-buckets()` | InsForge MCP |
+| `animales` schema (23 columns) | `local_backend.get-table-schema("animales")` | LocalBackend MCP |
+| `voluntarios` schema (9 columns, dni UNIQUE) | `local_backend.get-table-schema("voluntarios")` | LocalBackend MCP |
+| `web_only_feature_shadow` absent | `local_backend.get-backend-metadata()` | LocalBackend MCP |
+| No storage buckets | `local_backend.list-buckets()` | LocalBackend MCP |
 | `execute_legacy_sql` stub | `migration/dysflow_client.py:50` | APAP_WEB |
 | `animal.yaml` 22-column mapping | `migration/mappings/animal.yaml` | APAP_WEB |
 | `voluntario.yaml` with dni as web-only | `migration/mappings/voluntario.yaml` | APAP_WEB |
@@ -369,7 +369,7 @@ The bidirectional mandate requires `web_to_legacy` for full round-trip. For the 
 | `apply_legacy_to_web` idempotency | `migration/apply.py:350-375` | APAP_WEB |
 | `log_safe("sync.applied")` per row | `migration/apply.py:359` | APAP_WEB |
 | `ShadowStateRepository.ensure_table()` DDL | `migration/shadow_state.py:47-77` | APAP_WEB |
-| `web_sql_migrations` table: 2 rows | `insforge.get-backend-metadata()` | InsForge MCP |
-| Catalogs populated | `insforge.get-backend-metadata()` | InsForge MCP |
-| Google OAuth auth | `insforge.get-backend-metadata()` | InsForge MCP |
-| `create-bucket` works | MCP test (cleaned up) | InsForge MCP |
+| `web_sql_migrations` table: 2 rows | `local_backend.get-backend-metadata()` | LocalBackend MCP |
+| Catalogs populated | `local_backend.get-backend-metadata()` | LocalBackend MCP |
+| Google OAuth auth | `local_backend.get-backend-metadata()` | LocalBackend MCP |
+| `create-bucket` works | MCP test (cleaned up) | LocalBackend MCP |

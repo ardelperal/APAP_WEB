@@ -7,7 +7,7 @@ Esta página posee el contrato de exclusividad runtime entre los modos web y leg
 ## Core invariants
 
 - **Exclusividad runtime**: APAP_WEB corre como web o como legacy en una sesión, nunca ambos contra el mismo dataset (AGENTS §18).
-- **Cliente único por backend**: `InsForgeClient` para InsForge; `LegacyAdapter` para Access; el código de servicio importa uno solo (AGENTS §18.4).
+- **Cliente único por backend**: `LocalBackendClient` para LocalBackend; `LegacyAdapter` para Access; el código de servicio importa uno solo (AGENTS §18.4).
 - **`migration/` es el único lector cruzado**: rutas y servicios no importan `migration/`; solo el CLI lo usa (AGENTS §18.4).
 - **Sync idempotente**: re-ejecutar el reconcile sin cambios no produce diff; usa `web_only_feature_shadow` (AGENTS §18.1).
 - **Sync auditable**: cada fila escrita se loguea con `log_safe("sync.applied", table, pk, direction, source_hash, target_hash)` (AGENTS §18.1).
@@ -17,9 +17,9 @@ Esta página posee el contrato de exclusividad runtime entre los modos web y leg
 
 | Variable | Valor | Efecto |
 |---|---|---|
-| `APAP_MODE` | `web` (default) | El servicio habla exclusivamente con InsForge. |
+| `APAP_MODE` | `web` (default) | El servicio habla exclusivamente con LocalBackend. |
 | `APAP_MODE` | `legacy` | El servicio habla exclusivamente con el backend Access. |
-| `APAP_INSFORGE_URL` + `APAP_LEGACY_ACCDB_PATH` | Ambos alcanzables | Startup falla rápido; un modo y solo uno puede vivir en runtime. |
+| `APAP_LOCAL_BACKEND_URL` + `APAP_LEGACY_ACCDB_PATH` | Ambos alcanzables | Startup falla rápido; un modo y solo uno puede vivir en runtime. |
 
 ## CLI de reconciliación (§18.2)
 

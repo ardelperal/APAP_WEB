@@ -34,7 +34,7 @@ from app.core.session import session_cookie_name, write_session
 
 
 class _AnonymousSpy:
-    """InsForge stand-in (mirrors ``tests/test_csrf_middleware.py``)."""
+    """LocalBackend stand-in (mirrors ``tests/test_csrf_middleware.py``)."""
 
     def execute_sql(self, query: str, params: Any = None):  # type: ignore[no-untyped-def]
         if "RETURNING" in query or "INSERT" in query:

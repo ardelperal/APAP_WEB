@@ -3,7 +3,7 @@
 The callback use case is the heart of the OAuth flow. It:
 
 1. Decides which exchange method to call (the modern
-   InsForge-hosted path with ``insforge_code``, or the legacy
+   LocalBackend-hosted path with ``oauth_code``, or the legacy
    direct-Google path with ``code``).
 2. Calls the right :class:`OAuthPort` method with the PKCE
    verifier (carried in the short-lived ``apap_pkce`` cookie;
@@ -36,7 +36,7 @@ Hexagonal contract:
 
 - Inputs: the :class:`OAuthPort` + :class:`AuthUsersPort` (both
   Protocol abstractions; rule §31) and the raw callback
-  parameters (``insforge_code``, ``code``, ``code_verifier``,
+  parameters (``oauth_code``, ``code``, ``code_verifier``,
   ``redirect_uri``).
 - Outputs: an :class:`AuthenticatedSession`.
 - Side effects: a transport round-trip per exchange method, and
@@ -60,7 +60,7 @@ def callback(
     oauth_port: OAuthPort,
     auth_port: AuthUsersPort,
     *,
-    insforge_code: str | None,
+    oauth_code: str | None,
     code: str | None,
     code_verifier: str,
     redirect_uri: str,
@@ -78,26 +78,26 @@ def callback(
             layer (``app/core/di/oauth_di.py``).
         auth_port: The :class:`AuthUsersPort` injected by the DI
             layer (``app/core/di/auth_di.py``).
-        insforge_code: The temporary code in the callback URL when
-            InsForge's hosted proxy is the front. ``None`` when the
+        oauth_code: The temporary code in the callback URL when
+            LocalBackend's hosted proxy is the front. ``None`` when the
             request is on the legacy direct-callback path.
         code: The Google-issued authorization code on the legacy
             direct-callback path. ``None`` when the request is on
-            the InsForge-hosted path.
+            the LocalBackend-hosted path.
         code_verifier: The PKCE verifier recovered from the
             ``apap_pkce`` cookie. The route layer is responsible
             for cookie parsing; this use case receives the raw
             string.
         redirect_uri: The application's callback URL. The legacy
             direct-callback path needs it to match the one sent
-            at start time; the InsForge-hosted path does not.
+            at start time; the LocalBackend-hosted path does not.
 
     Returns:
         The :class:`AuthenticatedSession` ready to be signed into
         the ``apap_session`` cookie.
 
     Raises:
-        CallbackInvalidError: When neither ``insforge_code`` nor
+        CallbackInvalidError: When neither ``oauth_code`` nor
             ``code`` was supplied. The route layer redirects to
             ``/login``.
         UserNotAuthorizedError: When the email returned by the
@@ -112,9 +112,9 @@ def callback(
             scoped to the single exchange call site, not the
             whole route.
     """
-    if insforge_code:
-        oauth_user = oauth_port.exchange_insforge_oauth_code(
-            insforge_code=insforge_code,
+    if oauth_code:
+        oauth_user = oauth_port.exchange_local_backend_oauth_code(
+            oauth_code=oauth_code,
             code_verifier=code_verifier,
         )
     elif code:

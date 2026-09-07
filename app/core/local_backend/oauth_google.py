@@ -6,7 +6,7 @@ Google OAuth proxy flow:
 - ``GET  /api/auth/oauth/google`` (start) → ``{"authUrl": "https://..."}``
 - ``POST /api/auth/oauth/google/callback`` (legacy direct Google) →
   ``{"token": "<jwt>", "user": {"id", "email"}}``
-- ``POST /api/auth/oauth/exchange`` (InsForge-hosted proxy) →
+- ``POST /api/auth/oauth/exchange`` (LocalBackend-hosted proxy) →
   ``{"user": {"id", "email"}, "accessToken": "<jwt>", "csrfToken": "..."}``
 
 M0 stubs the URL and the JWT deterministically so the rest of the
@@ -37,7 +37,7 @@ router = APIRouter()
 def _make_signed_jwt(email: str) -> str:
     """Return a minimal signed JWT for the stub OAuth response.
 
-    The real InsForge returns a JWT signed with a service key. M0
+    The real LocalBackend returns a JWT signed with a service key. M0
     stubs the shape (``header.payload.signature``) so the client can
     parse it; the signature is not verified in M0 (the client just
     sets a cookie and reads the payload). M3 uses a real signing key.
@@ -102,16 +102,16 @@ def google_oauth_callback(payload: dict) -> dict:
 
 
 @router.post("/auth/oauth/exchange")
-def exchange_insforge_oauth_code(
+def exchange_local_backend_oauth_code(
     payload: dict,
     client_type: str = Query("web"),
 ) -> dict:
-    """Return a stub session JWT (M0) for the InsForge-hosted OAuth proxy.
+    """Return a stub session JWT (M0) for the LocalBackend-hosted OAuth proxy.
 
-    The real implementation validates the InsForge one-time code with
+    The real implementation validates the LocalBackend one-time code with
     PKCE and signs the JWT with the service key. M0 returns a
     deterministic JWT for the test, no validation. Body is JSON
-    (matches what ``LocalPostgresExecutor.exchange_insforge_oauth_code``
+    (matches what ``LocalPostgresExecutor.exchange_local_backend_oauth_code``
     sends).
     """
     # ``client_type`` is accepted for parity with the real endpoint but
@@ -129,5 +129,5 @@ __all__ = [
     "router",
     "start_google_oauth",
     "google_oauth_callback",
-    "exchange_insforge_oauth_code",
+    "exchange_local_backend_oauth_code",
 ]

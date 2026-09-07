@@ -3,7 +3,7 @@
 The runner records applied migrations in ``web_sql_migrations`` and
 re-applies any ``*.sql`` file under ``app/core/migration/sql/`` that is
 not yet recorded. The contract: idempotent across restarts, no crash
-on the response shape InsForge actually returns.
+on the response shape LocalBackend actually returns.
 
 The runner is exercised directly with a fake ``LocalPostgresExecutor`` so the
 shape of the response from ``client.execute_sql`` is under our
@@ -11,7 +11,7 @@ control. The list query (``SELECT filename FROM web_sql_migrations``)
 returns rows in two shapes observed in production:
 
 - List of dicts: ``[{"filename": "001_drop.sql"}, ...]``
-- Flat list of strings: ``["001_drop.sql", ...]`` (InsForge collapses
+- Flat list of strings: ``["001_drop.sql", ...]`` (LocalBackend collapses
   single-column SELECTs to scalars in some response modes)
 
 The runner must accept both so the first container start on a fresh
@@ -70,7 +70,7 @@ def migrations_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def test_runner_accepts_list_of_dicts(
     migrations_dir: Path,
 ) -> None:
-    """The runner treats rows as dicts when InsForge returns the object form."""
+    """The runner treats rows as dicts when LocalBackend returns the object form."""
     client = _FakeClient(list_response=[{"filename": "001_first.sql"}])
 
     applied = apply_sql_migrations(client)
@@ -83,7 +83,7 @@ def test_runner_accepts_list_of_dicts(
 def test_runner_accepts_flat_list_of_strings(
     migrations_dir: Path,
 ) -> None:
-    """The runner does NOT crash when InsForge returns ``["001_first.sql"]``.
+    """The runner does NOT crash when LocalBackend returns ``["001_first.sql"]``.
 
     Regression test for the deploy failure (commit d8b37ae via merge
     c1bde47 introduced a row shape that broke the list comprehension):

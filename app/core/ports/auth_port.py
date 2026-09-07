@@ -3,11 +3,11 @@
 The :class:`AuthUsersPort` Protocol is the seam between the application
 (use-case) layer and any transport adapter. Domain code in
 ``app.core.application.auth`` depends on this Protocol only; the
-InsForge implementation lives in
-:mod:`app.core.adapters.insforge.auth_insforge_adapter`, and a future
+LocalBackend implementation lives in
+:mod:`app.core.adapters.local_backend.auth_local_backend_adapter`, and a future
 legacy Access adapter will live in its own module under
 ``app.core.adapters.access`` (Phase 3). A custom DI provider
-(:mod:`app.core.di.auth_di`) wires the InsForge adapter into FastAPI
+(:mod:`app.core.di.auth_di`) wires the LocalBackend adapter into FastAPI
 requests.
 
 Adapters MUST translate transport-level errors (HTTP 409, ODBC error

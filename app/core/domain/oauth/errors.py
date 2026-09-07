@@ -13,10 +13,10 @@ Three errors are defined:
 - :class:`OAuthNotConfiguredError` — 503; the operator must set
   ``APAP_GOOGLE_CLIENT_ID`` / ``APAP_GOOGLE_CLIENT_SECRET``.
 - :class:`CallbackInvalidError` — redirect to ``/login``; the
-  callback arrived with neither an ``insforge_code`` nor a legacy
+  callback arrived with neither an ``oauth_code`` nor a legacy
   ``code`` query parameter.
 - :class:`UserNotAuthorizedError` — redirect to ``/unauthorized``;
-  the email returned by InsForge did not resolve to an active row
+  the email returned by LocalBackend did not resolve to an active row
   in ``usuarios_autorizados``.
 
 The base :class:`OAuthError` is the umbrella type for an ``except``
@@ -63,7 +63,7 @@ class CallbackInvalidError(OAuthError):
     """Raised when the callback request lacks a usable OAuth code.
 
     The use case raises this when the callback arrives with neither
-    an ``insforge_code`` nor a legacy ``code`` query parameter. The
+    an ``oauth_code`` nor a legacy ``code`` query parameter. The
     route layer redirects to ``/login`` (the same shape the legacy
     ``app.core.auth_flow`` used for the 165-line ``except
     BackendError`` bucket, but now applied ONLY to the genuinely
@@ -78,7 +78,7 @@ class CallbackInvalidError(OAuthError):
 class UserNotAuthorizedError(OAuthError):
     """Raised when the OAuth-returned email is not in ``usuarios_autorizados``.
 
-    The use case raises this when the email returned by InsForge
+    The use case raises this when the email returned by LocalBackend
     does not resolve to an active row in ``usuarios_autorizados``.
     The route layer redirects to ``/unauthorized`` and clears the
     short-lived ``apap_pkce`` cookie so the browser does not replay

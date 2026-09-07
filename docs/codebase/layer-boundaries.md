@@ -33,15 +33,15 @@ Cualquier dependencia que cree un objeto con método `.close()` debe usar `yield
 **Incorrecto** — recurso filtrado en cada request
 
 ```python
-def get_client() -> InsForgeClient:
-    return InsForgeClient(url, key)
+def get_client() -> LocalBackendClient:
+    return LocalBackendClient(url, key)
 ```
 
 **Correcto** — cerrado tras cada request
 
 ```python
 def get_client():
-    client = InsForgeClient(url, key)
+    client = LocalBackendClient(url, key)
     try:
         yield client
     finally:
@@ -57,7 +57,7 @@ def get_client():
 ```python
 def get_client():
     settings = get_settings()   # parses .env on every call
-    return InsForgeClient(settings.url, settings.key)
+    return LocalBackendClient(settings.url, settings.key)
 ```
 
 **Correcto**

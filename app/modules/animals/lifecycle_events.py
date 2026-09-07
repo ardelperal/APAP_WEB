@@ -436,7 +436,7 @@ def validate_causal_pair(
         row_event_type = row.get("event_type")
         row_event_ts = row.get("event_timestamp")
         if not isinstance(row_event_ts, str):
-            # The DB returns TIMESTAMPTZ as an ISO string via InsForge;
+            # The DB returns TIMESTAMPTZ as an ISO string via LocalBackend;
             # anything else is a contract drift.
             continue
         if row_event_type == LifecycleEventType.FOSTER_CLOSED_BY_ADOPTION.value:

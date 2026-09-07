@@ -11,7 +11,7 @@ supersedes: previous draft that hallucinated `DNI` as a legacy column and invent
 | Milestone | Gate | PR |
 |---|---|---|
 | **M0 — Runtime boundary** | `execute_legacy_sql(path, sql, offset, limit)` returns rows from real `.accdb`; no MCP import; `check_msaccess_running()` (no-arg) integrated pre-flight; bucket `apap-photos` exists `isPublic=false`; snapshot written AFTER lock, BEFORE first read | PR1 (pyodbc wiring), PR2 (ShadowStateRepository.ensure_table + bucket MCP create) |
-| **M1 — Forward usable** | `apply --table animal/entrada/voluntario` completes with PII; `GET /animales/{animal_id}/foto` returns 200 with auth, 302 to `/login` without; audit doc `PASS`; `verify-fallback-ready` runs in CI but exits non-zero (`missing_real_cycle=true`) until M2 — `animal_id` is `animales.id` UUID (Correction L; NCHIP is natural key for lookup only, NOT the route identifier) | PR3 (apply + lock_snapshot + MSACCESS pre-flight + photo pass), PR4 (InsForgeClient storage contract spike FIRST, then foto route + audit/runbook), PR5 (PII tests + reconcile CLI) |
+| **M1 — Forward usable** | `apply --table animal/entrada/voluntario` completes with PII; `GET /animales/{animal_id}/foto` returns 200 with auth, 302 to `/login` without; audit doc `PASS`; `verify-fallback-ready` runs in CI but exits non-zero (`missing_real_cycle=true`) until M2 — `animal_id` is `animales.id` UUID (Correction L; NCHIP is natural key for lookup only, NOT the route identifier) | PR3 (apply + lock_snapshot + MSACCESS pre-flight + photo pass), PR4 (LocalBackendClient storage contract spike FIRST, then foto route + audit/runbook), PR5 (PII tests + reconcile CLI) |
 | **M2 — Fallback-ready gate** | `apply_web_to_legacy` symmetric; round-trip test green; **`verify-fallback-ready` exits 0 as CI gate AND publication gate** | PR6 (`apply_web_to_legacy`), PR7 (round-trip + verify-fallback-ready wired into `.github/workflows/ci.yml`) |
 | Production-ready | OUT OF SCOPE | — |
 
@@ -25,9 +25,9 @@ P1 fidelity to `APAP_ACTUAL/src/classes/TbFichaAnimal/Resumen.cls` is binding (p
 | **D2 (Correction A)** | **`TbVoluntariosParaAutorrellenables` has NO `DNI` column.** DNI is **web-only shadow**, preserved across round-trip via existing `voluntario.yaml` (`legacy_column: null`, `web_only_strategy: preserve`). `migration/mappings/voluntario.yaml` is already correct; **no YAML edit needed.** | "DNI migrated from legacy" (previous design) | Dysflow `get_schema` for `TbVoluntariosParaAutorrellenables` returns ONLY: `Voluntario, Tel1, Tel2, Email` (all `type=10`, `size=255`). Zero DNI. |
 | D3 | PII migrated: `Voluntario, Tel1, Tel2, Email` (all present in legacy). `DNI` web-only. | Include DNI in forward apply | D2 |
 | D4 | DNI collision policy re-scoped: applies to **web-only preservation across round-trip** and **reverse-path**, NOT to forward (legacy has no DNI). | Forward collision policy as written | D2 |
-| **D5 (Correction C)** | Storage API **candidate** surface per Context7 `/insforge/insforge` (1914 snippets) and `/websites/insforge_dev`: bucket CRUD (`GET/POST/PUT/DELETE /api/storage/buckets[/bucketName]`); upload via `POST /api/storage/buckets/{bucket}/upload-strategy`; download via `GET /api/storage/downloadStrategy?path=...&expiresIn=...`; object list/delete via `/api/storage/buckets/{bucket}/objects[/key]`. **This is the documented surface, not the final deployed contract.** | Invent endpoints | Context7 docs are a starting point; the deployed instance's canonical path and required auth header are confirmed by the D16 live, read-only spike (Correction L) before PR4 implementation |
-| D6 | Hash key = **client-derived `<sha256>.<ext>`** proposed via upload-strategy `filename`. Server may auto-rename on collision; returned `key` is canonical. `animales.nombrefoto` stores returned key. Re-hash is OPTIONAL operator command (`apap-migrate verify-storage --check-bytes`, NOT in CI). | Server-returned sha256 (does not exist in API response — server returns `key, size, mimeType, uploadedAt, url` only) | InsForge docs: upload response shape lacks sha256 |
-| D7 | Authorization = **service-key only**; display route streams bytes via `StreamingResponse` from server-side fetch; never returns signed/InsForge URLs to clients | Public bucket | AGENTS.md §18 + privacy default-deny |
+| **D5 (Correction C)** | Storage API **candidate** surface per Context7 `/local_backend/local_backend` (1914 snippets) and `/websites/local_backend_dev`: bucket CRUD (`GET/POST/PUT/DELETE /api/storage/buckets[/bucketName]`); upload via `POST /api/storage/buckets/{bucket}/upload-strategy`; download via `GET /api/storage/downloadStrategy?path=...&expiresIn=...`; object list/delete via `/api/storage/buckets/{bucket}/objects[/key]`. **This is the documented surface, not the final deployed contract.** | Invent endpoints | Context7 docs are a starting point; the deployed instance's canonical path and required auth header are confirmed by the D16 live, read-only spike (Correction L) before PR4 implementation |
+| D6 | Hash key = **client-derived `<sha256>.<ext>`** proposed via upload-strategy `filename`. Server may auto-rename on collision; returned `key` is canonical. `animales.nombrefoto` stores returned key. Re-hash is OPTIONAL operator command (`apap-migrate verify-storage --check-bytes`, NOT in CI). | Server-returned sha256 (does not exist in API response — server returns `key, size, mimeType, uploadedAt, url` only) | LocalBackend docs: upload response shape lacks sha256 |
+| D7 | Authorization = **service-key only**; display route streams bytes via `StreamingResponse` from server-side fetch; never returns signed/LocalBackend URLs to clients | Public bucket | AGENTS.md §18 + privacy default-deny |
 | **D8 (Correction J)** | Snapshot write ordering locked: pre-flight → `acquire_lock` → **write `migration.lock_snapshot.json`** → first `execute_legacy_sql`. SIGINT before snapshot: lock released, no snapshot. SIGINT after snapshot: snapshot persists (valid empty source per spec REQ-Snap-3), `partial_apply.json` written, lock released | Snapshot before lock | Spec says "BEFORE first read"; we pin exact order for deterministic SIGINT behavior |
 | **D9 (Correction D)** | `check_msaccess_running()` keeps **no-arg signature** (existing at `migration/lock.py:441`); spec text corrected to match. Path-aware semantics NOT in this change (would require per-path FD inspection; not verifiable). | `check_msaccess_running(legacy_path)` | CodeGraph confirms existing signature is no-arg; spec misaligned |
 | **D10 (Correction E)** | `PUBLIC_PATHS` lives at **`app/main.py:148`** (already correct). `_is_public_path` at `app/main.py:160`. `app/core/middleware.py` is **unchanged**. No code edit needed. | "Move to `app/core/middleware.py`" (previous design) | CodeGraph confirms location |
@@ -36,7 +36,7 @@ P1 fidelity to `APAP_ACTUAL/src/classes/TbFichaAnimal/Resumen.cls` is binding (p
 | **D13 (E2E scope)** | Canonical browser E2E = **Playwright via repo tests** (`tests/e2e/test_animals_foto_auth.py`), **fixture-first, idempotent, three-path** (happy 200+bytes; sad 302 no-session; edge placeholder for sentinel). Each test creates bucket `apap-photos-test-<8hex>`, seeds synthetic 1×1 PNG, cleans up via fixture teardown. **NOT gated on real migrated data.** Playwright MCP is **diagnostic only** (operator sign-off), NOT in CI. | "Canonical browser E2E is diagnostic only" | User requires Playwright MCP access but canonical E2E must be repo/CI tests |
 | **D14 (Correction I)** | Global `tests/migration/conftest.py` adds **autouse fixture `_reset_executor_seam`** that calls `set_legacy_query_executor(None)` AFTER every test. Belt-and-braces over per-file `try/finally`. | Per-file teardown only | Cross-test leakage prevention |
 | **D15 (Correction K)** | `pyodbc>=5.3` pin in `[project.optional-dependencies.etl]` | Defer pin | Context7 + PyPI confirmed Oct 17 2025 release; wheels cover Python 3.11 floor |
-| **D16 (Correction L)** | **PR4 storage contract spike FIRST.** Before implementing `InsForgeClient.{ensure_bucket, get_bucket, upload_object, download_object_stream, delete_object}` and the `GET /animales/{animal_id}/foto` route, run a **live, read-only** probe against the deployed InsForge instance to confirm: (a) the canonical download-strategy path (e.g. `/api/storage/downloadStrategy` vs deployed alias), (b) the **required auth header** on the returned URL (e.g. `Authorization: Bearer <service_key>` vs alternative), (c) the error contract for 401 vs 404. Tests MUST **fail closed**: any 401 or 404 from the live probe marks PR4 red until the operator records the canonical response shape in a `STORAGE_CONTRACT.md` artifact under `docs/discovery/` and the tests assert against that shape. Bucket MUST stay `isPublic=false` regardless. | Assume Context7 docs as final deployed contract | Docs and deployed instance can drift (auth header variants, error semantics); spike prevents implementing against an assumed contract that the real instance rejects |
+| **D16 (Correction L)** | **PR4 storage contract spike FIRST.** Before implementing `LocalBackendClient.{ensure_bucket, get_bucket, upload_object, download_object_stream, delete_object}` and the `GET /animales/{animal_id}/foto` route, run a **live, read-only** probe against the deployed LocalBackend instance to confirm: (a) the canonical download-strategy path (e.g. `/api/storage/downloadStrategy` vs deployed alias), (b) the **required auth header** on the returned URL (e.g. `Authorization: Bearer <service_key>` vs alternative), (c) the error contract for 401 vs 404. Tests MUST **fail closed**: any 401 or 404 from the live probe marks PR4 red until the operator records the canonical response shape in a `STORAGE_CONTRACT.md` artifact under `docs/discovery/` and the tests assert against that shape. Bucket MUST stay `isPublic=false` regardless. | Assume Context7 docs as final deployed contract | Docs and deployed instance can drift (auth header variants, error semantics); spike prevents implementing against an assumed contract that the real instance rejects |
 | **D17 (PR3 verification remediation, 2026-07-11)** | Source drift FAILS CLOSED. The apply pipeline aborts with `SourceDriftError` (CLI exit 6, reason `source_drift`) when the freshly-computed `accdb_sha256` / `photos_dir_sha256` disagree with the previous snapshot's fingerprints. No informational proceed; no auto-accept. A future PR may add `--accept-drift` for explicit acknowledgement. PR3 deliberately does NOT auto-resume a partial-apply state — the operator must review and remove `migration.partial_apply.json` (CLI exit 7, reason `partial_apply_interrupted`). Automatic resume is a follow-up task scheduled before the M2 fallback-ready gate. | "Show drift and proceed" / "automatic resume on partial evidence" | Per user directive 2026-07-11: PR3 verification remediation pins the fail-closed contract; the operator's documentation surface must reflect it. |
 | **D18 (PR3 verification remediation, 2026-07-11)** | MSACCESS pre-flight is FAIL-CLOSED. `check_msaccess_running()` raises `MsAccessPreflightUnavailableError` when `psutil` is missing on the operator box OR when `psutil.process_iter` raises mid-iteration. The apply catches the exception, emits `log_safe("apply.preflight_unavailable", reason=<cat>)` (categorical — no PIDs, no error strings), and re-raises. The CLI converts to exit 5 with reason `msaccess_preflight_unavailable`. Dry-run (`--check-only`) bypasses the preflight entirely. `psutil` is a hard requirement on operator boxes. | "Soft-fail with warning" | Per user directive 2026-07-11: silent fail-open claimed "no MSACCESS live" while the check was unable to actually look — misleading. Fail-closed is the safe default; psutil is a documented operator prerequisite. |
 | **D19 (PR3 verification remediation, 2026-07-11)** | Stale-lock recovery is **PID-dead only**. A lock is considered stale only when the lock file is parseable AND the owning PID is verifiably dead (per `migration/lock.py::_is_lock_stale`). A live PID always keeps the lock active, even past TTL — a live process may be stalled for legitimate reasons (long migration, operator breakpoint). When liveness cannot be verified (psutil missing, permission errors), `_is_process_alive` returns `True` (fail-safe: assume alive, refuse to overwrite). Lock files that are empty or corrupt are NEVER auto-recovered — a writer may be paused mid-write. The implementation in PR2 (post-PR-review fix) stays unchanged in PR3; this entry documents the contract. | "Force-overwrite after TTL expiry" | Per user directive 2026-07-11: the current safe behavior is already proven and PR3 does NOT change it. Implementation outside PR3 stays untouched; this entry documents the contract. |
@@ -56,7 +56,7 @@ migration/
     ├── animal.yaml              # MOD: storage.bucket=apap-photos, storage.key=<sha256>.<ext>
     └── voluntario.yaml          # UNCHANGED (DNI already correct; D2)
 
-app/core/insforge.py              # MOD: +ensure_bucket, +get_bucket, +upload_object, +download_object_stream, +delete_object (D5)
+app/core/local_backend.py              # MOD: +ensure_bucket, +get_bucket, +upload_object, +download_object_stream, +delete_object (D5)
 app/modules/animals/routes.py     # MOD: GET /animales/{animal_id}/foto (StreamingResponse; D7); animal_id is animales.id UUID
 app/main.py                      # UNCHANGED (PUBLIC_PATHS already at L148; D10)
 app/core/middleware.py            # UNCHANGED (D10)
@@ -81,10 +81,10 @@ tests/test_animals_foto_route.py            # NEW (M1)
 
 ## §3 — Storage API surface (Correction C + Correction L)
 
-> **Status: CANDIDATE surface, NOT final contract.** The shapes below are documented in Context7 `/insforge/insforge` and `/websites/insforge_dev`; the **deployed** InsForge instance's canonical path, auth header, and 401/404 error semantics are NOT yet pinned. PR4 begins with a **live, read-only contract spike** (D16) that records the actual deployed contract in `docs/discovery/storage-contract-2026-Q3.md` before any code in this section lands. Tests fail closed on 401/404 until that artifact exists and the tests assert against it.
+> **Status: CANDIDATE surface, NOT final contract.** The shapes below are documented in Context7 `/local_backend/local_backend` and `/websites/local_backend_dev`; the **deployed** LocalBackend instance's canonical path, auth header, and 401/404 error semantics are NOT yet pinned. PR4 begins with a **live, read-only contract spike** (D16) that records the actual deployed contract in `docs/discovery/storage-contract-2026-Q3.md` before any code in this section lands. Tests fail closed on 401/404 until that artifact exists and the tests assert against it.
 
 ```python
-# app/core/insforge.py — PR4 (after D16 spike)
+# app/core/local_backend.py — PR4 (after D16 spike)
 # All endpoints below are CANDIDATES from Context7 docs. The spike pins the
 # canonical path and auth header; if they differ, the docstring on each
 # method updates before the implementation lands.
@@ -122,7 +122,7 @@ def delete_object(self, bucket: str, key: str) -> None:
     Spike must confirm idempotency on 404."""
 ```
 
-**Authorization**: service-key only. NEVER return InsForge URL to clients; route streams bytes via FastAPI `StreamingResponse`. Bucket MUST stay `isPublic=false` (D7).
+**Authorization**: service-key only. NEVER return LocalBackend URL to clients; route streams bytes via FastAPI `StreamingResponse`. Bucket MUST stay `isPublic=false` (D7).
 
 **Object key**: client proposes `<sha256_hex>.<ext>`. Server may rename on collision; returned `key` is canonical truth. `animales.nombrefoto` stores returned key. `apap-migrate status --photos` enumerates bucket objects and joins to `nombrefoto`; `--cleanup-orphans` deletes orphans (idempotent). `apap-migrate verify-storage --check-bytes` (NOT in CI) downloads each object and re-hashes as operator spot-check.
 
@@ -172,8 +172,8 @@ exit_code: 0 iff ci_runnable all green AND operator_attested.real_cycle_recorded
 | Layer | What | Where | Runner |
 |---|---|---|---|
 | Unit (atoms) | `_apply_one_row`, `_record_shadow_divergence`, `_compute_source_hash`, photo upload dedup, collision handler (web-only + reverse-path), `log_safe` redaction (15 fields), lock_snapshot read/write | `tests/migration/test_*.py`, `tests/test_animals_foto_route.py`, `tests/test_log_safe_redaction.py` | `pytest -W error::DeprecationWarning` |
-| Integration | `apply_legacy_to_web` happy/sad/edge over `FakeInsForge` + injected executor; `apply_web_to_legacy` mirror | `tests/migration/test_apply.py`, `tests/migration/test_reverse_apply.py` | same |
-| E2E (real apply) | `pyodbc` against real (test-only) `.accdb`; bucket via InsForge dev instance | `tests/migration/test_apply_e2e.py` (skipped without `APAP_E2E_BASE_URL`) | `pytest --etl-e2e` |
+| Integration | `apply_legacy_to_web` happy/sad/edge over `FakeLocalBackend` + injected executor; `apply_web_to_legacy` mirror | `tests/migration/test_apply.py`, `tests/migration/test_reverse_apply.py` | same |
+| E2E (real apply) | `pyodbc` against real (test-only) `.accdb`; bucket via LocalBackend dev instance | `tests/migration/test_apply_e2e.py` (skipped without `APAP_E2E_BASE_URL`) | `pytest --etl-e2e` |
 | **E2E (browser — Playwright)** | **Fixture-first, idempotent, three-path** (200+bytes happy / 302 sad / placeholder edge). Each test creates `apap-photos-test-<8hex>`, seeds synthetic 1×1 PNG, cleans up. **NOT gated on real migrated data.** | `tests/e2e/test_animals_foto_auth.py` | `playwright` (CI matrix) |
 | Diagnostic (MCP only) | Operator's browser session sign-off via Playwright MCP. NOT in CI. NOT a test. | n/a | MCP session |
 | Static boundary | grep `app/` + `migration/` for `mcp__dysflow`, `dysflow_query_execute`, `mcp_dispatch` → 0 matches | `tests/migration/test_runtime_boundary.py::test_no_mcp_runtime_dependency` | pytest |
@@ -221,7 +221,7 @@ See §2 module layout table above. Key actions:
 | `migration/cli.py` | MOD (verify-fallback-ready --ci-only, --operator-attest) | PR2, PR4, PR6 |
 | `migration/mappings/animal.yaml` | MOD (storage block) | PR4 |
 | `migration/mappings/voluntario.yaml` | UNCHANGED (DNI already web-only) | — |
-| `app/core/insforge.py` | MOD (+5 methods per D5 candidate surface; **D16 spike must run FIRST**; tests fail closed on 401/404) | PR4 (after D16 spike) |
+| `app/core/local_backend.py` | MOD (+5 methods per D5 candidate surface; **D16 spike must run FIRST**; tests fail closed on 401/404) | PR4 (after D16 spike) |
 | `app/modules/animals/routes.py` | MOD (GET /animales/{animal_id}/foto via StreamingResponse; `animal_id` is `animales.id` UUID) | PR4 (after D16 spike) |
 | `app/main.py` | UNCHANGED (PUBLIC_PATHS already here) | — |
 | `app/core/middleware.py` | UNCHANGED | — |
@@ -247,10 +247,10 @@ PR1 (M0, ~450L) → PR2 (M0, ~300L) → PR3 (M1, ~500L) → PR4 (M1, ~600L) → 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
 | Operator box missing Access driver | Med | Runbook pre-flight (`pyodbc.drivers()`); pyodbc 5.3 wheels for 3.9–3.14 |
-| InsForge bucket public misconfig | Low | Pre-flight invariant + test |
+| LocalBackend bucket public misconfig | Low | Pre-flight invariant + test |
 | Operator edits `migration.lock_snapshot.json` | Low | JSON parseable-only contract; runbook warns |
 | pyodbc hangs on locked `.accdb` | Med | `check_msaccess_running()` no-arg pre-flight + `Connection.timeout=30` |
-| InsForge storage API drift | Low | Test against `httpx.MockTransport` of all 5 method shapes |
+| LocalBackend storage API drift | Low | Test against `httpx.MockTransport` of all 5 method shapes |
 | Server auto-renames SHA-256 key | Low | `status --photos` exposes orphans; `verify-storage --check-bytes` operator spot-check |
 | `verify-fallback-ready` requires real cycle not CI-runnable | Med | CI runs CI-runnable subset (`--ci-only`); operator attestation is separate file |
 | `size:exception` revoked mid-chain | Low | Per-PR diff budget re-check |
@@ -280,7 +280,7 @@ Closed vocabulary (every typed exception → one entry):
 | ``MsAccessPreflightUnavailableError``  | 5    | ``msaccess_preflight_unavailable``   |
 | ``MsAccessRunningError``               | 5    | ``msaccess_running``                 |
 | ``LegacyReaderError``                  | 5    | ``legacy_read_failed``               |
-| ``InsForgeError`` (bootstrap path)     | 5    | ``infra_bootstrap_failed``          |
+| ``BackendError`` (bootstrap path)     | 5    | ``infra_bootstrap_failed``          |
 | ``SourceDriftError``                   | 6    | ``source_drift``                     |
 | ``PartialApplyInterruptedError``       | 7    | ``partial_apply_interrupted``        |
 
@@ -301,7 +301,7 @@ the operator gets the same categorical contract.
 
 ### Security + observability
 
-- **Network**: CLI opens ONLY InsForge URL + reads `.accdb` from operator disk. No MCP calls.
+- **Network**: CLI opens ONLY LocalBackend URL + reads `.accdb` from operator disk. No MCP calls.
 - **Auth**: storage uses service key only; display uses `require_authorized_user`.
 - **PII log**: 15-field closed redaction list; static boundary test forbids raw PII substrings in `MigrationReport.to_json()` output.
 - **Bucket**: pre-flight rejects public; create-with-private is the only path.
@@ -338,5 +338,5 @@ the operator gets the same categorical contract.
 | `check_msaccess_running()` no-arg | CodeGraph `migration/lock.py:441` |
 | `REDACTED_FIELDS` is 12 fields (no dni/tel1/tel2) | CodeGraph `app/core/logging.py:41` |
 | `voluntario.yaml` already correct (DNI `legacy_column: null`) | Read `migration/mappings/voluntario.yaml` |
-| InsForge storage endpoints | Context7 `/insforge/insforge` + `/websites/insforge_dev` |
+| LocalBackend storage endpoints | Context7 `/local_backend/local_backend` + `/websites/local_backend_dev` |
 | pyodbc 5.3.0 current stable (Oct 17 2025) | Context7 `/mkleehammer/pyodbc` + PyPI |

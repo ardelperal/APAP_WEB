@@ -2,7 +2,7 @@
 
 [Back to Codebase Guide](../CODEBASE-GUIDE.md)
 
-Esta página posee el workflow operativo de mantenedor: pre-flight, triaje, SDD, TDD, validación local, merge, cierre con trazabilidad y sync del roadmap. No posee las reglas del proyecto — esas viven en [AGENTS.md](../../AGENTS.md) §15 y §16 — ni el contrato del stack — eso es [Arquitectura InsForge](../architecture/architecture-insforge-stack.md).
+Esta página posee el workflow operativo de mantenedor: pre-flight, triaje, SDD, TDD, validación local, merge, cierre con trazabilidad y sync del roadmap. No posee las reglas del proyecto — esas viven en [AGENTS.md](../../AGENTS.md) §15 y §16 — ni el contrato del stack — eso es [Arquitectura LocalBackend](../architecture/architecture-local_backend-stack.md).
 
 ## Core invariants
 

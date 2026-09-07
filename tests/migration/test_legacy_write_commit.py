@@ -394,7 +394,7 @@ def test_apply_web_to_legacy_does_not_emit_sync_applied_on_commit_failure(
     from migration import legacy_reader
     from migration.apply_reverse import _reverse_apply_one_row
     from migration.mappings import load_mapping
-    from tests.migration.conftest import FakeInsForge
+    from tests.migration.conftest import FakeSqlExecutor
 
     captured: list[dict[str, Any]] = []
 
@@ -416,7 +416,7 @@ def test_apply_web_to_legacy_does_not_emit_sync_applied_on_commit_failure(
     )
     legacy_reader.set_legacy_write_executor(_explode_write)
     try:
-        client = FakeInsForge()
+        client = FakeSqlExecutor()
         client.seed(
             "voluntarios",
             [{"voluntario": "alice", "email": "new@x", "tel1": None, "tel2": None}],
@@ -477,7 +477,7 @@ def test_apply_web_to_legacy_propagates_legacy_write_commit_failed_to_caller(
     """
     from migration import legacy_reader
     from migration.apply_reverse import apply_web_to_legacy
-    from tests.migration.conftest import FakeInsForge
+    from tests.migration.conftest import FakeSqlExecutor
 
     monkeypatch.setattr(legacy_reader, "_legacy_query_executor", None)
     monkeypatch.setattr(legacy_reader, "_legacy_write_executor", None)
@@ -492,7 +492,7 @@ def test_apply_web_to_legacy_propagates_legacy_write_commit_failed_to_caller(
     )
     legacy_reader.set_legacy_write_executor(_explode_write)
     try:
-        client = FakeInsForge()
+        client = FakeSqlExecutor()
         client.seed(
             "voluntarios",
             [{"voluntario": "alice", "email": "new@x", "tel1": None, "tel2": None}],

@@ -2,13 +2,13 @@
 
 ## Purpose
 
-Storage contract for animal photos migrated from `URLDirectorioDocumentacion` to the InsForge `apap-photos` bucket. Bucket MUST be private; display MUST require an authorized session; uploads MUST be SHA-256-keyed and idempotent; orphans and duplicates MUST be detectable and cleanable; missing/corrupt/unsupported photos MUST NOT abort migration.
+Storage contract for animal photos migrated from `URLDirectorioDocumentacion` to the LocalBackend `apap-photos` bucket. Bucket MUST be private; display MUST require an authorized session; uploads MUST be SHA-256-keyed and idempotent; orphans and duplicates MUST be detectable and cleanable; missing/corrupt/unsupported photos MUST NOT abort migration.
 
 ## Requirements
 
 ### Requirement: Private Bucket Invariant
 
-The `apap-photos` InsForge bucket MUST have `isPublic=False`. Pre-flight MUST verify and abort the apply with exit code 5 if the bucket is public or missing.
+The `apap-photos` LocalBackend bucket MUST have `isPublic=False`. Pre-flight MUST verify and abort the apply with exit code 5 if the bucket is public or missing.
 
 #### Scenario: Pre-flight rejects public bucket
 
@@ -21,12 +21,12 @@ The `apap-photos` InsForge bucket MUST have `isPublic=False`. Pre-flight MUST ve
 
 - GIVEN bucket `apap-photos` does not exist
 - WHEN `apap-migrate apply --table animal` runs with infra permission
-- THEN the bucket is created with `isPublic=False` via InsForge MCP
+- THEN the bucket is created with `isPublic=False` via LocalBackend MCP
 - AND the apply proceeds
 
 ### Requirement: Authenticated Display Only
 
-`GET /animales/{animal_id}/foto` MUST require an authorized session. (`animal_id` is the `animales.id` UUID PK — NCHIP is a natural-key lookup column, NEVER a route identifier.) Without a session, the route MUST return HTTP 302 to `/login`. The route MUST NOT return a public URL or any signed URL accessible to anonymous callers. Bytes MUST be streamed from the InsForge object store using server-side credentials via the documented two-step download flow: `GET /api/storage/downloadStrategy?path=<key>&expiresIn=<seconds>` → server-side `GET` of the returned URL via `httpx.Client.stream` with the auth header confirmed by the PR4 live, read-only spike (see "Storage contract spike" requirement below).
+`GET /animales/{animal_id}/foto` MUST require an authorized session. (`animal_id` is the `animales.id` UUID PK — NCHIP is a natural-key lookup column, NEVER a route identifier.) Without a session, the route MUST return HTTP 302 to `/login`. The route MUST NOT return a public URL or any signed URL accessible to anonymous callers. Bytes MUST be streamed from the LocalBackend object store using server-side credentials via the documented two-step download flow: `GET /api/storage/downloadStrategy?path=<key>&expiresIn=<seconds>` → server-side `GET` of the returned URL via `httpx.Client.stream` with the auth header confirmed by the PR4 live, read-only spike (see "Storage contract spike" requirement below).
 
 > **Why UUID route (Correction for route identifier).** The route identifier is the **animal UUID** (`animales.id`, the primary key) via `/animales/{id}/foto`. The natural key `NCHIP` is a separate indexed column and can be used as a lookup but is NOT the route identifier. This avoids collisions when two animals share an `NCHIP` (data quality fix in flight per issue #148) and matches the existing web app convention of using `id` UUID in route paths. The previous design said "prefer existing UUID route unless a proven NCHIP route is required" — there is no proven NCHIP-route requirement; we use UUID.
 
@@ -47,9 +47,9 @@ The `apap-photos` InsForge bucket MUST have `isPublic=False`. Pre-flight MUST ve
 
 ### Requirement: SHA-256 Object Key + Deduplication (Client-Derived, Verified API)
 
-Photo bytes MUST be uploaded with an object key proposed by the client as `<sha256>.<ext>` derived from SHA-256 of the bytes plus the detected extension. The InsForge upload-strategy endpoint MAY auto-rename on key collision; the canonical key is the `key` field returned by the server in the upload-strategy response. Duplicate content (same SHA-256 across rows) MUST NOT create duplicate objects; the existing object MUST be reused and both rows point to it.
+Photo bytes MUST be uploaded with an object key proposed by the client as `<sha256>.<ext>` derived from SHA-256 of the bytes plus the detected extension. The LocalBackend upload-strategy endpoint MAY auto-rename on key collision; the canonical key is the `key` field returned by the server in the upload-strategy response. Duplicate content (same SHA-256 across rows) MUST NOT create duplicate objects; the existing object MUST be reused and both rows point to it.
 
-> **Why client-derived, not server-returned sha256 (Correction C).** The verified InsForge upload-strategy response (per Context7 `/insforge/insforge` + `/websites/insforge_dev`) is shaped `{method, uploadUrl, fields, key, confirmRequired, confirmUrl, expiresAt}`. The upload completion response is shaped `{key, size, mimeType, uploadedAt, url}`. **Neither response includes `sha256`.** Therefore the client MUST compute SHA-256 itself (which it does anyway to derive the proposed key) and treat the returned `key` as the canonical truth. Optional re-hash verification is provided by `apap-migrate verify-storage --check-bytes` (operator command, NOT in CI).
+> **Why client-derived, not server-returned sha256 (Correction C).** The verified LocalBackend upload-strategy response (per Context7 `/local_backend/local_backend` + `/websites/local_backend_dev`) is shaped `{method, uploadUrl, fields, key, confirmRequired, confirmUrl, expiresAt}`. The upload completion response is shaped `{key, size, mimeType, uploadedAt, url}`. **Neither response includes `sha256`.** Therefore the client MUST compute SHA-256 itself (which it does anyway to derive the proposed key) and treat the returned `key` as the canonical truth. Optional re-hash verification is provided by `apap-migrate verify-storage --check-bytes` (operator command, NOT in CI).
 
 #### Scenario: Duplicate photo deduplicated
 
@@ -68,9 +68,9 @@ Photo bytes MUST be uploaded with an object key proposed by the client as `<sha2
 - AND `animales.nombrefoto` stores the **returned `key`** (not the legacy filename, not the proposed key if renamed)
 - AND a hash → returned-key mapping is recorded in shadow IF the server renamed (no shadow row if not renamed)
 
-#### Scenario: InsForge API contract matches spec
+#### Scenario: LocalBackend API contract matches spec
 
-- GIVEN the `InsForgeClient.upload_object` implementation
+- GIVEN the `LocalBackendClient.upload_object` implementation
 - WHEN a test mocks `POST /api/storage/buckets/apap-photos/upload-strategy`
 - THEN the request body has `{filename, contentType, size}` and the response shape `{method, uploadUrl, fields, key, confirmRequired, confirmUrl, expiresAt}` is accepted
 - AND step-2 PUT (Local) or POST (S3) hits the returned `uploadUrl` with `multipart/form-data` file field
@@ -119,7 +119,7 @@ If the photos directory is unreachable, the file is missing, bytes are corrupt, 
 - GIVEN `animales.nombrefoto=<sentinel>`
 - WHEN `GET /animales/<animal_id>/foto` is requested (authorized) (`animal_id` is `animales.id` UUID)
 - THEN response is 200 with the placeholder bytes
-- AND no InsForge call is made for a non-existent object
+- AND no LocalBackend call is made for a non-existent object
 
 ### Requirement: Idempotent Upload
 
@@ -141,11 +141,11 @@ If the migration is rolled back, the bucket MUST be deletable via MCP. After buc
 - GIVEN bucket `apap-photos` deleted via MCP
 - WHEN `GET /animales/<animal_id>/foto` is requested (authorized)
 - THEN response is 200 with placeholder bytes
-- AND the route code catches the InsForge 404 and returns the placeholder
+- AND the route code catches the LocalBackend 404 and returns the placeholder
 
 ### Requirement: Storage Contract Spike Before Implementation (PR4 gate)
 
-PR4 implementation of `InsForgeClient.{ensure_bucket, get_bucket, upload_object, download_object_stream, delete_object}` and `GET /animales/{animal_id}/foto` MUST be preceded by a **live, read-only contract spike** against the deployed InsForge instance. The spike confirms:
+PR4 implementation of `LocalBackendClient.{ensure_bucket, get_bucket, upload_object, download_object_stream, delete_object}` and `GET /animales/{animal_id}/foto` MUST be preceded by a **live, read-only contract spike** against the deployed LocalBackend instance. The spike confirms:
 
 1. The canonical download-strategy path (e.g. `/api/storage/downloadStrategy` vs a deployed alias).
 2. The **required auth header** on the returned URL (Context7 docs suggest `Authorization: Bearer service_key`; the deployed instance MAY differ).
@@ -153,11 +153,11 @@ PR4 implementation of `InsForgeClient.{ensure_bucket, get_bucket, upload_object,
 
 The spike outcome is recorded in `docs/discovery/storage-contract-2026-Q3.md` and the unit/integration tests in `tests/migration/test_photo_storage.py` MUST assert against the recorded shape. **Tests MUST fail closed**: any 401 or 404 from the live probe marks PR4 red until the operator records the canonical response shape in `storage-contract-2026-Q3.md`. The bucket MUST stay `isPublic=false` regardless.
 
-> **Why a spike instead of trusting docs.** Context7 `/insforge/insforge` and `/websites/insforge_dev` document candidate endpoints and response shapes, but documentation can drift from the deployed instance. Implementing against an assumed contract (and only discovering the mismatch on first deploy) is a known silent-failure mode; the spike closes it before code lands.
+> **Why a spike instead of trusting docs.** Context7 `/local_backend/local_backend` and `/websites/local_backend_dev` document candidate endpoints and response shapes, but documentation can drift from the deployed instance. Implementing against an assumed contract (and only discovering the mismatch on first deploy) is a known silent-failure mode; the spike closes it before code lands.
 
 #### Scenario: Spike pins canonical download-strategy path
 
-- GIVEN the deployed InsForge instance is reachable with `APAP_INSFORGE_URL` + `APAP_INSFORGE_SERVICE_KEY`
+- GIVEN the deployed LocalBackend instance is reachable with `APAP_LOCAL_BACKEND_URL` + `APAP_INSFORGE_SERVICE_KEY`
 - WHEN an operator runs `python -m migration.storage_spike --probe download_strategy --path apap-photos/<sha256>.jpg` (a read-only command shipped with PR4's first commit, see `tests/migration/test_photo_storage.py::test_storage_spike_records_path`)
 - THEN the spike records the actual returned `url` shape, status code, and response headers
 - AND `docs/discovery/storage-contract-2026-Q3.md` is updated with the pinned canonical path + auth header

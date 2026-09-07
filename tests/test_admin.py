@@ -15,7 +15,7 @@ from app.main import app
 from tests.conftest import make_csrf_request
 
 
-class _FakeInsForge(LocalPostgresExecutor):
+class _FakeSqlExecutor(LocalPostgresExecutor):
     def __init__(self) -> None:
         self.list_users_response: list[dict] = []
         self.add_user_response: dict = {
@@ -70,8 +70,8 @@ class _FakeInsForge(LocalPostgresExecutor):
 
 
 @pytest.fixture
-def fake_insforge() -> _FakeInsForge:
-    fake = _FakeInsForge()
+def fake_sql_executor() -> _FakeSqlExecutor:
+    fake = _FakeSqlExecutor()
     app.dependency_overrides[get_local_postgres_executor_dep] = lambda: fake
     # Slice 6 (admin handlers): the admin routes now compose AuthUsersPort
     # via the ``get_auth_users_port`` dep, which resolves the client from
@@ -148,11 +148,11 @@ async def test_admin_redirects_to_login_when_not_authed(
 
 
 async def test_admin_redirects_to_unauthorized_when_rol_not_developer(
-    client: httpx.AsyncClient, fake_insforge: _FakeInsForge
+    client: httpx.AsyncClient, fake_sql_executor: _FakeSqlExecutor
 ) -> None:
     from app.core.config import get_settings
 
-    fake_insforge.auth_rol = "key_user"  # issue #143: DB revalidation says key_user
+    fake_sql_executor.auth_rol = "key_user"  # issue #143: DB revalidation says key_user
     _login_as(
         client,
         get_settings().session_secret,
@@ -168,11 +168,11 @@ async def test_admin_redirects_to_unauthorized_when_rol_not_developer(
 
 
 async def test_admin_renders_user_table_for_developer(
-    client: httpx.AsyncClient, fake_insforge: _FakeInsForge
+    client: httpx.AsyncClient, fake_sql_executor: _FakeSqlExecutor
 ) -> None:
     from app.core.config import get_settings
 
-    fake_insforge.list_users_response = [
+    fake_sql_executor.list_users_response = [
         {
             "id": "u-1",
             "email": "ana@example.com",
@@ -209,7 +209,7 @@ async def test_admin_renders_user_table_for_developer(
 
 
 async def test_admin_add_user_inserts_and_renders_admin_page(
-    client: httpx.AsyncClient, fake_insforge: _FakeInsForge
+    client: httpx.AsyncClient, fake_sql_executor: _FakeSqlExecutor
 ) -> None:
     """On success the admin page re-renders with no error message."""
     from app.core.config import get_settings
@@ -235,7 +235,7 @@ async def test_admin_add_user_inserts_and_renders_admin_page(
 
 
 async def test_admin_add_user_with_duplicate_email_shows_error(
-    client: httpx.AsyncClient, fake_insforge: _FakeInsForge
+    client: httpx.AsyncClient, fake_sql_executor: _FakeSqlExecutor
 ) -> None:
     """When the email is already authorized the admin page re-renders with error context."""
     from app.core.config import get_settings
@@ -248,7 +248,7 @@ async def test_admin_add_user_with_duplicate_email_shows_error(
         user_id="u-root",
     )
     # Simulate the pre-check returning an existing user
-    fake_insforge.add_user_response = None  # not used for pre-check
+    fake_sql_executor.add_user_response = None  # not used for pre-check
 
     def execute_sql(query, params=None):
         from tests.conftest import auth_reval_rows
@@ -263,7 +263,7 @@ async def test_admin_add_user_with_duplicate_email_shows_error(
         return []
 
     # Override the fake to return duplicate on pre-check
-    fake_insforge.execute_sql = execute_sql
+    fake_sql_executor.execute_sql = execute_sql
 
     response = await make_csrf_request(
         client,
@@ -277,7 +277,7 @@ async def test_admin_add_user_with_duplicate_email_shows_error(
 
 
 async def test_admin_add_user_with_invalid_role_redirects_without_calling_sql(
-    client: httpx.AsyncClient, fake_insforge: _FakeInsForge
+    client: httpx.AsyncClient, fake_sql_executor: _FakeSqlExecutor
 ) -> None:
     """An invalid rol short-circuits before any SQL is sent."""
     from app.core.config import get_settings
@@ -289,7 +289,7 @@ async def test_admin_add_user_with_invalid_role_redirects_without_calling_sql(
         email="root@example.com",
         user_id="u-root",
     )
-    fake_insforge.add_user_response = {"id": "should-not-be-used"}
+    fake_sql_executor.add_user_response = {"id": "should-not-be-used"}
 
     response = await make_csrf_request(
         client,
@@ -303,11 +303,11 @@ async def test_admin_add_user_with_invalid_role_redirects_without_calling_sql(
 
 
 async def test_admin_add_user_rejects_non_developer(
-    client: httpx.AsyncClient, fake_insforge: _FakeInsForge
+    client: httpx.AsyncClient, fake_sql_executor: _FakeSqlExecutor
 ) -> None:
     from app.core.config import get_settings
 
-    fake_insforge.auth_rol = "key_user"  # issue #143: DB revalidation says key_user
+    fake_sql_executor.auth_rol = "key_user"  # issue #143: DB revalidation says key_user
     _login_as(
         client,
         get_settings().session_secret,
@@ -331,11 +331,11 @@ async def test_admin_add_user_rejects_non_developer(
 
 
 async def test_admin_deactivate_user_updates_and_redirects(
-    client: httpx.AsyncClient, fake_insforge: _FakeInsForge
+    client: httpx.AsyncClient, fake_sql_executor: _FakeSqlExecutor
 ) -> None:
     from app.core.config import get_settings
 
-    fake_insforge.deactivate_user_response = {
+    fake_sql_executor.deactivate_user_response = {
         "id": "u-1",
         "email": "a@b.com",
         "rol": "key_user",
@@ -360,11 +360,11 @@ async def test_admin_deactivate_user_updates_and_redirects(
 
 
 async def test_admin_deactivate_user_rejects_non_developer(
-    client: httpx.AsyncClient, fake_insforge: _FakeInsForge
+    client: httpx.AsyncClient, fake_sql_executor: _FakeSqlExecutor
 ) -> None:
     from app.core.config import get_settings
 
-    fake_insforge.auth_rol = "key_user"  # issue #143: DB revalidation says key_user
+    fake_sql_executor.auth_rol = "key_user"  # issue #143: DB revalidation says key_user
     _login_as(
         client,
         get_settings().session_secret,
@@ -384,7 +384,7 @@ async def test_admin_deactivate_user_rejects_non_developer(
 
 
 async def test_admin_deactivate_user_renders_flash_error_when_last_developer(
-    client: httpx.AsyncClient, fake_insforge: _FakeInsForge
+    client: httpx.AsyncClient, fake_sql_executor: _FakeSqlExecutor
 ) -> None:
     """When deactivate_authorized_user raises ValueError, admin.html re-renders with flash.
 
@@ -396,9 +396,9 @@ async def test_admin_deactivate_user_renders_flash_error_when_last_developer(
 
     # Set up: deactivate returns empty (guard fires), list_users is empty.
     # _user_lookup_response has the developer so the ValueError fires.
-    fake_insforge.deactivate_user_response = None  # zero rows from UPDATE → guard fires
-    fake_insforge.list_users_response = []  # list_users returns empty in error path
-    fake_insforge._user_lookup_response = {
+    fake_sql_executor.deactivate_user_response = None  # zero rows from UPDATE → guard fires
+    fake_sql_executor.list_users_response = []  # list_users returns empty in error path
+    fake_sql_executor._user_lookup_response = {
         "id": "only-dev",
         "email": "only-dev@example.com",
         "rol": "developer",
@@ -406,7 +406,7 @@ async def test_admin_deactivate_user_renders_flash_error_when_last_developer(
         "fecha_alta": "2026-06-17T00:00:00Z",
     }
     # Track deactivate_user_id so SELECT EXISTS query uses it
-    fake_insforge.deactivate_user_id = "only-dev"
+    fake_sql_executor.deactivate_user_id = "only-dev"
 
     _login_as(
         client,
@@ -442,7 +442,7 @@ async def test_admin_deactivate_user_renders_flash_error_when_last_developer(
 
 
 async def test_admin_redirects_to_unauthorized_when_is_authorized_false(
-    client: httpx.AsyncClient, fake_insforge: _FakeInsForge
+    client: httpx.AsyncClient, fake_sql_executor: _FakeSqlExecutor
 ) -> None:
     from app.core.config import get_settings
 
@@ -462,7 +462,7 @@ async def test_admin_redirects_to_unauthorized_when_is_authorized_false(
 
 
 async def test_admin_add_user_redirects_when_is_authorized_false(
-    client: httpx.AsyncClient, fake_insforge: _FakeInsForge
+    client: httpx.AsyncClient, fake_sql_executor: _FakeSqlExecutor
 ) -> None:
     from app.core.config import get_settings
 
@@ -487,7 +487,7 @@ async def test_admin_add_user_redirects_when_is_authorized_false(
 
 
 async def test_admin_deactivate_user_redirects_when_is_authorized_false(
-    client: httpx.AsyncClient, fake_insforge: _FakeInsForge
+    client: httpx.AsyncClient, fake_sql_executor: _FakeSqlExecutor
 ) -> None:
     from app.core.config import get_settings
 
@@ -520,13 +520,13 @@ async def test_admin_deactivate_user_redirects_when_is_authorized_false(
 # that converts those into a 502 Bad Gateway with a non-leaking message.
 
 
-class TestInsForgeErrorGlobalHandler:
-    """AGENTS.md §32.P4: any route calling a service that reaches InsForge
+class TestBackendErrorGlobalHandler:
+    """AGENTS.md §32.P4: any route calling a service that reaches LocalBackend
     must handle both the domain error AND BackendError, OR a global
     handler must exist and be exercised by tests."""
 
-    async def test_admin_add_user_returns_502_on_non_duplicate_insforge_error(
-        self, client: httpx.AsyncClient, fake_insforge: _FakeInsForge
+    async def test_admin_add_user_returns_502_on_non_duplicate_backend_error(
+        self, client: httpx.AsyncClient, fake_sql_executor: _FakeSqlExecutor
     ) -> None:
         """A non-duplicate BackendError (e.g. 5xx from upstream) returns
         502, not 500, per the §32.P4 anti-pattern fix."""
@@ -557,14 +557,14 @@ class TestInsForgeErrorGlobalHandler:
                 # returns no rows so we fall through to the INSERT branch.
                 return []
             if "INSERT INTO usuarios_autorizados" in query and "VALUES" in query:
-                # Simulate a transport-level 5xx from InsForge. The
+                # Simulate a transport-level 5xx from LocalBackend. The
                 # service-layer translator only recognises "duplicate" /
                 # "unique" substrings; every other BackendError re-raises
                 # verbatim, which the global handler must convert to 502.
                 raise BackendError(503, "service unavailable")
             return []
 
-        fake_insforge.execute_sql = execute_sql
+        fake_sql_executor.execute_sql = execute_sql
 
         response = await make_csrf_request(
             client,
@@ -579,7 +579,7 @@ class TestInsForgeErrorGlobalHandler:
         # The raw BackendError repr must NOT leak to the client
         # (anti-pattern §32.P4: backend detail that does not belong in
         # the response body). BackendError.__str__ formats as
-        # ``"InsForge {status_code}: {body!r}"`` so any leak would
-        # surface the ``"InsForge 503"`` substring.
-        assert "InsForge 503" not in response.text
+        # ``"LocalBackend {status_code}: {body!r}"`` so any leak would
+        # surface the ``"LocalBackend 503"`` substring.
+        assert "LocalBackend 503" not in response.text
         assert "service unavailable" not in response.text

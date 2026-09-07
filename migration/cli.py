@@ -375,7 +375,7 @@ def run_reconcile(
     Args:
         args: the parsed argparse namespace (carries ``--interactive``,
             ``--check-only``, ``--table``, ``--since``).
-        web_client: the InsForge REST client. Used to build the
+        web_client: the LocalBackend REST client. Used to build the
             ``shadow_state`` when not injected, and to run the
             ``UPDATE {table}`` in option (b). Tests inject a
             ``httpx.MockTransport``-backed client.
@@ -636,8 +636,8 @@ def main(
 
         settings = get_settings()
         owned_web_client = LocalPostgresExecutor(
-            settings.insforge_url,  # type: ignore[attr-defined]  # removed in #658; rewritten in #8
-            settings.insforge_service_key,  # type: ignore[attr-defined]  # removed in #658; rewritten in #8
+            settings.local_backend_url,  # type: ignore[attr-defined]  # removed in #658; rewritten in #8
+            settings.local_backend_service_key,  # type: ignore[attr-defined]  # removed in #658; rewritten in #8
         )
         web_client = owned_web_client
 

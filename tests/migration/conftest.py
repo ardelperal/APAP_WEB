@@ -10,10 +10,10 @@ Hard Rules honoured (web-tdd-philosophy):
   executor is injected via ``migration.legacy_reader.set_legacy_query_executor``
   in the ``set_legacy`` fixture (the same seam PR-3 of
   ``web-only-feature-preservation`` left open).
-- **Rule 7 — single harness form**: exactly one fake (``FakeInsForge``).
+- **Rule 7 — single harness form**: exactly one fake (``FakeSqlExecutor``).
   Tests reuse it; no ``MockClient`` / ``StubClient`` / ``SpyClient``
   variants.
-- **Rule 8 — no production mutation**: ``FakeInsForge`` holds rows
+- **Rule 8 — no production mutation**: ``FakeSqlExecutor`` holds rows
   in memory only. The Dysflow mock returns canned rows from a dict,
   never touches a real ``.accdb``.
 
@@ -49,11 +49,11 @@ from migration.apply import (
 )
 
 
-class FakeInsForge:
+class FakeSqlExecutor:
     """In-memory test fake for the migration package web_client interface.
 
-    Replaces the InsForge-backed fake that lived here before issue #669.
-    The InsForge client module was deleted in #664; the migration
+    Replaces the LocalBackend-backed fake that lived here before issue #669.
+    The LocalBackend client module was deleted in #664; the migration
     package itself is being rewritten in #8. Until then, this stub
     captures calls for assertions and returns empty rows on every
     ``execute_sql`` so the apply_runner fixture can still drive the
@@ -80,7 +80,7 @@ class FakeInsForge:
 
     def ensure_bucket(self, bucket_name: str, *, is_public: bool = False) -> dict[str, object]:
         raise NotImplementedError(
-            "FakeInsForge.ensure_bucket: pending #8 migration package rewrite"
+            "FakeSqlExecutor.ensure_bucket: pending #8 migration package rewrite"
         )
 
     def execute_sql(
@@ -105,9 +105,9 @@ def legacy_dummy_path(tmp_path: Path) -> str:
 
 
 @pytest.fixture
-def web_client() -> FakeInsForge:
+def web_client() -> FakeSqlExecutor:
     """Fresh in-memory LocalPostgresExecutor per test (Hard Rule 1)."""
-    return FakeInsForge()
+    return FakeSqlExecutor()
 
 
 @pytest.fixture
@@ -132,14 +132,14 @@ def apply_runner() -> Any:
         legacy_rows: list[dict[str, Any]] | None = None,
         seed: dict[str, list[dict[str, Any]]] | None = None,
         dry_run: bool = False,
-        client: FakeInsForge | None = None,
+        client: FakeSqlExecutor | None = None,
         table_name: str = "animal",
         legacy_path: str | None = None,
         lock_path: Path | None = None,
         since: Any = None,
         batch_size: int = 100,
     ) -> Any:
-        client = client or FakeInsForge()
+        client = client or FakeSqlExecutor()
         if seed:
             for table, rows in seed.items():
                 client.seed(table, rows)
@@ -274,7 +274,7 @@ def _default_msaccess_preflight(
 
 __all__ = [
     "BOOTSTRAP_SHADOW_TABLE_SQL",
-    "FakeInsForge",
+    "FakeSqlExecutor",
     "_SAFE_TABLE_NAME",
     "apply_runner",
     "legacy_dummy_path",

@@ -53,7 +53,7 @@ def _client_recording(
         return handler(request, body)
 
     client = LocalPostgresExecutor(
-        base_url="https://example.insforge.app",
+        base_url="https://example.local_backend.app",
         service_key="ik_test",
         transport=httpx.MockTransport(_recording_handler),
     )
@@ -418,7 +418,7 @@ def test_assign_material_to_estancia_concurrent_race_returns_conflict() -> None:
     racing to assign the same material to the same estancia produce a
     PostgreSQL 23505 unique violation, which the service translates to
     MaterialConflictError. This atom simulates the race end-to-end by
-    having the mocked InsForge return 409 with the canonical conflict
+    having the mocked LocalBackend return 409 with the canonical conflict
     body on the junction INSERT.
     """
     def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:

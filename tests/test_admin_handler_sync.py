@@ -3,14 +3,14 @@
 ``admin_add_user`` was historically ``async def`` and called
 ``await request.form()`` even though it then called the SYNC
 ``LocalPostgresExecutor``. In FastAPI, ``async def`` handlers run on the
-event loop; calling a sync HTTP client (the InsForge ``Client``) from
+event loop; calling a sync HTTP client (the LocalBackend ``Client``) from
 the loop blocks it for the duration of the call (no threadpool
 offload — the handler is async, so FastAPI doesn't move it to a
 worker thread).
 
 The rest of the admin handlers (``admin_list_users``,
 ``admin_deactivate_user``) are ``def`` — FastAPI runs them in a
-threadpool, so the sync InsForge client is fine.
+threadpool, so the sync LocalBackend client is fine.
 
 This module pins the contract that ``admin_add_user`` MUST be ``def``
 (not ``async def``) so the inconsistency cannot regress.
@@ -34,7 +34,7 @@ def _get_admin_add_user():
 def test_admin_add_user_is_sync_def_not_async() -> None:
     """``admin_add_user`` MUST be ``def`` (sync), not ``async def``.
 
-    Async handler + sync InsForge client = blocks the event loop.
+    Async handler + sync LocalBackend client = blocks the event loop.
     Other admin handlers are sync (they run in the threadpool where
     the sync client is fine). The new contract: all admin handlers
     use the same async/sync style.
@@ -148,7 +148,7 @@ def test_admin_handlers_all_use_the_same_async_style() -> None:
     Mixing async and sync in the same route module is a footgun:
     every new handler has to re-derive the right choice. Pin the
     rule: ALL admin handlers are ``def`` (sync), so the sync
-    InsForge client is always safe.
+    LocalBackend client is always safe.
     """
     for route in app.routes:
         if not getattr(route, "name", "").startswith("admin_"):

@@ -71,7 +71,7 @@ owns the CSRF middleware implementation.
 | F-1 | HIGH | No CSRF defense on POST forms | **TRACKED** — PR-5B (T-5B.1..27) |
 | F-2 | MEDIUM | `return_early_if_response` parameter typed `object` | FOLLOW-UP #1 — post PR-5B |
 | F-3 | MEDIUM | Triple duplication of "read session cookie + decode" | FOLLOW-UP #2 — recommend co-ship with PR-5B |
-| F-4 | MEDIUM | Missing `Iterator[InsForgeClient]` annotation | FOLLOW-UP #1 — same as F-2 |
+| F-4 | MEDIUM | Missing `Iterator[LocalBackendClient]` annotation | FOLLOW-UP #1 — same as F-2 |
 | F-5 | LOW | `_redirect()` consolidation deferred | DOCUMENTED (spec §"Out of scope") |
 | F-6 | LOW | Two `RedirectResponse` calls in `require_authorized_user` | NO ACTION |
 | F-7 | LOW | Stale test import in `test_auth_session_is_authorized.py:52` | DOCUMENTED |

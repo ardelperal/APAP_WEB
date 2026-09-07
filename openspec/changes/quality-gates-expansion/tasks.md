@@ -206,21 +206,21 @@ Chain strategy: stacked-to-main
 - Estimated lines: ~40
 - Dependency: TASK-1.4, TASK-1.6, TASK-1.8
 
-### [x] TASK-1.10: Exclude app/core/insforge.py from coverage floor
+### [x] TASK-1.10: Exclude app/core/local_backend.py from coverage floor
 - ID: TASK-1.10
 - Files: `pyproject.toml`
 - Touches AGENTS.md? no
 - Touches git-hooks? no
 - Touches ci.yml? no
 - Touches pyproject.toml? yes
-- Description: Add `app/core/insforge.py` to `[tool.coverage.run].omit` in pyproject.toml. fail_under remains unchanged. This satisfies REQ-QG-ADAPT-1.
+- Description: Add `app/core/local_backend.py` to `[tool.coverage.run].omit` in pyproject.toml. fail_under remains unchanged. This satisfies REQ-QG-ADAPT-1.
 - Acceptance criteria:
-  - `app/core/insforge.py` appears in `[tool.coverage.run].omit`
+  - `app/core/local_backend.py` appears in `[tool.coverage.run].omit`
   - `[tool.coverage.report].fail_under` is unchanged
-  - `tests/test_ci_workflow.py::test_ci_workflow_test_job_excludes_insforge_adapter` passes
+  - `tests/test_ci_workflow.py::test_ci_workflow_test_job_excludes_local_backend_adapter` passes
 - Tests to add: None (pin test comes in TASK-1.11)
 - Review lenses: code-review-expert (mandatory)
-- Commit strategy: One commit: `chore(coverage): exclude app/core/insforge.py from [tool.coverage.run].omit (REQ-QG-ADAPT-1)`
+- Commit strategy: One commit: `chore(coverage): exclude app/core/local_backend.py from [tool.coverage.run].omit (REQ-QG-ADAPT-1)`
 - Estimated lines: ~5
 - Dependency: TASK-1.2
 
@@ -231,7 +231,7 @@ Chain strategy: stacked-to-main
 - Touches git-hooks? no
 - Touches ci.yml? no
 - Touches pyproject.toml? no
-- Description: Extend `test_ci_workflow_test_job_enforces_global_coverage_floor` with an assertion that `app/core/insforge.py` is in the omit list (REQ-QG-ADAPT-1). Add three new test functions asserting lint job steps: `test_ci_workflow_lint_job_runs_jscpd_gate`, `test_ci_workflow_lint_job_runs_mutation_sites_gate`, `test_ci_workflow_test_job_runs_crap_gate` (CRAP in test job, per BLOCKER fix). Mirror the pattern of `test_ci_workflow_lint_job_runs_module_size_gate`.
+- Description: Extend `test_ci_workflow_test_job_enforces_global_coverage_floor` with an assertion that `app/core/local_backend.py` is in the omit list (REQ-QG-ADAPT-1). Add three new test functions asserting lint job steps: `test_ci_workflow_lint_job_runs_jscpd_gate`, `test_ci_workflow_lint_job_runs_mutation_sites_gate`, `test_ci_workflow_test_job_runs_crap_gate` (CRAP in test job, per BLOCKER fix). Mirror the pattern of `test_ci_workflow_lint_job_runs_module_size_gate`.
 - Acceptance criteria:
   - All four new assertions pass
   - Existing tests still pass

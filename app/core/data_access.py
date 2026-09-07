@@ -7,7 +7,7 @@ domain code may catch without coupling to a specific transport.
 Adapter implementation rule
 ---------------------------
 
-Each adapter (InsForge, the legacy Access adapter, ...) implements
+Each adapter (LocalBackend, the legacy Access adapter, ...) implements
 :class:`SqlExecutor` AND translates its own transport-level errors into
 the Protocol-level exceptions declared here. Domain code in
 ``app/core/`` and ``app/modules/`` only catches Protocol-level
@@ -16,15 +16,15 @@ exceptions; it never inspects ``status_code`` / ``body`` envelopes.
 Inheritance note for Phase 1
 ----------------------------
 
-:class:`BackendError` (formerly :class:`InsForgeError`) lives in this
+:class:`BackendError` (formerly :class:`BackendError`) lives in this
 module so :class:`DuplicateKeyError` can inherit from it cleanly —
 preserving backward compatibility with the (pre-Phase-1) world where
-service-layer code catches ``except InsForgeError`` to inspect 409
+service-layer code catches ``except BackendError`` to inspect 409
 bodies for uniqueness violations. ``DuplicateKeyError`` inherits from
 both :class:`DataAccessError` (the universal Protocol base) and
 :class:`BackendError` (for backward compatibility during the incremental
-migration). The legacy name ``InsForgeError`` is preserved as an alias
-of :class:`BackendError` until every ``except InsForgeError`` clause is
+migration). The legacy name ``BackendError`` is preserved as an alias
+of :class:`BackendError` until every ``except BackendError`` clause is
 migrated (issue #7).
 
 §31 (Domain services depend on Protocol abstractions)
@@ -77,16 +77,16 @@ class DataAccessError(Exception):
 class BackendError(DataAccessError):
     """Raised when a backend returns a non-2xx response.
 
-    Replaces the legacy :class:`InsForgeError` (kept as a deprecated alias
+    Replaces the legacy :class:`BackendError` (kept as a deprecated alias
     below for backward compatibility with code that has not yet migrated).
     Lives in this module (rather than alongside a specific adapter) so the
     Protocol-level :class:`DuplicateKeyError` can inherit from it without
     a circular import — adapters translate 409 uniqueness violations to
     ``DuplicateKeyError`` for domain code, but service-layer code that has
     not yet migrated to Protocol exceptions keeps catching
-    ``except InsForgeError`` and ``__cause__`` preservation continues to
+    ``except BackendError`` and ``__cause__`` preservation continues to
     work because ``DuplicateKeyError`` is ``isinstance``-equivalent to
-    ``InsForgeError`` (via the alias).
+    ``BackendError`` (via the alias).
 
     The ``status_code`` and ``body`` attributes preserve the upstream envelope
     for callers that still inspect it during the migration.
@@ -98,11 +98,11 @@ class BackendError(DataAccessError):
         super().__init__(f"backend {status_code}: {body!r}")
 
 
-# Deprecated alias — kept until every ``except InsForgeError`` clause is
+# Deprecated alias — kept until every ``except BackendError`` clause is
 # migrated. The symbol resolves to the new :class:`BackendError`, so
-# ``except InsForgeError`` keeps matching the same instance type. Removal
+# ``except BackendError`` keeps matching the same instance type. Removal
 # is tracked in issue #7 (test fakes retirement).
-InsForgeError = BackendError
+BackendError = BackendError
 
 
 class DuplicateKeyError(BackendError):
@@ -118,7 +118,7 @@ class DuplicateKeyError(BackendError):
     Backward compatibility: ``DuplicateKeyError`` inherits from
     :class:`BackendError` (via the linear chain ``DataAccessError`` →
     ``BackendError`` → ``DuplicateKeyError``) so the existing
-    ``except InsForgeError`` clauses in service-layer code (translated
+    ``except BackendError`` clauses in service-layer code (translated
     to ``MaterialConflictError`` / ``EntradaConflictError`` / ...) keep
     matching until Phase 3 ports those clauses to
     :class:`DataAccessError` directly.

@@ -22,7 +22,7 @@ atom verifies the actual Postgres-side guarantee that a deactivated
 user is no longer returned by the revalidation query.
 
 The ``usuarios_autorizados`` table is created in the atom from
-``auth_insforge_queries.CREATE TABLE`` rather than relying on the
+``auth_local_backend_queries.CREATE TABLE`` rather than relying on the
 domain conftest, because ``app.core.auth`` lives in the core layer
 (not a domain module) and the integration conftest only provisions
 the domain tables. The CREATE is idempotent (IF NOT EXISTS) so the
@@ -35,7 +35,7 @@ from __future__ import annotations
 import pytest
 
 from app.core import auth
-from app.core.adapters.insforge.auth_insforge_queries import (
+from app.core.adapters.local_backend.auth_local_backend_queries import (
     CREATE_TABLE_SQL,
     DEACTIVATE_USER_SQL,
 )
@@ -52,7 +52,7 @@ class _PsycopgSqlExecutor:
     auth adapter (``StubAuthUsersPort.get_user_by_email``) calls
     the latter. This shim bridges the naming gap so we can exercise the
     real production adapter against the real Postgres engine without
-    standing up an InsForge HTTP server.
+    standing up an LocalBackend HTTP server.
     """
 
     def __init__(self, ep: _EphemeralPostgres) -> None:

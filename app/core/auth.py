@@ -5,7 +5,7 @@ The auth users module has been migrated to a hexagonal slice:
   - :mod:`app.core.domain.auth`       — entities (``AuthorizedUser``, ``Rol``)
   - :mod:`app.core.ports.auth_port`   — :class:`AuthUsersPort` Protocol
   - :mod:`app.core.application.auth`  — use cases (one per file)
-  - :mod:`app.core.adapters.insforge.auth_insforge_adapter` — InsForge adapter
+  - :mod:`app.core.adapters.local_backend.auth_local_backend_adapter` — LocalBackend adapter
   - :mod:`app.core.di.auth_di`        — FastAPI DI provider
 
 This module preserves the pre-Phase-1 API so the existing callers
@@ -94,7 +94,7 @@ __all__ = [
 def _adapter(client: SqlExecutor) -> StubAuthUsersPort:
     """Build a fresh :class:`StubAuthUsersPort`.
 
-    The InsForge adapter was deleted in issue #666; until a real
+    The LocalBackend adapter was deleted in issue #666; until a real
     :class:`~app.core.local_backend.db.LocalPostgresExecutor`-backed
     adapter lands (tracked as the follow-up), the stub raises
     :class:`NotImplementedError` on every method call so the runtime
@@ -124,7 +124,7 @@ def ensure_schema_and_seed(
 
     The ``settings.initial_admin_email`` flag still drives whether
     the bootstrap admin is seeded (the use case short-circuits on
-    an empty value). The actual DDL + INSERT live in the InsForge
+    an empty value). The actual DDL + INSERT live in the LocalBackend
     adapter.
     """
     _ensure_schema_and_seed_use_case(_adapter(client), settings)

@@ -4,7 +4,7 @@
 
 Implement the delivery pipeline in three layers. Historical planning assumed chained PRs landing on `main` while APAP-WEB was pre-MVC; current repository policy uses `staging` for normal work, while production deployment remains guarded on `main`:
 
-1. **Local test surface (CI-01)** — ship `pyproject.toml` with `pytest` + `ruff` config, a `Makefile` entry point, and `docs/development.md`. The deprecation-as-error flag (`filterwarnings = ["error::DeprecationWarning"]`) is set in `pyproject.toml` per `docs/architecture/architecture-insforge-stack.md § CI/CD Quality Gate`.
+1. **Local test surface (CI-01)** — ship `pyproject.toml` with `pytest` + `ruff` config, a `Makefile` entry point, and `docs/development.md`. The deprecation-as-error flag (`filterwarnings = ["error::DeprecationWarning"]`) is set in `pyproject.toml` per `docs/architecture/architecture-local_backend-stack.md § CI/CD Quality Gate`.
 2. **GitHub Actions CI (CI-02)** — a single workflow file `.github/workflows/ci.yml` with `lint`, `test`, `build`, and E2E hook coverage. CI runs on `main` and `staging`; branch-protection evidence is operator-owned.
 3. **CD pipeline (CD-01)** — a `deploy` job in the same workflow gated on `push: main` and `needs: [lint, test, build]`. The job fires the Coolify webhook using `COOLIFY_WEBHOOK_URL`.
 
@@ -20,7 +20,7 @@ Forward planning for CD-03 and ENV-01 is captured in the spec and tasks but not 
 | **Branch policy during this change** | Current work targets `staging`; production deploy stays on `main` | Historical `main`-only planning | The repo has moved past the original pre-MVC assumption; SDD status must not keep stale main-only text as current policy |
 | **CD trigger** | Push to `main` after CI passes | Manual deploy step | Production deployment remains guarded on `main`; `staging` is the normal integration branch |
 | **Coolify integration** | Webhook URL stored in GitHub Actions secret; workflow calls `curl` | Coolify MCP from CI runner | Webhook is the documented integration path; the Coolify MCP requires operator-only authentication and is for management, not CI triggers |
-| **InsForge integration** | ~~`insforge_create-deployment` MCP tool via CI step~~ **N/A since 2026-06-19** | InsForge REST API direct | Reconsidered: APAP_WEB is a FastAPI backend deployed to Coolify, not an InsForge-hosted SPA. InsForge acts only as BaaS; schema bootstrap is a separate future issue |
+| **LocalBackend integration** | ~~`local_backend_create-deployment` MCP tool via CI step~~ **N/A since 2026-06-19** | LocalBackend REST API direct | Reconsidered: APAP_WEB is a FastAPI backend deployed to Coolify, not an LocalBackend-hosted SPA. LocalBackend acts only as BaaS; schema bootstrap is a separate future issue |
 | **E2E test slot in CI** | Explicit E2E job/hook that runs when `tests/e2e/**` exists | Omit entirely | Keeps E2E visible in CI without claiming this foundation change completed the E2E suite |
 | **Spec format for new capability** | Full spec + `## Delta from ci-cd-foundation` | Pure delta spec | This is a NEW capability; archive will copy the full content to `openspec/specs/ci-cd-pipeline/spec.md` |
 
@@ -110,17 +110,17 @@ This change is infrastructure; it does not produce application logic. The TDD cy
 | **Workflow file validity** | The YAML parses and the jobs are reachable | GitHub Actions parses the file on push; a syntax error fails the run before any job starts |
 | **Lint self-check** | The CI workflow reports potential hardcoded secrets | A diagnostic grep in CI reports suspicious workflow strings without blocking v1 |
 | **Dry-run deploy** | The `deploy` job's commands do not error in a dry-run mode | First merge to `main` after this change lands is a dry-run; success criterion is job exits zero |
-| **Downstream TDD readiness** | Future application PRs can land strict-TDD tests | The CI workflow's `pytest -W error::DeprecationWarning` config is documented and matches `docs/architecture/architecture-insforge-stack.md § Web Strict TDD Policy` |
+| **Downstream TDD readiness** | Future application PRs can land strict-TDD tests | The CI workflow's `pytest -W error::DeprecationWarning` config is documented and matches `docs/architecture/architecture-local_backend-stack.md § Web Strict TDD Policy` |
 
 E2E coverage was originally out of scope for this foundation change. The workflow now has an explicit E2E job/hook, but this change still does not claim completion of the broader E2E ticket set listed under Future work.
 
 ## Migration and rollout
 
-No data migration. The change is configuration + documentation. The first production deploy evidence is operator-owned: the `deploy` job fires the Coolify webhook on `main` and either succeeds or fails safely with an explicit configuration error. No InsForge deployment call is part of this change.
+No data migration. The change is configuration + documentation. The first production deploy evidence is operator-owned: the `deploy` job fires the Coolify webhook on `main` and either succeeds or fails safely with an explicit configuration error. No LocalBackend deployment call is part of this change.
 
 ## Open questions
 
-- [ ] **Operator-controlled secrets**: confirm the operator (not the AI) will populate `COOLIFY_WEBHOOK_URL` and InsForge dashboard env vars before the CD PRs land. Documented in PR body but not enforceable by the workflow file.
+- [ ] **Operator-controlled secrets**: confirm the operator (not the AI) will populate `COOLIFY_WEBHOOK_URL` and LocalBackend dashboard env vars before the CD PRs land. Documented in PR body but not enforceable by the workflow file.
 - [ ] **First deploy target**: the first `deploy` job run will hit Coolify with whatever the operator has configured. If the Coolify app is not yet pointing at this repo, the deploy fails safely (no production state change) but the workflow run is red. Acceptance: operator provisions Coolify app for `apap-web` before merging the CD PRs.
 - [ ] **E2E hook timing**: the commented E2E job is added in this change but flipped on by E2E-01. If E2E-01 lands first (shouldn't, since it depends on CI-02), the workflow file needs no change. Documented in `tasks.md` for the E2E ticket owner.
 - [ ] **Coverage threshold of 80**: aligns with the architecture doc's "80% of meaningful methods" floor. Will be tuned per-ticket in follow-up changes if specific tickets can't hit it without shallow tests.

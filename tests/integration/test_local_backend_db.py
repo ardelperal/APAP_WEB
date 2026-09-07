@@ -19,7 +19,7 @@ Hard rules (web-tdd-philosophy):
 - Rule 4 (no humo): assertions on real behaviour (return shapes,
   errors), never absence-of-error.
 - Rule 8 (no production mutation): tests run against the
-  self_host_schema ephemeral Postgres; no real InsForge touched.
+  self_host_schema ephemeral Postgres; no real LocalBackend touched.
 
 M0 of the self-host-backend-coolify openspec (issue #641).
 """
@@ -36,7 +36,7 @@ from app.core.local_backend.db import (
 
 
 def test_executor_returns_rows_as_list_of_dicts(self_host_schema):
-    """A SELECT returns ``[{"col": val, ...}, ...]`` matching InsForge."""
+    """A SELECT returns ``[{"col": val, ...}, ...]`` matching LocalBackend."""
     executor = LocalPostgresExecutor(
         self_host_schema._dsn,
         search_path=self_host_schema.schema,
@@ -66,7 +66,7 @@ def test_executor_returns_empty_list_for_no_rows(self_host_schema):
 
 
 def test_executor_handles_insert_update_delete(self_host_schema):
-    """INSERT/UPDATE/DELETE return ``[]`` (matching InsForge's contract)."""
+    """INSERT/UPDATE/DELETE return ``[]`` (matching LocalBackend's contract)."""
     executor = LocalPostgresExecutor(
         self_host_schema._dsn,
         search_path=self_host_schema.schema,

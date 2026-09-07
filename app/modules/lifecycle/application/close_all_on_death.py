@@ -38,14 +38,14 @@ from app.core.data_access import SqlExecutor
 from app.modules.lifecycle.ports.lifecycle_port import LifecyclePort
 
 # Active placements are the same projections the cascade adapter
-# reads (app/modules/lifecycle/adapters/insforge/lifecycle_insforge_queries.py).
+# reads (app/modules/lifecycle/adapters/local_backend/lifecycle_local_backend_queries.py).
 # Inlined here because the close use case is application-layer per
 # AGENTS.md §33.4 — the application layer must NOT import the
 # adapter. Keeping the SQL strings here is consistent with the
 # one-function-per-file seam: the close use case is a small, focused
 # orchestration that owns its own SQL and the cascade adapter owns
 # the cascade SQL. Future PRs may lift these into a shared
-# lifecycle_insforge_queries.py extension.
+# lifecycle_local_backend_queries.py extension.
 _SELECT_ACTIVE_INTAKES_SQL = """
 SELECT entradas.id AS "IDEntrada"
 FROM entradas

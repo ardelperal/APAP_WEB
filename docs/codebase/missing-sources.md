@@ -16,7 +16,7 @@ Esta página posee los subsistemas que el lector podría esperar y no existen en
 | Dashboard o panel de BI | Not found. | Vistas por módulo en [`app/modules/<slice>/routes.py`](../../app/modules/). Cada página es HTML server-rendered; no hay agregaciones cross-módulo. |
 | API REST pública para terceros | Not found. | El producto es server-rendered para usuarios autenticados. JSON solo donde la UI lo exige (HTMX, `/healthz`). |
 | Webhook handler genérico | Not found. | Solo el callback OAuth en [`app/main.py`](../../app/main.py) (`/auth/callback`). No hay endpoint público para webhooks externos. |
-| WebSocket / Server-Sent Events | Not found. | InsForge expone realtime por MCP, pero el producto no lo consume. Las notificaciones son recargas de página o HTMX. |
+| WebSocket / Server-Sent Events | Not found. | LocalBackend expone realtime por MCP, pero el producto no lo consume. Las notificaciones son recargas de página o HTMX. |
 | Background job queue (Celery, RQ) | Not found. | Tareas puntuales vía Coolify scheduled tasks (scripts en Coolify, no en el repo). El flujo pesado es el reconcile CLI ([sync and cloud](sync-and-cloud.md)). |
 | Cron interno (APScheduler) | Not found. | `scripts/synology-webdav.ps1` existe pero es solo para backups del lado del operador. Sin scheduler in-process. |
 | SDK publicable | Not found. | El repo no expone paquete distribuible. `pyproject.toml` no declara `packages` ni entry points; el código se consume ejecutando la app. |
@@ -28,8 +28,8 @@ Esta página posee los subsistemas que el lector podría esperar y no existen en
 | Feature flags service | Not found. | Sin servicio externo; los flags viven en `Settings` o en el código. |
 | Test suite del binario Access legacy | Not found. | Dysflow MCP lee el `.accdb` bajo demanda (P2 en [proceso.md](../proceso.md)). No hay tests automatizados contra el legacy; las verificaciones son manuales en sesiones de discovery. |
 | Cola de mensajes (Kafka, RabbitMQ) | Not found. | El único flujo cross-proceso es el reconcile CLI ([sync and cloud](sync-and-cloud.md)). |
-| Storage público sin auth (S3-style) | Not found. | Los buckets de InsForge usan RLS vía JWT; no hay endpoint público de lectura de archivos. |
-| Admin web de base de datos | Not found. | El MCP `insforge` provee `run-raw-sql` para el mantenedor; no hay UI web de admin de DB. |
+| Storage público sin auth (S3-style) | Not found. | Los buckets de LocalBackend usan RLS vía JWT; no hay endpoint público de lectura de archivos. |
+| Admin web de base de datos | Not found. | El MCP `local_backend` provee `run-raw-sql` para el mantenedor; no hay UI web de admin de DB. |
 | Sistema de notificaciones (email, push) | Not found. | No se envía nada al usuario fuera del log estructurado. La comunicación sigue siendo presencial o por el panel admin. |
 
 ## Cuándo crear una nueva entrada aquí

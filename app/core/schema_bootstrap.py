@@ -4,7 +4,7 @@ This module keeps the legacy import surface
 (``from app.core.schema_bootstrap import SqlStatement,
 run_idempotent_sql``) alive while the canonical hexagonal
 implementation lives under :mod:`app.core.application.schema_bootstrap`
-and :mod:`app.core.adapters.insforge.schema_bootstrap_insforge_adapter`.
+and :mod:`app.core.adapters.local_backend.schema_bootstrap_local_backend_adapter`.
 
 The canonical "via port" use case is
 :func:`app.core.application.schema_bootstrap.run_idempotent_sql.run_idempotent_sql`,

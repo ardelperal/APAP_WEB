@@ -23,7 +23,7 @@ The sub-modules are:
     domain_terapias      — terapias, recomendaciones tables
 
 Source of truth for the SQL that creates the domain tables in the
-InsForge backend. The :func:`ensure_domain_schema` function is the
+LocalBackend backend. The :func:`ensure_domain_schema` function is the
 legacy ``client``-typed entry point that ``app.main`` calls on
 startup; the canonical "via port" use case lives at
 :func:`app.core.application.schema_bootstrap.ensure_domain_schema.ensure_domain_schema`
@@ -127,7 +127,7 @@ def ensure_domain_schema(client: SqlExecutor) -> None:
     Backward-compat shim: builds a :class:`StubSchemaBootstrapPort`
     and delegates to :meth:`StubSchemaBootstrapPort.ensure_domain_schema`.
 
-    The InsForge adapter was deleted in issue #666; until a real
+    The LocalBackend adapter was deleted in issue #666; until a real
     :class:`~app.core.local_backend.db.LocalPostgresExecutor`-backed
     adapter lands (tracked as the follow-up), the stub raises
     :class:`NotImplementedError` on every method call. The ``client``

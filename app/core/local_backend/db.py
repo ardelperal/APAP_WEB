@@ -18,7 +18,7 @@ Hard rules (web-tdd-philosophy):
 - Rule 4 (no humo): tests assert return shapes, placeholder style,
   error classification — never absence-of-error.
 - Rule 8 (no production mutation): tests run against the
-  self_host_schema ephemeral Postgres; no real InsForge touched.
+  self_host_schema ephemeral Postgres; no real LocalBackend touched.
 """
 
 from __future__ import annotations

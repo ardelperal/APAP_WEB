@@ -37,7 +37,7 @@ from radon.visitors import Function
 MAX_CRAP_GRADE = "A"
 MAX_CRAP_SCORE = 6.0
 SCAN_DIRS = ("app", "migration")
-COVERAGE_OMIT = frozenset({"app/core/insforge.py"})
+COVERAGE_OMIT = frozenset({"app/core/local_backend.py"})
 
 
 class CoverageDataError(ValueError):
@@ -67,8 +67,8 @@ BASELINE_CRAP: dict[str, float] = {
     "app/core/auth_flow.py::register_auth_flow_routes.callback": 7.1,
     "app/core/csrf.py::CsrfMiddleware.dispatch": 13.00,
     "app/core/domain/auth/user.py::AuthorizedUser.from_row": 8.10,
-    "app/core/insforge_error_translation.py::_classify_409_body": 10.54,
-    "app/core/insforge_error_translation.py::translate_post_error": 6.04,
+    "app/core/local_backend_error_translation.py::_classify_409_body": 10.54,
+    "app/core/local_backend_error_translation.py::translate_post_error": 6.04,
     "app/core/logging.py::JsonFormatter.format": 6.2,
     "app/core/logging.py::RedactionFilter.filter": 7.0,
     "app/core/middleware.py::install_auth_middleware.protect_user_facing_routes": 6.0,
@@ -216,21 +216,21 @@ BASELINE_CRAP: dict[str, float] = {
     # Issue #420 slice 4 (update_animal). The adapter baseline remains
     # shrink-only; the write-query builder now stays below grade A by
     # delegating ordered pair selection to a tested pure helper.
-    "app/modules/animals/adapters/insforge/animals_insforge_adapter.py::AnimalsInsforgeAdapter.update_animal": 5.27,
+    "app/modules/animals/adapters/local_backend/animals_local_backend_adapter.py::AnimalsInsforgeAdapter.update_animal": 5.27,
     # Issue #420 slice 6 (record_lifecycle_event). The adapter is now a
     # thin delegator; its exact CI score is retained to lock the coverage
     # improvement. The mapper baseline remains for its per-field NULL arms.
-    "app/modules/animals/adapters/insforge/animals_insforge_adapter.py::AnimalsInsforgeAdapter.record_lifecycle_event": 1.12,
-    "app/modules/animals/adapters/insforge/animals_insforge_mappers.py::_row_to_lifecycle_event": 7.0,
+    "app/modules/animals/adapters/local_backend/animals_local_backend_adapter.py::AnimalsInsforgeAdapter.record_lifecycle_event": 1.12,
+    "app/modules/animals/adapters/local_backend/animals_local_backend_mappers.py::_row_to_lifecycle_event": 7.0,
     # Issue #420 slice 7 (list_lifecycle_events). The adapter delegates
     # filtering to the lifecycle helper module; the SQL builder keeps its
     # separate exact baseline for the ``= ANY`` query-shape branch.
-    "app/modules/animals/adapters/insforge/animals_insforge_adapter.py::AnimalsInsforgeAdapter.list_lifecycle_events": 1.12,
-    "app/modules/animals/adapters/insforge/animals_insforge_queries.py::list_lifecycle_events_sql": 9.32,
+    "app/modules/animals/adapters/local_backend/animals_local_backend_adapter.py::AnimalsInsforgeAdapter.list_lifecycle_events": 1.12,
+    "app/modules/animals/adapters/local_backend/animals_local_backend_queries.py::list_lifecycle_events_sql": 9.32,
     # Issue #420 slice 8 (change_animal_chip). The adapter now delegates
     # the saga to ``AnimalsInsforgeChipCascade``; retain the exact score
     # so future coverage or complexity drift cannot pass silently.
-    "app/modules/animals/adapters/insforge/animals_insforge_adapter.py::AnimalsInsforgeAdapter.change_animal_chip": 1.00,
+    "app/modules/animals/adapters/local_backend/animals_local_backend_adapter.py::AnimalsInsforgeAdapter.change_animal_chip": 1.00,
 }
 
 #: Ratchet deadline (deterministic-quality-harness v1.5 Rule 12). Every

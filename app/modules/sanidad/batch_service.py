@@ -7,7 +7,7 @@ ATOMICALLY through a single PostgreSQL CTE statement.
 
 Why CTE-driven atomicity instead of an explicit ``BEGIN/COMMIT``:
 
-    InsForge is reached over HTTP from Python via the
+    LocalBackend is reached over HTTP from Python via the
     ``/api/database/advance/rawsql`` endpoint; the client has NO
     transactional primitive (``execute_sql`` issues one POST per
     call). The atomicity guarantee therefore comes from PostgreSQL's

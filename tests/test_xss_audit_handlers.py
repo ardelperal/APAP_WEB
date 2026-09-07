@@ -69,11 +69,11 @@ def _login_as_key_user(client: httpx.AsyncClient) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Spy InsForge client — returns rows with XSS payloads in user columns.
+# Spy LocalBackend client — returns rows with XSS payloads in user columns.
 # ---------------------------------------------------------------------------
 
 
-class _XssInsForge(LocalPostgresExecutor):
+class _XssLocalBackend(LocalPostgresExecutor):
     """Stand-in for ``LocalPostgresExecutor`` that returns XSS-laden rows.
 
     Pattern matches SQL fragments (same shape as the real routes) so
@@ -193,8 +193,8 @@ class _XssInsForge(LocalPostgresExecutor):
 
 
 @pytest.fixture
-def xss_insforge() -> _XssInsForge:
-    spy = _XssInsForge()
+def xss_local_backend() -> _XssLocalBackend:
+    spy = _XssLocalBackend()
     app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy
     # Epic #420 migrated the animals routes to Depends(get_animals_port);
     # the hexagonal provider reads ``state.sql_executor`` directly, so
@@ -236,11 +236,11 @@ async def test_handler_does_not_leak_xss_payload(
     method: str,
     url: str,
     client: httpx.AsyncClient,
-    xss_insforge: _XssInsForge,  # noqa: ARG001 — fixture installs the spy
+    xss_local_backend: _XssLocalBackend,  # noqa: ARG001 — fixture installs the spy
 ) -> None:
     """Every HTMLResponse route MUST escape the XSS payloads from spec.
 
-    The fixture ``xss_insforge`` returns rows whose user-controlled
+    The fixture ``xss_local_backend`` returns rows whose user-controlled
     columns contain each of the four spec patterns. The route renders
     the row through a Jinja2 template; autoescape is the only line of
     defense, so the literal payload must NOT appear in the rendered
@@ -284,7 +284,7 @@ async def test_handler_does_not_leak_xss_payload(
 
 async def test_animal_create_post_re_renders_form_with_xss_escaped(
     client: httpx.AsyncClient,
-    xss_insforge: _XssInsForge,  # noqa: ARG001
+    xss_local_backend: _XssLocalBackend,  # noqa: ARG001
 ) -> None:
     """POST ``/animales`` with XSS in every field — body MUST escape it.
 

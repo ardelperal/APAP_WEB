@@ -31,7 +31,7 @@ Fuentes normativas:
 
 - `docs/quality/test-audit.md` — auditoría completa del 2026-08-31, fuente primaria de evidencia.
 - `tests/integration/conftest.py` — cómo está configurada la infraestructura de DB real (`APAP_TEST_POSTGRES_DSN`).
-- `tests/migration/conftest.py` — plantilla `FakeInsForge` que es el patrón a emular para nuevos módulos.
+- `tests/migration/conftest.py` — plantilla `FakeLocalBackend` que es el patrón a emular para nuevos módulos.
 - Skill `apap-testing` — gates y cobertura (HR-1 a HR-15). Esta skill es **complementaria**, no duplicada.
 
 ## §2 Hard Rules
@@ -42,13 +42,13 @@ Fuentes normativas:
 - **HR-4 — MUST escribir un integration test (`tests/integration/test_<modulo>_queries_integration.py`) para todo flujo que toque FK enforcement o ON CONFLICT semantics**. La auditoría enumera `entradas`, `cesiones`, `auth_revalidation` y `chip_cascade` como P0.
 - **HR-5 — MUST NOT reemplazar mocks por DB real en bloque**. El feedback loop rápido (suite default ~30 s) es una ventaja competitiva del proyecto. La migración selectiva es la regla; la sustitución masiva es reject.
 - **HR-6 — MUST mantener los tests de queries (`test_*_queries.py`) byte-exactos con SQL string equality**. Son los tests más fuertes del suite según la auditoría; degradarlos a substring-match es reject.
-- **HR-7 — MUST usar `FakeInsForge` para tests de migration ETL** (no Postgres real). El patrón está en `tests/migration/conftest.py`. Levantar contenedores o DB real para tests de migration es reject — el migration corre contra binario Access, no contra SQL.
+- **HR-7 — MUST usar `FakeLocalBackend` para tests de migration ETL** (no Postgres real). El patrón está en `tests/migration/conftest.py`. Levantar contenedores o DB real para tests de migration es reject — el migration corre contra binario Access, no contra SQL.
 - **HR-8 — MUST usar Playwright E2E (`tests/e2e/`) para validar flujos UI críticos con efectos visibles en HTML** (form post + redirect + flash). Usar curl, shell Python o inspección de DB como sustituto es reject. Ver §23 de `docs/codebase/quality-gates.md`.
 - **HR-9 — MUST usar route integration in-process (`httpx.ASGITransport` + spy) para probar el contrato HTTP** sin levantar el servidor. Estos tests verifican el "no SQL en routes" gate. Ver `tests/test_acogidas_routes.py` como plantilla.
 - **HR-10 — MUST NOT escribir unit tests que dependan de `datetime.now()` o `time.sleep`**. La suite default debe ser determinista. Ver `docs/quality/test-audit.md` §Flaky-tests.
 - **HR-11 — MUST reportar el tipo de test elegido en el commit message o PR body** cuando el cambio toca un flujo crítico. Formato: `test(type): descripción — rationale`. Esto permite auditoría futura del balance unit/integration/e2e.
 - **HR-12 — MUST consultar `docs/quality/test-audit.md` §Per-module-coverage-map antes de decidir agregar un nuevo tipo de test**. La auditoría documenta qué gaps existen; duplicar cobertura existente es reject.
-- **HR-13 — MUST usar `_DefaultInsForgeSpy` o `_NoSqlRouteClient` del conftest existente** en lugar de inventar nuevos spies. El catálogo de spies es la interfaz pública entre tests y código; crear variantes es reject.
+- **HR-13 — MUST usar `_DefaultLocalBackendSpy` o `_NoSqlRouteClient` del conftest existente** en lugar de inventar nuevos spies. El catálogo de spies es la interfaz pública entre tests y código; crear variantes es reject.
 - **HR-14 — MUST preservar los ratchets existentes al refactorizar tests**. Ver skill `apap-testing` HR-14 (no relajar ratchets). Si una refactorización aumenta mutation sites o rompe un baseline, la solución es reducir el código, no relajar el gate.
 
 ## §3 Taxonomía: los seis tipos de test
@@ -60,8 +60,8 @@ Fuentes normativas:
 | **Route integration in-process** | `tests/test_<modulo>_routes.py` | spy + `_NoSqlRouteClient` | Contrato HTTP: status codes, redirects, CSRF, role-gated 403, fragment en HTML. Sin levantar el servidor. |
 | **Application unit (hexagonal)** | `tests/test_<modulo>_application_*.py` | `_StubPort` (animals) o `FakeSqlExecutor` (lifecycle) | Slices hexagonales. Testea el dominio y la aplicación sin tocar el adaptador. |
 | **Integration (real Postgres)** | `tests/integration/test_<modulo>_queries_integration.py` | nada | Flujos con FK enforcement, triggers, CTE rollback, ON CONFLICT. Requiere `APAP_TEST_POSTGRES_DSN` en CI dedicado. |
-| **E2E (Playwright)** | `tests/e2e/test_<modulo>_<flujo>.py` | live server + InsForge real | Flujos UI críticos: form post + redirect, validación visual, navegación. |
-| **Migration ETL** | `tests/migration/test_<flujo>.py` | `FakeInsForge` + Dysflow executor seam | ETL Access→web. Hermético; nunca toca DB real. |
+| **E2E (Playwright)** | `tests/e2e/test_<modulo>_<flujo>.py` | live server + LocalBackend real | Flujos UI críticos: form post + redirect, validación visual, navegación. |
+| **Migration ETL** | `tests/migration/test_<flujo>.py` | `FakeLocalBackend` + Dysflow executor seam | ETL Access→web. Hermético; nunca toca DB real. |
 
 ## §4 Decision Gates
 
@@ -76,7 +76,7 @@ Fuentes normativas:
 | Estás testeando FK enforcement, UNIQUE constraint, trigger | **Integration con Postgres real** — `tests/integration/` |
 | Estás testeando rollback parcial de CTE / batch | **Integration con Postgres real** — el mock no puede simularlo |
 | Estás testeando UI con form post + redirect + flash | E2E Playwright — `tests/e2e/` |
-| Estás testeando ETL contra binario Access | Migration ETL con `FakeInsForge` — `tests/migration/` |
+| Estás testeando ETL contra binario Access | Migration ETL con `FakeLocalBackend` — `tests/migration/` |
 
 ### Gate B — Cuándo convertir un mock en integration test
 
@@ -109,7 +109,7 @@ Si **ninguna** de estas condiciones se cumple, el mock es aceptable. No converti
 1. **Clasificar** — Determinar el tipo de test apropiado usando §3 Taxonomía y §4 Gate-A. Documentar la elección.
 2. **Verificar gaps** — Leer `docs/quality/test-audit.md` §Per-module-coverage-map y §Critical-gaps. Si el módulo ya tiene un patrón canónico, seguirlo. Si no, decidir si la pieza cae en §Gate-B.
 3. **Plantilla** — Usar la plantilla existente del módulo. Si el módulo no tiene tests de ese tipo, basarse en `tests/test_acogidas.py` (service), `tests/test_animals_application_*.py` (application), `tests/integration/test_acogidas_queries_integration.py` (integration), `tests/e2e/test_entradas_batch.py` (e2e).
-4. **Spy/herramienta** — Usar `httpx.MockTransport` para unit service, `_NoSqlRouteClient`/`_DefaultInsForgeSpy` para route, `_StubPort`/`FakeSqlExecutor` para application, psycopg real para integration, Playwright para e2e, `FakeInsForge` para migration.
+4. **Spy/herramienta** — Usar `httpx.MockTransport` para unit service, `_NoSqlRouteClient`/`_DefaultLocalBackendSpy` para route, `_StubPort`/`FakeSqlExecutor` para application, psycopg real para integration, Playwright para e2e, `FakeLocalBackend` para migration.
 5. **Determinismo** — Verificar HR-10: nada de `datetime.now()` ni `time.sleep` ni dependencias de orden de tests.
 6. **Velocidad** — El suite default debe seguir bajo 60 s. Si tu test excede 5 s, es candidato a integration o e2e, no unit.
 7. **Reporte** — En el commit message, indicar el tipo elegido y la justificación: `test(integration): entradas batch rollback — Gate-B (CTE rollback unverifiable contra MockTransport)`.
@@ -140,7 +140,7 @@ Al usar esta skill, retornar:
 | Agregar un integration test para una pieza que ya tiene uno | Verificar `tests/integration/` antes de duplicar. La auditoría lista los existentes. |
 | Escribir un E2E test para validar wire shape de SQL | Usar unit service con MockTransport. E2E es para UI; wire shape se valida más rápido con unit. |
 | Usar `datetime.now()` o `time.sleep()` para hacer un test "realista" | Inyectar un clock o usar fechas fijas. La suite debe ser determinista. |
-| Crear un spy personalizado en lugar de usar `_DefaultInsForgeSpy` | Extender el spy existente; documentar la razón. No fragmentar el catálogo de spies. |
+| Crear un spy personalizado en lugar de usar `_DefaultLocalBackendSpy` | Extender el spy existente; documentar la razón. No fragmentar el catálogo de spies. |
 | Inventar una nueva categoría de test (ej: "service integration") | Usar las seis categorías de §3. Si ninguna encaja, abrir un PR contra esta skill antes de escribir el test. |
 | Test con assertion débil (`assert True` o `assert response is not None`) | Pinnear SQL shape, status code exacto, fragment en HTML, o behavior observable. Sin evidencia no hay test. |
 | Comentar el skip en lugar de arreglarlo (`@pytest.mark.skip(reason="flaky")`) | Arreglar la flakiness. Si es estructural, abrir issue; no skip permanente sin trazabilidad. |
@@ -193,7 +193,7 @@ Self-check pasa: frontmatter completo, ~330 líneas (target), 14 HR-N con verbos
 - `docs/codebase/quality-gates.md` — §19 (coverage), §23 (E2E).
 - `docs/codebase/security.md` — §11 (CRITICAL_HELPERS), §6, §29 (auth).
 - `tests/integration/conftest.py` — plantilla de integration con Postgres real (`APAP_TEST_POSTGRES_DSN`).
-- `tests/migration/conftest.py` — plantilla de `FakeInsForge`.
+- `tests/migration/conftest.py` — plantilla de `FakeLocalBackend`.
 - `tests/test_animals_application_*.py` — plantilla de application unit hexagonal.
 - `tests/e2e/test_entradas_batch.py` — plantilla de E2E con Playwright.
 - Skill `apap-testing` en `~/.config/opencode/skills/apap-testing/SKILL.md` — gates y cobertura (complementaria).

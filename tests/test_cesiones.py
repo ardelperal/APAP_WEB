@@ -2,7 +2,7 @@
 
 Mirrors ``tests/test_entradas.py``-style: pure service unit tests with
 ``httpx.MockTransport`` so every SQL the service emits is captured and
-asserted, no live InsForge client. Covers issue #41 (INTAKE-03) end to
+asserted, no live LocalBackend client. Covers issue #41 (INTAKE-03) end to
 end at the service layer:
 
 - Required-field validation.
@@ -117,7 +117,7 @@ def _build_handler(
 
 def _client(handler) -> LocalPostgresExecutor:
     return LocalPostgresExecutor(
-        base_url="https://example.insforge.app",
+        base_url="https://example.local_backend.app",
         service_key="ik_test",
         transport=httpx.MockTransport(handler),
     )
@@ -359,10 +359,10 @@ def test_create_cesion_passes_full_param_set_to_insert() -> None:
 
 
 def test_create_cesion_maps_unique_violation_to_conflict_error() -> None:
-    """InsForge returns 409 when the UNIQUE on entrada_id is violated
+    """LocalBackend returns 409 when the UNIQUE on entrada_id is violated
     (a cesion already exists for this entrada). The service translates
     the 409 into ``CesionConflictError`` so the route layer can render a
-    user-friendly form error without coupling to the InsForge envelope.
+    user-friendly form error without coupling to the LocalBackend envelope.
     """
     handler, captured = _build_handler(
         entradas_row={"id": "ent-abc"},
@@ -381,9 +381,9 @@ def test_create_cesion_maps_unique_violation_to_conflict_error() -> None:
     )
 
 
-def test_create_cesion_propagates_unexpected_insforge_errors() -> None:
+def test_create_cesion_propagates_unexpected_backend_errors() -> None:
     """Only duplicate-key 409s are translated to ``CesionConflictError``.
-    Other InsForge errors (500, etc.) must propagate so the route layer
+    Other LocalBackend errors (500, etc.) must propagate so the route layer
     can convert them to 5xx instead of pretending success.
     """
     # Use the default benign handler but capture only the call sequence.

@@ -20,7 +20,7 @@ El hardening se concentra donde el trabajo es interesante (generaciones de cache
 
 Un secret faltante degrada a una app insegura-pero-corriendo en lugar de un deploy fallido.
 
-*Instancia*: `session_secret` envía un placeholder de desarrollo funcional y `insforge_service_key` defaultea a `""` (#275). Un env var faltante significaba que cada cookie de sesión se firmaba con un secret publicado en este repositorio.
+*Instancia*: `session_secret` envía un placeholder de desarrollo funcional y `local_backend_service_key` defaultea a `""` (#275). Un env var faltante significaba que cada cookie de sesión se firmaba con un secret publicado en este repositorio.
 
 **Criterio**: ningún campo de `Settings` que porte un secret puede tener un default que funcione en producción. O no tiene default y pydantic falla, o el arranque lo valida y rehúsa servir. Un default que es *conveniente en dev* debe gated con un flag de desarrollo explícito.
 
@@ -53,9 +53,9 @@ Una regla cuya única aplicación es "revisión de PR" no cambia comportamiento.
 
 El fallo esperado se captura; el adyacente de la capa debajo se escapa.
 
-*Instancia*: `admin_add_user` captura `ValueError` del service y deja que `InsForgeError` del transporte alcance un 500 no manejado (#277). Tampoco hay handler global de excepciones en `app/` que lo capture.
+*Instancia*: `admin_add_user` captura `ValueError` del service y deja que `BackendError` del transporte alcance un 500 no manejado (#277). Tampoco hay handler global de excepciones en `app/` que lo capture.
 
-**Criterio**: cualquier route que llame a un service que alcanza InsForge maneja tanto el error de dominio como `InsForgeError` — o existe un handler global de excepciones y está testeado. Nunca amplíe a un `except Exception` desnudo para satisfacer esto; nombre los errores.
+**Criterio**: cualquier route que llame a un service que alcanza LocalBackend maneja tanto el error de dominio como `BackendError` — o existe un handler global de excepciones y está testeado. Nunca amplíe a un `except Exception` desnudo para satisfacer esto; nombre los errores.
 
 ### §32.P5 — Docstrings dejados atrás por refactors
 
@@ -102,7 +102,7 @@ Revisión de PR, usando los criterios numerados arriba como checklist. §32.P2, 
 
 - [ ] Si añade un secret a `Settings`, sigue §32.P2 — pydantic o lifespan rechaza el placeholder.
 - [ ] Si añade una regla nueva, sigue §32.P3 — detector, ratchet o baseline explícito con deadline.
-- [ ] Si su route llama a un service, nombra `ValueError` y `InsForgeError` explícitamente.
+- [ ] Si su route llama a un service, nombra `ValueError` y `BackendError` explícitamente.
 - [ ] Si un módulo docstring describe un flujo que cambió, lo reescribe en el mismo PR (§32.P5).
 - [ ] Si añade un test con pre-requisito externo, documenta el skip con issue enlazado (§32.P6).
 - [ ] Si su PR añade un guard en `ci.yml`, pinea la condición en `tests/test_ci_workflow.py` (§32.P7).

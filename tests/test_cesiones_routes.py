@@ -82,11 +82,11 @@ class _MockCesionesPort:
 def route_client() -> _NoSqlRouteClient:
     spy = _NoSqlRouteClient()
     # Override the DI so get_cesiones_port reads this spy (not the
-    # _DefaultInsForgeSpy from the client fixture).
+    # _DefaultLocalBackendSpy from the client fixture).
     app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy
     app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy
     # Also set app.state so get_cesiones_port (which reads request.app.state)
-    # picks up this spy instead of the client fixture's _DefaultInsForgeSpy.
+    # picks up this spy instead of the client fixture's _DefaultLocalBackendSpy.
     app.state.sql_executor = spy
     yield spy
     app.dependency_overrides.pop(get_local_postgres_executor_dep, None)

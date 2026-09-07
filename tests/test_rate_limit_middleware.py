@@ -22,7 +22,7 @@ from app.core.session import session_cookie_name, write_session
 
 
 class _AnonymousSpy:
-    """InsForge stand-in for tests that bypass the DB layer."""
+    """LocalBackend stand-in for tests that bypass the DB layer."""
 
     def execute_sql(self, query: str, params: Any = None):  # type: ignore[no-untyped-def]
         from tests.conftest import auth_reval_rows

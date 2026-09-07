@@ -143,7 +143,7 @@ def test_terminal_states_have_no_placement_ids(
     assert result.active_adoption_id is None
 
 
-def test_domain_module_does_not_import_insforge() -> None:
+def test_domain_module_does_not_import_local_backend() -> None:
     """Domain module must not import transport types (AGENTS.md §31/§33.4)."""
     import ast
     import pathlib
@@ -154,15 +154,15 @@ def test_domain_module_does_not_import_insforge() -> None:
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                assert "InsForge" not in alias.name, (
+                assert "LocalBackend" not in alias.name, (
                     f"domain module imports transport type: {alias.name}"
                 )
         elif isinstance(node, ast.ImportFrom):
             module = node.module or ""
-            assert "InsForge" not in module, (
+            assert "LocalBackend" not in module, (
                 f"domain module imports from transport: {module}"
             )
             for alias in node.names:
-                assert "InsForge" not in alias.name, (
+                assert "LocalBackend" not in alias.name, (
                     f"domain module imports transport symbol: {alias.name}"
                 )

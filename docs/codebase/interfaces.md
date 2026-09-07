@@ -2,7 +2,7 @@
 
 [Back to Codebase Guide](../CODEBASE-GUIDE.md)
 
-Esta página posee el catálogo de superficies que expone el sistema (HTTP, OAuth, storage, healthcheck) y por dónde fluye cada una. No posee el detalle de comportamiento de cada ruta — eso vive en el `routes.py` del módulo afectado — ni el contrato de stack — eso es [Arquitectura InsForge](../architecture/architecture-insforge-stack.md).
+Esta página posee el catálogo de superficies que expone el sistema (HTTP, OAuth, storage, healthcheck) y por dónde fluye cada una. No posee el detalle de comportamiento de cada ruta — eso vive en el `routes.py` del módulo afectado — ni el contrato de stack — eso es [Arquitectura LocalBackend](../architecture/architecture-local_backend-stack.md).
 
 ## Core invariants
 
@@ -18,8 +18,8 @@ Esta página posee el catálogo de superficies que expone el sistema (HTTP, OAut
 | Landing `/` | [`app/main.py`](../../app/main.py) | Auth required | Página de marketing para usuarios autenticados. |
 | Health `/healthz` | [`app/main.py`](../../app/main.py) | Public | Sonda JSON para Docker y Coolify (CD-02). |
 | Login `/login` | [`app/main.py`](../../app/main.py) | Public | Renderiza la página de login de APAP. |
-| OAuth `/auth/google` | [`app/main.py`](../../app/main.py) | Public | Inicia el flujo OAuth hospedado por InsForge. |
-| OAuth callback `/auth/callback` | [`app/main.py`](../../app/main.py) | Public | Intercambia `insforge_code` (o `code`) por JWT y emite cookie de sesión. |
+| OAuth `/auth/google` | [`app/main.py`](../../app/main.py) | Public | Inicia el flujo OAuth hospedado por LocalBackend. |
+| OAuth callback `/auth/callback` | [`app/main.py`](../../app/main.py) | Public | Intercambia `oauth_code` (o `code`) por JWT y emite cookie de sesión. |
 | Logout `/logout` | [`app/main.py`](../../app/main.py) | Any user | Limpia la cookie de sesión. |
 | Unauthorized `/unauthorized` | [`app/main.py`](../../app/main.py) | Auth required | Página de acceso denegado; usuarios desactivados ven el copy amigable. |
 | Admin `/admin` | [`app/main.py`](../../app/main.py) | Developer only | Panel de gestión de usuarios desarrolladores. |
@@ -27,7 +27,7 @@ Esta página posee el catálogo de superficies que expone el sistema (HTTP, OAut
 | Módulos de negocio `/animales`, `/entradas`, `/voluntarios`, etc. | [`app/modules/<slice>/routes.py`](../../app/modules/) | Auth + RBAC | Una superficie por slice; el módulo define los verbos y paths. |
 | Endpoints HTMX internos | `routes.py` del módulo | Auth + RBAC | Mismo origen; usan el header `X-CSRFToken` (§10). |
 
-## Storage InsForge
+## Storage LocalBackend
 
 | Bucket / Surface | Purpose | Auth |
 |---|---|---|
@@ -39,7 +39,7 @@ Esta página posee el catálogo de superficies que expone el sistema (HTTP, OAut
 
 | Server | Purpose | Where configured |
 |---|---|---|
-| `insforge` | Backend InsForge: SQL, schema, buckets, funciones, deploy, AI, realtime | MCP server del cliente |
+| `local_backend` | Backend LocalBackend: SQL, schema, buckets, funciones, deploy, AI, realtime | MCP server del cliente |
 | `codegraph` | Índice de inteligencia de código; permite `codegraph_explore` sin `Read`/`Grep` | AGENTS §14 |
 | `coolify` | Operación del despliegue en Coolify (deploy, restart, env vars, logs) | MCP server del cliente |
 | `dysflow` | Acceso de solo lectura al binario `.accdb` del legacy para resolver dudas de dominio (P2 en [proceso.md](../proceso.md)) | MCP server del cliente |
@@ -61,7 +61,7 @@ Esta página posee el catálogo de superficies que expone el sistema (HTTP, OAut
 - [ ] Si añade una ruta autenticada, use `require_authorized_user` o `require_permission` de [`app/core/auth_dependencies.py`](../../app/core/auth_dependencies.py); no duplique la lógica de auth en el módulo (§27).
 - [ ] Si añade un endpoint que cambia estado, incluya el token CSRF en la plantilla del formulario y la verificación por header o campo (§10).
 - [ ] Si añade una dependencia que crea un cliente (`httpx`, `httpx.AsyncClient`, etc.), use `yield` en la dependencia de FastAPI (§2).
-- [ ] Si añade un bucket InsForge nuevo, declárelo también en `openspec/specs/` con su RLS y su caso de uso.
+- [ ] Si añade un bucket LocalBackend nuevo, declárelo también en `openspec/specs/` con su RLS y su caso de uso.
 
 ## Navigation
 

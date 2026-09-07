@@ -6,9 +6,9 @@
 
 Índice técnico navegable de APAP_WEB. Para empezar, vea el [README](README.md); para reglas de agente, [AGENTS.md](AGENTS.md); para el playbook operativo, [docs/proceso.md](docs/proceso.md).
 
-> **Scope**: APAP_WEB es una aplicación web server-rendered (FastAPI + Jinja2 + InsForge) que reemplaza el legacy Access/VBA.
+> **Scope**: APAP_WEB es una aplicación web server-rendered (FastAPI + Jinja2 + LocalBackend) que reemplaza el legacy Access/VBA.
 >
-> Este doc describe las superficies externas. Las decisiones arquitectónicas viven en [docs/architecture/architecture-insforge-stack.md](docs/architecture/architecture-insforge-stack.md).
+> Este doc describe las superficies externas. Las decisiones arquitectónicas viven en [docs/architecture/architecture-local_backend-stack.md](docs/architecture/architecture-local_backend-stack.md).
 
 ---
 
@@ -41,7 +41,7 @@ Cada documento del repo ocupa un único rol. Este índice es la única ruta reco
 | [docs/proceso.md](docs/proceso.md) | Playbook operativo: preflight → issue → TDD → merge → cierre. |
 | [docs/setup.md](docs/setup.md) | Setup local por desarrollador. |
 | [docs/CODEBASE-GUIDE.md](docs/CODEBASE-GUIDE.md) | Overview de módulos (Tier 2 de #464, parcial). |
-| [docs/architecture/architecture-insforge-stack.md](docs/architecture/architecture-insforge-stack.md) | Stack target, reglas InsForge, despliegue. |
+| [docs/architecture/architecture-local_backend-stack.md](docs/architecture/architecture-local_backend-stack.md) | Stack target, reglas LocalBackend, despliegue. |
 | [docs/architecture/decisiones-proyecto.md](docs/architecture/decisiones-proyecto.md) | Registro formal de decisiones arquitectónicas (D-01…). |
 | [docs/audits/](docs/audits/) | Auditorías por slice sensible (CSRF, RBAC, XSS, cookies). |
 | [docs/runbooks/](docs/runbooks/) | Runbooks de operador (rotación de cookie, auth cache multi-worker). |
@@ -61,7 +61,7 @@ Los routers se incluyen en `app/main.py` vía [`app/routes_registry.py`](app/rou
 | GET | `/` | Landing autenticada; redirige a `/login` si no hay sesión. |
 | GET | `/healthz` | JSON health probe para Docker y Coolify. |
 | GET | `/login` | Render del formulario de login. |
-| GET | `/auth/google` | Inicio del flujo OAuth (proxy InsForge). |
+| GET | `/auth/google` | Inicio del flujo OAuth (proxy LocalBackend). |
 | GET | `/auth/callback` | Intercambio de `code` por sesión firmada. |
 | GET | `/logout` | Limpia la cookie de sesión. |
 | GET | `/unauthorized` | Página de acceso denegado. |
@@ -103,7 +103,7 @@ Todas las variables llevan prefijo `APAP_`. La single source of truth es [`app/c
 
 | Variable | Descripción | Default |
 |---|---|---|
-| `APAP_INSFORGE_URL` | URL base de InsForge (PostgREST-compatible). | `http://localhost:7130` |
+| `APAP_LOCAL_BACKEND_URL` | URL base de LocalBackend (PostgREST-compatible). | `http://localhost:7130` |
 | `APAP_INSFORGE_ANON_KEY` | JWT anónimo para uso cliente; el servidor no la usa hoy. | `""` |
 | `APAP_INSFORGE_SERVICE_KEY` | Service key con privilegios para admin SQL (bootstrap, seed, gestión de usuarios). Vacía desactiva operaciones privilegiadas. | `""` |
 | `APAP_GOOGLE_CLIENT_ID` | OAuth client id de Google. | `""` |
@@ -127,19 +127,19 @@ Todas las variables llevan prefijo `APAP_`. La single source of truth es [`app/c
 
 ## Matriz de visibilidad de estados
 
-APAP_WEB compone varias superficies (HTTP, OAuth Google, InsForge, CSRF, rate limit, caché de authorization). Esta matriz nombra los escenarios cross-surface y la razón esperada de cada uno.
+APAP_WEB compone varias superficies (HTTP, OAuth Google, LocalBackend, CSRF, rate limit, caché de authorization). Esta matriz nombra los escenarios cross-surface y la razón esperada de cada uno.
 
 | Escenario | Razón esperada | Superficies |
 |---|---|---|
-| GET sin sesión a path privado | 302 → `/login` | middleware auth + OAuth InsForge |
+| GET sin sesión a path privado | 302 → `/login` | middleware auth + OAuth LocalBackend |
 | GET con sesión y email no en `usuarios_autorizados` | 302 → `/unauthorized` | middleware auth + caché de authorization |
 | POST sin token CSRF | 403 | `CsrfMiddleware` |
 | POST con token CSRF inválido o de otra sesión | 403 | `CsrfMiddleware` + `itsdangerous` |
 | Cookie firmada con secreto rotado | 302 → `/login` | `itsdangerous` + middleware auth |
 | Rate limit OAuth superado (10/min/IP) | 429 | rate limit + OAuth Google |
 | Rate limit write superado (60/min/user o 30/min/IP) | 429 | rate limit + router del módulo |
-| `APAP_INSFORGE_URL` inalcanzable al arranque | lifespan lanza `StartupConfigError` | `httpx.Client` + InsForge |
-| InsForge devuelve 401 al a service key | 500 con `log_safe("insforge.unauthorized")` | `InsForgeClient` + `log_safe` |
+| `APAP_LOCAL_BACKEND_URL` inalcanzable al arranque | lifespan lanza `StartupConfigError` | `httpx.Client` + LocalBackend |
+| LocalBackend devuelve 401 al a service key | 500 con `log_safe("local_backend.unauthorized")` | `LocalBackendClient` + `log_safe` |
 | Usuario desactivado, caché vigente | sigue autorizado hasta `APAP_AUTH_CACHE_TTL_SECONDS` | caché TTL + `usuarios_autorizados` |
 | `APAP_SESSION_SECRET` placeholder en producción (`debug=False`) | lifespan lanza `StartupConfigError` | `Settings._validate_secrets` |
 | `APAP_AUTH_CACHE_BACKEND` distinto de `in_process` | lifespan lanza `StartupConfigError` | `Settings` |
@@ -156,7 +156,7 @@ APAP_WEB compone varias superficies (HTTP, OAuth Google, InsForge, CSRF, rate li
 | Hoja de ruta viva | [docs/roadmap.md](docs/roadmap.md) |
 | Setup local por desarrollador | [docs/setup.md](docs/setup.md) |
 | Decisiones arquitectónicas | [docs/architecture/decisiones-proyecto.md](docs/architecture/decisiones-proyecto.md) |
-| Stack target y reglas InsForge | [docs/architecture/architecture-insforge-stack.md](docs/architecture/architecture-insforge-stack.md) |
+| Stack target y reglas LocalBackend | [docs/architecture/architecture-local_backend-stack.md](docs/architecture/architecture-local_backend-stack.md) |
 | Workflow de contribución | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Cambios por versión | [CHANGELOG.md](CHANGELOG.md) |
 | Disclosure de vulnerabilidades | [SECURITY.md](SECURITY.md) |

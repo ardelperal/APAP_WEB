@@ -1,7 +1,7 @@
 """Port for the lifecycle slice (LIFECYCLE-03, PR-A work-unit A4).
 
 The port is the contract between the use cases (``application/`` in
-PR-B) and the adapters (InsForge in PR-B, retired in #668; the
+PR-B) and the adapters (LocalBackend in PR-B, retired in #668; the
 follow-up adds a ``LocalPostgresExecutor``-backed implementation).
 Access via the legacy
 adapter when it lands). The Protocol depends on

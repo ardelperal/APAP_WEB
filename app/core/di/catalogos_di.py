@@ -6,7 +6,7 @@ concrete :class:`LocalPostgresExecutor` from the application layer — routes
 and use cases depend on :class:`CatalogosPort`, never on the concrete
 backend.
 
-The InsForge adapter implementation was deleted in issue #666; until a
+The LocalBackend adapter implementation was deleted in issue #666; until a
 real :class:`~app.core.local_backend.db.LocalPostgresExecutor`-backed
 adapter lands (tracked as the follow-up), the provider yields a stub
 that raises :class:`NotImplementedError` on every method call.

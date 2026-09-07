@@ -33,18 +33,18 @@
     queries.py  construcción de SQL   │   routes / handlers   │   routes.py
               │                       │   application/         │   domain/
               │                       │   ports/  Protocol     │   ports/
-              │                       │   adapters/insforge/   │   application/
-              │                       │                        │   adapters/insforge/
+              │                       │   adapters/local_backend/   │   application/
+              │                       │                        │   adapters/local_backend/
               │                       └────────────────────────┘
               │                                │
               └───────────────┬────────────────┘
                               ▼
-              app/core/insforge.py  (InsForgeClient)
+              app/core/local_backend.py  (LocalBackendClient)
                               ▼
-              InsForge  —  PostgreSQL · Auth · Storage
+              LocalBackend  —  PostgreSQL · Auth · Storage
 ```
 
-> **Todo request entra por una route delgada, cruza exactamente una capa de dominio y sale por un único cliente hacia InsForge; lo que rompe esa línea recta es lo que los gates rechazan.**
+> **Todo request entra por una route delgada, cruza exactamente una capa de dominio y sale por un único cliente hacia LocalBackend; lo que rompe esa línea recta es lo que los gates rechazan.**
 >
 > La hexagonal puede vivir dentro del propio módulo (`app/modules/animals/`, regla §33.2) cuando el slice tiene razón de negocio propia; sólo se promueve a `app/core/<layer>/<slice>/` cuando dos o más consumidores lo comparten. La transición actual es in-place capa por capa, no extracción masiva.
 
@@ -55,7 +55,7 @@
 | [Mental model](codebase/mental-model.md) | Qué es APAP_WEB, qué no es y qué invariantes conserva. |
 | [Repository map](codebase/repository-map.md) | Qué paquete posee cada responsabilidad y dónde colocar código nuevo. |
 | [Interfaces](codebase/interfaces.md) | Qué superficies expone el sistema (HTTP, OAuth, storage) y por dónde fluye cada una. |
-| [Integrations](codebase/integrations.md) | Adaptadores externos (InsForge, CodeGraph, Dysflow, Coolify, GitHub) y sus límites de configuración. |
+| [Integrations](codebase/integrations.md) | Adaptadores externos (LocalBackend, CodeGraph, Dysflow, Coolify, GitHub) y sus límites de configuración. |
 | [Maintainer playbook](codebase/maintainer-playbook.md) | Workflow operativo de mantenedor y checklists por tipo de cambio. |
 | [Sync and cloud](codebase/sync-and-cloud.md) | Web ↔ legacy, mode toggle y CLI de reconciliación. |
 | [Reference map](codebase/reference-map.md) | Trazabilidad entre docs, specs y código. |
@@ -73,7 +73,7 @@
 
 | Si necesita... | Abra primero | Y luego consulte |
 |---|---|---|
-| Entender el producto y el target | [README](../README.md) | [Mental model](codebase/mental-model.md), [Arquitectura InsForge](architecture/architecture-insforge-stack.md) |
+| Entender el producto y el target | [README](../README.md) | [Mental model](codebase/mental-model.md), [Arquitectura LocalBackend](architecture/architecture-local_backend-stack.md) |
 | Decidir dónde va código nuevo | [Repository map](codebase/repository-map.md) | [AGENTS.md](../AGENTS.md) §33 |
 | Añadir o cambiar una ruta o endpoint | [Interfaces](codebase/interfaces.md) | El `routes.py` del módulo afectado, [AGENTS.md](../AGENTS.md) §28 |
 | Localizar un guardarraíl o un detector | [Repository map](codebase/repository-map.md) | [AGENTS.md](../AGENTS.md) §20–§28, [Quality roadmap](quality/hardening-roadmap.md) |
@@ -88,7 +88,7 @@
 |---|---|---|
 | Producto, stack, quick start | [`README.md`](../README.md) | Punto de entrada para quien abre el repo. |
 | Reglas y guardarraíles del proyecto | [`AGENTS.md`](../AGENTS.md) | Las 33 reglas y sus detectores. |
-| Contrato de stack InsForge | [`docs/architecture/architecture-insforge-stack.md`](architecture/architecture-insforge-stack.md) | Decisiones de stack, reglas InsForge, target de despliegue. |
+| Contrato de stack LocalBackend | [`docs/architecture/architecture-local_backend-stack.md`](architecture/architecture-local_backend-stack.md) | Decisiones de stack, reglas LocalBackend, target de despliegue. |
 | Playbook operativo por issue | [`docs/proceso.md`](proceso.md) | De `open` a `closed` con evidencia, según §16 de AGENTS. |
 | Roadmap de fases | [`docs/roadmap.md`](roadmap.md) | Fases del producto y estado actual. |
 | Decisiones de proyecto | [`docs/architecture/decisiones-proyecto.md`](architecture/decisiones-proyecto.md) | Registro formal de divergencias con el legacy. |
@@ -112,7 +112,7 @@ Continúe con [Mental model](codebase/mental-model.md).
 - [ ] Ningún párrafo supera los doscientos caracteres.
 - [ ] Sin emojis decorativos ni marketing fluff.
 - [ ] Cada cross-reference resuelve a un archivo existente del repositorio.
-- [ ] Sin duplicación de contenido que ya vive en `README.md`, `architecture/architecture-insforge-stack.md` o `AGENTS.md`.
+- [ ] Sin duplicación de contenido que ya vive en `README.md`, `architecture/architecture-local_backend-stack.md` o `AGENTS.md`.
 
 ## Navigation
 

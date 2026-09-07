@@ -140,10 +140,10 @@ def test_base_template_defaults_to_base_html_when_state_missing() -> None:
 
 
 @pytest.fixture(autouse=True)
-def _stub_insforge_for_reval() -> None:
+def _stub_local_backend_for_reval() -> None:
     """``GET /`` revalidates auth; the unit-level deps spy covers it.
 
-    ``GET /login`` does not hit InsForge but ``require_authorized_user``
+    ``GET /login`` does not hit LocalBackend but ``require_authorized_user``
     on ``GET /`` and the auto-dependency cache mean the stub from
     ``tests/test_pages.py`` is the safest defensive fixture. We
     don't need it for ``/login`` itself, but installing it keeps the

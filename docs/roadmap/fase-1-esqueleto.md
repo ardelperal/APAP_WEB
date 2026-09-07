@@ -16,7 +16,7 @@ cerrado — Issue **#17** mergeada en `main` como `d0b1ed1`. Desbloquea Fase 2 (
 
 ## Decisiones relacionadas
 
-- [d-20-stack-fastapi-htmx-insforge.md](../architecture/decisiones/d-20-stack-fastapi-htmx-insforge.md) — stack base.
+- [d-20-stack-fastapi-htmx-local_backend.md](../architecture/decisiones/d-20-stack-fastapi-htmx-local_backend.md) — stack base.
 - [d-30-pre-mvp-single-branch.md](../architecture/decisiones/d-30-pre-mvp-single-branch.md) — flujo pre-MVP.
 - [d-33-tdd-estricto.md](../architecture/decisiones/d-33-tdd-estricto.md) — tests antes de código.
 

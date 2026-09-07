@@ -981,7 +981,7 @@ def _feed_handler(
     """Build an httpx mock handler that lets create/update through.
 
     Mirrors ``tests/test_acogidas.py::_make_handler`` — except here
-    we feed real InsForge envelopes (route also calls
+    we feed real LocalBackend envelopes (route also calls
     ``auth_reval_rows`` via the per-request revalidation, which we
     route through ``auth_reval_rows`` from conftest).
     """
@@ -1102,7 +1102,7 @@ def _install_feed_client(
         return _feed_handler(insert_row=insert_row, update_row=update_row)(request)
 
     client = LocalPostgresExecutor(
-        base_url="https://example.insforge.app",
+        base_url="https://example.local_backend.app",
         service_key="ik_test",
         transport=httpx.MockTransport(_recording),
     )

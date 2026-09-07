@@ -1,6 +1,6 @@
 """Test package for the ``migration`` ETL tooling.
 
-Issue #168 — ACCDB <-> InsForge sync end-to-end (apply + status CLI,
+Issue #168 — ACCDB <-> LocalBackend sync end-to-end (apply + status CLI,
 shadow-state bootstrap, atomic apply with advisory lock + audit log).
 
 The tests live here (rather than mixed into ``tests/test_migration.py``)

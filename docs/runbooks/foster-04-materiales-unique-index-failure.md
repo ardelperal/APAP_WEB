@@ -36,7 +36,7 @@ Antes de desplegar el esquema de FOSTER-04 (#46) PR A a cualquier entorno que ya
 
 - [ ] Confirme que `estancia_materiales` se ha auditado en busca de pares activos duplicados `(estancia_id, material_id)`.
 - [ ] Si existen duplicados, ejecute el procedimiento de deduplicación de la sección siguiente **antes** del despliegue.
-- [ ] Ejecute `python -m migration status --table estancia_materiales` (cuando se fusione el issue #168; mientras tanto, consulte InsForge directamente con `psql` o el panel de InsForge).
+- [ ] Ejecute `python -m migration status --table estancia_materiales` (cuando se fusione el issue #168; mientras tanto, consulte LocalBackend directamente con `psql` o el panel de LocalBackend).
 - [ ] Verifique que la tabla `web_only_feature_shadow` no contiene conciliaciones pendientes (la limpieza es una preocupación aparte).
 
 ## Pasos de despliegue

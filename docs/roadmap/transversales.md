@@ -17,7 +17,7 @@ Capacidades que cubren auth, CSRF, RBAC, redacción de PII y rotación de secret
 | RBAC-01 matriz de permisos API | pendiente | #66 |
 | Rotación de `APAP_SESSION_SECRET` | cerrado (runbook) | [docs/runbooks/cookie-rotation.md](../runbooks/cookie-rotation.md) |
 
-Decisiones: [d-02-home-dashboard.md](../architecture/decisiones/d-02-home-dashboard.md), [d-20-stack-fastapi-htmx-insforge.md](../architecture/decisiones/d-20-stack-fastapi-htmx-insforge.md), [d-40-virginia-uat.md](../architecture/decisiones/d-40-virginia-uat.md).
+Decisiones: [d-02-home-dashboard.md](../architecture/decisiones/d-02-home-dashboard.md), [d-20-stack-fastapi-htmx-local_backend.md](../architecture/decisiones/d-20-stack-fastapi-htmx-local_backend.md), [d-40-virginia-uat.md](../architecture/decisiones/d-40-virginia-uat.md).
 
 ## Observabilidad
 
@@ -56,7 +56,7 @@ Cada slice que aterriza en `main` necesita su batería E2E con Playwright. La ba
 | Release tag (`v*.*.*`) | **Sí** — todas las baterías se ejecutan |
 | Mantenimiento post-prototipo (hotfix, chore) | **No** |
 
-**Objetivo:** validar que todos los flujos end-to-end operan con datos reales de InsForge antes de cada release. La batería no sustituye los tests unitarios ni de integración — los complementa cubriendo la cadena completa HTTP → servicio → base de datos → HTML.
+**Objetivo:** validar que todos los flujos end-to-end operan con datos reales de LocalBackend antes de cada release. La batería no sustituye los tests unitarios ni de integración — los complementa cubriendo la cadena completa HTTP → servicio → base de datos → HTML.
 
 **Formato de cada batería E2E:**
 
@@ -81,7 +81,7 @@ Workflow de mantenedor: migraciones en vivo, UX/UI, motor de tareas, idioma y do
 
 ### Migración en vivo del legacy
 
-Objetivo: backend privado InsForge poblado con datos y fotos reales del Access legacy, en una sola dirección controlada y verificable, antes de abrir Fases 4–7 a datos productivos.
+Objetivo: backend privado LocalBackend poblado con datos y fotos reales del Access legacy, en una sola dirección controlada y verificable, antes de abrir Fases 4–7 a datos productivos.
 
 | Sub-fase | Estado |
 |---|---|
@@ -134,7 +134,7 @@ Alineación de toda la documentación técnica con el idioma del proyecto (decis
 
 | Slice | Estado | Issue |
 |---|---|---|
-| Traducción al castellano de `docs/architecture/architecture-insforge-stack.md` | pendiente | issue por crear |
+| Traducción al castellano de `docs/architecture/architecture-local_backend-stack.md` | pendiente | issue por crear |
 | Traducción al castellano de `docs/development.md` | pendiente | issue por crear |
 | Revisión y traducción de los `docs/discovery/*.md` que aún estén en inglés | pendiente | issue por crear |
 
@@ -146,7 +146,7 @@ Documentación: [docs/codebase/merge-workflow.md](../codebase/merge-workflow.md)
 
 ### Arquitectura hexagonal por vertical slices
 
-Si va a escribir código nuevo, esta subsección manda sobre los ejemplos de las páginas de fase. El detonante del refactor: `app/core/*.py` importaba `InsForgeClient` directamente; el backend no era sustituible y la lógica no era testeable sin transporte.
+Si va a escribir código nuevo, esta subsección manda sobre los ejemplos de las páginas de fase. El detonante del refactor: `app/core/*.py` importaba `LocalBackendClient` directamente; el backend no era sustituible y la lógica no era testeable sin transporte.
 
 **Slices en `main`** (hexagonal, transversales en `app/core/`, capacidades en `app/modules/`):
 
@@ -162,10 +162,10 @@ Si va a escribir código nuevo, esta subsección manda sobre los ejemplos de las
 **Regla de ubicación** ([AGENTS.md](../../AGENTS.md) §33.2):
 
 - **`app/core/<capa>/<slice>/`** — transversal: lo consumen 2+ slices y no tiene razón de negocio propia para cambiar.
-- **`app/modules/<slice>/`** — capacidad de negocio; el slice entero en una carpeta: `domain/`, `ports/`, `application/`, `adapters/insforge/`, `di/`, `routes.py` fino.
+- **`app/modules/<slice>/`** — capacidad de negocio; el slice entero en una carpeta: `domain/`, `ports/`, `application/`, `adapters/local_backend/`, `di/`, `routes.py` fino.
 - **Ante la duda, módulo.** Promover a `core` después es barato; sacarlo de `core` con cinco consumidores colgando, no.
 
-**Invariantes**: `InsForgeClient`/`InsForgeError` solo bajo `adapters/` y `di/` (más `app/main.py`, que construye el cliente); ningún `service.py` nuevo que ejecute SQL; ningún criterio de aceptación que nombre al proveedor; un test de pin arquitectónico por slice que falle si un import de transporte se cuela de capa.
+**Invariantes**: `LocalBackendClient`/`BackendError` solo bajo `adapters/` y `di/` (más `app/main.py`, que construye el cliente); ningún `service.py` nuevo que ejecute SQL; ningún criterio de aceptación que nombre al proveedor; un test de pin arquitectónico por slice que falle si un import de transporte se cuela de capa.
 
 **Deuda registrada**: `admin` está en `core` sin cumplir la regla (un solo consumidor). Excepción deliberada documentada en [AGENTS.md](../../AGENTS.md) §33.5 y en #420 — **no sirve de precedente** para meter la siguiente capacidad de negocio en `core`.
 
@@ -178,7 +178,7 @@ Si va a escribir código nuevo, esta subsección manda sobre los ejemplos de las
 Medición de progreso (un solo comando):
 
 ```bash
-git grep -n "^\s*from app.core.insforge import" -- 'app/**.py' 'migration/**.py' | wc -l
+git grep -n "^\s*from app.core.local_backend import" -- 'app/**.py' 'migration/**.py' | wc -l
 ```
 
 Legítimos son los `app/core/di/*_di.py` y `app/main.py`; el resto es backlog.
@@ -187,7 +187,7 @@ Documentación: [docs/architecture/capas-y-slices.md](../architecture/capas-y-sl
 
 ### Self-host backend (Coolify)
 
-Reemplazo del backend InsForge por un contenedor FastAPI propio desplegado en Coolify, en el mismo VPS que el front. El branch activo del esfuerzo es `feat/641-self-host-backend-coolify` (issue umbrella #641). El switch de runtime vive en `app/core/insforge_url.py` con la variable `APAP_LOCAL_BACKEND`; los commits `c12b361 feat(insforge): default to local backend when APAP_LOCAL_BACKEND=true` y `b10a88d fix(insforge): local backend base_url must not carry /api prefix` documentan el corte.
+Reemplazo del backend LocalBackend por un contenedor FastAPI propio desplegado en Coolify, en el mismo VPS que el front. El branch activo del esfuerzo es `feat/641-self-host-backend-coolify` (issue umbrella #641). El switch de runtime vive en `app/core/local_backend_url.py` con la variable `APAP_LOCAL_BACKEND`; los commits `c12b361 feat(local_backend): default to local backend when APAP_LOCAL_BACKEND=true` y `b10a88d fix(local_backend): local backend base_url must not carry /api prefix` documentan el corte.
 
 | Sub-fase | Estado en branch | Issue |
 |---|---|---|
@@ -205,7 +205,7 @@ Reemplazo del backend InsForge por un contenedor FastAPI propio desplegado en Co
 
 **Invariante no negociable:**
 
-- **Contenedor único en Coolify, sin InsForge en producción**: el contenedor `app/core/local_backend/app.py` reemplaza a InsForge para el path de datos autenticado. Mantener `APAP_LOCAL_BACKEND=true` en Coolify; el binario de InsForge queda solo como fallback de desarrollo local.
+- **Contenedor único en Coolify, sin LocalBackend en producción**: el contenedor `app/core/local_backend/app.py` reemplaza a LocalBackend para el path de datos autenticado. Mantener `APAP_LOCAL_BACKEND=true` en Coolify; el binario de LocalBackend queda solo como fallback de desarrollo local.
 
 ## Issues pendientes de crear (consolidado)
 
@@ -220,7 +220,7 @@ Reemplazo del backend InsForge por un contenedor FastAPI propio desplegado en Co
 | Transversal | `feat(search): búsqueda global` | Fases 3–4 |
 | Transversal | `feat(canonical-logs): traza canónica del sistema` | Fase 1 |
 | Transversal | `feat(admin-panel): panel de control / configuración` | Fases 1–2 |
-| Docs | `docs(architecture): traducir architecture-insforge-stack.md al castellano` | — |
+| Docs | `docs(architecture): traducir architecture-local_backend-stack.md al castellano` | — |
 | Docs | `docs(architecture): d-42-self-host-backend-coolify.md — decisión arquitectónica del corte` | — |
 | Docs | `docs(development): traducir development.md al castellano` | — |
 | Docs | `docs(discovery): revisar y traducir los discovery en inglés al castellano` | — |

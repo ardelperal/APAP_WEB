@@ -71,7 +71,7 @@ PURE_FORBIDDEN_TOP_PACKAGES: frozenset[str] = frozenset(
         "psycopg",
         "psycopg2",
         "sqlalchemy",
-        "insforge",
+        "local_backend",
         "pymysql",
         # Third-party HTTP clients. Pure = no outbound HTTP.
         "httpx",
@@ -169,7 +169,7 @@ REQUIRED_TESTS_FOR_MODULE: Mapping[str, tuple[str, ...]] = {
     "semantic_events.py": ("tests/test_semantic_events.py",),
     "shadow_state.py": ("tests/migration/test_shadow_state.py",),
     "storage_spike.py": (
-        "tests/migration/test_insforge_storage_methods.py",
+        "tests/migration/test_storage_methods.py",
         "tests/migration/test_storage_contract_evidence.py",
     ),
     "sync_state.py": (

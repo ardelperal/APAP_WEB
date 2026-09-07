@@ -39,7 +39,7 @@ Se eligió la **Opción A** (caché TTL + lookup por request) sobre la Opción B
 - La caché es un dict en proceso protegido por `Lock`. Un reinicio de proceso (deploy) la deja vacía — esa es la invalidación de deploy. `AUTH_CACHE_KEY` es un marcador de versión de esquema de caché (documental).
 - El middleware `protect_user_facing_routes` **sigue sin tocar la DB** (primera puerta barata y determinista, default-deny `payload.get("is_authorized", False)`); la revalidación DB es un endurecimiento adicional en la dep, no un reemplazo.
 
-**Regla 1 (cero SQL en routes)**: la revalidación consulta la DB vía el service `app.core.auth.get_user_by_email`, nunca SQL crudo en la dep ni en el handler. El nuevo `client: InsForgeClient = Depends(get_insforge_client_dep)` en `require_authorized_user` está permitido porque la query se hace a través del service.
+**Regla 1 (cero SQL en routes)**: la revalidación consulta la DB vía el service `app.core.auth.get_user_by_email`, nunca SQL crudo en la dep ni en el handler. El nuevo `client: LocalBackendClient = Depends(get_local_backend_client_dep)` en `require_authorized_user` está permitido porque la query se hace a través del service.
 
 ## Findings
 
@@ -53,7 +53,7 @@ Se eligió la **Opción A** (caché TTL + lookup por request) sobre la Opción B
 
 ## Blast radius del nuevo `client` dep
 
-Añadir `client: InsForgeClient = Depends(get_insforge_client_dep)` a `require_authorized_user` significa que **todas** las rutas protegidas consultan `usuarios_autorizados` por request. FastAPI cachea la dep por request, así que los handlers que ya inyectaban `get_insforge_client` comparten la misma instancia (una sola query/cliente por request). Los tests de integración que autenticaban con una cookie `is_authorized=True` y un spy que devolvía `[]` para la query de auth pasaban a redirigir a `/unauthorized`; se migraron 17 ficheros de test para que sus spies respondan la query de revalidación con un usuario activo (helper compartido `tests/conftest.py::auth_reval_rows`), preservando las aserciones de SQL de dominio existentes.
+Añadir `client: LocalBackendClient = Depends(get_local_backend_client_dep)` a `require_authorized_user` significa que **todas** las rutas protegidas consultan `usuarios_autorizados` por request. FastAPI cachea la dep por request, así que los handlers que ya inyectaban `get_local_backend_client` comparten la misma instancia (una sola query/cliente por request). Los tests de integración que autenticaban con una cookie `is_authorized=True` y un spy que devolvía `[]` para la query de auth pasaban a redirigir a `/unauthorized`; se migraron 17 ficheros de test para que sus spies respondan la query de revalidación con un usuario activo (helper compartido `tests/conftest.py::auth_reval_rows`), preservando las aserciones de SQL de dominio existentes.
 
 ## Verdict
 

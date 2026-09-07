@@ -57,7 +57,7 @@ HAVING COUNT(*) > 1;
 
 - [ ] Ha leído este runbook por completo.
 - [ ] Ha notificado al equipo en `#apap-ops` que la migración de deduplicación está a punto de ocurrir; registre quién está de guardia.
-- [ ] Tiene el SQL de detección de duplicados anterior listo para pegar en `psql` o en la superficie de consultas de InsForge.
+- [ ] Tiene el SQL de detección de duplicados anterior listo para pegar en `psql` o en la superficie de consultas de LocalBackend.
 - [ ] Confirma que puede leer `usuarios_autorizados` con el rol del operador que ejecutará la dedupe.
 - [ ] Confirma que el commit desplegado de `fix/issue-277-278-ghost-users` incluye `f41e717` (o un sucesor) — véase `git log --oneline main`.
 - [ ] Decide el renombramiento objetivo de las filas perdedoras en cada grupo de duplicados (véase paso 2 del procedimiento de dedupe).
@@ -163,7 +163,7 @@ Si el despliegue en sí mismo debe revertirse (poco frecuente — sólo si el c�
 ## Documentos relacionados
 
 - `app/core/auth_helpers.py` — `normalize_email` (línea 14) y `validate_email_format` (única fuente de verdad, AGENTS.md §4 + §25).
-- `app/core/auth.py` — pre-chequeo `add_authorized_user` y mapeo de `InsForgeError` como defensa en profundidad (issue #277) y fontanería `normalize_email` (issue #278).
+- `app/core/auth.py` — pre-chequeo `add_authorized_user` y mapeo de `BackendError` como defensa en profundidad (issue #277) y fontanería `normalize_email` (issue #278).
 - `app/core/auth_cache.py` — barrido de variantes de mayúsculas de `invalidate_auth` (`_case_variants`) y clave de caché con case-folding (issue #278).
 - `app/core/admin_helpers.py` — auxiliares de mensaje flash `_pop_flash` y `_redirect_with_flash` (issue #277).
 - `app/main.py` — handler `admin_add_user` con `_add_user_or_error` y la ruta de renderizado tras éxito.

@@ -4,7 +4,7 @@ Per AGENTS.md §22, the SQL/service separation seam requires SQL strings
 and parameter shaping to live in a dedicated ``queries.py`` per feature
 module. The builder contract is the testable surface — these tests
 prove the builders return well-formed ``(sql, params)`` tuples without
-needing transport, InsForge, or HTTP.
+needing transport, LocalBackend, or HTTP.
 
 The seam is symmetric with the existing tests in ``test_acogidas.py``
 (captured SQL strings from the httpx mock client). The tests here

@@ -112,7 +112,7 @@ def test_shim_reexports_all_nine_symbols() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Atom 3 — the di module has no raw SQL, no direct insforge imports, and no
+# Atom 3 — the di module has no raw SQL, no direct local_backend imports, and no
 # transport-shaped construction (R04 leak constraint, full set)
 # ---------------------------------------------------------------------------
 
@@ -302,8 +302,8 @@ def test_di_module_has_no_raw_sql_or_execute_sql() -> None:
 # ---------------------------------------------------------------------------
 
 
-class _RaisingInsForgeClient:
-    """Spy InsForge client whose ``execute_sql`` raises ``BackendError``.
+class _RaisingLocalBackendClient:
+    """Spy LocalBackend client whose ``execute_sql`` raises ``BackendError``.
 
     The application-layer use case (``get_user_by_email``) goes through
     the adapter layer, which calls ``self._executor.execute_sql(...)``
@@ -383,7 +383,7 @@ def set_cached_auth(monkeypatch: pytest.MonkeyPatch) -> _SetCachedAuthSpy:
     _auth_cache.invalidate_all()
 
 
-def test_require_authorized_user_catches_insforge_error_and_redirects(
+def test_require_authorized_user_catches_backend_error_and_redirects(
     monkeypatch: pytest.MonkeyPatch,
     set_cached_auth,
 ) -> None:
@@ -421,7 +421,7 @@ def test_require_authorized_user_catches_insforge_error_and_redirects(
             "rol": "key_user",
             "is_authorized": True,
         },
-        client=_RaisingInsForgeClient(BackendError(503, "service unavailable")),
+        client=_RaisingLocalBackendClient(BackendError(503, "service unavailable")),
     )
 
     # Assertion 1: a RedirectResponse is returned — no exception escaped.

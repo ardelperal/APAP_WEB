@@ -8,14 +8,14 @@ matches the library contract.
 
 Hard Rules honoured (web-tdd-philosophy):
 
-- **Rule 1 (fixture gate)**: each atom builds its own ``FakeInsForge``
+- **Rule 1 (fixture gate)**: each atom builds its own ``FakeSqlExecutor``
   and Dysflow executor (via ``apply_runner``).
 - **Rule 2 (DI)**: the CLI receives ``web_client`` via injection —
   no global client lookup.
 - **Rule 4 (no humo)**: asserts on the captured stdout text and the
   exit code, never "no error".
 - **Rule 8 (no production mutation)**: ``web_client`` is a
-  ``FakeInsForge`` and the Dysflow mock returns canned rows.
+  ``FakeSqlExecutor`` and the Dysflow mock returns canned rows.
 """
 
 from __future__ import annotations
@@ -27,13 +27,13 @@ import pytest
 
 from migration import cli as cli_mod
 from migration.cli import build_parser, main
-from tests.migration.conftest import FakeInsForge  # noqa: TID251
+from tests.migration.conftest import FakeSqlExecutor  # noqa: TID251
 
 # --- 1. apply --check-only is dry-run ---------------------------------
 
 
 def test_cli_apply_check_only_does_not_write(
-    web_client: FakeInsForge, monkeypatch: pytest.MonkeyPatch
+    web_client: FakeSqlExecutor, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """``apply --check-only`` lists what WOULD be migrated, no writes.
 
@@ -78,7 +78,7 @@ def test_cli_apply_check_only_does_not_write(
 
 
 def test_cli_reverse_check_only_emits_migration_report(
-    web_client: FakeInsForge,
+    web_client: FakeSqlExecutor,
 ) -> None:
     from migration import legacy_reader
 
@@ -119,7 +119,7 @@ def test_cli_reverse_check_only_emits_migration_report(
 
 
 def test_cli_apply_with_table_filter(
-    web_client: FakeInsForge, monkeypatch: pytest.MonkeyPatch
+    web_client: FakeSqlExecutor, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """``--table`` narrows the apply to one spec.
 
@@ -151,7 +151,7 @@ def test_cli_apply_with_table_filter(
 
 
 def test_cli_apply_with_since_filter(
-    web_client: FakeInsForge, monkeypatch: pytest.MonkeyPatch
+    web_client: FakeSqlExecutor, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """``--since`` validates the ISO-8601 timestamp before any I/O.
 
@@ -209,7 +209,7 @@ def test_cli_apply_with_since_filter(
 
 
 def test_cli_status_shows_per_table_counts(
-    web_client: FakeInsForge,
+    web_client: FakeSqlExecutor,
 ) -> None:
     """``status`` prints legacy/web counts per table.
 
@@ -239,7 +239,7 @@ def test_cli_status_shows_per_table_counts(
 # --- 5. reconcile still works (backward compat) -----------------------
 
 
-def test_cli_reconcile_still_works(web_client: FakeInsForge) -> None:
+def test_cli_reconcile_still_works(web_client: FakeSqlExecutor) -> None:
     """``reconcile`` (the pre-existing subcommand) must not regress.
 
     Issue #168 extends the CLI but does NOT replace it. A future
@@ -265,7 +265,7 @@ def test_cli_reconcile_still_works(web_client: FakeInsForge) -> None:
 def test_cli_main_builds_and_closes_client_when_not_injected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Production CLI path builds and closes its own InsForge client.
+    """Production CLI path builds and closes its own LocalBackend client.
 
     Tests usually inject ``web_client`` for hermetic assertions, but
     ``python -m migration status`` must be usable by an operator without
@@ -273,9 +273,9 @@ def test_cli_main_builds_and_closes_client_when_not_injected(
     provider so no network or production backend is touched.
     """
 
-    built: list[FakeInsForge] = []
+    built: list[FakeSqlExecutor] = []
 
-    class ClosingFakeInsForge(FakeInsForge):
+    class ClosingFakeLocalBackend(FakeSqlExecutor):
         def __init__(self, base_url: str, service_key: str) -> None:
             super().__init__()
             self.base_url = base_url
@@ -290,11 +290,11 @@ def test_cli_main_builds_and_closes_client_when_not_injected(
     monkeypatch.setattr(
         "app.core.config.get_settings",
         lambda: SimpleNamespace(
-            insforge_url="https://example.insforge.app",
-            insforge_service_key="ik_test",
+            local_backend_url="https://example.local_backend.app",
+            local_backend_service_key="ik_test",
         ),
     )
-    monkeypatch.setattr(cli_mod, "LocalPostgresExecutor", ClosingFakeInsForge)
+    monkeypatch.setattr(cli_mod, "LocalPostgresExecutor", ClosingFakeLocalBackend)
 
     stream = io.StringIO()
     rc = main(["status", "--table", "animal"], stream=stream)
@@ -383,7 +383,7 @@ def test_cli_reconcile_default_lists_both_directions() -> None:
     )
 
     stream = io.StringIO()
-    rc = main(["reconcile"], web_client=FakeInsForge(), shadow_state=shadow, stream=stream)  # type: ignore[arg-type]
+    rc = main(["reconcile"], web_client=FakeSqlExecutor(), shadow_state=shadow, stream=stream)  # type: ignore[arg-type]
     assert rc == 0
     # The shadow state read was called WITHOUT an origin_direction
     # filter (None → "both" semantics).
@@ -431,7 +431,7 @@ def test_cli_reconcile_filter_direction_legacy_to_web_narrows_to_forward_only() 
     stream = io.StringIO()
     rc = main(
         ["reconcile", "--filter-direction", "legacy-to-web"],
-        web_client=FakeInsForge(),
+        web_client=FakeSqlExecutor(),
         shadow_state=shadow,  # type: ignore[arg-type]
         stream=stream,
     )
@@ -477,7 +477,7 @@ def test_cli_reconcile_filter_direction_web_to_legacy_returns_empty_in_pr5() -> 
     stream = io.StringIO()
     rc = main(
         ["reconcile", "--filter-direction", "web-to-legacy"],
-        web_client=FakeInsForge(),
+        web_client=FakeSqlExecutor(),
         shadow_state=shadow,  # type: ignore[arg-type]
         stream=stream,
     )

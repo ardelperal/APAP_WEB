@@ -1,6 +1,6 @@
 ---
 name: apap-web-agents
-description: Agent instructions and code-quality rules for APAP_WEB (FastAPI + HTMX + InsForge backend)
+description: Agent instructions and code-quality rules for APAP_WEB (FastAPI + HTMX + LocalBackend backend)
 license: Proprietary
 metadata:
   author: APAP_WEB maintainers
@@ -59,13 +59,13 @@ APAP_WEB es una aplicación web FastAPI + HTMX + Jinja2 (Python `>=3.11`) con ar
 | `branch-pr` | Any PR creation or merge. | Gentleman-Programming |
 | `skill-creator` | Creating new skills following the pattern. | Gentleman-Programming |
 
-## Backend: InsForge (accessed from Python)
+## Backend: LocalBackend (accessed from Python)
 
-El backend de datos es **InsForge** (PostgreSQL + auth + storage). Este proyecto no usa `@insforge/sdk` de TypeScript — no hay `package.json` ni frontend Node. Todo acceso al backend pasa por el cliente Python en [`app/core/insforge.py`](app/core/insforge.py). Trate InsForge como un BaaS Postgres-backed alcanzado sobre HTTP desde Python.
+El backend de datos es **LocalBackend** (PostgreSQL + auth + storage). Este proyecto no usa `@local_backend/sdk` de TypeScript — no hay `package.json` ni frontend Node. Todo acceso al backend pasa por el cliente Python en [`app/core/local_backend.py`](app/core/local_backend.py). Trate LocalBackend como un BaaS Postgres-backed alcanzado sobre HTTP desde Python.
 
-- **Lógica de aplicación** (auth, CRUD, storage) — llame al `InsForgeClient` Python en `app/core/insforge.py`. Nunca recurra al TS SDK ni a `npm`.
-- **Infraestructura** (schema, buckets, functions, deploy) — use las herramientas MCP de InsForge: `run-raw-sql`, `get-table-schema`, `create-bucket`, `create-function`, `get-backend-metadata`.
-- **Docs** — cuando necesite comportamiento actual de la API InsForge, obténgalo con `fetch-sdk-docs` (idioma `rest-api` o `typescript` para referencia de forma); no confíe en la memoria.
+- **Lógica de aplicación** (auth, CRUD, storage) — llame al `LocalBackendClient` Python en `app/core/local_backend.py`. Nunca recurra al TS SDK ni a `npm`.
+- **Infraestructura** (schema, buckets, functions, deploy) — use las herramientas MCP de LocalBackend: `run-raw-sql`, `get-table-schema`, `create-bucket`, `create-function`, `get-backend-metadata`.
+- **Docs** — cuando necesite comportamiento actual de la API LocalBackend, obténgalo con `fetch-sdk-docs` (idioma `rest-api` o `typescript` para referencia de forma); no confíe en la memoria.
 
 ## Operational premises
 

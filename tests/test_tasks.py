@@ -29,11 +29,11 @@ from app.main import app
 from tests.conftest import make_csrf_request
 
 # ---------------------------------------------------------------------------
-# Fake InsForge
+# Fake LocalBackend
 # ---------------------------------------------------------------------------
 
 
-class _FakeTasksInsForge(LocalPostgresExecutor):
+class _FakeTasksLocalBackend(LocalPostgresExecutor):
     """Minimal fake for task engine tests.
 
     Simulates the ``tarea`` table (issue #7). Supports the six service
@@ -180,8 +180,8 @@ class _FakeTasksInsForge(LocalPostgresExecutor):
 
 
 @pytest.fixture
-def fake_tasks_insforge() -> _FakeTasksInsForge:
-    fake = _FakeTasksInsForge()
+def fake_tasks_local_backend() -> _FakeTasksLocalBackend:
+    fake = _FakeTasksLocalBackend()
     app.dependency_overrides[get_local_postgres_executor_dep] = lambda: fake
     yield fake
     app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
@@ -288,13 +288,13 @@ class TestTareaService:
     """Service-layer CRUD for tareas."""
 
     async def test_crear_tarea_returns_id(
-        self, fake_tasks_insforge: _FakeTasksInsForge
+        self, fake_tasks_local_backend: _FakeTasksLocalBackend
     ) -> None:
         """crear_tarea returns a UUID string."""
         from app.modules.tasks import service as tareas_service
 
         tarea_id = tareas_service.crear_tarea(
-            client=fake_tasks_insforge,
+            client=fake_tasks_local_backend,
             tipo="manual",
             origen="dashboard_manual",
         )
@@ -302,185 +302,185 @@ class TestTareaService:
         assert len(tarea_id) == 36  # UUID format
 
     async def test_listar_tareas_empty(
-        self, fake_tasks_insforge: _FakeTasksInsForge
+        self, fake_tasks_local_backend: _FakeTasksLocalBackend
     ) -> None:
         """listar_tareas returns empty list when no tareas exist."""
         from app.modules.tasks import service as tareas_service
 
-        resultado = tareas_service.listar_tareas(client=fake_tasks_insforge)
+        resultado = tareas_service.listar_tareas(client=fake_tasks_local_backend)
         assert resultado == []
 
     async def test_listar_tareas_returns_all(
-        self, fake_tasks_insforge: _FakeTasksInsForge
+        self, fake_tasks_local_backend: _FakeTasksLocalBackend
     ) -> None:
         """listar_tareas returns all tareas without filters."""
         from app.modules.tasks import service as tareas_service
 
         id1 = tareas_service.crear_tarea(
-            client=fake_tasks_insforge,
+            client=fake_tasks_local_backend,
             tipo="manual",
             origen="dashboard_manual",
             prioridad="alta",
         )
         id2 = tareas_service.crear_tarea(
-            client=fake_tasks_insforge,
+            client=fake_tasks_local_backend,
             tipo="automatica_vacuna",
             origen="regla_salud",
         )
-        resultado = tareas_service.listar_tareas(client=fake_tasks_insforge)
+        resultado = tareas_service.listar_tareas(client=fake_tasks_local_backend)
         assert len(resultado) == 2
         ids = {r.id for r in resultado}
         assert id1 in ids
         assert id2 in ids
 
     async def test_listar_tareas_filter_by_estado(
-        self, fake_tasks_insforge: _FakeTasksInsForge
+        self, fake_tasks_local_backend: _FakeTasksLocalBackend
     ) -> None:
         """listar_tareas accepts estado filter."""
         from app.modules.tasks import service as tareas_service
 
         id1 = tareas_service.crear_tarea(
-            client=fake_tasks_insforge,
+            client=fake_tasks_local_backend,
             tipo="manual",
             origen="dashboard_manual",
         )
         tareas_service.crear_tarea(
-            client=fake_tasks_insforge,
+            client=fake_tasks_local_backend,
             tipo="automatica_vacuna",
             origen="regla_salud",
         )
         # Transition first to en_progreso
         tareas_service.actualizar_estado(
-            client=fake_tasks_insforge,
+            client=fake_tasks_local_backend,
             tarea_id=id1,
             nuevo_estado="en_progreso",
         )
         resultado = tareas_service.listar_tareas(
-            client=fake_tasks_insforge, estado="pendiente"
+            client=fake_tasks_local_backend, estado="pendiente"
         )
         assert all(r.estado == "pendiente" for r in resultado)
         assert len(resultado) == 1
 
     async def test_obtener_tarea_found(
-        self, fake_tasks_insforge: _FakeTasksInsForge
+        self, fake_tasks_local_backend: _FakeTasksLocalBackend
     ) -> None:
         """obtener_tarea returns a Tarea when it exists."""
         from app.modules.tasks import service as tareas_service
 
         tarea_id = tareas_service.crear_tarea(
-            client=fake_tasks_insforge,
+            client=fake_tasks_local_backend,
             tipo="manual",
             origen="dashboard_manual",
         )
         resultado = tareas_service.obtener_tarea(
-            client=fake_tasks_insforge, tarea_id=tarea_id
+            client=fake_tasks_local_backend, tarea_id=tarea_id
         )
         assert resultado is not None
         assert resultado.id == tarea_id
 
     async def test_obtener_tarea_not_found(
-        self, fake_tasks_insforge: _FakeTasksInsForge
+        self, fake_tasks_local_backend: _FakeTasksLocalBackend
     ) -> None:
         """obtener_tarea returns None when not found."""
         from app.modules.tasks import service as tareas_service
 
         resultado = tareas_service.obtener_tarea(
-            client=fake_tasks_insforge, tarea_id=str(uuid.uuid4())
+            client=fake_tasks_local_backend, tarea_id=str(uuid.uuid4())
         )
         assert resultado is None
 
     async def test_actualizar_estado(
-        self, fake_tasks_insforge: _FakeTasksInsForge
+        self, fake_tasks_local_backend: _FakeTasksLocalBackend
     ) -> None:
         """actualizar_estado transitions estado and returns updated Tarea."""
         from app.modules.tasks import service as tareas_service
 
         tarea_id = tareas_service.crear_tarea(
-            client=fake_tasks_insforge,
+            client=fake_tasks_local_backend,
             tipo="manual",
             origen="dashboard_manual",
         )
         resultado = tareas_service.actualizar_estado(
-            client=fake_tasks_insforge,
+            client=fake_tasks_local_backend,
             tarea_id=tarea_id,
             nuevo_estado="completada",
         )
         assert resultado.estado == "completada"
 
     async def test_actualizar_estado_invalid_raises(
-        self, fake_tasks_insforge: _FakeTasksInsForge
+        self, fake_tasks_local_backend: _FakeTasksLocalBackend
     ) -> None:
         """actualizar_estado raises ValueError for invalid estado."""
         from app.modules.tasks import service as tareas_service
 
         tarea_id = tareas_service.crear_tarea(
-            client=fake_tasks_insforge,
+            client=fake_tasks_local_backend,
             tipo="manual",
             origen="dashboard_manual",
         )
         with pytest.raises(ValueError, match="estado"):
             tareas_service.actualizar_estado(
-                client=fake_tasks_insforge,
+                client=fake_tasks_local_backend,
                 tarea_id=tarea_id,
                 nuevo_estado="invalid_estado",
             )
 
     async def test_asignar_tarea(
-        self, fake_tasks_insforge: _FakeTasksInsForge
+        self, fake_tasks_local_backend: _FakeTasksLocalBackend
     ) -> None:
         """asignar_tarea sets responsable_id."""
         from app.modules.tasks import service as tareas_service
 
         tarea_id = tareas_service.crear_tarea(
-            client=fake_tasks_insforge,
+            client=fake_tasks_local_backend,
             tipo="manual",
             origen="dashboard_manual",
         )
         responsable_id = str(uuid.uuid4())
         resultado = tareas_service.asignar_tarea(
-            client=fake_tasks_insforge,
+            client=fake_tasks_local_backend,
             tarea_id=tarea_id,
             responsable_id=responsable_id,
         )
         assert resultado.responsable_id == responsable_id
 
     async def test_cerrar_tarea(
-        self, fake_tasks_insforge: _FakeTasksInsForge
+        self, fake_tasks_local_backend: _FakeTasksLocalBackend
     ) -> None:
         """cerrar_tarea sets estado to completada."""
         from app.modules.tasks import service as tareas_service
 
         tarea_id = tareas_service.crear_tarea(
-            client=fake_tasks_insforge,
+            client=fake_tasks_local_backend,
             tipo="manual",
             origen="dashboard_manual",
         )
         resultado = tareas_service.cerrar_tarea(
-            client=fake_tasks_insforge, tarea_id=tarea_id, comentario="Hecha"
+            client=fake_tasks_local_backend, tarea_id=tarea_id, comentario="Hecha"
         )
         assert resultado.estado == "completada"
 
     # --- _row_to_tarea branches ---
 
     async def test_row_to_tarea_metadata_as_dict(
-        self, fake_tasks_insforge: _FakeTasksInsForge
+        self, fake_tasks_local_backend: _FakeTasksLocalBackend
     ) -> None:
         """_row_to_tarea: metadata as dict (not string) takes the else branch."""
         from app.modules.tasks import service as tareas_service
 
         tarea_id = tareas_service.crear_tarea(
-            client=fake_tasks_insforge,
+            client=fake_tasks_local_backend,
             tipo="manual",
             origen="dashboard_manual",
         )
         # metadata starts as None; inject a dict directly via the fake store
-        row = fake_tasks_insforge._tareas[tarea_id]
+        row = fake_tasks_local_backend._tareas[tarea_id]
         row["metadata"] = {"key": "value"}
         tarea2 = tareas_service._row_to_tarea(row)
         assert tarea2.metadata == {"key": "value"}
 
     async def test_row_to_tarea_metadata_as_json_string(
-        self, fake_tasks_insforge: _FakeTasksInsForge
+        self, fake_tasks_local_backend: _FakeTasksLocalBackend
     ) -> None:
         """_row_to_tarea: metadata as JSON string is parsed."""
         import json
@@ -488,28 +488,28 @@ class TestTareaService:
         from app.modules.tasks import service as tareas_service
 
         tarea_id = tareas_service.crear_tarea(
-            client=fake_tasks_insforge,
+            client=fake_tasks_local_backend,
             tipo="manual",
             origen="dashboard_manual",
         )
-        row = fake_tasks_insforge._tareas[tarea_id]
+        row = fake_tasks_local_backend._tareas[tarea_id]
         row["metadata"] = json.dumps({"parsed": True})
         tarea = tareas_service._row_to_tarea(row)
         assert tarea.metadata == {"parsed": True}
 
     async def test_row_to_tarea_optional_fields_absent(
-        self, fake_tasks_insforge: _FakeTasksInsForge
+        self, fake_tasks_local_backend: _FakeTasksLocalBackend
     ) -> None:
         """_row_to_tarea: all nullable fields are None when absent from row."""
         from app.modules.tasks import service as tareas_service
 
         tarea_id = tareas_service.crear_tarea(
-            client=fake_tasks_insforge,
+            client=fake_tasks_local_backend,
             tipo="manual",
             origen="dashboard_manual",
         )
         # Null out every optional field in the fake store
-        row = fake_tasks_insforge._tareas[tarea_id]
+        row = fake_tasks_local_backend._tareas[tarea_id]
         row["responsable_id"] = None
         row["vencimiento_at"] = None
         row["vinculo_tipo"] = None
@@ -529,40 +529,40 @@ class TestTareaService:
     # --- crear_tarea validation branches ---
 
     async def test_crear_tarea_invalid_tipo_raises(
-        self, fake_tasks_insforge: _FakeTasksInsForge
+        self, fake_tasks_local_backend: _FakeTasksLocalBackend
     ) -> None:
         """crear_tarea raises ValueError for invalid tipo."""
         from app.modules.tasks import service as tareas_service
 
         with pytest.raises(ValueError, match="tipo"):
             tareas_service.crear_tarea(
-                client=fake_tasks_insforge,
+                client=fake_tasks_local_backend,
                 tipo="invalid_tipo",
                 origen="dashboard_manual",
             )
 
     async def test_crear_tarea_invalid_origen_raises(
-        self, fake_tasks_insforge: _FakeTasksInsForge
+        self, fake_tasks_local_backend: _FakeTasksLocalBackend
     ) -> None:
         """crear_tarea raises ValueError for invalid origen."""
         from app.modules.tasks import service as tareas_service
 
         with pytest.raises(ValueError, match="origen"):
             tareas_service.crear_tarea(
-                client=fake_tasks_insforge,
+                client=fake_tasks_local_backend,
                 tipo="manual",
                 origen="invalid_origen",
             )
 
     async def test_crear_tarea_invalid_prioridad_raises(
-        self, fake_tasks_insforge: _FakeTasksInsForge
+        self, fake_tasks_local_backend: _FakeTasksLocalBackend
     ) -> None:
         """crear_tarea raises ValueError for invalid prioridad."""
         from app.modules.tasks import service as tareas_service
 
         with pytest.raises(ValueError, match="prioridad"):
             tareas_service.crear_tarea(
-                client=fake_tasks_insforge,
+                client=fake_tasks_local_backend,
                 tipo="manual",
                 origen="dashboard_manual",
                 prioridad="invalid_prioridad",
@@ -571,78 +571,78 @@ class TestTareaService:
     # --- not-found branches ---
 
     async def test_actualizar_estado_not_found_raises(
-        self, fake_tasks_insforge: _FakeTasksInsForge
+        self, fake_tasks_local_backend: _FakeTasksLocalBackend
     ) -> None:
         """actualizar_estado raises ValueError when tarea does not exist."""
         from app.modules.tasks import service as tareas_service
 
         with pytest.raises(ValueError, match="not found"):
             tareas_service.actualizar_estado(
-                client=fake_tasks_insforge,
+                client=fake_tasks_local_backend,
                 tarea_id=str(uuid.uuid4()),
                 nuevo_estado="completada",
             )
 
     async def test_asignar_tarea_not_found_raises(
-        self, fake_tasks_insforge: _FakeTasksInsForge
+        self, fake_tasks_local_backend: _FakeTasksLocalBackend
     ) -> None:
         """asignar_tarea raises ValueError when tarea does not exist."""
         from app.modules.tasks import service as tareas_service
 
         with pytest.raises(ValueError, match="not found"):
             tareas_service.asignar_tarea(
-                client=fake_tasks_insforge,
+                client=fake_tasks_local_backend,
                 tarea_id=str(uuid.uuid4()),
                 responsable_id=str(uuid.uuid4()),
             )
 
     async def test_cerrar_tarea_not_found_raises(
-        self, fake_tasks_insforge: _FakeTasksInsForge
+        self, fake_tasks_local_backend: _FakeTasksLocalBackend
     ) -> None:
         """cerrar_tarea raises ValueError when tarea does not exist."""
         from app.modules.tasks import service as tareas_service
 
         with pytest.raises(ValueError, match="not found"):
             tareas_service.cerrar_tarea(
-                client=fake_tasks_insforge,
+                client=fake_tasks_local_backend,
                 tarea_id=str(uuid.uuid4()),
             )
 
     async def test_cerrar_tarea_invalid_estado_raises_cerrar_error(
-        self, fake_tasks_insforge: _FakeTasksInsForge
+        self, fake_tasks_local_backend: _FakeTasksLocalBackend
     ) -> None:
         """cerrar_tarea raises CerrarTareaError when estado is already completada."""
         from app.modules.tasks import service as tareas_service
 
         tarea_id = tareas_service.crear_tarea(
-            client=fake_tasks_insforge,
+            client=fake_tasks_local_backend,
             tipo="manual",
             origen="dashboard_manual",
         )
         # Transition to completada first
         tareas_service.actualizar_estado(
-            client=fake_tasks_insforge,
+            client=fake_tasks_local_backend,
             tarea_id=tarea_id,
             nuevo_estado="completada",
         )
         with pytest.raises(tareas_service.CerrarTareaError):
             tareas_service.cerrar_tarea(
-                client=fake_tasks_insforge, tarea_id=tarea_id
+                client=fake_tasks_local_backend, tarea_id=tarea_id
             )
 
     async def test_cerrar_tarea_sin_comentario(
-        self, fake_tasks_insforge: _FakeTasksInsForge
+        self, fake_tasks_local_backend: _FakeTasksLocalBackend
     ) -> None:
         """cerrar_tarea without comentario skips the metadata branch."""
         from app.modules.tasks import service as tareas_service
 
         tarea_id = tareas_service.crear_tarea(
-            client=fake_tasks_insforge,
+            client=fake_tasks_local_backend,
             tipo="manual",
             origen="dashboard_manual",
         )
         resultado = tareas_service.cerrar_tarea(
-            client=fake_tasks_insforge, tarea_id=tarea_id
+            client=fake_tasks_local_backend, tarea_id=tarea_id
         )
         assert resultado.estado == "completada"
 
@@ -822,7 +822,7 @@ class TestTareasRoutes:
     async def test_get_tarea_detail_renders(
         self,
         client: httpx.AsyncClient,
-        fake_tasks_insforge: _FakeTasksInsForge,
+        fake_tasks_local_backend: _FakeTasksLocalBackend,
     ) -> None:
         """GET /tareas/<id> renders the detail page."""
         from app.core.config import get_settings
@@ -830,7 +830,7 @@ class TestTareasRoutes:
 
         _login_as(client, get_settings().session_secret, rol="developer")
         tarea_id = tareas_service.crear_tarea(
-            client=fake_tasks_insforge,
+            client=fake_tasks_local_backend,
             tipo="manual",
             origen="dashboard_manual",
         )
@@ -841,7 +841,7 @@ class TestTareasRoutes:
     async def test_get_tarea_detail_not_found_redirects(
         self,
         client: httpx.AsyncClient,
-        fake_tasks_insforge: _FakeTasksInsForge,
+        fake_tasks_local_backend: _FakeTasksLocalBackend,
     ) -> None:
         """GET /tareas/<id> redirects to /tareas when tarea does not exist."""
         from app.core.config import get_settings
@@ -857,7 +857,7 @@ class TestTareasRoutes:
     async def test_get_tareas_authenticated_renders_list(
         self,
         client: httpx.AsyncClient,
-        fake_tasks_insforge: _FakeTasksInsForge,
+        fake_tasks_local_backend: _FakeTasksLocalBackend,
     ) -> None:
         """GET /tareas with valid session renders the tarea list (200)."""
         from app.core.config import get_settings
@@ -866,7 +866,7 @@ class TestTareasRoutes:
         _login_as(client, get_settings().session_secret, rol="developer")
         # Create a tarea so the list is non-empty
         tareas_service.crear_tarea(
-            client=fake_tasks_insforge,
+            client=fake_tasks_local_backend,
             tipo="manual",
             origen="dashboard_manual",
         )
@@ -877,7 +877,7 @@ class TestTareasRoutes:
     async def test_get_tareas_invalid_estado_filter_shows_empty_list(
         self,
         client: httpx.AsyncClient,
-        fake_tasks_insforge: _FakeTasksInsForge,
+        fake_tasks_local_backend: _FakeTasksLocalBackend,
     ) -> None:
         """GET /tareas?estado=invalid_estado shows empty list (ValueError caught)."""
         from app.core.config import get_settings
@@ -892,7 +892,7 @@ class TestTareasRoutes:
     async def test_post_tareas_creates_manual_task(
         self,
         client: httpx.AsyncClient,
-        fake_tasks_insforge: _FakeTasksInsForge,
+        fake_tasks_local_backend: _FakeTasksLocalBackend,
     ) -> None:
         """POST /tareas creates a manual tarea (auth + CSRF required).
 
@@ -915,7 +915,7 @@ class TestTareasRoutes:
     async def test_post_tareas_invalid_tipo_redirects(
         self,
         client: httpx.AsyncClient,
-        fake_tasks_insforge: _FakeTasksInsForge,
+        fake_tasks_local_backend: _FakeTasksLocalBackend,
     ) -> None:
         """POST /tareas with invalid tipo: ValueError caught, redirects to /tareas."""
         from app.core.config import get_settings
@@ -938,7 +938,7 @@ class TestTareasRoutes:
     async def test_post_tareas_authenticated_creates_and_redirects(
         self,
         client: httpx.AsyncClient,
-        fake_tasks_insforge: _FakeTasksInsForge,
+        fake_tasks_local_backend: _FakeTasksLocalBackend,
     ) -> None:
         """POST /tareas with valid session and valid data redirects to /tareas."""
         from app.core.config import get_settings
@@ -960,7 +960,7 @@ class TestTareasRoutes:
     async def test_post_tareas_asignar(
         self,
         client: httpx.AsyncClient,
-        fake_tasks_insforge: _FakeTasksInsForge,
+        fake_tasks_local_backend: _FakeTasksLocalBackend,
     ) -> None:
         """POST /tareas/<id>/asignar assigns a responsable."""
         from app.core.config import get_settings
@@ -968,7 +968,7 @@ class TestTareasRoutes:
 
         _login_as(client, get_settings().session_secret, rol="developer")
         tarea_id = tareas_service.crear_tarea(
-            client=fake_tasks_insforge,
+            client=fake_tasks_local_backend,
             tipo="manual",
             origen="dashboard_manual",
         )
@@ -984,7 +984,7 @@ class TestTareasRoutes:
     async def test_post_tareas_asignar_not_found_redirects(
         self,
         client: httpx.AsyncClient,
-        fake_tasks_insforge: _FakeTasksInsForge,
+        fake_tasks_local_backend: _FakeTasksLocalBackend,
     ) -> None:
         """POST /tareas/<id>/asignar with non-existent id: ValueError caught."""
         from app.core.config import get_settings
@@ -1004,7 +1004,7 @@ class TestTareasRoutes:
     async def test_post_tareas_cerrar(
         self,
         client: httpx.AsyncClient,
-        fake_tasks_insforge: _FakeTasksInsForge,
+        fake_tasks_local_backend: _FakeTasksLocalBackend,
     ) -> None:
         """POST /tareas/<id>/cerrar closes the tarea."""
         from app.core.config import get_settings
@@ -1012,7 +1012,7 @@ class TestTareasRoutes:
 
         _login_as(client, get_settings().session_secret, rol="developer")
         tarea_id = tareas_service.crear_tarea(
-            client=fake_tasks_insforge,
+            client=fake_tasks_local_backend,
             tipo="manual",
             origen="dashboard_manual",
         )
@@ -1027,7 +1027,7 @@ class TestTareasRoutes:
     async def test_post_tareas_cerrar_not_found_redirects(
         self,
         client: httpx.AsyncClient,
-        fake_tasks_insforge: _FakeTasksInsForge,
+        fake_tasks_local_backend: _FakeTasksLocalBackend,
     ) -> None:
         """POST /tareas/<id>/cerrar with non-existent id: ValueError caught."""
         from app.core.config import get_settings
@@ -1047,7 +1047,7 @@ class TestTareasRoutes:
     async def test_post_tareas_cerrar_already_completada_redirects(
         self,
         client: httpx.AsyncClient,
-        fake_tasks_insforge: _FakeTasksInsForge,
+        fake_tasks_local_backend: _FakeTasksLocalBackend,
     ) -> None:
         """POST /tareas/<id>/cerrar on already-completada tarea: CerrarTareaError caught."""
         from app.core.config import get_settings
@@ -1055,13 +1055,13 @@ class TestTareasRoutes:
 
         _login_as(client, get_settings().session_secret, rol="developer")
         tarea_id = tareas_service.crear_tarea(
-            client=fake_tasks_insforge,
+            client=fake_tasks_local_backend,
             tipo="manual",
             origen="dashboard_manual",
         )
         # Close it first
         tareas_service.actualizar_estado(
-            client=fake_tasks_insforge,
+            client=fake_tasks_local_backend,
             tarea_id=tarea_id,
             nuevo_estado="completada",
         )

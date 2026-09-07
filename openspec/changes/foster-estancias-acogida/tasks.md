@@ -41,5 +41,5 @@ skill_resolution: paths-injected
 
 | Commit | Work unit | SDD tasks | Verification | Access sync |
 |---|---|---|---|---|
-| _TBD_ | FOSTER-02 (schema + service + routes + templates + XSS) | 1.1-2.5 | _TBD_ | N/A (InsForge is target; legacy `TbAcogidaAnimal` is read-only reference) |
+| _TBD_ | FOSTER-02 (schema + service + routes + templates + XSS) | 1.1-2.5 | _TBD_ | N/A (LocalBackend is target; legacy `TbAcogidaAnimal` is read-only reference) |
 | _TBD_ | docs(roadmap) closeout | 3.2 | _TBD_ | N/A |

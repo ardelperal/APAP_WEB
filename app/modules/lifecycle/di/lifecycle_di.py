@@ -4,7 +4,7 @@ Wires a :class:`StubLifecyclePort` (pending a real
 ``LocalPostgresExecutor``-backed adapter in the follow-up to #668)
 into the
 :class:`~app.modules.lifecycle.ports.lifecycle_port.LifecyclePort`
-Protocol that the application layer consumes. The InsForge adapter
+Protocol that the application layer consumes. The LocalBackend adapter
 implementation was deleted in issue #668; the stub raises
 :class:`NotImplementedError` on every method call so the runtime fails
 loud.
@@ -27,14 +27,14 @@ from app.modules.lifecycle.ports.lifecycle_port import LifecyclePort
 def build_lifecycle_port(executor: SqlExecutor) -> LifecyclePort:
     """Return the slice's :class:`LifecyclePort` stub placeholder.
 
-    The InsForge adapter was deleted in issue #668; until a real
+    The LocalBackend adapter was deleted in issue #668; until a real
     :class:`~app.core.local_backend.db.LocalPostgresExecutor`-backed
     adapter lands (tracked as the follow-up), the stub raises
     :class:`NotImplementedError` on every method call so the runtime
     fails loud per route.
 
     The ``executor`` parameter is preserved for signature compatibility
-    with the previous ``InsForgeLifecycleAdapter``; the stub does not
+    with the previous ``LocalBackendLifecycleAdapter``; the stub does not
     consume it (the stub is stateless and has no resources of its own).
     """
     del executor  # unused — kept for signature compatibility.

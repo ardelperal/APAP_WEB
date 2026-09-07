@@ -1,6 +1,6 @@
 """Hexagonal port for the catalog (reference-data) tables.
 
-The application layer depends on this :class:`Protocol`; the InsForge
+The application layer depends on this :class:`Protocol`; the LocalBackend
 adapter implements it. Tests can implement it with an in-memory fake
 without spinning up transport or HTTP.
 
@@ -16,7 +16,7 @@ Hexagonal taxonomy:
 - **Domain**     (:mod:`app.core.catalogos`)               — entities, no I/O.
 - **Port**       (this module)                              — abstract surface.
 - **Application**(:mod:`app.core.application.catalogos`)   — use cases.
-- **Adapter**    (:mod:`app.core.adapters.insforge`)       — InsForge impl.
+- **Adapter**    (:mod:`app.core.adapters.local_backend`)       — LocalBackend impl.
 - **DI**         (:mod:`app.core.di.catalogos_di`)          — wiring.
 
 Rule §31 (domain services depend on Protocol abstractions): every
@@ -49,8 +49,8 @@ class CatalogosPort(Protocol):
 
     Implementations:
 
-    - :class:`app.core.adapters.insforge.catalogos_insforge_adapter.InsForgeCatalogosAdapter`
-      — production adapter, talks to InsForge via :class:`SqlExecutor`.
+    - :class:`app.core.adapters.local_backend.catalogos_local_backend_adapter.LocalBackendCatalogosAdapter`
+      — production adapter, talks to LocalBackend via :class:`SqlExecutor`.
     - Test fakes (in ``tests/``) — in-memory list-backed fakes for
       unit tests on the application layer.
     """

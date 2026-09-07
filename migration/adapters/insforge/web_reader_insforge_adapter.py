@@ -1,4 +1,4 @@
-"""InsForge adapter implementing :class:`WebReaderPort`.
+"""LocalBackend adapter implementing :class:`WebReaderPort`.
 
 The adapter is the seam where the SQL string for ``load_web_snapshot``
 is constructed and the executor round-trip happens. Use cases under
@@ -13,11 +13,11 @@ tests can assert the exact query shape without spinning up transport.
 
 Rule §31 (domain depends on Protocol): the constructor takes a
 :class:`~app.core.data_access.SqlExecutor`, not an
-:class:`~app.core.insforge.LocalPostgresExecutor`. The
-:class:`~app.core.insforge.LocalPostgresExecutor` happens to satisfy the
+:class:`~app.core.local_backend.LocalPostgresExecutor`. The
+:class:`~app.core.local_backend.LocalPostgresExecutor` happens to satisfy the
 Protocol structurally (it has ``execute_sql(query, params)``
 returning ``list[dict]``), so the DI helper can pass either without
-an explicit cast — no InsForge import leaks into the application
+an explicit cast — no LocalBackend import leaks into the application
 layer.
 """
 
@@ -38,7 +38,7 @@ def _build_web_select_sql(spec: WebTableSpec) -> str:
     (PostgREST parses it without a timezone).
 
     Kept as a module-private pure function (no I/O) so unit tests
-    can assert the exact query shape against a ``FakeInsForge``
+    can assert the exact query shape against a ``FakeLocalBackend``
     without spinning up transport.
     """
     # Import local: evita un ciclo con ``migration.apply``. Mismo patrón
@@ -60,8 +60,8 @@ def _build_web_select_sql(spec: WebTableSpec) -> str:
     return f"SELECT {cols} FROM {table}{where}"  # noqa: S608
 
 
-class InsForgeWebReaderAdapter(WebReaderPort):
-    """InsForge implementation of :class:`WebReaderPort`.
+class LocalBackendWebReaderAdapter(WebReaderPort):
+    """LocalBackend implementation of :class:`WebReaderPort`.
 
     Stateless and thread-safe: holds only the executor reference
     passed at construction time. The DI layer
@@ -89,7 +89,7 @@ class InsForgeWebReaderAdapter(WebReaderPort):
             executor: Any object that satisfies the
                 :class:`~app.core.data_access.SqlExecutor` Protocol.
                 In production this is the
-                :class:`~app.core.insforge.LocalPostgresExecutor` stored
+                :class:`~app.core.local_backend.LocalPostgresExecutor` stored
                 on the application lifespan state; in tests it can
                 be an ``httpx.MockTransport``-backed fake or a
                 plain in-memory stub.
@@ -100,7 +100,7 @@ class InsForgeWebReaderAdapter(WebReaderPort):
         self,
         table_specs: list[WebTableSpec],
     ) -> dict[str, list[dict[str, Any]]]:
-        """Read a snapshot of rows from the listed tables on InsForge.
+        """Read a snapshot of rows from the listed tables on LocalBackend.
 
         Iterates ``table_specs`` in order, issuing one ``SELECT``
         per spec and storing the rows under the spec's
@@ -122,4 +122,4 @@ class InsForgeWebReaderAdapter(WebReaderPort):
         return result
 
 
-__all__ = ["InsForgeWebReaderAdapter"]
+__all__ = ["LocalBackendWebReaderAdapter"]

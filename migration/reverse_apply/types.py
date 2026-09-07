@@ -23,7 +23,7 @@ class SqlExecutor(Protocol):
 
     Mirrors the surface ``LocalPostgresExecutor.execute_sql`` exposes, plus
     the private ``apap-photos`` bucket accessors that the bootstrap
-    uses. The :class:`FakeInsForge` test fixture satisfies the
+    uses. The :class:`FakeLocalBackend` test fixture satisfies the
     protocol by duck typing.
     """
 

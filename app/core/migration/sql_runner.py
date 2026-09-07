@@ -59,7 +59,7 @@ def apply_sql_migrations(client: SqlExecutor) -> list[str]:
 def _row_filename(row: object) -> str:
     """Extract the filename from a row in the SELECT result.
 
-    InsForge's ``/api/database/advance/rawsql`` returns single-column
+    LocalBackend's ``/api/database/advance/rawsql`` returns single-column
     SELECTs in two observed shapes:
 
     - ``[{"filename": "001_first.sql"}, ...]`` (object form, multi-column)

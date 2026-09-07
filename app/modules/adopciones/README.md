@@ -89,7 +89,7 @@ Legacy route → service → queries layout (per AGENTS.md §1 + §22). This sli
 
 ## Risks and gotchas
 
-- The UNIQUE on `(animal_id, fecha_adopcion)` surfaces as an `InsForgeError` 409. The service catches it via `_is_duplicate_error` and re-raises as `AdopcionConflictError`. Both create and update must translate it to 409 (P2-1, risk review 2026-07-04).
+- The UNIQUE on `(animal_id, fecha_adopcion)` surfaces as an `BackendError` 409. The service catches it via `_is_duplicate_error` and re-raises as `AdopcionConflictError`. Both create and update must translate it to 409 (P2-1, risk review 2026-07-04).
 - The responsable FK is checked against `voluntarios` with `activo = true`. Soft-deleted volunteers cannot own a new adoption (VOL-05).
 - The seguimiento `ANEXAR` action requires `documento_url`. A `None` raises `ValueError` from the service; the route wrapper translates it to 500 because the action is reached only through the form which always sends the field.
 - The state machine is read from `seguimiento_estado`; an unknown or `NULL` value is treated as `PENDIENTE` on the first transition.

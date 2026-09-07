@@ -1,5 +1,5 @@
 """Local-backend stub adapters — temporary placeholders for the four
-InsForge ports retired in issue #666.
+LocalBackend ports retired in issue #666.
 
 Each stub satisfies the corresponding Protocol structurally but raises
 :class:`NotImplementedError` on every method, so the runtime fails loud

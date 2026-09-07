@@ -75,7 +75,7 @@ def ejecutar_reporte(
     """
     Valida parámetros contra template.parametros,
     interpola en sql_template,
-    ejecuta contra InsForge,
+    ejecuta contra LocalBackend,
     retorna resultados.
     """
 ```

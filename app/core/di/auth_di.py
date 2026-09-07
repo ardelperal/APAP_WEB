@@ -2,7 +2,7 @@
 
 The :func:`get_auth_users_port` provider is the seam between FastAPI
 request handlers and the hexagonal :class:`AuthUsersPort` abstraction.
-The InsForge adapter implementation was deleted in issue #666; until a
+The LocalBackend adapter implementation was deleted in issue #666; until a
 real :class:`~app.core.local_backend.db.LocalPostgresExecutor`-backed
 adapter lands (tracked as the follow-up), the provider yields a stub
 that raises :class:`NotImplementedError` on every method call.

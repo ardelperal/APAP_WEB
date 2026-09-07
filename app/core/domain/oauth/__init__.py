@@ -24,7 +24,7 @@ Hexagonal taxonomy:
 - Domain   (this module) — entities + Protocol-level errors, no I/O.
 - Port     :mod:`app.core.ports.oauth_port` — abstract surface.
 - Application :mod:`app.core.application.oauth` — use cases.
-- Adapter  :mod:`app.core.adapters.insforge.oauth_insforge_adapter` — InsForge impl.
+- Adapter  :mod:`app.core.adapters.local_backend.oauth_local_backend_adapter` — LocalBackend impl.
 - DI       :mod:`app.core.di.oauth_di` — wiring.
 """
 

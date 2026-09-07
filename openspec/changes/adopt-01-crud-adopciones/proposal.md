@@ -92,7 +92,7 @@ El endpoint `/adopciones?adoptante=...` invoca esta función cuando el query par
 | Riesgo | Mitigación |
 |---|---|
 | `tipo_adopcion` no existe en legacy — riesgo de "novel feature" | D-ADOPT-01 lo justifica: codifica semántica de dominio que el legacy distribuía en varios campos. Documentado en `docs/architecture/decisiones-proyecto.md`. |
-| FK validation a `animales` + `voluntarios` añade 2 queries por create/update | Las queries son indexadas por PK (UUID), sub-ms en InsForge. Coste aceptable para garantizar integridad referencial estricta. |
+| FK validation a `animales` + `voluntarios` añade 2 queries por create/update | Las queries son indexadas por PK (UUID), sub-ms en LocalBackend. Coste aceptable para garantizar integridad referencial estricta. |
 | `search_adopciones_by_adoptante` sin índice trigram puede ser lenta | Volumetría ~400/año, ILIKE sobre texto sin índice es OK. Si crece, añadir índice `pg_trgm` en `nombre_adoptante` (futuro). |
 | Soft-delete via UPDATE vs physical delete — riesgo de "filas zombie" | Patrón del proyecto (mirror `animales`, `voluntarios`, `entradas`, `casas_acogida`). `activo = false` filtra listados; physical delete prohibido. |
 

@@ -1,10 +1,10 @@
 """``POST /api/database/advance/rawsql`` handler (M0 of self-host-backend-coolify).
 
-The InsForge REST API exposes a privileged ``/api/database/advance/rawsql``
+The LocalBackend REST API exposes a privileged ``/api/database/advance/rawsql``
 endpoint that ``LocalPostgresExecutor.execute_sql`` consumes. The local backend
 re-implements that endpoint against a Postgres connection, reusing the
 ``LocalPostgresExecutor`` from ``app.core.local_backend.db`` so the
-contract (``{"rows": [...], "rowCount": N}``) is identical to InsForge's.
+contract (``{"rows": [...], "rowCount": N}``) is identical to LocalBackend's.
 
 Error mapping:
 - ``QueryError`` (query rejected by Postgres: syntax, FK, constraint) → 400.
@@ -41,7 +41,7 @@ async def execute_rawsql(
     Body shape (matches what the production ``LocalPostgresExecutor`` sends):
         ``{"query": str, "params": list | None}``
 
-    Response shape (matches InsForge's envelope):
+    Response shape (matches LocalBackend's envelope):
         ``{"rows": [{"col": val, ...}, ...], "rowCount": N}``
 
     Raises (translated to HTTP status by ``app.exception_handler`` or the

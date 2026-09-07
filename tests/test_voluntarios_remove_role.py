@@ -80,7 +80,7 @@ class TestRemoveRoleValidation:
 
 
 class TestRemoveRoleAdapterErrors:
-    def test_insforge_error_propagates(self) -> None:
+    def test_backend_error_propagates(self) -> None:
         port = _FakeVoluntariosPort(result=RuntimeError("network"))  # type: ignore[arg-type]
         with pytest.raises(RuntimeError):
             _remove_role(port, "v-1", "intake")

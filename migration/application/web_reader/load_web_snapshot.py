@@ -2,9 +2,9 @@
 
 Thin orchestrators over :class:`migration.ports.web_reader_port.WebReaderPort`.
 Each function depends only on the port (never on
-:class:`~app.core.insforge.LocalPostgresExecutor` or any other transport),
+:class:`~app.core.local_backend.LocalPostgresExecutor` or any other transport),
 so the body is a one-liner that can be tested against an in-memory
-fake without HTTP or InsForge SDK involvement.
+fake without HTTP or LocalBackend SDK involvement.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ def load_web_snapshot(
     Args:
         port: A :class:`WebReaderPort` implementation injected by
             the DI layer (:mod:`migration.di.web_reader_di`). In
-            production the InsForge adapter wraps the per-request
+            production the LocalBackend adapter wraps the per-request
             :class:`~app.core.data_access.SqlExecutor`; in tests a
             plain in-memory fake works.
         table_specs: tables to read, in the order they appear in

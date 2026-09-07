@@ -2,36 +2,36 @@
 
 This is the M0 milestone of `self-host-backend-coolify`. The deliverable
 is a backend running in the project repo (Postgres + FastAPI local
-backend + MinIO via Docker) that the `InsForgeClient` can talk to via
+backend + MinIO via Docker) that the `LocalBackendClient` can talk to via
 `APAP_LOCAL_BACKEND=true`. The apply path is unchanged: only the URL
 base changes when the operator flips the flag.
 
-## Requirement: `InsForgeClient` is backend-agnostic
+## Requirement: `LocalBackendClient` is backend-agnostic
 
-The `InsForgeClient` constructor already accepts a `base_url` parameter
-(the URL of the InsForge REST API). When `APAP_LOCAL_BACKEND=true` is
-set and the existing `APAP_INSFORGE_URL` env var is empty, the
+The `LocalBackendClient` constructor already accepts a `base_url` parameter
+(the URL of the LocalBackend REST API). When `APAP_LOCAL_BACKEND=true` is
+set and the existing `APAP_LOCAL_BACKEND_URL` env var is empty, the
 constructor MUST default `base_url` to the local backend URL
 (`http://localhost:8000/api`).
 
 #### Scenario: local backend selected
 
 - GIVEN `APAP_LOCAL_BACKEND=true` is set
-- AND `APAP_INSFORGE_URL` is empty
-- WHEN `InsForgeClient(base_url="", service_key="...")` is constructed
+- AND `APAP_LOCAL_BACKEND_URL` is empty
+- WHEN `LocalBackendClient(base_url="", service_key="...")` is constructed
 - THEN `self._client.base_url` equals `http://localhost:8000/api`
 
-#### Scenario: remote InsForge still works
+#### Scenario: remote LocalBackend still works
 
 - GIVEN `APAP_LOCAL_BACKEND` is unset or false
-- AND `APAP_INSFORGE_URL=https://c3uc9dk6.eu-central.insforge.app` is set
+- AND `APAP_LOCAL_BACKEND_URL=https://c3uc9dk6.eu-central.local_backend.app` is set
 - WHEN the same construction runs
-- THEN `self._client.base_url` equals the configured InsForge URL
+- THEN `self._client.base_url` equals the configured LocalBackend URL
 
-## Requirement: Local backend exposes the three InsForge endpoints
+## Requirement: Local backend exposes the three LocalBackend endpoints
 
 The local backend MUST expose the same three HTTP endpoints that
-`InsForgeClient` consumes, with byte-compatible response shapes.
+`LocalBackendClient` consumes, with byte-compatible response shapes.
 
 ### `/api/database/advance/rawsql` (POST)
 
@@ -95,7 +95,7 @@ The local backend MUST expose the same three HTTP endpoints that
 ## Requirement: Postgres schema is provisioned idempotently
 
 The schema migration MUST run on every cold start and be idempotent
-(same pattern as `apply_sql_migrations` for InsForge).
+(same pattern as `apply_sql_migrations` for LocalBackend).
 
 ### Scenario: fresh DB
 
@@ -146,7 +146,7 @@ The schema migration MUST run on every cold start and be idempotent
 
 - [ ] `Dockerfile` builds and produces a ~250MB image
 - [ ] `docker-compose up` boots app+db+minio
-- [ ] `InsForgeClient(base_url="", service_key=...)` with
+- [ ] `LocalBackendClient(base_url="", service_key=...)` with
       `APAP_LOCAL_BACKEND=true` defaults to `http://localhost:8000/api`
 - [ ] `POST /api/database/advance/rawsql` with `SELECT 1` returns
       `{"rows": [{"?column?": 1}], "rowCount": 1}`

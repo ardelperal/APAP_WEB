@@ -12,7 +12,7 @@ más el panel de administración que gestiona quién puede acceder.
 
 **Incluye:**
 
-- Login con Google OAuth vía InsForge (con PKCE nativo, sin secreto
+- Login con Google OAuth vía LocalBackend (con PKCE nativo, sin secreto
   del cliente en el código).
 - Verificación de que el email del usuario está en la lista de
   autorizados (`usuarios_autorizados`).
@@ -56,10 +56,10 @@ más el panel de administración que gestiona quién puede acceder.
 
 | Decisión | Elección | Alternativa | Por qué |
 |---|---|---|---|
-| Proveedor de identidad | Google OAuth vía InsForge | Auth propia, OAuth directo con Google | InsForge ya tiene el cliente de Google configurado y verificado; reusar evita mantener el flujo OAuth. |
+| Proveedor de identidad | Google OAuth vía LocalBackend | Auth propia, OAuth directo con Google | LocalBackend ya tiene el cliente de Google configurado y verificado; reusar evita mantener el flujo OAuth. |
 | Mecanismo de sesión | Cookie firmada con `itsdangerous` | Sesión server-side con Redis | Sin estado en servidor, no hay queprovisionar Redis. La cookie es suficiente porque la única carga útil es `email` + `rol` + `user_id`. |
-| PKCE para OAuth | Nativo, sin secreto del cliente en el código | Implicit flow | El estándar para SPAs y apps sin backend confidencial; InsForge lo soporta. |
-| Lista de autorizados | Tabla propia `usuarios_autorizados` en InsForge | Reusar el usuario de Google como autorización | Permite gestión fina (roles, activar/desactivar) sin tocar Google Workspace. |
+| PKCE para OAuth | Nativo, sin secreto del cliente en el código | Implicit flow | El estándar para SPAs y apps sin backend confidencial; LocalBackend lo soporta. |
+| Lista de autorizados | Tabla propia `usuarios_autorizados` en LocalBackend | Reusar el usuario de Google como autorización | Permite gestión fina (roles, activar/desactivar) sin tocar Google Workspace. |
 | Modelo de roles | Enum fijo: `developer`, `admin`, `key_user`, `reader` | RBAC dinámico con tabla de permisos | Para el MVP un enum es suficiente; el RBAC dinámico es la feature RBAC-01. |
 | Nombres del schema | CamelCase Spanish, exactos del legacy | snake_case English | Consistencia con el resto de tablas de migración (TbFichaAnimal, TbVoluntarios, etc.); ver `docs/architecture/decisiones-proyecto.md` § "Migración y convivencia con legacy". |
 | Soft-delete | Columna `activo BOOLEAN NOT NULL DEFAULT true` | DELETE físico | Preserva las FKs históricas; un usuario que tuvo rol `developer` y fue desactivado sigue apareciendo en auditoría. | <!-- alantyle-ignore:ALAN003 -->
@@ -111,7 +111,7 @@ es la fuente de verdad de los roles permitidos.
 | Ruta | Método | Auth | Propósito |
 |---|---|---|---|
 | `/login` | GET | Pública | Inicia el flujo OAuth. Si Google no está configurado, devuelve 503. |
-| `/auth/callback` | GET | Pública (con PKCE cookie) | Intercambia el `code` por JWT de InsForge, verifica el email contra `usuarios_autorizados`, y emite la cookie de sesión. |
+| `/auth/callback` | GET | Pública (con PKCE cookie) | Intercambia el `code` por JWT de LocalBackend, verifica el email contra `usuarios_autorizados`, y emite la cookie de sesión. |
 | `/logout` | GET | Pública | Invalida la cookie de sesión. |
 | `/unauthorized` | GET | Pública | Página amigable para emails no autorizados. |
 | `/admin` | GET | `rol = 'developer'` | Lista de usuarios autorizados. |
@@ -241,7 +241,7 @@ Si un usuario reporta que no puede entrar:
 ## 9. Diagrama de secuencia — Login exitoso
 
 ```
-Usuario           Browser          APAP_WEB           InsForge         Google
+Usuario           Browser          APAP_WEB           LocalBackend         Google
   │                 │                 │                  │               │
   │  GET /login     │                 │                  │               │
   ├────────────────►│                 │                  │               │
@@ -279,7 +279,7 @@ Usuario           Browser          APAP_WEB           InsForge         Google
 ## 10. Referencias
 
 - `app/core/auth.py` — schema, seed, CRUD helpers.
-- `app/core/insforge.py` — cliente REST de InsForge.
+- `app/core/local_backend.py` — cliente REST de LocalBackend.
 - `app/core/session.py` — firmado y lectura de cookies de sesión.
 - `app/core/pkce.py` — generación del par PKCE.
 - `app/main.py` — rutas `/login`, `/auth/callback`, `/logout`, `/unauthorized`, `/admin`.

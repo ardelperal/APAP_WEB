@@ -4,14 +4,14 @@ skill_resolution: paths-injected (sdd-propose, vba-access, access-vba-tdd, web-t
 
 ## Intención
 
-Hacer operable el backend privado con datos reales (animales, personas, fotos) **mientras el desarrollo de APAP_WEB continúa**. Hoy las 8 tablas de dominio (`animales`, `voluntarios`, `entradas`, `acogidas`, `adopciones`, `actuacion_sanitaria`, `animal_current_state`, `animal_lifecycle_events`) están creadas en InsForge y vacías; los catálogos están poblados; el engine de apply (`migration/apply.py`), el reconciliador (`migration/reconcile.py`), el shadow state (`migration/shadow_state.py`), el lock (`migration/lock.py`) y los 5 mappings (`animal|voluntario|entrada|acogida|adopcion.yaml`) están completos e idempotentes. Lo que falta para "usable ya" son los tres puentes que la exploración deja como bloqueadores. Esta propuesta los cierra con un contrato de privacidad estricto (DNI/email/teléfono reales con acceso autenticado, sin raw PII en logs, sin bucket público), preserva la fidelidad al legacy `APAP_ACTUAL` como superset funcional (P1), y define el milestone de **bidireccionalidad completa** como **gate obligatorio** antes de reclamar fallback-readiness.
+Hacer operable el backend privado con datos reales (animales, personas, fotos) **mientras el desarrollo de APAP_WEB continúa**. Hoy las 8 tablas de dominio (`animales`, `voluntarios`, `entradas`, `acogidas`, `adopciones`, `actuacion_sanitaria`, `animal_current_state`, `animal_lifecycle_events`) están creadas en LocalBackend y vacías; los catálogos están poblados; el engine de apply (`migration/apply.py`), el reconciliador (`migration/reconcile.py`), el shadow state (`migration/shadow_state.py`), el lock (`migration/lock.py`) y los 5 mappings (`animal|voluntario|entrada|acogida|adopcion.yaml`) están completos e idempotentes. Lo que falta para "usable ya" son los tres puentes que la exploración deja como bloqueadores. Esta propuesta los cierra con un contrato de privacidad estricto (DNI/email/teléfono reales con acceso autenticado, sin raw PII en logs, sin bucket público), preserva la fidelidad al legacy `APAP_ACTUAL` como superset funcional (P1), y define el milestone de **bidireccionalidad completa** como **gate obligatorio** antes de reclamar fallback-readiness.
 
 ## Alcance
 
 ### Dentro (Milestone "Usable ya" → M0+M1+M2)
 
 - **M0 — Runtime boundary verificado para lectura legacy**: implementación real, testable y operator-safe de `migration/dysflow_client.execute_legacy_sql`. Ver §"Runtime boundary verificado" abajo. NO se wirea Dysflow MCP desde Python.
-- **M0 — Bootstrap completo**: ejecutar `ShadowStateRepository.ensure_table()` y `apply_sql_migrations()` contra InsForge; crear el bucket privado `apap-photos` vía MCP infrastructure.
+- **M0 — Bootstrap completo**: ejecutar `ShadowStateRepository.ensure_table()` y `apply_sql_migrations()` contra LocalBackend; crear el bucket privado `apap-photos` vía MCP infrastructure.
 - **M1 — Animales + entradas + voluntariado mínimos (datos reales, PII completa)**: `apply --table animal`, `entrada`, `voluntario` (incluye `DNI`/`Email`/`Tel1`/`Tel2`). Shadow state preserva DNI. Pre-flight con conteos y SHA-256 del legacy. Reconciliación post-apply con `animal_lifecycle_events`.
 - **M1 — Fotos privadas**: SHA-256 + tamaño como `nombrefoto`, upload a bucket `apap-photos` (no público), display vía `/animales/{animal_id}/foto` autenticado (`animal_id` es `animales.id` UUID; NCHIP queda como natural key de lookup, no como identificador de ruta). Orfandad/deduplicación por SHA-256.
 - **M1 — Navegación autenticada end-to-end**: `/animales`, `/voluntarios`, `/entradas` funcionando contra datos reales; sólo el contenido de aplicación público es `/login` (per AGENTS.md §18 + `PUBLIC_PATHS` verificado en `app/main.py:148`, que también incluye los endpoints de protocolo/operativos `/healthz`, `/auth/google`, `/auth/callback`, `/logout` — ninguno de ellos expone contenido de aplicación ni PII).
@@ -91,7 +91,7 @@ El seam actual (`migration/legacy_reader.set_legacy_query_executor()` + `dysflow
 | `migration/apply.py` | Modified | Wire `check_msaccess_running()` pre-flight; reverse direction (M2) |
 | `migration/mappings/animal.yaml` | Modified | Storage mapping para fotos (`storage.bucket=apap-photos`, `storage.key=<sha256>.<ext>` propuesto por el cliente; el server puede renombrar y el `key` retornado es canónico — NCHIP es natural key de lookup, no del storage object) |
 | `migration/mappings/voluntario.yaml` | Modified | Confirmar `DNI` UNIQUE handling + colisión policy |
-| `app/core/insforge.py` | Modified | `upload_object()`, `download_object()`, `signed_get_url()` (privado) |
+| `app/core/local_backend.py` | Modified | `upload_object()`, `download_object()`, `signed_get_url()` (privado) |
 | `app/modules/animals/routes.py` | Modified | `GET /animales/{animal_id}/foto` autenticado (`animal_id` es `animales.id` UUID; NCHIP es natural key de lookup, no de ruta) |
 | `app/core/middleware.py` | Unchanged | `PUBLIC_PATHS` vive en `app/main.py:148` (no en middleware); ningún cambio aquí. `PUBLIC_PATHS` actual = `{"/healthz", "/login", "/auth/google", "/auth/callback", "/logout"}` (5 entradas verificadas; sólo `/login` es contenido de aplicación público, los otros cuatro son endpoints de protocolo/operativos). |
 | `docs/audits/pii-live-migration-2026-Q3.md` | New | Audit PII scope, methodology, findings, verdict |
@@ -124,7 +124,7 @@ El seam actual (`migration/legacy_reader.set_legacy_query_executor()` + `dysflow
 
 | Capa | Rollback |
 |---|---|
-| **InsForge tablas de dominio** | `DELETE FROM animales WHERE nchip IN (legacy_ids)` — verificado antes en pre-flight; shadow rows quedan para auditoría |
+| **LocalBackend tablas de dominio** | `DELETE FROM animales WHERE nchip IN (legacy_ids)` — verificado antes en pre-flight; shadow rows quedan para auditoría |
 | **`web_only_feature_shadow`** | Truncar (la tabla es staging del round-trip; no contiene PII fuera de las FK a web) |
 | **Bucket `apap-photos`** | `delete-bucket` vía MCP; las `animales.nombrefoto` quedan con SHA-256 pero `404` en GET → display fallback a placeholder |
 | **`migration.lock_snapshot.json`** | Borrar; el siguiente apply regenera |
@@ -136,7 +136,7 @@ El seam actual (`migration/legacy_reader.set_legacy_query_executor()` + `dysflow
 
 - Microsoft Access Database Engine (ODBC driver) en operator box — runbook pre-flight
 - `pyodbc` añadido a `[project.optional-dependencies.etl]` (preflight via context7)
-- InsForge bucket creation via MCP (one-time infra)
+- LocalBackend bucket creation via MCP (one-time infra)
 - Sin nuevas dependencias en runtime web (la foto display usa HTTPX ya pinned)
 
 ## Success Criteria

@@ -96,7 +96,7 @@ class CanDeleteResult:
 
 #: Substrings of the relation-not-found error message that indicate a
 #: missing table. The check uses ``in`` so it tolerates the variant
-#: phrasings across the Python ``psycopg`` / ``asyncpg`` / InsForge
+#: phrasings across the Python ``psycopg`` / ``asyncpg`` / LocalBackend
 #: error surfaces ("relation ... does not exist",
 #: "no such table", etc.).
 _MISSING_TABLE_ERROR_MARKERS: Final[tuple[str, ...]] = (

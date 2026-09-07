@@ -1,8 +1,8 @@
 """Stub adapter for ``AnimalsPort`` — pending local-backend implementation.
 
 Replaces the deleted
-:class:`app.modules.animals.adapters.insforge.animals_insforge_adapter.AnimalsInsforgeAdapter`
-and its 7 sibling modules under ``app.modules.animals.adapters.insforge.*``.
+:class:`app.modules.animals.adapters.local_backend.animals_local_backend_adapter.AnimalsInsforgeAdapter`
+and its 7 sibling modules under ``app.modules.animals.adapters.local_backend.*``.
 A real :class:`~app.core.local_backend.db.LocalPostgresExecutor`-backed
 adapter lands in a follow-up slice; until then, every method raises
 :class:`NotImplementedError` so the runtime fails loud per route.

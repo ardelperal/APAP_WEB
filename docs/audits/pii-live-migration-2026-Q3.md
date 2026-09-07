@@ -18,7 +18,7 @@ This audit documents the scope, methodology, findings, and verdict for the audit
 |---|---|
 | Audit slice | Live migration PII surface (M1 forward + M2 reverse) |
 | PRs cubiertos | PR4b (forward), PR5 (collision routing), PR6 (reverse + round-trip) |
-| Out of scope | M2 reverse path (PR6/PR7), production release tags, public galleries, anonymization, encryption-at-rest más allá de los defaults de InsForge |
+| Out of scope | M2 reverse path (PR6/PR7), production release tags, public galleries, anonymization, encryption-at-rest más allá de los defaults de LocalBackend |
 
 ### Columnas PII en alcance
 
@@ -63,23 +63,23 @@ Seis invariantes se pinean por átomos automatizados. Cada átomo es una fixture
 1. **Shape de la lista de redacción** — `tests/test_logging.py` + `tests/test_log_safe_redaction.py` (15 átomos tras expansión de parametrización). La lista tiene exactamente 15 entradas; cada nuevo campo PII (`dni`, `tel1`, `tel2`) está presente; las variantes mixed-case (`DNI`, `Tel1`, `TEL2`) se redactan; los nombres descriptivos que meramente contienen un substring redactado (`dni_lookup_table`, `telefono_secundario`) pasan sin cambio.
 2. **Invariante de autorización** — `tests/test_animals_foto_route.py::TestFotoRouteAuthorizationInvariant` pinea que un request anónimo redirige a `/login` antes de cualquier llamada a DB o storage. Sin queries SQL, sin llamadas a storage.
 3. **Sin leak de presigned-URL** — `tests/test_animals_foto_route.py::TestFotoRouteDoesNotLeakPresignedUrl` pinea que ninguna cabecera o body de la respuesta contiene la URL de storage o cualquier token presigned, incluso cuando la superficie de storage levantó con esa URL en su body de error.
-4. **Fail-closed en cada categoría de error de storage-stream** — `tests/migration/test_insforge_storage_methods.py` parametriza 401, 403, 404, 405, 500 sobre el upload strategy; `download_object_stream` lanza `InsForgeError` en 401/404/5xx y `httpx.TimeoutException` en network timeout. La capa de ruta en `tests/test_animals_foto_route.py::TestFotoRouteMidStreamFailClosed` cubre cuatro paths de emisión de placeholder: streamed-GET 5xx (`test_foto_route_placeholder_when_streamed_get_5xx_on_first_chunk`), network drop mid-iteration (`test_foto_route_placeholder_when_stream_mid_iteration_network_error`), streamed-GET succeeds for headers pero falla en first-iteration (`test_foto_route_placeholder_when_stream_fails_on_first_iteration`), y per-chunk read timeout (`test_foto_route_placeholder_on_per_chunk_timeout`). El photo service consume el generador de storage eagermente para que un `PhotoStreamError` mid-stream siempre se vuelva el PNG placeholder — nunca un 5xx. El wrapping a nivel de servicio está pineado por `tests/test_animals_foto_route.py::TestFotoServiceMidStreamWrapping`. **PR4b 4R WARN-3**: excepciones inesperadas en el SELECT de animales (`animals_service.get_animal_by_id`) TAMBIÉN fallan closed al placeholder, por consistencia con el contrato de storage-stream. `tests/test_animals_foto_route.py::TestFotoRouteSqlLookupFailClosed` pinea tanto `InsForgeError` (con sabor transport) como un `RuntimeError` no-InsForge (con sabor invariant-violation). El error se registra vía `log_safe("animal_foto.sql_lookup_failed", reason=...)` para que el operador lo siga viendo en el audit stream. Un animal genuinamente ausente (el service devuelve `None`) sigue surfacing como 404 porque la ausencia es una señal de dominio, no un fallo de transporte.
-5. **Upload idempotente** — `tests/migration/test_insforge_storage_methods.py::test_upload_object_reuses_existing_key_via_client_derived_filename` afirma que los mismos bytes subidos dos veces llevan el mismo client-side filename para que el dedup del lado server pueda dispararse.
-6. **Sin `logger.*` raw / `print(...)` en `app/core/insforge.py`** — `tests/migration/test_insforge_storage_methods.py::test_storage_methods_never_log_secrets_urls_or_paths` usa el AST detector de `scripts/check_rules.py` (el mismo detector que corre en CI) para pinear la ausencia de patrones de logging prohibidos en la superficie de storage de producción.
+4. **Fail-closed en cada categoría de error de storage-stream** — `tests/migration/test_storage_methods.py` parametriza 401, 403, 404, 405, 500 sobre el upload strategy; `download_object_stream` lanza `BackendError` en 401/404/5xx y `httpx.TimeoutException` en network timeout. La capa de ruta en `tests/test_animals_foto_route.py::TestFotoRouteMidStreamFailClosed` cubre cuatro paths de emisión de placeholder: streamed-GET 5xx (`test_foto_route_placeholder_when_streamed_get_5xx_on_first_chunk`), network drop mid-iteration (`test_foto_route_placeholder_when_stream_mid_iteration_network_error`), streamed-GET succeeds for headers pero falla en first-iteration (`test_foto_route_placeholder_when_stream_fails_on_first_iteration`), y per-chunk read timeout (`test_foto_route_placeholder_on_per_chunk_timeout`). El photo service consume el generador de storage eagermente para que un `PhotoStreamError` mid-stream siempre se vuelva el PNG placeholder — nunca un 5xx. El wrapping a nivel de servicio está pineado por `tests/test_animals_foto_route.py::TestFotoServiceMidStreamWrapping`. **PR4b 4R WARN-3**: excepciones inesperadas en el SELECT de animales (`animals_service.get_animal_by_id`) TAMBIÉN fallan closed al placeholder, por consistencia con el contrato de storage-stream. `tests/test_animals_foto_route.py::TestFotoRouteSqlLookupFailClosed` pinea tanto `BackendError` (con sabor transport) como un `RuntimeError` no-LocalBackend (con sabor invariant-violation). El error se registra vía `log_safe("animal_foto.sql_lookup_failed", reason=...)` para que el operador lo siga viendo en el audit stream. Un animal genuinamente ausente (el service devuelve `None`) sigue surfacing como 404 porque la ausencia es una señal de dominio, no un fallo de transporte.
+5. **Upload idempotente** — `tests/migration/test_storage_methods.py::test_upload_object_reuses_existing_key_via_client_derived_filename` afirma que los mismos bytes subidos dos veces llevan el mismo client-side filename para que el dedup del lado server pueda dispararse.
+6. **Sin `logger.*` raw / `print(...)` en `app/core/local_backend.py`** — `tests/migration/test_storage_methods.py::test_storage_methods_never_log_secrets_urls_or_paths` usa el AST detector de `scripts/check_rules.py` (el mismo detector que corre en CI) para pinear la ausencia de patrones de logging prohibidos en la superficie de storage de producción.
 
 Además, el runbook operator `docs/runbooks/live-migration-apply.md` carga el workflow operator canónico; `tests/test_runbook_links.py` pinea que cada referencia a runbook operator-facing resuelve a un fichero authored con los headings de AGENTS.md §13 (`## When to trigger`, `## Pre-deploy checklist`, `## Deploy steps`, `## Verification`, `## Rollback`).
 
 ### Re-audit de layering del issue #233 (2026-07-20)
 
-El árbol fail-closed vive en `adapters/insforge/animals_insforge_photo.py`. La ruta solo aplica auth, traduce 404 y construye el streaming response. Los tests de ruta y adaptador verifican el boundary preservado.
+El árbol fail-closed vive en `adapters/local_backend/animals_local_backend_photo.py`. La ruta solo aplica auth, traduce 404 y construye el streaming response. Los tests de ruta y adaptador verifican el boundary preservado.
 
 ## Findings
 
 | Severity | Title | Form | Details |
 |---|---|---|---|
-| MEDIUM | El sentinel placeholder es un PNG 1x1 transparente estático; los usuarios no ven ningún hint de "imagen rota" | deferred | `animals_insforge_photo.py::PLACEHOLDER_PHOTO_PNG`; `animals_insforge_photo.py::PHOTO_SENTINEL_KEY`. Mejora de UX, no un defecto de seguridad. Aceptado (fuera del alcance de PR4b). |
-| MEDIUM | `delete_object` 404 devuelve `None` (idempotente) — si el operador loguea el valor de retorno no ve señal de "ya ausente" | deferred | `tests/migration/test_insforge_storage_methods.py::test_delete_object_404_is_idempotent_noop`. Sin leak de PII ni de secretos; solo operator UX. Aceptado (fuera del alcance de PR4b). |
-| LOW | El resolver cae a `application/octet-stream` para extensiones desconocidas; los navegadores descargarán en vez de inline | deferred | `animals_insforge_photo.py::_content_type`. Default defensivo, sin impacto de seguridad. Aceptado. |
+| MEDIUM | El sentinel placeholder es un PNG 1x1 transparente estático; los usuarios no ven ningún hint de "imagen rota" | deferred | `animals_local_backend_photo.py::PLACEHOLDER_PHOTO_PNG`; `animals_local_backend_photo.py::PHOTO_SENTINEL_KEY`. Mejora de UX, no un defecto de seguridad. Aceptado (fuera del alcance de PR4b). |
+| MEDIUM | `delete_object` 404 devuelve `None` (idempotente) — si el operador loguea el valor de retorno no ve señal de "ya ausente" | deferred | `tests/migration/test_storage_methods.py::test_delete_object_404_is_idempotent_noop`. Sin leak de PII ni de secretos; solo operator UX. Aceptado (fuera del alcance de PR4b). |
+| LOW | El resolver cae a `application/octet-stream` para extensiones desconocidas; los navegadores descargarán en vez de inline | deferred | `animals_local_backend_photo.py::_content_type`. Default defensivo, sin impacto de seguridad. Aceptado. |
 | LOW | `voluntarios.dni` es web-only shadow (verificado vía Dysflow `get_schema` 2026-07-11: cero columna DNI en `TbVoluntariosParaAutorrellenables`) | deferred | Forward legacy apply must dejar `dni=NULL`; las colisiones solo surgen de manual web entry (UNIQUE constraint) o reverse-path (no hay columna legacy que recibir). `migration/mappings/voluntario.yaml` (`DNI: legacy_column: null`); `tests/test_log_safe_redaction.py::test_log_safe_redacts_each_new_pii_field_value[dni]`; la fila `dni` en la tabla Scope de arriba. Por diseño — preserva la fidelidad P1 al schema legacy verificado. |
 | LOW | El audit doc se renderizó en inglés por default del artifact; el registro preferido del proyecto para docs de operador es castellano de España | deferred | El default (inglés) se eligió porque la regla de artifact-language (technical artifacts default to English a menos que el proyecto solicite explícitamente otro idioma) toma precedencia sobre la preferencia de operator-doc para este audit. `docs/audits/pii-live-migration-2026-Q3.md` (este fichero). Aceptado — el operador puede solicitar un render en castellano en un follow-up. |
 
@@ -89,7 +89,7 @@ PASS: cada control PII de PR4b está pineado por un átomo automatizado. La gate
 
 - La lista cerrada de redacción (15 entradas) está verificada end-to-end por átomos parametrizados en `tests/test_log_safe_redaction.py` (**15 átomos** tras parametrización: 1 invariante de shape de lista + 3 presencia-por-campo + 3 redacción-por-campo + 6 variantes mixed-case + 1 no-leak del formatted message + 1 passthrough de nombres descriptivos).
 - La ruta `GET /animales/{animal_id}/foto` está verificada por `tests/test_animals_foto_route.py` (**18 átomos** repartidos en 5 clases: `TestFotoRouteAuthAndRouting` 6, `TestFotoRouteDoesNotLeakPresignedUrl` 1, `TestFotoRouteIsolatedService` 1, `TestFotoRouteAuthorizationInvariant` 1, `TestFotoRouteMidStreamFailClosed` 4, `TestFotoRouteSqlLookupFailClosed` 2, `TestFotoServiceMidStreamWrapping` 3).
-- Los métodos de storage de producción en `InsForgeClient` están verificados por `tests/migration/test_insforge_storage_methods.py` (**30 átomos**: happy/sad/edge para upload_object (4 + 6 fail-closed parametrizados + transfer/confirm/network), download_object_stream (7 + 2 per-chunk timeout), delete_object (3); unsafe-bucket pre-network × 3; idempotent re-upload; bearer auth sobre la strategy request; AST detector pinea la ausencia de patrones de logging prohibidos).
+- Los métodos de storage de producción en `LocalBackendClient` están verificados por `tests/migration/test_storage_methods.py` (**30 átomos**: happy/sad/edge para upload_object (4 + 6 fail-closed parametrizados + transfer/confirm/network), download_object_stream (7 + 2 per-chunk timeout), delete_object (3); unsafe-bucket pre-network × 3; idempotent re-upload; bearer auth sobre la strategy request; AST detector pinea la ausencia de patrones de logging prohibidos).
 - El path operator de migración está documentado en `docs/runbooks/live-migration-apply.md` con los headings de AGENTS.md §13 y la constante `MIGRATION_RUNBOOK_REF` surfacea este path canónico en cada línea de typed-exception. Las secciones específicas de PR4b (photo display + storage) extienden ese runbook sobre las secciones existentes de apply / pre-flight / rollback / escalation.
 
 ### Índice de evidencia de aceptación
@@ -102,9 +102,9 @@ PASS: cada control PII de PR4b está pineado por un átomo automatizado. La gate
 | Variantes mixed-case se redactan | `tests/test_log_safe_redaction.py` | 6 |
 | PII nunca leak via el formatted message | `tests/test_log_safe_redaction.py` | 1 |
 | Nombres descriptivos pasan sin cambio | `tests/test_log_safe_redaction.py` | 1 |
-| Métodos de storage happy/sad/edge | `tests/migration/test_insforge_storage_methods.py` | 30 |
-| Per-chunk read timeout pinea `connect=5/read=10/...` | `tests/migration/test_insforge_storage_methods.py` | 1 |
-| Stream stalled surfacea `httpx.TimeoutException` | `tests/migration/test_insforge_storage_methods.py` | 1 |
+| Métodos de storage happy/sad/edge | `tests/migration/test_storage_methods.py` | 30 |
+| Per-chunk read timeout pinea `connect=5/read=10/...` | `tests/migration/test_storage_methods.py` | 1 |
+| Stream stalled surfacea `httpx.TimeoutException` | `tests/migration/test_storage_methods.py` | 1 |
 | Auth gate redirige anónimo a `/login` | `tests/test_animals_foto_route.py` | 2 |
 | Animal-not-found devuelve 404 | `tests/test_animals_foto_route.py` | 1 |
 | Ruta streamea bytes para keys reales | `tests/test_animals_foto_route.py` | 1 |
@@ -165,7 +165,7 @@ PR6 (`feat/live-migration-reverse-apply`) envía el path simétrico `apply_web_t
 
 ### M2 verdict (re-confirmado)
 
-PASS para el M2 reverse path. Los invariantes de round-trip (`tests/migration/test_round_trip.py`, 5 átomos) se ejercitan vía `FakeInsForge` + injected legacy executor + injected legacy write seam; sin mutación de backend real. La disciplina de redacción PII (lista cerrada de 15 campos) y los invariantes de autorización de PR4b / PR5 no cambian — el reverse applier pasa por `app.core.logging.log_safe` (15 campos scrubed) y nunca toca el bucket de storage (forward-only).
+PASS para el M2 reverse path. Los invariantes de round-trip (`tests/migration/test_round_trip.py`, 5 átomos) se ejercitan vía `FakeLocalBackend` + injected legacy executor + injected legacy write seam; sin mutación de backend real. La disciplina de redacción PII (lista cerrada de 15 campos) y los invariantes de autorización de PR4b / PR5 no cambian — el reverse applier pasa por `app.core.logging.log_safe` (15 campos scrubed) y nunca toca el bucket de storage (forward-only).
 
 ### Operator acknowledgement
 
@@ -175,7 +175,7 @@ El operador must revisar y aceptar este verdict como parte de la M1 acceptance g
 
 - `app/core/logging.py::REDACTED_FIELDS` (15 entradas).
 - `app/main.py:148` (`PUBLIC_PATHS` 5-entry shape).
-- `app/modules/animals/adapters/insforge/animals_insforge_photo.py` (placeholder, sentinel y resolución de media type).
+- `app/modules/animals/adapters/local_backend/animals_local_backend_photo.py` (placeholder, sentinel y resolución de media type).
 - `app/modules/animals/routes.py` (auth short-circuit + 404 translation + Response build).
 - `migration/mappings/voluntario.yaml` (`DNI: legacy_column: null`).
 - `migration/apply.py` (`apply_legacy_to_web(dni_collision_counter=...)` DI seam).
@@ -194,11 +194,11 @@ El operador must revisar y aceptar este verdict como parte de la M1 acceptance g
   - `tests/migration/test_pii_redaction.py`
   - `tests/migration/test_dni_collision.py`
   - `tests/migration/test_dni_collision_counting.py`
-  - `tests/migration/test_insforge_storage_methods.py`
+  - `tests/migration/test_storage_methods.py`
   - `tests/migration/test_cli.py`
   - `tests/test_public_paths.py`
   - `tests/test_animals_foto_route.py`
-  - `tests/test_animals_insforge_adapter.py`
+  - `tests/test_animals_local_backend_adapter.py`
   - `tests/test_runbook_links.py`
   - `tests/test_pii_audit_doc.py`
 - AGENTS.md §9 (`log_safe`), §10 (CSRF), §13 (runbook), §18 (web ↔ legacy mutual exclusion + sync), §23 (E2E).

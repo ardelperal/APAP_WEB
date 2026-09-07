@@ -44,7 +44,7 @@ def run_ensure_bucket(
             result = ensure_private_bucket(web_client, args.bucket_name)  # type: ignore[arg-type]  # cli_ensure_bucket retired in #8
     except BackendError as exc:
         body = exc.body if isinstance(exc.body, dict) else {"error": str(exc.body)}
-        reason = body.get("error", "insforge_error")
+        reason = body.get("error", "backend_error")
         stream.write(
             f"bucket={args.bucket_name} status=error reason={reason} "
             f"exit=5 message={body.get('message', exc)}\n"

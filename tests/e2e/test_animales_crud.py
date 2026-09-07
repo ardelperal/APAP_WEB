@@ -49,7 +49,7 @@ mock cannot authenticate).
 
 Each test uses a UUID-suffixed NCHIP to avoid collisions with other
 animals that may exist in the test database (E2E flows run against a
-real InsForge backend, unlike the unit-test spies in
+real LocalBackend backend, unlike the unit-test spies in
 ``tests/test_animals_routes.py``).
 """
 

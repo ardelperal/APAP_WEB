@@ -3,7 +3,7 @@
 The new slice (``app/core/catalogos/``,
 ``app/core/ports/catalogos_port.py``,
 ``app/core/application/catalogos/``,
-``app/core/adapters/insforge/catalogos_insforge_adapter.py``,
+``app/core/adapters/local_backend/catalogos_local_backend_adapter.py``,
 ``app/core/di/catalogos_di.py``) is the pattern-defining slice for
 the broader refactor. These tests pin the **new** pattern at three
 levels:
@@ -12,7 +12,7 @@ levels:
    :class:`CatalogosPort` Protocol. Tests use a recording fake
    implementing the Protocol; the assertion is on the call, not on
    the SQL.
-2. **Adapter** — the InsForge adapter shapes the SQL and maps the
+2. **Adapter** — the LocalBackend adapter shapes the SQL and maps the
    raw row to the frozen domain entity. Tests cover both the SQL
    query string (against the canonical ``LIST_*_SQL`` constants the
    module exposes) and the row → entity mapping (against a row
@@ -544,21 +544,21 @@ def test_tipo_contrato_supports_nullable_legacy_columns() -> None:
 # --- architectural rule pins -------------------------------------------------
 
 
-def test_domain_layer_does_not_import_insforge() -> None:
-    """Rule §31: domain layer has no InsForge dependency."""
+def test_domain_layer_does_not_import_local_backend() -> None:
+    """Rule §31: domain layer has no LocalBackend dependency."""
     import app.core.catalogos as catalogos_pkg
 
     # The module's ``__dict__`` is the union of its re-exports; we
-    # assert NONE of the public names are concrete InsForge classes.
+    # assert NONE of the public names are concrete LocalBackend classes.
     for name in catalogos_pkg.__all__:
         obj = getattr(catalogos_pkg, name)
         module = getattr(obj, "__module__", "") or ""
-        assert "insforge" not in module.lower(), (
-            f"domain entity {name!r} leaked InsForge import from {module!r}"
+        assert "local_backend" not in module.lower(), (
+            f"domain entity {name!r} leaked LocalBackend import from {module!r}"
         )
 
 
-def test_application_layer_does_not_import_insforge() -> None:
+def test_application_layer_does_not_import_local_backend() -> None:
     """Rule §31: application layer depends on the Protocol, not on a concrete client."""
     from app.core.application import catalogos as app_pkg
 
@@ -571,11 +571,11 @@ def test_application_layer_does_not_import_insforge() -> None:
             attr_module = getattr(attr, "__module__", "") or ""
             # ``Protocol`` itself lives in ``typing``; the conftest
             # fakes live in this test file. Neither is the
-            # ``app.core.insforge`` module.
-            assert "insforge" not in attr_module.lower() or attr_module.startswith(
+            # ``app.core.local_backend`` module.
+            assert "local_backend" not in attr_module.lower() or attr_module.startswith(
                 "tests"
             ), (
-                f"application module {module_name!r} leaked InsForge import "
+                f"application module {module_name!r} leaked LocalBackend import "
                 f"from {attr_module!r}"
             )
 

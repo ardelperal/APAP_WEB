@@ -4,7 +4,7 @@ Per AGENTS.md §22, the SQL/service separation seam requires SQL strings
 and parameter shaping to live in a dedicated ``queries.py`` per feature
 module. The builder contract is the testable surface — these tests
 prove the builder returns a well-formed ``(sql, params)`` tuple without
-needing transport, InsForge, or HTTP.
+needing transport, LocalBackend, or HTTP.
 
 The HEALTH-02 batch endpoint accepts an N-tuple of actucacion records
 and commits them atomically. The CTE pattern is the same one used for

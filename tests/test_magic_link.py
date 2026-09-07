@@ -24,7 +24,7 @@ def test_magic_link_slice_is_tested_by_integration_tests() -> None:
 
     The real coverage for ``MagicLinkPort`` (create_token,
     consume_token, SHA-256 hashing, used_token guard, expiry guard,
-    InsForge no-op fallback) is in
+    LocalBackend no-op fallback) is in
     ``tests/integration/test_self_host_auth.py``. This file exists so
     the slice-completeness gate sees at least one ``test_magic_link*``
     file. Delete it when the M1 slice grows a dedicated per-layer

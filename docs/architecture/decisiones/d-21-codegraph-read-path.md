@@ -46,7 +46,7 @@ Sin CodeGraph, una IA que aterriza en el repo necesita docenas de `Read` + `Grep
 
 ## Non-negotiable invariants
 
-- **Regla D-20**: stack FastAPI + HTMX + InsForge.
+- **Regla D-20**: stack FastAPI + HTMX + LocalBackend.
 - **Regla D-30**: pre-MVP single branch.
 
 ## Consequences

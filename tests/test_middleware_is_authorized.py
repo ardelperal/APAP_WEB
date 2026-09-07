@@ -77,7 +77,7 @@ def test_solo_dos_call_sites_en_app() -> None:
 
 
 class _Spy(LocalPostgresExecutor):
-    """InsForge stand-in: [] from execute_sql, no HTTP I/O."""
+    """LocalBackend stand-in: [] from execute_sql, no HTTP I/O."""
 
     def __init__(self) -> None:  # type: ignore[override]
         self._client = None
@@ -95,7 +95,7 @@ class _Spy(LocalPostgresExecutor):
 
 
 @pytest.fixture
-def spy_insforge() -> _Spy:
+def spy_local_backend() -> _Spy:
     s = _Spy()
     app.dependency_overrides[get_local_postgres_executor_dep] = lambda: s
     yield s
@@ -116,7 +116,7 @@ def _login_pre_fix(client: httpx.AsyncClient) -> None:
 
 
 async def test_middleware_default_false(
-    client: httpx.AsyncClient, spy_insforge: _Spy
+    client: httpx.AsyncClient, spy_local_backend: _Spy
 ) -> None:
     """Pre-fix cookie → 302 /unauthorized on a protected route.
 
@@ -131,7 +131,7 @@ async def test_middleware_default_false(
 
 
 async def test_middleware_pasa_con_is_authorized_true(
-    client: httpx.AsyncClient, spy_insforge: _Spy
+    client: httpx.AsyncClient, spy_local_backend: _Spy
 ) -> None:
     """Triangulation: with is_authorized=True the middleware lets through on a protected route."""
     from app.core.config import get_settings

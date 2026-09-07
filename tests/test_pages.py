@@ -20,7 +20,7 @@ class _RevalOnlySpy:
 
     ``GET /`` (index) depends on ``require_authorized_user``, which now
     revalidates authorization against the DB. These page tests do not stub
-    InsForge, so without this the authorized-user cases would open a real
+    LocalBackend, so without this the authorized-user cases would open a real
     client and fail with a connection error. Any non-auth SQL returns [].
     """
 
@@ -33,7 +33,7 @@ class _RevalOnlySpy:
 
 
 @pytest.fixture(autouse=True)
-def _stub_insforge_for_reval() -> None:
+def _stub_local_backend_for_reval() -> None:
     app.dependency_overrides[get_local_postgres_executor_dep] = lambda: _RevalOnlySpy()
     yield
     app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
@@ -150,7 +150,7 @@ async def test_user_facing_pages_do_not_render_internal_stack_copy(
 
     assert response.status_code == 200
     forbidden = re.compile(
-        r"\b(legacy|migration|FastAPI|HTMX|InsForge|Access|stack|internal)\b|migraci[oó]n|APAP_WEB",
+        r"\b(legacy|migration|FastAPI|HTMX|LocalBackend|Access|stack|internal)\b|migraci[oó]n|APAP_WEB",
         flags=re.IGNORECASE,
     )
     assert forbidden.search(response.text) is None
@@ -175,7 +175,7 @@ def test_key_template_sources_do_not_include_internal_ui_copy() -> None:
         root / "app" / "templates" / "voluntarios" / "list.html",
     ]
     forbidden = re.compile(
-        r"\b(legacy|migration|FastAPI|HTMX|InsForge|Access|stack|internal|intern[oa]s?)\b|"
+        r"\b(legacy|migration|FastAPI|HTMX|LocalBackend|Access|stack|internal|intern[oa]s?)\b|"
         r"migraci[oó]n|APAP_WEB|Copy provisional|Fase \d|esqueleto",
         flags=re.IGNORECASE,
     )

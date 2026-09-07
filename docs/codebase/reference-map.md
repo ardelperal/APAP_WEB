@@ -6,7 +6,7 @@ Esta página posee la trazabilidad entre docs operativas, specs OpenSpec y códi
 
 ## Core invariants
 
-- **Single source of truth por concepto**: una regla vive en `AGENTS.md`, un contrato de stack en [Arquitectura InsForge](../architecture/architecture-insforge-stack.md), un playbook operativo en [proceso.md](../proceso.md); las radiales referencian, no duplican.
+- **Single source of truth por concepto**: una regla vive en `AGENTS.md`, un contrato de stack en [Arquitectura LocalBackend](../architecture/architecture-local_backend-stack.md), un playbook operativo en [proceso.md](../proceso.md); las radiales referencian, no duplican.
 - **P3 docs reflejan código**: si divergen, gana el código y la doc se actualiza en la misma sesión ([proceso.md](../proceso.md)).
 - **Trazabilidad por SHA**: cada cierre de issue cita commit SHA y path de test (AGENTS §16).
 - **Decisiones registradas**: las divergencias con el legacy van en [decisiones-proyecto](../architecture/decisiones-proyecto.md) con fecha, autor y motivo.
@@ -21,11 +21,11 @@ Esta página posee la trazabilidad entre docs operativas, specs OpenSpec y códi
 | [Mental model](mental-model.md) | Definición de qué es APAP_WEB y qué invariantes conserva | — | Nuevo en #553 |
 | [Repository map](repository-map.md) | Ownership por paquete y decisión §33.2 | — | Nuevo en #553 |
 | [Interfaces](interfaces.md) | Catálogo de superficies (HTTP, OAuth, storage, MCP) | — | Nuevo en #553 |
-| [Integrations](integrations.md) | InsForge, CodeGraph, Dysflow, Coolify, GitHub | — | Nuevo en #553 |
+| [Integrations](integrations.md) | LocalBackend, CodeGraph, Dysflow, Coolify, GitHub | — | Nuevo en #553 |
 | [Maintainer playbook](maintainer-playbook.md) | Workflow por issue y checklists por tipo | — | Nuevo en #553 |
 | [Sync and cloud](sync-and-cloud.md) | Web ↔ legacy, mode toggle, reconcile CLI | AGENTS §18 | Nuevo en #553 |
 | [Missing sources](missing-sources.md) | Subsistemas esperados que no existen | — | Nuevo en #553 |
-| [Arquitectura InsForge](../architecture/architecture-insforge-stack.md) | Contrato de stack y target de despliegue | — | Vive, contract de infra |
+| [Arquitectura LocalBackend](../architecture/architecture-local_backend-stack.md) | Contrato de stack y target de despliegue | — | Vive, contract de infra |
 | [`docs/proceso.md`](../proceso.md) | Playbook operativo de una issue, open → closed | AGENTS §16 | Vive, contract de mantenedor |
 | [`docs/roadmap.md`](../roadmap.md) | Fases del producto, estado actual | — | Vive, contract de scope |
 | [`docs/architecture/decisiones-proyecto.md`](../architecture/decisiones-proyecto.md) | Divergencias con el legacy y motivos | P1 en [proceso.md](../proceso.md) | Vive |

@@ -3,7 +3,7 @@
 Each submodule owns one use case. The use cases depend only on
 :class:`migration.ports.web_reader_port.WebReaderPort`; the
 adapter-side I/O lives in
-:mod:`migration.adapters.insforge.web_reader_insforge_adapter`.
+:mod:`migration.adapters.local_backend.web_reader_local_backend_adapter`.
 """
 
 from __future__ import annotations

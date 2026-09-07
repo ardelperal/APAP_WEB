@@ -4,9 +4,9 @@ Estado del repositorio al momento de la propuesta (2026-08-31).
 
 ## Lo que existe hoy
 
-### Cliente InsForge (`app/core/insforge.py`)
+### Cliente LocalBackend (`app/core/local_backend.py`)
 
-El proyecto tiene un único cliente HTTP — `app.core.insforge.InsForgeClient` — que consume la API REST de InsForge. La superficie que usa:
+El proyecto tiene un único cliente HTTP — `app.core.local_backend.LocalBackendClient` — que consume la API REST de LocalBackend. La superficie que usa:
 
 - `POST /api/database/advance/rawsql` — SQL arbitrario. El método `execute_sql(query, params)` envía el query y parsea el envelope `{"rows": [...], "rowCount": N, "fields": [...]}`.
 - `GET/POST /api/storage/buckets[/...]` — buckets S3-compatible para las fotos (`apap-photos`).
@@ -15,20 +15,20 @@ El proyecto tiene un único cliente HTTP — `app.core.insforge.InsForgeClient` 
 
 El constructor toma `base_url` y `service_key`. La service key es la autenticación bearer para operaciones privilegiadas. El cliente es **stateless** — un objeto por request, instanciado en cada llamada.
 
-### Login (`app/core/auth_flow.py` + `app/core/adapters/insforge/oauth_insforge_adapter.py`)
+### Login (`app/core/auth_flow.py` + `app/core/adapters/local_backend/oauth_local_backend_adapter.py`)
 
-El único flow de login es **Google OAuth via InsForge**:
+El único flow de login es **Google OAuth via LocalBackend**:
 
-1. Frontend → `GET /auth/google` → backend genera PKCE → llama `InsForgeClient.start_google_oauth(redirect_uri, code_challenge)` que hace `POST /api/auth/oauth/google?code_challenge=...`.
-2. InsForge redirige al usuario a Google. Google redirige a `InsForgeClient.exchange_google_oauth_code(code)` que hace `POST /api/auth/oauth/google/callback`.
-3. InsForge devuelve una session cookie firmada.
+1. Frontend → `GET /auth/google` → backend genera PKCE → llama `LocalBackendClient.start_google_oauth(redirect_uri, code_challenge)` que hace `POST /api/auth/oauth/google?code_challenge=...`.
+2. LocalBackend redirige al usuario a Google. Google redirige a `LocalBackendClient.exchange_google_oauth_code(code)` que hace `POST /api/auth/oauth/google/callback`.
+3. LocalBackend devuelve una session cookie firmada.
 4. El backend la pasa al frontend.
 
 **No hay flujo email/password**. La tabla `usuarios_autorizados` solo tiene `id, email, rol, anadido_por, activo, fecha_alta` — sin columna password.
 
 ### Tabla `usuarios_autorizados` (auth)
 
-Schema actual (`app/core/adapters/insforge/auth_insforge_queries.py`):
+Schema actual (`app/core/adapters/local_backend/auth_local_backend_queries.py`):
 
 ```sql
 CREATE TABLE IF NOT EXISTS usuarios_autorizados (
@@ -43,11 +43,11 @@ CREATE TABLE IF NOT EXISTS usuarios_autorizados (
 
 Sin `password_hash`, sin `email_verified_at`, sin `failed_attempts`. Un atacante con acceso a la DB ve los emails en claro.
 
-### Storage de fotos (InsForge)
+### Storage de fotos (LocalBackend)
 
-El bucket `apap-photos` se crea en el bootstrap vía `InsForgeClient.ensure_bucket(name, is_public=False)`. El upload es `POST /api/storage/buckets/{bucket}/upload-strategy` (devuelve URL pre-firmada) seguido de `PUT` directo a S3. El download es `GET /api/storage/download-strategy?path=...&expiresIn=...` (devuelve URL temporal) seguido de `GET` desde el cliente. **El cliente hace la subida/bajada directamente a S3**, no a través del API de InsForge.
+El bucket `apap-photos` se crea en el bootstrap vía `LocalBackendClient.ensure_bucket(name, is_public=False)`. El upload es `POST /api/storage/buckets/{bucket}/upload-strategy` (devuelve URL pre-firmada) seguido de `PUT` directo a S3. El download es `GET /api/storage/download-strategy?path=...&expiresIn=...` (devuelve URL temporal) seguido de `GET` desde el cliente. **El cliente hace la subida/bajada directamente a S3**, no a través del API de LocalBackend.
 
-El test unit `test_insforge_storage_methods.py` (29 átomos) cubre el flujo completo con `httpx.MockTransport`.
+El test unit `test_storage_methods.py` (29 átomos) cubre el flujo completo con `httpx.MockTransport`.
 
 ### Coolify ya en el sistema
 
@@ -68,9 +68,9 @@ Coolify es el panel de gestión. `coolify-db` es la Postgres que reutilizaremos.
 
 `migration/cli_verify_fallback_ready.py` corre 3 checks en modo `--ci-only`:
 
-1. `tests/migration/test_round_trip.py` — round-trip forward+reverse. ✅ Pasa contra FakeInsForge.
+1. `tests/migration/test_round_trip.py` — round-trip forward+reverse. ✅ Pasa contra FakeLocalBackend.
 2. `docs/audits/pii-live-migration-2026-Q3.md` verdict — parsea el doc. ✅ "Verdict PASS".
-3. `apply --direction web-to-legacy --check-only` — dry-run del camino inverso contra el backend. **❌ Falla** porque la app `c3uc9dk6.eu-central.insforge.app` devuelve 503 "No backend services available".
+3. `apply --direction web-to-legacy --check-only` — dry-run del camino inverso contra el backend. **❌ Falla** porque la app `c3uc9dk6.eu-central.local_backend.app` devuelve 503 "No backend services available".
 
 El primer y segundo checks pasan siempre (mientras el código no rompa). El tercero es el que necesita el backend provisionado.
 
@@ -82,7 +82,7 @@ El primer y segundo checks pasan siempre (mientras el código no rompa). El terc
 - Flujo de login email/password
 - Servicio de email (SMTP, SES, Mailgun, etc.)
 - Variable de entorno `SMTP_*` o similar
-- Adapter de storage S3-compatible distinto de InsForge
+- Adapter de storage S3-compatible distinto de LocalBackend
 - Tests E2E del login clásico
 
 ## Decisiones de la propuesta (resumen)
@@ -90,7 +90,7 @@ El primer y segundo checks pasan siempre (mientras el código no rompa). El terc
 | ID | Decisión | Justificación |
 |---|---|---|
 | D-SELF-01 | API nueva en FastAPI en el mismo proceso de la app | Reduce superficie operacional |
-| D-SELF-02 | Mantener `InsForgeClient` como Port backend-agnostic | Hexagonal architecture (§31) |
+| D-SELF-02 | Mantener `LocalBackendClient` como Port backend-agnostic | Hexagonal architecture (§31) |
 | D-SELF-03 | Postgres de Coolify (`coolify-db`) como destino | Ya provisionado |
 | D-SELF-04 | MinIO local (no servicio externo) | Self-hosted completo |
 | D-SELF-05 | Magic link con log de tokens (operador los entrega manualmente) | Cero infra nueva |
@@ -104,7 +104,7 @@ El primer y segundo checks pasan siempre (mientras el código no rompa). El terc
 ### Variables de entorno
 
 **Eliminar** (cuando se usa `APAP_LOCAL_BACKEND=true`):
-- `APAP_INSFORGE_URL`
+- `APAP_LOCAL_BACKEND_URL`
 - `APAP_INSFORGE_SERVICE_KEY`
 - `APAP_INSFORGE_ANON_KEY`
 
@@ -132,9 +132,9 @@ El primer y segundo checks pasan siempre (mientras el código no rompa). El terc
 
 | Archivo | Cambio |
 |---|---|
-| `app/core/insforge.py` | Modificar `InsForgeClient.__init__` para aceptar `base_url` configurable (sin cambios al comportamiento HTTP). Si `APAP_LOCAL_BACKEND=true`, `base_url = APAP_LOCAL_DB_URL`; si no, el actual. |
+| `app/core/local_backend.py` | Modificar `LocalBackendClient.__init__` para aceptar `base_url` configurable (sin cambios al comportamiento HTTP). Si `APAP_LOCAL_BACKEND=true`, `base_url = APAP_LOCAL_DB_URL`; si no, el actual. |
 | `app/core/local_backend/__init__.py` | Nuevo: API FastAPI en el mismo proceso |
-| `app/core/local_backend/api.py` | Nuevo: router con los 3 endpoints que `InsForgeClient` consume |
+| `app/core/local_backend/api.py` | Nuevo: router con los 3 endpoints que `LocalBackendClient` consume |
 | `app/core/local_backend/db.py` | Nuevo: psycopg2 wrapper que satisface el Protocol `SqlExecutor` |
 | `app/core/local_backend/storage.py` | Nuevo: boto3 wrapper para MinIO |
 | `app/core/local_backend/auth_classic.py` | Nuevo: implementación de `AuthUsersPort` con password + magic link |
@@ -241,7 +241,7 @@ operador   APAP_WEB app         local backend API      Postgres
 | Reverse proxy | Coolify proxy | `traefik:v3.0` (ya en Coolify) |
 | TLS | Let's Encrypt | via Coolify proxy automático |
 | Hash passwords | argon2id | `argon2-cffi` 23.x |
-| OAuth | Google | sin cambios (usa InsForge OAuth o local OAuth si se quiere eliminar) |
+| OAuth | Google | sin cambios (usa LocalBackend OAuth o local OAuth si se quiere eliminar) |
 | Migración legacy | mdbtools | `mdbtools 1.0.0` (ya instalado) |
 | Tests | pytest | `pytest 9.1.0` |
 
@@ -249,7 +249,7 @@ operador   APAP_WEB app         local backend API      Postgres
 
 | # | Riesgo | Probabilidad | Impacto | Mitigación |
 |---|---|---|---|---|
-| 1 | `InsForgeClient` no es 100% compatible con el nuevo API | Media | Alto | El Port hexagonal permite ajustar el shape en `local_backend/api.py` sin tocar la app. Tests E2E del round-trip validan. |
+| 1 | `LocalBackendClient` no es 100% compatible con el nuevo API | Media | Alto | El Port hexagonal permite ajustar el shape en `local_backend/api.py` sin tocar la app. Tests E2E del round-trip validan. |
 | 2 | El operador no sabe cómo provisionar Coolify | Baja | Alto | Runbook paso a paso. El verify-fallback-ready gate detecta problemas. |
 | 3 | argon2id tiene un costo de CPU inesperado | Baja | Bajo | El login no es hot path. Aceptable. |
 | 4 | La migración del schema falla silenciosamente | Baja | Alto | CI tiene integration test que falla loudly. |
@@ -271,7 +271,7 @@ operador   APAP_WEB app         local backend API      Postgres
 
 ## Comentarios finales
 
-Esta propuesta saca una dependencia operacional crítica (InsForge gestionado) y la trae a nuestro control (Coolify self-hosted). El proyecto gana:
+Esta propuesta saca una dependencia operacional crítica (LocalBackend gestionado) y la trae a nuestro control (Coolify self-hosted). El proyecto gana:
 
 - Confiabilidad operacional (no dependemos de un SaaS cuyo provisioning requiere login interactivo)
 - Seguridad (login clásico con magic link; sin dependencia única de Google)
@@ -279,4 +279,4 @@ Esta propuesta saca una dependencia operacional crítica (InsForge gestionado) y
 - Control completo (backups, logs, configuración, scaling)
 - Compliance (PII no sale de nuestro stack)
 
-El cambio respeta la hexagonal architecture del proyecto: el dominio y la lógica de negocio no se enteran del swap. Solo cambia un flag de configuración (`APAP_LOCAL_BACKEND=true`) y la URL del `InsForgeClient`. El verify-fallback-ready gate queda green al final — eso es la prueba operacional de que el backend está bien provisionado.
+El cambio respeta la hexagonal architecture del proyecto: el dominio y la lógica de negocio no se enteran del swap. Solo cambia un flag de configuración (`APAP_LOCAL_BACKEND=true`) y la URL del `LocalBackendClient`. El verify-fallback-ready gate queda green al final — eso es la prueba operacional de que el backend está bien provisionado.

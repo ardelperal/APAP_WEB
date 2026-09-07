@@ -261,7 +261,7 @@ start.
 
 | File | Action | Description |
 |------|--------|-------------|
-| `pyproject.toml` | Modify | Add radon, xenon, cosmic-ray, hypothesis, mutmut to `[project.optional-dependencies].dev`. Add `app/core/insforge.py` to `[tool.coverage.run].omit`. |
+| `pyproject.toml` | Modify | Add radon, xenon, cosmic-ray, hypothesis, mutmut to `[project.optional-dependencies].dev`. Add `app/core/local_backend.py` to `[tool.coverage.run].omit`. |
 | `.github/workflows/ci.yml` | Modify | PR #1: add 2 new steps in `lint` job (jscpd, mutation-sites — they don't depend on `coverage.json`) and 1 new step in `test` job (CRAP — must run AFTER pytest-cov writes `coverage.json`). PR #2: add new `mutation` job (weekly schedule + workflow_dispatch). PR #3: no CI change (property tests run in existing `test` job). |
 | `AGENTS.md` | Modify | PR #1: add the §23 QA-through-UI sentence via the feature-branch + PR flow (§17.3). The orchestrator does NOT edit inline. |
 | `openspec/config.yaml` | NO change recommended | Drift flag (RISK-1) — see §10. |
@@ -425,17 +425,17 @@ regardless. The exit-0 contract is enforced by a simple test in
 ### New tests in `tests/test_ci_workflow.py`
 
 The spec already pins one: the test that asserts the omit list contains
-`app/core/insforge.py` (REQ-QG-ADAPT-1 verification). The new assertion
+`app/core/local_backend.py` (REQ-QG-ADAPT-1 verification). The new assertion
 goes in the existing
 `test_ci_workflow_test_job_enforces_global_coverage_floor`:
 
 ```python
-def test_ci_workflow_test_job_excludes_insforge_adapter():
+def test_ci_workflow_test_job_excludes_local_backend_adapter():
     """REQ-QG-ADAPT-1: the adapter is omitted from coverage.json."""
     cfg = tomllib.loads(PROJECT_FILE.read_text())
     omit = cfg["tool"]["coverage"]["run"]["omit"]
-    assert "app/core/insforge.py" in omit, (
-        "Bonus A requires app/core/insforge.py in [tool.coverage.run].omit"
+    assert "app/core/local_backend.py" in omit, (
+        "Bonus A requires app/core/local_backend.py in [tool.coverage.run].omit"
     )
 ```
 
@@ -906,7 +906,7 @@ Three chained PRs (per spec; `delivery_strategy = exception-ok`).
   5. `test(check-jscpd): pin detector behaviour + ci lint-job wiring`
   6. `feat(scripts): add check_mutation_sites.py AST site counter with shrink-only baseline`
   7. `test(check-mutation-sites): pin detector behaviour + ci lint-job wiring`
-  8. `chore(coverage): exclude app/core/insforge.py from [tool.coverage.run] omit (REQ-QG-ADAPT-1)`
+  8. `chore(coverage): exclude app/core/local_backend.py from [tool.coverage.run] omit (REQ-QG-ADAPT-1)`
   9. `test(coverage): pin adapter exclusion in test_ci_workflow.py`
   10. `docs(agents): §23 explicit QA-through-UI only sentence (per §17.3 feature-branch flow)`
   11. `test(agents): pin §23 literal phrase via tests/test_agents_md_section_23.py`

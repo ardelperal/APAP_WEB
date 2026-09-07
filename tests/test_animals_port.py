@@ -7,7 +7,7 @@ from app.modules.animals.adapters.stubs.animals_stub import (
 from app.modules.animals.ports.animals_port import AnimalsPort
 
 
-def test_insforge_adapter_satisfies_animals_port_protocol() -> None:
+def test_local_backend_adapter_satisfies_animals_port_protocol() -> None:
     """The concrete adapter must satisfy the :class:`AnimalsPort` Protocol.
 
     This is the structural check the slice-completeness gate looks

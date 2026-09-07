@@ -64,7 +64,7 @@ Toda UI visible MUST usar castellano de España claro, orientado a tareas, y MUS
 
 - GIVEN se renderizan home, login, no autorizado y admin
 - WHEN se inspecciona el texto visible
-- THEN no aparece lenguaje de migración, Access, FastAPI, HTMX, InsForge, interno ni nombres técnicos
+- THEN no aparece lenguaje de migración, Access, FastAPI, HTMX, LocalBackend, interno ni nombres técnicos
 
 ### Requirement: Componentes y accesibilidad base
 

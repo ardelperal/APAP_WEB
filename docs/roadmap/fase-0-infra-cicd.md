@@ -2,11 +2,11 @@
 
 # Fase 0 — Infraestructura y CI/CD
 
-Esta página posee el estado y los gates de la Fase 0: repositorio sano, CI verde, deploy automatizado a Coolify + InsForge. Fase cerrada. El detalle vivo de cada gate vive en su PR o SDD enlazado.
+Esta página posee el estado y los gates de la Fase 0: repositorio sano, CI verde, deploy automatizado a Coolify + LocalBackend. Fase cerrada. El detalle vivo de cada gate vive en su PR o SDD enlazado.
 
 ## Estado
 
-cerrado — CI local verde, GitHub Actions verde, deploy automático a Coolify verificado, InsForge configurado. Pendiente solo lo no automatizable: crear el registro DNS de `apap.romancaba.com` y activar branch protection en la UI de GitHub.
+cerrado — CI local verde, GitHub Actions verde, deploy automático a Coolify verificado, LocalBackend configurado. Pendiente solo lo no automatizable: crear el registro DNS de `apap.romancaba.com` y activar branch protection en la UI de GitHub.
 
 ## Slices
 
@@ -24,12 +24,12 @@ cerrado — CI local verde, GitHub Actions verde, deploy automático a Coolify v
 Antes del primer deploy real, el mantenedor debe:
 
 1. Crear el registro DNS A de `apap.romancaba.com` apuntando al servidor Coolify.
-2. Verificar que el redirect URI registrado en Google Cloud Console / InsForge shared OAuth es `https://apap.romancaba.com/auth/callback`.
+2. Verificar que el redirect URI registrado en Google Cloud Console / LocalBackend shared OAuth es `https://apap.romancaba.com/auth/callback`.
 3. Activar branch protection en la UI de GitHub según `.github/branch-protection.md`.
 
 ## Decisiones relacionadas
 
-- [d-20-stack-fastapi-htmx-insforge.md](../architecture/decisiones/d-20-stack-fastapi-htmx-insforge.md) — stack base de la Fase 0.
+- [d-20-stack-fastapi-htmx-local_backend.md](../architecture/decisiones/d-20-stack-fastapi-htmx-local_backend.md) — stack base de la Fase 0.
 - [d-30-pre-mvp-single-branch.md](../architecture/decisiones/d-30-pre-mvp-single-branch.md) — todo a `main`, sin promoción a `staging`.
 - [d-34-conventional-commits.md](../architecture/decisiones/d-34-conventional-commits.md) — mensajes de commit.
 - [d-38-stagingonly-unset.md](../architecture/decisiones/d-38-stagingonly-unset.md) — `git config gentleai.stagingOnly` está `unset` en este repo.
@@ -37,7 +37,7 @@ Antes del primer deploy real, el mantenedor debe:
 ## Documentación de referencia
 
 - [docs/setup.md](../setup.md) — setup por desarrollador.
-- [docs/architecture/architecture-insforge-stack.md](../architecture/architecture-insforge-stack.md) — decisiones de stack (a traducir al castellano; ver [transversales.md § Dev workflow](transversales.md)).
+- [docs/architecture/architecture-local_backend-stack.md](../architecture/architecture-local_backend-stack.md) — decisiones de stack (a traducir al castellano; ver [transversales.md § Dev workflow](transversales.md)).
 - `openspec/changes/ci-cd-foundation/` — propuesta, diseño, tareas, spec, apply-progress.
 
 ## Core invariants
@@ -48,7 +48,7 @@ Antes del primer deploy real, el mantenedor debe:
 
 ## Contributor checklist
 
-- [ ] Si un nuevo gate CI/CD entra en producción, actualice esta página y cruce referencia con [docs/architecture/architecture-insforge-stack.md](../architecture/architecture-insforge-stack.md).
+- [ ] Si un nuevo gate CI/CD entra en producción, actualice esta página y cruce referencia con [docs/architecture/architecture-local_backend-stack.md](../architecture/architecture-local_backend-stack.md).
 - [ ] Si crea el DNS o activa branch protection, retire los pendientes de "no automatizable" en la misma PR.
 - [ ] Si añade un paso al job `deploy`, pinee la condición en `tests/test_ci_workflow.py` (§32.P7).
 - [ ] Si un secret nuevo entra en `Settings`, siga §32.P2: pydantic falla o el lifespan rehúsa servir.

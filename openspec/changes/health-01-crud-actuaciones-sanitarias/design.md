@@ -140,7 +140,7 @@ def search_actuaciones_by_animal(client, animal_id: str) -> list[ActuacionSanita
 
 Mapeo de errores:
 - `ValueError` → 422 con form re-rendered (mismo patrón que adopciones).
-- `InsForgeError` → 422 con form re-rendered.
+- `BackendError` → 422 con form re-rendered.
 - Id inexistente en detail/update/delete → 404.
 
 CSRF: 3 forms (new, edit, delete) llevan `<input type="hidden" name="csrf_token" value="{{ csrf_token }}">` (regla §10).

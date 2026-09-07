@@ -44,7 +44,7 @@ Registro canónico de decisiones de producto, UX, arquitectura y proceso. Cada d
 
 | ID | Decisión | Status | ADR |
 |---|---|---|---|
-| D-20 | Stack base: FastAPI + HTMX + Jinja2 + InsForge | aceptado | [d-20](decisiones/d-20-stack-fastapi-htmx-insforge.md) |
+| D-20 | Stack base: FastAPI + HTMX + Jinja2 + LocalBackend | aceptado | [d-20](decisiones/d-20-stack-fastapi-htmx-local_backend.md) |
 | D-21 | CodeGraph es el read path principal | aceptado | [d-21](decisiones/d-21-codegraph-read-path.md) |
 | D-24 | Regla de validación de fechas en actuaciones sanitarias | aceptado | [d-24](decisiones/d-24-validacion-fechas-sanidad.md) |
 | D-25 | Librería de fuzzy match: rapidfuzz (no thefuzz) | aceptado | [d-25](decisiones/d-25-rapidfuzz-fuzzy-match.md) |
@@ -100,4 +100,4 @@ Capacidades heredadas del comportamiento del Access legacy, en `docs/legacy-*.md
 
 ## Navigation
 
-Previous: [Arquitectura InsForge](architecture-insforge-stack.md) | Next: [Capas y slices](capas-y-slices.md)
+Previous: [Arquitectura LocalBackend](architecture-local_backend-stack.md) | Next: [Capas y slices](capas-y-slices.md)

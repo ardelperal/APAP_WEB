@@ -82,7 +82,7 @@ class TestAssignRoleAdapterErrors:
         with pytest.raises(UniqueViolationError):
             _assign_role(port, "v-1", "intake")
 
-    def test_insforge_error_propagates(self) -> None:
+    def test_backend_error_propagates(self) -> None:
         port = _FakeVoluntariosPort(error=RuntimeError("network"))
         with pytest.raises(RuntimeError):
             _assign_role(port, "v-1", "intake")

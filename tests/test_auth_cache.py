@@ -5,7 +5,7 @@ revalidation added for issue #143. The cookie signs the IDENTITY (stable,
 7 days); the DB is the source of truth for AUTHORIZATION and is
 re-validated per request, with a short TTL cache to bound query load.
 
-These are pure unit tests: no Access, no InsForge, no FastAPI. They pin
+These are pure unit tests: no Access, no LocalBackend, no FastAPI. They pin
 the cache contract (store / hit-within-ttl / miss-when-expired /
 invalidate-one / invalidate-all / thread-safety) independently of the
 dependency that consumes it (``require_authorized_user``), whose

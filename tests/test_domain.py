@@ -8,11 +8,11 @@ the SQL strings, which keeps the test honest about what the code intends
 to create.
 
 The schema is the **migration target** of the legacy Microsoft Access
-production database (issue #29). Field names use the lowercase InsForge
+production database (issue #29). Field names use the lowercase LocalBackend
 production spelling (nchip, nombreanimal, fimplantacionchip,
 fnacimiento, fdefuncion, etc.) — the legacy CamelCase columns were
 renamed at the migration seam (commit ``c30ef13 fix(domain): lowercase
-column names to match InsForge production schema``) and the test
+column names to match LocalBackend production schema``) and the test
 follows the lowercase contract. The ``situacion`` legacy column is
 intentionally absent because it is derived.
 """
@@ -65,7 +65,7 @@ def _client_recording(handler) -> tuple[LocalPostgresExecutor, list[dict[str, An
         return handler(request, body)
 
     client = LocalPostgresExecutor(
-        base_url="https://example.insforge.app",
+        base_url="https://example.local_backend.app",
         service_key="ik_test",
         transport=httpx.MockTransport(_recording_handler),
     )
@@ -156,7 +156,7 @@ def test_animales_create_table_sql_has_all_legacy_columns() -> None:
     C:\\00repos\\codigo\\APAP_ACTUAL\\Registro_APAP_Alcala_datos_18.accdb
     on 2026-06-19. The 26 legacy columns are renamed to lowercase at the
     migration seam (commit ``c30ef13 fix(domain): lowercase column names
-    to match InsForge production schema``):
+    to match LocalBackend production schema``):
     nchip, traenchip, fimplantacionchip, nombreanimal, especie, sexo,
     raza, color, pelo, tamano, caracter, fnacimiento,
     fdefuncion, terapia, observaciones, situacion (REMOVED — derived),
@@ -328,7 +328,7 @@ def test_ensure_domain_schema_raises_when_create_table_fails() -> None:
         return _json_response(500, {"error": "boom"})
 
     client = LocalPostgresExecutor(
-        base_url="https://example.insforge.app",
+        base_url="https://example.local_backend.app",
         service_key="ik_test",
         transport=httpx.MockTransport(handler),
     )
@@ -908,7 +908,7 @@ def test_animal_lifecycle_events_natural_key_unique_constraint() -> None:
 # natural key + 2 query-shape indices) and is append-only at the SQL
 # level (UPDATE/DELETE rejected via BEFORE-trigger). Both are emitted
 # AFTER the CREATE TABLE so a fresh backend that runs the bootstrap
-# from an empty InsForge database reaches a fully-armed event log.
+# from an empty LocalBackend database reaches a fully-armed event log.
 
 
 def test_animal_lifecycle_events_has_animal_timestamp_index() -> None:

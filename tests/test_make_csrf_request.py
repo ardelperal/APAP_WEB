@@ -13,7 +13,7 @@ from tests.conftest import auth_reval_rows, make_csrf_request
 
 
 class _PassThroughSpy:
-    """InsForge stand-in that returns plausible data so the handler completes."""
+    """LocalBackend stand-in that returns plausible data so the handler completes."""
 
     def execute_sql(self, query: str, params: Any = None):  # type: ignore[no-untyped-def]
         _reval = auth_reval_rows(query, params)

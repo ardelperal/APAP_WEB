@@ -7,9 +7,9 @@ a 500. The generic ``@app.exception_handler(Exception)`` registered in
 with ``log_safe`` observability.
 
 This test replaces the slice-level tests that used to live at
-``tests/test_insforge_error_handler.py`` and
-``tests/test_slice_insforge_error_handler.py`` (deleted in #662 with
-the rest of the InsForge error-handler slice).
+``tests/test_local_backend_error_handler.py`` and
+``tests/test_slice_local_backend_error_handler.py`` (deleted in #662 with
+the rest of the LocalBackend error-handler slice).
 """
 
 from __future__ import annotations

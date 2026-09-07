@@ -19,7 +19,7 @@ Source analysis of `unclebob/swarm-forge` (Engram observation **#24073**, topic 
 | 3 | Property-based testing | `hypothesis` | `tests/property/` + first targets = `_row_to_*` helpers |
 | 4 | Formal DRY detection | `jscpd` | new `scripts/check_jscpd.py` (mirrors §21) |
 | 5 | Mutation-sites count pre-PR | AST/scan counter | new `scripts/check_mutation_sites.py` |
-| Bonus A | Adapter exclusion from coverage floor | `pyproject.toml` + `ci.yml` | `app/core/insforge.py` excluded from `fail_under` |
+| Bonus A | Adapter exclusion from coverage floor | `pyproject.toml` + `ci.yml` | `app/core/local_backend.py` excluded from `fail_under` |
 | Bonus B | "QA-through-UI only" explicit in §23 | AGENTS.md text clarification | feature branch + PR (per §17.3) |
 | Hooks | Pre-commit (advisory) + Pre-push (advisory) | git hooks | touches `git-hooks/` (per §15.5; user OK granted this session) |
 

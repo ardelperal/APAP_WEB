@@ -1,4 +1,4 @@
-"""Strict TDD tests for the PR4a InsForge storage contract spike.
+"""Strict TDD tests for the PR4a LocalBackend storage contract spike.
 
 The spike is intentionally read-only. These tests pin the operator-safe
 contract before PR4b adds any media upload/download implementation.
@@ -75,7 +75,7 @@ def _happy_transport(calls: list[tuple[str, str, str | None]]) -> httpx.MockTran
 
 def _config() -> StorageProbeConfig:
     return StorageProbeConfig(
-        base_url="https://example.insforge.app",
+        base_url="https://example.local_backend.app",
         service_key=SERVICE_KEY,
         storage_path=SAFE_SENTINEL_PATH,
     )
@@ -227,8 +227,8 @@ def test_cli_loads_credentials_from_settings_loader_without_echoing_secrets(
             load_events.append("load")
 
             class LoadedSettings:
-                insforge_url = "https://example.insforge.app"
-                insforge_service_key = SERVICE_KEY
+                local_backend_url = "https://example.local_backend.app"
+                local_backend_service_key = SERVICE_KEY
 
             return LoadedSettings()
 
@@ -303,7 +303,7 @@ def test_mutation_methods_are_refused_before_network_and_405_is_categorized() ->
         return _json_response(500, {"error": "mutation reached server"})
 
     with ReadOnlyProbeHttpClient(
-        base_url="https://example.insforge.app",
+        base_url="https://example.local_backend.app",
         service_key=SERVICE_KEY,
         transport=httpx.MockTransport(mutation_handler),
     ) as client:
@@ -368,7 +368,7 @@ def test_network_timeout_fails_closed_without_leaking_exception_url() -> None:
 
     def handler(_request: httpx.Request) -> httpx.Response:
         raise httpx.TimeoutException(
-            "timed out while contacting https://example.insforge.app/secret?token=abc"
+            "timed out while contacting https://example.local_backend.app/secret?token=abc"
         )
 
     result = probe_download_strategy(
@@ -382,7 +382,7 @@ def test_network_timeout_fails_closed_without_leaking_exception_url() -> None:
     assert evidence["pr4b_gate"] == "BLOCKED"
     assert "token=abc" not in serialized
     assert "secret" not in serialized
-    assert "example.insforge.app" not in serialized
+    assert "example.local_backend.app" not in serialized
 
 
 def test_cli_without_credentials_writes_blocked_document_without_network(
@@ -417,7 +417,7 @@ def test_cli_without_credentials_writes_blocked_document_without_network(
     assert payload["status"] == "missing_credentials"
     assert payload["pr4b_gate"] == "BLOCKED"
     assert "Verdict: BLOCKED" in text
-    assert "Live probe did not run: missing APAP_INSFORGE_URL/APAP_INSFORGE_SERVICE_KEY" in text
+    assert "Live probe did not run: missing APAP_LOCAL_BACKEND_URL/APAP_INSFORGE_SERVICE_KEY" in text
     assert network_calls == []
 
 

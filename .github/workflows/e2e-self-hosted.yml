@@ -64,7 +64,7 @@ jobs:
       - name: Install Playwright chromium browser
         run: python -m playwright install --with-deps chromium
 
-      - name: Start APAP_WEB server (no lifespan, no InsForge)
+      - name: Start APAP_WEB server (no lifespan, no LocalBackend bootstrap)
         run: |
           python scripts/dev_server_no_lifespan.py &
           SERVER_PID=$!

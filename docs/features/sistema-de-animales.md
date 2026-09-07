@@ -44,7 +44,7 @@
 ## 1. Alcance
 
 Esta feature cubre la definición del schema SQL de la tabla `animales`
-en InsForge, su creación idempotente en el startup de la app, y el
+en LocalBackend, su creación idempotente en el startup de la app, y el
 contrato de la función de bootstrap.
 
 **Incluye:**
@@ -72,7 +72,7 @@ contrato de la función de bootstrap.
 
 ## 2. Criterios de aceptación
 
-- La tabla `animales` existe en el InsForge de produccion con el
+- La tabla `animales` existe en el LocalBackend de produccion con el
   schema definido en `app/core/domain.py::ANIMALS_CREATE_TABLE_SQL`.
 - Las 24 columnas del legacy `TbFichaAnimal` (inspeccionadas via
   Dysflow contra
@@ -168,7 +168,7 @@ herramienta externa debe usar esta constante como referencia.
 ### 4.3 Funcion de bootstrap
 
 ```python
-def ensure_domain_schema(client: InsForgeClient) -> None:
+def ensure_domain_schema(client: LocalBackendClient) -> None:
     """Create the domain tables (idempotent) in dependency order."""
     client.execute_sql(ANIMALS_CREATE_TABLE_SQL)
     client.execute_sql(VOLUNTARIOS_CREATE_TABLE_SQL)
@@ -187,7 +187,7 @@ En `app/main.py::lifespan`:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     settings = config_module.get_settings()
-    client = InsForgeClient(settings.insforge_url, settings.insforge_service_key)
+    client = LocalBackendClient(settings.local_backend_url, settings.local_backend_service_key)
     try:
         ensure_schema_and_seed(client, settings)
         ensure_domain_schema(client)
@@ -196,7 +196,7 @@ async def lifespan(_: FastAPI):
     yield
 ```
 
-El lifespan falla rapido si InsForge no responde. El deploy de
+El lifespan falla rapido si LocalBackend no responde. El deploy de
 Coolify se marca como rojo y el operador es notificado. Preferimos
 eso a arrancar la app y que el primer request 500.
 
@@ -270,7 +270,7 @@ rutas. No existe una suite del servicio legacy porque ese shim se retiró.
 |---|---|
 | `tests/test_animals_domain.py` | Entidades y enums de dominio. |
 | `tests/test_animals_application_*.py` | Validación y delegación de los casos de uso. |
-| `tests/test_animals_insforge_adapter.py` | SQL, mapeos, chip y foto del adaptador. |
+| `tests/test_animals_local_backend_adapter.py` | SQL, mapeos, chip y foto del adaptador. |
 | `tests/test_animals_routes.py` | Traducción HTTP y delegación a `AnimalsPort`. |
 | `tests/test_animals_foto_route.py` | Streaming, placeholder y cierre del recurso. |
 
@@ -290,11 +290,11 @@ rutas. No existe una suite del servicio legacy porque ese shim se retiró.
 | `test_roles_voluntario_has_unique_voluntario_rol_pair` | El UNIQUE (voluntario_id, tipo_rol) esta presente. |
 | `test_ensure_domain_schema_creates_all_three_tables` | La funcion ejecuta los 3 CREATE TABLE. |
 | `test_ensure_domain_schema_order_is_animales_then_voluntarios_then_roles` | El orden es el correcto (animales, voluntarios, roles_voluntario). |
-| `test_ensure_domain_schema_raises_when_create_table_fails` | Si InsForge devuelve error, la excepcion se propaga. |
+| `test_ensure_domain_schema_raises_when_create_table_fails` | Si LocalBackend devuelve error, la excepcion se propaga. |
 
 **Test E2E (Dysflow contra prod):** se verifica vía
 `get-table-schema` que las 28 columnas existen en el schema real de
-InsForge con los nombres correctos (lowercase por convencion de
+LocalBackend con los nombres correctos (lowercase por convencion de
 Postgres, pero el SQL los mantiene en CamelCase). Verificado el
 2026-06-19.
 
@@ -414,7 +414,7 @@ LIFECYCLE-SCHEMA-02, pendiente.)
 ## 10. Referencias
 
 - `app/core/domain.py` — SQL constants y funcion `ensure_domain_schema`.
-- `app/core/insforge.py` — cliente REST de InsForge.
+- `app/core/local_backend.py` — cliente REST de LocalBackend.
 - `app/main.py::lifespan` — cableado del bootstrap en startup.
 - `tests/test_domain.py` — 15 tests del schema.
 - `C:\00repos\codigo\APAP_ACTUAL\Registro_APAP_Alcala_datos_18.accdb`

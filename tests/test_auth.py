@@ -36,7 +36,7 @@ def _json_response(status_code: int, body: Any) -> httpx.Response:
 
 def _client(handler) -> LocalPostgresExecutor:
     return LocalPostgresExecutor(
-        base_url="https://example.insforge.app",
+        base_url="https://example.local_backend.app",
         service_key="ik_test",
         transport=httpx.MockTransport(handler),
     )
@@ -46,9 +46,9 @@ def _settings(**overrides) -> Settings:
     base = dict(
         app_name="APAP_WEB",
         version="0.1.0",
-        insforge_url="https://example.insforge.app",
-        insforge_anon_key="",
-        insforge_service_key="ik_test",
+        local_backend_url="https://example.local_backend.app",
+        local_backend_anon_key="",
+        local_backend_service_key="ik_test",
         google_client_id="",
         google_client_secret="",
         google_redirect_uri="http://127.0.0.1:8000/auth/callback",
@@ -448,11 +448,11 @@ def test_add_authorized_user_rejects_duplicate_normalized_email_precheck() -> No
     assert "maria@lopez.com" in captured["body"]["params"]
 
 
-def test_add_authorized_user_rejects_duplicate_via_insforge_error() -> None:
+def test_add_authorized_user_rejects_duplicate_via_backend_error() -> None:
     """When the pre-check passes but INSERT 23505s, raise ValueError.
 
     The handler returns a 409 with the Postgres ``23505`` SQLSTATE the
-    way the real InsForge gateway does; ``LocalPostgresExecutor.execute_sql``
+    way the real LocalBackend gateway does; ``LocalPostgresExecutor.execute_sql``
     translates it to :class:`~app.core.data_access.UniqueViolationError`
     (a :class:`~app.core.data_access.DuplicateKeyError` subclass) so
     the service catches the Protocol-level error without inspecting

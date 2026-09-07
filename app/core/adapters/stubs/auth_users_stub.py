@@ -1,6 +1,6 @@
 """Stub adapter for ``AuthUsersPort`` — pending local-backend implementation.
 
-This file replaces the deleted :class:`app.core.adapters.insforge.auth_insforge_adapter.InsForgeAuthUsersAdapter`.
+This file replaces the deleted :class:`app.core.adapters.local_backend.auth_local_backend_adapter.LocalBackendAuthUsersAdapter`.
 A real :class:`~app.core.local_backend.db.LocalPostgresExecutor`-backed
 adapter lands in a follow-up slice; until then, every method raises
 :class:`NotImplementedError` so the runtime fails loud per route.

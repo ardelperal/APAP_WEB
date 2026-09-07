@@ -24,7 +24,7 @@ from migration.apply import (
     _strip_accents,
     _VoluntariosIndex,
 )
-from tests.migration.conftest import FakeInsForge
+from tests.migration.conftest import FakeSqlExecutor
 
 # ---------------------------------------------------------------------------
 # Helpers: pure functions (no I/O)
@@ -58,8 +58,8 @@ class TestStripAccents:
 
 
 class TestVoluntariosIndex:
-    def _make_fake_client(self, volontarios: list[dict[str, Any]]) -> FakeInsForge:
-        client = FakeInsForge()
+    def _make_fake_client(self, volontarios: list[dict[str, Any]]) -> FakeSqlExecutor:
+        client = FakeSqlExecutor()
         client.seed("volontarios", volontarios)
         return client
 
@@ -153,8 +153,8 @@ class TestResolveFkValue:
         self,
         volontarios: list[dict[str, Any]] | None = None,
         animales: list[dict[str, Any]] | None = None,
-    ) -> FakeInsForge:
-        client = FakeInsForge()
+    ) -> FakeSqlExecutor:
+        client = FakeSqlExecutor()
         if volontarios:
             client.seed("volontarios", volontarios)
         if animales:
@@ -301,7 +301,7 @@ class TestLegacyToWebRowFk:
 
     def test_fk_column_resolved_exact(self) -> None:
         """animal_id is resolved via exact lookup on NCHIP."""
-        client = FakeInsForge()
+        client = FakeSqlExecutor()
         client.seed("animales", [{"id": "a-1", "nchip": "X1"}])
         client.seed("volontarios", [])
 
@@ -319,7 +319,7 @@ class TestLegacyToWebRowFk:
 
     def test_voluntario_fk_resolved_fuzzy(self) -> None:
         """voluntario_acogida_id uses fuzzy match when exact misses."""
-        client = FakeInsForge()
+        client = FakeSqlExecutor()
         client.seed("animales", [{"id": "a-1", "nchip": "X1"}])
         client.seed(
             "volontarios",
@@ -362,7 +362,7 @@ class TestLegacyToWebRowFk:
 
     def test_voluntario_fk_unmatched_optional_returns_none(self) -> None:
         """Unknown volontario with optional=True resolves to None."""
-        client = FakeInsForge()
+        client = FakeSqlExecutor()
         client.seed("animales", [{"id": "a-1", "nchip": "X1"}])
         client.seed("voluntarios", [{"id": "v-1", "voluntario": "Ana Garcia", "activo": True}])
 
@@ -408,7 +408,7 @@ class TestLegacyToWebRowFk:
 class TestApplyAcogidaVoluntarioFk:
     """End-to-end tests: apply acogecha rows with volontario FK columns.
 
-    Uses the ``apply_runner`` fixture which wires a FakeInsForge and
+    Uses the ``apply_runner`` fixture which wires a FakeSqlExecutor and
     injects the Dysflow executor seam.
     """
 
@@ -426,7 +426,7 @@ class TestApplyAcogidaVoluntarioFk:
             seed={
                 "animales": [{"id": "a-1", "nchip": "X1", "activo": True}],
                 "volontarios": [{"id": "v-1", "voluntario": "Ana Garcia", "activo": True}],
-                # Seed acogidas so FakeInsForge knows about the FK columns.
+                # Seed acogidas so FakeSqlExecutor knows about the FK columns.
                 "acogidas": [
                     {"id": "placeholder", "fecha_inicio": "", "animal_id": "", "voluntario_acogida_id": ""}
                 ],

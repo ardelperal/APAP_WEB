@@ -44,7 +44,7 @@ and `gh` CLI on a workstation. No application code is touched.
   ``main`` commit. ``:latest`` is forbidden by the yaml contract.
 - **Self-host is irreversible from this runbook's perspective**: the
   container runs ``APAP_LOCAL_BACKEND=true`` and there is no operator
-  path to fall back to InsForge. Rollback = roll back the image tag.
+  path to fall back to LocalBackend. Rollback = roll back the image tag.
 - **``APAP_SESSION_SECRET`` rotation invalidates every active session**:
   every operator must re-login. Coordinate the rotation for a low-
   traffic window.

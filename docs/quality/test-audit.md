@@ -8,10 +8,10 @@
 - **Total test files**: ~265 (`tests/test_*.py` ≈ 208 + `tests/integration/` 5 + `tests/migration/` 25 + `tests/e2e/` 27)
 - **Classification breakdown**:
   - **Unit** (pure builders / domain / application-layer stubs): ~95 files — fast, deterministic, no transport.
-  - **Service-layer unit w/ httpx.MockTransport** (real `InsForgeClient` over an in-process `httpx.MockTransport`): ~25 files — deterministic, fast, asserts SQL wire-shape, not real DB behaviour.
+  - **Service-layer unit w/ httpx.MockTransport** (real `LocalBackendClient` over an in-process `httpx.MockTransport`): ~25 files — deterministic, fast, asserts SQL wire-shape, not real DB behaviour.
   - **Route integration (in-process ASGI)** (httpx ASGITransport + a `_NoSqlRouteClient` / `_AnimalsRouteSpy`): ~25 files — gates "no SQL in routes" + auth/CSRF contract; mocked SQL.
   - **Integration (real Postgres)**: 5 files under `tests/integration/`, excluded by default — exercised in a dedicated CI job via `APAP_TEST_POSTGRES_DSN`.
-  - **Migration ETL (FakeInsForge + Dysflow executor seam)**: ~25 files under `tests/migration/` — run in default suite, hermetic.
+  - **Migration ETL (FakeLocalBackend + Dysflow executor seam)**: ~25 files under `tests/migration/` — run in default suite, hermetic.
   - **E2E (Playwright)**: ~27 files under `tests/e2e/` — excluded by default, exercised in dedicated CI job.
   - **Meta / process / rule tests** (~70 files): test the linter, the layer-checker, coverage gate, the docstring gate, ruff ratchet, branch-name policy, etc.
 - **Determinism**: ~99 % deterministic. No real-time-of-day, no `time.sleep`, no shared global state.
@@ -33,13 +33,13 @@
 | `tests/conftest.py` | fixture | default spy + auth-reval seam | yes | fast | keep — already a multi-purpose seam; doc the `auth_reval_rows` contract more visibly |
 | `tests/integration/__init__.py`, `tests/migration/__init__.py` | n/a | – | – | – | keep |
 | `tests/integration/conftest.py` | fixture | real Postgres ephemeral schema | yes (modulo CI) | medium | keep — **only** place that exercises real SQL semantics |
-| `tests/migration/conftest.py` | fixture + `FakeInsForge` | fake InsForge + Dysflow executor | yes | fast | keep |
+| `tests/migration/conftest.py` | fixture + `FakeLocalBackend` | fake LocalBackend + Dysflow executor | yes | fast | keep |
 | `tests/e2e/conftest.py` | fixture | Playwright browser; live server | yes (modulo network) | slow | keep |
 | `tests/test_acogidas.py` | service unit | `httpx.MockTransport` | yes | fast | keep |
 | `tests/test_acogidas_detail.py` | service unit | `httpx.MockTransport` | yes | fast | keep |
 | `tests/test_acogidas_lifecycle_events.py` | service unit w/ `FakeSqlExecutor` | fake `SqlExecutor` | yes | fast | keep |
 | `tests/test_acogidas_queries.py` | builder unit | none (pure functions) | yes | fast | keep |
-| `tests/test_acogidas_routes.py` | route integration | `_NoSqlRouteClient` spy + `_DefaultInsForgeSpy` from conftest | yes | fast | keep |
+| `tests/test_acogidas_routes.py` | route integration | `_NoSqlRouteClient` spy + `_DefaultLocalBackendSpy` from conftest | yes | fast | keep |
 | `tests/test_admin.py` | route integration | reval-only spy | yes | fast | keep |
 | `tests/test_admin_handler_sync.py` | route unit | n/a | yes | fast | keep |
 | `tests/test_admin_slice.py` | route unit | n/a | yes | fast | keep |
@@ -64,7 +64,7 @@
 | `tests/test_animals_application_update_animal.py` | application | `_StubPort` | yes | fast | keep |
 | `tests/test_animals_domain.py` | domain unit | none | yes | fast | keep |
 | `tests/test_animals_foto_route.py` | route integration | spy | yes | fast | keep |
-| `tests/test_animals_insforge_adapter.py` | adapter unit | `_FakeClient` / `_SequencedFakeClient` / `_FakePhotoClient` | yes | fast | keep |
+| `tests/test_animals_local_backend_adapter.py` | adapter unit | `_FakeClient` / `_SequencedFakeClient` / `_FakePhotoClient` | yes | fast | keep |
 | `tests/test_animals_port.py` | port unit | stub | yes | fast | keep |
 | `tests/test_animals_public_api.py` | route integration | spy | yes | fast | keep — extend with rate-limit assertion |
 | `tests/test_animals_routes.py` | route integration | `_AnimalsRouteSpy` | yes | fast | keep |
@@ -76,7 +76,7 @@
 | `tests/test_auth_cache_backend.py` | unit | none | yes | fast | keep |
 | `tests/test_auth_dependencies.py` | dependency unit | none | yes | fast | keep |
 | `tests/test_auth_dependencies_slice.py` | meta | none | yes | fast | keep |
-| `tests/test_auth_flow.py` | route integration | `_FakeInsForge` (in-process) | yes | fast | keep — OAuth endpoint faked, real `accounts.google.com` not exercised |
+| `tests/test_auth_flow.py` | route integration | `_FakeLocalBackend` (in-process) | yes | fast | keep — OAuth endpoint faked, real `accounts.google.com` not exercised |
 | `tests/test_auth_helpers.py` | unit | none | yes | fast | keep |
 | `tests/test_auth_session_is_authorized.py` | unit | none | yes | fast | keep |
 | `tests/test_catalogos_slice.py` | meta | none | yes | fast | keep |
@@ -112,7 +112,7 @@
 | `tests/test_dockerfile.py` | meta | n/a | yes | fast | keep |
 | `tests/test_docstring_coverage.py` | meta | n/a | yes | fast | keep |
 | `tests/test_domain.py`, `tests/test_domain_*.py` | domain unit | none / pure functions | yes | fast | keep |
-| `tests/test_e2e_auth.py` | route integration (in-process) | `_FakeInsForge` | yes | fast | keep |
+| `tests/test_e2e_auth.py` | route integration (in-process) | `_FakeLocalBackend` | yes | fast | keep |
 | `tests/test_entradas.py` | service unit | `httpx.MockTransport` | yes | fast | keep |
 | `tests/test_entradas_batch.py` | service unit | `httpx.MockTransport` w/ staged handler | yes | fast | keep |
 | `tests/test_entradas_batch_routes.py` | route integration | spy | yes | fast | keep |
@@ -129,8 +129,8 @@
 | `tests/test_git_hooks.py` | meta | subprocess | yes | medium | keep |
 | `tests/test_health_catalog.py` | meta | n/a | yes | fast | keep |
 | `tests/test_import_cycles.py` | meta | n/a | yes | fast | keep |
-| `tests/test_insforge.py` | client unit | `httpx.MockTransport` | yes | fast | keep |
-| `tests/test_insforge_error_handler.py` | unit | none | yes | fast | keep |
+| `tests/test_local_backend.py` | client unit | `httpx.MockTransport` | yes | fast | keep |
+| `tests/test_local_backend_error_handler.py` | unit | none | yes | fast | keep |
 | `tests/test_layers.py` | meta | filesystem scan | yes | fast | keep |
 | `tests/test_lifecycle_*.py` (8 files) | service unit | `FakeSqlExecutor` | yes | fast | keep — **add** integration atom for the append-only trigger |
 | `tests/test_lifespan.py` | boot unit | spy | yes | fast | keep |
@@ -143,7 +143,7 @@
 | `tests/test_materiales_service_split.py` | meta | n/a | yes | fast | keep |
 | `tests/test_measure_mutation_parallelism.py` | meta | n/a | yes | fast | keep |
 | `tests/test_middleware.py`, `test_middleware_*.py`, `test_security_headers_middleware.py`, `test_rate_limit_middleware.py` | middleware unit / route integration | spy | yes | fast | keep |
-| `tests/test_migration.py`, `test_migration_004.py`, `test_migration_boundaries.py`, `test_migration_cli.py` | migration unit | `FakeInsForge` / Dysflow seam | yes | fast | keep |
+| `tests/test_migration.py`, `test_migration_004.py`, `test_migration_boundaries.py`, `test_migration_cli.py` | migration unit | `FakeLocalBackend` / Dysflow seam | yes | fast | keep |
 | `tests/test_module_size.py`, `test_route_size.py`, `test_route_layer_coverage.py`, `test_routes_registry.py` | meta (AST scan) | n/a | yes | fast | keep |
 | `tests/test_oauth_slice.py` | route integration | fake | yes | fast | keep |
 | `tests/test_packaging.py`, `test_pr_size.py`, `test_pr4b_artifact_atom_counts.py` | meta | n/a | yes | fast | keep |
@@ -152,9 +152,9 @@
 | `tests/test_pii_audit_doc.py` | meta (doc scan) | n/a | yes | fast | keep |
 | `tests/test_public_paths.py` | route integration | reval spy | yes | fast | keep |
 | `tests/test_rbac.py`, `test_roles_enum.py` | unit | none | yes | fast | keep |
-| `tests/test_reconcile.py`, `test_reconcile_pr5_followups.py` | migration unit | `FakeInsForge` | yes | fast | keep |
+| `tests/test_reconcile.py`, `test_reconcile_pr5_followups.py` | migration unit | `FakeLocalBackend` | yes | fast | keep |
 | `tests/test_repository_secrets_ignore.py` | meta | n/a | yes | fast | keep |
-| `tests/test_roundtrip.py` | migration unit | `FakeInsForge` + injected executor | yes | fast | keep |
+| `tests/test_roundtrip.py` | migration unit | `FakeLocalBackend` + injected executor | yes | fast | keep |
 | `tests/test_ruff_apap001.py`, `test_ruff_ratchet.py` | meta | n/a | yes | fast | keep |
 | `tests/test_rule_7_compliance.py` | meta | n/a | yes | fast | keep |
 | `tests/test_runbook_links.py` | meta (doc scan) | n/a | yes | fast | keep |
@@ -164,8 +164,8 @@
 | `tests/test_security_scanning.py` | meta (workflow scan) | n/a | yes | fast | keep |
 | `tests/test_semantic_events.py` | service unit | `FakeSqlExecutor` | yes | fast | keep |
 | `tests/test_session.py`, `test_session_rotation.py` | unit | none | yes | fast | keep |
-| `tests/test_shadow_state.py` | migration unit | `FakeInsForge` | yes | fast | keep |
-| `tests/test_slice_completeness.py`, `test_slice_insforge_error_handler.py`, `tests/test_catalogos_slice.py`, `tests/test_admin_slice.py`, `tests/test_layers.py` | meta | n/a | yes | fast | keep |
+| `tests/test_shadow_state.py` | migration unit | `FakeLocalBackend` | yes | fast | keep |
+| `tests/test_slice_completeness.py`, `test_slice_local_backend_error_handler.py`, `tests/test_catalogos_slice.py`, `tests/test_admin_slice.py`, `tests/test_layers.py` | meta | n/a | yes | fast | keep |
 | `tests/test_smoke.py` | unit | none | yes | fast | keep (deprecation-warning guard) |
 | `tests/test_sql_executor_protocol.py`, `test_sql_runner.py` | unit | none | yes | fast | keep |
 | `tests/test_startup_config_validation.py` | config unit | env | yes | fast | keep |
@@ -173,39 +173,39 @@
 | `tests/test_template_migration.py`, `tests/test_template_selection.py` | meta (template scan) | n/a | yes | fast | keep |
 | `tests/test_ua.py` | route integration | reval spy | yes | fast | keep |
 | `tests/test_voluntarios_*.py` (~12 files) | service + application + routes | `httpx.MockTransport` / stub port / spy | yes | fast | keep |
-| `tests/test_volunteer_fk_migration.py` | migration unit | `FakeInsForge` | yes | fast | keep |
+| `tests/test_volunteer_fk_migration.py` | migration unit | `FakeLocalBackend` | yes | fast | keep |
 | `tests/test_xss_audit.py`, `tests/test_xss_audit_greps.py`, `tests/test_xss_audit_handlers.py` | meta (handler / pattern scan) | n/a / handler-level | yes | fast | keep |
 | `tests/integration/test_acogidas_queries_integration.py` | integration (real Postgres) | none | yes (modulo CI) | medium | keep — **extend** to FK-error and unique-constraint paths |
 | `tests/integration/test_adopciones_queries_integration.py` | integration | none | yes | medium | keep |
 | `tests/integration/test_materiales_queries_integration.py` | integration | none | yes | medium | keep |
 | `tests/integration/test_salud_queries_integration.py` | integration | none | yes | medium | keep |
 | `tests/integration/test_sanidad_queries_integration.py` | integration | none | yes | medium | keep |
-| `tests/migration/test_apply.py` | migration unit | `FakeInsForge` | yes | fast | keep |
-| `tests/migration/test_apply_safety.py` | migration unit | `FakeInsForge` + psutil seam | yes | fast | keep |
-| `tests/migration/test_apply_voluntarios_fk.py` | migration unit | `FakeInsForge` | yes | fast | keep |
-| `tests/migration/test_bootstrap.py` | migration unit | `FakeInsForge` | yes | fast | keep |
-| `tests/migration/test_bucket_invariant.py` | migration unit | `FakeInsForge` | yes | fast | keep |
-| `tests/migration/test_cli.py` | CLI unit | `FakeInsForge` + Dysflow seam | yes | fast | keep |
-| `tests/migration/test_cli_apply_safety.py` | CLI unit | `FakeInsForge` | yes | fast | keep |
-| `tests/migration/test_cli_volunteer_dedup.py` | CLI unit | `FakeInsForge` | yes | fast | keep |
-| `tests/migration/test_dni_collision.py` | migration unit | `FakeInsForge` | yes | fast | keep |
-| `tests/migration/test_dni_collision_counting.py` | migration unit | `FakeInsForge` | yes | fast | keep |
-| `tests/migration/test_insforge_storage_methods.py` | migration unit | `FakeInsForge` | yes | fast | keep |
-| `tests/migration/test_legacy_write_commit.py` | migration unit | `FakeInsForge` + executor seam | yes | fast | keep |
-| `tests/migration/test_lock_snapshot.py` | migration unit | `FakeInsForge` + lock seam | yes | fast | keep |
-| `tests/migration/test_module_rename_smoke.py` | migration unit | `FakeInsForge` | yes | fast | keep |
-| `tests/migration/test_photo_storage.py` | migration unit | `FakeInsForge` | yes | fast | keep |
-| `tests/migration/test_pii_redaction.py` | migration unit | `FakeInsForge` | yes | fast | keep |
-| `tests/migration/test_pii_value_patterns.py` | migration unit | `FakeInsForge` | yes | fast | keep |
-| `tests/migration/test_reporting.py` | migration unit | `FakeInsForge` | yes | fast | keep |
-| `tests/migration/test_reverse_apply.py` | migration unit | `FakeInsForge` | yes | fast | keep |
-| `tests/migration/test_round_trip.py` | migration unit | `FakeInsForge` + read+write executor | yes | fast | keep |
-| `tests/migration/test_runtime_boundary.py` | migration unit | `FakeInsForge` | yes | fast | keep |
-| `tests/migration/test_s608_identifier_guards.py` | migration unit | `FakeInsForge` | yes | fast | keep |
-| `tests/migration/test_shadow_state.py` | migration unit | `FakeInsForge` | yes | fast | keep |
-| `tests/migration/test_storage_contract_evidence.py` | migration unit | `FakeInsForge` | yes | fast | keep |
-| `tests/migration/test_volunteer_dedup.py` | migration unit | `FakeInsForge` | yes | fast | keep |
-| `tests/e2e/test_acogidas_crud.py` | e2e | live server + InsForge | yes | slow | keep |
+| `tests/migration/test_apply.py` | migration unit | `FakeLocalBackend` | yes | fast | keep |
+| `tests/migration/test_apply_safety.py` | migration unit | `FakeLocalBackend` + psutil seam | yes | fast | keep |
+| `tests/migration/test_apply_voluntarios_fk.py` | migration unit | `FakeLocalBackend` | yes | fast | keep |
+| `tests/migration/test_bootstrap.py` | migration unit | `FakeLocalBackend` | yes | fast | keep |
+| `tests/migration/test_bucket_invariant.py` | migration unit | `FakeLocalBackend` | yes | fast | keep |
+| `tests/migration/test_cli.py` | CLI unit | `FakeLocalBackend` + Dysflow seam | yes | fast | keep |
+| `tests/migration/test_cli_apply_safety.py` | CLI unit | `FakeLocalBackend` | yes | fast | keep |
+| `tests/migration/test_cli_volunteer_dedup.py` | CLI unit | `FakeLocalBackend` | yes | fast | keep |
+| `tests/migration/test_dni_collision.py` | migration unit | `FakeLocalBackend` | yes | fast | keep |
+| `tests/migration/test_dni_collision_counting.py` | migration unit | `FakeLocalBackend` | yes | fast | keep |
+| `tests/migration/test_storage_methods.py` | migration unit | `FakeLocalBackend` | yes | fast | keep |
+| `tests/migration/test_legacy_write_commit.py` | migration unit | `FakeLocalBackend` + executor seam | yes | fast | keep |
+| `tests/migration/test_lock_snapshot.py` | migration unit | `FakeLocalBackend` + lock seam | yes | fast | keep |
+| `tests/migration/test_module_rename_smoke.py` | migration unit | `FakeLocalBackend` | yes | fast | keep |
+| `tests/migration/test_photo_storage.py` | migration unit | `FakeLocalBackend` | yes | fast | keep |
+| `tests/migration/test_pii_redaction.py` | migration unit | `FakeLocalBackend` | yes | fast | keep |
+| `tests/migration/test_pii_value_patterns.py` | migration unit | `FakeLocalBackend` | yes | fast | keep |
+| `tests/migration/test_reporting.py` | migration unit | `FakeLocalBackend` | yes | fast | keep |
+| `tests/migration/test_reverse_apply.py` | migration unit | `FakeLocalBackend` | yes | fast | keep |
+| `tests/migration/test_round_trip.py` | migration unit | `FakeLocalBackend` + read+write executor | yes | fast | keep |
+| `tests/migration/test_runtime_boundary.py` | migration unit | `FakeLocalBackend` | yes | fast | keep |
+| `tests/migration/test_s608_identifier_guards.py` | migration unit | `FakeLocalBackend` | yes | fast | keep |
+| `tests/migration/test_shadow_state.py` | migration unit | `FakeLocalBackend` | yes | fast | keep |
+| `tests/migration/test_storage_contract_evidence.py` | migration unit | `FakeLocalBackend` | yes | fast | keep |
+| `tests/migration/test_volunteer_dedup.py` | migration unit | `FakeLocalBackend` | yes | fast | keep |
+| `tests/e2e/test_acogidas_crud.py` | e2e | live server + LocalBackend | yes | slow | keep |
 | `tests/e2e/test_admin_authenticated.py` | e2e | live + OAuth mock | yes | slow | keep |
 | `tests/e2e/test_adopciones_crud.py`, `test_adopciones_seguimiento.py` | e2e | live | yes | slow | keep |
 | `tests/e2e/test_animales_crud.py` | e2e | live | yes | slow | keep |
@@ -233,7 +233,7 @@
   - **D-24 date validation**: tested at the builder level, but not at the route level with a foreign-session attack.
 
 ### `animals` (`app/modules/animals/`)
-- **Covered by**: 11 `test_animals_application_*.py` (port-stub layer), `test_animals_insforge_adapter.py`, `test_animals_domain.py`, `test_animals_port.py`, `test_animals_routes.py` / `_redirects` / `_foto_route`, `test_animals_public_api.py`, `test_chip_cascade.py`, `test_animal_search.py`, `tests/e2e/test_animales_crud.py`.
+- **Covered by**: 11 `test_animals_application_*.py` (port-stub layer), `test_animals_local_backend_adapter.py`, `test_animals_domain.py`, `test_animals_port.py`, `test_animals_routes.py` / `_redirects` / `_foto_route`, `test_animals_public_api.py`, `test_chip_cascade.py`, `test_animal_search.py`, `tests/e2e/test_animales_crud.py`.
 - **Gaps**:
   - **Public search rate-limit**: no 429 path tested against `/animales/search`.
   - **Photo bucket private-vs-public invariant** not asserted at the animales slice boundary (only at migration slice).
@@ -273,7 +273,7 @@
 
 ### `core` (`app/core/`)
 - **Auth**: most heavily tested area in the project, but **all in-process with mocks**. No end-to-end "real Postgres + real session cookie + real CSRF" path tested together.
-- **InsForge client**: `test_insforge.py` covers wire-level happy path + error envelope translation. Good.
+- **LocalBackend client**: `test_local_backend.py` covers wire-level happy path + error envelope translation. Good.
 - **Config / settings**: `test_config.py`, `test_startup_config_validation.py`. Good.
 - **Logging**: `test_logging*.py`, `test_log_safe_*.py`. Good.
 
@@ -285,7 +285,7 @@
 4. **No integration test for the unique-natural-key collision in cesiones / adopciones.** Conflict resolution is E2E-only.
 5. **No E2E test of the rate-limit middleware under concurrent load.**
 6. **No E2E test of the public search abuse path.**
-7. **No unit/integration test of the InsForge storage bucket private-public invariant at the animales slice boundary.**
+7. **No unit/integration test of the LocalBackend storage bucket private-public invariant at the animales slice boundary.**
 8. **No tests of `app/core/tasks.py` retry semantics against a flaky executor.**
 
 ## Flaky tests
@@ -301,7 +301,7 @@ After reading ~25 representative files, **no obvious source of non-determinism**
 - `tests/test_coverage_gate.py` uses `pytester` subprocess — coverage.json depends on worker pool.
 - `tests/migration/test_*` autouse `_default_msaccess_preflight` sets `_PSUTIL_AVAILABLE = True`.
 - `tests/e2e/test_*` all skip gracefully when `/login` returns 503.
-- The `_DefaultInsForgeSpy` pattern-matches SQL by string-prefix — brittle if calls reorder.
+- The `_DefaultLocalBackendSpy` pattern-matches SQL by string-prefix — brittle if calls reorder.
 
 ## Recommendations
 
@@ -313,7 +313,7 @@ After reading ~25 representative files, **no obvious source of non-determinism**
 | `tests/test_acogidas_lifecycle_events.py`, `test_adopciones_lifecycle_events.py` | `tests/integration/test_lifecycle_append_only_trigger.py` | Append-only trigger never asserted |
 | `tests/test_chip_cascade.py` | `tests/integration/test_chip_cascade_integration.py` | FK cascade across multiple tables |
 | `tests/test_auth.py` deactivate path | `tests/integration/test_auth_queries_integration.py` (closed #634) | Real cookie + DB revalidation |
-| `tests/test_animales_insforge_adapter.py` chip cascade + photo | `tests/integration/test_animals_photo_bucket_invariant.py` | Bucket invariant at slice boundary |
+| `tests/test_animales_local_backend_adapter.py` chip cascade + photo | `tests/integration/test_animals_photo_bucket_invariant.py` | Bucket invariant at slice boundary |
 | `tests/test_cesiones.py` conflict path | `tests/integration/test_cesiones_queries_integration.py` (closed #633) | Real unique constraints |
 
 ### 2. Extend existing tests
@@ -321,7 +321,7 @@ After reading ~25 representative files, **no obvious source of non-determinism**
 | File | Add |
 |---|---|
 | `tests/test_auth.py` | Assert per-request revalidation hits DB **exactly once** (mocked transport with call counter). |
-| `tests/test_csrf_middleware.py` | Cross-session adversarial case (cookie A, token B) using real `_install_default_insforge_client`. |
+| `tests/test_csrf_middleware.py` | Cross-session adversarial case (cookie A, token B) using real `_install_default_local_backend_client`. |
 | `tests/test_rate_limit_middleware.py` | Concurrency case (`asyncio.gather` 20 simultaneous requests, expect ≤ 5 OKs). |
 | `tests/test_animals_public_api.py` | 429-after-threshold case via rate-limit middleware. |
 | `tests/integration/test_sanidad_queries_integration.py` | CTE-rollback case for unique `(animal_id, fecha, tipo)` index. |
@@ -356,8 +356,8 @@ After reading ~25 representative files, **no obvious source of non-determinism**
 
 ## Concrete observations on what each layer actually tests
 
-**Service-layer unit tests** (`test_acogidas.py`, `test_entradas.py`, `test_foster.py`, `test_sanidad.py`, `test_salud.py`, `test_materiales.py`, `test_cesiones.py`, `test_voluntarios_*.py`, `test_animals_insforge_adapter.py`):
-- Pattern: real `InsForgeClient` wired to `httpx.MockTransport`. Handler returns canned rows / errors keyed on captured SQL.
+**Service-layer unit tests** (`test_acogidas.py`, `test_entradas.py`, `test_foster.py`, `test_sanidad.py`, `test_salud.py`, `test_materiales.py`, `test_cesiones.py`, `test_voluntarios_*.py`, `test_animals_local_backend_adapter.py`):
+- Pattern: real `LocalBackendClient` wired to `httpx.MockTransport`. Handler returns canned rows / errors keyed on captured SQL.
 - Asserts: SQL string shape, param ordering, exact call count.
 - **What is hidden**: trigger execution, FK enforcement, `ON CONFLICT` semantics, `RETURNING` shape under empty rowsets.
 
@@ -376,8 +376,8 @@ After reading ~25 representative files, **no obvious source of non-determinism**
 
 **Integration tests** (`tests/integration/`): 5 files, only queries — not routes, not services. Single most under-invested layer given how much production complexity lives in SQL (CTEs, triggers, FK chains).
 
-**Migration tests** (`tests/migration/`): best-in-class. The `FakeInsForge` understands `INSERT/UPDATE/SELECT/COUNT/CREATE TABLE`, parses `ON CONFLICT`, routes shadow-state UPDATEs. **Template every other slice should aspire to.**
+**Migration tests** (`tests/migration/`): best-in-class. The `FakeLocalBackend` understands `INSERT/UPDATE/SELECT/COUNT/CREATE TABLE`, parses `ON CONFLICT`, routes shadow-state UPDATEs. **Template every other slice should aspire to.**
 
-**E2E tests** (`tests/e2e/`): well-gated (skips on `/login == 503`); use real InsForge; UUID-suffixed NCHIPs to avoid collisions. **Focused on happy CRUD**; negative paths mostly absent at E2E.
+**E2E tests** (`tests/e2e/`): well-gated (skips on `/login == 503`); use real LocalBackend; UUID-suffixed NCHIPs to avoid collisions. **Focused on happy CRUD**; negative paths mostly absent at E2E.
 
 **Audit / meta tests**: ~70 files testing rules, gates, coverage. Intentional (AGENTS.md §23, §24). Risk: **baseline drift** — each guard has its own BASELINE; a stale entry means a forbidden pattern can come back without the gate noticing. Recommend a periodic BASELINE-audit PR.

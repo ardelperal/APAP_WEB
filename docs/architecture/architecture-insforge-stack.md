@@ -4,7 +4,7 @@
 
 ## Decision
 
-Build the application as a small internal web app using a server-rendered backend with HTMX, while using InsForge as the managed platform for data and infrastructure.
+Build the application as a small internal web app using a server-rendered backend with HTMX, while using LocalBackend as the managed platform for data and infrastructure.
 
 ```text
 Browser
@@ -20,7 +20,7 @@ FastAPI application backend / BFF
   - DAO migration/adaptation layer
         |
         v
-InsForge
+LocalBackend
   - PostgreSQL + PostgREST
   - Auth (Google OAuth)
   - Storage / S3-style buckets
@@ -32,9 +32,9 @@ InsForge
 
 - Frontend: HTMX 2.0.4 + Jinja2 + Tailwind 4.3 (server-rendered, no SPA).
 - Backend: FastAPI 0.136.x with Pydantic 2.13.x, served by Uvicorn 0.49.x.
-- Data: InsForge (PostgreSQL + Auth + Storage + Functions + Realtime).
+- Data: LocalBackend (PostgreSQL + Auth + Storage + Functions + Realtime).
 - Deploy: Coolify on the VPS, webhook on push to `main`.
-- Auth: Google OAuth via InsForge + allowlist in `authorized_users`.
+- Auth: Google OAuth via LocalBackend + allowlist in `authorized_users`.
 
 If a stack component must change, fill the "When this changes" section first.
 
@@ -55,13 +55,13 @@ Without a fixed stack, contributors introduce new technologies PR-by-PR, fragmen
 |---|---|
 | Pinned backend versions | [`pyproject.toml`](../../pyproject.toml) — FastAPI 0.136.x, Pydantic 2.13.x, HTTPX 0.28.x, python-multipart 0.0.32 |
 | ASGI server | [`pyproject.toml`](../../pyproject.toml) — Uvicorn 0.49.x |
-| InsForge client | [`app/core/insforge.py`](../../app/core/insforge.py) — Python HTTP client, no `@insforge/sdk` TS |
+| LocalBackend client | [`app/core/local_backend.py`](../../app/core/local_backend.py) — Python HTTP client, no `@local_backend/sdk` TS |
 | Tailwind v4 setup | [`tailwindcss/`](../../tailwindcss/) — CSS-first config, no `tailwind.config.js` |
 | Dockerfile for deploy | [`Dockerfile`](../../Dockerfile) — production image |
 | Coolify app | `apap-web` on the VPS — deploys from `ardelperal/APAP_WEB:main` |
-| InsForge usage | application code via SDK or REST; MCP tools only for infra |
-| Allowlist table | `authorized_users` table (PostgreSQL on InsForge) |
-| Architecture decision | [`decisiones-proyecto.md` D-20](decisiones/d-20-stack-fastapi-htmx-insforge.md) |
+| LocalBackend usage | application code via SDK or REST; MCP tools only for infra |
+| Allowlist table | `authorized_users` table (PostgreSQL on LocalBackend) |
+| Architecture decision | [`decisiones-proyecto.md` D-20](decisiones/d-20-stack-fastapi-htmx-local_backend.md) |
 
 ## Options considered
 
@@ -73,15 +73,15 @@ Without a fixed stack, contributors introduce new technologies PR-by-PR, fragmen
 | Backend framework | Django + DRF | Mature, batteries included. | ORM-heavy; less flexible for BaaS. | rejected |
 | Templates | Jinja2 | Server-rendered, no JS UI duplication. | Less interactive than SPA. | accepted |
 | Data validation | Pydantic 2 | Schema validation, settings management. | Couples app code to Pydantic types. | accepted |
-| HTTP client | HTTPX | Async, used for InsForge REST calls. | None material. | accepted |
+| HTTP client | HTTPX | Async, used for LocalBackend REST calls. | None material. | accepted |
 | Styling | Tailwind CSS v4 | CSS-first, fast compile, design tokens. | Requires Node CLI in build pipeline. | accepted |
 | Hosting | Coolify on VPS | Self-hosted, simple webhook on `main`. | Single VPS dependency. | accepted |
 | Hosting | Vercel + managed Postgres | Quick deploys. | Vendor lock-in; per-request pricing. | rejected |
-| BaaS | InsForge | Postgres + Auth + Storage in one. | Vendor lock-in to one BaaS. | accepted |
+| BaaS | LocalBackend | Postgres + Auth + Storage in one. | Vendor lock-in to one BaaS. | accepted |
 | BaaS | Supabase | Same shape, larger community. | Different cost model; no team requirement to switch. | rejected |
-| Attachments | InsForge Storage + metadata in Postgres | Traceability, permissions, retention. | Two services to coordinate. | accepted |
+| Attachments | LocalBackend Storage + metadata in Postgres | Traceability, permissions, retention. | Two services to coordinate. | accepted |
 | Attachments | Files in Postgres bytea | Simpler. | Bloats DB; no CDN; bad for large files. | rejected |
-| Auth | Google OAuth via InsForge + allowlist | No password storage; small user list. | Requires Google account; allowlist management. | accepted |
+| Auth | Google OAuth via LocalBackend + allowlist | No password storage; small user list. | Requires Google account; allowlist management. | accepted |
 | Auth | Email + password in Postgres | Self-contained. | Password management overhead; breach risk. | rejected |
 
 ## Stack
@@ -93,39 +93,39 @@ Without a fixed stack, contributors introduce new technologies PR-by-PR, fragmen
 | ASGI server | Uvicorn | 0.49.0 | Production-grade ASGI server for FastAPI. |
 | Templates | Jinja2 | 3.1.x | Keep view rendering server-side and avoid duplicating UI state in JavaScript. |
 | Data validation | Pydantic | 2.13.4 | Schema validation, settings management, and serialization. |
-| HTTP client | HTTPX | 0.28.1 | Async HTTP client for calling InsForge REST APIs. |
+| HTTP client | HTTPX | 0.28.1 | Async HTTP client for calling LocalBackend REST APIs. |
 | Form handling | python-multipart | 0.0.32 | Required for file uploads and form parsing in FastAPI. |
 | Styling | Tailwind CSS | 4.3.1 | CSS-first configuration, Rust-based engine. Use Node.js CLI for compilation. |
-| Managed backend platform | InsForge | - | Use InsForge for PostgreSQL, Auth, Storage, Functions, Realtime, and AI infrastructure when needed. |
+| Managed backend platform | LocalBackend | - | Use LocalBackend for PostgreSQL, Auth, Storage, Functions, Realtime, and AI infrastructure when needed. |
 | Application hosting | Coolify on the project VPS | - | Deploy the FastAPI/HTMX application through Coolify. |
-| Attachments | InsForge Storage | - | Store binary files in object storage; store only metadata and references in PostgreSQL. |
+| Attachments | LocalBackend Storage | - | Store binary files in object storage; store only metadata and references in PostgreSQL. |
 | Data model | Redesign allowed | - | Do not inherit legacy schema debt if a cleaner model is needed. |
 | Legacy compatibility | DAO migration/adaptation required | - | Any data-model redesign must include a migration path for the current DAOs. |
 
 ## Goals
 
 - A single pinned stack with no per-PR technology choices.
-- InsForge absorbs infra (Postgres, Auth, Storage) — the team does not operate a Postgres.
+- LocalBackend absorbs infra (Postgres, Auth, Storage) — the team does not operate a Postgres.
 - Server-rendered UI with progressive interactivity via HTMX.
-- Two-layer security: OAuth (InsForge) + allowlist (FastAPI).
+- Two-layer security: OAuth (LocalBackend) + allowlist (FastAPI).
 - All AI / OpenRouter integrations routed through FastAPI; no privileged keys reach the browser.
-- Attachment binaries in InsForge Storage; metadata in PostgreSQL.
+- Attachment binaries in LocalBackend Storage; metadata in PostgreSQL.
 
 ## Non-goals
 
 - Build a React / Next.js SPA by default.
 - Store attachment binaries in PostgreSQL by default.
-- Expose privileged InsForge keys to the browser.
+- Expose privileged LocalBackend keys to the browser.
 - Inherit legacy data-model debt only for convenience.
-- Use InsForge MCP tools as application runtime code.
+- Use LocalBackend MCP tools as application runtime code.
 
 ## Non-negotiable invariants
 
-- **Stack change requires documented trade-off**: HTMX 2.0.4, FastAPI 0.136.x, Pydantic 2.13.x, Tailwind 4.3.x, and InsForge are the baseline. Replacing one requires an issue with the "When this changes" section filled in.
-- **InsForge SDK or REST from the app, MCP only from infra**: application code calls the Python SDK or the REST APIs of InsForge; MCP tools (`run-raw-sql`, `create-bucket`, `create-function`, etc.) are for schema, bucket and function setup. Mixing both breaks the boundary of who touches what.
+- **Stack change requires documented trade-off**: HTMX 2.0.4, FastAPI 0.136.x, Pydantic 2.13.x, Tailwind 4.3.x, and LocalBackend are the baseline. Replacing one requires an issue with the "When this changes" section filled in.
+- **LocalBackend SDK or REST from the app, MCP only from infra**: application code calls the Python SDK or the REST APIs of LocalBackend; MCP tools (`run-raw-sql`, `create-bucket`, `create-function`, etc.) are for schema, bucket and function setup. Mixing both breaks the boundary of who touches what.
 - **Allowlist authorization, not implicit roles**: the `authorized_users` table is the single source of truth for access. OAuth decides who you are; the allowlist decides who is let in.
-- **Coolify + Dockerfile for deploy**: the web app is served via Coolify from `ardelperal/APAP_WEB:main`. Hardcoding InsForge credentials in the repo or skipping Coolify for an ad-hoc deploy is forbidden.
-- **Attachments in Storage, metadata in PostgreSQL**: binaries live in InsForge Storage buckets; PostgreSQL only stores `owner_type`, `bucket`, `storage_path`, metadata and status. The storage path is never the source of truth.
+- **Coolify + Dockerfile for deploy**: the web app is served via Coolify from `ardelperal/APAP_WEB:main`. Hardcoding LocalBackend credentials in the repo or skipping Coolify for an ad-hoc deploy is forbidden.
+- **Attachments in Storage, metadata in PostgreSQL**: binaries live in LocalBackend Storage buckets; PostgreSQL only stores `owner_type`, `bucket`, `storage_path`, metadata and status. The storage path is never the source of truth.
 - **Model design first, legacy inheritance second**: when the legacy model drags technical debt, it is redesigned; every incompatible change comes with a DAO migration plan documented in [`decisiones-proyecto.md`](decisiones-proyecto.md).
 - **OpenRouter and API keys server-side only**: no privileged key reaches the browser. Every AI integration passes through FastAPI.
 
@@ -135,11 +135,11 @@ Without a fixed stack, contributors introduce new technologies PR-by-PR, fragmen
 
 Normal implementation work targets `main` directly (see [`decisiones-proyecto.md` D-30](decisiones/d-30-pre-mvp-single-branch.md)). CI runs on PRs/pushes to `main`; the production deploy trigger remains guarded on pushes to `main`. The full UAT-gated staging channel is still future D-CD-03 scope.
 
-## InsForge usage rules
+## LocalBackend usage rules
 
-Always fetch the relevant InsForge docs before writing integration code.
+Always fetch the relevant LocalBackend docs before writing integration code.
 
-Use the InsForge SDK or REST APIs from application code for:
+Use the LocalBackend SDK or REST APIs from application code for:
 
 - authentication;
 - database CRUD;
@@ -148,7 +148,7 @@ Use the InsForge SDK or REST APIs from application code for:
 - realtime events;
 - AI/OpenRouter integrations.
 
-Use InsForge MCP tools only for infrastructure tasks:
+Use LocalBackend MCP tools only for infrastructure tasks:
 
 - downloading the starter template;
 - reading backend metadata;
@@ -157,7 +157,7 @@ Use InsForge MCP tools only for infrastructure tasks:
 - creating/updating/deleting edge functions;
 - deploying the frontend/application when applicable.
 
-Important InsForge constraints:
+Important LocalBackend constraints:
 
 - SDK responses use a `{ data, error }` shape.
 - Database inserts use array payloads: `[{ ... }]`.
@@ -166,23 +166,23 @@ Important InsForge constraints:
 
 ## Available MCP tools
 
-### InsForge MCP
+### LocalBackend MCP
 
 Use for backend infrastructure management:
 
 | Action | Tool | Notes |
 |---|---|---|
-| Download starter template | `insforge_download-template` | Creates a new project with InsForge pre-configured |
-| Get backend metadata | `insforge_get-backend-metadata` | Lists all tables, buckets, functions |
-| Get table schema | `insforge_get-table-schema` | Returns schema for a specific table |
-| Run raw SQL | `insforge_run-raw-sql` | Admin-only; use with caution |
-| Create storage bucket | `insforge_create-bucket` | For file uploads |
-| List storage buckets | `insforge_list-buckets` | |
-| Create edge function | `insforge_create-function` | |
-| Update edge function | `insforge_update-function` | |
-| Delete edge function | `insforge_delete-function` | |
-| Get function details | `insforge_get-function` | |
-| Fetch SDK docs | `insforge_fetch-sdk-docs` | Get SDK documentation for specific features |
+| Download starter template | `local_backend_download-template` | Creates a new project with LocalBackend pre-configured |
+| Get backend metadata | `local_backend_get-backend-metadata` | Lists all tables, buckets, functions |
+| Get table schema | `local_backend_get-table-schema` | Returns schema for a specific table |
+| Run raw SQL | `local_backend_run-raw-sql` | Admin-only; use with caution |
+| Create storage bucket | `local_backend_create-bucket` | For file uploads |
+| List storage buckets | `local_backend_list-buckets` | |
+| Create edge function | `local_backend_create-function` | |
+| Update edge function | `local_backend_update-function` | |
+| Delete edge function | `local_backend_delete-function` | |
+| Get function details | `local_backend_get-function` | |
+| Fetch SDK docs | `local_backend_fetch-sdk-docs` | Get SDK documentation for specific features |
 
 ### Coolify MCP
 
@@ -203,7 +203,7 @@ Use for deployment and runtime configuration on the VPS:
 | Get infrastructure overview | `coolify_get_infrastructure_overview` | Summary of all resources |
 | Diagnose app | `coolify_diagnose_app` | Check app health |
 | Diagnose server | `coolify_diagnose_server` | Check server health |
-| Manage environment variables | `coolify_env_vars` | Set InsForge secrets, DB passwords, etc. |
+| Manage environment variables | `coolify_env_vars` | Set LocalBackend secrets, DB passwords, etc. |
 | Create/update service | `coolify_service` | For Docker Compose services |
 | Manage SSH keys | `coolify_private_keys` | Server access management |
 | Validate server connection | `coolify_validate_server` | Test MCP connectivity |
@@ -230,7 +230,7 @@ FastAPI is the application boundary. It should own:
 - business rules;
 - permissions and authorization checks;
 - request validation;
-- orchestration across InsForge services;
+- orchestration across LocalBackend services;
 - mapping between the clean data model and any legacy DAO compatibility layer;
 - attachment metadata lifecycle;
 - audit-friendly error handling.
@@ -241,7 +241,7 @@ FastAPI is the application boundary. It should own:
 
 The application uses a two-layer security model:
 
-1. **Authentication** (who are you): Google OAuth via InsForge.
+1. **Authentication** (who are you): Google OAuth via LocalBackend.
 2. **Authorization** (are you allowed): allowlist-based check in FastAPI.
 
 Only authorized personnel can access the application. Unauthorized users see a friendly "access denied" page.
@@ -251,7 +251,7 @@ Only authorized personnel can access the application. Unauthorized users see a f
 ```text
 User tries to access app
         ↓
-Already logged in? ──No──→ Redirect to Google OAuth (InsForge)
+Already logged in? ──No──→ Redirect to Google OAuth (LocalBackend)
         ↓ Yes
 Email in authorized_users? ──No──→ Show "Acceso no autorizado" page
         ↓ Yes
@@ -281,7 +281,7 @@ Key user access (normal app)
 
 FastAPI middleware checks authorization on every request:
 
-1. Extract user email from InsForge JWT token.
+1. Extract user email from LocalBackend JWT token.
 2. Query `authorized_users` table.
 3. If email found → allow request, attach role to request state.
 4. If email not found → redirect to `/unauthorized`.
@@ -299,9 +299,9 @@ Only accessible when `role = developer`. Key users see no trace of this panel.
 
 ### Implementation notes
 
-- Do not store passwords; rely entirely on Google OAuth via InsForge.
+- Do not store passwords; rely entirely on Google OAuth via LocalBackend.
 - The `authorized_users` table is the single source of truth for access control.
-- InsForge handles session tokens, refresh, and OAuth flow.
+- LocalBackend handles session tokens, refresh, and OAuth flow.
 - FastAPI only checks the email against the allowlist after OAuth succeeds.
 - The `/unauthorized` page should be helpful: explain that access requires authorization and provide contact info for the developer.
 
@@ -343,13 +343,13 @@ Coolify on VPS
         v
 FastAPI application container
   - serves Jinja2 pages and HTMX partials
-  - uses environment variables for InsForge URLs and keys
+  - uses environment variables for LocalBackend URLs and keys
         |
         v
-InsForge managed services
+LocalBackend managed services
 ```
 
-When the Coolify MCP is available, use it for deployment and runtime configuration tasks. Do not hardcode InsForge credentials in the repository; configure them as Coolify environment variables.
+When the Coolify MCP is available, use it for deployment and runtime configuration tasks. Do not hardcode LocalBackend credentials in the repository; configure them as Coolify environment variables.
 
 Recommended project shape:
 
@@ -392,7 +392,7 @@ The preferred direction is a clean domain model plus explicit migration, not a n
 
 ## Attachments / anexos
 
-Store attachment binaries in InsForge Storage, not directly in PostgreSQL.
+Store attachment binaries in LocalBackend Storage, not directly in PostgreSQL.
 
 PostgreSQL should store attachment metadata, for example:
 
@@ -400,7 +400,7 @@ PostgreSQL should store attachment metadata, for example:
 |---|---|
 | `id` | Attachment identity. |
 | `owner_type` / `owner_id` | Entity that owns the attachment. |
-| `bucket` | InsForge storage bucket. |
+| `bucket` | LocalBackend storage bucket. |
 | `storage_path` | Object path inside the bucket. |
 | `original_filename` | Filename uploaded by the user. |
 | `mime_type` | Content type. |
@@ -416,9 +416,9 @@ Do not treat storage paths as the only source of truth. The metadata table is re
 ### What changes by adopting this stack
 
 - A single pinned stack with no per-PR technology choices (see `pyproject.toml`).
-- InsForge absorbs infra; the team does not operate its own Postgres.
+- LocalBackend absorbs infra; the team does not operate its own Postgres.
 - Authorization is two-layer (OAuth + allowlist); passwords are never stored.
-- Attachment binaries go to InsForge Storage; metadata stays in Postgres.
+- Attachment binaries go to LocalBackend Storage; metadata stays in Postgres.
 - Deploys run via Coolify from `ardelperal/APAP_WEB:main`; credentials live in Coolify env vars, never in the repo.
 
 ### What does not change
@@ -431,7 +431,7 @@ Do not treat storage paths as the only source of truth. The metadata table is re
 
 - [`pyproject.toml`](../../pyproject.toml) is pinned; updates require explicit PRs.
 - Coolify is the deploy boundary; no ad-hoc deploys.
-- Each PR adding an InsForge endpoint must use the SDK or REST APIs (no MCP tools at runtime).
+- Each PR adding an LocalBackend endpoint must use the SDK or REST APIs (no MCP tools at runtime).
 - New tables in Postgres come with a DAO migration plan if they diverge from legacy.
 
 ## When this changes
@@ -442,21 +442,21 @@ Do not switch stacks lightly. The baseline holds unless one of the following bec
 - offline-first behavior becomes required;
 - the app becomes public-facing and SEO becomes important;
 - the team strongly standardizes on another backend framework;
-- InsForge constraints prevent a critical domain requirement.
+- LocalBackend constraints prevent a critical domain requirement.
 
 If one of those happens, document the trade-off before changing the stack. Specifically:
 
 - **Frontend SPA adoption**: open D-STACK-02 with the interactivity cases that HTMX cannot cover.
 - **Backend framework swap**: open D-STACK-03 with benchmarks and migration cost.
-- **InsForge exit**: open D-STACK-04 with the replacement BaaS and data migration plan.
+- **LocalBackend exit**: open D-STACK-04 with the replacement BaaS and data migration plan.
 - **Public-facing + SEO**: open D-STACK-05 with the public URL strategy and SEO requirements.
 
 Any swap must update this ADR or supersede it with a successor.
 
 ## Implementation checklist for a future AI
 
-- [ ] Fetch current InsForge instructions before writing integration code.
-- [ ] If starting from scratch, use the InsForge template first.
+- [ ] Fetch current LocalBackend instructions before writing integration code.
+- [ ] If starting from scratch, use the LocalBackend template first.
 - [ ] Use Tailwind CSS 4.3 with Node.js CLI for compilation.
 - [ ] Build FastAPI routes that return pages and HTMX partials.
 - [ ] Keep business rules and authorization in FastAPI, not in HTMX snippets.
@@ -465,21 +465,21 @@ Any swap must update this ADR or supersede it with a successor.
 - [ ] Implement FastAPI middleware for allowlist-based authorization.
 - [ ] Build admin panel for developer to manage authorized users.
 - [ ] Prepare DAO migration/adaptation for every breaking model change.
-- [ ] Create an InsForge Storage bucket for attachments.
+- [ ] Create an LocalBackend Storage bucket for attachments.
 - [ ] Store attachment metadata in PostgreSQL.
 - [ ] Keep OpenRouter/API keys server-side.
 - [ ] Deploy the FastAPI/HTMX application through Coolify on the VPS.
-- [ ] Configure InsForge and OpenRouter secrets as Coolify environment variables.
+- [ ] Configure LocalBackend and OpenRouter secrets as Coolify environment variables.
 
 ## Contributor checklist
 
 - [ ] If you change a pinned stack version, update the corresponding row in the "Stack" table and verify that the lockfile (`uv.lock`, `package-lock.json`) reflects the change.
-- [ ] If you add an endpoint that touches InsForge, call the Python SDK or the REST API; do not add MCP tools as runtime dependencies in `pyproject.toml`.
+- [ ] If you add an endpoint that touches LocalBackend, call the Python SDK or the REST API; do not add MCP tools as runtime dependencies in `pyproject.toml`.
 - [ ] If you add a new table, migrate the model first and then add the DAO mapping if there is legacy debt to preserve; document any divergence in [`decisiones-proyecto.md`](decisiones-proyecto.md).
 - [ ] If you add a column to `authorized_users`, keep `email` unique and update the admin view before merging.
-- [ ] If you add an InsForge bucket, also declare the metadata table and the upload/download hooks that use it.
+- [ ] If you add an LocalBackend bucket, also declare the metadata table and the upload/download hooks that use it.
 - [ ] If you introduce an API key or secret, configure it as a Coolify environment variable; never commit `.env*` with real values.
-- [ ] If you propose replacing FastAPI, HTMX, Tailwind, or InsForge, open an issue with the "When this changes" section filled in before touching `pyproject.toml`.
+- [ ] If you propose replacing FastAPI, HTMX, Tailwind, or LocalBackend, open an issue with the "When this changes" section filled in before touching `pyproject.toml`.
 
 ## Navigation
 

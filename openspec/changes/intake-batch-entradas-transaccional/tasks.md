@@ -39,4 +39,4 @@ skill_resolution: paths-injected
 
 | Commit | Work unit | SDD tasks | Verification | Access sync |
 |---|---|---|---|---|
-| _TBD_ | INTAKE-02 batch slice (single chained PR, pre-MVP single-branch) | 1.1-2.5 | `pytest` 1041 passed, 1 skipped (psycopg module missing for migration_004 only), 2 deselected (`test_voluntarios_concurrent.py`); `ruff check .` clean; `python -m build` OK | N/A (InsForge is target; no Access binary write) |
+| _TBD_ | INTAKE-02 batch slice (single chained PR, pre-MVP single-branch) | 1.1-2.5 | `pytest` 1041 passed, 1 skipped (psycopg module missing for migration_004 only), 2 deselected (`test_voluntarios_concurrent.py`); `ruff check .` clean; `python -m build` OK | N/A (LocalBackend is target; no Access binary write) |

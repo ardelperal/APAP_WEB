@@ -18,7 +18,7 @@ from app.core.session import session_cookie_name, write_session
 
 
 class _AnonymousSpy:
-    """InsForge stand-in that lets the request reach the route handler."""
+    """LocalBackend stand-in that lets the request reach the route handler."""
 
     def execute_sql(self, query: str, params: Any = None):  # type: ignore[no-untyped-def]
         from tests.conftest import auth_reval_rows

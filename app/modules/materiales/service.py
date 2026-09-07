@@ -45,7 +45,7 @@ Soft-delete pattern (matches ``app/modules/foster/service.py`` +
 - ``deactivate_material`` flips ``materiales.activo = false`` AND
   cascades the same flip to every active junction row pointing at the
   material. The cascade runs as a separate UPDATE on the junction
-  table (atomic in the same InsForge transaction when the SQL is
+  table (atomic in the same LocalBackend transaction when the SQL is
   composed at the HTTP layer; inside ``execute_sql`` the two UPDATEs
   are sequenced so the operator's view of "the material is gone from
   everywhere" is consistent). See Scenario 6 in spec #15894.
@@ -74,7 +74,7 @@ class MaterialConflictError(ValueError):
 
     The ``UNIQUE (material, tamano, color)`` constraint is DB-enforced
     (P1 fidelity to legacy ``TbMaterial``), so a duplicate INSERT
-    raises PostgreSQL 23505 which the InsForge proxy surfaces as
+    raises PostgreSQL 23505 which the LocalBackend proxy surfaces as
     ``BackendError(409, ...)``. The service catches that and re-raises
     as ``MaterialConflictError`` with a Spanish actionable message so
     the route layer can map it to HTTP 409. Mirrors the
@@ -165,10 +165,10 @@ def _row_to_estancia_material(row: dict[str, Any]) -> EstanciaMaterial:
 
 
 def _is_unique_violation(exc: BackendError) -> bool:
-    """Detect a PostgreSQL 23505 unique-violation surfaced by InsForge.
+    """Detect a PostgreSQL 23505 unique-violation surfaced by LocalBackend.
 
     Mirrors the ``_is_duplicate_error`` precedent in
-    ``app/modules/entradas/service.py``. InsForge's body shape is
+    ``app/modules/entradas/service.py``. LocalBackend's body shape is
     ``{"code": "23505", "message": "..."}`` for constraint violations.
     """
     body = exc.body

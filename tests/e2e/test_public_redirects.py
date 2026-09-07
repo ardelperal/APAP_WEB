@@ -91,7 +91,7 @@ def test_auth_google_returns_503_when_oauth_not_configured(
 ) -> None:
     """GET /auth/google returns 503 JSON when Google OAuth secrets are missing.
 
-    The route is public but requires InsForge + Google OAuth credentials.
+    The route is public but requires LocalBackend + Google OAuth credentials.
     Without them it returns a descriptive error, which the test suite
     uses as a preflight skip signal.
     """

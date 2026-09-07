@@ -1,7 +1,7 @@
 """Domain layer — Cesiones slice.
 
 Contains only pure domain types: dataclasses and exception classes.
-No I/O, no InsForge, no FastAPI, no SQL.
+No I/O, no LocalBackend, no FastAPI, no SQL.
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""Tests for the live InsForge response shape of ``/api/database/advance/rawsql``.
+"""Tests for the live LocalBackend response shape of ``/api/database/advance/rawsql``.
 
 Pins the contract every ``client.execute_sql(...)`` call site depends
 on. The current production bug (commit e56e418 / ETL move) is that
@@ -12,9 +12,9 @@ dicts). The fakes in tests/ that return ``[dict]`` for ``execute_sql``
 need to be updated to also return the wrapped envelope, or this
 test must also pin the public shape (a list of dicts).
 
-These tests run against the LIVE InsForge (proxied through
-``insforge_run-raw-sql``) to catch shape drift the way the OAuth
-``insforge_code`` bug did on 2026-06-28.
+These tests run against the LIVE LocalBackend (proxied through
+``local_backend_run-raw-sql``) to catch shape drift the way the OAuth
+``oauth_code`` bug did on 2026-06-28.
 """
 
 from __future__ import annotations
@@ -34,19 +34,19 @@ def test_execute_sql_returns_list_of_dicts_not_envelope() -> None:
     ``KeyError: 0`` in production. The fakes in tests/ happened to
     return ``[dict]`` directly, so the bug only surfaced live.
     """
-    # We cannot hit InsForge from unit tests (would require network
+    # We cannot hit LocalBackend from unit tests (would require network
     # and a real API key). Instead, this test reads the in-source
     # contract: the function's body MUST do ``body["rows"]`` (or
     # equivalent shape extraction), NOT return ``_safe_json(response)``
     # directly.
     from pathlib import Path
 
-    source = Path("app/core/insforge.py").read_text(encoding="utf-8")
+    source = Path("app/core/local_backend.py").read_text(encoding="utf-8")
     # The function MUST extract the "rows" key from the JSON body.
     # The current bug: it returns the full envelope.
     assert 'body["rows"]' in source or "body['rows']" in source, (
-        "app/core/insforge.py::execute_sql does not extract the 'rows' "
-        "key from the InsForge response envelope. Call sites do "
+        "app/core/local_backend.py::execute_sql does not extract the 'rows' "
+        "key from the LocalBackend response envelope. Call sites do "
         "'rows[0] if rows else None' expecting a list of dicts, but "
         "they get the full body {'rows': [...], 'rowCount': N, 'fields': [...]} "
         "and crash with KeyError: 0. See the 2026-06-28 production outage."

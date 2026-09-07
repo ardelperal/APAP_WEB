@@ -5,14 +5,14 @@ landed in #587). The single application-layer entry point for the
 hexagonal list path. Delegates to
 :class:`~app.modules.animals.ports.AnimalsPort` so the application
 code stays transport-agnostic (AGENTS.md §31) — no FastAPI, no
-InsForge, no Jinja in this file.
+LocalBackend, no Jinja in this file.
 
 Defensive bounds on ``limit`` keep a misconfigured caller from
 pulling the whole table: the cap matches the legacy
 ``list_animales`` handler's MAX_PAGE_SIZE so the hexagonal path is
 a drop-in replacement. ``offset`` is clamped to ``>= 0`` to keep the
 adapter's ``LIMIT/OFFSET`` clause safe against negative inputs
-(postgres rejects them; insforge-validated postgres inherits the
+(postgres rejects them; local_backend-validated postgres inherits the
 same behaviour).
 """
 from __future__ import annotations

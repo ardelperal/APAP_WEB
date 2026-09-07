@@ -249,7 +249,7 @@ _MOBILE_UA = (
 
 
 class _RevalOnlySpy(LocalPostgresExecutor):
-    """Minimal InsForge spy that ONLY answers the auth revalidation SELECT.
+    """Minimal LocalBackend spy that ONLY answers the auth revalidation SELECT.
 
     Mirrors the pattern used by ``tests/test_template_selection.py``
     and ``tests/test_foster_routes.py``. The foster list endpoint
@@ -285,7 +285,7 @@ class _RevalOnlySpy(LocalPostgresExecutor):
 
 @pytest.fixture
 def foster_route_client() -> _RevalOnlySpy:
-    """Install the per-request InsForge spy for the duration of the test."""
+    """Install the per-request LocalBackend spy for the duration of the test."""
     spy = _RevalOnlySpy()
     app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy
     app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy

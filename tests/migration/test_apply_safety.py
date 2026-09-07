@@ -16,13 +16,13 @@ spec (``tasks.md`` PR3 3.1). They cover:
 Hard Rules honoured:
 
 - Rule 1 (fixture gate): every test uses ``tmp_path`` for the lock,
-  snapshot, and partial-apply files; FakeInsForge is per-test.
+  snapshot, and partial-apply files; FakeSqlExecutor is per-test.
 - Rule 2 (DI): MSACCESS, snapshot, and partial-apply seams are
   monkeypatched per-test. The executor is injected via the existing
   ``set_legacy_query_executor`` seam.
 - Rule 6 (refactor-safety): assertions are on outcomes (file existence,
   event order, raised exceptions), not on internal helper calls.
-- Rule 8 (no production mutation): no real Access / InsForge / psutil
+- Rule 8 (no production mutation): no real Access / LocalBackend / psutil
   invocations — the MSACCESS check returns a list the test controls.
 """
 
@@ -40,7 +40,7 @@ from migration.lock_snapshot import (
     PhotosManifest,
     Snapshot,
 )
-from tests.migration.conftest import FakeInsForge
+from tests.migration.conftest import FakeSqlExecutor
 
 # --------------------------------------------------------------------------
 # Helpers
@@ -183,7 +183,7 @@ class TestMsaccessPreflight:
 
         with pytest.raises(MsAccessRunningError) as excinfo:
             apply_legacy_to_web(
-                FakeInsForge(),
+                FakeSqlExecutor(),
                 "animal",
                 legacy_path="/dummy/legacy.accdb",
                 lock_path=tmp_path / "migration.lock",
@@ -209,7 +209,7 @@ class TestMsaccessPreflight:
         _patch_apply_seams(monkeypatch, events=events, msaccess_pids=[])
 
         result = apply_legacy_to_web(
-            FakeInsForge(),
+            FakeSqlExecutor(),
             "animal",
             legacy_path="/dummy/legacy.accdb",
             lock_path=tmp_path / "migration.lock",
@@ -237,7 +237,7 @@ class TestMsaccessPreflight:
         _patch_apply_seams(monkeypatch, events=events, msaccess_pids=[12345])
 
         result = apply_legacy_to_web(
-            FakeInsForge(),
+            FakeSqlExecutor(),
             "animal",
             legacy_path="/dummy/legacy.accdb",
             dry_run=True,
@@ -274,7 +274,7 @@ class TestSnapshotOrdering:
         _patch_apply_seams(monkeypatch, events=events, executor_behavior="empty")
 
         apply_legacy_to_web(
-            FakeInsForge(),
+            FakeSqlExecutor(),
             "animal",
             legacy_path="/dummy/legacy.accdb",
             lock_path=tmp_path / "migration.lock",
@@ -299,7 +299,7 @@ class TestSnapshotOrdering:
         _patch_apply_seams(monkeypatch, events=events, executor_behavior="empty")
 
         apply_legacy_to_web(
-            FakeInsForge(),
+            FakeSqlExecutor(),
             "animal",
             legacy_path="/dummy/legacy.accdb",
             dry_run=True,
@@ -325,7 +325,7 @@ class TestSnapshotOrdering:
         _patch_apply_seams(monkeypatch, events=events, executor_behavior="empty")
 
         result = apply_legacy_to_web(
-            FakeInsForge(),
+            FakeSqlExecutor(),
             "animal",
             legacy_path="/dummy/empty.accdb",
             lock_path=tmp_path / "migration.lock",
@@ -380,7 +380,7 @@ class TestDriftDetection:
 
         with pytest.raises(SourceDriftError) as excinfo:
             apply_legacy_to_web(
-                FakeInsForge(),
+                FakeSqlExecutor(),
                 "animal",
                 legacy_path="/dummy/legacy.accdb",
                 lock_path=tmp_path / "migration.lock",
@@ -428,7 +428,7 @@ class TestDriftDetection:
         )
 
         result = apply_legacy_to_web(
-            FakeInsForge(),
+            FakeSqlExecutor(),
             "animal",
             legacy_path="/dummy/legacy.accdb",
             lock_path=tmp_path / "migration.lock",
@@ -471,7 +471,7 @@ class TestPartialApplyEvidence:
 
         with pytest.raises(KeyboardInterrupt):
             apply_legacy_to_web(
-                FakeInsForge(),
+                FakeSqlExecutor(),
                 "animal",
                 legacy_path="/dummy/legacy.accdb",
                 lock_path=tmp_path / "migration.lock",
@@ -507,7 +507,7 @@ class TestPartialApplyEvidence:
 
         with pytest.raises(KeyboardInterrupt):
             apply_legacy_to_web(
-                FakeInsForge(),
+                FakeSqlExecutor(),
                 "animal",
                 legacy_path="/dummy/legacy.accdb",
                 lock_path=tmp_path / "migration.lock",
@@ -552,7 +552,7 @@ class TestPartialApplyEvidence:
 
         with pytest.raises(PartialApplyInterruptedError) as excinfo:
             apply_legacy_to_web(
-                FakeInsForge(),
+                FakeSqlExecutor(),
                 "animal",
                 legacy_path="/dummy/legacy.accdb",
                 lock_path=tmp_path / "migration.lock",
@@ -583,7 +583,7 @@ class TestPartialApplyEvidence:
         )
 
         result = apply_legacy_to_web(
-            FakeInsForge(),
+            FakeSqlExecutor(),
             "animal",
             legacy_path="/dummy/legacy.accdb",
             dry_run=True,
@@ -613,13 +613,13 @@ class TestMsaccessPreflightFailClosed:
 
     Hard Rules honoured:
 
-    - Rule 1 (fixture gate): every test owns its FakeInsForge,
+    - Rule 1 (fixture gate): every test owns its FakeSqlExecutor,
       tmp_path, and monkeypatched seams.
     - Rule 2 (DI): the preflight seam is monkeypatched; no real
       psutil import / process scan.
     - Rule 4 (no humo): assertions pin concrete exception types,
       exit codes, log event names, and log field values.
-    - Rule 8 (no production mutation): no real Access / InsForge /
+    - Rule 8 (no production mutation): no real Access / LocalBackend /
       psutil invocations.
     """
 
@@ -649,7 +649,7 @@ class TestMsaccessPreflightFailClosed:
 
         with pytest.raises(MsAccessPreflightUnavailableError) as excinfo:
             apply_legacy_to_web(
-                FakeInsForge(),
+                FakeSqlExecutor(),
                 "animal",
                 legacy_path="/dummy/legacy.accdb",
                 lock_path=tmp_path / "migration.lock",
@@ -684,7 +684,7 @@ class TestMsaccessPreflightFailClosed:
 
         with pytest.raises(MsAccessPreflightUnavailableError) as excinfo:
             apply_legacy_to_web(
-                FakeInsForge(),
+                FakeSqlExecutor(),
                 "animal",
                 legacy_path="/dummy/legacy.accdb",
                 lock_path=tmp_path / "migration.lock",
@@ -727,7 +727,7 @@ class TestMsaccessPreflightFailClosed:
 
         with pytest.raises(_exc):
             apply_legacy_to_web(
-                FakeInsForge(),
+                FakeSqlExecutor(),
                 "animal",
                 legacy_path="/dummy/legacy.accdb",
                 lock_path=tmp_path / "migration.lock",
@@ -766,7 +766,7 @@ class TestMsaccessPreflightFailClosed:
         _patch_apply_seams(monkeypatch, events=events, executor_behavior="empty")
 
         result = apply_legacy_to_web(
-            FakeInsForge(),
+            FakeSqlExecutor(),
             "animal",
             legacy_path="/dummy/legacy.accdb",
             dry_run=True,
@@ -813,7 +813,7 @@ class TestMsaccessPreflightFailClosed:
 
         with pytest.raises(MsAccessPreflightUnavailableError):
             apply_legacy_to_web(
-                FakeInsForge(),
+                FakeSqlExecutor(),
                 "animal",
                 legacy_path="/dummy/legacy.accdb",
                 lock_path=tmp_path / "migration.lock",

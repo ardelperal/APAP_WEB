@@ -2,7 +2,7 @@
 
 The helpers in this module separate code readiness from real backend
 mutation: tests inject fakes, while the operator runs the CLI checkpoint
-against the intended InsForge infrastructure surface.
+against the intended LocalBackend infrastructure surface.
 """
 
 from __future__ import annotations

@@ -451,7 +451,7 @@ def test_get_admin_template_adapter_resolves_app_state_templates() -> None:
 # --- architectural rule pins -------------------------------------------------
 
 
-def test_admin_application_layer_does_not_import_insforge() -> None:
+def test_admin_application_layer_does_not_import_local_backend() -> None:
     """Rule §31: the admin application layer depends on the Protocol, not on a concrete client."""
     import importlib
 
@@ -463,22 +463,22 @@ def test_admin_application_layer_does_not_import_insforge() -> None:
         )
         for attr in module.__dict__.values():
             attr_module = getattr(attr, "__module__", "") or ""
-            assert "insforge" not in attr_module.lower() or attr_module.startswith(
+            assert "local_backend" not in attr_module.lower() or attr_module.startswith(
                 "tests"
             ), (
-                f"admin application module {module_name!r} leaked InsForge "
+                f"admin application module {module_name!r} leaked LocalBackend "
                 f"import from {attr_module!r}"
             )
 
 
-def test_admin_adapter_does_not_import_insforge() -> None:
-    """The admin template adapter is a Jinja-only wrapper — no InsForge coupling."""
+def test_admin_adapter_does_not_import_local_backend() -> None:
+    """The admin template adapter is a Jinja-only wrapper — no LocalBackend coupling."""
     import app.core.adapters.admin_template_adapter as adapter_module
 
     for attr in adapter_module.__dict__.values():
         attr_module = getattr(attr, "__module__", "") or ""
-        assert "insforge" not in attr_module.lower(), (
-            f"admin template adapter leaked InsForge import from {attr_module!r}"
+        assert "local_backend" not in attr_module.lower(), (
+            f"admin template adapter leaked LocalBackend import from {attr_module!r}"
         )
 
 
@@ -506,7 +506,7 @@ def test_admin_di_does_not_export_domain_or_port() -> None:
         )
 
 
-def test_admin_handlers_does_not_import_insforge_client() -> None:
+def test_admin_handlers_does_not_import_local_backend_client() -> None:
     """Rule §1 + §31: the admin route layer must not reach for ``LocalPostgresExecutor``.
 
     The route handlers now compose ``AuthUsersPort`` (via DI) instead of

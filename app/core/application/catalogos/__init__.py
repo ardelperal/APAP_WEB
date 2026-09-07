@@ -3,7 +3,7 @@
 Each ``list_<name>`` function is a thin orchestrator that delegates to
 the :class:`CatalogosPort` interface. The use case does NOT do
 validation, mapping, or I/O — those concerns live in the adapter
-(see :mod:`app.core.adapters.insforge`). The single-line delegation is
+(see :mod:`app.core.adapters.local_backend`). The single-line delegation is
 deliberate: it makes the orchestrator trivially testable (a single
 ``port.list_origenes()`` call, mocked at the port boundary) and keeps
 the seam between "what the app wants to do" and "how the backend
@@ -14,7 +14,7 @@ Hexagonal taxonomy:
 - Domain    :mod:`app.core.catalogos` (pure dataclasses)
 - Port      :mod:`app.core.ports.catalogos_port` (Protocol)
 - THIS      :mod:`app.core.application.catalogos` (use cases)
-- Adapter   :mod:`app.core.adapters.insforge` (concrete impl)
+- Adapter   :mod:`app.core.adapters.local_backend` (concrete impl)
 - DI        :mod:`app.core.di.catalogos_di` (FastAPI wiring)
 """
 

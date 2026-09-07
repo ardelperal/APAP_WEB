@@ -5,7 +5,7 @@ Slice #420-7 third surface (joins ``get_animal_by_nchip`` #587 and
 for hexagonal animal creation. Delegates to
 :class:`~app.modules.animals.ports.AnimalsPort` so the application
 code stays transport-agnostic (AGENTS.md §31) — no FastAPI, no
-InsForge, no Jinja in this file.
+LocalBackend, no Jinja in this file.
 
 The use case enforces the domain-validation rules preserved from the
 retired legacy create path: NCHIP and NombreAnimal are mandatory and must

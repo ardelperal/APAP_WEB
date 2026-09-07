@@ -53,7 +53,7 @@ def _client_recording(
         return handler(request, body)
 
     client = LocalPostgresExecutor(
-        base_url="https://example.insforge.app",
+        base_url="https://example.local_backend.app",
         service_key="ik_test",
         transport=httpx.MockTransport(_recording_handler),
     )
@@ -450,7 +450,7 @@ def test_create_adopcion_rejects_missing_entrada_origen() -> None:
     """P1 (risk review 2026-07-04): missing entrada_origen_id -> 422.
 
     Prior to the helper, a bad UUID slipped past the service and
-    surfaced as an InsForge FK violation (500). Now the CTE returns 0
+    surfaced as an LocalBackend FK violation (500). Now the CTE returns 0
     rows, the disambiguation SELECTs run, and the service raises a
     clean ``ValueError`` with the bad id in the message.
     """
@@ -547,7 +547,7 @@ def test_create_adopcion_rejects_boolean_donativo() -> None:
 def test_create_adopcion_translates_409_to_adopcion_conflict_error() -> None:
     """P1-1 (readability review): AdopcionConflictError on UNIQUE clash.
 
-    An InsForge 409 envelope with the natural-key substring in the
+    An LocalBackend 409 envelope with the natural-key substring in the
     body is translated into ``AdopcionConflictError`` (a
     ``ValueError`` subclass) so the route can render a 409 form
     instead of a generic 422.

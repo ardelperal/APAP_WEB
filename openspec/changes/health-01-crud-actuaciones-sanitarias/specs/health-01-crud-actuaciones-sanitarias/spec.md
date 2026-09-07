@@ -95,7 +95,7 @@ Si el animal tiene `fecha_alta IS NULL`, la regla 3 se omite (animales legacy im
 
 ### Requirement: `tipo_actuacion_id` como FK opcional a `catalogos_pruebas`
 
-`tipo_actuacion_id` es opcional. Si se proporciona, DEBE referenciar una fila existente en `catalogos_pruebas` (CATALOG-01, issue #65). El servicio NO verifica el catálogo — la FK se valida a nivel de DB. Si el id es inválido, la query falla con un `InsForgeError` que la ruta traduce a 422.
+`tipo_actuacion_id` es opcional. Si se proporciona, DEBE referenciar una fila existente en `catalogos_pruebas` (CATALOG-01, issue #65). El servicio NO verifica el catálogo — la FK se valida a nivel de DB. Si el id es inválido, la query falla con un `BackendError` que la ruta traduce a 422.
 
 #### Scenario: tipo_actuacion_id válido
 

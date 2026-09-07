@@ -121,7 +121,7 @@ class FosterCapacityOverride:
 
 
 def evaluate_assignment(
-    client: InsForgeClient, animal_id: str, casa_id: str
+    client: LocalBackendClient, animal_id: str, casa_id: str
 ) -> AssignmentDecision:
     """Evaluate a foster assignment.
 
@@ -133,7 +133,7 @@ def evaluate_assignment(
 
 
 def record_override(
-    client: InsForgeClient,
+    client: LocalBackendClient,
     casa_id: str,
     animal_id: str,
     operador_user_id: str,
@@ -147,7 +147,7 @@ def record_override(
 
 
 def list_overrides_for_casa(
-    client: InsForgeClient, casa_id: str
+    client: LocalBackendClient, casa_id: str
 ) -> list[FosterCapacityOverride]:
     """List overrides for one casa, ordered by created_at DESC."""
 ```

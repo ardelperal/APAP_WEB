@@ -3,7 +3,7 @@
 Slice: app/modules/voluntarios (epic #420 PR-A).
 Schema column names match the bootstrap schema in
 ``app/core/domain_voluntarios.py`` (lowercase: ``voluntario``, ``tel1``, etc.).
-The InsForge adapter maps these to/from the transport row dicts.
+The LocalBackend adapter maps these to/from the transport row dicts.
 """
 from __future__ import annotations
 

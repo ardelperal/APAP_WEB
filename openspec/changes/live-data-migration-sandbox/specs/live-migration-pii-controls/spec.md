@@ -186,5 +186,5 @@ In both scopes, the first INSERT wins; subsequent collisions MUST NOT overwrite 
 
 - Anonymization or hashing of PII in the database itself (the user explicitly requested real PII).
 - Differential privacy or k-anonymity controls.
-- PII encryption-at-rest beyond InsForge defaults.
+- PII encryption-at-rest beyond LocalBackend defaults.
 - Consent management UI (out of this change).

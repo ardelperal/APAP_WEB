@@ -712,12 +712,12 @@ def test_ci_workflow_test_job_runs_crap_gate() -> None:
     )
 
 
-def test_ci_workflow_test_job_excludes_insforge_adapter() -> None:
+def test_ci_workflow_test_job_excludes_local_backend_adapter() -> None:
     with (REPO_ROOT / "pyproject.toml").open("rb") as fh:
         pyproject = tomllib.load(fh)
 
     omit = pyproject["tool"]["coverage"]["run"]["omit"]
-    assert "app/core/insforge.py" in omit
+    assert "app/core/local_backend.py" in omit
 
 
 def test_default_pytest_collection_matches_ci_boundary() -> None:

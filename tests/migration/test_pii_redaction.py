@@ -15,7 +15,7 @@ list (which ``tests/test_log_safe_redaction.py`` already covers):
 These atoms run against ``log_safe`` directly (event-name payloads
 synthesised with fixture PII values) and against the
 ``MigrationReport.to_json()`` path (synthesised report objects) and
-against ``migration.cli.run_reconcile`` (FakeInsForge + injected
+against ``migration.cli.run_reconcile`` (FakeSqlExecutor + injected
 shadow state).
 
 The tests follow the closed-list policy of ``app/core/logging.py``:
@@ -278,12 +278,12 @@ def test_cli_reconcile_check_only_output_has_no_raw_pii(
     Spec scenario: ``CLI output has no raw PII``. We synthesise a
     shadow state where one ``needs_review`` row carries a DNI value
     (the column being routed through the audit stream), invoke
-    ``run_reconcile`` against a FakeInsForge + injected shadow
+    ``run_reconcile`` against a FakeSqlExecutor + injected shadow
     state, capture stdout, and assert the regex finds no PII
     substring.
 
     The atom is hermetic: no real DB, no real apply; the
-    ``FakeInsForge`` is constructed inline.
+    ``FakeSqlExecutor`` is constructed inline.
     """
     # --- Fake shadow state that mirrors ShadowStateRepository's
     # public read surface -------------------------------------------------

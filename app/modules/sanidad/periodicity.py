@@ -36,7 +36,7 @@ The engine owns no SQL strings directly. It calls:
 - ``app.modules.tasks.service.crear_tarea`` for task creation.
 - The caller passes the ``AnimalsPort`` so this module stays adapter-agnostic.
 
-Framework-agnostic: no FastAPI, no InsForge, no SQL here.
+Framework-agnostic: no FastAPI, no LocalBackend, no SQL here.
 """
 
 from __future__ import annotations

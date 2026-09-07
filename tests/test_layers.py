@@ -107,7 +107,7 @@ def test_application_may_not_import_adapters(tmp_path: Path) -> None:
     _tree(
         tmp_path,
         {
-            "app/core/adapters/insforge/auth_insforge_adapter.py": "",
+            "app/core/adapters/local_backend/auth_local_backend_adapter.py": "",
             "app/core/application/auth/get_user.py": (
                 "from app.core.adapters.stubs.auth_users_stub import Adapter\n"
             ),
@@ -127,7 +127,7 @@ def test_di_may_wire_adapters_into_application(tmp_path: Path) -> None:
     _tree(
         tmp_path,
         {
-            "app/core/adapters/insforge/auth_insforge_adapter.py": "",
+            "app/core/adapters/local_backend/auth_local_backend_adapter.py": "",
             "app/core/application/auth/get_user.py": "",
             "app/core/di/auth_di.py": (
                 "from app.core.adapters.stubs.auth_users_stub import Adapter\n"
@@ -146,8 +146,8 @@ def test_domain_may_not_import_infrastructure(tmp_path: Path) -> None:
     _tree(
         tmp_path,
         {
-            "app/core/insforge.py": "",
-            "app/core/domain/auth/user.py": "from app.core.insforge import Client\n",
+            "app/core/local_backend.py": "",
+            "app/core/domain/auth/user.py": "from app.core.local_backend import Client\n",
         },
     )
 
@@ -261,7 +261,7 @@ def test_core_slice_may_not_import_a_sibling_slice(tmp_path: Path) -> None:
 
 
 def test_adapter_slice_is_split_on_the_vendor_segment(tmp_path: Path) -> None:
-    """``schema_bootstrap_insforge_adapter`` is the schema_bootstrap slice.
+    """``schema_bootstrap_local_backend_adapter`` is the schema_bootstrap slice.
 
     Splitting on the first underscore would read it as ``schema`` and
     then flag its own port as a cross-slice import.
@@ -271,13 +271,13 @@ def test_adapter_slice_is_split_on_the_vendor_segment(tmp_path: Path) -> None:
         tmp_path,
         {
             "app/core/ports/schema_bootstrap_port.py": "",
-            "app/core/adapters/insforge/schema_bootstrap_insforge_adapter.py": (
+            "app/core/adapters/local_backend/schema_bootstrap_local_backend_adapter.py": (
                 "from app.core.ports.schema_bootstrap_port import SchemaBootstrapPort\n"
             ),
         },
     )
 
-    rel = "app/core/adapters/insforge/schema_bootstrap_insforge_adapter.py"
+    rel = "app/core/adapters/local_backend/schema_bootstrap_local_backend_adapter.py"
     assert checker.classify_slice(rel, "adapters") == "schema_bootstrap"
 
     violations, _notices = checker.check_tree(tmp_path, baseline={})
@@ -347,8 +347,8 @@ def test_relative_imports_resolve_against_the_owning_package(tmp_path: Path) -> 
     _tree(
         tmp_path,
         {
-            "app/core/insforge.py": "",
-            "app/core/domain/auth/user.py": "from ...insforge import Client\n",
+            "app/core/local_backend.py": "",
+            "app/core/domain/auth/user.py": "from ...local_backend import Client\n",
         },
     )
 
@@ -368,11 +368,11 @@ def test_baselined_violation_passes_and_new_one_fails(tmp_path: Path) -> None:
     _tree(
         tmp_path,
         {
-            "app/core/insforge.py": "",
-            "app/core/domain/auth/user.py": "from app.core.insforge import Client\n",
+            "app/core/local_backend.py": "",
+            "app/core/domain/auth/user.py": "from app.core.local_backend import Client\n",
         },
     )
-    key = "app/core/domain/auth/user.py -> app.core.insforge [layer-direction]"
+    key = "app/core/domain/auth/user.py -> app.core.local_backend [layer-direction]"
 
     violations, notices = checker.check_tree(tmp_path, baseline={key: "known debt"})
 
@@ -383,7 +383,7 @@ def test_baselined_violation_passes_and_new_one_fails(tmp_path: Path) -> None:
     _write(
         tmp_path,
         "app/core/domain/auth/user.py",
-        "from app.core.insforge import Client\nfrom app.core.config import settings\n",
+        "from app.core.local_backend import Client\nfrom app.core.config import settings\n",
     )
     violations, _notices = checker.check_tree(tmp_path, baseline={key: "known debt"})
 

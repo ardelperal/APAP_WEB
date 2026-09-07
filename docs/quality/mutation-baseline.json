@@ -30,7 +30,7 @@
     "landed between #510 and today (the 167-mutant pilot is now 77",
     "mutants because tests catch more, not because the surface shrank).",
     "`migration/diff_engine.py` was a brand-new entry, never measured.",
-    "`app/core/insforge.py` had 1 INCOMPETENT out of 300 mutants (a",
+    "`app/core/insforge.py` (deleted in issue #664) had 1 INCOMPETENT out of 300 mutants (a",
     "crash under mutation, not a survivor) — well under the 20%",
     "ceiling `scripts/check_mutation.py` aborts on. The BitOr filter",
     "is still required: 308 of 1422 generated mutants are skipped",
@@ -51,7 +51,7 @@
     "operators_filtered": "core/ReplaceBinaryOperator_BitOr_.*"
   },
   "modules": {
-    "app/core/insforge.py": 145,
+    "app/core/insforge.py" (deleted in issue #664): 145,
     "app/modules/adopciones/service.py": 81,
     "migration/derivation.py": 3,
     "migration/diff_engine.py": 78

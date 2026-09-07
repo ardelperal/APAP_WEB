@@ -1,8 +1,8 @@
 """Stub adapter for ``VoluntariosPort`` — pending local-backend implementation.
 
 Replaces the deleted
-:class:`app.modules.voluntarios.adapters.insforge.voluntarios_insforge_adapter.VoluntariosInsForgeAdapter`
-and its 3 sibling modules under ``app.modules.voluntarios.adapters.insforge.*``.
+:class:`app.modules.voluntarios.adapters.local_backend.voluntarios_local_backend_adapter.VoluntariosLocalBackendAdapter`
+and its 3 sibling modules under ``app.modules.voluntarios.adapters.local_backend.*``.
 A real :class:`~app.core.local_backend.db.LocalPostgresExecutor`-backed
 adapter lands in a follow-up slice; until then, every method raises
 :class:`NotImplementedError` so the runtime fails loud per route.

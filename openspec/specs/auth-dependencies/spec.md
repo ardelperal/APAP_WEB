@@ -6,7 +6,7 @@
 ## 1. Requirements
 
 ### R01 — Shim re-exports all 9 public symbols
-`app/core/auth_dependencies.py` must re-export (via `from app.core.di.auth_dependencies_di import *`) exactly: `AuthenticatedUser`, `is_authenticated_user`, `get_insforge_client_dep`, `get_current_user_optional`, `return_early_if_response`, `require_authorized_user`, `require_writer_user`, `require_developer_user`, `require_developer_user_redirect`. no re-export from `app.core.di.__init__`.
+`app/core/auth_dependencies.py` must re-export (via `from app.core.di.auth_dependencies_di import *`) exactly: `AuthenticatedUser`, `is_authenticated_user`, `get_local_backend_client_dep`, `get_current_user_optional`, `return_early_if_response`, `require_authorized_user`, `require_writer_user`, `require_developer_user`, `require_developer_user_redirect`. no re-export from `app.core.di.__init__`.
 **Scenario** — *every consumer resolves* — given 21 import sites import ≥1 of the 9 names when the slice lands then `from app.core.auth_dependencies import <name>` resolves and both existing test files pass unchanged.
 
 ### R02 — Implementation in `app/core/di/auth_dependencies_di.py`
@@ -14,12 +14,12 @@ New module must contain all 9 functions verbatim from current `auth_dependencies
 **Scenario** — *module exports the 9 names* — given the file exists when imported then `dir(...)` includes every name in the 9-symbol set.
 
 ### R03 — §32.P4 fix (Variant A)
-`require_authorized_user` must wrap `get_user_by_email(client, email)` in `try/except InsForgeError`; on `InsForgeError` emit `log_safe("auth.denied", reason="db_unreachable", user_id=...)` and return `RedirectResponse("/unauthorized", 302)`.
-**Scenario** — *InsForgeError → 302, no 500* — given a valid cookie + stale cache when `get_user_by_email` raises `InsForgeError` then dep returns `/unauthorized` 302 and emits `log_safe("auth.denied", reason="db_unreachable")` and no exception propagates.
+`require_authorized_user` must wrap `get_user_by_email(client, email)` in `try/except BackendError`; on `BackendError` emit `log_safe("auth.denied", reason="db_unreachable", user_id=...)` and return `RedirectResponse("/unauthorized", 302)`.
+**Scenario** — *BackendError → 302, no 500* — given a valid cookie + stale cache when `get_user_by_email` raises `BackendError` then dep returns `/unauthorized` 302 and emits `log_safe("auth.denied", reason="db_unreachable")` and no exception propagates.
 
 ### R04 — Pin test denies transport-shaped leaks
-`tests/test_auth_dependencies_slice.py` must assert: no `execute_sql`/raw SQL; `InsForgeClient` only as parameter type; auth-cache via `get_cached_auth`/`set_cached_auth` only.
-**Scenario** — *pin test fails on leak* — given the pin test is wired in when `client.execute_sql(...)` or `InsForgeClient(...)` is added inside `require_authorized_user` then the test fails naming the symbol.
+`tests/test_auth_dependencies_slice.py` must assert: no `execute_sql`/raw SQL; `LocalBackendClient` only as parameter type; auth-cache via `get_cached_auth`/`set_cached_auth` only.
+**Scenario** — *pin test fails on leak* — given the pin test is wired in when `client.execute_sql(...)` or `LocalBackendClient(...)` is added inside `require_authorized_user` then the test fails naming the symbol.
 
 ### R05 — Audit doc refreshed
 `docs/audits/auth-dependencies-audit-2026-Q2.md` must gain an addendum covering the migration, shim contract, 9-symbol list, and §32.P4 fix; Verdict updated.
@@ -70,4 +70,4 @@ The 11 module slices · changes to `app/main.py` or `app/routes_registry.py` (fl
 - `tests/test_auth_dependencies.py` + `tests/test_auth_session_is_authorized.py` pass sin modification.
 - CI green: lint, typecheck, test, security, integration, build (per §15.1); module size `auth_dependencies_di.py` ≤ 700, shim ≤ 50, no new BASELINE.
 - Audit doc covers scope/methodology/findings/verdict per §12.
-- §32.P4 fix demonstrable: unit test forces `InsForgeError` and asserts 302 + `log_safe("auth.denied", reason="db_unreachable")`.
+- §32.P4 fix demonstrable: unit test forces `BackendError` and asserts 302 + `log_safe("auth.denied", reason="db_unreachable")`.

@@ -2,8 +2,8 @@
 
 This is the application-side contract. The local adapter
 (``ClassicPasswordAuthPort``) implements it against Postgres; the
-InsForge adapter falls back to ``NotImplementedError`` for
-``set_password`` (InsForge has no password store) and ``None`` for
+LocalBackend adapter falls back to ``NotImplementedError`` for
+``set_password`` (LocalBackend has no password store) and ``None`` for
 ``verify_password`` (the user has no password set, log in with Google).
 """
 from __future__ import annotations

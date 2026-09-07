@@ -1,7 +1,7 @@
 """``GET /api/storage/buckets`` and ``POST /api/storage/buckets`` handlers
 (M0 of self-host-backend-coolify).
 
-The InsForge REST API exposes the bucket admin surface used by
+The LocalBackend REST API exposes the bucket admin surface used by
 ``LocalPostgresExecutor.get_bucket`` and ``LocalPostgresExecutor.ensure_bucket``. The
 local backend re-implements those endpoints against an in-memory
 bucket registry (M2 swaps this for real MinIO + boto3).
@@ -9,7 +9,7 @@ bucket registry (M2 swaps this for real MinIO + boto3).
 The contract is body-based for ``POST`` (``{"bucketName": ..., "isPublic": ...}``),
 matching what ``LocalPostgresExecutor.ensure_bucket`` sends. The tasks.md
 originally suggested ``POST /api/storage/buckets/{name}`` but the
-InsForge client sends the name in the body, so the body-based form
+LocalBackend client sends the name in the body, so the body-based form
 is what the integration tests pin.
 
 Hard rules (web-tdd-philosophy):
@@ -30,10 +30,10 @@ router = APIRouter()
 
 
 def _bucket_dict(name: str, is_public: bool) -> dict[str, Any]:
-    """Shape the InsForge bucket envelope.
+    """Shape the LocalBackend bucket envelope.
 
     ``bucketName`` (camelCase) matches the existing client. ``isPublic``
-    and ``files`` are part of the InsForge envelope — ``files`` is the
+    and ``files`` are part of the LocalBackend envelope — ``files`` is the
     count of objects in the bucket (always 0 in M0).
     """
     return {

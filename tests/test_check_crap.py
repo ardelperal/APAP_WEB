@@ -171,7 +171,7 @@ def test_malformed_coverage_json_fails_loudly(tmp_path: Path) -> None:
 
 def test_coverage_omitted_adapter_is_not_measured(tmp_path: Path) -> None:
     checker = _load_checker()
-    adapter = tmp_path / "app" / "core" / "insforge.py"
+    adapter = tmp_path / "app" / "core" / "local_backend.py"
     adapter.parent.mkdir(parents=True)
     adapter.write_text(_risky_source(), encoding="utf-8")
     (tmp_path / "coverage.json").write_text(
@@ -181,7 +181,7 @@ def test_coverage_omitted_adapter_is_not_measured(tmp_path: Path) -> None:
 
     measured = checker.measure_tree(tmp_path)
 
-    assert "app/core/insforge.py::risky" not in measured
+    assert "app/core/local_backend.py::risky" not in measured
 
 
 def test_baseline_file_without_coverage_record_is_skipped(

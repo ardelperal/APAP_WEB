@@ -29,7 +29,7 @@ SCAN_DIRS = ("app", "migration")
 #: Current offenders measured with ``--emit-baseline``.
 #: RATCHET: entries may only shrink or disappear; never add headroom.
 BASELINE_MUTATION_SITES: dict[str, int] = {
-    "app/core/insforge.py": 538,  # M0 (self-host-backend-coolify): URL default fix added 12 sites
+    "app/core/local_backend.py": 538,  # M0 (self-host-backend-coolify): URL default fix added 12 sites
     "app/modules/acogidas/routes.py": 383,
     "app/modules/acogidas/service.py": 355,
     "app/modules/adopciones/routes.py": 306,

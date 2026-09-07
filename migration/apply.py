@@ -1,10 +1,10 @@
-"""Apply legacy ACCDB rows into the InsForge web database (issue #168).
+"""Apply legacy ACCDB rows into the LocalBackend web database (issue #168).
 
 This module is the engine behind ``python -m migration apply``: the
 bidirectional sync that AGENTS.md §18 declares MANDATORY between the
 Access/VBA legacy backend and the new web app. It reads legacy rows via
 ``migration.legacy_reader`` (the injected legacy executor seam) and writes them into the matching
-InsForge domain table (``animales``, ``voluntarios``, ``entradas``,
+LocalBackend domain table (``animales``, ``voluntarios``, ``entradas``,
 ``acogidas``, ``adopciones``, ...) per the YAML column map.
 
 **Direction (this slice):** ``legacy_to_web`` only. The reverse
@@ -165,7 +165,7 @@ class SqlExecutor(Protocol):
     """Structural type for the web client passed to ``apply_legacy_to_web``.
 
     Mirrors the surface ``LocalPostgresExecutor.execute_sql`` exposes; defined
-    as a Protocol so tests can pass a ``FakeInsForge`` without
+    as a Protocol so tests can pass a ``FakeLocalBackend`` without
     subclassing the real client.
     """
 
@@ -193,7 +193,7 @@ def _bootstrap_shadow_state(client: SqlExecutor) -> None:
     """Ensure ``web_only_feature_shadow`` exists.
 
     Idempotent: the repository emits ``CREATE ... IF NOT EXISTS`` DDL
-    and lets InsForge/Postgres own replay safety. We don't track
+    and lets LocalBackend/Postgres own replay safety. We don't track
     bootstrap state in code — the backend owns the contract.
 
     Called by ``apply_legacy_to_web`` BEFORE the lock acquisition
@@ -226,7 +226,7 @@ def apply_legacy_to_web(
     photos_dir_path: Path | str | None = None,
     dni_collision_counter: DniCollisionCounter | None = None,
 ) -> ApplyResult:
-    """Bulk-apply legacy rows for one table into the InsForge web DB.
+    """Bulk-apply legacy rows for one table into the LocalBackend web DB.
 
     Pipeline (per batch of ``batch_size`` rows):
 
@@ -266,8 +266,8 @@ def apply_legacy_to_web(
       leaves no trace (lock released, no snapshot, no partial file).
 
     Args:
-        client: InsForge-shaped client (``LocalPostgresExecutor`` in
-            production, ``FakeInsForge`` in tests).
+        client: LocalBackend-shaped client (``LocalPostgresExecutor`` in
+            production, ``FakeLocalBackend`` in tests).
         table_name: YAML spec name (e.g. ``"animal"``,
             ``"voluntario"``). Must be in ``list_available_tables()``.
         legacy_path: absolute path to the legacy ``.accdb`` (kept
@@ -459,7 +459,7 @@ def apply_legacy_to_web(
                         )
                     except BackendError as exc:
                         errors.append(
-                            f"{mapping.legacy_table}: InsForge error on "
+                            f"{mapping.legacy_table}: LocalBackend error on "
                             f"{legacy_row.get(mapping.legacy_key)!r}: {exc}"
                         )
                         continue

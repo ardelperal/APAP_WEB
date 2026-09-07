@@ -52,7 +52,7 @@ from app.core.session import (
 # ---------------------------------------------------------------------------
 
 
-def test_get_insforge_client_dep_return_annotation_is_iterator() -> None:
+def test_get_local_backend_client_dep_return_annotation_is_iterator() -> None:
     """F-4: ``get_local_postgres_executor_dep`` MUST declare ``Iterator[LocalPostgresExecutor]``.
 
     Without the annotation, type checkers infer the return as
@@ -82,7 +82,7 @@ def test_get_insforge_client_dep_return_annotation_is_iterator() -> None:
     )
 
 
-def test_get_insforge_client_dep_is_a_generator() -> None:
+def test_get_local_backend_client_dep_is_a_generator() -> None:
     """The implementation MUST be a generator function (uses ``yield``).
 
     Pre-#260 the dep was a generator that created + closed a per-request
@@ -96,7 +96,7 @@ def test_get_insforge_client_dep_is_a_generator() -> None:
       (callers that use ``dependency_overrides[...]`` continue to work
       whether they override with a generator or a plain callable).
     - The return annotation stays ``Iterator[LocalPostgresExecutor]`` (see
-      :func:`test_get_insforge_client_dep_return_annotation_is_iterator`).
+      :func:`test_get_local_backend_client_dep_return_annotation_is_iterator`).
 
     This test is a defence-in-depth check: even if the annotation
     changes, the body must still be a generator function.
@@ -117,7 +117,7 @@ def test_get_insforge_client_dep_is_a_generator() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_get_insforge_client_dep_returns_pooled_client_from_app_state() -> None:
+def test_get_local_backend_client_dep_returns_pooled_client_from_app_state() -> None:
     """Issue #260: the dep MUST yield the LocalPostgresExecutor stored on app.state.
 
     A single ``httpx.Client`` connection pool must be reused across
@@ -163,7 +163,7 @@ def test_get_insforge_client_dep_returns_pooled_client_from_app_state() -> None:
     )
 
 
-def test_get_insforge_client_dep_does_not_close_pooled_client() -> None:
+def test_get_local_backend_client_dep_does_not_close_pooled_client() -> None:
     """Issue #260: the dep MUST NOT call ``close()`` on the pooled client.
 
     Pre-#260 the dep owned the per-request lifecycle (``finally:
@@ -421,8 +421,8 @@ def _login_pre_fix(client):  # type: ignore[no-untyped-def]
     )
 
 
-class _SpyInsForge:
-    """Minimal InsForge stand-in. Raises on unmocked methods."""
+class _SpyLocalBackend:
+    """Minimal LocalBackend stand-in. Raises on unmocked methods."""
 
     def __init__(self) -> None:
         self.get_user_by_email_response: dict | None = {
@@ -431,7 +431,7 @@ class _SpyInsForge:
 
     def __getattr__(self, name):  # type: ignore[no-untyped-def]
         raise NotImplementedError(
-            f"_SpyInsForge.{name} is not mocked. Add an explicit method "
+            f"_SpyLocalBackend.{name} is not mocked. Add an explicit method "
             f"to the spy in this test instead of relying on no-op fallback."
         )
 
@@ -465,10 +465,10 @@ async def test_middleware_pasa_con_is_authorized_true(
     from app.core.di.local_postgres_di import get_local_postgres_executor_dep
     from app.main import app
 
-    # The route handler needs an InsForge client; without a stub the
+    # The route handler needs an LocalBackend client; without a stub the
     # lifespan tries to reach the real backend and the test errors with
     # httpx.ConnectError before the middleware verdict is observable.
-    class _StubInsForge:
+    class _StubLocalBackend:
         def __init__(self, *args: object, **kwargs: object) -> None:
             self.calls: list[str] = []
 
@@ -478,7 +478,7 @@ async def test_middleware_pasa_con_is_authorized_true(
         def execute_sql(self, *args: object, **kwargs: object) -> list[dict[str, object]]:
             # The /animales route calls a couple of SELECTs; return
             # empty rows so the handler renders the empty-state page
-            # without InsForge.
+            # without LocalBackend.
             from tests.conftest import auth_reval_rows
 
             query = args[0] if args else ""
@@ -489,9 +489,9 @@ async def test_middleware_pasa_con_is_authorized_true(
             return []
 
         def __getattr__(self, name: str) -> object:
-            raise NotImplementedError(f"_StubInsForge.{name} not mocked")
+            raise NotImplementedError(f"_StubLocalBackend.{name} not mocked")
 
-    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: _StubInsForge()
+    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: _StubLocalBackend()
     try:
         client.cookies.set(
             session_cookie_name(),
@@ -530,7 +530,7 @@ def _clear_auth_cache() -> None:
 
 
 class _RevalSpy:
-    """InsForge stand-in whose ``execute_sql`` returns a fixed user row set
+    """LocalBackend stand-in whose ``execute_sql`` returns a fixed user row set
     and records how many times it was queried (to prove cache hits)."""
 
     def __init__(self, rows: list[dict] | None) -> None:
@@ -1017,7 +1017,7 @@ def test_require_developer_user_logs_auth_denied_when_role_insufficient(
 # silently break the "deactivation takes effect on the next request"
 # promise without a failing test that grep ``#143`` finds. They use
 # the same ``_RevalSpy`` and helper patterns the unit tests use
-# (no real InsForge, no real OAuth, no real lifespan).
+# (no real LocalBackend, no real OAuth, no real lifespan).
 # ---------------------------------------------------------------------------
 
 

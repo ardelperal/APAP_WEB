@@ -37,7 +37,7 @@ Seven cases:
 
 Each casa uses a uuid-suffixed name to avoid collisions with other
 casas that may exist in the test database (E2E flows run against a
-real InsForge backend, unlike the unit-test spies in
+real LocalBackend backend, unlike the unit-test spies in
 ``tests/test_foster_routes.py``).
 
 The tests skip cleanly when ``APAP_E2E_AUTH_SECRET`` is unset (the OAuth

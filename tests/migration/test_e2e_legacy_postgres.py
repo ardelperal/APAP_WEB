@@ -5,7 +5,7 @@ plus the cross-cutting M2 (fallback-ready) gate from
 ``openspec/changes/live-data-migration-sandbox``.
 
 The atoms in this file run the production ``apply_legacy_to_web`` (PR3/M1)
-against a real backend (InsForge in CI; Postgres locally as fallback) and
+against a real backend (LocalBackend in CI; Postgres locally as fallback) and
 a real .accdb (the fixture at
 ``tests/migration/local-access/backend/Registro_APAP_Alcala_datos_18.accdb``,
 unencrypted). The seam ``MdbToolsLegacyReader`` (in
@@ -34,9 +34,9 @@ The atoms cover the four properties the user explicitly asked for:
 
 Backend preference:
 
-  * If ``APAP_INSFORGE_URL`` (or ``INSFORGE_URL``) + service key env
+  * If ``APAP_LOCAL_BACKEND_URL`` (or ``INSFORGE_URL``) + service key env
     vars are set AND the URL responds 200 to a probe query → the
-    atom uses ``InsForgeBackendClient`` (production code path).
+    atom uses ``LocalBackendBackendClient`` (production code path).
   * Otherwise the atom uses ``PostgresBackendClient`` against
     ``APAP_TEST_POSTGRES_DSN``. The schema is provisioned locally
     from the same SQL the integration conftest uses (the SQL
@@ -44,7 +44,7 @@ Backend preference:
     ``tests.integration.conftest._DOMAIN_SQL_STATEMENTS`` so we do
     not duplicate the schema definition).
 
-Both backends satisfy ``migration.apply._InsForgeLike`` so the apply
+Both backends satisfy ``migration.apply._LocalBackendLike`` so the apply
 pipeline is identical. The choice is **only** about which database
 runs the destination; the .accdb side is the same in both modes.
 """
@@ -63,10 +63,10 @@ from psycopg import sql
 from psycopg.rows import dict_row
 
 from tests.migration._e2e_seams.backend_clients import (
-    InsForgeBackendClient,
-    InsForgeLike,
+    LocalBackendBackendClient,
+    LocalBackendLike,
     PostgresBackendClient,
-    get_insforge_credentials,
+    get_local_backend_credentials,
 )
 from tests.migration._e2e_seams.mdbtools_reader import (
     MdbToolsLegacyReader,
@@ -85,9 +85,9 @@ class _InMemoryBucketAdmin:
     what ``migration.bootstrap.ensure_private_bucket`` reads
     (``isPublic``).
 
-    For InsForge mode the production client owns both SQL and
+    For LocalBackend mode the production client owns both SQL and
     storage, so this fake is unused; the bootstrap runs against
-    the real InsForge bucket.
+    the real LocalBackend bucket.
     """
 
     def __init__(self) -> None:
@@ -165,8 +165,8 @@ def legacy_copy(tmp_path: Path) -> Iterator[Path]:
 @pytest.fixture
 def postgres_backend(
     request: pytest.FixtureRequest,
-) -> Iterator[InsForgeLike]:
-    """Yield a Postgres-backed ``InsForgeLike`` against a fresh
+) -> Iterator[LocalBackendLike]:
+    """Yield a Postgres-backed ``LocalBackendLike`` against a fresh
     ephemeral schema.
 
     The schema is provisioned with the APAP_WEB domain tables and
@@ -246,28 +246,28 @@ def postgres_backend(
 @pytest.fixture
 def backend_client(
     request: pytest.FixtureRequest,
-    postgres_backend: InsForgeLike,
-) -> Iterator[InsForgeLike]:
+    postgres_backend: LocalBackendLike,
+) -> Iterator[LocalBackendLike]:
     """Yield the backend client to use for the apply.
 
     Preference order:
-      1. ``InsForgeBackendClient`` when ``APAP_INSFORGE_URL`` (or
+      1. ``LocalBackendBackendClient`` when ``APAP_LOCAL_BACKEND_URL`` (or
          ``INSFORGE_URL``) + service key are set AND the URL responds.
       2. ``PostgresBackendClient`` (via ``postgres_backend``) otherwise.
 
     For the Postgres fallback, the ``postgres_backend`` fixture has
     already provisioned the schema; this fixture just re-yields it.
     """
-    creds = get_insforge_credentials()
+    creds = get_local_backend_credentials()
     if creds is not None:
-        client = InsForgeBackendClient(*creds)
+        client = LocalBackendBackendClient(*creds)
         try:
             client.execute_sql("SELECT 1 AS ping", [])
         except Exception as e:
             pytest.skip(
-                f"InsForge URL {creds[0]!r} not reachable as a backend "
+                f"LocalBackend URL {creds[0]!r} not reachable as a backend "
                 f"({type(e).__name__}: {str(e)[:120]}). Falling back to "
-                f"Postgres for this run. Provision the InsForge project "
+                f"Postgres for this run. Provision the LocalBackend project "
                 f"and re-run for the production path."
             )
     else:
@@ -321,7 +321,7 @@ def stub_m0_storage(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 @pytest.mark.integration
 def test_e2e_apply_legacy_to_web_idempotent(
-    backend_client: InsForgeLike,
+    backend_client: LocalBackendLike,
     legacy_copy: Path,
     mdbtools_seam: None,
     legacy_seam_installed: None,
@@ -350,7 +350,7 @@ def test_e2e_apply_legacy_to_web_idempotent(
     # and the destination table. This is the same failure mode the
     # chip-cascade integration atom surfaced (see audit #631, #635);
     # fail loud here so the operator knows the apply path is broken
-    # against the real backend, not the FakeInsForge.
+    # against the real backend, not the FakeSqlExecutor.
     assert result_1.applied + result_1.skipped > 0, (
         f"Apply returned zero rows. errors[:3]={result_1.errors[:3]!r}"
     )
@@ -396,7 +396,7 @@ def test_e2e_apply_legacy_to_web_idempotent(
 
 @pytest.mark.integration
 def test_e2e_round_trip_preserves_natural_key(
-    backend_client: InsForgeLike,
+    backend_client: LocalBackendLike,
     legacy_copy: Path,
     mdbtools_seam: None,
     legacy_seam_installed: None,
@@ -451,7 +451,7 @@ def test_e2e_round_trip_preserves_natural_key(
 
 @pytest.mark.integration
 def test_e2e_operator_drift_in_web_preserved(
-    backend_client: InsForgeLike,
+    backend_client: LocalBackendLike,
     legacy_copy: Path,
     mdbtools_seam: None,
     legacy_seam_installed: None,

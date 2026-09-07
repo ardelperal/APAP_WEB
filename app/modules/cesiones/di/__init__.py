@@ -2,7 +2,7 @@
 
 Wires ``CesionesPort`` -> ``StubCesionesPort`` (pending a real
 ``LocalPostgresExecutor``-backed adapter in the follow-up to #668).
-The InsForge adapter implementation was deleted in issue #668; the
+The LocalBackend adapter implementation was deleted in issue #668; the
 stub raises :class:`NotImplementedError` on every method call so the
 runtime fails loud per route.
 """

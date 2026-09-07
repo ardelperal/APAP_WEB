@@ -54,7 +54,7 @@ El router se monta desde `app/main.py` con los prefijos `/terapias` y `/recomend
 | PATCH | `/recomendaciones/{id}` | WRITE | Marca como completada (`completada = true`). |
 | DELETE | `/recomendaciones/{id}` | WRITE | Soft-delete de recomendación. `404` si falta. |
 
-Los códigos `503` se reservan a fallos `InsForgeError` capturados en la ruta (con `log_safe` previo). El `csrf_token` se inyecta en cada `TemplateResponse` (AGENTS.md §10).
+Los códigos `503` se reservan a fallos `BackendError` capturados en la ruta (con `log_safe` previo). El `csrf_token` se inyecta en cada `TemplateResponse` (AGENTS.md §10).
 
 ## Service layer
 

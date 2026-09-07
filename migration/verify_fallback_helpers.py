@@ -63,7 +63,7 @@ def _run_subprocess_check(
     ``extra_env`` is merged on top of the inherited environment so
     checks can override specific variables (the local-backend fixture
     wiring uses this to inject ``APAP_LOCAL_BACKEND`` /
-    ``APAP_INSFORGE_URL`` without disturbing the rest of the env).
+    ``APAP_LOCAL_BACKEND_URL`` without disturbing the rest of the env).
     """
     env = None
     if extra_env:

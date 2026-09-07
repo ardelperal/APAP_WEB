@@ -19,7 +19,7 @@ Esto preserva fidelidad al legacy `TbEntradasMultiplesAuxIniciales` (D-BATCH-01)
 
 | Decision | Choice | Alternatives considered | Rationale |
 |---|---|---|---|
-| Atomicidad | Script SQL multi-statement ejecutado por `sql_runner` con `BEGIN/COMMIT` | RPC dedicado InsForge; SAVEPOINT por statement | PostgREST soporta multi-statement via RPC legacy `/_mcp_query_runner` ya usado por la migración; sin necesidad de exponer endpoint adicional |
+| Atomicidad | Script SQL multi-statement ejecutado por `sql_runner` con `BEGIN/COMMIT` | RPC dedicado LocalBackend; SAVEPOINT por statement | PostgREST soporta multi-statement via RPC legacy `/_mcp_query_runner` ya usado por la migración; sin necesidad de exponer endpoint adicional |
 | Staging storage | Tabla física `entradas_batch_staging` con PK `(batch_id, sequence)` | JSON en sesión; tabla en memoria con TTL | Fidelidad al legacy + preview persistente + cancel/commit sobre mismo estado |
 | Cross-batch validation | Service code antes de tocar DB (lista en memoria O(N²) sobre el batch) | App-level hash index; DB-side via una query `EXISTS` con `IN (SELECT ...)` | N operativa esperada <100; la validación es trivial y cubre tanto intra-batch como contra DB existente en una sola pasada |
 | Error reporting | Preview muestra TODOS los errores per-record (no para en el primero) | First-error-wins | Operador quiere ver todo lo que tiene que arreglar antes de reintentar |
@@ -123,7 +123,7 @@ Routes:
 
 | Layer | What to Test | Approach |
 |---|---|---|
-| Service unit | per-record validation (happy/sad/edge), cross-batch uniqueness (intra-batch dupe), atomic commit happy path, atomic rollback on mid-batch failure (FK violation during copy), staging lifecycle (stage → preview → commit → staging empty; stage → cancel → staging empty) | `tests/test_entradas_batch.py` with real `InsForgeClient` + `httpx.MockTransport` capturing SQL calls in order |
+| Service unit | per-record validation (happy/sad/edge), cross-batch uniqueness (intra-batch dupe), atomic commit happy path, atomic rollback on mid-batch failure (FK violation during copy), staging lifecycle (stage → preview → commit → staging empty; stage → cancel → staging empty) | `tests/test_entradas_batch.py` with real `LocalBackendClient` + `httpx.MockTransport` capturing SQL calls in order |
 | Routes | auth guard, form render, stage POST redirect to preview, commit POST redirect to /entradas, cancel DELETE redirect, CSRF token in all 3 forms, no `client.execute_sql(...)` in routes (regex check) | `tests/test_entradas_batch_routes.py` with `AsyncClient` + dependency overrides/spies |
 | Review | Architecture/security/SOLID | R1 risk + R3 reliability lens before PR |
 

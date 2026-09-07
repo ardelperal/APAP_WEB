@@ -59,7 +59,7 @@ Códigos `409` se reservan a `MaterialConflictError` con mensaje en español. C�
 
 Funciones públicas del módulo (exportadas desde `app/modules/materiales/__init__.py`).
 
-- `create_material(client, params) -> Material` — Inserta un material. Traduce `InsForgeError(23505)` a `MaterialConflictError`.
+- `create_material(client, params) -> Material` — Inserta un material. Traduce `BackendError(23505)` a `MaterialConflictError`.
 - `get_material_by_id(client, material_id) -> Material | None` — Devuelve un material por id o `None`.
 - `list_materials(client, activos_solo=True) -> list[Material]` — Lista por `fecha_alta DESC`. `activos_solo=False` incluye inactivos.
 - `update_material(client, material_id, params) -> Material | None` — Update parcial. Misma traducción de `23505` a `MaterialConflictError`.

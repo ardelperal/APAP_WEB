@@ -1,15 +1,15 @@
 """FastAPI application entrypoint for APAP_WEB.
 
 The application is built following the skeleton outlined in
-``docs/architecture/architecture-insforge-stack.md`` and the acceptance criteria
+``docs/architecture/architecture-local_backend-stack.md`` and the acceptance criteria
 of issue #17 (Fase 1 — esqueleto) and #16 (Fase 2 — auth). It exposes:
 
 - ``GET /``              → marketing landing page (auth required)
 - ``GET /healthz``       → JSON health probe used by Docker / Coolify (CD-02, public)
 - ``GET /login``         → renders the APAP login page (public)
-- ``GET /auth/google``   → starts the InsForge-hosted Google OAuth flow (public)
-- ``GET /auth/callback`` → exchanges the ``insforge_code`` (or legacy ``code``)
-                             for an InsForge JWT and issues a session cookie
+- ``GET /auth/google``   → starts the LocalBackend-hosted Google OAuth flow (public)
+- ``GET /auth/callback`` → exchanges the ``oauth_code`` (or legacy ``code``)
+                             for an LocalBackend JWT and issues a session cookie
 - ``GET /logout``        → clears the session cookie (any user)
 - ``GET /unauthorized``  → friendly access-denied page (auth required,
                              including deactivated sessions so they see the
@@ -27,7 +27,7 @@ validation. The middleware never opens a DB connection.
 backwards compatibility with tests and any out-of-tree consumers that
 imported them from ``app.main``.
 
-Spec home: ``openspec/changes/auth-insforge-hosted-proxy/specs/auth-oauth/spec.md``
+Spec home: ``openspec/changes/auth-local_backend-hosted-proxy/specs/auth-oauth/spec.md``
 for the OAuth callback contract; ``openspec/changes/ci-cd-foundation/``
 for the deploy webhook contract.
 """
@@ -52,7 +52,7 @@ from app.core.auth_dependencies import (
     return_early_if_response,
 )
 from app.core.auth_dependencies import (
-    get_insforge_client_dep as get_insforge_client,  # noqa: F401  - re-exported for test backwards compat
+    get_local_backend_client_dep as get_local_backend_client,  # noqa: F401  - re-exported for test backwards compat
 )
 from app.core.auth_flow import register_auth_flow_routes
 from app.core.catalogs import ensure_catalogs
@@ -85,7 +85,7 @@ _TEMPLATES_DIR = Path(__file__).parent / "templates"
 async def lifespan(_: FastAPI):
     """Application lifespan.
 
-    On startup, bootstrap the InsForge schema:
+    On startup, bootstrap the LocalBackend schema:
 
     1. ``configure_logging(settings)`` — installs the JSON stdout
        handler + redaction filter so even startup errors are visible
@@ -113,7 +113,7 @@ async def lifespan(_: FastAPI):
     ``ON CONFLICT DO NOTHING``, ``web_sql_migrations`` bookkeeping,
     ``DROP CONSTRAINT IF EXISTS``), so it is safe to run on every cold
     start. If any step raises, the lifespan propagates and the app
-    does not start (fail fast): a deploy that cannot reach InsForge
+    does not start (fail fast): a deploy that cannot reach LocalBackend
     with the service key is better surfaced as a failed deploy than
     as 500s on the first request.
     """
@@ -272,9 +272,9 @@ app = create_app()
 # error (``ValueError``) and lets transport errors propagate uncaught
 # becomes a 500. The generic handler below turns every unhandled
 # exception into a non-leaking 502 with ``log_safe`` observability.
-# The InsForge-specific binding (issue #277) is gone with the
-# InsForge error-handler slice (issue #662); the §32.P4 contract is
-# preserved as a generic handler instead of an InsForge-specific one.
+# The LocalBackend-specific binding (issue #277) is gone with the
+# LocalBackend error-handler slice (issue #662); the §32.P4 contract is
+# preserved as a generic handler instead of an LocalBackend-specific one.
 @app.exception_handler(Exception)
 async def _unhandled_exception_handler(
     request: Request, exc: Exception

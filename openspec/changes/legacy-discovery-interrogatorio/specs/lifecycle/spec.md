@@ -96,7 +96,7 @@ def canDeleteAnimal(client: SqlExecutor, nchip: str) -> CanDeleteResult:
 
 - Task 3.1b (LIFECYCLE-02 schema append-only) — ya mergeado, PR #320 (`0049708`).
 - Tablas `entradas`, `acogidas`, `adopciones` ya existentes en schema.
-- InsForge client con `execute_sql`.
+- LocalBackend client con `execute_sql`.
 
 ## Acceptance criteria
 

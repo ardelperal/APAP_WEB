@@ -6,7 +6,7 @@ the :class:`StubVoluntariosPort` placeholder (pending a real
 the :class:`~app.modules.voluntarios.ports.voluntarios_port.VoluntariosPort`
 Protocol.  Only this module knows both the Protocol and the concrete adapter.
 
-The InsForge adapter implementation was deleted in issue #668; the
+The LocalBackend adapter implementation was deleted in issue #668; the
 stub raises :class:`NotImplementedError` on every method call so the
 runtime fails loud per route.
 """
