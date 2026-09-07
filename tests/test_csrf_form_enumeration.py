@@ -88,15 +88,15 @@ def no_sql_client(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> httpx.AsyncClient:
     """Client pre-loaded with a session; InsForge dep is a no-op."""
-    from app.main import get_insforge_client
+    from app.core.di.local_postgres_di import get_local_postgres_executor_dep
 
     spy = _NoSqlSpy()
-    app.dependency_overrides[get_insforge_client] = lambda: spy
+    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy
     monkeypatch.setattr(
-        "app.modules.animals.routes.get_insforge_client_dep", lambda: spy
+        "app.modules.animals.routes.get_local_postgres_executor_dep", lambda: spy
     )
     monkeypatch.setattr(
-        "app.modules.entradas.routes.get_insforge_client_dep", lambda: spy
+        "app.modules.entradas.routes.get_local_postgres_executor_dep", lambda: spy
     )
 
 
@@ -113,7 +113,7 @@ def no_sql_client(
     )
     client.cookies.set(session_cookie_name(), token)
     yield client
-    app.dependency_overrides.pop(get_insforge_client, None)
+    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
 
 
 @pytest.mark.parametrize("method,path", _NON_SAFE_ROUTES)

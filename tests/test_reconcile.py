@@ -568,7 +568,7 @@ class TestPostApplyDiffHook:
         ``LifecycleEvent`` rows are INSERTed into
         ``animal_lifecycle_events`` via the web client.
 
-        Wire-up test: mock ``InsForgeClient.execute_sql`` to capture
+        Wire-up test: mock ``LocalPostgresExecutor.execute_sql`` to capture
         the INSERT statements. Assert:
           - Exactly one INSERT per translated event.
           - The SQL targets ``animal_lifecycle_events``.

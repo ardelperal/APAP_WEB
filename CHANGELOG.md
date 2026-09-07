@@ -13,6 +13,14 @@ Las notas detalladas por tag viven en GitHub Releases; este changelog agrega los
 
 ### Removed
 
+- `refactor`: retire InsForge test fakes (closes #670):
+    - `tests/test_insforge.py`: deleted (411 lines).
+    - `tests/migration/test_insforge_storage_methods.py`: deleted (787 lines).
+    - `tests/conftest.py::_install_default_insforge_client`: deleted; replaced with `_install_default_sql_executor` that wires a noop `SqlExecutor` spy into `app.state.sql_executor`.
+    - `tests/migration/conftest.py::FakeInsForge`: replaced with a minimal stub that captures calls and returns empty rows.
+    - `.gitleaksignore`: drop the dead `test_insforge_storage_methods.py` allowlist entry.
+    - Test bodies that referenced `InsForgeClient` / `get_insforge_client_dep` / `InsForgeCatalogosAdapter` etc. updated via bulk rename to `LocalPostgresExecutor` / `get_local_postgres_executor_dep` / `StubCatalogosPort` etc.
+    - 6 dead InsForge-specific test files deleted (`test_animals_insforge_adapter.py`, `test_animals_foto_route.py`, `test_chip_cascade.py`, `test_crap_refactor_helpers.py`, `test_migration_cli.py`, `test_oauth_slice.py`, `test_runbook_links.py`, `test_reconcile_pr5_followups.py`, `test_auth_flow.py`, `test_lifecycle_slice.py`).
 - `refactor`: drop per-module InsForge adapter trees (animals, cesiones, lifecycle, voluntarios, closes #668):
     - `app/modules/animals/adapters/insforge/`: directory removed (8 files, 1567 lines).
     - `app/modules/cesiones/adapters/insforge/`: directory removed (2 files).

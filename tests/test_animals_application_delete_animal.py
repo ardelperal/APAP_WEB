@@ -2,7 +2,7 @@
 
 Mirrors the stub-port pattern from the previous application-layer
 tests in this slice so the use-case stays transport-free: the
-application code never sees ``InsForgeClient`` or ``SqlExecutor``;
+application code never sees ``LocalPostgresExecutor`` or ``SqlExecutor``;
 it talks to the :class:`AnimalsPort` Protocol only.
 """
 from __future__ import annotations

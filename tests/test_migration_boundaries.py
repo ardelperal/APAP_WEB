@@ -246,7 +246,7 @@ def test_access_bound_module_must_not_import_app(tmp_path: Path) -> None:
     _tree(
         tmp_path,
         {
-            "migration/legacy_access_client.py": ("from app.core.insforge import InsForgeClient\n"),
+            "migration/legacy_access_client.py": ("from app.core.local_backend.db import LocalPostgresExecutor\n"),
         },
     )
     original = set(checker.ACCESS_BOUND_FILENAMES)

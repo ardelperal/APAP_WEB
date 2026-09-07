@@ -19,7 +19,7 @@ levels:
    shape taken verbatim from the existing ``tests/test_catalogs.py``
    fixtures).
 3. **DI helper** — the per-request port construction uses the
-   pooled :class:`InsForgeClient` when the lifespan is active, and
+   pooled :class:`LocalPostgresExecutor` when the lifespan is active, and
    falls back to a lazily-created client when the transport bypasses
    the lifespan (lightweight ASGI tests).
 
@@ -35,8 +35,8 @@ from typing import Any
 
 import pytest
 
-from app.core.adapters.insforge.catalogos_insforge_adapter import (
-    InsForgeCatalogosAdapter,
+from app.core.adapters.stubs.catalogos_stub import (
+    StubCatalogosPort,
 )
 from app.core.application.catalogos import (
     list_motivos as list_motivos_uc,
@@ -255,10 +255,10 @@ class _RecordingExecutor:
 
 def test_adapter_list_origenes_uses_expected_sql() -> None:
     """The adapter uses the same SQL the legacy ``LIST_CATALOGOS_ORIGENES_SQL`` uses."""
-    from app.core.adapters.insforge.catalogos_insforge_adapter import LIST_ORIGENES_SQL
+    from app.core.adapters.stubs.catalogos_stub import LIST_ORIGENES_SQL
 
     executor = _RecordingExecutor()
-    InsForgeCatalogosAdapter(executor).list_origenes()
+    StubCatalogosPort(executor).list_origenes()
     assert len(executor.calls) == 1
     query, params = executor.calls[0]
     assert query.strip() == LIST_ORIGENES_SQL.strip()
@@ -266,44 +266,44 @@ def test_adapter_list_origenes_uses_expected_sql() -> None:
 
 
 def test_adapter_list_motivos_uses_expected_sql() -> None:
-    from app.core.adapters.insforge.catalogos_insforge_adapter import LIST_MOTIVOS_SQL
+    from app.core.adapters.stubs.catalogos_stub import LIST_MOTIVOS_SQL
 
     executor = _RecordingExecutor()
-    InsForgeCatalogosAdapter(executor).list_motivos()
+    StubCatalogosPort(executor).list_motivos()
     query, params = executor.calls[0]
     assert query.strip() == LIST_MOTIVOS_SQL.strip()
     assert params == []
 
 
 def test_adapter_list_pruebas_uses_expected_sql() -> None:
-    from app.core.adapters.insforge.catalogos_insforge_adapter import LIST_PRUEBAS_SQL
+    from app.core.adapters.stubs.catalogos_stub import LIST_PRUEBAS_SQL
 
     executor = _RecordingExecutor()
-    InsForgeCatalogosAdapter(executor).list_pruebas()
+    StubCatalogosPort(executor).list_pruebas()
     query, params = executor.calls[0]
     assert query.strip() == LIST_PRUEBAS_SQL.strip()
     assert params == []
 
 
 def test_adapter_list_periodicidad_uses_expected_sql() -> None:
-    from app.core.adapters.insforge.catalogos_insforge_adapter import (
+    from app.core.adapters.stubs.catalogos_stub import (
         LIST_PERIODICIDAD_SQL,
     )
 
     executor = _RecordingExecutor()
-    InsForgeCatalogosAdapter(executor).list_periodicidad()
+    StubCatalogosPort(executor).list_periodicidad()
     query, params = executor.calls[0]
     assert query.strip() == LIST_PERIODICIDAD_SQL.strip()
     assert params == []
 
 
 def test_adapter_list_tipos_contrato_uses_expected_sql() -> None:
-    from app.core.adapters.insforge.catalogos_insforge_adapter import (
+    from app.core.adapters.stubs.catalogos_stub import (
         LIST_TIPOS_CONTRATO_SQL,
     )
 
     executor = _RecordingExecutor()
-    InsForgeCatalogosAdapter(executor).list_tipos_contrato()
+    StubCatalogosPort(executor).list_tipos_contrato()
     query, params = executor.calls[0]
     assert query.strip() == LIST_TIPOS_CONTRATO_SQL.strip()
     assert params == []
@@ -330,7 +330,7 @@ def test_adapter_list_origenes_maps_rows_to_entities() -> None:
         },
     ]
     executor = _RecordingExecutor(rows)
-    origenes = InsForgeCatalogosAdapter(executor).list_origenes()
+    origenes = StubCatalogosPort(executor).list_origenes()
     assert len(origenes) == 2
     assert origenes[0] == Origen(
         id="a-uuid",
@@ -373,7 +373,7 @@ def test_adapter_list_periodicidad_propagates_nullable_columns() -> None:
         },
     ]
     executor = _RecordingExecutor(rows)
-    periodicidades = InsForgeCatalogosAdapter(executor).list_periodicidad()
+    periodicidades = StubCatalogosPort(executor).list_periodicidad()
     assert periodicidades[0] == Periodicidad(
         id="a-uuid",
         codigo="Esterilización",
@@ -407,18 +407,18 @@ def test_adapter_list_origenes_coerces_activo_string_to_bool() -> None:
         },
     ]
     executor = _RecordingExecutor(rows)
-    origenes = InsForgeCatalogosAdapter(executor).list_origenes()
+    origenes = StubCatalogosPort(executor).list_origenes()
     assert origenes[0].activo is True
 
 
 def test_adapter_returns_empty_list_when_executor_returns_empty() -> None:
     """An empty executor result yields an empty entity list."""
     executor = _RecordingExecutor([])
-    assert InsForgeCatalogosAdapter(executor).list_origenes() == []
-    assert InsForgeCatalogosAdapter(executor).list_motivos() == []
-    assert InsForgeCatalogosAdapter(executor).list_pruebas() == []
-    assert InsForgeCatalogosAdapter(executor).list_periodicidad() == []
-    assert InsForgeCatalogosAdapter(executor).list_tipos_contrato() == []
+    assert StubCatalogosPort(executor).list_origenes() == []
+    assert StubCatalogosPort(executor).list_motivos() == []
+    assert StubCatalogosPort(executor).list_pruebas() == []
+    assert StubCatalogosPort(executor).list_periodicidad() == []
+    assert StubCatalogosPort(executor).list_tipos_contrato() == []
 
 
 def test_adapter_satisfies_catalogos_port_protocol() -> None:
@@ -429,8 +429,8 @@ def test_adapter_satisfies_catalogos_port_protocol() -> None:
     is a usable :class:`CatalogosPort`.
     """
     executor = _RecordingExecutor()
-    adapter: CatalogosPort = InsForgeCatalogosAdapter(executor)
-    assert isinstance(adapter, InsForgeCatalogosAdapter)
+    adapter: CatalogosPort = StubCatalogosPort(executor)
+    assert isinstance(adapter, StubCatalogosPort)
     # The Protocol's method names are present on the adapter.
     for method in (
         "list_origenes",
@@ -447,19 +447,19 @@ def test_adapter_satisfies_catalogos_port_protocol() -> None:
 
 
 def test_get_catalogos_port_uses_pooled_client_when_present() -> None:
-    """The DI helper builds the adapter from the pooled ``app.state.insforge_client``."""
+    """The DI helper builds the adapter from the pooled ``app.state.sql_executor``."""
     from fastapi import FastAPI
 
     from app.core.di.catalogos_di import get_catalogos_port
 
     app = FastAPI()
     executor = _RecordingExecutor()
-    app.state.insforge_client = executor
+    app.state.sql_executor = executor
 
     gen = get_catalogos_port(type("R", (), {"app": app})())
     adapter = next(gen)
     try:
-        assert isinstance(adapter, InsForgeCatalogosAdapter)
+        assert isinstance(adapter, StubCatalogosPort)
         # The adapter holds the same executor instance.
         assert adapter._executor is executor  # noqa: SLF001 — internal seam
     finally:
@@ -470,11 +470,11 @@ def test_get_catalogos_port_uses_pooled_client_when_present() -> None:
 
 
 def test_get_catalogos_port_falls_back_when_lifespan_skipped() -> None:
-    """If ``app.state.insforge_client`` is missing, the helper creates a new client.
+    """If ``app.state.sql_executor`` is missing, the helper creates a new client.
 
     This branch exists for lightweight ASGI test transports that
     bypass the lifespan. The exact fallback client is an
-    :class:`InsForgeClient`; we only assert it is created and the
+    :class:`LocalPostgresExecutor`; we only assert it is created and the
     adapter wraps it.
     """
     from fastapi import FastAPI
@@ -483,14 +483,14 @@ def test_get_catalogos_port_falls_back_when_lifespan_skipped() -> None:
     from app.core.local_backend.db import LocalPostgresExecutor
 
     app = FastAPI()
-    assert not hasattr(app.state, "insforge_client")
+    assert not hasattr(app.state, "sql_executor")
 
     req = type("R", (), {"app": app})()
     gen = get_catalogos_port(req)
     try:
         adapter = next(gen)
-        assert isinstance(adapter, InsForgeCatalogosAdapter)
-        assert isinstance(adapter._executor, InsForgeClient)  # noqa: SLF001
+        assert isinstance(adapter, StubCatalogosPort)
+        assert isinstance(adapter._executor, LocalPostgresExecutor)  # noqa: SLF001
     finally:
         try:
             next(gen)

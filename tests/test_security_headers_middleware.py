@@ -62,16 +62,17 @@ class _AnonymousSpy:
 
 
 @pytest.fixture
-def _bypass_insforge(monkeypatch: pytest.MonkeyPatch) -> None:
-    from app.main import app, get_insforge_client
+def _bypass_sql_executor(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.core.di.local_postgres_di import get_local_postgres_executor_dep
+    from app.main import app
 
     spy = _AnonymousSpy()
-    app.dependency_overrides[get_insforge_client] = lambda: spy
+    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy
     monkeypatch.setattr(
-        "app.modules.animals.routes.get_insforge_client_dep", lambda: spy
+        "app.modules.animals.routes.get_local_postgres_executor_dep", lambda: spy
     )
     yield
-    app.dependency_overrides.pop(get_insforge_client, None)
+    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
 
 
 def _login(
@@ -101,7 +102,7 @@ def _login(
 
 @pytest.mark.parametrize("path", ["/", "/healthz", "/login"])
 async def test_nosniff_on_public_path(
-    path: str, client: httpx.AsyncClient, _bypass_insforge: None
+    path: str, client: httpx.AsyncClient, _bypass_sql_executor: None
 ) -> None:
     """REQ-1: nosniff is present on public paths (no session required)."""
     r = await client.get(path)
@@ -110,7 +111,7 @@ async def test_nosniff_on_public_path(
 
 @pytest.mark.parametrize("path", ["/", "/healthz"])
 async def test_nosniff_on_authenticated_path(
-    path: str, client: httpx.AsyncClient, _bypass_insforge: None
+    path: str, client: httpx.AsyncClient, _bypass_sql_executor: None
 ) -> None:
     """REQ-1: nosniff is present on authenticated paths too."""
     _login(client)
@@ -125,7 +126,7 @@ async def test_nosniff_on_authenticated_path(
 
 @pytest.mark.parametrize("path", ["/", "/healthz", "/login"])
 async def test_x_frame_options_deny_on_public_path(
-    path: str, client: httpx.AsyncClient, _bypass_insforge: None
+    path: str, client: httpx.AsyncClient, _bypass_sql_executor: None
 ) -> None:
     """REQ-2: X-Frame-Options: DENY on public paths."""
     r = await client.get(path)
@@ -134,7 +135,7 @@ async def test_x_frame_options_deny_on_public_path(
 
 @pytest.mark.parametrize("path", ["/", "/healthz"])
 async def test_x_frame_options_deny_on_authenticated_path(
-    path: str, client: httpx.AsyncClient, _bypass_insforge: None
+    path: str, client: httpx.AsyncClient, _bypass_sql_executor: None
 ) -> None:
     """REQ-2: X-Frame-Options: DENY on authenticated paths."""
     _login(client)
@@ -149,7 +150,7 @@ async def test_x_frame_options_deny_on_authenticated_path(
 
 @pytest.mark.parametrize("path", ["/", "/healthz", "/login"])
 async def test_referrer_policy_present(
-    path: str, client: httpx.AsyncClient, _bypass_insforge: None
+    path: str, client: httpx.AsyncClient, _bypass_sql_executor: None
 ) -> None:
     """REQ-3: Referrer-Policy is present on all responses."""
     r = await client.get(path)
@@ -158,7 +159,7 @@ async def test_referrer_policy_present(
 
 @pytest.mark.parametrize("path", ["/", "/healthz", "/login"])
 async def test_csp_baseline_present(
-    path: str, client: httpx.AsyncClient, _bypass_insforge: None
+    path: str, client: httpx.AsyncClient, _bypass_sql_executor: None
 ) -> None:
     """REQ-4: Content-Security-Policy baseline is present on all responses."""
     r = await client.get(path)
@@ -171,7 +172,7 @@ async def test_csp_baseline_present(
 
 
 async def test_hsts_emitted_in_production(
-    client: httpx.AsyncClient, _bypass_insforge: None
+    client: httpx.AsyncClient, _bypass_sql_executor: None
 ) -> None:
     """REQ-5: Strict-Transport-Security is present when debug=False."""
     r = await client.get("/healthz")
@@ -182,7 +183,7 @@ async def test_hsts_emitted_in_production(
 
 async def test_hsts_omitted_in_dev(
     client: httpx.AsyncClient,
-    _bypass_insforge: None,
+    _bypass_sql_executor: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """REQ-6: Strict-Transport-Security is absent when debug=True.
@@ -227,7 +228,7 @@ async def test_hsts_omitted_in_dev(
 
 
 async def test_csrf_403_carries_security_headers(
-    client: httpx.AsyncClient, _bypass_insforge: None
+    client: httpx.AsyncClient, _bypass_sql_executor: None
 ) -> None:
     """REQ-7: A CSRF rejection carries all five security headers.
 

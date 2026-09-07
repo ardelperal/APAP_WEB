@@ -1,7 +1,7 @@
 """Service-layer tests for HEALTH-02 batch ``actuacion_sanitaria``.
 
 Mirrors the HEALTH-01 pattern (``tests/test_sanidad.py``): real
-``InsForgeClient`` + ``httpx.MockTransport`` for asserting the SQL
+``LocalPostgresExecutor`` + ``httpx.MockTransport`` for asserting the SQL
 captured on the wire. The CTE builder lives in
 ``sanidad/queries.py`` — these tests exercise the orchestration on top
 of the SEAM so a typo in the SQL contract fails fast here, while
@@ -49,7 +49,7 @@ def _json_response(status_code: int, body: Any) -> httpx.Response:
 
 def _client_recording(
     handler: Callable[[httpx.Request, dict[str, Any]], httpx.Response],
-) -> tuple[InsForgeClient, list[dict[str, Any]]]:
+) -> tuple[LocalPostgresExecutor, list[dict[str, Any]]]:
     captured: list[dict[str, Any]] = []
 
     def _recording_handler(request: httpx.Request) -> httpx.Response:
@@ -58,7 +58,7 @@ def _client_recording(
         captured.append(body)
         return handler(request, body)
 
-    client = InsForgeClient(
+    client = LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=httpx.MockTransport(_recording_handler),

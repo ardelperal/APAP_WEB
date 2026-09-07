@@ -48,17 +48,17 @@ from typing import Any
 import httpx
 import pytest
 
-from app.core.auth_dependencies import get_insforge_client_dep
 from app.core.config import get_settings
+from app.core.di.local_postgres_di import get_local_postgres_executor_dep
 from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.session import session_cookie_name, write_session
-from app.main import app, get_insforge_client
+from app.main import app
 from app.modules.acogidas import service as acogidas_service
 from app.modules.animals.di.animals_di import get_animals_port
 from tests.conftest import auth_reval_rows, make_csrf_request
 
 
-class _NoSqlRouteClient(InsForgeClient):
+class _NoSqlRouteClient(LocalPostgresExecutor):
     """Client spy that fails if a route executes SQL directly.
 
     Mirrors the same pattern used in
@@ -94,12 +94,12 @@ class _NoSqlRouteClient(InsForgeClient):
 @pytest.fixture
 def route_client() -> _NoSqlRouteClient:
     spy = _NoSqlRouteClient()
-    app.dependency_overrides[get_insforge_client] = lambda: spy
-    app.dependency_overrides[get_insforge_client_dep] = lambda: spy
+    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy
+    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy
     app.dependency_overrides[get_animals_port] = lambda: spy.animals_port
     yield spy
-    app.dependency_overrides.pop(get_insforge_client, None)
-    app.dependency_overrides.pop(get_insforge_client_dep, None)
+    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
+    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
     app.dependency_overrides.pop(get_animals_port, None)
 
 
@@ -237,11 +237,11 @@ async def test_list_acogidas_delegates_to_service_and_renders_spanish_copy(
 ) -> None:
     """List endpoint delegates to the service and renders Spanish copy."""
     _login_as_key_user(client)
-    calls: list[tuple[InsForgeClient, bool]] = []
+    calls: list[tuple[LocalPostgresExecutor, bool]] = []
     estancia = _acogida()
 
     def fake_list(
-        service_client: InsForgeClient,
+        service_client: LocalPostgresExecutor,
         activas_solo: bool = False,
     ) -> list[acogidas_service.Acogida]:
         calls.append((service_client, activas_solo))
@@ -270,10 +270,10 @@ async def test_list_acogidas_with_activas_solo_query_param(
 ) -> None:
     """The ``?activas_solo=1`` query param reaches the service unchanged."""
     _login_as_key_user(client)
-    calls: list[tuple[InsForgeClient, bool]] = []
+    calls: list[tuple[LocalPostgresExecutor, bool]] = []
 
     def fake_list(
-        service_client: InsForgeClient,
+        service_client: LocalPostgresExecutor,
         activas_solo: bool = False,
     ) -> list[acogidas_service.Acogida]:
         calls.append((service_client, activas_solo))
@@ -324,13 +324,13 @@ async def test_create_acogida_valid_records_redirects_to_detail(
     """Valid create form -> service returns the estancia -> 303 to detail."""
     _login_as_key_user(client)
     estancia = _acogida()
-    calls: list[tuple[InsForgeClient, dict[str, Any]]] = []
+    calls: list[tuple[LocalPostgresExecutor, dict[str, Any]]] = []
     # FOSTER-03 (#45): skip the species gate; this test exercises the
     # CRUD service path, not the gate itself.
     _bypass_species_gate(monkeypatch)
 
     def fake_create(
-        service_client: InsForgeClient, params: dict[str, Any]
+        service_client: LocalPostgresExecutor, params: dict[str, Any]
     ) -> acogidas_service.Acogida:
         calls.append((service_client, params))
         return estancia
@@ -373,7 +373,7 @@ async def test_create_acogida_sad_validation_rerenders_form_with_422(
     _bypass_species_gate(monkeypatch)
 
     def fake_create(
-        service_client: InsForgeClient, params: dict[str, Any]
+        service_client: LocalPostgresExecutor, params: dict[str, Any]
     ) -> acogidas_service.Acogida:
         raise ValueError("fecha_inicio es obligatorio y no puede estar vacio")
 
@@ -421,7 +421,7 @@ async def test_create_acogida_route_translates_fk_violation_to_422(
     _bypass_species_gate(monkeypatch)
 
     def fake_create(
-        service_client: InsForgeClient, params: dict[str, Any]
+        service_client: LocalPostgresExecutor, params: dict[str, Any]
     ) -> acogidas_service.Acogida:
         # Simulate a PostgreSQL FK violation arriving via PostgREST.
         raise BackendError(
@@ -561,13 +561,13 @@ async def test_update_acogida_valid_records_redirects_to_detail(
     """Valid update -> service returns the estancia -> 303 to detail page."""
     _login_as_key_user(client)
     estancia = _acogida()
-    calls: list[tuple[InsForgeClient, str, dict[str, Any]]] = []
+    calls: list[tuple[LocalPostgresExecutor, str, dict[str, Any]]] = []
     # FOSTER-03 (#45): skip the species gate; this test exercises the
     # CRUD service path, not the gate itself.
     _bypass_species_gate(monkeypatch)
 
     def fake_update(
-        service_client: InsForgeClient,
+        service_client: LocalPostgresExecutor,
         acogida_id: str,
         params: dict[str, Any],
     ) -> acogidas_service.Acogida | None:
@@ -630,10 +630,10 @@ async def test_close_acogida_redirects_to_detail_when_successful(
     """Close stay -> 303 redirect to detail page."""
     _login_as_key_user(client)
     estancia = _acogida()
-    calls: list[tuple[InsForgeClient, str]] = []
+    calls: list[tuple[LocalPostgresExecutor, str]] = []
 
     def fake_close(
-        service_client: InsForgeClient, acogida_id: str
+        service_client: LocalPostgresExecutor, acogida_id: str
     ) -> acogidas_service.Acogida | None:
         calls.append((service_client, acogida_id))
         return estancia
@@ -686,9 +686,9 @@ async def test_delete_acogida_redirects_to_list_when_successful(
 ) -> None:
     """Soft-delete succeeds -> 303 redirect to the list page."""
     _login_as_key_user(client)
-    calls: list[tuple[InsForgeClient, str]] = []
+    calls: list[tuple[LocalPostgresExecutor, str]] = []
 
-    def fake_delete(service_client: InsForgeClient, acogida_id: str) -> bool:
+    def fake_delete(service_client: LocalPostgresExecutor, acogida_id: str) -> bool:
         calls.append((service_client, acogida_id))
         return True
 
@@ -960,7 +960,7 @@ async def test_update_acogida_rejects_species_mismatch_when_casa_acogida_id_prov
 #
 # The two atoms below go POST -> route -> REAL service
 # (``create_acogida`` / ``update_acogida``), not a monkeypatched
-# service. A real ``InsForgeClient`` backed by ``httpx.MockTransport``
+# service. A real ``LocalPostgresExecutor`` backed by ``httpx.MockTransport``
 # is injected via ``app.dependency_overrides``; the captured SQL is
 # the proof that fecha_final reaches the INSERT/UPDATE placeholders.
 # ---------------------------------------------------------------------------
@@ -1087,8 +1087,8 @@ def _install_feed_client(
     captured: list[dict[str, Any]],
     insert_row: dict[str, Any] | None = None,
     update_row: dict[str, Any] | None = None,
-) -> InsForgeClient:
-    """Inject an httpx.MockTransport-backed real InsForgeClient.
+) -> LocalPostgresExecutor:
+    """Inject an httpx.MockTransport-backed real LocalPostgresExecutor.
 
     Returns the client so callers can ``.close()`` after the test.
     The dependency override lets the real service code path run
@@ -1101,13 +1101,13 @@ def _install_feed_client(
         captured.append(body)
         return _feed_handler(insert_row=insert_row, update_row=update_row)(request)
 
-    client = InsForgeClient(
+    client = LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=httpx.MockTransport(_recording),
     )
-    app.dependency_overrides[get_insforge_client] = lambda: client
-    app.dependency_overrides[get_insforge_client_dep] = lambda: client
+    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: client
+    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: client
     app.dependency_overrides[get_animals_port] = object
     return client
 
@@ -1149,8 +1149,8 @@ async def test_post_create_with_fecha_final_persists(
         assert response.headers["location"] == "/acogidas/acog-123"
     finally:
         feed_client.close()
-        app.dependency_overrides.pop(get_insforge_client, None)
-        app.dependency_overrides.pop(get_insforge_client_dep, None)
+        app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
+        app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
         app.dependency_overrides.pop(get_animals_port, None)
 
     insert_call = next(c for c in captured if "INSERT INTO acogidas" in c["query"])
@@ -1198,8 +1198,8 @@ async def test_post_update_reopens_when_fecha_final_empty(
         assert response.headers["location"] == "/acogidas/acog-123"
     finally:
         feed_client.close()
-        app.dependency_overrides.pop(get_insforge_client, None)
-        app.dependency_overrides.pop(get_insforge_client_dep, None)
+        app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
+        app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
         app.dependency_overrides.pop(get_animals_port, None)
 
     update_call = next(c for c in captured if "UPDATE acogidas SET" in c["query"])

@@ -149,7 +149,7 @@ def _stub_insforge_for_reval() -> None:
     don't need it for ``/login`` itself, but installing it keeps the
     global dep cache clean across the test session.
     """
-    from app.main import get_insforge_client
+    from app.core.di.local_postgres_di import get_local_postgres_executor_dep
     from tests.conftest import auth_reval_rows
 
     class _RevalOnlySpy:
@@ -160,9 +160,9 @@ def _stub_insforge_for_reval() -> None:
         def close(self) -> None:
             return None
 
-    app.dependency_overrides[get_insforge_client] = lambda: _RevalOnlySpy()
+    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: _RevalOnlySpy()
     yield
-    app.dependency_overrides.pop(get_insforge_client, None)
+    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
 
 
 _DESKTOP_UA = (

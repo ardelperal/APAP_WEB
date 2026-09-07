@@ -33,18 +33,18 @@ from typing import Any
 import httpx
 import pytest
 
-from app.core.auth_dependencies import get_insforge_client_dep
 from app.core.config import get_settings
+from app.core.di.local_postgres_di import get_local_postgres_executor_dep
 from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.session import session_cookie_name, write_session
-from app.main import app, get_insforge_client
+from app.main import app
 from app.modules.animals.di.animals_di import get_animals_port
 from app.modules.foster import assignment as assignment_service
 from app.modules.foster import service as foster_service
 from tests.conftest import auth_reval_rows, make_csrf_request
 
 
-class _NoSqlRouteClient(InsForgeClient):
+class _NoSqlRouteClient(LocalPostgresExecutor):
     """Client spy that fails if a route executes SQL directly.
 
     Mirrors the same pattern used across the codebase: routes own no
@@ -78,12 +78,12 @@ class _NoSqlRouteClient(InsForgeClient):
 @pytest.fixture
 def route_client() -> _NoSqlRouteClient:
     spy = _NoSqlRouteClient()
-    app.dependency_overrides[get_insforge_client] = lambda: spy
-    app.dependency_overrides[get_insforge_client_dep] = lambda: spy
+    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy
+    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy
     app.dependency_overrides[get_animals_port] = lambda: spy.animals_port
     yield spy
-    app.dependency_overrides.pop(get_insforge_client, None)
-    app.dependency_overrides.pop(get_insforge_client_dep, None)
+    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
+    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
     app.dependency_overrides.pop(get_animals_port, None)
 
 

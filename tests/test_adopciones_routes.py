@@ -22,17 +22,17 @@ from typing import Any
 import httpx
 import pytest
 
-from app.core.auth_dependencies import get_insforge_client_dep
 from app.core.config import get_settings
 from app.core.data_access import BackendError
+from app.core.di.local_postgres_di import get_local_postgres_executor_dep
 from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.session import session_cookie_name, write_session
-from app.main import app, get_insforge_client
+from app.main import app
 from app.modules.adopciones import service as adopciones_service
 from tests.conftest import auth_reval_rows, make_csrf_request
 
 
-class _NoSqlRouteClient(InsForgeClient):
+class _NoSqlRouteClient(LocalPostgresExecutor):
     """Client spy that fails if a route executes SQL directly.
 
     Mirrors the same pattern used in ``tests/test_entradas_routes.py``
@@ -66,11 +66,11 @@ class _NoSqlRouteClient(InsForgeClient):
 @pytest.fixture
 def route_client() -> _NoSqlRouteClient:
     spy = _NoSqlRouteClient()
-    app.dependency_overrides[get_insforge_client] = lambda: spy
-    app.dependency_overrides[get_insforge_client_dep] = lambda: spy
+    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy
+    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy
     yield spy
-    app.dependency_overrides.pop(get_insforge_client, None)
-    app.dependency_overrides.pop(get_insforge_client_dep, None)
+    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
+    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
 
 
 def _login_as_key_user(client: httpx.AsyncClient) -> None:
@@ -187,10 +187,10 @@ async def test_list_adopciones_delegates_to_service_and_renders_spanish_copy(
 ) -> None:
     """List endpoint delegates to the service and renders Spanish copy."""
     _login_as_key_user(client)
-    calls: list[InsForgeClient] = []
+    calls: list[LocalPostgresExecutor] = []
     adopcion = _adopcion()
 
-    def fake_list(service_client: InsForgeClient) -> list[adopciones_service.Adopcion]:
+    def fake_list(service_client: LocalPostgresExecutor) -> list[adopciones_service.Adopcion]:
         calls.append(service_client)
         return [adopcion]
 
@@ -218,10 +218,10 @@ async def test_list_adopciones_with_adoptante_query_param_uses_search(
 ) -> None:
     """The ``?adoptante=`` query param reaches search_adopciones_by_adoptante."""
     _login_as_key_user(client)
-    calls: list[tuple[InsForgeClient, str]] = []
+    calls: list[tuple[LocalPostgresExecutor, str]] = []
 
     def fake_search(
-        service_client: InsForgeClient, nombre_parcial: str
+        service_client: LocalPostgresExecutor, nombre_parcial: str
     ) -> list[adopciones_service.Adopcion]:
         calls.append((service_client, nombre_parcial))
         return [_adopcion()]
@@ -273,10 +273,10 @@ async def test_create_adopcion_valid_records_redirects_to_detail(
     """Valid create form -> service returns the adopción -> 303 to detail."""
     _login_as_key_user(client)
     adopcion = _adopcion()
-    calls: list[tuple[InsForgeClient, dict[str, Any], str | None]] = []
+    calls: list[tuple[LocalPostgresExecutor, dict[str, Any], str | None]] = []
 
     def fake_create(
-        service_client: InsForgeClient,
+        service_client: LocalPostgresExecutor,
         params: dict[str, Any],
         *,
         actor_user_id: str | None = None,
@@ -323,7 +323,7 @@ async def test_create_adopcion_sad_validation_rerenders_form_with_422(
     _login_as_key_user(client)
 
     def fake_create(
-        service_client: InsForgeClient,
+        service_client: LocalPostgresExecutor,
         params: dict[str, Any],
         *,
         actor_user_id: str | None = None,
@@ -368,7 +368,7 @@ async def test_create_adopcion_translates_duplicate_to_409(
     _login_as_key_user(client)
 
     def fake_create(
-        service_client: InsForgeClient,
+        service_client: LocalPostgresExecutor,
         params: dict[str, Any],
         *,
         actor_user_id: str | None = None,
@@ -411,7 +411,7 @@ async def test_create_adopcion_translates_insforge_error_to_422(
     _login_as_key_user(client)
 
     def fake_create(
-        service_client: InsForgeClient,
+        service_client: LocalPostgresExecutor,
         params: dict[str, Any],
         *,
         actor_user_id: str | None = None,
@@ -458,7 +458,7 @@ async def test_create_adopcion_with_bad_fecha_returns_422(
     _login_as_key_user(client)
 
     def fake_create(
-        service_client: InsForgeClient,
+        service_client: LocalPostgresExecutor,
         params: dict[str, Any],
         *,
         actor_user_id: str | None = None,
@@ -621,10 +621,10 @@ async def test_update_adopcion_valid_records_redirects_to_detail(
     """Valid update -> service returns the adopción -> 303 to detail page."""
     _login_as_key_user(client)
     adopcion = _adopcion()
-    calls: list[tuple[InsForgeClient, str, dict[str, Any], str | None]] = []
+    calls: list[tuple[LocalPostgresExecutor, str, dict[str, Any], str | None]] = []
 
     def fake_update(
-        service_client: InsForgeClient,
+        service_client: LocalPostgresExecutor,
         adopcion_id: str,
         params: dict[str, Any],
         *,
@@ -688,7 +688,7 @@ async def test_update_adopcion_translates_duplicate_to_409(
     _login_as_key_user(client)
 
     def fake_update(
-        service_client: InsForgeClient,
+        service_client: LocalPostgresExecutor,
         adopcion_id: str,
         params: dict[str, Any],
         *,
@@ -724,10 +724,10 @@ async def test_delete_adopcion_redirects_to_list(
 ) -> None:
     """Soft-delete redirects to /adopciones when the service returns True."""
     _login_as_key_user(client)
-    calls: list[tuple[InsForgeClient, str, str | None]] = []
+    calls: list[tuple[LocalPostgresExecutor, str, str | None]] = []
 
     def fake_delete(
-        service_client: InsForgeClient,
+        service_client: LocalPostgresExecutor,
         adopcion_id: str,
         *,
         actor_user_id: str | None = None,

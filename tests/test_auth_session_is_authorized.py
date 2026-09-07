@@ -20,21 +20,21 @@ Decisiones de diseno del test:
 
 - El test de callback (test 1) es un route test contra ``/auth/callback``
   porque es la unica ruta donde se observa el bug P0. El override
-  ``app.dependency_overrides[get_insforge_client]`` se aplica aqui
-  porque la ruta vive en ``app.main`` y usa ``Depends(get_insforge_client)``
+  ``app.dependency_overrides[get_local_postgres_executor_dep]`` se aplica aqui
+  porque la ruta vive en ``app.main`` y usa ``Depends(get_local_postgres_executor_dep)``
   directamente.
 - Los tests 2 y 3 son unit tests de la funcion ``require_authorized_user``
   (importada desde ``app.modules.animals.routes``, donde vive el codigo
   que sera extraido a ``app.core.auth_dependencies``). Se llaman como
   funciones puras con un ``payload`` explicito, no como route tests,
   porque las rutas protegidas (``/animales``, ``/voluntarios``)
-  instancian un ``InsForgeClient`` real via la dep local ``_client_dep``
-  (que no pasa por ``Depends(get_insforge_client)``); invocarla como
+  instancian un ``LocalPostgresExecutor`` real via la dep local ``_client_dep``
+  (que no pasa por ``Depends(get_local_postgres_executor_dep)``); invocarla como
   unitaria mantiene el test enfocado en la guarda de auth y evita
   ruido de red en CI.
 
-Patron: ``app.dependency_overrides[get_insforge_client]`` con un
-``InsForgeClient`` falso, igual que ``tests/test_auth_flow.py``.
+Patron: ``app.dependency_overrides[get_local_postgres_executor_dep]`` con un
+``LocalPostgresExecutor`` falso, igual que ``tests/test_auth_flow.py``.
 """
 
 from __future__ import annotations
@@ -46,13 +46,16 @@ import httpx
 import pytest
 from fastapi.responses import RedirectResponse
 
+from app.core.di.local_postgres_di import get_local_postgres_executor_dep
 from app.core.local_backend.db import LocalPostgresExecutor
+from app.core.local_backend.oauth_google import exchange_insforge_oauth_code
+from app.core.ports.oauth_port import OAuthUser
 from app.core.session import session_cookie_name, write_session
-from app.main import app, get_insforge_client
+from app.main import app
 from app.modules.animals.routes import require_authorized_user
 
 
-class _FakeInsForge(InsForgeClient):
+class _FakeInsForge(LocalPostgresExecutor):
     """Stand-in en proceso del cliente InsForge para el test de sesion."""
 
     def __init__(self) -> None:
@@ -78,22 +81,21 @@ class _FakeInsForge(InsForgeClient):
         code_verifier: str,
         redirect_uri: str,
     ):
-        from app.core.local_backend.oauth_google import exchange_local_oauth_code
 
         row = self.get_user_by_email_response or {}
-        return OAuthExchangeResult(
+        return exchange_insforge_oauth_code(
             token="jwt-from-insforge",
-            user=InsForgeUser(id=str(row.get("id", "u-x")), email=str(row.get("email", ""))),
+            user=OAuthUser(id=str(row.get("id", "u-x")), email=str(row.get("email", ""))),
         )
 
 
 @pytest.fixture
 def fake_insforge() -> _FakeInsForge:
-    """Sustituye ``get_insforge_client`` por el fake durante el test."""
+    """Sustituye ``get_local_postgres_executor_dep`` por el fake durante el test."""
     fake = _FakeInsForge()
-    app.dependency_overrides[get_insforge_client] = lambda: fake
+    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: fake
     yield fake
-    app.dependency_overrides.pop(get_insforge_client, None)
+    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
 
 
 # --- /auth/callback escribe is_authorized --------------------------------
@@ -155,7 +157,7 @@ def _invoke_require(payload: dict[str, Any] | None) -> RedirectResponse | dict:
     del code quality: los redirects no son exceptions — son control
     flow via ``Response``, no errores HTTP.
 
-    Issue #143: la dep ahora recibe un ``InsForgeClient`` y revalida la
+    Issue #143: la dep ahora recibe un ``LocalPostgresExecutor`` y revalida la
     autorizacion contra la DB. Se le pasa un fake que devuelve al usuario
     ACTIVO con el mismo ``rol`` del payload, de modo que el veredicto lo
     decida ``is_authorized`` (el contrato que este archivo fija) y no un

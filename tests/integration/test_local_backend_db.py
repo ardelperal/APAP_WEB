@@ -2,7 +2,7 @@
 
 The local backend has its own SQL executor that talks to the same
 Postgres instance the integration tests use. The executor wraps
-psycopg and returns the JSON shape that ``InsForgeClient.execute_sql``
+psycopg and returns the JSON shape that ``LocalPostgresExecutor.execute_sql``
 consumes.
 
 These tests pin:

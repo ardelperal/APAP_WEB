@@ -109,7 +109,7 @@ def test_application_may_not_import_adapters(tmp_path: Path) -> None:
         {
             "app/core/adapters/insforge/auth_insforge_adapter.py": "",
             "app/core/application/auth/get_user.py": (
-                "from app.core.adapters.insforge.auth_insforge_adapter import Adapter\n"
+                "from app.core.adapters.stubs.auth_users_stub import Adapter\n"
             ),
         },
     )
@@ -130,7 +130,7 @@ def test_di_may_wire_adapters_into_application(tmp_path: Path) -> None:
             "app/core/adapters/insforge/auth_insforge_adapter.py": "",
             "app/core/application/auth/get_user.py": "",
             "app/core/di/auth_di.py": (
-                "from app.core.adapters.insforge.auth_insforge_adapter import Adapter\n"
+                "from app.core.adapters.stubs.auth_users_stub import Adapter\n"
                 "from app.core.application.auth.get_user import get_user\n"
             ),
         },

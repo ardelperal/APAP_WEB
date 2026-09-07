@@ -115,8 +115,8 @@ def _build_handler(
     return handler, captured
 
 
-def _client(handler) -> InsForgeClient:
-    return InsForgeClient(
+def _client(handler) -> LocalPostgresExecutor:
+    return LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=httpx.MockTransport(handler),

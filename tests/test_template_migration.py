@@ -43,11 +43,11 @@ from typing import Any
 import httpx
 import pytest
 
-from app.core.auth_dependencies import get_insforge_client_dep
 from app.core.config import get_settings
+from app.core.di.local_postgres_di import get_local_postgres_executor_dep
 from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.session import session_cookie_name, write_session
-from app.main import app, get_insforge_client
+from app.main import app
 from tests.conftest import auth_reval_rows
 
 # --- Paths ----------------------------------------------------------------
@@ -248,7 +248,7 @@ _MOBILE_UA = (
 )
 
 
-class _RevalOnlySpy(InsForgeClient):
+class _RevalOnlySpy(LocalPostgresExecutor):
     """Minimal InsForge spy that ONLY answers the auth revalidation SELECT.
 
     Mirrors the pattern used by ``tests/test_template_selection.py``
@@ -287,11 +287,11 @@ class _RevalOnlySpy(InsForgeClient):
 def foster_route_client() -> _RevalOnlySpy:
     """Install the per-request InsForge spy for the duration of the test."""
     spy = _RevalOnlySpy()
-    app.dependency_overrides[get_insforge_client] = lambda: spy
-    app.dependency_overrides[get_insforge_client_dep] = lambda: spy
+    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy
+    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy
     yield spy
-    app.dependency_overrides.pop(get_insforge_client, None)
-    app.dependency_overrides.pop(get_insforge_client_dep, None)
+    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
+    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
 
 
 def _login_as_key_user(client: httpx.AsyncClient) -> None:

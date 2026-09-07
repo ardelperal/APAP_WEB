@@ -15,7 +15,7 @@ The seam wraps existing clients:
     catalogos to resolve the contrato type FK, so we seed them.
 
   * ``InsForgeBackendClient`` is a thin wrapper over the production
-    ``app.core.insforge.InsForgeClient`` (which already exposes the
+    ``app.core.insforge.LocalPostgresExecutor`` (which already exposes the
     same ``execute_sql`` signature). It is used in CI when an
     InsForge project is provisioned; locally, when no InsForge env
     vars are set, the E2E atom uses the Postgres backend.
@@ -97,7 +97,7 @@ class PostgresBackendClient:
 
 
 class InsForgeBackendClient:
-    """Adapter that uses the production ``InsForgeClient``.
+    """Adapter that uses the production ``LocalPostgresExecutor``.
 
     This is the same code path that runs in production — the E2E
     atom exercises the actual production client against a real
@@ -116,7 +116,7 @@ class InsForgeBackendClient:
         # do not pay the cost of importing the production client.
         from app.core.local_backend.db import LocalPostgresExecutor
 
-        self._client = InsForgeClient(url, api_key)
+        self._client = LocalPostgresExecutor(url, api_key)
 
     def execute_sql(
         self,

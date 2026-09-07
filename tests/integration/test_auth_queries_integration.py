@@ -49,7 +49,7 @@ class _PsycopgSqlExecutor:
     The fixture exposes ``execute(query, params)`` (the helper used by
     every existing integration atom), but the production
     ``SqlExecutor`` protocol is ``execute_sql(query, params)``. The
-    auth adapter (``InsForgeAuthUsersAdapter.get_user_by_email``) calls
+    auth adapter (``StubAuthUsersPort.get_user_by_email``) calls
     the latter. This shim bridges the naming gap so we can exercise the
     real production adapter against the real Postgres engine without
     standing up an InsForge HTTP server.

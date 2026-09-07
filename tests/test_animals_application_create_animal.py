@@ -4,7 +4,7 @@ Mirrors the stub-port pattern from
 ``tests/test_animals_application_get_animal_by_nchip.py`` and
 ``tests/test_animals_application_list_animals.py`` so the use-case
 tests stay transport-free: the application code never sees
-``InsForgeClient`` or ``SqlExecutor``; it talks to the
+``LocalPostgresExecutor`` or ``SqlExecutor``; it talks to the
 :class:`AnimalsPort` Protocol only.
 """
 from __future__ import annotations

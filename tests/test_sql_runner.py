@@ -5,7 +5,7 @@ re-applies any ``*.sql`` file under ``app/core/migration/sql/`` that is
 not yet recorded. The contract: idempotent across restarts, no crash
 on the response shape InsForge actually returns.
 
-The runner is exercised directly with a fake ``InsForgeClient`` so the
+The runner is exercised directly with a fake ``LocalPostgresExecutor`` so the
 shape of the response from ``client.execute_sql`` is under our
 control. The list query (``SELECT filename FROM web_sql_migrations``)
 returns rows in two shapes observed in production:
@@ -29,7 +29,7 @@ from app.core.migration.sql_runner import apply_sql_migrations
 
 
 class _FakeClient:
-    """Minimal ``InsForgeClient``-shaped stub for the runner.
+    """Minimal ``LocalPostgresExecutor``-shaped stub for the runner.
 
     Records every ``execute_sql`` call and returns a configurable
     response for the list query so each test can pin the shape it

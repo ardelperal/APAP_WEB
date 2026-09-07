@@ -64,7 +64,7 @@ def _json_response(status_code: int, body: Any) -> httpx.Response:
     )
 
 
-def _client_recording(handler) -> tuple[InsForgeClient, list[dict[str, Any]]]:
+def _client_recording(handler) -> tuple[LocalPostgresExecutor, list[dict[str, Any]]]:
     """Build a client whose MockTransport records every call's JSON body."""
     captured: list[dict[str, Any]] = []
 
@@ -74,7 +74,7 @@ def _client_recording(handler) -> tuple[InsForgeClient, list[dict[str, Any]]]:
         captured.append(body)
         return handler(request, body)
 
-    return InsForgeClient(
+    return LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=httpx.MockTransport(_recording_handler),
@@ -547,7 +547,7 @@ def test_ensure_catalogs_raises_when_create_table_fails() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return _json_response(500, {"error": "boom"})
 
-    client = InsForgeClient(
+    client = LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=httpx.MockTransport(handler),
@@ -560,7 +560,7 @@ def test_ensure_catalogs_raises_when_create_table_fails() -> None:
 # --- list_catalogos_* read helpers ---------------------------------------
 
 
-def _client_returning(body: list[dict[str, Any]]) -> tuple[InsForgeClient, list[dict[str, Any]]]:
+def _client_returning(body: list[dict[str, Any]]) -> tuple[LocalPostgresExecutor, list[dict[str, Any]]]:
     """Build a client that always returns the same body and records calls."""
     captured: list[dict[str, Any]] = []
 
@@ -569,7 +569,7 @@ def _client_returning(body: list[dict[str, Any]]) -> tuple[InsForgeClient, list[
         captured.append(body_json)
         return _json_response(200, body)
 
-    return InsForgeClient(
+    return LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=httpx.MockTransport(_hh),

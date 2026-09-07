@@ -8,16 +8,16 @@ from typing import Any
 import httpx
 import pytest
 
-from app.core.auth_dependencies import get_insforge_client_dep
 from app.core.config import get_settings
+from app.core.di.local_postgres_di import get_local_postgres_executor_dep
 from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.session import session_cookie_name, write_session
-from app.main import app, get_insforge_client
+from app.main import app
 from app.modules.entradas import service as entradas_service
 from tests.conftest import auth_reval_rows, make_csrf_request
 
 
-class _NoSqlRouteClient(InsForgeClient):
+class _NoSqlRouteClient(LocalPostgresExecutor):
     """Client spy that fails if a route executes SQL directly."""
 
     def __init__(self) -> None:  # type: ignore[override]
@@ -44,11 +44,11 @@ class _NoSqlRouteClient(InsForgeClient):
 @pytest.fixture
 def route_client() -> _NoSqlRouteClient:
     spy = _NoSqlRouteClient()
-    app.dependency_overrides[get_insforge_client] = lambda: spy
-    app.dependency_overrides[get_insforge_client_dep] = lambda: spy
+    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy
+    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy
     yield spy
-    app.dependency_overrides.pop(get_insforge_client, None)
-    app.dependency_overrides.pop(get_insforge_client_dep, None)
+    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
+    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
 
 
 @pytest.fixture
@@ -127,7 +127,7 @@ async def test_list_entradas_delegates_to_service_and_renders_spanish_copy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _login_as_key_user(client)
-    calls: list[InsForgeClient] = []
+    calls: list[LocalPostgresExecutor] = []
     monkeypatch.setattr(
         entradas_service,
         "list_entradas",
@@ -172,9 +172,9 @@ async def test_detail_and_edit_return_404_when_service_returns_none(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _login_as_key_user(client)
-    calls: list[tuple[InsForgeClient, str]] = []
+    calls: list[tuple[LocalPostgresExecutor, str]] = []
 
-    def fake_get(service_client: InsForgeClient, entrada_id: str):
+    def fake_get(service_client: LocalPostgresExecutor, entrada_id: str):
         calls.append((service_client, entrada_id))
         return None
 
@@ -195,9 +195,9 @@ async def test_create_entrada_delegates_to_service_and_redirects_to_detail(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _login_as_key_user(client)
-    calls: list[tuple[InsForgeClient, dict[str, Any]]] = []
+    calls: list[tuple[LocalPostgresExecutor, dict[str, Any]]] = []
 
-    def fake_create(service_client: InsForgeClient, params: dict[str, Any]):
+    def fake_create(service_client: LocalPostgresExecutor, params: dict[str, Any]):
         calls.append((service_client, params))
         return entrada
 
@@ -222,7 +222,7 @@ async def test_create_duplicate_translates_to_409_html(
 ) -> None:
     _login_as_key_user(client)
 
-    def fake_create(service_client: InsForgeClient, params: dict[str, Any]):
+    def fake_create(service_client: LocalPostgresExecutor, params: dict[str, Any]):
         assert service_client is route_client
         raise entradas_service.EntradaConflictError("duplicada")
 
@@ -248,7 +248,7 @@ async def test_update_validation_error_rerenders_form_with_422(
     _login_as_key_user(client)
     monkeypatch.setattr(entradas_service, "get_entrada_by_id", lambda _c, _id: entrada)
 
-    def fake_update(service_client: InsForgeClient, entrada_id: str, params: dict[str, Any]):
+    def fake_update(service_client: LocalPostgresExecutor, entrada_id: str, params: dict[str, Any]):
         raise ValueError("animal_id is required and cannot be empty")
 
     monkeypatch.setattr(entradas_service, "update_entrada", fake_update)
@@ -288,9 +288,9 @@ async def test_delete_is_soft_delete_service_delegation_and_redirect(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _login_as_key_user(client)
-    calls: list[tuple[InsForgeClient, str]] = []
+    calls: list[tuple[LocalPostgresExecutor, str]] = []
 
-    def fake_delete(service_client: InsForgeClient, entrada_id: str) -> bool:
+    def fake_delete(service_client: LocalPostgresExecutor, entrada_id: str) -> bool:
         calls.append((service_client, entrada_id))
         return True
 

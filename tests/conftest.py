@@ -45,7 +45,6 @@ import pytest_asyncio
 os.environ.setdefault("APAP_MODE", "test")
 
 from app.core.config import get_settings  # noqa: E402  (must follow the env set)
-from app.core.local_backend.db import LocalPostgresExecutor  # noqa: E402
 from app.core.session import read_session, session_cookie_name  # noqa: E402
 from app.main import app as _app  # noqa: E402
 
@@ -58,25 +57,25 @@ pytest_plugins = ["pytester"]
 def auth_reval_rows(
     query: str, params: object = None, *, rol: str = "key_user"
 ) -> list[dict[str, Any]] | None:
-    """Issue #143 seam for route-test InsForge spies.
+    """Issue #143 seam for route-test executor spies.
 
-    ``require_authorized_user`` now SELECTs the caller from
-    ``usuarios_autorizados`` on EVERY request (the cookie signs identity;
-    the DB is the source of truth for authorization). Route spies that
-    returned ``[]`` — or a rowless stub — for unknown SQL would therefore
-    make every authenticated request 302 to ``/unauthorized`` (or raise
-    ``KeyError`` on the missing ``rol``).
+``require_authorized_user`` now SELECTs the caller from
+``usuarios_autorizados`` on EVERY request (the cookie signs identity;
+the DB is the source of truth for authorization). Route spies that
+returned ``[]`` — or a rowless stub — for unknown SQL would therefore
+make every authenticated request 302 to ``/unauthorized`` (or raise
+``KeyError`` on the missing ``rol``).
 
-    Spies call this as the FIRST line of ``execute_sql`` so they answer the
-    revalidation query with an active-user row, then fall through to their
-    own domain SQL. Returning here (before any ``captured_queries.append``)
-    keeps the revalidation SELECT out of the domain-SQL assertions.
+Spies call this as the FIRST line of ``execute_sql`` so they answer the
+revalidation query with an active-user row, then fall through to their
+own domain SQL. Returning here (before any ``captured_queries.append``)
+keeps the revalidation SELECT out of the domain-SQL assertions.
 
-    Returns the row list for the auth query, or ``None`` when ``query`` is
-    not the revalidation SELECT so the spy handles it. ``rol`` matches the
-    test's login helper (default ``key_user``; admin/developer tests pass
-    ``rol="developer"``).
-    """
+Returns the row list for the auth query, or ``None`` when ``query`` is
+not the revalidation SELECT so the spy handles it. ``rol`` matches the
+test's login helper (default ``key_user``; admin/developer tests pass
+``rol="developer"``).
+"""
     # Auth revalidation (issue #143): uses GET_USER_BY_EMAIL_SQL which
     # includes 'rol' as a selected column (appears in SELECT ... rol, ...).
     # The duplicate-check uses _CHECK_DUPLICATE_EMAIL_SQL with a minimal
@@ -115,87 +114,37 @@ def _clear_settings_cache() -> None:
 
 
 @pytest.fixture(autouse=True)
-def _install_default_insforge_client() -> None:
-    """Wire a default ``state.insforge_client`` spy into the module ``app``.
+def _install_default_sql_executor() -> None:
+    """Wire a default ``state.sql_executor`` spy into the module ``app``.
 
-    Epic #420 migrated the animals slice (and several cross-slice
-    consumers) to ``Depends(get_animals_port)`` which reads
-    ``request.app.state.insforge_client`` directly. Routes that
-    exercise those handlers no longer go through the legacy
-    ``get_insforge_client_dep`` override; the test client needs the
-    state populated for any POST that reaches the hexagonal port
-    provider, including CSRF middleware tests, XSS audit
-    handlers, and auth middleware tests.
+    The lifespan sets ``app.state.sql_executor`` to a
+    :class:`~app.core.local_backend.db.LocalPostgresExecutor` against the
+    real Postgres test container. For tests that exercise FastAPI
+    without ``LifespanMiddleware`` (lightweight ASGI transports) this
+    autouse fixture installs a noop spy that returns empty rows on
+    every ``execute_sql`` so route handlers that read from the executor
+    get a defined (if empty) result.
 
-    Tests that want a custom spy (recording INSERT/UPDATE/SELECT
-    SQL) override this by setting ``app.state.insforge_client`` to
-    their own object after this fixture runs.
-
-    The default spy implements pattern-matching on ``execute_sql`` so
-    pre-existing CSRF / XSS / session / migration tests that exercise
-    CSRF middleware, the animales routes, and the voluntarios routes
-    (each of which writes a row-keyed lookup against the spy) all get
-    the keys they expect without each test having to install its own
-    ``app.state.insforge_client`` fixture. Tests that need richer
-    data (e.g. ``xss_insforge``) override this by setting
-    ``app.state.insforge_client`` to their own object after this
-    fixture runs; the test order runs autouse FIRST then
-    non-autouse, so the override wins for that test.
+    Tests that want a custom spy (recording INSERT/UPDATE/SELECT SQL)
+    override this by setting ``app.state.sql_executor`` to their own
+    object after this fixture runs.
     """
-    class _DefaultInsForgeSpy(InsForgeClient):
-        def __init__(self) -> None:  # type: ignore[override]
-            import httpx as _httpx
-            self._client = _httpx.Client(base_url="https://default-spy.example")
+    from app.core.data_access import SqlExecutor
+
+    class _DefaultSqlExecutorSpy(SqlExecutor):
+        def __init__(self) -> None:
             self.execute_sql_calls: list[tuple[str, list[object]]] = []
 
-        def execute_sql(  # type: ignore[override]
+        def execute_sql(
             self, sql: str, params: list[object] | None = None
         ) -> list[dict[str, object]]:
             self.execute_sql_calls.append((sql, list(params or [])))
-            s = sql.strip().lower()
-            # Routes that select a single animal by primary key expect
-            # one row back; otherwise the handler 404s and the test
-            # fails an unrelated assertion. Tests that need richer
-            # data override this spy.
-            if s.startswith("select") and "from animales" in s and "where id =" in s.replace(" ", "").replace("=", "= "):
-                return [
-                    {
-                        "id": params[0] if params else "abc-123",
-                        "NCHIP": "985112004409871",
-                        "NombreAnimal": "Luna",
-                        "Especie": "CANINA",
-                        "Sexo": "H",
-                        "FNacimiento": "2023-04-12",
-                        "activo": True,
-                    }
-                ]
-            if s.startswith("select") and "from voluntarios" in s and "where id =" in s.replace(" ", ""):
-                return [
-                    {
-                        "id": params[0] if params else "v-1",
-                        "Voluntario": "Ana",
-                        "Email": "ana@example.com",
-                        "DNI": "12345678A",
-                        "Tel1": "+34 600 000 000",
-                        "Tel2": None,
-                        "fecha_alta": "2024-01-01",
-                        "activo": True,
-                    }
-                ]
-            if s.startswith("select") and "from entradas" in s and "where id =" in s.replace(" ", ""):
-                return [
-                    {
-                        "id": params[0] if params else "ent-1",
-                        "FechaEntrada": "2024-01-01",
-                        "activo": True,
-                    }
-                ]
             return []
 
-    spy = _DefaultInsForgeSpy()
-    _app.state.insforge_client = spy
+    spy = _DefaultSqlExecutorSpy()
+    _app.state.sql_executor = spy
     yield
-    _app.state.__dict__.pop("insforge_client", None)
+    _app.state.__dict__.pop("sql_executor", None)
 
 
 @pytest_asyncio.fixture

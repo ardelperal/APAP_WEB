@@ -46,7 +46,7 @@ def test_private_bucket_invariant_existing_private_readback() -> None:
             {"buckets": [{"bucketName": APAP_PHOTOS, "isPublic": False}]},
         )
 
-    client = InsForgeClient(
+    client = LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=httpx.MockTransport(handler),
@@ -71,7 +71,7 @@ def test_public_bucket_aborts_fail_closed() -> None:
             {"buckets": [{"bucketName": APAP_PHOTOS, "isPublic": True}]},
         )
 
-    client = InsForgeClient(
+    client = LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=httpx.MockTransport(handler),
@@ -112,7 +112,7 @@ def test_bucket_visibility_missing_or_null_fails_closed() -> None:
         return handler
 
     for label, buckets in scenarios:
-        client = InsForgeClient(
+        client = LocalPostgresExecutor(
             base_url="https://example.insforge.app",
             service_key="ik_test",
             transport=httpx.MockTransport(_make_handler(buckets)),
@@ -147,7 +147,7 @@ def test_missing_bucket_auto_create_is_private_and_idempotent() -> None:
             )
         return _json_response(500, {"error": "unexpected_call"})
 
-    client = InsForgeClient(
+    client = LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=httpx.MockTransport(handler),
@@ -228,7 +228,7 @@ def test_cli_ensure_bucket_rejects_unsafe_bucket_name() -> None:
     def handler(_request: httpx.Request) -> httpx.Response:
         raise AssertionError("unsafe bucket name must not reach the network")
 
-    client = InsForgeClient(
+    client = LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=httpx.MockTransport(handler),
