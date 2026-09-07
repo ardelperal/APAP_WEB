@@ -58,6 +58,7 @@ from app.core.auth_flow import register_auth_flow_routes
 from app.core.catalogs import ensure_catalogs
 from app.core.csrf import csrf_token_context_processor
 from app.core.dashboard_data import DASHBOARD_PENDING_CARDS, DASHBOARD_SHORTCUTS
+from app.core.data_access import BackendError
 from app.core.domain import ensure_domain_schema
 from app.core.e2e_auth import register_e2e_auth_routes
 from app.core.local_backend.db import LocalPostgresExecutor
@@ -272,9 +273,23 @@ app = create_app()
 # error (``ValueError``) and lets transport errors propagate uncaught
 # becomes a 500. The generic handler below turns every unhandled
 # exception into a non-leaking 502 with ``log_safe`` observability.
-# The LocalBackend-specific binding (issue #277) is gone with the
-# LocalBackend error-handler slice (issue #662); the §32.P4 contract is
-# preserved as a generic handler instead of an LocalBackend-specific one.
+@app.exception_handler(BackendError)
+async def _backend_error_handler(
+    request: Request, exc: BackendError
+) -> JSONResponse:
+    """Translate expected backend failures without leaking transport details."""
+    log_safe(
+        "server.backend_error",
+        path=request.url.path,
+        method=request.method,
+        status_code=exc.status_code,
+    )
+    return JSONResponse(
+        status_code=502,
+        content={"detail": "Upstream database error"},
+    )
+
+
 @app.exception_handler(Exception)
 async def _unhandled_exception_handler(
     request: Request, exc: Exception
