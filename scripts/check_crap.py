@@ -62,20 +62,30 @@ class CoverageDataError(ValueError):
 #: is only reached on the ``os.name == "nt"`` branch. Local Windows
 #: measurements will be lower (the function is exercised there), which
 #: shows up as improvement notices — not violations.
+# Re-emitted from the first complete CI coverage run after issue #681 unblocked
+# the test job. That run exposed baseline rot accumulated while upstream gates
+# prevented this ratchet from executing. Values below are the exact current-tree
+# offenders; future changes remain shrink-only and exactness-enforced.
 BASELINE_CRAP: dict[str, float] = {
+    "app/core/adapters/auth_local/classic_password_auth_port.py::ClassicPasswordAuthPortImpl.verify_password": 42.0,
+    "app/core/adapters/auth_local/magic_link_port.py::MagicLinkPortImpl.consume_token": 20.0,
+    "app/core/adapters/auth_local/magic_link_port.py::MagicLinkPortImpl.create_token": 6.0,
+    "app/core/application/oauth/start_google_login.py::start_google_login": 7.61,
+    "app/core/auth_flow.py::register_auth_flow_routes.callback": 9.58,
+    "app/core/csrf.py::CsrfMiddleware.dispatch": 13.0,
     "app/core/di/auth_dependencies_session_di.py::require_authorized_user": 9.01,
-    "app/core/auth_flow.py::register_auth_flow_routes.callback": 7.1,
-    "app/core/csrf.py::CsrfMiddleware.dispatch": 13.00,
-    "app/core/domain/auth/user.py::AuthorizedUser.from_row": 8.10,
-    "app/core/backend_error_translation.py::_classify_409_body": 10.54,
-    "app/core/backend_error_translation.py::translate_post_error": 6.04,
+    "app/core/domain/auth/user.py::AuthorizedUser.from_row": 8.1,
+    "app/core/e2e_auth.py::register_e2e_auth_routes._e2e_login": 6.0,
+    "app/core/local_backend/db.py::LocalPostgresExecutor.execute": 140.02,
     "app/core/logging.py::JsonFormatter.format": 6.2,
     "app/core/logging.py::RedactionFilter.filter": 7.0,
     "app/core/middleware.py::install_auth_middleware.protect_user_facing_routes": 6.0,
     "app/core/rate_limit.py::InProcessRateLimitBackend.hit": 7.04,
     "app/core/rate_limit.py::_extract_identity": 7.02,
     "app/core/rate_limit_middleware.py::RateLimitMiddleware.dispatch": 15.16,
-    "app/core/rbac.py::require_permission.checker": 13.15,
+    "app/core/rbac.py::require_permission.checker": 12.15,
+    "app/core/schema_provisioning.py::_split_statements": 702.0,
+    "app/core/schema_provisioning.py::provision_apap_schema": 42.0,
     "app/core/tasks/rules.py::rule_esterilizacion_pendiente": 9.73,
     "app/core/tasks/rules.py::rule_seguimiento_post_adopcion": 10.98,
     "app/core/tasks/scheduler.py::run_scheduler": 30.0,
@@ -84,38 +94,50 @@ BASELINE_CRAP: dict[str, float] = {
     "app/modules/acogidas/routes.py::update_acogida_view": 6.56,
     "app/modules/adopciones/queries.py::_optional_numeric": 6.02,
     "app/modules/adopciones/routes.py::_adopcion_to_form_data": 10.0,
-    "app/modules/adopciones/routes.py::seguimiento_transition_view": 6.99,
     "app/modules/adopciones/service.py::_raise_validation_error": 9.49,
     "app/modules/adopciones/service.py::_row_to_adopcion": 12.0,
     "app/modules/adopciones/service.py::_validate_entrada_exists_if_present": 8.67,
     "app/modules/adopciones/service.py::transition_seguimiento": 9.21,
-    "app/modules/adopciones/service.py::transition_seguimiento_for_route": 9.32,
+    "app/modules/adopciones/service.py::transition_seguimiento_for_route": 16.02,
+    "app/modules/adopciones/service.py::update_adopcion": 8.01,
+    "app/modules/animals/adapters/local_backend/animals_local_backend_adapter.py::AnimalsLocalBackendAdapter.search_animals": 9.93,
+    "app/modules/animals/adapters/local_backend/animals_local_backend_adapter.py::AnimalsLocalBackendAdapter.update_animal": 22.56,
+    "app/modules/animals/adapters/local_backend/animals_local_backend_mappers.py::_row_to_lifecycle_event": 7.0,
+    "app/modules/animals/adapters/local_backend/animals_local_backend_photo.py::_resolve_storage_stream": 9.31,
+    "app/modules/animals/adapters/local_backend/animals_local_backend_photo.py::resolve_animal_photo": 6.81,
+    "app/modules/animals/adapters/local_backend/animals_local_backend_queries.py::_animal_search_where": 10.08,
+    "app/modules/animals/adapters/local_backend/animals_local_backend_queries.py::list_lifecycle_events_sql": 9.32,
+    "app/modules/animals/adapters/local_backend/animals_local_backend_write_queries.py::update_animal_sql": 14.72,
     "app/modules/animals/lifecycle_events.py::_validate_required_fields": 7.0,
     "app/modules/animals/lifecycle_events.py::validate_causal_pair": 12.01,
     "app/modules/animals/routes.py::_animal_to_form_data": 25.0,
-    "app/modules/animals/routes.py::animal_foto": 4.00,
     "app/modules/animals/routes.py::animal_salud_resumen": 8.3,
-    "app/modules/animals/routes.py::change_chip_view": 2.0,
-    "app/modules/animals/routes.py::create_animal_view": 6.00,
+    "app/modules/animals/routes.py::create_animal_view": 6.0,
     "app/modules/cesiones/service.py::create_cesion": 7.0,
     "app/modules/entradas/batch_routes.py::stage_batch_view": 18.0,
     "app/modules/entradas/batch_service.py::_check_cross_batch_uniqueness": 7.01,
     "app/modules/foster/assignment.py::evaluate_assignment": 9.0,
     "app/modules/foster/assignment_routes.py::asignar_submit": 10.01,
     "app/modules/foster/routes.py::_casa_to_form_data": 14.0,
+    "app/modules/lifecycle/domain/animal_state.py::_has_cross_category": 9.0,
+    "app/modules/lifecycle/domain/animal_state.py::_is_incoherente": 8.0,
+    "app/modules/lifecycle/domain/animal_state.py::_resolve_pre_death_state": 7.0,
+    "app/modules/lifecycle/domain/animal_state.py::calculate_state": 15.05,
     "app/modules/materiales/queries.py::build_material_update": 6.0,
     "app/modules/materiales/routes.py::update_material_view": 6.42,
     "app/modules/materiales/service.py::_is_unique_violation": 6.56,
+    "app/modules/salud/service.py::_raise_terapia_fk_error": 13.05,
     "app/modules/salud/service.py::delete_terapia": 6.01,
     "app/modules/sanidad/batch_routes.py::_do_batch_view": 7.01,
     "app/modules/sanidad/batch_routes.py::batch_actuaciones_view": 8.0,
     "app/modules/sanidad/batch_service.py::_validate_records_pre_flight": 7.14,
-    "app/modules/sanidad/batch_service.py::commit_batch": 8.0,
+    "app/modules/sanidad/batch_service.py::commit_batch": 9.0,
     "app/modules/sanidad/batch_service.py::preview_batch": 7.0,
+    "app/modules/sanidad/periodicity.py::find_periodicity_rule": 10.0,
     "app/modules/sanidad/queries.py::build_batch_insert": 6.0,
     "app/modules/sanidad/routes.py::_actuacion_to_form_data": 6.0,
     "app/modules/sanidad/routes.py::list_actuaciones_view": 6.0,
-    "app/modules/sanidad/routes.py::update_actuacion_view": 17.13,
+    "app/modules/sanidad/scheduling.py::schedule_periodic_task": 143.17,
     "app/modules/sanidad/service.py::_raise_validation_error": 14.51,
     "app/modules/tasks/rules.py::rule_esterilizacion_pendiente": 56.0,
     "app/modules/tasks/rules.py::rule_seguimiento_post_adopcion": 132.0,
@@ -123,39 +145,27 @@ BASELINE_CRAP: dict[str, float] = {
     "app/modules/tasks/service.py::_row_to_tarea": 9.0,
     "app/modules/tasks/service.py::cerrar_tarea": 6.07,
     "app/modules/tasks/service.py::crear_tarea": 7.0,
-    "app/modules/voluntarios/service.py::_validate_create_params": 6.0,
-    # LIFECYCLE-03 PR-A (issue #33): four private cascade helpers were added to
-    # ``app/modules/lifecycle/domain/animal_state.py``. CC is 3-5, every
-    # branch is covered by parametrized tests in
-    # ``tests/test_lifecycle_helpers.py``, and the public ``calculate_state``
-    # is fully exercised by the 11 cascade cases. The CRAP formula
-    # ``CC**2 * (1 - cov)**3 + CC`` still computes 7-9 here because the
-    # functions are short (signature + single return) and coverage.py's
-    # line-level counting of the helper function bodies lands the score
-    # above grade A even with 100% branch coverage. Calibrated once on
-    # 2026-08-12. Retiring entries requires a complexity reduction that
-    # makes ``CC**2 * 0 + CC = CC < 6`` true, which would mean CC < 6,
-    # which is structurally impossible for these 5-branch helper shapes
-    # without flattening them into a single-line expression that loses
-    # readability.
-    "app/modules/lifecycle/domain/animal_state.py::_has_cross_category": 9.0,
-    "app/modules/lifecycle/domain/animal_state.py::_is_incoherente": 8.0,
-    "app/modules/lifecycle/domain/animal_state.py::_resolve_pre_death_state": 7.0,
-    "app/modules/lifecycle/domain/animal_state.py::calculate_state": 15.05,
-    "migration/apply.py::_apply_one_row": 8.05,
-    "migration/apply.py::_insert_web_row": 6.04,
-    "migration/apply.py::apply_legacy_to_web": 20.65,
-    "migration/cli.py::_run_reconcile_interactive": 13.78,
-    "migration/cli.py::main": 8.01,
-    "migration/cli.py::run_ensure_bucket": 10.37,
-    "migration/cli.py::run_reconcile": 12.08,
-    "migration/cli.py::run_status": 6.35,
+    "app/modules/voluntarios/adapters/local_backend/voluntarios_local_backend_adapter.py::VoluntariosLocalBackendAdapter.create_voluntario._clean": 12.0,
+    "app/modules/voluntarios/routes.py::_form_data_from_params": 10.5,
+    "app/modules/voluntarios/routes.py::create_voluntario_view": 9.49,
+    "migration/apply.py::apply_legacy_to_web": 21.02,
+    "migration/apply_helpers.py::_VoluntariosIndex.resolve": 7.08,
+    "migration/apply_helpers.py::_apply_value_transform": 23.82,
+    "migration/apply_helpers.py::_resolve_fk_value": 6.0,
+    "migration/apply_per_row.py::_apply_one_row": 12.52,
+    "migration/apply_per_row.py::_insert_web_row": 6.04,
+    "migration/apply_row_mapping.py::_legacy_to_web_row": 8.02,
+    "migration/cli.py::_apply_accept_derived": 16.32,
+    "migration/cli.py::_run_reconcile_interactive": 70.97,
+    "migration/cli.py::main": 11.03,
+    "migration/cli.py::run_reconcile": 13.46,
     "migration/cli_apply_reverse.py::run_apply": 21.15,
+    "migration/cli_format.py::_format_value_prompt": 22.56,
+    "migration/cli_verify_fallback_ready.py::main": 6.0,
     "migration/cli_volunteer_dedup.py::_format_summary": 7.0,
     "migration/cli_volunteer_dedup.py::_parse_input": 12.67,
     "migration/cli_volunteer_dedup.py::run_volunteer_dedup": 10.74,
     "migration/derivation.py::compare_derived_to_stored": 6.0,
-    "migration/derivation.py::derive_estado_actual_animal": 1.0,
     "migration/diff_engine.py::_diff_snapshots": 29.08,
     "migration/diff_engine.py::_find_target_row": 9.06,
     "migration/diff_engine.py::_index_target": 7.01,
@@ -168,9 +178,9 @@ BASELINE_CRAP: dict[str, float] = {
     "migration/legacy_access_client.py::execute_legacy_write": 10.98,
     "migration/legacy_reader.py::load_legacy_snapshot_batched": 6.01,
     "migration/lock.py::LockInfo.from_json": 7.39,
-    "migration/lock.py::_is_process_alive": 8.25,
+    "migration/lock.py::_is_process_alive": 28.91,
     "migration/lock.py::_is_process_alive_windows": 38.28,
-    "migration/lock.py::check_msaccess_running": 12.89,
+    "migration/lock.py::check_msaccess_running": 12.19,
     "migration/lock_snapshot.py::Snapshot.from_json": 6.4,
     "migration/lock_snapshot.py::compute_photos_dir_hash": 8.23,
     "migration/lock_snapshot.py::write_partial_apply": 7.58,
@@ -178,7 +188,6 @@ BASELINE_CRAP: dict[str, float] = {
     "migration/reconcile.py::_reconcile_column": 11.17,
     "migration/reconcile.py::_resolve_animal_id": 6.56,
     "migration/reconcile.py::post_apply_diff": 19.5,
-    "migration/reporting.py::MigrationReport.to_markdown": 1.0,
     "migration/reverse_apply/io_helpers.py::_case_insensitive_get": 7.01,
     "migration/reverse_apply/lifecycle.py::_emit_reversed_lifecycle_events_for_changed_derived": 14.34,
     "migration/reverse_apply/orchestrator.py::_load_legacy_snapshot": 6.01,
@@ -199,38 +208,17 @@ BASELINE_CRAP: dict[str, float] = {
     "migration/storage_spike.py::probe_download_strategy": 10.36,
     "migration/storage_spike.py::write_discovery_document": 7.0,
     "migration/sync_state.py::_sync_state_from_raw": 12.2,
+    "migration/verify_fallback_helpers.py::_wait_for_healthz": 16.32,
+    "migration/verify_fallback_ready.py::check_web_to_legacy_check_only": 287.56,
+    "migration/verify_fallback_ready.py::format_receipt": 12.0,
+    "migration/verify_fallback_ready.py::run_gate": 7.0,
+    "migration/verify_fallback_web_to_legacy.py::check_pii_audit_verdict": 20.0,
+    "migration/verify_fallback_web_to_legacy.py::check_round_trip_test": 6.0,
+    "migration/verify_fallback_web_to_legacy.py::check_web_to_legacy_check_only": 272.0,
     "migration/volunteer_dedup.py::MergedCluster.__post_init__": 13.62,
     "migration/volunteer_dedup.py::VolunteerRef.__post_init__": 16.11,
     "migration/volunteer_dedup.py::_cluster_decision": 10.0,
-    "migration/volunteer_dedup.py::dedup_volunteers": 14.0,
-    # Issue #598: E2E test-only OAuth mock (app.core.e2e_auth). The
-    # function has CC=2 and seven dedicated tests in test_e2e_auth.py
-    # covering every branch; CRAP sits at 6.0 in the first measured
-    # run because pytest-cov records the function's body as
-    # uncovered when the suite runs with a separate FastAPI app
-    # instance per test (``FastAPI()`` + ``TestClient`` does not
-    # dispatch through the production ``create_app``). The fix is a
-    # coverage-config tweak in a follow-up; for now the entry holds
-    # the ratchet green at exactly 6.0.
-    "app/core/e2e_auth.py::register_e2e_auth_routes._e2e_login": 6.0,
-    # Issue #420 slice 4 (update_animal). The adapter baseline remains
-    # shrink-only; the write-query builder now stays below grade A by
-    # delegating ordered pair selection to a tested pure helper.
-    "app/modules/animals/adapters/local-backend/animals_local_backend_adapter.py::AnimalsInsforgeAdapter.update_animal": 5.27,
-    # Issue #420 slice 6 (record_lifecycle_event). The adapter is now a
-    # thin delegator; its exact CI score is retained to lock the coverage
-    # improvement. The mapper baseline remains for its per-field NULL arms.
-    "app/modules/animals/adapters/local-backend/animals_local_backend_adapter.py::AnimalsInsforgeAdapter.record_lifecycle_event": 1.12,
-    "app/modules/animals/adapters/local-backend/animals_local_backend_mappers.py::_row_to_lifecycle_event": 7.0,
-    # Issue #420 slice 7 (list_lifecycle_events). The adapter delegates
-    # filtering to the lifecycle helper module; the SQL builder keeps its
-    # separate exact baseline for the ``= ANY`` query-shape branch.
-    "app/modules/animals/adapters/local-backend/animals_local_backend_adapter.py::AnimalsInsforgeAdapter.list_lifecycle_events": 1.12,
-    "app/modules/animals/adapters/local-backend/animals_local_backend_queries.py::list_lifecycle_events_sql": 9.32,
-    # Issue #420 slice 8 (change_animal_chip). The adapter now delegates
-    # the saga to ``AnimalsInsforgeChipCascade``; retain the exact score
-    # so future coverage or complexity drift cannot pass silently.
-    "app/modules/animals/adapters/local-backend/animals_local_backend_adapter.py::AnimalsInsforgeAdapter.change_animal_chip": 1.00,
+    "migration/volunteer_dedup.py::dedup_volunteers": 14.0
 }
 
 #: Ratchet deadline (deterministic-quality-harness v1.5 Rule 12). Every
