@@ -228,12 +228,6 @@ def material_detail(
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_MATERIALES))],
     client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
-    """Detail view. Returns 404 when the row is missing (issue #681 — JSCPD ratchet).
-
-    PR C integrates the assigned-estancias section (uses
-    ``list_materials_for_estancia``); for PR B this section is rendered
-    as an empty placeholder per the SDD tasks plan (#15905 §B.2.3).
-    """
     return render_detail(
         templates=_templates,
         request=request,
@@ -256,13 +250,6 @@ def edit_material_form(
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_MATERIALES))],
     client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
-    """Edit form prefilled with the persisted row (issue #681 — JSCPD ratchet).
-
-    Returns 404 when the row is missing so the operator never sees a
-    half-rendered form for a stale URL. The form action posts to
-    ``/materiales/{id}/edit`` (same path as the GET — the verb in the
-    HTTP method distinguishes intent).
-    """
     return _edit_material_form(
         request=request, user=user, client=client, entity_id=material_id,
     )

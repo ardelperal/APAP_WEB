@@ -303,7 +303,6 @@ def acogida_detail(
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_ACOGIDAS))],
     client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
-    """Render the stay detail view with computed duration + active state."""
     if (early := return_early_if_response(user)) is not None:
         return early
     acogida = acogidas_service.get_acogida_by_id(client, acogida_id)
@@ -333,7 +332,6 @@ def edit_acogida_form(
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_ACOGIDAS))],
     client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
-    """Render the edit form prefilled from the current stay row (issue #681 — JSCPD ratchet)."""
     return _edit_acogida_form(
         request=request, user=user, client=client, entity_id=acogida_id,
     )

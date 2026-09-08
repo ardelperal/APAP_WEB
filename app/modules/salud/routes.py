@@ -224,7 +224,6 @@ def terapia_detail(
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_SALUD))],
     client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
-    """Detail view with its recomendaciones; 404 when the id is missing."""
     if (early := return_early_if_response(user)) is not None:
         return early
     terapia = salud_service.get_terapia_by_id(client, terapia_id)
@@ -252,7 +251,6 @@ def edit_terapia_form(
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
     client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
-    """Edit form prefilled from the persisted row (issue #681 — JSCPD ratchet)."""
     return _edit_terapia_form(
         request=request, user=user, client=client, entity_id=terapia_id,
     )

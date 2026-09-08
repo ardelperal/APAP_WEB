@@ -261,7 +261,6 @@ def adopcion_detail(
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_ADOPCIONES))],
     client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
-    """Detail view; 404 when the id is missing (issue #681 — JSCPD ratchet)."""
     return render_detail(
         templates=_templates,
         request=request,
@@ -284,7 +283,6 @@ def edit_adopcion_form(
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_ADOPCIONES))],
     client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
-    """Edit form prefilled from the persisted row (issue #681 — JSCPD ratchet)."""
     return _edit_adopcion_form(
         request=request, user=user, client=client, entity_id=adopcion_id,
     )
