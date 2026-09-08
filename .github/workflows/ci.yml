@@ -978,7 +978,7 @@ jobs:
     # postgres service and exports both DSNs.
     services:
       postgres:
-        image: postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441f191f3b72252193
+        image: postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
         env:
           POSTGRES_USER: postgres
           POSTGRES_DB: apap_test
