@@ -37,3 +37,16 @@ def test_dockerfile_every_from_has_sha256_digest() -> None:
         "The following FROM lines lack @sha256: digest:\n"
         + "\n".join(f"  line {no}: {ln}" for no, ln in missing_digest)
     )
+
+
+def test_runtime_stage_installs_current_security_updates() -> None:
+    """The shipped image upgrades base packages before installing curl."""
+    content = DOCKERFILE.read_text()
+    runtime = content.split(" AS runtime", maxsplit=1)[1]
+    install_layer = runtime.split("# Non-root user", maxsplit=1)[0]
+
+    update = install_layer.index("apt-get update")
+    upgrade = install_layer.index("apt-get upgrade -y")
+    install = install_layer.index("apt-get install -y --no-install-recommends curl")
+
+    assert update < upgrade < install
