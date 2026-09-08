@@ -589,14 +589,12 @@ BASELINE: Mapping[str, str] = {
     "app/core/domain/__init__.py -> app.core.adapters.local_backend.schema_bootstrap_local_backend_adapter [layer-direction]": _EPIC_420,
     "app/core/domain/__init__.py -> app.core.data_access [layer-direction]": _EPIC_420,
     "app/core/domain/__init__.py -> app.core.local_backend.db [layer-direction]": _EPIC_420,
-    "app/core/domain/__init__.py -> app.core.local_backend [layer-direction]": _EPIC_420,
     "app/core/domain/auth/rol.py -> app.core.roles [layer-direction]": _EPIC_420,
     "app/core/domain/oauth/session.py -> app.core.domain.auth.rol [slice-boundary]": _EPIC_420,
     "app/core/domain/oauth/session.py -> app.core.domain.auth.user [slice-boundary]": _EPIC_420,
     "app/core/tasks/scheduler.py -> app.modules.tasks [layer-direction]": _LAZY_CYCLE,
     "app/core/tasks/scheduler.py -> app.modules.tasks.service [layer-direction]": _LAZY_CYCLE,
         "app/core/ports/auth_classic_port.py -> app.core.domain.auth.user [slice-boundary]": _EPIC_420,
-        "app/core/ports/magic_link_port.py -> app.core.domain.auth.user [slice-boundary]": _EPIC_420,
 }
 
 
