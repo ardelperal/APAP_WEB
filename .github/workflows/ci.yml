@@ -1014,6 +1014,18 @@ jobs:
       - name: Install development dependencies
         run: python -m pip install -e ".[dev]"
 
+      - name: Install psutil for the MSACCESS pre-flight
+        # This gate actually runs `python -m migration apply`, whose
+        # MSACCESS pre-flight (migration/lock.py::check_msaccess_running)
+        # hard-requires psutil and fails closed with
+        # MsAccessPreflightUnavailableError (exit 5) when it is absent.
+        # psutil is declared under [etl] (operator-only per its own
+        # docstring in pyproject.toml), but pulling in the whole [etl]
+        # extra here would also install pyodbc, which needs unixODBC
+        # headers this runner does not have — installing psutil alone
+        # is the narrow fix for the one thing this job actually needs.
+        run: python -m pip install "psutil>=7.0"
+
       - name: Run the verify-fallback-ready gate (CI subset)
         # The standalone entry point at
         # ``migration/cli_verify_fallback_ready`` does NOT import
