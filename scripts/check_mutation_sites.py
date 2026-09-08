@@ -61,7 +61,7 @@ BASELINE_MUTATION_SITES: dict[str, int] = {
     "migration/reverse_apply/orchestrator.py": 254,
     "migration/semantic_events.py": 304,
     "migration/storage_spike.py": 705,
-    "migration/verify_fallback_ready.py": 309,  # issue #690: thread APAP_LOCAL_DB_SCHEMA to the apply subprocess
+    "migration/verify_fallback_ready.py": 322,  # issue #690: preflight-unavailable now reports PENDING instead of failing
     "migration/volunteer_dedup.py": 301,
 }
 

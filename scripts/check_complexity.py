@@ -78,7 +78,7 @@ BASELINE_CC: dict[tuple[str, str], int] = {
         # functions so each call site is unit-testable in isolation.
         ("app/core/schema_provisioning.py", "_split_statements"): 26,
         ("migration/apply_helpers.py", "_apply_value_transform"): 22,
-        ("migration/verify_fallback_ready.py", "check_web_to_legacy_check_only"): 16,
+        ("migration/verify_fallback_ready.py", "check_web_to_legacy_check_only"): 17,  # issue #690: preflight-unavailable now reports PENDING instead of failing
     }
 
 
