@@ -14,7 +14,7 @@ AGENTS.md §32.P3, "rules declared without a gate".
 from __future__ import annotations
 
 import pytest
-from migration.adapters.local_backend.web_reader_local_backend_adapter import (
+from migration.adapters.local_backend.web_reader_local_backend_adapter import (  # noqa: I001  # isort would split the existing ``from __future__`` from the rest of the imports; the future import must remain adjacent to its current position
     _build_web_select_sql,
 )
 
