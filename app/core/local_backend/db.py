@@ -63,6 +63,15 @@ class LocalPostgresExecutor:
         self._dsn = dsn
         self._search_path = search_path
 
+    def close(self) -> None:
+        """No-op: there is no persistent connection to release.
+
+        Kept for API symmetry with callers (e.g. ``migration/cli.py``)
+        that own a client they build themselves and unconditionally
+        close it in a ``finally`` block, regardless of which
+        ``SqlExecutor`` implementation they end up with.
+        """
+
     def _connect(self) -> psycopg.Connection:
         """Open a new connection. Real connections in production; test
         connections in tests via the same DSN (the integration

@@ -968,6 +968,28 @@ jobs:
     runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
     timeout-minutes: 10
     needs: [integration]
+    # The verify-fallback-ready check ``check_web_to_legacy_check_only``
+    # auto-wires a local backend against ``APAP_LOCAL_DB_URL`` (see the
+    # ``M0 of self-host-backend-coolify (issue #641)`` comment in
+    # ``migration/verify_fallback_ready.py``). Without the env var the
+    # check falls through to the CLI's ``apply --check-only`` which
+    # needs a ``web_client``; in CI mode that client is not provisioned
+    # and the check fails. So the job re-runs the integration job's
+    # postgres service and exports both DSNs.
+    services:
+      postgres:
+        image: postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441f191f3b72252193
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: apap_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d apap_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Check out repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
@@ -977,6 +999,17 @@ jobs:
         with:
           python-version-file: pyproject.toml
           cache: pip
+
+      - name: Resolve APAP_LOCAL_DB_URL from the assigned host port
+        env:
+          POSTGRES_HOST_PORT: ${{ job.services.postgres.ports['5432'] }}
+        run: |
+          if [ -z "$POSTGRES_HOST_PORT" ]; then
+            echo "::error::the postgres service port did not resolve; refusing to run the gate without a DSN" >&2
+            exit 1
+          fi
+          echo "APAP_TEST_POSTGRES_DSN=postgresql://postgres@host.docker.internal:$POSTGRES_HOST_PORT/apap_test" >> "$GITHUB_ENV"
+          echo "APAP_LOCAL_DB_URL=postgresql://postgres@host.docker.internal:$POSTGRES_HOST_PORT/apap_test" >> "$GITHUB_ENV"
 
       - name: Install development dependencies
         run: python -m pip install -e ".[dev]"
