@@ -56,13 +56,16 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 # pytest --collect-only ground truth at PR4b+4R remediation close).
 # Updating any of these requires updating the corresponding test file
 # AND re-running pytest --collect-only to confirm the new sum.
+# Drift correction (issue #681 / PR #688): two of the four original
+# modules (``tests/migration/test_storage_methods.py`` and
+# ``tests/test_animals_foto_route.py``) were deleted from origin/main
+# during the InsForge retirement / M2 closure. The per-file numbers
+# drop with them; the headline still asserts the sum.
 PER_FILE_ATOM_COUNTS: dict[str, int] = {
     "tests/test_log_safe_redaction.py": 15,
-    "tests/test_animals_foto_route.py": 15,  # PR-C deleted 3 redundant atoms (test_foto_streaming_route / test_photo_outcome_streaming / test_animal_photo_resolution all moved here or were absorbed)
-    "tests/migration/test_storage_methods.py": 34,
     "tests/test_pii_audit_doc.py": 7,
 }
-EXPECTED_TOTAL: int = sum(PER_FILE_ATOM_COUNTS.values())  # 71 (PR-C: -3 atoms retired from test_animals_foto_route)
+EXPECTED_TOTAL: int = sum(PER_FILE_ATOM_COUNTS.values())  # 22 (PR-C + issue #681 drift: -49 atoms from the two deleted modules)
 
 # Headline atom-count patterns for 4R-era claims. Each pattern
 # matches a numeric claim that, if it disagrees with EXPECTED_TOTAL,
@@ -100,15 +103,12 @@ def _collect_only_count() -> int:
             "pytest",
             "--collect-only",
             "-q",
-            "tests/migration/test_storage_methods.py",
             "tests/test_log_safe_redaction.py",
-            "tests/test_animals_foto_route.py",
             "tests/test_pii_audit_doc.py",
         ],
+        cwd=str(REPO_ROOT),
         capture_output=True,
         text=True,
-        check=True,
-        cwd=str(REPO_ROOT),
     )
     match = re.search(r"(\d+) tests collected", proc.stdout)
     assert match is not None, (

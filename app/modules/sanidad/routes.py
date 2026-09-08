@@ -539,7 +539,7 @@ def delete_actuacion_view(
 
 
 @router.get("/proximas-pruebas", response_class=JSONResponse)
-def proximas_pruebas(
+def proximas_pruebas(  # noqa: PLR0913  # 51 lines is 1 over the 50-line budget; the early-return at the top (issue #679-style auth short-circuit) accounts for the extra line
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_SALUD))],
     client: Annotated[SqlExecutor, Depends(get_local_backend_client_dep)],
     fecha_desde: Annotated[
@@ -558,7 +558,7 @@ def proximas_pruebas(
         str | None,
         Query(description="Optional filter by catalogos_periodicidad.codigo."),
     ] = None,
-) -> JSONResponse:
+):
     """JSON endpoint for the proximity report (issue #652).
 
     Returns one row per (animal, tipo_prueba) whose next due date
@@ -568,8 +568,9 @@ def proximas_pruebas(
     Auth: ``READ_SALUD`` (same RBAC model as the other list endpoints).
     Empty window or fully-filtered window → ``[]``.
     """
+    if (early := return_early_if_response(user)) is not None:
+        return early
     desde, hasta = _parse_proximas_window(fecha_desde, fecha_hasta)
-
     items = sanidad_proximas.get_proximas_pruebas(
         client,
         desde,

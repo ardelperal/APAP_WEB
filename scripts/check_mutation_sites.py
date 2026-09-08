@@ -50,7 +50,7 @@ BASELINE_MUTATION_SITES: dict[str, int] = {
     "app/modules/foster/service.py": 342,
     "app/modules/salud/routes.py": 392,
     "app/modules/salud/service.py": 342,
-    "app/modules/sanidad/routes.py": 410,
+    "app/modules/sanidad/routes.py": 414,  # early-return added to proximas_pruebas_view for test_route_layer_coverage
     "app/modules/sanidad/service.py": 391,
     "migration/cli.py": 406,  # issue #690: _build_web_client() wires a real LocalPostgresExecutor
     "migration/diff_engine.py": 333,
