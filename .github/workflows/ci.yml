@@ -829,6 +829,17 @@ jobs:
       - name: Install development dependencies
         run: python -m pip install -e ".[dev]"
 
+      - name: Install psutil for the MSACCESS pre-flight tests
+        # tests/test_migration.py exercises
+        # migration/lock.py::check_msaccess_running, which hard-requires
+        # psutil and self-skips ("could not import 'psutil'") without it.
+        # psutil is declared under [etl] (operator-only per its own
+        # docstring in pyproject.toml); installing it alone here avoids
+        # pulling in [etl]'s pyodbc, which needs unixODBC headers this
+        # runner does not have. Mirrors the same fix already applied to
+        # the verify-fallback-ready job (issue #690).
+        run: python -m pip install "psutil>=7.0"
+
       - name: Run pytest with deprecations as errors
         # --ignore=tests/e2e: the e2e suite uses playwright's sync
         # API, which collides with pytest-asyncio's auto-mode loop
