@@ -247,6 +247,13 @@ def check_web_to_legacy_check_only() -> CheckResult:
                 "APAP_INSFORGE_URL": f"http://127.0.0.1:{port}",
                 # Dummy key — the local backend does not authenticate.
                 "APAP_INSFORGE_SERVICE_KEY": "local-backend-dummy-key",
+                # migration.cli builds its own LocalPostgresExecutor directly
+                # against Postgres now (issue #690) rather than going through
+                # the local-backend HTTP server this function also spins up;
+                # it needs the same ephemeral-schema search_path the backend
+                # process above was given, or it reads/writes the wrong
+                # schema on the shared test database.
+                "APAP_LOCAL_DB_SCHEMA": ephemeral_schema,
             }
         except Exception:
             backend_proc.kill()
