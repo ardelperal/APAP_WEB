@@ -1,4 +1,4 @@
-"""Unit tests for the ``proximas_pruebas`` builder + service.
+"""Unit tests for the ``proximas_pruebas`` builder + service + route.
 
 The builder (``queries.py::build_proximas_pruebas_sql``) is a pure
 SQL seam per apap-testing HR-2: it returns ``(sql, params)`` so the
@@ -6,9 +6,11 @@ SQL shape is testable without transport. The service
 (``service.py::get_proximas_pruebas``) takes the SQL, executes it,
 and projects the rows into the ``ProximaPrueba`` dataclass.
 
-These tests do not require Postgres. The integration coverage for
-the round-trip lives at ``tests/integration/test_proximas_pruebas.py``
-(runs in CI with ``APAP_TEST_POSTGRES_DSN``).
+These tests do not require Postgres. The route-layer coverage at the
+bottom of this file (``TestProximasPruebasView``) exercises
+``GET /sanidad/proximas-pruebas`` through the ASGI app directly,
+monkeypatching ``sanidad_proximas.get_proximas_pruebas`` so no SQL is
+issued.
 
 Hard rules (web-tdd-philosophy):
 
@@ -21,6 +23,15 @@ from __future__ import annotations
 import re
 from datetime import date
 
+import httpx
+import pytest
+
+from app.core.auth_dependencies import get_local_backend_client_dep
+from app.core.config import get_settings
+from app.core.session import session_cookie_name, write_session
+from app.main import app, get_local_backend_client
+from app.modules.sanidad import proximas as sanidad_proximas
+from app.modules.sanidad.proximas import ProximaPrueba
 from app.modules.sanidad.queries import build_proximas_pruebas_sql
 
 # --- builder --------------------------------------------------------------
@@ -190,3 +201,126 @@ class TestProximaPruebaEstado:
         # 6/30/2027 is 6 months after 12/31/2026 → outside the 30-day
         # window → "futura".
         assert estado == "futura"
+
+
+# --- route (issue #693: auth bypass regression + happy path) --------------
+
+
+@pytest.fixture
+def _proximas_client():
+    """Dummy SqlExecutor: the route's own client param, unused once
+    ``sanidad_proximas.get_proximas_pruebas`` is monkeypatched."""
+    dummy = object()
+    app.dependency_overrides[get_local_backend_client] = lambda: dummy
+    app.dependency_overrides[get_local_backend_client_dep] = lambda: dummy
+    yield dummy
+    app.dependency_overrides.pop(get_local_backend_client, None)
+    app.dependency_overrides.pop(get_local_backend_client_dep, None)
+
+
+def _login_as_staff(client: httpx.AsyncClient) -> None:
+    """Staff has READ_SALUD per the PERMISSIONS matrix (app/core/rbac.py)."""
+    token = write_session(
+        {
+            "email": "vet@example.com",
+            "rol": "staff",
+            "user_id": "u-vet",
+            "is_authorized": True,
+            "csrf_token": "test-csrf-token-proximas",
+        },
+        secret=get_settings().session_secret,
+    )
+    client.cookies.set(session_cookie_name(), token)
+
+
+class TestProximasPruebasView:
+    """GET /sanidad/proximas-pruebas — auth guard + happy path."""
+
+    async def test_anonymous_request_is_redirected_to_login_not_the_report(
+        self,
+        client: httpx.AsyncClient,
+        _proximas_client: object,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Regression for issue #693: no session cookie must never reach
+        the domain query. Before the fix this returned 200 with real data."""
+        called = False
+
+        def _fail_if_called(*_args: object, **_kwargs: object) -> None:
+            nonlocal called
+            called = True
+            raise AssertionError("domain query ran before the auth guard")
+
+        monkeypatch.setattr(sanidad_proximas, "get_proximas_pruebas", _fail_if_called)
+
+        response = await client.get(
+            "/sanidad/proximas-pruebas",
+            params={"fecha_desde": "2026-01-01", "fecha_hasta": "2026-12-31"},
+            follow_redirects=False,
+        )
+
+        assert not called
+        assert response.status_code in (302, 303)
+        assert response.headers["location"] == "/login"
+
+    async def test_authorized_staff_receives_the_serialized_report(
+        self,
+        client: httpx.AsyncClient,
+        _proximas_client: object,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _login_as_staff(client)
+        row = ProximaPrueba(
+            chip="123456789012345",
+            nombre="Rex",
+            tipo_codigo="RABIA",
+            fecha_ultima=date(2026, 1, 1),
+            fecha_proxima=date(2026, 6, 1),
+            periodicidad_meses=12,
+            estado="proxima",
+        )
+        captured: dict[str, object] = {}
+
+        def _fake_get_proximas_pruebas(client_arg, desde, hasta, **kwargs):
+            captured["desde"] = desde
+            captured["hasta"] = hasta
+            return [row]
+
+        monkeypatch.setattr(
+            sanidad_proximas, "get_proximas_pruebas", _fake_get_proximas_pruebas
+        )
+
+        response = await client.get(
+            "/sanidad/proximas-pruebas",
+            params={"fecha_desde": "2026-01-01", "fecha_hasta": "2026-12-31"},
+        )
+
+        assert response.status_code == 200
+        assert captured["desde"] == date(2026, 1, 1)
+        assert captured["hasta"] == date(2026, 12, 31)
+        body = response.json()
+        assert body == [
+            {
+                "chip": "123456789012345",
+                "nombre": "Rex",
+                "tipo_codigo": "RABIA",
+                "fecha_ultima": "2026-01-01",
+                "fecha_proxima": "2026-06-01",
+                "periodicidad_meses": 12,
+                "estado": "proxima",
+            }
+        ]
+
+    async def test_invalid_date_returns_400_before_auth_ever_matters(
+        self,
+        client: httpx.AsyncClient,
+        _proximas_client: object,
+    ) -> None:
+        _login_as_staff(client)
+
+        response = await client.get(
+            "/sanidad/proximas-pruebas",
+            params={"fecha_desde": "not-a-date", "fecha_hasta": "2026-12-31"},
+        )
+
+        assert response.status_code == 400
