@@ -613,6 +613,14 @@ def test_ci_workflow_payload_shape_matches_coolify_expectation() -> None:
     assert "COMMIT_MESSAGE:" in workflow
 
 
+def test_deploy_rollback_requests_the_previous_source_revision() -> None:
+    """A source-based Coolify rollback must request the previous commit."""
+    workflow = DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8")
+    rollback = workflow.split("- name: Roll back to the previous digest", maxsplit=1)[1]
+
+    assert "GITHUB_SHA: ${{ steps.publish.outputs.previous_revision }}" in rollback
+
+
 def test_deploy_smoke_database_uses_ephemeral_trust_not_a_literal_password() -> None:
     """The isolated smoke network needs no reusable database credential."""
     workflow = DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8")

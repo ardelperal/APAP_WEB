@@ -45,6 +45,30 @@ def test_settings_exposes_app_metadata() -> None:
     assert settings.version
 
 
+def test_settings_prefers_coolify_source_commit_for_runtime_revision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Coolify's checked-out commit overrides image-build metadata."""
+    monkeypatch.setenv("APAP_BUILD_SHA", "image-build")
+    monkeypatch.setenv("SOURCE_COMMIT", "coolify-checkout")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.build_sha == "coolify-checkout"
+
+
+def test_settings_uses_image_build_revision_without_source_commit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The immutable-image path keeps using its baked build revision."""
+    monkeypatch.delenv("SOURCE_COMMIT", raising=False)
+    monkeypatch.setenv("APAP_BUILD_SHA", "image-build")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.build_sha == "image-build"
+
+
 def test_settings_does_not_expose_local_backend_fields() -> None:
     """The LocalBackend fields are gone (issue #658). The backend is now the
     Coolify-hosted local Postgres via ``APAP_LOCAL_DB_URL``."""
