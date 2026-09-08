@@ -1,0 +1,65 @@
+# Issue #701 — Actualización automática de dependencias.
+#
+# Tres ecosistemas:
+# - pip: dependencias Python de pyproject.toml
+# - npm: tailwindcss en tailwindcss/package.json
+# - github-actions: SHA de las GitHub Actions en workflows
+#
+# Los PRs automáticos resultantes ya quedan verificados por el pipeline
+# lint / test / security existente sin cambios adicionales.
+
+version: 2
+updates:
+  # Python dependencies — check pyproject.toml
+  - package-ecosystem: "pip"
+    directory: "/"
+    target-branch: "main"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:30"
+      timezone: "UTC"
+    # Labels applied to PRs opened by Dependabot
+    labels:
+      - "dependencies"
+      - "automated"
+    # Group minor/patch updates to reduce PR noise
+    groups:
+      production-dependencies:
+        dependency-type: "production"
+      development-dependencies:
+        dependency-type: "development"
+
+  # npm dependencies — check tailwindcss/package.json
+  - package-ecosystem: "npm"
+    directory: "/tailwindcss"
+    target-branch: "main"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:30"
+      timezone: "UTC"
+    labels:
+      - "dependencies"
+      - "automated"
+    groups:
+      dev-dependencies:
+        dependency-type: "development"
+
+  # GitHub Actions — check .github/workflows/
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    target-branch: "main"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:30"
+      timezone: "UTC"
+    labels:
+      - "dependencies"
+      - "automated"
+    # Group all action updates into one PR per week
+    groups:
+      all-actions:
+        patterns:
+          - "*"
