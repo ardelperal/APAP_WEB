@@ -15,7 +15,7 @@ runbook de Coolify ni explica los ratchets individuales.
 
 | No es | Use este límite |
 |---|---|
-| Un despliegue construido por Coolify | Coolify consume `ghcr.io/ardelperal/apap-web:deploy-current`. |
+| Una garantía de bytes idénticos en Coolify | El recurso actual reconstruye el commit y publica `SOURCE_COMMIT`. |
 | Una réplica íntegra en `make verify` | Los servicios, Docker y Chromium se ejecutan en GitHub Actions. |
 | Un permiso para omitir checks | Solo `required` decide si la matriz del evento es válida. |
 
@@ -27,8 +27,8 @@ pull request
        └─ protección de main permite merge commit
             └─ deploy.yml prueba la evidencia del PR
                  └─ build ARM64 → digest OCI → Trivy → smoke PostgreSQL
-                      └─ deploy-current → webhook Coolify → /healthz
-                           └─ éxito o rollback al digest anterior
+                      └─ deploy-current → webhook Coolify → SOURCE_COMMIT
+                           └─ /healthz confirma el commit o activa rollback
 ```
 
 ## Eventos
@@ -64,7 +64,7 @@ nombre real del check, `required`; no use el nombre compuesto de la interfaz.
 Python 3.12.11, `uv==0.9.28`, `uv.lock` y `npm ci` fijan el entorno. El setup
 compartido vive en [`.github/actions/setup-python`](../../.github/actions/setup-python/action.yml).
 
-El deploy construye una imagen ARM64 una vez. Publica el digest con `SBOM` y
+El deploy construye una imagen ARM64 candidata. Publica el digest con `SBOM` y
 provenance, escanea ese digest y ejecuta el smoke sobre esos mismos bytes.
 `deploy.yml` separa la prueba `evidence` de la ejecución privilegiada `deploy`.
 ## Protección y runners
@@ -81,8 +81,8 @@ force-push y borrado, y conserva merge commits.
 Un resultado ausente, malformado, fallido o cancelado hace fallar `required`.
 Solo la matriz versionada permite un job omitido para un evento concreto.
 
-Tras promover `deploy-current`, el workflow consulta `/healthz` hasta obtener el
-SHA esperado. Si falla, restaura el digest anterior y deja la ejecución en rojo.
+Coolify reconstruye el mismo commit verde e inyecta `SOURCE_COMMIT` en runtime.
+El workflow exige ese SHA en `/healthz`; si falla, solicita el commit anterior.
 
 Consulte el [runbook de despliegue](../runbooks/operator-deploy-2026.md) para la
 configuración inicial, la operación manual y la recuperación de base de datos.

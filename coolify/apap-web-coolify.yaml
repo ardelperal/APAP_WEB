@@ -2,9 +2,9 @@
 #
 # This file is the single source of truth for the apap-web Coolify
 # service: image, port, healthcheck, env vars, and the linked
-# runbook. Coolify itself imports the service via webhook
-# (COOLIFY_WEBHOOK_URL); this yaml is the reference the operator
-# (and a future CI import job) uses to provision it reproducibly.
+# runbook. The webhook (COOLIFY_WEBHOOK_URL) triggers deployment; this yaml is
+# the reference the operator (and a future CI import job) uses to provision the
+# target image-based service reproducibly.
 #
 # The env list MUST stay in sync with ``docs/codebase/integrations.md``
 # and ``app/core/config.py::Settings``. ``tests/test_coolify_web_yaml.py``

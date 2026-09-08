@@ -40,9 +40,10 @@ and `gh` CLI on a workstation. No application code is touched.
 
 ## Core invariants
 
-- **Build once, deploy by digest**: `deploy.yml` publishes
-  `sha-<full-sha>` with a component inventory and build provenance, scans that
-  exact digest, then moves `deploy-current`. Coolify never builds source.
+- **Verify before deployment**: `deploy.yml` publishes `sha-<full-sha>` with a
+  component inventory and provenance, then scans and smokes that exact digest.
+  The current source-based Coolify resource must expose the same commit through
+  its runtime `SOURCE_COMMIT`; phase 1 remains the target image-based setup.
 - **Fail closed**: missing webhook credentials, missing health URL, absent CI
   evidence, a failed scan, smoke test or revision check all fail the deployment.
 - **Automatic rollback**: if post-deploy verification fails after promotion,
@@ -95,7 +96,8 @@ No manual image flip is required:
 3. Trivy scans that digest and an isolated PostgreSQL smoke test starts that
    same digest and checks `/healthz.revision`.
 4. CI moves `deploy-current` to the verified digest and invokes the signed
-   Coolify webhook.
+   Coolify webhook. The current resource rebuilds that commit and injects
+   `SOURCE_COMMIT`; an image-based replacement pulls the promoted pointer.
 5. CI polls `APAP_DEPLOY_HEALTH_URL` until the public endpoint reports the
    expected full SHA. A stale or unhealthy deployment is a failed run.
 
@@ -104,10 +106,10 @@ The unique `sha-<full-sha>` tag remains available for audit and rollback.
 ## Phase 3 — Rollback
 
 Post-deploy failure triggers rollback automatically: CI restores
-`deploy-current` to the previous digest, invokes Coolify again, and verifies the
-previous revision. The workflow remains red so the incident is visible.
+`deploy-current`, requests the previous source revision from Coolify and verifies
+that revision. The workflow remains red so the incident is visible.
 
-For manual incident response:
+For manual incident response on an image-based resource:
 
 1. Identify a previously verified digest from the deploy run or the
    `sha-<full-sha>` tag in the GitHub container registry.
@@ -119,6 +121,9 @@ For manual incident response:
    ```
 3. Trigger the signed Coolify webhook and verify `/healthz.revision` matches the
    chosen build SHA.
+
+For the current source-based resource, revert the faulty merge through a green
+pull request. Its normal deployment becomes the auditable rollback.
 
 A database migration rollback is outside this procedure; follow
 [`live-migration-apply.md`](live-migration-apply.md) for schema recovery.

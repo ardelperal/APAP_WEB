@@ -229,7 +229,7 @@ jobs:
           COOLIFY_WEBHOOK_URL: ${{ secrets.COOLIFY_WEBHOOK_URL }}
           COOLIFY_WEBHOOK_SECRET: ${{ secrets.COOLIFY_WEBHOOK_SECRET }}
           GITHUB_REF: ${{ github.ref }}
-          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_SHA: ${{ steps.publish.outputs.previous_revision }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           COMMIT_MESSAGE: rollback after failed deployment verification
           DEPLOY_HEALTH_URL: ${{ vars.APAP_DEPLOY_HEALTH_URL }}
