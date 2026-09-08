@@ -961,13 +961,16 @@ jobs:
       - name: Install locked Chromium runtime
         run: python -m playwright install --with-deps chromium
 
+      - name: Generate E2E auth secret dynamically
+        # Issue #702: generate per-run instead of hardcoding in the workflow.
+        run: echo "APAP_E2E_AUTH_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+
       - name: Start the production application against ephemeral Postgres
         env:
           POSTGRES_HOST_PORT: ${{ job.services.postgres.ports['5432'] }}
           APAP_DEBUG: "true"
           APAP_MODE: test
           APAP_E2E_AUTH_ENABLED: "true"
-          APAP_E2E_AUTH_SECRET: ci-e2e-test-secret-32-bytes-min
           APAP_E2E_AUTH_DEFAULT_EMAIL: e2e@apap.local
         run: |
           set -euo pipefail
