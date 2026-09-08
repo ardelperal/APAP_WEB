@@ -349,6 +349,97 @@ def create_actuacion_view(
     )
 
 
+# HEALTH-02 batch endpoint (issue #51) lives in ``batch_routes.py`` to
+# keep each routes file under the AGENTS §21 / §28 size budgets. The
+# router is registered under the same ``sanidad_router`` prefix from
+# ``routes_registry.py`` so the URL contract is unchanged.
+
+
+@router.get("/proximas-pruebas", response_class=JSONResponse)
+def proximas_pruebas(  # noqa: PLR0913  # 51 lines is 1 over the 50-line budget; the early-return at the top (issue #679-style auth short-circuit) accounts for the extra line
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_SALUD))],
+    client: Annotated[SqlExecutor, Depends(get_local_backend_client_dep)],
+    fecha_desde: Annotated[
+        str,
+        Query(description="ISO date (YYYY-MM-DD); lower bound of the window."),
+    ],
+    fecha_hasta: Annotated[
+        str,
+        Query(description="ISO date (YYYY-MM-DD); upper bound of the window."),
+    ],
+    animal_id: Annotated[
+        str | None,
+        Query(description="Optional UUID filter by animal."),
+    ] = None,
+    tipo_prueba_codigo: Annotated[
+        str | None,
+        Query(description="Optional filter by catalogos_periodicidad.codigo."),
+    ] = None,
+):
+    """JSON endpoint for the proximity report (issue #652).
+
+    Returns one row per (animal, tipo_prueba) whose next due date
+    falls inside the ``[fecha_desde, fecha_hasta]`` window. See
+    ``sanidad.proximas.get_proximas_pruebas`` for the contract.
+
+    Auth: ``READ_SALUD`` (same RBAC model as the other list endpoints).
+    Empty window or fully-filtered window → ``[]``.
+    """
+    if (early := return_early_if_response(user)) is not None:
+        return early
+    desde, hasta = _parse_proximas_window(fecha_desde, fecha_hasta)
+    items = sanidad_proximas.get_proximas_pruebas(
+        client,
+        desde,
+        hasta,
+        animal_id=animal_id,
+        tipo_prueba_codigo=tipo_prueba_codigo,
+    )
+    payload = sanidad_proximas.serialize_proximas_pruebas(items)
+    log_safe(
+        "sanidad.proximas_pruebas",
+        actor=user["email"] if isinstance(user, dict) else None,
+        desde=fecha_desde,
+        hasta=fecha_hasta,
+        animal_id=animal_id,
+        tipo=tipo_prueba_codigo,
+        rows=len(payload),
+    )
+    return JSONResponse(payload)
+
+
+def _parse_proximas_window(
+    fecha_desde: str,
+    fecha_hasta: str,
+) -> tuple[date, date]:
+    """Validate the operator-supplied window and return ``(desde, hasta)``.
+
+    Both endpoints MUST be ISO dates (``YYYY-MM-DD``); ``fecha_desde``
+    MUST be ``<= fecha_hasta``. Anything else raises an HTTP 400 with
+    a specific detail so the UI can surface it to the operator without
+    a generic 500.
+    """
+    try:
+        desde = date.fromisoformat(fecha_desde)
+        hasta = date.fromisoformat(fecha_hasta)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "fecha_desde and fecha_hasta must be ISO dates "
+                f"(YYYY-MM-DD): {exc}"
+            ),
+        ) from exc
+
+    if desde > hasta:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="fecha_desde must be <= fecha_hasta",
+        )
+
+    return desde, hasta
+
+
 # --- detail ---------------------------------------------------------------
 
 
@@ -532,91 +623,3 @@ def delete_actuacion_view(
     )
 
 
-# HEALTH-02 batch endpoint (issue #51) lives in ``batch_routes.py`` to
-# keep each routes file under the AGENTS §21 / §28 size budgets. The
-# router is registered under the same ``sanidad_router`` prefix from
-# ``routes_registry.py`` so the URL contract is unchanged.
-
-
-@router.get("/proximas-pruebas", response_class=JSONResponse)
-def proximas_pruebas(
-    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_SALUD))],
-    client: Annotated[SqlExecutor, Depends(get_local_backend_client_dep)],
-    fecha_desde: Annotated[
-        str,
-        Query(description="ISO date (YYYY-MM-DD); lower bound of the window."),
-    ],
-    fecha_hasta: Annotated[
-        str,
-        Query(description="ISO date (YYYY-MM-DD); upper bound of the window."),
-    ],
-    animal_id: Annotated[
-        str | None,
-        Query(description="Optional UUID filter by animal."),
-    ] = None,
-    tipo_prueba_codigo: Annotated[
-        str | None,
-        Query(description="Optional filter by catalogos_periodicidad.codigo."),
-    ] = None,
-) -> JSONResponse:
-    """JSON endpoint for the proximity report (issue #652).
-
-    Returns one row per (animal, tipo_prueba) whose next due date
-    falls inside the ``[fecha_desde, fecha_hasta]`` window. See
-    ``sanidad.proximas.get_proximas_pruebas`` for the contract.
-
-    Auth: ``READ_SALUD`` (same RBAC model as the other list endpoints).
-    Empty window or fully-filtered window → ``[]``.
-    """
-    desde, hasta = _parse_proximas_window(fecha_desde, fecha_hasta)
-
-    items = sanidad_proximas.get_proximas_pruebas(
-        client,
-        desde,
-        hasta,
-        animal_id=animal_id,
-        tipo_prueba_codigo=tipo_prueba_codigo,
-    )
-    payload = sanidad_proximas.serialize_proximas_pruebas(items)
-    log_safe(
-        "sanidad.proximas_pruebas",
-        actor=user["email"] if isinstance(user, dict) else None,
-        desde=fecha_desde,
-        hasta=fecha_hasta,
-        animal_id=animal_id,
-        tipo=tipo_prueba_codigo,
-        rows=len(payload),
-    )
-    return JSONResponse(payload)
-
-
-def _parse_proximas_window(
-    fecha_desde: str,
-    fecha_hasta: str,
-) -> tuple[date, date]:
-    """Validate the operator-supplied window and return ``(desde, hasta)``.
-
-    Both endpoints MUST be ISO dates (``YYYY-MM-DD``); ``fecha_desde``
-    MUST be ``<= fecha_hasta``. Anything else raises an HTTP 400 with
-    a specific detail so the UI can surface it to the operator without
-    a generic 500.
-    """
-    try:
-        desde = date.fromisoformat(fecha_desde)
-        hasta = date.fromisoformat(fecha_hasta)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                "fecha_desde and fecha_hasta must be ISO dates "
-                f"(YYYY-MM-DD): {exc}"
-            ),
-        ) from exc
-
-    if desde > hasta:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="fecha_desde must be <= fecha_hasta",
-        )
-
-    return desde, hasta

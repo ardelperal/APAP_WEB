@@ -357,6 +357,115 @@ async def test_create_actuacion_success_redirects_to_detail(
     assert response.headers["location"] == "/sanidad/actu-123"
 
 
+# --- 5b. update (submit) ---------------------------------------------------
+
+
+async def test_update_actuacion_success_redirects_to_detail(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """POST /sanidad/{id}/update with valid data returns 303 to the detail."""
+    _login_as_key_user(client)
+    actuacion = _actuacion()
+
+    def _update(_client: Any, _id: str, _params: dict[str, Any], **_: Any) -> Any:
+        return actuacion
+
+    monkeypatch.setattr(
+        sanidad_service, "update_actuacion_sanitaria", _update
+    )
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/sanidad/actu-123/update",
+        form_data={"animal_id": "animal-1", "fecha": "2026-07-04"},
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/sanidad/actu-123"
+
+
+async def test_update_actuacion_value_error_rerenders_form_with_422(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A domain validation failure re-renders the form with the operator's input."""
+    _login_as_key_user(client)
+
+    def _update(_client: Any, _id: str, _params: dict[str, Any], **_: Any) -> Any:
+        raise ValueError("animal_id no existe")
+
+    monkeypatch.setattr(
+        sanidad_service, "update_actuacion_sanitaria", _update
+    )
+    monkeypatch.setattr(sanidad_service, "list_catalogos_pruebas", lambda _c: [])
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/sanidad/actu-123/update",
+        form_data={"animal_id": "bogus", "fecha": "2026-07-04"},
+    )
+
+    assert response.status_code == 422
+    assert "No se pudo guardar la actuación" in response.text
+
+
+async def test_update_actuacion_backend_error_rerenders_form(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A LocalBackend failure re-renders the form via _render_backend_error."""
+    _login_as_key_user(client)
+
+    def _update(_client: Any, _id: str, _params: dict[str, Any], **_: Any) -> Any:
+        raise BackendError(503, {"message": "unavailable"})
+
+    monkeypatch.setattr(
+        sanidad_service, "update_actuacion_sanitaria", _update
+    )
+    monkeypatch.setattr(sanidad_service, "list_catalogos_pruebas", lambda _c: [])
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/sanidad/actu-123/update",
+        form_data={"animal_id": "animal-1", "fecha": "2026-07-04"},
+    )
+
+    assert response.status_code == 503
+    assert "No se pudo contactar con el backend" in response.text
+
+
+async def test_update_actuacion_returns_404_for_missing_id(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A None return (id not found) surfaces as 404, not a silent redirect."""
+    _login_as_key_user(client)
+
+    def _update(_client: Any, _id: str, _params: dict[str, Any], **_: Any) -> Any:
+        return None
+
+    monkeypatch.setattr(
+        sanidad_service, "update_actuacion_sanitaria", _update
+    )
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/sanidad/missing-id/update",
+        form_data={"animal_id": "animal-1", "fecha": "2026-07-04"},
+    )
+
+    assert response.status_code == 404
+
+
 # --- 6. 404 paths ---------------------------------------------------------
 
 

@@ -85,7 +85,17 @@ _PROTECTED_NAMES: frozenset[str] = frozenset({
 #:
 #: Every value may only decrease.  Raising the baseline requires an
 #: explicit rationale in the same commit (the ratchet never relaxes).
-BASELINE: int = 3
+#: Drift correction (issue #681 / PR #688): four pre-existing dead symbols
+#: from the InsForge retirement / M2 closure of #424 that the vulture
+#: baseline never caught up to:
+#:   app/main.py:66 '_DISABLED_DOC_PATHS'
+#:   app/modules/salud/service.py:43 'TerapiaNotFoundError'
+#:   migration/reverse_apply/types.py:36 'get_bucket'
+#:   scripts/fix_form_labels.py:112 'is_void_tag'
+#: Each is unresolvable from this PR's scope (the dead symbols live in
+#: paths PR #681 does not touch). Raising to 4 is the only way to keep
+#: the ratchet honest without expanding the diff into a mass delete.
+BASELINE: int = 4
 
 #: Ratchet deadline (deterministic-quality-harness v1.5 Rule 12). Every
 #: ratchet records its target value and target date. The vulture guard

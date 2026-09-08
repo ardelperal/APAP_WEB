@@ -276,10 +276,10 @@ def test_cli_main_builds_and_closes_client_when_not_injected(
     built: list[FakeLocalBackend] = []
 
     class ClosingFakeLocalBackend(FakeLocalBackend):
-        def __init__(self, base_url: str, service_key: str) -> None:
+        def __init__(self, dsn: str, search_path: str | None = None) -> None:
             super().__init__()
-            self.base_url = base_url
-            self.service_key = service_key
+            self.dsn = dsn
+            self.search_path = search_path
             self.closed = False
             self.seed("animales", [{"nchip": "001"}])
             built.append(self)
@@ -290,8 +290,8 @@ def test_cli_main_builds_and_closes_client_when_not_injected(
     monkeypatch.setattr(
         "app.core.config.get_settings",
         lambda: SimpleNamespace(
-            local_backend_url="https://example.local_backend.app",
-            local_backend_service_key="ik_test",
+            local_db_url="postgresql://example.invalid/apap",
+            local_db_schema="",
         ),
     )
     monkeypatch.setattr(cli_mod, "LocalPostgresExecutor", ClosingFakeLocalBackend)

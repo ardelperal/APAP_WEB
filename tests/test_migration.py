@@ -1082,7 +1082,6 @@ class TestWebReader:
         from migration.adapters.local_backend.web_reader_local_backend_adapter import (
             LocalBackendWebReaderAdapter,
         )
-
         from migration.web_reader import WebTableSpec, load_web_snapshot
 
         port = LocalBackendWebReaderAdapter(client)
@@ -1108,7 +1107,6 @@ class TestWebReader:
         from migration.adapters.local_backend.web_reader_local_backend_adapter import (
             LocalBackendWebReaderAdapter,
         )
-
         from migration.web_reader import WebTableSpec, load_web_snapshot
 
         since = datetime(2026, 6, 20, 10, 0)
@@ -1142,7 +1140,6 @@ class TestWebReader:
         from migration.adapters.local_backend.web_reader_local_backend_adapter import (
             LocalBackendWebReaderAdapter,
         )
-
         from migration.web_reader import WebTableSpec, load_web_snapshot
 
         port = LocalBackendWebReaderAdapter(client)

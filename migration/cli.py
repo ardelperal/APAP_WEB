@@ -28,6 +28,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import IO, Any
 
+from app.core.local_backend.db import LocalPostgresExecutor
 from migration.apply import (  # noqa: F401 — test_cli_apply_safety monkeypatch
     _safe_table,
     apply_legacy_to_web,
@@ -606,6 +607,23 @@ def run_status(
     return 0
 
 
+def _build_web_client() -> LocalPostgresExecutor:
+    """Build the production ``web_client`` from local Settings.
+
+    Mirrors ``app.core.di.local_postgres_di._build_executor``: reads
+    the DSN + schema from the cached ``Settings`` singleton and
+    constructs a fresh ``LocalPostgresExecutor``. Tests inject their
+    own ``web_client`` (or monkeypatch the module-level
+    ``LocalPostgresExecutor`` name) instead of calling this.
+    """
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    return LocalPostgresExecutor(
+        settings.local_db_url, search_path=settings.local_db_schema or None
+    )
+
+
 def main(
     argv: Sequence[str] | None = None,
     *,
@@ -628,8 +646,7 @@ def main(
 
     owned_web_client = None
     if web_client is None:
-        # migration package rewrite (issue #8) will rebuild this path
-        # from local settings; until then the web_client stays None.
+        owned_web_client = _build_web_client()
         web_client = owned_web_client
 
     try:

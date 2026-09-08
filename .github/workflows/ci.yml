@@ -829,6 +829,28 @@ jobs:
       - name: Install development dependencies
         run: python -m pip install -e ".[dev]"
 
+      - name: Install psutil for the MSACCESS pre-flight tests
+        # tests/test_migration.py exercises
+        # migration/lock.py::check_msaccess_running, which hard-requires
+        # psutil and self-skips ("could not import 'psutil'") without it.
+        # psutil is declared under [etl] (operator-only per its own
+        # docstring in pyproject.toml); installing it alone here avoids
+        # pulling in [etl]'s pyodbc, which needs unixODBC headers this
+        # runner does not have. Mirrors the same fix already applied to
+        # the verify-fallback-ready job (issue #690).
+        run: python -m pip install "psutil>=7.0"
+
+      - name: Install mdbtools for the legacy .accdb E2E atoms
+        # tests/migration/test_e2e_legacy_postgres.py shells out to
+        # mdb-export / mdb-tables (a system utility, not a Python
+        # package) to read the real legacy .accdb fixture end-to-end;
+        # it self-skips ("mdb-export / mdb-tables is not installed")
+        # without it. This is the last gap between this runner's actual
+        # coverage and the --cov-fail-under=85 floor (AGENTS.md rule 19).
+        # This runner executes job steps as root already (no sudoers
+        # entry for root), so `sudo` fails; apt-get is run directly.
+        run: apt-get update && apt-get install -y mdbtools
+
       - name: Run pytest with deprecations as errors
         # --ignore=tests/e2e: the e2e suite uses playwright's sync
         # API, which collides with pytest-asyncio's auto-mode loop
@@ -968,6 +990,28 @@ jobs:
     runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
     timeout-minutes: 10
     needs: [integration]
+    # The verify-fallback-ready check ``check_web_to_legacy_check_only``
+    # auto-wires a local backend against ``APAP_LOCAL_DB_URL`` (see the
+    # ``M0 of self-host-backend-coolify (issue #641)`` comment in
+    # ``migration/verify_fallback_ready.py``). Without the env var the
+    # check falls through to the CLI's ``apply --check-only`` which
+    # needs a ``web_client``; in CI mode that client is not provisioned
+    # and the check fails. So the job re-runs the integration job's
+    # postgres service and exports both DSNs.
+    services:
+      postgres:
+        image: postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: apap_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d apap_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Check out repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
@@ -978,8 +1022,31 @@ jobs:
           python-version-file: pyproject.toml
           cache: pip
 
+      - name: Resolve APAP_LOCAL_DB_URL from the assigned host port
+        env:
+          POSTGRES_HOST_PORT: ${{ job.services.postgres.ports['5432'] }}
+        run: |
+          if [ -z "$POSTGRES_HOST_PORT" ]; then
+            echo "::error::the postgres service port did not resolve; refusing to run the gate without a DSN" >&2
+            exit 1
+          fi
+          echo "APAP_TEST_POSTGRES_DSN=postgresql://postgres@host.docker.internal:$POSTGRES_HOST_PORT/apap_test" >> "$GITHUB_ENV"
+          echo "APAP_LOCAL_DB_URL=postgresql://postgres@host.docker.internal:$POSTGRES_HOST_PORT/apap_test" >> "$GITHUB_ENV"
+
       - name: Install development dependencies
         run: python -m pip install -e ".[dev]"
+
+      - name: Install psutil for the MSACCESS pre-flight
+        # This gate actually runs `python -m migration apply`, whose
+        # MSACCESS pre-flight (migration/lock.py::check_msaccess_running)
+        # hard-requires psutil and fails closed with
+        # MsAccessPreflightUnavailableError (exit 5) when it is absent.
+        # psutil is declared under [etl] (operator-only per its own
+        # docstring in pyproject.toml), but pulling in the whole [etl]
+        # extra here would also install pyodbc, which needs unixODBC
+        # headers this runner does not have — installing psutil alone
+        # is the narrow fix for the one thing this job actually needs.
+        run: python -m pip install "psutil>=7.0"
 
       - name: Run the verify-fallback-ready gate (CI subset)
         # The standalone entry point at

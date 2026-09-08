@@ -29,27 +29,15 @@ from app.core.config import (
 
 
 class TestValidateSecretsRejections:
-    """REQ-1, REQ-2, REQ-3: three failure modes."""
-
-    def test_empty_local_backend_service_key_raises(self) -> None:
-        """REQ-1: empty local_backend_service_key triggers StartupConfigError."""
-        settings = config_module.Settings(
-            _env_file=None,
-            local_backend_service_key="",
-            session_secret="x" * 32,
-        )
-        with pytest.raises(StartupConfigError) as exc_info:
-            _validate_secrets(settings)
-        assert "APAP_INSFORGE_SERVICE_KEY" in str(exc_info.value)
-        # REQ-8: error message MUST NOT echo the empty secret value
-        assert '""' not in str(exc_info.value)
-        assert "''" not in str(exc_info.value)
+    """REQ-2, REQ-3: two failure modes (the InsForge ``local_backend_service_key``
+    rejection test was removed in PR #680 which retired the InsForge
+    client and the corresponding ``Settings`` field).
+    """
 
     def test_placeholder_session_secret_raises(self) -> None:
         """REQ-2: placeholder session_secret triggers StartupConfigError."""
         settings = config_module.Settings(
             _env_file=None,
-            local_backend_service_key="ik_test_key",
             session_secret=_PLACEHOLDER_SESSION_SECRET,
         )
         with pytest.raises(StartupConfigError) as exc_info:
@@ -63,7 +51,6 @@ class TestValidateSecretsRejections:
         """REQ-3: session_secret shorter than 32 chars triggers StartupConfigError."""
         settings = config_module.Settings(
             _env_file=None,
-            local_backend_service_key="ik_test_key",
             session_secret="x" * 31,
         )
         with pytest.raises(StartupConfigError) as exc_info:
@@ -77,7 +64,6 @@ class TestValidateSecretsRejections:
         """The sentinel string must be the one used as the field default."""
         settings = config_module.Settings(
             _env_file=None,
-            local_backend_service_key="ik_test_key",
             session_secret="dev-only-change-me-in-production",
         )
         with pytest.raises(StartupConfigError) as exc_info:
