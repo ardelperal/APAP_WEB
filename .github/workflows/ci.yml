@@ -840,6 +840,15 @@ jobs:
         # the verify-fallback-ready job (issue #690).
         run: python -m pip install "psutil>=7.0"
 
+      - name: Install mdbtools for the legacy .accdb E2E atoms
+        # tests/migration/test_e2e_legacy_postgres.py shells out to
+        # mdb-export / mdb-tables (a system utility, not a Python
+        # package) to read the real legacy .accdb fixture end-to-end;
+        # it self-skips ("mdb-export / mdb-tables is not installed")
+        # without it. This is the last gap between this runner's actual
+        # coverage and the --cov-fail-under=85 floor (AGENTS.md rule 19).
+        run: sudo apt-get update && sudo apt-get install -y mdbtools
+
       - name: Run pytest with deprecations as errors
         # --ignore=tests/e2e: the e2e suite uses playwright's sync
         # API, which collides with pytest-asyncio's auto-mode loop
