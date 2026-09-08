@@ -1,0 +1,55 @@
+# Issue #700 — SAST semántico con CodeQL (análisis de código Python).
+#
+# Corre en runners GitHub-hosted estándar (gratuito en repos públicos), lo cual
+# también evita depender del runner self-hosted mientras se resuelve el bloqueo de
+# facturación de la issue #698.
+#
+# El gate 'security' existente (pip-audit + gitleaks + trivy) cubre dependencias,
+# secretos y Docker; CodeQL complementa con análisis semántico de código fuente.
+# La regla S de ruff (equivalente a bandit) permanece activa por separado en lint.
+
+name: "CodeQL SAST"
+
+on:
+  pull_request:
+    branches: [main, staging]
+    paths:
+      - "**.py"
+      - ".github/workflows/codeql.yml"
+  schedule:
+    # Lun 06:47 UTC — horario odd para evitar top-of-hour stampede.
+    - cron: "47 6 * * 1"
+
+# No heredamos concurrency de ci.yml: los runners son independientes.
+# CodeQL es read-only en el codebase; cancelar un run que escanea código
+# no peligroso no es una pérdida de trabajo como sí lo es el runner compartido.
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  codeql:
+    name: "CodeQL analysis (Python)"
+    # Runner GitHub-hosted estándar — no comparte Docker daemon con nada operativo.
+    # Esto es lo que la recomendación de #698 propone como estado final para los
+    # jobs disparados por pull_request.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: python
+          # No queries overrides: la suite estándar 'security-extended' es suficiente
+          # para el gate SAST sin generar ruido de falsos positivos.
+          queries: security-extended
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:python"
