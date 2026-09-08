@@ -113,10 +113,20 @@ def _material_to_form_data(
 _render_form = make_render_form(_templates, "materiales/form.html")
 _edit_material_form: Any = partial(
     render_edit_form,
-    fetch=materiales_service.get_material_by_id,
+    # Late-bound lambda, not the bare function: a module-level partial
+    # captures the function object at import time, so a bare reference
+    # here would survive `monkeypatch.setattr(materiales_service,
+    # "get_material_by_id", ...)` unchanged and still call the real
+    # (SQL-issuing) implementation in tests.
+    fetch=lambda client, entity_id: materiales_service.get_material_by_id(
+        client, entity_id
+    ),
     to_form_data=_material_to_form_data,
     render_form=_render_form,
-    form_action="/materiales/{entity_id}/update",
+    # materiales posts back to /edit (not /update, unlike the sibling
+    # modules) — see the `@router.post("/{material_id}/edit", ...)`
+    # handler below.
+    form_action="/materiales/{entity_id}/edit",
 )
 
 

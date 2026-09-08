@@ -53,6 +53,10 @@ def render_edit_form(  # noqa: PLR0913  # 8 kwargs needed: request, user, client
     Returns early with the auth-redirect response if the auth gate sends
     one; 404s when the entity does not exist; otherwise renders the
     module's standard form template via ``render_form``.
+
+    ``form_action`` carries a literal ``{entity_id}`` placeholder (module
+    wrappers bind it once at import time, before any request's id is
+    known) and is formatted with the real id on every call.
     """
     if (early := return_early_if_response(user)) is not None:
         return early
@@ -64,7 +68,7 @@ def render_edit_form(  # noqa: PLR0913  # 8 kwargs needed: request, user, client
         user,
         to_form_data(entity),
         None,
-        form_action,
+        form_action.format(entity_id=entity_id),
     )
 
 

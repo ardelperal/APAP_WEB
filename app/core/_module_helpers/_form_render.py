@@ -45,8 +45,9 @@ def render_module_form(  # noqa: PLR0913  # 8 args is minimal: templates + 4-con
     form_data: dict[str, Any],
     error: str | None,
     form_action: str,
-    template_name: str,
     status_code: int = status.HTTP_200_OK,
+    *,
+    template_name: str,
 ) -> HTMLResponse:
     """Render a module's ``<module>/form.html`` with the standard context keys."""
     return templates.TemplateResponse(

@@ -111,7 +111,7 @@ def _to_client_placeholder_style(query: str) -> str:
       execute all four statement types, so ServerCursor is not viable.
     """
     if "$" in query:
-        return _DOLLAR_PLACEHOLDER.sub("%s", query)
+        return _DOLLAR_PLACEHOLDER.sub("%s", query.replace("%", "%%"))
     return query
 
 
@@ -133,15 +133,21 @@ def _expand_params_for_placeholder_style(
     """
     if not params:
         return _to_client_placeholder_style(query), params
+    if "$" not in query:
+        # Already native ``%s`` placeholders (or none at all) — no ``$N``
+        # to convert, so leave the query untouched. Escaping ``%`` here
+        # unconditionally would double an already-valid ``%s`` into the
+        # literal, non-placeholder ``%%s``.
+        return query, params
     indices: list[int] = []
 
     def _sub(match: re.Match[str]) -> str:
         indices.append(int(match.group(1)))
         return "%s"
 
-    rewritten = _DOLLAR_PLACEHOLDER.sub(_sub, query)
+    rewritten = _DOLLAR_PLACEHOLDER.sub(_sub, query.replace("%", "%%"))
     if not indices:
-        return rewritten, params
+        return query, params
     expanded: list[Any] = []
     for n in indices:
         if 1 <= n <= len(params):

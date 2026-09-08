@@ -151,7 +151,14 @@ _render_form = make_render_form(_templates, "acogidas/form.html")
 # shared helper so the per-module wrappers do not duplicate each other.
 _edit_acogida_form: Any = partial(
     render_edit_form,
-    fetch=acogidas_service.get_acogida_by_id,
+    # Late-bound lambda, not the bare function: a module-level partial
+    # captures the function object at import time, so a bare reference
+    # here would survive `monkeypatch.setattr(acogidas_service,
+    # "get_acogida_by_id", ...)` unchanged and still call the real
+    # (SQL-issuing) implementation in tests.
+    fetch=lambda client, entity_id: acogidas_service.get_acogida_by_id(
+        client, entity_id
+    ),
     to_form_data=_acogida_to_form_data,
     render_form=_render_form,
     form_action="/acogidas/{entity_id}/update",

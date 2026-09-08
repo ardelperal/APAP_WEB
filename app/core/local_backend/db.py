@@ -104,9 +104,14 @@ class LocalPostgresExecutor:
         """
         # Rewrite ``$N`` to ``%s`` because psycopg3 ClientCursor counts
         # ``%s`` placeholders, not ``$N``. The wire protocol sees the
-        # original ``$N`` (psycopg3 re-numbers).
+        # original ``$N`` (psycopg3 re-numbers). Any literal ``%`` already
+        # in the query (e.g. a ``LIKE 'Fallecido%'`` pattern) must be
+        # doubled first — psycopg3's client-side parser treats a bare
+        # ``%`` not followed by ``s``/``b``/``t`` as a malformed
+        # placeholder and raises ``ProgrammingError`` before the query
+        # ever reaches Postgres.
         if "$" in query:
-            query = _DOLLAR_TO_PERCENT.sub(r"%s", query)
+            query = _DOLLAR_TO_PERCENT.sub(r"%s", query.replace("%", "%%"))
         try:
             with self._connect() as conn:
                 cur = conn.cursor()

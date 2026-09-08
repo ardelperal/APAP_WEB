@@ -134,7 +134,14 @@ def _actor_user_id(user: AuthenticatedUser) -> str | None:
 _render_form = make_render_form(_templates, "adopciones/form.html")
 _edit_adopcion_form: Any = partial(
     render_edit_form,
-    fetch=adopciones_service.get_adopcion_by_id,
+    # Late-bound lambda, not the bare function: a module-level partial
+    # captures the function object at import time, so a bare reference
+    # here would survive `monkeypatch.setattr(adopciones_service,
+    # "get_adopcion_by_id", ...)` unchanged and still call the real
+    # (SQL-issuing) implementation in tests.
+    fetch=lambda client, entity_id: adopciones_service.get_adopcion_by_id(
+        client, entity_id
+    ),
     to_form_data=_adopcion_to_form_data,
     render_form=_render_form,
     form_action="/adopciones/{entity_id}/update",
