@@ -324,3 +324,35 @@ class TestProximasPruebasView:
         )
 
         assert response.status_code == 400
+
+
+# --- row mapper (CRITICAL_HELPERS, pyproject.toml coverage_gate) ----------
+
+
+class TestRowToProximaPrueba:
+    """Direct coverage for the row-mapping helper: get_proximas_pruebas
+    (the function that calls it) is mocked away by every route/service
+    test above, so this is the only place that decodes a real row."""
+
+    def test_maps_row_fields_and_derives_estado(self) -> None:
+        from app.modules.sanidad.proximas import _row_to_proxima_prueba
+
+        row = {
+            "chip": "123456789012345",
+            "nombre": "Rex",
+            "tipo_codigo": "RABIA",
+            "fecha_ultima": date(2026, 1, 1),
+            "fecha_proxima": date(2026, 6, 1),
+            "periodicidad_meses": 12,
+        }
+
+        result = _row_to_proxima_prueba(row, fecha_hasta=date(2026, 12, 31))
+
+        assert result.chip == "123456789012345"
+        assert result.nombre == "Rex"
+        assert result.tipo_codigo == "RABIA"
+        assert result.fecha_ultima == date(2026, 1, 1)
+        assert result.fecha_proxima == date(2026, 6, 1)
+        assert result.periodicidad_meses == 12
+        # 2026-06-01 is well before fecha_hasta (2026-12-31) -> "vencida".
+        assert result.estado == "vencida"
