@@ -44,6 +44,16 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "build>=1.2",
+    # psycopg: used by the integration test fixtures (tests/integration/
+    # conftest.py, test_chip_cascade_integration.py, test_cesiones_queries_integration.py,
+    # test_entradas_queries_integration.py, test_lifecycle_append_only_trigger.py,
+    # test_e2e_legacy_postgres.py, test_volunteer_fk_migration.py) to open ephemeral
+    # APAP schemas on the CI postgres service. The previous code path used
+    # ``app.core.data_access.SqlExecutor``'s fakeredis path, which
+    # ``tests/test_dev_dependencies.py::test_every_third_party_test_import_is_declared``
+    # flags as a missing dev dependency. The runtime is the
+    # ``LocalPostgresExecutor`` already used by the integration tests.
+    "psycopg[binary]>=3.2",
     "pytest==9.1.1",
     "pytest-asyncio>=0.24",
     "pytest-cov==7.1.0",
