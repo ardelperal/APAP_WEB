@@ -58,6 +58,7 @@
 | [Interfaces](codebase/interfaces.md) | Qué superficies expone el sistema (HTTP, OAuth, storage) y por dónde fluye cada una. |
 | [Integrations](codebase/integrations.md) | Adaptadores externos (LocalBackend, CodeGraph, Dysflow, Coolify, GitHub) y sus límites de configuración. |
 | [Maintainer playbook](codebase/maintainer-playbook.md) | Workflow operativo de mantenedor y checklists por tipo de cambio. |
+| [CI/CD](codebase/ci-cd.md) | Checks de pull request, protección de rama, artefacto `OCI` y despliegue. |
 | [Sync and cloud](codebase/sync-and-cloud.md) | Aislamiento web ↔ legacy y CLI de reconciliación. |
 | [Reference map](codebase/reference-map.md) | Trazabilidad entre docs, specs y código. |
 | [Missing sources](codebase/missing-sources.md) | Subsistemas que el lector podría esperar y no existen. | <!-- alantyle-ignore:ALAN004 -->
@@ -68,7 +69,8 @@
 2. [Repository map](codebase/repository-map.md) — antes de crear o mover código.
 3. [Interfaces](codebase/interfaces.md) — antes de añadir una ruta o endpoint.
 4. [Maintainer playbook](codebase/maintainer-playbook.md) — antes de abrir un PR.
-5. [Reference map](codebase/reference-map.md) — para trazabilidad cuando una decisión toca varias docs.
+5. [CI/CD](codebase/ci-cd.md) — antes de modificar workflows o despliegues.
+6. [Reference map](codebase/reference-map.md) — para trazabilidad cuando una decisión toca varias docs.
 
 ## Quick map inverso
 
@@ -78,6 +80,7 @@
 | Decidir dónde va código nuevo | [Repository map](codebase/repository-map.md) | [AGENTS.md](../AGENTS.md) §33 |
 | Añadir o cambiar una ruta o endpoint | [Interfaces](codebase/interfaces.md) | El `routes.py` del módulo afectado, [AGENTS.md](../AGENTS.md) §28 |
 | Localizar un guardarraíl o un detector | [Repository map](codebase/repository-map.md) | [AGENTS.md](../AGENTS.md) §20–§28, [Quality roadmap](quality/hardening-roadmap.md) |
+| Cambiar CI, protección de rama o deploy | [CI/CD](codebase/ci-cd.md) | [Runbook de despliegue](runbooks/operator-deploy-2026.md) |
 | Tomar una issue de `open` a `closed` | [Maintainer playbook](codebase/maintainer-playbook.md) | [`docs/proceso.md`](proceso.md), [AGENTS.md](../AGENTS.md) §16 |
 | Mover datos entre web y legacy | [Sync and cloud](codebase/sync-and-cloud.md) | [AGENTS.md](../AGENTS.md) §18, [`migration/cli.py`](../../migration/cli.py) |
 | Localizar un runbook de operador | [`docs/runbooks/`](runbooks/) | [AGENTS.md](../AGENTS.md) §13 |

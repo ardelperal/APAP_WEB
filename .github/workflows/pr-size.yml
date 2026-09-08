@@ -4,12 +4,12 @@ on:
 # See ci.yml for the cancel-in-progress rationale (issue #530).
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   pr-size:
     name: pr-size
-    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Check out repository

@@ -1,54 +1,63 @@
--- VOL-04 (#37) — añade columnas FK de voluntario a adopciones y acogidas.
---
--- Tabla legacy    | Campo legacy         | Nueva columna FK
--- ----------------|---------------------|------------------------------
--- TbAdopcion      | ResponsableAdopcion | adopciones.responsable_adopcion_id (optional)
--- TbAcogidaAnimal | VoluntarioAcogida   | acogidas.voluntario_acogida_id (optional)
--- TbAcogidaAnimal | VoluntarioSeguim…2  | acogidas.voluntario_seguimiento2_id (optional)
--- TbAcogidaAnimal | VoluntarioCosas…    | acogidas.volario_sanitario_id (required)
---
--- Patrón idempotente (mismo que 004 y 005):
--- ``ADD COLUMN IF NOT EXISTS`` permite re-ejecutar ``apply_sql_migrations``
--- sin fallar en una base que ya tenga la columna.
--- ``ADD CONSTRAINT IF NOT EXISTS`` para la FK.
---
--- Nota: TbEntradas.VoluntarioEntrada y TbTerapias.Voluntario ya tienen
--- sus columnas FK (voluntario_entrada_id, voluntario_id) — el trabajo
--- de esas tablas es ya existente; el servicio entradas ya persiste
--- voluntario_entrada_id y sanidad ya tiene voluntario_id en el schema.
+-- VOL-04 (#37) — add volunteer foreign-key columns to adopciones/acogidas.
+-- PostgreSQL does not support ALTER TABLE ... ADD CONSTRAINT IF NOT EXISTS,
+-- so every constraint is guarded through pg_constraint in an idempotent block.
 
--- 1. adopciones: añadir responsable_adopcion_id (optional FK → voluntarios.id)
 ALTER TABLE adopciones
     ADD COLUMN IF NOT EXISTS responsable_adopcion_id UUID;
 
-ALTER TABLE adopciones
-    ADD CONSTRAINT IF NOT EXISTS adopciones_responsable_adopcion_fk
-    FOREIGN KEY (responsable_adopcion_id) REFERENCES voluntarios(id)
-    ON DELETE SET NULL;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'adopciones_responsable_adopcion_fk'
+          AND conrelid = 'adopciones'::regclass
+    ) THEN
+        ALTER TABLE adopciones
+            ADD CONSTRAINT adopciones_responsable_adopcion_fk
+            FOREIGN KEY (responsable_adopcion_id) REFERENCES voluntarios(id)
+            ON DELETE SET NULL;
+    END IF;
+END
+$$;
 
--- 2. acogidas: añadir las tres columnas FK que faltan
---    (voluntario_seguimiento_1_id ya existe como FK — no tocarlo)
 ALTER TABLE acogidas
     ADD COLUMN IF NOT EXISTS voluntario_acogida_id UUID;
-
 ALTER TABLE acogidas
     ADD COLUMN IF NOT EXISTS voluntario_seguimiento2_id UUID;
-
 ALTER TABLE acogidas
     ADD COLUMN IF NOT EXISTS voluntario_sanitario_id UUID;
 
--- FK constraints (opcionales: ON DELETE SET NULL para preservar datos legacy)
-ALTER TABLE acogidas
-    ADD CONSTRAINT IF NOT EXISTS acogidas_voluntario_acogida_fk
-    FOREIGN KEY (voluntario_acogida_id) REFERENCES voluntarios(id)
-    ON DELETE SET NULL;
-
-ALTER TABLE acogidas
-    ADD CONSTRAINT IF NOT EXISTS acogidas_voluntario_seg2_fk
-    FOREIGN KEY (voluntario_seguimiento2_id) REFERENCES voluntarios(id)
-    ON DELETE SET NULL;
-
-ALTER TABLE acogidas
-    ADD CONSTRAINT IF NOT EXISTS acogidas_voluntario_sanitario_fk
-    FOREIGN KEY (voluntario_sanitario_id) REFERENCES voluntarios(id)
-    ON DELETE SET NULL;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'acogidas_voluntario_acogida_fk'
+          AND conrelid = 'acogidas'::regclass
+    ) THEN
+        ALTER TABLE acogidas
+            ADD CONSTRAINT acogidas_voluntario_acogida_fk
+            FOREIGN KEY (voluntario_acogida_id) REFERENCES voluntarios(id)
+            ON DELETE SET NULL;
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'acogidas_voluntario_seg2_fk'
+          AND conrelid = 'acogidas'::regclass
+    ) THEN
+        ALTER TABLE acogidas
+            ADD CONSTRAINT acogidas_voluntario_seg2_fk
+            FOREIGN KEY (voluntario_seguimiento2_id) REFERENCES voluntarios(id)
+            ON DELETE SET NULL;
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'acogidas_voluntario_sanitario_fk'
+          AND conrelid = 'acogidas'::regclass
+    ) THEN
+        ALTER TABLE acogidas
+            ADD CONSTRAINT acogidas_voluntario_sanitario_fk
+            FOREIGN KEY (voluntario_sanitario_id) REFERENCES voluntarios(id)
+            ON DELETE SET NULL;
+    END IF;
+END
+$$;

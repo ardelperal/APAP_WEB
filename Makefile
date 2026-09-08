@@ -24,14 +24,13 @@ TAILWIND_OUTPUT ?= app/static/css/output.css
         check-docstring-coverage check-complexity check-ruff-ratchet \
         check-vulture-guard check-jscpd check-mutation-sites \
         check-import-cycles check-workflows check-test-classification check-crap \
-        quality-report \
         mutation build all clean css css-watch serve run
 
 help:
 	@echo "APAP make targets:"
 	@echo "  install      - Install runtime + dev deps into the active Python (.venv)"
 	@echo "  dev          - Same as install (kept for backwards compat)"
-	@echo "  verify       - THE green-PR gate: every gate ci.yml runs on a pull request"
+	@echo "  verify       - Run the deterministic CI subset available on a workstation"
 	@echo "  test         - Run pytest with deprecation strictness (fast inner loop)"
 	@echo "  test-ci      - Run pytest exactly as the CI test job does (coverage floor)"
 	@echo "  lint         - Run ruff check on the repo"
@@ -46,8 +45,8 @@ help:
 	@echo "  all          - css + verify (build the bundle, then run the gate)"
 	@echo "  clean        - Remove build artifacts and tool caches"
 	@echo ""
-	@echo "  Run 'make verify' before opening a PR. Its gate list is pinned to"
-	@echo "  ci.yml by tests/test_ci_workflow.py::test_make_verify_covers_every_ci_gate."
+	@echo "  Run 'make verify' before opening a PR. GitHub's 'ci / required'"
+	@echo "  remains authoritative because it also covers service and container jobs."
 
 install:
 	$(PIP) install -e ".[dev]"
@@ -88,17 +87,11 @@ check-rules:
 
 # check-alantyle — issue #559, ADR d-42. Stdlib detector of the nine
 # §10 anti-patterns from the documentation-alan-style skill. Scans
-# the canonical doc trees (docs/, openspec/) plus the root-level files
+# the canonical doc trees (docs/, specs, and change delta-specs) plus root files
 # referenced from the hub-and-spoke guide. The paths match the CI step
 # verbatim, so local and remote verdicts see the same set of files.
-#
-# The CI step runs with ``continue-on-error: true`` during the rollout
-# initial (ADR d-42); locally the script exits 1 on the first
-# violation so authors get the feedback without leaving their editor.
-# Operators who want the rollout-grade behaviour locally can wrap the
-# call with ``|| true``.
 check-alantyle:
-	$(PYTHON) scripts/check_alantyle.py docs/ openspec/specs/ openspec/changes/ README.md AGENTS.md DOCS.md CONTRIBUTING.md
+	$(PYTHON) scripts/check_alantyle.py docs/ openspec/specs/ openspec/changes/*/specs/ README.md AGENTS.md DOCS.md CONTRIBUTING.md
 
 # check-layers — AGENTS.md rule 33, issue #436. The hexagonal harness:
 # dependency direction, inner-layer purity, vertical-slice boundaries.
@@ -119,11 +112,11 @@ check-layers:
 # while running four of seventeen, so a green local run said nothing
 # about a pull request. Each recipe below is the CI step verbatim.
 #
-# Adding a gate to ci.yml without adding it here fails
-# tests/test_ci_workflow.py::test_make_verify_covers_every_ci_gate.
+# Adding a locally reproducible script gate to ci.yml without adding it here
+# fails test_make_verify_covers_locally_runnable_script_gates.
 
 check-module-size:
-	$(PYTHON) scripts/check_module_size.py --emit-envelope quality/module_size.json
+	$(PYTHON) scripts/check_module_size.py
 
 check-route-size:
 	$(PYTHON) scripts/check_route_size.py
@@ -182,6 +175,7 @@ check-crap: test-ci
 test-ci:
 	$(PYTEST) -W error::DeprecationWarning \
 		--ignore=tests/e2e \
+		--ignore=tests/e2e_ci \
 		--ignore=tests/integration \
 		--cov=app \
 		--cov=migration \
@@ -189,27 +183,30 @@ test-ci:
 		--cov-report=term \
 		--cov-fail-under=85
 
-# verify — THE definition of green (issue #504).
+# verify — deterministic local pre-push subset (issue #504).
 #
-# One command that runs every gate ci.yml applies to a pull request, in
-# CI's order: the lint job, then typecheck, then test + the CRAP ratchet
-# that consumes its coverage.json. If this passes locally and the branch
-# is up to date with main, CI has nothing left to discover.
+# One command for the CI checks that are deterministic and practical on a
+# developer workstation: lint/meta-gates, typecheck, pytest with coverage,
+# and the CRAP ratchet that consumes coverage.json. A green result is useful
+# pre-push evidence, not proof that the complete remote pipeline is green.
 #
-# Deliberately NOT included, because they cannot run on a developer
-# workstation and are not per-PR gates:
+# Deliberately NOT included because they require CI services, containers,
+# browsers, credentials, or scheduled capacity:
 #   - `mutation`   weekly schedule, Linux-only (cosmic-ray), own job
-#   - `security`   Docker-based scanners (gitleaks, trivy)
+#   - `security` / `security-deep` Docker-based scanners and audits
 #   - `integration` needs a live Postgres service container
-#   - `e2e`        needs Playwright + configured OAuth
+#   - `verify-fallback-ready` needs an isolated Postgres service container
+#   - `build`       validates the production container image
+#   - `e2e`         starts Postgres, the real app, and Chromium
 #
-# Pinned by tests/test_ci_workflow.py::test_make_verify_covers_every_ci_gate.
+# The locally reproducible script list is pinned by
+# tests/test_ci_workflow.py::test_make_verify_covers_locally_runnable_script_gates.
 verify: lint check-rules check-alantyle check-module-size check-route-size check-layers \
         check-test-classification check-slice-completeness check-migration-boundaries \
         check-docstring-coverage check-complexity check-ruff-ratchet \
         check-vulture-guard check-jscpd check-mutation-sites \
-        check-import-cycles check-workflows typecheck check-crap quality-report
-	@echo "verify: all CI pull-request gates passed."
+        check-import-cycles check-workflows typecheck check-crap
+	@echo "verify: deterministic local CI subset passed; await GitHub 'ci / required'."
 
 # mutation — issue #431. Runs the cosmic-ray session for the curated target
 # set in docs/quality/cosmic-ray.toml and gates it with the ratchet.
@@ -250,25 +247,16 @@ serve:
 
 run: css serve
 
-# quality-report — aggregate per-gate indicator envelopes (Rule 16). Reads
-# ``quality/<gate>.json`` (produced by the individual ``--emit-envelope``
-# args in this Makefile) and renders a Markdown table on stdout. CI pipes
-# the output into ``$GITHUB_STEP_SUMMARY`` so reviewers see one summary
-# alongside each PR.
-quality-report:
-	@mkdir -p quality
-	$(PYTHON) scripts/quality_report.py quality
-
 # all — kept for backwards compatibility with docs and muscle memory.
 # It used to be `css test lint typecheck`, which was documented as "the
 # green-PR gate" while running four of the seventeen gates CI applies
-# (issue #504). It now delegates to `verify`, so the promise the name
-# always made is finally true.
+# (issue #504). It now delegates to the documented deterministic local
+# verification subset.
 all: css verify
 
 clean:
 	rm -rf build/ dist/ .pytest_cache/ .ruff_cache/ .coverage htmlcov/
-	rm -rf $(TAILWIND_DIR)/node_modules/ $(TAILWIND_DIR)/package-lock.json
+	rm -rf $(TAILWIND_DIR)/node_modules/
 	rm -f $(TAILWIND_OUTPUT)
 	find . -type d -name '__pycache__' -prune -exec rm -rf {} +
 	find . -type d -name '*.egg-info' -prune -exec rm -rf {} +

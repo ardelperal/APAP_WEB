@@ -38,10 +38,11 @@ Cobertura, linter, mypy, E2E y ratchets. Estado del arnés en [docs/quality/hard
 
 | Capacidad | Estado | Doc / Gate |
 |---|---|---|
-| Cobertura 80% (global) | cerrado (con BASELINE shrink-only por capa) | [docs/codebase/quality-gates.md](../codebase/quality-gates.md) |
+| Cobertura 85% (global) | cerrado (con BASELINE shrink-only por capa) | [docs/codebase/quality-gates.md](../codebase/quality-gates.md) |
 | Linter APAP (ruff + custom) | cerrado | [docs/codebase/code-quality-rules.md](../codebase/code-quality-rules.md) |
 | mypy zero errores | cerrado | [docs/codebase/quality-gates.md](../codebase/quality-gates.md) |
-| E2E net (Playwright) | cerrado (público); E2E autenticado bloqueado por secretos OAuth | #206, #223 |
+| E2E smoke (Playwright) | cerrado; CI levanta aplicación real, PostgreSQL y autenticación aislada | #694 |
+| Suite E2E histórica sin skips condicionales | pendiente; fuera del required check hasta su saneamiento | #694 |
 
 #### Batería E2E por slice
 
@@ -51,10 +52,9 @@ Cada slice que aterriza en `main` necesita su batería E2E con Playwright. La ba
 
 | Gatillo | ¿Corre la batería E2E? |
 |---|---|
-| PR a `main` (cualquier slice) | **No** — coverage gate es coverage unit 80% + linter + mypy |
-| Primer prototipo funcional | **Sí** — todas las baterías escritas hasta la fecha se ejecutan |
-| Release tag (`v*.*.*`) | **Sí** — todas las baterías se ejecutan |
-| Mantenimiento post-prototipo (hotfix, chore) | **No** |
+| PR a `main` (cualquier slice) | **Sí** — aplicación real, PostgreSQL efímero y Chromium |
+| Ejecución programada | **No** — el contrato del agregador autoriza este único skip |
+| Push de tag `v*` | **Sí** — batería completa antes de distribuir |
 
 **Objetivo:** validar que todos los flujos end-to-end operan con datos reales de LocalBackend antes de cada release. La batería no sustituye los tests unitarios ni de integración — los complementa cubriendo la cadena completa HTTP → servicio → base de datos → HTML.
 

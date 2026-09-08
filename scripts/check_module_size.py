@@ -30,7 +30,6 @@ from pathlib import Path
 
 # Sibling scripts in scripts/.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _quality_envelope import write_envelope  # noqa: E402 - sys.path tweak above
 from _ratchet_deadline import check_deadline  # noqa: E402 - sys.path tweak above
 
 #: Hard budget for any new module under SCAN_DIRS.
@@ -153,13 +152,6 @@ def main(argv: list[str] | None = None) -> int:
     _pin_output_encoding()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("root", nargs="?", type=Path, default=None)
-    parser.add_argument(
-        "--emit-envelope",
-        type=Path,
-        default=None,
-        metavar="PATH",
-        help="Also write the indicator envelope (Rule 16) to PATH as UTF-8 JSON.",
-    )
     args = parser.parse_args(argv)
     root = (
         args.root.resolve()
@@ -174,45 +166,17 @@ def main(argv: list[str] | None = None) -> int:
     for violation in violations:
         print(f"FAIL {violation}")
 
-    # Files over budget are the "violations that aren't in BASELINE". A
-    # baselined file is allowed to be over MAX_LINES (its own shrink-only
-    # budget is recorded in BASELINE); a non-baselined file is a hard fail.
-    files_over_budget = sum(
-        1 for v in violations if not any(v.startswith(rel + ":") for rel in BASELINE)
-    )
-
     if violations:
         print(
             f"check_module_size: {len(violations)} violation(s). "
             f"Budget: {MAX_LINES} lines per module under "
             f"{', '.join(f'{d}/' for d in SCAN_DIRS)} (AGENTS.md rule 21)."
         )
-        status = "fail"
     else:
         print("check_module_size: OK")
-        status = "pass"
     warning = check_deadline(TARGET, len(BASELINE), label="module_size")
     if warning:
         print(f"DEADLINE {warning}")
-
-    if args.emit_envelope is not None:
-        write_envelope(
-            out_path=args.emit_envelope,
-            gate="module_size",
-            status=status,
-            indicators={
-                "files_in_baseline": len(BASELINE),
-                "files_over_budget": files_over_budget,
-            },
-            ceilings={
-                "files_in_baseline": 0,
-                "files_over_budget": 0,
-            },
-            findings=[
-                {"file": v.split(":", 1)[0], "line": 0, "detail": v}
-                for v in violations
-            ],
-        )
 
     return 1 if violations else 0
 

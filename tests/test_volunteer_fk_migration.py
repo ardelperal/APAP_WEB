@@ -67,7 +67,7 @@ def _cleanup_tables(pg_conn, *tables: str) -> None:
     pg_conn.commit()
 
 
-def _patched_migration_sql(pg_conn, table_suffix: str) -> str:
+def _patched_migration_sql() -> str:
     """Return the migration SQL with table names patched for the sandbox."""
     original = _MIGRATION_SQL_PATH.read_text(encoding="utf-8")
     patched = original
@@ -75,6 +75,7 @@ def _patched_migration_sql(pg_conn, table_suffix: str) -> str:
     patched = patched.replace("adopciones", f"{_TABLE_ADOPCIONES}")
     # Patch acolhidas references
     patched = patched.replace("acogidas", f"{_TABLE_ACOGIDAS}")
+    patched = patched.replace("voluntarios", f"{_TABLE_VOLUNTARIOS}")
     return patched
 
 
@@ -146,15 +147,8 @@ def setup_tables(pg_conn):
 
 def _run_migration(pg_conn) -> None:
     """Apply the real migration SQL against the test schema."""
-    sql = _MIGRATION_SQL_PATH.read_text(encoding="utf-8")
-    for stmt in sql.split(";"):
-        stmt = stmt.strip()
-        if not stmt or stmt.startswith("--"):
-            continue
-        try:
-            pg_conn.execute(stmt)
-        except Exception:
-            pass  # idempotent — may fail on already-applied
+    sql = _patched_migration_sql()
+    pg_conn.execute(sql)
     pg_conn.commit()
 
 
@@ -195,7 +189,7 @@ class TestIdempotentMigration:
         assert any("voluntario_acogida" in fk for fk in fk_names), (
             f"Expected FK on voluntario_acogida_id; got {fk_names}"
         )
-        assert any("voluntario_seguimiento2" in fk for fk in fk_names), (
+        assert any("voluntario_seg2" in fk for fk in fk_names), (
             f"Expected FK on voluntario_seguimiento2_id; got {fk_names}"
         )
         assert any("voluntario_sanitario" in fk for fk in fk_names), (
@@ -210,7 +204,8 @@ class TestFkConstraintBehavior:
         """INSERT with invalid responsable_adopcion_id is rejected."""
         _run_migration(pg_conn)
         animal_id = "a0000000-0000-0000-0000-000000000001"
-        fake_voluntario = "b0000000-0000-0000-0000-000000000001"
+        existing_voluntario = "b0000000-0000-0000-0000-000000000001"
+        missing_voluntario = "b0000000-0000-0000-0000-000000000002"
         pg_conn.execute(
             f"INSERT INTO {_TABLE_ENTRADAS} "
             f"(animal_id, fecha_entrada) VALUES (%s, '2026-01-01')",
@@ -218,29 +213,26 @@ class TestFkConstraintBehavior:
         )
         pg_conn.execute(
             f"INSERT INTO {_TABLE_VOLUNTARIOS} (id, nombre) VALUES (%s, 'Test')",
-            (fake_voluntario,)
+            (existing_voluntario,)
         )
         pg_conn.commit()
-        # Now try to link with the fake voluntario
+        # The seguimiento reference is valid; the new responsable FK is not.
         with pytest.raises(psycopg.errors.ForeignKeyViolation):
             pg_conn.execute(
                 f"INSERT INTO {_TABLE_ADOPCIONES} "
                 f"(animal_id, voluntario_seguimiento_id, fecha_adopcion, "
                 f"nombre_adoptante, responsable_adopcion_id) "
                 f"VALUES (%s, %s, '2026-01-01', 'Test', %s)",
-                (animal_id, fake_voluntario, fake_voluntario)
+                (animal_id, existing_voluntario, missing_voluntario)
             )
+        pg_conn.rollback()
 
     def test_acogidas_rejects_invalid_voluntario(self, pg_conn, setup_tables):
         """INSERT with invalid voluntario_*_id is rejected."""
         _run_migration(pg_conn)
         animal_id = "a0000000-0000-0000-0000-000000000001"
-        fake_voluntario = "b0000000-0000-0000-0000-000000000001"
+        missing_voluntario = "b0000000-0000-0000-0000-000000000001"
         real_voluntario = "c0000000-0000-0000-0000-000000000001"
-        pg_conn.execute(
-            f"INSERT INTO {_TABLE_VOLUNTARIOS} (id, nombre) VALUES (%s, 'Fake')",
-            (fake_voluntario,)
-        )
         pg_conn.execute(
             f"INSERT INTO {_TABLE_VOLUNTARIOS} (id, nombre) VALUES (%s, 'Real')",
             (real_voluntario,)
@@ -251,15 +243,16 @@ class TestFkConstraintBehavior:
             (animal_id,)
         )
         pg_conn.commit()
-        # FK on all three columns should reject the fake voluntario
+        # One missing value in a newly constrained column must reject the row.
         with pytest.raises(psycopg.errors.ForeignKeyViolation):
             pg_conn.execute(
                 f"INSERT INTO {_TABLE_ACOGIDAS} "
                 f"(animal_id, fecha_inicio, voluntario_acogida_id, "
                 f"voluntario_seguimiento1_id, voluntario_sanitario_id) "
                 f"VALUES (%s, '2026-01-01', %s, %s, %s)",
-                (animal_id, fake_voluntario, real_voluntario, fake_voluntario)
+                (animal_id, real_voluntario, real_voluntario, missing_voluntario)
             )
+        pg_conn.rollback()
 
 
 class TestActiveVoluntarioValidation:

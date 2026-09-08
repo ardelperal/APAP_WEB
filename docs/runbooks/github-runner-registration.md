@@ -2,7 +2,8 @@
 
 # github-runner-registration.md
 
-Este runbook es el procedimiento del operador para registrar, verificar y dar de baja el runner auto-hospedado Oracle ARM64 del job `e2e` y el workflow `e2e (self-hosted)`. Aplica al issue #223.
+Este runbook registra, verifica y da de baja el runner Oracle ARM64 dedicado
+exclusivamente al despliegue. Los jobs de CI, incluido E2E, usan runners hosted.
 
 ## Quick Navigation
 
@@ -24,7 +25,7 @@ Este runbook es el procedimiento del operador para registrar, verificar y dar de
 | Usuario del runner | `ubuntu` (no root, no github-actions) |
 | Directorio raíz del runner | `/home/ubuntu/github-runner/apap-web/` |
 | Unidad systemd | `github-runner-apap-web.service` |
-| Etiquetas (exactas, obligatorias) | `self-hosted`, `Linux`, `ARM64`, `apap`, `oracle` |
+| Etiquetas (exactas, obligatorias) | `self-hosted`, `Linux`, `ARM64`, `apap`, `oracle`, `coolify`, `noble`, `deploy` |
 | Grupo del runner | `Default` (con ámbito de repositorio) |
 | Arquitectura | Oracle ARM64 (Ampere Altra) |
 | Repositorio GitHub | `ardelperal/APAP_WEB` |
@@ -39,7 +40,7 @@ Abra este runbook en las siguientes situaciones:
 - Verificación de un **runner existente** tras un reinicio de la VPS.
 - Re-registro del runner tras un cambio de hostname o IP de la VPS.
 - **Baja** del runner (por ejemplo, antes de una reconstrucción de la VPS).
-- Ejecución de la programación semanal de smoke-test (workflow `e2e (self-hosted)`).
+- Diagnóstico de un despliegue en cola por falta de runner elegible.
 
 ## Lista de comprobación previa
 
@@ -50,8 +51,8 @@ Antes de registrar o re-registrar:
 - [ ] Obtenga el **token de registro del runner** desde GitHub: `Settings → Actions → Runners → New self-hosted runner → copie el comando de registro (contiene el token)`. El token es de corta duración; complete el registro en menos de treinta minutos.
 - [ ] Confirme que ningún otro runner en esta VPS usa el mismo directorio de runner (`/home/ubuntu/github-runner/apap-web/`). Compartir el directorio entre runners provoca conflictos en la asignación de jobs.
 - [ ] Confirme que el directorio del runner de Cadete permanece intacto: `ls /home/ubuntu/github-runner/cadete/` existe y su unidad es `github-runner-cadete.service`. **Nunca reutilice el directorio ni la unidad de Cadete.**
-- [ ] Verifique que `python3 --version` en la VPS devuelve Python >= 3.11 (coincide con `python-version-file: pyproject.toml` en ci.yml).
-- [ ] Confirme que `playwright install chromium` se ha ejecutado al menos una vez en la cuenta del usuario del runner (o que el job e2e lo instala en tiempo de ejecución — lo hace, por lo que este punto es opcional).
+- [ ] Verifique que `python3`, `docker`, `docker buildx`, `jq` y `curl` están disponibles.
+- [ ] Confirme que el daemon Docker responde antes de habilitar la etiqueta `deploy`.
 
 ## Pasos de despliegue
 
@@ -91,7 +92,7 @@ cd /home/ubuntu/github-runner/apap-web
 ./config.sh \
   --url https://github.com/ardelperal/APAP_WEB \
   --token <REGISTRATION_TOKEN> \
-  --labels "self-hosted,Linux,ARM64,apap,oracle" \
+  --labels "self-hosted,Linux,ARM64,apap,oracle,coolify,noble,deploy" \
   --runnergroup Default \
   --work _work \
   --unattended \
@@ -100,7 +101,8 @@ cd /home/ubuntu/github-runner/apap-web
 
 Banderas clave:
 
-- `--labels`: debe incluir **las cinco** etiquetas exactamente como se muestran. GitHub Actions asocia jobs a runners por etiqueta; las coincidencias parciales **no** funcionan.
+- `--labels`: incluya las ocho etiquetas. La etiqueta `deploy` impide que código
+  de una pull request se ejecute en el host de producción.
 - `--replace`: use sólo al re-registrar un runner existente (por ejemplo, tras la expiración del token). Elimina el registro antiguo y vuelve a registrar con el token nuevo.
 - `--unattended`: evita las preguntas interactivas (seguro para uso con systemd).
 
@@ -207,33 +209,24 @@ sudo rm -rf /home/ubuntu/github-runner/apap-web
 
 ### Tras la baja
 
-- El job e2e en `ci.yml` volverá automáticamente a `ubuntu-latest` porque `APAP_SELF_HOSTED_E2E_ENABLED` ya no enrutará jobs al runner auto-hospedado inexistente. No se requiere cambio de YAML.
-- El workflow `e2e-self-hosted.yml` saltará todos sus jobs silenciosamente (su condición `if` verifica `vars.APAP_SELF_HOSTED_E2E_ENABLED != ''`).
+- CI continúa en runners hosted y no se ve afectada.
+- El job de despliegue queda en cola hasta registrar otro runner con la etiqueta
+  `deploy`. No existe fallback a un host compartido.
 
 ## Secretos y credenciales
 
-El runner **no requiere secretos adicionales** más allá de lo que el job e2e ya necesita:
+Los secretos permanecen en GitHub Actions y no se guardan en el runner:
 
 | Secreto / Variable | ¿Existe ya? | Uso |
 |---|---|---|
-| `APAP_OAUTH_CLIENT_ID` | Sí (variable de repositorio) | Compuerta OAuth en el job e2e de ci.yml |
-| `APAP_GOOGLE_CLIENT_SECRET` | Sí (secreto de repositorio) | Flujo OAuth en pruebas e2e |
-| `APAP_SELF_HOSTED_E2E_ENABLED` | No — **créela** | Controla `runs-on` en el job e2e de ci.yml |
-
-### Creación de `APAP_SELF_HOSTED_E2E_ENABLED`
-
-En GitHub: `Settings → Actions → Variables → New variable`:
-
-- **Name**: `APAP_SELF_HOSTED_E2E_ENABLED`
-- **Value**: `1` (cualquier cadena no vacía habilita el runner auto-hospedado)
-- **Description**: `Enables the self-hosted Oracle ARM64 runner for the e2e job (issue #223)`
-
-> Sin esta variable, el job e2e en `ci.yml` vuelve a `ubuntu-latest` (compatible hacia atrás). Fíjela en `1` sólo después de confirmar que el runner está en línea.
+| `COOLIFY_WEBHOOK_URL` | Sí | Destino de despliegue firmado |
+| `COOLIFY_WEBHOOK_SECRET` | Sí | Autenticación del webhook |
+| `APAP_DEPLOY_HEALTH_URL` | Sí, variable | Endpoint público que debe exponer la revisión esperada |
 
 ## Documentos relacionados
 
-- `.github/workflows/ci.yml` — job `e2e` con `runs-on` condicional.
-- `.github/workflows/e2e-self-hosted.yml` — workflow dedicado al runner auto-hospedado.
+- `.github/workflows/ci.yml` — verificación completa en runners hosted.
+- `.github/workflows/deploy.yml` — único consumidor de la etiqueta `deploy`.
 - `scripts/check-runner.ps1` — comprobación de conectividad del runner.
-- `AGENTS.md` §15.1 — compuerta CI pre-MVP (lint, typecheck, test, build sólo; e2e sigue siendo opcional en pre-MVP).
+- `.github/branch-protection.md` — checks obligatorios y política de merge.
 - Repositorio IaC `vps-oracle` — código de aprovisionamiento de la propia VPS.

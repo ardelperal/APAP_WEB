@@ -10,22 +10,36 @@ from __future__ import annotations
 from app.modules.animals.domain.animal import DB_LABEL_TO_ESTADO
 
 _ANIMAL_COLUMNS_SQL = (
-    'id, "NCHIP", "NombreAnimal", "Especie", "Sexo", "FNacimiento", activo, '
-    'fecha_alta, "TraeNChip", "FIMPLANTACIONCHIP", "Raza", "Color", "Pelo", '
-    '"Tamano", "Caracter", "FDefuncion", "Terapia", "Observaciones", '
-    '"NombreFoto", "Cartilla", "Eutanasia", "RazaPPP", "Mestizo", '
-    '"EutanasiaOtrasCausas", "EutanasiaEnfermedad", '
-    '"UltimoEstadoAntesDeFallecido", "ComunicacionARIAC"'
+    'id, nchip AS "NCHIP", nombreanimal AS "NombreAnimal", '
+    'especie AS "Especie", sexo AS "Sexo", fnacimiento AS "FNacimiento", '
+    'activo, fecha_alta, traenchip AS "TraeNChip", '
+    'fimplantacionchip AS "FIMPLANTACIONCHIP", raza AS "Raza", '
+    'color AS "Color", pelo AS "Pelo", tamano AS "Tamano", '
+    'caracter AS "Caracter", fdefuncion AS "FDefuncion", '
+    'terapia AS "Terapia", observaciones AS "Observaciones", '
+    'nombrefoto AS "NombreFoto", cartilla AS "Cartilla", '
+    'eutanasia AS "Eutanasia", razappp AS "RazaPPP", mestizo AS "Mestizo", '
+    'eutanasia_otras_causas AS "EutanasiaOtrasCausas", '
+    'eutanasia_enfermedad AS "EutanasiaEnfermedad", '
+    'ultimo_estado_antes_de_fallecido AS "UltimoEstadoAntesDeFallecido", '
+    'comunicacionariac AS "ComunicacionARIAC"'
 )
 
 _ANIMAL_SEARCH_COLUMNS_SQL = (
-    'a.id, a."NCHIP", a."NombreAnimal", a."Especie", a."Sexo", '
-    'a."FNacimiento", a.activo, a.fecha_alta, a."TraeNChip", '
-    'a."FIMPLANTACIONCHIP", a."Raza", a."Color", a."Pelo", a."Tamano", '
-    'a."Caracter", a."FDefuncion", a."Terapia", a."Observaciones", '
-    'a."NombreFoto", a."Cartilla", a."Eutanasia", a."RazaPPP", a."Mestizo", '
-    'a."EutanasiaOtrasCausas", a."EutanasiaEnfermedad", '
-    'a."UltimoEstadoAntesDeFallecido", a."ComunicacionARIAC", acs.current_state'
+    'a.id, a.nchip AS "NCHIP", a.nombreanimal AS "NombreAnimal", '
+    'a.especie AS "Especie", a.sexo AS "Sexo", '
+    'a.fnacimiento AS "FNacimiento", a.activo, a.fecha_alta, '
+    'a.traenchip AS "TraeNChip", a.fimplantacionchip AS "FIMPLANTACIONCHIP", '
+    'a.raza AS "Raza", a.color AS "Color", a.pelo AS "Pelo", '
+    'a.tamano AS "Tamano", a.caracter AS "Caracter", '
+    'a.fdefuncion AS "FDefuncion", a.terapia AS "Terapia", '
+    'a.observaciones AS "Observaciones", a.nombrefoto AS "NombreFoto", '
+    'a.cartilla AS "Cartilla", a.eutanasia AS "Eutanasia", '
+    'a.razappp AS "RazaPPP", a.mestizo AS "Mestizo", '
+    'a.eutanasia_otras_causas AS "EutanasiaOtrasCausas", '
+    'a.eutanasia_enfermedad AS "EutanasiaEnfermedad", '
+    'a.ultimo_estado_antes_de_fallecido AS "UltimoEstadoAntesDeFallecido", '
+    'a.comunicacionariac AS "ComunicacionARIAC", acs.current_state'
 )
 
 GET_ANIMAL_BY_ID_SQL: str = (
@@ -35,7 +49,7 @@ GET_ANIMAL_BY_ID_SQL: str = (
 GET_ANIMAL_BY_NCHIP_SQL: str = (
     f"SELECT {_ANIMAL_COLUMNS_SQL} "  # noqa: S608 — projection is a module constant; values remain bind parameters
     "FROM animales "
-    'WHERE "NCHIP" = $1 AND activo = TRUE '
+    'WHERE nchip = $1 AND activo = TRUE '
     "LIMIT 1"
 )
 
@@ -55,7 +69,7 @@ SEARCH_ANIMALS_SQL: str = (
     "FROM animales a "
     "{join_clause}"
     "WHERE {where_clause} "
-    'ORDER BY a."NCHIP" ASC '
+    'ORDER BY a.nchip ASC '
     "LIMIT ${limit_position} OFFSET ${offset_position}"
 )
 
@@ -80,7 +94,7 @@ def _exact_search_filter(
 
 def _name_search_filter(q: str | None) -> tuple[str, object] | None:
     """Return the wrapped substring-name filter when requested."""
-    return ('a."NombreAnimal" ILIKE', f"%{q}%") if q else None
+    return ('a.nombreanimal ILIKE', f"%{q}%") if q else None
 
 
 def _append_search_filter(
@@ -110,13 +124,13 @@ def _animal_search_where(
     conditions = ["a.activo = TRUE"]
     params: list[object] = []
 
-    identity_filter = _exact_search_filter('a."NCHIP" =', chip) or _name_search_filter(q)
+    identity_filter = _exact_search_filter('a.nchip =', chip) or _name_search_filter(q)
     _append_search_filter(conditions, params, identity_filter)
     _append_search_filter(
-        conditions, params, _exact_search_filter('a."Especie" =', especie)
+        conditions, params, _exact_search_filter('a.especie =', especie)
     )
     _append_search_filter(
-        conditions, params, _exact_search_filter('a."Sexo" =', sexo)
+        conditions, params, _exact_search_filter('a.sexo =', sexo)
     )
 
     db_estado = _ESTADO_TO_DB_LABEL.get(estado or "")
@@ -204,7 +218,7 @@ LIST_ANIMALS_SQL: str = (
     f"SELECT {_ANIMAL_COLUMNS_SQL} "  # noqa: S608 — projection is a module constant; values remain bind parameters
     "FROM animales "
     "{where_clause}"
-    'ORDER BY fecha_alta DESC, "NCHIP" ASC '
+    'ORDER BY fecha_alta DESC, nchip ASC '
     "LIMIT $1 OFFSET $2"
 )
 
