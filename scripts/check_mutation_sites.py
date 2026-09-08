@@ -28,43 +28,31 @@ SCAN_DIRS = ("app", "migration")
 
 #: Current offenders measured with ``--emit-baseline``.
 #: RATCHET: entries may only shrink or disappear; never add headroom.
+#:
+#: Re-baselined 2026-09-08 (issue #681 / PR #688 follow-up): the
+#: form-render/crud-flow duplication cleanup shrank several of these
+#: files, and ``migration/apply.py`` dropped below the 250-site ceiling
+#: entirely (entry removed). Per-entry historical rationale for earlier
+#: corrections lives in git blame for this file.
 BASELINE_MUTATION_SITES: dict[str, int] = {
     # ``app/core/local_backend.py`` was a module that became a package
     # (``app/core/local_backend/`` with submodules) during the InsForge
     # retirement; the BASELINE_MUTATION_SITES entry for the now-deleted
     # parent module was stale. No replacement entry is needed because
     # each submodule lives under its own file path now.
-    "app/modules/acogidas/routes.py": 383,
-    "app/modules/acogidas/service.py": 355,
-    "app/modules/adopciones/routes.py": 306,
-    "app/modules/adopciones/service.py": 482,
+    "app/modules/acogidas/routes.py": 367,
+    "app/modules/acogidas/service.py": 343,
+    "app/modules/adopciones/routes.py": 284,
+    "app/modules/adopciones/service.py": 467,
     "app/modules/animals/routes.py": 449,
-    "app/modules/cesiones/service.py": 370,
-    "app/modules/foster/routes.py": 263,
+    "app/modules/cesiones/service.py": 362,
+    "app/modules/foster/routes.py": 255,
     "app/modules/foster/service.py": 342,
-    "app/modules/salud/routes.py": 408,
-    # salud/service.py: drift correction at issue #681 / PR #688 — measured
-    # 342 sites (the baseline was set at 323 before later work grew the
-    # file). Lowering the baseline to 342 keeps the ratchet at parity with
-    # reality; any further growth from this point will still fail.
+    "app/modules/salud/routes.py": 392,
     "app/modules/salud/service.py": 342,
-    # sanidad/routes.py: drift correction at issue #681 / PR #688 — measured
-    # 410 sites (the baseline was set at 357 before later work grew the
-    # file). Lowering the baseline to 410 keeps the ratchet at parity with
-    # reality; any further growth from this point will still fail.
     "app/modules/sanidad/routes.py": 410,
-    "app/modules/sanidad/service.py": 394,  # HEALTH-05: scheduling logic extracted to scheduling.py (+4 net over pre-HEALTH-05)
-    "migration/apply.py": 464,
-    # migration/verify_fallback_ready.py: drift correction at issue #681 /
-    # PR #688 — measured 308 sites (above the 250-site hard ceiling). The
-    # baseline was missing because the file's first introduction
-    # post-InsForge-retirement grew the orchestrator + 4 check functions
-    # past the threshold in one commit. Lowering the ceiling to 308 keeps
-    # the ratchet at parity with reality; any further growth from this
-    # point will still fail. A future refactor can split the orchestrator
-    # into per-check submodules to bring the file back under 250.
-    "migration/verify_fallback_ready.py": 308,
-    "migration/cli.py": 443,
+    "app/modules/sanidad/service.py": 391,
+    "migration/cli.py": 401,
     "migration/diff_engine.py": 333,
     "migration/lock.py": 268,  # Re-baselined after Path A refactor of acquire_lock (issue #420 / PR #452). The 4-helper split grew the file by 9 sites (function defs + docstrings) but reduced the per-function CRAP from 26.54 to 1.00 (grade A).
     "migration/lock_snapshot.py": 287,
@@ -73,6 +61,7 @@ BASELINE_MUTATION_SITES: dict[str, int] = {
     "migration/reverse_apply/orchestrator.py": 254,
     "migration/semantic_events.py": 304,
     "migration/storage_spike.py": 705,
+    "migration/verify_fallback_ready.py": 308,
     "migration/volunteer_dedup.py": 301,
 }
 
