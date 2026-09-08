@@ -71,7 +71,6 @@ dev = [
     # independent work units and not bundled into this pin. See #434.
     "cosmic-ray==8.4.6",
     "hypothesis>=6.165",
-    "mutmut==3.7.0",
     "pytest-randomly>=4.1",
     # Pinned exactly, not floored. Issue #380: `ruff>=0.6` let CI resolve
     # whatever was newest, so a ruff release could change what `ruff check .`
