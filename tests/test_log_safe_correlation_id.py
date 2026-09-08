@@ -13,6 +13,26 @@ from io import StringIO
 from typing import Any
 
 from app.core.logging import JsonFormatter
+from app.core.request_context import CorrelationIdMiddleware
+
+
+async def test_correlation_middleware_passes_lifespan_scope_through() -> None:
+    """Startup must reach FastAPI instead of being treated as an HTTP request."""
+    scopes: list[str] = []
+
+    async def inner(scope, receive, send) -> None:  # noqa: ANN001
+        scopes.append(scope["type"])
+
+    async def receive() -> dict[str, str]:
+        return {"type": "lifespan.startup"}
+
+    async def send(message: dict[str, str]) -> None:
+        return None
+
+    middleware = CorrelationIdMiddleware(inner)
+    await middleware({"type": "lifespan"}, receive, send)
+
+    assert scopes == ["lifespan"]
 
 
 class TestLogSafeCorrelationId:

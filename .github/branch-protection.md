@@ -1,33 +1,28 @@
-# Branch protection for active protected branches
+# Branch protection for `main`
 
-Configure the active protected branch policy so every pull request is gated by the CI workflow before merge. For normal APAP_WEB work, protect `staging`; protect `main` as the production branch if the operator requires direct production/release PRs.
+`main` is the only protected delivery branch during pre-MVP. The repository is
+public because the current GitHub plan rejected branch protection while it was
+private.
 
 ## Required checks
 
-Add these required status checks:
+| Check | Purpose |
+|---|---|
+| `ci / required` | Event-aware, fail-closed aggregation of every applicable CI job. |
+| `pr-name / branch-name` | Conventional branch naming. |
+| `pr-size / pr-size` | Review-size policy. |
 
-| Check | Source |
-|-------|--------|
-| `ci / lint` | Ruff lint job |
-| `ci / test` | Pytest job with deprecations as errors |
-| `ci / build` | Python package build job |
+The aggregator accepts skips only where the event contract explicitly permits
+them. A missing, cancelled, failed or unexpectedly skipped job fails the check.
 
-## GitHub setup path
+## Enforced settings
 
-1. Open the repository in GitHub.
-2. Go to **Settings → Branches → Branch protection rules**.
-3. Create or edit the rule for `staging` (normal work) and, if required, `main` (production/release).
-4. Enable **Require status checks to pass before merging**.
-5. Select `ci / lint`, `ci / test`, and `ci / build`.
-6. Enable **Require a pull request before merging**.
-7. Set the operator-approved required-reviewer count.
-8. Save the rule.
+- Require a pull request before merging.
+- Require branches to be up to date before merging.
+- Require all conversations to be resolved.
+- Include administrators.
+- Forbid force pushes and branch deletion.
+- Keep linear history disabled because the project requires `--no-ff` merges.
 
-## Operator evidence
-
-Before marking SDD task `1.5` complete, attach one of these to the PR comment:
-
-- A screenshot of the active protected branch rule (`staging` for normal work; `main` for production if required) showing the three required checks.
-- The GitHub settings JSON or audit output showing the same rule.
-
-Do not store screenshots containing secrets in the repository.
+Verify the live rule through the GitHub API after changing workflow job names;
+documentation alone does not protect the branch.

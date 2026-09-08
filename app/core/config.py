@@ -85,6 +85,7 @@ class Settings(BaseSettings):
 
     app_name: str = "APAP_WEB"
     version: str = "0.1.0"
+    build_sha: str = "development"
 
     # Coolify-hosted local backend (issue #641, #648). The only
     # supported production transport as of 2026-09-06: the

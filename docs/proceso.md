@@ -185,28 +185,17 @@ Cargar el skill **`frontend-design`** **antes** del test rojo. Las pruebas TDD d
 Antes de commit + push, todo esto debe estar verde:
 
 ```bash
-python -m pytest -W error::DeprecationWarning \
-  --ignore=tests/e2e \
-  --deselect tests/test_voluntarios_concurrent.py \
-  --cov=app --cov-report=json --cov-fail-under=80 -q
-ruff check .
-python -m mypy
+make verify
 python -m build
-python scripts/check_rules.py .
-python scripts/check_module_size.py
 ```
 
 **Detalle por comando:**
 
 | Comando | Por qué |
 |---|---|
-| `pytest -W error::DeprecationWarning ...` | `tests/test_voluntarios_concurrent.py` se deselecciona localmente porque requiere PostgreSQL (`APAP_E2E_BASE_URL`); en CI también se deselecciona (GitHub no aprovisiona PG). Para correrlo: definir `APAP_E2E_BASE_URL` apuntando a un Postgres real. |
-| `--cov-fail-under=80` | Replica el suelo global de `pyproject.toml` (`fail_under = 80`); `--cov-report=json` genera el `coverage.json` que alimenta el gate `CRITICAL_HELPERS`. Si pasa local, pasa en CI — mismo comando, mismo umbral ([AGENTS.md](../AGENTS.md) §19). |
-| `ruff check .` | Linter estándar. |
-| `python -m mypy` | Typecheck gate de CI ([AGENTS.md](../AGENTS.md) §24); alcance y flags en `pyproject.toml` bajo `[tool.mypy]`. Todo `# type: ignore` debe llevar su código de error específico. |
+| `make verify` | Ejecuta lint, meta-gates, mypy, pytest con cobertura 85 % y el ratchet de CRAP. Es evidencia local; `ci / required` agrega los jobs con infraestructura. |
 | `python -m build` | Genera el wheel que consume el job `deploy`. |
-| `python scripts/check_rules.py .` | Detectores propios (APAP001/APAP003 + Detectors 5–8: logger ban, CSRF middleware, `SameSite=Strict`, etc.). Pasar `.` como raíz — pasar `app` desactiva silenciosamente los detectores 5–8. Corre también en CI dentro del job `lint` ([AGENTS.md](../AGENTS.md) §20). |
-| `python scripts/check_module_size.py` | Ratchet de 700 líneas por módulo en `app/` y `migration/`; los offenders conocidos viven en `BASELINE` y solo pueden decrecer ([AGENTS.md](../AGENTS.md) §21). Corre también en CI dentro del job `lint`. |
+| `ci / required` | Agrega seguridad, PostgreSQL, fallback, build y smoke E2E. Solo este check remoto autoriza el merge. |
 
 ---
 
@@ -318,12 +307,8 @@ git commit -m "tipo(scope): subject"
 git push origin HEAD
 
 # Validación local
-pytest -W error::DeprecationWarning --ignore=tests/e2e --deselect tests/test_voluntarios_concurrent.py --cov=app --cov-report=json --cov-fail-under=80
-ruff check .
-python -m mypy
+make verify
 python -m build
-python scripts/check_rules.py .
-python scripts/check_module_size.py
 
 # CodeGraph
 codegraph status .           # sesión start
@@ -357,7 +342,7 @@ git log --oneline -5 main
 ## Contributor checklist
 
 - [ ] Al iniciar cualquier sesión que toque código o specs, lea `docs/proceso.md` y entendió las cuatro premisas.
-- [ ] Antes de abrir un PR, ejecutar `python -m pytest -W error::DeprecationWarning --ignore=tests/e2e --deselect tests/test_voluntarios_concurrent.py --cov=app --cov-report=json --cov-fail-under=80 -q` y confirmar suelo verde en local.
+- [ ] Antes de abrir un PR, ejecutar `make verify` y confirmar el subconjunto local en verde.
 - [ ] Si la issue implica nuevo campo o modelo, verificar primero el equivalente en el Access legacy (P1, §4.6) antes de escribir el test rojo.
 - [ ] Si la duda de dominio no cierra con discovery + decisiones + legacy, escalar a Dysflow MCP (P2) y, si persiste, preguntar al usuario.
 - [ ] Si la PR toca `docs/proceso.md` o `docs/roadmap.md`, abrirla como `type:docs` y citar la regla o sección que cambia.

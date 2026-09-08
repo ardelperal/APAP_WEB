@@ -173,6 +173,10 @@ class CsrfMiddleware(BaseHTTPMiddleware):
         if not provided:
             content_type = request.headers.get("content-type", "")
             if any(content_type.startswith(ct) for ct in _FORM_CONTENT_TYPES):
+                # Cache the raw body before parsing. BaseHTTPMiddleware creates
+                # a downstream Request; without this cache, ``form()`` consumes
+                # the stream and the route receives an empty form.
+                await request.body()
                 form = await request.form()
                 value = form.get(CSRF_FORM_FIELD)
                 if isinstance(value, str):

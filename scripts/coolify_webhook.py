@@ -22,6 +22,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
 import sys
 from typing import Any
 
@@ -131,8 +132,8 @@ def main() -> int:
         COMMIT_MESSAGE          — message of the deploy commit
     """
     _pin_output_encoding()
-    url = os.environ.get("COOLIFY_WEBHOOK_URL")  # type: ignore[name-defined]
-    secret = os.environ.get("COOLIFY_WEBHOOK_SECRET")  # type: ignore[name-defined]
+    url = os.environ.get("COOLIFY_WEBHOOK_URL")
+    secret = os.environ.get("COOLIFY_WEBHOOK_SECRET")
     if not url or not secret:
         print("::error::missing COOLIFY_WEBHOOK_URL or COOLIFY_WEBHOOK_SECRET", file=sys.stderr)
         return 1
@@ -148,5 +149,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":  # pragma: no cover — CLI exercised in CI
-    import os
     raise SystemExit(main())

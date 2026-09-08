@@ -128,8 +128,15 @@ async def test_post_with_form_field_token_passes_csrf(
         follow_redirects=False,
     )
 
-    assert response.status_code != 403, (
-        f"middleware rejected a valid form-field token; body={response.text!r}"
+    assert response.status_code != 403
+    missing_fields = {
+        error["loc"][-1]
+        for error in response.json().get("detail", [])
+        if error.get("type") == "missing"
+    }
+    assert not (set(_animal_form_data()) & missing_fields), (
+        "middleware consumed validated form fields before the route parsed them: "
+        f"{missing_fields}"
     )
 
 

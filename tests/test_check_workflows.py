@@ -262,8 +262,13 @@ jobs:
 """
 
 
-def test_fifo_concurrency_is_accepted() -> None:
-    assert check_workflows.check_concurrency(_FIFO_CONCURRENCY, "ci.yml") == []
+def test_fifo_concurrency_is_accepted_for_deploy() -> None:
+    assert check_workflows.check_concurrency(_FIFO_CONCURRENCY, "deploy.yml") == []
+
+
+def test_stale_check_cancellation_is_accepted_for_ci() -> None:
+    cancelling = _FIFO_CONCURRENCY.replace("cancel-in-progress: false", "cancel-in-progress: true")
+    assert check_workflows.check_concurrency(cancelling, "ci.yml") == []
 
 
 def test_missing_concurrency_group_is_a_violation() -> None:

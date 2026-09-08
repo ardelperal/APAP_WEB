@@ -24,9 +24,8 @@ dist/
 .playwright-mcp/
 .engram/
 
-# Tailwind: only ship package.json, the build runs in the container.
+# Tailwind dependencies are reproduced from the committed lockfile.
 tailwindcss/node_modules/
-tailwindcss/package-lock.json
 
 # Local Access binaries and project documentation that is not needed at
 # runtime.

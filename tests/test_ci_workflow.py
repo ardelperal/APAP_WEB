@@ -16,6 +16,14 @@ MAKEFILE_PATH = REPO_ROOT / "Makefile"
 CHECK_RULES_SCRIPT_PATH = REPO_ROOT / "scripts" / "check_rules.py"
 BRANCH_PROTECTION_PATH = REPO_ROOT / ".github" / "branch-protection.md"
 DEVELOPMENT_GUIDE_PATH = REPO_ROOT / "docs" / "development.md"
+CI_CD_GUIDE_PATH = REPO_ROOT / "docs" / "codebase" / "ci-cd.md"
+
+
+def _workflow_job_names(path: Path) -> set[str]:
+    """Return top-level job keys without adding a YAML test dependency."""
+    workflow = path.read_text(encoding="utf-8")
+    jobs = workflow[workflow.index("\njobs:\n") :]
+    return set(re.findall(r"^  ([a-z][a-z0-9-]+):$", jobs, flags=re.MULTILINE))
 
 
 def _trigger_lines(workflow: str) -> dict[str, str]:
@@ -108,7 +116,7 @@ def test_ci_workflow_runs_e2e_job_with_playwright() -> None:
     assert "playwright install" in workflow
     assert "playwright" in workflow.lower()
     # And it must actually execute the suite.
-    assert "pytest tests/e2e/" in workflow
+    assert "pytest tests/e2e_ci/" in workflow
 
 
 def test_ci_workflow_does_not_include_diagnostic_secret_leak_scan() -> None:
@@ -122,20 +130,32 @@ def test_ci_workflow_does_not_include_diagnostic_secret_leak_scan() -> None:
 def test_branch_protection_note_lists_required_ci_checks() -> None:
     note = BRANCH_PROTECTION_PATH.read_text(encoding="utf-8")
 
-    assert "ci / lint" in note
-    assert "ci / test" in note
-    assert "ci / build" in note
-    assert "Settings → Branches → Branch protection rules" in note
+    assert "ci / required" in note
+    assert "pr-name / branch-name" in note
+    assert "pr-size / pr-size" in note
+    assert "Include administrators" in note
+
+
+def test_ci_cd_guide_tracks_the_live_job_inventory() -> None:
+    """The human-facing job table must match both executable workflows."""
+    guide = CI_CD_GUIDE_PATH.read_text(encoding="utf-8")
+    documented_ci_jobs = set(
+        re.findall(r"^\| `([a-z][a-z0-9-]+)` \|", guide, flags=re.MULTILINE)
+    )
+
+    assert documented_ci_jobs == _workflow_job_names(WORKFLOW_PATH)
+    for deploy_job in _workflow_job_names(DEPLOY_WORKFLOW_PATH):
+        assert f"`{deploy_job}`" in guide
 
 
 def test_development_guide_documents_e2e_ci_hook() -> None:
     guide = DEVELOPMENT_GUIDE_PATH.read_text(encoding="utf-8")
 
-    # The Playwright e2e suite landed in PR #108 and the dev guide
-    # now documents the actual runner and the local command, not a
-    # future TODO.
+    # The guide documents the fail-closed smoke contract against the real
+    # lifespan-enabled application, not the retired no-lifespan fixture.
     assert "Playwright" in guide
-    assert "scripts/dev_server_no_lifespan.py" in guide
+    assert "tests/e2e_ci/" in guide
+    assert "uvicorn app.main:app --lifespan on" in guide
     assert "playwright install" in guide
 
 
@@ -330,9 +350,9 @@ def test_ci_workflow_defines_typecheck_job_running_mypy() -> None:
         line for line in typecheck_job.splitlines() if not line.lstrip().startswith("#")
     )
 
-    # The job must install the dev extra like every other job (mypy is
-    # a dev dependency) and run the config-driven mypy command.
-    assert 'python -m pip install -e ".[dev]"' in executable
+    # The shared action installs the frozen dev environment and the job runs
+    # the config-driven mypy command.
+    assert "uses: ./.github/actions/setup-python" in executable
     assert "python -m mypy" in executable, (
         "The typecheck job must run `python -m mypy` (scope lives in "
         "pyproject.toml [tool.mypy]) — the same command as `make typecheck`."
@@ -593,6 +613,15 @@ def test_ci_workflow_payload_shape_matches_coolify_expectation() -> None:
     assert "COMMIT_MESSAGE:" in workflow
 
 
+def test_deploy_smoke_database_uses_ephemeral_trust_not_a_literal_password() -> None:
+    """The isolated smoke network needs no reusable database credential."""
+    workflow = DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8")
+
+    assert "POSTGRES_HOST_AUTH_METHOD=trust" in workflow
+    assert "POSTGRES_PASSWORD=" not in workflow
+    assert "postgresql://apap:apap@" not in workflow
+
+
 def _job_executable(workflow: str, start: str, end: str) -> str:
     start_index = workflow.index(start)
     section = workflow[start_index : workflow.index(end, start_index)]
@@ -655,25 +684,12 @@ def test_ci_workflow_lint_job_runs_mutation_sites_gate() -> None:
     )
 
 
-def test_ci_workflow_lint_job_runs_quality_report_aggregator() -> None:
-    """The lint job must aggregate the per-gate indicator envelopes (Rule 16).
-
-    Every gate that emits ``--emit-envelope quality/<gate>.json`` feeds the
-    aggregator ``scripts/quality_report.py quality``, which renders a Markdown
-    summary into ``$GITHUB_STEP_SUMMARY``. Removing the aggregator step is a
-    blocked change per Rule 16.
-    """
+def test_ci_workflow_does_not_run_retired_quality_envelope() -> None:
+    """The dead, partially populated quality envelope must stay retired."""
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
     executable = _job_executable(workflow, "\n  lint:", "\n  security:")
-    assert "scripts/quality_report.py" in executable, (
-        "lint job must invoke scripts/quality_report.py so the per-gate "
-        "indicator envelopes produced by --emit-envelope are aggregated and "
-        "rendered into the GitHub step summary (Rule 16, issue #516)."
-    )
-    assert "GITHUB_STEP_SUMMARY" in executable, (
-        "the aggregator's Markdown summary must be appended to "
-        "$GITHUB_STEP_SUMMARY so reviewers see it on every PR."
-    )
+    assert "scripts/quality_report.py" not in executable
+    assert "--emit-envelope" not in executable
 
 
 def test_ci_workflow_lint_job_runs_import_cycle_detector() -> None:
@@ -703,6 +719,10 @@ def test_ci_workflow_lint_job_runs_import_cycle_detector() -> None:
 def test_ci_workflow_test_job_runs_crap_gate() -> None:
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
     test_job = _job_executable(workflow, "\n  test:", "\n  integration:")
+
+    assert "--ignore=tests/e2e_ci" in test_job, (
+        "the unit/coverage job must not collect the dedicated Playwright smoke suite"
+    )
     lint_job = _job_executable(workflow, "\n  lint:", "\n  security:")
 
     assert "python scripts/check_crap.py" in test_job
@@ -1461,17 +1481,17 @@ def _ci_pull_request_gate_scripts() -> list[str]:
     return list(dict.fromkeys(re.findall(r"scripts/check_\w+\.py", executable)))
 
 
-def test_make_verify_covers_every_ci_gate() -> None:
-    """``make verify`` must run every gate a pull request is judged by.
+def test_make_verify_covers_locally_runnable_script_gates() -> None:
+    """``make verify`` must run each locally reproducible script gate.
 
     Issue #504. Before this, ``make all`` was documented in
     docs/development.md as "el comando que refleja la CI" while running
     four of seventeen gates: a green local run said nothing about CI, so
     the real contract lived in ci.yml and no single command expressed it.
 
-    This is the ratchet on the harness itself. Adding a gate to ci.yml
-    without adding a Makefile target for it fails here — which is the
-    only reason the two lists will still match a year from now.
+    This is the ratchet on the local harness. Service-container, Docker,
+    browser, and scheduled jobs remain the responsibility of the remote
+    ``ci / required`` aggregator.
     """
     blob = _verify_recipe_blob()
 
@@ -1490,10 +1510,15 @@ def test_make_verify_covers_every_ci_gate() -> None:
         "make verify must run pytest with the CI coverage floor; a local run without "
         "--cov-fail-under passes on a tree CI would reject (issue #199/#331)"
     )
-    assert "scripts/quality_report.py" in blob, (
-        "make verify must run scripts/quality_report.py — the CI aggregator step does "
-        "(deterministic-quality-harness v1.5 Rule 16; issue #516)."
-    )
+    assert "scripts/quality_report.py" not in blob
+
+
+def test_make_verify_alantyle_scope_matches_ci() -> None:
+    """The local gate must not scan mutable OpenSpec working artifacts."""
+    blob = _verify_recipe_blob()
+
+    assert "openspec/changes/*/specs/" in blob
+    assert "openspec/changes/ README.md" not in blob
 
 
 def test_make_verify_excludes_the_jobs_a_workstation_cannot_run() -> None:
@@ -1522,7 +1547,7 @@ def test_make_verify_excludes_the_jobs_a_workstation_cannot_run() -> None:
 
 
 def test_development_guide_points_at_make_verify() -> None:
-    """The guide must name the command that actually mirrors CI (issue #504).
+    """The guide must name the local pre-PR verification command (issue #504).
 
     docs/development.md is where a new contributor learns what to run
     before opening a PR. While it named ``make all``, it was teaching a

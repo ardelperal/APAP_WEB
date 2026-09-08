@@ -126,6 +126,13 @@ class CorrelationIdMiddleware:
         _send = cast("Callable[[dict[str, Any]], Awaitable[None]]", send)
         _app = cast("Callable[..., Any]", self.app)
 
+        # ASGI middleware receives lifespan and websocket scopes as well as
+        # HTTP requests. Constructing ``Request`` for a lifespan scope raises
+        # and makes Uvicorn silently disable application startup in auto mode.
+        if scope.get("type") != "http":
+            await _app(scope, _receive, _send)
+            return
+
         request = Request(scope, _receive)
 
         # Honour inbound X-Request-ID header if present, otherwise generate.
