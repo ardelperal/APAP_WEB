@@ -847,7 +847,9 @@ jobs:
         # it self-skips ("mdb-export / mdb-tables is not installed")
         # without it. This is the last gap between this runner's actual
         # coverage and the --cov-fail-under=85 floor (AGENTS.md rule 19).
-        run: sudo apt-get update && sudo apt-get install -y mdbtools
+        # This runner executes job steps as root already (no sudoers
+        # entry for root), so `sudo` fails; apt-get is run directly.
+        run: apt-get update && apt-get install -y mdbtools
 
       - name: Run pytest with deprecations as errors
         # --ignore=tests/e2e: the e2e suite uses playwright's sync
