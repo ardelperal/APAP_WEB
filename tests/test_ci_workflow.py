@@ -999,6 +999,8 @@ def test_ci_workflow_branch_name_step_is_wired() -> None:
     pr_name = (REPO_ROOT / ".github" / "workflows" / "pr-name.yml").read_text(encoding="utf-8")
     assert "scripts/check_branch_name.py" in pr_name
     assert "github.head_ref" in pr_name
+    assert "github.event.pull_request.user.login" in pr_name
+    assert "github.actor" not in pr_name
     # The gate fires on every pull_request — never silently restricted by
     # the workflow itself. Issue #525: restricting to a single base turned
     # chained PRs into invisible checks.
