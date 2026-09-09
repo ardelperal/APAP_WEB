@@ -11,6 +11,8 @@ pull request; el push directo no es una vía de entrega.
 El ruleset restringe las actualizaciones a los roles `Maintain` y `Admin`.
 `Write` permite contribuir y revisar, pero no mergear en `main`.
 
+Su nombre estable es `main-maintainers-and-admins-merge`.
+
 El bypass de esos roles solo opera mediante pull request. No permite omitir el
 PR ni hacer push directo.
 

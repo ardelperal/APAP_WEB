@@ -70,10 +70,24 @@ git log --oneline -10 main
 
 Una issue se aborda en este orden estricto.
 
+### 2.0 Buscar antes de crear
+
+Busque primero en issues abiertas y cerradas. Si una issue existente cubre el
+problema, comente allí; no abra un duplicado.
+
+```bash
+gh issue list --repo ardelperal/APAP_WEB --state all \
+  --search "<términos concretos>" --limit 100
+```
+
+Solo si no existe una equivalente, use el formulario que corresponde al único
+`type:*` del trabajo y complete sus seis secciones.
+
 ### 2.1 Leer la issue, no la respuesta
 
 ```bash
-gh issue view #N --repo ardelperal/APAP_WEB --comments
+ISSUE=123
+gh issue view "$ISSUE" --repo ardelperal/APAP_WEB --comments
 ```
 
 Extraer: **título + descripción** (qué pide exactamente), **labels** (scope + tipo + prioridad + estado), **issues vinculadas** (bloquea / es bloqueada por cuáles), **criterios de aceptación** explícitos si los hay.
@@ -136,6 +150,12 @@ Las issues anteriores a la #723 pueden aparecer en la [línea base histórica](q
 ```bash
 make check-issue-specs
 ```
+
+### 2.8 Reclamar la issue
+
+Tras `status:approved`, compruebe que nadie la ha reclamado y comente que va a
+trabajar en ella. El mantenedor puede aplicar `status:in-progress`. No cree la
+rama antes de completar este paso.
 
 ---
 
@@ -216,22 +236,27 @@ python -m build
 
 - **Conventional Commits en inglés** (`feat(scope):`, `fix(scope):`, `test(scope):`, `docs(scope):`, `chore(scope):`, `refactor(scope):`).
 - Scope corto: `feat(auth)`, `fix(animals)`, `test(copy)`, `docs(roadmap)`, `chore(deps)`.
-- Body que referencia la issue: `Closes #N` (o `Refs #N` si la cierra parcialmente).
-- Para PRs grandes, el cuerpo del commit debe incluir el run URL del CI (`ci / lint`, `ci / test`, `ci / build`, `ci / deploy`) que probó verde.
+- El cuerpo del PR cierra la issue con `Closes #N`, `Fixes #N` o `Resolves #N`.
+- El mantenedor confirma manualmente que el PR lleva exactamente un label `type:*`; ningún workflow automatiza hoy ese control.
+- El PR declara comandos, resultados reales, skips y validaciones no aplicables.
+- El cuerpo del commit puede usar `Refs #N`; no sustituye la referencia de cierre del PR.
+- La descripción del PR enlaza el run de `ci.yml` que probó verde el head.
 - Verificación contra la rama objetivo: `git merge-base --is-ancestor <sha> main` antes de cerrar la issue.
 
 ### 6.2 Push y PR
 
-- Si la diff es **<400 líneas**: PR directa con base `main`, o merge local + push directo.
+- Todo cambio se envía desde `<type>/<issue>-<slug>` mediante PR con base `main`. No hay merge local ni push directo a `main`.
+- Si la diff es **≤400 líneas**: use un único PR.
 - Si la diff **supera 400 líneas**: skill **`chained-pr`**, dividir la feature en N PRs encadenadas. Documentar la cadena en la issue y enlazar cada PR.
-- Push con `git push origin HEAD:main --no-verify` (defensivo; `stagingOnly` está unset en pre-MVP pero el hook sigue activo para otros repos). Si se olvida `--no-verify`, el hook se quejará y no es un bug — es la red de seguridad funcionando.
+- Haga push a la rama de trabajo, nunca a `main`. Tras CI verde, solo `Maintain` o `Admin` pueden mergear; se exigen cero aprobaciones mientras el equipo sea unipersonal.
 
 ### 6.3 Cierre de la issue (trazabilidad obligatoria)
 
 Tras merge verde:
 
 ```bash
-gh issue close #N --repo ardelperal/APAP_WEB --comment "<cuerpo>"
+ISSUE=123
+gh issue close "$ISSUE" --repo ardelperal/APAP_WEB --comment "<cuerpo>"
 ```
 
 El comentario debe incluir, según la regla global `github-issue-closure-traceability`:
@@ -251,7 +276,7 @@ Cerrada con evidencia (YYYY-MM-DD): commit <sha> "<subject>" cubre <one-liner>. 
 
 Per [AGENTS.md](../AGENTS.md) §15.2: las ramas mergeadas **se retienen**, no se borran. Lo único que se limpia es el **worktree local** (si se creó específicamente para sacar la PR):
 
-- Si la rama se trabajó en un worktree (`git worktree add ...`): `git worktree remove --force <path>`.
+- Si la rama se trabajó en un worktree (`git worktree add ...`): `git worktree remove <path>`.
 - Si la rama no se trabajó en un worktree: nada que limpiar — la rama local se queda hasta que se decida renombrarla (`archive/<old-name>` si queda abandonada).
 - **Nunca** `git push origin --delete <rama>`: las ramas remotas se retienen para que un fork herede el historial completo y los `refs/pull/<n>/head` queden enlazables.
 - Estado final esperado: rama local (potencial worktree remoto) + `main`.
@@ -299,7 +324,7 @@ Cualquiera de estos requiere parada y consulta explícita al usuario:
 - Inventar allowlists, suppress de tests, o "fixes" sin entender la raíz (lección XSS 2026-07-03: el test tenía su mecanismo — `handler_controlled` allowlist — no era "suprimir el test").
 - Usar skills de Access distintos a `vba-access` y `access-vba-tdd` (P2 punto 4).
 - Inferir el flip pre-MVP → post-MVP de frases como "ya está" o "vamos cerrando" sin el keyword MVP/MVC ([AGENTS.md](../AGENTS.md) §15.4 punto 5).
-- `git push origin main` con commits locales sin verificar previamente que pasan §5 (validación local).
+- Hacer commit o push directo a `main`; primero habría que autorizar y cambiar el ruleset que lo prohíbe.
 
 ---
 
@@ -307,11 +332,12 @@ Cualquiera de estos requiere parada y consulta explícita al usuario:
 
 ```bash
 # Issue en curso
-gh issue view #N --repo ardelperal/APAP_WEB --comments
-gh issue edit #N --repo ardelperal/APAP_WEB --add-label "status:in-progress"
+ISSUE=123
+gh issue view "$ISSUE" --repo ardelperal/APAP_WEB --comments
+gh issue edit "$ISSUE" --repo ardelperal/APAP_WEB --add-label "status:in-progress"
 
 # Branch + trabajo
-git checkout -b <tipo>/<scope>
+git checkout -b "docs/${ISSUE}-short-description"
 # ... TDD (§4) ...
 git add <files específicos>
 git commit -m "tipo(scope): subject"
@@ -328,15 +354,16 @@ codegraph node <exacto>      # un símbolo
 codegraph explore <bolsa>    # varios + blast radius
 
 # PR + CI (pre-MVP)
-gh pr create --base main --title "..." --body "Closes #N"
-gh run watch $(gh run list --branch main --limit 1 --json databaseId -q '.[0].databaseId') --exit-status
+gh pr create --base main --title "..." --body "Closes #${ISSUE}"
+PR=730
+gh pr checks "$PR" --watch
 
 # Tras merge verde
 git checkout main
-# Solo si hubo worktree: git worktree remove --force <path>
+# Solo si hubo worktree: git worktree remove "/path/to/worktree"
 # NO git push origin --delete — la rama remota se retiene (AGENTS §15.2)
 git branch -m archive/<old-name>   # solo si la rama queda abandonada
-gh issue close #N --comment "..."
+gh issue close "$ISSUE" --comment "..."
 
 # Dysflow (P2 punto 4)
 dysflow_list_tables --projectId apap
@@ -353,7 +380,9 @@ git log --oneline -5 main
 ## Contributor checklist
 
 - [ ] Al iniciar cualquier sesión que toque código o specs, lea `docs/proceso.md` y entendió las cuatro premisas.
+- [ ] Antes de crear una issue, buscar equivalentes abiertos y cerrados; tras su aprobación, reclamarla con un comentario.
 - [ ] Antes de abrir un PR, ejecutar `make verify` y confirmar el subconjunto local en verde.
+- [ ] El PR incluye cierre y validación real; el mantenedor comprobó manualmente que lleva exactamente un `type:*`.
 - [ ] Si la issue implica nuevo campo o modelo, verificar primero el equivalente en el Access legacy (P1, §4.6) antes de escribir el test rojo.
 - [ ] Si la duda de dominio no cierra con discovery + decisiones + legacy, escalar a Dysflow MCP (P2) y, si persiste, preguntar al usuario.
 - [ ] Si la PR toca `docs/proceso.md` o `docs/roadmap.md`, abrirla como `type:docs` y citar la regla o sección que cambia.

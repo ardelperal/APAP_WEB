@@ -26,16 +26,18 @@ La configuración completa vive en [`DOCS.md`](DOCS.md) y
 
 ## Workflow issue-first
 
-Todo cambio en `APAP_WEB` arranca con un issue aprobado. La trazabilidad de cada commit queda atada al número de issue en el nombre de la rama y en el cuerpo del PR.
+Todo cambio humano en `APAP_WEB` sigue este ciclo:
 
-1. **Abra una issue.** Use el formulario del tipo correspondiente y complete el [contrato issue-as-spec](docs/codebase/issue-specifications.md).
-2. **Espere `status:approved`.** El maintainer revisa el issue y aplica la etiqueta cuando lo aprueba para implementación. Las issues con `status:needs-review` requieren conversación previa.
-3. **Cree la rama desde `main`.** Nombre siguiendo la convención `<tipo>/<nº issue>-<kebab-slug>` (ver [Convención de ramas](#convención-de-ramas)).
-4. **Implemente con TDD.** Tests primero. Cubra el caso feliz y los bordes. La regla 19 exige cobertura global ≥ 85% y 100% para los `CRITICAL_HELPERS`.
-5. **Ejecute la validación local** antes de push (ver [Validación local](#validación-local)).
-6. **Abra un PR pequeño.** Cuerpo con `Closes #N`, `Fixes #N` o `Resolves #N`. Mantenga el diff bajo el presupuesto de revisión de 400 líneas. Use `size:exception` solo en diffs inevitables.
-7. **Espere CI verde.** `ci / required`, `pr-name / branch-name` y `pr-size / pr-size` son bloqueantes.
-8. **Integre con `--no-ff`.** El orquestador tiene autorización vigente (2026-07-26, `AGENTS.md` §15.6) para mergear sin pedir OK por push. La rama remota se conserva; limpie solo el worktree local.
+1. **Busque antes de crear.** Revise issues abiertas y cerradas; use la existente si ya cubre el problema.
+2. **Abra una issue si falta.** Use el formulario correcto y complete el [contrato issue-as-spec](docs/codebase/issue-specifications.md).
+3. **Espere `status:approved`.** Solo el mantenedor autoriza la implementación.
+4. **Reclame la issue.** Comente que va a trabajar en ella y compruebe que nadie la ha reclamado antes.
+5. **Cree la rama desde `main`.** Use `<type>/<issue>-<slug>` (ver [Convención de ramas](#convención-de-ramas)).
+6. **Implemente con TDD.** La cobertura global es ≥ 85%; los `CRITICAL_HELPERS` exigen 100%.
+7. **Valide localmente.** Ejecute los comandos aplicables antes del push.
+8. **Abra un PR honesto.** Incluya referencia de cierre, validación real y un diff ≤ 400 líneas. El mantenedor comprueba manualmente que lleva exactamente un label `type:*`.
+9. **Espere CI verde.** `ci / required`, `pr-name / branch-name` y `pr-size / pr-size` son bloqueantes.
+10. **Integre con `--no-ff`.** Solo `Maintain` o `Admin` pueden mergear. Mientras el equipo sea unipersonal se exigen cero aprobaciones humanas.
 
 Las secciones obligatorias son `Problema y contexto`, `Evidencia verificable`,
 `Alcance y no objetivos`, `Criterios de aceptación`, `Plan de validación` y
@@ -72,8 +74,8 @@ Use estas etiquetas en issues y PRs. La convención combina tipo (`type:*`), est
 | `question` | Pide información; no implica cambio de código. |
 | `wontfix` | Revisado y descartado por el maintainer. |
 | `status:needs-review` | Espera revisión del maintainer antes de implementación. |
-| `status:approved` | Aprobado para implementación. |
-| `status:in-progress` | Tiene una persona trabajando en ella. |
+| `status:approved` | El mantenedor autoriza la implementación. |
+| `status:in-progress` | La issue ha sido reclamada. |
 | `status:blocked` | Espera otra decisión o entrega. |
 | `priority:high` | Bug crítico o trabajo urgente. |
 | `priority:medium` | Importante pero no bloqueante. |
@@ -132,12 +134,17 @@ No añada `Co-Authored-By` ni atribución de IA. Los mensajes viven en inglés; 
 
 Un PR se considera mergeable cuando cumple todos los checks bloqueantes. La integración queda en `AGENTS.md` §15.
 
+El cuerpo usa `Closes #N`, `Fixes #N` o `Resolves #N` y declara los comandos
+ejecutados con su resultado real. Indique también cualquier skip, fallo conocido
+o validación no aplicable.
+
 | Check | Estado | Comando local |
 |---|---|---|
 | `ci / required` | bloqueante | `make verify` como subconjunto local |
 | `pr-name / branch-name` | bloqueante | `scripts/check_branch_name.py` |
 | `pr-size / pr-size` | bloqueante | `scripts/check_pr_size.py` |
 | issue spec vinculada | agregada por `required` | Sin equivalente local; CI consulta la API de GitHub. |
+| exactamente un `type:*` en el PR | control manual | El mantenedor lo comprueba antes del merge. |
 
 Cite la URL del run verde de `ci.yml` en el cuerpo del PR o en el merge commit (premisa de `AGENTS.md` §15.1).
 
@@ -182,10 +189,13 @@ Si una conversación pierde el foco técnico, pause y retome por escrito en la i
 ## Checklist del contribuidor
 
 - [ ] La issue usa el formulario correcto, tiene un único `type:*` y está aprobada.
+- [ ] Se buscaron duplicados y la issue se reclamó antes de crear la rama.
 - [ ] La rama sigue `<type>/<issue>-<slug>` y parte de `main`.
 - [ ] El cambio, sus tests y su documentación pertenecen al mismo alcance.
+- [ ] El PR tiene una referencia de cierre y resultados reales.
+- [ ] El mantenedor confirmó manualmente un único `type:*` en el PR.
 - [ ] `make verify` y las pruebas específicas están en verde.
-- [ ] El PR cierra la issue y respeta el límite o justifica `size:exception`.
+- [ ] El diff no supera 400 líneas o justifica `size:exception`.
 - [ ] Todos los checks y conversaciones están resueltos antes del merge.
 
 ## Navegación

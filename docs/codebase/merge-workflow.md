@@ -41,7 +41,7 @@ Cuando el usuario señale MVP alcanzado ("ya tenemos MVC", "MVP reached", "pasam
 
 ### §15.5 Lo que sigue no siendo automático en pre-MVP (consentimiento explícito requerido)
 
-- Commits directos a `main` sin PR — sigue requiriendo OK del usuario. Siempre aterrice vía PR desde una feature branch.
+- Commits o pushes directos a `main` — prohibidos por el ruleset vigente. Solo serían posibles tras autorización explícita del usuario para cambiar esa protección y verificación del cambio.
 - `--force` a cualquier rama — stop absoluto, sin importar CI.
 - Etiquetado de releases / corte de `vX.Y.Z` — user OK.
 - Renombrado del default branch, cambio de branch protection en GitHub — user OK.
@@ -66,7 +66,7 @@ Efectivo desde el 2026-07-26 y hasta que el usuario señale el fin del proyecto,
 
 **Items que siguen requiriendo OK explícito por push del usuario** (la lista de §15.5 no cambia):
 
-- Commits directos a `main` sin PR.
+- Cambiar el ruleset para permitir commits o pushes directos a `main`; mientras siga vigente, están prohibidos.
 - `--force` a cualquier rama.
 - Etiquetado de releases / corte de `vX.Y.Z`.
 - Renombrado del default branch, cambio de branch protection en GitHub.
