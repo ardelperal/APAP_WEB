@@ -41,9 +41,6 @@ updates:
       timezone: "UTC"
     labels:
       - "type:chore"
-      # package-lock.json is generated and can legitimately exceed the
-      # repository's 400-line review budget.
-      - "size:exception"
     groups:
       dev-dependencies:
         dependency-type: "development"
