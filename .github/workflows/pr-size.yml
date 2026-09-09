@@ -63,8 +63,11 @@ jobs:
             echo "::error::merge-base origin/$BASE_REF HEAD produced no SHA."
             exit 1
           fi
-          ADDED=$(git diff --shortstat "$BASE"...HEAD | awk '{print $4}')
-          DELETED=$(git diff --shortstat "$BASE"...HEAD | awk '{print $6}')
+          # Generated lockfiles are deterministic machine output, not useful
+          # review-budget lines. Their source manifests remain counted.
+          DIFF_PATHS=(. ':(exclude)**/package-lock.json' ':(exclude)uv.lock')
+          ADDED=$(git diff --shortstat "$BASE"...HEAD -- "${DIFF_PATHS[@]}" | awk '{print $4}')
+          DELETED=$(git diff --shortstat "$BASE"...HEAD -- "${DIFF_PATHS[@]}" | awk '{print $6}')
           if [ -z "$ADDED" ]; then ADDED=0; fi
           if [ -z "$DELETED" ]; then DELETED=0; fi
           TOTAL=$((ADDED + DELETED))

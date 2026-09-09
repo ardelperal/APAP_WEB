@@ -1040,6 +1040,18 @@ def test_ci_workflow_pr_size_job_is_wired() -> None:
     )
 
 
+def test_pr_size_excludes_generated_lockfiles_not_manifests() -> None:
+    """Generated lockfile churn must not consume the human review budget."""
+    pr_size = (REPO_ROOT / ".github" / "workflows" / "pr-size.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "':(exclude)**/package-lock.json'" in pr_size
+    assert "':(exclude)uv.lock'" in pr_size
+    assert "':(exclude)**/package.json'" not in pr_size
+    assert "':(exclude)pyproject.toml'" not in pr_size
+
+
 # --- issue #525: PR gates mis-handle chained/stacked PRs ------------------
 #
 # Two coupled defects in .github/workflows/{pr-name,pr-size}.yml:
