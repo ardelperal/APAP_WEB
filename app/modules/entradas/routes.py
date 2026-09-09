@@ -14,6 +14,10 @@ from app.core.auth_dependencies import (
     get_local_postgres_executor_dep,
     return_early_if_response,
 )
+
+# Alias for backward compat with test fixtures.
+get_insforge_client_dep = get_local_postgres_executor_dep
+
 from app.core.csrf import csrf_token_context_processor
 from app.core.data_access import SqlExecutor
 from app.core.forms import optional_value as _opt
