@@ -31,8 +31,8 @@ and is what future slices will wire into ``app/main.py``.
 """
 
 
-from app.core.adapters.insforge.schema_bootstrap_insforge_adapter import (  # noqa: E402
-    InsForgeSchemaBootstrapAdapter,
+from app.core.local_backend.schema_bootstrap_adapter import (  # noqa: E402
+    LocalBackendSchemaBootstrapAdapter,
 )
 from app.core.data_access import SqlExecutor  # noqa: E402
 from app.core.domain_adopciones import (  # noqa: E402
@@ -124,8 +124,8 @@ __all__ = [
 def ensure_domain_schema(client: SqlExecutor) -> None:
     """Create the domain tables (idempotent) in dependency order.
 
-    Backward-compat shim: builds an :class:`InsForgeSchemaBootstrapAdapter`
-    from ``client`` and delegates to :meth:`InsForgeSchemaBootstrapAdapter.ensure_domain_schema`.
+    Backward-compat shim: builds an :class:`LocalBackendSchemaBootstrapAdapter`
+    from ``client`` and delegates to :meth:`LocalBackendSchemaBootstrapAdapter.ensure_domain_schema`.
 
     The dependency order is preserved exactly so lifespan replays and
     ``tests/test_domain.py`` assertions (which pin the SQL emission
@@ -147,4 +147,4 @@ def ensure_domain_schema(client: SqlExecutor) -> None:
     11. ``materiales`` and ``estancia_materiales`` at the end so their
         junction FKs to ``acogidas`` and ``materiales`` resolve.
     """
-    InsForgeSchemaBootstrapAdapter(client).ensure_domain_schema()
+    LocalBackendSchemaBootstrapAdapter(client).ensure_domain_schema()

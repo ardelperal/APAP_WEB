@@ -35,8 +35,8 @@ from collections.abc import Iterator
 
 from fastapi import Request
 
-from app.core.adapters.insforge.schema_bootstrap_insforge_adapter import (
-    InsForgeSchemaBootstrapAdapter,
+from app.core.local_backend.schema_bootstrap_adapter import (
+    LocalBackendSchemaBootstrapAdapter,
 )
 from app.core.config import get_settings
 from app.core.local_backend.db import LocalPostgresExecutor
@@ -62,7 +62,7 @@ def get_schema_bootstrap_port(
 
     The yielded value is the :class:`SchemaBootstrapPort` interface,
     not the concrete adapter — use cases and routes should not need
-    to import :class:`InsForgeSchemaBootstrapAdapter` directly.
+    to import :class:`LocalBackendSchemaBootstrapAdapter` directly.
     """
     try:
         client = request.app.state.sql_executor
@@ -78,7 +78,7 @@ def get_schema_bootstrap_port(
         )
         request.app.state.sql_executor = client
     try:
-        adapter = InsForgeSchemaBootstrapAdapter(client)
+        adapter = LocalBackendSchemaBootstrapAdapter(client)
         yield adapter
     finally:
         # The adapter holds no resources of its own; the executor is

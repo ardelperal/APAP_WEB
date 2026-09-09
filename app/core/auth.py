@@ -15,7 +15,7 @@ working without a signature change. Every shim function:
 
 1. Accepts the legacy first argument (``client: SqlExecutor`` — the
    InsForgeClient satisfies the Protocol structurally).
-2. Constructs a fresh :class:`InsForgeAuthUsersAdapter` from the
+2. Constructs a fresh :class:`LocalBackendAuthUsersAdapter` from the
    client (cheap, no I/O).
 3. Delegates to the new use case.
 4. Converts the use case's :class:`~app.core.domain.auth.user.AuthorizedUser`
@@ -42,8 +42,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.core.adapters.insforge.auth_insforge_adapter import (
-    InsForgeAuthUsersAdapter,
+from app.core.local_backend.auth_adapter import (
+    LocalBackendAuthUsersAdapter,
 )
 from app.core.application.auth._has_other_active_developers import (
     has_other_active_developers as _has_other_active_developers_use_case,
@@ -93,14 +93,14 @@ __all__ = [
 ]
 
 
-def _adapter(client: SqlExecutor) -> InsForgeAuthUsersAdapter:
-    """Build a fresh :class:`InsForgeAuthUsersAdapter` from the legacy client.
+def _adapter(client: SqlExecutor) -> LocalBackendAuthUsersAdapter:
+    """Build a fresh :class:`LocalBackendAuthUsersAdapter` from the legacy client.
 
     The adapter is stateless and cheap to construct; this is the
     one line of glue that translates "caller has an SqlExecutor"
     to "use case needs an :class:`AuthUsersPort`".
     """
-    return InsForgeAuthUsersAdapter(client)
+    return LocalBackendAuthUsersAdapter(client)
 
 
 def _to_dict_or_none(user):

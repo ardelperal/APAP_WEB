@@ -2,7 +2,7 @@
 
 The :func:`get_auth_users_port` provider is the seam between FastAPI
 request handlers and the hexagonal :class:`AuthUsersPort` abstraction.
-Each request gets a fresh :class:`InsForgeAuthUsersAdapter` bound to
+Each request gets a fresh :class:`LocalBackendAuthUsersAdapter` bound to
 the shared :class:`~app.core.local_backend.db.LocalPostgresExecutor`
 the application lifespan owns (see commit e3f3bd0 for the migration
 from :class:`InsForgeClient` to ``LocalPostgresExecutor``; the legacy
@@ -22,8 +22,8 @@ from collections.abc import Iterator
 
 from fastapi import Request
 
-from app.core.adapters.insforge.auth_insforge_adapter import (
-    InsForgeAuthUsersAdapter,
+from app.core.local_backend.auth_adapter import (
+    LocalBackendAuthUsersAdapter,
 )
 from app.core.ports.auth_port import AuthUsersPort
 
@@ -42,5 +42,5 @@ def get_auth_users_port(
     cleanup.
     """
     client = request.app.state.sql_executor
-    adapter = InsForgeAuthUsersAdapter(client)
+    adapter = LocalBackendAuthUsersAdapter(client)
     yield adapter

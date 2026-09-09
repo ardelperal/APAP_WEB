@@ -12,7 +12,7 @@ from app.core.auth import get_user_by_email
 from app.core.auth_cache import get_cached_auth, set_cached_auth
 from app.core.config import get_settings
 from app.core.data_access import InsForgeError
-from app.core.insforge import InsForgeClient
+from app.core.data_access import SqlExecutor
 
 
 def _shim():
@@ -29,13 +29,25 @@ def _deny(payload: dict | None, reason: str, *, url: str = "/unauthorized") -> R
     return RedirectResponse(url=url, status_code=302)
 
 
-def get_insforge_client_dep(request: Request) -> Iterator[InsForgeClient]:
-    """Yield the pooled InsForge client owned by the application lifespan."""
+def get_insforge_client_dep(request: Request) -> Iterator[SqlExecutor]:
+    """Yield the ``LocalPostgresExecutor`` owned by the application lifespan.
+
+    This is the compatibility shim: callers that previously depended on
+    ``InsForgeClient`` continue to work because ``LocalPostgresExecutor``
+    satisfies the ``SqlExecutor`` Protocol structurally. The fallback path
+    (AttributeError branch) creates a fresh ``LocalPostgresExecutor`` so
+    the dependency works in tests that skip the lifespan.
+    """
     try:
-        client = request.app.state.sql_executor
+        client: SqlExecutor = request.app.state.sql_executor
     except AttributeError:
         settings = get_settings()
-        client = InsForgeClient(settings.insforge_url, settings.insforge_service_key)
+        from app.core.local_backend.db import LocalPostgresExecutor
+
+        client = LocalPostgresExecutor(
+            settings.local_db_url,
+            search_path=settings.local_db_schema or None,
+        )
         request.app.state.sql_executor = client
     yield client
 
@@ -48,7 +60,7 @@ def get_current_user_optional(request: Request) -> dict | None:
 def require_authorized_user(
     request: Request,
     payload: dict | None = Depends(get_current_user_optional),
-    client: InsForgeClient = Depends(get_insforge_client_dep),
+    client: SqlExecutor = Depends(get_insforge_client_dep),
 ) -> Response | dict:
     """Require an authorized session revalidated against the auth backend."""
     if not payload:

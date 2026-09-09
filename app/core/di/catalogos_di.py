@@ -35,8 +35,8 @@ from collections.abc import Iterator
 
 from fastapi import Request
 
-from app.core.adapters.insforge.catalogos_insforge_adapter import (
-    InsForgeCatalogosAdapter,
+from app.core.local_backend.catalogos_adapter import (
+    LocalBackendCatalogosAdapter,
 )
 from app.core.config import get_settings
 from app.core.local_backend.db import LocalPostgresExecutor
@@ -60,7 +60,7 @@ def get_catalogos_port(request: Request) -> Iterator[CatalogosPort]:
 
     The yielded value is the :class:`CatalogosPort` interface, not
     the concrete adapter — routes and use cases should not need to
-    import :class:`InsForgeCatalogosAdapter` directly.
+    import :class:`LocalBackendCatalogosAdapter` directly.
     """
     try:
         client = request.app.state.sql_executor
@@ -76,7 +76,7 @@ def get_catalogos_port(request: Request) -> Iterator[CatalogosPort]:
         )
         request.app.state.sql_executor = client
     try:
-        adapter = InsForgeCatalogosAdapter(client)
+        adapter = LocalBackendCatalogosAdapter(client)
         yield adapter
     finally:
         # The adapter holds no resources of its own; the executor is

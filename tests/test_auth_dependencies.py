@@ -42,6 +42,8 @@ from app.core.auth_dependencies import (
 )
 from app.core.config import get_settings
 from app.core.insforge import InsForgeClient
+from app.core.local_backend.db import LocalPostgresExecutor
+from app.core.data_access import SqlExecutor
 from app.core.session import (
     session_cookie_name,
     write_session,
@@ -53,11 +55,11 @@ from app.core.session import (
 
 
 def test_get_insforge_client_dep_return_annotation_is_iterator() -> None:
-    """F-4: ``get_insforge_client_dep`` MUST declare ``Iterator[InsForgeClient]``.
+    """F-4: ``get_insforge_client_dep`` MUST declare ``Iterator[SqlExecutor]``.
 
     Without the annotation, type checkers infer the return as
     ``Any`` and every handler that does
-    ``client: InsForgeClient = Depends(get_insforge_client_dep)``
+    ``client: SqlExecutor = Depends(get_insforge_client_dep)``
     loses precision on every method call on ``client``.
 
     Uses ``typing.get_type_hints`` because ``from __future__ import
@@ -76,8 +78,8 @@ def test_get_insforge_client_dep_return_annotation_is_iterator() -> None:
         f"got: {return_hint!r}"
     )
     type_args = get_args(return_hint)
-    assert InsForgeClient in type_args, (
-        f"get_insforge_client_dep return must yield InsForgeClient, "
+    assert SqlExecutor in type_args, (
+        f"get_insforge_client_dep return must yield SqlExecutor, "
         f"got args: {type_args!r}"
     )
 
@@ -138,7 +140,7 @@ def test_get_insforge_client_dep_returns_pooled_client_from_app_state() -> None:
     # Wire up a fake request whose ``app.state.insforge_client`` is
     # our pooled sentinel. The dep MUST hand that exact instance back.
     class _State:
-        insforge_client = pooled
+        sql_executor = pooled
 
     class _App:
         state = _State()
@@ -157,8 +159,8 @@ def test_get_insforge_client_dep_returns_pooled_client_from_app_state() -> None:
         gen.close()
 
     assert handed_out is pooled, (
-        "get_insforge_client_dep MUST return the same InsForgeClient "
-        "stored on app.state.insforge_client — pooling breaks if the "
+        "get_insforge_client_dep MUST return the same SqlExecutor "
+        "stored on app.state.sql_executor — pooling breaks if the "
         "dep returns anything else"
     )
 
