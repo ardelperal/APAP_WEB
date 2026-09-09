@@ -1,8 +1,7 @@
 """Tests for the Google OAuth login flow (/login, /auth/callback, /logout).
 
-The InsForge REST client is replaced with a fake via FastAPI's
-``app.dependency_overrides[get_insforge_client]`` mechanism, so the
-tests run in-process without HTTP and without needing real Google
+The OAuth port and auth-users port are injected via app.state for tests,
+so the tests run in-process without HTTP and without needing real Google
 credentials.
 """
 
@@ -11,21 +10,16 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from app.core.insforge import InsForgeClient
-from app.main import app, get_insforge_client
+from app.core.di.auth_di import get_auth_users_port
+from app.core.di.oauth_di import get_oauth_port
+from app.core.local_backend.auth_adapter import LocalBackendAuthUsersAdapter
+from app.main import app
 
 
-class _FakeInsForge(InsForgeClient):
-    """In-process InsForge stand-in. Pre-programmed responses per test."""
+class _FakeSqlExecutor:
+    """Fake SqlExecutor for the auth users port."""
 
     def __init__(self) -> None:
-        # Skip the parent __init__; we override every method.
-        self.start_google_oauth_response: str = "https://accounts.google.com/o/oauth2/v2/auth?code_challenge=abc"
-        self.exchange_result: dict = {
-            "token": "jwt-from-insforge",
-            "user_id": "u-from-insforge",
-            "email": "ardelperal@gmail.com",
-        }
         self.get_user_by_email_response: dict | None = {
             "id": "u-db",
             "email": "ardelperal@gmail.com",
@@ -47,57 +41,7 @@ class _FakeInsForge(InsForgeClient):
             "activo": False,
         }
 
-    # We override the methods used by the routes; everything else is a
-    # deliberate no-op so accidental calls are loud AttributeErrors.
-    def start_google_oauth(
-        self,
-        redirect_uri: str,
-        code_challenge: str,
-    ) -> str:  # type: ignore[override]
-        return self.start_google_oauth_response
-
-    def exchange_google_oauth_code(  # type: ignore[override]
-        self,
-        code: str,
-        code_verifier: str,
-        redirect_uri: str,
-    ):
-        from app.core.insforge import InsForgeUser, OAuthExchangeResult
-
-        return OAuthExchangeResult(
-            token=self.exchange_result["token"],
-            user=InsForgeUser(
-                id=self.exchange_result["user_id"],
-                email=self.exchange_result["email"],
-            ),
-        )
-
-    def exchange_insforge_oauth_code(  # type: ignore[override]
-        self,
-        insforge_code: str,
-        code_verifier: str,
-    ):
-        """Mirror of the live ``POST /api/auth/oauth/exchange`` contract.
-
-        InsForge's hosted OAuth proxy now sends ``insforge_code`` (NOT
-        ``code``) to the app's callback and expects the app to exchange
-        it at ``/api/auth/oauth/exchange`` with the original PKCE
-        verifier. The fake returns the same OAuthExchangeResult shape
-        the live endpoint does.
-        """
-        from app.core.insforge import InsForgeUser, OAuthExchangeResult
-
-        return OAuthExchangeResult(
-            token=self.exchange_result["token"],
-            user=InsForgeUser(
-                id=self.exchange_result["user_id"],
-                email=self.exchange_result["email"],
-            ),
-        )
-
-    def execute_sql(self, query, params=None):  # type: ignore[override]
-        # Dispatch on the SQL shape; each test sets the matching
-        # ``*_response`` attribute on this fake.
+    def execute_sql(self, query, params=None):
         if "ORDER BY fecha_alta DESC" in query:
             return list(self.list_users_response)
         if "INSERT INTO usuarios_autorizados" in query and "VALUES" in query:
@@ -111,13 +55,57 @@ class _FakeInsForge(InsForgeClient):
         return []
 
 
+class _FakeOAuthPort:
+    """Fake OAuthPort for auth flow tests."""
+
+    def __init__(self) -> None:
+        self.start_google_oauth_response: str = "https://accounts.google.com/o/oauth2/v2/auth?code_challenge=abc"
+        self.exchange_result: dict = {
+            "token": "jwt-from-insforge",
+            "user_id": "u-from-insforge",
+            "email": "ardelperal@gmail.com",
+        }
+
+    def start_google_login(self, redirect_uri: str):
+        from app.core.domain.oauth import PkcePair
+        return self.start_google_oauth_response, PkcePair(
+            code_verifier="test-verifier",
+            code_challenge="test-challenge",
+        )
+
+    def exchange_insforge_oauth_code(self, insforge_code: str, code_verifier: str):
+        from app.core.ports.oauth_port import OAuthUser
+        return OAuthUser(
+            id=self.exchange_result["user_id"],
+            email=self.exchange_result["email"],
+        )
+
+    def exchange_google_oauth_code(self, code: str, code_verifier: str, redirect_uri: str):
+        from app.core.ports.oauth_port import OAuthUser
+        return OAuthUser(
+            id=self.exchange_result["user_id"],
+            email=self.exchange_result["email"],
+        )
+
+
 @pytest.fixture
-def fake_insforge() -> _FakeInsForge:
-    """Replace the InsForge dependency with a fake for the duration of the test."""
-    fake = _FakeInsForge()
-    app.dependency_overrides[get_insforge_client] = lambda: fake
-    yield fake
-    app.dependency_overrides.pop(get_insforge_client, None)
+def fake_insforge() -> tuple[_FakeSqlExecutor, _FakeOAuthPort]:
+    """Inject fake ports via app.state for the duration of the test."""
+    fake_executor = _FakeSqlExecutor()
+    fake_oauth = _FakeOAuthPort()
+    fake_auth_port = LocalBackendAuthUsersAdapter(fake_executor)
+
+    # Inject fakes via app.state; the DI providers check these first.
+    app.state._auth_users_port = fake_auth_port
+    app.state._oauth_port = fake_oauth
+
+    yield fake_executor, fake_oauth
+
+    # Cleanup
+    if hasattr(app.state, "_auth_users_port"):
+        delattr(app.state, "_auth_users_port")
+    if hasattr(app.state, "_oauth_port"):
+        delattr(app.state, "_oauth_port")
 
 
 @pytest.fixture
@@ -128,6 +116,7 @@ def google_configured(monkeypatch: pytest.MonkeyPatch) -> None:
     original_get_settings = config_module.get_settings
 
     def patched_get_settings():
+
         return original_get_settings().model_copy(
             update={
                 "google_client_id": "test-client-id",
@@ -145,37 +134,47 @@ def google_configured(monkeypatch: pytest.MonkeyPatch) -> None:
 async def test_login_renders_apap_login_page(
     client: httpx.AsyncClient,
     google_configured: None,
-) -> None:
-    """``GET /login`` renders a passive page with an explicit Gmail link."""
+    ) -> None:
+    """``GET /login`` renders the magic-link login form.
+
+    The InsForge-era "Entrar con Gmail" button has been removed
+    (issue #728, Phase 2). The page now shows a magic-link form
+    that POSTs to ``/auth/magic/start``.
+    """
 
     response = await client.get("/login", follow_redirects=False)
 
     assert response.status_code == 200
-    assert "Entrar con Gmail" in response.text
-    assert 'href="/auth/google"' in response.text
-    assert "apap_pkce" not in response.cookies
+    assert "/auth/magic/start" in response.text
+    assert "Correo autorizado" in response.text
+    assert "Enviar enlace" in response.text
+    assert "Entrar con Gmail" not in response.text
+    assert 'href="/auth/google"' not in response.text
+
 
 
 async def test_auth_google_redirects_to_google_with_pkce(
     client: httpx.AsyncClient,
-    fake_insforge: _FakeInsForge,
+    fake_insforge: tuple[_FakeSqlExecutor, _FakeOAuthPort],
     google_configured: None,
 ) -> None:
-    """``GET /auth/google`` returns a 302 to the Google auth URL from InsForge."""
-    fake_insforge.start_google_oauth_response = (
+    """``GET /auth/google`` returns a 302 to the Google auth URL from the OAuth port."""
+    fake_insforge[1].start_google_oauth_response = (
         "https://accounts.google.com/o/oauth2/v2/auth?code_challenge=xyz&scope=openid+email+profile"
     )
 
     response = await client.get("/auth/google", follow_redirects=False)
 
     assert response.status_code == 302
-    assert response.headers["location"] == fake_insforge.start_google_oauth_response
+    assert response.headers["location"] == fake_insforge[1].start_google_oauth_response
     # A short-lived PKCE cookie must be set.
     assert "apap_pkce" in response.cookies
 
 
 async def test_login_returns_503_when_google_not_configured(
-    client: httpx.AsyncClient, fake_insforge: _FakeInsForge, monkeypatch
+    client: httpx.AsyncClient,
+    fake_insforge: tuple[_FakeSqlExecutor, _FakeOAuthPort],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """If the Google client id/secret are not configured, /login returns 503 with a clear message."""
 
@@ -201,6 +200,7 @@ async def test_login_returns_503_when_google_not_configured(
 
 async def test_callback_without_pkce_cookie_redirects_to_login(
     client: httpx.AsyncClient,
+    fake_insforge: tuple[_FakeSqlExecutor, _FakeOAuthPort],
 ) -> None:
     """If the PKCE cookie is missing, the callback redirects to /login."""
     response = await client.get(
@@ -213,6 +213,7 @@ async def test_callback_without_pkce_cookie_redirects_to_login(
 
 async def test_callback_with_tampered_pkce_cookie_redirects_to_login(
     client: httpx.AsyncClient,
+    fake_insforge: tuple[_FakeSqlExecutor, _FakeOAuthPort],
 ) -> None:
     """A PKCE cookie signed with a different secret is rejected."""
     client.cookies.set("apap_pkce", "definitely-not-a-valid-token")
@@ -225,10 +226,12 @@ async def test_callback_with_tampered_pkce_cookie_redirects_to_login(
 
 
 async def test_callback_with_unauthorized_email_redirects_to_unauthorized(
-    client: httpx.AsyncClient, fake_insforge: _FakeInsForge
+    client: httpx.AsyncClient,
+    fake_insforge: tuple[_FakeSqlExecutor, _FakeOAuthPort],
 ) -> None:
     """If the email is not in usuarios_autorizados, the callback redirects to /unauthorized."""
-    fake_insforge.get_user_by_email_response = None
+
+    fake_insforge[0].get_user_by_email_response = None
 
     # Simulate a valid PKCE cookie issued by the /login flow.
     from app.core.config import get_settings
@@ -250,7 +253,7 @@ async def test_callback_with_unauthorized_email_redirects_to_unauthorized(
 
 async def test_callback_issues_session_cookie_and_redirects_home(
     client: httpx.AsyncClient,
-    fake_insforge: _FakeInsForge,
+    fake_insforge: tuple[_FakeSqlExecutor, _FakeOAuthPort],
     google_configured: None,
 ) -> None:
     """A valid exchange yields a session cookie and a redirect to the home page."""
@@ -298,20 +301,15 @@ async def test_callback_issues_session_cookie_and_redirects_home(
 
 async def test_callback_exchanges_insforge_code_for_session(
     client: httpx.AsyncClient,
-    fake_insforge: _FakeInsForge,
+    fake_insforge: tuple[_FakeSqlExecutor, _FakeOAuthPort],
     google_configured: None,
 ) -> None:
     """InsForge's hosted OAuth proxy sends ``insforge_code`` (not ``code``)
     to the app callback. The handler must accept the new parameter,
-    exchange it via ``POST /api/auth/oauth/exchange`` with the PKCE
-    verifier, and create a session exactly like the legacy Google code
-    flow did.
+    exchange it via the OAuth port with the PKCE verifier, and create a
+    session exactly like the legacy Google code flow did.
 
     This is the contract test that pins the post-proxy callback spec.
-    Without it, the live OAuth flow returns 422 the moment InsForge
-    starts forwarding ``insforge_code`` (which already happened on
-    2026-06-28 — production broke silently because no test exercised
-    the InsForge end of the flow).
     """
     from app.core.config import get_settings
     from app.core.session import read_session, session_cookie_name, write_session
@@ -342,7 +340,7 @@ async def test_callback_exchanges_insforge_code_for_session(
 
 async def test_login_apap_pkce_cookie_uses_samesite_lax_for_oauth_callback(
     client: httpx.AsyncClient,
-    fake_insforge: _FakeInsForge,
+    fake_insforge: tuple[_FakeSqlExecutor, _FakeOAuthPort],
     google_configured: None,
 ) -> None:
     """``/login`` must issue ``apap_pkce`` with ``SameSite=Lax``.
@@ -366,7 +364,7 @@ async def test_login_apap_pkce_cookie_uses_samesite_lax_for_oauth_callback(
 
 async def test_callback_apap_session_cookie_uses_samesite_strict(
     client: httpx.AsyncClient,
-    fake_insforge: _FakeInsForge,
+    fake_insforge: tuple[_FakeSqlExecutor, _FakeOAuthPort],
     google_configured: None,
 ) -> None:
     """``/auth/callback`` issues ``apap_session`` with ``SameSite=Strict``.

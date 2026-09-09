@@ -33,14 +33,21 @@ def get_auth_users_port(
 ) -> Iterator[AuthUsersPort]:
     """FastAPI dependency yielding the per-request :class:`AuthUsersPort`.
 
-    Resolves the shared :class:`~app.core.local_backend.db.LocalPostgresExecutor`
-    from ``app.state.sql_executor`` (set by the application lifespan
-    in commit e3f3bd0) and wraps it in a fresh adapter. The adapter
-    is stateless and cheap to construct; no resource ownership is
+    Resolution order:
+    1. ``request.app.state._auth_users_port`` — set by tests to inject a fake.
+    2. ``app.state.sql_executor`` — production path via the application lifespan.
+
+    The adapter is stateless and cheap to construct; no resource ownership is
     transferred, so the ``yield`` (rather than ``return``) is purely
-    for FastAPI's dependency-injection contract symmetry, not for
-    cleanup.
+    for FastAPI's dependency-injection contract symmetry, not for cleanup.
     """
+    # Test override path
+    auth_port = getattr(request.app.state, "_auth_users_port", None)
+    if auth_port is not None:
+        yield auth_port
+        return
+
+    # Production path: resolve SqlExecutor from app.state
     client = request.app.state.sql_executor
     adapter = LocalBackendAuthUsersAdapter(client)
     yield adapter

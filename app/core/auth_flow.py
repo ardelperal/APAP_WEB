@@ -5,8 +5,8 @@ The domain logic has been migrated to the hexagonal slice:
 
   - :mod:`app.core.domain.oauth`          — entities + Protocol errors
   - :mod:`app.core.ports.oauth_port`      — :class:`OAuthPort` Protocol
-  - :mod:`app.core.application.oauth`     — use cases (one per file)
-  - :mod:`app.core.adapters.insforge.oauth_insforge_adapter` — InsForge adapter
+  - :mod:`app.core.application.oauth`       — use cases (one per file)
+  - :mod:`app.core.local_backend.oauth_adapter` — LocalBackend adapter
   - :mod:`app.core.di.oauth_di`           — FastAPI DI provider
 
 The route handlers below are now THIN: each one parses the
@@ -16,26 +16,15 @@ rendering) and delegates the domain decision to the new use case.
 Issue #336: extracted from ``create_app`` to reduce the factory's
 cyclomatic complexity (CC) and line count.
 
-Issue judgment-day 2026-08-04 BLOCKER §31 (the legacy
-``auth_flow.py:21`` imported :class:`InsForgeClient` and
-:class:`InsForgeError` directly) is now fixed: this module no
-longer imports any InsForge-shaped symbol. The adapter wraps the
-InsForge client; the use cases depend on the Protocol.
-
-Issue judgment-day 2026-08-04 §32.P4 (the legacy 165-166 caught a
-bare ``InsForgeError`` and silently turned every transport failure
-into a ``/login`` redirect) is also fixed: the new
-:meth:`callback` use case catches ``InsForgeError`` ONLY at the
-single exchange call site (the legitimate failure path), and the
-adapter raises Protocol-level errors for the application-level
-failures (no code, not authorized) that the route translates
-explicitly.
+The OAuth adapter is now :class:`LocalBackendOAuthAdapter` which calls
+the internal OAuth endpoints via :class:`httpx.Client`. The route handlers
+depend on ``OAuthPort`` and ``AuthUsersPort`` via FastAPI ``Depends``,
+so they are decoupled from the concrete adapter.
 
 Backwards compatibility:
 
 - :func:`register_auth_flow_routes(app, templates)` — unchanged
-  signature. ``app/main.py::create_app`` still calls it the same
-  way.
+  signature. ``app/main.py::create_app`` still calls it the same way.
 - The four route URLs (``/login``, ``/auth/google``,
   ``/auth/callback``, ``/logout``) are unchanged.
 - The cookie names (``apap_pkce``, ``apap_session``), their
@@ -56,12 +45,6 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 
 from app.core import config as config_module
-from app.core.adapters.insforge.auth_insforge_adapter import (
-    InsForgeAuthUsersAdapter,
-)
-from app.core.adapters.insforge.oauth_insforge_adapter import (
-    InsForgeOAuthAdapter,
-)
 from app.core.application.oauth import (
     callback as callback_use_case,
 )
@@ -77,13 +60,16 @@ from app.core.application.oauth import (
 from app.core.auth_dependencies import get_insforge_client_dep
 from app.core.csrf import issue_csrf_to_session
 from app.core.data_access import InsForgeError
+from app.core.di.auth_di import get_auth_users_port
+from app.core.di.oauth_di import get_oauth_port
 from app.core.domain.oauth import (
     CallbackInvalidError,
     OAuthNotConfiguredError,
     UserNotAuthorizedError,
 )
-from app.core.insforge import InsForgeClient
 from app.core.logging import log_safe
+from app.core.ports.auth_port import AuthUsersPort
+from app.core.ports.oauth_port import OAuthPort
 from app.core.session import (
     read_session,
     session_cookie_name,
@@ -102,8 +88,7 @@ def _oauth_unconfigured_response() -> JSONResponse:
     ``tests/test_auth_flow.py::test_login_returns_503_when_google_not_configured``
     keeps matching. The error message is the operator's
     remediation hint, identical to the one
-    :class:`OAuthNotConfiguredError` carries — keeping the
-    single source of truth.
+    :class:`OAuthNotConfiguredError` carries.
     """
     return JSONResponse(
         {
@@ -126,9 +111,8 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
     The route handlers are THIN: each one handles only transport
     concerns (cookie parsing, redirect building, template
     rendering) and delegates the domain decision to a use case in
-    :mod:`app.core.application.oauth`. The :class:`InsForgeClient`
-    is constructed per-request by the shim helpers
-    (no DI; the legacy shape is preserved).
+    :mod:`app.core.application.oauth`. The :class:`OAuthPort` and
+    :class:`AuthUsersPort` are injected via FastAPI ``Depends``.
     """
 
     @app.get("/login")
@@ -154,19 +138,19 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
 
     @app.get("/auth/google")
     def start_google_login(
-        client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+        oauth_port: Annotated[OAuthPort, Depends(get_oauth_port)],
     ) -> Response:
-        """Start the Google OAuth flow via InsForge.
+        """Start the Google OAuth flow via LocalBackend.
 
         Generates a PKCE pair (now inside the adapter), stores the
         verifier in a short-lived ``apap_pkce`` cookie, asks
-        InsForge for the Google auth URL, and redirects the user
+        the OAuth endpoint for the Google auth URL, and redirects the user
         there.
         """
         settings = config_module.get_settings()
         try:
             pkce, auth_url = start_google_login_use_case(
-                InsForgeOAuthAdapter(client),
+                oauth_port,
                 settings,
             )
         except OAuthNotConfiguredError:
@@ -194,7 +178,8 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
     @app.get("/auth/callback")
     def callback(
         request: Request,
-        client: Annotated[InsForgeClient, Depends(get_insforge_client_dep)],
+        oauth_port: Annotated[OAuthPort, Depends(get_oauth_port)],
+        auth_users_port: Annotated[AuthUsersPort, Depends(get_auth_users_port)],
         insforge_code: str | None = None,
         code: str | None = None,  # legacy direct-callback (pre-InsForge-proxy)
     ) -> Response:
@@ -226,8 +211,8 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
 
         try:
             session = callback_use_case(
-                InsForgeOAuthAdapter(client),
-                InsForgeAuthUsersAdapter(client),
+                oauth_port,
+                auth_users_port,
                 insforge_code=insforge_code,
                 code=code,
                 code_verifier=pkce["code_verifier"],
@@ -243,11 +228,11 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
             response.delete_cookie("apap_pkce")
             return response
         except InsForgeError:
-            # §32.P4 fix: the legacy code caught a bare InsForgeError
-            # for every failure (no code, transport, not authorized,
-            # all collapsed). The new use case catches it ONLY at the
-            # single exchange call site, so this is now the narrow
-            # "transport failed" path — the genuine exchange errors.
+            # The OAuth adapter raises InsForgeError for transport
+            # failures. The callback redirects to /login — the genuine
+            # exchange errors (no code, not authorized) are raised as
+            # CallbackInvalidError and UserNotAuthorizedError and handled
+            # above.
             return _redirect("/login")
 
         # The signed cookie carries identity + advisory role (stable
@@ -257,14 +242,7 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
         # TTL cache (``Settings.auth_cache_ttl_seconds``, default
         # 300s), so an admin deactivation via
         # ``/admin/users/{id}/deactivate`` takes effect within the TTL
-        # instead of waiting for the cookie to expire. The P0 VOL-01
-        # fix this comment replaced is preserved as the first gate
-        # (``is_authorized`` defaults to False — default-deny),
-        # not as the final answer.
-        #
-        # PR-5B (REQ-AH-6) adds ``csrf_token`` via ``issue_csrf_to_session``
-        # so the CSRF middleware (REQ-AH-8) can validate POST/PUT/PATCH/DELETE
-        # without relying solely on SameSite cookies.
+        # instead of waiting for the cookie to expire.
         session_token = write_session(
             issue_csrf_to_session(
                 {
@@ -276,12 +254,6 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
             ),
             secret=settings.session_secret,
         )
-        # Slice 6 sample call site (T-6.7): emit a structured
-        # ``auth.login`` event. The ``email`` kwarg is REDACTED by
-        # ``log_safe`` per the closed 12-field list — operators see
-        # the event name and ``user_id`` (non-PII), not the email.
-        # This proves the redaction filter is wired end-to-end on a
-        # real authentication flow, not just in unit tests.
         log_safe("auth.login", email=session.email, user_id=session.user_id)
         response = _redirect("/")
         response.set_cookie(

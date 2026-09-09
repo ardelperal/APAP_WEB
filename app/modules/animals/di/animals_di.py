@@ -23,11 +23,10 @@ from app.modules.animals.ports.animals_port import AnimalsPort
 def get_animals_port(request: Request) -> Iterator[AnimalsPort]:
     """FastAPI dependency yielding the per-request :class:`AnimalsPort`.
 
-    Resolves the pooled :class:`~app.core.insforge.InsForgeClient`
-    from ``app.state.insforge_client`` and wraps it in a fresh
-    adapter.
+    Resolves the shared :class:`~app.core.local_backend.db.LocalPostgresExecutor`
+    from ``app.state.sql_executor`` and wraps it in a fresh adapter.
     """
-    client = request.app.state.insforge_client
+    client = request.app.state.sql_executor
     adapter = AnimalsInsforgeAdapter(client, storage=client)
     yield adapter
 

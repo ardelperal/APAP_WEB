@@ -194,8 +194,10 @@ def _install_default_insforge_client() -> None:
 
     spy = _DefaultInsForgeSpy()
     _app.state.insforge_client = spy
+    _app.state.sql_executor = spy
     yield
     _app.state.__dict__.pop("insforge_client", None)
+    _app.state.__dict__.pop("sql_executor", None)
 
 
 @pytest_asyncio.fixture
