@@ -26,5 +26,5 @@ jobs:
       - name: Validate head branch name
         env:
           HEAD_REF: ${{ github.head_ref }}
-          PR_ACTOR: ${{ github.actor }}
-        run: python scripts/check_branch_name.py "$HEAD_REF" "$PR_ACTOR"
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: python scripts/check_branch_name.py "$HEAD_REF" "$PR_AUTHOR"
