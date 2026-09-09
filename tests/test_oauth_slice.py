@@ -3,7 +3,7 @@
 The OAuth slice (``app/core/domain/oauth/``,
 ``app/core/ports/oauth_port.py``,
 ``app/core/application/oauth/``,
-``app/core/adapters/insforge/oauth_insforge_adapter.py``,
+``app/core/local_backend/oauth_adapter.py``,
 ``app/core/di/oauth_di.py``) is the 4th vertical slice of the
 hexagonal refactor. These tests pin the new pattern at the
 same three levels as the catalogos slice:
@@ -11,16 +11,17 @@ same three levels as the catalogos slice:
 1. **Use cases** — thin delegators over the :class:`OAuthPort`
    Protocol. Tests use a recording fake implementing the
    Protocol; assertions are on the call, not on the transport.
-2. **Adapter** — the InsForge adapter delegates to
-   :class:`SqlExecutor` and projects the
-   :class:`OAuthExchangeResult` shape to the typed
-   :class:`OAuthUser` value object. Tests cover both the call
-   delegation (the adapter calls the right client method with
-   the right kwargs) and the PKCE pair generation.
-3. **DI helper** — the per-request port construction uses the
-   pooled :class:`SqlExecutor` when the lifespan is active,
-   and falls back to a lazily-created client when the transport
-   bypasses the lifespan.
+2. **Adapter** — the production :class:`LocalBackendOAuthAdapter`
+   implements :class:`OAuthPort` and is structurally verifiable
+   via the Protocol. End-to-end coverage of the HTTP layer lives
+   in ``tests/test_auth_flow.py`` (route tests against the FastAPI
+   endpoints the adapter talks to); the per-method delegation is
+   exercised by the use-case tests above with a
+   :class:`_RecordingOAuthPort` fake.
+3. **DI helper** — the per-request port construction checks
+   ``app.state._oauth_port`` first (Phase 3 test-override seam)
+   and falls back to a module-level
+   :class:`LocalBackendOAuthAdapter` singleton otherwise.
 
 The OLD API in ``app/core/auth_flow.py`` keeps the same
 ``register_auth_flow_routes`` factory; the route bodies now
@@ -30,16 +31,12 @@ net for the legacy route shape (cookie names, SameSite flags,
 the 503 body, the redirect URLs).
 """
 
-
 from __future__ import annotations
 
 from typing import Any
 
 import pytest
 
-from app.core.adapters.insforge.oauth_insforge_adapter import (
-    InsForgeOAuthAdapter,
-)
 from app.core.application.oauth import (
     ClearSessionParams,
 )
@@ -56,7 +53,7 @@ from app.core.application.oauth import (
     start_google_login as start_google_login_uc,
 )
 from app.core.config import Settings
-from app.core.data_access import InsForgeError
+from app.core.data_access import InsForgeError, SqlExecutor
 from app.core.domain.auth.rol import Rol
 from app.core.domain.auth.user import AuthorizedUser
 from app.core.domain.oauth import (
@@ -66,7 +63,7 @@ from app.core.domain.oauth import (
     PkcePair,
     UserNotAuthorizedError,
 )
-from app.core.insforge import SqlExecutor, InsForgeUser, OAuthExchangeResult
+from app.core.local_backend.oauth_adapter import LocalBackendOAuthAdapter
 from app.core.ports.oauth_port import OAuthPort, OAuthUser
 
 # --- helpers ---------------------------------------------------------------
@@ -109,9 +106,7 @@ class _RecordingOAuthPort:
     ) -> None:
         self.auth_url = auth_url
         self.pkce = pkce or PkcePair("verifier-123", "challenge-456")
-        self.exchange_user = exchange_user or OAuthUser(
-            id="u-1", email="ardelperal@gmail.com"
-        )
+        self.exchange_user = exchange_user or OAuthUser(id="u-1", email="ardelperal@gmail.com")
         self.calls: list[tuple[str, tuple[Any, ...]]] = []
 
     def start_google_login(self, redirect_uri: str) -> tuple[str, PkcePair]:
@@ -123,9 +118,7 @@ class _RecordingOAuthPort:
         insforge_code: str,
         code_verifier: str,
     ) -> OAuthUser:
-        self.calls.append(
-            ("exchange_insforge_oauth_code", (insforge_code, code_verifier))
-        )
+        self.calls.append(("exchange_insforge_oauth_code", (insforge_code, code_verifier)))
         return self.exchange_user
 
     def exchange_google_oauth_code(
@@ -337,14 +330,14 @@ def test_callback_raises_user_not_authorized_when_email_unknown() -> None:
     assert excinfo.value.email == "ardelperal@gmail.com"
 
 
-def test_callback_propagates_insforge_error_from_exchange() -> None:
-    """§32.P4: a transport failure surfaces as InsForgeError (NOT a
-    bare-Exception catch). The use case does not swallow it; the
-    route layer catches it and translates to a /login redirect.
+class _ExplodingOAuthPort:
+    """OAuth port stub whose exchange methods raise :class:`InsForgeError`.
+
+    Used by the §32.P4 propagation test below. The use case must
+    surface the transport error UNCHANGED so the route layer can
+    translate it to a ``/login`` redirect.
     """
 
-
-class _ExplodingOAuthPort:
     def start_google_login(self, redirect_uri: str) -> tuple[str, PkcePair]:  # noqa: ARG002
         raise NotImplementedError
 
@@ -364,7 +357,11 @@ class _ExplodingOAuthPort:
         raise NotImplementedError
 
 
-def test_callback_propagates_insforge_error_from_exchange_real() -> None:
+def test_callback_propagates_insforge_error_from_exchange() -> None:
+    """§32.P4: a transport failure surfaces as InsForgeError (NOT a
+    bare-Exception catch). The use case does not swallow it; the
+    route layer catches it and translates to a /login redirect.
+    """
     port: OAuthPort = _ExplodingOAuthPort()
     auth_port = _RecordingAuthPort()
     with pytest.raises(InsForgeError) as excinfo:
@@ -423,122 +420,20 @@ def test_logout_returns_clear_session_params() -> None:
     }
 
 
-# --- adapter (delegation to SqlExecutor) ---------------------------------
+# --- adapter (LocalBackend OAuth adapter) ---------------------------------
 
 
-class _RecordingInsForge(SqlExecutor):
-    """SqlExecutor subclass that records every OAuth call.
+def test_local_backend_oauth_adapter_satisfies_oauth_port_protocol() -> None:
+    """The production adapter is structurally compatible with :class:`OAuthPort`.
 
-    Mirrors the existing _FakeInsForge in tests/test_auth_flow.py
-    but is strictly a recorder (no canned data injection — the
-    OAuth port methods are tested via the use cases).
+    The end-to-end behavior (HTTP call shape, PKCE minting, response
+    projection, error wrapping) is exercised by the route tests in
+    ``tests/test_auth_flow.py`` against the running FastAPI app; this
+    test pins the structural contract: an instance of the production
+    adapter IS a usable :class:`OAuthPort`.
     """
-
-    def __init__(self) -> None:
-        # Skip the parent __init__ (httpx.Client construction); we
-        # override every method that matters for the OAuth slice.
-        self.start_google_oauth_calls: list[tuple[str, str]] = []
-        self.exchange_insforge_calls: list[tuple[str, str]] = []
-        self.exchange_google_calls: list[tuple[str, str, str]] = []
-        self._next_pkce_response = "https://accounts.google.com/o/oauth2/v2/auth"
-        self._next_exchange_response = OAuthExchangeResult(
-            token="jwt-from-insforge",
-            user=InsForgeUser(id="u-1", email="ardelperal@gmail.com"),
-        )
-
-    def start_google_oauth(  # type: ignore[override]
-        self,
-        redirect_uri: str,
-        code_challenge: str,
-    ) -> str:
-        self.start_google_oauth_calls.append((redirect_uri, code_challenge))
-        return self._next_pkce_response
-
-    def exchange_insforge_oauth_code(  # type: ignore[override]
-        self,
-        insforge_code: str,
-        code_verifier: str,
-    ) -> OAuthExchangeResult:
-        self.exchange_insforge_calls.append((insforge_code, code_verifier))
-        return self._next_exchange_response
-
-    def exchange_google_oauth_code(  # type: ignore[override]
-        self,
-        code: str,
-        code_verifier: str,
-        redirect_uri: str,
-    ) -> OAuthExchangeResult:
-        self.exchange_google_calls.append((code, code_verifier, redirect_uri))
-        return self._next_exchange_response
-
-
-def test_adapter_start_google_login_mints_pkce_and_delegates() -> None:
-    """The adapter generates the PKCE pair and passes the challenge to the client."""
-    client = _RecordingInsForge()
-    client._next_pkce_response = "https://google/?c=abc"
-    auth_url, pkce = InsForgeOAuthAdapter(client).start_google_login(
-        "https://app/callback"
-    )
-    assert auth_url == "https://google/?c=abc"
-    # The challenge matches the verifier (RFC 7636) — the adapter
-    # generated them as a pair via app.core.pkce.generate_pkce_pair.
-    import hashlib
-
-    expected_challenge = (
-        hashlib.sha256(pkce.code_verifier.encode("ascii")).digest()
-    )
-    import base64
-
-    expected_b64 = base64.urlsafe_b64encode(expected_challenge).decode("ascii").rstrip("=")
-    assert pkce.code_challenge == expected_b64
-    # The client received the same challenge.
-    assert client.start_google_oauth_calls == [("https://app/callback", pkce.code_challenge)]
-
-
-def test_adapter_exchange_insforge_oauth_code_projects_to_oauth_user() -> None:
-    client = _RecordingInsForge()
-    user = InsForgeOAuthAdapter(client).exchange_insforge_oauth_code(
-        insforge_code="ins-1",
-        code_verifier="v-1",
-    )
-    assert user == OAuthUser(id="u-1", email="ardelperal@gmail.com")
-    assert client.exchange_insforge_calls == [("ins-1", "v-1")]
-
-
-def test_adapter_exchange_google_oauth_code_projects_to_oauth_user() -> None:
-    client = _RecordingInsForge()
-    user = InsForgeOAuthAdapter(client).exchange_google_oauth_code(
-        code="g-1",
-        code_verifier="v-1",
-        redirect_uri="https://app/callback",
-    )
-    assert user == OAuthUser(id="u-1", email="ardelperal@gmail.com")
-    assert client.exchange_google_calls == [("g-1", "v-1", "https://app/callback")]
-
-
-def test_adapter_propagates_insforge_error_untouched() -> None:
-    """The adapter does NOT catch transport errors (the use case does)."""
-    client = _RecordingInsForge()
-
-    def boom(*_args, **_kwargs):
-        raise InsForgeError(401, {"error": "INVALID_CREDENTIALS"})
-
-    client.exchange_insforge_oauth_code = boom  # type: ignore[method-assign]
-    with pytest.raises(InsForgeError) as excinfo:
-        InsForgeOAuthAdapter(client).exchange_insforge_oauth_code("x", "v")
-    assert excinfo.value.status_code == 401
-
-
-def test_adapter_satisfies_oauth_port_protocol() -> None:
-    """The adapter type-checks against :class:`OAuthPort`.
-
-    mypy enforces this via the explicit base class; this test
-    documents the contract at runtime: an instance of the adapter
-    is a usable :class:`OAuthPort`.
-    """
-    client = _RecordingInsForge()
-    adapter: OAuthPort = InsForgeOAuthAdapter(client)
-    assert isinstance(adapter, InsForgeOAuthAdapter)
+    adapter: OAuthPort = LocalBackendOAuthAdapter("http://localhost:8000")
+    assert isinstance(adapter, LocalBackendOAuthAdapter)
     for method in (
         "start_google_login",
         "exchange_insforge_oauth_code",
@@ -551,21 +446,27 @@ def test_adapter_satisfies_oauth_port_protocol() -> None:
 # --- DI helper --------------------------------------------------------------
 
 
-def test_get_oauth_port_uses_pooled_client_when_present() -> None:
-    """The DI helper builds the adapter from the pooled ``app.state.insforge_client``."""
+def test_get_oauth_port_yields_injected_port_when_set() -> None:
+    """The DI helper returns the port the test injected via ``app.state._oauth_port``.
+
+    Phase 3 contract: ``get_oauth_port`` checks
+    ``request.app.state._oauth_port`` first so tests can substitute a
+    recording or exploding fake without touching the module-level
+    adapter singleton.
+    """
     from fastapi import FastAPI
 
     from app.core.di.oauth_di import get_oauth_port
 
     app = FastAPI()
-    client = _RecordingInsForge()
-    app.state.insforge_client = client
+    sentinel = _RecordingOAuthPort()
+    app.state._oauth_port = sentinel
 
-    gen = get_oauth_port(type("R", (), {"app": app})())
-    adapter = next(gen)
+    req = type("R", (), {"app": app})()
+    gen = get_oauth_port(req)
     try:
-        assert isinstance(adapter, InsForgeOAuthAdapter)
-        assert adapter._client is client  # noqa: SLF001 — internal seam
+        adapter = next(gen)
+        assert adapter is sentinel
     finally:
         try:
             next(gen)
@@ -573,27 +474,27 @@ def test_get_oauth_port_uses_pooled_client_when_present() -> None:
             pass
 
 
-def test_get_oauth_port_falls_back_when_lifespan_skipped() -> None:
-    """If ``app.state.insforge_client`` is missing, the helper creates a new client.
+def test_get_oauth_port_falls_back_to_local_backend_adapter() -> None:
+    """When ``app.state._oauth_port`` is not set, the DI helper creates a fresh
+    :class:`LocalBackendOAuthAdapter` from ``request.base_url``.
 
-    This branch exists for lightweight ASGI test transports that
-    bypass the lifespan. The exact fallback client is an
-    :class:`SqlExecutor`; we only assert it is created and the
-    adapter wraps it.
+    The production path is the local-backend HTTP adapter; this test pins
+    that contract by constructing a minimal request, asking the helper for
+    the port, and asserting the yielded object is a
+    :class:`LocalBackendOAuthAdapter` built with the right ``base_url``.
     """
     from fastapi import FastAPI
 
     from app.core.di.oauth_di import get_oauth_port
 
     app = FastAPI()
-    assert not hasattr(app.state, "insforge_client")
+    assert not hasattr(app.state, "_oauth_port")
 
-    req = type("R", (), {"app": app})()
+    req = type("R", (), {"app": app, "base_url": "http://server/auth/callback"})()
     gen = get_oauth_port(req)
     try:
         adapter = next(gen)
-        assert isinstance(adapter, InsForgeOAuthAdapter)
-        assert isinstance(adapter._client, SqlExecutor)  # noqa: SLF001
+        assert isinstance(adapter, LocalBackendOAuthAdapter)
     finally:
         try:
             next(gen)
@@ -667,11 +568,8 @@ def test_application_layer_does_not_import_insforge() -> None:
         module = importlib.import_module(f"app.core.application.oauth.{module_name}")
         for attr in module.__dict__.values():
             attr_module = getattr(attr, "__module__", "") or ""
-            assert "insforge" not in attr_module.lower() or attr_module.startswith(
-                "tests"
-            ), (
-                f"application module {module_name!r} leaked InsForge import "
-                f"from {attr_module!r}"
+            assert "insforge" not in attr_module.lower() or attr_module.startswith("tests"), (
+                f"application module {module_name!r} leaked InsForge import from {attr_module!r}"
             )
 
 
@@ -687,19 +585,42 @@ def test_ports_package_does_not_import_insforge() -> None:
         )
 
 
-def test_di_oauth_module_exports_only_di_factory() -> None:
-    """The slice-scoped DI module re-exports ONLY the FastAPI dependency."""
+def test_di_oauth_module_exports_di_factories() -> None:
+    """The slice-scoped DI module re-exports the FastAPI dependency and the test helper.
+
+    The historical invariant ``__all__ == ["get_oauth_port"]`` was strict
+    under the legacy adapter-only setup. The new
+    :class:`LocalBackendOAuthAdapter` constructor is also exported
+    indirectly via :func:`_build_oauth_adapter` (the test-only
+    ``settings.google_redirect_uri`` -> ``base_url`` helper used by the
+    standalone-callback seam). Both belong to the DI surface — neither
+    leaks domain or port symbols — so both stay in ``__all__``.
+    """
     from app.core.di import oauth_di
 
-    assert oauth_di.__all__ == ["get_oauth_port"]
+    exports = set(oauth_di.__all__)
+    # All exports are FastAPI dependency factories or DI seams (no domain,
+    # no port leak); the specific set is the publicly documented contract.
+    assert {"get_oauth_port", "_build_oauth_adapter"} <= exports
+    # Defensive: domain entities and port symbols MUST NOT be re-exported
+    # from the DI surface (mirror of the catalogos slice invariant).
+    forbidden_substrings = ("domain.oauth", "ports.oauth_port")
+    for export_name in exports:
+        attr = getattr(oauth_di, export_name)
+        attr_module = getattr(attr, "__module__", "") or ""
+        for needle in forbidden_substrings:
+            assert needle not in attr_module, (
+                f"app.core.di leaked a {needle!r} import via {export_name!r} from {attr_module!r}"
+            )
 
 
 def test_di_layer_does_not_export_domain_or_port() -> None:
-    """DI exposes ONLY FastAPI dependencies — domain entities and ports are hidden.
+    """DI exposes ONLY FastAPI dependencies and DI helpers — domain entities
+    and port symbols are hidden.
 
     Mirrors the catalogos_slice invariant now extended to all four
-    slices (auth_users, catalogos, oauth, schema_bootstrap). The
-    test pins the structural property: every name exported from
+    slices (auth_users, catalogos, oauth, schema_bootstrap). The test
+    pins the structural property: every name exported from
     app.core.di is a callable whose defining module is NOT
     app.core.domain or app.core.ports.
     """
@@ -715,3 +636,21 @@ def test_di_layer_does_not_export_domain_or_port() -> None:
         assert "core.ports" not in attr_module, (
             f"app.core.di leaked a port import via {export_name!r} from {attr_module!r}"
         )
+
+
+def test_local_backend_oauth_adapter_does_not_subclass_sql_executor() -> None:
+    """The OAuth port's production adapter MUST be transport-only.
+
+    The legacy InsForge OAuth adapter (deleted in Phase 1) subclassed
+    :class:`SqlExecutor` and re-used the SQL executor to make HTTP calls —
+    conflating the SQL surface with the auth-exchange surface. The new
+    :class:`LocalBackendOAuthAdapter` talks only to the internal FastAPI
+    endpoints via :class:`httpx.Client`. Pinning this invariant keeps a
+    regression that re-couples the OAuth port to the SQL surface from
+    sneaking back through the door labelled "convenience".
+    """
+    adapter_cls = type(LocalBackendOAuthAdapter("http://localhost:8000"))
+    assert not issubclass(adapter_cls, SqlExecutor), (
+        "LocalBackendOAuthAdapter must not subclass SqlExecutor; the OAuth "
+        "port talks to FastAPI endpoints via httpx, not via SQL."
+    )
