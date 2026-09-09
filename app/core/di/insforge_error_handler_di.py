@@ -3,7 +3,7 @@
 The :func:`get_insforge_error_handler_port` provider is the seam
 between FastAPI's exception-handler registration and the hexagonal
 :class:`ErrorTranslationPort` abstraction. Production wires the
-:class:`InsForgeErrorTranslation` adapter; tests can substitute
+:class:`BackendErrorTranslation` adapter; tests can substitute
 their own adapter by passing a different port directly to
 :func:`app.core.application.insforge_error_handler.register_insforge_error_handler`.
 
@@ -18,7 +18,7 @@ Pattern (mirrors :func:`app.core.di.oauth_di.get_oauth_port`):
 
 Rule §31 (domain services depend on Protocol abstractions): the
 provider returns the :class:`ErrorTranslationPort` interface, not
-the concrete :class:`InsForgeErrorTranslation` adapter. Future
+the concrete :class:`BackendErrorTranslation` adapter. Future
 multi-transport deployments would swap adapters here without
 touching the application layer.
 """
@@ -27,7 +27,8 @@ touching the application layer.
 from __future__ import annotations
 
 from app.core.adapters.insforge.insforge_error_handler_insforge_adapter import (
-    InsForgeErrorTranslation,
+    BackendErrorTranslation,
+    InsForgeErrorTranslation,  # backward-compat alias
 )
 from app.core.ports.insforge_error_handler_port import ErrorTranslationPort
 
@@ -42,7 +43,7 @@ def get_insforge_error_handler_port() -> ErrorTranslationPort:
     return _INSFORGE_ERROR_HANDLER_PORT
 
 
-_INSFORGE_ERROR_HANDLER_PORT: ErrorTranslationPort = InsForgeErrorTranslation()
+_INSFORGE_ERROR_HANDLER_PORT: ErrorTranslationPort = BackendErrorTranslation()
 
 
 __all__ = ["get_insforge_error_handler_port"]

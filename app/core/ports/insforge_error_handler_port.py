@@ -112,8 +112,8 @@ class ErrorTranslationPort(Protocol):
 
     Implementations:
 
-    - :class:`~app.core.adapters.insforge.insforge_error_handler_insforge_adapter.InsForgeErrorTranslation`
-      — production adapter for :class:`~app.core.data_access.InsForgeError`.
+    - :class:`~app.core.adapters.insforge.insforge_error_handler_insforge_adapterBackendErrorTranslation`
+      — production adapter for :class:`~app.core.data_access.BackendError`.
     """
 
     @property

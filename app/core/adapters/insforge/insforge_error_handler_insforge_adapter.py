@@ -1,7 +1,7 @@
-"""InsForge adapter implementing :class:`ErrorTranslationPort`.
+"""BackendError adapter implementing :class:`ErrorTranslationPort`.
 
 The adapter is the ONLY file in the ``insforge_error_handler`` slice
-that imports :class:`~app.core.data_access.InsForgeError` (rule §31:
+that imports :class:`~app.core.data_access.BackendError` (rule §31:
 domain depends on Protocol, never on a concrete client). The
 application layer imports the :class:`ErrorTranslationPort` Protocol
 and never sees this module.
@@ -11,7 +11,7 @@ The translation rule:
 - Status: 502 Bad Gateway. The upstream transport failed — the
   request never reached a domain-meaningful outcome.
 - Body: a generic non-leaking ``detail`` string. The original
-  ``status_code`` and ``body`` of the ``InsForgeError`` are NEVER
+  ``status_code`` and ``body`` of the ``BackendError`` are NEVER
   echoed to the client; they appear only in ``log_safe`` events
   where operators can see them.
 
@@ -21,50 +21,40 @@ DI provider
 returns a single module-level singleton.
 """
 
-# Deprecated 2026-09-06: this module is no longer the production
-# transport. The Coolify-hosted local backend (LocalPostgresExecutor)
-# is the only supported backend as of issue #641 closing the
-# self-host umbrella. This file remains so the legacy InsForge-
-# touching tests can run in CI; production deploys use the
-# SqlExecutor-based adapter (a follow-up slice).
-
-
-
 from __future__ import annotations
 
-from app.core.data_access import InsForgeError
+from app.core.data_access import BackendError
 from app.core.ports.insforge_error_handler_port import ErrorUserResponse
 
 
-class InsForgeErrorTranslation:
-    """Translation rule for :class:`InsForgeError`.
+class BackendErrorTranslation:
+    """Translation rule for :class:`BackendError`.
 
-    Implements :class:`ErrorTranslationPort` for the InsForge
-    transport. Holds no state; the FastAPI request is forwarded by
+    Implements :class:`ErrorTranslationPort` for the local backend
+    transport (LocalPostgresExecutor, LocalBackendOAuthAdapter).
+    Holds no state; the FastAPI request is forwarded by
     :func:`app.core.application.insforge_error_handler.register_insforge_error_handler`
     when the registered exception handler fires.
     """
 
     @property
     def target_exception_type(self) -> type[Exception]:
-        """Return :class:`InsForgeError` — the class the global handler binds to.
+        """Return :class:`BackendError` — the class the global handler binds to.
 
         The application uses this as the first argument to
         ``@app.exception_handler(...)`` so the handler fires for
-        every ``InsForgeError`` (and its subclasses —
-        :class:`~app.core.data_access.DuplicateKeyError`,
-        :class:`~app.core.data_access.UniqueViolationError`) that
-        is not already caught locally by a route.
+        every ``BackendError`` (and its subclasses) that is not
+        already caught locally by a route.
         """
-        return InsForgeError
+        return BackendError
 
     def to_user_response(self, exc: BaseException) -> ErrorUserResponse:
-        """Translate :class:`InsForgeError` to a non-leaking 502.
+        """Translate :class:`BackendError` to a non-leaking 502.
 
         Args:
             exc: The raised exception. The ``assert isinstance``
                 check is a wiring sanity gate — the application
-                binds the handler to :class:`InsForgeError`, so
+                binds the handler to :class:`BackendError`, so
                 any other type reaching the handler is a bug.
 
         Returns:
@@ -74,8 +64,8 @@ class InsForgeErrorTranslation:
             here — they appear only in the ``log_safe`` event
             emitted by the application layer's handler.
         """
-        assert isinstance(exc, InsForgeError), (
-            "InsForgeErrorTranslation only handles InsForgeError; "
+        assert isinstance(exc, BackendError), (
+            "BackendErrorTranslation only handles BackendError; "
             f"got {type(exc).__name__}"
         )
         return ErrorUserResponse(
@@ -89,4 +79,9 @@ class InsForgeErrorTranslation:
         )
 
 
-__all__ = ["InsForgeErrorTranslation"]
+# Backward-compat alias — callers that import InsForgeErrorTranslation
+# from this module (e.g. the DI wire) keep working.
+InsForgeErrorTranslation = BackendErrorTranslation
+
+
+__all__ = ["BackendErrorTranslation", "InsForgeErrorTranslation"]

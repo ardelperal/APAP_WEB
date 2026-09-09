@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import httpx
 
-from app.core.data_access import InsForgeError
+from app.core.data_access import BackendError
 from app.core.domain.oauth import PkcePair
 from app.core.pkce import generate_pkce_pair
 from app.core.ports.oauth_port import OAuthUser
@@ -65,7 +65,7 @@ class LocalBackendOAuthAdapter:
         try:
             resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
-            raise InsForgeError(
+            raise BackendError(
                 message="oauth_start_failed",
                 detail=f"Google OAuth start failed: {exc.response.status_code}",
             ) from exc
@@ -91,7 +91,7 @@ class LocalBackendOAuthAdapter:
         try:
             resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
-            raise InsForgeError(
+            raise BackendError(
                 message="oauth_exchange_failed",
                 detail=f"InsForge OAuth exchange failed: {exc.response.status_code}",
             ) from exc
@@ -122,7 +122,7 @@ class LocalBackendOAuthAdapter:
         try:
             resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
-            raise InsForgeError(
+            raise BackendError(
                 message="oauth_direct_exchange_failed",
                 detail=f"Google direct OAuth exchange failed: {exc.response.status_code}",
             ) from exc

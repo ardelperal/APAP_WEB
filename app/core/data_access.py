@@ -98,6 +98,19 @@ class InsForgeError(DataAccessError):
         self.body = body
         super().__init__(f"InsForge {status_code}: {body!r}")
 
+class BackendError(DataAccessError):
+    """Raised when the local backend (LocalPostgresExecutor / LocalBackendOAuthAdapter)
+    returns a non-2xx response or the request fails at the transport layer.
+
+    Lives in this module so callers can catch a single exception type for all
+    backend transport errors regardless of whether the request went through
+    the InsForge HTTP client or the local HTTP adapter.
+    """
+
+    def __init__(self, status_code: int, body: Any) -> None:
+        self.status_code = status_code
+        self.body = body
+        super().__init__(f"Backend {status_code}: {body!r}")
 
 class DuplicateKeyError(InsForgeError):
     """Raised when SQL INSERT/UPDATE violates a uniqueness constraint.

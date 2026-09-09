@@ -69,7 +69,7 @@ def register_insforge_error_handler(
             to and how to translate it). The DI layer
             (:mod:`app.core.di.insforge_error_handler_di`) provides
             the production
-            :class:`~app.core.adapters.insforge.insforge_error_handler_insforge_adapter.InsForgeErrorTranslation`
+            :class:`~app.core.adapters.insforge.insforge_error_handler_insforge_adapter.BackendErrorTranslation`
             adapter.
     """
     target_cls = port.target_exception_type
