@@ -51,6 +51,22 @@ def test_allowlist_is_frozenset() -> None:
     assert isinstance(ALLOWLIST, frozenset)
 
 
+def test_dependabot_branch_passes_only_for_dependabot_actor() -> None:
+    branch = "dependabot/github_actions/main/all-actions-657f7d9623"
+
+    violations, notices = check(branch, "dependabot[bot]")
+    assert violations == []
+    assert any("trusted Dependabot" in notice for notice in notices)
+
+    violations, _ = check(branch, "octocat")
+    assert violations
+
+
+def test_dependabot_actor_cannot_bypass_namespace_validation() -> None:
+    violations, _ = check("feat/no-issue", "dependabot[bot]")
+    assert violations
+
+
 def test_allowlist_only_shrinks() -> None:
     """Adding to the allowlist is a one-shot calibration; the ratchet only shrinks.
 

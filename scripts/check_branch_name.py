@@ -18,10 +18,16 @@ ALLOWLIST: frozenset[str] = frozenset({
 _PATTERN = re.compile(
     r"^(?:(chore|feat|fix|perf|refactor|docs|ci|test)/[0-9]+-[a-z0-9-]+|archive/.+|main)$"
 )
+_DEPENDABOT_PATTERN = re.compile(
+    r"^dependabot/(?:pip|npm_and_yarn|github_actions)/[A-Za-z0-9._/-]+$"
+)
+MAX_ARG_COUNT = 2
 
 
-def check(head_ref: str) -> tuple[list[str], list[str]]:
+def check(head_ref: str, actor: str = "") -> tuple[list[str], list[str]]:
     """Return (violations, notices) for the given head ref name."""
+    if actor == "dependabot[bot]" and _DEPENDABOT_PATTERN.fullmatch(head_ref):
+        return [], [f"{head_ref}: trusted Dependabot branch"]
     if head_ref in ALLOWLIST:
         return [], [f"{head_ref}: grandfathered via ALLOWLIST"]
     if _PATTERN.match(head_ref):
@@ -44,10 +50,11 @@ def _pin_output_encoding() -> None:
 def main(argv: list[str] | None = None) -> int:
     _pin_output_encoding()
     args = sys.argv[1:] if argv is None else argv
-    if len(args) != 1:
-        print("usage: check_branch_name.py <head-ref>")
+    if len(args) not in {1, MAX_ARG_COUNT}:
+        print("usage: check_branch_name.py <head-ref> [actor]")
         return 2
-    violations, notices = check(args[0])
+    actor = args[1] if len(args) == MAX_ARG_COUNT else ""
+    violations, notices = check(args[0], actor)
     for n in notices:
         print(f"NOTE {n}")
     for v in violations:
