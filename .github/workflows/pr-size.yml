@@ -1,6 +1,9 @@
 name: pr-size
 on:
+  # Label changes must refresh the immutable event payload used below;
+  # rerunning an older workflow run keeps its original labels snapshot.
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
 # See ci.yml for the cancel-in-progress rationale (issue #530).
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

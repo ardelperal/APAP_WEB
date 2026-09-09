@@ -1042,6 +1042,19 @@ def test_ci_workflow_pr_size_job_is_wired() -> None:
     )
 
 
+def test_pr_size_refreshes_when_exception_label_changes() -> None:
+    """Label mutations must create a fresh event payload for the gate."""
+    pr_size = (REPO_ROOT / ".github" / "workflows" / "pr-size.yml").read_text(
+        encoding="utf-8"
+    )
+    triggers = _trigger_lines(pr_size)
+
+    assert "pull_request:" in triggers
+    pull_request = triggers["pull_request:"]
+    assert "labeled" in pull_request
+    assert "unlabeled" in pull_request
+
+
 def test_pr_size_excludes_generated_lockfiles_not_manifests() -> None:
     """Generated lockfile churn must not consume the human review budget."""
     pr_size = (REPO_ROOT / ".github" / "workflows" / "pr-size.yml").read_text(
