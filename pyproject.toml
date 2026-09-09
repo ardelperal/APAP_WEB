@@ -46,7 +46,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "build>=1.2",
-    "pip-audit==2.9.0",
+    "pip-audit==2.10.1",
     # The migration pre-flight and its CI tests import psutil directly.
     # Keep it in the frozen dev environment instead of mutating jobs with pip.
     "psutil>=7.0",
@@ -69,7 +69,7 @@ dev = [
     # workers (changes in `scripts/cosmic_ray_run_config.py` + ci.yml)
     # or re-acquiring the baseline on the new runtime; both are
     # independent work units and not bundled into this pin. See #434.
-    "cosmic-ray==8.4.6",
+    "cosmic-ray==8.7.0",
     "hypothesis>=6.165",
     "pytest-randomly>=4.1",
     # Pinned exactly, not floored. Issue #380: `ruff>=0.6` let CI resolve
@@ -80,7 +80,7 @@ dev = [
     # selected. Bumping this version requires re-measuring BASELINE in
     # scripts/check_ruff_ratchet.py; the script asserts the version to make
     # that non-optional.
-    "ruff==0.15.21",
+    "ruff==0.16.6",
     # Dead-code guard (issues #392, #424). Pinned floor: the AST filter logic
     # in check_vulture_guard.py depends on specific AST node structure and on
     # vulture's output format. Update the guard script when upgrading.
@@ -91,7 +91,7 @@ dev = [
     # Type checking gate (issue #201, AGENTS.md rule 24). Scope and
     # flags live in [tool.mypy] below; run with `make typecheck` or
     # `python -m mypy`. >=2.3 = version validated locally (mypy 2.3.0).
-    "mypy==2.3.0",
+    "mypy==2.3.1",
     # Stub packages for the migration/ scope: psutil and pyyaml are
     # [etl]-only runtime deps, but mypy needs their stubs at check time
     # even on machines that never install the etl extra.
