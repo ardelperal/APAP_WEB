@@ -19,10 +19,10 @@ updates:
       day: "monday"
       time: "06:30"
       timezone: "UTC"
-    # Labels applied to PRs opened by Dependabot
+    # Use repository labels that actually exist. Unknown labels are silently
+    # omitted by Dependabot and leave the PR outside the merge contract.
     labels:
-      - "dependencies"
-      - "automated"
+      - "type:chore"
     # Group minor/patch updates to reduce PR noise
     groups:
       production-dependencies:
@@ -40,8 +40,10 @@ updates:
       time: "06:30"
       timezone: "UTC"
     labels:
-      - "dependencies"
-      - "automated"
+      - "type:chore"
+      # package-lock.json is generated and can legitimately exceed the
+      # repository's 400-line review budget.
+      - "size:exception"
     groups:
       dev-dependencies:
         dependency-type: "development"
@@ -56,8 +58,7 @@ updates:
       time: "06:30"
       timezone: "UTC"
     labels:
-      - "dependencies"
-      - "automated"
+      - "type:chore"
     # Group all action updates into one PR per week
     groups:
       all-actions:
