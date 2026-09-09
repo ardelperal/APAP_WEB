@@ -15,6 +15,14 @@ def test_pull_request_accepts_only_the_two_deliberate_scheduled_skips() -> None:
     assert check_results(needs, "pull_request") == []
 
 
+def test_non_pr_events_skip_issue_spec_but_pull_requests_require_it() -> None:
+    needs = _needs()
+    needs["issue-spec"]["result"] = "skipped"
+
+    assert check_results(needs, "workflow_dispatch") == []
+    assert check_results(needs, "pull_request") == ["issue-spec: result='skipped'"]
+
+
 def test_required_job_skip_fails_closed() -> None:
     needs = _needs()
     needs["e2e"]["result"] = "skipped"
@@ -43,3 +51,10 @@ def test_tag_push_requires_deep_security_and_mutation() -> None:
     assert check_results(needs, "push", "refs/tags/v1.2.3") == [
         "security-deep: result='skipped'"
     ]
+
+
+def test_tag_push_still_skips_pr_only_issue_spec() -> None:
+    needs = _needs()
+    needs["issue-spec"]["result"] = "skipped"
+
+    assert check_results(needs, "push", "refs/tags/v1.2.3") == []

@@ -15,6 +15,7 @@ El proceso de APAP_WEB garantiza que cada issue llegue de `open` a `closed` pres
 | [Core invariants](#core-invariants) | P1–P4: fidelidad legacy, resolución de dudas, docs reflejan código, pre-MVP single-branch. |
 | [§1 Pre-flight](#1-pre-flight-cada-sesión-cada-vez) | Comprobaciones de salud del repo al iniciar. |
 | [§2 Triaje de la issue](#2-triaje-de-la-issue) | Lectura, clasificación, refresco del roadmap, reconocimiento del dominio. |
+| [§2.7 Contrato issue-as-spec](#27-validar-la-spec-antes-de-implementar) | Secciones obligatorias y reparación de issues históricas. |
 | [§3 OpenSpec primero](#3-openspec-primero-cambios-grandes--estructurales) | Cuándo abrir un change SDD en `openspec/changes/<name>/`. |
 | [§4 TDD estricto](#4-tdd-estricto-default-para-código) | Ciclo rojo → verde → refactor; reglas para UI, Access y modelo de datos. |
 | [§5 Validación local](#5-validación-local-gate-pre-ci) | Comandos exactos del gate antes de commit + push. |
@@ -125,6 +126,16 @@ Si la issue es ambigua, compleja o tiene criterios de aceptación dudosos:
 
 - Comentar en la issue pidiendo clarificación (no DM, no asumir).
 - Si la duda es de alcance o de precedente: preguntar al usuario antes de implementar.
+
+### 2.7 Validar la spec antes de implementar
+
+Aplicar el [contrato issue-as-spec](codebase/issue-specifications.md) antes de crear la rama. La issue debe contener las seis secciones canónicas, un único `type:*` soportado y `status:approved`.
+
+Las issues anteriores a la #723 pueden aparecer en la [línea base histórica](quality/issue-spec-baseline.jsonl) como incompletas. Repárelas con evidencia verificable antes de implementarlas; no deduzca requisitos ausentes.
+
+```bash
+make check-issue-specs
+```
 
 ---
 

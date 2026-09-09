@@ -11,7 +11,8 @@ private.
 **Why `0`?** The repository is a single-maintainer project. The sole active
 contributor (ardelperal) reviews their own work through the automated gate:
 every PR triggers `ci / required`, `pr-name / branch-name` and `pr-size / pr-size`
-— three independent, non-skippable automated checks. Requiring a second human
+— three independent, non-skippable automated checks. `ci / required` includes
+the issue-spec job. Requiring a second human
 approver on a repo where that human is the author adds friction without safety.
 
 **When to revisit:** if a second human collaborator joins the project, raise this

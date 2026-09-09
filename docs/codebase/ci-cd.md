@@ -23,7 +23,7 @@ runbook de Coolify ni explica los ratchets individuales.
 
 ```text
 pull request
-  └─ ci.yml: checks aislados → required
+  └─ ci.yml: issue spec + checks aislados → required
        └─ protección de main permite merge commit
             └─ deploy.yml prueba la evidencia del PR
                  └─ build ARM64 → digest OCI → Trivy → smoke PostgreSQL
@@ -46,6 +46,7 @@ pull request
 | Job | Responsabilidad |
 |---|---|
 | `lint` | Ruff, reglas APAP, límites de arquitectura y ratchets. |
+| `issue-spec` | Issue vinculada, aprobada y con las seis secciones obligatorias. |
 | `security` | Auditoría de dependencias, secretos y Dockerfile. |
 | `security-deep` | Análisis profundo reservado a release o programación. |
 | `mutation` | Mutación programada o de release. |
@@ -59,6 +60,9 @@ pull request
 
 El contexto visible es `ci / required`. La API de protección de ramas usa el
 nombre real del check, `required`; no use el nombre compuesto de la interfaz.
+
+El job `issue-spec` comprueba que cada referencia de cierre apunta a una
+[spec de issue](issue-specifications.md) completa y aprobada. `required` agrega su resultado.
 ## Dependencias y artefacto
 
 Python 3.12.11, `uv==0.9.28`, `uv.lock` y `npm ci` fijan el entorno. El setup
@@ -92,6 +96,7 @@ configuración inicial, la operación manual y la recuperación de base de datos
 - [ ] Ejecute `uv sync --frozen --extra dev` antes de validar.
 - [ ] Ejecute `make verify`; trate el resultado como subconjunto local.
 - [ ] No relaje un job, un timeout, un lock ni el agregador `required`.
+- [ ] Enlace una issue completa y aprobada; `required` incluye ese veredicto.
 - [ ] Actualice esta página y su test ancla si cambia la matriz de jobs.
 - [ ] Espere todos los checks aplicables en verde antes del merge.
 

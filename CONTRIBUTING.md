@@ -12,7 +12,7 @@ Esta guía es el subconjunto que un contribuidor externo necesita para arrancar.
 
 Todo cambio en `APAP_WEB` arranca con un issue aprobado. La trazabilidad de cada commit queda atada al número de issue en el nombre de la rama y en el cuerpo del PR.
 
-1. **Abra un issue.** Describa el problema, el alcance y el resultado esperado. Use las plantillas del repositorio si están disponibles.
+1. **Abra una issue.** Use el formulario del tipo correspondiente y complete el [contrato issue-as-spec](docs/codebase/issue-specifications.md).
 2. **Espere `status:approved`.** El maintainer revisa el issue y aplica la etiqueta cuando lo aprueba para implementación. Las issues con `status:needs-review` requieren conversación previa.
 3. **Cree la rama desde `main`.** Nombre siguiendo la convención `<tipo>/<nº issue>-<kebab-slug>` (ver [Branch naming](#branch-naming)).
 4. **Implemente con TDD.** Tests primero. Cubra el caso feliz y los bordes. La regla 19 de `AGENTS.md` exige cobertura global ≥ 80% y los `CRITICAL_HELPERS` requieren 100%.
@@ -105,6 +105,7 @@ Un PR se considera mergeable cuando cumple todos los checks bloqueantes. La inte
 | `deploy` (webhook Coolify) | condicional | salta en merge commits y cuando no hay webhook |
 | branch-name pattern | bloqueante | `scripts/check_branch_name.py` |
 | PR size ≤ 400 líneas | bloqueante | `scripts/check_pr_size.py` |
+| issue spec vinculada | bloqueante | `scripts/check_issue_specs.py pr-event "$GITHUB_EVENT_PATH"` |
 
 Cite la URL del run verde de `ci.yml` en el cuerpo del PR o en el merge commit (premisa de `AGENTS.md` §15.1).
 
