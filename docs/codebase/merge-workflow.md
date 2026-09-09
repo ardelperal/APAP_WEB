@@ -6,18 +6,19 @@ Esta página posee la regla §15 de AGENTS verbatim: política pre-MVP single-br
 
 ## §15 — Workflow de merge: política pre-MVP single-branch + revert post-MVP
 
-Este proyecto está **pre-MVP**. La regla por defecto es: **todo el trabajo aterriza en `main`, toda rama no-`main` se borra inmediatamente después de su merge, y al final de cada ciclo de merge la única rama en pie es `main`.** No hay rama `staging` longeva en pre-MVP. Cuando el usuario declara MVP alcanzado, el workflow revierte al gate estándar `staging` + UAT descrito en §15.4 abajo.
+Este proyecto está **pre-MVP**. Todo el trabajo aterriza en `main` y, tras el merge, solo `main` queda checked out localmente. La rama remota se conserva como historial; se eliminan el worktree y la rama local asociados. No hay una rama `staging` longeva en pre-MVP. Cuando el usuario declara MVP alcanzado, el workflow revierte al gate estándar `staging` + UAT descrito en §15.4 abajo.
 
 ### §15.1 Gate pre-MVP — todo debe ser verdadero antes de mergear a `main`
 
-1. **`pytest` local está verde.** `python -m pytest -W error::DeprecationWarning` con los mismos `addopts` de `pyproject.toml` (bloque `[tool.pytest.ini_options]`) pasa localmente. Si `tests/test_voluntarios_concurrent.py` forma parte de la corrida, el entorno debe exponer `APAP_E2E_BASE_URL` (según `ci.yml` y el hardening REG-S-3) — en CI el archivo se `--deselect`-ea porque GitHub no aprovisiona Postgres.
-2. **`ci.yml` está verde en el head de la rama que se está mergeando.** Lint (`ruff check .` + el linter de reglas de AGENTS `python scripts/check_rules.py .`, regla §20), `test` (pytest con `DeprecationWarning` como error) y `build` (`python -m build`) deben pasar. `e2e` y `deploy` son opcionales según `.github/workflows/ci.yml`: `e2e` se salta cuando `APAP_OAUTH_CLIENT_ID` no está fijado; `deploy` se salta cuando `COOLIFY_WEBHOOK_URL` no está fijado. Su ausencia no es un merge blocker en pre-MVP.
+1. **El gate local está verde.** `uv sync --frozen --extra dev`, `make verify` y la validación específica del cambio pasan. Este conjunto es un pre-flight; CI añade los servicios y runtimes que no pertenecen a una estación local.
+2. **La CI del PR está verde.** `ci / required` agrega `issue-spec`, lint, seguridad, typecheck, tests, integración PostgreSQL, fallback, build y E2E Playwright. Solo acepta skips previstos por la matriz del evento. `deploy.yml` no forma parte de la CI del PR: se activa después, con el push del merge commit a `main`, y verifica primero la evidencia verde del head mergeado.
 3. **El diff es revisable.** Un solo diff de PR debe quedar por debajo de `review_budget_lines: 400` (default del orchestrator). Si una feature es mayor, divídala en PRs encadenados usando la skill `chained-pr` — nunca reviente main con un merge sobredimensionado.
 4. **Sin `--force`, sin reescritura de historial.** Merge con `--no-ff` para mantener visible el commit de feature; nunca `git push --force` a `main`; nunca rebase commits ya enviados.
+5. **El actor está autorizado.** Solo los roles `Maintain` y `Admin` pueden mergear un PR en `main`. El rol `Write` puede contribuir y revisar, pero no actualizar la rama protegida.
 
 ### §15.2 Ciclo de vida de rama pre-MVP
 
-- El trabajo ocurre en feature branches cortas desde `main`. Los nombres siguen el scope de conventional commits: `feat/<scope>`, `fix/<scope>`, `refactor/<scope>`, `docs/<scope>`, `ci/<scope>`, `test/<scope>`.
+- El trabajo ocurre en ramas cortas desde `main`. Los nombres siguen `<type>/<issue>-<slug>` y admiten `chore`, `feat`, `fix`, `perf`, `refactor`, `docs`, `ci` y `test`. Ejemplo: `docs/728-update-contributor-guide`.
 - **La rama remota se retiene tras el merge.** Nunca pase `--delete-branch` a `gh pr merge`, nunca ejecute `git push origin --delete <branch>` ni `git push origin :<branch>`, y nunca pida a `gh` limpiar el ref al hacer merge, cerrar o reabrir. El PR es el artefacto de merge; la rama remota es la historia, y otros contribuidores, forks y artefactos cacheados de CI pueden referenciarla. Esto aplica a todo tipo de rama, incluidas las ya mergeadas a `main`.
 - **El worktree local se elimina tras el merge.** Cuando el trabajo ocurrió en un git worktree y su PR aterrizó: `git worktree remove <path>`, luego `git worktree prune`. Un worktree stale cuesta un checkout completo en disco y — el daño real — deja una rama obsoleta checked out en algún sitio donde una sesión posterior puede recogerla y trabajar en el lugar equivocado. La rama local puede irse con él (`git branch -d <branch>`); el ref remoto queda.
 - "Limpiar la rama" tras un merge significa el worktree local, nunca el ref remoto.
@@ -55,8 +56,8 @@ Efectivo desde el 2026-07-26 y hasta que el usuario señale el fin del proyecto,
 **Alcance de la autorización**: el orchestrator puede mergear un PR a `main` él mismo cuando todas las siguientes se cumplen:
 
 1. Los gates pre-MVP de §15.1 están visiblemente verdes:
-   - `pytest -W error::DeprecationWarning` local pasa
-   - `ci.yml` en el head de la rama mergeada está verde (lint, test, typecheck, build)
+   - `make verify` y la validación específica local pasan
+   - `ci / required`, `pr-name / branch-name` y `pr-size / pr-size` están verdes en el head del PR
    - diff ≤ `review_budget_lines` (o `size:exception` aprobado por el mantenedor)
    - sin `--force`, sin reescritura de historial
 2. El merge es un merge normal feature-branch → main (no es force-push, no es release tag, no es rename del default branch, no es cambio a git-hooks o `gentleai.stagingOnly`).
@@ -82,14 +83,16 @@ Esta autorización standing fue otorgada en chat el 2026-07-26 y codificada por 
 - **Pre-MVP single-branch**: el único branch estable es `main`; `staging` no existe.
 - **PR diff ≤ 400 líneas**: o `size:exception` aprobado por el mantenedor.
 - **Merge con `--no-ff`**: el feature commit queda visible.
+- **Merge restringido por rol**: solo `Maintain` y `Admin` actualizan `main`; `Write` no puede mergear.
 - **Refs remotos retenidos**: ningún `git push origin --delete` ni `--delete-branch` al mergear.
 - **Worktrees locales podados**: `git worktree remove` + `git worktree prune` post-merge.
 - **Standing auth hasta revocación**: §15.6 puede ser revocado en cualquier momento con frase explícita.
 
 ## Contributor checklist
 
-- [ ] El branch de trabajo se nombra con scope conventional (`feat/...`, `fix/...`, etc.) y sale de `main`.
+- [ ] La rama sigue `<type>/<issue>-<slug>` y sale de `main`.
 - [ ] Antes de mergear, el diff se queda ≤ 400 líneas o carga label `size:exception`.
+- [ ] El actor que mergea tiene rol `Maintain` o `Admin`.
 - [ ] El merge usa `--no-ff` y cita la URL del run de `ci.yml` verde.
 - [ ] No se pasó `--delete-branch` ni se ejecutó `git push origin --delete`.
 - [ ] Tras el merge, el worktree local se removió con `git worktree remove` + `git worktree prune`.
