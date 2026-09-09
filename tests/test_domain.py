@@ -1,6 +1,6 @@
 """Tests for the domain schema bootstrap (animales, voluntarios, roles_voluntario).
 
-Mirrors the pattern in ``tests/test_auth.py``: real ``InsForgeClient`` with
+Mirrors the pattern in ``tests/test_auth.py``: real ``SqlExecutor`` with
 ``httpx.MockTransport`` so we exercise the SQL strings, params, and
 response parsing without hitting the network. The schema definitions
 are verified structurally (columns, types, constraints, FKs) by parsing
@@ -42,7 +42,8 @@ from app.core.domain import (
     VOLUNTARIOS_CREATE_TABLE_SQL,
     ensure_domain_schema,
 )
-from app.core.insforge import InsForgeClient, InsForgeError
+from app.core.data_access import BackendError as InsForgeError
+from app.core.data_access import SqlExecutor
 
 
 def _json_response(status_code: int, body: Any) -> httpx.Response:
@@ -53,7 +54,7 @@ def _json_response(status_code: int, body: Any) -> httpx.Response:
     )
 
 
-def _client_recording(handler) -> tuple[InsForgeClient, list[dict[str, Any]]]:
+def _client_recording(handler) -> tuple[SqlExecutor, list[dict[str, Any]]]:
     """Build a client whose MockTransport records every call's JSON body."""
     captured: list[dict[str, Any]] = []
 
@@ -63,7 +64,7 @@ def _client_recording(handler) -> tuple[InsForgeClient, list[dict[str, Any]]]:
         captured.append(body)
         return handler(request, body)
 
-    client = InsForgeClient(
+    client = SqlExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=httpx.MockTransport(_recording_handler),
@@ -326,7 +327,7 @@ def test_ensure_domain_schema_raises_when_create_table_fails() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return _json_response(500, {"error": "boom"})
 
-    client = InsForgeClient(
+    client = SqlExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=httpx.MockTransport(handler),

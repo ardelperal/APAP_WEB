@@ -47,7 +47,7 @@ def test_port_module_is_transport_free() -> None:
     Rule §31: domain services (and the ports they depend on) must
     import Protocol abstractions, never concrete transport
     surfaces. ``app.core.insforge`` is the transport client
-    (InsForgeClient + REST wrappers); ``app.core.data_access``
+    (SqlExecutor + REST wrappers); ``app.core.data_access``
     declares the transport-shaped exception hierarchy (DataAccessError
     / InsForgeError / DuplicateKeyError). The adapter owns both;
     the port stays abstract.

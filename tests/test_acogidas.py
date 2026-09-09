@@ -9,7 +9,7 @@ The ``acogidas.service`` module owns:
 - close_acogida vs delete_acogida semantic split (D-EST-04)
 
 Mirror of the ``tests/test_entradas.py`` and ``tests/test_foster.py``
-patterns: real InsForgeClient + httpx.MockTransport for SQL shape
+patterns: real LocalPostgresExecutor + httpx.MockTransport for SQL shape
 assertion. Each test records the SQL queries captured and asserts the
 shape; the assertions fail loudly if a future refactor breaks the
 contract.
@@ -25,7 +25,8 @@ from typing import Any
 import httpx
 import pytest
 
-from app.core.insforge import InsForgeClient
+from app.core.local_backend.db import LocalPostgresExecutor
+from app.core.data_access import SqlExecutor
 from app.modules.acogidas import service as acogidas_service
 
 
@@ -39,7 +40,7 @@ def _json_response(status_code: int, body: Any) -> httpx.Response:
 
 def _client_recording(
     handler: Callable[[httpx.Request, dict[str, Any]], httpx.Response],
-) -> tuple[InsForgeClient, list[dict[str, Any]]]:
+) -> tuple[LocalPostgresExecutor, list[dict[str, Any]]]:
     captured: list[dict[str, Any]] = []
 
     def _recording_handler(request: httpx.Request) -> httpx.Response:
@@ -48,7 +49,7 @@ def _client_recording(
         captured.append(body)
         return handler(request, body)
 
-    client = InsForgeClient(
+    client = LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=httpx.MockTransport(_recording_handler),

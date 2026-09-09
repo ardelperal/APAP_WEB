@@ -31,7 +31,7 @@ import httpx
 import pytest
 
 from app.core.data_access import SqlExecutor
-from app.core.insforge import InsForgeClient
+from app.core.data_access import SqlExecutor
 from app.modules.animals.lifecycle_events import (
     CAUSAL_PAIR_DECISION_ID,
     CORE_EVENT_TYPES,
@@ -55,7 +55,7 @@ def _json_response(status_code: int, body: Any) -> httpx.Response:
 
 def _client_recording(
     handler,
-) -> tuple[InsForgeClient, list[dict[str, Any]]]:
+) -> tuple[SqlExecutor, list[dict[str, Any]]]:
     """Build a client whose MockTransport records every call's JSON body."""
     captured: list[dict[str, Any]] = []
 
@@ -65,7 +65,7 @@ def _client_recording(
         captured.append(body)
         return handler(request, body)
 
-    client = InsForgeClient(
+    client = SqlExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=httpx.MockTransport(_recording_handler),

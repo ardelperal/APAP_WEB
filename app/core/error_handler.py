@@ -1,4 +1,4 @@
-"""Global FastAPI exception handler that translates ``InsForgeError`` to a 502.
+"""Global FastAPI exception handler that translates ``BackendError`` to a 502.
 
 §32.P4 (issues #277, #278): a route that catches only its domain
 error (``ValueError``) and lets transport errors (network failures,
@@ -14,7 +14,7 @@ is a single call from ``create_app``'s call site.
 Hexagonal taxonomy (issue #420):
 
 - Port    :mod:`app.core.ports.insforge_error_handler_port` — abstract surface.
-- Adapter :mod:`app.core.adapters.insforge.insforge_error_handler_insforge_adapter`
+- Adapter :mod:`app.core.di.insforge_error_handler_di`
   — InsForge impl.
 - DI      :mod:`app.core.di.insforge_error_handler_di` — wiring.
 - THIS   (this module) — shim: FastAPI exception handler
@@ -51,7 +51,7 @@ def register_insforge_error_handler(
 ) -> None:
     """Register a global handler that translates unhandled transport errors to 502.
 
-    The duplicate-email path translates ``InsForgeError`` to
+    The duplicate-email path translates ``BackendError`` to
     ``ValueError`` inside the admin slice so the route renders it
     as a friendly flash. Every OTHER transport error reaching this
     handler is a transport / server failure from the upstream — it
@@ -59,7 +59,7 @@ def register_insforge_error_handler(
     emitted via :func:`log_safe`.
 
     Without this handler, a route's narrow ``except ValueError``
-    would let ``InsForgeError`` propagate to a generic 500 page
+    would let ``BackendError`` propagate to a generic 500 page
     (the §32.P4 anti-pattern judgment-day flagged as BLOCKER on
     PR #308).
 
@@ -69,7 +69,7 @@ def register_insforge_error_handler(
             to and how to translate it). The DI layer
             (:mod:`app.core.di.insforge_error_handler_di`) provides
             the production
-            :class:`~app.core.adapters.insforge.insforge_error_handler_insforge_adapter.BackendErrorTranslation`
+            :class:`~app.core.di.insforge_error_handler_di.BackendErrorTranslation`
             adapter.
     """
     target_cls = port.target_exception_type

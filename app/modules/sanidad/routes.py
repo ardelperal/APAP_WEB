@@ -62,7 +62,7 @@ from app.core.auth_dependencies import (
 )
 from app.core.csrf import csrf_token_context_processor
 from app.core.data_access import BackendError
-from app.core.insforge import InsForgeClient
+from app.core.data_access import SqlExecutor
 from app.core.logging import log_safe
 from app.core.middleware import base_template_context_processor
 from app.core.rbac import Permission, require_permission
@@ -171,7 +171,7 @@ def _render_form(  # noqa: PLR0913  # non-route helper; 7 args (incl. catalogos_
 
 
 def _load_catalogos_pruebas_for_form(
-    client: InsForgeClient,
+    client: SqlExecutor,
     *,
     context: str,
     actuacion_id: str | None = None,
@@ -192,7 +192,7 @@ def _load_catalogos_pruebas_for_form(
 def _render_backend_error(  # noqa: PLR0913  # non-route helper; 8 args needed to rebuild the form on backend failure
     request: Request,
     user: AuthenticatedUser,
-    client: InsForgeClient,
+    client: SqlExecutor,
     form_data: dict[str, Any],
     form_action: str,
     exc: BackendError,

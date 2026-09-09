@@ -24,7 +24,7 @@ Hexagonal taxonomy:
 - Port    (this module) — abstract surface.
 - Application :mod:`app.core.application.insforge_error_handler` —
   use case (the global handler registration).
-- Adapter :mod:`app.core.adapters.insforge.insforge_error_handler_insforge_adapter`
+- Adapter :mod:`app.core.di.insforge_error_handler_di`
   — InsForge impl (the only file in this slice that imports
   :class:`InsForgeError`).
 - DI      :mod:`app.core.di.insforge_error_handler_di` — wiring.
@@ -112,7 +112,7 @@ class ErrorTranslationPort(Protocol):
 
     Implementations:
 
-    - :class:`~app.core.adapters.insforge.insforge_error_handler_insforge_adapterBackendErrorTranslation`
+    - :class:`~app.core.di.insforge_error_handler_diBackendErrorTranslation`
       — production adapter for :class:`~app.core.data_access.BackendError`.
     """
 

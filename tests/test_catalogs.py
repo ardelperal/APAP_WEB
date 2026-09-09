@@ -50,34 +50,43 @@ from app.core.catalogs import (
     list_catalogos_pruebas,
     list_catalogos_tipos_contrato,
 )
-from app.core.insforge import InsForgeClient, InsForgeError
 
 # --- helpers --------------------------------------------------------------
 
 
-def _json_response(status_code: int, body: Any) -> httpx.Response:
-    return httpx.Response(
-        status_code=status_code,
-        content=json.dumps(body).encode("utf-8"),
-        headers={"content-type": "application/json"},
-    )
+class _FakeSqlExecutor:
+    """Captures SQL without hitting the network."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, list[object]]] = []
+        self._responses: list[list[dict[str, object]]] = []
+
+    def set_response(self, rows: list[dict[str, object]]) -> None:
+        self._responses = [rows]
+
+    def set_responses(self, *responses: list[dict[str, object]]) -> None:
+        self._responses = list(responses)
+
+    def execute_sql(self, query: str, params: list[object] | None = None) -> list[dict[str, object]]:
+        self.calls.append((query, list(params or [])))
+        if self._responses:
+            return self._responses.pop(0)
+        return []
+
+    def close(self) -> None:
+        pass  # No-op for fake
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
 
 
-def _client_recording(handler) -> tuple[InsForgeClient, list[dict[str, Any]]]:
-    """Build a client whose MockTransport records every call's JSON body."""
-    captured: list[dict[str, Any]] = []
-
-    def _recording_handler(request: httpx.Request) -> httpx.Response:
-        assert request.headers.get("Authorization", "").startswith("Bearer ")
-        body = json.loads(request.content.decode("utf-8")) if request.content else {}
-        captured.append(body)
-        return handler(request, body)
-
-    return InsForgeClient(
-        base_url="https://example.insforge.app",
-        service_key="ik_test",
-        transport=httpx.MockTransport(_recording_handler),
-    ), captured
+def _client_recording() -> tuple[_FakeSqlExecutor, list[tuple[str, list[object]]]]:
+    """Build a fake executor that records every SQL call."""
+    fake = _FakeSqlExecutor()
+    return fake, fake.calls
 
 
 def _column_names(sql: str) -> set[str]:
@@ -443,12 +452,11 @@ def test_catalogos_tipos_contrato_seed_contains_all_eight_legacy_values() -> Non
 
 def test_ensure_catalogs_creates_all_five_catalog_tables() -> None:
     """The bootstrap creates 5 catalog tables + 5 seed statements."""
-    client, captured = _client_recording(lambda req, body: _json_response(200, []))
+    fake, captured = _client_recording()
 
-    ensure_catalogs(client)
-    client.close()
+    ensure_catalogs(fake)
 
-    queries = [c["query"].strip() for c in captured]
+    queries = [c[0].strip() for c in captured]
     create_table_names = [
         _table_name_from_create(q)
         for q in queries
@@ -465,12 +473,11 @@ def test_ensure_catalogs_creates_all_five_catalog_tables() -> None:
 
 def test_ensure_catalogs_runs_each_seed_after_its_create_table() -> None:
     """DDL + seed for the same catalog must be adjacent (atomic per-catalog)."""
-    client, captured = _client_recording(lambda req, body: _json_response(200, []))
+    fake, captured = _client_recording()
 
-    ensure_catalogs(client)
-    client.close()
+    ensure_catalogs(fake)
 
-    queries = [c["query"].strip() for c in captured]
+    queries = [c[0].strip() for c in captured]
     expected_pairs = [
         "catalogos_origenes",
         "catalogos_motivos",
@@ -501,12 +508,11 @@ def test_ensure_catalogs_runs_each_seed_after_its_create_table() -> None:
 
 def test_ensure_catalogs_uses_on_conflict_do_nothing_for_idempotence() -> None:
     """Every seed must use ON CONFLICT DO NOTHING (idempotent on retry)."""
-    client, captured = _client_recording(lambda req, body: _json_response(200, []))
+    fake, captured = _client_recording()
 
-    ensure_catalogs(client)
-    client.close()
+    ensure_catalogs(fake)
 
-    inserts = [c["query"] for c in captured if "INSERT INTO" in c["query"]]
+    inserts = [c[0] for c in captured if "INSERT INTO" in c[0]]
     assert len(inserts) == 5, f"expected 5 inserts, got {len(inserts)}: {inserts}"
     for ins in inserts:
         assert "ON CONFLICT" in ins.upper(), (
@@ -525,14 +531,13 @@ def test_ensure_catalogs_is_idempotent_on_repeated_runs() -> None:
     silently. Real InsForge's ON CONFLICT DO NOTHING semantics close
     the loop end-to-end.
     """
-    client, captured = _client_recording(lambda req, body: _json_response(200, []))
+    fake, captured = _client_recording()
 
-    ensure_catalogs(client)
+    ensure_catalogs(fake)
     first_run_len = len(captured)
-    ensure_catalogs(client)
+    ensure_catalogs(fake)
     second_run_len = len(captured)
 
-    client.close()
 
     assert second_run_len == 2 * first_run_len, (
         f"second run produced {second_run_len - first_run_len} extra calls, "
@@ -541,82 +546,70 @@ def test_ensure_catalogs_is_idempotent_on_repeated_runs() -> None:
 
 
 def test_ensure_catalogs_raises_when_create_table_fails() -> None:
-    """If the first DDL fails, ensure_catalogs propagates InsForgeError."""
+    """If the first DDL fails, ensure_catalogs propagates BackendError."""
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        return _json_response(500, {"error": "boom"})
+    from app.core.data_access import BackendError
 
-    client = InsForgeClient(
-        base_url="https://example.insforge.app",
-        service_key="ik_test",
-        transport=httpx.MockTransport(handler),
-    )
-    with pytest.raises(InsForgeError):
-        ensure_catalogs(client)
-    client.close()
+    class _FailingFake:
+        def execute_sql(self, sql, params=None):
+            raise BackendError(500, {"error": "boom"})
+
+        def close(self):
+            pass
+
+    with pytest.raises(BackendError):
+        ensure_catalogs(_FailingFake())
 
 
 # --- list_catalogos_* read helpers ---------------------------------------
 
 
-def _client_returning(body: list[dict[str, Any]]) -> tuple[InsForgeClient, list[dict[str, Any]]]:
-    """Build a client that always returns the same body and records calls."""
-    captured: list[dict[str, Any]] = []
-
-    def _hh(request: httpx.Request) -> httpx.Response:
-        body_json = json.loads(request.content.decode("utf-8")) if request.content else {}
-        captured.append(body_json)
-        return _json_response(200, body)
-
-    return InsForgeClient(
-        base_url="https://example.insforge.app",
-        service_key="ik_test",
-        transport=httpx.MockTransport(_hh),
-    ), captured
+def _client_returning(
+    body: list[dict[str, Any]]
+) -> tuple[_FakeSqlExecutor, list[tuple[str, list[object]]]]:
+    """Build a fake executor that returns the given rows."""
+    fake = _FakeSqlExecutor()
+    fake.set_response(body)
+    return fake, fake.calls
 
 
 def test_list_catalogos_origenes_uses_expected_sql() -> None:
-    client, captured = _client_returning([])
-    rows = list_catalogos_origenes(client)
-    client.close()
+    fake, captured = _client_returning([])
+    rows = list_catalogos_origenes(fake)
     assert rows == []
     assert len(captured) == 1
-    assert captured[0]["query"].strip().upper().startswith("SELECT")
-    assert "FROM catalogos_origenes" in captured[0]["query"]
+    assert captured[0][0].strip().upper().startswith("SELECT")
+    assert "FROM catalogos_origenes" in captured[0][0]
     # query must carry no parameters (no params needed for the default order)
-    assert captured[0].get("params") in (None, [], [])
+    assert captured[0][1] in (None, [], [])
 
 
 def test_list_catalogos_motivos_uses_expected_sql() -> None:
-    client, captured = _client_returning([])
-    rows = list_catalogos_motivos(client)
-    client.close()
+    fake, captured = _client_returning([])
+    rows = list_catalogos_motivos(fake)
     assert rows == []
-    assert "FROM catalogos_motivos" in captured[0]["query"]
+    assert "FROM catalogos_motivos" in captured[0][0]
 
 
 def test_list_catalogos_pruebas_uses_expected_sql() -> None:
-    client, captured = _client_returning([])
-    rows = list_catalogos_pruebas(client)
-    client.close()
+    fake, captured = _client_returning([])
+    rows = list_catalogos_pruebas(fake)
     assert rows == []
-    assert "FROM catalogos_pruebas" in captured[0]["query"]
+    assert "FROM catalogos_pruebas" in captured[0][0]
 
 
 def test_list_catalogos_periodicidad_uses_expected_sql() -> None:
-    client, captured = _client_returning([])
-    rows = list_catalogos_periodicidad(client)
-    client.close()
+    fake, captured = _client_returning([])
+    rows = list_catalogos_periodicidad(fake)
     assert rows == []
-    assert "FROM catalogos_periodicidad" in captured[0]["query"]
+    assert "FROM catalogos_periodicidad" in captured[0][0]
 
 
 def test_list_catalogos_tipos_contrato_uses_expected_sql() -> None:
-    client, captured = _client_returning([])
-    rows = list_catalogos_tipos_contrato(client)
-    client.close()
+    fake, captured = _client_returning([])
+    rows = list_catalogos_tipos_contrato(fake)
     assert rows == []
-    assert "FROM catalogos_tipos_contrato" in captured[0]["query"]
+    assert "FROM catalogos_tipos_contrato" in captured[0][0]
 
 
 def test_list_catalogos_origenes_returns_rows_from_client() -> None:
@@ -625,9 +618,8 @@ def test_list_catalogos_origenes_returns_rows_from_client() -> None:
         {"id": "a", "codigo": "Acogida", "nombre": "Acogida"},
         {"id": "b", "codigo": "Regalo", "nombre": "Regalo"},
     ]
-    client, _ = _client_returning(fake_rows)
-    rows = list_catalogos_origenes(client)
-    client.close()
+    fake, _ = _client_returning(fake_rows)
+    rows = list_catalogos_origenes(fake)
     assert rows == fake_rows
 
 

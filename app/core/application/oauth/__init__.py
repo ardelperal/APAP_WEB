@@ -5,14 +5,14 @@ to the :class:`OAuthPort` (and, for the callback, the
 :class:`AuthUsersPort`) Protocol. The use cases do NOT do transport
 work, response building, or cookie parsing — those concerns live in
 the route layer (see the new ``app.core.auth_flow`` shim) and in
-the adapter (:mod:`app.core.adapters.insforge.oauth_insforge_adapter`).
+the adapter (:mod:`app.core.local_backend.oauth_adapter`).
 
 Hexagonal taxonomy:
 
 - Domain     :mod:`app.core.domain.oauth` — entities + Protocol errors.
 - Port       :mod:`app.core.ports.oauth_port` — abstract surface.
 - THIS      (this module) — use cases.
-- Adapter    :mod:`app.core.adapters.insforge.oauth_insforge_adapter` — InsForge impl.
+- Adapter    :mod:`app.core.local_backend.oauth_adapter` — InsForge impl.
 - DI         :mod:`app.core.di.oauth_di` — FastAPI wiring.
 """
 

@@ -18,11 +18,11 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.core.adapters.insforge.insforge_error_handler_insforge_adapter import (
+from app.core.di.insforge_error_handler_di import (
     InsForgeErrorTranslation,
 )
 from app.core.data_access import InsForgeError
-from app.core.insforge_error_handler import register_insforge_error_handler
+from app.core.error_handler import register_insforge_error_handler
 
 
 @pytest.fixture
@@ -116,7 +116,7 @@ def test_legacy_shim_still_exports_register_function() -> None:
     path. The function is now defined in the shim itself (the
     slice has no application layer — see the shim's docstring).
     """
-    from app.core.insforge_error_handler import (
+    from app.core.error_handler import (
         register_insforge_error_handler as shim_function,
     )
 

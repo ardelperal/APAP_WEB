@@ -62,7 +62,8 @@ import pytest
 
 from app.core.auth_dependencies import get_insforge_client_dep
 from app.core.config import get_settings
-from app.core.insforge import InsForgeClient
+from app.core.local_backend.db import LocalPostgresExecutor
+from app.core.data_access import SqlExecutor
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
 from app.modules.materiales import estancia_material_service
@@ -72,7 +73,7 @@ from tests.conftest import auth_reval_rows, make_csrf_request
 # --- helpers --------------------------------------------------------------
 
 
-class _NoSqlRouteClient(InsForgeClient):
+class _NoSqlRouteClient(LocalPostgresExecutor):
     """Client spy that fails if a route executes SQL directly.
 
     Mirrors ``tests/test_foster_routes.py``. Routes own no SQL; they
@@ -237,11 +238,11 @@ async def test_get_materiales_list_renders_table(
       session.
     """
     _login_as_key_user(client)
-    calls: list[tuple[InsForgeClient, bool]] = []
+    calls: list[tuple[LocalPostgresExecutor, bool]] = []
     material = _material()
 
     def fake_list(
-        service_client: InsForgeClient, activos_solo: bool = True
+        service_client: LocalPostgresExecutor, activos_solo: bool = True
     ) -> list[materiales_service.Material]:
         calls.append((service_client, activos_solo))
         return [material]
@@ -298,10 +299,10 @@ async def test_post_materiales_creates_and_redirects(
     """Valid create form -> service returns the material -> 303 to detail."""
     _login_as_key_user(client)
     material = _material()
-    calls: list[tuple[InsForgeClient, dict[str, Any]]] = []
+    calls: list[tuple[LocalPostgresExecutor, dict[str, Any]]] = []
 
     def fake_create(
-        service_client: InsForgeClient, params: dict[str, Any]
+        service_client: LocalPostgresExecutor, params: dict[str, Any]
     ) -> materiales_service.Material:
         calls.append((service_client, params))
         return material
@@ -346,7 +347,7 @@ async def test_post_materiales_duplicate_returns_409(
     _login_as_key_user(client)
 
     def fake_create(
-        service_client: InsForgeClient, params: dict[str, Any]
+        service_client: LocalPostgresExecutor, params: dict[str, Any]
     ) -> materiales_service.Material:
         raise materiales_service.MaterialConflictError(
             "ya existe material con esa combinacion material+tamano+color"
@@ -387,7 +388,7 @@ async def test_post_materiales_validation_rejects_blank_fields(
     _login_as_key_user(client)
 
     def fake_create(
-        service_client: InsForgeClient, params: dict[str, Any]
+        service_client: LocalPostgresExecutor, params: dict[str, Any]
     ) -> materiales_service.Material:
         raise ValueError(
             "material es obligatorio y no puede estar vacio"
@@ -433,7 +434,7 @@ async def test_post_materiales_requires_csrf_token(
     service_calls: list[Any] = []
 
     def _create_must_not_run(
-        service_client: InsForgeClient, params: dict[str, Any]
+        service_client: LocalPostgresExecutor, params: dict[str, Any]
     ) -> materiales_service.Material:
         service_calls.append(params)
         raise AssertionError(
@@ -561,10 +562,10 @@ async def test_post_materiales_id_edit_updates_and_redirects(
     """Valid update -> service returns the material -> 303 to detail."""
     _login_as_key_user(client)
     updated = _material(color="Verde")
-    calls: list[tuple[InsForgeClient, str, dict[str, Any]]] = []
+    calls: list[tuple[LocalPostgresExecutor, str, dict[str, Any]]] = []
 
     def fake_update(
-        service_client: InsForgeClient,
+        service_client: LocalPostgresExecutor,
         material_id: str,
         params: dict[str, Any],
     ) -> materiales_service.Material | None:
@@ -599,10 +600,10 @@ async def test_post_materiales_id_deactivate_soft_deletes(
 ) -> None:
     """Deactivate succeeds (service True) -> 303 redirect to list."""
     _login_as_key_user(client)
-    calls: list[tuple[InsForgeClient, str]] = []
+    calls: list[tuple[LocalPostgresExecutor, str]] = []
 
     def fake_deactivate(
-        service_client: InsForgeClient, material_id: str
+        service_client: LocalPostgresExecutor, material_id: str
     ) -> bool:
         calls.append((service_client, material_id))
         return True
@@ -773,16 +774,16 @@ async def test_get_acogidas_materiales_lists_per_estancia(
     """
     _login_as_key_user(client)
     list_calls: list[
-        tuple[InsForgeClient, str, bool]
+        tuple[LocalPostgresExecutor, str, bool]
     ] = []
     catalog_calls: list[
-        tuple[InsForgeClient, bool]
+        tuple[LocalPostgresExecutor, bool]
     ] = []
     junction = _estancia_material()
     catalog_material = _material()
 
     def fake_list_for_estancia(
-        service_client: InsForgeClient,
+        service_client: LocalPostgresExecutor,
         estancia_id: str,
         activos_solo: bool = True,
     ) -> list[materiales_service.EstanciaMaterial]:
@@ -790,7 +791,7 @@ async def test_get_acogidas_materiales_lists_per_estancia(
         return [junction]
 
     def fake_list_materials(
-        service_client: InsForgeClient, activos_solo: bool = True
+        service_client: LocalPostgresExecutor, activos_solo: bool = True
     ) -> list[materiales_service.Material]:
         catalog_calls.append((service_client, activos_solo))
         return [catalog_material]
@@ -888,11 +889,11 @@ async def test_post_acogidas_materiales_assigns_and_redirects(
     _login_as_key_user(client)
     junction = _estancia_material()
     calls: list[
-        tuple[InsForgeClient, str, str, int, str | None]
+        tuple[LocalPostgresExecutor, str, str, int, str | None]
     ] = []
 
     def fake_assign(
-        service_client: InsForgeClient,
+        service_client: LocalPostgresExecutor,
         estancia_id: str,
         material_id: str,
         cantidad: int = 1,
@@ -946,7 +947,7 @@ async def test_post_acogidas_materiales_assign_returns_409_on_duplicate(
     _login_as_key_user(client)
 
     def fake_assign(
-        service_client: InsForgeClient,
+        service_client: LocalPostgresExecutor,
         estancia_id: str,
         material_id: str,
         cantidad: int = 1,
@@ -957,12 +958,12 @@ async def test_post_acogidas_materiales_assign_returns_409_on_duplicate(
         )
 
     def fake_list_materials(
-        service_client: InsForgeClient, activos_solo: bool = True
+        service_client: LocalPostgresExecutor, activos_solo: bool = True
     ) -> list[materiales_service.Material]:
         return []
 
     def fake_list_for_estancia(
-        service_client: InsForgeClient,
+        service_client: LocalPostgresExecutor,
         estancia_id: str,
         activos_solo: bool = True,
     ) -> list[materiales_service.EstanciaMaterial]:
@@ -1016,12 +1017,12 @@ async def test_post_acogidas_materiales_assign_cantidad_zero_returns_422(
     _login_as_key_user(client)
 
     def fake_list_materials(
-        service_client: InsForgeClient, activos_solo: bool = True
+        service_client: LocalPostgresExecutor, activos_solo: bool = True
     ) -> list[materiales_service.Material]:
         return []
 
     def fake_list_for_estancia(
-        service_client: InsForgeClient,
+        service_client: LocalPostgresExecutor,
         estancia_id: str,
         activos_solo: bool = True,
     ) -> list[materiales_service.EstanciaMaterial]:
@@ -1080,12 +1081,12 @@ async def test_post_acogidas_materiales_assign_cantidad_invalid_returns_422(
     _login_as_key_user(client)
 
     def fake_list_materials(
-        service_client: InsForgeClient, activos_solo: bool = True
+        service_client: LocalPostgresExecutor, activos_solo: bool = True
     ) -> list[materiales_service.Material]:
         return []
 
     def fake_list_for_estancia(
-        service_client: InsForgeClient,
+        service_client: LocalPostgresExecutor,
         estancia_id: str,
         activos_solo: bool = True,
     ) -> list[materiales_service.EstanciaMaterial]:
@@ -1143,7 +1144,7 @@ async def test_post_acogidas_materiales_assign_value_error_returns_422(
     _login_as_key_user(client)
 
     def fake_assign(
-        service_client: InsForgeClient,
+        service_client: LocalPostgresExecutor,
         estancia_id: str,
         material_id: str,
         cantidad: int = 1,
@@ -1154,12 +1155,12 @@ async def test_post_acogidas_materiales_assign_value_error_returns_422(
         )
 
     def fake_list_materials(
-        service_client: InsForgeClient, activos_solo: bool = True
+        service_client: LocalPostgresExecutor, activos_solo: bool = True
     ) -> list[materiales_service.Material]:
         return []
 
     def fake_list_for_estancia(
-        service_client: InsForgeClient,
+        service_client: LocalPostgresExecutor,
         estancia_id: str,
         activos_solo: bool = True,
     ) -> list[materiales_service.EstanciaMaterial]:
@@ -1203,10 +1204,10 @@ async def test_post_acogidas_materiales_mid_delete_soft_deletes(
 ) -> None:
     """Valid delete -> service returns True -> 303 to per-stay list."""
     _login_as_key_user(client)
-    calls: list[tuple[InsForgeClient, str]] = []
+    calls: list[tuple[LocalPostgresExecutor, str]] = []
 
     def fake_remove(
-        service_client: InsForgeClient, junction_id: str
+        service_client: LocalPostgresExecutor, junction_id: str
     ) -> bool:
         calls.append((service_client, junction_id))
         return True

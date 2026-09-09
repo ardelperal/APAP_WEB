@@ -27,7 +27,7 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from app.core.insforge import InsForgeClient
+from app.core.data_access import SqlExecutor
 from migration import (
     FkLookupError,
     LockActiveError,
@@ -866,7 +866,7 @@ class TestYamlWebOnlyStrategyRegression:
 # snapshots que el diff engine consume. ``legacy_reader`` lee el .accdb
 # en batches de 100 filas vía Dysflow (con un callable inyectable para
 # tests, sin acoplar a la MCP real); ``web_reader`` lee vía
-# ``InsForgeClient`` (mockeable con ``httpx.MockTransport``). Ambos
+# ``SqlExecutor`` (mockeable con ``httpx.MockTransport``). Ambos
 # retornan ``dict[str, list[dict]]`` indexado por nombre de tabla.
 #
 # Estos tests se escriben ANTES de los módulos
@@ -1053,12 +1053,12 @@ class TestWebReader:
     shim ``migration.web_reader`` (backwards compat), pero el
     cliente ahora se inyecta via :class:`WebReaderPort`
     (concretamente el :class:`InsForgeWebReaderAdapter`) en lugar
-    del :class:`InsForgeClient` raw — el Protocol port es el seam
+    del :class:`SqlExecutor` raw — el Protocol port es el seam
     que oculta el transporte al use case.
     """
 
-    def _make_mock_client(self, captured: list[str]) -> InsForgeClient:
-        """Construye un InsForgeClient con MockTransport que captura el SQL enviado."""
+    def _make_mock_client(self, captured: list[str]) -> SqlExecutor:
+        """Construye un SqlExecutor con MockTransport que captura el SQL enviado."""
 
         def handler(request: httpx.Request) -> httpx.Response:
             captured.append(request.content.decode())
@@ -1068,7 +1068,7 @@ class TestWebReader:
                 headers={"content-type": "application/json"},
             )
 
-        return InsForgeClient(
+        return SqlExecutor(
             base_url="https://example.insforge.app",
             service_key="ik_test",
             transport=httpx.MockTransport(handler),
@@ -1131,7 +1131,7 @@ class TestWebReader:
                 headers={"content-type": "application/json"},
             )
 
-        client = InsForgeClient(
+        client = SqlExecutor(
             base_url="https://example.insforge.app",
             service_key="ik_test",
             transport=httpx.MockTransport(handler),
@@ -1428,7 +1428,7 @@ class TestCliReconcile:
                 headers={"content-type": "application/json"},
             )
 
-        client = InsForgeClient(
+        client = SqlExecutor(
             base_url="https://example.insforge.app",
             service_key="ik_test",
             transport=httpx.MockTransport(handler),

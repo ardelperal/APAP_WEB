@@ -45,7 +45,6 @@ import pytest_asyncio
 os.environ.setdefault("APAP_MODE", "test")
 
 from app.core.config import get_settings  # noqa: E402  (must follow the env set)
-from app.core.insforge import InsForgeClient  # noqa: E402
 from app.core.session import read_session, session_cookie_name  # noqa: E402
 from app.main import app as _app  # noqa: E402
 
@@ -142,7 +141,7 @@ def _install_default_insforge_client() -> None:
     fixture runs; the test order runs autouse FIRST then
     non-autouse, so the override wins for that test.
     """
-    class _DefaultInsForgeSpy(InsForgeClient):
+    class _DefaultSqlExecutorSpy:
         def __init__(self) -> None:  # type: ignore[override]
             import httpx as _httpx
             self._client = _httpx.Client(base_url="https://default-spy.example")
@@ -192,7 +191,7 @@ def _install_default_insforge_client() -> None:
                 ]
             return []
 
-    spy = _DefaultInsForgeSpy()
+    spy = _DefaultSqlExecutorSpy()
     _app.state.insforge_client = spy
     _app.state.sql_executor = spy
     yield

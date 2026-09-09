@@ -8,7 +8,7 @@ The ``sanidad.service`` module owns:
 - search by ``animal_id`` (D-HEALTH-04)
 - CTE TOCTOU-safe writes (D-HEALTH-05)
 
-Mirror of the ``tests/test_adopciones.py`` pattern: real InsForgeClient
+Mirror of the ``tests/test_adopciones.py`` pattern: real LocalPostgresExecutor
 + httpx.MockTransport for SQL shape assertion. The mock handler answers
 CTE queries with a single round-trip; on a 0-row CTE the service runs
 targeted disambiguation SELECTs which the handler also answers.
@@ -25,7 +25,8 @@ from typing import Any
 import httpx
 import pytest
 
-from app.core.insforge import InsForgeClient
+from app.core.local_backend.db import LocalPostgresExecutor
+from app.core.data_access import SqlExecutor
 from app.modules.sanidad import service as sanidad_service
 
 
@@ -39,7 +40,7 @@ def _json_response(status_code: int, body: Any) -> httpx.Response:
 
 def _client_recording(
     handler: Callable[[httpx.Request, dict[str, Any]], httpx.Response],
-) -> tuple[InsForgeClient, list[dict[str, Any]]]:
+) -> tuple[LocalPostgresExecutor, list[dict[str, Any]]]:
     captured: list[dict[str, Any]] = []
 
     def _recording_handler(request: httpx.Request) -> httpx.Response:
@@ -48,7 +49,7 @@ def _client_recording(
         captured.append(body)
         return handler(request, body)
 
-    client = InsForgeClient(
+    client = LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=httpx.MockTransport(_recording_handler),

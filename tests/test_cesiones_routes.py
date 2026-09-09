@@ -18,7 +18,8 @@ import pytest
 
 from app.core.auth_dependencies import get_insforge_client_dep
 from app.core.config import get_settings
-from app.core.insforge import InsForgeClient
+from app.core.local_backend.db import LocalPostgresExecutor
+from app.core.data_access import SqlExecutor
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
 from app.modules.cesiones import service as cesiones_service
@@ -27,7 +28,7 @@ from app.modules.cesiones.domain.cesion import Cesion, CesionConflictError, Cont
 from tests.conftest import auth_reval_rows, make_csrf_request
 
 
-class _NoSqlRouteClient(InsForgeClient):
+class _NoSqlRouteClient(LocalPostgresExecutor):
     """Client spy that fails if a route executes SQL directly."""
 
     def __init__(self) -> None:  # type: ignore[override]

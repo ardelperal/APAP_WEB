@@ -26,14 +26,15 @@ import pytest
 
 from app.core.auth_dependencies import get_insforge_client_dep
 from app.core.config import get_settings
-from app.core.insforge import InsForgeClient
+from app.core.local_backend.db import LocalPostgresExecutor
+from app.core.data_access import SqlExecutor
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
 from app.modules.entradas import batch_service
 from tests.conftest import auth_reval_rows, make_csrf_request
 
 
-class _NoSqlRouteClient(InsForgeClient):
+class _NoSqlRouteClient(LocalPostgresExecutor):
     """Client spy that fails if a route executes SQL directly."""
 
     def __init__(self) -> None:  # type: ignore[override]
@@ -171,7 +172,7 @@ async def test_batch_post_valid_records_stages_and_redirects_to_preview(
         records=(),
     )
 
-    def _fake_stage(client_arg: InsForgeClient, records: list[dict[str, Any]]):
+    def _fake_stage(client_arg: LocalPostgresExecutor, records: list[dict[str, Any]]):
         return fake_staging
 
     monkeypatch.setattr(batch_service, "stage_batch", _fake_stage)
@@ -195,7 +196,7 @@ async def test_batch_post_cross_batch_duplicate_rerenders_form_with_422(
 ) -> None:
     _login_as_key_user(client)
 
-    def _fake_stage(client_arg: InsForgeClient, records: list[dict[str, Any]]):
+    def _fake_stage(client_arg: LocalPostgresExecutor, records: list[dict[str, Any]]):
         raise batch_service.BatchValidationError(
             "Animal duplicado en el lote: "
             "animal_id=00000000-0000-0000-0000-000000000001 fecha_entrada=2026-07-15"
@@ -249,7 +250,7 @@ async def test_batch_preview_returns_404_when_batch_unknown(
 ) -> None:
     _login_as_key_user(client)
 
-    def _fake_get(client_arg: InsForgeClient, batch_id: str):
+    def _fake_get(client_arg: LocalPostgresExecutor, batch_id: str):
         return None
 
     monkeypatch.setattr(batch_service, "get_batch", _fake_get)
@@ -356,7 +357,7 @@ async def test_batch_commit_conflict_rerenders_preview_with_409(
 ) -> None:
     _login_as_key_user(client)
 
-    def _fake_commit(client_arg: InsForgeClient, batch_id: str):
+    def _fake_commit(client_arg: LocalPostgresExecutor, batch_id: str):
         raise batch_service.EntradaConflictError(
             "entrada duplicada durante el commit del lote"
         )
@@ -407,7 +408,7 @@ async def test_batch_commit_returns_404_when_batch_gone(
 ) -> None:
     _login_as_key_user(client)
 
-    def _fake_commit(client_arg: InsForgeClient, batch_id: str):
+    def _fake_commit(client_arg: LocalPostgresExecutor, batch_id: str):
         raise batch_service.EntradaConflictError("entrada duplicada")
 
     monkeypatch.setattr(batch_service, "commit_batch", _fake_commit)

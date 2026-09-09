@@ -35,7 +35,8 @@ from typing import Any
 
 import httpx
 
-from app.core.insforge import InsForgeClient
+from app.core.local_backend.db import LocalPostgresExecutor
+from app.core.data_access import SqlExecutor
 from migration.cli import main as cli_main
 
 # --- helpers --------------------------------------------------------------
@@ -49,8 +50,8 @@ def _json_response(status_code: int, body: Any) -> httpx.Response:
     )
 
 
-def _make_web_client(handler: Callable[[httpx.Request], httpx.Response]) -> InsForgeClient:
-    return InsForgeClient(
+def _make_web_client(handler: Callable[[httpx.Request], httpx.Response]) -> LocalPostgresExecutor:
+    return LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=httpx.MockTransport(handler),
@@ -140,7 +141,7 @@ def _run_reconcile(
         # Default: return the shadow rows only when the query looks
         # like the ``list_needs_review`` SELECT. Anything else
         # (UPDATE, INSERT) returns an empty list — the
-        # InsForgeClient protocol doesn't choke on that, and the
+        # LocalPostgresExecutor protocol doesn't choke on that, and the
         # tests assert the call was issued (not the result).
         if "web_only_feature_shadow" in query and "WHERE" in query:
             return _json_response(200, shadow_rows)

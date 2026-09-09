@@ -13,7 +13,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from app.core.insforge import InsForgeClient
+from app.core.data_access import SqlExecutor
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
 
@@ -75,7 +75,7 @@ def test_solo_dos_call_sites_en_app() -> None:
     }
 
 
-class _Spy(InsForgeClient):
+class _Spy(SqlExecutor):
     """InsForge stand-in: [] from execute_sql, no HTTP I/O."""
 
     def __init__(self) -> None:  # type: ignore[override]

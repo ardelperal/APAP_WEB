@@ -25,7 +25,7 @@ from typing import Any
 
 import httpx
 
-from app.core.insforge import InsForgeClient
+from app.core.data_access import SqlExecutor
 
 # --- helpers --------------------------------------------------------------
 
@@ -40,8 +40,8 @@ def _json_response(status_code: int, body: Any) -> httpx.Response:
 
 def _make_web_client(
     handler: Callable[[httpx.Request], httpx.Response],
-) -> InsForgeClient:
-    return InsForgeClient(
+) -> SqlExecutor:
+    return SqlExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=httpx.MockTransport(handler),

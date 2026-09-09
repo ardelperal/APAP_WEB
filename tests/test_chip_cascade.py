@@ -23,7 +23,7 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
-from app.core.insforge import InsForgeClient
+from app.core.data_access import SqlExecutor
 from app.main import app, get_insforge_client
 from app.modules.animals.adapters.insforge.animals_insforge_adapter import (
     AnimalsInsforgeAdapter,
@@ -52,7 +52,7 @@ def _json_response(status: int, body: dict[str, Any]) -> httpx.Response:
 # =============================================================================
 
 
-class _ChipCascadeSpy(InsForgeClient):
+class _ChipCascadeSpy(SqlExecutor):
     """Minimal spy that handles auth revalidation SELECT queries.
 
     Used by route-level chip cascade tests to avoid network calls for the
@@ -318,7 +318,7 @@ def test_chip_change_cascades_to_all_six_tables():
         return _json_response(200, {"rows": [], "rowCount": 0, "fields": []})
 
     transport = httpx.MockTransport(handler)
-    client = InsForgeClient(
+    client = SqlExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=transport,
@@ -360,7 +360,7 @@ def test_chip_change_returns_false_when_new_chip_already_assigned():
         return _json_response(200, {"rows": [], "rowCount": 0, "fields": []})
 
     transport = httpx.MockTransport(handler)
-    client = InsForgeClient(
+    client = SqlExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=transport,
@@ -395,7 +395,7 @@ def test_chip_change_returns_false_when_old_chip_mismatch():
         return _json_response(200, {"rows": [], "rowCount": 0, "fields": []})
 
     transport = httpx.MockTransport(handler)
-    client = InsForgeClient(
+    client = SqlExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=transport,
@@ -432,7 +432,7 @@ def test_chip_change_rollback_on_table_failure():
         return _json_response(200, {"rows": [], "rowCount": 0, "fields": []})
 
     transport = httpx.MockTransport(handler)
-    client = InsForgeClient(
+    client = SqlExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=transport,

@@ -61,7 +61,7 @@ from app.core.dashboard_data import DASHBOARD_PENDING_CARDS, DASHBOARD_SHORTCUTS
 from app.core.di.insforge_error_handler_di import get_insforge_error_handler_port
 from app.core.domain import ensure_domain_schema
 from app.core.e2e_auth import register_e2e_auth_routes
-from app.core.insforge_error_handler import register_insforge_error_handler
+from app.core.error_handler import register_insforge_error_handler
 from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.logging import configure_logging
 from app.core.middleware import (

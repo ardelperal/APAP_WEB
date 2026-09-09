@@ -14,7 +14,8 @@ from typing import Any
 import httpx
 import pytest
 
-from app.core.insforge import InsForgeClient, InsForgeError
+from app.core.local_backend.db import LocalPostgresExecutor
+from app.core.data_access import BackendError as BackendError, SqlExecutor
 from migration import legacy_reader
 from migration.apply import apply_legacy_to_web
 from migration.cli import main
@@ -45,7 +46,7 @@ def test_private_bucket_invariant_existing_private_readback() -> None:
             {"buckets": [{"bucketName": APAP_PHOTOS, "isPublic": False}]},
         )
 
-    client = InsForgeClient(
+    client = LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=httpx.MockTransport(handler),
@@ -70,13 +71,13 @@ def test_public_bucket_aborts_fail_closed() -> None:
             {"buckets": [{"bucketName": APAP_PHOTOS, "isPublic": True}]},
         )
 
-    client = InsForgeClient(
+    client = LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=httpx.MockTransport(handler),
     )
     try:
-        with pytest.raises(InsForgeError) as excinfo:
+        with pytest.raises(BackendError) as excinfo:
             client.ensure_bucket(APAP_PHOTOS, is_public=False)
     finally:
         client.close()
@@ -111,13 +112,13 @@ def test_bucket_visibility_missing_or_null_fails_closed() -> None:
         return handler
 
     for label, buckets in scenarios:
-        client = InsForgeClient(
+        client = LocalPostgresExecutor(
             base_url="https://example.insforge.app",
             service_key="ik_test",
             transport=httpx.MockTransport(_make_handler(buckets)),
         )
         try:
-            with pytest.raises(InsForgeError) as excinfo:
+            with pytest.raises(BackendError) as excinfo:
                 client.ensure_bucket(APAP_PHOTOS, is_public=False)
         finally:
             client.close()
@@ -146,7 +147,7 @@ def test_missing_bucket_auto_create_is_private_and_idempotent() -> None:
             )
         return _json_response(500, {"error": "unexpected_call"})
 
-    client = InsForgeClient(
+    client = LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=httpx.MockTransport(handler),
@@ -227,7 +228,7 @@ def test_cli_ensure_bucket_rejects_unsafe_bucket_name() -> None:
     def handler(_request: httpx.Request) -> httpx.Response:
         raise AssertionError("unsafe bucket name must not reach the network")
 
-    client = InsForgeClient(
+    client = LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=httpx.MockTransport(handler),
@@ -261,7 +262,7 @@ def test_apply_bootstrap_failure_does_not_acquire_lock_or_read_legacy(
 
         def ensure_bucket(self, bucket_name: str, *, is_public: bool = False) -> dict[str, Any]:
             events.append("ensure_bucket")
-            raise InsForgeError(
+            raise BackendError(
                 409,
                 {
                     "error": "bucket_public_violation",
@@ -283,7 +284,7 @@ def test_apply_bootstrap_failure_does_not_acquire_lock_or_read_legacy(
     monkeypatch.setattr("migration.apply.release_lock", fake_release_lock)
     legacy_reader.set_legacy_query_executor(fake_executor)
     try:
-        with pytest.raises(InsForgeError) as excinfo:
+        with pytest.raises(BackendError) as excinfo:
             apply_legacy_to_web(
                 FailingBucketFake(),
                 "animal",

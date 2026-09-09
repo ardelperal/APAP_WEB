@@ -86,7 +86,6 @@ from app.core.domain_voluntarios import (  # noqa: F401  # noqa: E402
     ROLES_VOLUNTARIO_CREATE_TABLE_SQL,
     VOLUNTARIOS_CREATE_TABLE_SQL,
 )
-from app.core.insforge import InsForgeClient  # noqa: E402
 
 __all__ = [
     "ACOGIDAS_ADD_CASA_FK_SQL",
@@ -113,7 +112,6 @@ __all__ = [
     "FOSTER_CAPACITY_OVERRIDES_CREATE_TABLE_SQL",
     "MATERIALES_CREATE_TABLE_SQL",
     "RECOMENDACIONES_CREATE_TABLE_SQL",
-    "InsForgeClient",
     "ROLES_VOLUNTARIO_CREATE_TABLE_SQL",
     "TERAPIAS_CREATE_TABLE_SQL",
     "VOLUNTARIOS_CREATE_TABLE_SQL",

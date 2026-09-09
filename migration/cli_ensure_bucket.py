@@ -10,7 +10,7 @@ Hard rules (web-tdd-philosophy):
 - Rule 4 (no humo): the function reads bucket visibility and writes
   ``status=...`` lines; tests assert against the captured stream.
 - Rule 8 (no production mutation): runs only against the injected
-  ``InsForgeClient`` (test) or the operator's real client (production).
+  ``LocalPostgresExecutor`` (test) or the operator's real client (production).
 """
 
 from __future__ import annotations
@@ -19,14 +19,15 @@ import argparse
 import sys
 from typing import IO
 
-from app.core.insforge import InsForgeClient, InsForgeError
+from app.core.local_backend.db import LocalPostgresExecutor
+from app.core.data_access import BackendError as InsForgeError, SqlExecutor
 from migration.bootstrap import check_private_bucket, ensure_private_bucket
 
 
 def run_ensure_bucket(
     args: argparse.Namespace,
     *,
-    web_client: InsForgeClient | None = None,
+    web_client: LocalPostgresExecutor | None = None,
     stream: IO[str] | None = None,
 ) -> int:
     """Body of ``apap-migrate ensure-bucket``."""

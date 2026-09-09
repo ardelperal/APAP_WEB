@@ -40,7 +40,7 @@ from typing import Any
 
 import pytest
 
-from app.core.insforge import InsForgeError
+from app.core.insforge import BackendError
 from migration import legacy_reader
 from migration import lock as _migration_lock
 from migration.apply import (
@@ -51,7 +51,7 @@ from migration.apply import (
 
 
 class FakeInsForge:
-    """In-memory ``InsForgeClient`` replacement.
+    """In-memory ``LocalPostgresExecutor`` replacement.
 
     Routes a handful of SQL shapes:
 
@@ -104,7 +104,7 @@ class FakeInsForge:
         existing = self.buckets.get(bucket_name)
         if existing is not None:
             if existing.get("isPublic") is not False:
-                raise InsForgeError(
+                raise BackendError(
                     409,
                     {
                         "error": "bucket_public_violation",
@@ -116,7 +116,7 @@ class FakeInsForge:
         self.buckets[bucket_name] = bucket
         return dict(bucket)
 
-    # --- duck-typed InsForgeClient surface ----------------------------
+    # --- duck-typed LocalPostgresExecutor surface ----------------------------
     def execute_sql(
         self,
         query: str,
@@ -306,7 +306,7 @@ def legacy_dummy_path(tmp_path: Path) -> str:
 
 @pytest.fixture
 def web_client() -> FakeInsForge:
-    """Fresh in-memory InsForgeClient per test (Hard Rule 1)."""
+    """Fresh in-memory LocalPostgresExecutor per test (Hard Rule 1)."""
     return FakeInsForge()
 
 

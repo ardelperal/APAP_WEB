@@ -6,7 +6,7 @@ Contract (per user directive, 2026-07-11):
 - ``MsAccessPreflightUnavailableError`` → exit 5, reason
   ``msaccess_preflight_unavailable``.
 - ``LegacyReaderError`` → exit 5, reason ``legacy_read_failed``.
-- ``InsForgeError`` (infra-bootstrap path) → exit 5, reason
+- ``BackendError`` (infra-bootstrap path) → exit 5, reason
   ``infra_bootstrap_failed``.
 - ``SourceDriftError`` → exit 6, reason ``source_drift``.
 - ``PartialApplyInterruptedError`` → exit 7, reason
@@ -47,7 +47,7 @@ import io
 
 import pytest
 
-from app.core.insforge import InsForgeError
+from app.core.insforge import BackendError
 from migration import MsAccessPreflightUnavailableError
 from migration import cli as cli_mod
 from migration.apply import (
@@ -216,7 +216,7 @@ class TestExitCodeMapping:
         rc, out = _run_apply_with_exception(
             monkeypatch,
             web_client,
-            InsForgeError(
+            BackendError(
                 500,
                 {"error": "bucket_readback_missing", "message": "sensitive"},
             ),
@@ -261,7 +261,7 @@ class TestOutputSafety:
                 },
             ),
             LegacyReaderError("opaque pyodbc detail"),
-            InsForgeError(
+            BackendError(
                 500, {"error": "bucket_readback_missing", "message": "sensitive"}
             ),
         ],
@@ -318,7 +318,7 @@ class TestOutputSafety:
                 },
             ),
             LegacyReaderError("opaque pyodbc detail"),
-            InsForgeError(
+            BackendError(
                 500, {"error": "bucket_readback_missing", "message": "sensitive"}
             ),
         ],
@@ -367,7 +367,7 @@ class TestOutputSafety:
                 },
             ),
             LegacyReaderError("opaque pyodbc detail"),
-            InsForgeError(
+            BackendError(
                 500, {"error": "bucket_readback_missing", "message": "sensitive"}
             ),
         ],
@@ -427,7 +427,7 @@ class TestOutputSafety:
                 },
             ),
             LegacyReaderError("opaque pyodbc detail"),
-            InsForgeError(
+            BackendError(
                 500, {"error": "bucket_readback_missing", "message": "sensitive"}
             ),
         ],
@@ -475,7 +475,7 @@ class TestOutputSafety:
                 },
             ),
             LegacyReaderError("opaque pyodbc detail"),
-            InsForgeError(
+            BackendError(
                 500, {"error": "bucket_readback_missing", "message": "sensitive"}
             ),
         ],
@@ -565,12 +565,12 @@ class TestPayloadsNotLeaked:
         monkeypatch: pytest.MonkeyPatch,
         web_client: FakeInsForge,
     ) -> None:
-        # InsForgeError.body["message"] can carry server-side internal
+        # BackendError.body["message"] can carry server-side internal
         # details (table names, status codes). The CLI MUST NOT echo it.
         rc, out = _run_apply_with_exception(
             monkeypatch,
             web_client,
-            InsForgeError(
+            BackendError(
                 500,
                 {
                     "error": "bucket_readback_missing",

@@ -10,7 +10,7 @@ The ``foster.assignment`` module owns:
   ordenadas ``created_at DESC``.
 
 Mirror of the ``tests/test_foster.py`` and ``tests/test_acogidas.py``
-patterns: real InsForgeClient + httpx.MockTransport for SQL shape
+patterns: real SqlExecutor + httpx.MockTransport for SQL shape
 assertion. Each test records the SQL queries captured and asserts
 the shape; the assertions fail loudly if a future refactor breaks
 the contract.
@@ -52,7 +52,7 @@ from typing import Any
 import httpx
 import pytest
 
-from app.core.insforge import InsForgeClient
+from app.core.data_access import SqlExecutor
 from app.modules.animals.domain.animal import Animal, Especie, Sexo
 from app.modules.foster import assignment as assignment_service
 
@@ -67,7 +67,7 @@ def _json_response(status_code: int, body: Any) -> httpx.Response:
 
 def _client_recording(
     handler: Callable[[httpx.Request, dict[str, Any]], httpx.Response],
-) -> tuple[InsForgeClient, list[dict[str, Any]]]:
+) -> tuple[SqlExecutor, list[dict[str, Any]]]:
     captured: list[dict[str, Any]] = []
 
     def _recording_handler(request: httpx.Request) -> httpx.Response:
@@ -76,7 +76,7 @@ def _client_recording(
         captured.append(body)
         return handler(request, body)
 
-    client = InsForgeClient(
+    client = SqlExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=httpx.MockTransport(_recording_handler),
@@ -230,7 +230,7 @@ class _AnimalsPortStub:
 
 
 def _evaluate_assignment(
-    client: InsForgeClient, animal_id: str, casa_id: str
+    client: SqlExecutor, animal_id: str, casa_id: str
 ) -> assignment_service.AssignmentDecision:
     port = _AnimalsPortStub(client._test_animal_row)
     return assignment_service.evaluate_assignment(port, client, animal_id, casa_id)

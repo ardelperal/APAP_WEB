@@ -1,7 +1,7 @@
 """Service-layer tests for minimal intake entries.
 
 The ``entradas`` service owns SQL, validation, duplicate handling, mapping,
-and soft-delete behavior. These tests use a real ``InsForgeClient`` with an
+and soft-delete behavior. These tests use a real ``LocalPostgresExecutor`` with an
 ``httpx.MockTransport`` so they can assert SQL and params without network I/O.
 """
 
@@ -14,7 +14,8 @@ from typing import Any
 import httpx
 import pytest
 
-from app.core.insforge import InsForgeClient
+from app.core.local_backend.db import LocalPostgresExecutor
+from app.core.data_access import SqlExecutor
 from app.modules.entradas.service import (
     Entrada,
     EntradaConflictError,
@@ -36,7 +37,7 @@ def _json_response(status_code: int, body: Any) -> httpx.Response:
 
 def _client_recording(
     handler: Callable[[httpx.Request, dict[str, Any]], httpx.Response],
-) -> tuple[InsForgeClient, list[dict[str, Any]]]:
+) -> tuple[LocalPostgresExecutor, list[dict[str, Any]]]:
     captured: list[dict[str, Any]] = []
 
     def _recording_handler(request: httpx.Request) -> httpx.Response:
@@ -45,7 +46,7 @@ def _client_recording(
         captured.append(body)
         return handler(request, body)
 
-    client = InsForgeClient(
+    client = LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=httpx.MockTransport(_recording_handler),

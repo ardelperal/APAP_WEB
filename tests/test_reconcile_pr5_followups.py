@@ -43,7 +43,7 @@ from typing import Any
 
 import httpx
 
-from app.core.insforge import InsForgeClient
+from app.core.data_access import SqlExecutor
 from migration.cli import (
     _format_row_for_check_only,
 )
@@ -64,8 +64,8 @@ def _json_response(status_code: int, body: Any) -> httpx.Response:
 
 def _make_web_client(
     handler: Callable[[httpx.Request], httpx.Response],
-) -> InsForgeClient:
-    return InsForgeClient(
+) -> SqlExecutor:
+    return SqlExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=httpx.MockTransport(handler),
@@ -224,7 +224,7 @@ class TestShadowRepositoryFollowUps:
     result without going through the generic ``upsert`` path.
     """
 
-    def _client_capturing(self) -> tuple[InsForgeClient, list[dict[str, Any]]]:
+    def _client_capturing(self) -> tuple[SqlExecutor, list[dict[str, Any]]]:
         captured: list[dict[str, Any]] = []
 
         def _handler(_request: httpx.Request) -> httpx.Response:
@@ -235,7 +235,7 @@ class TestShadowRepositoryFollowUps:
             captured.append(body)
             return _handler(request)
 
-        client = InsForgeClient(
+        client = SqlExecutor(
             base_url="https://example.insforge.app",
             service_key="ik_test",
             transport=httpx.MockTransport(_recording),

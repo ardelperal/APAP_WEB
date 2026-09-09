@@ -41,7 +41,7 @@ from typing import Any
 
 import httpx
 
-from app.core.insforge import InsForgeClient
+from app.core.data_access import SqlExecutor
 from app.modules.sanidad import service as sanidad_service
 
 # ---------------------------------------------------------------------------
@@ -59,8 +59,8 @@ def _json_response(status_code: int, body: Any) -> httpx.Response:
 
 def _make_client(
     handler: Any,
-) -> tuple[InsForgeClient, list[dict[str, Any]]]:
-    """Build a real InsForgeClient with a mock transport that records calls."""
+) -> tuple[SqlExecutor, list[dict[str, Any]]]:
+    """Build a real SqlExecutor with a mock transport that records calls."""
     captured: list[dict[str, Any]] = []
 
     def _recording_handler(request: httpx.Request) -> httpx.Response:
@@ -69,7 +69,7 @@ def _make_client(
         captured.append(body)
         return handler(request, body)
 
-    client = InsForgeClient(
+    client = SqlExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=httpx.MockTransport(_recording_handler),

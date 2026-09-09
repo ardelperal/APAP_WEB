@@ -6,7 +6,7 @@ The ``salud.service`` module owns:
 - VOL-05 validation: voluntario must be activo
 - Delete restriction: cannot delete terapia with pending recommendations
 
-Mirror of ``tests/test_sanidad.py``: real InsForgeClient
+Mirror of ``tests/test_sanidad.py``: real LocalPostgresExecutor
 + httpx.MockTransport for SQL shape assertion.
 """
 
@@ -19,7 +19,8 @@ from typing import Any
 import httpx
 import pytest
 
-from app.core.insforge import InsForgeClient
+from app.core.local_backend.db import LocalPostgresExecutor
+from app.core.data_access import SqlExecutor
 from app.modules.salud import service as salud_service
 
 
@@ -33,7 +34,7 @@ def _json_response(status_code: int, body: Any) -> httpx.Response:
 
 def _client_recording(
     handler: Callable[[httpx.Request, dict[str, Any]], httpx.Response],
-) -> tuple[InsForgeClient, list[dict[str, Any]]]:
+) -> tuple[LocalPostgresExecutor, list[dict[str, Any]]]:
     captured: list[dict[str, Any]] = []
 
     def _recording_handler(request: httpx.Request) -> httpx.Response:
@@ -42,7 +43,7 @@ def _client_recording(
         captured.append(body)
         return handler(request, body)
 
-    client = InsForgeClient(
+    client = LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=httpx.MockTransport(_recording_handler),

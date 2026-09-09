@@ -12,7 +12,8 @@ import json
 import httpx
 import pytest
 
-from app.core.insforge import InsForgeClient, InsForgeError
+from app.core.local_backend.db import LocalPostgresExecutor
+from app.core.data_access import BackendError as BackendError, SqlExecutor
 
 
 def _json_response(status_code: int, body: dict | list) -> httpx.Response:
@@ -34,7 +35,7 @@ def test_execute_sql_posts_to_rawsql_endpoint() -> None:
         return _json_response(200, [{"id": 1}])
 
     transport = httpx.MockTransport(handler)
-    client = InsForgeClient(
+    client = LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test_service",
         transport=transport,
@@ -57,7 +58,7 @@ def test_execute_sql_sends_authorization_bearer_header() -> None:
         return _json_response(200, [])
 
     transport = httpx.MockTransport(handler)
-    client = InsForgeClient(
+    client = LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test_service",
         transport=transport,
@@ -69,17 +70,17 @@ def test_execute_sql_sends_authorization_bearer_header() -> None:
 
 
 def test_execute_sql_raises_insforge_error_on_4xx() -> None:
-    """``execute_sql`` raises ``InsForgeError`` carrying status and body on failure."""
+    """``execute_sql`` raises ``BackendError`` carrying status and body on failure."""
     transport = httpx.MockTransport(
         lambda request: _json_response(403, {"message": "forbidden"})
     )
-    client = InsForgeClient(
+    client = LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=transport,
     )
 
-    with pytest.raises(InsForgeError) as exc:
+    with pytest.raises(BackendError) as exc:
         client.execute_sql("SELECT 1")
 
     assert exc.value.status_code == 403
@@ -87,24 +88,24 @@ def test_execute_sql_raises_insforge_error_on_4xx() -> None:
 
 
 def test_execute_sql_raises_insforge_error_on_5xx() -> None:
-    """``execute_sql`` raises ``InsForgeError`` on 5xx too (caller decides)."""
+    """``execute_sql`` raises ``BackendError`` on 5xx too (caller decides)."""
     transport = httpx.MockTransport(
         lambda request: _json_response(500, {"message": "boom"})
     )
-    client = InsForgeClient(
+    client = LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=transport,
     )
 
-    with pytest.raises(InsForgeError):
+    with pytest.raises(BackendError):
         client.execute_sql("SELECT 1")
 
 
 def test_execute_sql_returns_empty_list_on_empty_payload() -> None:
     """``execute_sql`` returns an empty list when the response has no rows."""
     transport = httpx.MockTransport(lambda request: _json_response(200, []))
-    client = InsForgeClient(
+    client = LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=transport,
@@ -118,7 +119,7 @@ def test_execute_sql_accepts_returning_clause_payload() -> None:
     transport = httpx.MockTransport(
         lambda request: _json_response(200, [{"id": "new-id", "email": "a@b.com"}])
     )
-    client = InsForgeClient(
+    client = LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=transport,
@@ -151,7 +152,7 @@ def test_start_google_oauth_builds_pkce_url() -> None:
         )
 
     transport = httpx.MockTransport(handler)
-    client = InsForgeClient(
+    client = LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=transport,
@@ -185,7 +186,7 @@ def test_exchange_google_oauth_code_returns_token_and_user() -> None:
         )
 
     transport = httpx.MockTransport(handler)
-    client = InsForgeClient(
+    client = LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=transport,
@@ -210,13 +211,13 @@ def test_exchange_google_oauth_code_raises_on_failure() -> None:
     transport = httpx.MockTransport(
         lambda request: _json_response(401, {"message": "invalid code"})
     )
-    client = InsForgeClient(
+    client = LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=transport,
     )
 
-    with pytest.raises(InsForgeError) as exc:
+    with pytest.raises(BackendError) as exc:
         client.exchange_google_oauth_code(
             code="bad",
             code_verifier="v",
@@ -263,7 +264,7 @@ def test_exchange_insforge_oauth_code_posts_to_exchange_endpoint() -> None:
         )
 
     transport = httpx.MockTransport(handler)
-    client = InsForgeClient(
+    client = LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=transport,
@@ -299,7 +300,7 @@ def test_exchange_insforge_oauth_code_returns_user_and_access_token() -> None:
             },
         )
     )
-    client = InsForgeClient(
+    client = LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=transport,
@@ -316,10 +317,10 @@ def test_exchange_insforge_oauth_code_returns_user_and_access_token() -> None:
 
 
 def test_exchange_insforge_oauth_code_raises_on_401_invalid_credentials() -> None:
-    """``exchange_insforge_oauth_code`` raises ``InsForgeError`` on 401.
+    """``exchange_insforge_oauth_code`` raises ``BackendError`` on 401.
 
     Pins the error path so the production ``/auth/callback`` handler
-    can catch ``InsForgeError`` and redirect to /login instead of
+    can catch ``BackendError`` and redirect to /login instead of
     surfacing a 500 to the user.
     """
     transport = httpx.MockTransport(
@@ -332,13 +333,13 @@ def test_exchange_insforge_oauth_code_raises_on_401_invalid_credentials() -> Non
             },
         )
     )
-    client = InsForgeClient(
+    client = LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=transport,
     )
 
-    with pytest.raises(InsForgeError) as exc:
+    with pytest.raises(BackendError) as exc:
         client.exchange_insforge_oauth_code(
             insforge_code="expired",
             code_verifier="v",
@@ -353,7 +354,7 @@ def test_exchange_insforge_oauth_code_raises_when_response_missing_access_token(
 
     Guards against a regression where InsForge's response envelope
     changes (e.g. moves the JWT under a different key). The client
-    must surface a clear ``InsForgeError`` instead of silently returning
+    must surface a clear ``BackendError`` instead of silently returning
     an empty token to the route handler — which would issue a session
     cookie with no underlying identity.
     """
@@ -367,13 +368,13 @@ def test_exchange_insforge_oauth_code_raises_when_response_missing_access_token(
             },
         )
     )
-    client = InsForgeClient(
+    client = LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=transport,
     )
 
-    with pytest.raises(InsForgeError) as exc:
+    with pytest.raises(BackendError) as exc:
         client.exchange_insforge_oauth_code(
             insforge_code="insforge-code-xyz",
             code_verifier="v",
@@ -398,13 +399,13 @@ def test_exchange_insforge_oauth_code_raises_when_response_missing_email() -> No
             },
         )
     )
-    client = InsForgeClient(
+    client = LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=transport,
     )
 
-    with pytest.raises(InsForgeError):
+    with pytest.raises(BackendError):
         client.exchange_insforge_oauth_code(
             insforge_code="insforge-code-xyz",
             code_verifier="v",

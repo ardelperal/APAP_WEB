@@ -7,13 +7,14 @@ import re
 import httpx
 import pytest
 
-from app.core.insforge import InsForgeClient, InsForgeError
+from app.core.data_access import BackendError as InsForgeError
+from app.core.data_access import SqlExecutor
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
 from tests.conftest import make_csrf_request
 
 
-class _FakeInsForge(InsForgeClient):
+class _FakeInsForge(SqlExecutor):
     def __init__(self) -> None:
         self.list_users_response: list[dict] = []
         self.add_user_response: dict = {

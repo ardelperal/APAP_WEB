@@ -507,7 +507,7 @@ def test_admin_di_does_not_export_domain_or_port() -> None:
 
 
 def test_admin_handlers_does_not_import_insforge_client() -> None:
-    """Rule §1 + §31: the admin route layer must not reach for ``InsForgeClient``.
+    """Rule §1 + §31: the admin route layer must not reach for ``SqlExecutor``.
 
     The route handlers now compose ``AuthUsersPort`` (via DI) instead of
     importing the concrete backend client directly. This test pins the
@@ -517,11 +517,11 @@ def test_admin_handlers_does_not_import_insforge_client() -> None:
     import app.core.admin_handlers as admin_handlers_module
 
     source = Path(admin_handlers_module.__file__).read_text(encoding="utf-8")
-    assert "from app.core.insforge import InsForgeClient" not in source, (
-        "app/core/admin_handlers.py must NOT import InsForgeClient; "
+    assert "from app.core.insforge import SqlExecutor" not in source, (
+        "app/core/admin_handlers.py must NOT import SqlExecutor; "
         "compose AuthUsersPort via Depends(get_auth_users_port) instead."
     )
-    assert "InsForgeClient," not in source or "InsForgeClient, Depends" not in source, (
-        "app/core/admin_handlers.py must NOT declare a `client: InsForgeClient` "
+    assert "SqlExecutor," not in source or "SqlExecutor, Depends" not in source, (
+        "app/core/admin_handlers.py must NOT declare a `client: SqlExecutor` "
         "parameter; route handlers compose AuthUsersPort instead."
     )

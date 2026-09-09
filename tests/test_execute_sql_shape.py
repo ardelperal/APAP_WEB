@@ -19,7 +19,7 @@ These tests run against the LIVE InsForge (proxied through
 
 from __future__ import annotations
 
-from app.core.insforge import InsForgeClient
+from app.core.data_access import SqlExecutor
 
 # ---------------------------------------------------------------------------
 # Public surface contract (the only contract every call site depends on)
@@ -69,7 +69,7 @@ def test_execute_sql_type_hint_matches_public_shape() -> None:
     with ``]``; any deviation (e.g. ``Any``, ``dict`` alone) is
     caught.
     """
-    annotations = InsForgeClient.execute_sql.__annotations__
+    annotations = SqlExecutor.execute_sql.__annotations__
     return_annotation = annotations.get("return", "")
     assert return_annotation.startswith("list["), (
         f"execute_sql return must be a list type, got: {return_annotation!r}"

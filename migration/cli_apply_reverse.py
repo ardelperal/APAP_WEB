@@ -32,7 +32,8 @@ from datetime import UTC, datetime
 from typing import IO
 
 import migration.cli as cli_mod
-from app.core.insforge import InsForgeClient, InsForgeError
+from app.core.local_backend.db import LocalPostgresExecutor
+from app.core.data_access import BackendError as InsForgeError, SqlExecutor
 from app.core.logging import log_safe
 from migration import MsAccessPreflightUnavailableError
 from migration.apply import (
@@ -137,7 +138,7 @@ def _emit_migration_report(
 def run_apply(
     args: argparse.Namespace,
     *,
-    web_client: InsForgeClient | None = None,
+    web_client: LocalPostgresExecutor | None = None,
     stream: IO[str] | None = None,
 ) -> int:
     """Body of ``apap-migrate apply`` (PR3 / M1 forward + PR6 / M2 reverse).

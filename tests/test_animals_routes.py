@@ -27,7 +27,8 @@ import pytest
 from fastapi.responses import HTMLResponse
 
 from app.core.data_access import UniqueViolationError
-from app.core.insforge import InsForgeClient
+from app.core.local_backend.db import LocalPostgresExecutor
+from app.core.data_access import SqlExecutor
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
 from app.modules.animals import routes as animals_routes
@@ -42,8 +43,8 @@ from app.modules.animals.ports.photo_asset import PhotoAsset
 from tests.conftest import auth_reval_rows, make_csrf_request
 
 
-class _AnimalsRouteSpy(InsForgeClient):
-    """``InsForgeClient`` spy para los routes de animales.
+class _AnimalsRouteSpy(LocalPostgresExecutor):
+    """``LocalPostgresExecutor`` spy para los routes de animales.
 
     ``execute_sql`` no toca la red: en cambio, matchea el SQL contra
     patrones clasicos (``UPDATE animales SET``,

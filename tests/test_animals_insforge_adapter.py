@@ -10,7 +10,8 @@ import httpx
 import pytest
 
 from app.core.data_access import UniqueViolationError
-from app.core.insforge import InsForgeClient
+from app.core.local_backend.db import LocalPostgresExecutor
+from app.core.data_access import SqlExecutor
 from app.modules.animals.adapters.insforge import animals_insforge_photo
 from app.modules.animals.adapters.insforge.animals_insforge_adapter import (
     AnimalsInsforgeAdapter,
@@ -388,7 +389,7 @@ def test_create_animal_translates_duplicate_nchip_to_unique_violation() -> None:
             },
         )
 
-    client = InsForgeClient(
+    client = LocalPostgresExecutor(
         "https://example.invalid",
         "test-key",
         transport=httpx.MockTransport(duplicate_response),

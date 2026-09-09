@@ -10,7 +10,7 @@ The ``materiales.service`` module owns:
   AND every active junction row pointing at it
 
 Mirror of the ``tests/test_foster.py`` and ``tests/test_acogidas.py``
-patterns: real InsForgeClient + httpx.MockTransport so we exercise the
+patterns: real LocalPostgresExecutor + httpx.MockTransport so we exercise the
 SQL strings, params, and response parsing without hitting the network.
 
 FOSTER-04 (#46) PR A — only the service layer is tested here. Routes
@@ -26,7 +26,8 @@ from typing import Any
 import httpx
 import pytest
 
-from app.core.insforge import InsForgeClient
+from app.core.local_backend.db import LocalPostgresExecutor
+from app.core.data_access import SqlExecutor
 from app.modules.materiales import estancia_material_service
 from app.modules.materiales import service as materiales_service
 
@@ -43,7 +44,7 @@ def _json_response(status_code: int, body: Any) -> httpx.Response:
 
 def _client_recording(
     handler: Callable[[httpx.Request, dict[str, Any]], httpx.Response],
-) -> tuple[InsForgeClient, list[dict[str, Any]]]:
+) -> tuple[LocalPostgresExecutor, list[dict[str, Any]]]:
     captured: list[dict[str, Any]] = []
 
     def _recording_handler(request: httpx.Request) -> httpx.Response:
@@ -52,7 +53,7 @@ def _client_recording(
         captured.append(body)
         return handler(request, body)
 
-    client = InsForgeClient(
+    client = LocalPostgresExecutor(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=httpx.MockTransport(_recording_handler),
@@ -210,7 +211,7 @@ def test_create_material_rejects_blank_observaciones() -> None:
 def test_create_material_unique_constraint_raises_conflict() -> None:
     """When the DB rejects a duplicate ``(material, tamano, color)``
     active row with PostgreSQL 23505, the service translates the
-    InsForgeError into MaterialConflictError so the route can map it
+    BackendError into MaterialConflictError so the route can map it
     to HTTP 409. This is the race-condition path (two writers submitting
     the same triple simultaneously) — Scenario 2 in spec #15894.
     """

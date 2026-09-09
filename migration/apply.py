@@ -63,7 +63,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from app.core import logging as logging_mod
-from app.core.insforge import InsForgeError
+from app.core.data_access import BackendError as InsForgeError
 from migration import (
     MigrationError,
     MsAccessPreflightUnavailableError,

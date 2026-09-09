@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol, cast
 
-from app.core.insforge import InsForgeError
+from app.core.data_access import BackendError as InsForgeError
 from migration.shadow_state import ShadowStateRepository
 
 APAP_PHOTOS_BUCKET = "apap-photos"
@@ -105,12 +105,12 @@ def bootstrap_m0_infrastructure(
     """Ensure shadow schema and private photo bucket before apply locks.
 
     The shadow table is always ensured via SQL DDL. The bucket admin
-    defaults to ``client`` so production ``InsForgeClient`` can own both
+    defaults to ``client`` so production ``LocalPostgresExecutor`` can own both
     surfaces, while tests may inject a dedicated fake.
     """
     ensure_shadow_table(client)
     # cast: when no dedicated admin is injected, the production
-    # ``InsForgeClient`` passed as ``client`` owns both surfaces.
+    # ``LocalPostgresExecutor`` passed as ``client`` owns both surfaces.
     admin = bucket_admin or cast("_BucketAdmin", client)
     bucket = ensure_private_bucket(admin, bucket_name=bucket_name)
     return BootstrapResult(shadow_table_ready=True, bucket=bucket)

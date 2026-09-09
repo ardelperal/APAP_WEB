@@ -13,14 +13,15 @@ import pytest
 
 from app.core.auth_dependencies import get_insforge_client_dep
 from app.core.config import get_settings
-from app.core.insforge import InsForgeClient, InsForgeError
+from app.core.local_backend.db import LocalPostgresExecutor
+from app.core.data_access import BackendError as BackendError, SqlExecutor
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
 from app.modules.salud import service as salud_service
 from tests.conftest import make_csrf_request
 
 
-class _NoSqlRouteClient(InsForgeClient):
+class _NoSqlRouteClient(LocalPostgresExecutor):
     """Client spy that fails if a route executes SQL directly."""
 
     def __init__(self) -> None:  # type: ignore[override]
@@ -496,12 +497,12 @@ async def test_complete_recomendacion_backend_error_503(
     route_client: _NoSqlRouteClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """PATCH /recomendaciones/{id} returns 503 on InsForgeError."""
+    """PATCH /recomendaciones/{id} returns 503 on BackendError."""
     _login_as_key_user(client)
     monkeypatch.setattr(
         salud_service, "complete_recomendacion",
         lambda _c, _id, **kw: (_ for _ in ()).throw(
-            InsForgeError(500, "connection refused")
+            BackendError(500, "connection refused")
         ),
     )
     response = await make_csrf_request(
@@ -532,7 +533,7 @@ async def test_delete_recomendacion_backend_error_503(
     route_client: _NoSqlRouteClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """DELETE /recomendaciones/{id} returns 503 on InsForgeError."""
+    """DELETE /recomendaciones/{id} returns 503 on BackendError."""
     _login_as_key_user(client)
     monkeypatch.setattr(
         salud_service, "get_recomendacion_by_id",
@@ -541,7 +542,7 @@ async def test_delete_recomendacion_backend_error_503(
     monkeypatch.setattr(
         salud_service, "delete_recomendacion",
         lambda _c, _id, **kw: (_ for _ in ()).throw(
-            InsForgeError(500, "connection refused")
+            BackendError(500, "connection refused")
         ),
     )
     response = await make_csrf_request(
@@ -595,12 +596,12 @@ async def test_create_terapia_backend_error_503(
     route_client: _NoSqlRouteClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """POST /terapias returns 503 when the backend raises InsForgeError."""
+    """POST /terapias returns 503 when the backend raises BackendError."""
     _login_as_key_user(client)
     monkeypatch.setattr(
         salud_service, "create_terapia",
         lambda _c, params, **kw: (_ for _ in ()).throw(
-            InsForgeError(500, "connection refused")
+            BackendError(500, "connection refused")
         ),
     )
     response = await make_csrf_request(
@@ -619,12 +620,12 @@ async def test_update_terapia_backend_error_503(
     route_client: _NoSqlRouteClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """POST /terapias/{id}/update returns 503 when the backend raises InsForgeError."""
+    """POST /terapias/{id}/update returns 503 when the backend raises BackendError."""
     _login_as_key_user(client)
     monkeypatch.setattr(
         salud_service, "update_terapia",
         lambda _c, _id, params, **kw: (_ for _ in ()).throw(
-            InsForgeError(500, "connection refused")
+            BackendError(500, "connection refused")
         ),
     )
     response = await make_csrf_request(
@@ -643,12 +644,12 @@ async def test_delete_terapia_backend_error_503(
     route_client: _NoSqlRouteClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """POST /terapias/{id}/delete returns 503 when InsForgeError is raised."""
+    """POST /terapias/{id}/delete returns 503 when BackendError is raised."""
     _login_as_key_user(client)
     monkeypatch.setattr(
         salud_service, "delete_terapia",
         lambda _c, _id, **kw: (_ for _ in ()).throw(
-            InsForgeError(500, "connection refused")
+            BackendError(500, "connection refused")
         ),
     )
     response = await make_csrf_request(
@@ -679,12 +680,12 @@ async def test_create_recomendacion_backend_error_503(
     route_client: _NoSqlRouteClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """POST /terapias/{id}/recomendaciones returns 503 on InsForgeError."""
+    """POST /terapias/{id}/recomendaciones returns 503 on BackendError."""
     _login_as_key_user(client)
     monkeypatch.setattr(
         salud_service, "create_recomendacion",
         lambda _c, params, **kw: (_ for _ in ()).throw(
-            InsForgeError(500, "connection refused")
+            BackendError(500, "connection refused")
         ),
     )
     response = await make_csrf_request(

@@ -35,57 +35,55 @@ def run_scheduler() -> None:
     # lazy-import: avoids circular import with app.core.config (settings
     # is heavy and this function is CLI-only).
     from app.core.config import get_settings  # lazy-import: avoids circular
-    from app.core.insforge import InsForgeClient  # lazy-import: avoids circular
+    from app.core.local_backend.db import LocalPostgresExecutor  # lazy-import: avoids circular
     from app.core.logging import log_safe  # lazy-import: CLI-only
     from app.core.tasks.rules import TASK_RULES  # lazy-import: avoids circular
     from app.modules.tasks import service as tareas_service  # lazy-import: CLI-only
 
     settings = get_settings()
-    client = InsForgeClient(settings.insforge_url, settings.insforge_service_key)
-    try:
-        # Context is empty in the first MVC — rules are driven by domain queries.
-        # The scheduler would query vaccines, adoptions, animals, etc. here.
-        # For now, rules are stubs that need domain context passed in.
-        context: dict = {}
+    client = LocalPostgresExecutor(settings.database_url)
 
-        nuevos = 0
-        for _rule_name, rule_fn in TASK_RULES.items():
-            drafts = rule_fn(context)
-            for draft in drafts:
-                # Deduplicate: skip if an open tarea exists for same vinculo+tipo
+    # Context is empty in the first MVC — rules are driven by domain queries.
+    # The scheduler would query vaccines, adoptions, animals, etc. here.
+    # For now, rules are stubs that need domain context passed in.
+    context: dict = {}
+
+    nuevos = 0
+    for _rule_name, rule_fn in TASK_RULES.items():
+        drafts = rule_fn(context)
+        for draft in drafts:
+            # Deduplicate: skip if an open tarea exists for same vinculo+tipo
+            existing = tareas_service.listar_tareas(
+                client=client,
+                estado="pendiente",
+                vinculo_tipo=draft.vinculo_tipo,
+                vinculo_id=draft.vinculo_id,
+                limit=1,
+            )
+            if not existing:
                 existing = tareas_service.listar_tareas(
                     client=client,
-                    estado="pendiente",
+                    estado="en_progreso",
                     vinculo_tipo=draft.vinculo_tipo,
                     vinculo_id=draft.vinculo_id,
                     limit=1,
                 )
-                if not existing:
-                    existing = tareas_service.listar_tareas(
-                        client=client,
-                        estado="en_progreso",
-                        vinculo_tipo=draft.vinculo_tipo,
-                        vinculo_id=draft.vinculo_id,
-                        limit=1,
-                    )
-                if existing:
-                    continue  # already exists, skip
+            if existing:
+                continue  # already exists, skip
 
-                tareas_service.crear_tarea(
-                    client=client,
-                    tipo=draft.tipo,
-                    origen=draft.origen,
-                    prioridad=draft.prioridad,
-                    vencimiento_at=draft.vencimiento_at,
-                    vinculo_tipo=draft.vinculo_tipo,
-                    vinculo_id=draft.vinculo_id,
-                    metadata=draft.metadata,
-                )
-                nuevos += 1
+            tareas_service.crear_tarea(
+                client=client,
+                tipo=draft.tipo,
+                origen=draft.origen,
+                prioridad=draft.prioridad,
+                vencimiento_at=draft.vencimiento_at,
+                vinculo_tipo=draft.vinculo_tipo,
+                vinculo_id=draft.vinculo_id,
+                metadata=draft.metadata,
+            )
+            nuevos += 1
 
-        log_safe("scheduler.run_complete", nuevos=nuevos)
-    finally:
-        client.close()
+    log_safe("scheduler.run_complete", nuevos=nuevos)
 
 
 if __name__ == "__main__":

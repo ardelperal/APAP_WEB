@@ -19,7 +19,7 @@ levels:
    shape taken verbatim from the existing ``tests/test_catalogs.py``
    fixtures).
 3. **DI helper** — the per-request port construction uses the
-   pooled :class:`InsForgeClient` when the lifespan is active, and
+   pooled :class:`SqlExecutor` when the lifespan is active, and
    falls back to a lazily-created client when the transport bypasses
    the lifespan (lightweight ASGI tests).
 
@@ -35,8 +35,8 @@ from typing import Any
 
 import pytest
 
-from app.core.adapters.insforge.catalogos_insforge_adapter import (
-    InsForgeCatalogosAdapter,
+from app.core.local_backend.catalogos_adapter import (
+    LocalBackendCatalogosAdapter,
 )
 from app.core.application.catalogos import (
     list_motivos as list_motivos_uc,
@@ -258,7 +258,7 @@ def test_adapter_list_origenes_uses_expected_sql() -> None:
     from app.core.adapters.insforge.catalogos_insforge_adapter import LIST_ORIGENES_SQL
 
     executor = _RecordingExecutor()
-    InsForgeCatalogosAdapter(executor).list_origenes()
+    LocalBackendCatalogosAdapter(executor).list_origenes()
     assert len(executor.calls) == 1
     query, params = executor.calls[0]
     assert query.strip() == LIST_ORIGENES_SQL.strip()
@@ -269,7 +269,7 @@ def test_adapter_list_motivos_uses_expected_sql() -> None:
     from app.core.adapters.insforge.catalogos_insforge_adapter import LIST_MOTIVOS_SQL
 
     executor = _RecordingExecutor()
-    InsForgeCatalogosAdapter(executor).list_motivos()
+    LocalBackendCatalogosAdapter(executor).list_motivos()
     query, params = executor.calls[0]
     assert query.strip() == LIST_MOTIVOS_SQL.strip()
     assert params == []
@@ -279,31 +279,31 @@ def test_adapter_list_pruebas_uses_expected_sql() -> None:
     from app.core.adapters.insforge.catalogos_insforge_adapter import LIST_PRUEBAS_SQL
 
     executor = _RecordingExecutor()
-    InsForgeCatalogosAdapter(executor).list_pruebas()
+    LocalBackendCatalogosAdapter(executor).list_pruebas()
     query, params = executor.calls[0]
     assert query.strip() == LIST_PRUEBAS_SQL.strip()
     assert params == []
 
 
 def test_adapter_list_periodicidad_uses_expected_sql() -> None:
-    from app.core.adapters.insforge.catalogos_insforge_adapter import (
+    from app.core.local_backend.catalogos_adapter import (
         LIST_PERIODICIDAD_SQL,
     )
 
     executor = _RecordingExecutor()
-    InsForgeCatalogosAdapter(executor).list_periodicidad()
+    LocalBackendCatalogosAdapter(executor).list_periodicidad()
     query, params = executor.calls[0]
     assert query.strip() == LIST_PERIODICIDAD_SQL.strip()
     assert params == []
 
 
 def test_adapter_list_tipos_contrato_uses_expected_sql() -> None:
-    from app.core.adapters.insforge.catalogos_insforge_adapter import (
+    from app.core.local_backend.catalogos_adapter import (
         LIST_TIPOS_CONTRATO_SQL,
     )
 
     executor = _RecordingExecutor()
-    InsForgeCatalogosAdapter(executor).list_tipos_contrato()
+    LocalBackendCatalogosAdapter(executor).list_tipos_contrato()
     query, params = executor.calls[0]
     assert query.strip() == LIST_TIPOS_CONTRATO_SQL.strip()
     assert params == []
@@ -330,7 +330,7 @@ def test_adapter_list_origenes_maps_rows_to_entities() -> None:
         },
     ]
     executor = _RecordingExecutor(rows)
-    origenes = InsForgeCatalogosAdapter(executor).list_origenes()
+    origenes = LocalBackendCatalogosAdapter(executor).list_origenes()
     assert len(origenes) == 2
     assert origenes[0] == Origen(
         id="a-uuid",
@@ -373,7 +373,7 @@ def test_adapter_list_periodicidad_propagates_nullable_columns() -> None:
         },
     ]
     executor = _RecordingExecutor(rows)
-    periodicidades = InsForgeCatalogosAdapter(executor).list_periodicidad()
+    periodicidades = LocalBackendCatalogosAdapter(executor).list_periodicidad()
     assert periodicidades[0] == Periodicidad(
         id="a-uuid",
         codigo="Esterilización",
@@ -407,18 +407,18 @@ def test_adapter_list_origenes_coerces_activo_string_to_bool() -> None:
         },
     ]
     executor = _RecordingExecutor(rows)
-    origenes = InsForgeCatalogosAdapter(executor).list_origenes()
+    origenes = LocalBackendCatalogosAdapter(executor).list_origenes()
     assert origenes[0].activo is True
 
 
 def test_adapter_returns_empty_list_when_executor_returns_empty() -> None:
     """An empty executor result yields an empty entity list."""
     executor = _RecordingExecutor([])
-    assert InsForgeCatalogosAdapter(executor).list_origenes() == []
-    assert InsForgeCatalogosAdapter(executor).list_motivos() == []
-    assert InsForgeCatalogosAdapter(executor).list_pruebas() == []
-    assert InsForgeCatalogosAdapter(executor).list_periodicidad() == []
-    assert InsForgeCatalogosAdapter(executor).list_tipos_contrato() == []
+    assert LocalBackendCatalogosAdapter(executor).list_origenes() == []
+    assert LocalBackendCatalogosAdapter(executor).list_motivos() == []
+    assert LocalBackendCatalogosAdapter(executor).list_pruebas() == []
+    assert LocalBackendCatalogosAdapter(executor).list_periodicidad() == []
+    assert LocalBackendCatalogosAdapter(executor).list_tipos_contrato() == []
 
 
 def test_adapter_satisfies_catalogos_port_protocol() -> None:
@@ -429,8 +429,8 @@ def test_adapter_satisfies_catalogos_port_protocol() -> None:
     is a usable :class:`CatalogosPort`.
     """
     executor = _RecordingExecutor()
-    adapter: CatalogosPort = InsForgeCatalogosAdapter(executor)
-    assert isinstance(adapter, InsForgeCatalogosAdapter)
+    adapter: CatalogosPort = LocalBackendCatalogosAdapter(executor)
+    assert isinstance(adapter, LocalBackendCatalogosAdapter)
     # The Protocol's method names are present on the adapter.
     for method in (
         "list_origenes",
@@ -459,7 +459,7 @@ def test_get_catalogos_port_uses_pooled_client_when_present() -> None:
     gen = get_catalogos_port(type("R", (), {"app": app})())
     adapter = next(gen)
     try:
-        assert isinstance(adapter, InsForgeCatalogosAdapter)
+        assert isinstance(adapter, LocalBackendCatalogosAdapter)
         # The adapter holds the same executor instance.
         assert adapter._executor is executor  # noqa: SLF001 — internal seam
     finally:
@@ -474,13 +474,13 @@ def test_get_catalogos_port_falls_back_when_lifespan_skipped() -> None:
 
     This branch exists for lightweight ASGI test transports that
     bypass the lifespan. The exact fallback client is an
-    :class:`InsForgeClient`; we only assert it is created and the
+    :class:`SqlExecutor`; we only assert it is created and the
     adapter wraps it.
     """
     from fastapi import FastAPI
 
     from app.core.di.catalogos_di import get_catalogos_port
-    from app.core.insforge import InsForgeClient
+    from app.core.data_access import SqlExecutor
 
     app = FastAPI()
     assert not hasattr(app.state, "insforge_client")
@@ -489,8 +489,8 @@ def test_get_catalogos_port_falls_back_when_lifespan_skipped() -> None:
     gen = get_catalogos_port(req)
     try:
         adapter = next(gen)
-        assert isinstance(adapter, InsForgeCatalogosAdapter)
-        assert isinstance(adapter._executor, InsForgeClient)  # noqa: SLF001
+        assert isinstance(adapter, LocalBackendCatalogosAdapter)
+        assert isinstance(adapter._executor, SqlExecutor)  # noqa: SLF001
     finally:
         try:
             next(gen)

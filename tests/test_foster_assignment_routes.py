@@ -35,7 +35,7 @@ import pytest
 
 from app.core.auth_dependencies import get_insforge_client_dep
 from app.core.config import get_settings
-from app.core.insforge import InsForgeClient
+from app.core.data_access import SqlExecutor
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
 from app.modules.animals.di.animals_di import get_animals_port
@@ -44,7 +44,7 @@ from app.modules.foster import service as foster_service
 from tests.conftest import auth_reval_rows, make_csrf_request
 
 
-class _NoSqlRouteClient(InsForgeClient):
+class _NoSqlRouteClient(SqlExecutor):
     """Client spy that fails if a route executes SQL directly.
 
     Mirrors the same pattern used across the codebase: routes own no

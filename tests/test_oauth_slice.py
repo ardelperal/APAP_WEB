@@ -12,13 +12,13 @@ same three levels as the catalogos slice:
    Protocol. Tests use a recording fake implementing the
    Protocol; assertions are on the call, not on the transport.
 2. **Adapter** — the InsForge adapter delegates to
-   :class:`InsForgeClient` and projects the
+   :class:`SqlExecutor` and projects the
    :class:`OAuthExchangeResult` shape to the typed
    :class:`OAuthUser` value object. Tests cover both the call
    delegation (the adapter calls the right client method with
    the right kwargs) and the PKCE pair generation.
 3. **DI helper** — the per-request port construction uses the
-   pooled :class:`InsForgeClient` when the lifespan is active,
+   pooled :class:`SqlExecutor` when the lifespan is active,
    and falls back to a lazily-created client when the transport
    bypasses the lifespan.
 
@@ -66,7 +66,7 @@ from app.core.domain.oauth import (
     PkcePair,
     UserNotAuthorizedError,
 )
-from app.core.insforge import InsForgeClient, InsForgeUser, OAuthExchangeResult
+from app.core.insforge import SqlExecutor, InsForgeUser, OAuthExchangeResult
 from app.core.ports.oauth_port import OAuthPort, OAuthUser
 
 # --- helpers ---------------------------------------------------------------
@@ -423,11 +423,11 @@ def test_logout_returns_clear_session_params() -> None:
     }
 
 
-# --- adapter (delegation to InsForgeClient) ---------------------------------
+# --- adapter (delegation to SqlExecutor) ---------------------------------
 
 
-class _RecordingInsForge(InsForgeClient):
-    """InsForgeClient subclass that records every OAuth call.
+class _RecordingInsForge(SqlExecutor):
+    """SqlExecutor subclass that records every OAuth call.
 
     Mirrors the existing _FakeInsForge in tests/test_auth_flow.py
     but is strictly a recorder (no canned data injection — the
@@ -578,7 +578,7 @@ def test_get_oauth_port_falls_back_when_lifespan_skipped() -> None:
 
     This branch exists for lightweight ASGI test transports that
     bypass the lifespan. The exact fallback client is an
-    :class:`InsForgeClient`; we only assert it is created and the
+    :class:`SqlExecutor`; we only assert it is created and the
     adapter wraps it.
     """
     from fastapi import FastAPI
@@ -593,7 +593,7 @@ def test_get_oauth_port_falls_back_when_lifespan_skipped() -> None:
     try:
         adapter = next(gen)
         assert isinstance(adapter, InsForgeOAuthAdapter)
-        assert isinstance(adapter._client, InsForgeClient)  # noqa: SLF001
+        assert isinstance(adapter._client, SqlExecutor)  # noqa: SLF001
     finally:
         try:
             next(gen)
