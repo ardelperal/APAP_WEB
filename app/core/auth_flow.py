@@ -34,8 +34,7 @@ explicitly.
 Backwards compatibility:
 
 - :func:`register_auth_flow_routes(app, templates)` — unchanged
-  signature. ``app/main.py::create_app`` still calls it the same
-  way.
+  signature. ``app/main.py::create_app`` still calls it the same way.
 - The four route URLs (``/login``, ``/auth/google``,
   ``/auth/callback``, ``/logout``) are unchanged.
 - The cookie names (``apap_pkce``, ``apap_session``), their
@@ -83,6 +82,8 @@ from app.core.domain.oauth import (
     UserNotAuthorizedError,
 )
 from app.core.logging import log_safe
+from app.core.ports.auth_port import AuthUsersPort
+from app.core.ports.oauth_port import OAuthPort
 from app.core.session import (
     read_session,
     session_cookie_name,
@@ -101,8 +102,7 @@ def _oauth_unconfigured_response() -> JSONResponse:
     ``tests/test_auth_flow.py::test_login_returns_503_when_google_not_configured``
     keeps matching. The error message is the operator's
     remediation hint, identical to the one
-    :class:`OAuthNotConfiguredError` carries — keeping the
-    single source of truth.
+    :class:`OAuthNotConfiguredError` carries.
     """
     return JSONResponse(
         {
@@ -256,14 +256,7 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
         # TTL cache (``Settings.auth_cache_ttl_seconds``, default
         # 300s), so an admin deactivation via
         # ``/admin/users/{id}/deactivate`` takes effect within the TTL
-        # instead of waiting for the cookie to expire. The P0 VOL-01
-        # fix this comment replaced is preserved as the first gate
-        # (``is_authorized`` defaults to False — default-deny),
-        # not as the final answer.
-        #
-        # PR-5B (REQ-AH-6) adds ``csrf_token`` via ``issue_csrf_to_session``
-        # so the CSRF middleware (REQ-AH-8) can validate POST/PUT/PATCH/DELETE
-        # without relying solely on SameSite cookies.
+        # instead of waiting for the cookie to expire.
         session_token = write_session(
             issue_csrf_to_session(
                 {
@@ -275,12 +268,6 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
             ),
             secret=settings.session_secret,
         )
-        # Slice 6 sample call site (T-6.7): emit a structured
-        # ``auth.login`` event. The ``email`` kwarg is REDACTED by
-        # ``log_safe`` per the closed 12-field list — operators see
-        # the event name and ``user_id`` (non-PII), not the email.
-        # This proves the redaction filter is wired end-to-end on a
-        # real authentication flow, not just in unit tests.
         log_safe("auth.login", email=session.email, user_id=session.user_id)
         response = _redirect("/")
         response.set_cookie(

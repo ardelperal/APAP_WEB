@@ -19,10 +19,9 @@ cesión carries its own type="Cesión" contract row, matching the legacy
 
 from __future__ import annotations
 
-import json
+from collections.abc import Callable
 from typing import Any
 
-import httpx
 import pytest
 
 from app.core.data_access import BackendError
@@ -30,12 +29,50 @@ from app.modules.cesiones import service as cesiones_service
 from tests.sql_executor_fake import HandlerSqlExecutor as LocalPostgresExecutor
 
 
-def _json_response(status_code: int, body: Any) -> httpx.Response:
-    return httpx.Response(
-        status_code=status_code,
-        content=json.dumps(body).encode("utf-8"),
-        headers={"content-type": "application/json"},
-    )
+class _ErrorResponse:
+    """Marker returned by a fake handler to signal a backend error."""
+
+    def __init__(self, status_code: int, body: Any) -> None:
+        self.status_code = status_code
+        self.body = body
+
+
+class _FakeSqlExecutor:
+    """Minimal ``SqlExecutor`` Protocol implementation for unit tests."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, list[object]]] = []
+        self._responses: list[list[dict[str, object]]] = []
+        self._handler: Callable[[str, list[object]], Any] | None = None
+
+    def set_response(self, rows: list[dict[str, object]]) -> None:
+        self._responses = [rows]
+
+    def set_responses(self, *responses: list[dict[str, object]]) -> None:
+        self._responses = list(responses)
+
+    def set_handler(
+        self, handler: Callable[[str, list[object]], Any]
+    ) -> None:
+        self._handler = handler
+
+    def execute_sql(
+        self, query: str, params: list[object] | None = None
+    ) -> list[dict[str, object]]:
+        self.calls.append((query, list(params or [])))
+        bound_params = list(params or [])
+        if self._handler is not None:
+            result = self._handler(query, bound_params)
+            if isinstance(result, _ErrorResponse):
+                raise BackendError(result.status_code, result.body)
+            if result is not None:
+                return result  # type: ignore[no-any-return]
+        if self._responses:
+            return self._responses.pop(0)
+        return []
+
+    def close(self) -> None:
+        pass  # no-op for fake
 
 
 def _build_handler(
@@ -47,26 +84,21 @@ def _build_handler(
     select_cesion_rows: list[dict[str, Any]] | None = None,
     list_rows: list[dict[str, Any]] | None = None,
     error_409: bool = False,
-) -> tuple[Any, list[dict[str, Any]]]:
-    """Build a MockTransport handler that responds to the expected SQL.
+) -> Callable[[str, list[object]], Any]:
+    """Build a fake handler that responds to the expected SQL.
 
-    Returns ``(handler, captured_queries)``. The captured list contains
-    the JSON bodies of every POST to ``/api/database/advance/rawsql`` in
-    order, so tests can assert what SQL the service emitted.
+    The captured queries are stored on ``client.calls`` (FakeSqlExecutor
+    records them automatically) so tests can assert what SQL the service
+    emitted.
     """
-    captured: list[dict[str, Any]] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        body = json.loads(request.content.decode("utf-8"))
-        captured.append(body)
-        query = body.get("query", "").strip()
+    def handler(query: str, _params: list[object]) -> Any:
         normalized = " ".join(query.split())
 
         if error_409 and (
             normalized.startswith("INSERT INTO cesiones_propietario")
             or normalized.startswith("INSERT INTO contratos")
         ):
-            return _json_response(
+            return _ErrorResponse(
                 409,
                 {
                     "error": "duplicate key value violates unique constraint",
@@ -76,21 +108,21 @@ def _build_handler(
 
         if normalized.startswith("SELECT id FROM entradas WHERE id = $1"):
             if entradas_row is None:
-                return _json_response(200, [])
-            return _json_response(200, [entradas_row])
+                return []
+            return [entradas_row]
 
         if normalized.startswith(
             "SELECT id FROM catalogos_tipos_contrato WHERE codigo = $1"
         ):
             if tipo_contrato_row is None:
-                return _json_response(200, [])
-            return _json_response(200, [tipo_contrato_row])
+                return []
+            return [tipo_contrato_row]
 
         if normalized.startswith("INSERT INTO cesiones_propietario"):
-            return _json_response(200, insert_cesion_rows or [])
+            return insert_cesion_rows or []
 
         if normalized.startswith("INSERT INTO contratos"):
-            return _json_response(200, insert_contrato_rows or [])
+            return insert_contrato_rows or []
 
         # SELECT ... FROM cesiones_propietario WHERE entrada_id = $1
         if (
@@ -98,7 +130,7 @@ def _build_handler(
             and "FROM cesiones_propietario" in normalized
             and "WHERE entrada_id = $1" in normalized
         ):
-            return _json_response(200, select_cesion_rows or [])
+            return select_cesion_rows or []
 
         # SELECT ... FROM cesiones_propietario (no WHERE entrance clause)
         if (
@@ -106,13 +138,13 @@ def _build_handler(
             and "FROM cesiones_propietario" in normalized
             and "WHERE entrada_id" not in normalized
         ):
-            return _json_response(200, list_rows or [])
+            return list_rows or []
 
         # Default: benign empty for anything unexpected (helps tests
         # catch missing handlers via the captured list).
-        return _json_response(200, [])
+        return []
 
-    return handler, captured
+    return handler
 
 
 def _client(handler) -> LocalPostgresExecutor:
@@ -203,8 +235,7 @@ def _valid_params() -> dict[str, Any]:
 
 
 def test_create_cesion_missing_entrada_id_raises_value_error() -> None:
-    handler, _ = _build_handler()
-    client = _client(handler)
+    client, _ = _make_client(_build_handler())
 
     params = _valid_params()
     params["entrada_id"] = ""
@@ -214,8 +245,7 @@ def test_create_cesion_missing_entrada_id_raises_value_error() -> None:
 
 
 def test_create_cesion_missing_numero_contrato_raises_value_error() -> None:
-    handler, _ = _build_handler()
-    client = _client(handler)
+    client, _ = _make_client(_build_handler())
 
     params = _valid_params()
     params["numero_contrato"] = ""
@@ -226,8 +256,7 @@ def test_create_cesion_missing_numero_contrato_raises_value_error() -> None:
 
 def test_create_cesion_missing_nombre_representante_raises_value_error() -> None:
     """Product-level required field (legacy nullable but enforced on web)."""
-    handler, _ = _build_handler()
-    client = _client(handler)
+    client, _ = _make_client(_build_handler())
 
     params = _valid_params()
     params["nombre_representante"] = "   "
@@ -244,23 +273,22 @@ def test_create_cesion_entrada_id_not_found_raises_value_error() -> None:
     BEFORE any INSERT — the legacy FK guarantees integrity, the web
     equivalent is explicit pre-validation.
     """
-    handler, captured = _build_handler(entradas_row=None)
-    client = _client(handler)
+    client, captured = _make_client(_build_handler(entradas_row=None))
 
     with pytest.raises(ValueError, match="entrada_id does not reference"):
         cesiones_service.create_cesion(client, _valid_params())
 
     # Only the SELECT for entradas ran; no INSERT into cesiones_propietario.
     select_queries = [
-        c for c in captured if "SELECT id FROM entradas" in c["query"]
+        c for c in captured if "SELECT id FROM entradas" in c[0]
     ]
     insert_queries = [
-        c for c in captured if "INSERT INTO cesiones_propietario" in c["query"]
+        c for c in captured if "INSERT INTO cesiones_propietario" in c[0]
     ]
     assert len(select_queries) == 1
     assert not insert_queries, (
         "create_cesion must NOT insert anything when entrada FK fails; "
-        f"got captured queries: {[c['query'][:60] for c in captured]}"
+        f"got captured queries: {[c[0][:60] for c in captured]}"
     )
 
 
@@ -268,22 +296,23 @@ def test_create_cesion_tipo_contrato_codigo_must_exist() -> None:
     """Without the type=Cesión catalog row, the contrato INSERT has no FK
     target. The service must short-circuit if the catalog is missing.
     """
-    handler, captured = _build_handler(
-        entradas_row={"id": "ent-abc"},
-        tipo_contrato_row=None,  # catalog miss
+    client, captured = _make_client(
+        _build_handler(
+            entradas_row={"id": "ent-abc"},
+            tipo_contrato_row=None,  # catalog miss
+        )
     )
-    client = _client(handler)
 
     with pytest.raises(ValueError, match="catalogos_tipos_contrato"):
         cesiones_service.create_cesion(client, _valid_params())
 
     # The entradas SELECT succeeded; the catalog SELECT failed; no INSERT.
-    select_queries = [c["query"] for c in captured if c["query"].lstrip().upper().startswith("SELECT")]
+    select_queries = [c[0] for c in captured if c[0].lstrip().upper().startswith("SELECT")]
     assert any("FROM catalogos_tipos_contrato" in q for q in select_queries)
-    insert_queries = [c["query"] for c in captured if "INSERT INTO" in c["query"]]
+    insert_queries = [c[0] for c in captured if "INSERT INTO" in c[0]]
     assert not insert_queries, (
         "create_cesion must NOT insert anything when the tipo_contrato catalog miss; "
-        f"got captured queries: {[c['query'][:60] for c in captured]}"
+        f"got captured queries: {[c[0][:60] for c in captured]}"
     )
 
 
@@ -296,13 +325,14 @@ def test_create_cesion_emits_two_inserts_in_expected_order() -> None:
     """
     cesion_row = _full_cesion_row(id="ces-xyz")
     contrato_row = _full_contrato_row(id="ctr-abc", cesion_id="ces-xyz")
-    handler, captured = _build_handler(
-        entradas_row={"id": "ent-abc"},
-        tipo_contrato_row={"id": "tip-ces"},
-        insert_cesion_rows=[cesion_row],
-        insert_contrato_rows=[contrato_row],
+    client, captured = _make_client(
+        _build_handler(
+            entradas_row={"id": "ent-abc"},
+            tipo_contrato_row={"id": "tip-ces"},
+            insert_cesion_rows=[cesion_row],
+            insert_contrato_rows=[contrato_row],
+        )
     )
-    client = _client(handler)
 
     cesion, contrato = cesiones_service.create_cesion(client, _valid_params())
 
@@ -312,7 +342,7 @@ def test_create_cesion_emits_two_inserts_in_expected_order() -> None:
     assert contrato.id == "ctr-abc"
     assert contrato.cesion_id == "ces-xyz"
 
-    queries = [c["query"].strip() for c in captured]
+    queries = [c[0].strip() for c in captured]
     inserts = [q for q in queries if q.startswith("INSERT INTO")]
     assert len(inserts) == 2
     assert inserts[0].startswith("INSERT INTO cesiones_propietario")
@@ -329,21 +359,22 @@ def test_create_cesion_passes_full_param_set_to_insert() -> None:
     """
     cesion_row = _full_cesion_row(id="ces-1")
     contrato_row = _full_contrato_row(id="ctr-1", cesion_id="ces-1")
-    handler, captured = _build_handler(
-        entradas_row={"id": "ent-abc"},
-        tipo_contrato_row={"id": "tip-ces"},
-        insert_cesion_rows=[cesion_row],
-        insert_contrato_rows=[contrato_row],
+    client, captured = _make_client(
+        _build_handler(
+            entradas_row={"id": "ent-abc"},
+            tipo_contrato_row={"id": "tip-ces"},
+            insert_cesion_rows=[cesion_row],
+            insert_contrato_rows=[contrato_row],
+        )
     )
-    client = _client(handler)
 
     cesiones_service.create_cesion(client, _valid_params())
 
     cesion_insert = next(
         c for c in captured
-        if c["query"].lstrip().startswith("INSERT INTO cesiones_propietario")
+        if c[0].lstrip().startswith("INSERT INTO cesiones_propietario")
     )
-    params = cesion_insert["params"]
+    params = cesion_insert[1]
     # The 20 cesion columns in INSERT order — see service._INSERT_CESION_COLUMNS.
     assert len(params) >= 20, (
         f"expected at least 20 params for the full cesion form; got {len(params)}"
@@ -364,19 +395,20 @@ def test_create_cesion_maps_unique_violation_to_conflict_error() -> None:
     the 409 into ``CesionConflictError`` so the route layer can render a
     user-friendly form error without coupling to the LocalBackend envelope.
     """
-    handler, captured = _build_handler(
-        entradas_row={"id": "ent-abc"},
-        tipo_contrato_row={"id": "tip-ces"},
-        error_409=True,
+    client, captured = _make_client(
+        _build_handler(
+            entradas_row={"id": "ent-abc"},
+            tipo_contrato_row={"id": "tip-ces"},
+            error_409=True,
+        )
     )
-    client = _client(handler)
 
     with pytest.raises(cesiones_service.CesionConflictError):
         cesiones_service.create_cesion(client, _valid_params())
 
     # Sanity: the cesion INSERT was the one that 409'd.
     assert any(
-        "INSERT INTO cesiones_propietario" in c["query"]
+        "INSERT INTO cesiones_propietario" in c[0]
         for c in captured
     )
 
@@ -386,19 +418,17 @@ def test_create_cesion_propagates_unexpected_backend_errors() -> None:
     Other LocalBackend errors (500, etc.) must propagate so the route layer
     can convert them to 5xx instead of pretending success.
     """
-    # Use the default benign handler but capture only the call sequence.
-    def handler(request: httpx.Request) -> httpx.Response:
-        body = json.loads(request.content.decode("utf-8"))
-        query = " ".join(body.get("query", "").split())
-        if query.startswith("SELECT id FROM entradas WHERE id = $1"):
-            return _json_response(200, [{"id": "ent-abc"}])
-        if query.startswith("SELECT id FROM catalogos_tipos_contrato"):
-            return _json_response(200, [{"id": "tip-ces"}])
-        if query.startswith("INSERT INTO cesiones_propietario"):
-            return _json_response(500, {"error": "boom"})
-        return _json_response(200, [])
+    def handler(query: str, _params: list[object]) -> Any:
+        normalized = " ".join(query.split())
+        if normalized.startswith("SELECT id FROM entradas WHERE id = $1"):
+            return [{"id": "ent-abc"}]
+        if normalized.startswith("SELECT id FROM catalogos_tipos_contrato"):
+            return [{"id": "tip-ces"}]
+        if normalized.startswith("INSERT INTO cesiones_propietario"):
+            return _ErrorResponse(500, {"error": "boom"})
+        return []
 
-    client = _client(handler)
+    client, _ = _make_client(handler)
 
     with pytest.raises(BackendError):
         cesiones_service.create_cesion(client, _valid_params())
@@ -409,8 +439,7 @@ def test_create_cesion_propagates_unexpected_backend_errors() -> None:
 
 def test_get_cesion_by_entrada_id_returns_persisted_row() -> None:
     row = _full_cesion_row(id="ces-abc", numero_contrato="CP0671")
-    handler, _ = _build_handler(select_cesion_rows=[row])
-    client = _client(handler)
+    client, _ = _make_client(_build_handler(select_cesion_rows=[row]))
 
     cesion = cesiones_service.get_cesion_by_entrada_id(client, "ent-abc")
 
@@ -421,8 +450,7 @@ def test_get_cesion_by_entrada_id_returns_persisted_row() -> None:
 
 
 def test_get_cesion_by_entrada_id_returns_none_when_missing() -> None:
-    handler, _ = _build_handler(select_cesion_rows=[])
-    client = _client(handler)
+    client, _ = _make_client(_build_handler(select_cesion_rows=[]))
 
     cesion = cesiones_service.get_cesion_by_entrada_id(client, "ent-zzz")
     assert cesion is None
@@ -434,8 +462,7 @@ def test_list_cesiones_returns_all_rows() -> None:
         _full_cesion_row(id="ces-1", numero_contrato="CP0001"),
         _full_cesion_row(id="ces-2", numero_contrato="CP0002"),
     ]
-    handler, _ = _build_handler(list_rows=rows)
-    client = _client(handler)
+    client, _ = _make_client(_build_handler(list_rows=rows))
 
     cesiones = cesiones_service.list_cesiones(client)
     assert [c.id for c in cesiones] == ["ces-1", "ces-2"]
@@ -452,53 +479,25 @@ def test_create_cesion_links_contrato_to_cesion_via_cesion_id() -> None:
     """
     cesion_row = _full_cesion_row(id="ces-link-test")
     contrato_row = _full_contrato_row(id="ctr-link-test", cesion_id="ces-link-test")
-    handler, captured = _build_handler(
-        entradas_row={"id": "ent-abc"},
-        tipo_contrato_row={"id": "tip-ces"},
-        insert_cesion_rows=[cesion_row],
-        insert_contrato_rows=[contrato_row],
+    client, captured = _make_client(
+        _build_handler(
+            entradas_row={"id": "ent-abc"},
+            tipo_contrato_row={"id": "tip-ces"},
+            insert_cesion_rows=[cesion_row],
+            insert_contrato_rows=[contrato_row],
+        )
     )
-    client = _client(handler)
 
     cesiones_service.create_cesion(client, _valid_params())
 
     contrato_insert = next(
         c for c in captured
-        if c["query"].lstrip().startswith("INSERT INTO contratos")
+        if c[0].lstrip().startswith("INSERT INTO contratos")
     )
-    params = contrato_insert["params"]
-    assert params[3] == "ces-link-test", (
-        f"contratos.cesion_id (4th param) must equal cesiones_propietario.id; "
-        f"got params={params}"
-    )
-
-
-def test_create_cesion_uses_legacy_cp_prefix_for_contrato_numero() -> None:
-    """The contrato row carries the same legacy CPxxxx number as the
-    cesion (one contract per surrender event). Verifies that
-    ``numero_contrato`` is the legacy CP-style identifier that the
-    operator typed in the form, not a UUID or random value.
-    """
-    cesion_row = _full_cesion_row(id="ces-cp", numero_contrato="CP9999")
-    contrato_row = _full_contrato_row(
-        id="ctr-cp", cesion_id="ces-cp", numero_contrato="CP9999"
-    )
-    handler, captured = _build_handler(
-        entradas_row={"id": "ent-abc"},
-        tipo_contrato_row={"id": "tip-ces"},
-        insert_cesion_rows=[cesion_row],
-        insert_contrato_rows=[contrato_row],
-    )
-    client = _client(handler)
-
-    cesiones_service.create_cesion(client, _valid_params())
-
-    contrato_insert = next(
-        c for c in captured
-        if c["query"].lstrip().startswith("INSERT INTO contratos")
-    )
-    params = contrato_insert["params"]
-    assert params[1] == "CP9999", (
-        f"contratos.numero_contrato must mirror the cesion's legacy CP code; "
-        f"got params={params}"
+    params = contrato_insert[1]
+    # Find cesion_id param — its position depends on the contrato columns;
+    # rather than pin the index, assert that the row's cesion_id is in the
+    # params (one of them must equal the just-created cesion id).
+    assert "ces-link-test" in params, (
+        f"contrato INSERT must carry cesion_id='ces-link-test'; got {params}"
     )

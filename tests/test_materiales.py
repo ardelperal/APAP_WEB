@@ -19,16 +19,71 @@ land in PR B; the per-stay material list endpoint lands in PR C.
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 from typing import Any
 
-import httpx
 import pytest
 
 from app.modules.materiales import estancia_material_service
 from app.modules.materiales import service as materiales_service
 from tests.sql_executor_fake import HandlerSqlExecutor as LocalPostgresExecutor
+
+
+class _ErrorResponse:
+    """Marker returned by a fake handler to signal a backend error."""
+
+    def __init__(self, status_code: int, body: Any) -> None:
+        self.status_code = status_code
+        self.body = body
+
+
+class _FakeSqlExecutor:
+    """Minimal ``SqlExecutor`` Protocol implementation for unit tests."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, list[object]]] = []
+        self._responses: list[list[dict[str, object]]] = []
+        self._handler: Callable[[str, list[object]], Any] | None = None
+
+    def set_response(self, rows: list[dict[str, object]]) -> None:
+        self._responses = [rows]
+
+    def set_responses(self, *responses: list[dict[str, object]]) -> None:
+        self._responses = list(responses)
+
+    def set_handler(
+        self, handler: Callable[[str, list[object]], Any]
+    ) -> None:
+        self._handler = handler
+
+    def execute_sql(
+        self, query: str, params: list[object] | None = None
+    ) -> list[dict[str, object]]:
+        self.calls.append((query, list(params or [])))
+        bound_params = list(params or [])
+        if self._handler is not None:
+            result = self._handler(query, bound_params)
+            if isinstance(result, _ErrorResponse):
+                from app.core.data_access import BackendError
+
+                raise BackendError(result.status_code, result.body)
+            if result is not None:
+                return result  # type: ignore[no-any-return]
+        if self._responses:
+            return self._responses.pop(0)
+        return []
+
+    def close(self) -> None:
+        pass  # no-op for fake
+
+
+def _make_client(
+    handler: Callable[[str, list[object]], Any],
+) -> tuple[_FakeSqlExecutor, list[tuple[str, list[object]]]]:
+    fake = _FakeSqlExecutor()
+    fake.set_handler(handler)
+    return fake, fake.calls
+
 
 # --- helpers --------------------------------------------------------------
 
@@ -120,12 +175,9 @@ def _junction_row(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
 def test_create_material_happy_path() -> None:
     """create_material inserts a row with all 4 user-supplied fields +
     the system defaults and returns the persisted Material dataclass."""
-    client, captured = _client_recording(
-        lambda req, body: _json_response(200, [_material_row()])
-    )
+    client, captured = _make_client(lambda q, p: [_material_row()])
 
     result = materiales_service.create_material(client, _params_minimal())
-    client.close()
 
     assert isinstance(result, materiales_service.Material)
     assert result.id == "11111111-1111-1111-1111-111111111111"
@@ -139,9 +191,9 @@ def test_create_material_happy_path() -> None:
 
     assert len(captured) == 1
     insert = captured[0]
-    assert "INSERT INTO materiales" in insert["query"]
+    assert "INSERT INTO materiales" in insert[0]
     # Required-text fields are the first 3 params, observaciones last.
-    assert insert["params"][:4] == ["Cama", "Grande", "Azul", "Para gato grande"]
+    assert insert[1][:4] == ["Cama", "Grande", "Azul", "Para gato grande"]
 
 
 # --- create: required-field validation ------------------------------------
@@ -168,15 +220,12 @@ def test_create_material_rejects_blank_material_tamano_or_color(
     captured list stays empty) so a typo in the form path cannot leave
     a half-written row.
     """
-    client, captured = _client_recording(
-        lambda req, body: _json_response(200, [_material_row()])
-    )
+    client, captured = _make_client(lambda q, p: [_material_row()])
 
     with pytest.raises(ValueError, match=field):
         materiales_service.create_material(
             client, {**_params_minimal(), field: value}
         )
-    client.close()
 
     assert captured == [], (
         f"validation must reject blank {field!r} BEFORE SQL; "
@@ -188,20 +237,17 @@ def test_create_material_rejects_blank_observaciones() -> None:
     """observaciones is OPTIONAL — blank string is normalized to None
     and the row is inserted with observaciones = NULL.
     """
-    client, captured = _client_recording(
-        lambda req, body: _json_response(
-            200, [_material_row({"observaciones": None})]
-        )
+    client, captured = _make_client(
+        lambda q, p: [_material_row({"observaciones": None})]
     )
 
     result = materiales_service.create_material(
         client, {**_params_minimal(), "observaciones": ""}
     )
-    client.close()
 
     assert result.observaciones is None
     # None → NULL parameter in the INSERT.
-    assert captured[0]["params"][3] is None
+    assert captured[0][1][3] is None
 
 
 # --- create: UNIQUE-violation -> MaterialConflictError (race-condition 409)
@@ -214,19 +260,19 @@ def test_create_material_unique_constraint_raises_conflict() -> None:
     to HTTP 409. This is the race-condition path (two writers submitting
     the same triple simultaneously) — Scenario 2 in spec #15894.
     """
-    client, _captured = _client_recording(
-        lambda req, body: _json_response(
+    def _handler(query: str, params: list[object]) -> Any:
+        return _ErrorResponse(
             409,
             {
                 "code": "23505",
                 "message": 'duplicate key value violates unique constraint "materiales_material_tamano_color_key"',
             },
         )
-    )
+
+    client, _captured = _make_client(_handler)
 
     with pytest.raises(materiales_service.MaterialConflictError, match="combinaci"):
         materiales_service.create_material(client, _params_minimal())
-    client.close()
 
 
 # --- get by id ------------------------------------------------------------
@@ -235,19 +281,18 @@ def test_create_material_unique_constraint_raises_conflict() -> None:
 def test_get_material_by_id_returns_row_or_none() -> None:
     """get_material_by_id returns the Material dataclass when the row
     exists, or None when it does not."""
-    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
-        if body["params"] == ["missing"]:
-            return _json_response(200, [])
-        return _json_response(200, [_material_row({"id": body["params"][0]})])
+    def _handler(query: str, params: list[object]) -> list[dict[str, object]]:
+        if params == ["missing"]:
+            return []
+        return [_material_row({"id": params[0]})]
 
-    client, captured = _client_recording(_handler)
+    client, captured = _make_client(_handler)
     found = materiales_service.get_material_by_id(client, "found")
     missing = materiales_service.get_material_by_id(client, "missing")
-    client.close()
 
     assert found is not None and found.id == "found"
     assert missing is None
-    assert [call["params"] for call in captured] == [["found"], ["missing"]]
+    assert [call[1] for call in captured] == [["found"], ["missing"]]
 
 
 # --- list -----------------------------------------------------------------
@@ -264,15 +309,12 @@ def test_list_materials_returns_all_ordered() -> None:
             {"id": "mat-3", "fecha_alta": "2026-07-04T10:00:00Z", "activo": False}
         ),
     ]
-    client, captured = _client_recording(
-        lambda req, body: _json_response(200, rows)
-    )
+    client, captured = _make_client(lambda q, p: rows)
 
     result = materiales_service.list_materials(client, activos_solo=False)
-    client.close()
 
     assert [m.id for m in result] == ["mat-2", "mat-1", "mat-3"]
-    query = captured[0]["query"]
+    query = captured[0][0]
     assert "FROM materiales" in query
     assert "ORDER BY fecha_alta DESC" in query
     # No active filter — the inactive row must show up.
@@ -283,14 +325,11 @@ def test_list_materials_activos_solo_filter() -> None:
     """list_materials(activos_solo=True) — the default — emits
     ``WHERE activo = true`` so the inactive rows are filtered out.
     """
-    client, captured = _client_recording(
-        lambda req, body: _json_response(200, [_material_row()])
-    )
+    client, captured = _make_client(lambda q, p: [_material_row()])
 
     materiales_service.list_materials(client)  # default activos_solo=True
-    client.close()
 
-    query = captured[0]["query"]
+    query = captured[0][0]
     assert "FROM materiales" in query
     assert "WHERE activo = true" in query
     assert "ORDER BY fecha_alta DESC" in query
@@ -301,37 +340,33 @@ def test_list_materials_activos_solo_filter() -> None:
 
 def test_update_material_modifies_record() -> None:
     """update_material writes the new text fields + bumps updated_at."""
-    client, captured = _client_recording(
-        lambda req, body: _json_response(200, [_material_row({"color": "Verde"})])
-    )
+    client, captured = _make_client(lambda q, p: [_material_row({"color": "Verde"})])
 
     result = materiales_service.update_material(
         client,
         "11111111-1111-1111-1111-111111111111",
         {**_params_minimal(), "color": "Verde"},
     )
-    client.close()
 
     assert result is not None
     assert result.color == "Verde"
     update_call = captured[0]
-    assert "UPDATE materiales SET" in update_call["query"]
-    assert "updated_at = now()" in update_call["query"]
-    assert update_call["params"][0] == "11111111-1111-1111-1111-111111111111"
+    assert "UPDATE materiales SET" in update_call[0]
+    assert "updated_at = now()" in update_call[0]
+    assert update_call[1][0] == "11111111-1111-1111-1111-111111111111"
 
 
 def test_update_material_returns_none_when_id_missing() -> None:
     """update_material returns None when the UPDATE matches no row."""
-    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
-        if "UPDATE materiales SET" in body["query"]:
-            return _json_response(200, [])
-        raise AssertionError(f"Unexpected SQL: {body['query']}")
+    def _handler(query: str, params: list[object]) -> list[dict[str, object]]:
+        if "UPDATE materiales SET" in query:
+            return []
+        raise AssertionError(f"Unexpected SQL: {query}")
 
-    client, captured = _client_recording(_handler)
+    client, captured = _make_client(_handler)
     result = materiales_service.update_material(
         client, "missing", _params_minimal()
     )
-    client.close()
 
     assert result is None
 
@@ -348,44 +383,40 @@ def test_deactivate_material_soft_deletes_and_cascades_junction() -> None:
     for every row pointing at the deactivated material so it stops
     showing up in any estancia's material list.
     """
-    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
+    def _handler(query: str, params: list[object]) -> list[dict[str, object]]:
         # Multi-line SQL — substring matches must avoid the
         # ``UPDATE materiales``/``SET`` newline boundary.
-        if "UPDATE materiales" in body["query"] and "activo = false" in body["query"]:
-            return _json_response(200, [{"id": body["params"][0]}])
-        if "UPDATE estancia_materiales" in body["query"] and "activo = false" in body["query"]:
-            return _json_response(200, [{"id": "junction-1"}, {"id": "junction-2"}])
-        raise AssertionError(f"Unexpected SQL: {body['query']}")
+        if "UPDATE materiales" in query and "activo = false" in query:
+            return [{"id": params[0]}]
+        if "UPDATE estancia_materiales" in query and "activo = false" in query:
+            return [{"id": "junction-1"}, {"id": "junction-2"}]
+        raise AssertionError(f"Unexpected SQL: {query}")
 
-    client, captured = _client_recording(_handler)
+    client, captured = _make_client(_handler)
     result = materiales_service.deactivate_material(
         client, "11111111-1111-1111-1111-111111111111"
     )
-    client.close()
 
     assert result is True
     assert len(captured) == 2
     catalog_call, cascade_call = captured
     # Catalog UPDATE — soft-delete the material row.
-    assert "UPDATE materiales" in catalog_call["query"]
-    assert "activo = false" in catalog_call["query"]
-    assert "fecha_baja = now()" in catalog_call["query"]
+    assert "UPDATE materiales" in catalog_call[0]
+    assert "activo = false" in catalog_call[0]
+    assert "fecha_baja = now()" in catalog_call[0]
     # Junction cascade UPDATE — soft-delete every active junction for this material.
-    assert "UPDATE estancia_materiales" in cascade_call["query"]
-    assert "activo = false" in cascade_call["query"]
+    assert "UPDATE estancia_materiales" in cascade_call[0]
+    assert "activo = false" in cascade_call[0]
     # The cascade targets the same material_id.
-    assert cascade_call["params"][0] == "11111111-1111-1111-1111-111111111111"
+    assert cascade_call[1][0] == "11111111-1111-1111-1111-111111111111"
 
 
 def test_deactivate_material_returns_false_when_id_missing() -> None:
     """deactivate_material returns False when no row matches (id
     doesn't exist OR was already inactive).
     """
-    client, captured = _client_recording(
-        lambda req, body: _json_response(200, [])
-    )
+    client, captured = _make_client(lambda q, p: [])
     result = materiales_service.deactivate_material(client, "missing")
-    client.close()
 
     assert result is False
     assert len(captured) == 1
@@ -398,19 +429,16 @@ def test_deactivate_material_returns_false_when_already_inactive() -> None:
     returns no rows. The cascade SQL is NOT emitted (it was contingent
     on the catalog UPDATE having a positive RETURNING count).
     """
-    client, captured = _client_recording(
-        lambda req, body: _json_response(200, [])
-    )
+    client, captured = _make_client(lambda q, p: [])
     result = materiales_service.deactivate_material(
         client, "already-inactive-uuid"
     )
-    client.close()
 
     assert result is False
     # Only the catalog UPDATE was emitted; the cascade was NOT
     # because the catalog UPDATE returned 0 rows (already inactive).
     assert len(captured) == 1
-    assert "_CASCADE" not in captured[0]["query"]
+    assert "_CASCADE" not in captured[0][0]
 
 
 def test_assign_material_to_estancia_concurrent_race_returns_conflict() -> None:
@@ -421,24 +449,24 @@ def test_assign_material_to_estancia_concurrent_race_returns_conflict() -> None:
     having the mocked LocalBackend return 409 with the canonical conflict
     body on the junction INSERT.
     """
-    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
+    def _handler(query: str, params: list[object]) -> Any:
         # FK checks for estancia + material (each SELECT returns a row).
-        if "FROM acogidas" in body["query"]:
-            return _json_response(200, [_estancia_row()])
-        if "FROM materiales" in body["query"]:
-            return _json_response(200, [_material_row()])
+        if "FROM acogidas" in query:
+            return [_estancia_row()]
+        if "FROM materiales" in query:
+            return [_material_row()]
         # The junction INSERT collides with the partial unique index.
-        if "INSERT INTO estancia_materiales" in body["query"]:
-            return _json_response(
+        if "INSERT INTO estancia_materiales" in query:
+            return _ErrorResponse(
                 409,
                 {
                     "code": "23505",
                     "message": 'duplicate key value violates unique constraint "estancia_materiales_active_unique"',
                 },
             )
-        return _json_response(200, [])
+        return []
 
-    client, _captured = _client_recording(_handler)
+    client, _captured = _make_client(_handler)
     with pytest.raises(materiales_service.MaterialConflictError) as exc_info:
         estancia_material_service.assign_material_to_estancia(
             client,
@@ -446,7 +474,6 @@ def test_assign_material_to_estancia_concurrent_race_returns_conflict() -> None:
             material_id="11111111-1111-1111-1111-111111111111",
             cantidad=1,
         )
-    client.close()
 
     assert isinstance(exc_info.value, materiales_service.MaterialConflictError)
     # The service's translated message names the offending resource
@@ -463,27 +490,26 @@ def test_assign_material_to_estancia_happy_path() -> None:
     junction row. The returned EstanciaMaterial dataclass carries the
     persisted id + timestamp.
     """
-    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
+    def _handler(query: str, params: list[object]) -> list[dict[str, object]]:
         # FK checks for estancia + material (each SELECT returns a row).
         # The service does the activo + fecha_final check in Python so
         # the SQL is just an existence query.
-        if "FROM acogidas" in body["query"]:
-            return _json_response(200, [_estancia_row()])
-        if "FROM materiales" in body["query"]:
-            return _json_response(200, [_material_row()])
-        if "INSERT INTO estancia_materiales" in body["query"]:
+        if "FROM acogidas" in query:
+            return [_estancia_row()]
+        if "FROM materiales" in query:
+            return [_material_row()]
+        if "INSERT INTO estancia_materiales" in query:
             # Return the junction row with the cantidad + notas echoed
             # back from the INSERT params so the dataclass assertions
             # match the actual request.
-            return _json_response(
-                200,
-                [_junction_row(
-                    {"cantidad": body["params"][2], "notas": body["params"][3]}
-                )],
-            )
-        raise AssertionError(f"Unexpected SQL: {body['query']}")
+            return [
+                _junction_row(
+                    {"cantidad": params[2], "notas": params[3]}
+                )
+            ]
+        raise AssertionError(f"Unexpected SQL: {query}")
 
-    client, captured = _client_recording(_handler)
+    client, captured = _make_client(_handler)
     result = estancia_material_service.assign_material_to_estancia(
         client,
         estancia_id="22222222-2222-2222-2222-222222222222",
@@ -491,7 +517,6 @@ def test_assign_material_to_estancia_happy_path() -> None:
         cantidad=2,
         notas="Para el gato nuevo",
     )
-    client.close()
 
     assert isinstance(result, materiales_service.EstanciaMaterial)
     assert result.estancia_id == "22222222-2222-2222-2222-222222222222"
@@ -502,8 +527,8 @@ def test_assign_material_to_estancia_happy_path() -> None:
     # Three SQL calls: FK check on estancia, FK check on material, INSERT.
     assert len(captured) == 3
     insert = captured[2]
-    assert "INSERT INTO estancia_materiales" in insert["query"]
-    assert insert["params"][:3] == [
+    assert "INSERT INTO estancia_materiales" in insert[0]
+    assert insert[1][:3] == [
         "22222222-2222-2222-2222-222222222222",
         "11111111-1111-1111-1111-111111111111",
         2,
@@ -519,25 +544,22 @@ def test_assign_material_to_estancia_rejects_inactive_material() -> None:
     AND the material check (returns an inactive row). The validator
     chain stops at the material step with ValueError before the INSERT.
     """
-    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
-        if "FROM acogidas" in body["query"]:
+    def _handler(query: str, params: list[object]) -> list[dict[str, object]]:
+        if "FROM acogidas" in query:
             # Estancia is healthy — pass the FK check.
-            return _json_response(200, [_estancia_row()])
-        if "FROM materiales" in body["query"]:
+            return [_estancia_row()]
+        if "FROM materiales" in query:
             # Material is soft-deleted — must reject.
-            return _json_response(
-                200, [_material_row({"activo": False})]
-            )
-        raise AssertionError(f"Unexpected SQL: {body['query']}")
+            return [_material_row({"activo": False})]
+        raise AssertionError(f"Unexpected SQL: {query}")
 
-    client, captured = _client_recording(_handler)
+    client, captured = _make_client(_handler)
     with pytest.raises(ValueError, match=r"material.*activo.*inactivo"):
         estancia_material_service.assign_material_to_estancia(
             client,
             estancia_id="22222222-2222-2222-2222-222222222222",
             material_id="11111111-1111-1111-1111-111111111111",
         )
-    client.close()
 
     # Two SQL calls: estancia FK check (passed) + material FK check (rejected).
     # No INSERT runs.
@@ -549,21 +571,20 @@ def test_assign_material_to_estancia_rejects_closed_or_soft_deleted_estancia() -
     (i.e. closed), raise ValueError BEFORE the INSERT. Q5 in spec
     #15894 + data-model-completeness.md §4 invariant.
     """
-    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
-        if "FROM acogidas" in body["query"]:
+    def _handler(query: str, params: list[object]) -> list[dict[str, object]]:
+        if "FROM acogidas" in query:
             # Simulate a closed (fecha_final populated) AND soft-deleted
             # estancia — either condition must reject.
-            return _json_response(200, [])
-        raise AssertionError(f"Unexpected SQL: {body['query']}")
+            return []
+        raise AssertionError(f"Unexpected SQL: {query}")
 
-    client, captured = _client_recording(_handler)
+    client, captured = _make_client(_handler)
     with pytest.raises(ValueError, match="estancia"):
         estancia_material_service.assign_material_to_estancia(
             client,
             estancia_id="closed-estancia",
             material_id="11111111-1111-1111-1111-111111111111",
         )
-    client.close()
 
     # Only the estancia FK check ran; no material check, no INSERT.
     assert len(captured) == 1
@@ -582,17 +603,14 @@ def test_list_materials_for_estancia_returns_active_only() -> None:
         _junction_row({"id": "jun-2", "fecha_alta": "2026-07-05T12:00:00Z"}),
         _junction_row({"id": "jun-1", "fecha_alta": "2026-07-05T10:00:00Z"}),
     ]
-    client, captured = _client_recording(
-        lambda req, body: _json_response(200, rows)
-    )
+    client, captured = _make_client(lambda q, p: rows)
 
     result = estancia_material_service.list_materials_for_estancia(
         client, "22222222-2222-2222-2222-222222222222"
     )
-    client.close()
 
     assert [j.id for j in result] == ["jun-2", "jun-1"]
-    query = captured[0]["query"]
+    query = captured[0][0]
     assert "FROM estancia_materiales" in query
     assert "WHERE estancia_id = $1" in query
     assert "activo = true" in query
@@ -607,16 +625,13 @@ def test_remove_material_from_estancia_soft_deletes() -> None:
     (Scenario 11 / AC8 in spec #15894): activo=false on the row, NOT
     a physical DELETE.
     """
-    client, captured = _client_recording(
-        lambda req, body: _json_response(200, [{"id": body["params"][0]}])
-    )
+    client, captured = _make_client(lambda q, p: [{"id": p[0]}] if p else [{"id": "x"}])
     result = estancia_material_service.remove_material_from_estancia(
         client, "33333333-3333-3333-3333-333333333333"
     )
-    client.close()
 
     assert result is True
-    query = captured[0]["query"]
+    query = captured[0][0]
     # Multi-line SQL — substring avoids the
     # ``UPDATE estancia_materiales``/``SET`` newline boundary.
     assert "UPDATE estancia_materiales" in query
@@ -631,13 +646,10 @@ def test_remove_material_from_estancia_returns_false_when_id_missing() -> None:
     not exist OR was already inactive (idempotent — same shape as
     deactivate_material on the catalog).
     """
-    client, captured = _client_recording(
-        lambda req, body: _json_response(200, [])
-    )
+    client, captured = _make_client(lambda q, p: [])
     result = estancia_material_service.remove_material_from_estancia(
         client, "missing"
     )
-    client.close()
 
     assert result is False
     assert len(captured) == 1
@@ -652,35 +664,31 @@ def test_cascade_deactivate_by_material_soft_deletes_all_assignments() -> None:
     statement — confirmed by the WHERE material_id = $1 filter
     targeting the catalog id.
     """
-    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
-        if "UPDATE materiales" in body["query"] and "activo = false" in body["query"]:
-            return _json_response(200, [{"id": body["params"][0]}])
-        if "UPDATE estancia_materiales" in body["query"] and "activo = false" in body["query"]:
+    def _handler(query: str, params: list[object]) -> list[dict[str, object]]:
+        if "UPDATE materiales" in query and "activo = false" in query:
+            return [{"id": params[0]}]
+        if "UPDATE estancia_materiales" in query and "activo = false" in query:
             # Return 3 affected junction rows — proves the WHERE filter
             # catches multiple assignments (same material, different
             # estancias).
-            return _json_response(
-                200,
-                [
-                    {"id": "j-1"},
-                    {"id": "j-2"},
-                    {"id": "j-3"},
-                ],
-            )
-        raise AssertionError(f"Unexpected SQL: {body['query']}")
+            return [
+                {"id": "j-1"},
+                {"id": "j-2"},
+                {"id": "j-3"},
+            ]
+        raise AssertionError(f"Unexpected SQL: {query}")
 
-    client, captured = _client_recording(_handler)
+    client, captured = _make_client(_handler)
     result = materiales_service.deactivate_material(
         client, "11111111-1111-1111-1111-111111111111"
     )
-    client.close()
 
     assert result is True
     assert len(captured) == 2
     cascade_call = captured[1]
     # WHERE material_id = $1 — the cascade targets ONLY rows for this material.
-    assert "WHERE material_id = $1" in cascade_call["query"]
-    assert "activo = true" in cascade_call["query"]
+    assert "WHERE material_id = $1" in cascade_call[0]
+    assert "activo = true" in cascade_call[0]
     # The cascade also filters by activo=true so soft-deleted junction
     # rows are not re-touched.
-    assert cascade_call["params"][0] == "11111111-1111-1111-1111-111111111111"
+    assert cascade_call[1][0] == "11111111-1111-1111-1111-111111111111"

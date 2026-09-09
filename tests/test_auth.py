@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import json
+from collections.abc import Callable
 from typing import Any
 
-import httpx
 import pytest
 
 from app.core import auth_cache
@@ -22,13 +21,10 @@ from app.core.data_access import SqlExecutor
 from tests.sql_executor_fake import HandlerSqlExecutor
 
 
-def _json_response(status_code: int, body: Any) -> httpx.Response:
-    return httpx.Response(
-        status_code=status_code,
-        content=json.dumps(body).encode("utf-8"),
-        headers={"content-type": "application/json"},
-    )
+class _FakeSqlExecutor:
+    """Minimal ``SqlExecutor`` Protocol implementation for unit tests.
 
+    Supports two response strategies:
 
 def _client(handler) -> SqlExecutor:
     return HandlerSqlExecutor(handler)
@@ -54,88 +50,68 @@ def _settings(**overrides) -> Settings:
 
 def test_ensure_schema_creates_usuarios_autorizados_table() -> None:
     """``ensure_schema_and_seed`` runs the CREATE TABLE IF NOT EXISTS statement."""
-    captured: list = []
+    fake = _FakeSqlExecutor()
+    fake.set_response([])
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        captured.append(json.loads(request.content))
-        return _json_response(200, [])
+    ensure_schema_and_seed(fake, _settings())
 
-    client = _client(handler)
-
-    ensure_schema_and_seed(client, _settings())
-
-    assert len(captured) == 1
-    body = captured[0]
-    assert "CREATE TABLE IF NOT EXISTS usuarios_autorizados" in body["query"]
-    assert "email TEXT UNIQUE NOT NULL" in body["query"]
-    assert "rol TEXT NOT NULL" in body["query"]
-    assert "activo BOOLEAN" in body["query"]
-    assert "fecha_alta TIMESTAMP" in body["query"]
-    assert body["params"] == []
+    assert len(fake.calls) == 1
+    query = fake.calls[0][0]
+    assert "CREATE TABLE IF NOT EXISTS usuarios_autorizados" in query
+    assert "email TEXT UNIQUE NOT NULL" in query
+    assert "rol TEXT NOT NULL" in query
+    assert "activo BOOLEAN" in query
+    assert "fecha_alta TIMESTAMP" in query
+    assert fake.calls[0][1] == []
 
 
 def test_ensure_schema_seeds_initial_admin_when_configured() -> None:
     """When ``initial_admin_email`` is set, the seed INSERT runs with that email."""
-    captured: list = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        captured.append(json.loads(request.content))
-        # The seed returns 1 row on first run.
-        if "INSERT INTO usuarios_autorizados" in captured[-1]["query"]:
-            return _json_response(200, [{"id": "u-1", "email": "owner@example.com", "rol": "developer"}])
-        return _json_response(200, [])
-
-    client = _client(handler)
+    fake = _FakeSqlExecutor()
+    fake.set_responses(
+        [],  # CREATE TABLE → no rows
+        [{"id": "u-1", "email": "owner@example.com", "rol": "developer"}],  # INSERT → row
+    )
     settings = _settings(initial_admin_email="owner@example.com")
 
-    ensure_schema_and_seed(client, settings)
+    ensure_schema_and_seed(fake, settings)
 
     # Two SQL calls: CREATE TABLE then INSERT.
-    assert len(captured) == 2
-    assert "CREATE TABLE IF NOT EXISTS usuarios_autorizados" in captured[0]["query"]
-    insert = captured[1]
-    assert "INSERT INTO usuarios_autorizados" in insert["query"]
-    assert "SELECT $1, 'developer', true" in insert["query"]
-    assert "WHERE NOT EXISTS" in insert["query"]
-    assert "WHERE NOT EXISTS (\n    SELECT 1 FROM usuarios_autorizados WHERE rol = 'developer'" in insert["query"]
-    assert insert["params"] == ["owner@example.com"]
+    assert len(fake.calls) == 2
+    assert "CREATE TABLE IF NOT EXISTS usuarios_autorizados" in fake.calls[0][0]
+    insert = fake.calls[1]
+    assert "INSERT INTO usuarios_autorizados" in insert[0]
+    assert "SELECT $1, 'developer', true" in insert[0]
+    assert "WHERE NOT EXISTS" in insert[0]
+    assert "WHERE NOT EXISTS (\n    SELECT 1 FROM usuarios_autorizados WHERE rol = 'developer'" in insert[0]
+    assert insert[1] == ["owner@example.com"]
 
 
 def test_ensure_schema_skips_seed_when_no_initial_email() -> None:
     """When ``initial_admin_email`` is empty, no INSERT runs (only the CREATE)."""
-    captured: list = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        captured.append(json.loads(request.content))
-        return _json_response(200, [])
-
-    client = _client(handler)
+    fake = _FakeSqlExecutor()
+    fake.set_response([])
     settings = _settings(initial_admin_email="")
 
-    ensure_schema_and_seed(client, settings)
+    ensure_schema_and_seed(fake, settings)
 
-    assert len(captured) == 1
-    assert "INSERT INTO usuarios_autorizados" not in captured[0]["query"]
+    assert len(fake.calls) == 1
+    assert "INSERT INTO usuarios_autorizados" not in fake.calls[0][0]
 
 
 def test_get_user_by_email_returns_row_when_active() -> None:
     """``get_user_by_email`` returns the row when the user exists and is active."""
-    captured: dict = {}
+    fake = _FakeSqlExecutor()
+    fake.set_response(
+        [{"id": "u-1", "email": "a@b.com", "rol": "developer", "activo": True}],
+    )
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        captured["body"] = json.loads(request.content)
-        return _json_response(
-            200,
-            [{"id": "u-1", "email": "a@b.com", "rol": "developer", "activo": True}],
-        )
+    user = get_user_by_email(fake, "a@b.com")
 
-    client = _client(handler)
-
-    user = get_user_by_email(client, "a@b.com")
-
-    assert captured["body"]["params"] == ["a@b.com"]
-    assert "WHERE email = $1" in captured["body"]["query"]
-    assert "AND activo = true" in captured["body"]["query"]
+    query, params = fake.calls[0]
+    assert params == ["a@b.com"]
+    assert "WHERE email = $1" in query
+    assert "AND activo = true" in query
     assert user == {
         "id": "u-1",
         "email": "a@b.com",
@@ -146,42 +122,37 @@ def test_get_user_by_email_returns_row_when_active() -> None:
 
 def test_get_user_by_email_returns_none_when_not_found() -> None:
     """``get_user_by_email`` returns None when the response is empty."""
-    client = _client(lambda request: _json_response(200, []))
+    fake = _FakeSqlExecutor()
+    fake.set_response([])
 
-    assert get_user_by_email(client, "ghost@example.com") is None
+    assert get_user_by_email(fake, "ghost@example.com") is None
 
 
 def test_list_authorized_users_returns_all_rows() -> None:
     """``list_authorized_users`` returns every user (active + inactive) for the admin panel."""
-    captured: dict = {}
+    fake = _FakeSqlExecutor()
+    fake.set_response(
+        [
+            {
+                "id": "u-2",
+                "email": "b@b.com",
+                "rol": "key_user",
+                "activo": True,
+                "fecha_alta": "2026-06-17T00:00:00Z",
+            },
+            {
+                "id": "u-3",
+                "email": "c@c.com",
+                "rol": "reader",
+                "activo": False,
+                "fecha_alta": "2026-06-16T00:00:00Z",
+            },
+        ],
+    )
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        captured["body"] = json.loads(request.content)
-        return _json_response(
-            200,
-            [
-                {
-                    "id": "u-2",
-                    "email": "b@b.com",
-                    "rol": "key_user",
-                    "activo": True,
-                    "fecha_alta": "2026-06-17T00:00:00Z",
-                },
-                {
-                    "id": "u-3",
-                    "email": "c@c.com",
-                    "rol": "reader",
-                    "activo": False,
-                    "fecha_alta": "2026-06-16T00:00:00Z",
-                },
-            ],
-        )
+    rows = list_authorized_users(fake)
 
-    client = _client(handler)
-
-    rows = list_authorized_users(client)
-
-    assert "ORDER BY fecha_alta DESC" in captured["body"]["query"]
+    assert "ORDER BY fecha_alta DESC" in fake.calls[0][0]
     assert len(rows) == 2
     assert rows[0]["email"] == "b@b.com"
     assert rows[1]["activo"] is False
@@ -189,63 +160,46 @@ def test_list_authorized_users_returns_all_rows() -> None:
 
 def test_add_authorized_user_inserts_with_anadido_por() -> None:
     """``add_authorized_user`` runs an INSERT with email, rol and anadido_por."""
-    captured: dict = {}
-    call_count = 0
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal call_count
-        captured["body"] = json.loads(request.content)
-        if "SELECT" in captured["body"]["query"]:
-            # Pre-check: no existing user with this email
-            return _json_response(200, [])
-        call_count += 1
-        # INSERT returns the new row
-        return _json_response(
-            200,
-            [
-                {
-                    "id": "u-99",
-                    "email": "new@example.com",
-                    "rol": "key_user",
-                    "activo": True,
-                    "fecha_alta": "2026-06-17T00:00:00Z",
-                }
-            ],
-        )
-
-    client = _client(handler)
+    fake = _FakeSqlExecutor()
+    fake.set_responses(
+        [],  # pre-check SELECT: no existing user
+        [   # INSERT: new row
+            {
+                "id": "u-99",
+                "email": "new@example.com",
+                "rol": "key_user",
+                "activo": True,
+                "fecha_alta": "2026-06-17T00:00:00Z",
+            }
+        ],
+    )
 
     row = add_authorized_user(
-        client,
+        fake,
         email="new@example.com",
         role="key_user",
         added_by="u-1",
     )
 
-    assert captured["body"]["params"] == ["new@example.com", "key_user", "u-1"]
-    assert "INSERT INTO usuarios_autorizados" in captured["body"]["query"]
-    assert "VALUES ($1, $2, $3, true)" in captured["body"]["query"]
-    assert "RETURNING id, email, rol, activo, fecha_alta" in captured["body"]["query"]
+    insert_call = fake.calls[1]
+    assert insert_call[1] == ["new@example.com", "key_user", "u-1"]
+    assert "INSERT INTO usuarios_autorizados" in insert_call[0]
+    assert "VALUES ($1, $2, $3, true)" in insert_call[0]
+    assert "RETURNING id, email, rol, activo, fecha_alta" in insert_call[0]
     assert row["id"] == "u-99"
 
 
 def test_deactivate_authorized_user_returns_updated_row() -> None:
     """``deactivate_authorized_user`` returns the row with activo=False."""
-    captured: dict = {}
+    fake = _FakeSqlExecutor()
+    fake.set_response(
+        [{"id": "u-1", "email": "a@b.com", "rol": "developer", "activo": False}],
+    )
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        captured["body"] = json.loads(request.content)
-        return _json_response(
-            200,
-            [{"id": "u-1", "email": "a@b.com", "rol": "developer", "activo": False}],
-        )
+    row = deactivate_authorized_user(fake, "u-1")
 
-    client = _client(handler)
-
-    row = deactivate_authorized_user(client, "u-1")
-
-    assert captured["body"]["params"] == ["u-1"]
-    assert "SET activo = false" in captured["body"]["query"]
+    assert fake.calls[0][1] == ["u-1"]
+    assert "SET activo = false" in fake.calls[0][0]
     assert row is not None
     assert row["activo"] is False
 
@@ -257,17 +211,22 @@ def test_deactivate_authorized_user_raises_when_user_not_found() -> None:
     via get_user_by_id. When the user does not exist, ValueError is raised
     so the route can display a meaningful flash rather than silently redirect.
     """
-    def handler(request: httpx.Request) -> httpx.Response:
-        body = json.loads(request.content)
-        if "SET activo = false" in body["query"]:
-            return _json_response(200, [])
-        if "SELECT id, email, rol, activo FROM usuarios_autorizados WHERE id =" in body["query"]:
-            return _json_response(200, [])  # user not found
-        return _json_response(200, [])
+    fake = _FakeSqlExecutor()
 
-    client = _client(handler)
+    def handler(query: str, params: list[object]) -> list[dict[str, object]]:
+        if "SET activo = false" in query:
+            return []
+        if (
+            "SELECT id, email, rol, activo FROM usuarios_autorizados WHERE id ="
+            in query
+        ):
+            return []  # user not found
+        return []
+
+    fake.set_handler(handler)
+
     with pytest.raises(ValueError, match="user not found"):
-        deactivate_authorized_user(client, "u-unknown")
+        deactivate_authorized_user(fake, "u-unknown")
 
 
 @pytest.mark.parametrize("role", [r.value for r in Rol])
@@ -281,39 +240,30 @@ def test_add_authorized_user_accepts_all_known_roles(role: str) -> None:
     ``CHECK`` constraint that used to duplicate the enum is gone, and
     the app is the sole validator.
     """
-    captured: list = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        captured.append(json.loads(request.content))
-        if "SELECT" in captured[-1]["query"]:
-            # Pre-check: no existing user with this email
-            return _json_response(200, [])
-        # INSERT returns the new row
-        return _json_response(
-            200,
-            [
-                {
-                    "id": f"u-{role}",
-                    "email": f"{role}@example.com",
-                    "rol": role,
-                    "activo": True,
-                    "fecha_alta": "2026-06-27T00:00:00Z",
-                }
-            ],
-        )
-
-    client = _client(handler)
+    fake = _FakeSqlExecutor()
+    fake.set_responses(
+        [],  # pre-check SELECT: no existing user
+        [   # INSERT: new row
+            {
+                "id": f"u-{role}",
+                "email": f"{role}@example.com",
+                "rol": role,
+                "activo": True,
+                "fecha_alta": "2026-06-27T00:00:00Z",
+            }
+        ],
+    )
 
     row = add_authorized_user(
-        client,
+        fake,
         email=f"{role}@example.com",
         role=role,
         added_by="u-1",
     )
 
-    assert len(captured) == 2, "pre-check SELECT and INSERT should both run"
-    # captured[0] = pre-check SELECT (returns empty), captured[1] = INSERT
-    assert captured[1]["params"][1] == role
+    assert len(fake.calls) == 2, "pre-check SELECT and INSERT should both run"
+    # fake.calls[0] = pre-check SELECT (returns empty), fake.calls[1] = INSERT
+    assert fake.calls[1][1][1] == role
     assert row["rol"] == role
 
 
@@ -330,27 +280,22 @@ def test_add_authorized_user_invalidates_cache() -> None:
     auth_cache.invalidate_all()
     auth_cache.set_cached_auth("new@example.com", is_authorized=False, rol=None)
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        body = json.loads(request.content)
-        if "SELECT" in body["query"]:
-            # Pre-check: no existing user
-            return _json_response(200, [])
-        # INSERT returns the new row
-        return _json_response(
-            200,
-            [
-                {
-                    "id": "u-99",
-                    "email": "new@example.com",
-                    "rol": "key_user",
-                    "activo": True,
-                    "fecha_alta": "2026-06-17T00:00:00Z",
-                }
-            ],
-        )
+    fake = _FakeSqlExecutor()
+    fake.set_responses(
+        [],  # pre-check SELECT: no existing user
+        [   # INSERT: new row
+            {
+                "id": "u-99",
+                "email": "new@example.com",
+                "rol": "key_user",
+                "activo": True,
+                "fecha_alta": "2026-06-17T00:00:00Z",
+            }
+        ],
+    )
 
     add_authorized_user(
-        _client(handler), email="new@example.com", role="key_user", added_by="u-1"
+        fake, email="new@example.com", role="key_user", added_by="u-1",
     )
 
     assert auth_cache.get_cached_auth("new@example.com", ttl_seconds=300) is None
@@ -365,13 +310,12 @@ def test_deactivate_authorized_user_invalidates_cache() -> None:
     auth_cache.invalidate_all()
     auth_cache.set_cached_auth("a@b.com", is_authorized=True, rol="developer")
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        return _json_response(
-            200,
-            [{"id": "u-1", "email": "a@b.com", "rol": "developer", "activo": False}],
-        )
+    fake = _FakeSqlExecutor()
+    fake.set_response(
+        [{"id": "u-1", "email": "a@b.com", "rol": "developer", "activo": False}],
+    )
 
-    deactivate_authorized_user(_client(handler), "u-1")
+    deactivate_authorized_user(fake, "u-1")
 
     assert auth_cache.get_cached_auth("a@b.com", ttl_seconds=300) is None
 
@@ -385,17 +329,22 @@ def test_deactivate_authorized_user_unknown_id_does_not_touch_cache() -> None:
     auth_cache.invalidate_all()
     auth_cache.set_cached_auth("any@example.com", is_authorized=True, rol="developer")
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        body = json.loads(request.content)
-        if "SET activo = false" in body["query"]:
-            return _json_response(200, [])
-        if "SELECT id, email, rol, activo FROM usuarios_autorizados WHERE id =" in body["query"]:
-            return _json_response(200, [])  # user not found
-        return _json_response(200, [])
+    fake = _FakeSqlExecutor()
 
-    client = _client(handler)
+    def handler(query: str, params: list[object]) -> list[dict[str, object]]:
+        if "SET activo = false" in query:
+            return []
+        if (
+            "SELECT id, email, rol, activo FROM usuarios_autorizados WHERE id ="
+            in query
+        ):
+            return []  # user not found
+        return []
+
+    fake.set_handler(handler)
+
     with pytest.raises(ValueError, match="user not found"):
-        deactivate_authorized_user(client, "u-unknown")
+        deactivate_authorized_user(fake, "u-unknown")
 
     # Cache was NOT invalidated because the error raised before that step
     assert auth_cache.get_cached_auth("any@example.com", ttl_seconds=300) is not None
@@ -406,38 +355,31 @@ def test_deactivate_authorized_user_unknown_id_does_not_touch_cache() -> None:
 
 def test_add_authorized_user_rejects_empty_email() -> None:
     """add_authorized_user("") raises ValueError("email cannot be empty")."""
-    client = _client(lambda request: _json_response(200, []))
+    fake = _FakeSqlExecutor()
+    fake.set_response([])
     with pytest.raises(ValueError, match="email cannot be empty"):
-        add_authorized_user(client, email="", role="key_user", added_by="u-1")
+        add_authorized_user(fake, email="", role="key_user", added_by="u-1")
 
 
 def test_add_authorized_user_rejects_malformed_email() -> None:
     """add_authorized_user("notanemail") raises ValueError about format."""
-    client = _client(lambda request: _json_response(200, []))
+    fake = _FakeSqlExecutor()
+    fake.set_response([])
     with pytest.raises(ValueError, match="email format invalid"):
-        add_authorized_user(client, email="notanemail", role="key_user", added_by="u-1")
+        add_authorized_user(fake, email="notanemail", role="key_user", added_by="u-1")
 
 
 def test_add_authorized_user_rejects_duplicate_normalized_email_precheck() -> None:
     """When the pre-insert SELECT finds the canonical email, raise ValueError."""
-    captured: dict = {}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        captured["body"] = json.loads(request.content)
-        # The SELECT for get_user_by_email returns a row (duplicate detected)
-        if "SELECT" in captured["body"]["query"]:
-            return _json_response(
-                200,
-                [{"id": "u-1", "email": "maria@lopez.com", "rol": "key_user", "activo": True}],
-            )
-        return _json_response(200, [])
-
-    client = _client(handler)
+    fake = _FakeSqlExecutor()
+    fake.set_response(
+        [{"id": "u-1", "email": "maria@lopez.com", "rol": "key_user", "activo": True}],
+    )
     with pytest.raises(ValueError, match="email already authorized"):
-        add_authorized_user(client, email=" Maria@Lopez.com ", role="key_user", added_by="u-1")
+        add_authorized_user(fake, email=" Maria@Lopez.com ", role="key_user", added_by="u-1")
 
     # The duplicate check used the canonical form in SQL
-    assert "maria@lopez.com" in captured["body"]["params"]
+    assert "maria@lopez.com" in fake.calls[0][1]
 
 
 def test_add_authorized_user_rejects_duplicate_via_backend_error() -> None:
@@ -450,29 +392,19 @@ def test_add_authorized_user_rejects_duplicate_via_backend_error() -> None:
     the service catches the Protocol-level error without inspecting
     the envelope.
     """
-    from app.core.data_access import DuplicateKeyError
+    fake = _FakeSqlExecutor()
 
-    call_count = 0
+    def handler(query: str, params: list[object]) -> list[dict[str, object]]:
+        if "SELECT" in query:
+            return []  # pre-check: no existing user
+        # INSERT raises the Protocol-level DuplicateKeyError — the
+        # backend translation of a 23505 unique-violation.
+        raise DuplicateKeyError("duplicate key value violates unique constraint")
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal call_count
-        body = json.loads(request.content)
-        if "SELECT" in body["query"]:
-            # Pre-check: no existing user
-            return _json_response(200, [])
-        call_count += 1
-        if call_count == 1:
-            # INSERT: 409 with Postgres 23505 — execute_sql translates to
-            # DuplicateKeyError (UniqueViolationError) at the adapter boundary.
-            return _json_response(
-                409,
-                {"code": "23505", "message": "duplicate key value violates unique constraint"},
-            )
-        return _json_response(200, [])
+    fake.set_handler(handler)
 
-    client = _client(handler)
     with pytest.raises(ValueError, match="email already authorized"):
-        add_authorized_user(client, email="new@example.com", role="key_user", added_by="u-1")
+        add_authorized_user(fake, email="new@example.com", role="key_user", added_by="u-1")
     # The service caught the Protocol-level exception, not the transport
     # envelope — guards against a regression where the catch reverts to
     # ``except BackendError``.
@@ -481,19 +413,14 @@ def test_add_authorized_user_rejects_duplicate_via_backend_error() -> None:
 
 def test_get_user_by_email_normalizes_case_before_sql() -> None:
     """get_user_by_email normalizes its argument before the SQL lookup."""
-    captured: dict = {}
+    fake = _FakeSqlExecutor()
+    fake.set_response(
+        [{"id": "u-1", "email": "maria@lopez.com", "rol": "key_user", "activo": True}],
+    )
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        captured["body"] = json.loads(request.content)
-        return _json_response(
-            200,
-            [{"id": "u-1", "email": "maria@lopez.com", "rol": "key_user", "activo": True}],
-        )
+    user = get_user_by_email(fake, " Maria@Lopez.com ")
 
-    client = _client(handler)
-    user = get_user_by_email(client, " Maria@Lopez.com ")
-
-    assert captured["body"]["params"] == ["maria@lopez.com"]
+    assert fake.calls[0][1] == ["maria@lopez.com"]
     assert user is not None
 
 
@@ -507,28 +434,32 @@ def test_deactivate_authorized_user_raises_when_last_developer() -> None:
     The conditional UPDATE returns zero rows; _has_other_active_developers
     confirms no other active developer exists → ValueError.
     """
-    call_count = 0
+    fake = _FakeSqlExecutor()
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal call_count
-        body = json.loads(request.content)
-        query = body["query"]
+    def handler(query: str, params: list[object]) -> list[dict[str, object]]:
         if "SET activo = false" in query:
-            # Conditional UPDATE: zero rows because this IS the last developer
-            return _json_response(200, [])
+            return []  # conditional UPDATE: zero rows (this IS the last developer)
         if "SELECT EXISTS" in query:
-            # _has_other_active_developers: confirms no other developer
-            return _json_response(200, [{"exists": False}])
-        if "SELECT id, email, rol, activo" in query and "WHERE id =" in query:
+            return [{"exists": False}]  # no other developer
+        if (
+            "SELECT id, email, rol, activo" in query
+            and "WHERE id =" in query
+        ):
             # get_user_by_id disambiguation
-            return _json_response(200, [
-                {"id": "dev-only", "email": "dev@example.com", "rol": "developer", "activo": True}
-            ])
-        return _json_response(200, [])
+            return [
+                {
+                    "id": "dev-only",
+                    "email": "dev@example.com",
+                    "rol": "developer",
+                    "activo": True,
+                }
+            ]
+        return []
 
-    client = _client(handler)
+    fake.set_handler(handler)
+
     with pytest.raises(ValueError, match="cannot deactivate the last active developer"):
-        deactivate_authorized_user(client, "dev-only")
+        deactivate_authorized_user(fake, "dev-only")
 
 
 def test_deactivate_authorized_user_succeeds_when_other_developer_exists() -> None:
@@ -537,20 +468,19 @@ def test_deactivate_authorized_user_succeeds_when_other_developer_exists() -> No
     REQ-1 scenario: Non-last developer deactivation succeeds.
     REQ-3: Self-deactivation permitted when others exist.
     """
-    call_count = 0
+    fake = _FakeSqlExecutor()
+    fake.set_response(
+        [
+            {
+                "id": "dev1",
+                "email": "dev1@example.com",
+                "rol": "developer",
+                "activo": False,
+            }
+        ],
+    )
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal call_count
-        body = json.loads(request.content)
-        if "SET activo = false" in body["query"]:
-            # Conditional UPDATE: succeeds, returns the deactivated row
-            return _json_response(200, [
-                {"id": "dev1", "email": "dev1@example.com", "rol": "developer", "activo": False}
-            ])
-        return _json_response(200, [])
-
-    client = _client(handler)
-    row = deactivate_authorized_user(client, "dev1")
+    row = deactivate_authorized_user(fake, "dev1")
     assert row is not None
     assert row["activo"] is False
     assert row["id"] == "dev1"
@@ -562,21 +492,19 @@ def test_deactivate_reader_does_not_fire_developer_guard() -> None:
     REQ-2: Guard fires only for developer role.
     The conditional UPDATE succeeds because rol <> 'developer' condition is met.
     """
-    call_count = 0
+    fake = _FakeSqlExecutor()
+    fake.set_response(
+        [
+            {
+                "id": "reader1",
+                "email": "reader@example.com",
+                "rol": "reader",
+                "activo": False,
+            }
+        ],
+    )
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal call_count
-        body = json.loads(request.content)
-        if "SET activo = false" in body["query"]:
-            # Reader deactivation: the guard condition rol <> 'developer' OR ...
-            # is satisfied, so the UPDATE succeeds
-            return _json_response(200, [
-                {"id": "reader1", "email": "reader@example.com", "rol": "reader", "activo": False}
-            ])
-        return _json_response(200, [])
-
-    client = _client(handler)
-    row = deactivate_authorized_user(client, "reader1")
+    row = deactivate_authorized_user(fake, "reader1")
     assert row is not None
     assert row["rol"] == "reader"
     assert row["activo"] is False
@@ -587,19 +515,19 @@ def test_deactivate_admin_does_not_fire_developer_guard() -> None:
 
     REQ-2: Guard fires only for developer role.
     """
-    call_count = 0
+    fake = _FakeSqlExecutor()
+    fake.set_response(
+        [
+            {
+                "id": "admin1",
+                "email": "admin@example.com",
+                "rol": "admin",
+                "activo": False,
+            }
+        ],
+    )
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal call_count
-        body = json.loads(request.content)
-        if "SET activo = false" in body["query"]:
-            return _json_response(200, [
-                {"id": "admin1", "email": "admin@example.com", "rol": "admin", "activo": False}
-            ])
-        return _json_response(200, [])
-
-    client = _client(handler)
-    row = deactivate_authorized_user(client, "admin1")
+    row = deactivate_authorized_user(fake, "admin1")
     assert row is not None
     assert row["rol"] == "admin"
     assert row["activo"] is False
@@ -610,16 +538,19 @@ def test_deactivate_key_user_does_not_fire_developer_guard() -> None:
 
     REQ-2: Guard fires only for developer role.
     """
-    def handler(request: httpx.Request) -> httpx.Response:
-        body = json.loads(request.content)
-        if "SET activo = false" in body["query"]:
-            return _json_response(200, [
-                {"id": "key1", "email": "key@example.com", "rol": "key_user", "activo": False}
-            ])
-        return _json_response(200, [])
+    fake = _FakeSqlExecutor()
+    fake.set_response(
+        [
+            {
+                "id": "key1",
+                "email": "key@example.com",
+                "rol": "key_user",
+                "activo": False,
+            }
+        ],
+    )
 
-    client = _client(handler)
-    row = deactivate_authorized_user(client, "key1")
+    row = deactivate_authorized_user(fake, "key1")
     assert row is not None
     assert row["rol"] == "key_user"
     assert row["activo"] is False
@@ -631,17 +562,22 @@ def test_deactivate_unknown_user_raises_value_error() -> None:
     The conditional UPDATE affects zero rows; get_user_by_id confirms the user
     does not exist, so ValueError is raised. The route renders a flash error.
     """
-    def handler(request: httpx.Request) -> httpx.Response:
-        body = json.loads(request.content)
-        if "SET activo = false" in body["query"]:
-            return _json_response(200, [])
-        if "SELECT id, email, rol, activo FROM usuarios_autorizados WHERE id =" in body["query"]:
-            return _json_response(200, [])  # user not found
-        return _json_response(200, [])
+    fake = _FakeSqlExecutor()
 
-    client = _client(handler)
+    def handler(query: str, params: list[object]) -> list[dict[str, object]]:
+        if "SET activo = false" in query:
+            return []
+        if (
+            "SELECT id, email, rol, activo FROM usuarios_autorizados WHERE id ="
+            in query
+        ):
+            return []  # user not found
+        return []
+
+    fake.set_handler(handler)
+
     with pytest.raises(ValueError, match="user not found"):
-        deactivate_authorized_user(client, "ghost-id")
+        deactivate_authorized_user(fake, "ghost-id")
 
 
 # --- Issue #279: SEED filter on activo = true ------------------------------
@@ -654,31 +590,20 @@ def test_ensure_schema_seeds_when_no_active_developer_exists() -> None:
     The WHERE NOT EXISTS subquery now checks rol='developer' AND activo=true,
     so an inactive developer row does NOT suppress the seed.
     """
-    call_count = 0
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal call_count
-        captured.append(json.loads(request.content))
-        call_count += 1
-        # CREATE TABLE
-        if call_count == 1:
-            return _json_response(200, [])
-        # INSERT: fires because no ACTIVE developer exists
-        if "INSERT INTO usuarios_autorizados" in captured[-1]["query"]:
-            return _json_response(200, [
-                {"id": "seed-1", "email": "owner@example.com", "rol": "developer"}
-            ])
-        return _json_response(200, [])
-
-    captured: list = []
-    client = _client(handler)
+    fake = _FakeSqlExecutor()
+    fake.set_responses(
+        [],  # CREATE TABLE
+        [   # INSERT: fires because no ACTIVE developer exists
+            {"id": "seed-1", "email": "owner@example.com", "rol": "developer"}
+        ],
+    )
     settings = _settings(initial_admin_email="owner@example.com")
 
-    ensure_schema_and_seed(client, settings)
+    ensure_schema_and_seed(fake, settings)
 
-    assert len(captured) == 2
-    insert = captured[1]
-    assert "INSERT INTO usuarios_autorizados" in insert["query"]
-    assert "SELECT $1, 'developer', true" in insert["query"]
+    assert len(fake.calls) == 2
+    insert = fake.calls[1]
+    assert "INSERT INTO usuarios_autorizados" in insert[0]
+    assert "SELECT $1, 'developer', true" in insert[0]
     # The key assertion: activo = true filter in the subquery
-    assert "activo = true" in insert["query"]
+    assert "activo = true" in insert[0]

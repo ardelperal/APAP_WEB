@@ -14,10 +14,8 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Callable
 from typing import Any
 
-import httpx
 import pytest
 
 from tests.sql_executor_fake import HandlerSqlExecutor as LocalPostgresExecutor
@@ -25,13 +23,14 @@ from tests.sql_executor_fake import HandlerSqlExecutor as LocalPostgresExecutor
 # --- helpers --------------------------------------------------------------
 
 
-def _json_response(status_code: int, body: Any) -> httpx.Response:
-    return httpx.Response(
-        status_code=status_code,
-        content=json.dumps(body).encode("utf-8"),
-        headers={"content-type": "application/json"},
-    )
+class _FakeSqlExecutor:
+    """In-memory :class:`SqlExecutor` for the perf test.
 
+    Returns the pre-loaded ``rows`` list verbatim (no real DB roundtrip)
+    so the test measures the repository-side loop overhead (sort +
+    filter). That is where the O(N) cost lives in production too
+    (the SQL returns rows in ``last_legacy_snapshot_at`` order with
+    WHERE filtering at the DB level).
 
 def _make_web_client(
     handler: Callable[[httpx.Request], httpx.Response],
@@ -42,16 +41,16 @@ def _make_web_client(
         transport=httpx.MockTransport(handler),
     )
 
+    def __init__(self, rows: list[dict[str, Any]] | None = None) -> None:
+        self.rows = list(rows or [])
 
-def _capture_prompt(responses: list[str]) -> Callable[[str], str]:
-    """Build a list-driven prompt reader."""
+    def execute_sql(
+        self, query: str, params: list[object] | None = None
+    ) -> list[dict[str, Any]]:
+        return self.rows
 
-    def _read(_prompt: str) -> str:
-        if not responses:
-            raise AssertionError("prompt called more times than test expected")
-        return responses.pop(0)
-
-    return _read
+    def close(self) -> None:
+        pass  # no-op for fake
 
 
 def _needs_review_row(
@@ -182,12 +181,11 @@ class TestListNeedsReviewPerf:
         """Pre-seed 50 000 shadow rows (10 000 animales x 5 columns) and
         assert ``list_needs_review`` returns them all in < 10s.
 
-        The mock client simulates the database query: it returns the
-        pre-built row list verbatim (no real DB roundtrip). The test
-        measures the repository-side loop overhead (sort + filter) --
-        that's where the O(N) cost lives in production too (the SQL
-        returns rows in last_legacy_snapshot_at order with WHERE
-        filtering at the DB level).
+        The fake client returns the pre-built row list verbatim (no real
+        DB roundtrip). The test measures the repository-side loop
+        overhead (sort + filter) — that's where the O(N) cost lives in
+        production too (the SQL returns rows in last_legacy_snapshot_at
+        order with WHERE filtering at the DB level).
         """
         rows = [
             _needs_review_row(
@@ -211,19 +209,14 @@ class TestListNeedsReviewPerf:
         ]
         assert len(rows) == 50_000
 
-        def handler(_request: httpx.Request) -> httpx.Response:
-            return _json_response(200, rows)
+        client = _FakeSqlExecutor(rows)
 
-        client = _make_web_client(handler)
-        try:
-            from migration.shadow_state import ShadowStateRepository
+        from migration.shadow_state import ShadowStateRepository
 
-            repo = ShadowStateRepository(client)
-            started = time.perf_counter()
-            listed = repo.list_needs_review(table_name="animales")
-            elapsed = time.perf_counter() - started
-        finally:
-            client.close()
+        repo = ShadowStateRepository(client)
+        started = time.perf_counter()
+        listed = repo.list_needs_review(table_name="animales")
+        elapsed = time.perf_counter() - started
 
         assert len(listed) == 50_000
         assert elapsed < 10.0, (

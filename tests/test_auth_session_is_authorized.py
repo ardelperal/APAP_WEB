@@ -23,7 +23,7 @@ Decisiones de diseno del test:
   ``app.dependency_overrides[get_local_backend_client]`` se aplica aqui
   porque la ruta vive en ``app.main`` y usa ``Depends(get_local_backend_client)``
   directamente.
-- Los tests 2 y 3 son unit tests de la funcion ``require_authorized_user``
+- Los tests 2-4 son unit tests de la funcion ``require_authorized_user``
   (importada desde ``app.modules.animals.routes``, donde vive el codigo
   que sera extraido a ``app.core.auth_dependencies``). Se llaman como
   funciones puras con un ``payload`` explicito, no como route tests,
@@ -56,12 +56,8 @@ class _FakeLocalBackend(LocalPostgresExecutor):
     """Stand-in en proceso del cliente LocalBackend para el test de sesion."""
 
     def __init__(self) -> None:
-        self.get_user_by_email_response: dict | None = {
-            "id": "u-db",
-            "email": "ardelperal@gmail.com",
-            "rol": "developer",
-            "activo": True,
-        }
+        self.calls: list[tuple[str, list[object]]] = []
+        self._responses: list[list[dict[str, object]]] = []
 
     def execute_sql(self, query, params=None):
         if (
@@ -85,6 +81,51 @@ class _FakeLocalBackend(LocalPostgresExecutor):
             token="jwt-from-local_backend",
             user=OAuthUser(id=str(row.get("id", "u-x")), email=str(row.get("email", ""))),
         )
+
+    def exchange_insforge_oauth_code(self, insforge_code: str, code_verifier: str) -> OAuthUser:
+        self.calls.append(("exchange_insforge_oauth_code", (insforge_code, code_verifier)))
+        return self.exchange_user
+
+    def exchange_google_oauth_code(
+        self, code: str, code_verifier: str, redirect_uri: str
+    ) -> OAuthUser:
+        self.calls.append(("exchange_google_oauth_code", (code, code_verifier, redirect_uri)))
+        return self.exchange_user
+
+
+class _FakeAuthSession:
+    """Bundle of fake SQL executor + OAuth port for auth session tests.
+
+    The original test fixture exposed a single ``_FakeInsForge`` object
+    that handled both the SQL executor and the OAuth exchange. With the
+    Phase 3 split each concern has its own port (and therefore its own
+    fake), so this thin wrapper keeps the ``fake_insforge`` ergonomic API
+    — callers mutate the user row via ``set_user_by_email(row)`` and
+    the OAuth exchange result via ``set_oauth_user(id, email)``.
+    """
+
+    def __init__(self) -> None:
+        self.executor = _FakeSqlExecutor()
+        self.oauth_port = _FakeOAuthPort()
+        self.auth_port = LocalBackendAuthUsersAdapter(self.executor)
+        # Default: an active developer so the /auth/callback happy-path
+        # test succeeds without first having to populate the fixture.
+        self.set_user_by_email(
+            {
+                "id": "u-db",
+                "email": "ardelperal@gmail.com",
+                "rol": "developer",
+                "activo": True,
+            }
+        )
+
+    def set_user_by_email(self, row: dict[str, object] | None) -> None:
+        """Configure the row :func:`get_user_by_email` returns."""
+        self.executor.set_response([dict(row)] if row else [])
+
+    def set_oauth_user(self, *, user_id: str, email: str) -> None:
+        """Configure the :class:`OAuthUser` returned by the OAuth exchange."""
+        self.oauth_port._set_exchange_user(user_id=user_id, email=email)
 
 
 @pytest.fixture
@@ -113,9 +154,7 @@ async def test_callback_escribe_is_authorized_en_sesion(
     from app.core.session import read_session
 
     settings = get_settings()
-    pkce_token = write_session(
-        {"code_verifier": "verifier-abc"}, secret=settings.session_secret
-    )
+    pkce_token = write_session({"code_verifier": "verifier-abc"}, secret=settings.session_secret)
     client.cookies.set("apap_pkce", pkce_token)
     fake_local_backend.get_user_by_email_response = {
         "id": "u-1",
@@ -165,12 +204,16 @@ def _invoke_require(payload: dict[str, Any] | None) -> RedirectResponse | dict:
     # un MagicMock solo para satisfacer la firma.
     fake = _FakeLocalBackend()
     if payload is not None:
-        fake.get_user_by_email_response = {
-            "id": "u-db",
-            "email": payload.get("email", "u@example.com"),
-            "rol": payload.get("rol", "key_user"),
-            "activo": True,
-        }
+        fake.set_response(
+            [
+                {
+                    "id": "u-db",
+                    "email": payload.get("email", "u@example.com"),
+                    "rol": payload.get("rol", "key_user"),
+                    "activo": True,
+                }
+            ]
+        )
     return require_authorized_user(request=MagicMock(), payload=payload, client=fake)
 
 
@@ -199,6 +242,12 @@ def test_require_authorized_user_rechaza_sesion_con_is_authorized_false() -> Non
 
 def test_require_authorized_user_acepta_sesion_con_is_authorized_true() -> None:
     """Una sesion con ``is_authorized=True`` pasa la guarda y devuelve el payload."""
+    # Reset the in-process auth cache so the previous tests' cached
+    # verdicts for ``u@example.com`` do not leak into this assertion.
+    from app.core import auth_cache
+
+    auth_cache.invalidate_all()
+
     payload = {
         "email": "u@example.com",
         "rol": "key_user",

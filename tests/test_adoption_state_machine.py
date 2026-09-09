@@ -21,23 +21,49 @@ The state machine:
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 from typing import Any
 
-import httpx
 import pytest
 
 from app.modules.adopciones import service as adopciones_service
 from tests.sql_executor_fake import HandlerSqlExecutor as LocalPostgresExecutor
 
 
-def _json_response(status_code: int, body: Any) -> httpx.Response:
-    return httpx.Response(
-        status_code=status_code,
-        content=json.dumps(body).encode("utf-8"),
-        headers={"content-type": "application/json"},
-    )
+class _FakeSqlExecutor:
+    """Minimal ``SqlExecutor`` Protocol implementation for unit tests."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, list[object]]] = []
+        self._responses: list[list[dict[str, object]]] = []
+        self._handler: Callable[[str, list[object]], Any] | None = None
+
+    def set_response(self, rows: list[dict[str, object]]) -> None:
+        self._responses = [rows]
+
+    def set_responses(self, *responses: list[dict[str, object]]) -> None:
+        self._responses = list(responses)
+
+    def set_handler(
+        self, handler: Callable[[str, list[object]], Any]
+    ) -> None:
+        self._handler = handler
+
+    def execute_sql(
+        self, query: str, params: list[object] | None = None
+    ) -> list[dict[str, object]]:
+        self.calls.append((query, list(params or [])))
+        bound_params = list(params or [])
+        if self._handler is not None:
+            result = self._handler(query, bound_params)
+            if result is not None:
+                return result  # type: ignore[no-any-return]
+        if self._responses:
+            return self._responses.pop(0)
+        return []
+
+    def close(self) -> None:
+        pass  # no-op for fake
 
 
 def _client_recording(
@@ -118,23 +144,24 @@ def _make_handler(
     now = "2026-07-04T12:00:00Z"
     first_call = True
 
-    def handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
+    def handler(query: str, _params: list[object]) -> list[dict[str, object]]:
         nonlocal first_call
-        sql = body.get("sql", "") if isinstance(body, dict) else ""
+        sql_upper = query.upper()
 
-        if first_call or "SELECT" in sql.upper():
+        if first_call or sql_upper.lstrip().startswith("SELECT"):
             first_call = False
-            return _json_response(200, [_adopcion_row(seguimiento_estado=state)])
+            return [_adopcion_row(seguimiento_estado=state)]
 
         # UPDATE (seguimiento transition)
-        return _json_response(200, [
+        return [
             _adopcion_row(
                 seguimiento_estado=next_state or state,
                 seguimiento_documento_entregado_at=entregado_at or now,
                 seguimiento_documento_url=documento_url,
                 seguimiento_completado_at=completado_at or now,
             )
-        ])
+        ]
+
     return handler
 
 
@@ -213,7 +240,7 @@ def test_valid_transition_updates_estado(
         next_state=expected_state,
         documento_url=DOCUMENTO_URL if action == adopciones_service.SeguimientoAction.ANEXAR else None,
     )
-    client, _ = _client_recording(handler)
+    client, _ = _make_client(handler)
 
     result = adopciones_service.transition_seguimiento(
         client,
@@ -235,7 +262,7 @@ def test_valid_transition_sets_entregado_at():
         next_state="DOCUMENTO_ENTREGADO",
         entregado_at="2026-07-04T12:00:00Z",
     )
-    client, _ = _client_recording(handler)
+    client, _ = _make_client(handler)
 
     result = adopciones_service.transition_seguimiento(
         client,
@@ -256,7 +283,7 @@ def test_anexar_sets_documento_url():
         next_state="DOCUMENTO_ADJUNTO",
         documento_url=DOCUMENTO_URL,
     )
-    client, _ = _client_recording(handler)
+    client, _ = _make_client(handler)
 
     result = adopciones_service.transition_seguimiento(
         client,
@@ -277,7 +304,7 @@ def test_completar_sets_completado_at():
         next_state="SEGUIMIENTO_COMPLETADO",
         completado_at="2026-07-04T12:00:00Z",
     )
-    client, _ = _client_recording(handler)
+    client, _ = _make_client(handler)
 
     result = adopciones_service.transition_seguimiento(
         client,
@@ -294,10 +321,10 @@ def test_completar_sets_completado_at():
 def test_adopcion_not_found_returns_none():
     """transition_seguimiento returns None when the adopcion does not exist."""
 
-    def handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
-        return _json_response(200, [])  # empty result
+    def handler(query: str, _params: list[object]) -> list[dict[str, object]]:
+        return []
 
-    client, _ = _client_recording(handler)
+    client, _ = _make_client(handler)
 
     result = adopciones_service.transition_seguimiento(
         client,
@@ -316,7 +343,7 @@ def test_adopcion_not_found_returns_none():
 def test_invalid_transition_pendiente_anexar():
     """PENDIENTE + ANEXAR raises ValueError (invalid)."""
     handler = _make_handler("PENDIENTE")
-    client, _ = _client_recording(handler)
+    client, _ = _make_client(handler)
 
     with pytest.raises(ValueError) as exc_info:
         adopciones_service.transition_seguimiento(
@@ -332,7 +359,7 @@ def test_invalid_transition_pendiente_anexar():
 def test_invalid_transition_documento_entregado_marcar_entregado():
     """DOCUMENTO_ENTREGADO + MARCAR_ENTREGADO raises ValueError (already delivered)."""
     handler = _make_handler("DOCUMENTO_ENTREGADO")
-    client, _ = _client_recording(handler)
+    client, _ = _make_client(handler)
 
     with pytest.raises(ValueError) as exc_info:
         adopciones_service.transition_seguimiento(
@@ -347,7 +374,7 @@ def test_invalid_transition_documento_entregado_marcar_entregado():
 def test_invalid_transition_seguimiento_completado_any_action():
     """SEGUIMIENTO_COMPLETADO + any action raises ValueError (terminal)."""
     handler = _make_handler("SEGUIMIENTO_COMPLETADO")
-    client, _ = _client_recording(handler)
+    client, _ = _make_client(handler)
 
     for action in adopciones_service.SeguimientoAction:
         with pytest.raises(ValueError) as exc_info:
@@ -363,7 +390,7 @@ def test_invalid_transition_seguimiento_completado_any_action():
 def test_invalid_transition_documento_adjunto_anexar():
     """DOCUMENTO_ADJUNTO + ANEXAR raises ValueError (already attached)."""
     handler = _make_handler("DOCUMENTO_ADJUNTO")
-    client, _ = _client_recording(handler)
+    client, _ = _make_client(handler)
 
     with pytest.raises(ValueError) as exc_info:
         adopciones_service.transition_seguimiento(
@@ -379,7 +406,7 @@ def test_invalid_transition_documento_adjunto_anexar():
 def test_invalid_transition_documento_adjunto_marcar_entregado():
     """DOCUMENTO_ADJUNTO + MARCAR_ENTREGADO raises ValueError."""
     handler = _make_handler("DOCUMENTO_ADJUNTO")
-    client, _ = _client_recording(handler)
+    client, _ = _make_client(handler)
 
     with pytest.raises(ValueError) as exc_info:
         adopciones_service.transition_seguimiento(

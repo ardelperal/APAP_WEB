@@ -23,10 +23,8 @@ The tests use a deterministic ``SqlExecutor`` fake to exercise
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
-import httpx
 import pytest
 
 from app.core.data_access import SqlExecutor
@@ -41,15 +39,40 @@ from app.modules.animals.lifecycle_events import (
 )
 from tests.sql_executor_fake import HandlerSqlExecutor
 
+
 # --- helpers -------------------------------------------------------------
 
 
-def _json_response(status_code: int, body: Any) -> httpx.Response:
-    return httpx.Response(
-        status_code=status_code,
-        content=json.dumps(body).encode("utf-8"),
-        headers={"content-type": "application/json"},
-    )
+class _FakeSqlExecutor:
+    """In-memory :class:`SqlExecutor` for unit tests.
+
+    Each ``execute_sql`` call records the (query, params) pair; the test
+    can pre-load one canned response (or a sequence of responses) so the
+    service can run end-to-end without any HTTP transport. This mirrors
+    the canonical pattern from ``tests/test_catalogs.py`` (the Arc C
+    migration replaced ``httpx.MockTransport`` everywhere in the suite).
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, list[object]]] = []
+        self._responses: list[list[dict[str, object]]] = []
+
+    def set_response(self, rows: list[dict[str, object]]) -> None:
+        self._responses = [rows]
+
+    def set_responses(self, *responses: list[dict[str, object]]) -> None:
+        self._responses = list(responses)
+
+    def execute_sql(
+        self, query: str, params: list[object] | None = None
+    ) -> list[dict[str, object]]:
+        self.calls.append((query, list(params or [])))
+        if self._responses:
+            return self._responses.pop(0)
+        return []
+
+    def close(self) -> None:
+        pass
 
 
 def _client_recording(
@@ -135,7 +158,7 @@ def test_decision_id_marker_is_d23() -> None:
 
 
 def test_record_event_rejects_missing_animal_id() -> None:
-    client, _ = _client_recording(_empty_ok)
+    client = _empty_client()
     with pytest.raises(ValueError, match="animal_id"):
         record_event(
             client,
@@ -147,7 +170,7 @@ def test_record_event_rejects_missing_animal_id() -> None:
 
 
 def test_record_event_rejects_unknown_event_type() -> None:
-    client, _ = _client_recording(_empty_ok)
+    client = _empty_client()
     with pytest.raises(ValueError, match="event_type"):
         record_event(
             client,
@@ -159,7 +182,7 @@ def test_record_event_rejects_unknown_event_type() -> None:
 
 
 def test_record_event_rejects_missing_timestamp() -> None:
-    client, _ = _client_recording(_empty_ok)
+    client = _empty_client()
     with pytest.raises(ValueError, match="event_timestamp"):
         record_event(
             client,
@@ -171,7 +194,7 @@ def test_record_event_rejects_missing_timestamp() -> None:
 
 
 def test_record_event_rejects_missing_created_by() -> None:
-    client, _ = _client_recording(_empty_ok)
+    client = _empty_client()
     with pytest.raises(ValueError, match="created_by"):
         record_event(
             client,
@@ -188,7 +211,7 @@ def test_record_event_rejects_missing_created_by() -> None:
 def test_record_event_emits_insert_with_on_conflict_idempotence() -> None:
     """``record_event`` writes an INSERT with ``ON CONFLICT DO NOTHING``
     on the natural key (animal_id, event_type, event_timestamp)."""
-    client, captured = _client_recording(_empty_ok)
+    client = _empty_client()
     record_event(
         client,
         animal_id="00000000-0000-0000-0000-000000000001",
@@ -199,15 +222,14 @@ def test_record_event_emits_insert_with_on_conflict_idempotence() -> None:
         source_entity_id="00000000-0000-0000-0000-0000000000aa",
         metadata={"legacy_pk": 42},
     )
-    client.close()
 
-    inserts = [c for c in captured if "INSERT INTO animal_lifecycle_events" in c["query"]]
+    inserts = [c for c in client.calls if "INSERT INTO animal_lifecycle_events" in c[0]]
     assert len(inserts) == 1
-    sql = inserts[0]["query"]
+    sql = inserts[0][0]
     # Idempotence guard.
     assert "ON CONFLICT (animal_id, event_type, event_timestamp) DO NOTHING" in sql
     # Positional params (10 columns that ``record_event`` passes through).
-    params = inserts[0]["params"]
+    params = inserts[0][1]
     assert params[0] == "00000000-0000-0000-0000-000000000001"
     assert params[1] == "INTAKE_STARTED"
     assert params[2] == "2026-07-27T00:00:00+00:00"
@@ -217,12 +239,13 @@ def test_record_event_emits_insert_with_on_conflict_idempotence() -> None:
     assert params[6] is None  # legacy_source_table
     assert params[7] is None  # legacy_source_id
     assert isinstance(params[8], str)  # metadata as JSON string
+    import json
     assert json.loads(params[8]) == {"legacy_pk": 42}
     assert params[9] == "00000000-0000-0000-0000-000000000002"
 
 
 def test_record_event_skips_metadata_when_absent() -> None:
-    client, captured = _client_recording(_empty_ok)
+    client = _empty_client()
     record_event(
         client,
         animal_id="00000000-0000-0000-0000-000000000001",
@@ -230,11 +253,10 @@ def test_record_event_skips_metadata_when_absent() -> None:
         event_timestamp="2026-07-27T00:00:00+00:00",
         created_by="00000000-0000-0000-0000-000000000002",
     )
-    client.close()
 
-    inserts = [c for c in captured if "INSERT INTO animal_lifecycle_events" in c["query"]]
+    inserts = [c for c in client.calls if "INSERT INTO animal_lifecycle_events" in c[0]]
     assert len(inserts) == 1
-    assert inserts[0]["params"][8] is None  # metadata
+    assert inserts[0][1][8] is None  # metadata
 
 
 def test_record_event_depends_on_sql_executor_protocol() -> None:
@@ -254,14 +276,13 @@ def test_validate_causal_pair_passes_when_no_prior_events() -> None:
     function composable with the rest of the lifecycle code (e.g. an
     INTAKE_STARTED at the beginning of an animal's life has no
     prerequisite)."""
-    client, _ = _client_recording(_select_returns([]))
+    client = _empty_client()
     validate_causal_pair(
         client,
         animal_id="00000000-0000-0000-0000-000000000001",
         event_type=LifecycleEventType.INTAKE_STARTED,
         event_timestamp="2026-07-27T00:00:00+00:00",
     )
-    client.close()
 
 
 def test_validate_causal_pair_passes_for_adoption_after_foster_close() -> None:
@@ -275,20 +296,20 @@ def test_validate_causal_pair_passes_for_adoption_after_foster_close() -> None:
             "event_timestamp": foster_close_ts,
         },
     ]
-    client, _ = _client_recording(_select_returns(prior))
+    client = _FakeSqlExecutor()
+    client.set_response(prior)
     validate_causal_pair(
         client,
         animal_id="00000000-0000-0000-0000-000000000001",
         event_type=LifecycleEventType.ADOPTION_STARTED,
         event_timestamp=adoption_ts,
     )
-    client.close()
 
 
 def test_validate_causal_pair_raises_when_adoption_lacks_foster_close() -> None:
     """ADOPTION_STARTED without a preceding FOSTER_CLOSED_BY_ADOPTION
     violates D-23 and raises ``CausalPairViolation``."""
-    client, _ = _client_recording(_select_returns([]))
+    client = _empty_client()
     with pytest.raises(CausalPairViolation) as exc_info:
         validate_causal_pair(
             client,
@@ -299,7 +320,6 @@ def test_validate_causal_pair_raises_when_adoption_lacks_foster_close() -> None:
     assert exc_info.value.decision_id == CAUSAL_PAIR_DECISION_ID
     assert exc_info.value.animal_id == "00000000-0000-0000-0000-000000000001"
     assert exc_info.value.event_type == LifecycleEventType.ADOPTION_STARTED
-    client.close()
 
 
 def test_validate_causal_pair_raises_when_foster_close_out_of_order() -> None:
@@ -312,7 +332,8 @@ def test_validate_causal_pair_raises_when_foster_close_out_of_order() -> None:
             "event_timestamp": "2026-07-21T10:00:00+00:00",
         },
     ]
-    client, _ = _client_recording(_select_returns(prior))
+    client = _FakeSqlExecutor()
+    client.set_response(prior)
     with pytest.raises(CausalPairViolation):
         validate_causal_pair(
             client,
@@ -320,7 +341,6 @@ def test_validate_causal_pair_raises_when_foster_close_out_of_order() -> None:
             event_type=LifecycleEventType.FOSTER_CLOSED_BY_ADOPTION,
             event_timestamp="2026-07-27T00:00:00+00:00",
         )
-    client.close()
 
 
 def test_validate_causal_pair_selects_only_relevant_rows() -> None:
@@ -332,19 +352,18 @@ def test_validate_causal_pair_selects_only_relevant_rows() -> None:
     ADOPTION_STARTED) so the check is a no-op without forcing the
     SELECT to need a prior row.
     """
-    client, captured = _client_recording(_select_returns([]))
+    client = _empty_client()
     validate_causal_pair(
         client,
         animal_id="00000000-0000-0000-0000-000000000001",
         event_type=LifecycleEventType.FOSTER_CLOSED_BY_ADOPTION,
         event_timestamp="2026-07-27T00:00:00+00:00",
     )
-    client.close()
 
-    selects = [c for c in captured if c["query"].lstrip().upper().startswith("SELECT")]
+    selects = [c for c in client.calls if c[0].lstrip().upper().startswith("SELECT")]
     assert len(selects) == 1
-    sql = selects[0]["query"]
+    sql = selects[0][0]
     assert "FROM animal_lifecycle_events" in sql
     assert "animal_id = $1" in sql
     # The pre-flight must filter by event_type(s) it cares about.
-    assert selects[0]["params"][0] == "00000000-0000-0000-0000-000000000001"
+    assert selects[0][1][0] == "00000000-0000-0000-0000-000000000001"

@@ -25,13 +25,22 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
-from fastapi import Request
+from fastapi import Depends, Request
 
 from app.core.adapters.local_backend.oauth_local_backend_adapter import (
     LocalBackendOAuthAdapter,
 )
 from app.core.di._yield_local_backend_port import yield_local_backend_port
 from app.core.ports.oauth_port import OAuthPort
+
+# Module-level lazy singleton so the httpx.Client connection pool is
+# reused across requests in the same worker.
+_oauth_adapter: LocalBackendOAuthAdapter | None = None
+
+
+def _get_base_url(request: Request) -> str:
+    """Return the base URL of the running application."""
+    return str(request.base_url)
 
 
 def get_oauth_port(request: Request) -> Iterator[OAuthPort]:
@@ -46,4 +55,14 @@ def get_oauth_port(request: Request) -> Iterator[OAuthPort]:
     )
 
 
-__all__ = ["get_oauth_port"]
+def _build_oauth_adapter() -> LocalBackendOAuthAdapter:
+    """Build a standalone OAuth adapter for the test OAuth callback."""
+    settings = get_settings()
+    # Derive base URL from google_redirect_uri (e.g.
+    # "http://127.0.0.1:8000/auth/callback" -> "http://127.0.0.1:8000")
+    redirect = settings.google_redirect_uri
+    base_url = redirect[: redirect.rfind("/auth/callback")]
+    return LocalBackendOAuthAdapter(base_url)
+
+
+__all__ = ["get_oauth_port", "_build_oauth_adapter"]

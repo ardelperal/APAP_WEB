@@ -51,9 +51,12 @@ from tests.conftest import auth_reval_rows
 class _NoSqlRouteClient(LocalPostgresExecutor):
     """Client spy that fails if a route executes SQL directly.
 
-    Mirrors the same pattern in ``tests/test_acogidas_routes.py``.
-    The single legitimate SELECT is the per-request authorization
-    revalidation answered by ``auth_reval_rows``.
+    Routes own no SQL — they delegate to the service. If a route ever
+    calls ``client.execute_sql``, the spy raises ``AssertionError`` and
+    the failing test names the offending query. Stands alone (no
+    inheritance) so the dependency override only requires the surface
+    area the routes actually touch: the ``SqlExecutor`` Protocol's
+    ``execute_sql``.
     """
 
     def __init__(self) -> None:
@@ -65,10 +68,11 @@ class _NoSqlRouteClient(LocalPostgresExecutor):
     def execute_sql(self, query: str, params: Any = None):
         _reval = auth_reval_rows(query, params, rol=self.auth_reval_rol)
         if _reval is not None:
-            return _reval
-        raise AssertionError(
-            f"routes must not execute SQL directly: {query!r}"
-        )
+            return _reval  # type: ignore[no-any-return]
+        raise AssertionError(f"routes must not execute SQL directly: {query!r}")
+
+    def close(self) -> None:
+        pass  # no-op for spy
 
 
 @pytest.fixture

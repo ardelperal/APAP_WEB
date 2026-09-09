@@ -33,16 +33,21 @@ class _NoSqlRouteClient(LocalPostgresExecutor):
     def __init__(self) -> None:
         import httpx as _httpx
 
-        self._client = _httpx.Client(base_url="https://spy.example")
+    def __init__(self) -> None:
+        # Issue #144: rol returned by the per-request authorization
+        # revalidation SELECT. Defaults to ``key_user``; reader
+        # rejection tests set this to ``reader`` so
+        # ``require_writer_user`` produces 403 BEFORE any handler SQL.
         self.auth_reval_rol: str = "key_user"
 
     def execute_sql(self, query: str, params: Any = None):
         _reval = auth_reval_rows(query, params, rol=self.auth_reval_rol)
         if _reval is not None:
-            return _reval
+            return _reval  # type: ignore[no-any-return]
         raise AssertionError(f"routes must not execute SQL directly: {query!r}")
 
-
+    def close(self) -> None:
+        pass  # no-op for spy
 class _MockCesionesPort:
     """In-memory CesionesPort spy for hexagonal route-layer tests.
 
