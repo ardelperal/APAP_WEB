@@ -26,6 +26,7 @@ APAP_WEB es una aplicación web FastAPI + HTMX + Jinja2 (Python `>=3.11`) con ar
 | Skill | Cuándo cargarla |
 |---|---|
 | **`documentation-alan-style`** | Cualquier documento escrito o revisado — `README`, este `AGENTS.md`, `DOCS`, `CODEBASE-GUIDE`, `CONTRIBUTING`, `CHANGELOG`, epics, walkthroughs. |
+| **`repository-delivery-governance`** | Cualquier auditoría o cambio de CI/CD, política de issues o PRs, labels, branch protection, rulesets, permisos de merge, artefactos, despliegue o rollback. La política específica del repo prevalece sobre su baseline portable. |
 | **`branch-pr`** | Cualquier commit, apertura de PR o merge a `main`. Merge con `--no-ff`, nunca con `--delete-branch` (ver [docs/codebase/merge-workflow.md](docs/codebase/merge-workflow.md)). |
 | **`code-review-expert`** | Cualquier slice dirigido por subagent que aterrice en `main` (lente de revisión obligatoria, §17.2). |
 | **`judgment-day`** | Cualquier diff high-stakes (auth, secrets, CSRF, PII, migraciones, SQL crudo). |
@@ -55,6 +56,7 @@ APAP_WEB es una aplicación web FastAPI + HTMX + Jinja2 (Python `>=3.11`) con ar
 | `code-review-expert` | Every subagent-driven slice (mandatory review lens). | Gentleman-Programming |
 | `judgment-day` | High-stakes diffs (auth, secrets, migrations). | Gentleman-Programming |
 | `documentation-alan-style` | Writing or refactoring any document. | DysTelefonica/team-skills |
+| `repository-delivery-governance` | Auditing or changing CI/CD, issue/PR/label governance, branch protection, merge permissions, artifacts, deployment, or rollback. | DysTelefonica/team-skills |
 | `cognitive-doc-design` | Reducing cognitive load in a doc. | Gentleman-Programming |
 | `branch-pr` | Any PR creation or merge. | Gentleman-Programming |
 | `skill-creator` | Creating new skills following the pattern. | Gentleman-Programming |
