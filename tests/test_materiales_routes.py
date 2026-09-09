@@ -62,8 +62,6 @@ import pytest
 
 from app.core.auth_dependencies import get_insforge_client_dep
 from app.core.config import get_settings
-from app.core.local_backend.db import LocalPostgresExecutor
-from app.core.data_access import SqlExecutor
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
 from app.modules.materiales import estancia_material_service
@@ -73,30 +71,38 @@ from tests.conftest import auth_reval_rows, make_csrf_request
 # --- helpers --------------------------------------------------------------
 
 
-class _NoSqlRouteClient(LocalPostgresExecutor):
+class _NoSqlRouteClient:
     """Client spy that fails if a route executes SQL directly.
 
-    Mirrors ``tests/test_foster_routes.py``. Routes own no SQL; they
-    delegate to the service. The single legitimate SELECT is the
-    per-request authorization revalidation that
-    ``require_authorized_user`` issues — answered by
-    :func:`auth_reval_rows` and never re-asserted by the spy.
+    Routes own no SQL — they delegate to the service. If a route ever
+    calls ``client.execute_sql``, the spy raises ``AssertionError`` and
+    the failing test names the offending query. Stands alone (no
+    inheritance) so the dependency override only requires the surface
+    area the routes actually touch: the ``SqlExecutor`` Protocol's
+    ``execute_sql``.
     """
 
-    def __init__(self) -> None:  # type: ignore[override]
-        import httpx as _httpx
-
-        self._client = _httpx.Client(base_url="https://spy.example")
+    def __init__(self) -> None:
         # Issue #144: rol returned by the per-request authorization
         # revalidation SELECT. Defaults to ``key_user``; reader
-        # rejection tests flip this to ``reader``.
+        # rejection tests set this to ``reader`` so
+        # ``require_writer_user`` produces 403 BEFORE any handler SQL.
         self.auth_reval_rol: str = "key_user"
 
-    def execute_sql(self, query: str, params: Any = None):  # type: ignore[override]
+    def execute_sql(
+        self, query: str, params: list[object] | None = None
+    ) -> list[dict[str, object]]:
+        # Issue #143: require_authorized_user revalidates authorization per
+        # request via the get_user_by_email service; that SELECT flows
+        # through this client and is allowed. Any OTHER direct SQL from a
+        # route handler still violates the "cero SQL en routes" contract.
         _reval = auth_reval_rows(query, params, rol=self.auth_reval_rol)
         if _reval is not None:
-            return _reval
+            return _reval  # type: ignore[no-any-return]
         raise AssertionError(f"routes must not execute SQL directly: {query!r}")
+
+    def close(self) -> None:
+        pass  # no-op for spy
 
 
 @pytest.fixture
@@ -238,11 +244,11 @@ async def test_get_materiales_list_renders_table(
       session.
     """
     _login_as_key_user(client)
-    calls: list[tuple[LocalPostgresExecutor, bool]] = []
+    calls: list[tuple[_NoSqlRouteClient, bool]] = []
     material = _material()
 
     def fake_list(
-        service_client: LocalPostgresExecutor, activos_solo: bool = True
+        service_client: _NoSqlRouteClient, activos_solo: bool = True
     ) -> list[materiales_service.Material]:
         calls.append((service_client, activos_solo))
         return [material]
@@ -299,10 +305,10 @@ async def test_post_materiales_creates_and_redirects(
     """Valid create form -> service returns the material -> 303 to detail."""
     _login_as_key_user(client)
     material = _material()
-    calls: list[tuple[LocalPostgresExecutor, dict[str, Any]]] = []
+    calls: list[tuple[_NoSqlRouteClient, dict[str, Any]]] = []
 
     def fake_create(
-        service_client: LocalPostgresExecutor, params: dict[str, Any]
+        service_client: _NoSqlRouteClient, params: dict[str, Any]
     ) -> materiales_service.Material:
         calls.append((service_client, params))
         return material
@@ -347,7 +353,7 @@ async def test_post_materiales_duplicate_returns_409(
     _login_as_key_user(client)
 
     def fake_create(
-        service_client: LocalPostgresExecutor, params: dict[str, Any]
+        service_client: _NoSqlRouteClient, params: dict[str, Any]
     ) -> materiales_service.Material:
         raise materiales_service.MaterialConflictError(
             "ya existe material con esa combinacion material+tamano+color"
@@ -388,7 +394,7 @@ async def test_post_materiales_validation_rejects_blank_fields(
     _login_as_key_user(client)
 
     def fake_create(
-        service_client: LocalPostgresExecutor, params: dict[str, Any]
+        service_client: _NoSqlRouteClient, params: dict[str, Any]
     ) -> materiales_service.Material:
         raise ValueError(
             "material es obligatorio y no puede estar vacio"
@@ -434,7 +440,7 @@ async def test_post_materiales_requires_csrf_token(
     service_calls: list[Any] = []
 
     def _create_must_not_run(
-        service_client: LocalPostgresExecutor, params: dict[str, Any]
+        service_client: _NoSqlRouteClient, params: dict[str, Any]
     ) -> materiales_service.Material:
         service_calls.append(params)
         raise AssertionError(
@@ -562,10 +568,10 @@ async def test_post_materiales_id_edit_updates_and_redirects(
     """Valid update -> service returns the material -> 303 to detail."""
     _login_as_key_user(client)
     updated = _material(color="Verde")
-    calls: list[tuple[LocalPostgresExecutor, str, dict[str, Any]]] = []
+    calls: list[tuple[_NoSqlRouteClient, str, dict[str, Any]]] = []
 
     def fake_update(
-        service_client: LocalPostgresExecutor,
+        service_client: _NoSqlRouteClient,
         material_id: str,
         params: dict[str, Any],
     ) -> materiales_service.Material | None:
@@ -600,10 +606,10 @@ async def test_post_materiales_id_deactivate_soft_deletes(
 ) -> None:
     """Deactivate succeeds (service True) -> 303 redirect to list."""
     _login_as_key_user(client)
-    calls: list[tuple[LocalPostgresExecutor, str]] = []
+    calls: list[tuple[_NoSqlRouteClient, str]] = []
 
     def fake_deactivate(
-        service_client: LocalPostgresExecutor, material_id: str
+        service_client: _NoSqlRouteClient, material_id: str
     ) -> bool:
         calls.append((service_client, material_id))
         return True
@@ -774,16 +780,16 @@ async def test_get_acogidas_materiales_lists_per_estancia(
     """
     _login_as_key_user(client)
     list_calls: list[
-        tuple[LocalPostgresExecutor, str, bool]
+        tuple[_NoSqlRouteClient, str, bool]
     ] = []
     catalog_calls: list[
-        tuple[LocalPostgresExecutor, bool]
+        tuple[_NoSqlRouteClient, bool]
     ] = []
     junction = _estancia_material()
     catalog_material = _material()
 
     def fake_list_for_estancia(
-        service_client: LocalPostgresExecutor,
+        service_client: _NoSqlRouteClient,
         estancia_id: str,
         activos_solo: bool = True,
     ) -> list[materiales_service.EstanciaMaterial]:
@@ -791,7 +797,7 @@ async def test_get_acogidas_materiales_lists_per_estancia(
         return [junction]
 
     def fake_list_materials(
-        service_client: LocalPostgresExecutor, activos_solo: bool = True
+        service_client: _NoSqlRouteClient, activos_solo: bool = True
     ) -> list[materiales_service.Material]:
         catalog_calls.append((service_client, activos_solo))
         return [catalog_material]
@@ -889,11 +895,11 @@ async def test_post_acogidas_materiales_assigns_and_redirects(
     _login_as_key_user(client)
     junction = _estancia_material()
     calls: list[
-        tuple[LocalPostgresExecutor, str, str, int, str | None]
+        tuple[_NoSqlRouteClient, str, str, int, str | None]
     ] = []
 
     def fake_assign(
-        service_client: LocalPostgresExecutor,
+        service_client: _NoSqlRouteClient,
         estancia_id: str,
         material_id: str,
         cantidad: int = 1,
@@ -947,7 +953,7 @@ async def test_post_acogidas_materiales_assign_returns_409_on_duplicate(
     _login_as_key_user(client)
 
     def fake_assign(
-        service_client: LocalPostgresExecutor,
+        service_client: _NoSqlRouteClient,
         estancia_id: str,
         material_id: str,
         cantidad: int = 1,
@@ -958,12 +964,12 @@ async def test_post_acogidas_materiales_assign_returns_409_on_duplicate(
         )
 
     def fake_list_materials(
-        service_client: LocalPostgresExecutor, activos_solo: bool = True
+        service_client: _NoSqlRouteClient, activos_solo: bool = True
     ) -> list[materiales_service.Material]:
         return []
 
     def fake_list_for_estancia(
-        service_client: LocalPostgresExecutor,
+        service_client: _NoSqlRouteClient,
         estancia_id: str,
         activos_solo: bool = True,
     ) -> list[materiales_service.EstanciaMaterial]:
@@ -1017,12 +1023,12 @@ async def test_post_acogidas_materiales_assign_cantidad_zero_returns_422(
     _login_as_key_user(client)
 
     def fake_list_materials(
-        service_client: LocalPostgresExecutor, activos_solo: bool = True
+        service_client: _NoSqlRouteClient, activos_solo: bool = True
     ) -> list[materiales_service.Material]:
         return []
 
     def fake_list_for_estancia(
-        service_client: LocalPostgresExecutor,
+        service_client: _NoSqlRouteClient,
         estancia_id: str,
         activos_solo: bool = True,
     ) -> list[materiales_service.EstanciaMaterial]:
@@ -1081,12 +1087,12 @@ async def test_post_acogidas_materiales_assign_cantidad_invalid_returns_422(
     _login_as_key_user(client)
 
     def fake_list_materials(
-        service_client: LocalPostgresExecutor, activos_solo: bool = True
+        service_client: _NoSqlRouteClient, activos_solo: bool = True
     ) -> list[materiales_service.Material]:
         return []
 
     def fake_list_for_estancia(
-        service_client: LocalPostgresExecutor,
+        service_client: _NoSqlRouteClient,
         estancia_id: str,
         activos_solo: bool = True,
     ) -> list[materiales_service.EstanciaMaterial]:
@@ -1144,7 +1150,7 @@ async def test_post_acogidas_materiales_assign_value_error_returns_422(
     _login_as_key_user(client)
 
     def fake_assign(
-        service_client: LocalPostgresExecutor,
+        service_client: _NoSqlRouteClient,
         estancia_id: str,
         material_id: str,
         cantidad: int = 1,
@@ -1155,12 +1161,12 @@ async def test_post_acogidas_materiales_assign_value_error_returns_422(
         )
 
     def fake_list_materials(
-        service_client: LocalPostgresExecutor, activos_solo: bool = True
+        service_client: _NoSqlRouteClient, activos_solo: bool = True
     ) -> list[materiales_service.Material]:
         return []
 
     def fake_list_for_estancia(
-        service_client: LocalPostgresExecutor,
+        service_client: _NoSqlRouteClient,
         estancia_id: str,
         activos_solo: bool = True,
     ) -> list[materiales_service.EstanciaMaterial]:
@@ -1204,10 +1210,10 @@ async def test_post_acogidas_materiales_mid_delete_soft_deletes(
 ) -> None:
     """Valid delete -> service returns True -> 303 to per-stay list."""
     _login_as_key_user(client)
-    calls: list[tuple[LocalPostgresExecutor, str]] = []
+    calls: list[tuple[_NoSqlRouteClient, str]] = []
 
     def fake_remove(
-        service_client: LocalPostgresExecutor, junction_id: str
+        service_client: _NoSqlRouteClient, junction_id: str
     ) -> bool:
         calls.append((service_client, junction_id))
         return True

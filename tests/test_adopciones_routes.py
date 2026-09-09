@@ -24,15 +24,14 @@ import pytest
 
 from app.core.auth_dependencies import get_insforge_client_dep
 from app.core.config import get_settings
-from app.core.local_backend.db import LocalPostgresExecutor
-from app.core.data_access import BackendError as BackendError, SqlExecutor
+from app.core.data_access import BackendError as BackendError
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
 from app.modules.adopciones import service as adopciones_service
 from tests.conftest import auth_reval_rows, make_csrf_request
 
 
-class _NoSqlRouteClient(LocalPostgresExecutor):
+class _NoSqlRouteClient:
     """Client spy that fails if a route executes SQL directly.
 
     Mirrors the same pattern used in ``tests/test_entradas_routes.py``
@@ -40,27 +39,33 @@ class _NoSqlRouteClient(LocalPostgresExecutor):
     delegate to the service. If a route ever calls
     ``client.execute_sql``, the spy raises AssertionError and the
     failing test names the offending query.
+
+    Stands alone (no inheritance) so the dependency override only
+    requires the surface area the routes actually touch: the
+    ``SqlExecutor`` Protocol's ``execute_sql``.
     """
 
-    def __init__(self) -> None:  # type: ignore[override]
-        import httpx as _httpx
-
-        self._client = _httpx.Client(base_url="https://spy.example")
+    def __init__(self) -> None:
         # Issue #144: rol returned by the per-request authorization
         # revalidation SELECT. Defaults to ``key_user`` (the lowest
         # authorized role that can still hit ``require_authorized_user``
         # POSTs per the adopciones design).
         self.auth_reval_rol: str = "key_user"
 
-    def execute_sql(self, query: str, params: Any = None):  # type: ignore[override]
+    def execute_sql(
+        self, query: str, params: list[object] | None = None
+    ) -> list[dict[str, object]]:
         # Issue #143: require_authorized_user revalidates authorization per
         # request via the get_user_by_email service; that SELECT flows
         # through this client and is allowed. Any OTHER direct SQL from a
         # route handler still violates the "cero SQL en routes" contract.
         _reval = auth_reval_rows(query, params, rol=self.auth_reval_rol)
         if _reval is not None:
-            return _reval
+            return _reval  # type: ignore[no-any-return]
         raise AssertionError(f"routes must not execute SQL directly: {query!r}")
+
+    def close(self) -> None:
+        pass  # no-op for spy
 
 
 @pytest.fixture
@@ -187,10 +192,10 @@ async def test_list_adopciones_delegates_to_service_and_renders_spanish_copy(
 ) -> None:
     """List endpoint delegates to the service and renders Spanish copy."""
     _login_as_key_user(client)
-    calls: list[LocalPostgresExecutor] = []
+    calls: list[_NoSqlRouteClient] = []
     adopcion = _adopcion()
 
-    def fake_list(service_client: LocalPostgresExecutor) -> list[adopciones_service.Adopcion]:
+    def fake_list(service_client: _NoSqlRouteClient) -> list[adopciones_service.Adopcion]:
         calls.append(service_client)
         return [adopcion]
 
@@ -218,10 +223,10 @@ async def test_list_adopciones_with_adoptante_query_param_uses_search(
 ) -> None:
     """The ``?adoptante=`` query param reaches search_adopciones_by_adoptante."""
     _login_as_key_user(client)
-    calls: list[tuple[LocalPostgresExecutor, str]] = []
+    calls: list[tuple[_NoSqlRouteClient, str]] = []
 
     def fake_search(
-        service_client: LocalPostgresExecutor, nombre_parcial: str
+        service_client: _NoSqlRouteClient, nombre_parcial: str
     ) -> list[adopciones_service.Adopcion]:
         calls.append((service_client, nombre_parcial))
         return [_adopcion()]
@@ -273,10 +278,10 @@ async def test_create_adopcion_valid_records_redirects_to_detail(
     """Valid create form -> service returns the adopción -> 303 to detail."""
     _login_as_key_user(client)
     adopcion = _adopcion()
-    calls: list[tuple[LocalPostgresExecutor, dict[str, Any], str | None]] = []
+    calls: list[tuple[_NoSqlRouteClient, dict[str, Any], str | None]] = []
 
     def fake_create(
-        service_client: LocalPostgresExecutor,
+        service_client: _NoSqlRouteClient,
         params: dict[str, Any],
         *,
         actor_user_id: str | None = None,
@@ -323,7 +328,7 @@ async def test_create_adopcion_sad_validation_rerenders_form_with_422(
     _login_as_key_user(client)
 
     def fake_create(
-        service_client: LocalPostgresExecutor,
+        service_client: _NoSqlRouteClient,
         params: dict[str, Any],
         *,
         actor_user_id: str | None = None,
@@ -368,7 +373,7 @@ async def test_create_adopcion_translates_duplicate_to_409(
     _login_as_key_user(client)
 
     def fake_create(
-        service_client: LocalPostgresExecutor,
+        service_client: _NoSqlRouteClient,
         params: dict[str, Any],
         *,
         actor_user_id: str | None = None,
@@ -411,7 +416,7 @@ async def test_create_adopcion_translates_insforge_error_to_422(
     _login_as_key_user(client)
 
     def fake_create(
-        service_client: LocalPostgresExecutor,
+        service_client: _NoSqlRouteClient,
         params: dict[str, Any],
         *,
         actor_user_id: str | None = None,
@@ -458,7 +463,7 @@ async def test_create_adopcion_with_bad_fecha_returns_422(
     _login_as_key_user(client)
 
     def fake_create(
-        service_client: LocalPostgresExecutor,
+        service_client: _NoSqlRouteClient,
         params: dict[str, Any],
         *,
         actor_user_id: str | None = None,
@@ -621,10 +626,10 @@ async def test_update_adopcion_valid_records_redirects_to_detail(
     """Valid update -> service returns the adopción -> 303 to detail page."""
     _login_as_key_user(client)
     adopcion = _adopcion()
-    calls: list[tuple[LocalPostgresExecutor, str, dict[str, Any], str | None]] = []
+    calls: list[tuple[_NoSqlRouteClient, str, dict[str, Any], str | None]] = []
 
     def fake_update(
-        service_client: LocalPostgresExecutor,
+        service_client: _NoSqlRouteClient,
         adopcion_id: str,
         params: dict[str, Any],
         *,
@@ -688,7 +693,7 @@ async def test_update_adopcion_translates_duplicate_to_409(
     _login_as_key_user(client)
 
     def fake_update(
-        service_client: LocalPostgresExecutor,
+        service_client: _NoSqlRouteClient,
         adopcion_id: str,
         params: dict[str, Any],
         *,
@@ -724,10 +729,10 @@ async def test_delete_adopcion_redirects_to_list(
 ) -> None:
     """Soft-delete redirects to /adopciones when the service returns True."""
     _login_as_key_user(client)
-    calls: list[tuple[LocalPostgresExecutor, str, str | None]] = []
+    calls: list[tuple[_NoSqlRouteClient, str, str | None]] = []
 
     def fake_delete(
-        service_client: LocalPostgresExecutor,
+        service_client: _NoSqlRouteClient,
         adopcion_id: str,
         *,
         actor_user_id: str | None = None,

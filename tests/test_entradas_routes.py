@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -10,36 +9,44 @@ import pytest
 
 from app.core.auth_dependencies import get_insforge_client_dep
 from app.core.config import get_settings
-from app.core.local_backend.db import LocalPostgresExecutor
-from app.core.data_access import SqlExecutor
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
 from app.modules.entradas import service as entradas_service
 from tests.conftest import auth_reval_rows, make_csrf_request
 
 
-class _NoSqlRouteClient(LocalPostgresExecutor):
-    """Client spy that fails if a route executes SQL directly."""
+class _NoSqlRouteClient:
+    """Client spy that fails if a route executes SQL directly.
 
-    def __init__(self) -> None:  # type: ignore[override]
-        import httpx as _httpx
+    Routes own no SQL — they delegate to the service. If a route ever
+    calls ``client.execute_sql``, the spy raises ``AssertionError`` and
+    the failing test names the offending query. Stands alone (no
+    inheritance) so the dependency override only requires the surface
+    area the routes actually touch: the ``SqlExecutor`` Protocol's
+    ``execute_sql``.
+    """
 
-        self._client = _httpx.Client(base_url="https://spy.example")
+    def __init__(self) -> None:
         # Issue #144: rol returned by the per-request authorization
         # revalidation SELECT. Defaults to ``key_user``; reader
         # rejection tests set this to ``reader`` so
         # ``require_writer_user`` produces 403 BEFORE any handler SQL.
         self.auth_reval_rol: str = "key_user"
 
-    def execute_sql(self, query: str, params: Any = None):  # type: ignore[override]
+    def execute_sql(
+        self, query: str, params: list[object] | None = None
+    ) -> list[dict[str, object]]:
         # Issue #143: require_authorized_user revalidates authorization per
         # request via the get_user_by_email service; that SELECT flows
         # through this client and is allowed. Any OTHER direct SQL from a
         # route handler still violates the "cero SQL en routes" contract.
         _reval = auth_reval_rows(query, params, rol=self.auth_reval_rol)
         if _reval is not None:
-            return _reval
+            return _reval  # type: ignore[no-any-return]
         raise AssertionError(f"routes must not execute SQL directly: {query!r}")
+
+    def close(self) -> None:
+        pass  # no-op for spy
 
 
 @pytest.fixture
@@ -128,7 +135,7 @@ async def test_list_entradas_delegates_to_service_and_renders_spanish_copy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _login_as_key_user(client)
-    calls: list[LocalPostgresExecutor] = []
+    calls: list[_NoSqlRouteClient] = []
     monkeypatch.setattr(
         entradas_service,
         "list_entradas",
@@ -173,9 +180,9 @@ async def test_detail_and_edit_return_404_when_service_returns_none(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _login_as_key_user(client)
-    calls: list[tuple[LocalPostgresExecutor, str]] = []
+    calls: list[tuple[_NoSqlRouteClient, str]] = []
 
-    def fake_get(service_client: LocalPostgresExecutor, entrada_id: str):
+    def fake_get(service_client: _NoSqlRouteClient, entrada_id: str):
         calls.append((service_client, entrada_id))
         return None
 
@@ -196,9 +203,9 @@ async def test_create_entrada_delegates_to_service_and_redirects_to_detail(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _login_as_key_user(client)
-    calls: list[tuple[LocalPostgresExecutor, dict[str, Any]]] = []
+    calls: list[tuple[_NoSqlRouteClient, dict[str, Any]]] = []
 
-    def fake_create(service_client: LocalPostgresExecutor, params: dict[str, Any]):
+    def fake_create(service_client: _NoSqlRouteClient, params: dict[str, Any]):
         calls.append((service_client, params))
         return entrada
 
@@ -223,7 +230,7 @@ async def test_create_duplicate_translates_to_409_html(
 ) -> None:
     _login_as_key_user(client)
 
-    def fake_create(service_client: LocalPostgresExecutor, params: dict[str, Any]):
+    def fake_create(service_client: _NoSqlRouteClient, params: dict[str, Any]):
         assert service_client is route_client
         raise entradas_service.EntradaConflictError("duplicada")
 
@@ -249,7 +256,7 @@ async def test_update_validation_error_rerenders_form_with_422(
     _login_as_key_user(client)
     monkeypatch.setattr(entradas_service, "get_entrada_by_id", lambda _c, _id: entrada)
 
-    def fake_update(service_client: LocalPostgresExecutor, entrada_id: str, params: dict[str, Any]):
+    def fake_update(service_client: _NoSqlRouteClient, entrada_id: str, params: dict[str, Any]):
         raise ValueError("animal_id is required and cannot be empty")
 
     monkeypatch.setattr(entradas_service, "update_entrada", fake_update)
@@ -289,9 +296,9 @@ async def test_delete_is_soft_delete_service_delegation_and_redirect(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _login_as_key_user(client)
-    calls: list[tuple[LocalPostgresExecutor, str]] = []
+    calls: list[tuple[_NoSqlRouteClient, str]] = []
 
-    def fake_delete(service_client: LocalPostgresExecutor, entrada_id: str) -> bool:
+    def fake_delete(service_client: _NoSqlRouteClient, entrada_id: str) -> bool:
         calls.append((service_client, entrada_id))
         return True
 
@@ -325,6 +332,8 @@ async def test_delete_missing_entry_returns_404(
 
 
 def test_entradas_route_source_contains_no_direct_execute_sql() -> None:
+    from pathlib import Path
+
     route_source = Path("app/modules/entradas/routes.py")
 
     assert route_source.exists()

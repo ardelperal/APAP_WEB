@@ -50,8 +50,6 @@ import pytest
 
 from app.core.auth_dependencies import get_insforge_client_dep
 from app.core.config import get_settings
-from app.core.local_backend.db import LocalPostgresExecutor
-from app.core.data_access import SqlExecutor
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
 from app.modules.acogidas import service as acogidas_service
@@ -59,37 +57,42 @@ from app.modules.animals.di.animals_di import get_animals_port
 from tests.conftest import auth_reval_rows, make_csrf_request
 
 
-class _NoSqlRouteClient(LocalPostgresExecutor):
+class _NoSqlRouteClient:
     """Client spy that fails if a route executes SQL directly.
 
-    Mirrors the same pattern used in
-    ``tests/test_foster_routes.py`` and
-    ``tests/test_entradas_routes.py``: routes own no SQL, they
-    delegate to the service. If a route ever calls
-    ``client.execute_sql``, the spy raises AssertionError and the
-    failing test names the offending query.
+    Routes own no SQL — they delegate to the service. If a route ever
+    calls ``client.execute_sql``, the spy raises ``AssertionError`` and
+    the failing test names the offending query. Stands alone (no
+    inheritance) so the dependency override only requires the surface
+    area the routes actually touch: the ``SqlExecutor`` Protocol's
+    ``execute_sql``.
     """
 
-    def __init__(self) -> None:  # type: ignore[override]
-        import httpx as _httpx
-
-        self._client = _httpx.Client(base_url="https://spy.example")
+    def __init__(self) -> None:
         # Issue #144: rol returned by the per-request authorization
         # revalidation SELECT. Defaults to ``key_user``; reader
         # rejection tests set this to ``reader`` so
         # ``require_writer_user`` produces 403 BEFORE any handler SQL.
         self.auth_reval_rol: str = "key_user"
+        # The acogidas routes also wire ``get_animals_port`` to
+        # ``spy.animals_port`` so the test fixture can override it;
+        # an opaque object satisfies the dependency override.
         self.animals_port = object()
 
-    def execute_sql(self, query: str, params: Any = None):  # type: ignore[override]
+    def execute_sql(
+        self, query: str, params: list[object] | None = None
+    ) -> list[dict[str, object]]:
         # Issue #143: require_authorized_user revalidates authorization per
         # request via the get_user_by_email service; that SELECT flows
         # through this client and is allowed. Any OTHER direct SQL from a
         # route handler still violates the "cero SQL en routes" contract.
         _reval = auth_reval_rows(query, params, rol=self.auth_reval_rol)
         if _reval is not None:
-            return _reval
+            return _reval  # type: ignore[no-any-return]
         raise AssertionError(f"routes must not execute SQL directly: {query!r}")
+
+    def close(self) -> None:
+        pass  # no-op for spy
 
 
 @pytest.fixture
@@ -238,11 +241,11 @@ async def test_list_acogidas_delegates_to_service_and_renders_spanish_copy(
 ) -> None:
     """List endpoint delegates to the service and renders Spanish copy."""
     _login_as_key_user(client)
-    calls: list[tuple[LocalPostgresExecutor, bool]] = []
+    calls: list[tuple[_NoSqlRouteClient, bool]] = []
     estancia = _acogida()
 
     def fake_list(
-        service_client: LocalPostgresExecutor,
+        service_client: _NoSqlRouteClient,
         activas_solo: bool = False,
     ) -> list[acogidas_service.Acogida]:
         calls.append((service_client, activas_solo))
@@ -271,10 +274,10 @@ async def test_list_acogidas_with_activas_solo_query_param(
 ) -> None:
     """The ``?activas_solo=1`` query param reaches the service unchanged."""
     _login_as_key_user(client)
-    calls: list[tuple[LocalPostgresExecutor, bool]] = []
+    calls: list[tuple[_NoSqlRouteClient, bool]] = []
 
     def fake_list(
-        service_client: LocalPostgresExecutor,
+        service_client: _NoSqlRouteClient,
         activas_solo: bool = False,
     ) -> list[acogidas_service.Acogida]:
         calls.append((service_client, activas_solo))
@@ -325,13 +328,13 @@ async def test_create_acogida_valid_records_redirects_to_detail(
     """Valid create form -> service returns the estancia -> 303 to detail."""
     _login_as_key_user(client)
     estancia = _acogida()
-    calls: list[tuple[LocalPostgresExecutor, dict[str, Any]]] = []
+    calls: list[tuple[_NoSqlRouteClient, dict[str, Any]]] = []
     # FOSTER-03 (#45): skip the species gate; this test exercises the
     # CRUD service path, not the gate itself.
     _bypass_species_gate(monkeypatch)
 
     def fake_create(
-        service_client: LocalPostgresExecutor, params: dict[str, Any]
+        service_client: _NoSqlRouteClient, params: dict[str, Any]
     ) -> acogidas_service.Acogida:
         calls.append((service_client, params))
         return estancia
@@ -374,7 +377,7 @@ async def test_create_acogida_sad_validation_rerenders_form_with_422(
     _bypass_species_gate(monkeypatch)
 
     def fake_create(
-        service_client: LocalPostgresExecutor, params: dict[str, Any]
+        service_client: _NoSqlRouteClient, params: dict[str, Any]
     ) -> acogidas_service.Acogida:
         raise ValueError("fecha_inicio es obligatorio y no puede estar vacio")
 
@@ -422,7 +425,7 @@ async def test_create_acogida_route_translates_fk_violation_to_422(
     _bypass_species_gate(monkeypatch)
 
     def fake_create(
-        service_client: LocalPostgresExecutor, params: dict[str, Any]
+        service_client: _NoSqlRouteClient, params: dict[str, Any]
     ) -> acogidas_service.Acogida:
         # Simulate a PostgreSQL FK violation arriving via PostgREST.
         raise BackendError(
@@ -562,13 +565,13 @@ async def test_update_acogida_valid_records_redirects_to_detail(
     """Valid update -> service returns the estancia -> 303 to detail page."""
     _login_as_key_user(client)
     estancia = _acogida()
-    calls: list[tuple[LocalPostgresExecutor, str, dict[str, Any]]] = []
+    calls: list[tuple[_NoSqlRouteClient, str, dict[str, Any]]] = []
     # FOSTER-03 (#45): skip the species gate; this test exercises the
     # CRUD service path, not the gate itself.
     _bypass_species_gate(monkeypatch)
 
     def fake_update(
-        service_client: LocalPostgresExecutor,
+        service_client: _NoSqlRouteClient,
         acogida_id: str,
         params: dict[str, Any],
     ) -> acogidas_service.Acogida | None:
@@ -631,10 +634,10 @@ async def test_close_acogida_redirects_to_detail_when_successful(
     """Close stay -> 303 redirect to detail page."""
     _login_as_key_user(client)
     estancia = _acogida()
-    calls: list[tuple[LocalPostgresExecutor, str]] = []
+    calls: list[tuple[_NoSqlRouteClient, str]] = []
 
     def fake_close(
-        service_client: LocalPostgresExecutor, acogida_id: str
+        service_client: _NoSqlRouteClient, acogida_id: str
     ) -> acogidas_service.Acogida | None:
         calls.append((service_client, acogida_id))
         return estancia
@@ -687,9 +690,9 @@ async def test_delete_acogida_redirects_to_list_when_successful(
 ) -> None:
     """Soft-delete succeeds -> 303 redirect to the list page."""
     _login_as_key_user(client)
-    calls: list[tuple[LocalPostgresExecutor, str]] = []
+    calls: list[tuple[_NoSqlRouteClient, str]] = []
 
-    def fake_delete(service_client: LocalPostgresExecutor, acogida_id: str) -> bool:
+    def fake_delete(service_client: _NoSqlRouteClient, acogida_id: str) -> bool:
         calls.append((service_client, acogida_id))
         return True
 
@@ -961,7 +964,7 @@ async def test_update_acogida_rejects_species_mismatch_when_casa_acogida_id_prov
 #
 # The two atoms below go POST -> route -> REAL service
 # (``create_acogida`` / ``update_acogida``), not a monkeypatched
-# service. A real ``LocalPostgresExecutor`` backed by ``httpx.MockTransport``
+# service. A real ``_NoSqlRouteClient`` backed by ``httpx.MockTransport``
 # is injected via ``app.dependency_overrides``; the captured SQL is
 # the proof that fecha_final reaches the INSERT/UPDATE placeholders.
 # ---------------------------------------------------------------------------
@@ -1088,8 +1091,8 @@ def _install_feed_client(
     captured: list[dict[str, Any]],
     insert_row: dict[str, Any] | None = None,
     update_row: dict[str, Any] | None = None,
-) -> LocalPostgresExecutor:
-    """Inject an httpx.MockTransport-backed real LocalPostgresExecutor.
+) -> _NoSqlRouteClient:
+    """Inject an httpx.MockTransport-backed real _NoSqlRouteClient.
 
     Returns the client so callers can ``.close()`` after the test.
     The dependency override lets the real service code path run
@@ -1102,7 +1105,7 @@ def _install_feed_client(
         captured.append(body)
         return _feed_handler(insert_row=insert_row, update_row=update_row)(request)
 
-    client = LocalPostgresExecutor(
+    client = _NoSqlRouteClient(
         base_url="https://example.insforge.app",
         service_key="ik_test",
         transport=httpx.MockTransport(_recording),

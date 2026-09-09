@@ -18,8 +18,6 @@ import pytest
 
 from app.core.auth_dependencies import get_insforge_client_dep
 from app.core.config import get_settings
-from app.core.local_backend.db import LocalPostgresExecutor
-from app.core.data_access import SqlExecutor
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
 from app.modules.cesiones import service as cesiones_service
@@ -28,22 +26,38 @@ from app.modules.cesiones.domain.cesion import Cesion, CesionConflictError, Cont
 from tests.conftest import auth_reval_rows, make_csrf_request
 
 
-class _NoSqlRouteClient(LocalPostgresExecutor):
-    """Client spy that fails if a route executes SQL directly."""
+class _NoSqlRouteClient:
+    """Client spy that fails if a route executes SQL directly.
 
-    def __init__(self) -> None:  # type: ignore[override]
-        import httpx as _httpx
+    Routes own no SQL — they delegate to the service. If a route ever
+    calls ``client.execute_sql``, the spy raises ``AssertionError`` and
+    the failing test names the offending query. Stands alone (no
+    inheritance) so the dependency override only requires the surface
+    area the routes actually touch: the ``SqlExecutor`` Protocol's
+    ``execute_sql``.
+    """
 
-        self._client = _httpx.Client(base_url="https://spy.example")
+    def __init__(self) -> None:
+        # Issue #144: rol returned by the per-request authorization
+        # revalidation SELECT. Defaults to ``key_user``; reader
+        # rejection tests set this to ``reader`` so
+        # ``require_writer_user`` produces 403 BEFORE any handler SQL.
         self.auth_reval_rol: str = "key_user"
 
-    def execute_sql(self, query: str, params: Any = None):  # type: ignore[override]
+    def execute_sql(
+        self, query: str, params: list[object] | None = None
+    ) -> list[dict[str, object]]:
+        # Issue #143: require_authorized_user revalidates authorization per
+        # request via the get_user_by_email service; that SELECT flows
+        # through this client and is allowed. Any OTHER direct SQL from a
+        # route handler still violates the "cero SQL en routes" contract.
         _reval = auth_reval_rows(query, params, rol=self.auth_reval_rol)
         if _reval is not None:
-            return _reval
+            return _reval  # type: ignore[no-any-return]
         raise AssertionError(f"routes must not execute SQL directly: {query!r}")
 
-
+    def close(self) -> None:
+        pass  # no-op for spy
 class _MockCesionesPort:
     """In-memory CesionesPort spy for hexagonal route-layer tests.
 

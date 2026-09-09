@@ -1,11 +1,11 @@
 """Service-layer tests for HEALTH-02 batch ``actuacion_sanitaria``.
 
-Mirrors the HEALTH-01 pattern (``tests/test_sanidad.py``): real
-``LocalPostgresExecutor`` + ``httpx.MockTransport`` for asserting the SQL
-captured on the wire. The CTE builder lives in
-``sanidad/queries.py`` — these tests exercise the orchestration on top
-of the SEAM so a typo in the SQL contract fails fast here, while
-builder-shape regressions fail in ``test_sanidad_queries.py``.
+Mirrors the HEALTH-01 pattern (``tests/test_sanidad.py``):
+``_FakeSqlExecutor`` for asserting the SQL captured on the wire
+(issue #732 Arc B). The CTE builder lives in ``sanidad/queries.py`` —
+these tests exercise the orchestration on top of the SEAM so a typo
+in the SQL contract fails fast here, while builder-shape regressions
+fail in ``test_sanidad_queries.py``.
 
 The four behavioural contracts pinned by this slice:
 
@@ -25,70 +25,73 @@ The four behavioural contracts pinned by this slice:
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 from datetime import date, timedelta
 from typing import Any
 
-import httpx
 import pytest
 
-from app.core.local_backend.db import LocalPostgresExecutor
-from app.core.data_access import SqlExecutor
+from app.core.data_access import BackendError
 from app.modules.sanidad import batch_service
 
-# --- mock helpers (mirror test_sanidad.py shape) --------------------------
+
+class _ErrorResponse:
+    """Marker returned by a fake handler to signal a backend error."""
+
+    def __init__(self, status_code: int, body: Any) -> None:
+        self.status_code = status_code
+        self.body = body
 
 
-def _json_response(status_code: int, body: Any) -> httpx.Response:
-    return httpx.Response(
-        status_code=status_code,
-        content=json.dumps(body).encode("utf-8"),
-        headers={"content-type": "application/json"},
-    )
+class _FakeSqlExecutor:
+    """Minimal ``SqlExecutor`` Protocol implementation for unit tests."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, list[object]]] = []
+        self._responses: list[list[dict[str, object]]] = []
+        self._handler: Callable[[str, list[object]], Any] | None = None
+
+    def set_response(self, rows: list[dict[str, object]]) -> None:
+        self._responses = [rows]
+
+    def set_responses(self, *responses: list[dict[str, object]]) -> None:
+        self._responses = list(responses)
+
+    def set_handler(
+        self, handler: Callable[[str, list[object]], Any]
+    ) -> None:
+        self._handler = handler
+
+    def execute_sql(
+        self, query: str, params: list[object] | None = None
+    ) -> list[dict[str, object]]:
+        self.calls.append((query, list(params or [])))
+        bound_params = list(params or [])
+        if self._handler is not None:
+            result = self._handler(query, bound_params)
+            if isinstance(result, _ErrorResponse):
+                raise BackendError(result.status_code, result.body)
+            if result is not None:
+                return result  # type: ignore[no-any-return]
+        if self._responses:
+            return self._responses.pop(0)
+        return []
+
+    def close(self) -> None:
+        pass  # no-op for fake
 
 
-def _client_recording(
-    handler: Callable[[httpx.Request, dict[str, Any]], httpx.Response],
-) -> tuple[LocalPostgresExecutor, list[dict[str, Any]]]:
-    captured: list[dict[str, Any]] = []
-
-    def _recording_handler(request: httpx.Request) -> httpx.Response:
-        assert request.headers.get("Authorization", "").startswith("Bearer ")
-        body = json.loads(request.content.decode("utf-8")) if request.content else {}
-        captured.append(body)
-        return handler(request, body)
-
-    client = LocalPostgresExecutor(
-        base_url="https://example.insforge.app",
-        service_key="ik_test",
-        transport=httpx.MockTransport(_recording_handler),
-    )
-    return client, captured
+def _make_client(
+    handler: Callable[[str, list[object]], Any],
+) -> tuple[_FakeSqlExecutor, list[tuple[str, list[object]]]]:
+    fake = _FakeSqlExecutor()
+    fake.set_handler(handler)
+    return fake, fake.calls
 
 
-def _handler_returns(
-    rows: list[dict[str, Any]],
-) -> Callable[[httpx.Request, dict[str, Any]], httpx.Response]:
-    def _h(_request: httpx.Request, _body: dict[str, Any]) -> httpx.Response:
-        return _json_response(200, rows)
-
-    return _h
-
-
-def _handler_cascading(
-    *responses: Any,
-) -> Callable[[httpx.Request, dict[str, Any]], httpx.Response]:
-    queue: list[Any] = list(responses)
-
-    def _h(_request: httpx.Request, _body: dict[str, Any]) -> httpx.Response:
-        if not queue:
-            raise AssertionError("unexpected SQL call — cascade exhausted")
-        next_response = queue.pop(0)
-        if isinstance(next_response, dict) and "error" in next_response:
-            return _json_response(next_response["status"], next_response["error"])
-        return _json_response(200, next_response)
-
+def _handler_returns(rows: list[dict[str, Any]]):
+    def _h(_query: str, _params: list[object]) -> list[dict[str, object]]:
+        return rows  # type: ignore[return-value]
     return _h
 
 
@@ -170,7 +173,7 @@ def _validation_error_row(
 def test_batch_insert_happy_path_emits_audit_log() -> None:
     """All-valid batch returns the inserted rows + emits an audit log."""
     records = _records(5)
-    client, captured = _client_recording(
+    client, captured = _make_client(
         _handler_returns([_inserted_row(idx=i, animal_id=records[i]["animal_id"]) for i in range(5)])
     )
 
@@ -179,7 +182,7 @@ def test_batch_insert_happy_path_emits_audit_log() -> None:
     assert len(result.inserted) == 5
     assert len(captured) == 6  # HEALTH-05: +5 for periodicidad catalog fetch per batch record
     # dry_run is FALSE on the wire → real insert.
-    params = captured[0]["params"]
+    params = captured[0][1]
     assert params[7] is False
     # Per-column arrays of length N.
     assert len(params[0]) == 5  # animal_id column
@@ -188,7 +191,7 @@ def test_batch_insert_happy_path_emits_audit_log() -> None:
 def test_batch_insert_happy_path_returns_audit_log_safe_event() -> None:
     """``commit_batch`` emits ``sanidad.batch_committed`` with the row count."""
     records = _records(5)
-    client, _captured = _client_recording(
+    client, _captured = _make_client(
         _handler_returns([_inserted_row(idx=i, animal_id=records[i]["animal_id"]) for i in range(5)])
     )
 
@@ -214,7 +217,7 @@ def test_batch_insert_atomic_rollback_when_one_record_fails() -> None:
     error_row = _validation_error_row(
         idx=2, animal_id=records[2]["animal_id"], reason="fecha_anterior_alta"
     )
-    client, _captured = _client_recording(_handler_returns([error_row]))
+    client, _captured = _make_client(_handler_returns([error_row]))
 
     with pytest.raises(batch_service.BatchValidationError) as exc_info:
         batch_service.commit_batch(client, records, actor_user_id="u-1")
@@ -237,7 +240,7 @@ def test_batch_insert_atomic_rollback_when_dry_run_false_but_invalid() -> None:
     error_row = _validation_error_row(
         idx=0, animal_id=records[0]["animal_id"], reason="animal_no_activo"
     )
-    client, _captured = _client_recording(_handler_returns([error_row]))
+    client, _captured = _make_client(_handler_returns([error_row]))
 
     with pytest.raises(batch_service.BatchValidationError) as exc_info:
         batch_service.commit_batch(client, records, actor_user_id="u-1")
@@ -261,7 +264,7 @@ def test_batch_insert_propagates_fecha_anterior_alta_reason() -> None:
     error_row = _validation_error_row(
         idx=0, animal_id=records[0]["animal_id"], reason="fecha_anterior_alta"
     )
-    client, _captured = _client_recording(_handler_returns([error_row]))
+    client, _captured = _make_client(_handler_returns([error_row]))
 
     with pytest.raises(batch_service.BatchValidationError) as exc_info:
         batch_service.commit_batch(client, records)
@@ -278,7 +281,7 @@ def test_batch_insert_rejects_malformed_fecha_before_db_call() -> None:
     """
     records = _records(3)
     records[1]["fecha"] = "ayer"
-    client, captured = _client_recording(_handler_returns([]))
+    client, captured = _make_client(_handler_returns([]))
 
     with pytest.raises(batch_service.BatchValidationError) as exc_info:
         batch_service.commit_batch(client, records)
@@ -292,7 +295,7 @@ def test_batch_insert_rejects_future_fecha_per_record() -> None:
     records = _records(3)
     future = (date.today() + timedelta(days=365)).isoformat()
     records[0]["fecha"] = future
-    client, captured = _client_recording(_handler_returns([]))
+    client, captured = _make_client(_handler_returns([]))
 
     with pytest.raises(batch_service.BatchValidationError):
         batch_service.commit_batch(client, records)
@@ -309,7 +312,7 @@ def test_batch_insert_required_animal_id_per_record() -> None:
     """
     records = _records(5)
     records[4]["animal_id"] = ""
-    client, captured = _client_recording(_handler_returns([]))
+    client, captured = _make_client(_handler_returns([]))
 
     with pytest.raises(batch_service.BatchValidationError) as exc_info:
         batch_service.commit_batch(client, records)
@@ -332,13 +335,13 @@ def test_dry_run_returns_preview_without_inserting() -> None:
     error_row = _validation_error_row(
         idx=2, animal_id=records[2]["animal_id"], reason="voluntario_inactivo"
     )
-    client, captured = _client_recording(_handler_returns([error_row]))
+    client, captured = _make_client(_handler_returns([error_row]))
 
     result = batch_service.preview_batch(client, records)
 
     assert result.dry_run is True
     # dry_run flag is TRUE on the wire.
-    assert captured[0]["params"][7] is True
+    assert captured[0][1][7] is True
     # The CTE returned 1 validation_error row → preview contains 1 error.
     assert result.error_count == 1
     assert result.ok_count == 4
@@ -354,11 +357,11 @@ def test_dry_run_no_rows_when_all_valid() -> None:
         _inserted_row(idx=i, animal_id=records[i]["animal_id"])
         for i in range(5)
     ]
-    client, captured = _client_recording(_handler_returns(inserted_rows))
+    client, captured = _make_client(_handler_returns(inserted_rows))
 
     result = batch_service.preview_batch(client, records)
 
-    assert captured[0]["params"][7] is True
+    assert captured[0][1][7] is True
     assert result.ok_count == 5
     assert result.error_count == 0
 
@@ -374,7 +377,7 @@ def test_dry_run_never_raises_batch_validation_error() -> None:
     error_row = _validation_error_row(
         idx=0, animal_id=records[0]["animal_id"], reason="animal_no_activo"
     )
-    client, _captured = _client_recording(_handler_returns([error_row]))
+    client, _captured = _make_client(_handler_returns([error_row]))
 
     # No raise.
     result = batch_service.preview_batch(client, records)
@@ -391,7 +394,7 @@ def test_batch_insert_rejects_empty_records() -> None:
     for defense-in-depth (a programmatic caller must also respect the
     contract).
     """
-    client, captured = _client_recording(_handler_returns([]))
+    client, captured = _make_client(_handler_returns([]))
 
     with pytest.raises((ValueError, batch_service.BatchValidationError)):
         batch_service.commit_batch(client, [])
@@ -407,14 +410,12 @@ def test_batch_insert_propagates_insforge_error() -> None:
     The exception type is preserved so the route's ``except``
     clause can discriminate.
     """
-    from app.core.insforge import BackendError
-
     records = _records(3)
 
-    def _boom(_r: httpx.Request, _b: dict[str, Any]) -> httpx.Response:
-        return _json_response(503, {"error": "backend_unavailable"})
+    def _boom(_query: str, _params: list[object]) -> _ErrorResponse:
+        return _ErrorResponse(503, {"error": "backend_unavailable"})
 
-    client, _captured = _client_recording(_boom)
+    client, _captured = _make_client(_boom)
 
     with pytest.raises(BackendError) as exc_info:
         batch_service.commit_batch(client, records)
@@ -425,15 +426,14 @@ def test_batch_insert_propagates_insforge_error() -> None:
 def test_batch_insert_rejects_too_small_batch_via_route_layer_contract() -> None:
     """The service accepts N>=1; the route enforces the issue's N>=5
     spec. (Pinned here so future refactors don't relax the contract.)"""
-    # The route layer enforces N>=5; the service layer accepts N>=1.
     records = _records(1)
-    client, captured = _client_recording(
+    client, captured = _make_client(
         _handler_returns([_inserted_row(idx=0, animal_id=records[0]["animal_id"])])
     )
 
     result = batch_service.commit_batch(client, records)
     assert len(result.inserted) == 1
-    assert captured[0]["params"][7] is False
+    assert captured[0][1][7] is False
 
 
 # --- 6. CTE wire-format ---------------------------------------------------
@@ -448,11 +448,11 @@ def test_batch_insert_wire_sql_uses_unanimous_bool_and() -> None:
     """
     records = _records(5)
     inserted_rows = [_inserted_row(idx=i, animal_id=records[i]["animal_id"]) for i in range(5)]
-    client, captured = _client_recording(_handler_returns(inserted_rows))
+    client, captured = _make_client(_handler_returns(inserted_rows))
 
     batch_service.commit_batch(client, records)
 
-    sql = captured[0]["query"]
+    sql = captured[0][0]
     assert "bool_and" in sql
     assert "all_valid" in sql
     assert "$8::boolean = FALSE" in sql
@@ -467,11 +467,11 @@ def test_batch_insert_wire_params_include_seven_arrays_and_bool() -> None:
     """
     records = _records(5)
     inserted_rows = [_inserted_row(idx=i, animal_id=records[i]["animal_id"]) for i in range(5)]
-    client, captured = _client_recording(_handler_returns(inserted_rows))
+    client, captured = _make_client(_handler_returns(inserted_rows))
 
     batch_service.commit_batch(client, records)
 
-    params = captured[0]["params"]
+    params = captured[0][1]
     assert len(params) == 8
     # The 5 animal_ids are at param index 0; each a string.
     assert params[0] == [r["animal_id"] for r in records]
