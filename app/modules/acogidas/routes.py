@@ -37,7 +37,7 @@ from app.core.auth_dependencies import (
 )
 from app.core.csrf import csrf_token_context_processor
 from app.core.data_access import SqlExecutor
-from app.core.insforge import InsForgeError
+from app.core.data_access import BackendError
 from app.core.middleware import base_template_context_processor
 from app.core.rbac import Permission, require_permission
 from app.modules.acogidas import service as acogidas_service
@@ -266,7 +266,7 @@ def create_acogida_view(  # noqa: PLR0913  # form model + fixed dependencies
         )
     try:
         acogida = acogidas_service.create_acogida(client, form_data)
-    except InsForgeError as exc:
+    except BackendError as exc:
         # Issue #139 P1 #4 (TOCTOU mitigation): _validate_references runs
         # SELECTs before the INSERT; a concurrent deactivate between the
         # SELECT and the INSERT can still produce a PostgreSQL FK
@@ -403,7 +403,7 @@ def update_acogida_view(  # noqa: PLR0913  # form model + fixed dependencies
         )
     try:
         acogida = acogidas_service.update_acogida(client, acogida_id, form_data)
-    except InsForgeError as exc:
+    except BackendError as exc:
         # Issue #139 P1 #4 (TOCTOU mitigation): see create_acogida_view.
         # UPDATE path can also hit a concurrent FK violation between
         # ``_validate_references`` and the UPDATE.
@@ -483,7 +483,7 @@ def delete_acogida_view(
 # --- error formatting helpers ---------------------------------------------
 
 
-def _format_persisted_error(exc: InsForgeError, entity_label: str) -> str:
+def _format_persisted_error(exc: BackendError, entity_label: str) -> str:
     """Turn an ``InsForgeError`` into a Spanish-friendly 422 message.
 
     Issue #139 P1 #4 (TOCTOU mitigation): the service catches a 4xx

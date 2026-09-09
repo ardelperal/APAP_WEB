@@ -53,7 +53,7 @@ from app.core.auth_dependencies import (
 from app.core.csrf import csrf_token_context_processor
 from app.core.data_access import SqlExecutor
 from app.core.forms import optional_value as _opt
-from app.core.insforge import InsForgeError
+from app.core.data_access import BackendError
 from app.core.middleware import base_template_context_processor
 from app.core.rbac import Permission, require_permission
 from app.modules.adopciones import service as adopciones_service
@@ -245,7 +245,7 @@ def create_adopcion_view(
             "/adopciones",
             status.HTTP_409_CONFLICT,
         )
-    except (ValueError, InsForgeError) as exc:
+    except (ValueError, BackendError) as exc:
         return _render_form(
             request,
             user,
@@ -350,7 +350,7 @@ def update_adopcion_view(
             f"/adopciones/{adopcion_id}/update",
             status.HTTP_409_CONFLICT,
         )
-    except (ValueError, InsForgeError) as exc:
+    except (ValueError, BackendError) as exc:
         return _render_form(
             request,
             user,

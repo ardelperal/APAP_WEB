@@ -63,7 +63,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.core.data_access import SqlExecutor
-from app.core.insforge import InsForgeError
+from app.core.data_access import BackendError
 from app.core.logging import log_safe
 from app.modules.materiales import queries
 
@@ -165,7 +165,7 @@ def _row_to_estancia_material(row: dict[str, Any]) -> EstanciaMaterial:
 # --- domain-specific validation helpers ----------------------------------
 
 
-def _is_unique_violation(exc: InsForgeError) -> bool:
+def _is_unique_violation(exc: BackendError) -> bool:
     """Detect a PostgreSQL 23505 unique-violation surfaced by InsForge.
 
     Mirrors the ``_is_duplicate_error`` precedent in
@@ -260,7 +260,7 @@ def create_material(
     sql, write_params = queries.build_material_insert(params)
     try:
         rows = client.execute_sql(sql, write_params)
-    except InsForgeError as exc:
+    except BackendError as exc:
         if _is_unique_violation(exc):
             raise MaterialConflictError(
                 "ya existe material con esa combinacion "
@@ -316,7 +316,7 @@ def update_material(
     sql, write_params = queries.build_material_update(material_id, params)
     try:
         rows = client.execute_sql(sql, [material_id, *write_params])
-    except InsForgeError as exc:
+    except BackendError as exc:
         if _is_unique_violation(exc):
             raise MaterialConflictError(
                 "ya existe material con esa combinacion "

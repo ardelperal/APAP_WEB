@@ -41,7 +41,7 @@ from app.core.auth_dependencies import (
 from app.core.csrf import csrf_token_context_processor
 from app.core.data_access import SqlExecutor
 from app.core.forms import optional_value as _opt
-from app.core.insforge import InsForgeError
+from app.core.data_access import BackendError
 from app.core.logging import log_safe
 from app.core.middleware import base_template_context_processor
 from app.core.rbac import Permission, require_permission
@@ -341,7 +341,7 @@ def delete_terapia_view(
             status_code=status.HTTP_409_CONFLICT,
             detail="No se puede eliminar la terapia: tiene recomendaciones pendientes.",
         ) from None
-    except InsForgeError as exc:
+    except BackendError as exc:
         log_safe(
             "salud.delete_terapia.backend_error",
             terapia_id=terapia_id,
@@ -417,7 +417,7 @@ def create_recomendacion_view(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from exc
-    except InsForgeError as exc:
+    except BackendError as exc:
         log_safe(
             "salud.create_recomendacion.backend_error",
             terapia_id=terapia_id,
@@ -455,7 +455,7 @@ def complete_recomendacion_view(
         )
     except salud_service.RecomendacionNotFoundError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND) from None
-    except InsForgeError as exc:
+    except BackendError as exc:
         log_safe(
             "salud.complete_recomendacion.backend_error",
             recomendacion_id=recomendacion_id,
@@ -496,7 +496,7 @@ def delete_recomendacion_view(
             recomendacion_id,
             actor_user_id=_actor_user_id(user),
         )
-    except InsForgeError as exc:
+    except BackendError as exc:
         log_safe(
             "salud.delete_recomendacion.backend_error",
             recomendacion_id=recomendacion_id,

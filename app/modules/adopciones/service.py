@@ -18,7 +18,7 @@ from enum import StrEnum
 from typing import Any
 
 from app.core.data_access import SqlExecutor
-from app.core.insforge import InsForgeError
+from app.core.data_access import BackendError
 from app.core.logging import log_safe
 from app.modules.adopciones import queries
 from app.modules.animals import (
@@ -283,7 +283,7 @@ def _raise_validation_error(client: SqlExecutor, params: dict[str, Any]) -> None
     )
 
 
-def _is_duplicate_error(exc: InsForgeError) -> bool:
+def _is_duplicate_error(exc: BackendError) -> bool:
     body = str(exc.body).lower()
     return exc.status_code == 409 and (
         "duplicate" in body
@@ -310,7 +310,7 @@ def create_adopcion(
     sql, sql_params = queries.build_adopcion_insert(params)
     try:
         rows = client.execute_sql(sql, sql_params)
-    except InsForgeError as exc:
+    except BackendError as exc:
         if _is_duplicate_error(exc):
             raise AdopcionConflictError(
                 "adopcion duplicada para animal_id y fecha_adopcion"
@@ -388,7 +388,7 @@ def update_adopcion(
     sql, sql_params = queries.build_adopcion_update(adopcion_id, params)
     try:
         rows = client.execute_sql(sql, sql_params)
-    except InsForgeError as exc:
+    except BackendError as exc:
         if _is_duplicate_error(exc):
             raise AdopcionConflictError(
                 "adopcion duplicada para animal_id y fecha_adopcion"
@@ -587,7 +587,7 @@ def transition_seguimiento_for_route(
             operador_user_id=operador_user_id,
             documento_url=documento_url,
         )
-    except InsForgeError:
+    except BackendError:
         return _SeguirTransitionError(
             message="Error del servidor al actualizar el seguimiento.",
             status_code=500,

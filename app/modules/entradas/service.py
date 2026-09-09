@@ -18,7 +18,7 @@ from typing import Any
 from app.core.data_access import SqlExecutor
 from app.core.forms import optional_text as _optional_text
 from app.core.forms import required_text as _required_text
-from app.core.insforge import InsForgeError
+from app.core.data_access import BackendError
 
 
 class EntradaConflictError(ValueError):
@@ -154,7 +154,7 @@ def _validate_references(client: SqlExecutor, params: dict[str, Any]) -> None:
         raise ValueError("voluntario_entrada_id must reference an active volunteer")
 
 
-def _is_duplicate_error(exc: InsForgeError) -> bool:
+def _is_duplicate_error(exc: BackendError) -> bool:
     body = str(exc.body).lower()
     return exc.status_code == 409 and (
         "duplicate" in body or "entradas_natural_key" in body or "unique" in body
@@ -175,7 +175,7 @@ def create_entrada(client: SqlExecutor, params: dict[str, Any]) -> Entrada:
 
     try:
         rows = client.execute_sql(_INSERT_ENTRADA_SQL, _build_write_params(params))
-    except InsForgeError as exc:
+    except BackendError as exc:
         if _is_duplicate_error(exc):
             raise EntradaConflictError("entrada duplicada para animal_id y fecha_entrada") from exc
         raise
@@ -205,7 +205,7 @@ def update_entrada(
 
     try:
         rows = client.execute_sql(_UPDATE_ENTRADA_SQL, [entrada_id, *write_params])
-    except InsForgeError as exc:
+    except BackendError as exc:
         if _is_duplicate_error(exc):
             raise EntradaConflictError("entrada duplicada para animal_id y fecha_entrada") from exc
         raise

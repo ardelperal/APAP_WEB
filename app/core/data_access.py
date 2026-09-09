@@ -112,7 +112,7 @@ class BackendError(DataAccessError):
         self.body = body
         super().__init__(f"Backend {status_code}: {body!r}")
 
-class DuplicateKeyError(InsForgeError):
+class DuplicateKeyError(BackendError):
     """Raised when SQL INSERT/UPDATE violates a uniqueness constraint.
 
     The InsForge adapter catches 409 responses whose body carries the
@@ -154,7 +154,7 @@ class DuplicateKeyError(InsForgeError):
         # Phase 3 drops these checks; ``body`` will then be free to
         # become ``None``.
         self.body = {"message": message or "duplicate key"}
-        super(InsForgeError, self).__init__(message or "duplicate key")
+        super().__init__(409, {"message": message or "duplicate key"})
 
 
 class UniqueViolationError(DuplicateKeyError):

@@ -47,7 +47,7 @@ from app.core.auth_dependencies import (
 from app.core.csrf import csrf_token_context_processor
 from app.core.data_access import SqlExecutor
 from app.core.forms import optional_value as _opt
-from app.core.insforge import InsForgeError
+from app.core.data_access import BackendError
 from app.core.logging import log_safe
 from app.core.middleware import base_template_context_processor
 from app.core.rbac import Permission, require_permission
@@ -316,7 +316,7 @@ def _do_batch_view(  # noqa: PLR0913  # non-route batch orchestrator; 8 args nee
             error=str(exc),
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
-    except InsForgeError as exc:
+    except BackendError as exc:
         log_safe(
             "sanidad.batch.backend_error",
             record_count=len(records),

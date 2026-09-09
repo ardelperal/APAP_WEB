@@ -61,7 +61,8 @@ from app.core.auth_dependencies import (
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
-from app.core.insforge import InsForgeClient, InsForgeError
+from app.core.data_access import BackendError
+from app.core.insforge import InsForgeClient
 from app.core.logging import log_safe
 from app.core.middleware import base_template_context_processor
 from app.core.rbac import Permission, require_permission
@@ -178,7 +179,7 @@ def _load_catalogos_pruebas_for_form(
     """Load catalog rows for a form without making error recovery fragile."""
     try:
         return sanidad_service.list_catalogos_pruebas(client)
-    except InsForgeError as exc:
+    except BackendError as exc:
         log_safe(
             "sanidad.catalogos_pruebas.load_failed",
             context=context,
@@ -194,7 +195,7 @@ def _render_backend_error(  # noqa: PLR0913  # non-route helper; 8 args needed t
     client: InsForgeClient,
     form_data: dict[str, Any],
     form_action: str,
-    exc: InsForgeError,
+    exc: BackendError,
     *,
     context: str,
     actuacion_id: str | None = None,
@@ -333,7 +334,7 @@ def create_actuacion_view(
             catalogos,
             status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
-    except InsForgeError as exc:
+    except BackendError as exc:
         return _render_backend_error(
             request,
             user,
@@ -472,7 +473,7 @@ def update_actuacion_view(
             catalogos,
             status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
-    except InsForgeError as exc:
+    except BackendError as exc:
         return _render_backend_error(
             request,
             user,
@@ -514,7 +515,7 @@ def delete_actuacion_view(
             actuacion_id,
             actor_user_id=_actor_user_id(user),
         )
-    except InsForgeError as exc:
+    except BackendError as exc:
         log_safe(
             "sanidad.delete.backend_error",
             actuacion_id=actuacion_id,
