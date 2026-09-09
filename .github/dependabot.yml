@@ -5,8 +5,8 @@
 # - npm: tailwindcss en tailwindcss/package.json
 # - github-actions: SHA de las GitHub Actions en workflows
 #
-# Los PRs automáticos resultantes ya quedan verificados por el pipeline
-# lint / test / security existente sin cambios adicionales.
+# Los PRs automáticos resultantes quedan verificados por el pipeline
+# lint / test / security y por los gates específicos de PR.
 
 version: 2
 updates:
@@ -23,6 +23,10 @@ updates:
     # omitted by Dependabot and leave the PR outside the merge contract.
     labels:
       - "type:chore"
+    # Ruff defines the executable lint ratchet. Updating it requires an
+    # intentional baseline recalibration, never a grouped routine bump.
+    ignore:
+      - dependency-name: "ruff"
     # Group minor/patch updates to reduce PR noise
     groups:
       production-dependencies:

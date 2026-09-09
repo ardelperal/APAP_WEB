@@ -1054,6 +1054,13 @@ def test_pr_size_excludes_generated_lockfiles_not_manifests() -> None:
     assert "':(exclude)pyproject.toml'" not in pr_size
 
 
+def test_dependabot_excludes_ratchet_coupled_ruff_updates() -> None:
+    """Ruff bumps require an explicit baseline recalibration."""
+    config = (REPO_ROOT / ".github" / "dependabot.yml").read_text(encoding="utf-8")
+
+    assert 'dependency-name: "ruff"' in config
+
+
 # --- issue #525: PR gates mis-handle chained/stacked PRs ------------------
 #
 # Two coupled defects in .github/workflows/{pr-name,pr-size}.yml:
