@@ -88,8 +88,13 @@ def test_shim_is_not_a_pure_reexport() -> None:
     This is a §33 deviation from the established slice pattern
     (oauth / auth / admin all have an application layer). The
     deviation is recorded in the shim's module docstring.
+
+    Phase 3 (issue #641): the shim was renamed from
+    ``app/core/insforge_error_handler.py`` to ``app/core/error_handler.py``
+    when the InsForge transport was retired. The test now reads the
+    renamed location.
     """
-    body = _read("app/core/insforge_error_handler.py")
+    body = _read("app/core/error_handler.py")
 
     assert "def register_insforge_error_handler" in body, (
         "shim must DEFINE register_insforge_error_handler; the slice "
@@ -135,6 +140,16 @@ def test_adapter_is_the_only_importer_of_insforge_error() -> None:
     into the wrong layer. Docstring mentions of the class name
     (e.g. ``# this used to import InsForgeError``) are fine — the
     pin only fires on real ``import`` statements.
+
+    Phase 3 (issue #641): the per-transport adapter
+    (``app/core/adapters/insforge/insforge_error_handler_insforge_adapter.py``)
+    was deleted; ``BackendErrorTranslation`` (the adapter) now lives in
+    ``app/core/di/insforge_error_handler_di.py``. The ``insforge_error_handler.py``
+    shim was renamed to ``error_handler.py``. The pin walks the new
+    locations and asserts none of them import ``InsForgeError``
+    (the exception class is now in :mod:`app.core.data_access` and is
+    named ``BackendError``; ``InsForgeError`` survives as a backward-
+    compat alias that the production code never imports by name).
     """
     # Match `from X import ...InsForgeError...` and `import X.InsForgeError`
     # as standalone top-level statements (not inside docstrings or comments).
@@ -147,17 +162,17 @@ def test_adapter_is_the_only_importer_of_insforge_error() -> None:
     for rel in (
         "app/core/ports/insforge_error_handler_port.py",
         "app/core/di/insforge_error_handler_di.py",
-        "app/core/insforge_error_handler.py",
-        "app/core/adapters/insforge/insforge_error_handler_insforge_adapter.py",
+        "app/core/error_handler.py",
     ):
         body = _read(rel)
         if import_pattern.search(body):
             files_with_import.append(rel)
 
-    assert files_with_import == [
-        "app/core/adapters/insforge/insforge_error_handler_insforge_adapter.py"
-    ], (
-        "InsForgeError must be imported by the adapter only. "
+    assert files_with_import == [], (
+        "None of the error-handler slice modules may import "
+        "InsForgeError by name; the class lives in app.core.data_access "
+        "as BackendError and the adapter (di/insforge_error_handler_di.py) "
+        "binds it via Protocol, not by direct import. "
         f"Found import statement(s) in: {files_with_import}"
     )
 
@@ -168,8 +183,12 @@ def test_legacy_shim_has_no_transport_import() -> None:
     The shim is a re-export; it must not re-introduce the
     ``from app.core.insforge import InsForgeError`` coupling the
     legacy module had.
+
+    Phase 3 (issue #641): the shim was renamed from
+    ``app/core/insforge_error_handler.py`` to ``app/core/error_handler.py``.
+    The pin reads the renamed location.
     """
-    body = _read("app/core/insforge_error_handler.py")
+    body = _read("app/core/error_handler.py")
     forbidden = (
         re.compile(r"from\s+app\.core\.insforge(\.|\s)", re.MULTILINE),
         re.compile(

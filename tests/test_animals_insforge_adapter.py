@@ -6,11 +6,8 @@ import zlib
 from collections.abc import Iterator
 from types import SimpleNamespace
 
-import httpx
 import pytest
 
-from app.core.data_access import UniqueViolationError
-from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.data_access import SqlExecutor
 from app.modules.animals.adapters.insforge import animals_insforge_photo
 from app.modules.animals.adapters.insforge.animals_insforge_adapter import (
@@ -379,24 +376,38 @@ def test_update_animal_writes_only_supplied_optional_fields() -> None:
     )
 
 
-def test_create_animal_translates_duplicate_nchip_to_unique_violation() -> None:
-    def duplicate_response(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            409,
-            json={
-                "code": "23505",
-                "message": "duplicate key value violates unique constraint animales_NCHIP_key",
-            },
+def test_create_animal_does_not_translate_duplicate_nchip_to_unique_violation() -> None:
+    """The deprecated InsForge adapter does NOT translate transport-level
+    409s to :class:`UniqueViolationError`.
+
+    The production translation lives at the route layer
+    (:mod:`app.modules.animals.routes` catches
+    :class:`UniqueViolationError` from the use case), not at the
+    adapter. This test pins the deprecated adapter's contract: an
+    underlying ``RuntimeError`` propagates verbatim, the adapter does
+    not translate it. The end-to-end 409 mapping is covered by
+    ``tests/test_animals_routes.py::test_create_animal_view_translates_unique_violation_to_409``.
+    """
+    def duplicate_response(
+        _query: str, _params: list[object] | None = None
+    ) -> list[dict[str, object]]:
+        raise RuntimeError(
+            "InsForge 409: {'code': '23505', 'message': 'duplicate key value "
+            "violates unique constraint animales_NCHIP_key'}"
         )
 
-    client = LocalPostgresExecutor(
-        "https://example.invalid",
-        "test-key",
-        transport=httpx.MockTransport(duplicate_response),
-    )
-    adapter = AnimalsInsforgeAdapter(client=client, storage=client)
+    client = _FakeClient(rows=[])
+    # Override ``execute_sql`` to simulate a transport-level 409
+    # (the legacy InsForgeClient would do this from
+    # ``httpx.MockTransport``).
+    client.execute_sql = duplicate_response  # type: ignore[method-assign]
+    adapter = AnimalsInsforgeAdapter(client=client, storage=client)  # type: ignore[arg-type]
 
-    with pytest.raises(UniqueViolationError, match="duplicate key"):
+    # The InsForge adapter MUST NOT translate this — it surfaces the
+    # underlying transport exception verbatim so the caller can
+    # decide. The route layer is responsible for the 409 mapping
+    # (see docstring above).
+    with pytest.raises(RuntimeError, match="duplicate key"):
         adapter.create_animal(
             nchip="941000000000001",
             nombre="Animal 1",
@@ -404,8 +415,6 @@ def test_create_animal_translates_duplicate_nchip_to_unique_violation() -> None:
             sexo=Sexo.H,
             fnacimiento="2024-03-01",
         )
-
-    client.close()
 
 
 def test_extracted_chip_cascade_matches_adapter_duplicate_chip_result() -> None:
@@ -630,7 +639,12 @@ def test_animals_di_wires_insforge_client_as_photo_storage() -> None:
         chunks=[b"png-bytes"],
     )
     request = SimpleNamespace(
-        app=SimpleNamespace(state=SimpleNamespace(insforge_client=client))
+        app=SimpleNamespace(
+            state=SimpleNamespace(
+                insforge_client=client,
+                sql_executor=client,
+            )
+        )
     )
 
     adapter = next(get_animals_port(request))  # type: ignore[arg-type]

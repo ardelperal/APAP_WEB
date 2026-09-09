@@ -289,7 +289,7 @@ class TestFotoRouteAuthAndRouting:
         fake_client: _FakeAnimalesFotoClient,
     ) -> None:
         """A storage-side error fails closed to the placeholder (no 5xx leak)."""
-        from app.core.insforge import BackendError
+        from app.core.data_access import BackendError
 
         _login_as_key_user(client)
         fake_client.download_raises = BackendError(503, {"error": "boom"})
@@ -313,7 +313,7 @@ class TestFotoRouteDoesNotLeakPresignedUrl:
         fake_client: _FakeAnimalesFotoClient,
     ) -> None:
         """The response body MUST NOT include the presigned URL or any presigned token."""
-        from app.core.insforge import BackendError
+        from app.core.data_access import BackendError
 
         _login_as_key_user(client)
         fake_client.download_raises = BackendError(
@@ -442,7 +442,7 @@ class TestFotoRouteMidStreamFailClosed:
         fake_client: _FakeAnimalesFotoClient,
     ) -> None:
         """Streamed-GET 5xx (caught eagerly by ``download_object_stream``) → placeholder."""
-        from app.core.insforge import BackendError
+        from app.core.data_access import BackendError
 
         _login_as_key_user(client)
         fake_client.download_raises = BackendError(
@@ -629,7 +629,7 @@ class TestFotoRouteSqlLookupFailClosed:
         fake_client: _FakeAnimalesFotoClient,
     ) -> None:
         """``BackendError`` on the animales SELECT → placeholder (no 5xx leak)."""
-        from app.core.insforge import BackendError
+        from app.core.data_access import BackendError
 
         _login_as_key_user(client)
         fake_client.animales_lookup_raises = BackendError(

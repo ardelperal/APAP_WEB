@@ -77,6 +77,11 @@ def fake_insforge() -> _FakeInsForge:
     # ``app.state.insforge_client``. Set it here so both the legacy
     # dep override AND the new port dep see the fake.
     app.state.insforge_client = fake
+    # Phase 3 wiring: ``get_auth_users_port`` (the new dep) reads
+    # ``app.state.sql_executor`` rather than ``insforge_client``. The
+    # autouse fixture sets a default spy on ``sql_executor``; tests
+    # that want a richer fake must overwrite both seams.
+    app.state.sql_executor = fake
     # Slice 6 (admin template adapter): the admin routes wrap Jinja via
     # ``get_admin_template_adapter`` which reads ``app.state.templates``.
     # In production the lifespan sets it (via ``create_app``); in tests

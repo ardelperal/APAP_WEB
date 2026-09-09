@@ -12,11 +12,14 @@ Route-level tests (this module) exercise the HTTP handler without needing
 a multi-statement saga spy. The ``change_animal_chip`` service is mocked to
 return pre-configured ``ChangeChipResult`` objects so the route body is
 fully traversed.
+
+Service-level tests use an in-memory :class:`_FakeSqlExecutor` that matches
+the saga SQL by substring and returns pre-loaded rows. This is the Arc C
+migration target pattern (replaces ``httpx.MockTransport``).
 """
 
 from __future__ import annotations
 
-import json
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -39,16 +42,8 @@ from app.modules.animals.domain.change_chip_result import ChangeChipResult
 # =============================================================================
 
 
-def _json_response(status: int, body: dict[str, Any]) -> httpx.Response:
-    return httpx.Response(
-        status_code=status,
-        content=json.dumps(body).encode("utf-8"),
-        headers={"content-type": "application/json"},
-    )
-
-
 # =============================================================================
-# Spy for the InsForge client — handles auth revalidation without network
+# Spy for the SqlExecutor — handles auth revalidation without network
 # =============================================================================
 
 
@@ -60,9 +55,6 @@ class _ChipCascadeSpy(SqlExecutor):
     """
 
     def __init__(self) -> None:
-        import httpx as _httpx
-
-        self._client = _httpx.Client(base_url="https://spy.example")
         self.auth_reval_rol: str = "key_user"
         self.get_animal_by_id_rows: list[dict[str, Any]] = [
             {
@@ -88,6 +80,9 @@ class _ChipCascadeSpy(SqlExecutor):
             rows = self.get_animal_by_id_rows
             return list(rows) if rows is not None else []
         return []
+
+    def close(self) -> None:  # type: ignore[override]
+        pass  # no-op for fake
 
 
 @pytest.fixture
@@ -119,6 +114,56 @@ def _login_as_key_user(client: httpx.AsyncClient) -> None:
         secret=get_settings().session_secret,
     )
     client.cookies.set(session_cookie_name(), token)
+
+
+# =============================================================================
+# Service-level fake executor — query-pattern routing for saga assertions
+# =============================================================================
+
+
+class _SagaSqlExecutor:
+    """In-memory :class:`SqlExecutor` that routes by SQL substring.
+
+    Each registered handler is ``(match_substring, params_predicate,
+    response_rows)``; the first match wins. Default returns ``[]``
+    (suitable for BEGIN, COMMIT, INSERT, the no-row UPDATE animales, etc).
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, list[object]]] = []
+        # list of (substring_or_callable, response)
+        self._rules: list[
+            tuple[str | None, Any, list[dict[str, object]]]
+        ] = []
+
+    def add_rule(
+        self,
+        substring: str | None,
+        response: list[dict[str, object]],
+        params_eq: Any = ...,
+    ) -> None:
+        """Register ``response`` for any query containing ``substring``.
+
+        When ``params_eq`` is supplied (anything other than the sentinel
+        ``Ellipsis``) only matches when params equal that exact list.
+        """
+        self._rules.append((substring, params_eq, response))
+
+    def execute_sql(
+        self, query: str, params: list[object] | None = None
+    ) -> list[dict[str, object]]:
+        params_list = list(params or [])
+        self.calls.append((query, params_list))
+        for substring, params_pred, response in self._rules:
+            if substring is not None and substring.lower() not in query.lower():
+                continue
+            if params_pred is not Ellipsis and params_pred != params_list:
+                continue
+            return [dict(r) for r in response]
+        return []
+
+    def close(self) -> None:
+        pass  # no-op for fake
 
 
 # =============================================================================
@@ -282,47 +327,45 @@ async def test_change_chip_route_returns_200_on_success(
 
 def test_chip_change_cascades_to_all_six_tables():
     """Cuando el chip cambia, las 6 tablas se actualizan atomicamente."""
-    captured_queries: list[str] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        captured_queries.append(request.content.decode("utf-8"))
-        body = json.loads(request.content.decode("utf-8"))
-        query = body.get("query", "").lower()
-        params: list[Any] = body.get("params", [])
-
-        # uniqueness: no other animal has new_chip=222
-        if "select id from animales where \"nchip\"" in query and params == ["222", "a1"]:
-            return _json_response(200, {"rows": [], "rowCount": 0, "fields": []})
-
-        # get current chip: animal exists, chip="111"
-        if "select \"nchip\" from animales where id" in query and params == ["a1"]:
-            return _json_response(200, {"rows": [{"NCHIP": "111"}], "rowCount": 1, "fields": []})
-
-        # UPDATE entradas: 2 rows affected
-        if "update entradas set chip" in query and params == ["222", "111"]:
-            return _json_response(200, {"rows": [{"id": "e1"}, {"id": "e2"}], "rowCount": 2, "fields": []})
-
-        # UPDATE acogidas: 1 row
-        if "update acogidas set chip" in query and params == ["222", "111"]:
-            return _json_response(200, {"rows": [{"id": "ac1"}], "rowCount": 1, "fields": []})
-
-        # UPDATE actuaciones_sanitarias: 3 rows
-        if "update actuaciones_sanitarias set chip" in query and params == ["222", "111"]:
-            return _json_response(200, {"rows": [{"id": "as1"}, {"id": "as2"}, {"id": "as3"}], "rowCount": 3, "fields": []})
-
-        # UPDATE terapias: 1 row
-        if "update terapias set chip" in query and params == ["222", "111"]:
-            return _json_response(200, {"rows": [{"id": "t1"}], "rowCount": 1, "fields": []})
-
-        # default: empty DML (BEGIN, COMMIT, UPDATE animals, INSERT event, adopciones)
-        return _json_response(200, {"rows": [], "rowCount": 0, "fields": []})
-
-    transport = httpx.MockTransport(handler)
-    client = SqlExecutor(
-        base_url="https://example.insforge.app",
-        service_key="ik_test",
-        transport=transport,
+    client = _SagaSqlExecutor()
+    # uniqueness: no other animal has new_chip=222
+    client.add_rule(
+        'select id from animales where "nchip"',
+        [],
+        params_eq=["222", "a1"],
     )
+    # get current chip: animal exists, chip="111"
+    client.add_rule(
+        'select "nchip" from animales where id',
+        [{"NCHIP": "111"}],
+        params_eq=["a1"],
+    )
+    # UPDATE entradas: 2 rows affected
+    client.add_rule(
+        "update entradas set chip",
+        [{"id": "e1"}, {"id": "e2"}],
+        params_eq=["222", "111"],
+    )
+    # UPDATE acogidas: 1 row
+    client.add_rule(
+        "update acogidas set chip",
+        [{"id": "ac1"}],
+        params_eq=["222", "111"],
+    )
+    # UPDATE actuaciones_sanitarias: 3 rows
+    client.add_rule(
+        "update actuaciones_sanitarias set chip",
+        [{"id": "as1"}, {"id": "as2"}, {"id": "as3"}],
+        params_eq=["222", "111"],
+    )
+    # UPDATE terapias: 1 row
+    client.add_rule(
+        "update terapias set chip",
+        [{"id": "t1"}],
+        params_eq=["222", "111"],
+    )
+    # Default rule (no-op response) covers BEGIN, COMMIT, UPDATE animals,
+    # INSERT event, UPDATE adopciones, UPDATE animales.
 
     result = AnimalsInsforgeChipCascade(client).change_animal_chip(
         animal_id="a1",
@@ -342,7 +385,7 @@ def test_chip_change_cascades_to_all_six_tables():
     assert result.updated_tables["actuaciones_sanitarias"] == 3
     assert result.updated_tables["terapias"] == 1
 
-    all_q = " ".join(captured_queries).upper()
+    all_q = " ".join(c[0] for c in client.calls).upper()
     assert "BEGIN" in all_q
     assert "COMMIT" in all_q
     assert "ROLLBACK" not in all_q
@@ -350,20 +393,12 @@ def test_chip_change_cascades_to_all_six_tables():
 
 def test_chip_change_returns_false_when_new_chip_already_assigned():
     """409-equivalente: si new_chip ya pertenece a otro animal, no se modifica nada."""
-    def handler(request: httpx.Request) -> httpx.Response:
-        body = json.loads(request.content.decode("utf-8"))
-        query = body.get("query", "").lower()
-        params: list[Any] = body.get("params", [])
-        # uniqueness: another animal already has new_chip
-        if "select id from animales where \"nchip\"" in query and params == ["222", "a1"]:
-            return _json_response(200, {"rows": [{"id": "other-animal"}], "rowCount": 1, "fields": []})
-        return _json_response(200, {"rows": [], "rowCount": 0, "fields": []})
-
-    transport = httpx.MockTransport(handler)
-    client = SqlExecutor(
-        base_url="https://example.insforge.app",
-        service_key="ik_test",
-        transport=transport,
+    client = _SagaSqlExecutor()
+    # uniqueness: another animal already has new_chip
+    client.add_rule(
+        'select id from animales where "nchip"',
+        [{"id": "other-animal"}],
+        params_eq=["222", "a1"],
     )
 
     result = AnimalsInsforgeChipCascade(client).change_animal_chip(
@@ -380,25 +415,16 @@ def test_chip_change_returns_false_when_new_chip_already_assigned():
 
 def test_chip_change_returns_false_when_old_chip_mismatch():
     """422-equivalente: si old_chip no coincide, no se modifica nada."""
-    call_count = [0]
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        call_count[0] += 1
-        body = json.loads(request.content.decode("utf-8"))
-        query = body.get("query", "").lower()
-        # uniqueness: no conflict
-        if "select id from animales where \"nchip\"" in query:
-            return _json_response(200, {"rows": [], "rowCount": 0, "fields": []})
-        # animal exists but chip is "333", not "111"
-        if "select \"nchip\" from animales where id" in query:
-            return _json_response(200, {"rows": [{"NCHIP": "333"}], "rowCount": 1, "fields": []})
-        return _json_response(200, {"rows": [], "rowCount": 0, "fields": []})
-
-    transport = httpx.MockTransport(handler)
-    client = SqlExecutor(
-        base_url="https://example.insforge.app",
-        service_key="ik_test",
-        transport=transport,
+    client = _SagaSqlExecutor()
+    # uniqueness: no conflict
+    client.add_rule(
+        'select id from animales where "nchip"',
+        [],
+    )
+    # animal exists but chip is "333", not "111"
+    client.add_rule(
+        'select "nchip" from animales where id',
+        [{"NCHIP": "333"}],
     )
 
     result = AnimalsInsforgeChipCascade(client).change_animal_chip(
@@ -412,31 +438,35 @@ def test_chip_change_returns_false_when_old_chip_mismatch():
     assert result.success is False
     assert "333" in result.error or "no coincide" in result.error.lower()
     # Only 2 pre-flight calls — no BEGIN
-    assert call_count[0] == 2
+    assert len(client.calls) == 2
 
 
 def test_chip_change_rollback_on_table_failure():
     """Si una tabla falla, todas las demas se revierten (ROLLBACK)."""
-    def handler(request: httpx.Request) -> httpx.Response:
-        body = json.loads(request.content.decode("utf-8"))
-        query = body.get("query", "").lower()
-        # uniqueness
-        if "select id from animales where \"nchip\"" in query:
-            return _json_response(200, {"rows": [], "rowCount": 0, "fields": []})
-        # get current chip
-        if "select \"nchip\" from animales where id" in query:
-            return _json_response(200, {"rows": [{"NCHIP": "111"}], "rowCount": 1, "fields": []})
-        # UPDATE entradas → InsForge error
-        if "update entradas set chip" in query:
-            return _json_response(409, {"message": "foreign_key_violation"})
-        return _json_response(200, {"rows": [], "rowCount": 0, "fields": []})
-
-    transport = httpx.MockTransport(handler)
-    client = SqlExecutor(
-        base_url="https://example.insforge.app",
-        service_key="ik_test",
-        transport=transport,
+    client = _SagaSqlExecutor()
+    # uniqueness
+    client.add_rule(
+        'select id from animales where "nchip"',
+        [],
     )
+    # get current chip
+    client.add_rule(
+        'select "nchip" from animales where id',
+        [{"NCHIP": "111"}],
+    )
+
+    # Wrap the executor: force UPDATE entradas to raise so the saga
+    # rolls back. The other rules keep their default responses.
+    original_execute_sql = client.execute_sql
+
+    def execute_sql_with_failure(
+        query: str, params: list[object] | None = None
+    ) -> list[dict[str, object]]:
+        if "update entradas set chip" in query.lower():
+            raise RuntimeError("foreign_key_violation")
+        return original_execute_sql(query, params)
+
+    client.execute_sql = execute_sql_with_failure  # type: ignore[method-assign]
 
     result = AnimalsInsforgeChipCascade(client).change_animal_chip(
         animal_id="a1",
@@ -484,9 +514,3 @@ def test_chip_change_validates_empty_fields():
             reason="",
             operador_user_id="user-1",
         )
-
-
-
-
-
-
