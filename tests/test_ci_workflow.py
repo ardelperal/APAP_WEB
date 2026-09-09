@@ -133,7 +133,9 @@ def test_branch_protection_note_lists_required_ci_checks() -> None:
     assert "ci / required" in note
     assert "pr-name / branch-name" in note
     assert "pr-size / pr-size" in note
-    assert "Include administrators" in note
+    assert "Aplicar las reglas también a administradores" in note
+    assert "`Maintain` y `Admin`" in note
+    assert "`Write` permite contribuir y revisar, pero no mergear" in note
 
 
 def test_ci_cd_guide_tracks_the_live_job_inventory() -> None:
