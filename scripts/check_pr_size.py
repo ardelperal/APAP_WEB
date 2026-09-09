@@ -4,8 +4,8 @@ A ``size:exception`` label on the PR overrides the budget (§15.6) — explicit,
 visible, intentional. Without the label, the budget is enforced.
 
 The budget counts additions + deletions from ``git diff --shortstat`` against
-the merge-base. Lockfiles and generated assets are NOT currently exempted —
-add an exemption here if a real lockfile-creating change trips it.
+the merge-base. The workflow excludes deterministic lockfiles while retaining
+their source manifests in the budget.
 
 Usage::
 
