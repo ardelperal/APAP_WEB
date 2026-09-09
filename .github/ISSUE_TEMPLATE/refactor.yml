@@ -1,28 +1,28 @@
-name: Reporte de error
-description: Documente un defecto reproducible, su impacto y la prueba del arreglo.
-title: "bug: "
+name: Refactor
+description: Especifique una mejora interna y el comportamiento que debe preservar.
+title: "refactor: "
 labels:
-  - "type:bug"
+  - "type:refactor"
 body:
   - type: textarea
     id: problema-contexto
     attributes:
       label: Problema y contexto
-      description: Explique el comportamiento incorrecto, dónde ocurre y a quién afecta.
+      description: Explique el coste estructural actual y dónde se encuentra.
     validations:
       required: true
   - type: textarea
     id: evidencia-verificable
     attributes:
       label: Evidencia verificable
-      description: Incluya pasos de reproducción, resultado actual y fuentes comprobables.
+      description: Enlace métricas, dependencias, duplicación o límites incumplidos.
     validations:
       required: true
   - type: textarea
     id: alcance-no-objetivos
     attributes:
       label: Alcance y no objetivos
-      description: Delimite qué debe corregirse y qué queda expresamente fuera.
+      description: Delimite la estructura que cambia y el comportamiento preservado.
     validations:
       required: true
   - type: textarea
@@ -36,13 +36,13 @@ body:
     id: plan-validacion
     attributes:
       label: Plan de validación
-      description: Nombre las pruebas, comandos o escenarios que demostrarán el arreglo.
+      description: Nombre golden tests, contratos o métricas que probarán equivalencia.
     validations:
       required: true
   - type: textarea
     id: dependencias-riesgos
     attributes:
       label: Dependencias y riesgos
-      description: Identifique bloqueos, compatibilidad, seguridad o indique «Ninguno».
+      description: Identifique blast radius, secuencia o indique «Ninguno».
     validations:
       required: true

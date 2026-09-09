@@ -1,5 +1,5 @@
 name: Cambio de documentación
-description: Proponga una corrección o mejora de la documentación del proyecto.
+description: Corrija o amplíe documentación con fuentes, audiencia y verificación explícitas.
 title: "docs: "
 labels:
   - "type:docs"
@@ -8,30 +8,41 @@ body:
     id: problema-contexto
     attributes:
       label: Problema y contexto
-      description: Describa qué documentación falta, es incorrecta o está desactualizada.
+      description: Explique qué lector no puede actuar correctamente y por qué.
     validations:
       required: true
-
   - type: textarea
-    id: evidencia-fuente
+    id: evidencia-verificable
     attributes:
-      label: Evidencia de origen
-      description: Indique las fuentes verificables que respaldan el cambio.
+      label: Evidencia verificable
+      description: Enlace el código, comportamiento o fuente canónica que respalda el cambio.
     validations:
       required: true
-
   - type: textarea
-    id: alcance-propuesto
+    id: alcance-no-objetivos
     attributes:
-      label: Alcance propuesto
-      description: Delimite los documentos y contenidos que deben cambiar.
+      label: Alcance y no objetivos
+      description: Delimite documentos, recorrido de lectura y contenido excluido.
     validations:
       required: true
-
   - type: textarea
     id: criterios-aceptacion
     attributes:
       label: Criterios de aceptación
-      description: Enumere las condiciones objetivas que demostrarán que el cambio está completo.
+      description: Enumere resultados observables mediante una lista de comprobación.
+    validations:
+      required: true
+  - type: textarea
+    id: plan-validacion
+    attributes:
+      label: Plan de validación
+      description: Indique enlaces, linters o recorridos que probarán la documentación.
+    validations:
+      required: true
+  - type: textarea
+    id: dependencias-riesgos
+    attributes:
+      label: Dependencias y riesgos
+      description: Identifique fuentes pendientes, drift posible o indique «Ninguno».
     validations:
       required: true

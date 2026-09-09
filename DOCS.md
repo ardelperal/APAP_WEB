@@ -42,6 +42,7 @@ Cada documento del repo ocupa un único rol. Este índice es la única ruta reco
 | [docs/setup.md](docs/setup.md) | Setup local por desarrollador. |
 | [docs/CODEBASE-GUIDE.md](docs/CODEBASE-GUIDE.md) | Overview de módulos (Tier 2 de #464, parcial). |
 | [docs/codebase/ci-cd.md](docs/codebase/ci-cd.md) | Contrato ejecutable de CI, protección de `main`, imagen `OCI` y despliegue. |
+| [docs/codebase/issue-specifications.md](docs/codebase/issue-specifications.md) | Contrato issue-as-spec, línea base histórica y gate de PR. |
 | [docs/architecture/architecture-local-backend-stack.md](docs/architecture/architecture-local-backend-stack.md) | Composición LocalBackend actual, límites de datos, auth, storage y migración. |
 | [docs/architecture/decisiones-proyecto.md](docs/architecture/decisiones-proyecto.md) | Registro formal de decisiones arquitectónicas (D-01…). |
 | [docs/audits/](docs/audits/) | Auditorías por slice sensible (CSRF, RBAC, XSS, cookies). |

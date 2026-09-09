@@ -153,6 +153,13 @@ check-import-cycles:
 check-workflows:
 	$(PYTHON) scripts/check_workflows.py
 
+# check-issue-specs — issue #723. GitHub forms are the authoring boundary;
+# this local gate proves every supported work type exposes the same required
+# issue-as-spec contract. Live PR linkage is checked by issue-spec.yml because
+# it requires the GitHub event and issue API.
+check-issue-specs:
+	$(PYTHON) scripts/check_issue_specs.py forms
+
 # check-test-classification -- issue #631. Companion to the test audit
 # docs/quality/test-audit.md (2026-08-31). Every domain whose unit tests
 # mock SQL via httpx.MockTransport must have a matching
@@ -205,7 +212,7 @@ verify: lint check-rules check-alantyle check-module-size check-route-size check
         check-test-classification check-slice-completeness check-migration-boundaries \
         check-docstring-coverage check-complexity check-ruff-ratchet \
         check-vulture-guard check-jscpd check-mutation-sites \
-        check-import-cycles check-workflows typecheck check-crap
+        check-import-cycles check-workflows check-issue-specs typecheck check-crap
 	@echo "verify: deterministic local CI subset passed; await GitHub 'ci / required'."
 
 # mutation — issue #431. Runs the cosmic-ray session for the curated target

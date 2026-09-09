@@ -28,8 +28,30 @@ concurrency:
 
 permissions:
   contents: read
+  issues: read
 
 jobs:
+  issue-spec:
+    name: issue-spec
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Set up exact Python runtime
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12.11"
+
+      - name: Validate linked issue specifications
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python scripts/check_issue_specs.py pr-event "$GITHUB_EVENT_PATH"
+
   lint:
     name: lint
     # PR code is untrusted. Hosted isolation keeps it away from the production
@@ -252,6 +274,13 @@ jobs:
         # gate is a stdlib scanner. Pinned by tests/test_check_workflows.py::
         # test_ci_workflow_lint_job_runs_workflow_gate.
         run: python scripts/check_workflows.py
+
+      - name: Run issue-spec form contract (issue #723)
+        # GitHub validates required answers in the browser, while this gate
+        # prevents a form edit from silently dropping a work type, section,
+        # required flag, or the blank-issue prohibition. Live PR-to-issue
+        # linkage belongs to issue-spec.yml because it needs GitHub metadata.
+        run: python scripts/check_issue_specs.py forms
 
   security:
     name: security
@@ -1009,6 +1038,7 @@ jobs:
     timeout-minutes: 5
     if: always()
     needs:
+      - issue-spec
       - lint
       - security
       - security-deep

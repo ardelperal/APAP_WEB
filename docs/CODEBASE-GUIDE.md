@@ -58,6 +58,7 @@
 | [Interfaces](codebase/interfaces.md) | Qué superficies expone el sistema (HTTP, OAuth, storage) y por dónde fluye cada una. |
 | [Integrations](codebase/integrations.md) | Adaptadores externos (LocalBackend, CodeGraph, Dysflow, Coolify, GitHub) y sus límites de configuración. |
 | [Maintainer playbook](codebase/maintainer-playbook.md) | Workflow operativo de mantenedor y checklists por tipo de cambio. |
+| [Issue specifications](codebase/issue-specifications.md) | Contrato issue-as-spec, reparación histórica y gate de PR. |
 | [CI/CD](codebase/ci-cd.md) | Checks de pull request, protección de rama, artefacto `OCI` y despliegue. |
 | [Sync and cloud](codebase/sync-and-cloud.md) | Aislamiento web ↔ legacy y CLI de reconciliación. |
 | [Reference map](codebase/reference-map.md) | Trazabilidad entre docs, specs y código. |
@@ -69,8 +70,9 @@
 2. [Repository map](codebase/repository-map.md) — antes de crear o mover código.
 3. [Interfaces](codebase/interfaces.md) — antes de añadir una ruta o endpoint.
 4. [Maintainer playbook](codebase/maintainer-playbook.md) — antes de abrir un PR.
-5. [CI/CD](codebase/ci-cd.md) — antes de modificar workflows o despliegues.
-6. [Reference map](codebase/reference-map.md) — para trazabilidad cuando una decisión toca varias docs.
+5. [Issue specifications](codebase/issue-specifications.md) — antes de aprobar o implementar una issue.
+6. [CI/CD](codebase/ci-cd.md) — antes de modificar workflows o despliegues.
+7. [Reference map](codebase/reference-map.md) — para trazabilidad cuando una decisión toca varias docs.
 
 ## Quick map inverso
 
@@ -82,6 +84,7 @@
 | Localizar un guardarraíl o un detector | [Repository map](codebase/repository-map.md) | [AGENTS.md](../AGENTS.md) §20–§28, [Quality roadmap](quality/hardening-roadmap.md) |
 | Cambiar CI, protección de rama o deploy | [CI/CD](codebase/ci-cd.md) | [Runbook de despliegue](runbooks/operator-deploy-2026.md) |
 | Tomar una issue de `open` a `closed` | [Maintainer playbook](codebase/maintainer-playbook.md) | [`docs/proceso.md`](proceso.md), [AGENTS.md](../AGENTS.md) §16 |
+| Redactar o reparar una issue | [Issue specifications](codebase/issue-specifications.md) | [Formularios de GitHub](../.github/ISSUE_TEMPLATE/) |
 | Mover datos entre web y legacy | [Sync and cloud](codebase/sync-and-cloud.md) | [AGENTS.md](../AGENTS.md) §18, [`migration/cli.py`](../../migration/cli.py) |
 | Localizar un runbook de operador | [`docs/runbooks/`](runbooks/) | [AGENTS.md](../AGENTS.md) §13 |
 | Localizar una auditoría de un slice sensible | [`docs/audits/`](audits/) | [AGENTS.md](../AGENTS.md) §12 |
@@ -94,6 +97,7 @@
 | Reglas y guardarraíles del proyecto | [`AGENTS.md`](../AGENTS.md) | Las 33 reglas y sus detectores. |
 | Arquitectura LocalBackend actual | [`docs/architecture/architecture-local-backend-stack.md`](architecture/architecture-local-backend-stack.md) | Composición, límites de datos, auth, storage y migración. |
 | Playbook operativo por issue | [`docs/proceso.md`](proceso.md) | De `open` a `closed` con evidencia, según §16 de AGENTS. |
+| Contrato issue-as-spec | [`docs/codebase/issue-specifications.md`](codebase/issue-specifications.md) | Campos obligatorios, histórico y validación automática. |
 | Roadmap de fases | [`docs/roadmap.md`](roadmap.md) | Fases del producto y estado actual. |
 | Decisiones de proyecto | [`docs/architecture/decisiones-proyecto.md`](architecture/decisiones-proyecto.md) | Registro formal de divergencias con el legacy. |
 | Auditorías | [`docs/audits/`](audits/) | Un documento por slice sensible. |

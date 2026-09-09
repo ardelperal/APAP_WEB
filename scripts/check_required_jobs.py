@@ -16,6 +16,7 @@ ALL_JOBS = frozenset(
         "typecheck",
         "test",
         "integration",
+        "issue-spec",
         "verify-fallback-ready",
         "build",
         "e2e",
@@ -23,9 +24,9 @@ ALL_JOBS = frozenset(
 )
 SKIPS_BY_EVENT = {
     "pull_request": frozenset({"security-deep", "mutation"}),
-    "push": frozenset({"security-deep", "mutation"}),
-    "schedule": frozenset({"e2e"}),
-    "workflow_dispatch": frozenset(),
+    "push": frozenset({"security-deep", "issue-spec", "mutation"}),
+    "schedule": frozenset({"e2e", "issue-spec"}),
+    "workflow_dispatch": frozenset({"issue-spec"}),
 }
 
 
@@ -52,7 +53,7 @@ def check_results(
 
     is_tag_push = event_name == "push" and ref.startswith("refs/tags/")
     if is_tag_push:
-        allowed_skips = frozenset()
+        allowed_skips = frozenset({"issue-spec"})
 
     for job in sorted(ALL_JOBS & needs.keys()):
         payload = needs[job]
