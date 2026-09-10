@@ -41,7 +41,6 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
-import httpx
 
 from app.core.data_access import SqlExecutor
 from migration.cli import (
@@ -54,22 +53,46 @@ from migration.cli import (
 # --- helpers --------------------------------------------------------------
 
 
-def _json_response(status_code: int, body: Any) -> httpx.Response:
-    return httpx.Response(
-        status_code=status_code,
-        content=json.dumps(body).encode("utf-8"),
-        headers={"content-type": "application/json"},
-    )
+class _FakeSqlExecutor:
+    """Minimal ``SqlExecutor`` Protocol implementation for reconcile follow-up tests."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+        self._rows: list[dict[str, Any]] = []
+        self._extra: dict[str, list[dict[str, Any]]] = {}
+
+    def set_rows(self, rows: list[dict[str, Any]]) -> None:
+        self._rows = rows
+
+    def set_extra(self, extra: dict[str, list[dict[str, Any]]]) -> None:
+        self._extra = extra
+
+    def execute_sql(
+        self, query: str, params: list[object] | None = None
+    ) -> list[dict[str, Any]]:
+        self.calls.append({"query": query, "params": list(params or [])})
+        for marker, rows in self._extra.items():
+            if marker in query:
+                return rows
+        if "web_only_feature_shadow" in query and "WHERE" in query:
+            return self._rows
+        return []
+
+    def close(self) -> None:
+        pass
 
 
-def _make_web_client(
-    handler: Callable[[httpx.Request], httpx.Response],
-) -> SqlExecutor:
-    return SqlExecutor(
-        base_url="https://example.insforge.app",
-        service_key="ik_test",
-        transport=httpx.MockTransport(handler),
-    )
+def _make_client(
+    shadow_rows: list[dict[str, Any]] | None = None,
+    extra_sql: dict[str, list[dict[str, Any]]] | None = None,
+) -> tuple[_FakeSqlExecutor, list[dict[str, Any]]]:
+    """Build a fake executor wired to return shadow_rows for list_needs_review queries."""
+    fake = _FakeSqlExecutor()
+    if shadow_rows is not None:
+        fake.set_rows(shadow_rows)
+    if extra_sql:
+        fake.set_extra(extra_sql)
+    return fake, fake.calls
 
 
 def _capture_prompt(responses: list[str]) -> Callable[[str], str]:
@@ -224,23 +247,10 @@ class TestShadowRepositoryFollowUps:
     result without going through the generic ``upsert`` path.
     """
 
-    def _client_capturing(self) -> tuple[SqlExecutor, list[dict[str, Any]]]:
-        captured: list[dict[str, Any]] = []
+    def _client_capturing(self) -> tuple[_FakeSqlExecutor, list[dict[str, Any]]]:
+        fake = _FakeSqlExecutor()
+        return fake, fake.calls
 
-        def _handler(_request: httpx.Request) -> httpx.Response:
-            return _json_response(200, [])
-
-        def _recording(request: httpx.Request) -> httpx.Response:
-            body = json.loads(request.content.decode("utf-8")) if request.content else {}
-            captured.append(body)
-            return _handler(request)
-
-        client = SqlExecutor(
-            base_url="https://example.insforge.app",
-            service_key="ik_test",
-            transport=httpx.MockTransport(_recording),
-        )
-        return client, captured
 
     def test_update_derived_value_emits_scoped_update(self) -> None:
         """``update_derived_value`` writes ``derived_value`` for the row
@@ -372,22 +382,19 @@ class TestCliCheckOnlyFollowUps:
 
     def _run_check_only(self, row: dict[str, Any]) -> str:
         stream = io.StringIO()
-
-        def handler(_request: httpx.Request) -> httpx.Response:
-            # SELECT returns the row.
-            return _json_response(200, [row])
-
-        client = _make_web_client(handler)
+        fake = _FakeSqlExecutor()
+        fake.set_rows([row])
         try:
             rc = cli_main(
-                ["reconcile", "--check-only"],
-                web_client=client,
+                ['reconcile', '--check-only'],
+                web_client=fake,
                 stream=stream,
             )
         finally:
-            client.close()
+            fake.close()
         assert rc == 0
         return stream.getvalue()
+
 
     def test_check_only_emits_derived_value(self) -> None:
         row = _needs_review_row(
@@ -502,24 +509,17 @@ class TestCliInteractiveAcceptDerivedFollowUps:
                 return "b"
             return ""
 
-        def handler(request: httpx.Request) -> httpx.Response:
-            body = json.loads(request.content.decode("utf-8")) if request.content else {}
-            query = body.get("query", "")
-            if "web_only_feature_shadow" in query and "WHERE" in query:
-                return _json_response(200, [row])
-            if "UPDATE ANIMALES" in query.upper():
-                return _json_response(200, [{"ok": 1}])
-            return _json_response(200, [])
-
-        client = _make_web_client(handler)
+        fake = _FakeSqlExecutor()
+        fake.set_rows([row])
+        fake.set_extra({"UPDATE ANIMALES": [{"ok": 1}]})
         try:
             rc = cli_main(
                 ["reconcile", "--interactive"],
-                web_client=client,
+                web_client=fake,
                 prompt=_prompt,
             )
         finally:
-            client.close()
+            fake.close()
 
         assert rc == 0
         # The value prompt must include the derived_value as the
@@ -562,19 +562,14 @@ class TestCliInteractiveLock:
         cli_mod._resolve_lock_path = lambda: lock_path  # type: ignore[assignment]
         try:
 
-            def handler(_request: httpx.Request) -> httpx.Response:
-                # No rows to reconcile; the test asserts the lock cycle,
-                # not the SQL.
-                return _json_response(200, [])
-
-            client = _make_web_client(handler)
+            fake = _FakeSqlExecutor()
             try:
                 rc = cli_main(
                     ["reconcile", "--interactive"],
-                    web_client=client,
+                    web_client=fake,
                 )
             finally:
-                client.close()
+                fake.close()
 
             assert rc == 0
             # After the CLI exits, the lock file MUST be released
@@ -602,15 +597,12 @@ class TestCliInteractiveLock:
         # when --interactive is False) is structural -- we verify it
         # via the fact that ``run_reconcile`` only enters the lock
         # branch when ``args.interactive`` is True.
-        def handler(_request: httpx.Request) -> httpx.Response:
-            return _json_response(200, [])
-
-        client = _make_web_client(handler)
+        fake = _FakeSqlExecutor()
         try:
             rc = cli_main(
                 ["reconcile", "--check-only"],
-                web_client=client,
+                web_client=fake,
             )
         finally:
-            client.close()
+            fake.close()
         assert rc == 0

@@ -46,24 +46,111 @@ import httpx
 import pytest
 from fastapi.responses import RedirectResponse
 
-from app.core.local_backend.db import LocalPostgresExecutor
+from app.core.domain.auth.user import AuthorizedUser
+from app.core.roles import Rol
+
+# LocalPostgresExecutor removed - we use _FakeLocalBackend directly
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_local_backend_client
 from app.modules.animals.routes import require_authorized_user
 
 
-class _FakeLocalBackend(LocalPostgresExecutor):
+class _FakeAuthUsersPort:
+    """Minimal fake AuthUsersPort for the callback test.
+
+    Delegates get_user_by_email_response to the shared _FakeLocalBackend
+    so the test only needs to set fake_local_backend.get_user_by_email_response.
+    """
+
+    def __init__(self, fake_backend: _FakeLocalBackend | None = None) -> None:
+        self._fake_backend = fake_backend
+
+    @property
+    def get_user_by_email_response(self) -> dict | None:
+        if self._fake_backend is not None:
+            return self._fake_backend.get_user_by_email_response
+        return None
+
+    @get_user_by_email_response.setter
+    def get_user_by_email_response(self, value: dict | None) -> None:
+        if self._fake_backend is not None:
+            self._fake_backend.get_user_by_email_response = value
+
+    def _build_user(self, row: dict) -> AuthorizedUser:
+        return AuthorizedUser(
+            id=row["id"],
+            email=row["email"],
+            rol=Rol(row["rol"]),
+            active=row["activo"],
+        )
+
+    def get_user_by_email(self, email: str) -> AuthorizedUser | None:
+        row = self.get_user_by_email_response
+        if row is None:
+            return None
+        if row.get("email") != email:
+            return None
+        return self._build_user(row)
+
+    def check_email_taken(self, email: str) -> bool:
+        raise NotImplementedError
+
+    def list_authorized_users(self) -> list[AuthorizedUser]:
+        raise NotImplementedError
+
+
+
+
+class _FakeOAuthPort:
+    """Minimal fake OAuthPort for the callback test.
+
+    Delegates exchange result to the shared _FakeLocalBackend
+    so the test only needs to set ``fake_local_backend.get_user_by_email_response``.
+    """
+
+    def __init__(self, fake_backend: _FakeLocalBackend | None = None) -> None:
+        self._fake_backend = fake_backend
+
+    def _build_user(self) -> object:
+        from app.core.ports.oauth_port import OAuthUser
+        row = self._fake_backend.get_user_by_email_response if self._fake_backend else None
+        email = row.get("email", "unknown") if row else "unknown"
+        user_id = row.get("id", "u-x") if row else "u-x"
+        return OAuthUser(id=user_id, email=email)
+
+    def start_google_login(self, redirect_uri: str):
+        from app.core.domain.oauth import PkcePair
+        return "https://fake.google/auth", PkcePair(
+            code_verifier="test",
+            code_challenge="test",
+        )
+
+    def exchange_oauth_code(self, oauth_code: str, code_verifier: str):
+        return self._build_user()
+
+    def exchange_google_oauth_code(self, code: str, code_verifier: str, redirect_uri: str):
+        return self._build_user()
+
+
+class _FakeLocalBackend:
     """Stand-in en proceso del cliente LocalBackend para el test de sesion."""
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, list[object]]] = []
         self._responses: list[list[dict[str, object]]] = []
+        self.get_user_by_email_response: dict[str, object] | None = None
+
+    def set_response(self, rows: list[dict[str, object]]) -> None:
+        """Configure the rows execute_sql returns for the user query."""
+        self._responses = rows
 
     def execute_sql(self, query, params=None):
         if (
             "SELECT id, email, rol, activo" in query
             and "FROM usuarios_autorizados" in query
         ):
+            if self._responses:
+                return self._responses
             row = self.get_user_by_email_response
             return [dict(row)] if row else []
         return []
@@ -82,59 +169,18 @@ class _FakeLocalBackend(LocalPostgresExecutor):
             user=OAuthUser(id=str(row.get("id", "u-x")), email=str(row.get("email", ""))),
         )
 
-    def exchange_insforge_oauth_code(self, insforge_code: str, code_verifier: str) -> OAuthUser:
-        self.calls.append(("exchange_insforge_oauth_code", (insforge_code, code_verifier)))
-        return self.exchange_user
-
-    def exchange_google_oauth_code(
-        self, code: str, code_verifier: str, redirect_uri: str
-    ) -> OAuthUser:
-        self.calls.append(("exchange_google_oauth_code", (code, code_verifier, redirect_uri)))
-        return self.exchange_user
-
-
-class _FakeAuthSession:
-    """Bundle of fake SQL executor + OAuth port for auth session tests.
-
-    The original test fixture exposed a single ``_FakeInsForge`` object
-    that handled both the SQL executor and the OAuth exchange. With the
-    Phase 3 split each concern has its own port (and therefore its own
-    fake), so this thin wrapper keeps the ``fake_insforge`` ergonomic API
-    — callers mutate the user row via ``set_user_by_email(row)`` and
-    the OAuth exchange result via ``set_oauth_user(id, email)``.
-    """
-
-    def __init__(self) -> None:
-        self.executor = _FakeSqlExecutor()
-        self.oauth_port = _FakeOAuthPort()
-        self.auth_port = LocalBackendAuthUsersAdapter(self.executor)
-        # Default: an active developer so the /auth/callback happy-path
-        # test succeeds without first having to populate the fixture.
-        self.set_user_by_email(
-            {
-                "id": "u-db",
-                "email": "ardelperal@gmail.com",
-                "rol": "developer",
-                "activo": True,
-            }
-        )
-
-    def set_user_by_email(self, row: dict[str, object] | None) -> None:
-        """Configure the row :func:`get_user_by_email` returns."""
-        self.executor.set_response([dict(row)] if row else [])
-
-    def set_oauth_user(self, *, user_id: str, email: str) -> None:
-        """Configure the :class:`OAuthUser` returned by the OAuth exchange."""
-        self.oauth_port._set_exchange_user(user_id=user_id, email=email)
-
 
 @pytest.fixture
 def fake_local_backend() -> _FakeLocalBackend:
-    """Sustituye ``get_local_backend_client`` por el fake durante el test."""
+    """Sustituye ``get_local_backend_client`` y los puertos auth/oauth durante el test."""
     fake = _FakeLocalBackend()
+    app.state._auth_users_port = _FakeAuthUsersPort(fake)
+    app.state._oauth_port = _FakeOAuthPort(fake)
     app.dependency_overrides[get_local_backend_client] = lambda: fake
     yield fake
     app.dependency_overrides.pop(get_local_backend_client, None)
+    app.state._auth_users_port = None  # type: ignore[assignment]
+    app.state._oauth_port = None  # type: ignore[assignment]
 
 
 # --- /auth/callback escribe is_authorized --------------------------------
