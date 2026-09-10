@@ -473,19 +473,6 @@ def _default_msaccess_preflight(
 
 
 
-# FakeInsForge stub for test_bucket_invariant.py.
-# Deprecated: tests should be migrated to MinIO storage (issue #641).
-class FakeInsForge:
-    """Stub for InsForge storage API used by test_bucket_invariant.py."""
-
-    def get_bucket(self, bucket_name: str) -> dict[str, Any] | None:
-        raise NotImplementedError
-
-    def ensure_bucket(self, bucket_name: str, *, is_public: bool = False) -> dict[str, Any]:
-        raise NotImplementedError
-
-
-
 __all__ = [
     "BOOTSTRAP_SHADOW_TABLE_SQL",
     "FakeLocalBackend",
