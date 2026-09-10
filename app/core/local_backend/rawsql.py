@@ -10,11 +10,10 @@ contract (``{"rows": [...], "rowCount": N}``) is identical to LocalBackend's.
 ``Authorization: Bearer <APAP_RAWSQL_AUTH_TOKEN>`` matching
 :attr:`Settings.rawsql_auth_token`. The comparison is constant-time
 (``hmac.compare_digest``) to defeat timing probes; an empty / missing /
-mismatched header returns 401 without touching the executor. The
-``Settings`` startup validator (issue #275 / §32.P2) refuses to boot
-when ``APAP_RAWSQL_AUTH_TOKEN`` is empty or shorter than the shared-
-secret floor, so the handler never sees a request unless the operator
-explicitly opted in.
+mismatched header returns the same generic 401 without touching the
+executor. The separate LocalBackend lifespan refuses to boot when
+``APAP_RAWSQL_AUTH_TOKEN`` is empty or shorter than 32 characters;
+``app.main`` does not require the token because it never mounts this router.
 
 The handler still uses ``app.state.local_postgres_executor`` for the
 DB call (no new I/O is added by this change — the executor already
@@ -38,44 +37,32 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Header, HTTPException, Request, status
 
-from app.core.config import get_settings
 from app.core.local_backend.db import DatabaseError, LocalPostgresExecutor, QueryError
 
 router = APIRouter()
 
 
-def _require_rawsql_token(authorization: str | None) -> None:
-    """Validate the ``Authorization: Bearer <token>`` header against settings.
+def _require_rawsql_token(authorization: str | None, expected: str) -> None:
+    """Validate the bearer credential without exposing failure details.
 
     Default-deny: any mismatch (missing, wrong scheme, wrong token,
-    empty configured secret) raises 401 BEFORE any DB call. The
+    empty configured secret) raises the same 401 BEFORE any DB call. The
     comparison uses :func:`hmac.compare_digest` so a timing-attack
     probe cannot infer the token length or content. The configured
-    secret is read via :func:`app.core.config.get_settings` so the
-    cache is shared with the rest of the app.
+    expected secret comes from lifespan-managed app state, keeping this
+    privileged router independent from the main web application's startup.
     """
-    settings = get_settings()
-    expected = settings.rawsql_auth_token
-    if not expected:
-        # Operator never set the env var (startup would have failed
-        # in production; debug mode is the only path that reaches here
-        # with an empty secret — we still deny in that case).
+    bearer_prefix = "Bearer "
+    has_bearer_scheme = False
+    presented = ""
+    if authorization is not None and authorization.startswith(bearer_prefix):
+        has_bearer_scheme = True
+        presented = authorization[len(bearer_prefix) :]
+    credentials_match = hmac.compare_digest(presented, expected)
+    if not expected or not presented or not has_bearer_scheme or not credentials_match:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="rawsql endpoint disabled (server has no APAP_RAWSQL_AUTH_TOKEN configured)",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="missing or malformed Authorization header",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    presented = authorization.removeprefix("Bearer ").strip()
-    if not presented or not hmac.compare_digest(presented, expected):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="invalid rawsql bearer token",
+            detail="invalid credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -113,7 +100,8 @@ async def execute_rawsql(
         - ``QueryError`` → 400 Bad Request (caller's query is malformed).
         - ``DatabaseError`` → 503 Service Unavailable (Postgres down).
     """
-    _require_rawsql_token(authorization)
+    expected_token = getattr(request.app.state, "rawsql_auth_token", "")
+    _require_rawsql_token(authorization, expected_token)
 
     query = payload.get("query")
     if not isinstance(query, str) or not query:

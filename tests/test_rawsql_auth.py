@@ -1,145 +1,171 @@
-"""Tests for the rawsql auth gate (issue #680).
+"""Security tests for the LocalBackend raw-SQL endpoint (issue #680).
 
-Covers the default-deny behaviour: the handler must reject every
-request that does not present a ``Authorization: Bearer <token>``
-header matching :attr:`Settings.rawsql_auth_token`. The comparison
-itself is unit-tested here (constant-time, exact match, header
-parsing); the live HTTP integration lives in
-``tests/integration/test_local_backend.py`` under the same
-``APAP_RAWSQL_AUTH_TOKEN`` env var.
+The LocalBackend process owns the token validation because it is the only
+application that mounts the privileged compatibility router.  Handler tests
+exercise the in-process HTTP contract and prove that rejected requests never
+reach the SQL executor.
 """
 
 from __future__ import annotations
 
-import pytest
+from typing import Any
 
-from app.core.config import Settings, get_settings
-from app.core.local_backend.rawsql import _require_rawsql_token
+import httpx
+import pytest
+from fastapi import FastAPI, HTTPException
+
+from app.core.config import Settings, StartupConfigError, _validate_secrets, get_settings
+from app.core.local_backend.app import create_app
+from app.core.local_backend.rawsql import _require_rawsql_token, router
+
+TOKEN = "a" * 40
+GENERIC_AUTH_ERROR = {"detail": "invalid credentials"}
 
 
 @pytest.fixture(autouse=True)
 def _reset_settings_cache():
-    """Clear the lru_cache between cases so each env mutation is observed."""
+    """Keep environment-driven settings isolated between tests."""
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
 
 
-def _set_token(value: str) -> None:
-    """Replace the cached ``Settings`` instance with one carrying the given token.
+class _ExecutorSpy:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, list[Any] | None]] = []
 
-    ``Settings`` reads ``APAP_*`` env vars at construction; mutating
-    ``os.environ`` after the fact is not enough — the lru_cache must
-    be cleared so the next ``get_settings()`` rebuilds. Doing the
-    rebuild here keeps the test bodies focused on the auth gate.
-    """
-    import os
+    def execute(
+        self, query: str, params: list[Any] | tuple[Any, ...] | None = None
+    ) -> list[dict[str, Any]]:
+        normalized = list(params) if params is not None else None
+        self.calls.append((query, normalized))
+        return [{"value": 1}]
 
-    if value:
-        os.environ["APAP_RAWSQL_AUTH_TOKEN"] = value
+
+def _handler_app(expected_token: str = TOKEN) -> tuple[FastAPI, _ExecutorSpy]:
+    app = FastAPI()
+    executor = _ExecutorSpy()
+    app.state.rawsql_auth_token = expected_token
+    app.state.local_postgres_executor = executor
+    app.include_router(router, prefix="/api")
+    return app, executor
+
+
+@pytest.mark.parametrize(
+    "authorization,expected",
+    [
+        (None, TOKEN),
+        ("", TOKEN),
+        ("Basic abc", TOKEN),
+        ("bearer " + TOKEN, TOKEN),
+        ("Bearer wrong", TOKEN),
+        ("Bearer " + TOKEN + " ", TOKEN),
+        ("Bearer anything", ""),
+    ],
+)
+def test_rawsql_token_gate_is_default_deny_and_generic(
+    authorization: str | None, expected: str
+) -> None:
+    """Every invalid presentation has one non-diagnostic 401 response."""
+    with pytest.raises(HTTPException) as exc_info:
+        _require_rawsql_token(authorization, expected)
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == "invalid credentials"
+    assert exc_info.value.headers == {"WWW-Authenticate": "Bearer"}
+
+
+def test_rawsql_token_gate_accepts_exact_token() -> None:
+    """The exact bearer token passes the constant-time comparison."""
+    _require_rawsql_token("Bearer " + TOKEN, TOKEN)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("authorization", [None, "Bearer wrong"])
+async def test_rawsql_handler_rejects_before_executor(
+    authorization: str | None,
+) -> None:
+    """Route integration: denied requests do not execute attacker SQL."""
+    app, executor = _handler_app()
+    headers = {"Authorization": authorization} if authorization else {}
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post(
+            "/api/database/advance/rawsql",
+            headers=headers,
+            json={"query": "DROP TABLE usuarios_autorizados", "params": []},
+        )
+
+    assert response.status_code == 401
+    assert response.json() == GENERIC_AUTH_ERROR
+    assert response.headers["www-authenticate"] == "Bearer"
+    assert executor.calls == []
+
+
+@pytest.mark.asyncio
+async def test_rawsql_handler_executes_with_exact_token() -> None:
+    """Route integration: valid credentials preserve the response contract."""
+    app, executor = _handler_app()
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post(
+            "/api/database/advance/rawsql",
+            headers={"Authorization": "Bearer " + TOKEN},
+            json={"query": "SELECT $1 AS value", "params": [1]},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"rows": [{"value": 1}], "rowCount": 1}
+    assert executor.calls == [("SELECT $1 AS value", [1])]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("token", [None, "tiny-secret"])
+async def test_local_backend_lifespan_rejects_missing_or_weak_token(
+    monkeypatch: pytest.MonkeyPatch, token: str | None
+) -> None:
+    """Application startup fails closed when its mounted router is unusable."""
+    monkeypatch.setenv("APAP_LOCAL_DB_URL", "postgresql://unused")
+    if token is None:
+        monkeypatch.delenv("APAP_RAWSQL_AUTH_TOKEN", raising=False)
     else:
-        os.environ.pop("APAP_RAWSQL_AUTH_TOKEN", None)
+        monkeypatch.setenv("APAP_RAWSQL_AUTH_TOKEN", token)
     get_settings.cache_clear()
+    app = create_app()
+
+    with pytest.raises(StartupConfigError) as exc_info:
+        async with app.router.lifespan_context(app):
+            pass
+
+    assert exc_info.value.env_var == "APAP_RAWSQL_AUTH_TOKEN"
+    assert token is None or token not in str(exc_info.value)
 
 
-def _settings(token: str) -> Settings:
-    _set_token(token)
-    return get_settings()
+@pytest.mark.asyncio
+async def test_local_backend_lifespan_stores_valid_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A strong token is wired to app state for request-time validation."""
+    monkeypatch.setenv("APAP_LOCAL_DB_URL", "postgresql://unused")
+    monkeypatch.setenv("APAP_RAWSQL_AUTH_TOKEN", TOKEN)
+    get_settings.cache_clear()
+    app = create_app()
+
+    async with app.router.lifespan_context(app):
+        assert app.state.rawsql_auth_token == TOKEN
 
 
-class TestRawsqlAuthGate:
-    """Default-deny: every unmatched presentation must raise 401 BEFORE any DB call."""
+def test_main_web_secret_validation_does_not_require_rawsql_token() -> None:
+    """The web process boots without a secret for a router it never mounts."""
+    settings = Settings(
+        _env_file=None,  # type: ignore[call-arg]
+        debug=False,
+        session_secret="s" * 32,
+        rawsql_auth_token="",
+    )
 
-    def test_missing_header_with_configured_token(self) -> None:
-        from fastapi import HTTPException
-
-        settings = _settings("a" * 40)
-        token = settings.rawsql_auth_token
-        assert token is not None and len(token) >= 32  # sanity: token is set
-        with pytest.raises(HTTPException) as exc:
-            _require_rawsql_token(authorization=None)
-        assert exc.value.status_code == 401
-        assert "missing" in exc.value.detail.lower()
-        assert (exc.value.headers or {}).get("WWW-Authenticate") == "Bearer"
-
-    def test_empty_header_with_configured_token(self) -> None:
-        from fastapi import HTTPException
-
-        with pytest.raises(HTTPException) as exc:
-            _require_rawsql_token(authorization="")
-        assert exc.value.status_code == 401
-        assert "missing" in exc.value.detail.lower()
-
-    def test_wrong_scheme_rejected(self) -> None:
-        """Basic, Token, etc. must all be rejected — only ``Bearer`` is accepted."""
-        from fastapi import HTTPException
-
-        _settings("a" * 40)
-        for wrong in ("Basic Zm9vOmJhcg==", "Token abc", "Digest foo", "bearer abc"):
-            with pytest.raises(HTTPException) as exc:
-                _require_rawsql_token(authorization=wrong)
-            assert exc.value.status_code == 401, wrong
-
-    def test_correct_token_passes_silently(self) -> None:
-        _settings("a" * 40)
-        # No exception == success; the helper is the only contract here.
-        _require_rawsql_token(authorization="Bearer " + "a" * 40)
-
-    def test_token_with_trailing_whitespace_still_passes(self) -> None:
-        """``Bearer `` is one space; FastAPI trims trailing whitespace only.
-
-        The helper does ``removeprefix("Bearer ").strip()`` so callers
-        with extra trailing whitespace (some HTTP clients add it
-        around credentials) still authenticate. Leading whitespace is
-        rejected because the header scheme detection uses
-        ``startswith("Bearer ")`` and the spec disallows it.
-        """
-        _settings("a" * 40)
-        _require_rawsql_token(authorization="Bearer " + "a" * 40 + "   ")
-
-    def test_close_but_wrong_token_rejected(self) -> None:
-        """Default-deny: a token that differs by ONE character is rejected."""
-        from fastapi import HTTPException
-
-        _settings("a" * 40)
-        with pytest.raises(HTTPException) as exc:
-            _require_rawsql_token(authorization="Bearer " + "a" * 39 + "b")
-        assert exc.value.status_code == 401
-        assert "invalid" in exc.value.detail.lower()
-
-    def test_empty_configured_token_rejects_every_request(self) -> None:
-        """Server has no token configured → every request denied (default-deny)."""
-        from fastapi import HTTPException
-
-        _settings("")
-        # Even a well-formed bearer is rejected — the gate denies
-        # because the server has no expected token to compare against.
-        with pytest.raises(HTTPException) as exc:
-            _require_rawsql_token(authorization="Bearer anything")
-        assert exc.value.status_code == 401
-        assert "disabled" in exc.value.detail.lower()
-
-    def test_empty_token_rejected_even_with_empty_header(self) -> None:
-        """Double-empty: no env var, no Authorization header → still 401."""
-        from fastapi import HTTPException
-
-        _settings("")
-        with pytest.raises(HTTPException) as exc:
-            _require_rawsql_token(authorization=None)
-        assert exc.value.status_code == 401
-
-    def test_constant_time_comparison_used(self) -> None:
-        """The handler must not short-circuit on shared prefix.
-
-        ``hmac.compare_digest`` does not reveal length-prefix matches
-        via timing; we only assert the BEHAVIOUR (every prefix mismatch
-        is denied) here. The exact constant-time property is the
-        stdlib's contract, not ours.
-        """
-        from fastapi import HTTPException
-
-        _settings("abcdefghij" + "X" * 30)
-        # Pass the wrong token that happens to share the prefix; must deny.
-        with pytest.raises(HTTPException) as exc:
-            _require_rawsql_token(authorization="Bearer abcdefghij")
-        assert exc.value.status_code == 401
+    _validate_secrets(settings)
