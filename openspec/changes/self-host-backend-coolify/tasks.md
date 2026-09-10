@@ -120,7 +120,7 @@ tests.
 
 ## Out of scope (M2+)
 
-- M2: `Dockerfile` + `docker-compose.yml` for production deployment
+- M2: `Dockerfile` + `docker-compose.yml` for production deployment  # ← Dockerfile existed pre-M0; docker-compose.yml added in M0 acceptance (69d8e89)
 - M2: real MinIO deployment replacing the hard-coded `apap-photos` stub
 - M2: `coolify.yaml` metadata
 - M2: DNS + reverse proxy (coolify-proxy already covers this)
