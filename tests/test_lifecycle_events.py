@@ -23,8 +23,10 @@ The tests use a deterministic ``SqlExecutor`` fake to exercise
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
+import httpx
 import pytest
 
 from app.core.data_access import SqlExecutor
@@ -89,6 +91,26 @@ def _client_recording(
 
     client = HandlerSqlExecutor(_recording_handler)
     return client, captured
+
+
+def _json_response(status_code: int, body: Any) -> httpx.Response:
+    return httpx.Response(
+        status_code=status_code,
+        content=json.dumps(body).encode("utf-8"),
+        headers={"content-type": "application/json"},
+    )
+
+
+def _empty_client() -> _FakeSqlExecutor:
+    """Return an in-memory :class:`SqlExecutor` that responds with empty rows.
+
+    Most lifecycle-events tests assert against ``client.calls`` (the
+    captured (query, params) tuples) rather than the response body,
+    so a freshly minted :class:`_FakeSqlExecutor` suffices. Using the
+    in-memory fake (rather than :class:`HandlerSqlExecutor`) keeps
+    ``client.calls`` accessible.
+    """
+    return _FakeSqlExecutor()
 
 
 def _empty_ok(_req: httpx.Request, _body: dict[str, Any]) -> httpx.Response:

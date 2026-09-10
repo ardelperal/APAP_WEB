@@ -85,6 +85,15 @@ def _client_recording(
     return client, captured
 
 
+def _make_client(
+    handler: Callable[[str, list[object]], Any],
+) -> tuple[_FakeSqlExecutor, list[tuple[str, list[object]]]]:
+    """Build a fake executor that delegates every ``execute_sql`` to ``handler``."""
+    fake = _FakeSqlExecutor()
+    fake.set_handler(handler)
+    return fake, fake.calls
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

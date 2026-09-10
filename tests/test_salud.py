@@ -79,6 +79,15 @@ def _handler_returns_rows(
     return fake, fake.calls
 
 
+def _client_returning(
+    rows: list[dict[str, Any]],
+) -> tuple[_FakeSqlExecutor, list[tuple[str, list[object]]]]:
+    """Build a fake executor that returns ``rows`` from the first ``execute_sql`` call."""
+    fake = _FakeSqlExecutor()
+    fake.set_response(rows)
+    return fake, fake.calls
+
+
 def _client_cascading(
     *responses: list[dict[str, Any]],
 ) -> tuple[_FakeSqlExecutor, list[tuple[str, list[object]]]]:

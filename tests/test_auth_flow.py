@@ -12,12 +12,29 @@ import pytest
 
 from app.core.di.auth_di import get_auth_users_port
 from app.core.di.oauth_di import get_oauth_port
-from app.core.local_backend.auth_adapter import LocalBackendAuthUsersAdapter
+from app.core.domain.auth.rol import Rol
+from app.core.domain.auth.user import AuthorizedUser
 from app.main import app
 
 
-class _FakeSqlExecutor:
-    """Fake SqlExecutor for the auth users port."""
+class _FakeAuthUsersPort:
+    """In-process fake for the :class:`AuthUsersPort` Protocol.
+
+    The OAuth callback use case only calls
+    :meth:`get_user_by_email`; the rest of the Protocol is implemented
+    as defensive ``NotImplementedError`` stubs so a future caller that
+    reaches for one of them gets a clear failure instead of a silent
+    empty list.
+
+    The ``get_user_by_email_response`` attribute mirrors the legacy
+    ``_FakeSqlExecutor`` test API so tests that flip it to ``None``
+    keep simulating the unauthorized-email path. When the attribute is
+    a dict, the fake builds the canonical :class:`AuthorizedUser`
+    entity the application layer expects (the legacy ``SqlExecutor``
+    fake returned raw rows that the (now-broken) adapter would map to
+    ``AuthorizedUser.from_row`` — the DI fix means the test owns that
+    mapping, so the fake exposes ``AuthorizedUser`` directly).
+    """
 
     def __init__(self) -> None:
         self.get_user_by_email_response: dict | None = {
@@ -26,33 +43,42 @@ class _FakeSqlExecutor:
             "rol": "developer",
             "activo": True,
         }
-        self.list_users_response: list[dict] = []
-        self.add_user_response: dict = {
-            "id": "u-new",
-            "email": "new@example.com",
-            "rol": "key_user",
-            "activo": True,
-            "fecha_alta": "2026-06-17T00:00:00Z",
-        }
-        self.deactivate_user_response: dict | None = {
-            "id": "u-1",
-            "email": "a@b.com",
-            "rol": "key_user",
-            "activo": False,
-        }
 
-    def execute_sql(self, query, params=None):
-        if "ORDER BY fecha_alta DESC" in query:
-            return list(self.list_users_response)
-        if "INSERT INTO usuarios_autorizados" in query and "VALUES" in query:
-            return [dict(self.add_user_response)]
-        if "SET activo = false" in query:
-            row = self.deactivate_user_response
-            return [dict(row)] if row else []
-        if "SELECT id, email, rol, activo" in query and "FROM usuarios_autorizados" in query:
-            row = self.get_user_by_email_response
-            return [dict(row)] if row else []
-        return []
+    def _build_user(self, row: dict) -> AuthorizedUser:
+        return AuthorizedUser(
+            id=row["id"],
+            email=row["email"],
+            rol=Rol(row["rol"]),
+            active=row["activo"],
+        )
+
+    def get_user_by_email(self, email: str) -> AuthorizedUser | None:
+        row = self.get_user_by_email_response
+        if row is None:
+            return None
+        if row.get("email") != email:
+            return None
+        return self._build_user(row)
+
+    # --- Protocol surface: not exercised by the OAuth callback. -----
+
+    def check_email_taken(self, email: str) -> bool:
+        raise NotImplementedError
+
+    def list_authorized_users(self) -> list[AuthorizedUser]:
+        raise NotImplementedError
+
+    def add_authorized_user(self, email: str, rol: Rol, added_by: str) -> AuthorizedUser:
+        raise NotImplementedError
+
+    def get_user_by_id(self, user_id: str) -> AuthorizedUser | None:
+        raise NotImplementedError
+
+    def deactivate_authorized_user(self, user_id: str) -> AuthorizedUser:
+        raise NotImplementedError
+
+    def ensure_schema_and_seed(self, initial_admin_email: str) -> None:
+        raise NotImplementedError
 
 
 class _FakeOAuthPort:
@@ -73,7 +99,7 @@ class _FakeOAuthPort:
             code_challenge="test-challenge",
         )
 
-    def exchange_insforge_oauth_code(self, insforge_code: str, code_verifier: str):
+    def exchange_oauth_code(self, oauth_code: str, code_verifier: str):
         from app.core.ports.oauth_port import OAuthUser
         return OAuthUser(
             id=self.exchange_result["user_id"],
@@ -89,17 +115,25 @@ class _FakeOAuthPort:
 
 
 @pytest.fixture
-def fake_insforge() -> tuple[_FakeSqlExecutor, _FakeOAuthPort]:
-    """Inject fake ports via app.state for the duration of the test."""
-    fake_executor = _FakeSqlExecutor()
+def fake_insforge() -> tuple[_FakeAuthUsersPort, _FakeOAuthPort]:
+    """Inject fake ports via app.state for the duration of the test.
+
+    The fixture exposes the same two-tuple shape the legacy fixture
+    used (``(auth_users_port, oauth_port)``). Tests mutate
+    ``fake_insforge[0].get_user_by_email_response = None`` to drive
+    the unauthorized-email branch; the DI providers
+    (:func:`app.core.di.auth_di.get_auth_users_port` and
+    :func:`app.core.di.oauth_di.get_oauth_port`) read ``app.state`` and
+    yield these fakes verbatim.
+    """
+    fake_auth_port = _FakeAuthUsersPort()
     fake_oauth = _FakeOAuthPort()
-    fake_auth_port = LocalBackendAuthUsersAdapter(fake_executor)
 
     # Inject fakes via app.state; the DI providers check these first.
     app.state._auth_users_port = fake_auth_port
     app.state._oauth_port = fake_oauth
 
-    yield fake_executor, fake_oauth
+    yield fake_auth_port, fake_oauth
 
     # Cleanup
     if hasattr(app.state, "_auth_users_port"):
@@ -155,7 +189,7 @@ async def test_login_renders_apap_login_page(
 
 async def test_auth_google_redirects_to_google_with_pkce(
     client: httpx.AsyncClient,
-    fake_insforge: tuple[_FakeSqlExecutor, _FakeOAuthPort],
+    fake_insforge: tuple[_FakeAuthUsersPort, _FakeOAuthPort],
     google_configured: None,
 ) -> None:
     """``GET /auth/google`` returns a 302 to the Google auth URL from the OAuth port."""
@@ -173,7 +207,7 @@ async def test_auth_google_redirects_to_google_with_pkce(
 
 async def test_login_returns_503_when_google_not_configured(
     client: httpx.AsyncClient,
-    fake_insforge: tuple[_FakeSqlExecutor, _FakeOAuthPort],
+    fake_insforge: tuple[_FakeAuthUsersPort, _FakeOAuthPort],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """If the Google client id/secret are not configured, /login returns 503 with a clear message."""
@@ -200,7 +234,7 @@ async def test_login_returns_503_when_google_not_configured(
 
 async def test_callback_without_pkce_cookie_redirects_to_login(
     client: httpx.AsyncClient,
-    fake_insforge: tuple[_FakeSqlExecutor, _FakeOAuthPort],
+    fake_insforge: tuple[_FakeAuthUsersPort, _FakeOAuthPort],
 ) -> None:
     """If the PKCE cookie is missing, the callback redirects to /login."""
     response = await client.get(
@@ -213,7 +247,7 @@ async def test_callback_without_pkce_cookie_redirects_to_login(
 
 async def test_callback_with_tampered_pkce_cookie_redirects_to_login(
     client: httpx.AsyncClient,
-    fake_insforge: tuple[_FakeSqlExecutor, _FakeOAuthPort],
+    fake_insforge: tuple[_FakeAuthUsersPort, _FakeOAuthPort],
 ) -> None:
     """A PKCE cookie signed with a different secret is rejected."""
     client.cookies.set("apap_pkce", "definitely-not-a-valid-token")
@@ -227,7 +261,7 @@ async def test_callback_with_tampered_pkce_cookie_redirects_to_login(
 
 async def test_callback_with_unauthorized_email_redirects_to_unauthorized(
     client: httpx.AsyncClient,
-    fake_insforge: tuple[_FakeSqlExecutor, _FakeOAuthPort],
+    fake_insforge: tuple[_FakeAuthUsersPort, _FakeOAuthPort],
 ) -> None:
     """If the email is not in usuarios_autorizados, the callback redirects to /unauthorized."""
 
@@ -253,7 +287,7 @@ async def test_callback_with_unauthorized_email_redirects_to_unauthorized(
 
 async def test_callback_issues_session_cookie_and_redirects_home(
     client: httpx.AsyncClient,
-    fake_insforge: tuple[_FakeSqlExecutor, _FakeOAuthPort],
+    fake_insforge: tuple[_FakeAuthUsersPort, _FakeOAuthPort],
     google_configured: None,
 ) -> None:
     """A valid exchange yields a session cookie and a redirect to the home page."""
@@ -277,10 +311,8 @@ async def test_callback_issues_session_cookie_and_redirects_home(
     # header correctly here, where ``response.cookies`` can keep the
     # outer quotes around values that contain JSON).
     session_cookie = client.cookies.get(session_cookie_name())
-    print("DEBUG session_cookie:", repr(session_cookie))
     assert session_cookie
     decoded = read_session(session_cookie, secret=settings.session_secret)
-    print("DEBUG decoded:", decoded)
     # ``is_authorized`` se escribe en el callback desde el campo
     # ``activo`` del registro de usuarios_autorizados (fix P0 de la
     # code review VOL-01). El fake expone ``activo: True``.
@@ -299,17 +331,18 @@ async def test_callback_issues_session_cookie_and_redirects_home(
     assert len(csrf_token) >= 32
 
 
-async def test_callback_exchanges_insforge_code_for_session(
+async def test_callback_exchanges_oauth_code_for_session(
     client: httpx.AsyncClient,
-    fake_insforge: tuple[_FakeSqlExecutor, _FakeOAuthPort],
+    fake_insforge: tuple[_FakeAuthUsersPort, _FakeOAuthPort],
     google_configured: None,
 ) -> None:
-    """InsForge's hosted OAuth proxy sends ``insforge_code`` (not ``code``)
+    """LocalBackend's hosted OAuth proxy sends ``oauth_code`` (not ``code``)
     to the app callback. The handler must accept the new parameter,
     exchange it via the OAuth port with the PKCE verifier, and create a
     session exactly like the legacy Google code flow did.
 
-    This is the contract test that pins the post-proxy callback spec.
+    This is the contract test that pins the post-proxy callback spec
+    (``app/core/application/oauth/callback.py`` -> ``OAuthPort.exchange_oauth_code``).
     """
     from app.core.config import get_settings
     from app.core.session import read_session, session_cookie_name, write_session
@@ -321,12 +354,12 @@ async def test_callback_exchanges_insforge_code_for_session(
     client.cookies.set("apap_pkce", pkce_token)
 
     response = await client.get(
-        "/auth/callback", params={"insforge_code": "insforge-code-xyz"},
+        "/auth/callback", params={"oauth_code": "oauth-code-xyz"},
         follow_redirects=False,
     )
 
     assert response.status_code == 302, (
-        f"insforge_code callback should succeed (302), got {response.status_code}: "
+        f"oauth_code callback should succeed (302), got {response.status_code}: "
         f"{response.text[:200]}"
     )
     assert response.headers["location"] == "/"
@@ -340,7 +373,7 @@ async def test_callback_exchanges_insforge_code_for_session(
 
 async def test_login_apap_pkce_cookie_uses_samesite_lax_for_oauth_callback(
     client: httpx.AsyncClient,
-    fake_insforge: tuple[_FakeSqlExecutor, _FakeOAuthPort],
+    fake_insforge: tuple[_FakeAuthUsersPort, _FakeOAuthPort],
     google_configured: None,
 ) -> None:
     """``/login`` must issue ``apap_pkce`` with ``SameSite=Lax``.
@@ -364,7 +397,7 @@ async def test_login_apap_pkce_cookie_uses_samesite_lax_for_oauth_callback(
 
 async def test_callback_apap_session_cookie_uses_samesite_strict(
     client: httpx.AsyncClient,
-    fake_insforge: tuple[_FakeSqlExecutor, _FakeOAuthPort],
+    fake_insforge: tuple[_FakeAuthUsersPort, _FakeOAuthPort],
     google_configured: None,
 ) -> None:
     """``/auth/callback`` issues ``apap_session`` with ``SameSite=Strict``.

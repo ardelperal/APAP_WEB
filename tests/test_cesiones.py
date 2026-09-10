@@ -75,6 +75,21 @@ class _FakeSqlExecutor:
         pass  # no-op for fake
 
 
+def _make_client(
+    handler: Callable[[str, list[object]], Any],
+) -> tuple[_FakeSqlExecutor, list[tuple[str, list[object]]]]:
+    """Build a fake executor that delegates every ``execute_sql`` to ``handler``.
+
+    The handler signature mirrors what ``_build_handler`` produces:
+    it inspects ``(query, params)`` and returns a list of dicts or an
+    ``_ErrorResponse``. Returned ``calls`` is captured by reference so
+    tests can assert SQL + positional params without monkey-patching.
+    """
+    fake = _FakeSqlExecutor()
+    fake.set_handler(handler)
+    return fake, fake.calls
+
+
 def _build_handler(
     *,
     entradas_row: dict[str, Any] | None = None,

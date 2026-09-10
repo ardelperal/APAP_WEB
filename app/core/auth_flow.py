@@ -55,12 +55,6 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 
 from app.core import config as config_module
-from app.core.adapters.local_backend.auth_local_backend_adapter import (
-    LocalBackendAuthUsersAdapter,
-)
-from app.core.adapters.local_backend.oauth_local_backend_adapter import (
-    LocalBackendOAuthAdapter,
-)
 from app.core.application.oauth import (
     callback as callback_use_case,
 )
@@ -73,9 +67,10 @@ from app.core.application.oauth import (
 from app.core.application.oauth import (
     start_google_login as start_google_login_use_case,
 )
-from app.core.auth_dependencies import get_local_backend_client_dep
 from app.core.csrf import issue_csrf_to_session
-from app.core.data_access import BackendError, SqlExecutor
+from app.core.data_access import BackendError
+from app.core.di.auth_di import get_auth_users_port
+from app.core.di.oauth_di import get_oauth_port
 from app.core.domain.oauth import (
     CallbackInvalidError,
     OAuthNotConfiguredError,
@@ -125,9 +120,12 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
     The route handlers are THIN: each one handles only transport
     concerns (cookie parsing, redirect building, template
     rendering) and delegates the domain decision to a use case in
-    :mod:`app.core.application.oauth`. The :class:`AuthUsersPort`
-    is constructed per-request by the shim helpers
-    (no DI; the legacy shape is preserved).
+    :mod:`app.core.application.oauth`. The :class:`OAuthPort` and
+    :class:`AuthUsersPort` are wired via the FastAPI DI providers
+    :func:`app.core.di.oauth_di.get_oauth_port` and
+    :func:`app.core.di.auth_di.get_auth_users_port`, which respect
+    the ``app.state._oauth_port`` / ``app.state._auth_users_port``
+    test overrides.
     """
 
     @app.get("/login")
@@ -153,7 +151,7 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
 
     @app.get("/auth/google")
     def start_google_login(
-        client: Annotated[SqlExecutor, Depends(get_local_backend_client_dep)],
+        oauth_port: Annotated[OAuthPort, Depends(get_oauth_port)],
     ) -> Response:
         """Start the Google OAuth flow via LocalBackend.
 
@@ -165,7 +163,7 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
         settings = config_module.get_settings()
         try:
             pkce, auth_url = start_google_login_use_case(
-                LocalBackendOAuthAdapter(client),
+                oauth_port,
                 settings,
             )
         except OAuthNotConfiguredError:
@@ -193,7 +191,8 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
     @app.get("/auth/callback")
     def callback(
         request: Request,
-        client: Annotated[SqlExecutor, Depends(get_local_backend_client_dep)],
+        oauth_port: Annotated[OAuthPort, Depends(get_oauth_port)],
+        auth_port: Annotated[AuthUsersPort, Depends(get_auth_users_port)],
         oauth_code: str | None = None,
         code: str | None = None,  # legacy direct-callback (pre-LocalBackend-proxy)
     ) -> Response:
@@ -225,8 +224,8 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
 
         try:
             session = callback_use_case(
-                LocalBackendOAuthAdapter(client),
-                LocalBackendAuthUsersAdapter(client),
+                oauth_port,
+                auth_port,
                 oauth_code=oauth_code,
                 code=code,
                 code_verifier=pkce["code_verifier"],

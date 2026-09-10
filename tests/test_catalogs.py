@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -85,17 +86,24 @@ class _FakeSqlExecutor:
         self.close()
 
 
-def _client_recording(handler) -> tuple[SqlExecutor, list[dict[str, Any]]]:
-    """Build a SQL executor that records every call's request body."""
-    captured: list[dict[str, Any]] = []
+def _json_response(status_code: int, body: Any) -> httpx.Response:
+    return httpx.Response(
+        status_code=status_code,
+        content=json.dumps(body).encode("utf-8"),
+        headers={"content-type": "application/json"},
+    )
 
-    def _recording_handler(request: httpx.Request) -> httpx.Response:
-        assert request.headers.get("Authorization", "").startswith("Bearer ")
-        body = json.loads(request.content.decode("utf-8")) if request.content else {}
-        captured.append(body)
-        return handler(request, body)
 
-    return HandlerSqlExecutor(_recording_handler), captured
+def _client_recording() -> tuple[SqlExecutor, list[tuple[str, list[object]]]]:
+    """Build a fake executor that records every ``execute_sql`` call.
+
+    The returned ``captured`` list contains ``(query, params)`` tuples
+    so callers can assert SQL shape and positional parameters without
+    needing a real Postgres instance. Mirrors the canonical pattern
+    from ``tests/test_entradas.py``.
+    """
+    fake = _FakeSqlExecutor()
+    return fake, fake.calls
 
 
 def _column_names(sql: str) -> set[str]:
@@ -559,6 +567,10 @@ def test_ensure_catalogs_raises_when_create_table_fails() -> None:
 
     from app.core.data_access import BackendError
 
+    def handler(_req: httpx.Request) -> httpx.Response:
+        # Return a 500 for any query so the first CREATE TABLE fails.
+        return _json_response(500, {"error": "boom"})
+
     client = HandlerSqlExecutor(handler)
     with pytest.raises(BackendError):
         ensure_catalogs(client)
@@ -568,16 +580,15 @@ def test_ensure_catalogs_raises_when_create_table_fails() -> None:
 # --- list_catalogos_* read helpers ---------------------------------------
 
 
-def _client_returning(body: list[dict[str, Any]]) -> tuple[SqlExecutor, list[dict[str, Any]]]:
-    """Build a client that always returns the same body and records calls."""
-    captured: list[dict[str, Any]] = []
+def _client_returning(body: list[dict[str, Any]]) -> tuple[SqlExecutor, list[tuple[str, list[object]]]]:
+    """Build a fake executor that returns ``body`` for every call and records them.
 
-    def _hh(request: httpx.Request) -> httpx.Response:
-        body_json = json.loads(request.content.decode("utf-8")) if request.content else {}
-        captured.append(body_json)
-        return _json_response(200, body)
-
-    return HandlerSqlExecutor(_hh), captured
+    The returned ``captured`` list contains ``(query, params)`` tuples
+    so callers can assert SQL shape and positional parameters.
+    """
+    fake = _FakeSqlExecutor()
+    fake.set_response(body)
+    return fake, fake.calls
 
 
 def test_list_catalogos_origenes_uses_expected_sql() -> None:

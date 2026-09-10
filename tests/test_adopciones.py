@@ -28,8 +28,8 @@ from typing import Any
 
 import pytest
 
+from app.core.data_access import BackendError
 from app.modules.adopciones import service as adopciones_service
-from tests.sql_executor_fake import HandlerSqlExecutor as LocalPostgresExecutor
 
 
 class _ErrorResponse:
@@ -45,26 +45,55 @@ class _ErrorResponse:
         self.body = body
 
 
-def _client_recording(
-    handler: Callable[[httpx.Request, dict[str, Any]], httpx.Response],
-) -> tuple[LocalPostgresExecutor, list[dict[str, Any]]]:
-    captured: list[dict[str, Any]] = []
+class _FakeSqlExecutor:
+    """Minimal ``SqlExecutor`` Protocol implementation for unit tests.
 
-    """Supports two response strategies:
-      * ``set_response`` / ``set_responses`` — queue rows consumed in order
-        (used by tests that want straight-line behaviour).
-      * ``set_handler`` — a per-call callable that inspects the SQL +
-        params and returns rows OR an ``_ErrorResponse`` (used by CTE +
-        disambiguation tests where the response depends on which CTE
-        was hit).
+    Supports two response strategies:
+
+    * ``set_response`` / ``set_responses`` — queue rows consumed in order
+      (used by tests that want straight-line behaviour).
+    * ``set_handler`` — a per-call callable that inspects the SQL +
+      params and returns rows OR an ``_ErrorResponse`` (used by CTE +
+      disambiguation tests where the response depends on which CTE
+      was hit).
+
+    Returns ``[]`` when neither strategy matches so the fake never
+    accidentally short-circuits a "row missing" branch.
     """
 
-    client = LocalPostgresExecutor(
-        base_url="https://example.local_backend.app",
-        service_key="ik_test",
-        transport=httpx.MockTransport(_recording_handler),
-    )
-    return client, captured
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, list[object]]] = []
+        self._responses: list[list[dict[str, object]]] = []
+        self._handler: Callable[[str, list[object]], Any] | None = None
+
+    def set_response(self, rows: list[dict[str, object]]) -> None:
+        self._responses = [rows]
+
+    def set_responses(self, *responses: list[dict[str, object]]) -> None:
+        self._responses = list(responses)
+
+    def set_handler(
+        self, handler: Callable[[str, list[object]], Any]
+    ) -> None:
+        self._handler = handler
+
+    def execute_sql(
+        self, query: str, params: list[object] | None = None
+    ) -> list[dict[str, object]]:
+        self.calls.append((query, list(params or [])))
+        bound_params = list(params or [])
+        if self._handler is not None:
+            result = self._handler(query, bound_params)
+            if isinstance(result, _ErrorResponse):
+                raise BackendError(result.status_code, result.body)
+            if result is not None:
+                return result  # type: ignore[no-any-return]
+        if self._responses:
+            return self._responses.pop(0)
+        return []
+
+    def close(self) -> None:
+        pass  # no-op for fake
 
 
 def _params_minimal() -> dict[str, Any]:

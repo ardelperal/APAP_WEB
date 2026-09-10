@@ -39,6 +39,7 @@ class _FakeSqlExecutor:
     def __init__(self) -> None:
         self.calls: list[tuple[str, list[object]]] = []
         self._responses: list[list[dict[str, object]]] = []
+        self._handler: Callable[[str, list[object]], Any] | None = None
 
     def set_response(self, rows: list[dict[str, object]]) -> None:
         self._responses = [rows]
@@ -46,10 +47,22 @@ class _FakeSqlExecutor:
     def set_responses(self, *responses: list[dict[str, object]]) -> None:
         self._responses = list(responses)
 
+    def set_handler(
+        self, handler: Callable[[str, list[object]], Any]
+    ) -> None:
+        self._handler = handler
+
     def execute_sql(
         self, query: str, params: list[object] | None = None
     ) -> list[dict[str, object]]:
         self.calls.append((query, list(params or [])))
+        bound_params = list(params or [])
+        if self._handler is not None:
+            result = self._handler(query, bound_params)
+            if isinstance(result, _ErrorResponse):
+                raise BackendError(result.status_code, result.body)
+            if result is not None:
+                return result  # type: ignore[no-any-return]
         if self._responses:
             return self._responses.pop(0)
         return []
@@ -58,11 +71,60 @@ class _FakeSqlExecutor:
         pass  # no-op for fake
 
 
+class _ErrorResponse:
+    """Marker returned by a fake handler to signal a backend error."""
+
+    def __init__(self, status_code: int, body: Any) -> None:
+        self.status_code = status_code
+        self.body = body
+
+
+def _client_returning(
+    rows: list[dict[str, object]],
+) -> tuple[_FakeSqlExecutor, list[tuple[str, list[object]]]]:
+    """Build a fake executor that returns ``rows`` from the first ``execute_sql`` call."""
+    fake = _FakeSqlExecutor()
+    fake.set_response(rows)
+    return fake, fake.calls
+
+
+def _client_cascading(
+    *responses: list[dict[str, object]],
+) -> tuple[_FakeSqlExecutor, list[tuple[str, list[object]]]]:
+    """Build a fake executor that pops a fresh response queue per call.
+
+    Each call to ``execute_sql`` consumes the next response in order;
+    useful for tests that drive a CTE + disambiguation sequence.
+    """
+    fake = _FakeSqlExecutor()
+    fake.set_responses(*responses)
+    return fake, fake.calls
+
+
+def _client_with_query_handler(
+    handler: Callable[[str, list[object]], Any],
+) -> tuple[_FakeSqlExecutor, list[tuple[str, list[object]]]]:
+    """Build a fake executor that delegates every ``execute_sql`` to ``handler``.
+
+    The handler signature mirrors what ``_handler_resumen`` and
+    friends produce: it inspects ``(query, params)`` and returns a
+    list of dicts (or ``None`` to fall through to the empty default).
+    """
+    fake = _FakeSqlExecutor()
+    fake.set_handler(handler)
+    return fake, fake.calls
+
+
 def _client_recording(
     handler: Callable[[httpx.Request, dict[str, Any]], httpx.Response],
 ) -> tuple[LocalPostgresExecutor, list[dict[str, Any]]]:
     captured: list[dict[str, Any]] = []
 
+    def _recording_handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers.get("Authorization", "").startswith("Bearer ")
+        body = json.loads(request.content.decode("utf-8")) if request.content else {}
+        captured.append(body)
+        return handler(request, body)
 
     client = LocalPostgresExecutor(
         base_url="https://example.local_backend.app",
