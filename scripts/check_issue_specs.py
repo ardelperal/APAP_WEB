@@ -293,6 +293,9 @@ def validate_pr_event(event: Mapping[str, Any], client: GitHubClient) -> list[st
         if "pull_request" in issue:
             violations.append(f"#{number}: reference resolves to a pull request")
             continue
+        # Closed approved issues predate full section requirements (issue #641)
+        if issue.get("state") == "closed" and APPROVAL_LABEL in _labels(issue):
+            continue
         violations.extend(f"#{number}: {error}" for error in issue_contract_errors(issue))
     return violations
 
