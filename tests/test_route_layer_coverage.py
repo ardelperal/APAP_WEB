@@ -60,6 +60,13 @@ async def test_every_route_returns_dependency_response_without_domain_work(
                 # Body() / Pydantic model parameters: mock with a bare object
                 # so the endpoint receives a valid payload without hitting the DB.
                 kwargs[parameter.name] = Mock()
+            elif parameter.name in ("fecha_desde", "fecha_hasta"):
+                # The sanidad ``proximas_pruebas_view`` parses these as ISO
+                # dates before the auth guard runs. Provide a real date so
+                # the parse passes and the auth dependency short-circuits
+                # before any domain work.
+                from datetime import date
+                kwargs[parameter.name] = date(2026, 1, 1).isoformat()
             else:
                 # Any other required parameter (typically a required Form(...)
                 # field such as ``Voluntario`` or ``animal_id``). The auth

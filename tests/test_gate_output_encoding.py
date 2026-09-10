@@ -48,28 +48,6 @@ def _declared_helper(tree: ast.Module) -> ast.FunctionDef | None:
     )
 
 
-def _imported_helper(tree: ast.Module) -> ast.FunctionDef | None:
-    """The pin helper a module imports instead of declaring, resolved to its source.
-
-    Slice 5 (#516) moved the pin into ``scripts/_quality_envelope.py`` so the envelope writers
-    could share one copy, and ``scripts/quality_report.py`` imports it from there. The contract
-    is that the pin RUNS before ``main()`` prints, not that its body is pasted into every gate,
-    so an import satisfies it — and the module it comes from is then held to exactly the same
-    ``reconfigure`` check below. Resolution is restricted to ``scripts/``: an import from
-    anywhere else is not a pin this test can vouch for.
-    """
-    for node in tree.body:
-        if not isinstance(node, ast.ImportFrom) or node.level != 0 or not node.module:
-            continue
-        if not any(alias.name == PIN for alias in node.names):
-            continue
-        origin = SCRIPTS_DIR / f"{node.module}.py"
-        if not origin.is_file():
-            return None
-        return _declared_helper(ast.parse(origin.read_text(encoding="utf-8")))
-    return None
-
-
 def _reconfigured_streams(helper: ast.FunctionDef) -> set[str]:
     """The streams ``helper`` calls ``.reconfigure()`` on."""
     return {
@@ -106,7 +84,7 @@ def _pins_output_encoding(source: str) -> bool:
     )
     if not called:
         return False
-    helper = _declared_helper(tree) or _imported_helper(tree)
+    helper = _declared_helper(tree)
     if helper is None:
         return False
     return {"stdout", "stderr"} <= _reconfigured_streams(helper)
@@ -125,18 +103,6 @@ def test_every_printing_gate_pins_its_output_encoding():
 def test_at_least_one_gate_is_covered():
     """Guard the guard: an empty scan must never read as a pass."""
     assert len(_printing_scripts()) >= 15
-
-
-def test_pin_imported_from_the_shared_scripts_module_is_accepted():
-    """#516 moved the pin into ``scripts/_quality_envelope.py``; importing it still counts."""
-    source = (
-        "from _quality_envelope import _pin_output_encoding\n"
-        "def main():\n"
-        "    _pin_output_encoding()\n"
-        "    print('x')\n"
-    )
-
-    assert _pins_output_encoding(source)
 
 
 def test_calling_a_pin_that_is_neither_declared_nor_imported_is_rejected():

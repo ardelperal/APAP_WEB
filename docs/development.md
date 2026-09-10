@@ -259,50 +259,64 @@ El directorio `dist/` está en `.gitignore`. Se puede borrar entre builds; el ta
 
 ## Paso 8 — Ejecutar la verja verde de PR
 
-`make verify` es el comando que refleja la CI en una pull request. Corre, en el mismo orden que `ci.yml`, los trece gates del job `lint`, luego `mypy`, luego pytest con el piso de cobertura y el ratchet de CRAP:
+`make verify` ejecuta el subconjunto determinista de CI que se puede reproducir
+en una estación de trabajo. Incluye los gates estáticos de `lint`, `mypy`,
+pytest con el piso de cobertura y el ratchet de CRAP:
 
 ```bash
 make verify
 ```
 
-Una corrida en verde, sobre una rama al día con `main`, es la señal local de que la PR está lista para revisión: la CI no tiene nada más que descubrir.
+Una corrida en verde, sobre una rama al día con `main`, indica que la PR está lista para CI. No reemplaza el check remoto `ci / required`, que además valida seguridad en contenedores, PostgreSQL, el build de producción y el smoke E2E con navegador real.
 
 `make all` es `make css` + `make verify`, para cuando además hace falta recompilar el bundle de Tailwind.
 
-Lo que `verify` **no** corre, porque no se puede reproducir en una máquina de desarrollo:
+Lo que `verify` **no** corre por requerir servicios, contenedores, navegador, credenciales o capacidad programada:
 
 | Job | Por qué queda fuera | Cómo correrlo |
 |---|---|---|
 | `mutation` | cosmic-ray es Linux-only y tarda; corre en un schedule semanal | `make mutation` (bajo WSL) |
 | `security` / `security-deep` | gitleaks y trivy corren en Docker | por CI |
 | `integration` | necesita un Postgres real | `pytest -m integration` con `APAP_TEST_POSTGRES_DSN` |
-| `e2e` | necesita Playwright y OAuth configurado | ver la sección de E2E más abajo |
+| `verify-fallback-ready` | necesita un Postgres aislado | por CI |
+| `build` | construye y valida la imagen de producción | por CI o `docker build` |
+| `e2e` | arranca Postgres, la aplicación real y Chromium mediante Playwright | por CI |
 
-> La lista de gates de `verify` está clavada a `ci.yml` por
-> `tests/test_ci_workflow.py::test_make_verify_covers_every_ci_gate`. Agregar un gate
-> al workflow sin agregarlo al `Makefile` rompe ese test. Es a propósito: es lo único
-> que mantiene las dos listas iguales con el tiempo.
+> Los scripts reproducibles de `verify` están clavados a `ci.yml` por
+> `tests/test_ci_workflow.py::test_make_verify_covers_locally_runnable_script_gates`.
+> Los jobs con infraestructura se agregan exclusivamente en `ci / required`.
 
-## Workflow de CI y futuro hook E2E
+## Workflow de CI
 
-El workflow de GitHub Actions corre los mismos comandos locales en pull requests a `staging` o `main`, y en pushes a `staging` o `main`:
+El workflow de GitHub Actions corre en pull requests y pushes a `main`, tags `v*` y en sus schedules. Todos los jobs de verificación usan runners hosted aislados:
 
-| Job | Comando | Propósito |
+| Job | Propósito |
 |---|---|---|
-| `ci / lint` | `ruff check .` | Lint estático y orden de imports. |
-| `ci / test` | `python -m pytest -W error::DeprecationWarning` | Tests unitarios/integración con deprecations promovidas a error. |
-| `ci / build` | `python -m build` | Validación de build del paquete. |
+| `ci / lint` | Lint, arquitectura y meta-gates del repositorio. |
+| `ci / security` / `security-deep` | Secret scanning, dependencias e imagen. |
+| `ci / typecheck` | `mypy` sin errores. |
+| `ci / test` | Suite con deprecations estrictas, cobertura y CRAP ratchet. |
+| `ci / integration` / `verify-fallback-ready` | Contratos contra PostgreSQL aislado. |
+| `ci / build` | Build reproducible del paquete y de la imagen. |
+| `ci / e2e` | Smoke fail-closed contra aplicación real, PostgreSQL y Chromium. |
+| `ci / required` | Agregador fail-closed protegido por `main`. |
 
-El workflow también incluye un job `ci / e2e` que corre la suite Playwright (9 tests contra un Chromium headless contra `scripts/dev_server_no_lifespan.py`). El server arranca sin el bootstrap de LocalBackend (lifespan no-op) así que las rutas públicas (`/`, `/healthz`, `/unauthorized`, redirect a `/login`) sirven y se pueden validar sin backend real. Para correrlo en local:
+Para correr el smoke E2E de Playwright en local hace falta PostgreSQL, Chromium y una instancia real de `app.main:app` con lifespan habilitado:
 
 ```bash
 python -m pip install -e ".[dev]"
 python -m playwright install --with-deps chromium
-python scripts/dev_server_no_lifespan.py &
-pytest tests/e2e/ -v
+APAP_LOCAL_DB_URL=postgresql://... APAP_E2E_AUTH_SECRET=... \
+  uvicorn app.main:app --lifespan on &
+APAP_E2E_BASE_URL=http://127.0.0.1:8000 APAP_E2E_AUTH_SECRET=... \
+  pytest tests/e2e_ci/ -v
 ```
 
-El job `ci / deploy` solo corre en push directo a `main` (no en PRs ni en merges), preservando el modelo staging-only del proyecto.
+El workflow `deploy.yml` corre después de un merge a `main`, verifica que el
+árbol desplegado corresponde al head de una PR verde y construye una sola
+imagen ARM64 identificada por digest. Publica su inventario de componentes y
+procedencia, escanea y prueba ese digest antes de promoverlo. Luego verifica la
+revisión pública y revierte al digest anterior si la promoción falla.
 
 ## Estructura del repositorio y worktrees
 
@@ -369,18 +383,18 @@ La sección `openspec/changes/ci-cd-foundation/design.md § Future work` lista c
 
 ## Core invariants
 
-- **`make verify` refleja CI**: la lista de targets de `verify` está pineada por `tests/test_ci_workflow.py::test_make_verify_covers_every_ci_gate` al orden de los jobs de `ci.yml`. Añadir un gate a CI sin añadirlo a `verify` rompe el test; añadirlo a `verify` sin CI lo deja como coste local sin enforcement.
+- **`make verify` es evidencia local, no la decisión final**: los scripts reproducibles están pineados por `tests/test_ci_workflow.py::test_make_verify_covers_locally_runnable_script_gates`. El check protegido `ci / required` agrega todos los jobs remotos y es la autoridad para mergear.
 - **DeprecationWarning es error**: `pyproject.toml` promueve `DeprecationWarning` y `PendingDeprecationWarning` a error en pytest. Un test que importe APIs deprecadas falla en local y en CI; el filtro `StarletteDeprecationWarning` es la única excepción documentada.
-- **Cobertura `--cov-fail-under=80`**: pytest corre con `--cov-fail-under=80`, replicando el suelo de `pyproject.toml`. Una suite que pasa local sin ese flag puede pasar en local y fallar en CI; correr siempre con el flag.
+- **Cobertura `--cov-fail-under=85`**: pytest replica el suelo de `pyproject.toml`. Una suite que omite ese flag puede pasar en local y fallar en CI.
 - **`ruff check .` cubre `E/F/W/I/UP/B`**: la selección vive en `pyproject.toml` § `[tool.ruff.lint]`. Cambiar reglas requiere PR que actualice también este doc.
 - **`make mutation` es semanal y Linux-only**: cosmic-ray no entra en `verify` por coste y portabilidad. Solo se ejecuta en el job `mutation` con schedule semanal; los workstations no lo corren por defecto.
-- **E2E solo con `APAP_OAUTH_CLIENT_ID`**: el job `ci / e2e` corre Playwright solo cuando las credenciales OAuth están configuradas como variable de entorno. Sin ellas el job se salta.
+- **E2E falla cerrado**: el job `ci / e2e` levanta PostgreSQL, arranca la aplicación con lifespan habilitado y ejecuta Chromium. La autenticación de prueba requiere `APAP_E2E_AUTH_SECRET`; si falta, el job falla en lugar de saltarse.
 - **Edición editable requiere reinstalar tras mover worktree**: `python -m pip install -e ".[dev]"` deja una ruta absoluta en un `.pth`. Mover o recrear el worktree deja esa ruta apuntando al checkout anterior; hay que reinstalar.
 
 ## Contributor checklist
 
 - [ ] Ejecutar `make verify` antes de abrir la PR; si algún target falla, arreglarlo antes de pedir review.
-- [ ] Si añade un gate a `ci.yml`, añadir también el target correspondiente al `Makefile` y listarlo en `verify`, en el mismo orden.
+- [ ] Si añade un gate reproducible localmente a `ci.yml`, añadir también su target al `Makefile`; los gates con infraestructura permanecen cubiertos por `ci / required`.
 - [ ] Si añade una dependencia de runtime, declararla en `pyproject.toml` § `dependencies` y verificar que `make verify` la resuelve en local.
 - [ ] Si añade una dependencia de dev, declararla en `pyproject.toml` § `[project.optional-dependencies]` bajo `dev`; nunca instalar con `pip install <pkg>` ad-hoc.
 - [ ] Si mueve o recrea el worktree, ejecutar `python -m pip install -e ".[dev]"` desde la raíz del nuevo checkout antes de correr pytest.

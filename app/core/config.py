@@ -28,6 +28,7 @@ from __future__ import annotations
 import functools
 from typing import Literal
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.logging import log_safe
@@ -87,6 +88,8 @@ class Settings(BaseSettings):
 
     Environment variables are read with the ``APAP_`` prefix. For
     example, ``APAP_SESSION_SECRET`` populates :attr:`session_secret`.
+    ``SOURCE_COMMIT`` is the sole platform-provided alias: Coolify injects it
+    at runtime and it takes precedence over the image's ``APAP_BUILD_SHA``.
     """
 
     model_config = SettingsConfigDict(
@@ -98,6 +101,10 @@ class Settings(BaseSettings):
 
     app_name: str = "APAP_WEB"
     version: str = "0.1.0"
+    build_sha: str = Field(
+        default="development",
+        validation_alias=AliasChoices("SOURCE_COMMIT", "APAP_BUILD_SHA"),
+    )
 
     # Coolify-hosted local backend (issue #641, #648). The only
     # supported production transport as of 2026-09-06: the

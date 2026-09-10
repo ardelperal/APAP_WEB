@@ -8,7 +8,7 @@ entirely — every authenticated route (admin, animals, adopciones)
 returns a redirect to ``/login`` and the test has no way past it.
 
 This module closes the loop by registering a single test-only
-route, ``POST /e2e/login``, that mints a session directly when:
+route, ``GET /e2e/login``, that mints a session directly when:
 
 1. ``Settings.e2e_auth_enabled`` is True (the route is **not
    registered** otherwise — production deployments must leave
@@ -189,7 +189,10 @@ def register_e2e_auth_routes(app: FastAPI) -> None:
             session_token,
             path="/",
             httponly=True,
-            secure=True,
+            # CI serves the disposable app on loopback HTTP. The route only
+            # exists when explicitly enabled with its shared secret, and debug
+            # mode is the boundary that permits an HTTP cookie for that run.
+            secure=not settings.debug,
             samesite="strict",
             max_age=60 * 60 * 24 * 7,
         )

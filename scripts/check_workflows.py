@@ -256,13 +256,7 @@ def check_absent_commands(text: str, label: str) -> list[str]:
 
 
 def check_concurrency(text: str, label: str) -> list[str]:
-    """Return violations when a workflow declares no FIFO concurrency group.
-
-    The pool has one eligible runner and a runner executes one job at a time, so
-    two runs of a branch interleave rather than overlap and neither finishes
-    early. ``cancel-in-progress: true`` is the right default where capacity is
-    elastic; here it discards work that already consumed the only runner.
-    """
+    """Require stale-check cancellation, except for transactional deploys."""
     workflow = yaml.safe_load(text)
     if not isinstance(workflow, dict):
         return []
@@ -273,12 +267,12 @@ def check_concurrency(text: str, label: str) -> list[str]:
             f"alongside the first and both compete for the single runner "
             f"(issue #530)."
         ]
-    if concurrency.get("cancel-in-progress") is not False:
+    expected = Path(label).name != "deploy.yml"
+    if concurrency.get("cancel-in-progress") is not expected:
         return [
-            f"{label}: concurrency must set cancel-in-progress: false. "
-            f"Cancelling discards a run that already consumed the only runner "
-            f"in the pool, and for deploy it can leave the target half-updated "
-            f"(issue #530)."
+            f"{label}: concurrency must set cancel-in-progress: "
+            f"{str(expected).lower()}. CI checks should cancel stale commits, "
+            f"while deploy must finish or roll back atomically (issue #694)."
         ]
     return []
 

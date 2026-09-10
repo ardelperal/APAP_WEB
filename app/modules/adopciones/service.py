@@ -18,6 +18,7 @@ from enum import StrEnum
 from typing import Any
 
 from app.core.data_access import BackendError, SqlExecutor
+from app.core.forms import optional_text, required_text
 from app.core.logging import log_safe
 from app.modules.adopciones import queries
 from app.modules.animals import (
@@ -218,19 +219,6 @@ def _row_to_adopcion(row: dict[str, Any]) -> Adopcion:
     )
 
 
-def _required_text(params: dict[str, Any], field: str) -> str:
-    value = str(params.get(field) or "").strip()
-    if not value:
-        raise ValueError(f"{field} is required and cannot be empty")
-    return value
-
-
-def _optional_text(params: dict[str, Any], field: str) -> str | None:
-    value = params.get(field)
-    if value is None:
-        return None
-    stripped = str(value).strip()
-    return stripped or None
 
 
 def _validate_entrada_exists_if_present(
@@ -247,12 +235,12 @@ def _validate_entrada_exists_if_present(
 
 
 def _raise_validation_error(client: SqlExecutor, params: dict[str, Any]) -> None:
-    animal_id = _required_text(params, "animal_id")
+    animal_id = required_text(params, "animal_id", error_template="{field} is required and cannot be empty")
     sql, sql_params = queries.build_adopcion_check_animal(animal_id)
     if not client.execute_sql(sql, sql_params):
         raise ValueError("animal_id does not reference an active animal")
 
-    vol_id = _optional_text(params, "voluntario_seguimiento_id")
+    vol_id = optional_text(params, "voluntario_seguimiento_id")
     if vol_id:
         sql, sql_params = queries.build_adopcion_check_voluntario(vol_id)
         if not client.execute_sql(sql, sql_params):
@@ -260,7 +248,7 @@ def _raise_validation_error(client: SqlExecutor, params: dict[str, Any]) -> None
                 "voluntario_seguimiento_id must reference an active volunteer"
             )
 
-    ent_id = _optional_text(params, "entrada_origen_id")
+    ent_id = optional_text(params, "entrada_origen_id")
     if ent_id:
         sql, sql_params = queries.build_adopcion_check_entrada(ent_id)
         if not client.execute_sql(sql, sql_params):
@@ -268,7 +256,7 @@ def _raise_validation_error(client: SqlExecutor, params: dict[str, Any]) -> None
                 f"entrada_origen_id does not reference an existing entrada: {ent_id}"
             )
 
-    resp_id = _optional_text(params, "responsable_adopcion_id")
+    resp_id = optional_text(params, "responsable_adopcion_id")
     if resp_id:
         sql, sql_params = queries.build_adopcion_check_responsable(resp_id)
         if not client.execute_sql(sql, sql_params):

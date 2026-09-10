@@ -62,6 +62,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from app.core._module_helpers._form_render import list_entities
 from app.core.data_access import BackendError, SqlExecutor
 from app.core.logging import log_safe
 from app.modules.materiales import queries
@@ -295,8 +296,7 @@ def list_materials(
     (active + inactive) — the admin / audit view used in Fase 6c.
     """
     sql, params = queries.build_material_list(activos_solo)
-    rows = client.execute_sql(sql, params)
-    return [_row_to_material(row) for row in rows]
+    return list_entities(client, sql, params, _row_to_material)
 
 
 def update_material(

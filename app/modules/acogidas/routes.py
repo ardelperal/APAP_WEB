@@ -23,6 +23,7 @@ Endpoints (mounted at ``/acogidas`` by ``app/main.py``):
 
 from __future__ import annotations
 
+from functools import partial
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -30,6 +31,8 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from app.core._module_helpers._crud_flow import render_edit_form
+from app.core._module_helpers._form_render import make_render_form
 from app.core.auth_dependencies import (
     AuthenticatedUser,
     get_local_postgres_executor_dep,
@@ -140,25 +143,26 @@ def _acogida_to_form_data(acogida: acogidas_service.Acogida) -> dict[str, Any]:
     }
 
 
-def _render_form(  # noqa: PLR0913  # non-route helper; 6 args is minimal for template context
-    request: Request,
-    user: AuthenticatedUser,
-    form_data: dict[str, Any],
-    error: str | None,
-    form_action: str,
-    status_code: int = status.HTTP_200_OK,
-):
-    return _templates.TemplateResponse(
-        request=request,
-        name="acogidas/form.html",
-        context={
-            "user": user,
-            "form_data": form_data,
-            "error": error,
-            "form_action": form_action,
-        },
-        status_code=status_code,
-    )
+_render_form = make_render_form(_templates, "acogidas/form.html")
+
+# ``_edit_acogida_form`` is a partial of ``render_edit_form`` that bakes in
+# the per-module fetch + form_data + render_form + form_action (issue #681
+# — JSCPD ratchet). Each module's wrapper becomes a one-liner over the
+# shared helper so the per-module wrappers do not duplicate each other.
+_edit_acogida_form: Any = partial(
+    render_edit_form,
+    # Late-bound lambda, not the bare function: a module-level partial
+    # captures the function object at import time, so a bare reference
+    # here would survive `monkeypatch.setattr(acogidas_service,
+    # "get_acogida_by_id", ...)` unchanged and still call the real
+    # (SQL-issuing) implementation in tests.
+    fetch=lambda client, entity_id: acogidas_service.get_acogida_by_id(
+        client, entity_id
+    ),
+    to_form_data=_acogida_to_form_data,
+    render_form=_render_form,
+    form_action="/acogidas/{entity_id}/update",
+)
 
 
 # --- list -----------------------------------------------------------------
@@ -306,7 +310,6 @@ def acogida_detail(
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_ACOGIDAS))],
     client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
-    """Render the stay detail view with computed duration + active state."""
     if (early := return_early_if_response(user)) is not None:
         return early
     acogida = acogidas_service.get_acogida_by_id(client, acogida_id)
@@ -336,18 +339,8 @@ def edit_acogida_form(
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_ACOGIDAS))],
     client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
-    """Render the edit form prefilled from the current stay row."""
-    if (early := return_early_if_response(user)) is not None:
-        return early
-    acogida = acogidas_service.get_acogida_by_id(client, acogida_id)
-    if acogida is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-    return _render_form(
-        request,
-        user,
-        _acogida_to_form_data(acogida),
-        None,
-        f"/acogidas/{acogida_id}/update",
+    return _edit_acogida_form(
+        request=request, user=user, client=client, entity_id=acogida_id,
     )
 
 

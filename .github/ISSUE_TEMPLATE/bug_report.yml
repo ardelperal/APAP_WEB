@@ -1,37 +1,48 @@
 name: Reporte de error
-description: Reporta un error o vulnerabilidad técnica en la aplicación.
+description: Documente un defecto reproducible, su impacto y la prueba del arreglo.
 title: "bug: "
 labels:
   - "type:bug"
 body:
   - type: textarea
-    id: problema-descripcion
+    id: problema-contexto
     attributes:
-      label: Problema y ubicación
-      description: Describa el problema, dónde ocurre (archivo:línea) y su severidad.
+      label: Problema y contexto
+      description: Explique el comportamiento incorrecto, dónde ocurre y a quién afecta.
     validations:
       required: true
-
   - type: textarea
-    id: evidencia-verificacion
+    id: evidencia-verificable
     attributes:
-      label: Evidencia de verificación
-      description: Evidencia que confirma el problema (código revisado, ruta de explotación, reproducción).
+      label: Evidencia verificable
+      description: Incluya pasos de reproducción, resultado actual y fuentes comprobables.
     validations:
       required: true
-
   - type: textarea
-    id: escenario-impacto
+    id: alcance-no-objetivos
     attributes:
-      label: Escenario e impacto
-      description: Cómo se explota o dispara el problema y qué impacto concreto tiene.
+      label: Alcance y no objetivos
+      description: Delimite qué debe corregirse y qué queda expresamente fuera.
     validations:
       required: true
-
   - type: textarea
-    id: recomendacion
+    id: criterios-aceptacion
     attributes:
-      label: Recomendación
-      description: Solución propuesta.
+      label: Criterios de aceptación
+      description: Enumere resultados observables mediante una lista de comprobación.
+    validations:
+      required: true
+  - type: textarea
+    id: plan-validacion
+    attributes:
+      label: Plan de validación
+      description: Nombre las pruebas, comandos o escenarios que demostrarán el arreglo.
+    validations:
+      required: true
+  - type: textarea
+    id: dependencias-riesgos
+    attributes:
+      label: Dependencias y riesgos
+      description: Identifique bloqueos, compatibilidad, seguridad o indique «Ninguno».
     validations:
       required: true

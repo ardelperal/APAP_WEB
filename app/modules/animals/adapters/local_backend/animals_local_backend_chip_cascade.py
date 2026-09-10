@@ -22,16 +22,16 @@ from app.modules.animals.domain.lifecycle_event import LifecycleEventType
 # matches ``old_chip``) live in separate SELECTs because they read
 # before the transaction opens.
 CHECK_CHIP_UNIQUENESS_SQL: str = (
-    'SELECT id FROM animales WHERE "NCHIP" = $1 AND id != $2 LIMIT 1'
+    "SELECT id FROM animales WHERE nchip = $1 AND id != $2 LIMIT 1"
 )
 
 GET_CURRENT_CHIP_SQL: str = (
-    'SELECT "NCHIP" FROM animales WHERE id = $1'
+    'SELECT nchip AS "NCHIP" FROM animales WHERE id = $1'
 )
 
 UPDATE_ANIMALS_CHIP_SQL: str = (
-    'UPDATE animales SET "NCHIP" = $1, updated_at = now() '
-    'WHERE id = $2 AND "NCHIP" = $3 '
+    "UPDATE animales SET nchip = $1, updated_at = now() "
+    "WHERE id = $2 AND nchip = $3 "
     "RETURNING id"
 )
 

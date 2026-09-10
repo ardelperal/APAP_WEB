@@ -204,6 +204,28 @@ def test_happy_path_mints_session_and_prepopulates_cache(
     assert cached.rol == MOCK_USER_ROL
 
 
+def test_debug_e2e_cookie_can_be_sent_over_loopback_http() -> None:
+    """The CI-only debug app must not mint a Secure cookie for its HTTP URL."""
+    import app.core.e2e_auth as e2e_module
+
+    e2e_module.get_settings = lambda: Settings(
+        debug=True,
+        e2e_auth_enabled=True,
+        e2e_auth_secret="test-secret",
+        session_secret="test-session-secret-for-mock",
+    )
+    app = FastAPI()
+    register_e2e_auth_routes(app)
+
+    response = TestClient(app).get(
+        "/e2e/login",
+        headers={"X-E2E-Secret": "test-secret"},
+    )
+
+    assert response.status_code == 200
+    assert "secure" not in response.headers["set-cookie"].lower()
+
+
 def test_default_email_applies_when_query_param_omitted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

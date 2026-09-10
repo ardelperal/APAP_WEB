@@ -227,7 +227,11 @@ def _register_health_handler(app: FastAPI, settings) -> None:
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
-        return {"status": "ok", "app": settings.app_name}
+        return {
+            "status": "ok",
+            "app": settings.app_name,
+            "revision": settings.build_sha,
+        }
 
 
 def _register_index_handler(app: FastAPI, templates, settings) -> None:

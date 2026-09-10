@@ -13,10 +13,38 @@ from app.modules.animals.adapters.local_backend.animals_local_backend_queries im
 )
 from app.modules.animals.domain.animal import _INSERT_COLUMNS
 
-_QUOTED_INSERT_COLUMNS = ", ".join(f'"{column}"' for column in _INSERT_COLUMNS)
+_DB_COLUMN_BY_DOMAIN_COLUMN = {
+    "NCHIP": "nchip",
+    "NombreAnimal": "nombreanimal",
+    "Especie": "especie",
+    "Sexo": "sexo",
+    "FNacimiento": "fnacimiento",
+    "TraeNChip": "traenchip",
+    "FIMPLANTACIONCHIP": "fimplantacionchip",
+    "Raza": "raza",
+    "Color": "color",
+    "Pelo": "pelo",
+    "Tamano": "tamano",
+    "Caracter": "caracter",
+    "FDefuncion": "fdefuncion",
+    "Terapia": "terapia",
+    "Observaciones": "observaciones",
+    "NombreFoto": "nombrefoto",
+    "Cartilla": "cartilla",
+    "Eutanasia": "eutanasia",
+    "RazaPPP": "razappp",
+    "Mestizo": "mestizo",
+    "EutanasiaOtrasCausas": "eutanasia_otras_causas",
+    "EutanasiaEnfermedad": "eutanasia_enfermedad",
+    "UltimoEstadoAntesDeFallecido": "ultimo_estado_antes_de_fallecido",
+    "ComunicacionARIAC": "comunicacionariac",
+}
+_INSERT_DB_COLUMNS = ", ".join(
+    _DB_COLUMN_BY_DOMAIN_COLUMN[column] for column in _INSERT_COLUMNS
+)
 _INSERT_BINDS = ", ".join(f"${index}" for index in range(1, len(_INSERT_COLUMNS) + 1))
 INSERT_ANIMAL_SQL: str = (
-    f"INSERT INTO animales ({_QUOTED_INSERT_COLUMNS}) "  # noqa: S608 — columns are the domain-owned constant; values remain bind parameters
+    f"INSERT INTO animales ({_INSERT_DB_COLUMNS}) "  # noqa: S608 — columns are the domain-owned constant; values remain bind parameters
     f"VALUES ({_INSERT_BINDS}) RETURNING {_ANIMAL_COLUMNS_SQL}"
 )
 
@@ -72,7 +100,10 @@ def update_animal_sql(
     pairs = _update_pairs(values)
     if not pairs:
         return None
-    set_clause = ", ".join(f'"{column}" = ${index + 2}' for index, (column, _) in enumerate(pairs))
+    set_clause = ", ".join(
+        f"{_DB_COLUMN_BY_DOMAIN_COLUMN[column]} = ${index + 2}"
+        for index, (column, _) in enumerate(pairs)
+    )
     sql = (
         "UPDATE animales "  # noqa: S608 — column names come from the domain-owned constant; values remain binds
         f"SET {set_clause} WHERE id = $1 RETURNING {_ANIMAL_COLUMNS_SQL}"
@@ -82,8 +113,8 @@ def update_animal_sql(
 
 DELETE_ANIMAL_SQL: str = (
     "UPDATE animales SET activo = FALSE WHERE id = $1 "
-    "RETURNING id, \"NCHIP\", \"NombreAnimal\", \"Especie\", \"Sexo\", "
-    "\"FNacimiento\", activo"
+    'RETURNING id, nchip AS "NCHIP", nombreanimal AS "NombreAnimal", '
+    'especie AS "Especie", sexo AS "Sexo", fnacimiento AS "FNacimiento", activo'
 )
 
 

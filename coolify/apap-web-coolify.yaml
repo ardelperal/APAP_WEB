@@ -2,9 +2,9 @@
 #
 # This file is the single source of truth for the apap-web Coolify
 # service: image, port, healthcheck, env vars, and the linked
-# runbook. Coolify itself imports the service via webhook
-# (COOLIFY_WEBHOOK_URL); this yaml is the reference the operator
-# (and a future CI import job) uses to provision it reproducibly.
+# runbook. The webhook (COOLIFY_WEBHOOK_URL) triggers deployment; this yaml is
+# the reference the operator (and a future CI import job) uses to provision the
+# target image-based service reproducibly.
 #
 # The env list MUST stay in sync with ``docs/codebase/integrations.md``
 # and ``app/core/config.py::Settings``. ``tests/test_coolify_web_yaml.py``
@@ -24,10 +24,10 @@ service:
 
   # --- image ---------------------------------------------------------------
   #
-  # Built by .github/workflows/ci.yml on every push to main, pushed to
-  # GitHub Container Registry. Tag is the short SHA so rollback is
-  # always one image-tag-flip away (issue #648 acceptance).
-  image: ghcr.io/ardelperal/apap-web:v{short_sha}
+  # deploy.yml builds the image once, publishes the immutable sha-<full-sha>
+  # tag with SBOM/provenance, smoke-tests its digest, and only then moves this
+  # deployment pointer. Coolify must pull on every webhook invocation.
+  image: ghcr.io/ardelperal/apap-web:deploy-current
 
   # --- port ----------------------------------------------------------------
   #
@@ -40,8 +40,9 @@ service:
   #
   # Probes GET /healthz every 10s; Coolify's restart policy treats
   # 3 consecutive failures as a crash. /healthz lives in
-  # app/core/local_backend/healthz.py and returns the envelope:
-  #   {"db": "up"|"down", "storage": "up", "oauth": "configured"|"missing"}
+  # app/main.py and includes the exact build revision used by automated
+  # post-deploy verification and rollback:
+  #   {"status": "ok", "app": "APAP_WEB", "revision": "<git-sha>"}
   healthcheck:
     path: /healthz
     interval_seconds: 10

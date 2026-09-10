@@ -52,6 +52,16 @@ def _tree(root: Path, files: dict[str, str]) -> None:
         _write(root, rel, source)
 
 
+def _integration_source(module: str) -> str:
+    """Return the smallest valid semantic integration contract for a domain."""
+    checker = _load_checker()
+    names = checker.REQUIRED_ATOMS.get(module, {f"test_{module}_round_trip"})
+    functions = "\n\n".join(
+        f"@pytest.mark.integration\ndef {name}():\n    pass" for name in sorted(names)
+    )
+    return f"import pytest\n\n{functions}\n"
+
+
 # ---------------------------------------------------------------------------
 # The real tree
 # ---------------------------------------------------------------------------
@@ -137,7 +147,7 @@ def test_passes_when_in_scope_domain_has_integration_file(tmp_path: Path) -> Non
     }
     for module in _load_checker().IN_SCOPE_DOMAINS:
         files[f"tests/integration/test_{module}_queries_integration.py"] = (
-            f"# integration atom for {module}\n"
+            _integration_source(module)
         )
     _tree(tmp_path, files)
     checker = _load_checker()
@@ -146,6 +156,57 @@ def test_passes_when_in_scope_domain_has_integration_file(tmp_path: Path) -> Non
     # BASELINE entries still produce notices — they are visible until the
     # ratchet itself is shrunk by a future PR.
     assert all("baselined" in n for n in notices)
+
+
+def test_existing_but_empty_integration_file_fails(tmp_path: Path) -> None:
+    """A filename alone is not evidence that PostgreSQL behavior is tested."""
+    checker = _load_checker()
+    files = {
+        f"tests/integration/test_{module}_queries_integration.py": (
+            "# no collected tests\n" if module == "auth" else _integration_source(module)
+        )
+        for module in checker.IN_SCOPE_DOMAINS
+    }
+    _tree(tmp_path, files)
+
+    violations, _ = checker.check_tree(tmp_path)
+
+    assert "auth: file collects no test functions" in violations
+
+
+def test_unmarked_integration_test_fails(tmp_path: Path) -> None:
+    """Integration atoms must carry the marker used by CI selection."""
+    checker = _load_checker()
+    files = {
+        f"tests/integration/test_{module}_queries_integration.py": _integration_source(module)
+        for module in checker.IN_SCOPE_DOMAINS
+    }
+    files["tests/integration/test_acogidas_queries_integration.py"] = (
+        "def test_acogidas_round_trip():\n    pass\n"
+    )
+    _tree(tmp_path, files)
+
+    violations, _ = checker.check_tree(tmp_path)
+
+    assert any("acogidas: tests lack @pytest.mark.integration" in item for item in violations)
+
+
+def test_required_p0_atom_cannot_be_replaced_by_a_placeholder(tmp_path: Path) -> None:
+    """High-risk domains retain their audited behavior atoms by name."""
+    checker = _load_checker()
+    files = {
+        f"tests/integration/test_{module}_queries_integration.py": _integration_source(module)
+        for module in checker.IN_SCOPE_DOMAINS
+    }
+    files["tests/integration/test_auth_queries_integration.py"] = (
+        "import pytest\n\n@pytest.mark.integration\n"
+        "def test_auth_placeholder():\n    pass\n"
+    )
+    _tree(tmp_path, files)
+
+    violations, _ = checker.check_tree(tmp_path)
+
+    assert any("auth: required P0 atoms are missing" in item for item in violations)
 
 
 def test_fails_when_in_scope_domain_has_no_integration_file(tmp_path: Path) -> None:
@@ -176,7 +237,7 @@ def test_baselined_domain_is_a_notice_not_a_violation(tmp_path: Path) -> None:
     baselined = _load_checker().BASELINE
     for module in sorted(in_scope - set(baselined)):
         files[f"tests/integration/test_{module}_queries_integration.py"] = (
-            f"# integration atom for {module}\n"
+            _integration_source(module)
         )
     _tree(tmp_path, files)
     checker = _load_checker()
@@ -211,7 +272,7 @@ def test_baselined_entry_disappears_once_integration_lands(tmp_path: Path) -> No
     in_scope = _load_checker().IN_SCOPE_DOMAINS
     for module in sorted(in_scope):
         files[f"tests/integration/test_{module}_queries_integration.py"] = (
-            f"# integration atom for {module}\n"
+            _integration_source(module)
         )
     _tree(tmp_path, files)
     checker = _load_checker()

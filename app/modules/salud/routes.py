@@ -26,6 +26,7 @@ Write endpoints use ``require_permission(Permission.WRITE_SALUD)``.
 
 from __future__ import annotations
 
+from functools import partial
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -33,6 +34,8 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from app.core._module_helpers._crud_flow import render_edit_form
+from app.core._module_helpers._form_render import make_render_form
 from app.core.auth_dependencies import (
     AuthenticatedUser,
     get_local_postgres_executor_dep,
@@ -86,25 +89,26 @@ def _actor_user_id(user: AuthenticatedUser) -> str | None:
     return None
 
 
-def _render_terapia_form(  # noqa: PLR0913  # non-route helper; 6 args is minimal for template context
-    request: Request,
-    user: AuthenticatedUser,
-    form_data: dict[str, Any],
-    error: str | None,
-    form_action: str,
-    status_code: int = status.HTTP_200_OK,
-):
-    return _templates.TemplateResponse(
-        request=request,
-        name="salud/terapia_form.html",
-        context={
-            "user": user,
-            "form_data": form_data,
-            "error": error,
-            "form_action": form_action,
-        },
-        status_code=status_code,
-    )
+# ``_render_form`` (aliased to ``_render_terapia_form`` below for call-site
+# readability) is a partial of ``render_module_form`` that bakes in the
+# module's templates and template name (issue #681 — JSCPD ratchet).
+_render_form = make_render_form(_templates, "salud/terapia_form.html")
+_edit_terapia_form: Any = partial(
+    render_edit_form,
+    # Late-bound lambda, not the bare function: a module-level partial
+    # captures the function object at import time, so a bare reference
+    # here would survive `monkeypatch.setattr(salud_service,
+    # "get_terapia_by_id", ...)` unchanged and still call the real
+    # (SQL-issuing) implementation in tests.
+    fetch=lambda client, entity_id: salud_service.get_terapia_by_id(
+        client, entity_id
+    ),
+    to_form_data=_terapia_to_form_data,
+    render_form=_render_form,
+    form_action="/terapias/{entity_id}/update",
+)
+
+_render_terapia_form = _render_form  # noqa: F811 — alias preserves the historical name
 
 
 def _render_terapia_form_error(
@@ -227,7 +231,6 @@ def terapia_detail(
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_SALUD))],
     client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
-    """Detail view with its recomendaciones; 404 when the id is missing."""
     if (early := return_early_if_response(user)) is not None:
         return early
     terapia = salud_service.get_terapia_by_id(client, terapia_id)
@@ -255,18 +258,8 @@ def edit_terapia_form(
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_SALUD))],
     client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
-    """Edit form prefilled from the persisted row."""
-    if (early := return_early_if_response(user)) is not None:
-        return early
-    terapia = salud_service.get_terapia_by_id(client, terapia_id)
-    if terapia is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-    return _render_terapia_form(
-        request,
-        user,
-        _terapia_to_form_data(terapia),
-        None,
-        f"/terapias/{terapia_id}/update",
+    return _edit_terapia_form(
+        request=request, user=user, client=client, entity_id=terapia_id,
     )
 
 

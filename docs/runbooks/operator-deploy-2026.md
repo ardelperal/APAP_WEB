@@ -34,106 +34,99 @@ and `gh` CLI on a workstation. No application code is touched.
 
 | It is not | Use this boundary |
 |---|---|
-| An auto-deploy script | CI pushes images; the operator decides when to flip the Coolify service. |
+| A substitute for CI/CD | GitHub Actions publishes, verifies and promotes the image; the operator maintains the Coolify service and its secrets. |
 | A migration guide | See [`live-migration-apply.md`](live-migration-apply.md) for the ``.accdb`` → local backend migration. |
 | A monitoring guide | Coolify's built-in container logs + `/healthz` are the only observability surface today. |
 
 ## Core invariants
 
-- **Image is built by CI, not by hand**: tag is the short SHA of the
-  ``main`` commit. ``:latest`` is forbidden by the yaml contract.
-- **Self-host is irreversible from this runbook's perspective**: the
-  container runs ``APAP_LOCAL_BACKEND=true`` and there is no operator
-  path to fall back to LocalBackend. Rollback = roll back the image tag.
-- **``APAP_SESSION_SECRET`` rotation invalidates every active session**:
-  every operator must re-login. Coordinate the rotation for a low-
-  traffic window.
+- **Verify before deployment**: `deploy.yml` publishes `sha-<full-sha>` with a
+  component inventory and provenance, then scans and smokes that exact digest.
+  The current source-based Coolify resource must expose the same commit through
+  its runtime `SOURCE_COMMIT`; phase 1 remains the target image-based setup.
+- **Fail closed**: missing webhook credentials, missing health URL, absent CI
+  evidence, a failed scan, smoke test or revision check all fail the deployment.
+- **Automatic rollback**: if post-deploy verification fails after promotion,
+  CI restores the previous digest, retriggers Coolify and verifies its revision.
+- **`APAP_SESSION_SECRET` rotation invalidates every active session**:
+  coordinate the rotation for a low-traffic window.
 
 ## Phase 1 — First-time setup (one-off)
 
-The Coolify service does not exist yet. The operator:
+1. **Provision PostgreSQL** in Coolify and verify connectivity from the app
+   network. The application reads `APAP_LOCAL_DB_URL` at startup.
 
-1. **Provision the Postgres service** in Coolify (already done in
-   the staging VPS as ``apap-pg-test``). Verify the operator can
-   connect from the app VPS with the DSN; the app reads
-   ``APAP_LOCAL_DB_URL`` at lifespan time.
+2. **Create `apap-web` as an image-based service**:
+   - Image: `ghcr.io/ardelperal/apap-web:deploy-current`.
+   - Always pull the image when a deployment is triggered.
+   - Do not configure a source build in Coolify.
+   - Port: `8000`.
+   - Healthcheck: `GET /healthz` every 10 seconds, with 30 seconds of grace.
+   - Domain: `https://apap.romancaba.com` behind Traefik.
 
-2. **Create the ``apap-web`` Coolify service**:
-   - Image: ``ghcr.io/ardelperal/apap-web:main`` (first deploy; later
-     deploys pin a SHA).
-   - Port: ``8000``.
-   - Healthcheck: ``GET /healthz`` every 10s, 30s grace period.
-   - Domain: ``https://apap.romancaba.com`` behind Coolify's Traefik.
-
-3. **Set the env vars** in Coolify's secret store (the UI calls them
-   "environment variables"; mark the sensitive ones as **secret**).
-   The full list and defaults are in
+3. **Set runtime variables** from
    [`coolify/apap-web-coolify.yaml`](../../coolify/apap-web-coolify.yaml).
-    Required secrets: ``APAP_SESSION_SECRET``, ``APAP_LOCAL_DB_URL``,
-    ``APAP_SMTP_PASSWORD``.
+   Store `APAP_SESSION_SECRET`, `APAP_LOCAL_DB_URL` and
+   `APAP_SMTP_PASSWORD` as secrets.
 
-4. **Trigger the first deploy** by pushing to ``main`` (the webhook in
-   ``COOLIFY_WEBHOOK_URL`` fires the build) or by clicking "Deploy" in
-   Coolify's UI.
+4. **Set GitHub Actions deployment configuration**:
+   - Secret `COOLIFY_WEBHOOK_URL`.
+   - Secret `COOLIFY_WEBHOOK_SECRET`.
+   - Repository variable `APAP_DEPLOY_HEALTH_URL`, normally
+     `https://apap.romancaba.com/healthz`.
+   - One production runner must carry the exclusive `deploy` label.
 
-5. **Verify**:
+5. **Bootstrap the deployment pointer**. Run the deploy workflow only after a
+   PR has passed `ci / required` and has been merged to `main`. The workflow
+   publishes the immutable image and creates `deploy-current`.
+
+6. **Verify the result**:
    ```bash
    curl -fsS https://apap.romancaba.com/healthz
-   # Expected: {"db": "up", "storage": "up", "oauth": "configured"|"missing"}
+   # Expected revision: the full SHA of the merged commit.
    ```
 
-   If ``db: "down"``:
-   - The lifespan could not construct ``LocalPostgresExecutor``;
-     usually ``APAP_LOCAL_DB_URL`` is wrong or the Postgres service is
-     unreachable from the app container.
+## Phase 2 — Automated deployment after a merge
 
-   If ``oauth: "missing"``:
-   - This is acceptable in production (magic-link is the primary
-     login flow). Configure ``APAP_GOOGLE_CLIENT_ID`` etc. only if
-     you want Google OAuth as an alternate path.
+No manual image flip is required:
 
-## Phase 2 — Redeploy after a main merge
+1. `evidence` proves that the merge tree is identical to a successful PR CI run.
+2. The dedicated ARM64 runner builds and pushes `sha-<full-sha>` once, with
+   component-inventory and provenance attestations.
+3. Trivy scans that digest and an isolated PostgreSQL smoke test starts that
+   same digest and checks `/healthz.revision`.
+4. CI moves `deploy-current` to the verified digest and invokes the signed
+   Coolify webhook. The current resource rebuilds that commit and injects
+   `SOURCE_COMMIT`; an image-based replacement pulls the promoted pointer.
+5. CI polls `APAP_DEPLOY_HEALTH_URL` until the public endpoint reports the
+   expected full SHA. A stale or unhealthy deployment is a failed run.
 
-CI builds the image and pushes to ``ghcr.io`` with the short SHA tag.
-The operator redeploys:
-
-1. **Wait for CI to finish** (the GitHub Actions bot comments on the PR
-   or the ``main`` commit with the image tag).
-
-2. **Flip the Coolify service** to the new image tag. In the Coolify
-   UI: apap-web → Configuration → Image → replace
-   ``ghcr.io/ardelperal/apap-web:v<old_sha>`` with
-   ``ghcr.io/ardelperal/apap-web:v<new_sha>``. Save.
-
-3. **Deploy**: click "Redeploy" in the UI. The Coolify service pulls
-   the new image, runs the lifespan, and the new ``/healthz`` reports
-   ``db: "up"`` once the lifespan finishes.
-
-4. **Smoke-test the magic-link flow**:
-   ```bash
-   curl -fsS https://apap.romancaba.com/login | grep -q 'name="csrf_token"'
-   ```
-   The form must be present. Then exercise the full round-trip with
-   your test inbox (the CI's ``tests/e2e/test_magic_link_e2e.py`` is
-   the canonical automation).
+The unique `sha-<full-sha>` tag remains available for audit and rollback.
 
 ## Phase 3 — Rollback
 
-The previous image tag is one Coolify UI click away:
+Post-deploy failure triggers rollback automatically: CI restores
+`deploy-current`, requests the previous source revision from Coolify and verifies
+that revision. The workflow remains red so the incident is visible.
 
-1. **In the Coolify UI**: apap-web → Configuration → Image → replace the
-   current tag with the previous ``v<sha>``.
+For manual incident response on an image-based resource:
 
-2. **Redeploy**. The lifespan runs against the rolled-back image; the
-   in-flight sessions remain valid (sessions are signed cookies, the
-   signing secret did not change).
+1. Identify a previously verified digest from the deploy run or the
+   `sha-<full-sha>` tag in the GitHub container registry.
+2. Move the deployment pointer:
+   ```bash
+   docker buildx imagetools create \
+     --tag ghcr.io/ardelperal/apap-web:deploy-current \
+     ghcr.io/ardelperal/apap-web@sha256:<digest>
+   ```
+3. Trigger the signed Coolify webhook and verify `/healthz.revision` matches the
+   chosen build SHA.
 
-3. **If the rollback is a database-migration rollback**: do not use
-   this runbook; instead follow
-   [`live-migration-apply.md`](live-migration-apply.md) § Reverse
-   migration. The container rollback is for application code only;
-   schema changes require a forward migration + a verified reverse
-   migration.
+For the current source-based resource, revert the faulty merge through a green
+pull request. Its normal deployment becomes the auditable rollback.
+
+A database migration rollback is outside this procedure; follow
+[`live-migration-apply.md`](live-migration-apply.md) for schema recovery.
 
 ## Phase 4 — Password reset (bootstrap admin)
 
@@ -209,7 +202,7 @@ To restore:
       contract still parses.
 - [ ] After any change to ``app/core/config.py::Settings`` (new env
       var), update the yaml and the env table in this runbook.
-- [ ] After any change to ``app/core/local_backend/healthz.py``'s
+- [ ] After any change to ``app/main.py``'s
       response shape, update the smoke-test command in Phase 1.
 - [ ] When rotating ``APAP_SESSION_SECRET``, announce the rotation
       window to the team 24h ahead.

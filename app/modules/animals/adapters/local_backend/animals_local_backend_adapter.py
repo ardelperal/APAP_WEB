@@ -91,7 +91,7 @@ class AnimalsLocalBackendAdapter(AnimalsPort):
             return None
         return _row_to_animal(rows[0])
 
-    def search_animals(
+    def search_animals(  # noqa: PLR0913  # 9 filter args are minimal for the search route surface; extract a dataclass if a 10th filter is added
         self,
         *,
         q: str | None = None,

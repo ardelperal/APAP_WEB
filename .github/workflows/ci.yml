@@ -4,10 +4,11 @@ on:
   pull_request:
     branches: [main, staging]
   push:
-    #  is deliberately absent: after a PR merge the tree was already
+    # `main` is deliberately absent: after a PR merge the tree was already
     # proven by the pull_request run, and deploy now lives in deploy.yml,
     # which looks that evidence up instead of re-running these jobs.
     branches: [staging]
+    tags: ["v*"]
   # Allow running CI manually against any branch (e.g. to re-validate
   # an open PR after the workflow itself was edited). Use:
   #   gh workflow run ci.yml --ref <branch>
@@ -19,58 +20,50 @@ on:
   schedule:
     - cron: "17 6 * * 1"
 
-# FIFO per branch, never cancelling (issue #530). The pool has ONE eligible
-# runner and a runner executes one job at a time, so two runs of the same branch
-# do not overlap — they interleave, and neither finishes early. A full run is
-# ~411s of measured work; discarding one to a force-push throws that away and
-# starts over.
-#
-# cancel-in-progress: true is the right default on GitHub-hosted runners, where
-# capacity is elastic and a cancelled run costs nothing scarce. Here it cancels
-# work that already consumed the only runner we have.
+# Checks run on isolated hosted runners. A newer commit makes an older run stale,
+# so cancel it instead of spending capacity on evidence that can no longer merge.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: read
+  issues: read
 
 jobs:
+  issue-spec:
+    name: issue-spec
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Set up exact Python runtime
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12.11"
+
+      - name: Validate linked issue specifications
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python scripts/check_issue_specs.py pr-event "$GITHUB_EVENT_PATH"
+
   lint:
     name: lint
-    # Runs on the project-owned self-hosted runner (issue #518), reversing the
-    # earlier move to GitHub-hosted `ubuntu-24.04`. That earlier rationale —
-    # every basic gate is pure Python, so nothing here needs Oracle ARM64 — is
-    # still true; what changed is the bill. The account exhausted its free
-    # Actions minutes, and AGENTS.md forbids merging on red CI, so a hosted
-    # pool that will not run the jobs is not a durable default at any technical
-    # merit. The `noble` label pins the job to apap-coolify-noble
-    # (ghcr.io/actions/actions-runner:latest, Ubuntu 24.04); the older
-    # apap-web-oracle-arm64 runner lacks it and will not match.
-    #
-    # The session-renewal problem recorded in
-    # docs/quality/pendientes-2026-08-06.md — jobs queued against an "online,
-    # idle" runner that never picks them up — is the known risk this trades
-    # for. The e2e job keeps its conditional `APAP_SELF_HOSTED_E2E_ENABLED` /
-    # ubuntu-24.04 fallback (Playwright + Chromium are installed on either).
-    #
-    # This runner image ships no Python, unlike the GitHub-hosted image: every
-    # job that runs `python scripts/...` must install one explicitly, or it
-    # exits 127 in ten seconds.
-    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
+    # PR code is untrusted. Hosted isolation keeps it away from the production
+    # Docker socket and deployment credentials.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Check out repository
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
-      - name: Set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
-        with:
-          python-version-file: pyproject.toml
-          cache: pip
-
-      - name: Install development dependencies
-        run: python -m pip install -e ".[dev]"
+      - name: Set up locked Python environment
+        uses: ./.github/actions/setup-python
 
       - name: Run ruff
         run: ruff check .
@@ -282,17 +275,12 @@ jobs:
         # test_ci_workflow_lint_job_runs_workflow_gate.
         run: python scripts/check_workflows.py
 
-      - name: Aggregate per-gate indicator envelopes (deterministic-quality-harness v1.5 Rule 16)
-        # Reads every ``quality/<gate>.json`` written by the gates above and
-        # renders a Markdown summary into the GitHub step summary, where
-        # reviewers see it on every PR. New gates that omit ``--emit-envelope``
-        # are reported as not-migrated by the aggregator (no CI failure yet).
-        # The directory is gitignored (see .gitignore); this step creates it
-        # on the fly. Pinned by tests/test_ci_workflow.py::
-        # test_ci_workflow_lint_job_runs_quality_report_aggregator.
-        run: |
-          mkdir -p quality
-          python scripts/quality_report.py quality >> "$GITHUB_STEP_SUMMARY"
+      - name: Run issue-spec form contract (issue #723)
+        # GitHub validates required answers in the browser, while this gate
+        # prevents a form edit from silently dropping a work type, section,
+        # required flag, or the blank-issue prohibition. Live PR-to-issue
+        # linkage belongs to issue-spec.yml because it needs GitHub metadata.
+        run: python scripts/check_issue_specs.py forms
 
   security:
     name: security
@@ -302,72 +290,32 @@ jobs:
     # that cost per pull request slows the loop for nothing while the MVP is
     # still being built.
     #
-    # noble label restricts the job to the apap-coolify-noble runner
-    # (ghcr.io/actions/actions-runner:latest, Ubuntu 24.04 Noble), which
-    # has Docker-in-Docker and a real postgres service container. The
-    # older apap-web-oracle-arm64 runner (Ubuntu 20.04) lacks Docker
-    # and the noble label so it does NOT match these jobs.
-    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
+    # Hosted Docker is disposable; no production daemon is exposed to PR code.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     needs: lint
     steps:
       - name: Check out repository
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
-      - name: Set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
-        with:
-          python-version-file: pyproject.toml
-          cache: pip
+      - name: Set up locked Python environment
+        uses: ./.github/actions/setup-python
 
       - name: Audit dependencies for known advisories
-        # Scoped to a throwaway venv on purpose. Bare `pip-audit` audits the
-        # AMBIENT environment, not the project: on a shared self-hosted runner
-        # that pulls in whatever else lives in that Python. Verified locally on
-        # 2026-08-01 — an unscoped run reported ansible-core, mcp, pillow and
-        # click, none of which this project depends on. A fresh venv makes the
-        # result a function of pyproject.toml alone.
+        # The composite setup synchronizes the committed uv.lock in frozen mode.
+        # pip-audit examines that environment instead of resolving a second,
+        # mutable dependency graph.
         # Issue #381 — removing this step is a blocked change.
         #
-        # The --ignore-vuln list is a SHRINK-ONLY allowlist, same contract as
-        # the ratchets in scripts/: it freezes the advisories that were already
-        # present when the gate landed, so the job fails on NEW ones from day
-        # one instead of being disabled until the backlog is paid down.
-        #
-        # Every ID below is tracked by an open issue. Removing an ID is the
-        # closing act of that issue — never add one to make the job green.
-        #   #383 python-multipart 0.0.27  -> 0.0.31
-        #   #384 starlette 1.0.1          -> 1.3.1
-        #   #385 pydantic-settings + dev/build toolchain
-        # Measured 2026-08-01 on main @f2509aa.
-        run: |
-          set -euo pipefail
-          rm -rf .audit-venv
-          python -m venv .audit-venv
-          .audit-venv/bin/python -m pip install -q --upgrade pip
-          .audit-venv/bin/python -m pip install -q -e ".[dev]"
-          .audit-venv/bin/python -m pip install -q pip-audit
-          .audit-venv/bin/python -m pip_audit --progress-spinner off --skip-editable \
-            --ignore-vuln PYSEC-2026-2987 \
-            --ignore-vuln PYSEC-2026-3002 \
-            --ignore-vuln PYSEC-2026-3455 \
-            --ignore-vuln PYSEC-2026-3456 \
-            --ignore-vuln PYSEC-2026-3457 \
-            --ignore-vuln PYSEC-2026-3447 \
-            --ignore-vuln PYSEC-2026-196 \
-            --ignore-vuln PYSEC-2026-1796 \
-            --ignore-vuln PYSEC-2026-2875 \
-            --ignore-vuln PYSEC-2026-2876
+        # There is no advisory allowlist. The locked graph is currently clean;
+        # adding an exception to make CI green would reopen a known hole.
+        run: python -m pip_audit --progress-spinner off --skip-editable
 
       - name: Verify the Docker daemon answers before relying on it
         # Issue #531 — removing this step is a blocked change. `docker run`
         # against a wedged daemon BLOCKS: it does not fail, and it prints
         # nothing. Before #529 that meant a 360-minute silence; now it means a
         # job that burns its whole timeout to tell us nothing useful.
-        #
-        # This runner shares /var/run/docker.sock with the host daemon, which
-        # also serves Coolify, Engram, AdGuard, Vaultwarden and two other
-        # Actions runners. A wedged daemon here is plausible, not theoretical.
         #
         # The `timeout` is the load-bearing part, not `docker info`: an
         # unwrapped `docker info` hangs exactly like the `docker run` it is
@@ -469,11 +417,11 @@ jobs:
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.ref, 'refs/tags/')
-    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - name: Check out repository
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           # Full history — the whole point of this scan is the commits that
           # `dir` mode in the `security` job cannot see.
@@ -561,7 +509,7 @@ jobs:
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.ref, 'refs/tags/')
-    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
+    runs-on: ubuntu-24.04
     # 6 hours. The pilot baseline of 233 mutants took 3111 s on the same
     # runner with the local distributor; the curated 5-module set today
     # produces 1114 work items and runs single-threaded (the http
@@ -579,7 +527,7 @@ jobs:
       PYTHONHASHSEED: "0"
     steps:
       - name: Check out repository
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Set up Python
         # Pin to CPython 3.12 here even though ``pyproject.toml`` requires
@@ -593,13 +541,7 @@ jobs:
         # evidence run reproducible against the baseline and matches the
         # 3.12.3 CPython the baseline was acquired on. Restore
         # ``python-version-file: pyproject.toml`` once cosmic-ray is bumped.
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
-        with:
-          python-version: "3.12"
-          cache: pip
-
-      - name: Install development dependencies
-        run: python -m pip install -e ".[dev]"
+        uses: ./.github/actions/setup-python
 
       - name: Verify the unmutated suite is green
         # cosmic-ray's own sanity check. A failing baseline makes every
@@ -732,7 +674,7 @@ jobs:
         # The session database is the evidence behind the number. Kept so a
         # baseline change can be audited without re-running the job.
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: mutation-session
           path: mutation.sqlite
@@ -742,20 +684,14 @@ jobs:
   typecheck:
     name: typecheck
     # See lint job for the runs-on rationale.
-    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Check out repository
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
-      - name: Set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
-        with:
-          python-version-file: pyproject.toml
-          cache: pip
-
-      - name: Install development dependencies
-        run: python -m pip install -e ".[dev]"
+      - name: Set up locked Python environment
+        uses: ./.github/actions/setup-python
 
       - name: Run mypy (AGENTS.md rule 24)
         # Issue #201 — removing this step is a blocked change. Plain
@@ -768,12 +704,9 @@ jobs:
 
   test:
     name: test
-    # See lint job for the runs-on rationale. The test job keeps its
-    # noble label restricts the job to the apap-coolify-noble runner
-    # which provides the real postgres service container. The older
-    # apap-web-oracle-arm64 runner (Ubuntu 20.04) lacks the noble
-    # label and is not in the noble pool.
-    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
+    # The service container belongs to this hosted job and cannot leak state
+    # into another run.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     needs: lint
     services:
@@ -797,13 +730,17 @@ jobs:
           --health-retries 5
     steps:
       - name: Check out repository
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
-      - name: Set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
-        with:
-          python-version-file: pyproject.toml
-          cache: pip
+      - name: Set up locked Python environment
+        uses: ./.github/actions/setup-python
+
+      - name: Install pinned mdbtools for legacy Access smoke tests
+        # These tests otherwise self-skip and can make the 85% floor depend on
+        # runner image contents. Ubuntu 24.04 (noble) publishes this exact build.
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends mdbtools=1.0.0+dfsg-1.2ubuntu1
 
       - name: Resolve APAP_TEST_POSTGRES_DSN from the assigned host port
         # The DSN cannot live in the job-level `env:` block any more: the `job`
@@ -824,10 +761,8 @@ jobs:
             exit 1
           fi
           echo "Postgres published on host port $POSTGRES_HOST_PORT"
-          echo "APAP_TEST_POSTGRES_DSN=postgresql://postgres@host.docker.internal:$POSTGRES_HOST_PORT/apap_test" >> "$GITHUB_ENV"
+          echo "APAP_TEST_POSTGRES_DSN=postgresql://postgres@127.0.0.1:$POSTGRES_HOST_PORT/apap_test" >> "$GITHUB_ENV"
 
-      - name: Install development dependencies
-        run: python -m pip install -e ".[dev]"
 
       - name: Run pytest with deprecations as errors
         # --ignore=tests/e2e: the e2e suite uses playwright's sync
@@ -859,6 +794,7 @@ jobs:
         run: |
           python -m pytest -W error::DeprecationWarning \
             --ignore=tests/e2e \
+            --ignore=tests/e2e_ci \
             --ignore=tests/integration \
             --cov=app \
             --cov=migration \
@@ -874,7 +810,7 @@ jobs:
 
   integration:
     name: integration
-    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     needs: lint
     # Issue #329: integration tests execute every exported query function
@@ -903,13 +839,10 @@ jobs:
           --health-retries 5
     steps:
       - name: Check out repository
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
-      - name: Set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
-        with:
-          python-version-file: pyproject.toml
-          cache: pip
+      - name: Set up locked Python environment
+        uses: ./.github/actions/setup-python
 
       - name: Resolve APAP_TEST_POSTGRES_DSN from the assigned host port
         # The DSN cannot live in the job-level `env:` block any more: the `job`
@@ -930,10 +863,8 @@ jobs:
             exit 1
           fi
           echo "Postgres published on host port $POSTGRES_HOST_PORT"
-          echo "APAP_TEST_POSTGRES_DSN=postgresql://postgres@host.docker.internal:$POSTGRES_HOST_PORT/apap_test" >> "$GITHUB_ENV"
+          echo "APAP_TEST_POSTGRES_DSN=postgresql://postgres@127.0.0.1:$POSTGRES_HOST_PORT/apap_test" >> "$GITHUB_ENV"
 
-      - name: Install development dependencies
-        run: python -m pip install -e ".[dev]"
 
       - name: Run integration tests against real Postgres
         # These tests validate that SQL in app/modules/*/queries.py is
@@ -965,21 +896,42 @@ jobs:
     # stderr so the operator can grep. The job runs after the
     # integration job (which provisions the schema the PR6 reverse
     # path exercises against).
-    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     needs: [integration]
+    services:
+      postgres:
+        image: postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: apap_fallback
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d apap_fallback"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Check out repository
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
-      - name: Set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
-        with:
-          python-version-file: pyproject.toml
-          cache: pip
+      - name: Set up locked Python environment
+        uses: ./.github/actions/setup-python
 
-      - name: Install development dependencies
-        run: python -m pip install -e ".[dev]"
+      - name: Bind fallback verification to its own PostgreSQL service
+        env:
+          POSTGRES_HOST_PORT: ${{ job.services.postgres.ports['5432'] }}
+        run: |
+          set -euo pipefail
+          if [ -z "$POSTGRES_HOST_PORT" ]; then
+            echo "::error::the fallback PostgreSQL port did not resolve" >&2
+            exit 1
+          fi
+          DSN="postgresql://postgres@127.0.0.1:${POSTGRES_HOST_PORT}/apap_fallback"
+          echo "APAP_TEST_POSTGRES_DSN=$DSN" >> "$GITHUB_ENV"
+          echo "APAP_LOCAL_DB_URL=$DSN" >> "$GITHUB_ENV"
 
       - name: Run the verify-fallback-ready gate (CI subset)
         # The standalone entry point at
@@ -995,146 +947,114 @@ jobs:
 
   build:
     name: build
-    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     needs: [test, integration, verify-fallback-ready]
     steps:
       - name: Check out repository
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
-      - name: Set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
-        with:
-          python-version-file: pyproject.toml
-          cache: pip
-
-      - name: Install development dependencies
-        run: python -m pip install -e ".[dev]"
+      - name: Set up locked Python environment
+        uses: ./.github/actions/setup-python
 
       - name: Build package
         run: python -m build
 
   e2e:
     name: e2e
-    # Self-hosted runner: Oracle ARM64 VPS. Falls back to ubuntu-24.04 when
-    # APAP_SELF_HOSTED_E2E_ENABLED is not set (e.g. forks, local dev CI).
-    # Issue #223.
-    # Was a conditional whose fallback was ubuntu-24.04. Two reasons it is gone.
-    #
-    # The fallback is dead: GitHub-hosted jobs on this account do not start at all
-    # ("recent account payments have failed", runner_id=0, no steps, failure in
-    # seconds), which is what this whole branch exists to work around.
-    #
-    # And the expression produced a STRING, `'[self-hosted, Linux, ARM64, apap,
-    # oracle]'`, not a list. A string is matched as one literal label, so the job
-    # would queue forever waiting for a runner named after the whole bracketed
-    # phrase rather than fail — and a job that queues is harder to notice than a
-    # job that fails.
-    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
-    timeout-minutes: 20
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     needs: build
-    # The e2e suite spins up the FastAPI server and runs Playwright
-    # against it. The /login handler returns 503 when Google OAuth env
-    # vars are not configured, which makes the e2e tests fail. CI does
-    # not provision real OAuth credentials; the e2e suite is meant to
-    # run in a configured environment (staging, where APAP_OAUTH_CLIENT_ID
-    # is set). Skip the job entirely when the secret is absent.
-    #
-    # Gating policy (the test suite itself is comprehensive — full
-    # browser flow per slice — and slow; it does not belong on every
-    # PR). The job runs only when:
-    #
-    #   1. A release tag is pushed (refs/tags/*) — the canonical
-    #      pre-release evidence run; staging picks the artifact up
-    #      afterwards.
-    #   2. A maintainer manually dispatches the workflow
-    #      (workflow_dispatch event) — ad-hoc verification.
-    #
-    # Every PR push runs the unit + integration suite (the `test`
-    # and `integration` jobs), which already cover the auth gate
-    # contract through the FastAPI TestClient. The Playwright suite
-    # is the release-time confidence layer.
-    if: |
-      vars.APAP_OAUTH_CLIENT_ID != '' &&
-      (startsWith(github.ref, 'refs/tags/') ||
-       github.event_name == 'workflow_dispatch')
+    if: github.event_name != 'schedule'
+    services:
+      postgres:
+        image: postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: apap_e2e
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d apap_e2e"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Check out repository
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
-      - name: Set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
-        with:
-          python-version-file: pyproject.toml
-          cache: pip
+      - name: Set up locked Python environment
+        uses: ./.github/actions/setup-python
 
-      - name: Install development dependencies
-        run: python -m pip install -e ".[dev]"
-
-      - name: Install Playwright explicitly
-        # Install playwright as its own step to avoid cache-staleness
-        # races against the dev extra (the e2e job needs playwright on
-        # the PATH; relying on a transitive pip install of `[dev]` from a
-        # possibly stale cache is fragile).
-        run: python -m pip install "playwright>=1.45"
-
-      - name: Install Playwright chromium browser
+      - name: Install locked Chromium runtime
         run: python -m playwright install --with-deps chromium
 
-      - name: Start APAP_WEB server (no lifespan, no LocalBackend bootstrap)
-        # The dev server (scripts/dev_server_no_lifespan.py) skips the
-        # LocalBackend bootstrap so the app can start in CI without a real
-        # backend. Public HTML routes serve fine; data routes 500
-        # (the e2e suite doesn't exercise those).
-        #
-        # Issue #598: enable the E2E OAuth mock so the suite can mint
-        # sessions for authenticated routes without real Google OAuth
-        # credentials. The secret here is a TEST-ONLY value baked
-        # into the workflow (the mock is gated by the env var; the
-        # test-only route rejects every request without the matching
-        # header, so this is not a production credential). Local
-        # dev must export the same value to run authenticated E2E.
+      - name: Generate E2E auth secret dynamically
+        # Issue #702: generate per-run instead of hardcoding in the workflow.
+        run: echo "APAP_E2E_AUTH_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+
+      - name: Start the production application against ephemeral Postgres
+        env:
+          POSTGRES_HOST_PORT: ${{ job.services.postgres.ports['5432'] }}
+          APAP_DEBUG: "true"
+          APAP_MODE: test
+          APAP_E2E_AUTH_ENABLED: "true"
+          APAP_E2E_AUTH_DEFAULT_EMAIL: e2e@apap.local
         run: |
-          export APAP_E2E_AUTH_ENABLED=1
-          export APAP_E2E_AUTH_SECRET="ci-e2e-test-secret-32-bytes-min"
-          export APAP_E2E_AUTH_DEFAULT_EMAIL="e2e@apap.local"
-          python scripts/dev_server_no_lifespan.py &
-          SERVER_PID=$!
-          for i in {1..30}; do
-            if curl -sf http://127.0.0.1:8000/healthz >/dev/null 2>&1; then
-              echo "Server ready after ${i}s"
-              break
+          set -euo pipefail
+          if [ -z "$POSTGRES_HOST_PORT" ]; then
+            echo "::error::the E2E Postgres port did not resolve" >&2
+            exit 1
+          fi
+          export APAP_LOCAL_DB_URL="postgresql://postgres@127.0.0.1:${POSTGRES_HOST_PORT}/apap_e2e"
+          python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --lifespan on &
+          echo "SERVER_PID=$!" >> "$GITHUB_ENV"
+          echo "APAP_LOCAL_DB_URL=$APAP_LOCAL_DB_URL" >> "$GITHUB_ENV"
+          echo "APAP_DEBUG=true" >> "$GITHUB_ENV"
+          echo "APAP_MODE=test" >> "$GITHUB_ENV"
+          echo "APAP_E2E_AUTH_ENABLED=true" >> "$GITHUB_ENV"
+          echo "APAP_E2E_AUTH_SECRET=$APAP_E2E_AUTH_SECRET" >> "$GITHUB_ENV"
+          echo "APAP_E2E_AUTH_DEFAULT_EMAIL=$APAP_E2E_AUTH_DEFAULT_EMAIL" >> "$GITHUB_ENV"
+          for i in {1..45}; do
+            if curl -fsS http://127.0.0.1:8000/healthz >/dev/null; then
+              exit 0
             fi
             sleep 1
           done
-          if ! curl -sf http://127.0.0.1:8000/healthz >/dev/null 2>&1; then
-            echo "::error::Dev server did not become ready in 30s"
-            exit 1
-          fi
-          echo "SERVER_PID=$SERVER_PID" >> "$GITHUB_ENV"
-          # The e2e tests read the secret via APAP_E2E_AUTH_SECRET;
-          # export it explicitly so the pytest subprocess picks it up.
-          echo "APAP_E2E_AUTH_SECRET=${APAP_E2E_AUTH_SECRET}" >> "$GITHUB_ENV"
+          echo "::error::application did not become healthy within 45 seconds" >&2
+          exit 1
 
-          # Smoke check: the mock route must respond with 503 (no
-          # secret yet) or 401 (bad secret), NOT 404 — a 404 means the
-          # route was not registered because the dev server was built
-          # before #599 landed. Probe both with and without the header
-          # so a future reader can see the contract from the CI log.
-          echo "--- mock route probe ---"
-          curl -s -o /dev/null -w "no header: %{http_code}\n" -X POST http://127.0.0.1:8000/e2e/login || true
-          curl -s -o /dev/null -w "with header: %{http_code}\n" -X POST -H "X-E2E-Secret: $APAP_E2E_AUTH_SECRET" http://127.0.0.1:8000/e2e/login || true
-          echo "---"
+      - name: Run fail-closed Playwright smoke suite
+        run: python -m pytest tests/e2e_ci/ -v
 
-      - name: Run Playwright E2E suite
-        # Skip the suite entirely on branches that don't carry an
-        # e2e/ tree (e.g. backend-only PRs like #106 / #107). The
-        # e2e harness lives on feat/ui-apap-design-system and lands
-        # to staging only when that PR merges.
-        if: hashFiles('tests/e2e/**')
-        run: python -m pytest tests/e2e/ -v
-
-      - name: Stop dev server
+      - name: Stop application server
         if: always()
         run: kill "$SERVER_PID" 2>/dev/null || true
 
+  required:
+    name: required
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    if: always()
+    needs:
+      - issue-spec
+      - lint
+      - security
+      - security-deep
+      - mutation
+      - typecheck
+      - test
+      - integration
+      - verify-fallback-ready
+      - build
+      - e2e
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Enforce the required-job policy
+        env:
+          CI_NEEDS_JSON: ${{ toJSON(needs) }}
+          CI_EVENT_NAME: ${{ github.event_name }}
+        run: python scripts/check_required_jobs.py

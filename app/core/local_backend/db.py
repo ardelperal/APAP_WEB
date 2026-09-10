@@ -63,6 +63,15 @@ class LocalPostgresExecutor:
         self._dsn = dsn
         self._search_path = search_path
 
+    def close(self) -> None:
+        """No-op: there is no persistent connection to release.
+
+        Kept for API symmetry with callers (e.g. ``migration/cli.py``)
+        that own a client they build themselves and unconditionally
+        close it in a ``finally`` block, regardless of which
+        ``SqlExecutor`` implementation they end up with.
+        """
+
     def _connect(self) -> psycopg.Connection:
         """Open a new connection. Real connections in production; test
         connections in tests via the same DSN (the integration
@@ -104,9 +113,14 @@ class LocalPostgresExecutor:
         """
         # Rewrite ``$N`` to ``%s`` because psycopg3 ClientCursor counts
         # ``%s`` placeholders, not ``$N``. The wire protocol sees the
-        # original ``$N`` (psycopg3 re-numbers).
+        # original ``$N`` (psycopg3 re-numbers). Any literal ``%`` already
+        # in the query (e.g. a ``LIKE 'Fallecido%'`` pattern) must be
+        # doubled first — psycopg3's client-side parser treats a bare
+        # ``%`` not followed by ``s``/``b``/``t`` as a malformed
+        # placeholder and raises ``ProgrammingError`` before the query
+        # ever reaches Postgres.
         if "$" in query:
-            query = _DOLLAR_TO_PERCENT.sub(r"%s", query)
+            query = _DOLLAR_TO_PERCENT.sub(r"%s", query.replace("%", "%%"))
         try:
             with self._connect() as conn:
                 cur = conn.cursor()

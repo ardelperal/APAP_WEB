@@ -39,6 +39,7 @@ violation. Stdlib-only, deterministic, no external services.
 
 from __future__ import annotations
 
+import ast
 import sys
 from pathlib import Path
 
@@ -85,13 +86,70 @@ IN_SCOPE_DOMAINS: set[str] = {
 BASELINE: dict[str, str] = {
 }
 
+REQUIRED_ATOMS: dict[str, frozenset[str]] = {
+    "auth": frozenset(
+        {
+            "test_get_user_by_email_returns_user_when_active",
+            "test_get_user_by_email_returns_none_after_deactivation",
+        }
+    ),
+    "cesiones": frozenset(
+        {
+            "test_cesion_unique_constraint_fires_on_duplicate_entrada",
+            "test_cesion_fk_constraint_fires_on_ghost_entrada",
+        }
+    ),
+    "entradas": frozenset(
+        {
+            "test_commit_batch_cte_rolls_back_on_unique_violation",
+            "test_commit_batch_cte_rolls_back_on_fk_violation",
+        }
+    ),
+}
 
-def _has_integration_file(integration_dir: Path, module: str) -> bool:
-    """Return True if there is an integration test for ``module``."""
-    if not integration_dir.exists():
-        return False
+
+def _integration_contract_errors(integration_dir: Path, module: str) -> list[str]:
+    """Validate that a module has collected integration atoms, not an empty file."""
     target = integration_dir / f"test_{module}_queries_integration.py"
-    return target.exists()
+    if not target.exists():
+        return ["file is missing"]
+    try:
+        tree = ast.parse(target.read_text(encoding="utf-8"), filename=str(target))
+    except (OSError, UnicodeDecodeError, SyntaxError) as exc:
+        return [f"file is not parseable: {exc}"]
+
+    tests = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name.startswith("test_")
+    }
+    if not tests:
+        return ["file collects no test functions"]
+
+    errors: list[str] = []
+    unmarked = [name for name, node in tests.items() if not _has_integration_marker(node)]
+    if unmarked:
+        errors.append(f"tests lack @pytest.mark.integration: {', '.join(sorted(unmarked))}")
+    missing_atoms = sorted(REQUIRED_ATOMS.get(module, frozenset()) - tests.keys())
+    if missing_atoms:
+        errors.append(f"required P0 atoms are missing: {', '.join(missing_atoms)}")
+    return errors
+
+
+def _has_integration_marker(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    for decorator in node.decorator_list:
+        if not isinstance(decorator, ast.Attribute) or decorator.attr != "integration":
+            continue
+        mark = decorator.value
+        if (
+            isinstance(mark, ast.Attribute)
+            and mark.attr == "mark"
+            and isinstance(mark.value, ast.Name)
+            and mark.value.id == "pytest"
+        ):
+            return True
+    return False
 
 
 def check_tree(root: Path) -> tuple[list[str], list[str]]:
@@ -100,18 +158,14 @@ def check_tree(root: Path) -> tuple[list[str], list[str]]:
     violations: list[str] = []
     open_baselined: set[str] = set()
     for module in sorted(IN_SCOPE_DOMAINS):
-        if _has_integration_file(integration_dir, module):
+        contract_errors = _integration_contract_errors(integration_dir, module)
+        if not contract_errors:
             continue
         if module in BASELINE:
             open_baselined.add(module)
             continue
-        violations.append(
-            f"{module}: in scope for integration coverage (unit tests mock SQL "
-            f"with httpx.MockTransport) but no "
-            f"tests/integration/test_{module}_queries_integration.py found. "
-            f"Add an integration atom (or BASELINE with rationale citing "
-            f"docs/quality/test-audit.md)."
-        )
+        for error in contract_errors:
+            violations.append(f"{module}: {error}")
     # Notices:
     # - BASELINE modules whose gap is still open (no integration file).
     # - BASELINE modules no longer in IN_SCOPE_DOMAINS (stale).

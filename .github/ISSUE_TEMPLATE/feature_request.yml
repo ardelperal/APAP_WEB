@@ -1,0 +1,48 @@
+name: Nueva capacidad
+description: Especifique un resultado de producto verificable antes de implementarlo.
+title: "feat: "
+labels:
+  - "type:feature"
+body:
+  - type: textarea
+    id: problema-contexto
+    attributes:
+      label: Problema y contexto
+      description: Explique qué necesita el usuario y qué sucede hoy.
+    validations:
+      required: true
+  - type: textarea
+    id: evidencia-verificable
+    attributes:
+      label: Evidencia verificable
+      description: Enlace discovery, legacy, datos o decisiones que sostienen la necesidad.
+    validations:
+      required: true
+  - type: textarea
+    id: alcance-no-objetivos
+    attributes:
+      label: Alcance y no objetivos
+      description: Delimite la capacidad incluida y las expectativas excluidas.
+    validations:
+      required: true
+  - type: textarea
+    id: criterios-aceptacion
+    attributes:
+      label: Criterios de aceptación
+      description: Enumere comportamientos observables mediante una lista de comprobación.
+    validations:
+      required: true
+  - type: textarea
+    id: plan-validacion
+    attributes:
+      label: Plan de validación
+      description: Nombre pruebas y escenarios que demostrarán cada criterio.
+    validations:
+      required: true
+  - type: textarea
+    id: dependencias-riesgos
+    attributes:
+      label: Dependencias y riesgos
+      description: Identifique bloqueos, migración, compatibilidad o indique «Ninguno».
+    validations:
+      required: true

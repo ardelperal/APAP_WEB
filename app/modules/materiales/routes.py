@@ -36,6 +36,7 @@ material+tamaño+color" hint.
 
 from __future__ import annotations
 
+from functools import partial
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -43,6 +44,8 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from app.core._module_helpers._crud_flow import render_detail, render_edit_form
+from app.core._module_helpers._form_render import make_render_form
 from app.core.auth_dependencies import (
     AuthenticatedUser,
     get_local_postgres_executor_dep,
@@ -102,32 +105,30 @@ def _material_to_form_data(
     }
 
 
-def _render_form(  # noqa: PLR0913  # non-route helper; 6 args is minimal for template context
-    request: Request,
-    user: AuthenticatedUser,
-    form_data: dict[str, Any],
-    error: str | None,
-    form_action: str,
-    status_code: int = status.HTTP_200_OK,
-):
-    """Render ``app/templates/materiales/form.html`` with a fixed context.
+# ``_render_form`` is a partial of ``render_module_form`` that bakes in the
+# module's templates and template name (issue #681 — JSCPD ratchet).
+# The wrapper signature is unchanged so the existing 7 call sites
+# ``_render_form(request, user, form_data, error, form_action[, status_code])``
+# continue to work without edits.
+_render_form = make_render_form(_templates, "materiales/form.html")
+_edit_material_form: Any = partial(
+    render_edit_form,
+    # Late-bound lambda, not the bare function: a module-level partial
+    # captures the function object at import time, so a bare reference
+    # here would survive `monkeypatch.setattr(materiales_service,
+    # "get_material_by_id", ...)` unchanged and still call the real
+    # (SQL-issuing) implementation in tests.
+    fetch=lambda client, entity_id: materiales_service.get_material_by_id(
+        client, entity_id
+    ),
+    to_form_data=_material_to_form_data,
+    render_form=_render_form,
+    # materiales posts back to /edit (not /update, unlike the sibling
+    # modules) — see the `@router.post("/{material_id}/edit", ...)`
+    # handler below.
+    form_action="/materiales/{entity_id}/edit",
+)
 
-    Mirrors the ``_render_form`` precedent in
-    ``app/modules/foster/routes.py`` (and the same pattern in
-    adopciones / sanidad). Centralizes the template-name + context
-    keys so each handler declares only the action and error string.
-    """
-    return _templates.TemplateResponse(
-        request=request,
-        name="materiales/form.html",
-        context={
-            "user": user,
-            "form_data": form_data,
-            "error": error,
-            "form_action": form_action,
-        },
-        status_code=status_code,
-    )
 
 
 # --- list -----------------------------------------------------------------
@@ -237,21 +238,15 @@ def material_detail(
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_MATERIALES))],
     client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
-    """Detail view. Returns 404 when the row is missing.
-
-    PR C integrates the assigned-estancias section (uses
-    ``list_materials_for_estancia``); for PR B this section is rendered
-    as an empty placeholder per the SDD tasks plan (#15905 §B.2.3).
-    """
-    if (early := return_early_if_response(user)) is not None:
-        return early
-    material = materiales_service.get_material_by_id(client, material_id)
-    if material is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-    return _templates.TemplateResponse(
+    return render_detail(
+        templates=_templates,
         request=request,
-        name="materiales/detail.html",
-        context={"user": user, "material": material},
+        user=user,
+        client=client,
+        entity_id=material_id,
+        fetch=materiales_service.get_material_by_id,
+        template_name="materiales/detail.html",
+        context_key="material",
     )
 
 
@@ -265,24 +260,8 @@ def edit_material_form(
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_MATERIALES))],
     client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
-    """Edit form prefilled with the persisted row.
-
-    Returns 404 when the row is missing so the operator never sees a
-    half-rendered form for a stale URL. The form action posts to
-    ``/materiales/{id}/edit`` (same path as the GET — the verb in the
-    HTTP method distinguishes intent).
-    """
-    if (early := return_early_if_response(user)) is not None:
-        return early
-    material = materiales_service.get_material_by_id(client, material_id)
-    if material is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-    return _render_form(
-        request,
-        user,
-        _material_to_form_data(material),
-        None,
-        f"/materiales/{material_id}/edit",
+    return _edit_material_form(
+        request=request, user=user, client=client, entity_id=material_id,
     )
 
 

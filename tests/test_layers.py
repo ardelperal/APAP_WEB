@@ -108,6 +108,7 @@ def test_application_may_not_import_adapters(tmp_path: Path) -> None:
         tmp_path,
         {
             "app/core/adapters/local_backend/auth_local_backend_adapter.py": "",
+            "app/core/adapters/stubs/auth_users_stub.py": "",
             "app/core/application/auth/get_user.py": (
                 "from app.core.adapters.stubs.auth_users_stub import Adapter\n"
             ),
@@ -128,6 +129,7 @@ def test_di_may_wire_adapters_into_application(tmp_path: Path) -> None:
         tmp_path,
         {
             "app/core/adapters/local_backend/auth_local_backend_adapter.py": "",
+            "app/core/adapters/stubs/auth_users_stub.py": "",
             "app/core/application/auth/get_user.py": "",
             "app/core/di/auth_di.py": (
                 "from app.core.adapters.stubs.auth_users_stub import Adapter\n"

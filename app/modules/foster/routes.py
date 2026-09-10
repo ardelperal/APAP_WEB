@@ -28,6 +28,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from app.core._module_helpers._form_render import make_render_form
 from app.core.auth import Rol
 from app.core.auth_dependencies import (
     AuthenticatedUser,
@@ -108,25 +109,7 @@ def _casa_to_form_data(casa: foster_service.CasaAcogida) -> dict[str, Any]:
     }
 
 
-def _render_form(  # noqa: PLR0913  # non-route helper; 6 args is minimal for template context
-    request: Request,
-    user: AuthenticatedUser,
-    form_data: dict[str, Any],
-    error: str | None,
-    form_action: str,
-    status_code: int = status.HTTP_200_OK,
-):
-    return _templates.TemplateResponse(
-        request=request,
-        name="casas_acogida/form.html",
-        context={
-            "user": user,
-            "form_data": form_data,
-            "error": error,
-            "form_action": form_action,
-        },
-        status_code=status_code,
-    )
+_render_form = make_render_form(_templates, "casas_acogida/form.html")
 
 
 # --- list -----------------------------------------------------------------

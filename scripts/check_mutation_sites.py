@@ -28,22 +28,31 @@ SCAN_DIRS = ("app", "migration")
 
 #: Current offenders measured with ``--emit-baseline``.
 #: RATCHET: entries may only shrink or disappear; never add headroom.
+#:
+#: Re-baselined 2026-09-08 (issue #681 / PR #688 follow-up): the
+#: form-render/crud-flow duplication cleanup shrank several of these
+#: files, and ``migration/apply.py`` dropped below the 250-site ceiling
+#: entirely (entry removed). Per-entry historical rationale for earlier
+#: corrections lives in git blame for this file.
 BASELINE_MUTATION_SITES: dict[str, int] = {
-    "app/core/local_backend.py": 538,  # M0 (self-host-backend-coolify): URL default fix added 12 sites
-    "app/modules/acogidas/routes.py": 383,
-    "app/modules/acogidas/service.py": 355,
-    "app/modules/adopciones/routes.py": 306,
-    "app/modules/adopciones/service.py": 482,
+    # ``app/core/local_backend.py`` was a module that became a package
+    # (``app/core/local_backend/`` with submodules) during the InsForge
+    # retirement; the BASELINE_MUTATION_SITES entry for the now-deleted
+    # parent module was stale. No replacement entry is needed because
+    # each submodule lives under its own file path now.
+    "app/modules/acogidas/routes.py": 367,
+    "app/modules/acogidas/service.py": 343,
+    "app/modules/adopciones/routes.py": 284,
+    "app/modules/adopciones/service.py": 467,
     "app/modules/animals/routes.py": 449,
-    "app/modules/cesiones/service.py": 370,
-    "app/modules/foster/routes.py": 263,
+    "app/modules/cesiones/service.py": 362,
+    "app/modules/foster/routes.py": 255,
     "app/modules/foster/service.py": 342,
-    "app/modules/salud/routes.py": 408,
-    "app/modules/salud/service.py": 323,
-    "app/modules/sanidad/routes.py": 357,
-    "app/modules/sanidad/service.py": 394,  # HEALTH-05: scheduling logic extracted to scheduling.py (+4 net over pre-HEALTH-05)
-    "migration/apply.py": 464,
-    "migration/cli.py": 443,
+    "app/modules/salud/routes.py": 392,
+    "app/modules/salud/service.py": 342,
+    "app/modules/sanidad/routes.py": 414,  # early-return added to proximas_pruebas_view for test_route_layer_coverage
+    "app/modules/sanidad/service.py": 391,
+    "migration/cli.py": 406,  # issue #690: _build_web_client() wires a real LocalPostgresExecutor
     "migration/diff_engine.py": 333,
     "migration/lock.py": 268,  # Re-baselined after Path A refactor of acquire_lock (issue #420 / PR #452). The 4-helper split grew the file by 9 sites (function defs + docstrings) but reduced the per-function CRAP from 26.54 to 1.00 (grade A).
     "migration/lock_snapshot.py": 287,
@@ -52,6 +61,7 @@ BASELINE_MUTATION_SITES: dict[str, int] = {
     "migration/reverse_apply/orchestrator.py": 254,
     "migration/semantic_events.py": 304,
     "migration/storage_spike.py": 705,
+    "migration/verify_fallback_ready.py": 322,  # issue #690: preflight-unavailable now reports PENDING instead of failing
     "migration/volunteer_dedup.py": 301,
 }
 

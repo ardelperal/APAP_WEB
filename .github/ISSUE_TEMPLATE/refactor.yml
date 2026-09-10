@@ -1,0 +1,48 @@
+name: Refactor
+description: Especifique una mejora interna y el comportamiento que debe preservar.
+title: "refactor: "
+labels:
+  - "type:refactor"
+body:
+  - type: textarea
+    id: problema-contexto
+    attributes:
+      label: Problema y contexto
+      description: Explique el coste estructural actual y dónde se encuentra.
+    validations:
+      required: true
+  - type: textarea
+    id: evidencia-verificable
+    attributes:
+      label: Evidencia verificable
+      description: Enlace métricas, dependencias, duplicación o límites incumplidos.
+    validations:
+      required: true
+  - type: textarea
+    id: alcance-no-objetivos
+    attributes:
+      label: Alcance y no objetivos
+      description: Delimite la estructura que cambia y el comportamiento preservado.
+    validations:
+      required: true
+  - type: textarea
+    id: criterios-aceptacion
+    attributes:
+      label: Criterios de aceptación
+      description: Enumere resultados observables mediante una lista de comprobación.
+    validations:
+      required: true
+  - type: textarea
+    id: plan-validacion
+    attributes:
+      label: Plan de validación
+      description: Nombre golden tests, contratos o métricas que probarán equivalencia.
+    validations:
+      required: true
+  - type: textarea
+    id: dependencias-riesgos
+    attributes:
+      label: Dependencias y riesgos
+      description: Identifique blast radius, secuencia o indique «Ninguno».
+    validations:
+      required: true

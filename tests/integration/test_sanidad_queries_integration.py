@@ -62,4 +62,4 @@ def test_build_batch_insert(
     rows = ephemeral_postgres.execute(sql, params)
 
     assert len(rows) == 1
-    assert rows[0]["kind"] == "error"
+    assert rows[0]["kind"] == "validation_error"

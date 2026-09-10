@@ -1,19 +1,22 @@
 name: pr-size
 on:
+  # Label changes must refresh the immutable event payload used below;
+  # rerunning an older workflow run keeps its original labels snapshot.
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
 # See ci.yml for the cancel-in-progress rationale (issue #530).
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   pr-size:
     name: pr-size
-    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Check out repository
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           # The merge-base diff below needs the full history, not a shallow clone.
           fetch-depth: 0
@@ -21,7 +24,7 @@ jobs:
       # The GitHub-hosted image came with a Python. This runner image does not,
       # so every `python scripts/...` here exited 127 the moment the job moved.
       - name: Set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: "3.12.11"
 
@@ -63,8 +66,11 @@ jobs:
             echo "::error::merge-base origin/$BASE_REF HEAD produced no SHA."
             exit 1
           fi
-          ADDED=$(git diff --shortstat "$BASE"...HEAD | awk '{print $4}')
-          DELETED=$(git diff --shortstat "$BASE"...HEAD | awk '{print $6}')
+          # Generated lockfiles are deterministic machine output, not useful
+          # review-budget lines. Their source manifests remain counted.
+          DIFF_PATHS=(. ':(exclude)**/package-lock.json' ':(exclude)uv.lock')
+          ADDED=$(git diff --shortstat "$BASE"...HEAD -- "${DIFF_PATHS[@]}" | awk '{print $4}')
+          DELETED=$(git diff --shortstat "$BASE"...HEAD -- "${DIFF_PATHS[@]}" | awk '{print $6}')
           if [ -z "$ADDED" ]; then ADDED=0; fi
           if [ -z "$DELETED" ]; then DELETED=0; fi
           TOTAL=$((ADDED + DELETED))

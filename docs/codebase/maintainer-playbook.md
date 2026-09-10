@@ -46,7 +46,7 @@ Esta página posee el workflow operativo de mantenedor: pre-flight, triaje, SDD,
 | Capas y slices | `python scripts/check_layers.py` | AGENTS §33 |
 | Docstrings sincronizados | `python scripts/check_docstring_coverage.py` | AGENTS §30 |
 | Typecheck mypy | `python -m mypy` | AGENTS §24 |
-| Cobertura ≥ 80% global + 100% CRITICAL_HELPERS | pytest con `--cov-fail-under=80` + gate plugin | AGENTS §11, §19 |
+| Cobertura ≥ 85% global + 100% CRITICAL_HELPERS | pytest con `--cov-fail-under=85` + gate plugin | AGENTS §11, §19 |
 
 ## Contributor checklist
 
