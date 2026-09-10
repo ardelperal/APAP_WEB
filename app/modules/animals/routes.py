@@ -189,13 +189,13 @@ def new_animal_form(
 # --- create (submit) ------------------------------------------------------
 
 
-@router.post("", response_class=HTMLResponse)
+@router.post("")
 def create_animal_view(
     request: Request,
     form: Annotated[AnimalForm, Form()],
     user: Annotated[Response | dict, Depends(_require_write_animales)],
     port: Annotated[AnimalsPort, Depends(get_animals_port)],
-):
+) -> Response:
     """Procesa el submit del formulario. En exito, redirect al detalle.
 
     Uses ``AnimalForm`` (Pydantic v2 with ``Form()``) as the single
@@ -334,14 +334,14 @@ def edit_animal_form(
 # --- update (submit) ------------------------------------------------------
 
 
-@router.post("/{animal_id}/update", response_class=HTMLResponse)
+@router.post("/{animal_id}/update")
 def update_animal_view(
     animal_id: str,
     request: Request,
     form: Annotated[AnimalForm, Form()],
     user: Annotated[Response | dict, Depends(_require_write_animales)],
     port: Annotated[AnimalsPort, Depends(get_animals_port)],
-):
+) -> Response:
     """Procesa el submit de edicion. Redirect al detalle en exito.
 
     Same ``AnimalForm`` as ``create_animal_view`` — single source of

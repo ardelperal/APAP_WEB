@@ -37,7 +37,7 @@ from starlette.responses import Response
 
 from app.core.auth_dependencies import (
     AuthenticatedUser,
-    get_current_user_optional,
+    require_authorized_user,
     return_early_if_response,
 )
 from app.core.logging import log_safe
@@ -197,10 +197,10 @@ def require_permission(
             ...
     """
     def checker(
-        payload: dict | None = Depends(get_current_user_optional),
+        payload: Response | dict = Depends(require_authorized_user),
     ) -> AuthenticatedUser | Response:
         # Propagate redirect if session returned a Response (early exit)
-        if (early := return_early_if_response(payload)) is not None:  # type: ignore[arg-type]
+        if (early := return_early_if_response(payload)) is not None:
             return early
         if not isinstance(payload, dict):
             log_safe("auth.denied", reason="no_session", user_id=None)

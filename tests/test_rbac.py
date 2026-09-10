@@ -179,12 +179,12 @@ def _client_with_user(role: str) -> TestClient:
     app = _build_app()
 
     # We need to mock the auth dependency. Use dependency_overrides.
-    from app.core.auth_dependencies import get_current_user_optional
+    from app.core.auth_dependencies import require_authorized_user
 
     def _fake_session():
         return {"user_id": f"u-{role}", "email": f"{role}@test.com", "rol": role, "is_authorized": True}
 
-    app.dependency_overrides[get_current_user_optional] = _fake_session
+    app.dependency_overrides[require_authorized_user] = _fake_session
     return TestClient(app)
 
 
@@ -193,12 +193,12 @@ def test_require_permission_read_animales_allows_staff() -> None:
     from starlette.testclient import TestClient as StarletteClient
 
     app = _build_app()
-    from app.core.auth_dependencies import get_current_user_optional
+    from app.core.auth_dependencies import require_authorized_user
 
     def _fake_session():
         return {"user_id": "u-staff", "email": "staff@test.com", "rol": "staff", "is_authorized": True}
 
-    app.dependency_overrides[get_current_user_optional] = _fake_session
+    app.dependency_overrides[require_authorized_user] = _fake_session
     client = StarletteClient(app)
 
     response = client.get("/test-read-animales")
@@ -210,12 +210,12 @@ def test_require_permission_read_animales_allows_voluntario() -> None:
     from starlette.testclient import TestClient as StarletteClient
 
     app = _build_app()
-    from app.core.auth_dependencies import get_current_user_optional
+    from app.core.auth_dependencies import require_authorized_user
 
     def _fake_session():
         return {"user_id": "u-vol", "email": "vol@test.com", "rol": "voluntario", "is_authorized": True}
 
-    app.dependency_overrides[get_current_user_optional] = _fake_session
+    app.dependency_overrides[require_authorized_user] = _fake_session
     client = StarletteClient(app)
 
     response = client.get("/test-read-animales")
@@ -227,12 +227,12 @@ def test_require_permission_manage_users_denies_voluntario() -> None:
     from starlette.testclient import TestClient as StarletteClient
 
     app = _build_app()
-    from app.core.auth_dependencies import get_current_user_optional
+    from app.core.auth_dependencies import require_authorized_user
 
     def _fake_session():
         return {"user_id": "u-vol", "email": "vol@test.com", "rol": "voluntario", "is_authorized": True}
 
-    app.dependency_overrides[get_current_user_optional] = _fake_session
+    app.dependency_overrides[require_authorized_user] = _fake_session
     client = StarletteClient(app)
 
     response = client.get("/test-manage-users")
@@ -244,12 +244,12 @@ def test_require_permission_manage_users_allows_admin() -> None:
     from starlette.testclient import TestClient as StarletteClient
 
     app = _build_app()
-    from app.core.auth_dependencies import get_current_user_optional
+    from app.core.auth_dependencies import require_authorized_user
 
     def _fake_session():
         return {"user_id": "u-admin", "email": "admin@test.com", "rol": "admin", "is_authorized": True}
 
-    app.dependency_overrides[get_current_user_optional] = _fake_session
+    app.dependency_overrides[require_authorized_user] = _fake_session
     client = StarletteClient(app)
 
     response = client.get("/test-manage-users")
@@ -266,12 +266,12 @@ def test_require_permission_write_animales_allows_voluntario() -> None:
     def write_animales(user: AuthenticatedUser = Depends(require_permission(Permission.WRITE_ANIMALES))):
         return {"user_id": user["user_id"]}
 
-    from app.core.auth_dependencies import get_current_user_optional
+    from app.core.auth_dependencies import require_authorized_user
 
     def _fake_session():
         return {"user_id": "u-vol", "email": "vol@test.com", "rol": "voluntario", "is_authorized": True}
 
-    app.dependency_overrides[get_current_user_optional] = _fake_session
+    app.dependency_overrides[require_authorized_user] = _fake_session
     client = StarletteClient(app)
 
     response = client.get("/test-write-animales")
@@ -288,12 +288,12 @@ def test_require_permission_write_animales_denies_unknown_role() -> None:
     def write_animales(user: AuthenticatedUser = Depends(require_permission(Permission.WRITE_ANIMALES))):
         return {"user_id": user["user_id"]}
 
-    from app.core.auth_dependencies import get_current_user_optional
+    from app.core.auth_dependencies import require_authorized_user
 
     def _fake_session():
         return {"user_id": "u-unknown", "email": "unk@test.com", "rol": "unknown_role", "is_authorized": True}
 
-    app.dependency_overrides[get_current_user_optional] = _fake_session
+    app.dependency_overrides[require_authorized_user] = _fake_session
     client = StarletteClient(app)
 
     response = client.get("/test-write-animales")

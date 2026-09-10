@@ -61,6 +61,7 @@ class _AnimalsRouteSpy(LocalPostgresExecutor):
 
         self._client = _httpx.Client(base_url="https://spy.example")
         self.captured_queries: list[str] = []
+        self.auth_revalidation_calls = 0
         # Issue #144: rol returned by the per-request authorization
         # revalidation SELECT. Defaults to ``key_user`` (matches the
         # common test login). Tests that exercise the reader path
@@ -118,6 +119,7 @@ class _AnimalsRouteSpy(LocalPostgresExecutor):
         # captured_queries, so the domain-SQL assertions stay unchanged.
         _reval = auth_reval_rows(query, params, rol=self.auth_reval_rol)
         if _reval is not None:
+            self.auth_revalidation_calls += 1
             return _reval
         self.captured_queries.append(query)
         if "SET activo = false" in query:
@@ -961,3 +963,35 @@ async def test_change_chip_route_rejects_reader_with_403(
     assert not chip_lookup_queries, (
         f"reader PATCH MUST NOT emit chip-lookup SQL; got: {chip_lookup_queries!r}"
     )
+
+
+@pytest.mark.asyncio
+async def test_change_chip_uses_revalidated_role_instead_of_cookie_role(
+    client: httpx.AsyncClient,
+    animals_spy: _AnimalsRouteSpy,
+) -> None:
+    """A stale writer cookie cannot bypass a reader role in the database."""
+    animals_spy.auth_reval_rol = "reader"
+    from app.core.config import get_settings
+
+    token = write_session(
+        {
+            "email": "stale-role@example.com",
+            "rol": "key_user",
+            "user_id": "u-stale-role",
+            "is_authorized": True,
+            "csrf_token": "test-csrf-token-animals",
+        },
+        secret=get_settings().session_secret,
+    )
+    client.cookies.set(session_cookie_name(), token)
+
+    response = await client.patch(
+        "/animales/abc-123/chip",
+        headers={"X-CSRFToken": "test-csrf-token-animals"},
+        json={"new_chip": "985112004409999", "reason": "stale-role-probe"},
+    )
+
+    assert response.status_code == 403
+    assert animals_spy.auth_revalidation_calls == 1
+    assert animals_spy.captured_queries == []
