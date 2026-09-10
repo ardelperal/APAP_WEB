@@ -33,29 +33,57 @@ import json
 from collections.abc import Callable
 from typing import Any
 
-import httpx
-
-from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.data_access import SqlExecutor
 from migration.cli import main as cli_main
 
 # --- helpers --------------------------------------------------------------
 
 
-def _json_response(status_code: int, body: Any) -> httpx.Response:
-    return httpx.Response(
-        status_code=status_code,
-        content=json.dumps(body).encode("utf-8"),
-        headers={"content-type": "application/json"},
-    )
+class _FakeSqlExecutor:
+    """Minimal ``SqlExecutor`` Protocol implementation for migration CLI tests.
+
+    Returns pre-configured rows based on SQL query inspection so the CLI
+    can exercise its read/write paths without network I/O.
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+        self._rows: list[dict[str, Any]] = []
+        self._extra: dict[str, list[dict[str, Any]]] = {}
+
+    def set_rows(self, rows: list[dict[str, Any]]) -> None:
+        """Set the default rows returned for list_needs_review queries."""
+        self._rows = rows
+
+    def set_extra(self, extra: dict[str, list[dict[str, Any]]]) -> None:
+        """Set extra rows keyed by SQL substring (e.g. {"UPDATE": [{"ok": 1}]})."""
+        self._extra = extra
+
+    def execute_sql(
+        self, query: str, params: list[object] | None = None
+    ) -> list[dict[str, Any]]:
+        self.calls.append({"query": query, "params": list(params or [])})
+        for marker, rows in self._extra.items():
+            if marker in query:
+                return rows
+        if "web_only_feature_shadow" in query and "WHERE" in query:
+            return self._rows
+        return []
+
+    def close(self) -> None:
+        pass  # no-op for fake
 
 
-def _make_web_client(handler: Callable[[httpx.Request], httpx.Response]) -> LocalPostgresExecutor:
-    return LocalPostgresExecutor(
-        base_url="https://example.insforge.app",
-        service_key="ik_test",
-        transport=httpx.MockTransport(handler),
-    )
+def _make_client(
+    shadow_rows: list[dict[str, Any]],
+    extra_sql: dict[str, list[dict[str, Any]]] | None = None,
+) -> tuple[_FakeSqlExecutor, list[dict[str, Any]]]:
+    """Build a fake executor wired to return shadow_rows for list_needs_review queries."""
+    fake = _FakeSqlExecutor()
+    fake.set_rows(shadow_rows)
+    if extra_sql:
+        fake.set_extra(extra_sql)
+    return fake, fake.calls
 
 
 def _needs_review_row(
@@ -128,26 +156,7 @@ def _run_reconcile(
     The mock response defaults to an empty list so any extra SQL
     (UPDATE, INSERT) just no-ops if not configured.
     """
-    extra_sql = extra_sql or {}
-    captured: list[dict[str, Any]] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        body = json.loads(request.content.decode("utf-8")) if request.content else {}
-        captured.append(body)
-        query = body.get("query", "") if isinstance(body, dict) else ""
-        for marker, rows in extra_sql.items():
-            if marker in query:
-                return _json_response(200, rows)
-        # Default: return the shadow rows only when the query looks
-        # like the ``list_needs_review`` SELECT. Anything else
-        # (UPDATE, INSERT) returns an empty list — the
-        # LocalPostgresExecutor protocol doesn't choke on that, and the
-        # tests assert the call was issued (not the result).
-        if "web_only_feature_shadow" in query and "WHERE" in query:
-            return _json_response(200, shadow_rows)
-        return _json_response(200, [])
-
-    client = _make_web_client(handler)
+    client, captured = _make_client(shadow_rows, extra_sql)
     try:
         rc = cli_main(
             argv,
