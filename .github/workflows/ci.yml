@@ -881,6 +881,10 @@ jobs:
         # app code coverage.
         # The default pytest addopts excludes tests/integration, so this job
         # overrides addopts to collect the dedicated integration test directory.
+        env:
+          APAP_SESSION_SECRET: test-secret-for-ci-only-minimum-32-chars
+          APAP_LOCAL_DB_URL:
+            ${{ env.APAP_TEST_POSTGRES_DSN }}
         run: |
           python -m pytest \
             --override-ini="addopts=-ra --strict-markers --strict-config --randomly-dont-reorganize" \
