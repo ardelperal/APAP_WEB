@@ -31,6 +31,7 @@ from typing import Any
 
 import pytest
 
+from app.core.data_access import BackendError
 from app.modules.sanidad import batch_service
 from tests.sql_executor_fake import HandlerSqlExecutor as LocalPostgresExecutor
 
@@ -104,6 +105,21 @@ def _handler_returns(rows: list[dict[str, Any]]):
     def _h(_query: str, _params: list[object]) -> list[dict[str, object]]:
         return rows  # type: ignore[return-value]
     return _h
+
+
+def _make_client(
+    handler: Callable[[str, list[object]], Any],
+) -> tuple[_FakeSqlExecutor, list[tuple[str, list[object]]]]:
+    """Build a fake executor that delegates every ``execute_sql`` to ``handler``.
+
+    The handler signature mirrors what ``_handler_returns`` and ``_boom``
+    produce: it inspects ``(query, params)`` and returns a list of dicts
+    or an ``_ErrorResponse``. Returned calls are captured by reference
+    so tests can assert SQL + positional params without monkey-patching.
+    """
+    fake = _FakeSqlExecutor()
+    fake.set_handler(handler)
+    return fake, fake.calls
 
 
 # --- fixture shape --------------------------------------------------------
