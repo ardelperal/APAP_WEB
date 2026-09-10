@@ -28,10 +28,10 @@ tests.
   - [x] **0.1.4.3** Maps `QueryError` → HTTP 400, `DatabaseError` → HTTP 503 (or 500)
   - [x] **0.1.4.4** TDD: integration test with full round-trip (INSERT then SELECT)
 
-- [x] **0.1.5** `app/core/local_backend/storage.py` — `GET /api/storage/buckets` and `POST /api/storage/buckets/{name}` handlers
-  - [x] **0.1.5.1** `GET` returns `[{"bucketName": ..., "isPublic": ..., "files": ...}, ...]` (matching `LocalBackendClient.get_bucket` consumer)
-  - [x] **0.1.5.2** `POST` returns the bucket shape, creates the bucket on demand
-  - [x] **0.1.5.3** M0 stub: hard-coded `apap-photos` bucket with `isPublic=false, files=0`; M2 replaces with MinIO
+- [x] **0.1.5** `app/core/local_backend/storage.py` — `GET /api/storage/buckets` and `POST /api/storage/buckets` handlers (real MinIO, not stub)
+  - [x] **0.1.5.1** `GET` returns the real bucket list from MinIO
+  - [x] **0.1.5.2** `POST` creates the bucket via MinIO client, idempotent
+  - [x] **0.1.5.3** Real MinIO via `minio` Python package — photos served from S3-compatible storage
 
 - [x] **0.1.6** `app/core/local_backend/oauth_google.py` — OAuth flow stub
   - [x] **0.1.6.1** `POST /api/auth/oauth/google?code_challenge=...&redirect_uri=...` returns `{"authUrl": "https://accounts.google.com/..."}`
@@ -121,8 +121,7 @@ tests.
 ## Out of scope (M2+)
 
 - M2: `Dockerfile` + `docker-compose.yml` for production deployment  # ← Dockerfile existed pre-M0; docker-compose.yml added in M0 acceptance (69d8e89)
-- M2: real MinIO deployment replacing the hard-coded `apap-photos` stub
-- M2: `coolify.yaml` metadata
+- M2: coolify.yaml metadata + production deployment
 - M2: DNS + reverse proxy (coolify-proxy already covers this)
 - M2: real Google OAuth provider (M3)
 - M3: 2FA / TOTP

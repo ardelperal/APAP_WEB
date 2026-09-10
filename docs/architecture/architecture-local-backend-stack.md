@@ -77,11 +77,22 @@ Una sesión firmada no basta para autorizar. Si falta la sesión, el flag es res
 
 ## Límite de storage
 
-El runtime web actual no contiene persistencia de objetos. Las fotos no atraviesan un cliente de storage dentro de `app.main`.
+El servicio web persiste objetos (fotos) en MinIO (S3-compatible). La
+cliente `minio` de Python se conecta a `APAP_S3_ENDPOINT` con
+`APAP_S3_ACCESS_KEY` y `APAP_S3_SECRET_KEY`.
 
-`app/core/local_backend/storage.py` mantiene únicamente un registro de buckets en memoria para la API de compatibilidad. No guarda archivos y reiniciar el proceso descarta los buckets añadidos.
+`app/core/local_backend/s3.py` expone el cliente MinIO y lo conecta al
+lifespan de `app/main` como `app.state.minio_client`. Los adapters de
+storage lo consumen via el protocolo `PhotoStorageClient`.
 
-La migración activa ya no requiere operaciones de bucket. `migration/apply.py::SqlExecutor` conserva solo `execute_sql`, y el adapter LocalBackend expone esa misma superficie.
+`app/core/local_backend/storage.py` (la API de compatibilidad) usa el
+mismo cliente MinIO para las rutas `GET /api/storage/buckets` y
+`POST /api/storage/buckets`. El stub in-memory fue eliminado en M0
+(issue #641).
+
+El bucket se auto-crea en el arranque si no existe
+(`APAP_S3_BUCKET`). Sin credenciales de MinIO el servicio arranca
+normalmente pero la descarga de fotos devuelve el placeholder 1x1 PNG.
 
 ## API de compatibilidad LocalBackend
 
@@ -91,7 +102,7 @@ La migración activa ya no requiere operaciones de bucket. `migration/apply.py::
 |---|---|---|
 | `GET /healthz` | Devuelve el sobre de salud de compatibilidad. | `app/core/local_backend/healthz.py` |
 | `POST /api/database/advance/rawsql` | Ejecuta SQL y conserva el sobre `rows`/`rowCount`. | `app/core/local_backend/rawsql.py` |
-| `GET/POST /api/storage/buckets` | Lista o registra metadatos de buckets en memoria. | `app/core/local_backend/storage.py` |
+| `GET/POST /api/storage/buckets` | Lista o crea buckets via MinIO. | `app/core/local_backend/storage.py` |
 | `/api/auth/oauth/*` | Devuelve respuestas OAuth simuladas; no contacta con Google. | `app/core/local_backend/oauth_google.py` |
 | `POST /api/magic/start` | Persiste un token y solicita su envío por SMTP si está configurado. | `app/core/local_backend/magic_link.py` |
 | `GET /api/magic/verify` | Consume el token y emite la cookie de sesión o redirige al login. | `app/core/local_backend/magic_link.py` |
@@ -119,6 +130,7 @@ Los flujos legacy → web, web → legacy y reconcile viven en `migration/`. Con
 | `APAP_SMTP_*` | API separada de magic-link | Configura `SMTPMailTransport`; sin host, el envío es no-op. |
 | `APAP_PUBLIC_BASE_URL` | API separada de magic-link | Base del enlace de verificación; por defecto, `http://127.0.0.1:8000`. |
 
+| `APAP_S3_ENDPOINT`, `APAP_S3_ACCESS_KEY`, `APAP_S3_SECRET_KEY`, `APAP_S3_BUCKET` | Lifespan, `s3.py` | Cliente MinIO; sin credenciales el servicio arranca con fallback placeholder para fotos. |
 `Settings` no selecciona entre un backend HTTP y PostgreSQL. Su campo `mode` distingue `web` y `test` para middleware; no representa un modo Access de datos.
 
 ## Invariantes principales
@@ -127,7 +139,7 @@ Los flujos legacy → web, web → legacy y reconcile viven en `migration/`. Con
 - **Un composition root por aplicación**: `app.main` y la API separada poseen lifespans y claves de `app.state` distintas.
 - **Fail-fast de esquema**: el servicio web completa el bootstrap antes de aceptar tráfico.
 - **Autorización revalidada**: la cookie aporta identidad; `usuarios_autorizados` conserva la decisión de acceso.
-- **Storage declarado como stub**: el registro de buckets no implica persistencia de objetos.
+- **Storage real en MinIO**: fotos van a MinIO via `app/core/local_backend/s3.py`.
 - **Migración aislada**: solo `migration/` coordina PostgreSQL y Access; su composición CLI permanece incompleta.
 
 ## Checklist del contribuidor
@@ -135,7 +147,7 @@ Los flujos legacy → web, web → legacy y reconcile viven en `migration/`. Con
 - [ ] Confirme en `Dockerfile` qué aplicación se despliega antes de documentar una ruta.
 - [ ] Mantenga los consumidores de datos detrás de `SqlExecutor` o del port específico del slice.
 - [ ] No describa la API separada como montada en `app.main` sin wiring y pruebas que lo demuestren.
-- [ ] No describa el registro de buckets como almacenamiento de objetos.
+- [ ] Actualice la sección storage cuando MinIO deje de ser stub.
 - [ ] Actualice esta página cuando cambien los lifespans, el ejecutor, auth, storage o el adapter de migración.
 - [ ] Verifique que cada ruta y enlace Markdown resuelve dentro del repositorio.
 

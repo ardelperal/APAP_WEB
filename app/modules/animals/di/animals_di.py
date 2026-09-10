@@ -28,7 +28,8 @@ def get_animals_port(request: Request) -> Iterator[AnimalsPort]:
     adapter.
     """
     client = request.app.state.sql_executor
-    adapter = AnimalsLocalBackendAdapter(client=client, storage=None)
+    photo_storage = getattr(request.app.state, "photo_storage", None)
+    adapter = AnimalsLocalBackendAdapter(client=client, storage=photo_storage)
     yield adapter
 
 

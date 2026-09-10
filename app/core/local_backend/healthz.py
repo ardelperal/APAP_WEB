@@ -1,24 +1,11 @@
 """``GET /healthz`` endpoint for the local backend (M0 of self-host-backend-coolify).
 
-Returns the healthcheck envelope ``AuthUsersPort`` and the
-integration tests expect:
+Returns the healthcheck envelope ``{"db": ..., "storage": ..., "oauth": ...}``
+that the integration tests and operators expect.
 
-  ``{"db": "up"|"down", "storage": "up"|"down", "oauth": "configured"|"missing"}``
-
-The DB status is derived from ``app.state.local_postgres_executor``:
-if the lifespan set it up, ``"up"``; otherwise ``"down"``. (The
-executor constructor does not connect — the first ``execute()`` does
-— so ``"up"`` here is the constructor-OK signal, not a query-OK signal.
-A real probe of the DB is the responsibility of the ``/api/database/
-advance/rawsql`` test endpoint, which M0 implements as the
-integration test for the executor.)
-
-Storage is ``"up"`` unconditionally in M0 (the local backend stubs
-the S3-compatible MinIO interface; M2 swaps the stub for a real
-boto3 call).
-
-OAuth is ``"configured"`` if ``APAP_GOOGLE_CLIENT_ID`` is set,
-``"missing"`` otherwise. M0's stub OAuth flow does not require it.
+The storage check probes the MinIO client: it returns ``"up"`` when MinIO
+is configured and reachable, ``"unconfigured"`` when credentials are absent,
+and ``"down"`` when MinIO is configured but unreachable.
 """
 
 from __future__ import annotations
@@ -27,22 +14,42 @@ import os
 
 from fastapi import APIRouter
 
+from app.core.local_backend.s3 import _build_minio_client, _credentials
+
 router = APIRouter()
+
+
+def _storage_status() -> str:
+    """Probe MinIO connectivity and return its status string."""
+    if _credentials() is None:
+        return "unconfigured"
+    try:
+        client = _build_minio_client()
+    except Exception:  # noqa: BLE001
+        return "down"
+    else:
+        if client is None:
+            return "unconfigured"
+        try:
+            # list_buckets() makes a real HTTP request.
+            client.list_buckets()
+        except Exception:  # noqa: BLE001
+            return "down"
+        else:
+            return "up"
 
 
 @router.get("/healthz")
 def healthz() -> dict:
     """Return the healthcheck envelope.
 
-    No dependencies on ``app.state`` here — the handler is a pure
-    function of the environment. The ``AuthUsersPort`` constructor
-    (which the test fixture does) does not call ``/healthz`` directly;
-    the integration tests do.
+    Always returns HTTP 200 even when a dependency is down — the body
+    tells the operator which side is failing.
     """
     oauth_configured = bool(os.environ.get("APAP_GOOGLE_CLIENT_ID"))
     return {
         "db": "up",
-        "storage": "up",
+        "storage": _storage_status(),
         "oauth": "configured" if oauth_configured else "missing",
     }
 
