@@ -33,7 +33,6 @@ import json
 from collections.abc import Callable
 from typing import Any
 
-from app.core.data_access import SqlExecutor
 from migration.cli import main as cli_main
 
 # --- helpers --------------------------------------------------------------

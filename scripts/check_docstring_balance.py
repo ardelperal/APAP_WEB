@@ -32,6 +32,15 @@ import sys
 from pathlib import Path
 
 
+def _pin_output_encoding() -> None:
+    """Pin stdout + stderr to UTF-8 so CI environments that override PYTHONIOENCODING
+    still produce readable error output (test_gate_output_encoding.py gate)."""
+    if sys.stdout.encoding.lower() != "utf-8":
+        sys.stdout.reconfigure(encoding="utf-8")
+    if sys.stderr.encoding.lower() != "utf-8":
+        sys.stderr.reconfigure(encoding="utf-8")
+
+
 # Error-message fragments that indicate an unclosed triple-quoted string.
 # Covers both CPython 3.x and the python-compile stdlib error messages.
 _UNBALANCED_FRAGMENTS = (
@@ -85,6 +94,7 @@ def paths_from_args(args: list[str]) -> list[Path]:
 
 
 def main() -> None:
+    _pin_output_encoding()
     if len(sys.argv) > 1 and sys.argv[1] == "--stdin":
         # pre-commit: files are listed one per line on stdin
         file_paths = [Path(line.strip()) for line in sys.stdin if line.strip()]

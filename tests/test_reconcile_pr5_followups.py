@@ -41,8 +41,6 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
-
-from app.core.data_access import SqlExecutor
 from migration.cli import (
     _format_row_for_check_only,
 )

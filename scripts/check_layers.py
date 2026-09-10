@@ -578,8 +578,6 @@ BASELINE: Mapping[str, str] = {
     "app/core/auth.py -> app.core.application.auth.list_authorized_users [layer-direction]": _EPIC_420,
     "app/core/auth_dependencies.py -> app.core.di.auth_dependencies_di [layer-direction]": _EPIC_420,
     "app/core/auth_dependencies.py -> app.core.di.local_postgres_di [layer-direction]": _EPIC_420,
-    "app/core/auth_flow.py -> app.core.adapters.local_backend.auth_local_backend_adapter [layer-direction]": _EPIC_420,
-    "app/core/auth_flow.py -> app.core.adapters.local_backend.oauth_local_backend_adapter [layer-direction]": _EPIC_420,
     "app/core/auth_flow.py -> app.core.application.oauth [layer-direction]": _EPIC_420,
     "app/core/auth_flow.py -> app.core.application.oauth.callback [layer-direction]": _EPIC_420,
     "app/core/auth_flow.py -> app.core.application.oauth.login_page [layer-direction]": _EPIC_420,
