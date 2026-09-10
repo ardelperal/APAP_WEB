@@ -33,6 +33,7 @@ from app.main import app, get_local_backend_client
 from app.modules.sanidad import proximas as sanidad_proximas
 from app.modules.sanidad.proximas import ProximaPrueba
 from app.modules.sanidad.queries import build_proximas_pruebas_sql
+from tests.conftest import auth_reval_rows
 
 # --- builder --------------------------------------------------------------
 
@@ -206,14 +207,23 @@ class TestProximaPruebaEstado:
 # --- route (issue #693: auth bypass regression + happy path) --------------
 
 
+class _AuthRevalidationExecutor:
+    """Allow only the auth lookup required by the protected route."""
+
+    def execute_sql(self, query: str, params: object = None):
+        rows = auth_reval_rows(query, params, rol="staff")
+        if rows is not None:
+            return rows
+        raise AssertionError(f"unexpected SQL in route test: {query!r}")
+
+
 @pytest.fixture
 def _proximas_client():
-    """Dummy SqlExecutor: the route's own client param, unused once
-    ``sanidad_proximas.get_proximas_pruebas`` is monkeypatched."""
-    dummy = object()
-    app.dependency_overrides[get_local_backend_client] = lambda: dummy
-    app.dependency_overrides[get_local_backend_client_dep] = lambda: dummy
-    yield dummy
+    """Executor fixture that satisfies DB-backed auth revalidation only."""
+    executor = _AuthRevalidationExecutor()
+    app.dependency_overrides[get_local_backend_client] = lambda: executor
+    app.dependency_overrides[get_local_backend_client_dep] = lambda: executor
+    yield executor
     app.dependency_overrides.pop(get_local_backend_client, None)
     app.dependency_overrides.pop(get_local_backend_client_dep, None)
 
@@ -311,7 +321,7 @@ class TestProximasPruebasView:
             }
         ]
 
-    async def test_invalid_date_returns_400_before_auth_ever_matters(
+    async def test_invalid_date_returns_400_for_authorized_staff(
         self,
         client: httpx.AsyncClient,
         _proximas_client: object,
