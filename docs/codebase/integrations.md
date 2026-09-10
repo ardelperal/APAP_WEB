@@ -23,6 +23,7 @@ Esta página posee el inventario de integraciones externas (LocalBackend, CodeGr
 | Dysflow MCP | Acceso de solo lectura al binario Access legacy (`.accdb`) para resolver dudas de dominio | MCP server Dysflow; `projectId: apap`, `accessPath` resuelve al `.accdb` | Sin acceso al `.accdb` → ascender la duda al usuario (P2 en [proceso.md](../proceso.md)) |
 | Coolify (deploy) | Plataforma de despliegue del servicio `app.main:app`, PostgreSQL y variables de entorno | [`deploy.yml`](../../.github/workflows/deploy.yml) y [`operator-deploy-2026.md`](../runbooks/operator-deploy-2026.md) | Falta de webhook o URL de salud falla cerrado; una revisión pública incorrecta activa rollback |
 | SMTP (Resend) | Entrega de magic-link en producción; lee `APAP_SMTP_HOST/PORT/USER/PASSWORD/FROM` desde env (issue #649 + M3.4) | Variable de entorno; wiring en `app/core/local_backend/` tras M3.4 | Sin `APAP_SMTP_HOST`, el envío es no-op y el flujo magic-link queda inactivo en producción |
+| MinIO (S3) | Almacenamiento de fotos de animales; conecta con un bucket MinIO autocreado en ``apap-photos`` (issue #641) | Variable de entorno; `APAP_S3_ENDPOINT`, `APAP_S3_ACCESS_KEY`, `APAP_S3_SECRET_KEY`, `APAP_S3_BUCKET`, `APAP_S3_SECURE` | Sin `APAP_S3_ACCESS_KEY`, `PhotoStorageClient` retorna la imagen placeholder PNG y el healthz reporta ``storage: unconfigured`` |
 | GitHub Actions (CI) | Verificación aislada y entrega por digest | [`.github/workflows/`](../../.github/workflows/) | `ci / required` agrega los jobs fail-closed y bloquea el merge; deploy usa únicamente el runner con etiqueta `deploy` |
 | Google OAuth | Identidad de usuario mediante ports de OAuth y auth | [`app/core/auth_flow.py`](../../app/core/auth_flow.py), `app/core/application/oauth/` | Sin `APAP_GOOGLE_CLIENT_ID` y `APAP_GOOGLE_CLIENT_SECRET`, el login responde 503 |
 | Tailwind v4 CSS-first | Estilos sin `tailwind.config.js` | [`app/static/`](../../app/static/) + build command | Si el build falla, el CSS no se compila y la UI se ve sin estilos |
@@ -45,6 +46,11 @@ Esta página posee el inventario de integraciones externas (LocalBackend, CodeGr
 | `APAP_SMTP_USER` | Usuario SMTP (`resend` en producción) | unset | issue #649 + M3.4 |
 | `APAP_SMTP_PASSWORD` | API key / password SMTP | unset | issue #649 + M3.4 |
 | `APAP_SMTP_FROM` | Dirección `From` de los magic-link | unset | issue #649 + M3.4 |
+| `APAP_S3_ENDPOINT` | Host de MinIO (``minio:9000``) | `minio:9000` | [`app/core/local_backend/s3.py`](../../app/core/local_backend/s3.py) |
+| `APAP_S3_ACCESS_KEY` | Usuario de MinIO | unset | [`app/core/local_backend/s3.py`](../../app/core/local_backend/s3.py) |
+| `APAP_S3_SECRET_KEY` | Contraseña de MinIO | unset (secreto) | [`app/core/local_backend/s3.py`](../../app/core/local_backend/s3.py) |
+| `APAP_S3_BUCKET` | Nombre del bucket de fotos | `apap-photos` | [`app/core/local_backend/s3.py`](../../app/core/local_backend/s3.py) |
+| `APAP_S3_SECURE` | Usar HTTPS (``true/false``) | `false` | [`app/core/local_backend/s3.py`](../../app/core/local_backend/s3.py) |
 | `COOLIFY_WEBHOOK_URL` | Webhook de deploy a Coolify | Required para deploy | AGENTS §15.1 |
 
 ## Contributor checklist
