@@ -75,32 +75,6 @@ class LocalBackendOAuthAdapter:
             code_challenge=code_challenge,
         )
 
-    def exchange_insforge_oauth_code(
-        self,
-        insforge_code: str,
-        code_verifier: str,
-    ) -> OAuthUser:
-        """Exchange an InsForge-hosted ``insforge_code`` for the user identity.
-
-        Calls ``POST /auth/oauth/exchange``.
-        """
-        resp = self._get_client().post(
-            "/auth/oauth/exchange",
-            json={"code": insforge_code, "code_verifier": code_verifier},
-        )
-        try:
-            resp.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            raise BackendError(
-                exc.response.status_code,
-                f"InsForge OAuth exchange failed: {exc.response.status_code}",
-            ) from exc
-        data = resp.json()
-        return OAuthUser(
-            id=data["user"]["id"],
-            email=data["user"]["email"],
-        )
-
     def exchange_google_oauth_code(
         self,
         code: str,
