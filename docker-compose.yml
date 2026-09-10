@@ -1,0 +1,80 @@
+# docker-compose.yml — M0 of self-host-backend-coolify (issue #641)
+#
+# Spins up the full local stack: postgres + web app.
+# The local backend (app/core/local_backend/app.py) is spawned
+# automatically by `verify-fallback-ready --ci-only` when
+# APAP_LOCAL_DB_URL is set (see migration/verify_fallback_ready.py M0 wiring).
+#
+# MinIO is included as a named volume so the service starts, but
+# the storage layer is an in-memory stub in M0 (M2 replaces it with
+# a real boto3 client).
+#
+# Usage:
+#   cp .env.example .env     # fill in APAP_SESSION_SECRET and APAP_INITIAL_ADMIN_EMAIL
+#   docker compose up --build
+#
+# Health-checked services: postgres (port 5432), web (port 8000).
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: apap-postgres
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U apap -d apap"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    environment:
+      POSTGRES_USER: apap
+      POSTGRES_PASSWORD: ${APAP_DB_PASSWORD:?APAP_DB_PASSWORD is required}
+      POSTGRES_DB: apap
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - apap-net
+    ports:
+      - "5434:5432"
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: apap-web
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:8000/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    environment:
+      # Direct Postgres connection (the web app uses LocalPostgresExecutor,
+      # not the HTTP local-backend router). The local backend HTTP service
+      # is spawned automatically by verify-fallback-ready when APAP_LOCAL_DB_URL
+      # is set — see migration/verify_fallback_ready.py §M0 wiring.
+      APAP_LOCAL_DB_URL: postgresql://apap:${APAP_DB_PASSWORD:?}@postgres:5432/apap
+      APAP_SESSION_SECRET: ${APAP_SESSION_SECRET:?APAP_SESSION_SECRET is required}
+      # Bootstrap admin — create the first developer account on first boot.
+      APAP_INITIAL_ADMIN_EMAIL: ${APAP_INITIAL_ADMIN_EMAIL:?APAP_INITIAL_ADMIN_EMAIL is required}
+      APAP_BUILD_SHA: ${APAP_GIT_SHA:-$(git rev-parse --short HEAD 2>/dev/null || echo 'dev')}
+      # OAuth (optional for M0 — the hardcoded local OAuth stub works without it).
+      # Uncomment and fill in for real Google OAuth:
+      # APAP_GOOGLE_CLIENT_ID: your-client-id
+      # APAP_GOOGLE_CLIENT_SECRET: your-client-secret
+      # APAP_PUBLIC_BASE_URL: https://your-public-url
+    networks:
+      - apap-net
+    ports:
+      - "8001:8000"
+
+networks:
+  apap-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    name: apap-postgres-data

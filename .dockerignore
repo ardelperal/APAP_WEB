@@ -1,59 +1,54 @@
-# Files and directories excluded from the Docker build context.
-# Kept small and explicit so `docker build` stays fast and the
-# resulting images stay clean.
-
+# Git
 .git/
-.github/
 .gitignore
 
+# Python cache
+__pycache__/
+*.py[cod]
+*.so
+.Python
+.eggs/
+*.egg-info/
+
+# Virtual environments
 .venv/
 venv/
-env/
-__pycache__/
-.pytest_cache/
-.ruff_cache/
-.coverage
-htmlcov/
-build/
-dist/
-*.egg-info/
-*.egg
 
-.dysflow/
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Env files
+.env
+.env.*
+# Exception: env.example is copied for reference
+!env.example
+
+# Docs
+# docs/ is NOT excluded — the Dockerfile's builder stage copies it so pip wheel
+# can resolve the package README. The runtime stage does NOT include docs/.
+
+# Tests
+tests/
+# tests/ is NOT excluded — some test helpers are imported by app/ modules
+# via `if TYPE_CHECKING:` blocks. Excluding tests/ would break those imports.
+
+# Migration (runbooks / standalone scripts not needed in the runtime image)
+migration/scripts/
+migration/reverse_apply/
+
+# Skill registry (runtime doesn't need agent instructions)
 .atl/
-.playwright-mcp/
-.engram/
 
-# Tailwind dependencies are reproduced from the committed lockfile.
+# OpenSpec (design docs not needed in runtime)
+.openspec/
+
+# Node modules (compiled CSS is already copied from the tailwind-base stage)
 tailwindcss/node_modules/
 
-# Local Access binaries and project documentation that is not needed at
-# runtime.
-*.accdb
-*.laccdb
-*.mdb
-*.ldb
-
-docs/discovery/
-docs/legacy-*.md
-docs/mockups/
-# `docs/setup.md` is referenced by `pyproject.toml` as the package README,
-# so `pip wheel` requires it to exist in the build context. Keep it.
-# docs/setup.md
-docs/development.md
-docs/plan-completo.md
-docs/roadmap.md
-docs/features-showcase.html
-docs/canonical-logs.md
-docs/design-tokens-apap-actual.md
-docs/architecture/decisiones-proyecto.md
-docs/architecture/decisiones/
-docs/architecture/architecture-local-backend-stack.md
-
-openspec/
-
-scripts/
-
-# `tests/` is needed by the builder stage of the Dockerfile:
-# `pip wheel` includes tests in the wheel metadata, and the `COPY tests/`
-# instruction must succeed. Keep it in the build context.
+# Misc
+.DS_Store
+*.md
+# Exception: README.md is needed by pip wheel in the builder stage
+!README.md
