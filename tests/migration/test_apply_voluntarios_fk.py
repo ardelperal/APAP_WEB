@@ -58,9 +58,9 @@ class TestStripAccents:
 
 
 class TestVoluntariosIndex:
-    def _make_fake_client(self, volontarios: list[dict[str, Any]]) -> FakeLocalBackend:
+    def _make_fake_client(self, voluntarios: list[dict[str, Any]]) -> FakeLocalBackend:
         client = FakeLocalBackend()
-        client.seed("volontarios", volontarios)
+        client.seed("voluntarios", voluntarios)
         return client
 
     def test_load_from_db_populates_index(self) -> None:
@@ -151,12 +151,12 @@ class TestVoluntariosIndex:
 class TestResolveFkValue:
     def _make_client(
         self,
-        volontarios: list[dict[str, Any]] | None = None,
+        voluntarios: list[dict[str, Any]] | None = None,
         animales: list[dict[str, Any]] | None = None,
     ) -> FakeLocalBackend:
         client = FakeLocalBackend()
-        if volontarios:
-            client.seed("volontarios", volontarios)
+        if voluntarios:
+            client.seed("voluntarios", voluntarios)
         if animales:
             client.seed("animales", animales)
         return client
@@ -189,15 +189,15 @@ class TestResolveFkValue:
 
     def test_voluntario_fuzzy_via_index(self) -> None:
         """Miss on exact lookup falls through to fuzzy in the volontario index."""
-        client = self._make_client(volontarios=[{"id": "v-1", "voluntario": "Maria Garcia"}])
+        client = self._make_client(voluntarios=[{"id": "v-1", "voluntario": "Maria Garcia"}])
         index = _VoluntariosIndex()
         index.load_from_db(client)
 
-        # No exact match for "Maria Garcia" in volontarios by exact lookup;
+        # No exact match for "Maria Garcia" in voluntarios by exact lookup;
         # falls through to fuzzy in index.
         result = _resolve_fk_value(
             "Maria Garcia",
-            lookup_table="volontarios",
+            lookup_table="voluntarios",
             lookup_key="voluntario",
             client=client,
             vol_index=index,
@@ -208,13 +208,13 @@ class TestResolveFkValue:
         assert result == "v-1"
 
     def test_optional_returns_none_on_miss(self) -> None:
-        client = self._make_client(volontarios=[{"id": "v-1", "voluntario": "Ana Garcia"}])
+        client = self._make_client(voluntarios=[{"id": "v-1", "voluntario": "Ana Garcia"}])
         index = _VoluntariosIndex()
         index.load_from_db(client)
 
         result = _resolve_fk_value(
             "Carlos Lopez",
-            lookup_table="volontarios",
+            lookup_table="voluntarios",
             lookup_key="voluntario",
             client=client,
             vol_index=index,
@@ -225,13 +225,13 @@ class TestResolveFkValue:
         assert result is None
 
     def test_empty_legacy_value_returns_none(self) -> None:
-        client = self._make_client(volontarios=[{"id": "v-1", "voluntario": "Ana Garcia"}])
+        client = self._make_client(voluntarios=[{"id": "v-1", "voluntario": "Ana Garcia"}])
         index = _VoluntariosIndex()
         index.load_from_db(client)
 
         assert _resolve_fk_value(
             None,
-            lookup_table="volontarios",
+            lookup_table="voluntarios",
             lookup_key="voluntario",
             client=client,
             vol_index=index,
@@ -240,7 +240,7 @@ class TestResolveFkValue:
         ) is None
         assert _resolve_fk_value(
             "",
-            lookup_table="volontarios",
+            lookup_table="voluntarios",
             lookup_key="voluntario",
             client=client,
             vol_index=index,
@@ -303,7 +303,7 @@ class TestLegacyToWebRowFk:
         """animal_id is resolved via exact lookup on NCHIP."""
         client = FakeLocalBackend()
         client.seed("animales", [{"id": "a-1", "nchip": "X1"}])
-        client.seed("volontarios", [])
+        client.seed("voluntarios", [])
 
         mapping = self._make_mapping(
             fk_columns=[],
@@ -322,7 +322,7 @@ class TestLegacyToWebRowFk:
         client = FakeLocalBackend()
         client.seed("animales", [{"id": "a-1", "nchip": "X1"}])
         client.seed(
-            "volontarios",
+            "voluntarios",
             [{"id": "v-1", "voluntario": "Maria Garcia", "activo": True}],
         )
 
@@ -338,7 +338,7 @@ class TestLegacyToWebRowFk:
                     "name": "voluntario_acogida",
                     "web_column": "voluntario_acogida_id",
                     "legacy_column": "VoluntarioAcogida",
-                    "lookup_table": "volontarios",
+                    "lookup_table": "voluntarios",
                     "lookup_legacy_key": "voluntario",
                     "fuzzy_match": True,
                     "fuzzy_threshold": 85,
@@ -378,7 +378,7 @@ class TestLegacyToWebRowFk:
                     "name": "voluntario_acogida",
                     "web_column": "voluntario_acogida_id",
                     "legacy_column": "VoluntarioAcogida",
-                    "lookup_table": "volontarios",
+                    "lookup_table": "voluntarios",
                     "lookup_legacy_key": "voluntario",
                     "fuzzy_match": True,
                     "fuzzy_threshold": 85,
@@ -425,7 +425,7 @@ class TestApplyAcogidaVoluntarioFk:
             ],
             seed={
                 "animales": [{"id": "a-1", "nchip": "X1", "activo": True}],
-                "volontarios": [{"id": "v-1", "voluntario": "Ana Garcia", "activo": True}],
+                "voluntarios": [{"id": "v-1", "voluntario": "Ana Garcia", "activo": True}],
                 # Seed acogidas so FakeLocalBackend knows about the FK columns.
                 "acogidas": [
                     {"id": "placeholder", "fecha_inicio": "", "animal_id": "", "voluntario_acogida_id": ""}

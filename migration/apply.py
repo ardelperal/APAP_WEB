@@ -419,7 +419,7 @@ def apply_legacy_to_web(
     # carry volontario free-text references that need to resolve to UUIDs.
     # The index is loaded from the DB inside the lock so it is consistent
     # with the rows migrated in this run (Level 2 resolution).
-    # For ``volontarios`` itself, the index starts empty and is populated
+    # For ``voluntarios`` itself, the index starts empty and is populated
     # row-by-row as INSERTs succeed (Level 2 for subsequent rows).
     vol_index: _VoluntariosIndex = _VoluntariosIndex()
 
@@ -440,7 +440,7 @@ def apply_legacy_to_web(
                 snapshot_written = True
 
             # --- Read + apply loop --------------------------------
-            # Load the volontarios index for tables that carry volontario FKs.
+            # Load the voluntarios index for tables that carry volontario FKs.
             # Must be inside the lock so Level 2 (in-memory snapshot) is
             # consistent with the DB state at apply time.
             if mapping.web_table in ("acogidas", "adopciones"):

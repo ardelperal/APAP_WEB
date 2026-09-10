@@ -52,7 +52,7 @@ BASELINE_MUTATION_SITES: dict[str, int] = {
     "app/modules/salud/service.py": 342,
     "app/modules/sanidad/routes.py": 414,  # early-return added to proximas_pruebas_view for test_route_layer_coverage
     "app/modules/sanidad/service.py": 391,
-    "migration/cli.py": 406,  # issue #690: _build_web_client() wires a real LocalPostgresExecutor
+    "migration/cli.py": 407,  # issue #690: _build_web_client() wires a real LocalPostgresExecutor (+1 site: explicit search_path schema comment)
     "migration/diff_engine.py": 333,
     "migration/lock.py": 268,  # Re-baselined after Path A refactor of acquire_lock (issue #420 / PR #452). The 4-helper split grew the file by 9 sites (function defs + docstrings) but reduced the per-function CRAP from 26.54 to 1.00 (grade A).
     "migration/lock_snapshot.py": 287,

@@ -83,15 +83,15 @@ class _VoluntariosIndex:
         self._by_name: dict[str, tuple[str, str]] = {}
 
     def load_from_db(self, client: SqlExecutor) -> None:
-        """Load all active volontarios from the DB into the index (Level 1).
+        """Load all active voluntarios from the DB into the index (Level 1).
 
         Called once per apply run before processing acogidas / adopciones.
-        Entries from ``record()`` (Level 2: volontarios migrated in this run)
+        Entries from ``record()`` (Level 2: voluntarios migrated in this run)
         take precedence and are NOT overwritten by DB entries.
         Idempotent in the sense that re-calling never corrupts the index;
         it only adds DB entries that are not yet present.
         """
-        sql = "SELECT id, voluntario FROM volontarios WHERE activo = true"
+        sql = "SELECT id, voluntario FROM voluntarios WHERE activo = true"
         for row in client.execute_sql(sql, None):
             norm = _normalise_for_lookup(row.get("voluntario", ""))
             if norm and norm not in self._by_name:
@@ -101,7 +101,7 @@ class _VoluntariosIndex:
     def record(self, legacy_name: str, web_uuid: str) -> None:
         """Register a volontario migrated in this run (Level 2 resolution).
 
-        Called after each successful volontarios INSERT so that a
+        Called after each successful voluntarios INSERT so that a
         subsequent acogida row can resolve the FK using the just-migrated
         volontario (Level 2 beats Level 3 fuzzy).
         """
@@ -185,7 +185,7 @@ def _resolve_fk_value(
     """Resolve a legacy free-text value to a web UUID via FK lookup.
 
     Exact lookup: SELECT UUID FROM ``lookup_table`` WHERE ``lookup_key`` = $1.
-    Fuzzy lookup (for volontarios): use ``vol_index`` to resolve via
+    Fuzzy lookup (for voluntarios): use ``vol_index`` to resolve via
     the 4-level strategy (index -> fuzzy -> None/raise).
     """
     if not legacy_value or not str(legacy_value).strip():
@@ -198,7 +198,7 @@ def _resolve_fk_value(
     if rows:
         return str(rows[0]["id"])
 
-    # Exact lookup missed. For volontarios fuzzy, fall through to the index.
+    # Exact lookup missed. For voluntarios fuzzy, fall through to the index.
     if fuzzy_match and vol_index is not None:
         return vol_index.resolve(legacy_value, fuzzy_threshold=fuzzy_threshold)
 

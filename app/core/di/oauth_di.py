@@ -36,11 +36,6 @@ from app.core.ports.oauth_port import OAuthPort
 _oauth_adapter: LocalBackendOAuthAdapter | None = None
 
 
-def _get_base_url(request: Request) -> str:
-    """Return the base URL of the running application."""
-    return str(request.base_url)
-
-
 def get_oauth_port(request: Request) -> Iterator[OAuthPort]:
     """Yield the per-request :class:`OAuthPort` backed by LocalBackend.
 
