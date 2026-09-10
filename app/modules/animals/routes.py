@@ -81,6 +81,7 @@ from app.modules.animals.route_helpers import (
 from app.modules.sanidad import get_resumen_sanitario
 
 router = APIRouter(prefix="/animales", tags=["animales"])
+_require_write_animales = require_permission(Permission.WRITE_ANIMALES)
 
 
 # --- chip change payload ------------------------------------------------
@@ -192,7 +193,7 @@ def new_animal_form(
 def create_animal_view(
     request: Request,
     form: Annotated[AnimalForm, Form()],
-    user: Annotated[Response | dict, Depends(require_authorized_user)],
+    user: Annotated[Response | dict, Depends(_require_write_animales)],
     port: Annotated[AnimalsPort, Depends(get_animals_port)],
 ):
     """Procesa el submit del formulario. En exito, redirect al detalle.
@@ -338,7 +339,7 @@ def update_animal_view(
     animal_id: str,
     request: Request,
     form: Annotated[AnimalForm, Form()],
-    user: Annotated[Response | dict, Depends(require_authorized_user)],
+    user: Annotated[Response | dict, Depends(_require_write_animales)],
     port: Annotated[AnimalsPort, Depends(get_animals_port)],
 ):
     """Procesa el submit de edicion. Redirect al detalle en exito.
@@ -390,7 +391,7 @@ def delete_animal_view(
 def change_chip_view(
     animal_id: str,
     payload: ChipChangePayload,
-    user: Annotated[Response | dict, Depends(require_permission(Permission.WRITE_ANIMALES))],
+    user: Annotated[Response | dict, Depends(_require_write_animales)],
     port: Annotated[AnimalsPort, Depends(get_animals_port)],
 ):
     """PATCH /animales/{id}/chip — cambia el chip en cascada a 6 tablas."""
