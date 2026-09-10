@@ -66,8 +66,8 @@ class LocalBackendOAuthAdapter:
             resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
             raise BackendError(
-                message="oauth_start_failed",
-                detail=f"Google OAuth start failed: {exc.response.status_code}",
+                exc.response.status_code,
+                f"Google OAuth start failed: {exc.response.status_code}",
             ) from exc
         data = resp.json()
         return data["authUrl"], PkcePair(
@@ -92,8 +92,8 @@ class LocalBackendOAuthAdapter:
             resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
             raise BackendError(
-                message="oauth_exchange_failed",
-                detail=f"InsForge OAuth exchange failed: {exc.response.status_code}",
+                exc.response.status_code,
+                f"InsForge OAuth exchange failed: {exc.response.status_code}",
             ) from exc
         data = resp.json()
         return OAuthUser(
@@ -123,8 +123,8 @@ class LocalBackendOAuthAdapter:
             resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
             raise BackendError(
-                message="oauth_direct_exchange_failed",
-                detail=f"Google direct OAuth exchange failed: {exc.response.status_code}",
+                exc.response.status_code,
+                f"Google direct OAuth exchange failed: {exc.response.status_code}",
             ) from exc
         data = resp.json()
         # Legacy endpoint returns {"token": "...", "user": {...}}

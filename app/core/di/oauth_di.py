@@ -27,7 +27,6 @@ from fastapi import Request
 from app.core.adapters.local_backend.oauth_local_backend_adapter import (
     LocalBackendOAuthAdapter,
 )
-from app.core.config import get_settings
 from app.core.di._yield_local_backend_port import yield_local_backend_port
 from app.core.ports.oauth_port import OAuthPort
 
@@ -72,14 +71,5 @@ def get_oauth_port(request: Request) -> Iterator[OAuthPort]:
     )
 
 
-def _build_oauth_adapter() -> LocalBackendOAuthAdapter:
-    """Build a standalone OAuth adapter for the test OAuth callback."""
-    settings = get_settings()
-    # Derive base URL from google_redirect_uri (e.g.
-    # "http://127.0.0.1:8000/auth/callback" -> "http://127.0.0.1:8000")
-    redirect = settings.google_redirect_uri
-    base_url = redirect[: redirect.rfind("/auth/callback")]
-    return LocalBackendOAuthAdapter(base_url)
+__all__ = ["get_oauth_port"]
 
-
-__all__ = ["get_oauth_port", "_build_oauth_adapter"]
