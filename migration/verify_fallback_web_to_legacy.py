@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import os
 import re
+import secrets
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -211,6 +212,7 @@ def check_web_to_legacy_check_only() -> CheckResult:
                 status="FAIL",
                 evidence=f"could not find a free port for the local backend: {exc}",
             )
+        rawsql_auth_token = secrets.token_urlsafe()
         backend_proc = subprocess.Popen(
             [
                 sys.executable,
@@ -228,6 +230,7 @@ def check_web_to_legacy_check_only() -> CheckResult:
                 **os.environ,
                 "APAP_LOCAL_DB_URL": local_db_url,
                 "APAP_LOCAL_DB_SCHEMA": ephemeral_schema,
+                "APAP_RAWSQL_AUTH_TOKEN": rawsql_auth_token,
             },
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
@@ -247,8 +250,8 @@ def check_web_to_legacy_check_only() -> CheckResult:
             extra_env = {
                 "APAP_LOCAL_BACKEND": "true",
                 "APAP_INSFORGE_URL": f"http://127.0.0.1:{port}",
-                # Dummy key — the local backend does not authenticate.
-                "APAP_INSFORGE_SERVICE_KEY": "local-backend-dummy-key",
+                # The compatibility client sends this value as its bearer token.
+                "APAP_INSFORGE_SERVICE_KEY": rawsql_auth_token,
             }
         except Exception:
             backend_proc.kill()

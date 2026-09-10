@@ -38,6 +38,8 @@ CRITICAL_HELPERS: frozenset[str] = frozenset(
         "_resolve_developer_user",
         "_stamp_caller_fields",
         "_validate_secrets",
+        "_validate_rawsql_auth_token",
+        "_require_rawsql_token",
         "is_authenticated_user",
     }
 )

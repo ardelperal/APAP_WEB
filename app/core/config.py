@@ -38,7 +38,7 @@ _PLACEHOLDER_SESSION_SECRET = "dev-only-change-me-in-production"
 
 
 class StartupConfigError(RuntimeError):
-    """Raised by ``_validate_secrets`` when a critical secret is missing or weak.
+    """Raised when startup finds a critical secret missing or weak.
 
     The message names the offending env var but never echoes the value.
     """
@@ -48,7 +48,7 @@ class StartupConfigError(RuntimeError):
         self.reason = reason
         super().__init__(
             f"startup config error: {env_var} is invalid (reason={reason}); "
-            "set a real value via the env var (or APAP_DEBUG=true to bypass in local dev)"
+            "set a real value via the environment"
         )
 
 
@@ -125,6 +125,22 @@ class Settings(BaseSettings):
     # row in production, but the mock pre-populates the in-process
     # auth cache so the DB row is bypassed during E2E runs.
     e2e_auth_default_email: str = "e2e@apap.local"
+
+    # --- LocalBackend rawsql shared-secret auth (issue #680) ----------
+    # Bearer token that gates ``POST /api/database/advance/rawsql``
+    # (``app/core/local_backend/rawsql.py``). The handler REJECTS
+    # every request unless the ``Authorization: Bearer <token>``
+    # header matches this value exactly (constant-time comparison).
+    # When empty, the handler rejects every request — there is no
+    # default token, even in dev (the operator must set the env var
+    # explicitly to opt into the endpoint). The separate LocalBackend
+    # lifespan refuses to start with an empty or weak value; ``app.main``
+    # does not validate this token because it never mounts the endpoint.
+    # Migration scripts that already speak to the executor directly
+    # (e.g. ``migration/verify_fallback_ready.py``) never hit this
+    # HTTP surface; the migration CLI can set the env var when it
+    # needs the fallback compatibility endpoint.
+    rawsql_auth_token: str = ""
 
     # --- Bootstrap (Fase 2) ---------------------------------------------
     # Email of the first `developer` user, seeded on first startup if

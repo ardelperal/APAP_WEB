@@ -44,7 +44,7 @@ BASELINE_MUTATION_SITES: dict[str, int] = {
     "app/modules/acogidas/service.py": 343,
     "app/modules/adopciones/routes.py": 284,
     "app/modules/adopciones/service.py": 467,
-    "app/modules/animals/routes.py": 449,
+    "app/modules/animals/routes.py": 446,
     "app/modules/cesiones/service.py": 362,
     "app/modules/foster/routes.py": 255,
     "app/modules/foster/service.py": 342,

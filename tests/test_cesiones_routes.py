@@ -376,7 +376,10 @@ async def test_create_cesion_rejects_reader_with_403(
     (rol=reader) triggers ``require_permission(WRITE_CESIONES)`` to fire
     a 403 BEFORE the handler runs and before any port SQL is needed.
     """
-    # Install a reader session (not key_user) so the permission check fires.
+    # The DB-backed revalidation is the authorization source of truth.
+    # Keep the spy and cookie aligned so the permission check observes
+    # ``reader`` after ``require_authorized_user`` refreshes the role.
+    route_client.auth_reval_rol = "reader"
     token = write_session(
         {
             "email": "reader@example.com",
@@ -397,4 +400,3 @@ async def test_create_cesion_rejects_reader_with_403(
     )
 
     assert response.status_code == 403
-

@@ -37,7 +37,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app.core.adapters.auth_local.magic_link_port import MagicLinkPortImpl
-from app.core.config import get_settings
+from app.core.config import Settings, StartupConfigError, get_settings
 from app.core.local_backend.db import (
     DatabaseError,
     LocalPostgresExecutor,
@@ -49,6 +49,23 @@ from app.core.local_backend.oauth_google import router as oauth_router
 from app.core.local_backend.rawsql import router as rawsql_router
 from app.core.local_backend.storage import router as storage_router
 from app.core.mail.smtp_transport import SMTPMailTransport
+
+_MIN_RAWSQL_AUTH_TOKEN_LENGTH = 32
+
+
+def _validate_rawsql_auth_token(settings: Settings) -> str:
+    """Return a strong raw-SQL token or fail the LocalBackend startup.
+
+    This validation belongs to the separate LocalBackend process because
+    only that app mounts the privileged raw-SQL compatibility endpoint.
+    The main web application must not require an otherwise unused secret.
+    """
+    token = settings.rawsql_auth_token
+    if not token:
+        raise StartupConfigError("APAP_RAWSQL_AUTH_TOKEN", "empty")
+    if len(token) < _MIN_RAWSQL_AUTH_TOKEN_LENGTH:
+        raise StartupConfigError("APAP_RAWSQL_AUTH_TOKEN", "too_short")
+    return token
 
 
 @asynccontextmanager
@@ -71,6 +88,8 @@ async def lifespan(app: FastAPI):
     - ``session_secret`` (the lifespan reads it from
       ``APAP_SESSION_SECRET`` so the magic-link verify handler can
       sign the cookie).
+    - ``rawsql_auth_token`` after enforcing the LocalBackend-only
+      minimum length, so the raw-SQL router fails closed.
     """
     dsn = os.environ.get("APAP_LOCAL_DB_URL")
     if not dsn:
@@ -79,12 +98,14 @@ async def lifespan(app: FastAPI):
             "a Postgres DSN at startup. Set it in the environment or "
             ".env (see docs/runbooks/self-host-backend.md)."
         )
+    settings = get_settings()
+    rawsql_auth_token = _validate_rawsql_auth_token(settings)
     search_path = os.environ.get("APAP_LOCAL_DB_SCHEMA")
     executor = LocalPostgresExecutor(dsn, search_path=search_path)
     app.state.local_postgres_executor = executor
 
     # M3.4 wiring: magic-link port + SMTP transport + session secret.
-    settings = get_settings()
+    app.state.rawsql_auth_token = rawsql_auth_token
     app.state.magic_link_port = MagicLinkPortImpl(executor)
     app.state.smtp_transport = SMTPMailTransport(settings)
     app.state.session_secret = settings.session_secret
@@ -92,9 +113,7 @@ async def lifespan(app: FastAPI):
     # ``APAP_PUBLIC_BASE_URL`` env var or ``http://127.0.0.1:8000``;
     # production sets it to ``https://apap.romancaba.com`` via the
     # Coolify env-var injection in M2.
-    app.state.public_base_url = os.environ.get(
-        "APAP_PUBLIC_BASE_URL", "http://127.0.0.1:8000"
-    )
+    app.state.public_base_url = os.environ.get("APAP_PUBLIC_BASE_URL", "http://127.0.0.1:8000")
 
     try:
         yield
@@ -119,18 +138,14 @@ def create_app() -> FastAPI:
     )
 
     @app.exception_handler(QueryError)
-    async def _on_query_error(
-        request: Request, exc: QueryError
-    ) -> JSONResponse:
+    async def _on_query_error(request: Request, exc: QueryError) -> JSONResponse:
         return JSONResponse(
             status_code=400,
             content={"error": "query_error", "detail": str(exc)},
         )
 
     @app.exception_handler(DatabaseError)
-    async def _on_database_error(
-        request: Request, exc: DatabaseError
-    ) -> JSONResponse:
+    async def _on_database_error(request: Request, exc: DatabaseError) -> JSONResponse:
         return JSONResponse(
             status_code=503,
             content={"error": "database_error", "detail": str(exc)},

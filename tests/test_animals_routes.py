@@ -61,6 +61,7 @@ class _AnimalsRouteSpy(LocalPostgresExecutor):
 
         self._client = _httpx.Client(base_url="https://spy.example")
         self.captured_queries: list[str] = []
+        self.auth_revalidation_calls = 0
         # Issue #144: rol returned by the per-request authorization
         # revalidation SELECT. Defaults to ``key_user`` (matches the
         # common test login). Tests that exercise the reader path
@@ -118,6 +119,7 @@ class _AnimalsRouteSpy(LocalPostgresExecutor):
         # captured_queries, so the domain-SQL assertions stay unchanged.
         _reval = auth_reval_rows(query, params, rol=self.auth_reval_rol)
         if _reval is not None:
+            self.auth_revalidation_calls += 1
             return _reval
         self.captured_queries.append(query)
         if "SET activo = false" in query:
@@ -905,3 +907,91 @@ async def test_write_route_rejects_reader_with_403(
 # cannot distinguish between these multiple statement types in a single test.
 # Service-level coverage for change_animal_chip lives in test_chip_cascade.py.
 # TODO(#N): add route-level chip tests with proper multi-statement spy support.
+
+
+@pytest.mark.asyncio
+async def test_change_chip_route_rejects_reader_with_403(
+    client: httpx.AsyncClient,
+    animals_spy: _AnimalsRouteSpy,
+) -> None:
+    """Reader rol is forbidden on PATCH /animales/{id}/chip (issue #679).
+
+    Pre-#679 the chip-change handler depended on
+    ``require_authorized_user`` only — any authenticated user (including
+    ``reader``) could rewrite the chip across the 6 cascade tables.
+    After the fix the handler depends on
+    ``require_permission(Permission.WRITE_ANIMALES)`` like every other
+    write route in this module, so a reader is rejected with 403 BEFORE
+    any chip-lookup SELECT is emitted.
+
+    The test uses a JSON body (``ChipChangePayload`` is a Pydantic
+    model, not a ``Form()``), so ``make_csrf_request`` cannot drive it;
+    the request goes through ``client.patch`` directly with the CSRF
+    token in the ``X-CSRFToken`` header (the ``CsrfMiddleware`` accepts
+    either form field or header).
+    """
+    animals_spy.auth_reval_rol = "reader"
+    _login_as_reader(client)
+
+    cookie = client.cookies.get(session_cookie_name())
+    assert cookie is not None
+    from app.core.config import get_settings
+    from app.core.session import read_session
+
+    payload = read_session(cookie, secret=get_settings().session_secret)
+    assert payload is not None
+    csrf_token = payload.get("csrf_token")
+    assert isinstance(csrf_token, str) and csrf_token
+
+    response = await client.patch(
+        "/animales/abc-123/chip",
+        headers={"X-CSRFToken": csrf_token, "Content-Type": "application/json"},
+        json={"new_chip": "985112004409999", "reason": "reader-bypass-probe"},
+    )
+
+    assert response.status_code == 403, (
+        f"reader rol MUST be rejected on PATCH /animales/{{id}}/chip; "
+        f"got {response.status_code} body={response.text!r}"
+    )
+    # The 403 short-circuits BEFORE the chip-lookup SELECT is emitted.
+    chip_lookup_queries = [
+        q
+        for q in animals_spy.captured_queries
+        if "select nchip from animals where id" in q.lower()
+        or "select id from animals where nchip" in q.lower()
+    ]
+    assert not chip_lookup_queries, (
+        f"reader PATCH MUST NOT emit chip-lookup SQL; got: {chip_lookup_queries!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_change_chip_uses_revalidated_role_instead_of_cookie_role(
+    client: httpx.AsyncClient,
+    animals_spy: _AnimalsRouteSpy,
+) -> None:
+    """A stale writer cookie cannot bypass a reader role in the database."""
+    animals_spy.auth_reval_rol = "reader"
+    from app.core.config import get_settings
+
+    token = write_session(
+        {
+            "email": "stale-role@example.com",
+            "rol": "key_user",
+            "user_id": "u-stale-role",
+            "is_authorized": True,
+            "csrf_token": "test-csrf-token-animals",
+        },
+        secret=get_settings().session_secret,
+    )
+    client.cookies.set(session_cookie_name(), token)
+
+    response = await client.patch(
+        "/animales/abc-123/chip",
+        headers={"X-CSRFToken": "test-csrf-token-animals"},
+        json={"new_chip": "985112004409999", "reason": "stale-role-probe"},
+    )
+
+    assert response.status_code == 403
+    assert animals_spy.auth_revalidation_calls == 1
+    assert animals_spy.captured_queries == []

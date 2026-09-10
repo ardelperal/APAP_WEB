@@ -14,7 +14,7 @@ Capacidades que cubren auth, CSRF, RBAC, redacción de PII y rotación de secret
 | `CsrfMiddleware` + token en cada form POST + `SameSite=Strict` | cerrado | [docs/codebase/csrf-defense.md](../codebase/csrf-defense.md) |
 | Redacción de PII (12 → 15 campos: `dni`, `tel1`, `tel2`, etc.) | cerrado (auditoría **PASS**) | [docs/audits/pii-live-migration-2026-Q3.md](../audits/pii-live-migration-2026-Q3.md) |
 | Re-validación de `is_authorized` y `rol` por request (auth cache in-process) | cerrado (auditoría **PASS**) | [docs/audits/auth-revalidation-2026-Q3.md](../audits/auth-revalidation-2026-Q3.md) |
-| RBAC-01 matriz de permisos API | pendiente | #66 |
+| RBAC-01 matriz de permisos API | cerrado; regresión de rutas de escritura corregida en #679 | #66, #679 |
 | Rotación de `APAP_SESSION_SECRET` | cerrado (runbook) | [docs/runbooks/cookie-rotation.md](../runbooks/cookie-rotation.md) |
 
 Decisiones: [d-02-home-dashboard.md](../architecture/decisiones/d-02-home-dashboard.md), [d-20-stack-fastapi-htmx-local_backend.md](../architecture/decisiones/d-20-stack-fastapi-htmx-local_backend.md), [d-40-virginia-uat.md](../architecture/decisiones/d-40-virginia-uat.md).
