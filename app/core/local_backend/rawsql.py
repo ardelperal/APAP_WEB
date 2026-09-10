@@ -52,14 +52,10 @@ def _require_rawsql_token(authorization: str | None, expected: str) -> None:
     expected secret comes from lifespan-managed app state, keeping this
     privileged router independent from the main web application's startup.
     """
-    bearer_prefix = "Bearer "
-    has_bearer_scheme = False
-    presented = ""
-    if authorization is not None and authorization.startswith(bearer_prefix):
-        has_bearer_scheme = True
-        presented = authorization[len(bearer_prefix) :]
-    credentials_match = hmac.compare_digest(presented, expected)
-    if not expected or not presented or not has_bearer_scheme or not credentials_match:
+    credentials_match = hmac.compare_digest(
+        authorization or "", f"Bearer {expected}"
+    )
+    if not expected or not credentials_match:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="invalid credentials",
