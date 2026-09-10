@@ -17,7 +17,7 @@ from app.core.auth import (
     list_authorized_users,
 )
 from app.core.config import Settings
-from app.core.data_access import SqlExecutor
+from app.core.data_access import DuplicateKeyError, SqlExecutor
 from tests.sql_executor_fake import HandlerSqlExecutor
 
 
@@ -25,6 +25,44 @@ class _FakeSqlExecutor:
     """Minimal ``SqlExecutor`` Protocol implementation for unit tests.
 
     Supports two response strategies:
+
+    * ``set_response`` / ``set_responses`` — queue rows consumed in order
+      (used by tests that want straight-line behaviour).
+    * ``set_handler`` — a per-call callable that inspects the SQL +
+      params and returns rows OR raises a Protocol-level exception
+      (used by tests that need to simulate a 4xx/5xx error response,
+      e.g. the 23505 unique-key violation).
+
+    Returns ``[]`` when neither strategy matches so the fake never
+    accidentally short-circuits a "row missing" branch.
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, list[object]]] = []
+        self._responses: list[list[dict[str, object]]] = []
+        self._handler: Callable[[str, list[object]], Any] | None = None
+
+    def set_response(self, rows: list[dict[str, object]]) -> None:
+        self._responses = [rows]
+
+    def set_responses(self, *responses: list[dict[str, object]]) -> None:
+        self._responses = list(responses)
+
+    def set_handler(
+        self, handler: Callable[[str, list[object]], Any],
+    ) -> None:
+        self._handler = handler
+
+    def execute_sql(
+        self, query: str, params: list[object] | None = None,
+    ) -> list[dict[str, object]]:
+        self.calls.append((query, list(params or [])))
+        if self._handler is not None:
+            return self._handler(query, list(params or []))
+        if self._responses:
+            return self._responses.pop(0)
+        return []
+
 
 def _client(handler) -> SqlExecutor:
     return HandlerSqlExecutor(handler)

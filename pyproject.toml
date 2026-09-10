@@ -80,6 +80,7 @@ dev = [
     # selected. Bumping this version requires re-measuring BASELINE in
     # scripts/check_ruff_ratchet.py; the script asserts the version to make
     # that non-optional.
+    "pre-commit>=3.0",
     "ruff==0.15.21",
     # Dead-code guard (issues #392, #424). Pinned floor: the AST filter logic
     # in check_vulture_guard.py depends on specific AST node structure and on

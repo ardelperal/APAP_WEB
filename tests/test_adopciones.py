@@ -50,13 +50,14 @@ def _client_recording(
 ) -> tuple[LocalPostgresExecutor, list[dict[str, Any]]]:
     captured: list[dict[str, Any]] = []
 
-    Supports two response strategies:
+    """Supports two response strategies:
       * ``set_response`` / ``set_responses`` — queue rows consumed in order
         (used by tests that want straight-line behaviour).
       * ``set_handler`` — a per-call callable that inspects the SQL +
         params and returns rows OR an ``_ErrorResponse`` (used by CTE +
         disambiguation tests where the response depends on which CTE
         was hit).
+    """
 
     client = LocalPostgresExecutor(
         base_url="https://example.local_backend.app",

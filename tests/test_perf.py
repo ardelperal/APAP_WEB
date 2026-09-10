@@ -31,15 +31,7 @@ class _FakeSqlExecutor:
     filter). That is where the O(N) cost lives in production too
     (the SQL returns rows in ``last_legacy_snapshot_at`` order with
     WHERE filtering at the DB level).
-
-def _make_web_client(
-    handler: Callable[[httpx.Request], httpx.Response],
-) -> LocalPostgresExecutor:
-    return LocalPostgresExecutor(
-        base_url="https://example.local_backend.app",
-        service_key="ik_test",
-        transport=httpx.MockTransport(handler),
-    )
+    """
 
     def __init__(self, rows: list[dict[str, Any]] | None = None) -> None:
         self.rows = list(rows or [])
