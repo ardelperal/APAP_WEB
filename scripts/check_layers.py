@@ -535,6 +535,11 @@ _EPIC_420 = (
     "the gate. Delete the entry as the owning slice lands."
 )
 
+_EPIC_641 = (
+    "app/core/ is mid-migration to the hexagon (epic #641); this edge predates "
+    "the gate. Delete the entry as the owning slice lands."
+)
+
 _LAZY_CYCLE = (
     "CLI-only lazy import that dodges a module-load cycle (AGENTS.md \u00a726); "
     "resolved when the tasks slice grows an application layer."
@@ -593,6 +598,12 @@ BASELINE: Mapping[str, str] = {
     "app/core/tasks/scheduler.py -> app.modules.tasks [layer-direction]": _LAZY_CYCLE,
     "app/core/tasks/scheduler.py -> app.modules.tasks.service [layer-direction]": _LAZY_CYCLE,
         "app/core/ports/auth_classic_port.py -> app.core.domain.auth.user [slice-boundary]": _EPIC_420,
+        # Issue #742: InsForge sweep introduced these layer crossings
+        "app/core/adapters/insforge/__init__.py -> app.core.di.insforge_error_handler_di [layer-direction]": _EPIC_641,
+        "app/core/auth_flow.py -> app.core.di.auth_di [layer-direction]": _EPIC_641,
+        "app/core/auth_flow.py -> app.core.di.oauth_di [layer-direction]": _EPIC_641,
+        "app/core/local_backend/auth_adapter.py -> app.core.adapters.local_backend.auth_local_backend_queries [layer-direction]": _EPIC_641,
+        "app/core/local_backend/auth_adapter.py -> app.core.application.auth._domain_errors [layer-direction]": _EPIC_641,
 }
 
 

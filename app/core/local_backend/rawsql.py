@@ -60,7 +60,7 @@ async def execute_rawsql(
         raise QueryError("payload 'params' must be a list or tuple if present")
 
     executor: LocalPostgresExecutor = request.app.state.local_postgres_executor
-    rows = executor.execute(query, params)
+    rows = executor.execute_sql(query, params)
     return {"rows": rows, "rowCount": len(rows)}
 
 

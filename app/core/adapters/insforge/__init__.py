@@ -13,6 +13,10 @@ from the new paths directly in new code.
 
 from __future__ import annotations
 
+from app.core.di.insforge_error_handler_di import (
+    BackendErrorTranslation,
+    InsForgeErrorTranslation,  # backward-compat alias
+)
 from app.core.local_backend.auth_adapter import (
     LocalBackendAuthUsersAdapter as InsForgeAuthUsersAdapter,
 )
@@ -24,10 +28,6 @@ from app.core.local_backend.oauth_adapter import (
 )
 from app.core.local_backend.schema_bootstrap_adapter import (
     LocalBackendSchemaBootstrapAdapter as InsForgeSchemaBootstrapAdapter,
-)
-from app.core.di.insforge_error_handler_di import (
-    BackendErrorTranslation,
-    InsForgeErrorTranslation,  # backward-compat alias
 )
 
 __all__ = [

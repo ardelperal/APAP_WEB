@@ -18,8 +18,6 @@ from typing import Any
 
 import pytest
 
-from tests.sql_executor_fake import HandlerSqlExecutor as LocalPostgresExecutor
-
 # --- helpers --------------------------------------------------------------
 
 

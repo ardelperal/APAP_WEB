@@ -26,7 +26,6 @@ import pytest
 
 from app.modules.materiales import estancia_material_service
 from app.modules.materiales import service as materiales_service
-from tests.sql_executor_fake import HandlerSqlExecutor as LocalPostgresExecutor
 
 
 class _ErrorResponse:
@@ -86,34 +85,6 @@ def _make_client(
 
 
 # --- helpers --------------------------------------------------------------
-
-
-def _json_response(status_code: int, body: Any) -> httpx.Response:
-    return httpx.Response(
-        status_code=status_code,
-        content=json.dumps(body).encode("utf-8"),
-        headers={"content-type": "application/json"},
-    )
-
-
-def _client_recording(
-    handler: Callable[[httpx.Request, dict[str, Any]], httpx.Response],
-) -> tuple[LocalPostgresExecutor, list[dict[str, Any]]]:
-    captured: list[dict[str, Any]] = []
-
-    def _recording_handler(request: httpx.Request) -> httpx.Response:
-        assert request.headers.get("Authorization", "").startswith("Bearer ")
-        body = json.loads(request.content.decode("utf-8")) if request.content else {}
-        captured.append(body)
-        return handler(request, body)
-
-    client = LocalPostgresExecutor(
-        base_url="https://example.local_backend.app",
-        service_key="ik_test",
-        transport=httpx.MockTransport(_recording_handler),
-    )
-    return client, captured
-
 
 def _params_minimal() -> dict[str, Any]:
     """Minimal valid params for create_material."""

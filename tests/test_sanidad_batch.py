@@ -33,7 +33,6 @@ import pytest
 
 from app.core.data_access import BackendError
 from app.modules.sanidad import batch_service
-from tests.sql_executor_fake import HandlerSqlExecutor as LocalPostgresExecutor
 
 
 class _ErrorResponse:
@@ -80,25 +79,6 @@ class _FakeSqlExecutor:
 
     def close(self) -> None:
         pass  # no-op for fake
-
-
-def _client_recording(
-    handler: Callable[[httpx.Request, dict[str, Any]], httpx.Response],
-) -> tuple[LocalPostgresExecutor, list[dict[str, Any]]]:
-    captured: list[dict[str, Any]] = []
-
-    def _recording_handler(request: httpx.Request) -> httpx.Response:
-        assert request.headers.get("Authorization", "").startswith("Bearer ")
-        body = json.loads(request.content.decode("utf-8")) if request.content else {}
-        captured.append(body)
-        return handler(request, body)
-
-    client = LocalPostgresExecutor(
-        base_url="https://example.local_backend.app",
-        service_key="ik_test",
-        transport=httpx.MockTransport(_recording_handler),
-    )
-    return client, captured
 
 
 def _handler_returns(rows: list[dict[str, Any]]):

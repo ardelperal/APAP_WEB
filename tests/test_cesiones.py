@@ -26,7 +26,6 @@ import pytest
 
 from app.core.data_access import BackendError
 from app.modules.cesiones import service as cesiones_service
-from tests.sql_executor_fake import HandlerSqlExecutor as LocalPostgresExecutor
 
 
 class _ErrorResponse:
@@ -160,14 +159,6 @@ def _build_handler(
         return []
 
     return handler
-
-
-def _client(handler) -> LocalPostgresExecutor:
-    return LocalPostgresExecutor(
-        base_url="https://example.local_backend.app",
-        service_key="ik_test",
-        transport=httpx.MockTransport(handler),
-    )
 
 
 def _full_cesion_row(**overrides) -> dict[str, Any]:

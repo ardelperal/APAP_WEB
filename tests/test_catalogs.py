@@ -32,7 +32,6 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -565,7 +564,6 @@ def test_ensure_catalogs_is_idempotent_on_repeated_runs() -> None:
 def test_ensure_catalogs_raises_when_create_table_fails() -> None:
     """If the first DDL fails, ensure_catalogs propagates BackendError."""
 
-    from app.core.data_access import BackendError
 
     def handler(_req: httpx.Request) -> httpx.Response:
         # Return a 500 for any query so the first CREATE TABLE fails.

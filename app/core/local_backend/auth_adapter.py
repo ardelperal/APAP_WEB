@@ -28,6 +28,14 @@ from app.core.adapters.local_backend.auth_local_backend_queries import (
     LIST_USERS_SQL,
     SEED_ADMIN_SQL,
 )
+from app.core.application.auth._domain_errors import (
+    LastActiveDeveloperError,
+    UnexpectedDeactivateError,
+    UserNotFoundError,
+)
+from app.core.data_access import SqlExecutor
+from app.core.domain.auth.user import AuthorizedUser
+from app.core.roles import Rol
 
 # ``SqlStatement`` and ``run_idempotent_sql`` are imported lazily
 # inside ``ensure_schema_and_seed`` to break the pre-existing

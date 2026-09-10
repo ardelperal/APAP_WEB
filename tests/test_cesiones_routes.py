@@ -31,9 +31,6 @@ class _NoSqlRouteClient(LocalPostgresExecutor):
     """Client spy that fails if a route executes SQL directly."""
 
     def __init__(self) -> None:
-        import httpx as _httpx
-
-    def __init__(self) -> None:
         # Issue #144: rol returned by the per-request authorization
         # revalidation SELECT. Defaults to ``key_user``; reader
         # rejection tests set this to ``reader`` so

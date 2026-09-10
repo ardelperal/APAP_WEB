@@ -32,7 +32,6 @@ import pytest
 
 from app.core.config import get_settings
 from app.core.local_backend.db import LocalPostgresExecutor
-from app.core.data_access import SqlExecutor
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_insforge_client
 from app.modules.animals.adapters.insforge.animals_insforge_adapter import (

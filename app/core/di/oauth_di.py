@@ -27,6 +27,7 @@ from fastapi import Request
 from app.core.adapters.local_backend.oauth_local_backend_adapter import (
     LocalBackendOAuthAdapter,
 )
+from app.core.config import get_settings
 from app.core.di._yield_local_backend_port import yield_local_backend_port
 from app.core.ports.oauth_port import OAuthPort
 

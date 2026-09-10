@@ -14,8 +14,8 @@ from typing import Any
 import httpx
 import pytest
 
+from app.core.data_access import BackendError as BackendError
 from app.core.local_backend.db import LocalPostgresExecutor
-from app.core.data_access import BackendError as BackendError, SqlExecutor
 from migration import legacy_reader
 from migration.apply import apply_legacy_to_web
 from migration.cli import main

@@ -18,10 +18,10 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from app.core.data_access import InsForgeError
 from app.core.di.insforge_error_handler_di import (
     InsForgeErrorTranslation,
 )
-from app.core.data_access import InsForgeError
 from app.core.error_handler import register_insforge_error_handler
 
 

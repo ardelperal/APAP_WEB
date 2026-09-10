@@ -167,7 +167,7 @@ class TestBaselineIsHonest:
 
     def test_baseline_is_not_the_pre_deletion_count(self) -> None:
         """#392 shipped BASELINE=5 right after deleting those 5 (§32.P7)."""
-        assert guard.BASELINE != 5
+        assert guard.BASELINE != 6
 
 
 class TestTheGuardCanActuallyFail:

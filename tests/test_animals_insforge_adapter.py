@@ -8,7 +8,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.core.data_access import SqlExecutor
 from app.modules.animals.adapters.insforge import animals_insforge_photo
 from app.modules.animals.adapters.insforge.animals_insforge_adapter import (
     AnimalsInsforgeAdapter,

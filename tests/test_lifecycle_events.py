@@ -41,7 +41,6 @@ from app.modules.animals.lifecycle_events import (
 )
 from tests.sql_executor_fake import HandlerSqlExecutor
 
-
 # --- helpers -------------------------------------------------------------
 
 

@@ -17,13 +17,14 @@ targeted disambiguation SELECTs which the handler also answers.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from datetime import date, timedelta
 from typing import Any
 
 import pytest
 
+from app.core.data_access import BackendError
 from app.modules.sanidad import service as sanidad_service
-from tests.sql_executor_fake import HandlerSqlExecutor as LocalPostgresExecutor
 
 
 class _FakeSqlExecutor:
@@ -113,25 +114,6 @@ def _client_with_query_handler(
     fake = _FakeSqlExecutor()
     fake.set_handler(handler)
     return fake, fake.calls
-
-
-def _client_recording(
-    handler: Callable[[httpx.Request, dict[str, Any]], httpx.Response],
-) -> tuple[LocalPostgresExecutor, list[dict[str, Any]]]:
-    captured: list[dict[str, Any]] = []
-
-    def _recording_handler(request: httpx.Request) -> httpx.Response:
-        assert request.headers.get("Authorization", "").startswith("Bearer ")
-        body = json.loads(request.content.decode("utf-8")) if request.content else {}
-        captured.append(body)
-        return handler(request, body)
-
-    client = LocalPostgresExecutor(
-        base_url="https://example.local_backend.app",
-        service_key="ik_test",
-        transport=httpx.MockTransport(_recording_handler),
-    )
-    return client, captured
 
 
 def _params_minimal() -> dict[str, Any]:
@@ -721,7 +703,7 @@ def _resumen_row(
 def _handler_resumen(
     resumen_rows: list[dict[str, Any]],
     nchip: str = "123456789012345",
-) -> "callable":
+) -> callable:
     """Closure that returns resumen rows + nchip for the animal."""
 
     def _h(query: str, _params: list[object]) -> list[dict[str, object]]:

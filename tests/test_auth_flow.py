@@ -10,8 +10,6 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from app.core.di.auth_di import get_auth_users_port
-from app.core.di.oauth_di import get_oauth_port
 from app.core.domain.auth.rol import Rol
 from app.core.domain.auth.user import AuthorizedUser
 from app.main import app

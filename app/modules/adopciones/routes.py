@@ -57,13 +57,13 @@ from app.core.auth_dependencies import (
 # Alias for backward compat with test fixtures.
 get_insforge_client_dep = get_local_postgres_executor_dep
 
-from app.core.csrf import csrf_token_context_processor
-from app.core.data_access import BackendError, SqlExecutor
-from app.core.forms import optional_value as _opt
-from app.core.middleware import base_template_context_processor
-from app.core.rbac import Permission, require_permission
-from app.modules.adopciones import service as adopciones_service
-from app.modules.adopciones.forms import AdopcionForm
+from app.core.csrf import csrf_token_context_processor  # noqa: E402
+from app.core.data_access import BackendError, SqlExecutor  # noqa: E402
+from app.core.forms import optional_value as _opt  # noqa: E402
+from app.core.middleware import base_template_context_processor  # noqa: E402
+from app.core.rbac import Permission, require_permission  # noqa: E402
+from app.modules.adopciones import service as adopciones_service  # noqa: E402
+from app.modules.adopciones.forms import AdopcionForm  # noqa: E402
 
 router = APIRouter(prefix="/adopciones", tags=["adopciones"])
 

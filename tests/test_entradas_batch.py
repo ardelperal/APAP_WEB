@@ -22,7 +22,6 @@ import pytest
 from app.core.data_access import BackendError
 from app.modules.entradas import batch_service
 from app.modules.entradas.service import Entrada
-from tests.sql_executor_fake import HandlerSqlExecutor as LocalPostgresExecutor
 
 
 class _ErrorResponse:
