@@ -273,3 +273,60 @@ async def make_csrf_request(
         kwargs["data"] = body
 
     return await getattr(client, method.lower())(url, **kwargs)
+
+
+def test_fake_sql_executor_helpers_have_required_methods() -> None:
+    """Regression guard: detect files where a class docstring lost its closing.
+
+    When a triple-quoted string opens but never closes, Python compiles the
+    file successfully but consumes the class body as a string literal. The
+    methods "disappear" from the class namespace and tests fail at runtime
+    with NameError on every call site. ruff and mypy do not catch this
+    because py_compile succeeds on the source file.
+
+    This guard runs as a pytest test on every suite invocation. It imports
+    every _FakeSqlExecutor helper defined in the test tree, asserts the
+    presence of the five methods that the SqlExecutor Protocol requires for
+    tests, and fails loudly if even one is missing.
+
+    The five required methods are:
+    - __init__      constructs the fake executor
+    - set_response  load one round-trip response
+    - set_responses load multiple round-trip responses (consumed in order)
+    - set_handler   install a per-call (query, params) -> rows handler
+    - execute_sql   SqlExecutor Protocol entry point (records + answers)
+    """
+    import importlib
+
+    candidates = [
+        "tests.test_auth",
+        "tests.test_entradas",
+        "tests.test_adopciones",
+        "tests.test_acogidas",
+        "tests.test_cesiones",
+        "tests.test_sanidad_batch",
+    ]
+    failures: list[str] = []
+    for modname in candidates:
+        try:
+            mod = importlib.import_module(modname)
+        except ImportError:
+            continue  # file may not define _FakeSqlExecutor (OK)
+        if not hasattr(mod, "_FakeSqlExecutor"):
+            continue
+        cls = mod._FakeSqlExecutor
+        required = frozenset(
+            {"__init__", "set_response", "set_responses", "set_handler", "execute_sql"}
+        )
+        missing = required - frozenset(dir(cls))
+        if missing:
+            failures.append(f"{modname}._FakeSqlExecutor missing: {sorted(missing)}")
+
+    assert not failures, (
+        f"One or more _FakeSqlExecutor helpers lost method bodies. "
+        f"This happens when a class docstring opens with triple-quoted "
+        f"but the closing triple-quoted is missing -- Python compiles the "
+        f"file but treats the body as string content, so the methods vanish. "
+        f"Failures: {failures}"
+    )
+

@@ -22,7 +22,7 @@ def test_execute_sql_returns_list_of_dicts_not_envelope() -> None:
     executor = LocalPostgresExecutor("postgresql://unused")
     expected = [{"id": "row-1"}]
 
-    with patch.object(executor, "execute", return_value=expected):
+    with patch.object(executor, "execute_sql", return_value=expected):
         result = executor.execute_sql("SELECT id FROM example")
 
     assert result == expected

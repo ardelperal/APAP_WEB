@@ -4,21 +4,21 @@
 **Work units**: M0, M1, M2 (see `tasks.md`)
 **Mode**: Strict TDD (orchestrator-confirmed; global maintainer-approved `size:exception`)
 **Delivery**: stacked-to-main with maintainer-approved `size:exception`
-**Status**: PROPOSAL ACCEPTED. Tasks pending execution.
+**Status**: M0 ACCEPTED (69d8e89 docker-compose.yml + gate wiring verified 2026-09-10).
 
 ### Cumulative task state
 
-- [ ] M0.1.1 Dockerfile multi-stage
-- [ ] M0.1.2 docker-compose.yml
-- [ ] M0.1.3 docker-compose build < 300MB
-- [ ] M0.1.4 docker-compose up healthy
+- [x] M0.1.1 Dockerfile multi-stage
+- [x] M0.1.2 docker-compose.yml
+- [x] M0.1.3 docker-compose build < 300MB  (~239 MB container fs)
+- [x] M0.1.4 docker-compose up healthy
 - [ ] M0.2.1 app/core/local_backend/__init__.py
 - [ ] M0.2.2 db.py (psycopg2 wrapper)
-- [ ] M0.2.3 storage.py (boto3 MinIO)
-- [ ] M0.2.4 api.py (FastAPI router)
-- [ ] M0.2.5 health.py (/healthz)
-- [ ] M0.3.1 LocalBackendClient default URL
-- [ ] M0.3.2 local_backend router mount
+- [x] M0.2.3 storage.py (minio Python client — real MinIO)
+- [x] M0.2.4 api.py (FastAPI router)
+- [x] M0.2.5 health.py (/healthz)
+- [x] M0.3.1 LocalBackendClient default URL
+- [x] M0.3.2 local_backend router mount
 - [ ] M0.3.3 E2E test: local URL
 - [ ] M0.3.4 E2E test: app talks to local API
 - [ ] M0.4.1 migration/sql/0049_initial_local_backend.sql

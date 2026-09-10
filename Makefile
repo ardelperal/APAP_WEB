@@ -23,7 +23,7 @@ TAILWIND_OUTPUT ?= app/static/css/output.css
         check-slice-completeness check-migration-boundaries \
         check-docstring-coverage check-complexity check-ruff-ratchet \
         check-vulture-guard check-jscpd check-mutation-sites \
-        check-import-cycles check-workflows check-test-classification check-crap \
+        check-docstring-balance check-import-cycles check-workflows check-test-classification check-crap \
         mutation build all clean css css-watch serve run
 
 help:
@@ -145,6 +145,13 @@ check-jscpd:
 check-mutation-sites:
 	$(PYTHON) scripts/check_mutation_sites.py
 
+# check-docstring-balance -- guards against unclosed triple-quoted strings.
+# When a """ opens but never closes, Python consumes the class body as
+# string content; methods "disappear" and tests fail with NameError at
+# runtime. ruff/mypy do not catch this because py_compile succeeds.
+check-docstring-balance:
+	$(PYTHON) scripts/check_docstring_balance.py .
+
 check-import-cycles:
 	$(PYTHON) scripts/check_import_cycles.py
 
@@ -212,7 +219,7 @@ verify: lint check-rules check-alantyle check-module-size check-route-size check
         check-test-classification check-slice-completeness check-migration-boundaries \
         check-docstring-coverage check-complexity check-ruff-ratchet \
         check-vulture-guard check-jscpd check-mutation-sites \
-        check-import-cycles check-workflows check-issue-specs typecheck check-crap
+        check-docstring-balance check-import-cycles check-workflows check-issue-specs typecheck check-crap
 	@echo "verify: deterministic local CI subset passed; await GitHub 'ci / required'."
 
 # mutation — issue #431. Runs the cosmic-ray session for the curated target

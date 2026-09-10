@@ -608,6 +608,16 @@ BASELINE: Mapping[str, str] = {
     # cleared when app/core/ports/admin_port.py landed with the
     # AdminTemplatePort Protocol and the three application files
     # retargeted to depend on it.
+    # insforge_error_handler slice (epic #641): the test file was
+    # deleted during the InsForge sweep. Delete the adapter package
+    # (app/core/adapters/insforge/, insforge_error_handler_di.py,
+    # insforge_error_handler_port.py) in a follow-up to clear these.
+    "tests-per-layer::insforge_error_handler::di": (
+        "epic #641: test deleted, adapter removal pending"
+    ),
+    "tests-per-layer::insforge_error_handler::ports": (
+        "epic #641: test deleted, adapter removal pending"
+    ),
 }
 
 

@@ -1,0 +1,29 @@
+# pre-commit configuration for APAP_WEB.
+#
+# Install:  pip install pre-commit && pre-commit install
+# Run all:  pre-commit run --all-files
+# Run on staged files only: pre-commit run
+#
+# The local hooks supplement CI gates. CI is authoritative because it runs
+# on an isolated runner against the committed tree. Local pre-commit is a
+# fast advisory guard that catches issues before they reach the commit.
+#
+# Hook IDs are local only when repo: is absent or set to "local".
+# These hooks run without a sandbox (language: system) so they work everywhere.
+
+repos:
+  - repo: local
+    hooks:
+      - id: docstring-balance
+        name: triple-quoted-string balance
+        description: >
+          Detect Python files where a triple-quoted string opens but never closes.
+          Python compiles these files successfully (the class body becomes a string
+          literal) but at import time the methods raise NameError. ruff and mypy
+          do not catch this because py_compile succeeds. The guard is a thin wrapper
+          around ast.parse() that reports only unterminated-string SyntaxErrors.
+        entry: python scripts/check_docstring_balance.py --stdin
+        language: system
+        types: [python]
+        pass_filenames: true
+        stages: [pre-commit, pre-push]

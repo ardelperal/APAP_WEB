@@ -40,6 +40,10 @@ class _NoSqlRouteClient(LocalPostgresExecutor):
     delegate to the service. If a route ever calls
     ``client.execute_sql``, the spy raises AssertionError and the
     failing test names the offending query.
+
+    Stands alone (no inheritance) so the dependency override only
+    requires the surface area the routes actually touch: the
+    ``SqlExecutor`` Protocol's ``execute_sql``.
     """
 
     def __init__(self) -> None:
@@ -59,8 +63,11 @@ class _NoSqlRouteClient(LocalPostgresExecutor):
         # route handler still violates the "cero SQL en routes" contract.
         _reval = auth_reval_rows(query, params, rol=self.auth_reval_rol)
         if _reval is not None:
-            return _reval
+            return _reval  # type: ignore[no-any-return]
         raise AssertionError(f"routes must not execute SQL directly: {query!r}")
+
+    def close(self) -> None:
+        pass  # no-op for spy
 
 
 @pytest.fixture

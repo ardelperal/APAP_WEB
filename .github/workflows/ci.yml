@@ -83,6 +83,12 @@ jobs:
         # test_ci_workflow_lint_job_runs_check_rules_gate.
         run: python scripts/check_rules.py .
 
+      - name: Run triple-quoted-string balance guard
+        # Guards against unclosed triple-quoted strings that silently empty class bodies.
+        # ruff check does not catch this because py_compile succeeds; the
+        # bug is invisible until runtime NameError surfaces in tests.
+        run: python scripts/check_docstring_balance.py .
+
       - name: Run alan-style anti-pattern detector (issues #559, #576, #578; ADR d-42)
         # Issue #559. Stdlib detector of the nine §10 anti-patterns
         # defined by the documentation-alan-style skill. Scope locks to

@@ -62,6 +62,7 @@ and `gh` CLI on a workstation. No application code is touched.
    - Do not configure a source build in Coolify.
    - Port: `8000`.
    - Healthcheck: `GET /healthz` every 10 seconds, with 30 seconds of grace.
+     The response includes ``storage: up|down|unconfigured``.
    - Domain: `https://apap.romancaba.com` behind Traefik.
 
 3. **Set runtime variables** from
@@ -83,7 +84,7 @@ and `gh` CLI on a workstation. No application code is touched.
 6. **Verify the result**:
    ```bash
    curl -fsS https://apap.romancaba.com/healthz
-   # Expected revision: the full SHA of the merged commit.
+   # Expected: {"status": "ok", "app": "APAP_WEB", "revision": "<sha>", "storage": "unconfigured|up|down"}
    ```
 
 ## Phase 2 — Automated deployment after a merge
@@ -195,13 +196,60 @@ To restore:
 
 4. **Smoke-test** as in Phase 1 step 5.
 
-## Contributor checklist
+## Phase 7 — Add MinIO storage
+
+MinIO stores animal photos (replacing the M0 in-memory placeholder). The
+web service and the MinIO service must be on the same Docker network.
+
+### 7a — Create the MinIO service in Coolify
+
+1. In the Coolify UI: New resource → Standalone Docker → Image.
+2. Image: ``minio/minio:latest``.
+3. Command: ``server /data --console-address ":9001"``.
+4. Port mappings:
+   - ``9000:9000`` (S3 API).
+   - ``9001:9001`` (Web console — optional, for debugging).
+5. Environment variables:
+   - ``MINIO_ROOT_USER``: same value as ``APAP_S3_ACCESS_KEY`` below.
+   - ``MINIO_ROOT_PASSWORD``: same value as ``APAP_S3_SECRET_KEY`` below.
+6. Healthcheck: ``CMD-SHELL, curl --fail --silent http://localhost:9000/minio/health/live``.
+7. Give it the same Docker network as ``apap-web`` (default: ``coolify``).
+   Without shared networking the web container cannot reach ``minio:9000``.
+
+### 7b — Configure the web service
+
+In the ``apap-web`` Coolify resource → Environment, set (or update):
+
+| Variable | Value |
+|---|---|
+| ``APAP_S3_ENDPOINT`` | ``minio:9000`` |
+| ``APAP_S3_ACCESS_KEY`` | the same user you set as ``MINIO_ROOT_USER`` |
+| ``APAP_S3_SECRET_KEY`` | the same password you set as ``MINIO_ROOT_PASSWORD`` (mark as secret) |
+| ``APAP_S3_BUCKET`` | ``apap-photos`` |
+| ``APAP_S3_SECURE`` | ``false`` |
+
+### 7c — Verify
+
+```bash
+curl -fsS https://apap.romancaba.com/healthz | python3 -c "import sys,json; d=json.load(sys.stdin); print('storage:', d.get('storage'))"
+# Expected: storage: up
+```
+
+The bucket ``apap-photos`` is created automatically on first upload
+(``client.make_bucket()`` is idempotent).
+
+To create it manually via the MinIO console:
+1. Open ``http://<server-ip>:9001`` (the MinIO console port).
+2. Log in with ``MINIO_ROOT_USER`` / ``MINIO_ROOT_PASSWORD``.
+3. Buckets → Create Bucket → name: ``apap-photos``.## Contributor checklist
 
 - [ ] Before any change to ``coolify/apap-web-coolify.yaml``, run
       ``pytest tests/test_coolify_web_yaml.py`` to confirm the new
       contract still parses.
 - [ ] After any change to ``app/core/config.py::Settings`` (new env
       var), update the yaml and the env table in this runbook.
+- [ ] After adding MinIO storage vars, document them in Phase 7 and in
+      ``coolify/apap-web-coolify.yaml``.
 - [ ] After any change to ``app/main.py``'s
       response shape, update the smoke-test command in Phase 1.
 - [ ] When rotating ``APAP_SESSION_SECRET``, announce the rotation

@@ -7,13 +7,12 @@ and soft-delete behavior. These tests use a real ``LocalPostgresExecutor`` with 
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 from typing import Any
 
-import httpx
 import pytest
 
+from app.core.data_access import BackendError
 from app.modules.entradas.service import (
     Entrada,
     EntradaConflictError,
@@ -23,34 +22,64 @@ from app.modules.entradas.service import (
     list_entradas,
     update_entrada,
 )
-from tests.sql_executor_fake import HandlerSqlExecutor as LocalPostgresExecutor
 
 
-def _json_response(status_code: int, body: Any) -> httpx.Response:
-    return httpx.Response(
-        status_code=status_code,
-        content=json.dumps(body).encode("utf-8"),
-        headers={"content-type": "application/json"},
-    )
+class _ErrorResponse:
+    """Marker returned by a fake handler to signal a backend error."""
+
+    def __init__(self, status_code: int, body: Any) -> None:
+        self.status_code = status_code
+        self.body = body
 
 
-def _client_recording(
-    handler: Callable[[httpx.Request, dict[str, Any]], httpx.Response],
-) -> tuple[LocalPostgresExecutor, list[dict[str, Any]]]:
-    captured: list[dict[str, Any]] = []
+class _FakeSqlExecutor:
+    """Minimal ``SqlExecutor`` Protocol implementation for unit tests.
 
-    def _recording_handler(request: httpx.Request) -> httpx.Response:
-        assert request.headers.get("Authorization", "").startswith("Bearer ")
-        body = json.loads(request.content.decode("utf-8")) if request.content else {}
-        captured.append(body)
-        return handler(request, body)
+    Supports two response strategies:
 
-    client = LocalPostgresExecutor(
-        base_url="https://example.local_backend.app",
-        service_key="ik_test",
-        transport=httpx.MockTransport(_recording_handler),
-    )
-    return client, captured
+    * ``set_response`` / ``set_responses`` — queue rows consumed in order
+      (used by tests that want straight-line behaviour).
+    * ``set_handler`` — a per-call callable that inspects the SQL +
+      params and returns rows OR an ``_ErrorResponse`` (used by error
+      simulation).
+
+    Returns ``[]`` when neither strategy matches so the fake never
+    accidentally short-circuits a "row missing" branch.
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, list[object]]] = []
+        self._responses: list[list[dict[str, object]]] = []
+        self._handler: Callable[[str, list[object]], Any] | None = None
+
+    def set_response(self, rows: list[dict[str, object]]) -> None:
+        self._responses = [rows]
+
+    def set_responses(self, *responses: list[dict[str, object]]) -> None:
+        self._responses = list(responses)
+
+    def set_handler(
+        self, handler: Callable[[str, list[object]], Any]
+    ) -> None:
+        self._handler = handler
+
+    def execute_sql(
+        self, query: str, params: list[object] | None = None
+    ) -> list[dict[str, object]]:
+        self.calls.append((query, list(params or [])))
+        bound_params = list(params or [])
+        if self._handler is not None:
+            result = self._handler(query, bound_params)
+            if isinstance(result, _ErrorResponse):
+                raise BackendError(result.status_code, result.body)
+            if result is not None:
+                return result  # type: ignore[no-any-return]
+        if self._responses:
+            return self._responses.pop(0)
+        return []
+
+    def close(self) -> None:
+        pass  # no-op for fake
 
 
 def _params_minimal() -> dict[str, Any]:
@@ -83,25 +112,37 @@ def _row(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
 
 
 def _validation_handler(insert_row: dict[str, Any] | None = None):
-    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
-        query = body["query"]
-        params = body.get("params", [])
+    def _handler(query: str, params: list[object]) -> Any:
         if "FROM animales" in query:
-            return _json_response(200, [{"id": params[0], "activo": True}])
+            return [{"id": params[0], "activo": True}]
         if "FROM voluntarios" in query:
-            return _json_response(200, [{"id": params[0], "activo": True}])
+            return [{"id": params[0], "activo": True}]
         if "INSERT INTO entradas" in query or "UPDATE entradas SET" in query:
-            return _json_response(200, [insert_row or _row()])
+            return [insert_row or _row()]
         raise AssertionError(f"Unexpected SQL: {query}")
 
     return _handler
 
 
+def _make_client(
+    handler: Callable[[str, list[object]], Any],
+) -> tuple[_FakeSqlExecutor, list[tuple[str, list[object]]]]:
+    """Build a fake executor that delegates every ``execute_sql`` to ``handler``.
+
+    The handler signature mirrors what ``_validation_handler`` produces:
+    it inspects ``(query, params)`` and returns a list of dicts, an
+    ``_ErrorResponse``, or ``None`` to fall through to the empty-list
+    default.
+    """
+    fake = _FakeSqlExecutor()
+    fake.set_handler(handler)
+    return fake, fake.calls
+
+
 def test_create_entrada_validates_references_inserts_minimal_public_fields() -> None:
-    client, captured = _client_recording(_validation_handler())
+    client, captured = _make_client(_validation_handler())
 
     result = create_entrada(client, _params_minimal())
-    client.close()
 
     assert isinstance(result, Entrada)
     assert result.id == "11111111-1111-1111-1111-111111111111"
@@ -110,20 +151,20 @@ def test_create_entrada_validates_references_inserts_minimal_public_fields() -> 
     assert result.fecha_entrada == "2026-06-25"
 
     assert len(captured) == 3
-    assert "FROM animales" in captured[0]["query"]
-    volunteer_lookup = captured[1]["query"]
+    assert "FROM animales" in captured[0][0]
+    volunteer_lookup = captured[1][0]
     assert "FROM voluntarios" in volunteer_lookup
     assert "activo = true" in volunteer_lookup
     assert "tipo_rol" not in volunteer_lookup
 
     insert = captured[2]
-    query = insert["query"]
+    query = insert[0]
     assert "INSERT INTO entradas" in query
     assert "voluntario_salida_id" not in query
     assert "fecha_salida" not in query
     assert "fecha_entrega_propietario" not in query
     assert "donativo_entregador" not in query
-    assert insert["params"] == [
+    assert insert[1] == [
         "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
         "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
         "2026-06-25",
@@ -145,55 +186,48 @@ def test_create_entrada_rejects_required_fields_before_sql(
     value: str,
     match: str,
 ) -> None:
-    client, captured = _client_recording(lambda req, body: _json_response(200, []))
+    client, captured = _make_client(lambda q, p: [])
 
     with pytest.raises(ValueError, match=match):
         create_entrada(client, {**_params_minimal(), field: value})
-    client.close()
 
     assert captured == []
 
 
 def test_create_entrada_rejects_inactive_volunteer_before_insert() -> None:
-    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
-        query = body["query"]
-        params = body.get("params", [])
+    def _handler(query: str, params: list[object]) -> Any:
         if "FROM animales" in query:
-            return _json_response(200, [{"id": params[0], "activo": True}])
+            return [{"id": params[0], "activo": True}]
         if "FROM voluntarios" in query:
-            return _json_response(200, [])
+            return []
         raise AssertionError(f"Unexpected SQL: {query}")
 
-    client, captured = _client_recording(_handler)
+    client, captured = _make_client(_handler)
 
     with pytest.raises(ValueError, match="voluntario_entrada_id"):
         create_entrada(client, _params_minimal())
-    client.close()
 
     assert len(captured) == 2
-    assert all("INSERT INTO entradas" not in call["query"] for call in captured)
+    assert all("INSERT INTO entradas" not in call[0] for call in captured)
 
 
 def test_create_entrada_rejects_duplicate_natural_key_as_conflict() -> None:
-    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
-        query = body["query"]
-        params = body.get("params", [])
+    def _handler(query: str, params: list[object]) -> Any:
         if "FROM animales" in query:
-            return _json_response(200, [{"id": params[0], "activo": True}])
+            return [{"id": params[0], "activo": True}]
         if "FROM voluntarios" in query:
-            return _json_response(200, [{"id": params[0], "activo": True}])
+            return [{"id": params[0], "activo": True}]
         if "INSERT INTO entradas" in query:
-            return _json_response(
+            return _ErrorResponse(
                 409,
                 {"error": "duplicate key value violates unique constraint entradas_natural_key"},
             )
         raise AssertionError(f"Unexpected SQL: {query}")
 
-    client, captured = _client_recording(_handler)
+    client, captured = _make_client(_handler)
 
     with pytest.raises(EntradaConflictError, match="entrada duplicada"):
         create_entrada(client, _params_minimal())
-    client.close()
 
     assert len(captured) == 3
 
@@ -201,15 +235,14 @@ def test_create_entrada_rejects_duplicate_natural_key_as_conflict() -> None:
 def test_create_entrada_allows_null_volunteer_without_lookup() -> None:
     params = {**_params_minimal(), "voluntario_entrada_id": None}
 
-    client, captured = _client_recording(_validation_handler(_row({"voluntario_entrada_id": None})))
+    client, captured = _make_client(_validation_handler(_row({"voluntario_entrada_id": None})))
     result = create_entrada(client, params)
-    client.close()
 
     assert result.voluntario_entrada_id is None
     assert len(captured) == 2
-    assert "FROM animales" in captured[0]["query"]
-    assert "INSERT INTO entradas" in captured[1]["query"]
-    assert "FROM voluntarios" not in "\n".join(call["query"] for call in captured)
+    assert "FROM animales" in captured[0][0]
+    assert "INSERT INTO entradas" in captured[1][0]
+    assert "FROM voluntarios" not in "\n".join(call[0] for call in captured)
 
 
 def test_list_entradas_returns_active_rows_ordered_by_created_date() -> None:
@@ -218,12 +251,11 @@ def test_list_entradas_returns_active_rows_ordered_by_created_date() -> None:
         _row({"id": "entry-1", "fecha_entrada": "2026-06-25"}),
     ]
 
-    client, captured = _client_recording(lambda req, body: _json_response(200, rows))
+    client, captured = _make_client(lambda q, p: rows)
     result = list_entradas(client)
-    client.close()
 
     assert [entry.id for entry in result] == ["entry-2", "entry-1"]
-    query = captured[0]["query"]
+    query = captured[0][0]
     assert "SELECT" in query
     assert "FROM entradas" in query
     assert "WHERE activo = true" in query
@@ -231,25 +263,24 @@ def test_list_entradas_returns_active_rows_ordered_by_created_date() -> None:
 
 
 def test_get_entrada_by_id_returns_entry_or_none() -> None:
-    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
-        if body["params"] == ["missing"]:
-            return _json_response(200, [])
-        return _json_response(200, [_row({"id": body["params"][0]})])
+    def _handler(query: str, params: list[object]) -> list[dict[str, object]]:
+        if params == ["missing"]:
+            return []
+        return [_row({"id": params[0]})]
 
-    client, captured = _client_recording(_handler)
+    client, captured = _make_client(_handler)
     found = get_entrada_by_id(client, "found")
     missing = get_entrada_by_id(client, "missing")
-    client.close()
 
     assert found is not None
     assert found.id == "found"
     assert missing is None
-    assert [call["params"] for call in captured] == [["found"], ["missing"]]
-    assert all("WHERE id = $1" in call["query"] for call in captured)
+    assert [call[1] for call in captured] == [["found"], ["missing"]]
+    assert all("WHERE id = $1" in call[0] for call in captured)
 
 
 def test_update_entrada_validates_and_updates_minimal_public_fields() -> None:
-    client, captured = _client_recording(
+    client, captured = _make_client(
         _validation_handler(_row({"motivo": "Correccion", "updated_at": "2026-06-25T12:00:00Z"}))
     )
 
@@ -258,19 +289,18 @@ def test_update_entrada_validates_and_updates_minimal_public_fields() -> None:
         "11111111-1111-1111-1111-111111111111",
         {**_params_minimal(), "motivo": "Correccion"},
     )
-    client.close()
 
     assert result is not None
     assert result.motivo == "Correccion"
     assert result.updated_at == "2026-06-25T12:00:00Z"
-    query = captured[2]["query"]
+    query = captured[2][0]
     assert "UPDATE entradas SET" in query
     assert "updated_at = now()" in query
     assert "WHERE id = $1" in query
     assert "RETURNING" in query
     assert "voluntario_salida_id" not in query
-    assert captured[2]["params"][0] == "11111111-1111-1111-1111-111111111111"
-    assert captured[2]["params"][1:] == [
+    assert captured[2][1][0] == "11111111-1111-1111-1111-111111111111"
+    assert captured[2][1][1:] == [
         "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
         "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
         "2026-06-25",
@@ -281,43 +311,38 @@ def test_update_entrada_validates_and_updates_minimal_public_fields() -> None:
 
 
 def test_update_entrada_returns_none_when_id_is_missing() -> None:
-    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
-        query = body["query"]
-        params = body.get("params", [])
+    def _handler(query: str, params: list[object]) -> Any:
         if "FROM animales" in query:
-            return _json_response(200, [{"id": params[0], "activo": True}])
+            return [{"id": params[0], "activo": True}]
         if "FROM voluntarios" in query:
-            return _json_response(200, [{"id": params[0], "activo": True}])
+            return [{"id": params[0], "activo": True}]
         if "UPDATE entradas SET" in query:
-            return _json_response(200, [])
+            return []
         raise AssertionError(f"Unexpected SQL: {query}")
 
-    client, captured = _client_recording(_handler)
+    client, captured = _make_client(_handler)
     result = update_entrada(client, "missing", _params_minimal())
-    client.close()
 
     assert result is None
-    assert captured[-1]["params"][0] == "missing"
+    assert captured[-1][1][0] == "missing"
 
 
 def test_delete_entrada_soft_deletes_without_physical_delete() -> None:
-    client, captured = _client_recording(lambda req, body: _json_response(200, [{"id": "entry", "activo": False}]))
+    client, captured = _make_client(lambda q, p: [{"id": "entry", "activo": False}])
     result = delete_entrada(client, "entry")
-    client.close()
 
     assert result is True
     assert len(captured) == 1
-    query = captured[0]["query"]
+    query = captured[0][0]
     assert "UPDATE entradas" in query
     assert "SET activo = false" in query
     assert "DELETE FROM" not in query
-    assert captured[0]["params"] == ["entry"]
+    assert captured[0][1] == ["entry"]
 
 
 def test_delete_entrada_returns_false_when_id_is_missing() -> None:
-    client, captured = _client_recording(lambda req, body: _json_response(200, []))
+    client, captured = _make_client(lambda q, p: [])
     result = delete_entrada(client, "missing")
-    client.close()
 
     assert result is False
     assert len(captured) == 1
