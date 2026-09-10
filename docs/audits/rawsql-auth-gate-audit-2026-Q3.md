@@ -47,6 +47,7 @@ dato accesible para ese rol de base de datos.
 | Route integration in-process | Peticiones ASGI con executor espía | Rechazo antes del side effect y contrato `401` |
 | Application startup | Lifespan de `create_app` | Token ausente o débil impide arrancar LocalBackend |
 | Integration con PostgreSQL | `test_local_backend.py` | El contrato autorizado conserva el round-trip real |
+| Verificación de fallback | Token efímero compartido por los subprocesos | El LocalBackend de CI arranca sin reutilizar secretos persistentes |
 
 No procede una prueba E2E de interfaz: esta superficie no tiene UI. La prueba con
 PostgreSQL sigue en la suite de integración dedicada.

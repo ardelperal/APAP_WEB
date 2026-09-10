@@ -17,6 +17,10 @@ proceso LocalBackend. Solo se monta en `app.core.local_backend.app:create_app`;
 La CLI de migración usa `LocalPostgresExecutor` directamente. No necesita este
 token mientras no invoque el endpoint HTTP.
 
+Los verificadores automáticos de fallback que levantan LocalBackend generan un
+token efímero y lo comparten únicamente entre sus subprocesos. No requieren
+provisionar un secreto persistente en CI.
+
 ## Provisionar
 
 Genere el secreto fuera del repositorio y guárdelo en el almacén de secretos del
