@@ -9,6 +9,7 @@ here we just verify the gate logic in isolation.
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
 
 from migration.verify_fallback_ready import (
@@ -190,6 +191,73 @@ def test_operator_signature_check_returns_pending_when_missing(
     )
     result = check_operator_signature()
     assert result.status == "PENDING"
+
+
+def test_web_to_legacy_check_only_runs_local_backend_path(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A configured local DB provisions, runs, and cleans its isolated schema."""
+    import migration.verify_fallback_ready as gate
+
+    legacy_fixture = (
+        tmp_path
+        / "tests"
+        / "migration"
+        / "local-access"
+        / "backend"
+        / "Registro_APAP_Alcala_datos_18.accdb"
+    )
+    legacy_fixture.parent.mkdir(parents=True)
+    legacy_fixture.touch()
+    monkeypatch.setattr(gate, "REPO_ROOT", tmp_path)
+    monkeypatch.setenv("APAP_LOCAL_DB_URL", "postgresql://test")
+    monkeypatch.setattr(gate, "_provision_ephemeral_schema", lambda _dsn: "check_schema")
+    monkeypatch.setattr(gate, "_pick_free_port", lambda: 8765)
+    monkeypatch.setattr(gate, "_wait_for_healthz", lambda _port, timeout_seconds: True)
+
+    events: list[tuple[str, object]] = []
+    tokens: dict[str, str] = {}
+
+    class _Process:
+        stderr = io.BytesIO()
+
+        def terminate(self) -> None:
+            events.append(("terminate", None))
+
+        def wait(self, timeout: int) -> None:
+            events.append(("wait", timeout))
+
+        def kill(self) -> None:
+            events.append(("kill", None))
+
+    def _popen(command, **kwargs):
+        tokens["backend"] = kwargs["env"]["APAP_RAWSQL_AUTH_TOKEN"]
+        events.append(("popen", (command, kwargs)))
+        return _Process()
+
+    def _run(command, *, cwd, extra_env):
+        assert cwd == tmp_path
+        assert extra_env["APAP_LOCAL_BACKEND"] == "true"
+        assert extra_env["APAP_LOCAL_DB_SCHEMA"] == "check_schema"
+        assert extra_env["APAP_INSFORGE_SERVICE_KEY"]
+        tokens["client"] = extra_env["APAP_INSFORGE_SERVICE_KEY"]
+        return 0, "", ""
+
+    monkeypatch.setattr(gate.subprocess, "Popen", _popen)
+    monkeypatch.setattr(gate, "_run_subprocess_check", _run)
+    monkeypatch.setattr(
+        gate,
+        "_drop_ephemeral_schema",
+        lambda dsn, schema: events.append(("drop", (dsn, schema))),
+    )
+
+    result = gate.check_web_to_legacy_check_only()
+
+    assert result.status == "PASS"
+    assert ("terminate", None) in events
+    assert ("wait", 5) in events
+    assert ("drop", ("postgresql://test", "check_schema")) in events
+    assert tokens["backend"] == tokens["client"]
 
 
 # --- Module structure ----------------------------------------------------
