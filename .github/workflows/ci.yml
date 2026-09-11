@@ -1023,9 +1023,11 @@ jobs:
           echo "S3_SECRET_KEY=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
 
       - name: Wait for MinIO to be healthy
+        env:
+          MINIO_HOST_PORT: ${{ job.services.minio.ports['9000'] }}
         run: |
           for i in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:9000/minio/health/live >/dev/null 2>&1; then
+            if curl -fsS "http://127.0.0.1:${MINIO_HOST_PORT}/minio/health/live" >/dev/null 2>&1; then
               echo "MinIO is healthy"
               exit 0
             fi
@@ -1062,7 +1064,7 @@ jobs:
           APAP_MODE: test
           APAP_E2E_AUTH_ENABLED: "true"
           APAP_E2E_AUTH_DEFAULT_EMAIL: e2e@apap.local
-          APAP_S3_ENDPOINT: 127.0.0.1:${MINIO_HOST_PORT}
+          APAP_S3_ENDPOINT: http://127.0.0.1:${MINIO_HOST_PORT}
           APAP_S3_ACCESS_KEY: ${S3_ACCESS_KEY}
           APAP_S3_SECRET_KEY: ${S3_SECRET_KEY}
           APAP_S3_BUCKET: apap-photos
