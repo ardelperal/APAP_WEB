@@ -1040,21 +1040,20 @@ jobs:
         env:
           MINIO_HOST_PORT: ${{ job.services.minio.ports['9000'] }}
         run: |
-          python3 -c "
-          import sys, os
-          from minio import Minio
-          access_key = os.environ['S3_ACCESS_KEY']
-          secret_key = os.environ['S3_SECRET_KEY']
-          port = os.environ['MINIO_HOST_PORT']
-          host = '127.0.0.1:' + port
-          client = Minio(host, access_key=access_key, secret_key=secret_key, secure=False)
-          bucket = 'apap-photos'
-          if not client.bucket_exists(bucket):
-              client.make_bucket(bucket)
-              print(f'Created bucket: {bucket}')
-          else:
-              print(f'Bucket already exists: {bucket}')
-          ""
+          printf '%s\n' "import os" "from minio import Minio" \
+              "client = Minio(" \
+              "    '127.0.0.1:' + os.environ['MINIO_HOST_PORT']," \
+              "    access_key=os.environ['S3_ACCESS_KEY']," \
+              "    secret_key=os.environ['S3_SECRET_KEY']," \
+              "    secure=False," \
+              ")" \
+              "bucket = 'apap-photos'" \
+              "if not client.bucket_exists(bucket):" \
+              "    client.make_bucket(bucket)" \
+              "    print('Created bucket: ' + bucket)" \
+              "else:" \
+              "    print('Bucket already exists: ' + bucket)" > /tmp/create_bucket.py
+          python3 /tmp/create_bucket.py"
 
       - name: Start the production application against ephemeral Postgres
         env:
