@@ -1039,21 +1039,9 @@ jobs:
       - name: Create apap-photos bucket in MinIO
         env:
           MINIO_HOST_PORT: ${{ job.services.minio.ports['9000'] }}
-        run: |
-          printf '%s\n' "import os" "from minio import Minio" \
-              "client = Minio(" \
-              "    '127.0.0.1:' + os.environ['MINIO_HOST_PORT']," \
-              "    access_key=os.environ['S3_ACCESS_KEY']," \
-              "    secret_key=os.environ['S3_SECRET_KEY']," \
-              "    secure=False," \
-              ")" \
-              "bucket = 'apap-photos'" \
-              "if not client.bucket_exists(bucket):" \
-              "    client.make_bucket(bucket)" \
-              "    print('Created bucket: ' + bucket)" \
-              "else:" \
-              "    print('Bucket already exists: ' + bucket)" > /tmp/create_bucket.py
-          python3 /tmp/create_bucket.py"
+          S3_ACCESS_KEY: ${{ env.S3_ACCESS_KEY }}
+          S3_SECRET_KEY: ${{ env.S3_SECRET_KEY }}
+        run: python3 scripts/create_minio_bucket.py"
 
       - name: Start the production application against ephemeral Postgres
         env:
