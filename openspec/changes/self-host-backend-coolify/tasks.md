@@ -134,7 +134,7 @@ tests.
 - [x] `tests/integration/test_local_backend.py` passes (13/13 atoms)
 - [x] `tests/integration/test_auth_queries_integration.py` still passes (regression)
 - [x] `tests/integration/test_self_host_auth.py` still passes (regression)
-- [ ] `tests/migration/test_*.py` still passes (regression)
+- [x] `tests/migration/test_*.py` still passes (regression) ✅ 344 passed / 3 skipped / 1 xfailed (2026-09-11)
 - [x] The 3 CI URL-switching unit tests in `test_local_backend.py` pass
 - [x] `python -m migration.cli_verify_fallback_ready --ci-only` is green
   on the new local backend (manual or via fixture wiring if possible)
