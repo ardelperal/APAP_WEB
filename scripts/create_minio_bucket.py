@@ -34,7 +34,7 @@ def _pin_output_encoding() -> None:
     sys.stderr.reconfigure(encoding="utf-8")
 
 
-def _wait_for_minio_ready(host: str, *, timeout: int = 30) -> None:
+def _wait_for_minio_ready(host: str, *, timeout: int = 90) -> None:
     """Wait for MinIO to be ready to accept authenticated requests.
 
     The /minio/health/live endpoint is unauthenticated, but MinIO may
