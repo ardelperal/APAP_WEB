@@ -195,8 +195,10 @@ class LocalBackendAuthUsersAdapter:
     ) -> AuthorizedUser | None:
         """LocalBackend has no password store. Always returns None.
 
-        The caller (the login endpoint) must NOT distinguish this
-        from "wrong password" — both yield None and the endpoint
+        This stub returns None so callers that fall back to the
+        AuthUsersPort contract do not bypass the dedicated
+        ClassicPasswordPort. The login endpoint must NOT distinguish
+        this from "wrong password" — both yield None and the endpoint
         responds with the same generic error to prevent email
         enumeration.
         """

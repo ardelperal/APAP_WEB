@@ -12,6 +12,7 @@ ALLOWLIST: frozenset[str] = frozenset({
     # Grandfathered branches that pre-date the rename convention.
     "feat/quality-gates-mutation",
     "feat/architecture-layers-gate",
+        "resolve-conflict",  # temp branch for merge conflict resolution
     # Add more here as the user renames legacy branches.
 })
 

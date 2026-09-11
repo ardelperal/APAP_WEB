@@ -1,0 +1,21 @@
+# GitGuardian ignore rules for APAP_WEB.
+#
+# False positives from docker-compose.yml: the placeholders
+# ${APAP_DB_PASSWORD:?...} and ${APAP_S3_SECRET_KEY:?...} reference
+# environment variables, not hardcoded secrets. They are required by
+# Docker Compose and documented in env.example.
+#
+# Incident 37153240: Generic Password in docker-compose.yml
+
+version: 2
+ignore:
+  - paths:
+      - "docker-compose.yml"
+    secret_scanner:
+      matchers:
+        - id: Generic Password
+          note: "False positive — Docker Compose env var placeholders (${VAR:?...}) are not secrets"
+    occurrences:
+      - policy: Detecting secrets in source code
+        incident_id: "37153240"
+        note: "Docker Compose env var placeholders are not hardcoded secrets; values come from Coolify secret store or .env"

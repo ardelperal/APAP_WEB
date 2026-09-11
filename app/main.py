@@ -137,6 +137,13 @@ async def lifespan(_: FastAPI):
         search_path=settings.local_db_schema or None,
     )
     _.state.sql_executor = client
+
+    # MinIO / S3-compatible storage for photos.
+    # PhotoStorageClient handles the None case gracefully (fallback to
+    # placeholder); the app does not fail to start when MinIO is unreachable.
+    from app.core.local_backend.s3 import PhotoStorageClient  # lazy-import: only needed when S3 credentials are configured  # noqa: I001
+
+    _.state.photo_storage = PhotoStorageClient()
     try:
         ensure_schema_and_seed(client, settings)
         ensure_catalogs(client)
@@ -227,10 +234,24 @@ def _register_health_handler(app: FastAPI, settings) -> None:
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
+        # Probe MinIO connectivity.
+        from app.core.local_backend.s3 import _build_minio_client, _credentials  # lazy-import: avoids loading minio at module load time  # noqa: I001
+
+        storage = "unconfigured"
+        if _credentials() is not None:
+            try:
+                client = _build_minio_client()
+                if client is not None:
+                    client.list_buckets()
+                    storage = "up"
+            except Exception:  # noqa: BLE001
+                storage = "down"
+
         return {
             "status": "ok",
             "app": settings.app_name,
             "revision": settings.build_sha,
+            "storage": storage,
         }
 
 

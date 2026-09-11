@@ -34,7 +34,7 @@ class _ExecutorSpy:
     def __init__(self) -> None:
         self.calls: list[tuple[str, list[Any] | None]] = []
 
-    def execute(
+    def execute_sql(
         self, query: str, params: list[Any] | tuple[Any, ...] | None = None
     ) -> list[dict[str, Any]]:
         normalized = list(params) if params is not None else None

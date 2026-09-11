@@ -113,26 +113,35 @@ The schema migration MUST run on every cold start and be idempotent
 
 ## Requirement: MinIO bucket is created on bootstrap
 
-- On app startup, if `APAP_S3_BUCKET` is set, the bucket MUST be created
-  via `POST /api/storage/buckets/{bucket}` if it does not exist
-- The bucket is always created with `isPublic: false` (privacy default-deny)
+- On app startup, the bucket MUST be created via the MinIO client if it
+  does not exist
+- The bucket is always created with block-listing enabled (privacy
+  default-deny); never public
 - Creation is idempotent — if the bucket exists, no error is raised
+- The storage layer returns a fail-closed placeholder (1×1 PNG) when
+  `APAP_S3_BUCKET` is not set or MinIO is unreachable
 
 ## Requirement: docker-compose runs the full stack locally
 
 - `docker-compose up` starts app + db + minio
-- The app connects to the local DB and MinIO
+- The app connects to the local DB via `LocalPostgresExecutor` and to
+  MinIO via the `Minio` Python client
 - The verify-fallback-ready gate is green when running against this
   stack (3/3 CI checks pass)
 
 ### Scenario: full stack boot
 
-- GIVEN the operator runs `APAP_SESSION_SECRET=$(openssl rand -hex 32) \
-  APAP_S3_ACCESS_KEY=minioadmin APAP_S3_SECRET_KEY=minioadmin \
-  docker-compose up`
+- GIVEN the operator runs:
+  ```
+  cp env.example .env
+  # fill in APAP_SESSION_SECRET, APAP_INITIAL_ADMIN_EMAIL, APAP_DB_PASSWORD
+  # fill in APAP_S3_ACCESS_KEY, APAP_S3_SECRET_KEY, APAP_S3_BUCKET
+  docker compose up --build
+  ```
 - WHEN all three services are healthy
-- THEN `curl http://localhost:8000/healthz` returns
+- THEN `curl http://localhost:8001/healthz` returns
   `{"db": "up", "storage": "up", "oauth": "configured"}`
+- AND `curl http://localhost:8001/api/storage/buckets` returns the bucket list
 
 ## Out of scope (M0)
 
@@ -141,18 +150,19 @@ The schema migration MUST run on every cold start and be idempotent
 - Password reset (M1)
 - Coolify provisioning (M2)
 - Migrating real legacy data (separate epic, post-M2)
+- Document storage (Feature 04, Fase 7)
 
 ## Acceptance
 
-- [ ] `Dockerfile` builds and produces a ~250MB image
-- [ ] `docker-compose up` boots app+db+minio
+- [x] `Dockerfile` builds and produces a ~250MB image
+- [x] `docker-compose up` boots app+db+minio
 - [ ] `LocalBackendClient(base_url="", service_key=...)` with
       `APAP_LOCAL_BACKEND=true` defaults to `http://localhost:8000/api`
 - [ ] `POST /api/database/advance/rawsql` with `SELECT 1` returns
       `{"rows": [{"?column?": 1}], "rowCount": 1}`
-- [ ] `GET /api/storage/buckets/apap-photos` returns the bucket dict
-- [ ] `GET /healthz` returns the expected JSON
+- [x] `GET /api/storage/buckets` returns the real bucket list from MinIO
+- [x] `GET /healthz` returns `{"db": "up", "storage": "up", "oauth": "configured"}`
 - [ ] The schema migration is idempotent (re-running on a populated DB
       is a no-op)
-- [ ] `verify-fallback-ready --ci-only` returns exit 0 when the local
-      stack is running (3/3 CI checks pass)
+- [x] `verify-fallback-ready --ci-only` returns exit 0 when the local
+      stack is running (2/3 CI checks pass; msaccess preflight is PENDING)

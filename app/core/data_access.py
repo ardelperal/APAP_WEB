@@ -98,7 +98,6 @@ class BackendError(DataAccessError):
         self.body = body
         super().__init__(f"LocalBackend {status_code}: {body!r}")
 
-
 class DuplicateKeyError(BackendError):
     """Raised when SQL INSERT/UPDATE violates a uniqueness constraint.
 

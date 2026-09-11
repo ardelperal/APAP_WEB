@@ -619,9 +619,10 @@ def _build_web_client() -> LocalPostgresExecutor:
     from app.core.config import get_settings
 
     settings = get_settings()
-    return LocalPostgresExecutor(
-        settings.local_db_url, search_path=settings.local_db_schema or None
-    )
+    # Use explicit schema to avoid PostgreSQL search_path resolution
+    # issues with unqualified table names on fresh Docker containers.
+    schema = settings.local_db_schema or "public"
+    return LocalPostgresExecutor(settings.local_db_url, search_path=schema)
 
 
 def main(

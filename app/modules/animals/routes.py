@@ -33,37 +33,43 @@ from starlette.background import BackgroundTask
 
 # Re-export for backwards compat with existing test imports.
 # The canonical location is app.core.auth_dependencies.
-from app.core.auth_dependencies import (
+from app.core.auth_dependencies import (  # noqa: E402
     get_local_postgres_executor_dep,
     require_authorized_user,
     return_early_if_response,
 )
-from app.core.csrf import csrf_token_context_processor
-from app.core.data_access import SqlExecutor, UniqueViolationError
-from app.core.logging import log_safe
-from app.core.middleware import base_template_context_processor
-from app.core.rbac import Permission, require_permission
-from app.modules.animals.application.get_animal_by_id import (
+
+# Alias for backward compat with test fixtures.
+get_insforge_client_dep = get_local_postgres_executor_dep
+
+from app.core.csrf import csrf_token_context_processor  # noqa: E402
+from app.core.data_access import SqlExecutor, UniqueViolationError  # noqa: E402
+from app.core.logging import log_safe  # noqa: E402
+from app.core.middleware import base_template_context_processor  # noqa: E402
+from app.core.rbac import Permission, require_permission  # noqa: E402
+from app.modules.animals.application.get_animal_by_id import (  # noqa: E402
     get_animal_by_id as app_get_animal_by_id,
 )
-from app.modules.animals.application.list_animals import list_animals as app_list_animals
-from app.modules.animals.application.search_animals import (
+from app.modules.animals.application.list_animals import (  # noqa: E402
+    list_animals as app_list_animals,
+)
+from app.modules.animals.application.search_animals import (  # noqa: E402
     search_animals as app_search_animals,
 )
-from app.modules.animals.di.animals_di import get_animals_port
-from app.modules.animals.domain.animal import (
+from app.modules.animals.di.animals_di import get_animals_port  # noqa: E402
+from app.modules.animals.domain.animal import (  # noqa: E402
     Animal,
     AnimalSearchResult,
 )
-from app.modules.animals.domain.animal import (
+from app.modules.animals.domain.animal import (  # noqa: E402
     Especie as DomainEspecie,
 )
-from app.modules.animals.domain.animal import (
+from app.modules.animals.domain.animal import (  # noqa: E402
     Sexo as DomainSexo,
 )
-from app.modules.animals.forms import AnimalForm
-from app.modules.animals.ports.animals_port import AnimalsPort
-from app.modules.animals.route_helpers import (
+from app.modules.animals.forms import AnimalForm  # noqa: E402
+from app.modules.animals.ports.animals_port import AnimalsPort  # noqa: E402
+from app.modules.animals.route_helpers import (  # noqa: E402
     _animal_update_kwargs,
     _chip_change_response,
     _execute_chip_change,
@@ -78,7 +84,7 @@ from app.modules.animals.route_helpers import (
 # caracteres del string en vez de sobre los miembros del enum.
 # Por eso importamos los enums bajo alias y usamos los aliases de dominio
 # en los bodies de los handlers.
-from app.modules.sanidad import get_resumen_sanitario
+from app.modules.sanidad import get_resumen_sanitario  # noqa: E402
 
 router = APIRouter(prefix="/animales", tags=["animales"])
 _require_write_animales = require_permission(Permission.WRITE_ANIMALES)

@@ -88,11 +88,22 @@ service:
     # Production: ``https://apap.romancaba.com``.
     - { name: APAP_PUBLIC_BASE_URL, value: "https://apap.romancaba.com" }
 
+    # MinIO / S3-compatible storage for animal photos.
+    # Without APAP_S3_ACCESS_KEY the app falls back to the placeholder PNG.
+    # Provision MinIO as a separate Coolify service; the web container
+    # and the MinIO service must share a Docker network (default: coolify).
+    - { name: APAP_S3_ENDPOINT, value: "minio:9000" }
+    - { name: APAP_S3_ACCESS_KEY, value: "" }
+    - { name: APAP_S3_SECRET_KEY, value: "", secret: true }
+    - { name: APAP_S3_BUCKET, value: "apap-photos" }
+    - { name: APAP_S3_SECURE, value: "false" }
+
   # --- volumes -------------------------------------------------------------
   #
-  # None at the app level. The local Postgres is a sibling Coolify
-  # service (``apap-pg-test``); the app talks to it via DSN. Photos
-  # bucket is in-process (M0 stub); M2 swaps it for MinIO.
+  # None at the app level. Postgres is a sibling Coolify service
+  # (``apap-pg-test``); MinIO is a sibling Coolify service
+  # (``apap-minio``); both are reachable via Docker's default network.
+  # The app reads APAP_S3_ENDPOINT to find MinIO.
 
   # --- linked runbook ------------------------------------------------------
   #

@@ -74,11 +74,11 @@ def _apply_one_row(
             op="INSERT",
             dry_run=False,
         )
-        # Register the new row in the volontarios index so subsequent
+        # Register the new row in the voluntarios index so subsequent
         # rows (acogidas / adopciones) can resolve FKs via Level 2.
-        # Only for the volontarios table; other tables contribute no
+        # Only for the voluntarios table; other tables contribute no
         # volontario name -> UUID entries.
-        if vol_index is not None and mapping.web_table == "volontarios":
+        if vol_index is not None and mapping.web_table == "voluntarios":
             web_uuid = returned[0]["id"] if returned else None
             if web_uuid:
                 vol_index.record(str(legacy_pk_value), str(web_uuid))

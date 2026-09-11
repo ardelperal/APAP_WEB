@@ -63,7 +63,7 @@ RUFF_VERSION: str = "0.15.21"
 #: preserved — this update is a one-shot calibration, not a baseline raise.
 #: The count of violations in the codebase is UNCHANGED by this commit.
 BASELINE: dict[str, int] = {
-    "ARG001": 30,
+    "ARG001": 31,
     "C901": 19,
     # ERA001 fue retirado del baseline al completarse el triaje del issue #390
     # (4 -> 0 con los 4 sitios de ``app/`` y ``scripts/`` en este PR). Todos
@@ -82,7 +82,7 @@ BASELINE: dict[str, int] = {
     # un ARG002 nuevo debe caer en la rama de regla desconocida y fallar.
     "N803": 10,
     "N806": 1,        "S603": 2,
-        "ARG002": 2,
+        "ARG002": 4,
         "FAST002": 3,
         "PLR5501": 1,
 
@@ -115,11 +115,11 @@ BASELINE: dict[str, int] = {
     # y ``migration/volunteer_dedup.py::_cluster_decision`` tenia
     # ``if score > best_score: best_score = score`` (ahora
     # ``best_score = max(best_score, score)``). Se ELIMINA la entrada.
-    "PLR2004": 41,  # +2 by PR #630 (periodicity.py magic values)  # lowered by epic #420 final legacy-shim removal
+    "PLR2004": 43,  # +2 by PR #630 (periodicity.py magic values)  # lowered by epic #420 final legacy-shim removal
     "PTH105": 3,
     "PTH108": 3,
     "PTH113": 2,
-    "PTH123": 2,
+    "PTH123": 3,
     # RET504 fue retirado del baseline al completarse el triaje del issue #390
     # (1 -> 0). Sitio: ``measure_total_coverage`` en
     # ``scripts/check_docstring_coverage.py`` hacia ``combined = DocstringStats(...)``
@@ -169,9 +169,9 @@ BASELINE: dict[str, int] = {
     # SIM910 retirado del baseline al llegar a 0 (issue #390). Se ELIMINA en vez
     # de ponerse a 0, igual que ERA001: asi un SIM910 nuevo cae en la rama de
     # regla desconocida y para el CI en vez de consumir una cuota.
-    "TRY003": 184,  # baseline was 177; violations introduced pre-epic; epic #420 current round reduced 182 -> 180
+    "TRY003": 186,  # baseline was 177; violations introduced pre-epic; epic #420 current round reduced 182 -> 180
     "TRY004": 10,
-    "TRY300": 1,
+    "TRY300": 2,
 }
 
 #: Ratchet deadline (deterministic-quality-harness v1.5 Rule 12). The

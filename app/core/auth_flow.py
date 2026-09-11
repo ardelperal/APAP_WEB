@@ -34,8 +34,7 @@ explicitly.
 Backwards compatibility:
 
 - :func:`register_auth_flow_routes(app, templates)` — unchanged
-  signature. ``app/main.py::create_app`` still calls it the same
-  way.
+  signature. ``app/main.py::create_app`` still calls it the same way.
 - The four route URLs (``/login``, ``/auth/google``,
   ``/auth/callback``, ``/logout``) are unchanged.
 - The cookie names (``apap_pkce``, ``apap_session``), their
@@ -56,12 +55,6 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 
 from app.core import config as config_module
-from app.core.adapters.local_backend.auth_local_backend_adapter import (
-    LocalBackendAuthUsersAdapter,
-)
-from app.core.adapters.local_backend.oauth_local_backend_adapter import (
-    LocalBackendOAuthAdapter,
-)
 from app.core.application.oauth import (
     callback as callback_use_case,
 )
@@ -74,15 +67,18 @@ from app.core.application.oauth import (
 from app.core.application.oauth import (
     start_google_login as start_google_login_use_case,
 )
-from app.core.auth_dependencies import get_local_backend_client_dep
 from app.core.csrf import issue_csrf_to_session
-from app.core.data_access import BackendError, SqlExecutor
+from app.core.data_access import BackendError
+from app.core.di.auth_di import get_auth_users_port
+from app.core.di.oauth_di import get_oauth_port
 from app.core.domain.oauth import (
     CallbackInvalidError,
     OAuthNotConfiguredError,
     UserNotAuthorizedError,
 )
 from app.core.logging import log_safe
+from app.core.ports.auth_port import AuthUsersPort
+from app.core.ports.oauth_port import OAuthPort
 from app.core.session import (
     read_session,
     session_cookie_name,
@@ -101,8 +97,7 @@ def _oauth_unconfigured_response() -> JSONResponse:
     ``tests/test_auth_flow.py::test_login_returns_503_when_google_not_configured``
     keeps matching. The error message is the operator's
     remediation hint, identical to the one
-    :class:`OAuthNotConfiguredError` carries — keeping the
-    single source of truth.
+    :class:`OAuthNotConfiguredError` carries.
     """
     return JSONResponse(
         {
@@ -125,9 +120,12 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
     The route handlers are THIN: each one handles only transport
     concerns (cookie parsing, redirect building, template
     rendering) and delegates the domain decision to a use case in
-    :mod:`app.core.application.oauth`. The :class:`AuthUsersPort`
-    is constructed per-request by the shim helpers
-    (no DI; the legacy shape is preserved).
+    :mod:`app.core.application.oauth`. The :class:`OAuthPort` and
+    :class:`AuthUsersPort` are wired via the FastAPI DI providers
+    :func:`app.core.di.oauth_di.get_oauth_port` and
+    :func:`app.core.di.auth_di.get_auth_users_port`, which respect
+    the ``app.state._oauth_port`` / ``app.state._auth_users_port``
+    test overrides.
     """
 
     @app.get("/login")
@@ -153,7 +151,7 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
 
     @app.get("/auth/google")
     def start_google_login(
-        client: Annotated[SqlExecutor, Depends(get_local_backend_client_dep)],
+        oauth_port: Annotated[OAuthPort, Depends(get_oauth_port)],
     ) -> Response:
         """Start the Google OAuth flow via LocalBackend.
 
@@ -165,7 +163,7 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
         settings = config_module.get_settings()
         try:
             pkce, auth_url = start_google_login_use_case(
-                LocalBackendOAuthAdapter(client),
+                oauth_port,
                 settings,
             )
         except OAuthNotConfiguredError:
@@ -193,7 +191,8 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
     @app.get("/auth/callback")
     def callback(
         request: Request,
-        client: Annotated[SqlExecutor, Depends(get_local_backend_client_dep)],
+        oauth_port: Annotated[OAuthPort, Depends(get_oauth_port)],
+        auth_port: Annotated[AuthUsersPort, Depends(get_auth_users_port)],
         oauth_code: str | None = None,
         code: str | None = None,  # legacy direct-callback (pre-LocalBackend-proxy)
     ) -> Response:
@@ -225,8 +224,8 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
 
         try:
             session = callback_use_case(
-                LocalBackendOAuthAdapter(client),
-                LocalBackendAuthUsersAdapter(client),
+                oauth_port,
+                auth_port,
                 oauth_code=oauth_code,
                 code=code,
                 code_verifier=pkce["code_verifier"],
@@ -256,14 +255,7 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
         # TTL cache (``Settings.auth_cache_ttl_seconds``, default
         # 300s), so an admin deactivation via
         # ``/admin/users/{id}/deactivate`` takes effect within the TTL
-        # instead of waiting for the cookie to expire. The P0 VOL-01
-        # fix this comment replaced is preserved as the first gate
-        # (``is_authorized`` defaults to False — default-deny),
-        # not as the final answer.
-        #
-        # PR-5B (REQ-AH-6) adds ``csrf_token`` via ``issue_csrf_to_session``
-        # so the CSRF middleware (REQ-AH-8) can validate POST/PUT/PATCH/DELETE
-        # without relying solely on SameSite cookies.
+        # instead of waiting for the cookie to expire.
         session_token = write_session(
             issue_csrf_to_session(
                 {
@@ -275,12 +267,6 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
             ),
             secret=settings.session_secret,
         )
-        # Slice 6 sample call site (T-6.7): emit a structured
-        # ``auth.login`` event. The ``email`` kwarg is REDACTED by
-        # ``log_safe`` per the closed 12-field list — operators see
-        # the event name and ``user_id`` (non-PII), not the email.
-        # This proves the redaction filter is wired end-to-end on a
-        # real authentication flow, not just in unit tests.
         log_safe("auth.login", email=session.email, user_id=session.user_id)
         response = _redirect("/")
         response.set_cookie(
