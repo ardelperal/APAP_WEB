@@ -12,11 +12,18 @@ Usage::
 from __future__ import annotations
 
 import os
+import sys
 
 from minio import Minio
 
 
+def _pin_output_encoding() -> None:
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+
+
 def main() -> None:
+    _pin_output_encoding()
     host = os.environ["MINIO_HOST_PORT"]
     access_key = os.environ["S3_ACCESS_KEY"]
     secret_key = os.environ["S3_SECRET_KEY"]
