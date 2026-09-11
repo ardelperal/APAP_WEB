@@ -26,11 +26,11 @@ Logging estructurado, traza canónica correlacionada y panel de control para con
 | Capacidad | Estado | Doc de referencia |
 |---|---|---|
 | `log_safe` único en `app/` con redacción de doce campos | cerrado | [docs/codebase/logging-conventions.md](../codebase/logging-conventions.md) |
-| Traza canónica (eventos JSON correlacionados) | pendiente | issue por crear |
+| Traza canónica (eventos JSON correlacionados) | en curso | #749 ([docs/canonical-logs.md](../canonical-logs.md)) |
 | Panel de control / configuración funcional | pendiente | issue por crear |
 | Diagnóstico de entorno (Dysflow `dysflow_doctor`) | cerrado | [d-31-resolucion-dudas-dominio.md](../architecture/decisiones/d-31-resolucion-dudas-dominio.md) |
 
-Doc fundacional de traza canónica pendiente de crear; cuando arranque la issue, crear `docs/canonical-logs.md` y enlazarlo desde esta página.
+Doc fundacional publicado en [docs/canonical-logs.md](../canonical-logs.md); trazabilidad end-to-end (header + log JSON) pineada por `tests/test_log_safe_correlation_id.py` (ya cerrado en #334) y `tests/e2e/test_correlation_id_e2e.py`.
 
 ## Calidad
 
@@ -125,7 +125,7 @@ Documentación por crear al arrancar la issue.
 
 | Slice | Estado | Issue |
 |---|---|---|
-| Traza canónica (eventos JSON correlacionados) | pendiente | issue por crear |
+| Traza canónica (eventos JSON correlacionados) | en curso | #749 ([docs/canonical-logs.md](../canonical-logs.md)) |
 | Panel de control / configuración funcional | pendiente | issue por crear |
 
 ### Documentación unificada en castellano
