@@ -13,6 +13,9 @@ from __future__ import annotations
 
 import os
 import sys
+import time
+from urllib.error import URLError
+from urllib.request import urlopen
 
 from minio import Minio
 
@@ -22,6 +25,43 @@ def _pin_output_encoding() -> None:
     sys.stderr.reconfigure(encoding="utf-8")
 
 
+def _wait_for_minio_ready(host: str, *, timeout: int = 30) -> None:
+    """Wait for MinIO to be ready to accept authenticated requests.
+
+    The /minio/health/live endpoint is unauthenticated, but MinIO may
+    still be initializing its auth layer after that check passes.  Retry
+    the authenticated bucket_exists call until it succeeds or timeout.
+    """
+    start = time.monotonic()
+    while time.monotonic() - start < timeout:
+        try:
+            # Try an unauthenticated probe first
+            with urlopen(f"http://{host}/minio/health/live", timeout=2):
+                pass
+        except URLError:
+            time.sleep(1)
+            continue
+
+        # Health endpoint OK — now try an authenticated call to confirm
+        # auth is ready too.
+        try:
+            client = Minio(
+                host,
+                access_key=os.environ["S3_ACCESS_KEY"],
+                secret_key=os.environ["S3_SECRET_KEY"],
+                secure=False,
+            )
+            # A lightweight authenticated call — list buckets (returns empty list
+            # or raises on auth failure).
+            client.list_buckets()
+            return  # MinIO is ready for authenticated operations
+        except Exception:
+            pass
+        time.sleep(1)
+
+    raise RuntimeError(f"MinIO did not accept authenticated requests within {timeout}s")
+
+
 def main() -> None:
     _pin_output_encoding()
     host = os.environ["MINIO_HOST_PORT"]
@@ -29,6 +69,11 @@ def main() -> None:
     secret_key = os.environ["S3_SECRET_KEY"]
 
     endpoint = f"127.0.0.1:{host}"
+
+    print(f"Waiting for MinIO at {endpoint} to be ready...")
+    _wait_for_minio_ready(endpoint)
+    print("MinIO is ready for authenticated operations.")
+
     client = Minio(
         endpoint,
         access_key=access_key,
