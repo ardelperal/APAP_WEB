@@ -1040,7 +1040,7 @@ jobs:
         env:
           MINIO_HOST_PORT: ${{ job.services.minio.ports['9000'] }}
         run: |
-          python3 - << 'PYEOF'
+          python3 - << PYEOF
           import sys
           from minio import Minio
           access_key = "$S3_ACCESS_KEY"
