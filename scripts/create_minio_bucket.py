@@ -11,6 +11,7 @@ Usage::
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 import time
@@ -18,6 +19,14 @@ from urllib.error import URLError
 from urllib.request import urlopen
 
 from minio import Minio
+
+
+class MinioNotReadyError(Exception):
+    """MinIO did not accept authenticated requests within the timeout."""
+
+    def __init__(self, timeout: int) -> None:
+        self.timeout = timeout
+        super().__init__(f"MinIO not ready after {timeout}s")
 
 
 def _pin_output_encoding() -> None:
@@ -32,6 +41,7 @@ def _wait_for_minio_ready(host: str, *, timeout: int = 30) -> None:
     still be initializing its auth layer after that check passes.  Retry
     the authenticated bucket_exists call until it succeeds or timeout.
     """
+    _log = logging.getLogger(__name__)
     start = time.monotonic()
     while time.monotonic() - start < timeout:
         try:
@@ -44,6 +54,7 @@ def _wait_for_minio_ready(host: str, *, timeout: int = 30) -> None:
 
         # Health endpoint OK — now try an authenticated call to confirm
         # auth is ready too.
+        ready = False
         try:
             client = Minio(
                 host,
@@ -54,12 +65,15 @@ def _wait_for_minio_ready(host: str, *, timeout: int = 30) -> None:
             # A lightweight authenticated call — list buckets (returns empty list
             # or raises on auth failure).
             client.list_buckets()
+            ready = True
+        except Exception as exc:  # noqa: S110 — intentional retry-on-unknown-error
+            _log.debug("MinIO auth probe failed: %s", exc)
+
+        if ready:
             return  # MinIO is ready for authenticated operations
-        except Exception:
-            pass
         time.sleep(1)
 
-    raise RuntimeError(f"MinIO did not accept authenticated requests within {timeout}s")
+    raise MinioNotReadyError(timeout)
 
 
 def main() -> None:
