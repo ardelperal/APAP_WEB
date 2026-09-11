@@ -21,14 +21,6 @@ from urllib.request import urlopen
 from minio import Minio
 
 
-class MinioNotReadyError(Exception):
-    """MinIO did not accept authenticated requests within the timeout."""
-
-    def __init__(self, timeout: int) -> None:
-        self.timeout = timeout
-        super().__init__(f"MinIO not ready after {timeout}s")
-
-
 def _pin_output_encoding() -> None:
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
@@ -73,7 +65,21 @@ def _wait_for_minio_ready(host: str, *, timeout: int = 90) -> None:
             return  # MinIO is ready for authenticated operations
         time.sleep(1)
 
+    # Last-ditch: show diagnostics
+    _log.error("MinIO auth diagnostics:")
+    _log.error("  host=%s", host)
+    _log.error("  S3_ACCESS_KEY=%r", os.environ.get("S3_ACCESS_KEY", "<unset>"))
+    _log.error("  S3_SECRET_KEY=<%d chars>", len(os.environ.get("S3_SECRET_KEY", "")))
+    _log.error("  MINIO_HOST_PORT=%r", os.environ.get("MINIO_HOST_PORT", "<unset>"))
     raise MinioNotReadyError(timeout)
+
+
+class MinioNotReadyError(Exception):
+    """MinIO did not accept authenticated requests within the timeout."""
+
+    def __init__(self, timeout: int) -> None:
+        self.timeout = timeout
+        super().__init__(f"MinIO not ready after {timeout}s")
 
 
 def main() -> None:
@@ -85,6 +91,8 @@ def main() -> None:
     endpoint = f"127.0.0.1:{host}"
 
     print(f"Waiting for MinIO at {endpoint} to be ready...")
+    print(f"  Credentials: access_key={access_key!r}")
+    print(f"  MINIO_HOST_PORT={host!r}")
     _wait_for_minio_ready(endpoint)
     print("MinIO is ready for authenticated operations.")
 
