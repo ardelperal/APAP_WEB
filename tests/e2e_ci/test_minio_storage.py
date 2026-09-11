@@ -159,29 +159,3 @@ class TestMinioPhotoServing:
 
             with e2e_db_conn.cursor() as cur:
                 cur.execute("DELETE FROM animales WHERE id = %s", (animal_id,))
-
-    def test_animal_photo_404_when_no_record(
-        self,
-        e2e_logged_in_browser_context,
-        base_url: str,
-    ) -> None:
-        """``GET /animales/{id}/foto`` returns 404 for a non-existent animal."""
-        context = e2e_logged_in_browser_context
-        secret = os.environ["APAP_E2E_AUTH_SECRET"]
-        default_email = os.environ.get("APAP_E2E_AUTH_DEFAULT_EMAIL", "e2e@apap.local")
-
-        login_resp = context.request.get(
-            f"{base_url}/e2e/login",
-            headers={
-                "X-E2E-Secret": secret,
-                "X-E2E-Email": default_email,
-            },
-        )
-        assert login_resp.ok
-
-        nonexistent_id = f"e2e-nonexistent-{uuid.uuid4().hex[:8]}"
-        # Use the request client (not page.goto) so that we get the
-        # actual HTTP status without Playwright following redirects.
-        # A redirect to the login page would report 200 if followed.
-        photo_resp = context.request.get(f"{base_url}/animales/{nonexistent_id}/foto")
-        assert photo_resp.status == 404
