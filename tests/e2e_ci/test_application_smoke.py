@@ -12,11 +12,11 @@ def test_health_exposes_the_running_revision(page: Page, base_url: str) -> None:
 
     assert response is not None
     assert response.status == 200
-    assert response.json() == {
-        "status": "ok",
-        "app": "APAP_WEB",
-        "revision": "development",
-    }
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert payload["app"] == "APAP_WEB"
+    assert payload["revision"] == "development"
+    assert "storage" in payload
 
 
 def test_e2e_auth_reaches_the_authenticated_home(
@@ -54,3 +54,5 @@ def test_authenticated_animals_route_uses_bootstrapped_postgres(
 
     assert response is not None
     assert response.status == 200
+
+
