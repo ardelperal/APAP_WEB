@@ -59,66 +59,28 @@ mapping all live here and in ``queries.py``.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 
 from app.core._module_helpers._form_render import list_entities
 from app.core.data_access import BackendError, SqlExecutor
 from app.core.logging import log_safe
 from app.modules.materiales import queries
+from app.modules.materiales.domain.estancia_material import EstanciaMaterial
+from app.modules.materiales.domain.exceptions import MaterialConflictError
+from app.modules.materiales.domain.material import Material
 
 # --- exceptions ----------------------------------------------------------
-
-
-class MaterialConflictError(ValueError):
-    """Raised when a natural-key conflict occurs on the catalog.
-
-    The ``UNIQUE (material, tamano, color)`` constraint is DB-enforced
-    (P1 fidelity to legacy ``TbMaterial``), so a duplicate INSERT
-    raises PostgreSQL 23505 which the LocalBackend proxy surfaces as
-    ``BackendError(409, ...)``. The service catches that and re-raises
-    as ``MaterialConflictError`` with a Spanish actionable message so
-    the route layer can map it to HTTP 409. Mirrors the
-    ``EntradaConflictError`` / ``AcogidaConflictError`` precedent.
-    """
+# ``MaterialConflictError`` moved to ``app/modules/materiales/domain/exceptions.py``
+# in PR 1 of issue #752. The legacy module re-imports it so the public
+# surface (and every test that imports the exception from this module)
+# keeps working unchanged until PR 5 deletes ``service.py``.
 
 
 # --- dataclasses ---------------------------------------------------------
-
-
-@dataclass(frozen=True, slots=True)
-class Material:
-    """A public service-row representation for ``materiales``."""
-
-    id: str
-    material: str
-    tamano: str
-    color: str
-    activo: bool = True
-    observaciones: str | None = None
-    fecha_alta: str | None = None
-    fecha_baja: str | None = None
-    updated_at: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class EstanciaMaterial:
-    """A public service-row representation for ``estancia_materiales``.
-
-    The junction carries the assignment metadata (cantidad, notas)
-    but does NOT denormalize the material name — callers that need the
-    human-readable material name must JOIN via
-    ``materiales.material`` separately. Keeping the dataclass narrow
-    matches the precedent in ``app/modules/foster/assignment.py``.
-    """
-
-    id: str
-    estancia_id: str
-    material_id: str
-    cantidad: int
-    activo: bool = True
-    notas: str | None = None
-    fecha_alta: str | None = None
+# Moved to app/modules/materiales/domain/ in PR 1 of issue #752. The
+# legacy module re-imports them so the public surface (and every test
+# that imports from ``app.modules.materiales.service``) keeps working
+# unchanged until PR 5 deletes ``service.py``.
 
 
 # --- mapping --------------------------------------------------------------
