@@ -8,10 +8,10 @@ Usage::
 
     python scripts/create_minio_bucket.py
 """
+
 from __future__ import annotations
 
 import os
-import sys
 
 from minio import Minio
 
