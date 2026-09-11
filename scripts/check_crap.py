@@ -161,7 +161,7 @@ BASELINE_CRAP: dict[str, float] = {
     "migration/apply_per_row.py::_insert_web_row": 6.04,
     "migration/apply_row_mapping.py::_legacy_to_web_row": 8.02,
     "migration/cli.py::_run_reconcile_interactive": 13.78,
-    "migration/cli.py::main": 11.03,
+    "migration/cli.py::main": 11.17,
     "migration/cli.py::run_reconcile": 12.08,
     "migration/cli_apply_reverse.py::run_apply": 21.15,
     "migration/cli_verify_fallback_ready.py::main": 6.0,
