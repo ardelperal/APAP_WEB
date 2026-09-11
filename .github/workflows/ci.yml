@@ -1026,14 +1026,14 @@ jobs:
         env:
           MINIO_HOST_PORT: ${{ job.services.minio.ports['9000'] }}
         run: |
-          for i in $(seq 1 30); do
+          for i in $(seq 1 60); do
             if curl -fsS "http://127.0.0.1:${MINIO_HOST_PORT}/minio/health/live" >/dev/null 2>&1; then
               echo "MinIO is healthy"
               exit 0
             fi
             sleep 1
           done
-          echo "::error::MinIO did not become healthy within 30 seconds" >&2
+          echo "::error::MinIO did not become healthy within 60 seconds" >&2
           exit 1
 
       - name: Create apap-photos bucket in MinIO
@@ -1041,7 +1041,7 @@ jobs:
           MINIO_HOST_PORT: ${{ job.services.minio.ports['9000'] }}
           S3_ACCESS_KEY: ${{ env.S3_ACCESS_KEY }}
           S3_SECRET_KEY: ${{ env.S3_SECRET_KEY }}
-        run: python3 scripts/create_minio_bucket.py"
+        run: python3 scripts/create_minio_bucket.py
 
       - name: Start the production application against ephemeral Postgres
         env:
