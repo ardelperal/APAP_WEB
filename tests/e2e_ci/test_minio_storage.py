@@ -147,8 +147,7 @@ class TestMinioPhotoServing:
             # Verify the content matches what we uploaded.
             body = photo_resp.body()
             assert body == content, (
-                f"Photo content mismatch: expected {len(content)} bytes, "
-                f"got {len(body)}"
+                f"Photo content mismatch: expected {len(content)} bytes, got {len(body)}"
             )
 
         finally:
@@ -181,9 +180,8 @@ class TestMinioPhotoServing:
         assert login_resp.ok
 
         nonexistent_id = f"e2e-nonexistent-{uuid.uuid4().hex[:8]}"
-        page = context.new_page()
-        photo_resp = page.goto(f"{base_url}/animales/{nonexistent_id}/foto")
-
-        assert photo_resp is not None
+        # Use the request client (not page.goto) so that we get the
+        # actual HTTP status without Playwright following redirects.
+        # A redirect to the login page would report 200 if followed.
+        photo_resp = context.request.get(f"{base_url}/animales/{nonexistent_id}/foto")
         assert photo_resp.status == 404
-
