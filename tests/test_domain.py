@@ -18,14 +18,13 @@ intentionally absent because it is derived.
 
 from __future__ import annotations
 
-import json
 import re
+from collections.abc import Callable
 from typing import Any
 
-import httpx
 import pytest
 
-from app.core.data_access import BackendError, SqlExecutor
+from app.core.data_access import BackendError
 from app.core.domain import (
     ACOGIDAS_ADD_CASA_FK_SQL,
     ACOGIDAS_CREATE_TABLE_SQL,
@@ -42,29 +41,74 @@ from app.core.domain import (
     VOLUNTARIOS_CREATE_TABLE_SQL,
     ensure_domain_schema,
 )
-from tests.sql_executor_fake import HandlerSqlExecutor
 
 
-def _json_response(status_code: int, body: Any) -> httpx.Response:
-    return httpx.Response(
-        status_code=status_code,
-        content=json.dumps(body).encode("utf-8"),
-        headers={"content-type": "application/json"},
-    )
+class _ErrorResponse:
+    """Marker returned by a fake handler to signal a backend error."""
+
+    def __init__(self, status_code: int, body: Any) -> None:
+        self.status_code = status_code
+        self.body = body
 
 
-def _client_recording(handler) -> tuple[SqlExecutor, list[dict[str, Any]]]:
-    """Build a SQL executor that records every call's request body."""
-    captured: list[dict[str, Any]] = []
+class _FakeSqlExecutor:
+    """Minimal ``SqlExecutor`` Protocol implementation for unit tests.
 
-    def _recording_handler(request: httpx.Request) -> httpx.Response:
-        assert request.headers.get("Authorization", "").startswith("Bearer ")
-        body = json.loads(request.content.decode("utf-8")) if request.content else {}
-        captured.append(body)
-        return handler(request, body)
+    Records every ``execute_sql`` call (query + params) so callers can
+    assert on the SQL shape without standing up a Postgres instance.
+    Configured handlers let the schema-bootstrap tests run deterministically.
+    Returns ``[]`` when the handler returns ``None`` so the fake never
+    accidentally short-circuits a "row missing" branch.
+    """
 
-    client = HandlerSqlExecutor(_recording_handler)
-    return client, captured
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, list[object]]] = []
+        self._responses: list[list[dict[str, object]]] = []
+        self._handler: Callable[[str, list[object]], Any] | None = None
+
+    def set_response(self, rows: list[dict[str, object]]) -> None:
+        self._responses = [rows]
+
+    def set_responses(self, *responses: list[dict[str, object]]) -> None:
+        self._responses = list(responses)
+
+    def set_handler(
+        self, handler: Callable[[str, list[object]], Any]
+    ) -> None:
+        self._handler = handler
+
+    def execute_sql(
+        self, query: str, params: list[object] | None = None
+    ) -> list[dict[str, object]]:
+        self.calls.append((query, list(params or [])))
+        bound_params = list(params or [])
+        if self._handler is not None:
+            result = self._handler(query, bound_params)
+            if isinstance(result, _ErrorResponse):
+                raise BackendError(result.status_code, result.body)
+            if result is not None:
+                return result  # type: ignore[no-any-return]
+        if self._responses:
+            return self._responses.pop(0)
+        return []
+
+    def close(self) -> None:
+        pass  # no-op for fake
+
+
+def _make_client(
+    handler: Callable[[str, list[object]], Any],
+) -> tuple[_FakeSqlExecutor, list[tuple[str, list[object]]]]:
+    """Build a fake executor that delegates every ``execute_sql`` to ``handler``.
+
+    The handler signature mirrors what ``_make_handler`` produces:
+    it inspects ``(query, params)`` and returns a list of dicts or an
+    ``_ErrorResponse``. Returned ``calls`` is captured by reference so
+    tests can assert SQL + positional params without monkey-patching.
+    """
+    fake = _FakeSqlExecutor()
+    fake.set_handler(handler)
+    return fake, fake.calls
 
 
 def _column_names(sql: str) -> set[str]:
@@ -128,11 +172,10 @@ def _select_returns(rows: list[dict[str, Any]]):
     schema-bootstrap tests can introspect ``information_schema`` and
     ``pg_indexes`` shapes if needed without standing up Postgres.
     """
-    def handler(req: httpx.Request, body: dict[str, Any]) -> httpx.Response:
-        query = body.get("query", "") if isinstance(body, dict) else ""
+    def handler(query: str, _params: list[object]) -> list[dict[str, object]]:
         if query.lstrip().upper().startswith("SELECT"):
-            return _json_response(200, rows)
-        return _json_response(200, [])
+            return rows
+        return []
 
     return handler
 
@@ -287,12 +330,12 @@ def test_ensure_domain_schema_creates_all_six_lifecycle_tables() -> None:
     web-only-feature-preservation — see ``test_ensure_domain_schema_creates_eight_tables``
     below for the full count.
     """
-    client, captured = _client_recording(lambda req, body: _json_response(200, []))
+    client, captured = _make_client(lambda _query, _params: [])
 
     ensure_domain_schema(client)
     client.close()
 
-    queries = [c["query"].strip() for c in captured]
+    queries = [c[0].strip() for c in captured]
     assert any(q.startswith("CREATE TABLE IF NOT EXISTS animales") for q in queries)
     assert any(q.startswith("CREATE TABLE IF NOT EXISTS voluntarios") for q in queries)
     assert any(q.startswith("CREATE TABLE IF NOT EXISTS roles_voluntario") for q in queries)
@@ -307,22 +350,22 @@ def test_ensure_domain_schema_order_is_animales_then_voluntarios_then_roles() ->
     Order: animales, voluntarios, roles_voluntario. Anything else means a
     foreign-key will fail on a clean database.
     """
-    client, captured = _client_recording(lambda req, body: _json_response(200, []))
+    client, captured = _make_client(lambda _query, _params: [])
 
     ensure_domain_schema(client)
     client.close()
 
-    queries = [c["query"].strip() for c in captured]
+    queries = [c[0].strip() for c in captured]
     assert queries[0].startswith("CREATE TABLE IF NOT EXISTS animales")
     assert queries[1].startswith("CREATE TABLE IF NOT EXISTS voluntarios")
     assert queries[2].startswith("CREATE TABLE IF NOT EXISTS roles_voluntario")
 
 
 def test_ensure_domain_schema_raises_when_create_table_fails() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        return _json_response(500, {"error": "boom"})
+    def handler(_query: str, _params: list[object]) -> _ErrorResponse:
+        return _ErrorResponse(500, {"error": "boom"})
 
-    client = HandlerSqlExecutor(handler)
+    client, _captured = _make_client(handler)
     with pytest.raises(BackendError):
         ensure_domain_schema(client)
     client.close()
@@ -509,12 +552,12 @@ def test_ensure_domain_schema_emits_casa_fk_migration_after_acogidas_create() ->
     otherwise). The ALTER TABLE itself must run AFTER the CREATE TABLE
     for ``acogidas`` — same DB-statement ordering constraint.
     """
-    client, captured = _client_recording(lambda req, body: _json_response(200, []))
+    client, captured = _make_client(lambda _query, _params: [])
 
     ensure_domain_schema(client)
     client.close()
 
-    queries = [c["query"].strip() for c in captured]
+    queries = [c[0].strip() for c in captured]
     # 14 CREATE TABLE statements (12 lifecycle + foster_capacity_overrides +
     # actuacion_sanitaria for HEALTH-01 #50) + 1 ALTER TABLE for the casa FK.
     # FOSTER-03 (#45) added ``foster_capacity_overrides``; ordering still
@@ -620,12 +663,12 @@ def test_ensure_domain_schema_emits_foster_capacity_overrides_after_casa_fk_alte
     positioned AFTER the FOSTER-02 ALTER TABLE (idx 7) to keep the
     foster slice contiguous in the lifespan bootstrap.
     """
-    client, captured = _client_recording(lambda req, body: _json_response(200, []))
+    client, captured = _make_client(lambda _query, _params: [])
 
     ensure_domain_schema(client)
     client.close()
 
-    queries = [c["query"].strip() for c in captured]
+    queries = [c[0].strip() for c in captured]
     create_fco_idx = next(
         i for i, q in enumerate(queries)
         if q.startswith("CREATE TABLE IF NOT EXISTS foster_capacity_overrides")
@@ -661,12 +704,12 @@ def test_ensure_domain_schema_adds_estancia_id_to_foster_capacity_overrides() ->
     the table the ALTER targets exists). The test pins both edges so a
     future refactor that swaps the emit order fails loud.
     """
-    client, captured = _client_recording(lambda req, body: _json_response(200, []))
+    client, captured = _make_client(lambda _query, _params: [])
 
     ensure_domain_schema(client)
     client.close()
 
-    queries = [c["query"].strip() for c in captured]
+    queries = [c[0].strip() for c in captured]
 
     alter_estancia_idx = next(
         (
@@ -773,12 +816,12 @@ def test_ensure_domain_schema_includes_entradas_acogidas_adopciones() -> None:
     right after the ALTER TABLE for ``acogidas`` but is otherwise
     orthogonal to this 6-table ordering assertion.
     """
-    client, captured = _client_recording(lambda req, body: _json_response(200, []))
+    client, captured = _make_client(lambda _query, _params: [])
 
     ensure_domain_schema(client)
     client.close()
 
-    queries = [c["query"].strip() for c in captured]
+    queries = [c[0].strip() for c in captured]
     # Dependency order — the first 7 are the lifecycle tables; the
     # INTAKE-02 staging table is interleaved right after ``entradas``
     # because it is logically tied to the intake flow, and
@@ -907,12 +950,12 @@ def test_animal_lifecycle_events_has_animal_timestamp_index() -> None:
     timeline view: ``SELECT … WHERE animal_id = $1 ORDER BY
     event_timestamp DESC`` is the canonical read path for the timeline
     page (E2E-03 in issue #32 acceptance)."""
-    client, captured = _client_recording(_select_returns([]))
+    client, captured = _make_client(_select_returns([]))
 
     ensure_domain_schema(client)
     client.close()
 
-    queries = [c["query"].strip() for c in captured]
+    queries = [c[0].strip() for c in captured]
     matches = [
         q for q in queries
         if "CREATE INDEX IF NOT EXISTS idx_animal_lifecycle_events_animal_timestamp"
@@ -931,12 +974,12 @@ def test_animal_lifecycle_events_has_caused_by_index() -> None:
     """Index on ``caused_by_event_id`` accelerates causal-chain lookup:
     ``SELECT … WHERE caused_by_event_id = $1`` is the query that walks
     the audit graph for a single event."""
-    client, captured = _client_recording(_select_returns([]))
+    client, captured = _make_client(_select_returns([]))
 
     ensure_domain_schema(client)
     client.close()
 
-    queries = [c["query"].strip() for c in captured]
+    queries = [c[0].strip() for c in captured]
     matches = [
         q for q in queries
         if "CREATE INDEX IF NOT EXISTS idx_animal_lifecycle_events_caused_by" in q
@@ -955,12 +998,12 @@ def test_animal_lifecycle_events_total_indices_count_is_four() -> None:
     indices. This pins issue #32 acceptance criterion
     ("14 columnas, 4 indices") — no fewer, no more.
     """
-    client, captured = _client_recording(_select_returns([]))
+    client, captured = _make_client(_select_returns([]))
 
     ensure_domain_schema(client)
     client.close()
 
-    queries = [c["query"].strip() for c in captured]
+    queries = [c[0].strip() for c in captured]
     index_statements = [
         q for q in queries
         if "CREATE INDEX IF NOT EXISTS" in q and "animal_lifecycle_events" in q
@@ -984,12 +1027,12 @@ def test_animal_lifecycle_events_has_append_only_trigger() -> None:
     ("Event log es append-only (sin UPDATE/DELETE en BD; tests
     verifican esto)").
     """
-    client, captured = _client_recording(_select_returns([]))
+    client, captured = _make_client(_select_returns([]))
 
     ensure_domain_schema(client)
     client.close()
 
-    queries = [c["query"].strip() for c in captured]
+    queries = [c[0].strip() for c in captured]
     trigger_statements = [
         q for q in queries
         if "CREATE TRIGGER" in q and "animal_lifecycle_events_append_only" in q
@@ -1032,13 +1075,13 @@ def test_animal_lifecycle_events_append_only_trigger_is_idempotent() -> None:
     call must not crash because the trigger already exists. The bootstrap
     uses ``DROP TRIGGER IF EXISTS`` + ``CREATE TRIGGER`` so re-runs are
     no-ops on a live backend."""
-    client, captured = _client_recording(_select_returns([]))
+    client, captured = _make_client(_select_returns([]))
 
     ensure_domain_schema(client)
     ensure_domain_schema(client)
     client.close()
 
-    queries = [c["query"].strip() for c in captured]
+    queries = [c[0].strip() for c in captured]
     drop_triggers = [q for q in queries if "DROP TRIGGER IF EXISTS" in q]
     assert any(
         "animal_lifecycle_events_append_only" in q for q in drop_triggers
@@ -1101,12 +1144,12 @@ def test_animal_current_state_has_state_index() -> None:
     "all animals currently in state X" (``SELECT … WHERE current_state
     = $1``). Issue #32 acceptance criterion: cache carries 2 indices
     (PK on ``animal_id`` + state index)."""
-    client, captured = _client_recording(_select_returns([]))
+    client, captured = _make_client(_select_returns([]))
 
     ensure_domain_schema(client)
     client.close()
 
-    queries = [c["query"].strip() for c in captured]
+    queries = [c[0].strip() for c in captured]
     matches = [
         q for q in queries
         if "CREATE INDEX IF NOT EXISTS idx_animal_current_state_state" in q
@@ -1125,12 +1168,12 @@ def test_animal_current_state_total_indices_count_is_two() -> None:
     bootstrap: PK on ``animal_id`` + state index. Issue #32
     acceptance criterion pins 2 indices on ``animal_current_state``.
     """
-    client, captured = _client_recording(_select_returns([]))
+    client, captured = _make_client(_select_returns([]))
 
     ensure_domain_schema(client)
     client.close()
 
-    queries = [c["query"].strip() for c in captured]
+    queries = [c[0].strip() for c in captured]
     index_statements = [
         q for q in queries
         if "CREATE INDEX IF NOT EXISTS" in q and "animal_current_state" in q
@@ -1169,12 +1212,12 @@ def test_ensure_domain_schema_creates_twelve_tables_plus_one_alter() -> None:
     ``animales`` (both already created) so no extra ordering constraint
     applies beyond "after the foster slice".
     """
-    client, captured = _client_recording(lambda req, body: _json_response(200, []))
+    client, captured = _make_client(lambda _query, _params: [])
 
     ensure_domain_schema(client)
     client.close()
 
-    queries = [c["query"].strip() for c in captured]
+    queries = [c[0].strip() for c in captured]
     # HEALTH-04 (#53): 27 statements total (18 CREATE TABLE + 2 ALTER
     # TABLE + 1 CREATE INDEX estancia_materiales_active_unique +
     # 2 CREATE INDEX on animal_lifecycle_events +
@@ -1533,12 +1576,12 @@ def test_ensure_domain_schema_emits_actuacion_sanitaria_after_contratos() -> Non
     AFTER ``actuacion_sanitaria`` so that the junction's FKs to
     ``acogidas`` and ``materiales`` resolve on a fresh backend.
     """
-    client, captured = _client_recording(lambda req, body: _json_response(200, []))
+    client, captured = _make_client(lambda _query, _params: [])
 
     ensure_domain_schema(client)
     client.close()
 
-    queries = [c["query"].strip() for c in captured]
+    queries = [c[0].strip() for c in captured]
     actuacion_idx = next(
         i for i, q in enumerate(queries)
         if q.startswith("CREATE TABLE IF NOT EXISTS actuacion_sanitaria")
@@ -1601,12 +1644,12 @@ def test_ensure_domain_schema_creates_materiales_table() -> None:
     proves the bootstrap is wired correctly without depending on a
     separate SQL constant import.
     """
-    client, captured = _client_recording(lambda req, body: _json_response(200, []))
+    client, captured = _make_client(lambda _query, _params: [])
 
     ensure_domain_schema(client)
     client.close()
 
-    queries = [c["query"].strip() for c in captured]
+    queries = [c[0].strip() for c in captured]
     materiales_creates = [
         q for q in queries
         if q.startswith("CREATE TABLE IF NOT EXISTS materiales")
@@ -1650,12 +1693,12 @@ def test_ensure_domain_schema_creates_estancia_materiales_table() -> None:
     ``(estancia_id, material_id) WHERE activo = true`` prevents duplicate
     active assignments of the same material to the same stay.
     """
-    client, captured = _client_recording(lambda req, body: _json_response(200, []))
+    client, captured = _make_client(lambda _query, _params: [])
 
     ensure_domain_schema(client)
     client.close()
 
-    queries = [c["query"].strip() for c in captured]
+    queries = [c[0].strip() for c in captured]
     junction_creates = [
         q for q in queries
         if q.startswith("CREATE TABLE IF NOT EXISTS estancia_materiales")
@@ -1718,7 +1761,7 @@ def test_ensure_domain_schema_idempotent_for_materiales() -> None:
     call re-emits the same statement set (so a re-run on a live DB is
     a no-op rather than a re-create).
     """
-    client, captured = _client_recording(lambda req, body: _json_response(200, []))
+    client, captured = _make_client(lambda _query, _params: [])
 
     # First call — creates everything.
     ensure_domain_schema(client)

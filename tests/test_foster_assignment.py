@@ -45,44 +45,81 @@ Coverage (24 atoms):
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 from typing import Any
 
-import httpx
 import pytest
 
+from app.core.data_access import BackendError
 from app.modules.animals.domain.animal import Animal, Especie, Sexo
 from app.modules.foster import assignment as assignment_service
-from tests.sql_executor_fake import HandlerSqlExecutor as LocalPostgresExecutor
 
 
-def _json_response(status_code: int, body: Any) -> httpx.Response:
-    return httpx.Response(
-        status_code=status_code,
-        content=json.dumps(body).encode("utf-8"),
-        headers={"content-type": "application/json"},
-    )
+class _ErrorResponse:
+    """Marker returned by a fake handler to signal a backend error."""
+
+    def __init__(self, status_code: int, body: Any) -> None:
+        self.status_code = status_code
+        self.body = body
 
 
-def _client_recording(
-    handler: Callable[[httpx.Request, dict[str, Any]], httpx.Response],
-) -> tuple[LocalPostgresExecutor, list[dict[str, Any]]]:
-    captured: list[dict[str, Any]] = []
+class _FakeSqlExecutor:
+    """Minimal ``SqlExecutor`` Protocol implementation for unit tests.
 
-    def _recording_handler(request: httpx.Request) -> httpx.Response:
-        assert request.headers.get("Authorization", "").startswith("Bearer ")
-        body = json.loads(request.content.decode("utf-8")) if request.content else {}
-        captured.append(body)
-        return handler(request, body)
+    Records every ``execute_sql`` call (query + params) so callers can
+    assert on the SQL shape without standing up a Postgres instance.
+    """
 
-    client = LocalPostgresExecutor(
-        base_url="https://example.local_backend.app",
-        service_key="ik_test",
-        transport=httpx.MockTransport(_recording_handler),
-    )
-    client._test_animal_row = getattr(handler, "_animal_row", None)
-    return client, captured
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, list[object]]] = []
+        self._responses: list[list[dict[str, object]]] = []
+        self._handler: Callable[[str, list[object]], Any] | None = None
+
+    def set_response(self, rows: list[dict[str, object]]) -> None:
+        self._responses = [rows]
+
+    def set_responses(self, *responses: list[dict[str, object]]) -> None:
+        self._responses = list(responses)
+
+    def set_handler(
+        self, handler: Callable[[str, list[object]], Any]
+    ) -> None:
+        self._handler = handler
+
+    def execute_sql(
+        self, query: str, params: list[object] | None = None
+    ) -> list[dict[str, object]]:
+        self.calls.append((query, list(params or [])))
+        bound_params = list(params or [])
+        if self._handler is not None:
+            result = self._handler(query, bound_params)
+            if isinstance(result, _ErrorResponse):
+                raise BackendError(result.status_code, result.body)
+            if result is not None:
+                return result  # type: ignore[no-any-return]
+        if self._responses:
+            return self._responses.pop(0)
+        return []
+
+    def close(self) -> None:
+        pass  # no-op for fake
+
+
+def _make_client(
+    handler: Callable[[str, list[object]], Any],
+) -> tuple[_FakeSqlExecutor, list[tuple[str, list[object]]]]:
+    """Build a fake executor that delegates every ``execute_sql`` to ``handler``.
+
+    Mirrors ``test_foster.py``'s helper. Additionally propagates
+    ``_animal_row`` from the handler onto the fake client so the
+    ``_evaluate_assignment`` helper can wire it into the
+    ``_AnimalsPortStub`` (preserving the ``client._test_animal_row``
+    access pattern of the previous httpx.MockTransport version).
+    """
+    fake = _FakeSqlExecutor()
+    fake.set_handler(handler)
+    fake._test_animal_row = getattr(handler, "_animal_row", None)
+    return fake, fake.calls
 
 
 # --- fixtures: animal + casa + estancia -----------------------------------
@@ -164,7 +201,7 @@ def _make_handler(
     animal: dict[str, Any] | None = None,
     casa: dict[str, Any] | None = None,
     active_count: int = 0,
-) -> Callable[[httpx.Request, dict[str, Any]], httpx.Response]:
+) -> Callable[[str, list[object]], list[dict[str, object]]]:
     """Build a handler that responds to the SQL shapes evaluate_assignment emits.
 
     Order in evaluate_assignment:
@@ -177,38 +214,34 @@ def _make_handler(
     """
     animal_row = animal if animal is not None else _animal_row()
 
-    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
-        q = body["query"]
+    def _handler(query: str, params: list[object]) -> list[dict[str, object]]:
         # 3. Active count for capacity check (MUST come before the
         # animal check because the COUNT query also references
         # ``animales`` via the JOIN).
-        if "SELECT COUNT(*) AS active_count" in q:
-            return _json_response(200, [{"active_count": active_count}])
+        if "SELECT COUNT(*) AS active_count" in query:
+            return [{"active_count": active_count}]
         # 1. Animal lookup
-        if "FROM animales" in q and "WHERE id = $1" in q:
-            return _json_response(200, [animal_row])
+        if "FROM animales" in query and "WHERE id = $1" in query:
+            return [animal_row]
         # 2. Casa lookup
-        if "FROM casas_acogida" in q and "WHERE id = $1" in q:
-            return _json_response(200, [casa] if casa is not None else [])
+        if "FROM casas_acogida" in query and "WHERE id = $1" in query:
+            return [casa] if casa is not None else []
         # INSERT override
-        if "INSERT INTO foster_capacity_overrides" in q:
-            return _json_response(
-                200,
-                [
-                    {
-                        "id": "99999999-9999-9999-9999-999999999999",
-                        "casa_acogida_id": body["params"][0],
-                        "animal_id": body["params"][1],
-                        "operador_user_id": body["params"][2],
-                        "motivo": body["params"][3],
-                        "created_at": "2026-07-04T11:00:00Z",
-                    }
-                ],
-            )
+        if "INSERT INTO foster_capacity_overrides" in query:
+            return [
+                {
+                    "id": "99999999-9999-9999-9999-999999999999",
+                    "casa_acogida_id": params[0],
+                    "animal_id": params[1],
+                    "operador_user_id": params[2],
+                    "motivo": params[3],
+                    "created_at": "2026-07-04T11:00:00Z",
+                }
+            ]
         # LIST overrides
-        if "FROM foster_capacity_overrides" in q:
-            return _json_response(200, [])
-        raise AssertionError(f"unexpected SQL: {q!r}")
+        if "FROM foster_capacity_overrides" in query:
+            return []
+        raise AssertionError(f"unexpected SQL: {query!r}")
 
     _handler._animal_row = animal_row
     return _handler
@@ -230,7 +263,7 @@ class _AnimalsPortStub:
 
 
 def _evaluate_assignment(
-    client: LocalPostgresExecutor, animal_id: str, casa_id: str
+    client: _FakeSqlExecutor, animal_id: str, casa_id: str
 ) -> assignment_service.AssignmentDecision:
     port = _AnimalsPortStub(client._test_animal_row)
     return assignment_service.evaluate_assignment(port, client, animal_id, casa_id)
@@ -241,7 +274,7 @@ def _evaluate_assignment(
 
 def test_evaluate_assignment_admit_when_especie_matches_and_capacity_ok() -> None:
     """Animal CANINA + casa FELINA-cap 2 + 0 estancias activas -> admit."""
-    client, captured = _client_recording(
+    client, captured = _make_client(
         _make_handler(animal=_animal_row("FELINA"), casa=_casa_row("FELINA", 2), active_count=0)
     )
 
@@ -258,7 +291,7 @@ def test_evaluate_assignment_admit_when_especie_matches_and_capacity_ok() -> Non
 
 def test_evaluate_assignment_species_mismatch_returns_block() -> None:
     """Animal CANINA + casa FELINA -> block con reason claro."""
-    client, captured = _client_recording(
+    client, captured = _make_client(
         _make_handler(animal=_animal_row("CANINA"), casa=_casa_row("FELINA", 2), active_count=0)
     )
 
@@ -277,7 +310,7 @@ def test_evaluate_assignment_species_mismatch_returns_block() -> None:
 
 def test_evaluate_assignment_casa_cualquier_especie_admite_cualquier_animal() -> None:
     """Casa con especie_preferente NULL acepta cualquier especie."""
-    client, captured = _client_recording(
+    client, captured = _make_client(
         _make_handler(
             animal=_animal_row("FELINA"),
             casa=_casa_row(especie_preferente=None, capacidad=2),
@@ -296,7 +329,7 @@ def test_evaluate_assignment_casa_cualquier_especie_admite_cualquier_animal() ->
 
 def test_evaluate_assignment_admit_when_capacity_under_limit() -> None:
     """Capacidad 3 + 1 estancia activa -> admit (count < cap)."""
-    client, captured = _client_recording(
+    client, captured = _make_client(
         _make_handler(
             animal=_animal_row("FELINA"),
             casa=_casa_row("FELINA", 3),
@@ -315,7 +348,7 @@ def test_evaluate_assignment_admit_when_capacity_under_limit() -> None:
 
 def test_evaluate_assignment_admit_with_warning_when_capacity_at_limit() -> None:
     """Capacidad 2 + 2 estancias activas -> admit_with_warning."""
-    client, captured = _client_recording(
+    client, captured = _make_client(
         _make_handler(
             animal=_animal_row("FELINA"),
             casa=_casa_row("FELINA", 2),
@@ -337,7 +370,7 @@ def test_evaluate_assignment_admit_with_warning_when_capacity_at_limit() -> None
 
 def test_evaluate_assignment_admit_with_warning_when_capacity_exceeded() -> None:
     """Capacidad 2 + 3 estancias activas -> admit_with_warning con 3/2."""
-    client, captured = _client_recording(
+    client, captured = _make_client(
         _make_handler(
             animal=_animal_row("FELINA"),
             casa=_casa_row("FELINA", 2),
@@ -358,12 +391,12 @@ def test_evaluate_assignment_admit_with_warning_when_capacity_exceeded() -> None
 def test_evaluate_assignment_animal_not_found_raises_value_error() -> None:
     """get_animal_by_id returns None -> raise ValueError."""
 
-    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
-        if "FROM animales" in body["query"] and "WHERE id = $1" in body["query"]:
-            return _json_response(200, [])  # empty = no row
-        raise AssertionError(f"unexpected SQL: {body['query']!r}")
+    def _handler(query: str, _params: list[object]) -> list[dict[str, object]]:
+        if "FROM animales" in query and "WHERE id = $1" in query:
+            return []  # empty = no row
+        raise AssertionError(f"unexpected SQL: {query!r}")
 
-    client, captured = _client_recording(_handler)
+    client, captured = _make_client(_handler)
 
     with pytest.raises(ValueError, match="animal"):
         _evaluate_assignment(client, ANIMAL_ID, CASA_ID)
@@ -375,7 +408,7 @@ def test_evaluate_assignment_animal_not_found_raises_value_error() -> None:
 
 def test_evaluate_assignment_animal_inactive_raises_value_error() -> None:
     """get_animal_by_id returns animal with activo=false -> raise."""
-    client, captured = _client_recording(
+    client, captured = _make_client(
         _make_handler(animal=_animal_row("CANINA", activo=False))
     )
 
@@ -389,7 +422,7 @@ def test_evaluate_assignment_animal_inactive_raises_value_error() -> None:
 
 def test_evaluate_assignment_casa_not_found_raises_value_error() -> None:
     """get_casa_acogida_by_id returns None -> raise ValueError."""
-    client, captured = _client_recording(_make_handler(casa=None))
+    client, captured = _make_client(_make_handler(casa=None))
 
     with pytest.raises(ValueError, match="casa"):
         _evaluate_assignment(client, ANIMAL_ID, CASA_ID)
@@ -401,7 +434,7 @@ def test_evaluate_assignment_casa_not_found_raises_value_error() -> None:
 
 def test_evaluate_assignment_casa_inactive_raises_value_error() -> None:
     """casa con activo=false -> raise con mensaje 'dada de baja'."""
-    client, captured = _client_recording(
+    client, captured = _make_client(
         _make_handler(casa=_casa_row("CANINA", 2, activo=False))
     )
 
@@ -419,7 +452,7 @@ def test_evaluate_assignment_count_only_preferred_species() -> None:
     ``casa_id`` al SELECT y compara contra la ``capacidad`` retornada
     por el mock, sin importar qué más haya en la DB.
     """
-    client, captured = _client_recording(
+    client, captured = _make_client(
         _make_handler(
             animal=_animal_row("FELINA"),
             casa=_casa_row("FELINA", 5),
@@ -433,9 +466,9 @@ def test_evaluate_assignment_count_only_preferred_species() -> None:
     assert decision.decision == "admit"
     # El SELECT COUNT lleva el casa_id como parametro.
     count_query = next(
-        c for c in captured if "SELECT COUNT(*) AS active_count" in c["query"]
+        c for c in captured if "SELECT COUNT(*) AS active_count" in c[0]
     )
-    assert count_query["params"] == [CASA_ID]
+    assert count_query[1] == [CASA_ID]
 
 
 # --- 12. evaluate_assignment: casa cualquier-especie cuenta todas ---------
@@ -443,7 +476,7 @@ def test_evaluate_assignment_count_only_preferred_species() -> None:
 
 def test_evaluate_assignment_cualquier_especie_counts_all() -> None:
     """Casa con especie_preferente NULL — el JOIN no filtra por especie."""
-    client, captured = _client_recording(
+    client, captured = _make_client(
         _make_handler(
             animal=_animal_row("FELINA"),
             casa=_casa_row(especie_preferente=None, capacidad=1),
@@ -466,7 +499,7 @@ def test_evaluate_assignment_no_cuenta_estancia_cerrada_es_filtro_sql() -> None:
     El mock no necesita devolver filas: si la consulta retorna count=0,
     la verificación es que el WHERE del SQL incluye ambos predicados.
     """
-    client, captured = _client_recording(
+    client, captured = _make_client(
         _make_handler(
             animal=_animal_row("FELINA"),
             casa=_casa_row("FELINA", 3),
@@ -478,10 +511,10 @@ def test_evaluate_assignment_no_cuenta_estancia_cerrada_es_filtro_sql() -> None:
     client.close()
 
     count_query = next(
-        c for c in captured if "SELECT COUNT(*) AS active_count" in c["query"]
+        c for c in captured if "SELECT COUNT(*) AS active_count" in c[0]
     )
-    assert "fecha_final IS NULL" in count_query["query"]
-    assert "a.activo = true" in count_query["query"]
+    assert "fecha_final IS NULL" in count_query[0]
+    assert "a.activo = true" in count_query[0]
 
 
 # --- 14. evaluate_assignment: no cuenta estancia soft-deleted -------------
@@ -489,7 +522,7 @@ def test_evaluate_assignment_no_cuenta_estancia_cerrada_es_filtro_sql() -> None:
 
 def test_evaluate_assignment_no_cuenta_estancia_soft_deleted_es_filtro_sql() -> None:
     """Mismo WHERE que test 13 — verifica el predicado activo=true."""
-    client, captured = _client_recording(
+    client, captured = _make_client(
         _make_handler(
             animal=_animal_row("FELINA"),
             casa=_casa_row("FELINA", 3),
@@ -501,9 +534,9 @@ def test_evaluate_assignment_no_cuenta_estancia_soft_deleted_es_filtro_sql() -> 
     client.close()
 
     count_query = next(
-        c for c in captured if "SELECT COUNT(*) AS active_count" in c["query"]
+        c for c in captured if "SELECT COUNT(*) AS active_count" in c[0]
     )
-    assert "a.activo = true" in count_query["query"]
+    assert "a.activo = true" in count_query[0]
 
 
 # --- 15. evaluate_assignment: no cuenta estancias de otras casas ---------
@@ -511,7 +544,7 @@ def test_evaluate_assignment_no_cuenta_estancia_soft_deleted_es_filtro_sql() -> 
 
 def test_evaluate_assignment_no_cuenta_estancias_de_otras_casas_es_filtro_sql() -> None:
     """El WHERE filtra por ``casa_acogida_id = $1``."""
-    client, captured = _client_recording(
+    client, captured = _make_client(
         _make_handler(
             animal=_animal_row("FELINA"),
             casa=_casa_row("FELINA", 3),
@@ -523,9 +556,9 @@ def test_evaluate_assignment_no_cuenta_estancias_de_otras_casas_es_filtro_sql() 
     client.close()
 
     count_query = next(
-        c for c in captured if "SELECT COUNT(*) AS active_count" in c["query"]
+        c for c in captured if "SELECT COUNT(*) AS active_count" in c[0]
     )
-    assert "a.casa_acogida_id = $1" in count_query["query"]
+    assert "a.casa_acogida_id = $1" in count_query[0]
 
 
 # --- 16. evaluate_assignment: block reason incluye especie y animal -------
@@ -533,7 +566,7 @@ def test_evaluate_assignment_no_cuenta_estancias_de_otras_casas_es_filtro_sql() 
 
 def test_evaluate_assignment_block_reason_includes_both_especies() -> None:
     """El reason del block DEBE mencionar ambas especies para diagnóstico."""
-    client, captured = _client_recording(
+    client, captured = _make_client(
         _make_handler(
             animal=_animal_row("CANINA"), casa=_casa_row("FELINA", 2), active_count=0
         )
@@ -563,7 +596,7 @@ def test_record_override_happy_inserts_and_returns_override_uuid() -> None:
     el tipo de retorno de ``list_overrides_for_casa``; este cambio solo
     afecta el contrato de ``record_override``.
     """
-    client, captured = _client_recording(_make_handler())
+    client, captured = _make_client(_make_handler())
 
     override_id = assignment_service.record_override(
         client,
@@ -577,8 +610,8 @@ def test_record_override_happy_inserts_and_returns_override_uuid() -> None:
     assert isinstance(override_id, str)
     assert override_id == "99999999-9999-9999-9999-999999999999"
 
-    insert = next(c for c in captured if "INSERT INTO foster_capacity_overrides" in c["query"])
-    assert insert["params"] == [CASA_ID, ANIMAL_ID, "op-1", "emergencia"]
+    insert = next(c for c in captured if "INSERT INTO foster_capacity_overrides" in c[0])
+    assert insert[1] == [CASA_ID, ANIMAL_ID, "op-1", "emergencia"]
 
 
 def test_record_override_returned_id_matches_inserted_row_uuid() -> None:
@@ -594,26 +627,23 @@ def test_record_override_returned_id_matches_inserted_row_uuid() -> None:
     import re as _re
     captured_uuid: list[str] = []
 
-    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
-        if "INSERT INTO foster_capacity_overrides" in body["query"]:
+    def _handler(query: str, params: list[object]) -> list[dict[str, object]]:
+        if "INSERT INTO foster_capacity_overrides" in query:
             row_uuid = "77777777-7777-7777-7777-777777777777"
             captured_uuid.append(row_uuid)
-            return _json_response(
-                200,
-                [
-                    {
-                        "id": row_uuid,
-                        "casa_acogida_id": body["params"][0],
-                        "animal_id": body["params"][1],
-                        "operador_user_id": body["params"][2],
-                        "motivo": body["params"][3],
-                        "created_at": "2026-07-04T11:00:00Z",
-                    }
-                ],
-            )
-        raise AssertionError(f"unexpected SQL: {body['query']!r}")
+            return [
+                {
+                    "id": row_uuid,
+                    "casa_acogida_id": params[0],
+                    "animal_id": params[1],
+                    "operador_user_id": params[2],
+                    "motivo": params[3],
+                    "created_at": "2026-07-04T11:00:00Z",
+                }
+            ]
+        raise AssertionError(f"unexpected SQL: {query!r}")
 
-    client, _ = _client_recording(_handler)
+    client, _ = _make_client(_handler)
 
     override_id = assignment_service.record_override(
         client,
@@ -638,7 +668,7 @@ def test_record_override_returned_id_matches_inserted_row_uuid() -> None:
 
 def test_record_override_motivo_vacio_raises_value_error_no_sql() -> None:
     """motivo='' -> raise ValueError, NO INSERT (defensa SQL)."""
-    client, captured = _client_recording(_make_handler())
+    client, captured = _make_client(_make_handler())
 
     with pytest.raises(ValueError, match="motivo"):
         assignment_service.record_override(
@@ -650,7 +680,7 @@ def test_record_override_motivo_vacio_raises_value_error_no_sql() -> None:
         )
     client.close()
 
-    insert_calls = [c for c in captured if "INSERT INTO foster_capacity_overrides" in c["query"]]
+    insert_calls = [c for c in captured if "INSERT INTO foster_capacity_overrides" in c[0]]
     assert insert_calls == [], "INSERT must not run when motivo is empty"
 
 
@@ -659,7 +689,7 @@ def test_record_override_motivo_vacio_raises_value_error_no_sql() -> None:
 
 def test_record_override_motivo_whitespace_raises_value_error_no_sql() -> None:
     """motivo='   ' -> raise ValueError, NO INSERT."""
-    client, captured = _client_recording(_make_handler())
+    client, captured = _make_client(_make_handler())
 
     with pytest.raises(ValueError, match="motivo"):
         assignment_service.record_override(
@@ -671,7 +701,7 @@ def test_record_override_motivo_whitespace_raises_value_error_no_sql() -> None:
         )
     client.close()
 
-    insert_calls = [c for c in captured if "INSERT INTO foster_capacity_overrides" in c["query"]]
+    insert_calls = [c for c in captured if "INSERT INTO foster_capacity_overrides" in c[0]]
     assert insert_calls == [], "INSERT must not run when motivo is only whitespace"
 
 
@@ -689,7 +719,7 @@ def test_record_override_emits_log_safe_with_operador(
 
     monkeypatch.setattr("app.modules.foster.assignment.log_safe", _capture)
 
-    client, _captured = _client_recording(_make_handler())
+    client, _captured = _make_client(_make_handler())
     assignment_service.record_override(
         client,
         casa_id=CASA_ID,
@@ -721,7 +751,7 @@ def test_record_override_log_does_not_include_motivo(
 
     monkeypatch.setattr("app.modules.foster.assignment.log_safe", _capture)
 
-    client, _captured = _client_recording(_make_handler())
+    client, _captured = _make_client(_make_handler())
     assignment_service.record_override(
         client,
         casa_id=CASA_ID,
@@ -763,21 +793,21 @@ def test_list_overrides_for_casa_ordenados_por_created_at_desc() -> None:
         _override_row("c", "2026-07-04T12:00:00Z"),
     ]
 
-    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
-        if "FROM foster_capacity_overrides" in body["query"]:
-            return _json_response(200, rows)
-        raise AssertionError(f"unexpected SQL: {body['query']!r}")
+    def _handler(query: str, _params: list[object]) -> list[dict[str, object]]:
+        if "FROM foster_capacity_overrides" in query:
+            return rows
+        raise AssertionError(f"unexpected SQL: {query!r}")
 
-    client, captured = _client_recording(_handler)
+    client, captured = _make_client(_handler)
     overrides = assignment_service.list_overrides_for_casa(client, CASA_ID)
     client.close()
 
     assert [o.id for o in overrides] == ["a", "b", "c"]
     # El SQL debe pedir ORDER BY created_at DESC (no asume el caller).
     list_query = next(
-        c for c in captured if "FROM foster_capacity_overrides" in c["query"]
+        c for c in captured if "FROM foster_capacity_overrides" in c[0]
     )
-    assert "ORDER BY created_at DESC" in list_query["query"]
+    assert "ORDER BY created_at DESC" in list_query[0]
 
 
 # --- 23. list_overrides_for_casa: lista vacía ----------------------------
@@ -786,12 +816,12 @@ def test_list_overrides_for_casa_ordenados_por_created_at_desc() -> None:
 def test_list_overrides_for_casa_sin_overrides_retorna_lista_vacia() -> None:
     """Sin overrides -> [] (PostgreSQL retorna [], no error)."""
 
-    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
-        if "FROM foster_capacity_overrides" in body["query"]:
-            return _json_response(200, [])
-        raise AssertionError(f"unexpected SQL: {body['query']!r}")
+    def _handler(query: str, _params: list[object]) -> list[dict[str, object]]:
+        if "FROM foster_capacity_overrides" in query:
+            return []
+        raise AssertionError(f"unexpected SQL: {query!r}")
 
-    client, _captured = _client_recording(_handler)
+    client, _captured = _make_client(_handler)
     overrides = assignment_service.list_overrides_for_casa(client, CASA_ID)
     client.close()
 
@@ -805,13 +835,13 @@ def test_list_overrides_for_casa_filtra_por_casa_id() -> None:
     """El SQL filtra por ``casa_acogida_id = $1`` — el caller no lo hace."""
     captured_calls: list[list[Any]] = []
 
-    def _handler(request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
-        if "FROM foster_capacity_overrides" in body["query"]:
-            captured_calls.append(body["params"])
-            return _json_response(200, [])
-        raise AssertionError(f"unexpected SQL: {body['query']!r}")
+    def _handler(query: str, params: list[object]) -> list[dict[str, object]]:
+        if "FROM foster_capacity_overrides" in query:
+            captured_calls.append(params)
+            return []
+        raise AssertionError(f"unexpected SQL: {query!r}")
 
-    client, _captured = _client_recording(_handler)
+    client, _captured = _make_client(_handler)
     assignment_service.list_overrides_for_casa(client, CASA_ID)
     client.close()
 
