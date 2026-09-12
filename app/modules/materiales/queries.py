@@ -2,17 +2,16 @@
 
 The query/service separation: SQL strings and parameter shaping live
 here in pure builder functions that return ``(sql, params)`` tuples.
-The service modules (``service.py`` and ``estancia_material_service.py``)
-import these builders, apply domain validation, and talk to the SQL
-executor.
+The LocalBackend adapter
+(``app.modules.materiales.adapters.local_backend.materiales_local_backend_adapter``)
+imports these builders and composes them into the port methods.
 
 Rule §22 — the seam is testable: the shape of the SQL is assertable
 in a plain unit test (see ``tests/test_materiales_queries.py``) without
-spinning up transport, LocalBackend, or HTTP. The service layer stays
-focused on dataclasses, mapping, validation, and orchestration.
+spinning up transport, LocalBackend, or HTTP.
 
 Rule §1 — routes must never import from this module. The graph is
-``routes.py -> service.py -> queries.py``; ``routes.py -> queries.py``
+``routes.py -> application/ -> port -> adapter -> queries.py``;
 would violate the layer boundary.
 
 Rule §4 — column lists and SQL templates live in exactly one place.

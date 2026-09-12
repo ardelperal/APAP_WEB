@@ -1,12 +1,11 @@
 """LocalBackend adapter implementing :class:`MaterialesPort`.
 
-Hexagonal adapter (PR 2 of issue #752): the only layer in the
+Hexagonal adapter (issue #752, PR 2 + PR 5): the only layer in the
 materiales slice allowed to import ``SqlExecutor`` or anything
-under ``app.core.local_backend``. The adapter composes the SQL
-builders in :mod:`app.modules.materiales.queries` and the row
-mappers in :mod:`app.modules.materiales.service` to satisfy the
-:class:`~app.modules.materiales.ports.materiales_port.MaterialesPort`
-Protocol.
+under ``app.core.local_backend``. PR 2 introduced the adapter;
+PR 5 lifted the row-mapping and ``BackendError`` -> ``MaterialConflictError``
+helpers that used to live in the legacy ``service.py`` into this
+file so the adapter is self-contained.
 
 Hexagonal taxonomy:
 
@@ -16,9 +15,9 @@ Hexagonal taxonomy:
 - **Application**(:mod:`app.modules.materiales.application`)   — use cases (PR 3).
 - **DI**         (:mod:`app.modules.materiales.di`)             — wiring (PR 4).
 
-Rule §22 (SQL/service separation): the SQL strings live in the
-existing ``app.modules.materiales.queries`` module. This adapter
-calls those builders — it does not compose SQL inline.
+Rule §22 (SQL/service separation): the SQL strings live in
+``app.modules.materiales.queries``; this adapter calls those
+builders — it does not compose SQL inline.
 
 Rule §31 (domain depends on Protocol): the dataclasses and the
 exception this adapter raises (``Material``, ``EstanciaMaterial``,
@@ -34,6 +33,8 @@ use the DI-bound port instead.
 
 from __future__ import annotations
 
+from typing import Any
+
 from app.core._module_helpers._form_render import list_entities
 from app.core.data_access import BackendError, SqlExecutor
 from app.core.logging import log_safe
@@ -41,13 +42,105 @@ from app.modules.materiales import queries
 from app.modules.materiales.domain.estancia_material import EstanciaMaterial
 from app.modules.materiales.domain.exceptions import MaterialConflictError
 from app.modules.materiales.domain.material import Material
-from app.modules.materiales.service import (
-    _is_unique_violation,
-    _row_to_estancia_material,
-    _row_to_material,
-    _validate_estancia_open_and_active,
-    _validate_material_active,
-)
+
+# --- helpers lifted from the legacy ``service.py`` (issue #752 PR 5) -------
+#
+# These helpers used to live in ``app.modules.materiales.service``; the
+# hexagonal refactor moved the validation policy to the application use
+# cases (PR 3) and the SQL composition to this adapter (PR 4). PR 5
+# removes ``service.py`` entirely, so the row-mapping and
+# ``BackendError`` -> ``MaterialConflictError`` translation that the
+# adapter still needs land here. They are private (``_`` prefix) and
+# are NOT part of the application surface — every use case calls the
+# adapter, and the adapter composes these helpers itself.
+
+
+def _row_to_material(row: dict[str, Any]) -> Material:
+    return Material(
+        id=str(row["id"]),
+        material=str(row["material"]),
+        tamano=str(row["tamano"]),
+        color=str(row["color"]),
+        observaciones=row.get("observaciones"),
+        activo=bool(row.get("activo", True)),
+        fecha_alta=str(row["fecha_alta"]) if row.get("fecha_alta") else None,
+        fecha_baja=str(row["fecha_baja"]) if row.get("fecha_baja") else None,
+        updated_at=str(row["updated_at"]) if row.get("updated_at") else None,
+    )
+
+
+def _row_to_estancia_material(row: dict[str, Any]) -> EstanciaMaterial:
+    return EstanciaMaterial(
+        id=str(row["id"]),
+        estancia_id=str(row["estancia_id"]),
+        material_id=str(row["material_id"]),
+        cantidad=int(row["cantidad"]),
+        notas=row.get("notas"),
+        activo=bool(row.get("activo", True)),
+        fecha_alta=str(row["fecha_alta"]) if row.get("fecha_alta") else None,
+    )
+
+
+def _is_unique_violation(exc: BackendError) -> bool:
+    body = exc.body
+    if isinstance(body, dict):
+        code = str(body.get("code", ""))
+        message = str(body.get("message", "")).lower()
+        return code == "23505" or "duplicate" in message or "unique" in message
+    body_text = str(body).lower()
+    return (
+        exc.status_code == 409
+        and ("duplicate" in body_text or "unique" in body_text)
+    )
+
+
+def _validate_estancia_open_and_active(
+    client: SqlExecutor, estancia_id: str
+) -> None:
+    """Estancia must exist, be active, and have no fecha_final.
+
+    PR 5 moved this helper from the legacy ``service.py`` to the
+    adapter. The application use case still calls it via the port
+    surface (``estancia_is_open_and_active``); this private version
+    is a safety net retained for any future use case that bypasses
+    the protocol surface (none today). The 23505 / unique-violation
+    translation lives in ``_is_unique_violation``.
+    """
+    sql, params = queries.build_estancia_active(estancia_id)
+    rows = client.execute_sql(sql, params)
+    if not rows:
+        raise ValueError(
+            f"estancia_id debe apuntar a una estancia activa y sin "
+            f"fecha_final (no encontrada: {estancia_id})"
+        )
+    if not rows[0].get("activo", False):
+        raise ValueError(
+            f"estancia_id debe apuntar a una estancia activa y sin "
+            f"fecha_final (inactiva: {estancia_id})"
+        )
+    if rows[0].get("fecha_final"):
+        raise ValueError(
+            f"estancia_id debe apuntar a una estancia activa y sin "
+            f"fecha_final (cerrada: {estancia_id})"
+        )
+
+
+def _validate_material_active(
+    client: SqlExecutor, material_id: str
+) -> None:
+    """Material must exist and be active (PR 5 helper)."""
+    sql, params = queries.build_material_active(material_id)
+    rows = client.execute_sql(sql, params)
+    if not rows:
+        raise ValueError(
+            f"material_id debe apuntar a un material activo "
+            f"(no encontrado: {material_id})"
+        )
+    if not rows[0].get("activo", False):
+        raise ValueError(
+            f"material_id debe apuntar a un material activo "
+            f"(inactivo: {material_id})"
+        )
 
 
 class LocalBackendMaterialesAdapter:
@@ -55,20 +148,17 @@ class LocalBackendMaterialesAdapter:
 
     Holds a reference to the SQL executor (typically a
     :class:`LocalPostgresExecutor`) and delegates each public method
-    to the SQL builders + row mappers that already live in
-    ``app.modules.materiales.queries`` and
-    ``app.modules.materiales.service``. Constructor takes the
+    to the SQL builders in :mod:`app.modules.materiales.queries` and
+    the row-mapping helpers in this module. Constructor takes the
     executor only — no other state.
 
     The dataclass return types (``Material``, ``EstanciaMaterial``)
     and the exception raised on natural-key collisions
     (:class:`MaterialConflictError`) are imported from the slice's
     ``domain/`` module (PR 1). The mapper and validator helpers
-    (``_row_to_*``, ``_is_unique_violation``,
-    ``_validate_*``) are still defined in the legacy ``service.py``
-    module; this adapter imports them for composition but PR 3 will
-    move them to ``application/`` once the use cases own the
-    validation policy.
+    (``_row_to_*``, ``_is_unique_violation``, ``_validate_*``) live
+    at the top of this file (PR 5 lifted them from the legacy
+    ``service.py`` so the adapter is self-contained).
 
     Thread-safe: no mutable state; the executor is held as a single
     attribute and is itself expected to be safe under the project's
