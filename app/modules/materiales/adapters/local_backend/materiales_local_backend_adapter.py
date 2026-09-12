@@ -208,5 +208,35 @@ class LocalBackendMaterialesAdapter:
             )
         return removed
 
+    # --- FK probes (PR 3 of issue #752) ---------------------------------
+
+    def estancia_is_open_and_active(self, estancia_id: str) -> bool:
+        """Return ``True`` iff the estancia exists, is active, and has no ``fecha_final``.
+
+        Mirrors the validation policy the legacy
+        ``_validate_estancia_open_and_active`` enforced: existence +
+        ``activo=True`` + ``fecha_final IS NULL`` collapse to a single
+        boolean the application use case can short-circuit on.
+        """
+        rows = self._client.execute_sql(
+            *queries.build_estancia_active(estancia_id)
+        )
+        if not rows:
+            return False
+        row = rows[0]
+        return bool(row.get("activo")) and not row.get("fecha_final")
+
+    def material_is_active(self, material_id: str) -> bool:
+        """Return ``True`` iff the material exists and is active.
+
+        Mirrors ``_validate_material_active``: existence + ``activo=True``.
+        """
+        rows = self._client.execute_sql(
+            *queries.build_material_active(material_id)
+        )
+        if not rows:
+            return False
+        return bool(rows[0].get("activo"))
+
 
 __all__ = ["LocalBackendMaterialesAdapter"]

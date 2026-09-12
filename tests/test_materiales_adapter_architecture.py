@@ -13,8 +13,11 @@ adapter's contract:
 1. The adapter class exists, instantiable, and satisfies the
    ``MaterialesPort`` Protocol (the same one ``materiales_port.py``
    declares).
-2. The public method set matches the Protocol's eight methods
-   one-for-one. A regression that adds or removes a method without
+    2. The public method set matches the Protocol's ten methods
+   (eight use-case methods + two FK-probe methods added in PR 3 of
+   issue #752: ``estancia_is_open_and_active`` and
+   ``material_is_active``) one-for-one. A regression that adds or
+   removes a method without
    updating the Protocol — or that breaks the protocol check — fails
    this gate.
 3. The adapter is not imported by ``domain/`` or ``ports/`` (defense
@@ -79,7 +82,8 @@ def _public_methods_of(cls: type) -> set[str]:
 
     Excludes dunder methods, private methods (leading underscore),
     and inherited members. The set is later compared against the
-    eight expected public methods on the ``MaterialesPort`` Protocol.
+    ten expected public methods on the ``MaterialesPort`` Protocol
+    (eight use cases + two FK probes added in PR 3 of #752).
     """
     return {
         name
@@ -97,8 +101,8 @@ def test_adapter_satisfies_port_protocol() -> None:
     pin therefore checks the public method set against the port's
     documented set rather than relying on ``isinstance`` — duck
     typing is the project's idiom. A regression that drops a method
-    breaks the ``has_all_eight_port_methods`` assertion below;
-    adding a non-port method is caught by ``test_adapter_exposes_exactly_eight_public_methods``.
+    breaks the ``has_all_ten_port_methods`` assertion below;
+    adding a non-port method is caught by ``test_adapter_exposes_exactly_ten_public_methods``.
     """
     stub = _StubExecutor()
     adapter = LocalBackendMaterialesAdapter(stub)
@@ -112,13 +116,14 @@ def test_adapter_satisfies_port_protocol() -> None:
     )
 
 
-def test_adapter_exposes_exactly_eight_public_methods() -> None:
+def test_adapter_exposes_exactly_ten_public_methods() -> None:
     """The adapter's public method set equals the port's expected set.
 
-    Mirrors ``test_port_exposes_eight_use_case_methods`` in
-    ``test_slice_materiales_architecture.py``. The two tests together
-    guarantee parity: the port declares N methods, the adapter
-    implements N methods, and the names match.
+    Mirrors ``test_port_exposes_eight_use_case_methods_plus_two_probes``
+    in ``test_slice_materiales_architecture.py``. The two tests together
+    guarantee parity: the port declares 10 methods (eight use cases +
+    two FK probes added in PR 3 of #752), the adapter implements 10
+    methods, and the names match.
     """
     expected = {
         "create_material",
@@ -129,6 +134,8 @@ def test_adapter_exposes_exactly_eight_public_methods() -> None:
         "assign_material_to_estancia",
         "list_materials_for_estancia",
         "remove_material_from_estancia",
+        "estancia_is_open_and_active",
+        "material_is_active",
     }
     declared = _public_methods_of(LocalBackendMaterialesAdapter)
     missing = expected - declared

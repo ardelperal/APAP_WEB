@@ -140,16 +140,20 @@ def test_ports_layer_is_transport_free() -> None:
     )
 
 
-def test_port_exposes_eight_use_case_methods() -> None:
-    """The Protocol declares exactly the eight public use cases.
+def test_port_exposes_eight_use_case_methods_plus_two_probes() -> None:
+    """The Protocol declares the eight use cases + two FK probes.
 
     The eight methods mirror the legacy public surface of
     ``service.py`` (five catalog CRUD) plus
-    ``estancia_material_service.py`` (three junction CRUD). Adding a
-    method to the port without updating this list (or removing one
-    without also updating the legacy service) is a real regression;
-    the test pins the parity until PR 5 deletes the legacy service
-    module.
+    ``estancia_material_service.py`` (three junction CRUD). PR 3
+    adds two FK-probe methods (``estancia_is_open_and_active`` and
+    ``material_is_active``) so the application-layer assign use
+    case can enforce the same policy the legacy validators did
+    without importing SQL into ``application/``. Adding a method
+    to the port without updating this list (or removing one
+    without also updating the legacy service) is a real
+    regression; the test pins the parity until PR 5 deletes the
+    legacy service module.
     """
     expected = {
         "create_material",
@@ -160,6 +164,8 @@ def test_port_exposes_eight_use_case_methods() -> None:
         "assign_material_to_estancia",
         "list_materials_for_estancia",
         "remove_material_from_estancia",
+        "estancia_is_open_and_active",
+        "material_is_active",
     }
     port_path = MATERIALES_ROOT / "ports" / "materiales_port.py"
     source = port_path.read_text(encoding="utf-8")

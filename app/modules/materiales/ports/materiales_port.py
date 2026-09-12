@@ -131,6 +131,26 @@ class MaterialesPort(Protocol):
         """
         ...
 
+    def estancia_is_open_and_active(self, estancia_id: str) -> bool:
+        """FK probe: ``True`` iff the estancia exists, is active, and has no ``fecha_final``.
+
+        Added in PR 3 of issue #752 so the application-layer assign
+        use case can enforce the same policy the legacy
+        ``_validate_estancia_open_and_active`` enforced, without
+        importing SQL into ``application/``. The adapter runs a
+        single SELECT against the estancia table that owns the FK;
+        the application treats the result as a bool.
+        """
+        ...
+
+    def material_is_active(self, material_id: str) -> bool:
+        """FK probe: ``True`` iff the material exists and is active.
+
+        Mirrors ``_validate_material_active`` for the application
+        layer. Added in PR 3 of issue #752.
+        """
+        ...
+
 
 __all__ = [
     "EstanciaMaterial",
