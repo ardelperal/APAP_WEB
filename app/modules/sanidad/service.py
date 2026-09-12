@@ -54,6 +54,7 @@ from app.core.catalogs import (
 from app.core.data_access import SqlExecutor
 from app.core.forms import optional_text
 from app.core.logging import log_safe
+from app.modules.lifecycle.domain.constants import STATE_INCOHERENTE
 from app.modules.sanidad import queries
 from app.modules.sanidad.scheduling import schedule_periodic_task
 
@@ -326,60 +327,85 @@ def _build_write_params(params: dict[str, Any]) -> list[Any]:
     ]
 
 
+def _raise_animal_lifecycle_gate(row: dict[str, object]) -> None:
+    """Legacy §9.2 gates (Fallecido / Incoherente). Extracted to keep CC < 11."""
+    # Fallecido: animales.fecha_defuncion IS NOT NULL.
+    f_defuncion = row.get("f_defuncion")
+    if f_defuncion:
+        raise ValueError(
+            "animal_id no admite nuevas actuaciones sanitarias "
+            f"(fallecido desde {f_defuncion})"
+        )
+    # Incoherente: animal_current_state.current_state =
+    # ``STATE_INCOHERENTE``. A NULL current_state falls back to the
+    # default ``pendiente_entrada`` (LEFT JOIN on a missing row) and
+    # does NOT block the actuation.
+    current_state = row.get("current_state")
+    if current_state == STATE_INCOHERENTE:
+        raise ValueError(
+            "animal_id no admite nuevas actuaciones sanitarias "
+            "(estado Incoherente)"
+        )
+
+
+def _raise_d24_fecha_alta(row: dict[str, object], fecha: str) -> None:
+    """D-24 regla 3: ``fecha`` >= ``animales.fecha_alta``. Extracted to keep CC < 11."""
+    fecha_alta_raw = row.get("fecha_alta")
+    if not fecha_alta_raw:
+        return
+    try:
+        fecha_parsed = date.fromisoformat(fecha)
+    except ValueError:
+        # _validate_fecha_d24 already raised on a bad format, so we
+        # never reach this branch in practice. Fall through silently
+        # instead of crashing with a confusing date error here.
+        return
+    if isinstance(fecha_alta_raw, datetime):
+        fecha_alta_date = fecha_alta_raw.date()
+    else:
+        fecha_alta_date = date.fromisoformat(str(fecha_alta_raw)[:10])
+    if fecha_parsed < fecha_alta_date:
+        raise ValueError(
+            f"fecha es anterior al alta del animal "
+            f"({fecha_alta_date.isoformat()})"
+        )
+
+
 def _raise_validation_error(
     client: SqlExecutor, params: dict[str, Any]
 ) -> None:
-    """Disambiguate a 0-row CTE result by re-running each check.
+    """Disambiguate a 0-row CTE result for operator UX.
 
-    Invoked ONLY after the atomic CTE returned 0 rows. The disambiguation
-    SELECTs are NOT part of the success path, so the TOCTOU window for
-    the success path remains closed. The disambiguation exists purely for
-    operator UX: a specific error message lets the form re-render with a
+    Enforces FK + D-24 regla 3 + legacy §9.2 gates. Each check has
+    a Spanish-friendly error message so the form re-renders with a
     field-level hint instead of a generic "FK validation failed".
-
-    Handles the D-24 regla 3 disambiguation too: if the animal exists,
-    is active, AND has a ``fecha_alta`` that is after the form's ``fecha``,
-    raise the D-24-specific message. The animal row's ``fecha_alta`` is
-    formatted as ISO date for the operator-facing string.
     """
+    # Legacy §9.2: Fallecido / Incoherente block new actuations. We
+    # LEFT JOIN animal_current_state so a missing state row falls back
+    # to NULL (only the explicit Incoherente marker blocks, not the
+    # default pendiente_entrada).
     animal_id = _required_text(params, "animal_id")
     animal_rows = client.execute_sql(
-        "SELECT id, activo, fecha_alta FROM animales WHERE id = $1",
+        "SELECT a.id, a.activo, a.fecha_alta, a.f_defuncion, "
+        "       acs.current_state "
+        "FROM animales a "
+        "LEFT JOIN animal_current_state acs ON acs.animal_id = a.id "
+        "WHERE a.id = $1",
         [animal_id],
     )
     if not animal_rows:
         raise ValueError(
             f"animal_id debe apuntar a un animal activo (no encontrado: {animal_id})"
         )
-    if not animal_rows[0].get("activo", False):
+    row = animal_rows[0]
+    if not row.get("activo", False):
         raise ValueError(
             f"animal_id debe apuntar a un animal activo (inactivo: {animal_id})"
         )
+    _raise_animal_lifecycle_gate(row)
 
-    # Animal exists and is active. Now check D-24 regla 3:
-    # fecha anterior a animales.fecha_alta (si fecha_alta no es NULL).
-    fecha = _required_text(params, "fecha")
-    fecha_alta_raw = animal_rows[0].get("fecha_alta")
-    if fecha_alta_raw:
-        try:
-            fecha_parsed = date.fromisoformat(fecha)
-        except ValueError:
-            # _validate_fecha_d24 already raised on a bad format, so we
-            # never reach this branch in practice. If we do (e.g. a
-            # future caller bypasses _validate_fecha_d24), fall through to
-            # the other checks instead of crashing with a confusing
-            # date error here.
-            fecha_parsed = None
-        if fecha_parsed is not None:
-            if isinstance(fecha_alta_raw, datetime):
-                fecha_alta_date = fecha_alta_raw.date()
-            else:
-                fecha_alta_date = date.fromisoformat(str(fecha_alta_raw)[:10])
-            if fecha_parsed < fecha_alta_date:
-                raise ValueError(
-                    f"fecha es anterior al alta del animal "
-                    f"({fecha_alta_date.isoformat()})"
-                )
+    # D-24 regla 3: fecha anterior a animales.fecha_alta (si fecha_alta no es NULL).
+    _raise_d24_fecha_alta(row, _required_text(params, "fecha"))
 
     vol_id = optional_text(params, "voluntario_id")
     if vol_id and not client.execute_sql(_CHECK_VOLUNTARIO_SQL, [vol_id]):
@@ -397,12 +423,9 @@ def _raise_validation_error(
     # raised). Keep an explicit message so a future regression is loud,
     # not silent.
     raise ValueError(
-        "FK validation failed (animal_id, voluntario_id, tipo_actuacion_id) — "
+        "FK validation failed (animal_id, voluntario_id, tipo_actuacion_id) -- "
         "none matched"
     )
-
-
-# --- public API -----------------------------------------------------------
 
 
 def create_actuacion_sanitaria(

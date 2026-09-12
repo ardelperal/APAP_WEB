@@ -317,6 +317,47 @@ def test_create_rejects_inactive_animal_via_disambiguation() -> None:
         )
 
 
+def test_create_rejects_fallecido_animal_via_disambiguation() -> None:
+    """Animal with FDefuncion IS NOT NULL is muerto → bloquea nuevas actuaciones.
+
+    Legacy FichaSanitaria.cls::DameSituacion set Fallecido when the
+    animal has a FDefuncion; the operator UX was a hard 422 (animal con
+    FDefuncion no admite nuevas actuaciones sanitarias).
+    """
+    client, _ = _client_cascading(
+        # 1st: CTE INSERT — 0 rows
+        [],
+        # 2nd: animal disambiguation — activo but FDefuncion set
+        [{"id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "activo": True, "fecha_alta": None, "f_defuncion": "2024-08-15"}],
+    )
+
+    with pytest.raises(ValueError, match="fallecido"):
+        sanidad_service.create_actuacion_sanitaria(
+            client, _params_minimal()
+        )
+
+
+def test_create_rejects_incoherente_animal_via_disambiguation() -> None:
+    """Animal with animal_current_state.current_state = Incoherente blocks new events.
+
+    Legacy FichaSanitaria.cls set Incoherente for multi-category or
+    death+active states (see app/modules/lifecycle/domain/animal_state.py
+    for the derivation rules). The operator UX was a hard 422 requiring
+    manual intervention.
+    """
+    client, _ = _client_cascading(
+        # 1st: CTE INSERT — 0 rows
+        [],
+        # 2nd: animal disambiguation — activo, no FDefuncion, current_state=Incoherente
+        [{"id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "activo": True, "fecha_alta": None, "f_defuncion": None, "current_state": "Incoherente"}],
+    )
+
+    with pytest.raises(ValueError, match="Incoherente"):
+        sanidad_service.create_actuacion_sanitaria(
+            client, _params_minimal()
+        )
+
+
 def test_create_rejects_inactive_voluntario_via_disambiguation() -> None:
     """Animal OK + fecha OK + voluntario inactivo (VOL-05) — raises."""
     client, _ = _client_cascading(

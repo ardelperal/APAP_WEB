@@ -90,7 +90,7 @@ Baterías E2E con Playwright para cada sub-slice de Fase 6. Las baterías se esc
 | `test_sanidad_date_validation.py` | Fecha posterior al nacimiento, anterior a defunción, 422 en rango inválido | `sanidad` ❌ pendiente |
 | `test_sanidad_no_duplicates.py` | Mismo chip + prueba + fecha → 409 | `sanidad` ❌ pendiente |
 | `test_sanidad_auth.py` | 302 sin sesión, 403 con rol reader en POST | `sanidad` ❌ pendiente |
-| `test_sanidad_lifecycle.py` | Crear evento sanitario; verificar que Incoherente/Fallecido bloquean nuevo evento | `sanidad` ❌ pendiente |
+| `test_sanidad_lifecycle.py` | POST /sanidad con animal Fallecido → 422 + Spanish 'fallecido'; POST /sanidad con animal Incoherente → 422 + Spanish 'Incoherente' (skip si el seed no marca animales así) | `sanidad` hecho (#54 follow-up) |
 
 ### 6b — Terapias
 
