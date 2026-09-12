@@ -115,15 +115,19 @@ def _dict_indicates_unique_violation(body: dict[str, object]) -> bool:
 def _is_unique_violation(exc: BackendError) -> bool:
     """Detect a PostgreSQL 23505 unique-violation surfaced by LocalBackend.
 
-    Thin wrapper that combines the dict / str-body branches via
+    Combines the dict / str-body branches via
     :func:`_body_indicates_unique_violation` and gates the str-body
     path on the 409 status code (LocalBackend returns 409 for
-    PostgreSQL constraint violations only).
+    PostgreSQL constraint violations only). The dict-body branch is
+    the gate-less one because a 409 with a 23505 dict is always a
+    unique-violation regardless of the status code; a 23505 dict
+    without a 409 status would still represent the constraint
+    violation (defensive).
     """
-    if exc.status_code == 409 and _body_indicates_unique_violation(exc.body):
-        return True
-    if _body_indicates_unique_violation(exc.body) and isinstance(exc.body, dict):
-        return True
+    if _body_indicates_unique_violation(exc.body):
+        if isinstance(exc.body, dict):
+            return True
+        return exc.status_code == 409
     return False
 
 
