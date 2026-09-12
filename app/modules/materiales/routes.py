@@ -306,12 +306,7 @@ def update_material_view(
     form_data: dict[str, Any] = _form_data_to_params(form.model_dump())
     try:
         updated = materiales_application.update_material(
-            port,
-            material_id,
-            material=form_data["material"],
-            tamano=form_data["tamano"],
-            color=form_data["color"],
-            observaciones=form_data["observaciones"],
+            port, material_id, **form_data,
         )
     except MaterialConflictError as exc:
         return _render_form(
