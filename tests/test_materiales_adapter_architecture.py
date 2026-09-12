@@ -686,3 +686,142 @@ def test_application_update_material_with_observaciones_only() -> None:
 
     assert port.last_update_id == "00000000-0000-0000-0000-000000000001"
     assert port.last_update_params == {"observaciones": "solo esto"}
+
+
+
+def test_adapter_is_unique_violation_dict_message_duplicate_keyword() -> None:
+    """``_is_unique_violation`` matches ``"duplicate" in message`` even when code != 23505.
+
+    Coverage pin for the ``or "duplicate" in message`` branch of the
+    dict-body path. The legacy 23505 path is exercised by every
+    unique-violation translation test; the keyword-fallback needs an
+    explicit assertion so the CRAP score clears grade A (CRAP > 6).
+    """
+    from app.modules.materiales.adapters.local_backend import (
+        materiales_local_backend_adapter as adapter_module,
+    )
+
+    assert (
+        adapter_module._is_unique_violation(
+            BackendError(409, body={"code": "99999", "message": "duplicate key"})
+        )
+        is True
+    )
+
+
+def test_adapter_is_unique_violation_dict_message_unique_keyword() -> None:
+    """``_is_unique_violation`` matches ``"unique" in message`` even when code != 23505.
+
+    Coverage pin for the ``or "unique" in message`` branch. Mirrors
+    PostgreSQL's ``unique constraint`` violation message shape.
+    """
+    from app.modules.materiales.adapters.local_backend import (
+        materiales_local_backend_adapter as adapter_module,
+    )
+
+    assert (
+        adapter_module._is_unique_violation(
+            BackendError(409, body={"code": "99999", "message": "unique constraint"})
+        )
+        is True
+    )
+
+
+def test_adapter_is_unique_violation_str_unique_keyword() -> None:
+    """``_is_unique_violation`` matches ``"unique" in body_text`` in the str-body branch.
+
+    Coverage pin for the second ``or`` arm of the str-body path.
+    """
+    from app.modules.materiales.adapters.local_backend import (
+        materiales_local_backend_adapter as adapter_module,
+    )
+
+    assert (
+        adapter_module._is_unique_violation(BackendError(409, body="unique constraint violated"))
+        is True
+    )
+
+
+def test_adapter_is_unique_violation_str_no_match() -> None:
+    """``_is_unique_violation`` returns False when the str-body has no duplicate/unique keyword.
+
+    Coverage pin for the False-outcome of the str-body path when the
+    keyword check fails. Without this assertion the early-return
+    False path is uncovered.
+    """
+    from app.modules.materiales.adapters.local_backend import (
+        materiales_local_backend_adapter as adapter_module,
+    )
+
+    assert (
+        adapter_module._is_unique_violation(BackendError(409, body="some other error"))
+        is False
+    )
+
+
+def test_application_update_material_with_material_only() -> None:
+    """``update_material`` happy path: required-field-only update.
+
+    Coverage pin for the ``material`` keyword branch (the first
+    field the use case validates). Without this assertion the
+    partial-update code path covers only the observaciones branch,
+    leaving the required-text stripper uncovered in the use case.
+    """
+    from app.modules.materiales.application.update_material import update_material
+
+    class _LocalStub:
+        def __init__(self):
+            self.next_material = None
+            self.last_update_id = None
+            self.last_update_params = None
+
+        def update_material(self, material_id, params):
+            self.last_update_id = material_id
+            self.last_update_params = params
+            return self.next_material
+
+    port = _LocalStub()
+    port.next_material = Material(id="00000000-0000-0000-0000-000000000099", material="x", tamano="y", color="z")
+
+    update_material(
+        port,
+        "00000000-0000-0000-0000-000000000001",
+        material="Cama",
+    )
+
+    assert port.last_update_id == "00000000-0000-0000-0000-000000000001"
+    assert port.last_update_params == {"material": "Cama"}
+
+
+def test_application_update_material_with_all_required_fields() -> None:
+    """``update_material`` happy path: all three required fields together.
+
+    Coverage pin for the multi-required-field branch of the
+    kwargs builder (the use case strips + checks material, tamano,
+    color in sequence).
+    """
+    from app.modules.materiales.application.update_material import update_material
+
+    class _LocalStub:
+        def __init__(self):
+            self.next_material = None
+            self.last_update_id = None
+            self.last_update_params = None
+
+        def update_material(self, material_id, params):
+            self.last_update_id = material_id
+            self.last_update_params = params
+            return self.next_material
+
+    port = _LocalStub()
+    port.next_material = Material(id="00000000-0000-0000-0000-000000000099", material="x", tamano="y", color="z")
+
+    update_material(
+        port,
+        "00000000-0000-0000-0000-000000000001",
+        material="Manta",
+        tamano="L",
+        color="Rojo",
+    )
+
+    assert port.last_update_params == {"material": "Manta", "tamano": "L", "color": "Rojo"}

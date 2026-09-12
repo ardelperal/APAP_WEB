@@ -83,17 +83,48 @@ def _row_to_estancia_material(row: dict[str, Any]) -> EstanciaMaterial:
     )
 
 
-def _is_unique_violation(exc: BackendError) -> bool:
-    body = exc.body
+_DUPLICATE_KEYWORDS = ("duplicate", "unique")
+_23505_CODE = "23505"
+
+
+def _body_indicates_unique_violation(body: object) -> bool:
+    """Return True when ``body`` carries a 23505 / duplicate-key signal.
+
+    LocalBackend surfaces unique-violation errors in two shapes:
+
+    - a dict ``{"code": "23505", "message": "..."}`` from PostgreSQL
+    - a raw text body with ``"duplicate"`` or ``"unique"`` keywords
+
+    Splitting the two shapes into helpers keeps each branch's
+    cyclomatic complexity low (CC < 6) and matches the ratchet's
+    grade-A threshold.
+    """
     if isinstance(body, dict):
-        code = str(body.get("code", ""))
-        message = str(body.get("message", "")).lower()
-        return code == "23505" or "duplicate" in message or "unique" in message
+        return _dict_indicates_unique_violation(body)
     body_text = str(body).lower()
-    return (
-        exc.status_code == 409
-        and ("duplicate" in body_text or "unique" in body_text)
-    )
+    return any(keyword in body_text for keyword in _DUPLICATE_KEYWORDS)
+
+
+def _dict_indicates_unique_violation(body: dict[str, object]) -> bool:
+    if str(body.get("code", "")) == _23505_CODE:
+        return True
+    message = str(body.get("message", "")).lower()
+    return any(keyword in message for keyword in _DUPLICATE_KEYWORDS)
+
+
+def _is_unique_violation(exc: BackendError) -> bool:
+    """Detect a PostgreSQL 23505 unique-violation surfaced by LocalBackend.
+
+    Thin wrapper that combines the dict / str-body branches via
+    :func:`_body_indicates_unique_violation` and gates the str-body
+    path on the 409 status code (LocalBackend returns 409 for
+    PostgreSQL constraint violations only).
+    """
+    if exc.status_code == 409 and _body_indicates_unique_violation(exc.body):
+        return True
+    if _body_indicates_unique_violation(exc.body) and isinstance(exc.body, dict):
+        return True
+    return False
 
 
 def _validate_estancia_open_and_active(
