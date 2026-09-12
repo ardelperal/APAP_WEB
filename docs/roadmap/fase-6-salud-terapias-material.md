@@ -7,15 +7,24 @@ Esta página posee el estado de la Fase 6: registro sanitario con periodicidad, 
 ## Estado
 
 En curso. HEALTH-01..06 y el informe de próximas pruebas están
-cerrados en GitHub. Lo que queda:
+cerrados en GitHub. **6c MATERIAL** arrancó: dominio + port abstracto
+(PR #753) y LocalBackend adapter (PR #755, merge `e95e8ef`) ya están
+en `main`. Lo que queda:
 
 1. **E2E pendientes**: las baterías Playwright de terapias (CRUD
    full, lifecycle, auth) y materiales (assignment, auth). El
    informe de próximas pruebas tiene su batería E2E en
    `tests/e2e/test_proximas_pruebas.py` (5 atoms; skip limpio sin
    servidor).
-2. **Sub-fases 6b y 6c**: terapias y material, pendientes de
-   implementación. Sus issues se crean al iniciar el slice.
+2. **6b TERAPIAS**: terapia CRUD cerrada; falta extender el CTE gate
+   del service para que Incoherente/Fallecido bloqueen altas (issue
+   a crear al abrir el slice).
+3. **6c MATERIAL refactor hexagonal**: quedan los PR 3 (capa
+   `application/` con use cases que muevan los helpers del legacy
+   `service.py`), PR 4 (DI wiring del adapter) y PR 5 (remoción del
+   `service.py` legacy). Hoy conviven port + adapter + service; las
+   rutas siguen dependiendo de `service.py` hasta que PR 4 las
+   cambie al port.
 
 ## Slices
 
@@ -29,7 +38,11 @@ cerrados en GitHub. Lo que queda:
 | 6a SALUD | HEALTH-06 prueba-catalog migration | cerrado | #55 |
 | 6a SALUD | Informe de próximas pruebas | **cerrado** | #652 |
 | 6b TERAPIAS | terapias y recomendaciones | **cerrado (con lifecycle gate)** | #53, #653 |
-| 6c MATERIAL | inventario de material y asignaciones | pendiente | — |
+| 6c MATERIAL | dominio + port abstracto | **cerrado** | #753 |
+| 6c MATERIAL | LocalBackend adapter (MaterialesPort) | **cerrado** | #755 (merge `e95e8ef`) |
+| 6c MATERIAL | capa application (use cases) | pendiente | #752 PR 3 |
+| 6c MATERIAL | DI wiring del adapter | pendiente | #752 PR 4 |
+| 6c MATERIAL | remoción de `service.py` legacy | pendiente | #752 PR 5 |
 
 ## Issues abiertas relacionadas
 
