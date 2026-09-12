@@ -142,7 +142,7 @@ BASELINE_CRAP: dict[str, float] = {
     "app/modules/sanidad/routes.py::_actuacion_to_form_data": 6.0,
     "app/modules/sanidad/routes.py::list_actuaciones_view": 6.0,
     "app/modules/sanidad/scheduling.py::schedule_periodic_task": 143.17,
-    "app/modules/sanidad/service.py::_raise_validation_error": 14.51,
+    "app/modules/sanidad/service.py::_raise_validation_error": 7.64,  # PR #54 follow-up: extracted _raise_animal_lifecycle_gate + _raise_d24_fecha_alta moved branches out, CRAP dropped from 14.51 to 7.64.
     "app/modules/tasks/rules.py::rule_esterilizacion_pendiente": 56.0,
     "app/modules/tasks/rules.py::rule_seguimiento_post_adopcion": 132.0,
     "app/modules/tasks/rules.py::rule_vacuna_vencimiento": 20.0,
