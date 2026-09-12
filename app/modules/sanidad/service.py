@@ -54,7 +54,7 @@ from app.core.catalogs import (
 from app.core.data_access import SqlExecutor
 from app.core.forms import optional_text
 from app.core.logging import log_safe
-from app.modules.lifecycle.domain.constants import STATE_INCOHERENTE
+from app.modules.lifecycle import STATE_INCOHERENTE
 from app.modules.sanidad import queries
 from app.modules.sanidad.scheduling import schedule_periodic_task
 
