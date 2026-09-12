@@ -36,7 +36,6 @@ def test_modules_do_not_redefine_shared_form_helpers() -> None:
         Path("app/modules/materiales/acogida_routes.py"),
         Path("app/modules/entradas/service.py"),
         Path("app/modules/foster/service.py"),
-        Path("app/modules/materiales/service.py"),
     ]
     forbidden = {"_opt", "_required_text", "_optional_text"}
     definitions: list[str] = []

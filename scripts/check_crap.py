@@ -129,9 +129,8 @@ BASELINE_CRAP: dict[str, float] = {
     "app/modules/lifecycle/domain/animal_state.py::_resolve_pre_death_state": 7.0,
     "app/modules/lifecycle/domain/animal_state.py::calculate_state": 15.05,
     "app/modules/materiales/queries.py::build_material_update": 6.0,
-    "app/modules/materiales/routes.py::update_material_view": 6.42,
-    "app/modules/materiales/service.py::_is_unique_violation": 6.56,
-    "app/modules/salud/service.py::_raise_terapia_fk_error": 13.05,
+    "app/modules/materiales/routes.py::update_material_view": 5.00,  # PR #752 PR 5: routes.py kwargs spread + the 3 new exception-branch coverage pins reduced CRAP from 6.14 to 5.00.
+        "app/modules/salud/service.py::_raise_terapia_fk_error": 13.05,
     "app/modules/salud/service.py::delete_terapia": 6.01,
     "app/modules/sanidad/batch_routes.py::_do_batch_view": 7.01,
     "app/modules/sanidad/batch_routes.py::batch_actuaciones_view": 8.0,

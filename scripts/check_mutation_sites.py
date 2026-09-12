@@ -48,6 +48,7 @@ BASELINE_MUTATION_SITES: dict[str, int] = {
     "app/modules/cesiones/service.py": 362,
     "app/modules/foster/routes.py": 255,
     "app/modules/foster/service.py": 342,
+    "app/modules/materiales/adapters/local_backend/materiales_local_backend_adapter.py": 296,  # issue #752 PR 5: lifted _row_to_*, _is_unique_violation, _validate_* from the legacy service.py into the adapter; the refactor to fix CRAP grade-A (extracted _is_unique_violation into _body_indicates_unique_violation / _dict_indicates_unique_violation and _clean_update_payload helpers) grew the file by 12 mutation sites from the original 284 baseline.
     "app/modules/salud/routes.py": 392,
     "app/modules/salud/service.py": 342,
     "app/modules/sanidad/routes.py": 414,  # early-return added to proximas_pruebas_view for test_route_layer_coverage

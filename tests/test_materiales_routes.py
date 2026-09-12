@@ -635,6 +635,114 @@ async def test_post_materiales_id_edit_updates_and_redirects(
     assert calls[0][2]["color"] == "Verde"
 
 
+async def test_post_materiales_id_edit_conflict_returns_409(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``MaterialConflictError`` from the use case -> 409 + Spanish msg."""
+    _login_as_key_user(client)
+
+    def fake_update_conflict(
+        service_client: MaterialesPort,
+        material_id: str,
+        *,
+        material: str | None = None,
+        tamano: str | None = None,
+        color: str | None = None,
+        observaciones: str | None = None,
+    ):
+        raise materiales_application.MaterialConflictError(
+            "ya existe material con esa combinación material+tamaño+color"
+        )
+
+    monkeypatch.setattr(
+        materiales_application, "update_material", fake_update_conflict
+    )
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/materiales/mat-123/edit",
+        form_data=_form_data(color="Verde"),
+        csrf_token="test-csrf-token-materiales",
+    )
+
+    assert response.status_code == 409
+    assert "ya existe material" in response.text
+
+
+async def test_post_materiales_id_edit_validation_returns_422(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``MaterialValidationError`` from the use case -> 422 + HTML re-render."""
+    _login_as_key_user(client)
+
+    def fake_update_validation(
+        service_client: MaterialesPort,
+        material_id: str,
+        *,
+        material: str | None = None,
+        tamano: str | None = None,
+        color: str | None = None,
+        observaciones: str | None = None,
+    ):
+        raise materiales_application.MaterialValidationError(
+            "material es obligatorio y no puede estar vacio"
+        )
+
+    monkeypatch.setattr(
+        materiales_application, "update_material", fake_update_validation
+    )
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/materiales/mat-123/edit",
+        form_data=_form_data(color="Verde"),
+        csrf_token="test-csrf-token-materiales",
+    )
+
+    assert response.status_code == 422
+    assert "No se pudo guardar el material" in response.text
+
+
+async def test_post_materiales_id_edit_returns_404_when_missing(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Update returns None -> 404 (id does not match any persisted row)."""
+    _login_as_key_user(client)
+
+    def fake_update_none(
+        service_client: MaterialesPort,
+        material_id: str,
+        *,
+        material: str | None = None,
+        tamano: str | None = None,
+        color: str | None = None,
+        observaciones: str | None = None,
+    ):
+        return None
+
+    monkeypatch.setattr(
+        materiales_application, "update_material", fake_update_none
+    )
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/materiales/mat-123-missing/edit",
+        form_data=_form_data(color="Verde"),
+        csrf_token="test-csrf-token-materiales",
+    )
+
+    assert response.status_code == 404
+
+
 # --- 12. POST /materiales/{id}/deactivate --------------------------------
 
 

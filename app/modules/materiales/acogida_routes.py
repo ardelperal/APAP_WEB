@@ -269,8 +269,8 @@ def assign_material_to_estancia_view(  # noqa: PLR0913  # 2 Form fields + 5 fixe
     try:
         materiales_application.assign_material_to_estancia(
             port,
-            estancia_id,
-            material_id,
+            estancia_id=estancia_id,
+            material_id=material_id,
             cantidad=cantidad_int,
             notas=notas_clean,
         )

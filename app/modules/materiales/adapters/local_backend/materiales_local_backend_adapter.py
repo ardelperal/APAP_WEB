@@ -38,7 +38,9 @@ from typing import Any
 from app.core._module_helpers._form_render import list_entities
 from app.core.data_access import BackendError, SqlExecutor
 from app.core.logging import log_safe
-from app.modules.materiales import queries
+from app.modules.materiales import (
+    queries,  # noqa: E402  -- safe: app.modules.materiales.__init__ is empty since PR 5
+)
 from app.modules.materiales.domain.estancia_material import EstanciaMaterial
 from app.modules.materiales.domain.exceptions import MaterialConflictError
 from app.modules.materiales.domain.material import Material
@@ -81,17 +83,52 @@ def _row_to_estancia_material(row: dict[str, Any]) -> EstanciaMaterial:
     )
 
 
-def _is_unique_violation(exc: BackendError) -> bool:
-    body = exc.body
+_DUPLICATE_KEYWORDS = ("duplicate", "unique")
+_23505_CODE = "23505"
+
+
+def _body_indicates_unique_violation(body: object) -> bool:
+    """Return True when ``body`` carries a 23505 / duplicate-key signal.
+
+    LocalBackend surfaces unique-violation errors in two shapes:
+
+    - a dict ``{"code": "23505", "message": "..."}`` from PostgreSQL
+    - a raw text body with ``"duplicate"`` or ``"unique"`` keywords
+
+    Splitting the two shapes into helpers keeps each branch's
+    cyclomatic complexity low (CC < 6) and matches the ratchet's
+    grade-A threshold.
+    """
     if isinstance(body, dict):
-        code = str(body.get("code", ""))
-        message = str(body.get("message", "")).lower()
-        return code == "23505" or "duplicate" in message or "unique" in message
+        return _dict_indicates_unique_violation(body)
     body_text = str(body).lower()
-    return (
-        exc.status_code == 409
-        and ("duplicate" in body_text or "unique" in body_text)
-    )
+    return any(keyword in body_text for keyword in _DUPLICATE_KEYWORDS)
+
+
+def _dict_indicates_unique_violation(body: dict[str, object]) -> bool:
+    if str(body.get("code", "")) == _23505_CODE:
+        return True
+    message = str(body.get("message", "")).lower()
+    return any(keyword in message for keyword in _DUPLICATE_KEYWORDS)
+
+
+def _is_unique_violation(exc: BackendError) -> bool:
+    """Detect a PostgreSQL 23505 unique-violation surfaced by LocalBackend.
+
+    Combines the dict / str-body branches via
+    :func:`_body_indicates_unique_violation` and gates the str-body
+    path on the 409 status code (LocalBackend returns 409 for
+    PostgreSQL constraint violations only). The dict-body branch is
+    the gate-less one because a 409 with a 23505 dict is always a
+    unique-violation regardless of the status code; a 23505 dict
+    without a 409 status would still represent the constraint
+    violation (defensive).
+    """
+    if _body_indicates_unique_violation(exc.body):
+        if isinstance(exc.body, dict):
+            return True
+        return exc.status_code == 409
+    return False
 
 
 def _validate_estancia_open_and_active(
