@@ -1,60 +1,23 @@
-"""FOSTER-04 materiales module — hexagonal (issue #752).
+"""FOSTER-04 materiales module (issue #752).
 
-Exports the application-layer use cases + dataclasses + the two
-routers (catalog + per-estancia junction) so the rest of the app
-can do ``from app.modules.materiales import create_material,
-Material, materiales_router, materiales_acogida_router``.
+The legacy module re-exports were removed in PR 5 because they
+introduced a circular import: the LocalBackend adapter imports
+``app.modules.materiales.queries`` (to compose SQL), and the
+queries submodule lives inside this package — any re-export at
+the package root would force the adapter to load before the
+package is fully initialised.
 
-The hexagonal refactor (issue #752) replaced the legacy
-``service.py`` and ``estancia_material_service.py`` modules with:
+Callers that previously did ``from app.modules.materiales import
+create_material, Material, materiales_router`` should now do one
+of:
 
-- ``application/`` — eight use cases that own validation policy
-  and delegate to ``MaterialesPort``.
-- ``adapters/local_backend/materiales_local_backend_adapter.py`` —
-  the production ``MaterialesPort`` implementation against the
-  LocalBackend executor.
-- ``di/materiales_di.py`` — the FastAPI ``get_materiales_port``
-  composition root.
-- ``ports/materiales_port.py`` — the abstract ``MaterialesPort``
-  Protocol.
+- ``from app.modules.materiales.application import create_material, Material``
+- ``from app.modules.materiales.routes import router as materiales_router``
+- ``from app.modules.materiales.acogida_routes import router as materiales_acogida_router``
+- ``from app.modules.materiales.di import get_materiales_port``
 
-This ``__init__.py`` re-exports the dataclasses and the use cases
-so callers (routes, tests, future modules) reach them through a
-single ``from app.modules.materiales import ...`` import.
+The empty ``__init__`` is intentional; removing the legacy
+re-exports is the only way to break the import cycle the
+adapter <-> package root introduced when PR 5 lifted the row
+mappers from ``service.py`` into the adapter.
 """
-
-from app.modules.materiales import application
-from app.modules.materiales.acogida_routes import router as materiales_acogida_router
-from app.modules.materiales.application import (
-    EstanciaMaterial,
-    Material,
-    MaterialConflictError,
-    assign_material_to_estancia,
-    create_material,
-    deactivate_material,
-    get_material_by_id,
-    list_materials,
-    list_materials_for_estancia,
-    remove_material_from_estancia,
-    update_material,
-)
-from app.modules.materiales.di import get_materiales_port
-from app.modules.materiales.routes import router as materiales_router
-
-__all__ = [
-    "EstanciaMaterial",
-    "Material",
-    "MaterialConflictError",
-    "application",
-    "assign_material_to_estancia",
-    "create_material",
-    "deactivate_material",
-    "get_material_by_id",
-    "get_materiales_port",
-    "list_materials",
-    "list_materials_for_estancia",
-    "materiales_acogida_router",
-    "materiales_router",
-    "remove_material_from_estancia",
-    "update_material",
-]

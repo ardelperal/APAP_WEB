@@ -38,7 +38,9 @@ from typing import Any
 from app.core._module_helpers._form_render import list_entities
 from app.core.data_access import BackendError, SqlExecutor
 from app.core.logging import log_safe
-from app.modules.materiales import queries
+from app.modules.materiales import (
+    queries,  # noqa: E402  -- safe: app.modules.materiales.__init__ is empty since PR 5
+)
 from app.modules.materiales.domain.estancia_material import EstanciaMaterial
 from app.modules.materiales.domain.exceptions import MaterialConflictError
 from app.modules.materiales.domain.material import Material
