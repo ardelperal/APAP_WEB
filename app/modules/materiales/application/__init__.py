@@ -47,8 +47,14 @@ from app.modules.materiales.application.remove_material_from_estancia import (
 from app.modules.materiales.application.update_material import (
     update_material,
 )
+from app.modules.materiales.domain.estancia_material import EstanciaMaterial
+from app.modules.materiales.domain.exceptions import MaterialConflictError
+from app.modules.materiales.domain.material import Material
 
 __all__ = [
+    "EstanciaMaterial",
+    "Material",
+    "MaterialConflictError",
     "MaterialValidationError",
     "assign_material_to_estancia",
     "create_material",

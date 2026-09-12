@@ -61,17 +61,22 @@ from fastapi.templating import Jinja2Templates
 
 from app.core.auth_dependencies import (
     AuthenticatedUser,
-    get_local_postgres_executor_dep,
     require_authorized_user,
     require_writer_user,
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
-from app.core.data_access import SqlExecutor
 from app.core.forms import optional_value as _opt
 from app.core.middleware import base_template_context_processor
-from app.modules.materiales import estancia_material_service
-from app.modules.materiales import service as materiales_service
+from app.modules.materiales import application as materiales_application
+from app.modules.materiales.application.assign_material_to_estancia import (
+    MaterialValidationError,
+)
+from app.modules.materiales.di import get_materiales_port
+from app.modules.materiales.domain.estancia_material import EstanciaMaterial
+from app.modules.materiales.domain.exceptions import MaterialConflictError
+from app.modules.materiales.domain.material import Material
+from app.modules.materiales.ports.materiales_port import MaterialesPort
 
 # Prefix intentionally omitted (the handler URLs are absolute
 # ``/acogidas/{id}/materiales``) — adding a prefix here would
@@ -100,21 +105,20 @@ def _cantidad_or_default(raw: str | None) -> int:
     """Parse the ``cantidad`` form field with a default of 1.
 
     Defense in depth on top of the DB CHECK constraint
-    (``cantidad > 0``) — an operator who deletes the value and
-    types a letter sees a clear Spanish 422 instead of an opaque
-    PostgreSQL constraint violation. Mirrors the
-    ``_validate_capacidad`` precedent in
-    ``app/modules/foster/service.py``.
+    (``cantidad > 0``). Raises :class:`MaterialValidationError` so
+    the route maps to HTTP 422 with the operator-facing message.
     """
     cleaned = (raw or "1").strip()
     try:
         value = int(cleaned)
     except ValueError as exc:
-        raise ValueError(
+        raise MaterialValidationError(  # noqa: TRY003 — operator-facing diagnostic
             "cantidad debe ser un entero positivo (>= 1)"
         ) from exc
     if value < 1:
-        raise ValueError("cantidad debe ser un entero positivo (>= 1)")
+        raise MaterialValidationError(  # noqa: TRY003 — operator-facing diagnostic
+            "cantidad debe ser un entero positivo (>= 1)"
+        )
     return value
 
 
@@ -123,8 +127,8 @@ def _render_per_stay_list(  # noqa: PLR0913  # non-route helper; 7 args needed t
     user: AuthenticatedUser,
     estancia_id: str,
     *,
-    assigned: list[materiales_service.EstanciaMaterial],
-    catalog: list[materiales_service.Material],
+    assigned: list[EstanciaMaterial],
+    catalog: list[Material],
     error: str | None,
     status_code: int = status.HTTP_200_OK,
 ):
@@ -155,7 +159,7 @@ def _render_per_stay_list(  # noqa: PLR0913  # non-route helper; 7 args needed t
     material / closed estancia), the form-data is preserved by
     re-rendering through this helper.
     """
-    material_lookup: dict[str, materiales_service.Material] = {
+    material_lookup: dict[str, Material] = {
         m.id: m for m in catalog
     }
     return _templates.TemplateResponse(
@@ -181,7 +185,7 @@ def list_estancia_materiales_view(
     estancia_id: str,
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_authorized_user)],
-    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
+    port: Annotated[MaterialesPort, Depends(get_materiales_port)],
 ):
     """Per-stay junction list.
 
@@ -197,10 +201,10 @@ def list_estancia_materiales_view(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
-    assigned = estancia_material_service.list_materials_for_estancia(
-        client, estancia_id, activos_solo=True
+    assigned = materiales_application.list_materials_for_estancia(
+        port, estancia_id, activos_solo=True
     )
-    catalog = materiales_service.list_materials(client, activos_solo=True)
+    catalog = materiales_application.list_materials(port, activos_solo=True)
     return _render_per_stay_list(
         request,
         user,
@@ -219,7 +223,7 @@ def assign_material_to_estancia_view(  # noqa: PLR0913  # 2 Form fields + 5 fixe
     estancia_id: str,
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_writer_user)],
-    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
+    port: Annotated[MaterialesPort, Depends(get_materiales_port)],
     material_id: Annotated[str, Form()],
     cantidad: Annotated[str, Form()] = "1",
     notas: Annotated[str | None, Form()] = None,
@@ -247,11 +251,11 @@ def assign_material_to_estancia_view(  # noqa: PLR0913  # 2 Form fields + 5 fixe
         return early
     try:
         cantidad_int = _cantidad_or_default(cantidad)
-    except ValueError as exc:
-        assigned = estancia_material_service.list_materials_for_estancia(
-            client, estancia_id, activos_solo=True
+    except MaterialValidationError as exc:
+        assigned = materiales_application.list_materials_for_estancia(
+            port, estancia_id, activos_solo=True
         )
-        catalog = materiales_service.list_materials(client, activos_solo=True)
+        catalog = materiales_application.list_materials(port, activos_solo=True)
         return _render_per_stay_list(
             request,
             user,
@@ -263,18 +267,18 @@ def assign_material_to_estancia_view(  # noqa: PLR0913  # 2 Form fields + 5 fixe
         )
     notas_clean = _opt(notas)
     try:
-        estancia_material_service.assign_material_to_estancia(
-            client,
+        materiales_application.assign_material_to_estancia(
+            port,
             estancia_id,
             material_id,
             cantidad=cantidad_int,
             notas=notas_clean,
         )
-    except materiales_service.MaterialConflictError as exc:
-        assigned = estancia_material_service.list_materials_for_estancia(
-            client, estancia_id, activos_solo=True
+    except MaterialConflictError as exc:
+        assigned = materiales_application.list_materials_for_estancia(
+            port, estancia_id, activos_solo=True
         )
-        catalog = materiales_service.list_materials(client, activos_solo=True)
+        catalog = materiales_application.list_materials(port, activos_solo=True)
         return _render_per_stay_list(
             request,
             user,
@@ -284,11 +288,11 @@ def assign_material_to_estancia_view(  # noqa: PLR0913  # 2 Form fields + 5 fixe
             error=f"ese material ya esta asignado a esta estancia: {exc}",
             status_code=status.HTTP_409_CONFLICT,
         )
-    except ValueError as exc:
-        assigned = estancia_material_service.list_materials_for_estancia(
-            client, estancia_id, activos_solo=True
+    except MaterialValidationError as exc:
+        assigned = materiales_application.list_materials_for_estancia(
+            port, estancia_id, activos_solo=True
         )
-        catalog = materiales_service.list_materials(client, activos_solo=True)
+        catalog = materiales_application.list_materials(port, activos_solo=True)
         return _render_per_stay_list(
             request,
             user,
@@ -316,7 +320,7 @@ def remove_material_from_estancia_view(
     junction_id: str,
     _request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_writer_user)],
-    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
+    port: Annotated[MaterialesPort, Depends(get_materiales_port)],
 ):
     """Soft-delete a single junction row.
 
@@ -334,8 +338,8 @@ def remove_material_from_estancia_view(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
-    if not estancia_material_service.remove_material_from_estancia(
-        client, junction_id
+    if not materiales_application.remove_material_from_estancia(
+        port, junction_id
     ):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     return RedirectResponse(
