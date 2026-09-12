@@ -19,13 +19,13 @@ en `main`. Lo que queda:
 2. **6b TERAPIAS**: terapia CRUD cerrada; falta extender el CTE gate
    del service para que Incoherente/Fallecido bloqueen altas (issue
    a crear al abrir el slice).
-3. **6c MATERIAL refactor hexagonal**: queda el PR 4 (DI wiring del
-   adapter; las rutas pasan a depender del `MaterialesPort`) y PR 5
-   (remoción de `service.py` legacy). El PR 3 — capa `application/`
-   con 8 use cases + 2 FK probes en el Protocol — está cerrado
-   (commit `db6626c`). Hoy conviven port + adapter + application +
-   service; las rutas siguen dependiendo de `service.py` hasta que
-   PR 4 las cambie al port.
+3. **6c MATERIAL refactor hexagonal**: queda el PR 5 (remoción de `service.py` legacy). El PR 3 —
+   capa `application/` con 8 use cases + 2 FK probes en el Protocol
+   — está cerrado (commit `db6626c`). El PR 4 — DI wiring +
+   migración de routes.py y acogida_routes.py al `MaterialesPort` —
+   está cerrado (commit `9064186`). Las rutas dependen del port;
+   el `service.py` legacy sobrevive hasta PR 5 para los tests viejos
+   que lo importan.
 
 ## Slices
 
@@ -42,7 +42,7 @@ en `main`. Lo que queda:
 | 6c MATERIAL | dominio + port abstracto | **cerrado** | #753 |
 | 6c MATERIAL | LocalBackend adapter (MaterialesPort) | **cerrado** | #755 (merge `e95e8ef`) |
 | 6c MATERIAL | capa application (use cases) | **cerrado** | #752 PR 3 (merge `db6626c`) |
-| 6c MATERIAL | DI wiring del adapter | pendiente | #752 PR 4 |
+| 6c MATERIAL | DI wiring del adapter | **cerrado** | #752 PR 4 (merge `9064186`) |
 | 6c MATERIAL | remoción de `service.py` legacy | pendiente | #752 PR 5 |
 
 ## Issues abiertas relacionadas
