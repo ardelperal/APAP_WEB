@@ -43,6 +43,8 @@ BASELINE: dict[tuple[str, ...], str] = {
         "__init__ re-exports both routers (batch_router, router); both routers import back through the package root for their respective services -- tolerated mid-migration (Refs #420)",
     ("app.modules.foster", "app.modules.foster.assignment", "app.modules.foster.routes"):
         "assignment.py imports `foster.service` via the package root (line 46); __init__ re-exports assignment + service -- tolerated mid-migration (Refs #420)",
+        ("app.modules.tasks", "app.modules.tasks.service"):
+            "pre-existing cycle on main before the materiales refactor; service.py imports queries through the package root -- break when TASKS-01 lands its hexagonal slice",
         ("app.modules.sanidad", "app.modules.sanidad.scheduling", "app.modules.sanidad.service"):
         "scheduling.py uses ActuacionSanitaria type hint from service.py; service.py calls scheduling.schedule_periodic_task; break by using Any in scheduling.py type annotations (Refs #54)",
 }
