@@ -121,7 +121,7 @@ a crear al abrir ese slice).
 
 | Fichero E2E | Casos | Slice |
 |---|---|---|
-| `test_periodicity_engine.py` | Registrar periodicidad; verificar que genera tarea pendiente; simular fecha futura; verificar alerta | `tasks` / `sanidad` ❌ pendiente |
+| `test_periodicity_engine.py` | Vacuna crea tarea linked via vinculo; Vacuna overdue marca urgente; Esterilización one-shot NO crea tarea; Desparasitación crea tarea linked | `tasks` / `sanidad` hecho |
 
 ### Informe de próximas pruebas
 
