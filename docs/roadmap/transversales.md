@@ -201,7 +201,7 @@ Reemplazo del backend LocalBackend por un contenedor FastAPI propio desplegado e
 | Phase 5 — Deploy step separado del lifespan bootstrap | cerrado (deploy.yml independiente + runbook de rollback) | #647, #726 |
 | Hygiene — Pre-existing ruff errors + failing e2e | cerrado (ruff verde por e7e0c8b; e2e skip opt-in por PR #771) | #646 |
 
-**Estado del round-trip M3.1**: el helper lee de MailDev HTTP API (`apap-smtp-dev`); los unit tests del helper están verdes en el suite default (regex, polling, timeout, retry sobre 5xx). El round-trip del magic-link queda cubierto por integración in-process; `tests/e2e/test_magic_link_e2e.py` permanece skip'd hasta tener MailDev y deploy productivo operativos.
+**Estado del round-trip M3.1**: el helper lee de MailDev HTTP API (`apap-smtp-dev`); los unit tests del helper están verdes en el suite default (regex, polling, timeout, retry sobre 5xx). El round-trip del magic-link queda cubierto por integración in-process. La suite de integración `tests/integration/test_magic_link_routes.py` (7 tests, marcada con `@pytest.mark.integration` por PR #774) corre contra Postgres real en el job `integration` de CI; `tests/e2e/test_magic_link_e2e.py` permanece skip'd hasta tener MailDev y deploy productivo operativos (skip contract opt-in por #646 / PR #771).
 
 **Invariante no negociable:**
 
