@@ -37,9 +37,12 @@ pull request
 |---|---|
 | Pull request | Ejecuta todos los checks obligatorios, incluido el smoke Playwright. |
 | Tag `v*` | Ejecuta controles profundos y la matriz de release. |
-| Programación | Ejecuta el control asignado por la matriz; los demás quedan omitidos de forma válida. |
 | Push a `main` | Ejecuta `deploy.yml`; no reconstruye una segunda CI. |
-| Ejecución manual | Permite validar CI o despliegue sin cambiar el contrato de evidencia. |
+| Ejecución manual | Permite validar CI o despliegue sin cambiar el contrato de evidencia; también sirve como ensayo previo a un tag para `mutation`, `security-deep` y `e2e`. |
+
+`ci.yml` no declara ningún trigger `schedule`: los controles pesados
+(`mutation`, `security-deep`, `e2e`) se reservan para el push de un tag `v*`
+o para `workflow_dispatch` (issue #780).
 
 ## Jobs de CI
 
@@ -48,8 +51,8 @@ pull request
 | `lint` | Ruff, reglas APAP, límites de arquitectura y ratchets. |
 | `issue-spec` | Issue vinculada, aprobada y con las seis secciones obligatorias. |
 | `security` | Auditoría de dependencias, secretos y Dockerfile. |
-| `security-deep` | Análisis profundo reservado a release o programación. |
-| `mutation` | Mutación programada o de release. |
+| `security-deep` | Análisis profundo reservado a release o ejecución manual. |
+| `mutation` | Mutación reservada a release o ejecución manual. |
 | `typecheck` | Mypy sobre `app/` y `migration/`. |
 | `test` | Suite principal, cobertura del 85 % y CRAP. |
 | `integration` | SQL real contra PostgreSQL efímero. |

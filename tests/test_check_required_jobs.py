@@ -26,20 +26,30 @@ def test_non_pr_events_skip_issue_spec_but_pull_requests_require_it() -> None:
 def test_e2e_skip_is_allowed_on_pull_request() -> None:
     """E2E requires Postgres + MinIO + Chromium; the Docker pull for those
     images flakes intermittently on the hosted runner. Run only on
-    release events (schedule / tag push / workflow_dispatch) per
-    AGENTS §PR_DISCIPLINE so PRs are not blocked by infrastructure
-    flakes. A skipped e2e job on a PR or a regular push is therefore NOT
-    a policy violation.
+    release events (tag push / workflow_dispatch) per AGENTS
+    §PR_DISCIPLINE so PRs are not blocked by infrastructure flakes. A
+    skipped e2e job on a PR or a regular push is therefore NOT a policy
+    violation.
     """
     needs = _needs()
     needs["e2e"]["result"] = "skipped"
 
     assert check_results(needs, "pull_request") == []
     assert check_results(needs, "push") == []
-    # Schedule is a release event too, but the cron path has no operator
-    # to interpret infrastructure flakes; the policy mirrors pull
-    # request here for now.
-    assert check_results(needs, "schedule") == []
+
+
+def test_schedule_event_is_unreachable_and_fails_closed() -> None:
+    """Issue #780: the weekly cron trigger was removed from ci.yml.
+
+    ``schedule`` is no longer a key in ``SKIPS_BY_EVENT``, so a stray
+    ``schedule`` event (one should never reach this gate again) falls
+    into the fail-closed "unsupported event" branch instead of silently
+    being granted skips.
+    """
+    needs = _needs()
+
+    violations = check_results(needs, "schedule")
+    assert violations == ["unsupported event: schedule"]
 
 
 def test_e2e_skip_blocks_required_on_workflow_dispatch_and_tag_push() -> None:

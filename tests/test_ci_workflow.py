@@ -847,7 +847,7 @@ def test_ci_workflow_mutation_job_filters_equivalent_mutants() -> None:
 
 
 def test_ci_workflow_mutation_job_is_never_triggered_by_a_pull_request() -> None:
-    """Issue #431: the mutation job is scheduled/manual only.
+    """Issue #780: the mutation job is release/manual only.
 
     A 233-mutant session per pull request would make the loop unusable, and
     §32.P7 requires the reachable events to be named rather than implied.
@@ -857,8 +857,9 @@ def test_ci_workflow_mutation_job_is_never_triggered_by_a_pull_request() -> None
     section = workflow[start : workflow.index("\n  typecheck:", start)]
 
     if_clause = section[section.index("if:") : section.index("runs-on:")]
-    assert "github.event_name == 'schedule'" in if_clause
+    assert "github.event_name == 'schedule'" not in if_clause
     assert "github.event_name == 'workflow_dispatch'" in if_clause
+    assert "startsWith(github.ref, 'refs/tags/')" in if_clause
     assert "pull_request" not in if_clause
 
 

@@ -13,12 +13,6 @@ on:
   # an open PR after the workflow itself was edited). Use:
   #   gh workflow run ci.yml --ref <branch>
   workflow_dispatch:
-  # Issue #381: the heavy scanners (`security-deep`) run on a schedule, not on
-  # every PR. While the MVP is still being built, pulling multi-hundred-MB base
-  # images on each pull request buys nothing — those images change roughly
-  # monthly. Monday 06:17 UTC; the odd minute avoids the top-of-hour stampede.
-  schedule:
-    - cron: "17 6 * * 1"
 
 # Checks run on isolated hosted runners. A newer commit makes an older run stale,
 # so cancel it instead of spending capacity on evidence that can no longer merge.
@@ -291,10 +285,10 @@ jobs:
   security:
     name: security
     # Issue #381. Light scanners only — these run on every PR and must stay
-    # fast. The heavy image scanning lives in `security-deep` below, on a
-    # weekly schedule, because base images change roughly monthly and paying
-    # that cost per pull request slows the loop for nothing while the MVP is
-    # still being built.
+    # fast. The heavy image scanning lives in `security-deep` below, reserved
+    # for release cadence (tag push / manual dispatch), because base images
+    # change roughly monthly and paying that cost per pull request slows the
+    # loop for nothing while the MVP is still being built.
     #
     # Hosted Docker is disposable; no production daemon is exposed to PR code.
     runs-on: ubuntu-24.04
@@ -412,15 +406,15 @@ jobs:
   security-deep:
     name: security-deep
     # Issue #381. The heavy half: pulls base images and a vulnerability
-    # database, so it does NOT run per pull request. Triggers are the weekly
-    # schedule, any tag push (releases), and manual dispatch.
+    # database, so it does NOT run per pull request. Triggers are any tag
+    # push (releases) and manual dispatch.
     #
     # This split is deliberate. A digest-pinned base image (issue #338) is
     # reproducible, not safe — it keeps shipping the same layer while CVEs
-    # accumulate against it. Weekly is the right cadence for that decay; per-PR
-    # is not, because nothing in a pull request can change it.
+    # accumulate against it. Reserving the scan for release cadence is
+    # acceptable for that decay; per-PR is not, because nothing in a pull
+    # request can change it.
     if: >-
-      github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-24.04
@@ -497,12 +491,11 @@ jobs:
     name: mutation
     # Issue #431. Mutation testing is a trend instrument, not a per-PR check:
     # the pilot module alone is 233 mutants. Same split rationale as
-    # `security-deep` above — scheduled and manual only, never on a pull
-    # request. Guards that reach this job: the weekly cron, an explicit
-    # `gh workflow run ci.yml`, and release-tag pushes (so a release can
-    # bundle a mutation evidence run). Nothing in a pull request triggers
-    # it (§32.P7: this comment names which events reach the job and which
-    # are skipped).
+    # `security-deep` above — release and manual only, never on a pull
+    # request. Guards that reach this job: an explicit `gh workflow run
+    # ci.yml`, and release-tag pushes (so a release can bundle a mutation
+    # evidence run). Nothing in a pull request triggers it (§32.P7: this
+    # comment names which events reach the job and which are skipped).
     #
     # LINUX ONLY, and that is load-bearing rather than incidental. cosmic-ray
     # 8.4.6 returns INCOMPETENT for 100% of mutants on native Windows while
@@ -512,7 +505,6 @@ jobs:
     # GitHub-hosted `ubuntu-24.04` is Linux; developers reproduce through WSL
     # per docs/runbooks/mutation-testing.md.
     if: >-
-      github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-24.04
@@ -586,8 +578,8 @@ jobs:
         # `scripts/cosmic_ray_run_config.render_config` before any cosmic-ray
         # command runs. Unix domain sockets (--path) instead of TCP ports
         # avoid the port-collision surface flagged in #532: two mutation jobs
-        # landing on the same host at once (scheduled run on `main` plus a
-        # manual dispatch on a feature branch) would otherwise step on each
+        # landing on the same host at once (a release-tag run on `main` plus
+        # a manual dispatch on a feature branch) would otherwise step on each
         # other's loopback ports. The per-run dir keyed by $GITHUB_RUN_ID
         # keeps two concurrent jobs from ever sharing a path.
         #
@@ -977,12 +969,10 @@ jobs:
     needs: build
     # E2E suite requires Postgres + MinIO + Chromium; the Docker
     # pull for those services flakes intermittently on the hosted
-    # runner. Run only on release events (schedule /
-    # workflow_dispatch / tag push) so PRs are not blocked by
-    # infrastructure flakes. PRs that need e2e validation can
-    # dispatch this workflow manually.
+    # runner. Run only on release events (workflow_dispatch / tag
+    # push) so PRs are not blocked by infrastructure flakes. PRs
+    # that need e2e validation can dispatch this workflow manually.
     if: >-
-      github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.ref, 'refs/tags/')
     services:
