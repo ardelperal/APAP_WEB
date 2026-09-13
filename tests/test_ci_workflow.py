@@ -658,6 +658,86 @@ def test_deploy_rollback_requests_the_previous_source_revision() -> None:
     assert "GITHUB_SHA: ${{ steps.publish.outputs.previous_revision }}" in rollback
 
 
+def test_deploy_cosign_oidc_permission_is_scoped_to_deploy_job() -> None:
+    """Keyless signing may mint an OIDC token only in the deploy job."""
+    workflow = DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8")
+    workflow_permissions = workflow[: workflow.index("\njobs:\n")]
+    deploy = _extract_deploy_section(workflow)
+
+    assert "id-token:" not in workflow_permissions
+    assert workflow.count("\n      id-token: write") == 1
+    assert "      id-token: write" in deploy
+    assert "      contents: read" in deploy
+    assert "      actions: read" in deploy
+    assert "      packages: write" in deploy
+
+
+def test_deploy_signs_the_exact_published_digest() -> None:
+    """Cosign must sign the immutable digest emitted by the publish step."""
+    deploy = _extract_deploy_section(
+        DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8")
+    )
+    sign = deploy.split(
+        "- name: Sign the published digest with GitHub OIDC", maxsplit=1
+    )[1].split("- name:", maxsplit=1)[0]
+
+    assert "DIGEST: ${{ steps.publish.outputs.digest }}" in sign
+    assert 'cosign sign --yes "${IMAGE}@${DIGEST}"' in sign
+    assert ":sha-${GITHUB_SHA}" not in sign
+
+
+def test_deploy_verifies_exact_identity_and_issuer_before_promotion() -> None:
+    """The forward promotion is gated by this workflow's exact trust policy."""
+    deploy = _extract_deploy_section(
+        DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8")
+    )
+    verify = deploy.split(
+        "- name: Verify the published digest is signed by this workflow", maxsplit=1
+    )[1].split("- name:", maxsplit=1)[0]
+    identity = (
+        'https://github.com/${GITHUB_REPOSITORY}/.github/workflows/'
+        "deploy.yml@refs/heads/main"
+    )
+
+    assert 'cosign verify "${IMAGE}@${DIGEST}"' in verify
+    assert f'--certificate-identity "{identity}"' in verify
+    assert (
+        '--certificate-oidc-issuer "https://token.actions.githubusercontent.com"'
+        in verify
+    )
+    assert deploy.index("- name: Verify the published digest") < deploy.index(
+        "- name: Promote the verified digest"
+    )
+    assert deploy.index("- name: Verify the published digest") < deploy.index(
+        "- name: Trigger Coolify webhook"
+    )
+
+
+def test_deploy_rollback_verifies_before_promotion_and_coolify_trigger() -> None:
+    """Rollback cannot promote or deploy an untrusted previous digest."""
+    workflow = DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8")
+    rollback = workflow.split(
+        "- name: Roll back to the previous digest", maxsplit=1
+    )[1]
+    identity = (
+        'https://github.com/${GITHUB_REPOSITORY}/.github/workflows/'
+        "deploy.yml@refs/heads/main"
+    )
+
+    assert 'cosign verify "${IMAGE}@${PREVIOUS_DIGEST}"' in rollback
+    assert f'--certificate-identity "{identity}"' in rollback
+    assert (
+        '--certificate-oidc-issuer "https://token.actions.githubusercontent.com"'
+        in rollback
+    )
+    assert rollback.index("cosign verify") < rollback.index(
+        "docker buildx imagetools create"
+    )
+    assert rollback.index("cosign verify") < rollback.index(
+        "python scripts/coolify_webhook.py"
+    )
+
+
 def test_deploy_smoke_database_uses_ephemeral_trust_not_a_literal_password() -> None:
     """The isolated smoke network needs no reusable database credential."""
     workflow = DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8")
