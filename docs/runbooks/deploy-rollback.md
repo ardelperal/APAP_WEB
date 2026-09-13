@@ -149,6 +149,18 @@ El step `Roll back to the previous digest` de `deploy.yml` cubre el caso más co
 
 Si el rollback automático falla, este runbook es el procedimiento manual de respaldo. **No use ambos a la vez**: si Coolify ya está sirviendo un digest intermedio, vuelva al Paso 1 y elija un digest distinto.
 
+## Firma y verificación con Cosign (keyless)
+
+Desde el hardening de cadena de suministro (#783), el job `deploy` firma y verifica el digest recién publicado antes de promoverlo, cerrando la ventana en la que un digest publicado en `ghcr.io` podría sustituirse sin detección antes del despliegue:
+
+1. **`Install Cosign`** — instala el binario `cosign` (`sigstore/cosign-installer`, pinned por SHA) en el runner.
+2. **`Sign the published digest with GitHub OIDC`** — tras el `trivy scan` y antes del smoke test, `cosign sign --yes` firma el digest recién publicado en modo keyless: intercambia el token OIDC efímero del job (permiso `id-token: write`) por un certificado Fulcio de corta vida, sin clave privada almacenada en el repositorio.
+3. **`Verify the published digest is signed by this workflow`** — inmediatamente antes de `Promote the verified digest` y del webhook de Coolify, `cosign verify` comprueba la firma contra la identidad de certificado esperada (`.github/workflows/deploy.yml` en `refs/heads/main`) y el emisor OIDC (`https://token.actions.githubusercontent.com`). Si la verificación falla, el step sale con error y el job se detiene ahí — igual que un hallazgo `HIGH`/`CRITICAL` de trivy — sin promover `deploy-current` ni disparar el webhook.
+
+**Orden elegido y motivo**: la firma corre después del `trivy scan` (no inmediatamente tras el push) para no generar un certificado Fulcio ni una entrada pública en el transparency log (Rekor) de un digest que el scan de vulnerabilidades puede rechazar y que nunca llegaría a promoverse. La verificación corre justo antes de la promoción — el último gate antes de mover `deploy-current` — para que ningún digest sin firma válida llegue al webhook de Coolify.
+
+**Cobertura del `previous_digest` en el rollback automático**: el rollback re-promueve `previous_digest`, el digest que ya estaba activo en `deploy-current` antes de esta ejecución. Ese digest no se vuelve a verificar en el momento del rollback — el rollback reasigna un puntero, no reconstruye ni re-audita la imagen. A partir de este cambio, todo digest que llegue a ocupar `deploy-current` lo hace porque ya pasó por este mismo gate de firma/verificación en su propio deploy; un `previous_digest` promovido por un `deploy.yml` anterior a #783 no estuvo firmado, pero eso es histórico y se agota conforme rotan los despliegues.
+
 ## Anti-patrones
 
 | Síntoma | Por qué importa | Use en su lugar |
