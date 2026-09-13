@@ -199,7 +199,7 @@ Reemplazo del backend LocalBackend por un contenedor FastAPI propio desplegado e
 | M3.4 — Magic-link wiring + `SMTPMailTransport` en `local_backend/app.py` | cerrado | #651 |
 | Phase 3 — Coolify deploy manifest + `.accdb` legacy migration + runbook operador | cerrado | #648 |
 | Phase 5 — Deploy step separado del lifespan bootstrap | cerrado (deploy.yml independiente + runbook de rollback) | #647, #726 |
-| Hygiene — Pre-existing ruff errors + failing e2e | pendiente | #646 |
+| Hygiene — Pre-existing ruff errors + failing e2e | cerrado (ruff verde por e7e0c8b; e2e skip opt-in por PR #771) | #646 |
 
 **Estado del round-trip M3.1**: el helper lee de MailDev HTTP API (`apap-smtp-dev`); los unit tests del helper están verdes en el suite default (regex, polling, timeout, retry sobre 5xx). El round-trip del magic-link queda cubierto por integración in-process; `tests/e2e/test_magic_link_e2e.py` permanece skip'd hasta tener MailDev y deploy productivo operativos.
 
@@ -212,7 +212,7 @@ Reemplazo del backend LocalBackend por un contenedor FastAPI propio desplegado e
 | Fase / Área | Título tentativo | Depende de |
 |---|---|---|
 | Self-host | `chore(phase-5): separar deploy step del lifespan bootstrap` | Phase 3 cerrado (merge PR #769) |
-| Hygiene | `chore(hygiene): pre-existing ruff errors + failing e2e test` | — |
+| Hygiene | `chore(hygiene): pre-existing ruff errors + failing e2e test` | cerrado (PR #771) |
 | Migración en vivo PR7 | `feat(migration): verify-fallback-ready + gate CI` | PR6 cerrado |
 | Transversal | `feat(dashboard): bandeja de pendientes + realtime` | Fase 2 |
 | Transversal | `feat(search): búsqueda global` | Fases 3–4 |
