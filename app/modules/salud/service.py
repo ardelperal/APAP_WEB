@@ -28,7 +28,7 @@ mapping all live here.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from app.core.data_access import SqlExecutor
 from app.core.forms import required_text
@@ -126,7 +126,7 @@ def _raise_animal_lifecycle_gate(row: dict[str, object]) -> None:
     # Incoherente (animal_current_state.current_state). A NULL state
     # (no row in animal_current_state) is the default ``pendiente_entrada``
     # and does NOT block the terapia.
-    current_state = row.get("current_state") or ""
+    current_state = cast("str", row.get("current_state") or "")
     if current_state == STATE_INCOHERENTE or current_state.startswith("Fallecido"):
         raise ValueError(
             f"animal_id no admite nuevas terapias (estado {current_state})"

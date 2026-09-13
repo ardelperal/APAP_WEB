@@ -35,7 +35,7 @@ def _magic_link_app() -> tuple[FastAPI, _MagicLinkPortSpy, _MailTransportSpy]:
     app.state.magic_link_port = port
     app.state.smtp_transport = transport
     app.state.public_base_url = "https://apap.example"
-    app.include_router(magic_link_router, prefix="/api")
+    app.include_router(magic_link_router, prefix="")
     return app, port, transport
 
 
