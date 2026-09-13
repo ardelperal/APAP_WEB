@@ -267,7 +267,7 @@ pytest con el piso de cobertura y el ratchet de CRAP:
 make verify
 ```
 
-Una corrida en verde, sobre una rama al día con `main`, indica que la PR está lista para CI. No reemplaza el check remoto `ci / required`, que además valida seguridad en contenedores, PostgreSQL, el build de producción y el smoke E2E con navegador real.
+Una corrida en verde, sobre una rama al día con `main`, indica que la PR está lista para CI. No reemplaza el check remoto `ci / required`, que además valida seguridad básica, PostgreSQL y el build de producción. En tags `v*` y `workflow_dispatch`, el agregador también exige `security-deep`, `mutation` y el smoke E2E con navegador real.
 
 `make all` es `make css` + `make verify`, para cuando además hace falta recompilar el bundle de Tailwind.
 
@@ -275,12 +275,13 @@ Lo que `verify` **no** corre por requerir servicios, contenedores, navegador, cr
 
 | Job | Por qué queda fuera | Cómo correrlo |
 |---|---|---|
-| `mutation` | cosmic-ray es Linux-only y tarda; corre en un schedule semanal | `make mutation` (bajo WSL) |
-| `security` / `security-deep` | gitleaks y trivy corren en Docker | por CI |
+| `mutation` | cosmic-ray es Linux-only y tarda; corre en tags `v*` o `workflow_dispatch` | `make mutation` (bajo WSL) |
+| `security` | gitleaks y trivy corren en Docker | por CI |
+| `security-deep` | el análisis profundo corre en tags `v*` o `workflow_dispatch` | por CI |
 | `integration` | necesita un Postgres real | `pytest -m integration` con `APAP_TEST_POSTGRES_DSN` |
 | `verify-fallback-ready` | necesita un Postgres aislado | por CI |
 | `build` | construye y valida la imagen de producción | por CI o `docker build` |
-| `e2e` | arranca Postgres, la aplicación real y Chromium mediante Playwright | por CI |
+| `e2e` | arranca Postgres, la aplicación real y Chromium en tags `v*` o `workflow_dispatch` | por CI |
 
 > Los scripts reproducibles de `verify` están clavados a `ci.yml` por
 > `tests/test_ci_workflow.py::test_make_verify_covers_locally_runnable_script_gates`.
@@ -288,7 +289,7 @@ Lo que `verify` **no** corre por requerir servicios, contenedores, navegador, cr
 
 ## Workflow de CI
 
-El workflow de GitHub Actions corre en pull requests y pushes a `main`, tags `v*` y en sus schedules. Todos los jobs de verificación usan runners hosted aislados:
+El workflow de GitHub Actions corre en pull requests, pushes a `staging`, tags `v*` y `workflow_dispatch`; no declara schedules. Todos los jobs de verificación usan runners hosted aislados:
 
 | Job | Propósito |
 |---|---|---|
@@ -387,8 +388,8 @@ La sección `openspec/changes/ci-cd-foundation/design.md § Future work` lista c
 - **DeprecationWarning es error**: `pyproject.toml` promueve `DeprecationWarning` y `PendingDeprecationWarning` a error en pytest. Un test que importe APIs deprecadas falla en local y en CI; el filtro `StarletteDeprecationWarning` es la única excepción documentada.
 - **Cobertura `--cov-fail-under=85`**: pytest replica el suelo de `pyproject.toml`. Una suite que omite ese flag puede pasar en local y fallar en CI.
 - **`ruff check .` cubre `E/F/W/I/UP/B`**: la selección vive en `pyproject.toml` § `[tool.ruff.lint]`. Cambiar reglas requiere PR que actualice también este doc.
-- **`make mutation` es semanal y Linux-only**: cosmic-ray no entra en `verify` por coste y portabilidad. Solo se ejecuta en el job `mutation` con schedule semanal; los workstations no lo corren por defecto.
-- **E2E falla cerrado**: el job `ci / e2e` levanta PostgreSQL, arranca la aplicación con lifespan habilitado y ejecuta Chromium. La autenticación de prueba requiere `APAP_E2E_AUTH_SECRET`; si falta, el job falla en lugar de saltarse.
+- **`make mutation` es release-only y Linux-only**: cosmic-ray no entra en `verify` por coste y portabilidad. El job `mutation` solo se ejecuta en tags `v*` o `workflow_dispatch`; los workstations no lo corren por defecto.
+- **E2E falla cerrado en releases**: el job `ci / e2e` corre en tags `v*` o `workflow_dispatch`, levanta PostgreSQL, arranca la aplicación con lifespan habilitado y ejecuta Chromium. La autenticación de prueba requiere `APAP_E2E_AUTH_SECRET`; si falta, el job falla en lugar de saltarse.
 - **Edición editable requiere reinstalar tras mover worktree**: `python -m pip install -e ".[dev]"` deja una ruta absoluta en un `.pth`. Mover o recrear el worktree deja esa ruta apuntando al checkout anterior; hay que reinstalar.
 
 ## Contributor checklist

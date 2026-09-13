@@ -101,20 +101,25 @@ def test_ci_workflow_defines_lint_test_and_build_jobs() -> None:
     assert "python -m build" in workflow
 
 
-def test_ci_workflow_runs_e2e_job_with_playwright() -> None:
-    """The e2e job runs the Playwright suite unconditionally (no gate
-    on ``vars.ENABLE_E2E``). The Playwright harness landed in PR #108
-    and the e2e job is now always on so every PR gets the visual
-    regression net.
+def test_ci_workflow_runs_release_e2e_job_with_playwright() -> None:
+    """Issue #780: E2E has no feature flag but runs only for release events.
+
+    Tags and manual dispatch must execute the Playwright suite; pull requests,
+    regular pushes, and the removed schedule trigger must not reach the job.
     """
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
 
     assert "e2e:" in workflow
-    # The e2e job must install + run the Playwright suite. There must
-    # be no ``vars.ENABLE_E2E`` gate (the feature flag is gone).
     assert "vars.ENABLE_E2E" not in workflow, (
-        "e2e job should always run; the ENABLE_E2E flag has been retired"
+        "the ENABLE_E2E feature flag has been retired"
     )
+    start = workflow.index("\n  e2e:")
+    section = workflow[start : workflow.index("\n  required:", start)]
+    if_clause = section[section.index("if:") : section.index("services:")]
+    assert "github.event_name == 'workflow_dispatch'" in if_clause
+    assert "startsWith(github.ref, 'refs/tags/')" in if_clause
+    assert "github.event_name == 'schedule'" not in if_clause
+    assert "pull_request" not in if_clause
     assert "playwright install" in workflow
     assert "playwright" in workflow.lower()
     # And it must actually execute the suite.

@@ -52,8 +52,9 @@ Cada slice que aterriza en `main` necesita su batería E2E con Playwright. La ba
 
 | Gatillo | ¿Corre la batería E2E? |
 |---|---|
-| PR a `main` (cualquier slice) | **Sí** — aplicación real, PostgreSQL efímero y Chromium |
-| Ejecución programada | **No** — el contrato del agregador autoriza este único skip |
+| PR a `main` (cualquier slice) | **No** — el agregador autoriza el skip del job pesado |
+| Push a `staging` | **No** — el agregador autoriza el skip del job pesado |
+| `workflow_dispatch` | **Sí** — batería completa bajo ejecución manual |
 | Push de tag `v*` | **Sí** — batería completa antes de distribuir |
 
 **Objetivo:** validar que todos los flujos end-to-end operan con datos reales de LocalBackend antes de cada release. La batería no sustituye los tests unitarios ni de integración — los complementa cubriendo la cadena completa HTTP → servicio → base de datos → HTML.
