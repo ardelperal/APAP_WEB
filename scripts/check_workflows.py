@@ -1,4 +1,4 @@
-"""Workflow-file gate: six ways a workflow stops protecting anything.
+"""Workflow-file gate: seven ways a workflow stops protecting anything.
 
 **Duplicate mapping keys (issue #523).** A workflow whose YAML does not parse
 never becomes a red check. GitHub records a `startup_failure` run and the check
@@ -37,8 +37,17 @@ single-runner pool that would have held the queue for six hours had nobody been
 watching. Every job must state its own budget. This check parses properly with
 PyYAML, which #526 moved into the ``dev`` extra precisely so the gates may.
 
-All six checks prove they scanned something, per Hard Rule 18: zero workflow files
-found is a failure, not a pass.
+**Self-hosted runner reachable by pull_request (issue #782).** The self-hosted
+Oracle ARM64/Coolify host carries deploy credentials. A job that a fork's pull
+request can trigger must never land on it: that is a privilege-escalation
+vector, not a convenience. A job is exempt only when its own workflow never
+triggers on ``pull_request`` at all, or its ``if:`` provably excludes that
+event from the expression alone (no GitHub-context evaluation needed) — e.g.
+``github.event_name == 'workflow_dispatch'``. ``deploy.yml`` qualifies today
+because its workflow triggers only on ``push``/``workflow_dispatch``.
+
+All seven checks prove they scanned something, per Hard Rule 18: zero workflow
+files found is a failure, not a pass.
 """
 from __future__ import annotations
 
@@ -313,6 +322,83 @@ def check_docker_preflight(text: str, label: str) -> list[str]:
     return violations
 
 
+#: Runner labels GitHub hosts itself. Anything else — self-hosted, a matrix
+#: expression, a docker:// target — must not receive pull_request-reachable
+#: work: the self-hosted host carries deploy credentials a forked-PR
+#: contributor must never reach.
+_HOSTED_RUNNER = re.compile(r"^(?:ubuntu|windows|macos)-[A-Za-z0-9._-]+$")
+
+#: A single ``github.event_name == '<event>'`` term that cannot match
+#: pull_request. Only a disjunction of these terms proves a job's `if:`
+#: statically excludes the event; anything else (a label check, a matrix
+#: value, a dynamic expression) is not provably safe and stays PR-reachable.
+_NON_PR_EVENT = re.compile(r"^github\.event_name\s*==\s*(['\"])(?!pull_request\1)[A-Za-z0-9_]+\1$")
+
+
+def _excludes_pull_request(condition: object) -> bool:
+    """Return whether ``condition`` proves, from the expression alone, that the
+    job it guards can never run for a ``pull_request`` event.
+
+    Evaluating GitHub context at runtime is not an option here — this is a
+    static gate over the YAML text. So only the narrow, provable shape counts:
+    a bare ``github.event_name != 'pull_request'`` or an ``||`` chain of
+    ``github.event_name == '<other-event>'`` terms. Anything looser (a label
+    check, ``startsWith(...)``, a matrix variable) cannot be proven safe here
+    and is treated as PR-reachable.
+    """
+    if not isinstance(condition, str):
+        return False
+    expression = condition.strip()
+    if expression.startswith("${{") and expression.endswith("}}"):
+        expression = expression[3:-2].strip()
+    if re.fullmatch(r"github\.event_name\s*!=\s*(['\"])pull_request\1", expression):
+        return True
+    terms = [term.strip() for term in expression.split("||")]
+    return bool(terms) and all(_NON_PR_EVENT.fullmatch(term) for term in terms)
+
+
+def _triggers_on_pull_request(workflow: dict) -> bool:
+    """Return whether ``workflow`` declares a ``pull_request`` trigger.
+
+    PyYAML (YAML 1.1) parses the bare key ``on`` as the boolean ``True``, so
+    both the string and boolean spellings of the key are checked.
+    """
+    triggers = workflow.get("on", workflow.get(True))
+    if isinstance(triggers, str):
+        return triggers == "pull_request"
+    if isinstance(triggers, (list, dict)):
+        return "pull_request" in triggers
+    return False
+
+
+def check_runner_isolation(text: str, label: str) -> list[str]:
+    """Return one violation per pull_request-reachable job not on a hosted runner.
+
+    Untrusted PR code reaching the self-hosted Oracle ARM64/Coolify host is a
+    real privilege-escalation vector: that host carries deploy credentials a
+    forked-PR contributor must never touch. A job is exempt only when its
+    workflow never triggers on ``pull_request`` at all (``deploy.yml`` today),
+    or its own ``if:`` statically excludes that event (issue #782).
+    """
+    workflow = yaml.safe_load(text)
+    if not isinstance(workflow, dict) or not _triggers_on_pull_request(workflow):
+        return []
+    violations: list[str] = []
+    for name, job in (workflow.get("jobs") or {}).items():
+        if not isinstance(job, dict) or _excludes_pull_request(job.get("if")):
+            continue
+        runner = job.get("runs-on")
+        if isinstance(runner, str) and _HOSTED_RUNNER.fullmatch(runner):
+            continue
+        violations.append(
+            f"{label}: job '{name}' is reachable by pull_request and declares "
+            f"runs-on {runner!r}. Public PR code must run on a literal "
+            f"GitHub-hosted label (e.g. 'ubuntu-24.04'), never self-hosted "
+            f"(issue #782)."
+        )
+    return violations
+
+
 def check(workflow_dir: Path = WORKFLOW_DIR) -> tuple[list[str], int]:
     """Return (violations, files scanned) for every workflow in ``workflow_dir``."""
     violations: list[str] = []
@@ -332,6 +418,7 @@ def check(workflow_dir: Path = WORKFLOW_DIR) -> tuple[list[str], int]:
             violations.extend(check_docker_preflight(text, label))
             violations.extend(check_concurrency(text, label))
             violations.extend(check_absent_commands(text, label))
+            violations.extend(check_runner_isolation(text, label))
     return violations, len(paths)
 
 
@@ -367,7 +454,8 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"check_workflows: OK ({scanned} workflow files, no duplicate keys, "
         f"every job has a timeout, no pinned service ports, docker is checked "
-        f"before use, FIFO concurrency, no absent commands)"
+        f"before use, FIFO concurrency, no absent commands, pull_request jobs "
+        f"stay off self-hosted runners)"
     )
     return 0
 
