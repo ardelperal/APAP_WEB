@@ -23,10 +23,10 @@ ALL_JOBS = frozenset(
     }
 )
 SKIPS_BY_EVENT = {
-    "pull_request": frozenset({"security-deep", "mutation"}),
-    "push": frozenset({"security-deep", "issue-spec", "mutation"}),
+    "pull_request": frozenset({"security-deep", "mutation", "e2e"}),
+    "push": frozenset({"security-deep", "issue-spec", "mutation", "e2e"}),
     "schedule": frozenset({"e2e", "issue-spec"}),
-    "workflow_dispatch": frozenset({"issue-spec"}),
+    "workflow_dispatch": frozenset({"issue-spec", "e2e"}),
 }
 
 

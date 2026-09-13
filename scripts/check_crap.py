@@ -129,9 +129,8 @@ BASELINE_CRAP: dict[str, float] = {
     "app/modules/lifecycle/domain/animal_state.py::_resolve_pre_death_state": 7.0,
     "app/modules/lifecycle/domain/animal_state.py::calculate_state": 15.05,
     "app/modules/materiales/queries.py::build_material_update": 6.0,
-    "app/modules/materiales/routes.py::update_material_view": 6.42,
-    "app/modules/materiales/service.py::_is_unique_violation": 6.56,
-    "app/modules/salud/service.py::_raise_terapia_fk_error": 13.05,
+    "app/modules/materiales/routes.py::update_material_view": 5.00,  # PR #752 PR 5: routes.py kwargs spread + the 3 new exception-branch coverage pins reduced CRAP from 6.14 to 5.00.
+        "app/modules/salud/service.py::_raise_terapia_fk_error": 5.05,  # PR #54 follow-up: extracted _raise_animal_lifecycle_gate + added LEFT JOIN to animal_current_state. CRAP dropped from 13.05 to 5.05 when the suite-wide coverage is measured; the dead-code fallback at line 185 (unreachable edge case) does not inflate CRAP above the threshold.
     "app/modules/salud/service.py::delete_terapia": 6.01,
     "app/modules/sanidad/batch_routes.py::_do_batch_view": 7.01,
     "app/modules/sanidad/batch_routes.py::batch_actuaciones_view": 8.0,
@@ -143,7 +142,7 @@ BASELINE_CRAP: dict[str, float] = {
     "app/modules/sanidad/routes.py::_actuacion_to_form_data": 6.0,
     "app/modules/sanidad/routes.py::list_actuaciones_view": 6.0,
     "app/modules/sanidad/scheduling.py::schedule_periodic_task": 143.17,
-    "app/modules/sanidad/service.py::_raise_validation_error": 14.51,
+    "app/modules/sanidad/service.py::_raise_validation_error": 7.64,  # PR #54 follow-up: extracted _raise_animal_lifecycle_gate + _raise_d24_fecha_alta moved branches out, CRAP dropped from 14.51 to 7.64.
     "app/modules/tasks/rules.py::rule_esterilizacion_pendiente": 56.0,
     "app/modules/tasks/rules.py::rule_seguimiento_post_adopcion": 132.0,
     "app/modules/tasks/rules.py::rule_vacuna_vencimiento": 20.0,

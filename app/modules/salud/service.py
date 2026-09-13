@@ -28,11 +28,12 @@ mapping all live here.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from app.core.data_access import SqlExecutor
 from app.core.forms import required_text
 from app.core.logging import log_safe
+from app.modules.lifecycle import STATE_INCOHERENTE
 from app.modules.salud import queries as salud_queries
 
 
@@ -106,6 +107,32 @@ def _row_to_recomendacion(row: dict[str, Any]) -> Recomendacion:
     )
 
 
+def _raise_animal_lifecycle_gate(row: dict[str, object]) -> None:
+    """Legacy §9.2 gates for terapias (mirror of sanidad).
+
+    Fallecido: animales.fecha_defuncion IS NOT NULL.
+    Incoherente: animal_current_state.current_state = STATE_INCOHERENTE.
+
+    Extracted to keep CC < 11 (C901 ratchet). The ``row`` argument is
+    the SELECT result produced by the consolidated animal +
+    animal_current_state disambiguation JOIN below.
+    """
+    # Fallecido (animals.f_defuncion IS NOT NULL).
+    f_defuncion = row.get("f_defuncion")
+    if f_defuncion:
+        raise ValueError(
+            f"animal_id no admite nuevas terapias (fallecido desde {f_defuncion})"
+        )
+    # Incoherente (animal_current_state.current_state). A NULL state
+    # (no row in animal_current_state) is the default ``pendiente_entrada``
+    # and does NOT block the terapia.
+    current_state = cast("str", row.get("current_state") or "")
+    if current_state == STATE_INCOHERENTE or current_state.startswith("Fallecido"):
+        raise ValueError(
+            f"animal_id no admite nuevas terapias (estado {current_state})"
+        )
+
+
 def _raise_terapia_fk_error(
     client: SqlExecutor, params: dict[str, Any]
 ) -> None:
@@ -114,22 +141,33 @@ def _raise_terapia_fk_error(
     Called ONLY after the atomic CTE returned 0 rows. Re-runs targeted
     SELECTs to identify which check failed and raise a specific
     ``ValueError`` for the operator UX.
+
+    Mirrors the sanidad gate (PR #54 follow-up): Fallecido +
+    Incoherente + the standard FK checks (animal activo, voluntario
+    activo). The disambiguation joins ``animal_current_state`` so a
+    missing state row falls back to NULL.
     """
     animal_id = required_text(params, "animal_id")
     vol_id = required_text(params, "voluntario_id")
 
     animal_rows = client.execute_sql(
-        "SELECT id, activo FROM animales WHERE id = $1",
+        "SELECT a.id, a.activo, a.f_defuncion, "
+        "       acs.current_state "
+        "FROM animales a "
+        "LEFT JOIN animal_current_state acs ON acs.animal_id = a.id "
+        "WHERE a.id = $1",
         [animal_id],
     )
     if not animal_rows:
         raise ValueError(
             f"animal_id debe apuntar a un animal activo (no encontrado: {animal_id})"
         )
-    if not animal_rows[0].get("activo", False):
+    row = animal_rows[0]
+    if not row.get("activo", False):
         raise ValueError(
             f"animal_id debe apuntar a un animal activo (inactivo: {animal_id})"
         )
+    _raise_animal_lifecycle_gate(row)
 
     vol_rows = client.execute_sql(
         "SELECT id, activo FROM voluntarios WHERE id = $1",
@@ -143,25 +181,6 @@ def _raise_terapia_fk_error(
         raise ValueError(
             f"voluntario_id debe apuntar a un voluntario activo (inactivo: {vol_id})"
         )
-
-    # Lifecycle gate (issue #46 follow-up): the CTE rejected the animal
-    # not because of an FK or active-flag issue (those branches above
-    # returned), but because ``animal_current_state.current_state`` is
-    # one of the blocked states (``Incoherente`` or any ``Fallecido (*)``
-    # variant). Surface the Spanish lifecycle error copy so the
-    # operator UI can render the actionable message.
-    lifecycle_rows = client.execute_sql(
-        "SELECT current_state FROM animal_current_state WHERE animal_id = $1",
-        [animal_id],
-    )
-    if lifecycle_rows:
-        current_state = lifecycle_rows[0].get("current_state") or ""
-        if current_state == "Incoherente" or current_state.startswith("Fallecido"):
-            raise ValueError(
-                f"animal_id en estado {current_state} — "
-                "no se puede registrar terapia para animales "
-                "fallecidos o incoherentes"
-            )
 
     raise ValueError(
         "FK validation failed (animal_id, voluntario_id) — none matched"

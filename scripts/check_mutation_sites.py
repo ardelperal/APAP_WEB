@@ -48,10 +48,11 @@ BASELINE_MUTATION_SITES: dict[str, int] = {
     "app/modules/cesiones/service.py": 362,
     "app/modules/foster/routes.py": 255,
     "app/modules/foster/service.py": 342,
+    "app/modules/materiales/adapters/local_backend/materiales_local_backend_adapter.py": 296,  # issue #752 PR 5: lifted _row_to_*, _is_unique_violation, _validate_* from the legacy service.py into the adapter; the refactor to fix CRAP grade-A (extracted _is_unique_violation into _body_indicates_unique_violation / _dict_indicates_unique_violation and _clean_update_payload helpers) grew the file by 12 mutation sites from the original 284 baseline.
     "app/modules/salud/routes.py": 392,
-    "app/modules/salud/service.py": 342,
+    "app/modules/salud/service.py": 348,  # PR #54 follow-up: extracted _raise_animal_lifecycle_gate (5 sites for the helper definition + docstring + FDefuncion / current_state / Incoherente branches).
     "app/modules/sanidad/routes.py": 414,  # early-return added to proximas_pruebas_view for test_route_layer_coverage
-    "app/modules/sanidad/service.py": 391,
+    "app/modules/sanidad/service.py": 409,  # issue #54 follow-up: legacy §9.2 gates added 18 sites total (LEFT JOIN + _raise_animal_lifecycle_gate + _raise_d24_fecha_alta extractions + Spanish error strings).
     "migration/cli.py": 407,  # issue #690: _build_web_client() wires a real LocalPostgresExecutor (+1 site: explicit search_path schema comment)
     "migration/diff_engine.py": 333,
     "migration/lock.py": 268,  # Re-baselined after Path A refactor of acquire_lock (issue #420 / PR #452). The 4-helper split grew the file by 9 sites (function defs + docstrings) but reduced the per-function CRAP from 26.54 to 1.00 (grade A).

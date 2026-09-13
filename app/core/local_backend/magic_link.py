@@ -1,13 +1,13 @@
 """Magic-link router for the local backend (M3.4, issue #651).
 
-The router mounts under ``/api`` via ``app/core/local_backend/app.py``
+The router mounts under ``/auth`` (was ``/api`` pre-M3.4 path correction) via ``app/core/local_backend/app.py`` and ``app/routes_registry.py``
 and serves the two endpoints the login flow expects:
 
-- ``POST /api/magic/start`` (JSON body ``{"email": "..."}``) mints a
+- ``POST /auth/magic/start`` (JSON body ``{"email": "..."}``) mints a
   token via :class:`MagicLinkPort` and asks
   :class:`SMTPMailTransport` to deliver the verify URL. Returns
   ``{"status": "queued"}``. 400 on missing or malformed email.
-- ``GET /api/magic/verify?token=...`` consumes the token. On success
+- ``GET /auth/magic/verify?token=...`` consumes the token. On success
   redirects to ``/`` and sets the signed ``apap_session`` cookie. On
   failure (unknown / expired / used token) redirects to
   ``/login?reason=invalid_or_expired`` without setting any cookie.
@@ -83,7 +83,7 @@ def _set_apap_session_cookie(response: Response, email: str, secret: str) -> Non
     )
 
 
-@router.post("/magic/start")
+@router.post("/auth/magic/start")
 async def start_magic_link(request: Request, payload: dict[str, object]) -> dict:
     """Mint a magic-link token and queue the verify email.
 
@@ -106,7 +106,7 @@ async def start_magic_link(request: Request, payload: dict[str, object]) -> dict
     base_url: str = request.app.state.public_base_url
 
     raw_token = port.create_token(email)
-    verify_url = f"{base_url}/api/magic/verify?token={raw_token}"
+    verify_url = f"{base_url}/auth/magic/verify?token={raw_token}"
     transport.send(
         to_addr=email,
         subject="Tu enlace de acceso a APAP",
@@ -123,7 +123,7 @@ async def start_magic_link(request: Request, payload: dict[str, object]) -> dict
     return {"status": "queued"}
 
 
-@router.get("/magic/verify")
+@router.get("/auth/magic/verify")
 async def verify_magic_link(
     request: Request,
     response: Response,

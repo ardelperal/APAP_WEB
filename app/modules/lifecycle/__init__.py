@@ -36,6 +36,7 @@ from app.modules.lifecycle.domain.animal_state import (
     DerivationResult,
     calculate_state,
 )
+from app.modules.lifecycle.domain.constants import STATE_INCOHERENTE
 from app.modules.lifecycle.ports.lifecycle_port import LifecyclePort
 
 __all__ = [
@@ -43,6 +44,7 @@ __all__ = [
     "DerivationKind",
     "DerivationResult",
     "LifecyclePort",
+    "STATE_INCOHERENTE",
     "build_lifecycle_port",
     "calculate_animal_state",
     "calculate_state",

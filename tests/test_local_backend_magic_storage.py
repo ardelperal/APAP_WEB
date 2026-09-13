@@ -35,7 +35,7 @@ def _magic_link_app() -> tuple[FastAPI, _MagicLinkPortSpy, _MailTransportSpy]:
     app.state.magic_link_port = port
     app.state.smtp_transport = transport
     app.state.public_base_url = "https://apap.example"
-    app.include_router(magic_link_router, prefix="/api")
+    app.include_router(magic_link_router, prefix="")
     return app, port, transport
 
 
@@ -47,7 +47,7 @@ async def test_start_magic_link_rejects_invalid_email(payload: dict[str, Any]) -
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
-        response = await client.post("/api/magic/start", json=payload)
+        response = await client.post("/auth/magic/start", json=payload)
 
     assert response.status_code == 400
     assert response.json() == {"detail": {"error": "invalid_email"}}
@@ -62,7 +62,7 @@ async def test_start_magic_link_normalizes_and_queues_message() -> None:
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
-        response = await client.post("/api/magic/start", json={"email": "  User@Example.COM "})
+        response = await client.post("/auth/magic/start", json={"email": "  User@Example.COM "})
 
     assert response.status_code == 200
     assert response.json() == {"status": "queued"}
@@ -71,5 +71,5 @@ async def test_start_magic_link_normalizes_and_queues_message() -> None:
     assert transport.messages[0]["to_addr"] == "user@example.com"
     assert transport.messages[0]["subject"] == "Tu enlace de acceso a APAP"
     assert (
-        "https://apap.example/api/magic/verify?token=opaque-token" in transport.messages[0]["body"]
+        "https://apap.example/auth/magic/verify?token=opaque-token" in transport.messages[0]["body"]
     )

@@ -245,6 +245,54 @@ def test_create_terapia_cte_failure_disambiguates_voluntario_inactivo_v2() -> No
         salud_service.create_terapia(client, params)
 
 
+def test_create_terapia_blocks_fallecido_animal() -> None:
+    """Animal with FDefuncion IS NOT NULL blocks new terapias (legacy §9.2).
+
+    Mirror of the sanidad gate (issue #54 follow-up): Fallecido
+    animals do not admit new health events. The terapia CTE
+    disambiguation must surface the Spanish lifecycle error so
+    the operator UI can render the actionable message.
+    """
+    client, _ = _client_cascading(
+        [],  # CTE returns nothing
+        # animal disambiguation: activo but FDefuncion set
+        [{"id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "activo": True, "f_defuncion": "2024-08-15"}],
+        # voluntario disambiguation: not reached (animal check fails first)
+        [],
+    )
+    params = {
+        "animal_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        "voluntario_id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+        "fecha": "2026-07-04",
+    }
+    with pytest.raises(ValueError, match="fallecido"):
+        salud_service.create_terapia(client, params)
+
+
+def test_create_terapia_blocks_incoherente_animal() -> None:
+    """Animal with animal_current_state.current_state = Incoherente blocks new terapias.
+
+    Mirror of the sanidad gate: Incoherente animals require
+    manual intervention before any alta. The CTE disambiguation
+    must surface the Incoherente state so the operator UI can
+    render the actionable message.
+    """
+    client, _ = _client_cascading(
+        [],  # CTE returns nothing
+        # animal disambiguation JOIN: activo, no FDefuncion, current_state=Incoherente
+        [{"id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "activo": True, "f_defuncion": None, "current_state": "Incoherente"}],
+        # voluntario disambiguation: not reached (animal lifecycle check fires first)
+        [],
+    )
+    params = {
+        "animal_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        "voluntario_id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+        "fecha": "2026-07-04",
+    }
+    with pytest.raises(ValueError, match="Incoherente"):
+        salud_service.create_terapia(client, params)
+
+
 def test_list_terapias_returns_mapped() -> None:
     """list_terapias returns list of Terapia instances."""
     rows = [

@@ -7,15 +7,24 @@ Esta página posee el estado de la Fase 6: registro sanitario con periodicidad, 
 ## Estado
 
 En curso. HEALTH-01..06 y el informe de próximas pruebas están
-cerrados en GitHub. Lo que queda:
+cerrados en GitHub. **6c MATERIAL** arrancó: dominio + port abstracto
+(PR #753) y LocalBackend adapter (PR #755, merge `e95e8ef`) ya están
+en `main`. Lo que queda:
 
 1. **E2E pendientes**: las baterías Playwright de terapias (CRUD
    full, lifecycle, auth) y materiales (assignment, auth). El
    informe de próximas pruebas tiene su batería E2E en
    `tests/e2e/test_proximas_pruebas.py` (5 atoms; skip limpio sin
    servidor).
-2. **Sub-fases 6b y 6c**: terapias y material, pendientes de
-   implementación. Sus issues se crean al iniciar el slice.
+2. **6b TERAPIAS**: terapia CRUD cerrada; falta extender el CTE gate
+   del service para que Incoherente/Fallecido bloqueen altas (issue
+   a crear al abrir el slice).
+3. **6c MATERIAL refactor hexagonal**: cerrado (PRs 3, 4, 5). El PR 3 (commit `db6626c`) introdujo la
+   capa `application/` con 8 use cases + 2 FK probes en el Protocol.
+   El PR 4 (commit `9064186`) cableó el DI y migró routes.py +
+   acogida_routes.py al `MaterialesPort`. El PR 5 eliminó
+   `service.py`, `estancia_material_service.py` y los tests que los
+   probaban.
 
 ## Slices
 
@@ -29,7 +38,11 @@ cerrados en GitHub. Lo que queda:
 | 6a SALUD | HEALTH-06 prueba-catalog migration | cerrado | #55 |
 | 6a SALUD | Informe de próximas pruebas | **cerrado** | #652 |
 | 6b TERAPIAS | terapias y recomendaciones | **cerrado (con lifecycle gate)** | #53, #653 |
-| 6c MATERIAL | inventario de material y asignaciones | pendiente | — |
+| 6c MATERIAL | dominio + port abstracto | **cerrado** | #753 |
+| 6c MATERIAL | LocalBackend adapter (MaterialesPort) | **cerrado** | #755 (merge `e95e8ef`) |
+| 6c MATERIAL | capa application (use cases) | **cerrado** | #752 PR 3 (merge `db6626c`) |
+| 6c MATERIAL | DI wiring del adapter | **cerrado** | #752 PR 4 (merge `9064186`) |
+| 6c MATERIAL | remoción de `service.py` legacy | **cerrado** | #752 PR 5 |
 
 ## Issues abiertas relacionadas
 
@@ -77,7 +90,7 @@ Baterías E2E con Playwright para cada sub-slice de Fase 6. Las baterías se esc
 | `test_sanidad_date_validation.py` | Fecha posterior al nacimiento, anterior a defunción, 422 en rango inválido | `sanidad` ❌ pendiente |
 | `test_sanidad_no_duplicates.py` | Mismo chip + prueba + fecha → 409 | `sanidad` ❌ pendiente |
 | `test_sanidad_auth.py` | 302 sin sesión, 403 con rol reader en POST | `sanidad` ❌ pendiente |
-| `test_sanidad_lifecycle.py` | Crear evento sanitario; verificar que Incoherente/Fallecido bloquean nuevo evento | `sanidad` ❌ pendiente |
+| `test_sanidad_lifecycle.py` | POST /sanidad con animal Fallecido → 422 + Spanish 'fallecido'; POST /sanidad con animal Incoherente → 422 + Spanish 'Incoherente' (skip si el seed no marca animales así) | `sanidad` hecho (#54 follow-up) |
 
 ### 6b — Terapias
 
@@ -85,16 +98,18 @@ Baterías E2E con Playwright para cada sub-slice de Fase 6. Las baterías se esc
 |---|---|---|---|
 | `test_salud_terapias.py` | List, create, detail, edit, soft-delete, recomendaciones create/patch/delete, 409 con recomendaciones pendientes (7 tests) | hecho | `salud` |
 | `test_terapias_auth.py` | GET/POST/GET-detail anónimo devuelven redirect a /login (3 tests) | hecho | `salud` |
-| `test_terapias_lifecycle.py` | Incoherente / Fallecido bloquean nueva terapia (CTE gate + desambiguación del service) | hecho (#653, skip hasta seed de ``animal_current_state`` en el harness) | `salud` |
+| `test_terapias_lifecycle.py` | regression sentinel: terapia sin ``animal_current_state`` row no se over-blocks (303); unit tests en ``tests/test_salud.py`` pin el CTE gate (Fallecido → 422 + 'fallecido', Incoherente → 422 + 'Incoherente') | hecho (gate implementado en PR #54 follow-up; E2E skip limpio sin seed widening) | `salud` |
 | `test_terapias_crud_full.py` | CRUD completo con todos los campos opcionales + recomendaciones completas (PATCH completada) | cubierto por ``test_salud_terapias.py`` (7 tests) | `salud` |
 
-Nota sobre lifecycle: el slice 6b está cerrado con HEALTH-04 (#53) pero
-el motor de estado del animal (Incoherente / Fallecido) no bloquea
-hoy nuevas terapias; lo hace la regla equivalente en sanidad
-(HEALTH-01). El test E2E de lifecycle es un follow-up que requiere
-un slice pequeño: extender el CTE de ``create_terapia`` para que
-descarta animales en estado ``Incoherente`` / ``Fallecido`` (issue
-a crear al abrir ese slice).
+Nota sobre lifecycle: el slice 6b ya cierra el CTE gate con el
+pattern de sanidad (PR #54 follow-up). La disambiguación en
+``_raise_terapia_fk_error`` ahora JOINa ``animal_current_state`` y
+raisea 422 con ``"animal_id no admite nuevas terapias
+(estado <state>)"`` para ``Incoherente`` o ``Fallecido (*, ...)``;
+también raisea 422 con ``"... (fallecido desde <date>)"`` cuando
+``animales.f_defuncion IS NOT NULL``. La unit test coverage vive
+en ``tests/test_salud.py::test_create_terapia_blocks_fallecido_*
+animal`` y ``..._blocks_incoherente_animal``.
 
 ### 6c — Material
 
@@ -108,7 +123,7 @@ a crear al abrir ese slice).
 
 | Fichero E2E | Casos | Slice |
 |---|---|---|
-| `test_periodicity_engine.py` | Registrar periodicidad; verificar que genera tarea pendiente; simular fecha futura; verificar alerta | `tasks` / `sanidad` ❌ pendiente |
+| `test_periodicity_engine.py` | Vacuna crea tarea linked via vinculo; Vacuna overdue marca urgente; Esterilización one-shot no crea tarea; Desparasitación crea tarea linked | `tasks` / `sanidad` hecho |
 
 ### Informe de próximas pruebas
 

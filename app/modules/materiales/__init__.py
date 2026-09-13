@@ -1,50 +1,23 @@
-"""FOSTER-04 materiales module — catalog + estancia assignment (Refs #46).
+"""FOSTER-04 materiales module (issue #752).
 
-Exports the service + the two routers (catalog + per-estancia junction)
-so the rest of the app can do ``from app.modules.materiales import
-service, router, junction_router, Material, EstanciaMaterial,
-MaterialConflictError``.
+The legacy module re-exports were removed in PR 5 because they
+introduced a circular import: the LocalBackend adapter imports
+``app.modules.materiales.queries`` (to compose SQL), and the
+queries submodule lives inside this package — any re-export at
+the package root would force the adapter to load before the
+package is fully initialised.
 
-PR A of the FOSTER-04 chained-PR series delivers ONLY the service
-skeleton + dataclasses + SQL constants + mapping helpers. The catalog
-routes land in PR B; the per-estancia junction routes + templates +
-detail-page integration land in PR C. See ``sdd/foster-04-materiales/tasks``
-(engram obs #15905) for the full split.
+Callers that previously did ``from app.modules.materiales import
+create_material, Material, materiales_router`` should now do one
+of:
+
+- ``from app.modules.materiales.application import create_material, Material``
+- ``from app.modules.materiales.routes import router as materiales_router``
+- ``from app.modules.materiales.acogida_routes import router as materiales_acogida_router``
+- ``from app.modules.materiales.di import get_materiales_port``
+
+The empty ``__init__`` is intentional; removing the legacy
+re-exports is the only way to break the import cycle the
+adapter <-> package root introduced when PR 5 lifted the row
+mappers from ``service.py`` into the adapter.
 """
-
-from app.modules.materiales import estancia_material_service, service
-from app.modules.materiales.acogida_routes import router as materiales_acogida_router
-from app.modules.materiales.estancia_material_service import (
-    assign_material_to_estancia,
-    list_materials_for_estancia,
-    remove_material_from_estancia,
-)
-from app.modules.materiales.routes import router as materiales_router
-from app.modules.materiales.service import (
-    EstanciaMaterial,
-    Material,
-    MaterialConflictError,
-    create_material,
-    deactivate_material,
-    get_material_by_id,
-    list_materials,
-    update_material,
-)
-
-__all__ = [
-    "service",
-    "estancia_material_service",
-    "materiales_router",
-    "materiales_acogida_router",
-    "Material",
-    "EstanciaMaterial",
-    "MaterialConflictError",
-    "create_material",
-    "get_material_by_id",
-    "list_materials",
-    "update_material",
-    "deactivate_material",
-    "assign_material_to_estancia",
-    "list_materials_for_estancia",
-    "remove_material_from_estancia",
-]

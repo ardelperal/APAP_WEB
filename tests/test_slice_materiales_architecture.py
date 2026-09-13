@@ -140,16 +140,20 @@ def test_ports_layer_is_transport_free() -> None:
     )
 
 
-def test_port_exposes_eight_use_case_methods() -> None:
-    """The Protocol declares exactly the eight public use cases.
+def test_port_exposes_eight_use_case_methods_plus_two_probes() -> None:
+    """The Protocol declares the eight use cases + two FK probes.
 
     The eight methods mirror the legacy public surface of
     ``service.py`` (five catalog CRUD) plus
-    ``estancia_material_service.py`` (three junction CRUD). Adding a
-    method to the port without updating this list (or removing one
-    without also updating the legacy service) is a real regression;
-    the test pins the parity until PR 5 deletes the legacy service
-    module.
+    ``estancia_material_service.py`` (three junction CRUD). PR 3
+    adds two FK-probe methods (``estancia_is_open_and_active`` and
+    ``material_is_active``) so the application-layer assign use
+    case can enforce the same policy the legacy validators did
+    without importing SQL into ``application/``. Adding a method
+    to the port without updating this list (or removing one
+    without also updating the legacy service) is a real
+    regression; the test pins the parity until PR 5 deletes the
+    legacy service module.
     """
     expected = {
         "create_material",
@@ -160,6 +164,8 @@ def test_port_exposes_eight_use_case_methods() -> None:
         "assign_material_to_estancia",
         "list_materials_for_estancia",
         "remove_material_from_estancia",
+        "estancia_is_open_and_active",
+        "material_is_active",
     }
     port_path = MATERIALES_ROOT / "ports" / "materiales_port.py"
     source = port_path.read_text(encoding="utf-8")
@@ -173,41 +179,3 @@ def test_port_exposes_eight_use_case_methods() -> None:
         f"missing={sorted(missing)}, extra={sorted(extra)}"
     )
 
-
-def test_domain_does_not_re_export_via_legacy_service() -> None:
-    """``service.py`` re-imports the dataclasses from ``domain/``.
-
-    PR 1 moves the definitions out of ``service.py``; the legacy
-    module re-imports them under the legacy path so existing callers
-    (routes, use cases, tests) keep working unchanged until PR 5
-    deletes ``service.py``. If the move is reverted accidentally
-    (someone re-defines the dataclasses inside ``service.py``) the
-    test fails because the ``def class Material`` body is missing
-    from the legacy module — the import would become a no-op rename.
-    """
-    service_path = MATERIALES_ROOT / "service.py"
-    source = service_path.read_text(encoding="utf-8")
-    # The legacy module must IMPORT the dataclass, not DEFINE it.
-    assert "class Material(" not in source, (
-        "service.py must not redefine Material; the dataclass lives in "
-        "app/modules/materiales/domain/material.py and is re-imported here."
-    )
-    assert "class EstanciaMaterial(" not in source, (
-        "service.py must not redefine EstanciaMaterial; the dataclass lives in "
-        "app/modules/materiales/domain/estancia_material.py and is re-imported here."
-    )
-    assert "class MaterialConflictError(" not in source, (
-        "service.py must not redefine MaterialConflictError; the exception lives in "
-        "app/modules/materiales/domain/exceptions.py and is re-imported here."
-    )
-    assert (
-        "from app.modules.materiales.domain.material import Material" in source
-    ), "service.py must re-import Material from the domain layer"
-    assert (
-        "from app.modules.materiales.domain.estancia_material import EstanciaMaterial"
-        in source
-    ), "service.py must re-import EstanciaMaterial from the domain layer"
-    assert (
-        "from app.modules.materiales.domain.exceptions import MaterialConflictError"
-        in source
-    ), "service.py must re-import MaterialConflictError from the domain layer"

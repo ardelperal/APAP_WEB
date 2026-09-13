@@ -30,6 +30,7 @@ APAP_WEB es una aplicación web FastAPI + HTMX + Jinja2 (Python `>=3.11`) con ar
 | **`branch-pr`** | Cualquier commit, apertura de PR o merge a `main`. Merge con `--no-ff`, nunca con `--delete-branch` (ver [docs/codebase/merge-workflow.md](docs/codebase/merge-workflow.md)). |
 | **`code-review-expert`** | Cualquier slice dirigido por subagent que aterrice en `main` (lente de revisión obligatoria, §17.2). |
 | **`judgment-day`** | Cualquier diff high-stakes (auth, secrets, CSRF, PII, migraciones, SQL crudo). |
+| **`gentle-ai-ai-slop-discipline`** | Cualquier implementación asistida por IA (código, docs, tests, planes). Antes de commitear, ejecutar el self-check de las 4 preguntas y detectar las 3 firmas de AI slop (prosa paralela, claims sin contrato testeable, tests que verifican ejemplos inventados). Aplica a todo el código que produce este agente sin excepción. |
 
 ## Project-context skills (este repo)
 
@@ -59,6 +60,7 @@ APAP_WEB es una aplicación web FastAPI + HTMX + Jinja2 (Python `>=3.11`) con ar
 | `repository-delivery-governance` | Auditing or changing CI/CD, issue/PR/label governance, branch protection, merge permissions, artifacts, deployment, or rollback. | DysTelefonica/team-skills |
 | `cognitive-doc-design` | Reducing cognitive load in a doc. | Gentleman-Programming |
 | `branch-pr` | Any PR creation or merge. | Gentleman-Programming |
+| `gentle-ai-ai-slop-discipline` | Any AI-assisted implementation in this repo (writing or reviewing PRs, planning fixes, drafting issues, amending code/prose/tests). Enforces pre-submission self-review against the 4 questions + 3 signatures of AI slop. | Gentleman-Programming |
 | `skill-creator` | Creating new skills following the pattern. | Gentleman-Programming |
 
 ## Backend: PostgreSQL local
