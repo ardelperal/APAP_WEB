@@ -33,7 +33,7 @@ Este runbook cubre exclusivamente el rollback de un despliegue en producción. S
 ## Core invariants
 
 - **El tag `deploy-current` es la única fuente operativa**: el recurso Coolify consume siempre esa etiqueta. El rollback manual reasigna esa etiqueta y dispara el webhook de Coolify.
-- **El digest verificado lleva Provenance + SBOM**: cualquier rollback conserva la cadena de auditoría porque el digest proviene del Container Registry.
+- **El digest verificado lleva Provenance y la lista de materiales**: cualquier rollback conserva la cadena de auditoría porque el digest proviene del Container Registry.
 - **El revision publicado en `/healthz` debe coincidir con el SHA del digest activo**: si no coincide, el rollback no terminó.
 - **`APAP_SESSION_SECRET` queda intacto**: la rotación es un procedimiento separado (`cookie-rotation.md`) y un rollback no la toca.
 
@@ -153,7 +153,7 @@ Si el rollback automático falla, este runbook es el procedimiento manual de res
 
 | Síntoma | Por qué importa | Use en su lugar |
 |---|---|---|
-| Reconstruir la imagen localmente y subirla a GHCR | Rompe la cadena de auditoría de Provenance y SBOM | Reasignar el tag `deploy-current` al digest ya publicado |
+| Reconstruir la imagen localmente y subirla al Container Registry de GitHub | Rompe la cadena de auditoría de Provenance y de la lista de materiales | Reasignar el tag `deploy-current` al digest ya publicado |
 | Modificar `coolify/apap-web-coolify.yaml` durante el rollback | Mezcla rollback con cambio de contrato | Crear una issue `type:bug` y abrir un PR aparte |
 | Borrar el tag `sha-<full-sha>` antes de verificar el éxito del rollback | Pérdida del digest anterior; rollback no reversible | Mantener todos los `sha-*` durante al menos 30 días |
 | Cambiar `APAP_SESSION_SECRET` durante el rollback | Invalida todas las sesiones y oculta el origen del fallo | Tratar rotación como procedimiento aparte (`cookie-rotation.md`) |
@@ -161,7 +161,7 @@ Si el rollback automático falla, este runbook es el procedimiento manual de res
 
 ## Contributor checklist
 
-- [ ] El digest objetivo se eligió de un tag `sha-<full-sha>` verificable en GHCR.
+- [ ] El digest objetivo se eligió de un tag `sha-<full-sha>` verificable en el Container Registry de GitHub.
 - [ ] `docker buildx imagetools inspect` confirmó el digest `arm64` antes de promover.
 - [ ] El webhook de Coolify se disparó con `scripts/coolify_webhook.py` (no con `curl` plano).
 - [ ] `scripts/verify_deployment.py` reportó `ok` con el SHA esperado.
