@@ -401,6 +401,71 @@ def test_gate_fails_on_a_missing_workflow_directory(tmp_path: Path) -> None:
     assert check_workflows.main([str(tmp_path / "absent")]) == 1
 
 
+_PR_REACHABLE_SELF_HOSTED = """\
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  build:
+    runs-on: [self-hosted]
+    timeout-minutes: 15
+    steps:
+      - run: true
+"""
+
+
+def test_self_hosted_job_reachable_by_pull_request_is_a_violation() -> None:
+    """Issue #782: untrusted PR code must never reach the self-hosted host."""
+    violations = check_workflows.check_runner_isolation(_PR_REACHABLE_SELF_HOSTED, "ci.yml")
+
+    assert len(violations) == 1
+    assert "job 'build'" in violations[0]
+    assert "GitHub-hosted label" in violations[0]
+
+
+def test_self_hosted_job_excluded_from_pull_request_by_workflow_trigger_is_accepted() -> None:
+    """Mirrors deploy.yml's real shape: no pull_request in the workflow's `on:` at all."""
+    text = """\
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  deploy:
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble, deploy]
+    timeout-minutes: 20
+    steps:
+      - run: true
+"""
+
+    assert check_workflows.check_runner_isolation(text, "deploy.yml") == []
+
+
+def test_self_hosted_job_excluded_from_pull_request_by_if_condition_is_accepted() -> None:
+    """A job `if:` that provably cannot match `pull_request` is also accepted."""
+    text = _PR_REACHABLE_SELF_HOSTED.replace(
+        "  build:\n",
+        "  build:\n    if: github.event_name == 'workflow_dispatch'\n",
+    )
+
+    assert check_workflows.check_runner_isolation(text, "ci.yml") == []
+
+
+def test_hosted_runner_label_is_always_accepted() -> None:
+    """A literal GitHub-hosted label needs no `if:` exclusion at all."""
+    text = _PR_REACHABLE_SELF_HOSTED.replace("runs-on: [self-hosted]", "runs-on: ubuntu-24.04")
+
+    assert check_workflows.check_runner_isolation(text, "ci.yml") == []
+
+
+def test_no_repository_pull_request_job_uses_a_self_hosted_runner() -> None:
+    """deploy.yml's self-hosted job must stay excluded from pull_request."""
+    violations, scanned = check_workflows.check(WORKFLOW_DIR)
+
+    assert violations == []
+    assert scanned > 0
+
+
 def test_ci_workflow_lint_job_runs_workflow_gate() -> None:
     """Issue #523 — removing this step is a blocked change.
 
