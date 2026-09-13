@@ -100,6 +100,7 @@ async def magic_link_client(self_host_schema, monkeypatch: pytest.MonkeyPatch) -
 # --- POST /auth/magic/start -------------------------------------------------
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_magic_start_creates_token_and_queues_email(
     magic_link_client: tuple[httpx.AsyncClient, _FakeSMTPTransport, str],
@@ -126,6 +127,7 @@ async def test_magic_start_creates_token_and_queues_email(
     assert rows[0]["email"] == "ana@test.com"
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_magic_start_returns_400_on_missing_email(
     magic_link_client: tuple[httpx.AsyncClient, _FakeSMTPTransport, str],
@@ -136,6 +138,7 @@ async def test_magic_start_returns_400_on_missing_email(
     assert fake_smtp.sent == []  # no token minted, no email sent
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_magic_start_returns_400_on_invalid_email_format(
     magic_link_client: tuple[httpx.AsyncClient, _FakeSMTPTransport, str],
@@ -148,6 +151,7 @@ async def test_magic_start_returns_400_on_invalid_email_format(
     assert fake_smtp.sent == []
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_magic_start_normalises_email_to_lowercase(
     magic_link_client: tuple[httpx.AsyncClient, _FakeSMTPTransport, str],
@@ -167,6 +171,7 @@ async def test_magic_start_normalises_email_to_lowercase(
 # --- GET /auth/magic/verify ------------------------------------------------
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_magic_verify_consumes_token_and_sets_session_cookie(
     magic_link_client: tuple[httpx.AsyncClient, _FakeSMTPTransport, str],
@@ -217,6 +222,7 @@ async def test_magic_verify_consumes_token_and_sets_session_cookie(
     assert payload["email"] == "ana@test.com"
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_magic_verify_returns_302_to_login_on_invalid_token(
     magic_link_client: tuple[httpx.AsyncClient, _FakeSMTPTransport, str],
@@ -232,6 +238,7 @@ async def test_magic_verify_returns_302_to_login_on_invalid_token(
     assert "reason" in response.headers["location"]
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_magic_verify_rejects_already_consumed_token(
     magic_link_client: tuple[httpx.AsyncClient, _FakeSMTPTransport, str],

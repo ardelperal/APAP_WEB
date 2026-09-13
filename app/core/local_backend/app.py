@@ -155,7 +155,13 @@ def create_app() -> FastAPI:
     app.include_router(storage_router, prefix="/api")
     app.include_router(healthz_router)
     app.include_router(oauth_router, prefix="/api")
-    app.include_router(magic_link_router, prefix="/api")
+    # Magic-link router exposes its own paths under /auth/magic/*
+    # (see commit 81a8d1d which aligned the handlers with the login
+    # form and app/main.py). Mounting with prefix="/api" would shift
+    # the effective path to /api/auth/magic/* and silently break the
+    # integration suite that targets /auth/magic/* directly. No
+    # prefix keeps both app.main and this standalone factory aligned.
+    app.include_router(magic_link_router)
     return app
 
 
