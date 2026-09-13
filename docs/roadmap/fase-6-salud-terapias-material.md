@@ -98,16 +98,18 @@ Baterías E2E con Playwright para cada sub-slice de Fase 6. Las baterías se esc
 |---|---|---|---|
 | `test_salud_terapias.py` | List, create, detail, edit, soft-delete, recomendaciones create/patch/delete, 409 con recomendaciones pendientes (7 tests) | hecho | `salud` |
 | `test_terapias_auth.py` | GET/POST/GET-detail anónimo devuelven redirect a /login (3 tests) | hecho | `salud` |
-| `test_terapias_lifecycle.py` | Incoherente / Fallecido bloquean nueva terapia (CTE gate + desambiguación del service) | hecho (#653, skip hasta seed de ``animal_current_state`` en el harness) | `salud` |
+| `test_terapias_lifecycle.py` | regression sentinel: terapia sin ``animal_current_state`` row no se over-blocks (303); unit tests en ``tests/test_salud.py`` pin el CTE gate (Fallecido → 422 + 'fallecido', Incoherente → 422 + 'Incoherente') | hecho (gate implementado en PR #54 follow-up; E2E skip limpio sin seed widening) | `salud` |
 | `test_terapias_crud_full.py` | CRUD completo con todos los campos opcionales + recomendaciones completas (PATCH completada) | cubierto por ``test_salud_terapias.py`` (7 tests) | `salud` |
 
-Nota sobre lifecycle: el slice 6b está cerrado con HEALTH-04 (#53) pero
-el motor de estado del animal (Incoherente / Fallecido) no bloquea
-hoy nuevas terapias; lo hace la regla equivalente en sanidad
-(HEALTH-01). El test E2E de lifecycle es un follow-up que requiere
-un slice pequeño: extender el CTE de ``create_terapia`` para que
-descarta animales en estado ``Incoherente`` / ``Fallecido`` (issue
-a crear al abrir ese slice).
+Nota sobre lifecycle: el slice 6b ya cierra el CTE gate con el
+pattern de sanidad (PR #54 follow-up). La disambiguación en
+``_raise_terapia_fk_error`` ahora JOINa ``animal_current_state`` y
+raisea 422 con ``"animal_id no admite nuevas terapias
+(estado <state>)"`` para ``Incoherente`` o ``Fallecido (*, ...)``;
+también raisea 422 con ``"... (fallecido desde <date>)"`` cuando
+``animales.f_defuncion IS NOT NULL``. La unit test coverage vive
+en ``tests/test_salud.py::test_create_terapia_blocks_fallecido_*
+animal`` y ``..._blocks_incoherente_animal``.
 
 ### 6c — Material
 
