@@ -22,7 +22,7 @@ Estructura hub-and-spoke. Esta página es el hub; las páginas radiales viven en
 | Fase 3 — Modelo de dominio limpio | cerrado | aroman | [fase-3-modelo-dominio.md](roadmap/fase-3-modelo-dominio.md) |
 | Fase 4 — Entidad Animal (Feature 01) | cerrado | aroman | [fase-4-animal-crud.md](roadmap/fase-4-animal-crud.md) |
 | Fase 5 — Voluntarios + Entradas + Acogidas + Adopciones (Feature 02) | cerrado | aroman | [fase-5-flujos-operativos.md](roadmap/fase-5-flujos-operativos.md) |
-| Fase 6 — Salud, Terapias e Inventario de Material (Feature 03) | pendiente | aroman | [fase-6-salud-terapias-material.md](roadmap/fase-6-salud-terapias-material.md) |
+| Fase 6 — Salud, Terapias e Inventario de Material (Feature 03) | cerrado | aroman | [fase-6-salud-terapias-material.md](roadmap/fase-6-salud-terapias-material.md) |
 | Fase 7 — Documentos, Contratos, Informes y Consultas (Feature 04) | pendiente | aroman | [fase-7-documentos-contratos-informes.md](roadmap/fase-7-documentos-contratos-informes.md) |
 
 ## Cross-cutting concerns
@@ -42,11 +42,11 @@ Las capacidades que cruzan varias fases viven en [`transversales.md`](roadmap/tr
 
 | SHA | Title | PR |
 |---|---|---|
-| f915298 | test(integration): animal_lifecycle_events append-only trigger | #636 |
-| 2a3f5ef | test(integration): chip cascade transaction lifecycle | #635 |
-| 3593903 | test(integration): auth revalidation against real Postgres | #634 |
-| dd984ad | test(integration): cesiones UNIQUE+FK conflict resolution | #633 |
-| 215fe2c | test(integration): entradas batch CTE rollback | #632 |
+| ea29fe2 | feat(salud): enforce legacy §9.2 gates on terapias | #765 |
+| a9acc20 | refactor(materiales): extract domain entities + abstract port | #753 |
+| 9de538a | feat(observability): traza canónica end-to-end | #751 |
+| 4c4bb0c | refactor(tests): migrate last batch from httpx.MockTransport to _FakeSqlExecutor | #748 |
+| 51f5c2f | docs: mark M0 migration regression as passed | #747 |
 
 ## Cuándo ir al legacy directamente
 
