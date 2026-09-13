@@ -25,7 +25,6 @@ ALL_JOBS = frozenset(
 SKIPS_BY_EVENT = {
     "pull_request": frozenset({"security-deep", "mutation", "e2e"}),
     "push": frozenset({"security-deep", "issue-spec", "mutation", "e2e"}),
-    "schedule": frozenset({"e2e", "issue-spec"}),
     # Workflow dispatch and tag pushes are release events (issue #766).
     # The e2e suite must terminate SUCCESS on those events; a skipped
     # or failed e2e blocks the required gate.

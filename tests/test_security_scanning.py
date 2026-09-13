@@ -81,20 +81,23 @@ def test_no_scanner_step_swallows_its_exit_code() -> None:
     assert both.count("--exit-code 1") >= 3, "each scanner must fail the job on findings"
 
 
-def test_deep_job_is_scheduled_not_per_pull_request() -> None:
-    """Heavy scanning runs weekly and on tags — never on every PR.
+def test_deep_job_is_release_only_not_per_pull_request() -> None:
+    """Heavy scanning runs on release tags and manual dispatch — never on every PR.
 
     While the MVP is being built, pulling base images per pull request costs
     minutes and changes nothing: a pinned base image cannot differ between two
-    PRs on the same day.
+    PRs on the same day. Issue #780: the weekly schedule was removed —
+    expensive scans now run only when cutting a release, plus the manual
+    dispatch escape hatch.
     """
     deep = _job("security-deep", "typecheck")
-    assert "github.event_name == 'schedule'" in deep
+    assert "github.event_name == 'schedule'" not in deep
+    assert "github.event_name == 'workflow_dispatch'" in deep
     assert "startsWith(github.ref, 'refs/tags/')" in deep
     assert "pull_request" not in deep
 
-    assert re.search(r"^  schedule:", _workflow(), re.MULTILINE), (
-        "the workflow needs a schedule trigger or security-deep never fires"
+    assert not re.search(r"^  schedule:", _workflow(), re.MULTILINE), (
+        "issue #780 removed the schedule trigger; it must not come back"
     )
 
 
