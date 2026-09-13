@@ -34,6 +34,7 @@ for the deploy webhook contract.
 
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
@@ -44,6 +45,15 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app.core import config as config_module
+
+# Magic-link auth (issue #651, M3.4): the router lives in
+# ``app.core.local_backend`` and needs the lifespan to wire the
+# port + transport + session secret on ``app.state``. The local
+# backend app at ``app/core/local_backend/app.py`` still mounts
+# the standalone router for integration tests; the main app wires
+# the same objects onto its own ``app.state`` so the route handler
+# can read them.
+from app.core.adapters.auth_local.magic_link_port import MagicLinkPortImpl
 from app.core.admin_handlers import register_admin_routes
 from app.core.auth import ensure_schema_and_seed
 from app.core.auth_dependencies import (
@@ -62,7 +72,9 @@ from app.core.data_access import BackendError
 from app.core.domain import ensure_domain_schema
 from app.core.e2e_auth import register_e2e_auth_routes
 from app.core.local_backend.db import LocalPostgresExecutor
+from app.core.local_backend.magic_link import router as magic_link_router
 from app.core.logging import configure_logging, log_safe
+from app.core.mail.smtp_transport import SMTPMailTransport
 from app.core.middleware import (
     DISABLED_DOC_PATHS as _DISABLED_DOC_PATHS,  # noqa: F401  - re-export for parity with PUBLIC_PATHS
 )
@@ -144,6 +156,23 @@ async def lifespan(_: FastAPI):
     from app.core.local_backend.s3 import PhotoStorageClient  # lazy-import: only needed when S3 credentials are configured  # noqa: I001
 
     _.state.photo_storage = PhotoStorageClient()
+
+    # M3.4 wiring (issue #651): magic-link port + SMTP transport +
+    # session secret. Mirrors the lifespan in
+    # ``app/core/local_backend/app.py`` so the route handlers can
+    # read ``request.app.state.magic_link_port`` and
+    # ``request.app.state.smtp_transport`` regardless of which app
+    # factory created the application.
+    _.state.magic_link_port = MagicLinkPortImpl(client)
+    _.state.smtp_transport = SMTPMailTransport(settings)
+    _.state.session_secret = settings.session_secret
+    # Public base URL the verify link points at. Defaults to
+    # ``APAP_PUBLIC_BASE_URL`` env var or ``http://127.0.0.1:8000``;
+    # production sets it to ``https://apap.romancaba.com`` via the
+    # Coolify env-var injection in M2.
+    _.state.public_base_url = os.environ.get(
+        "APAP_PUBLIC_BASE_URL", "http://127.0.0.1:8000"
+    )
     try:
         ensure_schema_and_seed(client, settings)
         ensure_catalogs(client)
@@ -225,6 +254,11 @@ def create_app() -> FastAPI:
 
     # Domain routers (issue #204)
     register_routers(application)
+
+    # Auth flow: magic-link login (M3.4, issue #651). The router
+    # lives in app.core.local_backend.magic_link; the lifespan above
+    # wires the port + transport + session secret onto app.state.
+    application.include_router(magic_link_router)
 
     return application
 
