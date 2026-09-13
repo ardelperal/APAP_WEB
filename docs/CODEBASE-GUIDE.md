@@ -82,7 +82,7 @@
 | Decidir dónde va código nuevo | [Repository map](codebase/repository-map.md) | [AGENTS.md](../AGENTS.md) §33 |
 | Añadir o cambiar una ruta o endpoint | [Interfaces](codebase/interfaces.md) | El `routes.py` del módulo afectado, [AGENTS.md](../AGENTS.md) §28 |
 | Localizar un guardarraíl o un detector | [Repository map](codebase/repository-map.md) | [AGENTS.md](../AGENTS.md) §20–§28, [Quality roadmap](quality/hardening-roadmap.md) |
-| Cambiar CI, protección de rama o deploy | [CI/CD](codebase/ci-cd.md) | [Runbook de despliegue](runbooks/operator-deploy-2026.md) |
+| Cambiar CI, protección de rama o deploy | [CI/CD](codebase/ci-cd.md) | [Runbook de despliegue](runbooks/operator-deploy-2026.md), [Runbook de rollback](runbooks/deploy-rollback.md) |
 | Tomar una issue de `open` a `closed` | [Maintainer playbook](codebase/maintainer-playbook.md) | [`docs/proceso.md`](proceso.md), [AGENTS.md](../AGENTS.md) §16 |
 | Redactar o reparar una issue | [Issue specifications](codebase/issue-specifications.md) | [Formularios de GitHub](../.github/ISSUE_TEMPLATE/) |
 | Mover datos entre web y legacy | [Sync and cloud](codebase/sync-and-cloud.md) | [AGENTS.md](../AGENTS.md) §18, [`migration/cli.py`](../../migration/cli.py) |
@@ -101,7 +101,7 @@
 | Roadmap de fases | [`docs/roadmap.md`](roadmap.md) | Fases del producto y estado actual. |
 | Decisiones de proyecto | [`docs/architecture/decisiones-proyecto.md`](architecture/decisiones-proyecto.md) | Registro formal de divergencias con el legacy. |
 | Auditorías | [`docs/audits/`](audits/) | Un documento por slice sensible. |
-| Runbooks | [`docs/runbooks/`](runbooks/) | Procedimientos que exigen acción del operador. |
+| Runbooks | [`docs/runbooks/`](runbooks/) | Procedimientos que exigen acción del operador ([rollback](runbooks/deploy-rollback.md)). |
 | Hardening del arnés de calidad | [`docs/quality/hardening-roadmap.md`](quality/hardening-roadmap.md) | Estado de los gates automáticos. |
 | Especificaciones delta | [`openspec/specs/`](../openspec/specs/) | Specs formales por capacidad. |
 | Cambios en curso | [`openspec/changes/`](../openspec/changes/) | Propuestas SDD activas y archivadas. |
