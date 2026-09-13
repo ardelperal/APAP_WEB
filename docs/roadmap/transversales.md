@@ -74,6 +74,9 @@ Un slice puede necesitar 1 o 4 ficheros según su complejidad. Lo mínimo es `*_
 | Anti-patrones documentados (§32) | cerrado (auditoría 2026-07-25) | [docs/codebase/anti-patterns.md](../codebase/anti-patterns.md) |
 | Gate required determinístico (e2e fail-closed en releases) | cerrado (e2e required en workflow_dispatch y tag push) | #766 |
 | Permissions explícitos en workflows de PR gates | cerrado (pr-name y pr-size con contents: read) | #682 |
+| Runner isolation (PR jobs no llegan al self-hosted) | cerrado (check_runner_isolation en check_workflows.py) | #782 |
+| Cadencia release-only para mutation/security-deep/e2e | cerrado (cron semanal removido de ci.yml; SKIPS_BY_EVENT["schedule"] eliminado) | #780 |
+| Firma Cosign keyless del digest publicado | cerrado (cosign sign + verify en deploy.yml) | #783 |
 
 Decisiones: [d-33-tdd-estricto.md](../architecture/decisiones/d-33-tdd-estricto.md), [d-35-presupuesto-400-lineas-pr.md](../architecture/decisiones/d-35-presupuesto-400-lineas-pr.md).
 
