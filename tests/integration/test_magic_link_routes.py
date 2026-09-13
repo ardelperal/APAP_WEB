@@ -77,6 +77,17 @@ async def magic_link_client(self_host_schema, monkeypatch: pytest.MonkeyPatch) -
     # ``app.core.config._validate_secrets``); 64 chars to clear the
     # 32-char minimum.
     monkeypatch.setenv("APAP_SESSION_SECRET", "integration-test-secret-64-chars-long-padding-x")
+    # The ``create_app`` factory validates ``APAP_RAWSQL_AUTH_TOKEN``
+    # at lifespan startup (the rawsql router is mounted in
+    # ``local_backend/app.py`` alongside the magic-link router).
+    # Use a 64-character deterministic value that the validator
+    # accepts; the token gate rejects the real request unless the
+    # caller presents the exact same value, which the magic-link
+    # round-trip never does.
+    monkeypatch.setenv(
+        "APAP_RAWSQL_AUTH_TOKEN",
+        "integration-test-rawsql-token-64-chars-padding-xyz-aaaaaa",
+    )
 
     app = create_app()
     fake_smtp = _FakeSMTPTransport()
