@@ -26,7 +26,7 @@ Logging estructurado, traza canónica correlacionada y panel de control para con
 | Capacidad | Estado | Doc de referencia |
 |---|---|---|
 | `log_safe` único en `app/` con redacción de doce campos | cerrado | [docs/codebase/logging-conventions.md](../codebase/logging-conventions.md) |
-| Traza canónica (eventos JSON correlacionados) | en curso | #749 ([docs/canonical-logs.md](../canonical-logs.md)) |
+| Traza canónica (eventos JSON correlacionados) | cerrado | #749, #751 ([docs/canonical-logs.md](../canonical-logs.md)) |
 | Panel de control / configuración funcional | pendiente | issue por crear |
 | Diagnóstico de entorno (Dysflow `dysflow_doctor`) | cerrado | [d-31-resolucion-dudas-dominio.md](../architecture/decisiones/d-31-resolucion-dudas-dominio.md) |
 
@@ -125,7 +125,7 @@ Documentación por crear al arrancar la issue.
 
 | Slice | Estado | Issue |
 |---|---|---|
-| Traza canónica (eventos JSON correlacionados) | en curso | #749 ([docs/canonical-logs.md](../canonical-logs.md)) |
+| Traza canónica (eventos JSON correlacionados) | cerrado | #749, #751 ([docs/canonical-logs.md](../canonical-logs.md)) |
 | Panel de control / configuración funcional | pendiente | issue por crear |
 
 ### Documentación unificada en castellano
@@ -187,21 +187,21 @@ Documentación: [docs/architecture/capas-y-slices.md](../architecture/capas-y-sl
 
 ### Self-host backend (Coolify)
 
-Reemplazo del backend LocalBackend por un contenedor FastAPI propio desplegado en Coolify, en el mismo VPS que el front. El branch activo del esfuerzo es `feat/641-self-host-backend-coolify` (issue umbrella #641). El switch de runtime vive en `app/core/local_backend_url.py` con la variable `APAP_LOCAL_BACKEND`; los commits `c12b361 feat(local_backend): default to local backend when APAP_LOCAL_BACKEND=true` y `b10a88d fix(local_backend): local backend base_url must not carry /api prefix` documentan el corte.
+Reemplazo del backend LocalBackend por un contenedor FastAPI propio desplegado en Coolify, en el mismo VPS que el front. El esfuerzo vive en `main` bajo el issue umbrella #641. El switch de runtime vive en `app/core/local_backend_url.py` con la variable `APAP_LOCAL_BACKEND`; los commits `c12b361 feat(local_backend): default to local backend when APAP_LOCAL_BACKEND=true` y `b10a88d fix(local_backend): local backend base_url must not carry /api prefix` documentan el corte.
 
-| Sub-fase | Estado en branch | Issue |
+| Sub-fase | Estado | Issue |
 |---|---|---|
 | M0 — `LocalPostgresExecutor` + healthz + storage + client switch | cerrado | #641 |
 | M1 — `MagicLinkPort` + `ClassicPasswordAuthPort` (self-host auth) | cerrado | #641 |
 | M2 — `.env.example` + runbook + docs de deploy Coolify | cerrado | #641 |
 | M3 — UI: form magic-link + CSP (M3-login, M3.2-csp) | cerrado | — |
-| M3.1 — Helper + fixtures + unit tests del helper | wip (round-trip E2E skip'd) | #649 |
-| M3.4 — Magic-link wiring + `SMTPMailTransport` en `local_backend/app.py` | pendiente | issue a crear |
-| Phase 3 — Coolify deploy manifest + `.accdb` legacy migration + runbook operador | pendiente | #648 |
+| M3.1 — Helper + fixtures + unit tests del helper | cerrado; E2E completo sigue skip'd hasta deploy operativo | #649, #651 |
+| M3.4 — Magic-link wiring + `SMTPMailTransport` en `local_backend/app.py` | cerrado | #651 |
+| Phase 3 — Coolify deploy manifest + `.accdb` legacy migration + runbook operador | cerrado | #648 |
 | Phase 5 — Deploy step separado del lifespan bootstrap | pendiente | #647 |
 | Hygiene — Pre-existing ruff errors + failing e2e | pendiente | #646 |
 
-**Estado del round-trip M3.1**: el helper lee de MailDev HTTP API (`apap-smtp-dev`); los unit tests del helper están verdes en el suite default (regex, polling, timeout, retry sobre 5xx); el test E2E se archiva con `pytest.mark.skip` cuya razón apunta a M3.4. La unidad de trabajo "M3.1 wip" cierra cuando se commitee el helper + conftest + unit tests + skip documentado.
+**Estado del round-trip M3.1**: el helper lee de MailDev HTTP API (`apap-smtp-dev`); los unit tests del helper están verdes en el suite default (regex, polling, timeout, retry sobre 5xx). El round-trip del magic-link queda cubierto por integración in-process; `tests/e2e/test_magic_link_e2e.py` permanece skip'd hasta tener MailDev y deploy productivo operativos.
 
 **Invariante no negociable:**
 
@@ -211,20 +211,15 @@ Reemplazo del backend LocalBackend por un contenedor FastAPI propio desplegado e
 
 | Fase / Área | Título tentativo | Depende de |
 |---|---|---|
-| Self-host | `feat(m3-4): magic-link wiring + SMTPMailTransport en local_backend/app.py` | #649 cerrado |
-| Self-host | `chore(phase-3): Coolify deploy manifest + .accdb legacy migration + runbook operador` | M3.4 cerrado |
-| Self-host | `chore(phase-5): separar deploy step del lifespan bootstrap` | Phase 3 |
+| Self-host | `chore(phase-5): separar deploy step del lifespan bootstrap` | Phase 3 cerrado |
 | Hygiene | `chore(hygiene): pre-existing ruff errors + failing e2e test` | — |
 | Migración en vivo PR7 | `feat(migration): verify-fallback-ready + gate CI` | PR6 cerrado |
 | Transversal | `feat(dashboard): bandeja de pendientes + realtime` | Fase 2 |
 | Transversal | `feat(search): búsqueda global` | Fases 3–4 |
-| Transversal | `feat(canonical-logs): traza canónica del sistema` | Fase 1 |
 | Transversal | `feat(admin-panel): panel de control / configuración` | Fases 1–2 |
-| Docs | `docs(architecture): traducir architecture-local-backend-stack.md al castellano` | — |
 | Docs | `docs(architecture): d-42-self-host-backend-coolify.md — decisión arquitectónica del corte` | — |
 | Docs | `docs(development): traducir development.md al castellano` | — |
 | Docs | `docs(discovery): revisar y traducir los discovery en inglés al castellano` | — |
-| Docs | `docs(canonical-logs): crear el doc fundacional de traza canónica` | bloqueado por la issue de arriba |
 | Docs | `docs(CODEBASE-GUIDE): crear guía de mantenedores 90-second mental model` | — |
 | Docs | `docs(runbooks/<area>): runbooks adicionales por área` | — |
 | Docs | `docs(audits/<feature>-audit-YYYY-Qn.md): auditorías adicionales` | — |

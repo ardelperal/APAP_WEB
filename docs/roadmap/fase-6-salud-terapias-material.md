@@ -2,29 +2,17 @@
 
 # Fase 6 — Salud, Terapias e Inventario de Material (Feature 03)
 
-Esta página posee el estado de la Fase 6: registro sanitario con periodicidad, terapias con recomendaciones, inventario de material con disponibilidad e historial de asignaciones. Fase pendiente. Depende de Fases 3–4.
+Esta página posee el estado de la Fase 6: registro sanitario con periodicidad, terapias con recomendaciones, inventario de material con disponibilidad e historial de asignaciones. Fase cerrada. Depende de Fases 3–4.
 
 ## Estado
 
-En curso. HEALTH-01..06 y el informe de próximas pruebas están
-cerrados en GitHub. **6c MATERIAL** arrancó: dominio + port abstracto
-(PR #753) y LocalBackend adapter (PR #755, merge `e95e8ef`) ya están
-en `main`. Lo que queda:
+Cerrado. HEALTH-01..06, el informe de próximas pruebas, el gate de
+lifecycle de terapias y el refactor hexagonal de materiales están en
+`main`.
 
-1. **E2E pendientes**: las baterías Playwright de terapias (CRUD
-   full, lifecycle, auth) y materiales (assignment, auth). El
-   informe de próximas pruebas tiene su batería E2E en
-   `tests/e2e/test_proximas_pruebas.py` (5 atoms; skip limpio sin
-   servidor).
-2. **6b TERAPIAS**: terapia CRUD cerrada; falta extender el CTE gate
-   del service para que Incoherente/Fallecido bloqueen altas (issue
-   a crear al abrir el slice).
-3. **6c MATERIAL refactor hexagonal**: cerrado (PRs 3, 4, 5). El PR 3 (commit `db6626c`) introdujo la
-   capa `application/` con 8 use cases + 2 FK probes en el Protocol.
-   El PR 4 (commit `9064186`) cableó el DI y migró routes.py +
-   acogida_routes.py al `MaterialesPort`. El PR 5 eliminó
-   `service.py`, `estancia_material_service.py` y los tests que los
-   probaban.
+La batería E2E de Fase 6 existe completa en `tests/e2e/`. Los tests con
+seed pendiente mantienen skip explícito y documentado, sin ocultar deuda
+de implementación del slice.
 
 ## Slices
 
@@ -46,7 +34,8 @@ en `main`. Lo que queda:
 
 ## Issues abiertas relacionadas
 
-- #54 HEALTH-05 periodicity engine — cerrado en este merge.
+No quedan issues abiertas de Fase 6 en este documento. La siguiente fase
+funcional es Fase 7.
 
 ## Decisiones relacionadas
 
@@ -86,11 +75,7 @@ Baterías E2E con Playwright para cada sub-slice de Fase 6. Las baterías se esc
 | `test_sanidad_auth.py` | 302 without session, 403 reader in POST, reader 200 on GET list (6 tests) | `sanidad` ✅ hecho (PR #628 E2E batch 1) |
 | `test_sanidad_date_validation.py` | Future date → 422, non-ISO → 422, fecha before FNacimiento → 422 (3 tests) | `sanidad` ✅ hecho (PR #628 E2E batch 1) |
 | `test_sanidad_no_duplicates.py` | Duplicate (animal+fecha+tipo) → 409, different tipos both succeed (2 tests) | `sanidad` ✅ hecho (PR #628 E2E batch 1) |
-| `test_sanidad_5tipos.py` | Crear cada tipo: Analítica, Desparasitación, Vacuna, Esterilización, Otros + validar fecha PostMortem | `sanidad` ❌ pendiente |
-| `test_sanidad_date_validation.py` | Fecha posterior al nacimiento, anterior a defunción, 422 en rango inválido | `sanidad` ❌ pendiente |
-| `test_sanidad_no_duplicates.py` | Mismo chip + prueba + fecha → 409 | `sanidad` ❌ pendiente |
-| `test_sanidad_auth.py` | 302 sin sesión, 403 con rol reader en POST | `sanidad` ❌ pendiente |
-| `test_sanidad_lifecycle.py` | POST /sanidad con animal Fallecido → 422 + Spanish 'fallecido'; POST /sanidad con animal Incoherente → 422 + Spanish 'Incoherente' (skip si el seed no marca animales así) | `sanidad` hecho (#54 follow-up) |
+| `test_sanidad_lifecycle.py` | POST /sanidad bloquea animales Fallecido o Incoherente con 422 | `sanidad` ✅ hecho (#54 follow-up) |
 
 ### 6b — Terapias
 
@@ -131,9 +116,8 @@ animal`` y ``..._blocks_incoherente_animal``.
 |---|---|---|---|
 | `test_proximas_pruebas.py` | 200 con ventana válida; 400 con fecha mal-formada; 400 con ventana invertida; shape de las filas (chip, nombre, tipo_codigo, fecha_ultima, fecha_proxima, periodicidad_meses, estado); filtro por animal | hecho (#652) | `sanidad` |
 
-**Total pendiente:** 5 ficheros E2E nuevos (terapias CRUD full / lifecycle /
-auth, materiales assignment / auth, sanidad lifecycle). Las baterías de
-periodicidad y de informe de próximas pruebas están cubiertas.
+**Total pendiente:** 0 ficheros E2E nuevos. La Fase 6 conserva skips
+explícitos solo donde falta seed operativo para ejecutar el caso en CI.
 
 ## Navigation
 
