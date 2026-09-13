@@ -13,31 +13,33 @@ The form posts JSON via the onsubmit handler in /static/js/magic-link-form.js
 status, not on a page navigation (the form does not navigate; it updates
 the status text and resets).
 
-STATUS (M3.4 close-out, 2026-09-05):
+Operator-side fixture contract:
 
-The M3 backend wiring this test exercises now lands in the
-``local_backend/app.py`` lifespan + ``local_backend/magic_link.py``
-router. The round-trip is fully covered in-process by
-``tests/integration/test_magic_link_routes.py`` (real Postgres via
-``APAP_TEST_POSTGRES_DSN`` + fake SMTP transport), which pins the
-same assertions 1-5 above via ``httpx.AsyncClient(ASGITransport)``.
+- ``APAP_E2E_BASE_URL`` (defaults to ``http://127.0.0.1:8000``): the URL the
+  deployed app is reachable at. For production runs against
+  ``https://apap.romancaba.com`` set this env var explicitly.
+- ``E2E_BOOTSTRAP_EMAIL`` (defaults to ``ardelperal@gmail.com``): the email
+  the form sends the magic-link to.
+- ``MAILDEV_URL`` (defaults to ``http://apap-smtp-dev:8025``): the MailDev
+  HTTP API the helper polls. Local docker-compose deploys run MailDev next
+  to ``apap-web`` under that host.
 
-The E2E remains ``pytest.mark.skip``'d here because it needs a
-running ``apap-smtp-dev`` MailDev (the local email backend) and a
-running ``apap.romancaba.com`` deployment. Both are operator-side
-fixtures outside the unit-test boundary: MailDev's HTTP API is
-currently broken (issue #649 follow-up), and the E2E runbook
-lives at ``docs/runbooks/`` (to be authored as part of Phase 3,
-#648). Once those land, this module drops the ``pytest.mark.skip``
-line and the body below executes against the deployed app.
+Skip contract:
 
-The unit tests for the helper (``tests/test_maildev_helper.py``) and
-the SMTP transport (``tests/test_smtp_transport.py``) are green.
-The round-trip coverage lives in the integration suite.
+The test requires ``APAP_E2E_BASE_URL`` and ``MAILDEV_URL`` to be set AND
+``MAILDEV_URL`` to answer the MailDev HTTP API (``/api/v2/messages``). When
+those are missing or unreachable, the test skips with a clear message that
+points at the operator-side runbook (Phase 3, issue #648). The round-trip
+contract also lives in ``tests/integration/test_magic_link_routes.py``
+(real Postgres via ``APAP_TEST_POSTGRES_DSN`` + fake SMTP transport), which
+pins the same assertions 1-5 via ``httpx.AsyncClient(ASGITransport)`` and
+runs without the operator-side fixtures.
 """
 from __future__ import annotations
 
 import os
+import urllib.error
+import urllib.request
 
 import pytest
 
@@ -45,27 +47,66 @@ from tests.e2e._maildev_helper import read_latest_verify_url  # noqa: F401
 
 pytestmark = [
     pytest.mark.e2e,
-    pytest.mark.skip(
+    pytest.mark.skipif(
+        os.environ.get("APAP_E2E_BASE_URL") is None
+        and os.environ.get("MAILDEV_URL") is None
+        and os.environ.get("APAP_E2E_REQUIRE_ROUND_TRIP") != "1",
         reason=(
-            "Round-trip covered in-process by "
-            "tests/integration/test_magic_link_routes.py. The E2E path "
-            "needs a live apap-smtp-dev MailDev container (currently "
-            "broken — issue #649 follow-up) and a running production "
-            "deploy; see Phase 3 (#648) runbook for the operator "
-            "checklist."
-        )
+            "E2E round-trip requires APAP_E2E_BASE_URL + a reachable "
+            "MailDev at MAILDEV_URL. Set both env vars to enable, or "
+            "set APAP_E2E_REQUIRE_ROUND_TRIP=1 to fail loud instead of "
+            "skipping. Round-trip is covered in-process by "
+            "tests/integration/test_magic_link_routes.py; see Phase 3 "
+            "(issue #648) operator runbook for the deployed-app check."
+        ),
     ),
 ]
 
+
+def _maildev_reachable(url: str) -> bool:
+    """Return True when the MailDev HTTP API answers the version probe.
+
+    Probes ``{url}/api/v2/messages`` with a short timeout. Any HTTPError,
+    URLError or TimeoutError is treated as "not reachable" and yields False;
+    the test then fails loud instead of silently skipping.
+    """
+    probe = url.rstrip("/") + "/api/v2/messages"
+    try:
+        with urllib.request.urlopen(probe, timeout=5) as response:  # noqa: S310
+            return 200 <= response.status < 300
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError):
+        return False
+
+
 BOOTSTRAP_EMAIL = os.environ.get("E2E_BOOTSTRAP_EMAIL", "ardelperal@gmail.com")
 MAILDEV_URL = os.environ.get("MAILDEV_URL", "http://apap-smtp-dev:8025")
+BASE_URL = os.environ.get("APAP_E2E_BASE_URL", "http://127.0.0.1:8000")
 
 
-def test_magic_link_round_trip_against_deployed_app(page, base_url: str) -> None:  # noqa: ARG001
-    """Round-trip covered by the integration suite; once MailDev + the
-    deployed-app E2E runbook (Phase 3) are green, fill in the
-    navigation steps documented in the module docstring (assertions
-    1-5) and drop the ``pytest.mark.skip`` above."""
+@pytest.fixture(autouse=True)
+def _require_maildev_reachable() -> None:
+    """Fail loud when the operator enabled the test but the env is incomplete.
+
+    The skipif above allows local runs without env vars; this fixture fires
+    when the operator opts in (MAILDEV_URL or APAP_E2E_BASE_URL set) so that
+    a misconfigured deploy does not silently pass.
+    """
+    opted_in = any(
+        var in os.environ
+        for var in ("MAILDEV_URL", "APAP_E2E_BASE_URL", "APAP_E2E_REQUIRE_ROUND_TRIP")
+    )
+    if not opted_in:
+        return
+    if not _maildev_reachable(MAILDEV_URL):
+        pytest.fail(
+            f"MailDev HTTP API not reachable at {MAILDEV_URL}/api/v2/messages. "
+            f"Either start the apap-smtp-dev container or unset MAILDEV_URL "
+            f"to fall back to the integration coverage. See docs/runbooks/ "
+            f"and Phase 3 (issue #648)."
+        )
+
+
+def test_magic_link_round_trip_against_deployed_app(page, base_url: str) -> None:
     """End-to-end magic-link flow against the deployed app on the same VPS.
 
     1. /login renders the magic-link form (fix(m3-login) verification).
