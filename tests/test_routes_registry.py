@@ -144,6 +144,8 @@ def test_register_routers_produces_same_routes_as_full_create_app() -> None:
             "/login",
             "/auth/google",
             "/auth/callback",
+            "/auth/magic/start",
+            "/auth/magic/verify",
             "/logout",
             "/unauthorized",
             "/admin",
