@@ -205,8 +205,8 @@ test-ci:
 # pre-push evidence, not proof that the complete remote pipeline is green.
 #
 # Deliberately NOT included because they require CI services, containers,
-# browsers, credentials, or scheduled capacity:
-#   - `mutation`   weekly schedule, Linux-only (cosmic-ray), own job
+# browsers, credentials, or release-only capacity:
+#   - `mutation`   release-tag/manual-dispatch only, Linux-only (cosmic-ray), own job
 #   - `security` / `security-deep` Docker-based scanners and audits
 #   - `integration` needs a live Postgres service container
 #   - `verify-fallback-ready` needs an isolated Postgres service container

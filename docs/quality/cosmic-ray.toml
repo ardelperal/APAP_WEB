@@ -21,9 +21,10 @@
 # 527 LOC = 20.9/100 LOC, on a par with the pilot. Its baseline entry in
 # mutation-baseline.json is marked `awaiting_acquisition` -- cosmic-ray 8.4.6
 # is broken on native Windows (issue #431, Finding 1), so the entry cannot be
-# filled in locally; the next scheduled CI mutation run on the Linux ARM64
-# runner will replace the marker with the real survivor count. `check_mutation.py`
-# enforces a 14-day grace period on `awaiting_acquisition` entries.
+# filled in locally; the next CI mutation run (release tag push or manual
+# dispatch -- issue #780) on the Linux ARM64 runner will replace the marker
+# with the real survivor count. `check_mutation.py` enforces a 14-day grace
+# period on `awaiting_acquisition` entries.
 #
 # Candidates for the next slices, by measured density:
 #
