@@ -8,6 +8,13 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+# The job below only reads the repository (merge-base diff) and runs a
+# local Python script; it never writes back. Match the explicit permissions
+# contract of ci.yml / deploy.yml so a future repo-level default that
+# broadens the GITHUB_TOKEN does not silently widen this workflow's blast
+# radius (issue #682).
+permissions:
+  contents: read
 
 jobs:
   pr-size:

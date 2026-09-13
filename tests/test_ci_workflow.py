@@ -12,6 +12,8 @@ WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 #: Deploy lives in its own workflow so a merge does not re-run ci.yml just to
 #: satisfy its `needs`. The deploy guards moved here with it.
 DEPLOY_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "deploy.yml"
+PR_NAME_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "pr-name.yml"
+PR_SIZE_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "pr-size.yml"
 MAKEFILE_PATH = REPO_ROOT / "Makefile"
 CHECK_RULES_SCRIPT_PATH = REPO_ROOT / "scripts" / "check_rules.py"
 BRANCH_PROTECTION_PATH = REPO_ROOT / ".github" / "branch-protection.md"
@@ -125,6 +127,34 @@ def test_ci_workflow_does_not_include_diagnostic_secret_leak_scan() -> None:
 
     assert "Diagnostic secret-leak scan" not in workflow
     assert "grep -rE '(http://|https://|sk-|ghp_)[A-Za-z0-9]+'" not in workflow
+
+
+def test_pr_name_workflow_declares_explicit_contents_read() -> None:
+    """Issue #682: pr-name.yml must declare ``contents: read`` at the workflow
+    level so the GITHUB_TOKEN does not silently widen if a future repo
+    default broadens the implicit token scope.
+    """
+    workflow = PR_NAME_WORKFLOW_PATH.read_text(encoding="utf-8")
+
+    # The block MUST sit at the workflow level, not nested under a job.
+    workflow_block = workflow[: workflow.index("\njobs:\n")]
+    assert "permissions:" in workflow_block, (
+        "pr-name.yml must declare a workflow-level permissions block"
+    )
+    assert "contents: read" in workflow_block
+
+
+def test_pr_size_workflow_declares_explicit_contents_read() -> None:
+    """Issue #682: pr-size.yml must declare ``contents: read`` at the
+    workflow level for the same reason as pr-name.yml.
+    """
+    workflow = PR_SIZE_WORKFLOW_PATH.read_text(encoding="utf-8")
+
+    workflow_block = workflow[: workflow.index("\njobs:\n")]
+    assert "permissions:" in workflow_block, (
+        "pr-size.yml must declare a workflow-level permissions block"
+    )
+    assert "contents: read" in workflow_block
 
 
 def test_branch_protection_note_lists_required_ci_checks() -> None:
