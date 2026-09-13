@@ -176,7 +176,10 @@ async def test_magic_start_normalises_email_to_lowercase(
     assert response.status_code == 200
     rows = self_host_schema.execute_sql("SELECT email FROM magic_link_tokens")
     assert rows[0]["email"] == "ana@test.com"
-    assert fake_smtp.sent[0]["to"] == "ANA@TEST.COM"
+    # The handler normalises the canonical email before sending the
+    # verify envelope, so the SMTP transport receives the lowercase
+    # form even though the request body was uppercase.
+    assert fake_smtp.sent[0]["to"] == "ana@test.com"
 
 
 # --- GET /auth/magic/verify ------------------------------------------------
