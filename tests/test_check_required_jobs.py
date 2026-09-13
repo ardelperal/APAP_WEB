@@ -28,15 +28,38 @@ def test_e2e_skip_is_allowed_on_pull_request() -> None:
     images flakes intermittently on the hosted runner. Run only on
     release events (schedule / tag push / workflow_dispatch) per
     AGENTS §PR_DISCIPLINE so PRs are not blocked by infrastructure
-    flakes. A skipped e2e job on a PR is therefore NOT a policy
-    violation.
+    flakes. A skipped e2e job on a PR or a regular push is therefore NOT
+    a policy violation.
     """
     needs = _needs()
     needs["e2e"]["result"] = "skipped"
 
     assert check_results(needs, "pull_request") == []
     assert check_results(needs, "push") == []
+    # Schedule is a release event too, but the cron path has no operator
+    # to interpret infrastructure flakes; the policy mirrors pull
+    # request here for now.
+    assert check_results(needs, "schedule") == []
+
+
+def test_e2e_skip_blocks_required_on_workflow_dispatch_and_tag_push() -> None:
+    """Issue #766: workflow_dispatch and tag push are release events where
+    the e2e suite MUST terminate SUCCESS. A skipped e2e blocks the
+    required gate.
+    """
+    needs = _needs()
+    needs["e2e"]["result"] = "skipped"
+
+    assert check_results(needs, "workflow_dispatch") == ["e2e: result='skipped'"]
+    assert check_results(needs, "push", "refs/tags/v1.2.3") == ["e2e: result='skipped'"]
+
+
+def test_e2e_success_passes_required_on_workflow_dispatch_and_tag_push() -> None:
+    """Issue #766: the release-gating happy path.
+    """
+    needs = _needs()
     assert check_results(needs, "workflow_dispatch") == []
+    assert check_results(needs, "push", "refs/tags/v1.2.3") == []
 
 
 def test_failed_optional_job_still_fails_when_it_runs() -> None:
