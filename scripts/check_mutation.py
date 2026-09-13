@@ -18,9 +18,10 @@ Reads a cosmic-ray session database and enforces, in order:
 4. **Acquisition grace period** — modules newly added to the target set carry
    an ``awaiting_acquisition`` marker (issue #434) with the ISO date they
    landed on ``main``. The marker must be replaced with a real survivor count
-   by the next scheduled CI mutation run. The ratchet fails closed if the
-   marker persists past ``GRACE_PERIOD_DAYS`` days, so a broken measurement
-   cannot stay silent (§32.P3). See issue #434.
+   by the next CI mutation run (release tag push or manual dispatch — issue
+   #780). The ratchet fails closed if the marker persists past
+   ``GRACE_PERIOD_DAYS`` days, so a broken measurement cannot stay silent
+   (§32.P3). See issue #434.
 
 Stdlib-only on purpose: the session is read through ``sqlite3`` rather than
 through cosmic-ray's own API, so this gate and its tests run on any platform,
@@ -55,9 +56,9 @@ MAX_INCOMPETENT_RATIO = 0.20
 DEFAULT_BASELINE_PATH = "docs/quality/mutation-baseline.json"
 
 #: How long an ``awaiting_acquisition`` entry may sit before the ratchet
-#: fails the build. Long enough for the weekly scheduled CI ``mutation`` job
-#: to acquire the real number, short enough that a forgotten entry surfaces
-#: within a sprint (issue #434). 14 days = two weekly cron windows.
+#: fails the build. Long enough for the CI ``mutation`` job (release tag push
+#: or manual dispatch — issue #780) to acquire the real number, short enough
+#: that a forgotten entry surfaces within a sprint (issue #434).
 GRACE_PERIOD_DAYS = 14
 
 _SURVIVED = "survived"
@@ -284,9 +285,10 @@ def check_pending_overdue(
     """Return violation messages for ``awaiting_acquisition`` entries past their grace period.
 
     A pending entry is overdue when ``today - since > grace_period_days``.
-    Long-enough grace gives the scheduled CI ``mutation`` job time to acquire
-    the real number; short-enough that a forgotten entry surfaces within a
-    sprint. See issue #434 and AGENTS.md §32.P3.
+    Long-enough grace gives a release-tag or manually dispatched CI
+    ``mutation`` job time to acquire the real number; short-enough that a
+    forgotten entry surfaces within a sprint. See issues #434 and #780 and
+    AGENTS.md §32.P3.
 
     ``today`` is injected to keep the function pure and testable across
     platforms; callers should pass ``date.today()`` (the production path)
@@ -306,9 +308,10 @@ def check_pending_overdue(
         if age_days > grace_period_days:
             violations.append(
                 f"{module}: awaiting_acquisition marker is {age_days} days old, "
-                f"past the {grace_period_days}-day grace period. The next scheduled "
-                "CI mutation job should have replaced this entry with the real "
-                "survivor count acquired on Linux. See issue #434."
+                f"past the {grace_period_days}-day grace period. The next CI "
+                "mutation job (release tag push or manual dispatch) should have "
+                "replaced this entry with the real survivor count acquired on "
+                "Linux. See issue #434."
             )
     return violations
 

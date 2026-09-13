@@ -18,7 +18,7 @@ Este runbook cubre el gate de mutation testing basado en cosmic-ray. Aplica al P
 
 Abra este runbook en las siguientes situaciones:
 
-- Una ejecución programada nocturna o semanal del CI (cuando TASK-2.6 conecte el job).
+- Un push de tag `v*` o una ejecución manual mediante `workflow_dispatch`.
 - De forma manual, antes de reforzar las pruebas de un módulo del conjunto objetivo.
 - Tras añadir un módulo al conjunto objetivo, para adquirir su entrada de baseline.
 - Antes de fusionar un PR que modifique `scripts/check_mutation.py` o `docs/quality/cosmic-ray.toml`.

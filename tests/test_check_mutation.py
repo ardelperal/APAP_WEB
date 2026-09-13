@@ -299,8 +299,9 @@ def test_ratchet_ignores_awaiting_acquisition_modules() -> None:
 def test_pending_entry_within_grace_period_passes() -> None:
     """Issue #434: a fresh awaiting_acquisition entry is silent.
 
-    The grace gives the scheduled CI ``mutation`` job time to acquire the
-    real number; it must not raise a red flag during that window.
+    The grace gives the CI ``mutation`` job (release tag push or manual
+    dispatch) time to acquire the real number; it must not raise a red flag
+    during that window.
     """
     today = date(2026, 8, 6)
     violations = check_pending_overdue(
@@ -329,7 +330,7 @@ def test_pending_entry_one_day_past_grace_fails_with_a_clear_message() -> None:
     assert len(violations) == 1
     assert "app/adopciones/service.py" in violations[0]
     assert f"{GRACE_PERIOD_DAYS}-day grace period" in violations[0]
-    assert "scheduled CI mutation job" in violations[0]
+    assert "CI mutation job (release tag push or manual dispatch)" in violations[0]
 
 
 def test_pending_entry_far_past_grade_reports_the_age() -> None:
@@ -453,10 +454,11 @@ def test_main_passes_when_pending_module_is_measured_within_grace(
 ) -> None:
     """Issue #434: end-to-end pass when the new module has been measured.
 
-    Simulates the first scheduled CI mutation run after the PR lands: the
-    session covers both the pilot and the new module, the baseline pins the
-    pilot and marks the new one as awaiting acquisition, and ``main`` reports
-    OK without raising "no baseline entry" for the pending module.
+    Simulates the first CI mutation run (release tag push or manual
+    dispatch) after the PR lands: the session covers both the pilot and the
+    new module, the baseline pins the pilot and marks the new one as
+    awaiting acquisition, and ``main`` reports OK without raising "no
+    baseline entry" for the pending module.
     """
     today = date.today()
     since = (today - timedelta(days=GRACE_PERIOD_DAYS - 1)).isoformat()
@@ -498,7 +500,7 @@ def test_main_passes_when_pending_module_is_measured_within_grace(
 def test_main_fails_when_pending_module_overdue(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Issue #434: end-to-end fail when the scheduled run never acquires.
+    """Issue #434: end-to-end fail when the release run never acquires.
 
     The grace period expired and ``awaiting_acquisition`` is still on disk;
     the ratchet must surface that with the §32.P3 message and exit 1.
