@@ -73,6 +73,7 @@ Un slice puede necesitar 1 o 4 ficheros según su complejidad. Lo mínimo es `*_
 | Mutation testing | cerrado (runbook) | [docs/runbooks/mutation-testing.md](../runbooks/mutation-testing.md) |
 | Anti-patrones documentados (§32) | cerrado (auditoría 2026-07-25) | [docs/codebase/anti-patterns.md](../codebase/anti-patterns.md) |
 | Gate required determinístico (e2e fail-closed en releases) | cerrado (e2e required en workflow_dispatch y tag push) | #766 |
+| Permissions explícitos en workflows de PR gates | cerrado (pr-name y pr-size con contents: read) | #682 |
 
 Decisiones: [d-33-tdd-estricto.md](../architecture/decisiones/d-33-tdd-estricto.md), [d-35-presupuesto-400-lineas-pr.md](../architecture/decisiones/d-35-presupuesto-400-lineas-pr.md).
 
