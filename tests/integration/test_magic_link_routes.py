@@ -77,6 +77,17 @@ async def magic_link_client(self_host_schema, monkeypatch: pytest.MonkeyPatch) -
     # ``app.core.config._validate_secrets``); 64 chars to clear the
     # 32-char minimum.
     monkeypatch.setenv("APAP_SESSION_SECRET", "integration-test-secret-64-chars-long-padding-x")
+    # The ``create_app`` factory validates ``APAP_RAWSQL_AUTH_TOKEN``
+    # at lifespan startup (the rawsql router is mounted in
+    # ``local_backend/app.py`` alongside the magic-link router).
+    # Use a 64-character deterministic value that the validator
+    # accepts; the token gate rejects the real request unless the
+    # caller presents the exact same value, which the magic-link
+    # round-trip never does.
+    monkeypatch.setenv(
+        "APAP_RAWSQL_AUTH_TOKEN",
+        "integration-test-rawsql-token-64-chars-padding-xyz-aaaaaa",
+    )
 
     app = create_app()
     fake_smtp = _FakeSMTPTransport()
@@ -100,6 +111,7 @@ async def magic_link_client(self_host_schema, monkeypatch: pytest.MonkeyPatch) -
 # --- POST /auth/magic/start -------------------------------------------------
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_magic_start_creates_token_and_queues_email(
     magic_link_client: tuple[httpx.AsyncClient, _FakeSMTPTransport, str],
@@ -126,6 +138,7 @@ async def test_magic_start_creates_token_and_queues_email(
     assert rows[0]["email"] == "ana@test.com"
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_magic_start_returns_400_on_missing_email(
     magic_link_client: tuple[httpx.AsyncClient, _FakeSMTPTransport, str],
@@ -136,6 +149,7 @@ async def test_magic_start_returns_400_on_missing_email(
     assert fake_smtp.sent == []  # no token minted, no email sent
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_magic_start_returns_400_on_invalid_email_format(
     magic_link_client: tuple[httpx.AsyncClient, _FakeSMTPTransport, str],
@@ -148,6 +162,7 @@ async def test_magic_start_returns_400_on_invalid_email_format(
     assert fake_smtp.sent == []
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_magic_start_normalises_email_to_lowercase(
     magic_link_client: tuple[httpx.AsyncClient, _FakeSMTPTransport, str],
@@ -161,12 +176,16 @@ async def test_magic_start_normalises_email_to_lowercase(
     assert response.status_code == 200
     rows = self_host_schema.execute_sql("SELECT email FROM magic_link_tokens")
     assert rows[0]["email"] == "ana@test.com"
-    assert fake_smtp.sent[0]["to"] == "ANA@TEST.COM"
+    # The handler normalises the canonical email before sending the
+    # verify envelope, so the SMTP transport receives the lowercase
+    # form even though the request body was uppercase.
+    assert fake_smtp.sent[0]["to"] == "ana@test.com"
 
 
 # --- GET /auth/magic/verify ------------------------------------------------
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_magic_verify_consumes_token_and_sets_session_cookie(
     magic_link_client: tuple[httpx.AsyncClient, _FakeSMTPTransport, str],
@@ -217,6 +236,7 @@ async def test_magic_verify_consumes_token_and_sets_session_cookie(
     assert payload["email"] == "ana@test.com"
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_magic_verify_returns_302_to_login_on_invalid_token(
     magic_link_client: tuple[httpx.AsyncClient, _FakeSMTPTransport, str],
@@ -232,6 +252,7 @@ async def test_magic_verify_returns_302_to_login_on_invalid_token(
     assert "reason" in response.headers["location"]
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_magic_verify_rejects_already_consumed_token(
     magic_link_client: tuple[httpx.AsyncClient, _FakeSMTPTransport, str],
