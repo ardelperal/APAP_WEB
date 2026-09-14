@@ -649,12 +649,13 @@ def main(
                 prompt=prompt,
                 stream=stream,
             )
-        if args.command == "apply":
-            return run_apply(args, web_client=web_client, stream=stream)
-        if args.command == "status":
-            return run_status(args, web_client=web_client, stream=stream)
-        if args.command == "ensure-bucket":
-            return run_ensure_bucket(args, web_client=web_client, stream=stream)
+        run_with_web_client = {
+            "apply": run_apply,
+            "status": run_status,
+            "ensure-bucket": run_ensure_bucket,
+        }.get(args.command)
+        if run_with_web_client is not None:
+            return run_with_web_client(args, web_client=web_client, stream=stream)
         if args.command == "verify-fallback-ready":
             return run_verify_fallback_ready(args, stream=stream)
     finally:
@@ -673,7 +674,6 @@ def run_verify_fallback_ready(
     *,
     stream: IO[str] | None = None,
 ) -> int:
-    """Run the M2 fallback-ready gate from the main migration CLI."""
     from migration.verify_fallback_ready import format_receipt, run_gate
 
     if stream is None:
