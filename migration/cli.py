@@ -649,9 +649,9 @@ def main(
                 prompt=prompt,
                 stream=stream,
             )
-        run_with_web_client = {
-            "apply": run_apply,
-            "status": run_status,
+        run_with_web_client: Any = {
+            "apply": run_apply,  # type: ignore[dict-item]
+            "status": run_status,  # type: ignore[dict-item]
             "ensure-bucket": run_ensure_bucket,
         }.get(args.command)
         if run_with_web_client is not None:
