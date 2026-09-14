@@ -42,11 +42,11 @@ Las capacidades que cruzan varias fases viven en [`transversales.md`](roadmap/tr
 
 | SHA | Title | PR |
 |---|---|---|
-| ea29fe2 | feat(salud): enforce legacy §9.2 gates on terapias | #765 |
-| a9acc20 | refactor(materiales): extract domain entities + abstract port | #753 |
-| 9de538a | feat(observability): traza canónica end-to-end | #751 |
-| 4c4bb0c | refactor(tests): migrate last batch from httpx.MockTransport to _FakeSqlExecutor | #748 |
-| 51f5c2f | docs: mark M0 migration regression as passed | #747 |
+| 47072e0 | docs(roadmap): mark #780 #782 #783 ci gates as closed | #786 |
+| 16f1cdf | ci: require GitHub-hosted runners for pull_request-reachable jobs | #784 |
+| 4d1fdeb | docs(roadmap): mark #682 permissions PR gates as closed | #779 |
+| b3c3345 | fix(ci): explicit permissions in pr-name and pr-size workflows | #778 |
+| fc0116b | docs(roadmap): mark #766 ci deterministic gate required as closed | #777 |
 
 ## Cuándo ir al legacy directamente
 

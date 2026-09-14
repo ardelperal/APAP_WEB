@@ -163,7 +163,6 @@ BASELINE_CRAP: dict[str, float] = {
     "migration/cli.py::main": 11.03,
     "migration/cli.py::run_reconcile": 12.08,
     "migration/cli_apply_reverse.py::run_apply": 21.15,
-    "migration/cli_verify_fallback_ready.py::main": 6.0,
     "migration/cli_volunteer_dedup.py::_format_summary": 7.0,
     "migration/cli_volunteer_dedup.py::_parse_input": 12.67,
     "migration/cli_volunteer_dedup.py::run_volunteer_dedup": 10.74,

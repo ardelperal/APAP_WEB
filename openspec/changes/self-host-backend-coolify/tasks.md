@@ -73,7 +73,7 @@ tests.
 ### 0.3 Verify-fallback-ready gate
 
 - [x] **0.3.1** Run the gate against the new local backend:
-  `python -m migration.cli_verify_fallback_ready --ci-only`. All 3
+  `python -m migration verify-fallback-ready --ci-only`. All 3
   CI checks should pass:
   - `round_trip_test` (uses `FakeLocalBackend`, independent of the new local
     backend — should keep passing)
@@ -136,7 +136,7 @@ tests.
 - [x] `tests/integration/test_self_host_auth.py` still passes (regression)
 - [x] `tests/migration/test_*.py` still passes (regression) ✅ 344 passed / 3 skipped / 1 xfailed (2026-09-11)
 - [x] The 3 CI URL-switching unit tests in `test_local_backend.py` pass
-- [x] `python -m migration.cli_verify_fallback_ready --ci-only` is green
+- [x] `python -m migration verify-fallback-ready --ci-only` is green
   on the new local backend (manual or via fixture wiring if possible)
 
   Status: fixture wiring implemented; gate passes for the two
