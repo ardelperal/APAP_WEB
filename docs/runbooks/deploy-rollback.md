@@ -63,15 +63,24 @@ gh pr list --base main --state merged --limit 20 --json number,title,mergeCommit
 Antes de reasignar `deploy-current`, compruebe que el digest se construyó y verificó correctamente:
 
 ```bash
+set -euo pipefail
+
+IMAGE="ghcr.io/ardelperal/apap-web"
 target_sha="<full-sha-del-rollback>"
 target_digest="sha256:..."
 
-docker buildx imagetools inspect --raw \
-  "ghcr.io/ardelperal/apap-web:sha-${target_sha}" \
-  | jq -r '.manifests[] | select(.platform.architecture == "arm64") | .digest'
+resolved_digest=$(docker buildx imagetools inspect \
+  --format '{{.Manifest.Digest}}' \
+  "${IMAGE}:sha-${target_sha}")
+
+test "${resolved_digest}" = "${target_digest}"
+
+cosign verify "${IMAGE}@${target_digest}" \
+  --certificate-identity "https://github.com/ardelperal/APAP_WEB/.github/workflows/deploy.yml@refs/heads/main" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com"
 ```
 
-El digest `arm64` debe coincidir con el digest objetivo. Si no coincide, **no proceda**: el digest no está firmado por la CI y queda fuera del contrato.
+El digest resuelto debe coincidir con el objetivo y `cosign verify` debe validar la identidad exacta del workflow y su emisor. Si cualquiera de las dos comprobaciones falla, **no proceda**.
 
 ### Paso 3 — Reasignar `deploy-current`
 
@@ -83,7 +92,7 @@ DEPLOY_TAG="deploy-current"
 
 docker buildx imagetools create \
   --tag "${IMAGE}:${DEPLOY_TAG}" \
-  "${IMAGE}@sha256:${target_digest}"
+  "${IMAGE}@${target_digest}"
 ```
 
 Este paso no toca la base de datos ni el código: solo reasigna el puntero del repositorio.
@@ -144,10 +153,23 @@ El step `Roll back to the previous digest` de `deploy.yml` cubre el caso más co
 
 1. `promote` ya movió `deploy-current` al digest actual.
 2. El step `failure()` ejecuta la rama de rollback.
-3. CI reasigna `deploy-current` al `previous_digest`, dispara el webhook de Coolify y verifica `/healthz` contra el SHA anterior.
-4. El job queda rojo; el operador investiga la causa raíz.
+3. CI verifica `previous_digest` con la identidad y el emisor de Cosign exigidos al despliegue directo.
+4. Solo después de verificar la firma, CI reasigna `deploy-current`, dispara el webhook de Coolify y verifica `/healthz` contra el SHA anterior.
+5. El job queda rojo; el operador investiga la causa raíz.
 
 Si el rollback automático falla, este runbook es el procedimiento manual de respaldo. **No use ambos a la vez**: si Coolify ya está sirviendo un digest intermedio, vuelva al Paso 1 y elija un digest distinto.
+
+## Firma y verificación con Cosign (keyless)
+
+Desde el hardening de cadena de suministro (#783), el job `deploy` firma y verifica el digest recién publicado antes de promoverlo, cerrando la ventana en la que un digest sustituido en `ghcr.io` llega al despliegue sin que nada lo detecte.
+
+1. **`Install Cosign`** — instala el binario `cosign` (`sigstore/cosign-installer`, pinned por SHA) en el runner.
+2. **`Sign the published digest with GitHub OIDC`** — tras el `trivy scan` y antes del smoke test, `cosign sign --yes` firma el digest recién publicado en modo keyless: intercambia el token OIDC <!-- alantyle-ignore:ALAN003 --> efímero del job (permiso `id-token: write`) por un certificado Fulcio de corta vida, sin clave privada almacenada en el repositorio.
+3. **`Verify the published digest is signed by this workflow`** — inmediatamente antes de `Promote the verified digest` y del webhook de Coolify, `cosign verify` comprueba la firma contra la identidad de certificado esperada (`.github/workflows/deploy.yml` en `refs/heads/main`) y el emisor OIDC <!-- alantyle-ignore:ALAN003 --> (`https://token.actions.githubusercontent.com`). Si la verificación falla, el step sale con error y el job se detiene ahí — igual que un hallazgo `HIGH`/`CRITICAL` de trivy — sin promover `deploy-current` ni disparar el webhook.
+
+**Orden elegido y motivo**: la firma corre después del `trivy scan` (no inmediatamente tras el push) para no generar un certificado Fulcio ni una entrada pública en el transparency log (Rekor) de un digest que el scan de vulnerabilidades puede rechazar y que nunca llegaría a promoverse. La verificación corre justo antes de la promoción — el último gate antes de mover `deploy-current` — para que ningún digest sin firma válida llegue al webhook de Coolify.
+
+**Cobertura del `previous_digest` en el rollback automático**: antes de re-promover `previous_digest`, el rollback ejecuta el mismo `cosign verify`, con la identidad exacta de `deploy.yml` en `refs/heads/main` y el mismo emisor. Un digest histórico sin una firma válida no se promueve: el rollback falla antes de mover `deploy-current` o disparar el webhook.
 
 ## Anti-patrones
 
@@ -162,7 +184,8 @@ Si el rollback automático falla, este runbook es el procedimiento manual de res
 ## Contributor checklist
 
 - [ ] El digest objetivo se eligió de un tag `sha-<full-sha>` verificable en el Container Registry de GitHub.
-- [ ] `docker buildx imagetools inspect` confirmó el digest `arm64` antes de promover.
+- [ ] `docker buildx imagetools inspect` confirmó que el tag resuelve al digest objetivo antes de promover.
+- [ ] `cosign verify` validó el digest con la identidad exacta de `deploy.yml` y el emisor de GitHub Actions.
 - [ ] El webhook de Coolify se disparó con `scripts/coolify_webhook.py` (no con `curl` plano).
 - [ ] `scripts/verify_deployment.py` reportó `ok` con el SHA esperado.
 - [ ] Se abrió la issue de incidente con etiqueta `incident`.
