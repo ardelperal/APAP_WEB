@@ -94,7 +94,7 @@ The runbook covers:
 
 ## Requirement: The verify-fallback-ready gate is green
 
-- `python -m migration.cli_verify_fallback_ready --ci-only` exits 0
+- `python -m migration verify-fallback-ready --ci-only` exits 0
 - The 3 CI checks all pass:
   - `tests/migration/test_round_trip.py` green
   - `docs/audits/pii-live-migration-2026-Q3.md` verdict `PASS`
@@ -124,7 +124,7 @@ The runbook covers:
 - [ ] `docs/runbooks/self-host-backend.md` covers provisioning, password
       reset, secret rotation, and backup procedures
 - [ ] `verify-fallback-ready --ci-only` exits 0
-- [ ] `coolify exec apap-web python -m migration.cli_verify_fallback_ready --ci-only`
+- [ ] `coolify exec apap-web python -m migration verify-fallback-ready --ci-only`
       exits 0 from inside the container
 - [ ] The operator can run `apap-migrate apply --table animal \
       --legacy-path /path/to/copy.accdb` against the production backend

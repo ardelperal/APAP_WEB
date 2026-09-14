@@ -226,16 +226,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     # --- verify-fallback-ready --------------------------------------
-    # PR7 (issue #637, openspec live-data-migration-sandbox): the
-    # M2 fallback-ready gate. Closes the migration openspec; the
-    # gate is the operator's CI-clean signal that the bidirectional
-    # migration is ready for production. ``--ci-only`` runs the
-    # CI-runnable subset (round-trip test + PII audit + reverse
-    # dry-run); the full mode adds the operator-attested signature
-    # check. The dispatcher in main() routes to the standalone
-    # ``migration.cli_verify_fallback_ready.main`` so the gate logic
-    # lives in one place and the project CLI does not need to
-    # import migration.verify_fallback_ready directly.
     verify_fb = sub.add_parser(
         "verify-fallback-ready",
         help=(
@@ -666,14 +656,7 @@ def main(
         if args.command == "ensure-bucket":
             return run_ensure_bucket(args, web_client=web_client, stream=stream)
         if args.command == "verify-fallback-ready":
-            # Dispatch to the standalone entry point so the gate
-            # logic lives in one place (migration.verify_fallback_ready).
-            # The project CLI does not import that module directly
-            # to keep the test surface tight; the standalone
-            # module is the public face of the gate.
-            from migration.cli_verify_fallback_ready import main as _vfb_main
-            vfb_argv = ["--ci-only"] if args.ci_only else []
-            return _vfb_main(vfb_argv)
+            return run_verify_fallback_ready(args, stream=stream)
     finally:
         if owned_web_client is not None:
             owned_web_client.close()
@@ -683,6 +666,22 @@ def main(
     # in normal operation but keeps the return type total.
     parser.error(f"unknown command: {args.command}")
     return 2  # pragma: no cover
+
+
+def run_verify_fallback_ready(
+    args: argparse.Namespace,
+    *,
+    stream: IO[str] | None = None,
+) -> int:
+    """Run the M2 fallback-ready gate from the main migration CLI."""
+    from migration.verify_fallback_ready import format_receipt, run_gate
+
+    if stream is None:
+        stream = sys.stdout
+    exit_code, results = run_gate(ci_only=args.ci_only)
+    stream.write(format_receipt(results, ci_only=args.ci_only))
+    stream.write("\n")
+    return exit_code
 
 
 __all__ = [
@@ -695,4 +694,5 @@ __all__ = [
     "run_ensure_bucket",
     "run_reconcile",
     "run_status",
+    "run_verify_fallback_ready",
 ]

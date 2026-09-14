@@ -352,8 +352,9 @@ tests/integration/test_local_backend.py
 - `app/core/local_backend.py` — no change
 - `app/core/data_access.py` — no change (the Protocol is unchanged;
   `LocalPostgresExecutor` is an implementation of it)
-- `migration/cli_verify_fallback_ready.py` — no change (the gate
-  already works against the existing tests)
+- `migration/cli_verify_fallback_ready.py` — retired (issue #640 fold-back: the
+  gate now dispatches through `migration.cli.run_verify_fallback_ready`
+  instead of the standalone module)
 
 ### 0.10 Migration to M2 (Coolify + production)
 

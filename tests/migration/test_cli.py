@@ -27,7 +27,27 @@ import pytest
 
 from migration import cli as cli_mod
 from migration.cli import build_parser, main
+from migration.verify_fallback_ready import CheckResult
 from tests.migration.conftest import FakeLocalBackend  # noqa: TID251
+
+
+def _patch_gate_checks(
+    monkeypatch: pytest.MonkeyPatch,
+    *results: CheckResult,
+) -> None:
+    """Patch verify-fallback-ready checks for CLI dispatch tests."""
+    import migration.verify_fallback_ready as _vfb
+
+    pairs = [
+        ("check_round_trip_test", results[0] if len(results) > 0 else None),
+        ("check_pii_audit_verdict", results[1] if len(results) > 1 else None),
+        ("check_web_to_legacy_check_only", results[2] if len(results) > 2 else None),
+        ("check_operator_signature", results[3] if len(results) > 3 else None),
+    ]
+    for name, result in pairs:
+        if result is None:
+            continue
+        monkeypatch.setattr(_vfb, name, lambda *a, _r=result, **kw: _r)
 
 # --- 1. apply --check-only is dry-run ---------------------------------
 
@@ -490,3 +510,73 @@ def test_cli_reconcile_filter_direction_web_to_legacy_returns_empty_in_pr5() -> 
     # No forward rows in the listing (the only row is filtered out).
     output = stream.getvalue()
     assert "legacy_pk=alice" not in output
+
+
+# --- 7. verify-fallback-ready subcommand (issue #640) ----------------
+
+def test_cli_exports_run_verify_fallback_ready() -> None:
+    assert hasattr(cli_mod, "run_verify_fallback_ready")
+    assert callable(cli_mod.run_verify_fallback_ready)
+
+
+def test_cli_verify_fallback_ready_dispatch_writes_receipt_to_stream(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_gate_checks(
+        monkeypatch,
+        CheckResult(name="round_trip_test", status="PASS", evidence="ok"),
+        CheckResult(name="pii_audit_verdict", status="PASS", evidence="ok"),
+        CheckResult(name="web_to_legacy_check_only", status="PASS", evidence="ok"),
+    )
+
+    stream = io.StringIO()
+    rc = main(["verify-fallback-ready", "--ci-only"], stream=stream)
+    output = stream.getvalue()
+
+    assert rc == 0
+    assert "verify-fallback-ready mode: --ci-only" in output
+    assert "round_trip_test" in output
+    assert "pii_audit_verdict" in output
+    assert "web_to_legacy_check_only" in output
+
+
+def test_cli_verify_fallback_ready_dispatch_returns_gate_exit_code(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_gate_checks(
+        monkeypatch,
+        CheckResult(name="round_trip_test", status="PASS", evidence="ok"),
+        CheckResult(name="pii_audit_verdict", status="FAIL", evidence="missing"),
+        CheckResult(name="web_to_legacy_check_only", status="PASS", evidence="ok"),
+    )
+
+    stream = io.StringIO()
+    rc = main(["verify-fallback-ready", "--ci-only"], stream=stream)
+
+    assert rc == 1
+    assert "missing_ci_condition=pii_audit_verdict" in stream.getvalue()
+
+
+def test_cli_verify_fallback_ready_dispatch_uses_main_cli_wrapper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    def _spy(args, *, stream=None):
+        calls.append(args.command)
+        stream.write("spy-receipt\n")
+        return 0
+
+    monkeypatch.setattr(cli_mod, "run_verify_fallback_ready", _spy)
+
+    stream = io.StringIO()
+    rc = main(["verify-fallback-ready", "--ci-only"], stream=stream)
+
+    assert rc == 0
+    assert calls == ["verify-fallback-ready"]
+    assert stream.getvalue() == "spy-receipt\n"
+
+    import importlib
+
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("migration.cli_verify_fallback_ready")
