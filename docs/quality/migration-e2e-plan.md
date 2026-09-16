@@ -115,9 +115,9 @@ class MdbToolsLegacyReader:
 
 ### Pieza 3 — Gate `verify-fallback-ready --ci-only`
 
-**Path**: `migration/cli_verify_fallback_ready.py`
+**Path**: `migration.cli` (subcomando `verify-fallback-ready`)
 
-CLI nuevo, separado de `cli.py` para no contaminar runtime. Sigue el patrón de `cli_apply_reverse.py` (que es PR6).
+Subcomando del CLI principal de migration. La lógica del gate vive en `migration/verify_fallback_ready.py` (`run_gate` + `format_receipt`); el wrapper `run_verify_fallback_ready` vive en `migration/cli.py` (issue #640 fold-back: el módulo standalone `migration.cli_verify_fallback_ready.py` quedó retirado).
 
 **Lógica del mode `--ci-only`** (subset CI-runnable, no requiere operator attestation):
 
@@ -179,8 +179,8 @@ def verify_fallback_ready_ci_only() -> VerifyResult:
 
 **Wiring**:
 
-- `.github/workflows/ci.yml` — job `verify-fallback-ready` después de pytest, con `python -m migration.cli_verify_fallback_ready --ci-only`. Exit 0 → CI green; exit 1 → CI fail.
-- `Makefile` — target `verify-fallback-ready-ci: $(PYTHON) -m migration.cli_verify_fallback_ready --ci-only`
+- `.github/workflows/ci.yml` — job `verify-fallback-ready` después de pytest, con `python -m migration verify-fallback-ready --ci-only`. Exit 0 → CI green; exit 1 → CI fail.
+- `Makefile` — target `verify-fallback-ready-ci: $(PYTHON) -m migration verify-fallback-ready --ci-only`
 - `tests/test_verify_fallback_ready_cli.py` — unit test del CLI (no necesita DB real, solo verifica el formato del output y los exit codes)
 
 ## Restricción de privacidad

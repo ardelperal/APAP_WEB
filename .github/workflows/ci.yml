@@ -944,16 +944,20 @@ jobs:
           echo "APAP_LOCAL_DB_URL=$DSN" >> "$GITHUB_ENV"
 
       - name: Run the verify-fallback-ready gate (CI subset)
-        # The standalone entry point at
-        # ``migration/cli_verify_fallback_ready`` does NOT import
-        # the project CLI module (which is currently fragmented by
-        # a previous refactor and is missing several run_*
-        # functions). The standalone path is a temporary
-        # workaround; the gate is folded back into the CLI's
-        # subparser when the project CLI is restored. Until then
-        # the standalone path keeps the gate runnable in CI.
+        # Issue #640 fold-back: the gate dispatches through the main
+        # ``migration.cli`` subcommand, which owns the
+        # ``run_verify_fallback_ready`` wrapper. The pre-fold-back
+        # standalone module (``migration.cli_verify_fallback_ready``)
+        # is retired; the wrapper delegates to
+        # ``migration.verify_fallback_ready`` for the checks and
+        # the receipt. ``--ci-only`` keeps the run hermetic (no
+        # operator-attested signature). The runner invokes
+        # ``python -m migration`` (the ``__main__.py`` shim) so the
+        # pre-existing ``migration.cli`` / ``migration.cli_apply_reverse``
+        # circular-import ordering is preserved (the same shim the
+        # operator uses on a workstation).
         run: |
-          python -m migration.cli_verify_fallback_ready --ci-only
+          python -m migration verify-fallback-ready --ci-only
 
   build:
     name: build

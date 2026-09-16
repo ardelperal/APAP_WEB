@@ -1,10 +1,14 @@
-"""Tests for ``migration.verify_fallback_ready`` and the
-``migration.cli_verify_fallback_ready`` standalone entry point.
+"""Tests for ``migration.verify_fallback_ready`` (the gate logic).
 
 These tests cover the gate's surface (which checks, exit codes,
 output format) without spinning up the full migration pipeline. The
 real migration E2E is in ``tests/migration/test_e2e_legacy_postgres.py``;
 here we just verify the gate logic in isolation.
+
+The CLI wrapper that drives the gate lives in
+``migration.cli.run_verify_fallback_ready`` (issue #640 fold-back).
+The CLI-side coverage for that wrapper is in
+``tests/migration/test_cli.py``.
 """
 
 from __future__ import annotations

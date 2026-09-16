@@ -1713,3 +1713,28 @@ def test_development_guide_points_at_make_verify() -> None:
         "docs/development.md must document `make verify` as the pre-PR command "
         "(issue #504)"
     )
+
+
+# --- issue #640: verify-fallback-ready fold-back -----------------------
+
+def _verify_fallback_ready_job() -> str:
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    job_start = workflow.index("\n  verify-fallback-ready:")
+    return workflow[job_start : workflow.index("\n  build:", job_start)]
+
+
+def test_ci_workflow_invoke_verify_fallback_ready_via_main_cli() -> None:
+    job = _verify_fallback_ready_job()
+    executable = "\n".join(
+        line for line in job.splitlines() if not line.lstrip().startswith("#")
+    )
+
+    assert "python -m migration verify-fallback-ready --ci-only" in executable
+    assert "migration.cli_verify_fallback_ready" not in executable
+
+
+def test_ci_workflow_verify_fallback_ready_job_has_no_standalone_path_comment() -> None:
+    job = _verify_fallback_ready_job()
+
+    assert "migration/cli_verify_fallback_ready" not in job
+    assert "temporary workaround" not in job
