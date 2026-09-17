@@ -6,13 +6,16 @@ Esta página posee el estado de la Fase 7: anexos, motor de plantillas documenta
 
 ## Estado
 
-pendiente — pendiente de crear issues (uno por sub-flujo). Próximos: DOC-01..04 (#56–#59), REPORT-01..05 (#60–#64).
+en curso — PR 1 de DOC-01 (#56) mergeado en `main` (commit `28614e1`); template engine puro con pin arquitectónico y 35 tests verdes. Pendiente: PR 2 (storage adapter + object storage), PR 3 (route handler + DI), PR 4 (E2E). DOC-02..04 y REPORT-01..05 sin tocar.
 
 ## Slices
 
 | Sub-fase | Slice | Estado | Issue |
 |---|---|---|---|
-| 7a documentos | DOC-01 contract-PDF generation | pendiente | #56 |
+| 7a documentos | DOC-01 PR 1 — template engine puro | **cerrado** (`28614e1`) | #56 |
+| 7a documentos | DOC-01 PR 2 — storage adapter + object storage | pendiente | #56 |
+| 7a documentos | DOC-01 PR 3 — route handler + DI wiring | pendiente | #56 |
+| 7a documentos | DOC-01 PR 4 — batería E2E (`test_contratos_pdf.py`, `test_contratos_auth.py`) | pendiente | #56 |
 | 7a documentos | DOC-02 signed-upload registration | pendiente | #57 |
 | 7a documentos | DOC-03 polymorphic attachments | pendiente | #58 |
 | 7a documentos | DOC-04 legacy-to-object-storage migration | pendiente | #59 |
@@ -26,7 +29,7 @@ pendiente — pendiente de crear issues (uno por sub-flujo). Próximos: DOC-01..
 
 ## Issues abiertas relacionadas
 
-- #56 DOC-01 contract-PDF generation.
+- #56 DOC-01 contract-PDF generation (PR 1 cerrado en `28614e1`; PR 2..4 pendientes).
 - #57 DOC-02 signed-upload registration.
 - #58 DOC-03 polymorphic attachments.
 - #59 DOC-04 legacy-to-object-storage migration.
