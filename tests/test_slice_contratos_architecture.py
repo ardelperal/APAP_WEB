@@ -237,15 +237,20 @@ def test_render_contrato_exposes_single_public_function() -> None:
     """PR 1 still ships only the template engine — no PDF, no storage.
 
     The public surface of :mod:`app.modules.contratos.application.render_contrato`
-    is exactly :func:`render_contrato`. PDF adapter and storage
-    adapter live under ``application/render_to_pdf.py`` and
-    ``adapters/local_backend/`` respectively.
+    is exactly :func:`render_contrato`. Helper functions are
+    intentionally ``_``-prefixed to keep them private to the
+    dispatch table and excluded from this assertion. PDF adapter
+    and storage adapter live under ``application/render_to_pdf.py``
+    and ``adapters/local_backend/`` respectively.
     """
     module_path = CONTRATOS_ROOT / "application" / "render_contrato.py"
     source = module_path.read_text(encoding="utf-8")
     declared: set[str] = set()
     for match in re.finditer(r"^def\s+(\w+)\s*\(", source, re.MULTILINE):
-        declared.add(match.group(1))
+        name = match.group(1)
+        if name.startswith("_"):
+            continue
+        declared.add(name)
     assert declared == {"render_contrato"}, (
         f"render_contrato.py must expose only render_contrato as a public "
         f"function; declared: {sorted(declared)}"
