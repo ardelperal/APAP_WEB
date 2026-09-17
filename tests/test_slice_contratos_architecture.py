@@ -121,15 +121,21 @@ def test_render_contrato_exposes_single_public_function() -> None:
     """PR 1 only ships the template engine — no PDF, no storage yet.
 
     The public surface of :mod:`app.modules.contratos.application.render_contrato`
-    is exactly :func:`render_contrato`. PDF adapter (weasyprint /
-    reportlab) and storage adapter (object storage) land in PR 2 and
-    PR 3 respectively; adding them here is scope creep.
+    is exactly :func:`render_contrato`. Helper functions are
+    intentionally ``_``-prefixed to keep them private to the
+    dispatch table and excluded from this assertion. PDF adapter
+    (weasyprint / reportlab) and storage adapter (object storage)
+    land in PR 2 and PR 3 respectively; adding them here is scope
+    creep.
     """
     module_path = CONTRATOS_ROOT / "application" / "render_contrato.py"
     source = module_path.read_text(encoding="utf-8")
     declared: set[str] = set()
     for match in re.finditer(r"^def\s+(\w+)\s*\(", source, re.MULTILINE):
-        declared.add(match.group(1))
+        name = match.group(1)
+        if name.startswith("_"):
+            continue
+        declared.add(name)
     assert declared == {"render_contrato"}, (
         f"render_contrato.py must expose only render_contrato as a public "
         f"function; declared: {sorted(declared)}"

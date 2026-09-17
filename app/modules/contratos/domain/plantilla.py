@@ -126,29 +126,53 @@ def _validar_expresion_condicional(condition: str) -> None:
     so the legacy Word mail-merge syntax (``{% if animal.edad_meses
     >= 6 %}``) renders without forcing operators on the operator.
     """
-    if any(op in condition for op in _SUPPORTED_OPERATORS):
-        for op in _SUPPORTED_OPERATORS:
-            if op in condition:
-                left, right = _split_on_operator(condition, op)
-                bare = left.strip()
-                wrapped_match = _PLACEHOLDER_RE.fullmatch(bare)
-                bare_is_path = bool(bare) and "." in bare and re.fullmatch(
-                    r"[\w]+(?:\.[\w]+)*", bare
-                ) is not None
-                if wrapped_match is None and not bare_is_path:
-                    raise PlantillaInvalida(  # noqa: TRY003
-                        f"plantilla invalida: lado izquierdo de '{op}' "
-                        f"debe ser '{{{{ variable }}}}', recibio {bare!r}"
-                    )
-                if not _is_literal(right):
-                    raise PlantillaInvalida(  # noqa: TRY003
-                        f"plantilla invalida: lado derecho de '{op}' "
-                        f"debe ser literal, recibio {right.strip()!r}"
-                    )
-                return
-        raise PlantillaInvalida(  # noqa: TRY003 — defensive, never reached
-            f"plantilla invalida: operador no soportado en {condition!r}"
-        )
+    op = _first_operator(condition)
+    if op is None:
+        return
+    left, right = _split_on_operator(condition, op)
+    _validate_left_operand(left.strip(), op)
+    _validate_right_operand(right.strip(), op)
+
+
+def _first_operator(expression: str) -> str | None:
+    """Return the first supported operator found in ``expression``.
+
+    Returns ``None`` when the expression carries no operator — that
+    means it is a bare placeholder reference, which is a valid
+    truthy check at render time.
+    """
+    for op in _SUPPORTED_OPERATORS:
+        if op in expression:
+            return op
+    return None
+
+
+def _validate_left_operand(bare: str, op: str) -> None:
+    """Raise when ``bare`` is neither a wrapped nor bare dotted path."""
+    if _PLACEHOLDER_RE.fullmatch(bare) is not None:
+        return
+    if _BARE_PATH_RE.fullmatch(bare):
+        return
+    raise PlantillaInvalida(  # noqa: TRY003
+        f"plantilla invalida: lado izquierdo de '{op}' "
+        f"debe ser '{{{{ variable }}}}', recibio {bare!r}"
+    )
+
+
+def _validate_right_operand(stripped: str, op: str) -> None:
+    """Raise when ``stripped`` is not a quoted string or integer literal."""
+    if _is_literal(stripped):
+        return
+    raise PlantillaInvalida(  # noqa: TRY003
+        f"plantilla invalida: lado derecho de '{op}' "
+        f"debe ser literal, recibio {stripped!r}"
+    )
+
+
+#: Matches a bare dotted path (``animal.edad_meses``) without the
+#: surrounding ``{{ ... }}`` braces. The legacy mail-merge syntax
+#: accepts both wrapped and bare paths on the left operand.
+_BARE_PATH_RE = re.compile(r"[\w]+(?:\.[\w]+)*")
 
 
 def _split_on_operator(expression: str, operator: str) -> tuple[str, str]:
@@ -164,14 +188,21 @@ def _split_on_operator(expression: str, operator: str) -> tuple[str, str]:
 
 def _is_literal(token: str) -> bool:
     """Return ``True`` if ``token`` is a quoted string or an integer."""
-    stripped = token.strip()
-    if not stripped:
+    if _is_quoted_string(token):
+        return True
+    return _is_integer_literal(token)
+
+
+def _is_quoted_string(token: str) -> bool:
+    """Return ``True`` if ``token`` is a balanced single/double-quoted string."""
+    if len(token) < 2:
         return False
-    if (stripped.startswith('"') and stripped.endswith('"')) or (
-        stripped.startswith("'") and stripped.endswith("'")
-    ):
-        return len(stripped) >= 2
-    return stripped.lstrip("-").isdigit()
+    return (token[0] == token[-1]) and token[0] in ("\"", "'")
+
+
+def _is_integer_literal(token: str) -> bool:
+    """Return ``True`` if ``token`` parses as a signed integer literal."""
+    return bool(token) and token.lstrip("-").isdigit()
 
 
 __all__ = ["Plantilla", "PlantillaInvalida", "validar_gramatica"]
