@@ -30,7 +30,7 @@ import pytest
 from app.modules.contratos.application.render_contrato import render_contrato
 from app.modules.contratos.domain.plantilla import (
     Plantilla,
-    PlantillaInvalida,
+    PlantillaInvalidaError,
     validar_gramatica,
 )
 from app.modules.contratos.domain.solicitud import SolicitudContrato
@@ -101,14 +101,14 @@ def test_validar_gramatica_accepts_bare_placeholder_condition() -> None:
 
 
 def test_validar_gramatica_rejects_unbalanced_if_block() -> None:
-    """A missing ``{% endif %}`` raises :class:`PlantillaInvalida`.
+    """A missing ``{% endif %}`` raises :class:`PlantillaInvalidaError`.
 
     The render use case cannot recover from an unbalanced block — it
     has no way to know where the block was supposed to end. The
     diagnostic names the opens vs. closes count so the operator can
     locate the gap without re-reading the whole template.
     """
-    with pytest.raises(PlantillaInvalida, match="1 '{% if %}' vs 0 '{% endif %}'"):
+    with pytest.raises(PlantillaInvalidaError, match="1 '{% if %}' vs 0 '{% endif %}'"):
         validar_gramatica("{% if animal.sexo %}Esterilizado")
 
 
@@ -120,7 +120,7 @@ def test_validar_gramatica_rejects_non_placeholder_left_operand() -> None:
     left-operand rule keeps the grammar auditable — every comparison
     is ``{{ variable }} op literal`` and never the other way around.
     """
-    with pytest.raises(PlantillaInvalida, match="lado izquierdo"):
+    with pytest.raises(PlantillaInvalidaError, match="lado izquierdo"):
         validar_gramatica("{% if 'Macho' == animal.sexo %}{% endif %}")
 
 
@@ -259,7 +259,7 @@ def test_render_contrato_rejects_unbalanced_template() -> None:
         variables={"animal.sexo": "Macho"},
         tipo=TipoContrato.ENTRADA,
     )
-    with pytest.raises(PlantillaInvalida):
+    with pytest.raises(PlantillaInvalidaError):
         render_contrato(plantilla, solicitud)
 
 

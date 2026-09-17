@@ -36,7 +36,7 @@ from app.modules.contratos.application.render_contrato import render_contrato
 from app.modules.contratos.application.render_tokenize import tokenizar as _tokenizar
 from app.modules.contratos.domain.plantilla import (
     Plantilla,
-    PlantillaInvalida,
+    PlantillaInvalidaError,
 )
 from app.modules.contratos.domain.solicitud import SolicitudContrato
 from app.modules.contratos.domain.tipos_contrato import TipoContrato
@@ -44,20 +44,20 @@ from app.modules.contratos.domain.tipos_contrato import TipoContrato
 # --- 1. Tokeniser error branches -----------------------------------
 
 def test_tokenizar_raises_when_placeholder_opener_is_unterminated() -> None:
-    """``{{ path`` without ``}}`` raises PlantillaInvalida at tokenise time."""
-    with pytest.raises(PlantillaInvalida, match=r"plantilla invalida: '{{' sin '}}'"):
+    """``{{ path`` without ``}}`` raises PlantillaInvalidaError at tokenise time."""
+    with pytest.raises(PlantillaInvalidaError, match=r"plantilla invalida: '{{' sin '}}'"):
         _tokenizar("hola {{ path")
 
 
 def test_tokenizar_raises_when_tag_opener_is_unterminated() -> None:
     """``{% if x`` without ``%}`` raises at tokenise time."""
-    with pytest.raises(PlantillaInvalida, match=r"plantilla invalida: '{%' sin '%}'"):
+    with pytest.raises(PlantillaInvalidaError, match=r"plantilla invalida: '{%' sin '%}'"):
         _tokenizar("hola {% if x")
 
 
 def test_tokenizar_raises_on_unknown_tag() -> None:
     """Tags other than ``if`` / ``endif`` are rejected at tokenise time."""
-    with pytest.raises(PlantillaInvalida, match="etiqueta desconocida"):
+    with pytest.raises(PlantillaInvalidaError, match="etiqueta desconocida"):
         _tokenizar("hola {% for x in xs %}adios{% endfor %}")
 
 
