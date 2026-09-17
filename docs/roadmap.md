@@ -23,7 +23,7 @@ Estructura hub-and-spoke. Esta página es el hub; las páginas radiales viven en
 | Fase 4 — Entidad Animal (Feature 01) | cerrado | aroman | [fase-4-animal-crud.md](roadmap/fase-4-animal-crud.md) |
 | Fase 5 — Voluntarios + Entradas + Acogidas + Adopciones (Feature 02) | cerrado | aroman | [fase-5-flujos-operativos.md](roadmap/fase-5-flujos-operativos.md) |
 | Fase 6 — Salud, Terapias e Inventario de Material (Feature 03) | cerrado | aroman | [fase-6-salud-terapias-material.md](roadmap/fase-6-salud-terapias-material.md) |
-| Fase 7 — Documentos, Contratos, Informes y Consultas (Feature 04) | pendiente | aroman | [fase-7-documentos-contratos-informes.md](roadmap/fase-7-documentos-contratos-informes.md) |
+| Fase 7 — Documentos, Contratos, Informes y Consultas (Feature 04) | en curso (DOC-01 PR 1 cerrado `28614e1`) | aroman | [fase-7-documentos-contratos-informes.md](roadmap/fase-7-documentos-contratos-informes.md) |
 
 ## Cross-cutting concerns
 
@@ -42,11 +42,11 @@ Las capacidades que cruzan varias fases viven en [`transversales.md`](roadmap/tr
 
 | SHA | Title | PR |
 |---|---|---|
+| 28614e1 | feat(contratos): template engine for DOC-01 contracts | (pre-MVP, no PR) |
 | 47072e0 | docs(roadmap): mark #780 #782 #783 ci gates as closed | #786 |
 | 16f1cdf | ci: require GitHub-hosted runners for pull_request-reachable jobs | #784 |
 | 4d1fdeb | docs(roadmap): mark #682 permissions PR gates as closed | #779 |
 | b3c3345 | fix(ci): explicit permissions in pr-name and pr-size workflows | #778 |
-| fc0116b | docs(roadmap): mark #766 ci deterministic gate required as closed | #777 |
 
 ## Cuándo ir al legacy directamente
 
