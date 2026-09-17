@@ -6,7 +6,7 @@ already passed :func:`app.modules.contratos.domain.plantilla
 .validar_gramatica`; the two together form the parser half of the
 engine.
 
-The tokeniser raises :class:`PlantillaInvalida` only on token-shape
+The tokeniser raises :class:`PlantillaInvalidaError` only on token-shape
 errors (``{{`` / ``{%`` without the matching closer, or an unknown
 tag). Grammar violations — unbalanced ``{% if %}`` blocks,
 non-placeholder left operands — surface during validation so the
@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.modules.contratos.domain.plantilla import PlantillaInvalida
+from app.modules.contratos.domain.plantilla import PlantillaInvalidaError
 
 #: Marker kinds emitted by the tokeniser.
 KIND_TEXT = "text"
@@ -85,7 +85,7 @@ def _emit_placeholder(cuerpo: str, marker_pos: int, line: int) -> tuple[_Token |
     """
     end = cuerpo.find("}}", marker_pos + 2)
     if end == -1:
-        raise PlantillaInvalida(  # noqa: TRY003
+        raise PlantillaInvalidaError(  # noqa: TRY003
             f"plantilla invalida: '{{{{' sin '}}}}' en linea {line}"
         )
     path = cuerpo[marker_pos + 2 : end].strip()
@@ -100,7 +100,7 @@ def _emit_tag(cuerpo: str, marker_pos: int, line: int) -> tuple[_Token | None, i
     """
     end = cuerpo.find("%}", marker_pos + 2)
     if end == -1:
-        raise PlantillaInvalida(  # noqa: TRY003
+        raise PlantillaInvalidaError(  # noqa: TRY003
             f"plantilla invalida: '{{%' sin '%}}' en linea {line}"
         )
     tag_body = cuerpo[marker_pos + 2 : end].strip()
@@ -114,7 +114,7 @@ def _classify_tag(tag_body: str, line: int) -> _Token | None:
         return _Token(kind=KIND_IF_OPEN, text=tag_body[3:].strip(), line=line)
     if tag_body == "endif":
         return _Token(kind=KIND_IF_CLOSE, text="", line=line)
-    raise PlantillaInvalida(  # noqa: TRY003
+    raise PlantillaInvalidaError(  # noqa: TRY003
         f"plantilla invalida: etiqueta desconocida {tag_body!r} en linea {line}"
     )
 

@@ -28,7 +28,7 @@ expression parsing is out of scope for PR 1):
   escapes) or ``número`` (integer).
 
 The grammar is checked by the use case and any unknown operator raises
-:class:`PlantillaInvalida`. The render use case rejects the whole
+:class:`PlantillaInvalidaError`. The render use case rejects the whole
 template (not the variable) on a parse error so the operator sees the
 broken template immediately rather than a half-filled contract.
 """
@@ -39,7 +39,7 @@ import re
 from dataclasses import dataclass
 
 
-class PlantillaInvalida(ValueError):
+class PlantillaInvalidaError(ValueError):
     """Raised when the template body fails the engine's grammar check.
 
     Subclasses :class:`ValueError` so legacy ``except ValueError``
@@ -83,7 +83,7 @@ _SUPPORTED_OPERATORS = (
 
 
 def validar_gramatica(cuerpo: str) -> None:
-    """Raise :class:`PlantillaInvalida` if ``cuerpo`` is not well-formed.
+    """Raise :class:`PlantillaInvalidaError` if ``cuerpo`` is not well-formed.
 
     The validation is a static scan over the template body; it does
     NOT need any variable context. The render use case calls this
@@ -107,7 +107,7 @@ def validar_gramatica(cuerpo: str) -> None:
     opens = len(if_blocks)
     closes = len(_ENDIF_RE.findall(cuerpo))
     if opens != closes:
-        raise PlantillaInvalida(  # noqa: TRY003 — operator-facing diagnostic
+        raise PlantillaInvalidaError(  # noqa: TRY003 — operator-facing diagnostic
             f"plantilla invalida: {opens} '{{% if %}}' vs {closes} '{{% endif %}}'"
         )
     for condition in if_blocks:
@@ -153,7 +153,7 @@ def _validate_left_operand(bare: str, op: str) -> None:
         return
     if _BARE_PATH_RE.fullmatch(bare):
         return
-    raise PlantillaInvalida(  # noqa: TRY003
+    raise PlantillaInvalidaError(  # noqa: TRY003
         f"plantilla invalida: lado izquierdo de '{op}' "
         f"debe ser '{{{{ variable }}}}', recibio {bare!r}"
     )
@@ -163,7 +163,7 @@ def _validate_right_operand(stripped: str, op: str) -> None:
     """Raise when ``stripped`` is not a quoted string or integer literal."""
     if _is_literal(stripped):
         return
-    raise PlantillaInvalida(  # noqa: TRY003
+    raise PlantillaInvalidaError(  # noqa: TRY003
         f"plantilla invalida: lado derecho de '{op}' "
         f"debe ser literal, recibio {stripped!r}"
     )
@@ -193,11 +193,15 @@ def _is_literal(token: str) -> bool:
     return _is_integer_literal(token)
 
 
+_QUOTE_CHARACTERS: frozenset[str] = frozenset({'"', "'"})
+_MIN_QUOTED_LENGTH: int = 2
+
+
 def _is_quoted_string(token: str) -> bool:
     """Return ``True`` if ``token`` is a balanced single/double-quoted string."""
-    if len(token) < 2:
+    if len(token) < _MIN_QUOTED_LENGTH:
         return False
-    return (token[0] == token[-1]) and token[0] in ("\"", "'")
+    return (token[0] == token[-1]) and token[0] in _QUOTE_CHARACTERS
 
 
 def _is_integer_literal(token: str) -> bool:
@@ -205,4 +209,4 @@ def _is_integer_literal(token: str) -> bool:
     return bool(token) and token.lstrip("-").isdigit()
 
 
-__all__ = ["Plantilla", "PlantillaInvalida", "validar_gramatica"]
+__all__ = ["Plantilla", "PlantillaInvalidaError", "validar_gramatica"]

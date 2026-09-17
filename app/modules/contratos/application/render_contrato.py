@@ -12,7 +12,7 @@ Design notes:
 - Pure: no I/O, no globals, no ``print``. The route layer (PR 3)
   delegates here and never holds a reference to the engine.
 - Strict on grammar: a broken template raises
-  :class:`PlantillaInvalida` BEFORE tokenising so the operator gets
+  :class:`PlantillaInvalidaError` BEFORE tokenising so the operator gets
   the same diagnostic at validation time and at render time.
 - Strict on variable substitution: a missing placeholder renders as
   the literal ``{{ path }}`` (NOT silent omission) so the operator
@@ -44,7 +44,7 @@ from app.modules.contratos.application.render_tokenize import (
 )
 from app.modules.contratos.domain.plantilla import (
     Plantilla,
-    PlantillaInvalida,
+    PlantillaInvalidaError,
     validar_gramatica,
 )
 from app.modules.contratos.domain.solicitud import SolicitudContrato
@@ -136,7 +136,7 @@ def render_contrato(plantilla: Plantilla, solicitud: SolicitudContrato) -> str:
 # render_contrato keep working without churn.
 __all__ = [
     "Plantilla",
-    "PlantillaInvalida",
+    "PlantillaInvalidaError",
     "render_contrato",
     "validar_gramatica",
 ]
