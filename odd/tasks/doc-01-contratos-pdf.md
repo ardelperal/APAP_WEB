@@ -15,9 +15,57 @@ Sub-issue futuras: DOC-02 #57 (signed-upload), DOC-03 #58 (anexos polimórficos)
 - Tests: `test_contratos_template_engine.py`, `test_contratos_template_engine_extras.py`, `test_slice_contratos_architecture.py`.
 - Pin arquitectónico (rule §33.4): domain y ports libres de `psycopg`, `SqlExecutor`, `LocalBackend`, `weasyprint`, `reportlab`.
 
-## Out of scope (PR 2 / 3)
+## WU-2 — DOC-01 PR 2: storage adapter + PDF generation
 
-- PR 2: storage adapter (`adapters/local_backend/`) para el draft PDF en object storage + `PlantillaRepository` adapter concreto.
+### Goal
+
+Añadir generación de PDF (weasyprint) y storage adapter (MinIO bucket `apap-contracts`) al slice hexagonal. Aterrizar el texto renderizado como PDF en object storage privado.
+
+### Scope
+
+- `app/modules/contratos/ports/`:
+  - `contrato_pdf.py` — dataclass `ContratoPDF(stream, media_type, content_length, key, bucket)` + `ClosableBytesIterator` Protocol.
+  - `contratos_storage_port.py` — Protocol `ContratosStoragePort` (put / get_stream / delete / list_keys).
+  - `contratos_pdf_port.py` — Protocol `ContratosPdfGeneratorPort(render_html_to_pdf)`.
+- `app/modules/contratos/application/`:
+  - `render_to_pdf.py` — use case orquestador: `render_contrato` → texto → `PdfGeneratorPort.render_html_to_pdf` → bytes PDF.
+- `app/modules/contratos/adapters/local_backend/`:
+  - `contratos_local_backend_pdf.py` — impl `PdfGeneratorPort` con weasyprint (HTML wrapper mínimo + CSS).
+  - `contratos_local_backend_storage.py` — impl `ContratosStoragePort` con MinIO bucket `apap-contracts`.
+- Tests:
+  - `test_contratos_pdf_port.py` — pin arquitectónico actualizado.
+  - `test_contratos_render_to_pdf.py` — use case con `PdfGeneratorPort` mock.
+  - `test_contratos_local_backend_pdf.py` — weasyprint adapter (real o mock).
+  - `test_contratos_local_backend_storage.py` — MinIO adapter con mock.
+  - `test_contratos_full_flow.py` — integración texto → HTML → PDF → storage mock.
+
+### Gates (mismos del PR 1)
+
+- pytest verde.
+- ruff + mypy clean.
+- check_import_cycles + check_module_size verdes.
+- Pin arquitectónico verde: ports + application sin transporte concreto; weasyprint y `app.core.local_backend` SOLO en `adapters/local_backend/`.
+
+### Decisiones de diseño (validadas con el usuario)
+
+- **PDF library**: weasyprint (HTML→PDF).
+- **Storage layout**: bucket privado `apap-contracts`, key `{Tipo}_{entidad_id}.pdf` (legacy-compatible con `TbContratosAnexos.NombreArchivo`).
+- **Hexagonal purity**: el port Protocol vive en `ports/` (no en el adapter, como hacía animales con `PhotoStorageClient`).
+- **Pin arquitectónico**: actualizado para reflejar la nueva estructura (weasyprint y storage SOLO en `adapters/local_backend/`).
+
+### Criterios de cierre del slice WU-2
+
+- [ ] Worktree limpio creado desde main.
+- [ ] Archivos del slice creados.
+- [ ] Gates verdes.
+- [ ] Commit clean conventional (sin Co-Authored-By).
+- [ ] Merge fast-forward a main.
+- [ ] Worktree + branch cerradas.
+- [ ] `docs/roadmap/fase-7-documentos-contratos-informes.md` actualizado.
+- [ ] Memoria de sesión guardada.
+
+## Out of scope (PR 3 / 4)
+
 - PR 3: route handler + form post + DI wiring.
 - PR 4: integración E2E con Playwright.
 
