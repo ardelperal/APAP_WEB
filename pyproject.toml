@@ -51,6 +51,12 @@ dev = [
     # The migration pre-flight and its CI tests import psutil directly.
     # Keep it in the frozen dev environment instead of mutating jobs with pip.
     "psutil>=7.0",
+    # DOC-01 PR 2 PDF generator (issue #56). Pure-Python, no system
+    # libraries required (unlike weasyprint). Pinned to the release
+    # line verified before pinning via Context7.
+    "reportlab>=4.2,<5",
+    # Type stubs for reportlab so mypy can type-check the PDF adapter.
+    "types-reportlab>=5",
     "pytest==9.1.1",
     "pytest-asyncio>=0.24",
     "pytest-cov==7.1.0",
