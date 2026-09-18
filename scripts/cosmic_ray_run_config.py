@@ -4,7 +4,7 @@ The committed ``docs/quality/cosmic-ray.toml`` carries an ``http``
 distributor pointing at placeholder Unix domain sockets under
 ``/tmp/apap-cosmic-ray/``. The CI mutation job needs the actual paths
 to live in a *per-run* temp directory so two concurrent jobs on the
-same host (scheduled run on ``main`` plus a manual dispatch on a
+same host (a release-tag run on ``main`` plus a manual dispatch on a
 feature branch -- the failure mode the issue body explicitly warns about
 in the context of #532) cannot bind the same path.
 

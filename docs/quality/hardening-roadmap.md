@@ -27,7 +27,7 @@ PR #432 (DRAFT, branch `feat/quality-gates-mutation`, stacked on
 | `docs/quality/cosmic-ray.toml` | Pilot target + mandatory equivalent-mutant filter |
 | `docs/quality/mutation-baseline.json` | `migration/derivation.py: 38`, platform-labelled, PROVISIONAL |
 | `docs/runbooks/mutation-testing.md` | WSL setup, acquisition, failure decoding |
-| `ci.yml` → `mutation` job | Schedule + `workflow_dispatch` only, never per-PR |
+| `ci.yml` → `mutation` job | Tag `v*` + `workflow_dispatch` only, never per-PR |
 | `tests/test_ci_workflow.py` | 4 pins: gate, filter, triggers, `PYTHONHASHSEED` |
 | `Makefile` → `mutation` | Refuses to run outside Linux |
 | `AGENTS.md` §34 | The doctrine behind all of it |

@@ -101,20 +101,25 @@ def test_ci_workflow_defines_lint_test_and_build_jobs() -> None:
     assert "python -m build" in workflow
 
 
-def test_ci_workflow_runs_e2e_job_with_playwright() -> None:
-    """The e2e job runs the Playwright suite unconditionally (no gate
-    on ``vars.ENABLE_E2E``). The Playwright harness landed in PR #108
-    and the e2e job is now always on so every PR gets the visual
-    regression net.
+def test_ci_workflow_runs_release_e2e_job_with_playwright() -> None:
+    """Issue #780: E2E has no feature flag but runs only for release events.
+
+    Tags and manual dispatch must execute the Playwright suite; pull requests,
+    regular pushes, and the removed schedule trigger must not reach the job.
     """
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
 
     assert "e2e:" in workflow
-    # The e2e job must install + run the Playwright suite. There must
-    # be no ``vars.ENABLE_E2E`` gate (the feature flag is gone).
     assert "vars.ENABLE_E2E" not in workflow, (
-        "e2e job should always run; the ENABLE_E2E flag has been retired"
+        "the ENABLE_E2E feature flag has been retired"
     )
+    start = workflow.index("\n  e2e:")
+    section = workflow[start : workflow.index("\n  required:", start)]
+    if_clause = section[section.index("if:") : section.index("services:")]
+    assert "github.event_name == 'workflow_dispatch'" in if_clause
+    assert "startsWith(github.ref, 'refs/tags/')" in if_clause
+    assert "github.event_name == 'schedule'" not in if_clause
+    assert "pull_request" not in if_clause
     assert "playwright install" in workflow
     assert "playwright" in workflow.lower()
     # And it must actually execute the suite.
@@ -927,7 +932,7 @@ def test_ci_workflow_mutation_job_filters_equivalent_mutants() -> None:
 
 
 def test_ci_workflow_mutation_job_is_never_triggered_by_a_pull_request() -> None:
-    """Issue #431: the mutation job is scheduled/manual only.
+    """Issue #780: the mutation job is release/manual only.
 
     A 233-mutant session per pull request would make the loop unusable, and
     §32.P7 requires the reachable events to be named rather than implied.
@@ -937,8 +942,9 @@ def test_ci_workflow_mutation_job_is_never_triggered_by_a_pull_request() -> None
     section = workflow[start : workflow.index("\n  typecheck:", start)]
 
     if_clause = section[section.index("if:") : section.index("runs-on:")]
-    assert "github.event_name == 'schedule'" in if_clause
+    assert "github.event_name == 'schedule'" not in if_clause
     assert "github.event_name == 'workflow_dispatch'" in if_clause
+    assert "startsWith(github.ref, 'refs/tags/')" in if_clause
     assert "pull_request" not in if_clause
 
 
@@ -964,7 +970,7 @@ def test_mutation_baseline_has_derivation_entry_at_or_below_prior_measurement() 
     Local re-measurement is impossible on Windows (cosmic-ray 8.4.6 is
     INCOMPETENT for 100% of mutants — issue #431, Finding 1), so the
     entry stays at the prior main-branch measurement until the next
-    Linux CI scheduled run narrows it. This test pins the contract:
+    Linux CI release-tag or manual run narrows it. This test pins the contract:
 
     - the baseline JSON exists, parses, and carries the entry, and
     - the entry's value is **at most** the previously measured 38
@@ -1621,7 +1627,7 @@ def _ci_pull_request_gate_scripts() -> list[str]:
 
     Scoped to the ``lint`` and ``test`` jobs on purpose: those are the two
     that run on every PR and whose gates a developer can reproduce on a
-    workstation. ``mutation`` (weekly, Linux-only), ``security`` (Docker),
+    workstation. ``mutation`` (release/manual, Linux-only), ``security`` (Docker),
     ``integration`` (Postgres service) and ``e2e`` (Playwright) are out of
     scope for ``make verify`` and documented as such in the Makefile.
     """
@@ -1644,7 +1650,7 @@ def test_make_verify_covers_locally_runnable_script_gates() -> None:
     the real contract lived in ci.yml and no single command expressed it.
 
     This is the ratchet on the local harness. Service-container, Docker,
-    browser, and scheduled jobs remain the responsibility of the remote
+    browser, and release-only jobs remain the responsibility of the remote
     ``ci / required`` aggregator.
     """
     blob = _verify_recipe_blob()
@@ -1689,7 +1695,7 @@ def test_make_verify_excludes_the_jobs_a_workstation_cannot_run() -> None:
 
     assert "cosmic-ray" not in blob, (
         "make verify must not run the mutation session — it is Linux-only and lives "
-        "in its own weekly job (see the `mutation` target)"
+        "in its own release/manual job (see the `mutation` target)"
     )
     assert "scripts/check_mutation.py" not in blob, (
         "scripts/check_mutation.py gates the cosmic-ray session, not a pull request"
