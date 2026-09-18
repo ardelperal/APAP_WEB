@@ -205,100 +205,134 @@ def _resolve_fk_value(
     return None
 
 
+def _identity_transform(value: Any) -> Any:
+    """Trivial pass-through for columns that need no transformation."""
+    return value
+
+
+def _nullify_empty_string_transform(value: Any) -> Any:
+    """Map Access's empty-string convention onto Postgres NULL.
+
+    Many legacy text columns store ``''`` instead of ``NULL``; the web
+    schema declares them NULLABLE, so ``''`` has to become ``None``
+    before the INSERT. Without this transform, dates like
+    ``FIMPLANTACIONCHIP=''`` fail with "invalid input syntax for type
+    date" (issue #639).
+    """
+    if value is None:
+        return None
+    if isinstance(value, str) and value.strip() == "":
+        return None
+    return value
+
+
+def _normalize_sexo_transform(value: Any) -> Any:
+    """Map legacy full-word ``Sexo`` onto single-letter web code.
+
+    ``TbFichaAnimal.Sexo`` stores "Hembra"/"Macho" (full words);
+    ``animales.sexo`` has ``CHECK (sexo IN ('M', 'H'))``. Map the
+    legacy full-word to the single-letter web code; anything else
+    (including ``None`` or empty) becomes ``None`` so the apply
+    pipeline reports the row as a skip rather than a CHECK violation
+    (issue #639).
+    """
+    if value is None:
+        return None
+    s = str(value).strip().upper()
+    if s in ("HEMBRA", "H", "FEMALE", "F"):
+        return "H"
+    if s in ("MACHO", "M", "MALE"):
+        return "M"
+    # Unknown value (including blank): return None rather than raising.
+    # The apply records this as "applied" if the row's source_hash
+    # matches an existing web row; if it is a new row, the column will
+    # be NULL which is also fine (sexo is nullable in the schema).
+    return None
+
+
+def _normalize_especie_transform(value: Any) -> Any:
+    """Upper-case the legacy ``Especie`` column onto the web CHECK.
+
+    ``TbFichaAnimal.Especie`` stores "CANINA" or "felina" (mixed case);
+    ``animales.especie`` has ``CHECK (especie IN ('CANINA', 'FELINA'))``
+    (uppercase only). Normalise to uppercase so the lowercase legacy
+    value does not fail the CHECK (issue #639).
+    """
+    if value is None:
+        return None
+    s = str(value).strip().upper()
+    if s in ("CANINA", "FELINA"):
+        return s
+    # Unknown value (including blank) becomes None.
+    return None
+
+
+def _normalize_si_no_transform(value: Any) -> Any:
+    """Map legacy ``Sí`` / ``No`` / ``Si`` onto the canonical Spanish.
+
+    Legacy stores "Sí"/"No"/"Si" (with/without tilde, mixed case). The
+    web column is TEXT and accepts any string, but the operator expects
+    the canonical Spanish "Sí" (with tilde). Normalise so round-trip
+    comparison is stable.
+    """
+    if value is None:
+        return None
+    s = str(value).strip().lower()
+    if s in ("sí", "si", "s", "yes", "1", "true"):
+        return "Sí"
+    if s in ("no", "n", "0", "false"):
+        return "No"
+    # Unknown value (including blank) becomes None.
+    return None
+
+
+#: Dispatch table for ``_apply_value_transform``. Keys are the canonical
+#: transform names declared in ``migration.mappings.ColumnMapping.transform``;
+#: values are pure callables that take the raw legacy value and return
+#: the value to be inserted into the web column. ``currency_to_numeric`` /
+#: ``double_to_numeric`` and the ``default_*`` / ``fk_lookup`` group are
+#: declared in the design but currently pass through (the mapping uses
+#: ``identity`` in practice); they are listed explicitly so the supported
+#: set is visible at a glance.
+TRANSFORMS: dict[str, Any] = {
+    "identity": _identity_transform,
+    "nullify_empty_string": _nullify_empty_string_transform,
+    "normalize_sexo": _normalize_sexo_transform,
+    "normalize_especie": _normalize_especie_transform,
+    "normalize_si_no": _normalize_si_no_transform,
+    "currency_to_numeric": _identity_transform,
+    "double_to_numeric": _identity_transform,
+    "default_now": _identity_transform,
+    "default_uuid": _identity_transform,
+    "default_true": _identity_transform,
+    "fk_lookup": _identity_transform,
+}
+
+
 def _apply_value_transform(transform: str, value: Any) -> Any:
     """Apply the named transform to a raw legacy value.
 
-    Catalogue lives in ``migration.mappings.ColumnMapping.transform``.
-    Dispatcher is an explicit table so the supported set is visible at
-    a glance. Failures raise ``ValueError``; the apply pipeline re-raises
-    and the per-row ``except BackendError`` records the error and
-    continues (a single bad value must not abort the whole apply).
+    Catalogue lives in :data:`TRANSFORMS`; the supported set is visible
+    at a glance. Unknown transform names fall through to
+    :func:`_identity_transform` for safety (the ``Literal`` type in
+    ``ColumnMapping`` prevents this at validation time, but the
+    defensive fallback is cheap).
     """
-    if transform == "identity":
-        return value
-    if transform == "nullify_empty_string":
-        # Access empty string -> Postgres NULL. Many legacy text columns
-        # store '' instead of NULL; the web schema declares them NULLABLE,
-        # so '' has to become None before the INSERT. Without this
-        # transform, dates like FIMPLANTACIONCHIP='' fail with
-        # "invalid input syntax for type date" (issue #639).
-        if value is None:
-            return None
-        if isinstance(value, str) and value.strip() == "":
-            return None
-        return value
-    if transform == "normalize_sexo":
-        # TbFichaAnimal.Sexo stores "Hembra"/"Macho" (full words).
-        # animales.sexo has CHECK (sexo IN ('M', 'H')). Map the legacy
-        # full-word to the single-letter web code; anything else
-        # (including None or empty) becomes None so the apply pipeline
-        # reports it as a skip rather than a CHECK violation (issue #639).
-        if value is None:
-            return None
-        s = str(value).strip().upper()
-        if s in ("HEMBRA", "H", "FEMALE", "F"):
-            return "H"
-        if s in ("MACHO", "M", "MALE"):
-            return "M"
-        if s == "":
-            return None
-        # Unknown value: return None rather than raising. The apply
-        # records this as "applied" if the row's source_hash matches
-        # an existing web row; if it is a new row, the column will be
-        # NULL which is also fine (sexo is nullable in the schema).
-        return None
-    if transform == "normalize_especie":
-        # TbFichaAnimal.Especie stores "CANINA" or "felina" (mixed case).
-        # animales.especie has CHECK (especie IN ('CANINA', 'FELINA'))
-        # (uppercase only). Normalise to uppercase so the lowercase
-        # legacy value does not fail the CHECK (issue #639).
-        if value is None:
-            return None
-        s = str(value).strip().upper()
-        if s in ("CANINA", "FELINA"):
-            return s
-        if s == "":
-            return None
-        return None
-    if transform == "normalize_si_no":
-        # Legacy stores "Sí"/"No"/"Si" (with/without tilde, mixed case).
-        # The web column is TEXT and accepts any string, but the operator
-        # expects the canonical Spanish "Sí" (with tilde). Normalise so
-        # round-trip comparison is stable.
-        if value is None:
-            return None
-        s = str(value).strip().lower()
-        if s in ("sí", "si", "s", "yes", "1", "true"):
-            return "Sí"
-        if s in ("no", "n", "0", "false"):
-            return "No"
-        if s == "":
-            return None
-        return None
-    if transform in ("currency_to_numeric", "double_to_numeric"):
-        # The legacy driver returns a string-formatted number (e.g.
-        # "12,34 €"); the web schema has NUMERIC. These transforms were
-        # declared in the original design but not implemented yet
-        # (mapping uses identity in practice). The dispatcher is the
-        # future home for them; for now we pass through.
-        return value
-    if transform in ("default_now", "default_uuid", "default_true", "fk_lookup"):
-        # The legacy-row path never reaches these (web-only / fk paths
-        # are handled by the FK branch above). The dispatcher falls
-        # through with identity for safety.
-        return value
-    # Unknown transform: pass through. The Literal type in
-    # ColumnMapping prevents this at validation time, but a defensive
-    # fallback is cheap.
-    return value
+    return TRANSFORMS.get(transform, _identity_transform)(value)
 
 
 __all__ = [
     "SourceDriftError",
+    "TRANSFORMS",
     "_SAFE_TABLE_NAME",
     "_VoluntariosIndex",
     "_apply_value_transform",
+    "_identity_transform",
     "_normalise_for_lookup",
+    "_normalize_especie_transform",
+    "_normalize_sexo_transform",
+    "_normalize_si_no_transform",
+    "_nullify_empty_string_transform",
     "_resolve_fk_value",
     "_safe_table",
     "_strip_accents",
