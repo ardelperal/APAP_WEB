@@ -22,7 +22,6 @@ import pytest
 
 from migration.apply_helpers import _apply_value_transform
 
-
 # ---------- identity ---------------------------------------------------
 
 
