@@ -52,9 +52,8 @@ Cada slice que aterriza en `main` necesita su batería E2E con Playwright. La ba
 
 | Gatillo | ¿Corre la batería E2E? |
 |---|---|
-| PR a `main` (cualquier slice) | **No** — el agregador autoriza el skip del job pesado |
-| Push a `staging` | **No** — el agregador autoriza el skip del job pesado |
-| `workflow_dispatch` | **Sí** — batería completa bajo ejecución manual |
+| PR a `main` (cualquier slice) | **Sí** — aplicación real, PostgreSQL efímero y Chromium |
+| Ejecución programada | **No** — el contrato del agregador autoriza este único skip |
 | Push de tag `v*` | **Sí** — batería completa antes de distribuir |
 
 **Objetivo:** validar que todos los flujos end-to-end operan con datos reales de LocalBackend antes de cada release. La batería no sustituye los tests unitarios ni de integración — los complementa cubriendo la cadena completa HTTP → servicio → base de datos → HTML.
@@ -76,7 +75,7 @@ Un slice puede necesitar 1 o 4 ficheros según su complejidad. Lo mínimo es `*_
 | Gate required determinístico (e2e fail-closed en releases) | cerrado (e2e required en workflow_dispatch y tag push) | #766 |
 | Permissions explícitos en workflows de PR gates | cerrado (pr-name y pr-size con contents: read) | #682 |
 | Runner isolation (PR jobs no llegan al self-hosted) | cerrado (check_runner_isolation en check_workflows.py) | #782 |
-| Cadencia release-only para mutation/security-deep/e2e | cerrado (cron semanal removido de ci.yml; SKIPS_BY_EVENT["schedule"] eliminado) | #780 |
+| Cadencia release-only para mutation/security-deep/e2e | cerrado (`bb476a5`, PR #798 sobre origin/main) | #780 |
 | Firma Cosign keyless del digest publicado | cerrado (cosign sign + verify en deploy.yml) | #783 |
 
 Decisiones: [d-33-tdd-estricto.md](../architecture/decisiones/d-33-tdd-estricto.md), [d-35-presupuesto-400-lineas-pr.md](../architecture/decisiones/d-35-presupuesto-400-lineas-pr.md).
