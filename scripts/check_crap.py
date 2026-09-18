@@ -154,9 +154,9 @@ BASELINE_CRAP: dict[str, float] = {
     "app/modules/voluntarios/routes.py::create_voluntario_view": 9.49,
     "migration/apply.py::apply_legacy_to_web": 21.02,
     "migration/apply_helpers.py::_VoluntariosIndex.resolve": 7.08,
-    "migration/apply_helpers.py::_apply_value_transform": 23.82,
+    "migration/apply_helpers.py::_apply_value_transform": 1.00,  # PR #797: extracted pure transforms + tests; dispatcher became TRANSFORMS.get(...) with default _identity_transform.
     "migration/apply_helpers.py::_resolve_fk_value": 6.0,
-    "migration/apply_per_row.py::_apply_one_row": 12.01,
+    "migration/apply_per_row.py::_apply_one_row": 12.00,  # PR #797: added test_apply_legacy_to_web_records_unexpected_exception_in_errors covering the legacy_pk_value-is-None ValueError branch (lines 49-52); one extra branch dropped the score by 0.01.
     "migration/apply_per_row.py::_insert_web_row": 6.04,
     "migration/apply_row_mapping.py::_legacy_to_web_row": 8.02,
     "migration/cli.py::_run_reconcile_interactive": 13.78,

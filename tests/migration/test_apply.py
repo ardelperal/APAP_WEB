@@ -460,3 +460,56 @@ def test_safe_table_name_blocks_injection() -> None:
     assert _SAFE_TABLE_NAME.match("voluntario") is not None
     assert _SAFE_TABLE_NAME.match("animal; DROP TABLE animales--") is None
     assert _SAFE_TABLE_NAME.match("animal-uesc") is None  # punctuation rejected
+
+
+# --- 9. Last-resort exception guard (issue #797 coverage) --------------
+
+
+def test_apply_legacy_to_web_records_unexpected_exception_in_errors(
+    apply_runner,
+) -> None:
+    """A non-BackendError from ``_apply_one_row`` is captured, not
+    raised — the apply continues for the remaining rows.
+
+    The per-row loop has two ``except`` branches:
+
+    * ``BackendError`` — local backend returned a structured error.
+    * ``Exception`` (last-resort guard, ``# noqa: BLE001``) — anything
+      else (e.g. ``ValueError`` from ``_apply_one_row`` when a legacy
+      row lacks its natural key).
+
+    ``BackendError`` is covered by the happy/sad atoms above; this
+    atom targets the last-resort branch so the CRAP ratchet on
+    ``apply_legacy_to_web`` keeps its coverage ratio and a real
+    ``ValueError`` does not abort the whole apply.
+
+    The fixture seeds three legacy rows; we drop the natural key on
+    one of them (``NCHIP = None``) so ``_apply_one_row`` raises
+    ``ValueError``. The other two apply normally. The result must
+    report:
+
+    * 2 applied (the healthy rows),
+    * 0 skipped (no row matches both pre-existing web row and
+      source_hash equality — the seeded ``nchip`` PKs are unique),
+    * 1 error (the broken row).
+    """
+    captured = apply_runner(
+        legacy_rows=[
+            {"NCHIP": "001", "NombreAnimal": "Rex"},
+            {"NCHIP": None, "NombreAnimal": "Broken"},  # raises ValueError
+            {"NCHIP": "002", "NombreAnimal": "Luna"},
+        ],
+    )
+
+    result: ApplyResult = captured["result"]
+    client: FakeLocalBackend = captured["client"]
+
+    assert result.applied == 2
+    assert result.skipped == 0
+    assert len(result.errors) == 1
+    # The error message must name the broken row's natural key so the
+    # operator can locate it in the legacy source.
+    assert "broken" in result.errors[0].lower()
+    # The healthy rows still landed in the web DB.
+    rows = client.all_rows("animales")
+    assert {r["nchip"] for r in rows} == {"001", "002"}
