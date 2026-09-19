@@ -147,5 +147,11 @@
         <p class="opacity-75 mt-1">Gestión diaria de animales, documentación y seguimientos.</p>
       </div>
     </footer>
+
+    {# Nav burger toggle controller (issue #820, second half of #804).
+       Vanilla JS, no framework. ``defer`` so the script runs after the
+       DOM is parsed. Loaded from /static/js/nav-burger.js, same-origin
+       so it satisfies the CSP ``script-src 'self'`` baseline. #}
+    <script src="/static/js/nav-burger.js" defer></script>
   </body>
 </html>
