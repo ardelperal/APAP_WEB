@@ -157,8 +157,9 @@ def current_path_context_processor(request: Request) -> dict[str, str]:
 
     La ruta puede incluir query string; ``request.url.path`` lo excluye.
     """
-    from app.core.nav import resolve_active_nav_href
-
+    # lazy-import: evita ciclo con ``app.core.nav`` (sólo se necesita
+    # cuando hay un TemplateResponse en vuelo).
+    from app.core.nav import resolve_active_nav_href  # lazy-import: see comment above
     return {
         "current_path": request.url.path,
         "nav_active_href": resolve_active_nav_href(request.url.path),
