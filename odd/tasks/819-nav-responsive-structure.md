@@ -79,3 +79,4 @@ N/A — el slice sólo toca el shell web.
 - [ ] PR abierto contra `origin/main`, CI en verde, merge con `--admin`.
 - [ ] Issue #804 cerrada (split en #819 + #820; #804 absorbe ambas).
 - [ ] Memoria de sesión guardada con `mem_session_summary`.
+
