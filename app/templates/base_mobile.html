@@ -56,11 +56,12 @@
       </div>
     </header>
 
-    {# Skip-link target (issue #812). Same contract as desktop:
-       ``id="main"`` so ``href="#main"`` resolves; ``tabindex="-1"``
-       so the anchor can receive programmatic focus without entering
-       the natural tab order. #}
-    <main id="main" tabindex="-1" class="flex-1 px-4 py-6">
+    {# Skip-link target (issue #812) + labelled landmark (issue #813).
+       Same contract as desktop: ``id="main"`` so ``href="#main"``
+       resolves; ``tabindex="-1"`` so the anchor can receive
+       programmatic focus; ``aria-labelledby="main-title"`` so the
+       landmark is named after the page-level H1. #}
+    <main id="main" tabindex="-1" aria-labelledby="main-title" class="flex-1 px-4 py-6">
       {% block content %}{% endblock %}
     </main>
 

@@ -2,7 +2,7 @@
 {% block title %}{{ "Editar" if form_data.fecha_inicio else "Nueva" }} estancia de acogida - APAP{% endblock %}
 {% block content %}
   <div class="mb-6">
-    <h1 class="text-3xl font-bold text-primary-dark tracking-tight">
+    <h1 id="main-title" class="text-3xl font-bold text-primary-dark tracking-tight">
       {{ "Editar estancia de acogida" if form_data.fecha_inicio else "Nueva estancia de acogida" }}
     </h1>
     <p class="text-text-muted text-sm mt-1">
