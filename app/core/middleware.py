@@ -137,6 +137,35 @@ def base_template_context_processor(request: Request) -> dict[str, str]:
     return {"base_template": _select_base_template(request)}
 
 
+def current_path_context_processor(request: Request) -> dict[str, str]:
+    """Jinja context processor: expone ``current_path`` y ``nav_active_href``.
+
+    Issue #805 (Phase B.3): el nav del header marca el item activo vía
+    ``aria-current="page"`` + clase CSS ``is-active``. Para evitar pasar
+    ``request.path`` manualmente desde cada ``TemplateResponse(...)``,
+    se expone aquí como variable de contexto Jinja. Las 9 instancias
+    de ``Jinja2Templates`` en ``app/main.py`` y los routers de módulos
+    lo agregan a su lista ``context_processors``.
+
+    Devuelve:
+    - ``current_path``: ``request.url.path`` (sin query string), útil para
+      comparaciones item-por-item.
+    - ``nav_active_href``: el href más largo de ``NAV_ITEMS`` que es
+      prefijo del path actual. ``""`` si ninguno matches. Los templates
+      usan ``{% if href == nav_active_href %}`` para aplicar
+      ``aria-current="page"`` y la clase ``is-active``.
+
+    La ruta puede incluir query string; ``request.url.path`` lo excluye.
+    """
+    # lazy-import: evita ciclo con ``app.core.nav`` (sólo se necesita
+    # cuando hay un TemplateResponse en vuelo).
+    from app.core.nav import resolve_active_nav_href  # lazy-import: see comment above
+    return {
+        "current_path": request.url.path,
+        "nav_active_href": resolve_active_nav_href(request.url.path),
+    }
+
+
 class UADetectionMiddleware(BaseHTTPMiddleware):
     """Detect mobile User-Agent and flag ``request.state.is_mobile``.
 

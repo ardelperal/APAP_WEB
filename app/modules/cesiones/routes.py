@@ -44,7 +44,7 @@ from starlette.responses import Response
 
 from app.core.auth_dependencies import return_early_if_response
 from app.core.csrf import csrf_token_context_processor
-from app.core.middleware import base_template_context_processor
+from app.core.middleware import base_template_context_processor, current_path_context_processor
 from app.core.rbac import Permission, require_permission
 from app.modules.cesiones.application.create_cesion import create_cesion
 from app.modules.cesiones.di import get_cesiones_port
@@ -58,7 +58,7 @@ _TEMPLATES_DIR = Path(__file__).parents[2] / "templates"
 # PR-5B2 (REQ-AH-7): inject csrf_token into every template context.
 _templates = Jinja2Templates(
     directory=_TEMPLATES_DIR,
-    context_processors=[csrf_token_context_processor, base_template_context_processor],
+    context_processors=[csrf_token_context_processor, base_template_context_processor, current_path_context_processor],
 )
 
 

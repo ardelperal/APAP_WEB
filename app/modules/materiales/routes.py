@@ -61,7 +61,7 @@ from app.core.auth_dependencies import (
 )
 from app.core.csrf import csrf_token_context_processor
 from app.core.forms import optional_value as _opt
-from app.core.middleware import base_template_context_processor
+from app.core.middleware import base_template_context_processor, current_path_context_processor
 from app.core.rbac import Permission, require_permission
 from app.modules.materiales import application as materiales_application
 from app.modules.materiales.application.create_material import MaterialValidationError
@@ -77,7 +77,7 @@ _TEMPLATES_DIR = Path(__file__).parents[2] / "templates"
 # PR-5B2 (REQ-AH-7): inject csrf_token into every template context.
 _templates = Jinja2Templates(
     directory=_TEMPLATES_DIR,
-    context_processors=[csrf_token_context_processor, base_template_context_processor],
+    context_processors=[csrf_token_context_processor, base_template_context_processor, current_path_context_processor],
 )
 
 

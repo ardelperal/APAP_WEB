@@ -67,7 +67,8 @@ _EXTENDS_LITERAL_RE = re.compile(
 # Sentinel matches the import line of base_template_context_processor
 # in a routes module. We accept any indentation and any quote style.
 _PROCESSOR_IMPORT_RE = re.compile(
-    r"""from\s+app\.core\.middleware\s+import\s+.*base_template_context_processor"""
+    r"""from\s+app\.core\.middleware\s+import\s+[\s\S]*?base_template_context_processor""",
+    re.DOTALL,
 )
 
 
