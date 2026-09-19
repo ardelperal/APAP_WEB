@@ -38,6 +38,14 @@
     <link rel="stylesheet" href="/static/css/output.css" />
   </head>
   <body class="min-h-screen flex flex-col bg-bg text-text font-sans antialiased">
+    {# Skip link (issue #812, WCAG 2.4.1 Bypass Blocks). Mirror of the
+       desktop skip link in ``base.html``; required because this mobile
+       template is selected for every request whose UA is flagged mobile
+       by ``UADetectionMiddleware``. ``z-[60]`` keeps the focused link
+       above the sticky header (z-50). #}
+    <a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[60] focus:px-4 focus:py-2 focus:bg-primary focus:text-white focus:rounded focus:shadow-card focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2">
+      Saltar al contenido principal
+    </a>
     <header class="sticky top-0 z-50 bg-surface border-b border-border shadow-card">
       <div class="px-4 py-3 flex items-center justify-between">
         <a href="/" class="text-primary font-bold text-lg flex items-center gap-2">
@@ -48,7 +56,11 @@
       </div>
     </header>
 
-    <main class="flex-1 px-4 py-6">
+    {# Skip-link target (issue #812). Same contract as desktop:
+       ``id="main"`` so ``href="#main"`` resolves; ``tabindex="-1"``
+       so the anchor can receive programmatic focus without entering
+       the natural tab order. #}
+    <main id="main" tabindex="-1" class="flex-1 px-4 py-6">
       {% block content %}{% endblock %}
     </main>
 
