@@ -22,7 +22,7 @@ from app.core.auth_dependencies import (
 )
 from app.core.csrf import csrf_token_context_processor
 from app.core.data_access import UniqueViolationError
-from app.core.middleware import base_template_context_processor
+from app.core.middleware import base_template_context_processor, current_path_context_processor
 from app.core.rbac import Permission, require_permission
 from app.modules.voluntarios.application.assign_voluntario_role import (
     assign_voluntario_role as app_assign_role,
@@ -56,7 +56,7 @@ router = APIRouter(prefix="/voluntarios", tags=["voluntarios"])
 _TEMPLATES_DIR = Path(__file__).parents[2] / "templates"
 _Templates = Jinja2Templates(
     directory=_TEMPLATES_DIR,
-    context_processors=[csrf_token_context_processor, base_template_context_processor],
+    context_processors=[csrf_token_context_processor, base_template_context_processor, current_path_context_processor],
 )
 
 

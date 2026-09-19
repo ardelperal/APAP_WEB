@@ -63,7 +63,7 @@ from app.core.auth_dependencies import (
 from app.core.csrf import csrf_token_context_processor
 from app.core.data_access import BackendError, SqlExecutor
 from app.core.logging import log_safe
-from app.core.middleware import base_template_context_processor
+from app.core.middleware import base_template_context_processor, current_path_context_processor
 from app.core.rbac import Permission, require_permission
 from app.modules.sanidad import proximas as sanidad_proximas
 from app.modules.sanidad import service as sanidad_service
@@ -78,6 +78,7 @@ _templates = Jinja2Templates(
     context_processors=[
         csrf_token_context_processor,
         base_template_context_processor,
+        current_path_context_processor,
     ],
 )
 

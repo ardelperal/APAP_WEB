@@ -28,7 +28,7 @@ from app.core.auth_dependencies import (
 )
 from app.core.csrf import csrf_token_context_processor
 from app.core.data_access import SqlExecutor
-from app.core.middleware import base_template_context_processor
+from app.core.middleware import base_template_context_processor, current_path_context_processor
 from app.modules.tasks import service as tareas_service
 from app.modules.tasks.forms import TareaForm
 
@@ -37,7 +37,7 @@ router = APIRouter(prefix="/tareas", tags=["tareas"])
 _TEMPLATES_DIR = Path(__file__).parents[2] / "templates"
 _templates = Jinja2Templates(
     directory=_TEMPLATES_DIR,
-    context_processors=[csrf_token_context_processor, base_template_context_processor],
+    context_processors=[csrf_token_context_processor, base_template_context_processor, current_path_context_processor],
 )
 
 

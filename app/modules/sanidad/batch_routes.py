@@ -48,7 +48,7 @@ from app.core.csrf import csrf_token_context_processor
 from app.core.data_access import BackendError, SqlExecutor
 from app.core.forms import optional_value as _opt
 from app.core.logging import log_safe
-from app.core.middleware import base_template_context_processor
+from app.core.middleware import base_template_context_processor, current_path_context_processor
 from app.core.rbac import Permission, require_permission
 from app.modules.sanidad import batch_service as sanidad_batch_service
 
@@ -68,6 +68,7 @@ _templates = Jinja2Templates(
     context_processors=[
         csrf_token_context_processor,
         base_template_context_processor,
+        current_path_context_processor,
     ],
 )
 

@@ -83,6 +83,7 @@ from app.core.middleware import (
     UADetectionMiddleware,  # noqa: F401  - re-exported for tests/test_middleware.py
     _is_public_path,  # noqa: F401  - re-exported for tests/test_public_paths.py
     base_template_context_processor,
+    current_path_context_processor,
     install_auth_middleware,
     install_rate_limit_middleware,
 )
@@ -221,6 +222,7 @@ def create_app() -> FastAPI:
         context_processors=[
             csrf_token_context_processor,
             base_template_context_processor,
+            current_path_context_processor,
         ],
     )
     # Expose templates on ``app.state`` so the FastAPI DI helper for

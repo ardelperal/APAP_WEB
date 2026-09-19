@@ -58,3 +58,23 @@
     --shadow-card: 0 2px 12px rgba(0, 0, 0, 0.08);
     --shadow-card-lg: 0 8px 32px rgba(0, 0, 0, 0.12);
 }
+
+/* Component layer (issue #805, Phase B.3). The nav-link + is-active
+   pair are applied to each header nav ``<a>`` so the active section
+   stands out without a flash of unstyled state. The underline uses
+   the primary brand colour; the resting state continues to inherit
+   Tailwind utilities from the inline class string. */
+@layer components {
+    .nav-link {
+        @apply inline-flex items-center text-text-muted;
+    }
+    .nav-link:hover {
+        @apply text-primary;
+    }
+    .nav-link.is-active {
+        @apply text-primary font-semibold border-b-2 border-primary;
+    }
+    .nav-link.is-active:hover {
+        @apply text-primary-dark;
+    }
+}

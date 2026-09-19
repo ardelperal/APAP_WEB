@@ -45,7 +45,10 @@ get_insforge_client_dep = get_local_postgres_executor_dep
 from app.core.csrf import csrf_token_context_processor  # noqa: E402
 from app.core.data_access import SqlExecutor, UniqueViolationError  # noqa: E402
 from app.core.logging import log_safe  # noqa: E402
-from app.core.middleware import base_template_context_processor  # noqa: E402
+from app.core.middleware import (  # noqa: E402
+    base_template_context_processor,
+    current_path_context_processor,
+)
 from app.core.rbac import Permission, require_permission  # noqa: E402
 from app.modules.animals.application.get_animal_by_id import (  # noqa: E402
     get_animal_by_id as app_get_animal_by_id,
@@ -103,7 +106,7 @@ _TEMPLATES_DIR = Path(__file__).parents[2] / "templates"
 # PR-5B2 (REQ-AH-7): inject csrf_token into every template context.
 _templates = Jinja2Templates(
     directory=_TEMPLATES_DIR,
-    context_processors=[csrf_token_context_processor, base_template_context_processor],
+    context_processors=[csrf_token_context_processor, base_template_context_processor, current_path_context_processor],
 )
 
 

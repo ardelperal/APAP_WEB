@@ -60,7 +60,10 @@ get_insforge_client_dep = get_local_postgres_executor_dep
 from app.core.csrf import csrf_token_context_processor  # noqa: E402
 from app.core.data_access import BackendError, SqlExecutor  # noqa: E402
 from app.core.forms import optional_value as _opt  # noqa: E402
-from app.core.middleware import base_template_context_processor  # noqa: E402
+from app.core.middleware import (  # noqa: E402
+    base_template_context_processor,
+    current_path_context_processor,
+)
 from app.core.rbac import Permission, require_permission  # noqa: E402
 from app.modules.adopciones import service as adopciones_service  # noqa: E402
 from app.modules.adopciones.forms import AdopcionForm  # noqa: E402
@@ -74,6 +77,7 @@ _templates = Jinja2Templates(
     context_processors=[
         csrf_token_context_processor,
         base_template_context_processor,
+        current_path_context_processor,
     ],
 )
 
