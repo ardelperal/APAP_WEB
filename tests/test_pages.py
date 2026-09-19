@@ -375,17 +375,21 @@ async def test_base_template_collapses_mobile_nav_with_burger(
     client: httpx.AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Issue #147 — base.html must collapse the primary nav on mobile.
+    """Issue #819 — base.html must collapse the primary nav on mobile.
 
     Regression: at 375px the inline nav extends past the viewport and produces
-    horizontal page scroll. Fix: hide the nav below md (``hidden md:flex``)
-    and surface a burger button (``<details id="nav-burger">``) that opens the
-    mobile menu via the native HTML disclosure element — no JS required.
+    horizontal page scroll. Fix (issue #819, supersedes the legacy
+    ``<details id="nav-burger">`` from #147): a real ``<button
+    id="nav-burger-toggle" aria-expanded="false" aria-controls="nav-main">``
+    is the mobile-only trigger and a single ``<nav id="nav-main"
+    aria-label="Menú principal">`` carries the items. The button is hidden
+    at md+ where the nav becomes inline; below md the nav is hidden until
+    #820 lands the toggle JS.
 
     This HTTP-level test pins the structural contract: the rendered HTML must
-    contain the burger landmark and the primary nav must be collapsed by
-    default, with the desktop breakpoint reopening it. The Playwright
-    sentinels in ``tests/e2e/test_nav_layout.py`` verify the visual outcome.
+    contain the burger button and the single collapsed nav. The Playwright
+    sentinels in ``tests/e2e/test_nav_layout.py`` and the new
+    ``tests/e2e/test_nav_responsive_structure.py`` verify the visual outcome.
     """
     # ``/login`` returns 503 when Google OAuth is not configured (the default
     # in the test env). Stub both client_id/secret so the route renders the
@@ -400,23 +404,29 @@ async def test_base_template_collapses_mobile_nav_with_burger(
 
     assert response.status_code == 200, response.text
 
-    # Burger landmark: the disclosure element with id="nav-burger". On mobile
-    # (< md) this is the only nav trigger; the menu expands when the user
-    # taps it because <details>/<summary> is a native HTML disclosure widget.
-    assert 'id="nav-burger"' in response.text, (
-        "burger landmark not found in base.html — mobile menu cannot collapse"
+    # Burger button landmark (issue #819): real ``<button>`` with ARIA state,
+    # not the legacy ``<details>`` disclosure.
+    assert 'id="nav-burger-toggle"' in response.text, (
+        "burger button not found in base.html — mobile menu cannot collapse"
+    )
+    assert 'aria-expanded="false"' in response.text, (
+        "burger button must declare aria-expanded='false' as the initial state"
+    )
+    assert 'aria-controls="nav-main"' in response.text, (
+        "burger button must reference nav-main via aria-controls"
     )
 
-    # Primary desktop nav must be hidden by default and visible at md+. The
-    # regex targets the desktop landmark uniquely by its aria-label so we
-    # don't accidentally match the mobile menu (which lives inside <details>
-    # and uses a different layout direction).
+    # Single collapsed nav (issue #819): replaces the previous desktop-only
+    # ``aria-label='Navegación principal'`` and the legacy ``<details>`` menu.
     nav_match = re.search(
-        r'<nav[^>]*aria-label="Navegaci\u00f3n principal"[^>]*>',
+        r'<nav[^>]*id="nav-main"[^>]*aria-label="Men\u00fa principal"[^>]*>',
         response.text,
     )
     assert nav_match is not None, (
-        "primary desktop nav (aria-label='Navegación principal') not found"
+        "primary nav (id='nav-main', aria-label='Menú principal') not found"
+    )
+    assert 'hidden' in nav_match.group(0), (
+        "nav#nav-main must declare 'hidden' by default so it collapses below md"
     )
     nav_tag = nav_match.group(0)
     assert "hidden" in nav_tag, (
