@@ -49,7 +49,13 @@
     </a>
     <header class="sticky top-0 z-50 bg-surface border-b border-border shadow-card">
       <div class="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between gap-4">
-        <a href="/" class="text-primary font-bold text-lg flex items-center gap-2">
+        {# Brand link (issue #818, combines #807 + #815). ``tabindex="-1"``
+           removes the brand from the sequential Tab order so the first
+           Tab stop on every page is the first real nav item (previously
+           the user had to Tab twice on / to reach "Inicio" via the nav,
+           because both the brand and the nav item pointed at /). The
+           brand remains visible and clickable for mouse users. #}
+        <a href="/" tabindex="-1" class="text-primary font-bold text-lg flex items-center gap-2">
           <span aria-hidden="true">🐾</span>
           <span>APAP</span>
         </a>
@@ -65,7 +71,6 @@
           </summary>
           <div class="absolute right-0 top-full mt-2 w-72 max-w-[calc(100vw-2rem)] bg-surface border border-border rounded-card shadow-card z-50">
             <nav class="flex flex-col py-2 text-sm" aria-label="Menú">
-              <a href="/" class="px-4 py-2.5 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Inicio</a>
               <a href="/animales" class="px-4 py-2.5 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Animales</a>
               <a href="/entradas" class="px-4 py-2.5 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Entradas</a>
               <a href="/entradas/batch/new" class="px-4 py-2.5 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Entradas en lote</a>
@@ -99,7 +104,6 @@
            ``hidden md:flex`` pair is the responsive collapse pinned by
            issue #147's HTTP-level sentinel in tests/test_pages.py. #}
         <nav class="hidden md:flex items-center gap-1 text-sm" aria-label="Navegación principal">
-          <a href="/" class="px-3 py-2 rounded text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Inicio</a>
           <a href="/animales" class="px-3 py-2 rounded text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Animales</a>
           <a href="/entradas" class="px-3 py-2 rounded text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Entradas</a>
           <a href="/entradas/batch/new" class="px-3 py-2 rounded text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Entradas en lote</a>

@@ -48,7 +48,10 @@
     </a>
     <header class="sticky top-0 z-50 bg-surface border-b border-border shadow-card">
       <div class="px-4 py-3 flex items-center justify-between">
-        <a href="/" class="text-primary font-bold text-lg flex items-center gap-2">
+        {# Brand link (issue #818). Same ``tabindex="-1"`` rationale as
+           in ``base.html``: brand stays visible and clickable for mouse
+           users but does not consume the first Tab stop on mobile. #}
+        <a href="/" tabindex="-1" class="text-primary font-bold text-lg flex items-center gap-2">
           <span aria-hidden="true">🐾</span>
           <span>APAP</span>
         </a>
