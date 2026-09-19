@@ -81,3 +81,4 @@ N/A — el slice sólo agrega JS al shell web.
 3. **HTMX ausente** — el proyecto no usa HTMX, confirmado por `grep -r "htmx" app/templates` (vacío). El route-change close se implementa vía `click` listener en el nav. La navegación full-page del browser cierra el menú naturalmente porque el DOM se reconstruye.
 4. **`tabindex="-1"` en el brand (#818)** — el brand queda fuera del selector de focusables (excluye `[tabindex="-1"]`), así que no entra al focus trap. Sin conflicto.
 5. **Tests E2E flaky** — los tests dependen de Playwright, chromium, y de la respuesta del server en :8000. Si la página redirige a `/login` por auth, algunos tests podrían fallar. Mitigación: preflight ya hace skip en ese caso; si no hay auth, el click sobre `/animales` redirige y el assertion de `aria-expanded='false'` se hace ANTES de la navegación (no_wait_after=True).
+
