@@ -78,3 +78,4 @@ N/A — este slice no toca legacy Access. Cambia exclusivamente el shell web.
 - [ ] Gates locales verdes: `ruff check .`, `python scripts/check_rules.py .`, `python -m mypy`, `pytest tests/test_pages.py -q`.
 - [ ] PR abierto contra `origin/main` (decisión del usuario) con cuerpo que cita el issue, lista los archivos tocados, y nombra el límite del E2E local hasta que exista el gate axe-core transversal.
 - [ ] Memoria de sesión guardada con `mem_session_summary` (qué se hizo, archivos, gates, próximos pasos).
+
