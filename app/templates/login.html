@@ -44,8 +44,15 @@
                 class="flex-1 rounded-card border border-border bg-surface px-3 py-2 text-sm text-text shadow-card focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-bg"
               />
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+              {# Submit button (issue #814). The visible text "Enviar enlace"
+                 supplies the accessible name; ``name="submit"`` ensures the
+                 attribute is non-empty (the issue flagged the historical
+                 ``name=""`` pattern which axe-core's ``button-name`` rule
+                 rejects). Keeping the visible text and the non-empty ``name``
+                 together satisfies WCAG 4.1.2 (Name, Role, Value). #}
               <button
                 type="submit"
+                name="submit"
                 class="inline-flex items-center justify-center gap-2 rounded-card bg-primary px-4 py-2 text-sm font-semibold text-white shadow-card transition-colors hover:bg-primary-dark focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-bg"
               >
                 Enviar enlace
