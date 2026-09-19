@@ -39,6 +39,14 @@
     <link rel="stylesheet" href="/static/css/output.css" />
   </head>
   <body class="min-h-screen bg-bg text-text font-sans antialiased flex flex-col">
+    {# Skip link (issue #812, WCAG 2.4.1 Bypass Blocks). First focusable
+       element on every page; visually hidden until focused, then snaps to
+       the top-left above the sticky header. The target ``<main id="main"
+       tabindex="-1">`` below can receive focus without joining the tab
+       order, so Enter here moves the caret to the content start. #}
+    <a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[60] focus:px-4 focus:py-2 focus:bg-primary focus:text-white focus:rounded focus:shadow-card focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2">
+      Saltar al contenido principal
+    </a>
     <header class="sticky top-0 z-50 bg-surface border-b border-border shadow-card">
       <div class="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between gap-4">
         <a href="/" class="text-primary font-bold text-lg flex items-center gap-2">
@@ -126,7 +134,10 @@
       </div>
     </header>
 
-    <main class="flex-1">
+    {# Skip-link target (issue #812). ``tabindex="-1"`` allows the anchor
+       to receive programmatic focus without entering the natural tab
+       order. Labelling (aria-labelledby) is added separately by #813. #}
+    <main id="main" tabindex="-1" class="flex-1">
       <div class="mx-auto max-w-6xl px-4 py-8">
         {% block content %}{% endblock %}
       </div>
