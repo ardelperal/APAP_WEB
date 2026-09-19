@@ -70,3 +70,4 @@ N/A — el slice sólo toca el template de login web.
 - [ ] PR abierto contra `origin/main`, CI en verde, merge con `--admin`.
 - [ ] Issue #814 cerrada vía `Fixes #814` keyword.
 - [ ] Memoria de sesión guardada con `mem_session_summary`.
+
