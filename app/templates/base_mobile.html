@@ -125,5 +125,10 @@
       <p class="font-semibold">🐾 APAP Alcalá</p>
       <p class="opacity-80 mt-1 text-xs">Gestión diaria de animales, documentación y seguimientos.</p>
     </footer>
+
+    {# Nav burger toggle controller (issue #820). Vanilla JS; ``defer`` so
+       the script runs after DOMContentLoaded. Loaded from
+       /static/js/nav-burger.js (CSP ``script-src 'self'`` compliant). #}
+    <script src="/static/js/nav-burger.js" defer></script>
   </body>
 </html>
