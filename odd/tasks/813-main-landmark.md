@@ -81,3 +81,4 @@ N/A — el slice toca sólo el shell web (templates Jinja y test E2E).
 - [ ] Issue #813 cerrada vía `Fixes #813` keyword.
 - [ ] Memoria de sesión guardada con `mem_session_summary`.
 
+
