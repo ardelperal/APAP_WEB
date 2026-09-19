@@ -2,7 +2,7 @@
 {% block title %}{{ "Editar" if form_data.nombre_adoptante else "Nueva" }} adopción - APAP{% endblock %}
 {% block content %}
   <div class="mb-6">
-    <h1 class="text-3xl font-bold text-primary-dark tracking-tight">
+    <h1 id="main-title" class="text-3xl font-bold text-primary-dark tracking-tight">
       {{ "Editar adopción" if form_data.nombre_adoptante else "Nueva adopción" }}
     </h1>
     <p class="text-text-muted text-sm mt-1">
