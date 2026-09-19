@@ -3,13 +3,16 @@
 {% block title %}Tarea {{ tarea.id }} · APAP{% endblock %}
 
 {% block content %}
-  <header class="mb-8 flex items-start justify-between gap-6 flex-wrap">
+  {# Section header (issue #813). ``<section aria-labelledby>`` instead
+     of ``<header>`` so the landmark list does not collide with the
+     page header from ``base.html``. Inner H1 carries ``id="main-title"``. #}
+  <section class="mb-8 flex items-start justify-between gap-6 flex-wrap" aria-labelledby="main-title">
     <div>
-      <h1 class="text-2xl font-bold tracking-tight text-primary-dark">Detalle de tarea</h1>
+      <h1 id="main-title" class="text-2xl font-bold tracking-tight text-primary-dark">Detalle de tarea</h1>
       <p class="mt-2 text-text-muted font-mono text-xs">{{ tarea.id }}</p>
     </div>
     <a href="/tareas" class="text-primary hover:underline text-sm">← Volver a tareas</a>
-  </header>
+  </section>
 
   <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
     {# Task fields #}
