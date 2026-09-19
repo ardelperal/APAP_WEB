@@ -182,9 +182,10 @@ async def test_login_renders_with_base_template_for_desktop(
 ) -> None:
     """Desktop UA → ``GET /login`` renders ``base.html``.
 
-    Sentinels:
-    - ``id="nav-burger"`` is present (desktop template's burger
-      landmark from issue #147).
+    Sentinels (issue #819, replaces the legacy ``<details id="nav-burger">``
+    from issue #147):
+    - ``id="nav-burger-toggle"`` is present (the new mobile-only burger
+      button, hidden via ``md:hidden`` on desktop).
     - ``viewport-fit=cover`` is absent (mobile-only marker).
     """
     monkeypatch.setenv("APAP_GOOGLE_CLIENT_ID", "test-client-id")
@@ -193,8 +194,8 @@ async def test_login_renders_with_base_template_for_desktop(
     response = await client.get("/login", headers={"User-Agent": _DESKTOP_UA})
 
     assert response.status_code == 200, response.text
-    assert 'id="nav-burger"' in response.text, (
-        "desktop UA did not render base.html (burger landmark missing)"
+    assert 'id="nav-burger-toggle"' in response.text, (
+        "desktop UA did not render base.html (burger button missing)"
     )
     assert "viewport-fit=cover" not in response.text, (
         "desktop UA rendered base_mobile.html (viewport-fit=cover marker should not appear)"
@@ -210,9 +211,8 @@ async def test_login_renders_with_base_template_for_mobile(
     Sentinels:
     - ``viewport-fit=cover`` is present in ``<meta name="viewport">``
       (mobile template's safe-area marker).
-    - ``id="nav-burger"`` is absent (mobile template has no
-      desktop-style burger disclosure — it uses a single touch
-      target).
+    - ``id="nav-burger-toggle"`` is present (mobile template also
+      receives the new burger button per issue #819).
     """
     monkeypatch.setenv("APAP_GOOGLE_CLIENT_ID", "test-client-id")
     monkeypatch.setenv("APAP_GOOGLE_CLIENT_SECRET", "test-client-secret")
@@ -223,6 +223,6 @@ async def test_login_renders_with_base_template_for_mobile(
     assert "viewport-fit=cover" in response.text, (
         "mobile UA did not render base_mobile.html (viewport-fit=cover marker missing)"
     )
-    assert 'id="nav-burger"' not in response.text, (
-        "mobile UA rendered base.html (burger landmark should not appear in mobile template)"
+    assert 'id="nav-burger-toggle"' in response.text, (
+        "mobile UA rendered base_mobile.html without the burger button (issue #819 regression)"
     )

@@ -59,82 +59,74 @@
           <span aria-hidden="true">🐾</span>
           <span>APAP</span>
         </a>
-        {# Mobile burger (issue #147). Hidden at md+ where the inline nav
-           takes over. Uses native <details>/<summary> so no JS is needed
-           to open/close the menu — the browser handles toggle + a11y. #}
-        <details id="nav-burger" class="md:hidden relative ml-auto">
-          <summary class="list-none cursor-pointer flex items-center gap-2 px-3 py-2 rounded border border-border text-text-muted hover:text-primary hover:border-primary transition-colors">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" class="h-5 w-5" aria-hidden="true">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
-            </svg>
-            <span class="text-sm font-medium">Menú</span>
-          </summary>
-          <div class="absolute right-0 top-full mt-2 w-72 max-w-[calc(100vw-2rem)] bg-surface border border-border rounded-card shadow-card z-50">
-            <nav class="flex flex-col py-2 text-sm" aria-label="Menú">
-              <a href="/animales" class="px-4 py-2.5 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Animales</a>
-              <a href="/entradas" class="px-4 py-2.5 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Entradas</a>
-              <a href="/entradas/batch/new" class="px-4 py-2.5 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Entradas en lote</a>
-              <a href="/casas-acogida" class="px-4 py-2.5 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Casas de acogida</a>
-              <a href="/acogidas" class="px-4 py-2.5 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Estancias de acogida</a>
-              <a href="/adopciones" class="px-4 py-2.5 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Adopciones</a>
-              <a href="/sanidad" class="px-4 py-2.5 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Actuaciones</a>
-              <a href="/voluntarios" class="px-4 py-2.5 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Voluntarios</a>
-              {% if user is defined and user and user.role == "developer" %}
-                <a href="/admin" class="px-4 py-2.5 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Admin</a>
-              {% endif %}
-            </nav>
-            <div class="border-t border-border px-4 py-3 text-sm">
-              {% if user is defined and user %}
-                <p class="font-medium text-text">{{ user.email }}</p>
-                <p class="text-text-muted text-xs">Rol: {{ user.role }}</p>
-                <form method="get" action="/logout" class="mt-2">
-                  <button type="submit" class="w-full px-3 py-2 rounded border border-border text-text-muted hover:text-primary hover:border-primary transition-colors">
-                    Salir
-                  </button>
-                </form>
-              {% else %}
-                <a href="/login" class="block w-full text-center px-3 py-2 rounded bg-primary text-white hover:bg-primary-dark transition-colors">
-                  Iniciar sesión
-                </a>
-              {% endif %}
-            </div>
-          </div>
-        </details>
-        {# Desktop inline nav — collapsed on mobile, visible at md+. The
-           ``hidden md:flex`` pair is the responsive collapse pinned by
-           issue #147's HTTP-level sentinel in tests/test_pages.py. #}
-        <nav class="hidden md:flex items-center gap-1 text-sm" aria-label="Navegación principal">
-          <a href="/animales" class="px-3 py-2 rounded text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Animales</a>
-          <a href="/entradas" class="px-3 py-2 rounded text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Entradas</a>
-          <a href="/entradas/batch/new" class="px-3 py-2 rounded text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Entradas en lote</a>
-          <a href="/casas-acogida" class="px-3 py-2 rounded text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Casas de acogida</a>
-          <a href="/acogidas" class="px-3 py-2 rounded text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Estancias de acogida</a>
-          <a href="/adopciones" class="px-3 py-2 rounded text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Adopciones</a>
-          <a href="/sanidad" class="px-3 py-2 rounded text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Actuaciones</a>
-          <a href="/voluntarios" class="px-3 py-2 rounded text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Voluntarios</a>
+        {# Mobile burger toggle (issue #819, first half of #804). The
+           button replaces the legacy ``<details>/<summary>`` block: a
+           real ``<button type="button">`` with proper ARIA state
+           (``aria-expanded``, ``aria-controls``). It is hidden at
+           ``md`` and above where the inline nav takes over; below
+           ``md`` it sits in its place. The toggle JS lands in #820 —
+           for now the button does nothing, the nav stays closed on
+           mobile, and the user lands on the brand only. #}
+        <button
+          id="nav-burger-toggle"
+          type="button"
+          aria-expanded="false"
+          aria-controls="nav-main"
+          aria-label="Menú principal"
+          class="md:hidden ml-auto list-none flex items-center gap-2 px-3 py-2 rounded border border-border text-text-muted hover:text-primary hover:border-primary transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-bg"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" class="h-5 w-5" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+          </svg>
+          <span class="text-sm font-medium">Menú</span>
+        </button>
+        {# Single nav (issue #819). One ``<nav id="nav-main">`` replaces
+           the previous desktop-only inline nav and the legacy
+           ``<details>`` block. The same list renders both as a column
+           below ``md`` (hidden by default; #820 toggles ``hidden``
+           via JS) and as an inline row at ``md`` and above. The user
+           block (login / logout / role) follows the nav list and
+           remains part of the same disclosure container for the
+           mobile case; on desktop it has its own ``md:block``
+           wrapper further down. #}
+        <nav
+          id="nav-main"
+          aria-label="Menú principal"
+          class="hidden md:flex flex-col md:flex-row md:items-center gap-0 md:gap-1 text-sm absolute md:static left-0 right-0 top-full md:top-auto bg-surface md:bg-transparent border-b md:border-0 border-border shadow-card md:shadow-none z-40"
+        >
+          <a href="/animales" class="px-4 py-2.5 md:px-3 md:py-2 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Animales</a>
+          <a href="/entradas" class="px-4 py-2.5 md:px-3 md:py-2 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Entradas</a>
+          <a href="/entradas/batch/new" class="px-4 py-2.5 md:px-3 md:py-2 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Entradas en lote</a>
+          <a href="/casas-acogida" class="px-4 py-2.5 md:px-3 md:py-2 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Casas de acogida</a>
+          <a href="/acogidas" class="px-4 py-2.5 md:px-3 md:py-2 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Estancias de acogida</a>
+          <a href="/adopciones" class="px-4 py-2.5 md:px-3 md:py-2 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Adopciones</a>
+          <a href="/sanidad" class="px-4 py-2.5 md:px-3 md:py-2 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Actuaciones</a>
+          <a href="/voluntarios" class="px-4 py-2.5 md:px-3 md:py-2 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Voluntarios</a>
           {% if user is defined and user and user.role == "developer" %}
-            <a href="/admin" class="px-3 py-2 rounded text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Admin</a>
+            <a href="/admin" class="px-4 py-2.5 md:px-3 md:py-2 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors">Admin</a>
           {% endif %}
-        </nav>
-        <div class="hidden md:block text-sm">
-          {% if user is defined and user %}
-            <div class="flex items-center gap-3">
-              <div class="text-right leading-tight">
-                <p class="font-medium text-text">{{ user.email }}</p>
-                <p class="text-text-muted text-xs">Rol: {{ user.role }}</p>
-              </div>
-              <form method="get" action="/logout">
-                <button type="submit" class="px-3 py-2 rounded border border-border text-text-muted hover:text-primary hover:border-primary transition-colors">
+          {# User block (issue #819). Lives inside ``<nav>`` so it is part
+             of the same disclosure as the nav links: on desktop it
+             appears inline with the nav (right side, separated by a
+             border); on mobile it sits at the bottom of the burger
+             menu (revealed by #820). Single source of truth — no
+             separate desktop-only block. #}
+          <div class="border-t md:border-t-0 md:border-l border-border px-4 md:px-3 py-3 md:py-2 text-sm mt-2 md:mt-0">
+            {% if user is defined and user %}
+              <p class="font-medium text-text md:text-right leading-tight">{{ user.email }}</p>
+              <p class="text-text-muted text-xs md:text-right">Rol: {{ user.role }}</p>
+              <form method="get" action="/logout" class="mt-2 md:mt-0 md:inline-block md:ml-2">
+                <button type="submit" class="w-full md:w-auto md:px-3 md:py-2 px-3 py-2 rounded border border-border text-text-muted hover:text-primary hover:border-primary transition-colors">
                   Salir
                 </button>
               </form>
-            </div>
-          {% else %}
-            <a href="/login" class="px-3 py-2 rounded bg-primary text-white hover:bg-primary-dark transition-colors">
-              Iniciar sesión
-            </a>
-          {% endif %}
-        </div>
+            {% else %}
+              <a href="/login" class="block md:inline-block md:px-3 md:py-2 w-full text-center px-3 py-2 rounded bg-primary text-white hover:bg-primary-dark transition-colors">
+                Iniciar sesión
+              </a>
+            {% endif %}
+          </div>
+        </nav>
       </div>
     </header>
 
