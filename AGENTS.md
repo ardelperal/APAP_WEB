@@ -121,7 +121,7 @@ Las 33 reglas de AGENTS (numeradas §1-§33) viven ahora en `docs/codebase/`. Es
 | Runbooks | [`docs/runbooks/`](docs/runbooks/) | Procedimientos que exigen acción del operador. |
 | Hardening del arnés de calidad | [`docs/quality/hardening-roadmap.md`](docs/quality/hardening-roadmap.md) | Estado de los gates automáticos. |
 
-<!-- personal-skills:slice:APAP_WEB @ v751645f -->
+<!-- personal-skills:slice:APAP_WEB @ v3f69990 -->
 # slices/partials/web.md
 
 ## Manera de trabajar en proyectos web
