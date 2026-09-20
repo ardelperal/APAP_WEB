@@ -1,0 +1,105 @@
+name: Feature request
+description: Propose a user outcome with evidence, boundaries, and measurable acceptance.
+title: "[Feature]: "
+labels:
+  - "type:feature"
+  - "status:needs-review"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the problem before prescribing implementation. Search existing issues and decisions first.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and user outcome
+      description: Identify who has the problem, what they cannot accomplish, and the outcome they need.
+      placeholder: As a..., I need..., so that...
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence and frequency
+      description: Provide user reports, metrics, examples, research, or workflow observations that demonstrate the need.
+      placeholder: Evidence, frequency, affected population, and source links...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-capability
+    attributes:
+      label: Proposed capability
+      description: Describe the observable capability, not an unverified implementation mandate.
+      placeholder: The product should allow...
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe current workarounds and credible alternatives, including why they are insufficient.
+      placeholder: Today users... We also considered...
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Define the users, workflows, interfaces, data, and platforms included.
+      placeholder: This issue includes...
+    validations:
+      required: true
+
+  - type: textarea
+    id: non-goals
+    attributes:
+      label: Non-goals
+      description: Explicitly exclude adjacent outcomes and follow-up work.
+      placeholder: This issue does not include...
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance criteria
+      description: Define measurable, externally observable outcomes without locking in unnecessary design detail.
+      placeholder: |
+        - [ ] Given..., when..., then...
+        - [ ] The outcome is measurable by...
+        - [ ] Existing behavior for... remains unchanged.
+    validations:
+      required: true
+
+  - type: textarea
+    id: validation-plan
+    attributes:
+      label: Validation plan
+      description: Explain how tests, analytics, accessibility checks, or user acceptance will prove the outcome.
+      placeholder: Automated checks, UAT scenario, success metric, and observation window...
+    validations:
+      required: true
+
+  - type: textarea
+    id: risks
+    attributes:
+      label: Risks and dependencies
+      description: Identify compatibility, security, privacy, performance, migration, rollout, and dependency concerns.
+      placeholder: Risks... Dependencies... Rollout or rollback constraints...
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: readiness
+    attributes:
+      label: Submission readiness
+      options:
+        - label: I searched for duplicates and linked relevant issues or decisions.
+          required: true
+        - label: I separated the desired outcome from optional implementation details.
+          required: true

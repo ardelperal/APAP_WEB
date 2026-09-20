@@ -1,0 +1,56 @@
+[← Back to README](../README.md)
+
+# <Repo> Codebase Guide
+
+**This guide is for maintainers and contributors who need to understand where <repo> responsibilities live, which invariants are non-negotiable, and which file to open when something needs to change.**
+
+<opening paragraph: qué es el repo y qué cubre esta guía, ≤ 200 caracteres>
+
+## 90-second mental model
+
+<!-- MENTAL_MODEL_ASCII: diagrama ASCII del flujo end-to-end. ≤ 30 líneas. -->
+
+```text
+<entry point>
+  │
+  ▼
+<core component>
+  │
+  ├── <module a>
+  ├── <module b>
+  │
+  ▼
+<storage / external>
+```
+
+> **<The sentence that organizes the whole repo>**
+
+## Recommended reading path
+
+<!-- RECOMMENDED_READING_PATH: 5-8 steps. Una página por step. -->
+
+| Step | Page | Read this when... |
+|------|------|---------------------|
+| 1 | [Mental Model](codebase/mental-model.md) | Necesita la forma del producto antes de abrir código |
+| 2 | [Repository Map](codebase/repository-map.md) | Necesita decidir qué paquete es dueño del cambio |
+| 3 | ... | ... |
+
+## Quick map: if you need X, read Y
+
+<!-- QUICK_MAP_INVERSO: 5-8 intenciones de mantenedor. -->
+
+| Si necesita... | Abra primero | Y luego consulte |
+|---|---|---|
+| Understand the product in 5 min | `README.md` | This guide |
+| Change <module> | `<path>` | [Memory Core](codebase/memory-core.md) |
+| ... | ... | ... |
+
+## Subsección: ownership y guardrails
+
+<Contenido sobre ownership, flows, no API.>
+
+---
+
+[Next: Mental Model →](codebase/mental-model.md)
+
+<!-- SHOULD: tabla "What this is / is not" (2 columnas) + sección "Existing references" con links a docs ya existentes. -->

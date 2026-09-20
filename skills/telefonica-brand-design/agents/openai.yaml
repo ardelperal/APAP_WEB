@@ -1,0 +1,4 @@
+interface:
+  display_name: "Telefónica Brand Design"
+  short_description: "Apply Telefónica-inspired brand tokens and UI guidance."
+  default_prompt: "Apply the Telefónica Brand Factory design language to this project using the bundled tokens, typography, layout, accessibility, and voice guidance."

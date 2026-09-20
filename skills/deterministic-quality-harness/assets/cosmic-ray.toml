@@ -1,0 +1,11 @@
+# HARNESS-PROVENANCE: deterministic-quality-harness v1.8 — assets/cosmic-ray.toml
+# Adjust only this configuration block for the consuming repository.
+
+[cosmic-ray]
+module-path = "app"
+timeout = 30.0
+excluded-modules = []
+test-command = "python -m pytest -p no:randomly"
+
+[cosmic-ray.distributor]
+name = "local"

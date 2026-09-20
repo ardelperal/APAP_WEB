@@ -1,0 +1,149 @@
+# NOTE: fragments, not a runnable workflow. Do not lint this file as one.
+#
+# What a repository MUST carry before it consumes the Oracle VPS runner pool.
+# Every block below was earned by a real outage, not by style preference.
+# Paste the ones the target repo is missing; each is independent.
+#
+# The unifying rule, and the one to keep if you forget the rest:
+#   NEVER LET A FAILURE BECOME AN ANSWER.
+# A check that cannot run must not report "clean". A query that breaks must not
+# report "no". Every block here is one instance of that going wrong in practice.
+
+# ---------------------------------------------------------------------------
+# 1. timeout-minutes — REQUIRED on every job.
+# GitHub's default is 360 minutes. A job dispatched to a wedged runner, or one
+# that never gets dispatched at all, holds the queue for SIX HOURS by default.
+# On a single-runner pool it holds every other branch with it.
+# Size each timeout to a few times the observed p95, not to the worst case.
+#
+# MEASURE ON THE TARGET RUNNER, not on the hosted run you are migrating from.
+# aarch64 here ran a long job 20% slower than GitHub-hosted: 3229s against
+# 2678s. A timeout sized from the hosted figure left 21 minutes of headroom on a
+# 54-minute job, and once the pool grew to three runners sharing four vCPU that
+# margin was contention away from being spent. Past the limit the job is killed
+# and reads as a timeout rather than as contention — a failure under someone
+# else's name, which is Rule 1 again.
+jobs:
+  example:
+    runs-on: [self-hosted, Linux, ARM64, <POOL_LABELS>]
+    timeout-minutes: 30
+
+# ---------------------------------------------------------------------------
+# 2. concurrency — FIFO per workflow, never cancel work in flight.
+# cancel-in-progress: true is right where capacity is elastic. On a pool with
+# one runner it discards work that already consumed the only runner there is,
+# to start again from zero. For a deploy job it is worse than wasteful: a
+# webhook call has no transaction around it, so cancelling mid-flight can leave
+# the target half-updated.
+# Apply the SAME rule to every workflow, including the ones that finish in
+# seconds. One convention for a repository is easier to keep true than a
+# per-workflow judgement — a per-workflow judgement is how a hardened repo ends
+# up with one workflow carrying none of its own conventions.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+# ---------------------------------------------------------------------------
+# 3. Docker liveness preflight — before the FIRST `docker run` of any job.
+# A wedged daemon makes `docker run` BLOCK: it does not fail and it prints
+# nothing. These runners mount the host's docker.sock, shared with every other
+# container on the VPS, so this is plausible rather than theoretical.
+#
+# The `timeout` is the load-bearing part, NOT `docker info`. An unwrapped
+# `docker info` hangs in exactly the scenario it exists to detect, which makes
+# it indistinguishable from no guard at all.
+      - name: Verify the Docker daemon answers before relying on it
+        run: |
+          if ! timeout 30 docker info >/dev/null 2>&1; then
+            echo "::error::Docker daemon is not answering on this runner; failing fast instead of hanging." >&2
+            exit 1
+          fi
+
+# ---------------------------------------------------------------------------
+# 4. Service-container ports — MUST be dynamic before a pool has 2+ runners.
+# A fixed host mapping (`5432:5432`) makes two concurrent jobs on the same host
+# fight for one port, or worse, silently share one database across branches.
+# The second outcome PASSES, which is why it is the one worth fixing.
+    services:
+      postgres:
+        image: postgres@sha256:<PINNED>
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        # NOT `- 5432:5432`.
+        ports:
+          - 5432
+    steps:
+      # READ THE PORT IN A STEP, NOT IN A JOB-LEVEL `env:` BLOCK.
+      # The `job` context that carries the assigned port is NOT available in
+      # `jobs.<id>.env`. Putting it there yields an EMPTY STRING with no error,
+      # and what happens next is decided by the consumer: a fixture that
+      # hard-fails tells you, while one that calls pytest.skip() on a missing
+      # DSN reports a pass. The fix for the collision then hides a skipped test.
+      # The emptiness guard below is the load-bearing part, not the port itself.
+      - name: Resolve the DSN from the assigned host port
+        env:
+          POSTGRES_HOST_PORT: ${{ job.services.postgres.ports['5432'] }}
+        run: |
+          if [ -z "$POSTGRES_HOST_PORT" ]; then
+            echo "::error::service port did not resolve; refusing to run with a DSN that cannot connect" >&2
+            exit 1
+          fi
+          echo "DSN=postgresql://postgres@host.docker.internal:$POSTGRES_HOST_PORT/<DB>" >> "$GITHUB_ENV"
+
+# ---------------------------------------------------------------------------
+# 5. Action pinning — every `uses:` by 40-hex commit SHA, never a floating tag.
+# A tag is third-party code that can change between two otherwise identical
+# runs, and the deploy workflow is the one that talks to production.
+#
+# Note GitHub treats the WHOLE `uses:` value as the ref, so an inline `# v5`
+# after the SHA becomes part of the ref and breaks the pin. A YAML parser strips
+# the comment, so gate on the parsed value.
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+
+# ---------------------------------------------------------------------------
+# 6. Commands the hosted images provided and THIS image does not.
+# The single most common breakage when moving a repo onto these runners, and the
+# most dangerous, because the failure mode is a plausible-looking answer.
+#
+# Confirmed absent on ghcr.io/actions/actions-runner:
+#     gh          (the GitHub CLI)
+#     python      (no interpreter at all — see block 7)
+# Confirmed present: curl, jq, timeout, git, docker
+# RE-VERIFY on the live container; do not trust this list:
+#     docker exec <runner> bash -lc 'which gh jq curl python3'
+#
+# Rewrite `gh api` as curl + jq, and make a broken query FAIL rather than
+# answer. This exact shape kept a repository from deploying for two days:
+#
+#     green=$(gh api "...runs?head_sha=$sha&status=success" \
+#               --jq '...| length' 2>/dev/null || echo 0)     # ← 127 becomes 0
+#
+# `gh` was absent, so it exited 127, `|| echo 0` turned that into "zero green
+# runs", and the deploy refused with a message pointing at the tree. Everyone
+# who read it went and looked at the tree.
+      - name: Find the evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          body=$(mktemp)
+          code=$(curl -sS -o "$body" -w '%{http_code}' --max-time 30 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/<endpoint>" \
+          ) || code=000
+          if [ "$code" != "200" ]; then
+            echo "::error::the lookup itself failed (HTTP ${code}); refusing to report that as a verdict." >&2
+            exit 1
+          fi
+          count=$(jq '<filter>' "$body")
+
+# ---------------------------------------------------------------------------
+# 7. Python — install it explicitly in EVERY job that runs a `python` script.
+# The hosted images shipped an interpreter; this one does not, so `python
+# scripts/foo.py` exits 127 in about ten seconds. Jobs that never needed a
+# setup-python step on hosted runners are exactly the ones that break.
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12.11"

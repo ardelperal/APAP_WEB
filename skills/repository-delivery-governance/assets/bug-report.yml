@@ -1,0 +1,117 @@
+name: Bug report
+description: Report a reproducible defect with evidence and a verifiable fix contract.
+title: "[Bug]: "
+labels:
+  - "type:bug"
+  - "status:needs-review"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search existing issues before submitting. Remove secrets and personal data from all evidence.
+
+  - type: textarea
+    id: observed-behavior
+    attributes:
+      label: Observed behavior
+      description: Describe what happened, including the exact failure and its impact.
+      placeholder: The system does X when Y, which prevents Z.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected behavior
+      description: State the externally observable behavior that should occur instead.
+      placeholder: Given Y, the system should...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Provide the shortest deterministic sequence that reproduces the defect.
+      placeholder: |
+        1. Start from...
+        2. Run or select...
+        3. Observe...
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Include sanitized logs, screenshots, traces, failing tests, or a minimal repository link.
+      placeholder: Paste evidence and timestamps here, or explain why evidence is unavailable.
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Identify the affected revision, version, runtime, operating system, browser, device, or deployment.
+      placeholder: Version or SHA, environment, runtime, OS/browser/device...
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Identify affected users, paths, components, data, and known boundaries.
+      placeholder: In scope is... The defect does not appear to affect...
+    validations:
+      required: true
+
+  - type: textarea
+    id: non-goals
+    attributes:
+      label: Non-goals
+      description: List adjacent behavior this fix must not change.
+      placeholder: This issue does not include...
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance criteria
+      description: Use measurable outcomes that prove the defect is fixed without regressions.
+      placeholder: |
+        - [ ] The reproduction no longer fails.
+        - [ ] A regression test fails before the fix and passes after it.
+        - [ ] Unaffected behavior remains unchanged.
+    validations:
+      required: true
+
+  - type: textarea
+    id: validation-plan
+    attributes:
+      label: Validation plan
+      description: List the commands, tests, environments, and manual checks required to verify the fix.
+      placeholder: Automated commands, targeted regression checks, and manual verification...
+    validations:
+      required: true
+
+  - type: textarea
+    id: risks
+    attributes:
+      label: Risks and dependencies
+      description: Identify severity, data or security exposure, compatibility risk, dependencies, and rollback concerns.
+      placeholder: Risk is... Depends on... Rollback must...
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: readiness
+    attributes:
+      label: Submission readiness
+      options:
+        - label: I searched for duplicates and linked any related issues.
+          required: true
+        - label: I removed secrets, credentials, and personal data from the evidence.
+          required: true

@@ -1,0 +1,47 @@
+{
+  "schema": "deterministic-quality-harness/quality-policy/v1",
+  "version": 1,
+  "subjects": {
+    "roots": ["app"],
+    "suffixes": [".py"],
+    "exclude_parts": ["__pycache__", ".venv", "venv", "build", "dist", "migrations"]
+  },
+  "gates": {
+    "layers": {
+      "command": ["python", "scripts/check_layers.py"],
+      "owner": "quality-architecture",
+      "non_ownership": ["test adequacy", "duplicate code", "mutation survival"],
+      "ceilings": {"violations": 0, "violation_classes": 0, "files_unclassified": 0}
+    },
+    "complexity": {
+      "command": ["python", "scripts/check_complexity.py"],
+      "owner": "quality-architecture",
+      "non_ownership": ["test coverage", "duplicate code", "mutation survival"],
+      "ceilings": {"max_complexity": 15, "functions_over_ceiling": 0}
+    },
+    "crap": {
+      "command": ["python", "scripts/check_crap.py"],
+      "owner": "quality-testing",
+      "non_ownership": ["architecture boundaries", "duplicate code", "mutation survival"],
+      "ceilings": {"max_crap": 6.0, "functions_over_ceiling": 0}
+    },
+    "mutation_sites": {
+      "command": ["python", "scripts/check_mutation_sites.py"],
+      "owner": "quality-hardening",
+      "non_ownership": ["test coverage", "surviving mutants", "architecture boundaries"],
+      "ceilings": {"max_mutation_sites": 100, "files_over_ceiling": 0}
+    },
+    "dry": {
+      "command": ["python", "scripts/check_dry.py"],
+      "owner": "quality-cleanup",
+      "non_ownership": ["test adequacy", "architecture boundaries", "mutation survival"],
+      "ceilings": {"duplicate_groups": 0}
+    },
+    "mutation": {
+      "command": ["python", "scripts/check_mutation.py"],
+      "owner": "quality-testing",
+      "non_ownership": ["coverage floor", "architecture boundaries", "duplicate code"],
+      "ceilings": {"incompetent_ratio_pct": 20.0}
+    }
+  }
+}

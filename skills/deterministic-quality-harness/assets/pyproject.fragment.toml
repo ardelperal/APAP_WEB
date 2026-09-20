@@ -1,0 +1,77 @@
+# HARNESS-PROVENANCE: deterministic-quality-harness v1.8 — assets/pyproject.fragment.toml
+#
+# Merge these blocks into the consuming repo's pyproject.toml.
+#
+# Hard Rule 2: every tool that governs a rule is pinned to an exact version. A `>=` constraint
+# lets a minor release graduate or retire a rule, which changes the verdict on unchanged code.
+# Hard Rule 15 extends the same logic to the transitive graph: these pins only hold if the
+# install path uses a hash-checked lockfile (`requirements-dev.lock` in ci.yml).
+
+[project.optional-dependencies]
+dev = [
+    "ruff==0.15.21",
+    "mypy==1.18.2",
+    "pytest==8.4.2",
+    "pytest-cov==7.0.0",
+    "pyyaml==6.0.3",   # required by tests/test_ci_workflow.py
+    "pip-audit==2.9.0",
+    "cosmic-ray==8.7.0",
+    "pip-tools==7.6.1",  # deterministic requirements-dev.lock generation
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = [
+    ".git",
+    ".venv",
+    "venv",
+    "build",
+    "dist",
+    ".pytest_cache",
+    ".ruff_cache",
+    "__pycache__",
+    # Negative fixtures are broken on purpose. Linting them would force "fixes" that destroy the
+    # only evidence that the gates actually fail.
+    "tests/fixtures",
+]
+
+[tool.ruff.lint]
+# Base select only. The extended families (S, ERA, ARG, PLR, ...) are adopted one at a time,
+# each behind its own policy decision — never in bulk, and never with known noise.
+select = ["E", "F", "W", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B011"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "tests"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["app"]
+# A bare `# type: ignore` graduates silence into a permanent hole. Requiring the error code
+# keeps every suppression traceable to the specific check it disables.
+enable_error_code = ["ignore-without-code"]
+
+[[tool.mypy.overrides]]
+module = "tests.fixtures.*"
+ignore_errors = true
+
+[tool.pytest.ini_options]
+# `-p no:randomly` pins test execution order. Randomised order is a good way to FIND order
+# dependencies and a terrible property for a gate: the same commit passes and fails depending on
+# a seed nobody recorded. Hunt order dependencies in a separate, deliberate run.
+addopts = "--strict-markers --strict-config -p no:randomly"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["app"]
+# Hard Rule 14: the untestable boundary is declared here, in version control, and nowhere else.
+# Every omitted path is code no gate is watching. Keep the list short and review it quarterly.
+omit = []
+
+[tool.hatch.build.targets.wheel]
+# Tests and fixtures never ship to production.
+only-include = ["app"]
