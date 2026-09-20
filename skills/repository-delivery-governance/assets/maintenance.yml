@@ -1,0 +1,96 @@
+name: Maintenance task
+description: Define operational or dependency upkeep with evidence, boundaries, and rollback.
+title: "[Maintenance]: "
+labels:
+  - "type:chore"
+  - "status:needs-review"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Maintenance work still needs a falsifiable outcome. Include current-state evidence and an explicit rollback path.
+
+  - type: textarea
+    id: maintenance-driver
+    attributes:
+      label: Maintenance driver
+      description: Explain what requires upkeep and why it is needed now.
+      placeholder: Dependency lifecycle, certificate expiry, runner image, cleanup, tooling drift...
+    validations:
+      required: true
+
+  - type: textarea
+    id: current-state-evidence
+    attributes:
+      label: Current-state evidence
+      description: Provide versions, warnings, advisories, expiry dates, metrics, logs, or inventory output.
+      placeholder: Current version/state, evidence command, source link, and relevant date...
+    validations:
+      required: true
+
+  - type: textarea
+    id: desired-state
+    attributes:
+      label: Desired state
+      description: State the observable operational condition after completion.
+      placeholder: After this task, the repository or service will...
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Identify dependencies, infrastructure, workflows, environments, and files included.
+      placeholder: In scope...
+    validations:
+      required: true
+
+  - type: textarea
+    id: non-goals
+    attributes:
+      label: Non-goals
+      description: Exclude unrelated upgrades, rewrites, and behavior changes.
+      placeholder: This task does not include...
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance criteria
+      description: Define measurable health, compatibility, security, or operability outcomes.
+      placeholder: |
+        - [ ] The inventory reports version/state...
+        - [ ] Existing supported workflows pass...
+        - [ ] No deprecated or expired component remains in scope.
+    validations:
+      required: true
+
+  - type: textarea
+    id: validation-plan
+    attributes:
+      label: Validation plan
+      description: List update checks, tests, scans, smoke checks, monitoring, and observation periods.
+      placeholder: Commands, environments, smoke paths, and post-change monitoring...
+    validations:
+      required: true
+
+  - type: textarea
+    id: risks
+    attributes:
+      label: Risks, dependencies, and rollback
+      description: Identify compatibility risk, downtime, ordering, external dependencies, and exact recovery steps.
+      placeholder: Risk... Dependency... Roll back by...
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: readiness
+    attributes:
+      label: Submission readiness
+      options:
+        - label: I searched for duplicates and linked related upgrade or maintenance work.
+          required: true
+        - label: I recorded current-state evidence and a recovery path.
+          required: true

@@ -1,0 +1,203 @@
+# HARNESS-PROVENANCE: deterministic-quality-harness v1.8 — assets/ci.yml
+#
+# Reference workflow. Every gate below exits non-zero on a real violation; none of them is
+# wrapped in `|| true` or `continue-on-error` (Hard Rule 1), and `tests/test_ci_workflow.py`
+# fails if either ever appears.
+#
+# VERIFICATION ORDER (Hard Rule 13) — declared once, never reordered:
+#   1. review-budget gates (pr-size, branch-name)  cheap, and they gate reviewability, not code
+#   2. format, lint, typecheck                     mechanical, fix before reading anything else
+#   3. tests + coverage                            produces coverage.json, which CRAP consumes
+#   4. layers -> complexity -> CRAP -> DRY         run by scripts/quality_report.py, in that order
+#
+# The four code gates are NOT separate YAML steps on purpose. Their order is load-bearing —
+# architecture work moves code between modules and changes per-function complexity; CRAP prices
+# that complexity against coverage; deduplication then moves code again. Upstream `swarm-forge`
+# fixes CRAP before DRY for exactly this reason. Order that matters belongs in code, where a test
+# pins it, not in YAML where a reviewer can reorder two steps without noticing.
+#
+# Fix everything a gate reports before moving to the next. Same code plus a different fix order
+# must not yield a different final state.
+
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    # Weekly mutation run. Mutation is the only mechanical answer to "do these tests assert
+    # anything", and it is far too slow for every PR — so it runs on a cadence and ratchets.
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Hard Rule 15: the interpreter is part of the gate. A patch bump is a different verdict.
+  PYTHON_VERSION: "3.12.11"
+
+jobs:
+  review-budget:
+    # Hard Rule 15: exact runner label. `ubuntu-latest` silently becomes a different machine.
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: branch name
+        env:
+          BRANCH_NAME: ${{ github.event.pull_request.head.ref }}
+        run: python scripts/check_branch_name.py
+
+      - name: pr size
+        # PR_BODY is attacker-controlled text. It is passed through the environment, never
+        # interpolated into the shell, so a crafted title or body cannot inject a command.
+        env:
+          BASE_REF: origin/${{ github.event.pull_request.base.ref }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: python scripts/check_pr_size.py
+
+  quality:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: record policy time
+        # The orchestrator owns wall-clock access. Gates receive and report this explicit input.
+        run: |
+          POLICY_DATE="$(date -u +%F)"
+          echo "POLICY_DATE=$POLICY_DATE" >> "$GITHUB_ENV"
+          echo "Policy date: \`$POLICY_DATE\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: adoption preflight
+        # A missing lock/config is "did not run", never a clean measurement (Hard Rule 18).
+        run: python scripts/check_adoption.py
+
+      - name: install
+        # Hard Rule 15: the lockfile is the dependency contract. `--require-hashes` makes a
+        # tampered or re-resolved wheel a hard failure instead of a silent substitution.
+        run: |
+          python -m pip install --require-hashes --requirement requirements-dev.lock
+          python -m pip install --no-deps --editable .
+
+      - name: format
+        run: ruff format --check .
+
+      - name: lint
+        # Hard Rule: custom and vendored linters are always invoked from the repository root,
+        # never scoped to a subdirectory that silently hides findings.
+        run: ruff check .
+
+      - name: typecheck
+        run: mypy app/
+
+      - name: tests
+        # coverage.json is an input to the CRAP gate, not a nicety. Without it that gate fails
+        # closed, which is the correct behaviour and a useless CI run — so produce it here.
+        run: pytest --cov --cov-report=json:coverage.json --cov-report=term
+
+      - name: quality gates and indicators
+        # Runs layers -> complexity -> CRAP -> DRY in that fixed order, writes
+        # quality-report.json, and renders the indicator table into the job summary.
+        run: python scripts/quality_report.py --policy-date "$POLICY_DATE"
+
+      - name: publish indicators
+        # `always()` so a failing gate still uploads the numbers that explain the failure.
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: quality-report
+          path: quality-report.json
+          if-no-files-found: error
+
+  mutation:
+    # Scheduled and manual only. THIS IS THE ONE JOB THE SKILL COULD NOT EXECUTE END TO END —
+    # `check_mutation.py` is fully tested against synthetic sessions, but producing a real
+    # session needs the mutation runner on a real codebase. Verify it once on adoption.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: record policy time
+        run: |
+          POLICY_DATE="$(date -u +%F)"
+          echo "POLICY_DATE=$POLICY_DATE" >> "$GITHUB_ENV"
+          echo "Policy date: \`$POLICY_DATE\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: adoption preflight
+        run: python scripts/check_adoption.py
+
+      - name: install
+        run: |
+          python -m pip install --require-hashes --requirement requirements-dev.lock
+          python -m pip install --no-deps --editable .
+
+      - name: run mutants
+        # The runner's own exit code is not the verdict: it reports success for a run in which
+        # nothing executed. check_mutation.py is what decides (Hard Rule 18).
+        run: |
+          cosmic-ray baseline cosmic-ray.toml
+          cosmic-ray init cosmic-ray.toml mutation-session.sqlite
+          cosmic-ray exec cosmic-ray.toml mutation-session.sqlite
+
+      - name: mutation ratchet
+        run: python scripts/check_mutation.py mutation-session.sqlite --policy-date "$POLICY_DATE"
+
+      - name: publish mutation indicators
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mutation-session
+          path: mutation-session.sqlite
+          if-no-files-found: error
+
+  security:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: adoption preflight
+        run: python scripts/check_adoption.py
+
+      - name: dependency scan
+        # Throwaway venv: the runner's ambient site-packages drags in CVEs that are not ours,
+        # which trains everyone to ignore the report.
+        run: |
+          python -m venv .venv-audit
+          .venv-audit/bin/python -m pip install --require-hashes --requirement requirements-dev.lock
+          .venv-audit/bin/python -m pip install --no-deps --editable .
+          .venv-audit/bin/pip-audit --skip-editable
+
+      - name: secret scan
+        # Scanner images are pinned by digest, not tag. Tags mutate; digests do not.
+        run: |
+          GITLEAKS_IMAGE="$(python scripts/check_adoption.py --print-image gitleaks)"
+          docker run --rm -v "$PWD:/repo" -w /repo "$GITLEAKS_IMAGE" \
+            dir . --redact --no-banner --exit-code 1
+
+      - name: dockerfile scan
+        run: |
+          TRIVY_IMAGE="$(python scripts/check_adoption.py --print-image trivy)"
+          docker run --rm -v "$PWD:/repo" -w /repo "$TRIVY_IMAGE" \
+            config /repo/Dockerfile --severity HIGH,CRITICAL --exit-code 1

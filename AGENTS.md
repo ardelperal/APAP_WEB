@@ -120,3 +120,91 @@ Las 33 reglas de AGENTS (numeradas §1-§33) viven ahora en `docs/codebase/`. Es
 | Auditorías | [`docs/audits/`](docs/audits/) | Un documento por slice sensible. |
 | Runbooks | [`docs/runbooks/`](docs/runbooks/) | Procedimientos que exigen acción del operador. |
 | Hardening del arnés de calidad | [`docs/quality/hardening-roadmap.md`](docs/quality/hardening-roadmap.md) | Estado de los gates automáticos. |
+
+<!-- personal-skills:slice:APAP_WEB @ v751645f -->
+# slices/partials/web.md
+
+## Manera de trabajar en proyectos web
+
+> Aplica a todo `primary_type: web` del catálogo. Las invariantes de ciclo de vida de PR aquí enunciadas se complementan con las skills universalmente activas — véase `personal-skills/AGENTS.md` raíz para el sistema de propagación, `propagate-team-skills.ps1` para la mecánica de distribución, y el bloque de partials específicos del consumer para las convenciones del proyecto concreto.
+>
+> Este partial enuncia invariantes. Los procedimientos asociados viven en sus skills respectivas — no se duplican aquí.
+
+### Forma del ciclo
+
+- Toda issue es **atómica**: la cambia una persona, la cierra un PR (o varias si encadenadas vía `chained-pr` cuando la diff supera el presupuesto).
+- Toda issue aprobada tiene una **rama propia** con el nombre `<tipo>/<nº issue>-<kebab-slug>`, validado por `scripts/check_branch_name.py` del consumer o equivalente.
+- Toda rama se desarrolla en un **worktree dedicado** bajo el layout canónico de `worktree-reorg-per-project` v2.0 (sibling-container `<project>-worktrees/<wt-name>/`).
+- Toda PR apunta a la `active_branch` declarada en `fleet/registry.json` para el ciclo activo. Pre-MVP single-branch implica `main` por defecto; el flip a `staging` post-MVP sigue la llave de vocabulario documentada en `intake-roadmap-loop` HR-4/HR-8.
+
+### Presupuesto de revisión
+
+- Toda PR se mantiene bajo el **presupuesto de revisión de 400 líneas** (`additions + deletions`), comprobado por `scripts/check_pr_size.py` o equivalente.
+- 400 líneas es **techo de revisión, no techo de tamaño**: a partir de esa cifra la revisión pasa de atenta a vistazo. La justificación completa vive en el `CONTRIBUTING.md` de cada consumer; este partial la enuncia sin duplicar.
+- La excepción `size:exception` requiere, **obligatoriamente**, en el cuerpo del PR: `size-exception-reason: <por qué>` más un enlace a la evidencia que justifique la superación. La etiqueta `size:exception` queda como mecanismo opcional por consumer (útil para detección CI automática; no es regla invariante).
+- Cuando la diff supera el presupuesto, el orden de escape es: (1) partir por unidad de trabajo, (2) encadenar PRs vía `chained-pr`, (3) `size:exception` como último recurso. Si la excepción se vuelve habitual, el problema está en el troceado del issue, no en el presupuesto.
+
+### Worktree y rama remota
+
+- El **worktree local** se elimina tras el merge, vía `git worktree remove <path>` + `git worktree prune`. Mecánica detallada en `worktree-reorg-per-project` Phase 3.
+- La **rama remota** se conserva tras el merge. Nunca `git push origin --delete <rama>`. La granularidad por unidad de trabajo se preserva precisamente porque las ramas quedan referenciables desde el historial de PRs.
+- La estrategia de merge (`--squash` o `--no-ff`) es decisión del consumer; ambas son válidas. La **invariante** es que la rama remota sobreviva al merge, no la forma concreta del commit en `main`.
+
+### Disciplina de revisión
+
+- El CI debe estar **verde contra la base actual** antes de pedir revisión. Si la rama base avanzó durante la vida del PR, **rebase + rerun del CI** antes de declarar mergeable. El verde contra una base obsoleta es stale-green y corrompe el merge.
+- **Rojo en CI pisa todo el merge.** Regla humana: el revisor no debe pulsar merge con ningún check rojo, ni siquiera si el rojo parece trivial. Complemento técnico: `repository-delivery-governance` HR-7 + `deterministic-quality-harness` HR-1 fail-loud atajan el escenario cuando hay branch protection automatizada.
+- Donde GitHub Team no está disponible, el consumer replica la barrera con un job `merge-ready` signal-only (ver `access2web-blueprint/ci.yml` como referencia portable) que exit-non-zero si `gh pr view mergeable != true` o `reviewDecision != APPROVED`.
+- Cuando el CI rojo es por **infra** (runner colgado, red, secret rotado), abrir issue bloqueante de CI y enlazarla desde el PR; no embutir la fix infra en el PR del feature salvo que sea ≤30 LOC y se cierre en el día.
+
+### Anti-slop y atribución
+
+- Anti-slop y anti-sobreingeniería de IA se delegan a la skill T1 upstream `gentle-ai-ai-slop-discipline` (4 preguntas, 3 firmas, scope boundary guard para subagentes). El partial no redefine las firmas — el consumer que adopte la skill las aplica automáticamente al revisar PRs.
+- **Sin atribución de IA en commits**: no se añade `Co-Authored-By: ... <AI>` ni equivalente. Esta regla vive también en `personal-skills/AGENTS.md` raíz de la flota; el partial la refleja para que sea visible en el slice de web.
+- Mensajes de commit en conventional commits. Castellano peninsular formal (usted) en artefactos documentales raíz; inglés en código, comentarios, mensajes de commit y PR bodies.
+
+### CodeGraph preflight (cuando aplique)
+
+- Si el consumer tiene índice CodeGraph (`.codegraph/` presente), el workflow sigue `engineering-workflow` líneas 64-71: `codegraph init` antes del primer edit, `codegraph_explore` antes de cualquier grep/read/glob amplio. No se reinventa aquí.
+- Si el consumer no soporta CodeGraph, el preflight se omite sin romper invariante — la regla es "usar CodeGraph cuando esté disponible", no "requerir CodeGraph siempre".
+
+### Divergencias documentadas (no son invariantes)
+
+Estas decisiones quedan a la flota / consumer; el partial las registra para que las revisiones no las traten como incumplimientos.
+
+- **Merge strategy.** `--squash` o `--no-ff`, ambos válidos. Invariante compartida: la rama remota se preserva en cualquier caso.
+- **Etiqueta `size:exception`.** Opcional por consumer. Invariante compartida: el `size-exception-reason:` en el cuerpo del PR es obligatorio.
+- **Pre-MVP vs post-MVP base branch.** Mientras no haya flip explícito del usuario con la llave de vocabulario documentada en `intake-roadmap-loop` HR-4/HR-8, todo aterriza en `main`.
+- **Convención multi-app.** Si el consumer migra varias apps, el prefijo de issue/commit es decisión propia; el commit debe identificar el scope de cualquier manera.
+
+### Procedencia (skills que alimentan este partial)
+
+Cada invariante de este partial se ancla a una skill específica del catálogo o upstream. Si la skill referenciada cambia su HR, este partial requiere reauditoría.
+
+- Issue-first atómica → `intake-roadmap-loop` HR-1, HR-14; upstream `engineering-workflow` Step 2.
+- Rama `<tipo>/<nº>-<slug>` → `repository-delivery-governance` HR-4 (documentado/CI-enforced).
+- Un worktree por issue → `worktree-reorg-per-project` v2.0 (layout + Phase 3 cleanup).
+- Base pre-MVP = main → upstream `engineering-workflow` líneas 46-51; flip post-MVP vía `intake-roadmap-loop` HR-4/HR-8.
+- 400 líneas + `size:exception` → `deterministic-quality-harness` Decision Gate línea 56; upstream `chained-pr` HR-1 línea 16.
+- Rojo en CI pisa todo → `repository-delivery-governance` HR-7; upstream `engineering-workflow` línea 79.
+- Rama remota preservada, WT local delete post-merge → `worktree-reorg-per-project` Phase 3.
+- Anti-slop → upstream `gentle-ai-ai-slop-discipline` (T1 universal).
+- CodeGraph preflight → upstream `engineering-workflow` líneas 64-71; `codegraph-usage` HR-1, HR-2.
+- Conventional commits + castellano peninsular en artefactos + sin atribución IA → `personal-skills/AGENTS.md` raíz de flota.
+
+### Cómo auditar este partial usted mismo
+
+Procedimiento de validación periódica (mensual o por release de skill fuente):
+
+- Confirmar que las HRs citadas en §Procedencia siguen existiendo con la misma numeración y redacción en el cuerpo actual de cada skill. Si una skill referenciada cambia su HR, este partial requiere reauditoría.
+- Confirmar que no se haya añadido regla con cuerpo procedural en este partial — los procedimientos viven en skills, no aquí.
+- Confirmar que la sección §Divergencias documentadas sigue reflejando las variantes reales de los consumers actuales.
+
+### Antipatrones
+
+- "Esperar a que CI esté verde para mergear" sin rebasear contra la base actual — el verde contra base obsoleta es stale-green.
+- "Borrar la rama remota post-merge porque ya está mergeada" — destruye la granularidad por unidad de trabajo que el flujo pretende crear.
+- "PR con 600 líneas porque el feature lo requiere" — partir primero, encadenar después; `size:exception` es el último recurso, no la primera opción.
+- "Mergear con CI rojo aunque el rojo parezca trivial" — la trivialidad la decide el revisor, no el autor.
+- "Esperar a que el reviewer apruebe manualmente aunque todos los checks estén verdes" en proyectos con auto-merge standing explícito — revisar la sección de revocación de `merge-workflow.md §15.6` antes de saltarse el gate.
+<!-- /personal-skills:slice:APAP_WEB -->

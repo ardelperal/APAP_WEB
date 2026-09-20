@@ -1,0 +1,105 @@
+name: Refactor
+description: Propose an internal structural change with preserved behavior and measurable quality gains.
+title: "[Refactor]: "
+labels:
+  - "type:refactor"
+  - "status:needs-review"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A refactor changes internal structure without intentionally changing external behavior. Use another issue type if behavior must change.
+
+  - type: textarea
+    id: target
+    attributes:
+      label: Refactor target
+      description: Identify the code, module, boundary, workflow, or dependency structure to change.
+      placeholder: Paths, symbols, ownership boundary, or dependency edge...
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem-evidence
+    attributes:
+      label: Structural problem and evidence
+      description: Demonstrate coupling, duplication, complexity, instability, performance overhead, or maintenance cost.
+      placeholder: Metrics, dependency graph, repeated defects, profiling, or concrete examples...
+    validations:
+      required: true
+
+  - type: textarea
+    id: preserved-behavior
+    attributes:
+      label: Behavior to preserve
+      description: List public contracts, side effects, compatibility guarantees, and data semantics that must not change.
+      placeholder: APIs, events, files, queries, UI behavior, performance floor...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-structure
+    attributes:
+      label: Proposed structure
+      description: Describe the intended dependency direction and ownership boundaries without over-specifying incidental edits.
+      placeholder: Move responsibility from... to... so that...
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Identify the symbols, paths, tests, migrations, and consumers included.
+      placeholder: In scope...
+    validations:
+      required: true
+
+  - type: textarea
+    id: non-goals
+    attributes:
+      label: Non-goals
+      description: Exclude feature changes, unrelated cleanup, and speculative abstractions.
+      placeholder: This refactor does not include...
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance criteria
+      description: Define measurable structural improvement and explicit behavior-preservation conditions.
+      placeholder: |
+        - [ ] Existing contract tests pass unchanged.
+        - [ ] The measured dependency or complexity condition changes from... to...
+        - [ ] No new public API is introduced.
+    validations:
+      required: true
+
+  - type: textarea
+    id: validation-plan
+    attributes:
+      label: Validation plan
+      description: List characterization, contract, integration, performance, migration, and static-analysis checks.
+      placeholder: Baseline evidence, commands before and after, and comparison method...
+    validations:
+      required: true
+
+  - type: textarea
+    id: risks
+    attributes:
+      label: Risks, dependencies, and rollback
+      description: Identify hidden consumers, ordering, data compatibility, rollout constraints, and recovery steps.
+      placeholder: Risk... Depends on... Roll back by...
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: readiness
+    attributes:
+      label: Submission readiness
+      options:
+        - label: I searched for duplicates and linked related architecture decisions.
+          required: true
+        - label: I identified the behavior that must remain unchanged.
+          required: true

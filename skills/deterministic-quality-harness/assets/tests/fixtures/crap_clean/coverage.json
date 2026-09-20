@@ -1,0 +1,18 @@
+{
+  "files": {
+    "app/lanzadera/application/service.py": {
+      "executed_lines": [
+        2,
+        5,
+        6,
+        7,
+        8
+      ],
+      "missing_lines": [],
+      "summary": {
+        "num_statements": 5,
+        "percent_covered": 100.0
+      }
+    }
+  }
+}

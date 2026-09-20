@@ -1,0 +1,18 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "agent": {
+    "gentle-orchestrator": {
+      "model": "old/orchestrator",
+      "permission": {
+        "task": {
+          "*": "deny",
+          "general": "allow",
+          "sdd-apply": "allow",
+          "explore": "allow"
+        }
+      }
+    },
+    "general": { "model": "old/general", "variant": "low" },
+    "sdd-apply": { "model": "old/m" }
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dystelefonica.example/schemas/ai-model-profile-v1.json",
+  "title": "AI model profile",
+  "type": "object",
+  "required": ["schemaVersion", "name", "models"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": "ai-model-profile/v1" },
+    "name": { "type": "string", "minLength": 1 },
+    "models": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "type": "string", "minLength": 3 }
+    },
+    "pi": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "providerMap": { "type": "object", "additionalProperties": { "type": "string" } }
+      }
+    },
+    "codex": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "strong": { "$ref": "#/$defs/codexTier" },
+        "mid": { "$ref": "#/$defs/codexTier" },
+        "cheap": { "$ref": "#/$defs/codexTier" }
+      }
+    }
+  },
+  "$defs": {
+    "codexTier": {
+      "type": "object",
+      "required": ["model", "reasoningEffort"],
+      "additionalProperties": false,
+      "properties": {
+        "model": { "type": "string", "minLength": 1 },
+        "reasoningEffort": { "enum": ["low", "medium", "high", "xhigh"] }
+      }
+    }
+  }
+}

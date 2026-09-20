@@ -1,0 +1,4 @@
+{
+  "gitleaks": "zricethezav/gitleaks:v8.30.1",
+  "trivy": "aquasec/trivy:0.73.0"
+}

@@ -1,0 +1,9 @@
+{
+    "_comment": "PLACEHOLDER — never commit a real authfile. Generate the real one locally on the target environment with: podman login --authfile resources/quay_auth.json <registry-host>. The real file is ignored by .gitignore.",
+    "auths": {
+        "quay.apps.<cluster>.<domain>:443": {
+            "auth": "<base64(username:password)>",
+            "email": ""
+        }
+    }
+}

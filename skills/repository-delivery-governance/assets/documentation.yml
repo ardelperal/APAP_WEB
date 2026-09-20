@@ -1,0 +1,105 @@
+name: Documentation change
+description: Specify a documentation gap with authoritative sources and verifiable reader outcomes.
+title: "[Documentation]: "
+labels:
+  - "type:docs"
+  - "status:needs-review"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Documentation must reflect authoritative behavior. Link the code, configuration, policy, or product state that proves the requested change.
+
+  - type: textarea
+    id: documentation-location
+    attributes:
+      label: Documentation location
+      description: Link or name every page, section, example, or generated surface involved.
+      placeholder: path/to/document.md, heading, published URL, or UI surface...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reader-problem
+    attributes:
+      label: Reader problem
+      description: Identify the intended reader, their task, and how the current content misleads or blocks them.
+      placeholder: A reader trying to... currently...
+    validations:
+      required: true
+
+  - type: textarea
+    id: source-evidence
+    attributes:
+      label: Authoritative source and evidence
+      description: Link the current code, API, configuration, decision, or policy that the documentation must represent.
+      placeholder: Source paths or links, actual behavior, version, and supporting evidence...
+    validations:
+      required: true
+
+  - type: textarea
+    id: requested-change
+    attributes:
+      label: Requested change
+      description: Describe the correction or new guidance and the reader outcome it must enable.
+      placeholder: Update... so that readers can...
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: List all affected pages, examples, diagrams, translations, and generated copies.
+      placeholder: In scope...
+    validations:
+      required: true
+
+  - type: textarea
+    id: non-goals
+    attributes:
+      label: Non-goals
+      description: List related product, API, or editorial changes not included.
+      placeholder: This issue does not change...
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance criteria
+      description: State measurable conditions for accuracy, findability, completeness, and example validity.
+      placeholder: |
+        - [ ] Every changed claim links to or matches an authoritative source.
+        - [ ] Commands and examples execute against the documented version.
+        - [ ] Navigation reaches the content from...
+    validations:
+      required: true
+
+  - type: textarea
+    id: validation-plan
+    attributes:
+      label: Validation plan
+      description: List link, spelling, rendering, generation, command, and reader-path checks.
+      placeholder: Documentation build, link checker, example commands, and manual review...
+    validations:
+      required: true
+
+  - type: textarea
+    id: risks
+    attributes:
+      label: Risks and dependencies
+      description: Identify version skew, localization, generated-content, release-timing, or policy dependencies.
+      placeholder: Risk of stale guidance... Depends on...
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: readiness
+    attributes:
+      label: Submission readiness
+      options:
+        - label: I searched for duplicate reports and linked related documentation issues.
+          required: true
+        - label: I identified an authoritative source rather than relying on memory.
+          required: true

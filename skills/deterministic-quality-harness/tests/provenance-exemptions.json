@@ -1,0 +1,8 @@
+{
+  "assets/quality-policy.json": "Strict JSON policy consumed by the harness; comments or metadata fields would change the governed schema.",
+  "assets/security-images.lock.json": "Strict scanner lock schema; provenance metadata is not part of the consumer contract.",
+  "assets/security-images.sources.json": "Strict scanner source schema; provenance metadata is not part of the consumer contract.",
+  "assets/tests/fixtures/crap_clean/coverage.json": "Coverage.py fixture payload; extra provenance keys would no longer represent native coverage output.",
+  "assets/tests/fixtures/crap_violation/coverage.json": "Coverage.py fixture payload; extra provenance keys would no longer represent native coverage output.",
+  "assets/tests/fixtures/empty_subjects/app/.gitkeep": "Empty sentinel required to retain the fixture directory."
+}
