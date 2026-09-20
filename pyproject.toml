@@ -234,6 +234,7 @@ line-length = 100
 target-version = "py311"
 extend-exclude = [
     ".git",
+    "skills/",  # catalog-distributed content; not project code
     ".venv",
     "venv",
     "build",
