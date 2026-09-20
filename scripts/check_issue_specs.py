@@ -279,7 +279,11 @@ def validate_pr_event(event: Mapping[str, Any], client: GitHubClient) -> list[st
     """Validate every issue that a human PR declares it will close."""
     pull_request = event.get("pull_request") or {}
     actor = (pull_request.get("user") or {}).get("login", "")
-    if actor in AUTOMATED_ACTORS:
+    head_ref = (pull_request.get("head") or {}).get("ref", "")
+    # Automated actors and catalog propagation branches do not follow the
+    # issue-first contract: the traceability lives in the catalog
+    # (DysTelefonica/team-skills), not in the consumer repo.
+    if actor in AUTOMATED_ACTORS or head_ref.startswith("skill-fleet/"):
         return []
     repository = (event.get("repository") or {}).get("full_name", "")
     if not repository or "/" not in repository:

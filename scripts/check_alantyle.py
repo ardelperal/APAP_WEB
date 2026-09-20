@@ -141,7 +141,8 @@ _QUALITY_STATUS_WHITELIST = frozenset(
         "CI", "CLOSED", "CODEBASE", "CODEOWNERS", "CONTRIBUTING", "CRAP",
         "CRITICAL", "DAG", "DDD", "DELETED", "DENY", "DEVELOPER", "DI",
         "DIP", "DISABLED", "DOC", "DOCS", "DONE", "DORMANT", "DRAFT",
-        "ENABLED", "FAIL", "FIXED", "GREEN", "GUIDE", "HIGH", "IMPLEMENTED",
+        "ENABLED", "FAIL", "FIXED", "GREEN", "GUIDE", "HIGH", "HR",
+        "IMPLEMENTED",
         "INCOMPETENT", "ISP", "KILLED", "KPI", "LOW", "MEDIUM", "MERGED",
         "MVC", "MVP", "OPEN", "OPENSPEC", "PASS", "PENDING", "POC", "PR",
         "PROBLEMS", "PROVISIONAL", "QA", "RAG", "RDD", "READER", "README",
@@ -149,6 +150,7 @@ _QUALITY_STATUS_WHITELIST = frozenset(
         "SKILL", "SKIPPED", "SLA", "SLI", "SLO", "SOA", "SOC", "SOLID",
         "SOX", "STACK", "SUGGESTION", "SUPERSEDED", "TDD", "TOC", "TOCTOU",
         "TRACKED", "UAT", "UI", "UPDATED", "UX", "WARN", "WARNING", "WIP",
+        "WT",
         "XX", "XXX",
     }
 )

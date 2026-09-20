@@ -22,6 +22,11 @@ _PATTERN = re.compile(
 _DEPENDABOT_PATTERN = re.compile(
     r"^dependabot/(?:pip|npm_and_yarn|github_actions)/[A-Za-z0-9._/-]+$"
 )
+# Catalog propagation branches created by propagate-team-skills.ps1 on the
+# team-skills (personal-skills) catalog. The slug is the consumer's
+# canonical_name, not a `<type>/<issue>-<slug>` pair, so the convention
+# pattern does not apply.
+_SKILL_FLEET_PATTERN = re.compile(r"^skill-fleet/[A-Za-z0-9._-]+$")
 MAX_ARG_COUNT = 2
 
 
@@ -29,6 +34,8 @@ def check(head_ref: str, actor: str = "") -> tuple[list[str], list[str]]:
     """Return (violations, notices) for the given head ref name."""
     if actor == "dependabot[bot]" and _DEPENDABOT_PATTERN.fullmatch(head_ref):
         return [], [f"{head_ref}: trusted Dependabot branch"]
+    if _SKILL_FLEET_PATTERN.fullmatch(head_ref):
+        return [], [f"{head_ref}: catalog propagation branch (skill-fleet/*)"]
     if head_ref in ALLOWLIST:
         return [], [f"{head_ref}: grandfathered via ALLOWLIST"]
     if _PATTERN.match(head_ref):
