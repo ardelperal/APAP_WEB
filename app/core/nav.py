@@ -19,9 +19,9 @@ from __future__ import annotations
 # Each tuple is ``(href, label)``. Ordered by ``len(href)`` DESCENDING
 # so ``is_active`` picks the longest matching prefix.
 NAV_ITEMS: tuple[tuple[str, str], ...] = (
-    ("/entradas/batch/new", "Entradas en lote"),
-    ("/casas-acogida", "Casas de acogida"),
-    ("/acogidas", "Estancias de acogida"),
+    ("/entradas/batch/new", "Lote"),
+    ("/casas-acogida", "Casas"),
+    ("/acogidas", "Estancias"),
     ("/adopciones", "Adopciones"),
     ("/animales", "Animales"),
     ("/entradas", "Entradas"),
