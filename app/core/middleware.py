@@ -67,6 +67,17 @@ PUBLIC_PATHS: frozenset[str] = frozenset(
         "/login",
         "/auth/google",
         "/auth/callback",
+        # Magic-link login (M3.4, issue #651): the start endpoint mints
+        # a token before any session exists (the user has not logged in
+        # yet) and the verify endpoint consumes the token to mint one.
+        # The auth gate must NOT redirect these to /login before the
+        # route runs, otherwise the magic-link flow can never start.
+        # The routes themselves are conditional on
+        # ``Settings.auth_enable_magic_link``; in production (the
+        # default enabled state) the routes are registered, and these
+        # entries are required for them to be reachable at all.
+        "/auth/magic/start",
+        "/auth/magic/verify",
         "/logout",
         # Issue #598: the E2E OAuth mock mints a session for tests;
         # the auth gate must NOT redirect the request to /login before
