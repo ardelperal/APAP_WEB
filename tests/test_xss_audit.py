@@ -1633,6 +1633,8 @@ def test_no_user_data_in_url_attributes() -> None:
             ("base.html", "item.icon"),
             ("base_mobile.html", "item.href"),
             ("base.html", "item.href"),
+            ("base_mobile.html", "item.title"),
+            ("base.html", "item.title"),
         }
     )
     offenders: list[str] = []
