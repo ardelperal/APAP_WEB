@@ -1,6 +1,5 @@
 {
-  "catalog_head": "751645f",
-  "generated_at": "2026-09-20T20:08:26Z",
+  "catalog_head": "f0e46d3",
   "skills": [
     "access-vba-capability-docs",
     "access-vba-e2e-methodology",
@@ -20,6 +19,7 @@
     "estado-planificacion-update",
     "feature-acceptance-uat",
     "fleet-registry-curator",
+    "gentle-stack-a-main",
     "intake-roadmap-loop",
     "maintainer-prompt-drafter",
     "natalia-tone",
@@ -37,7 +37,6 @@
     "vba-extract-candidates",
     "vba-form-repair",
     "vba-handler-backtrace",
-    "vba-lanzadera-backend-config",
     "vba-query-decoupler",
     "vba-run-tests",
     "vba-source-impact",
