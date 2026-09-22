@@ -166,6 +166,16 @@ def current_path_context_processor(request: Request) -> dict[str, object]:
     no por ``request``, así que el gate ``role``/``user.role`` queda
     inline en el bucle de cada template, igual que hoy para ``/admin``.
 
+    Issue #868 (PR 2, rail de escritorio): también expone
+    ``nav_entries`` — la registro agrupada (``NavItem`` | ``NavGroup``)
+    sin filtrar, igual que ``nav_items`` — y ``nav_open_group_labels``,
+    el conjunto de labels de grupo que contienen la página activa. El
+    cálculo de grupo-abierto vive en Python
+    (:func:`_nav_open_group_labels`), no en Jinja: así es testeable por
+    unit y el template sólo consulta pertenencia de conjunto.
+    ``nav_items`` se sigue exponiendo sin cambios: lo consume
+    ``base_mobile.html`` (el rail móvil es el siguiente PR del issue).
+
     Devuelve:
     - ``current_path``: ``request.url.path`` (sin query string), útil para
       comparaciones item-por-item.
@@ -175,17 +185,60 @@ def current_path_context_processor(request: Request) -> dict[str, object]:
       ``aria-current="page"`` y la clase ``is-active``.
     - ``nav_items``: la tupla completa ``NAV_ITEMS`` (sin filtrar), en
       orden de render. Los templates filtran ``item.role`` inline.
+    - ``nav_entries``: la registro agrupada ``NAV_ENTRIES`` (sin
+      filtrar), en orden de render de rail. Los templates filtran
+      ``item.role`` inline, igual que con ``nav_items``.
+    - ``nav_open_group_labels``: ``frozenset`` de labels de
+      ``NavGroup`` cuyo ``children`` contiene ``nav_active_href``. Un
+      grupo que contiene la página activa se renderiza expandido para
+      que el item activo nunca quede oculto tras un control cerrado.
 
     La ruta puede incluir query string; ``request.url.path`` lo excluye.
     """
-    # lazy-import: evita ciclo con ``app.core.nav`` (sólo se necesita
-    # cuando hay un TemplateResponse en vuelo).
-    from app.core.nav import NAV_ITEMS, resolve_active_nav_href  # lazy-import: see above
+    # lazy-import: evita ciclo con ``app.core.nav``; sólo se necesita cuando hay un TemplateResponse en vuelo.
+    from app.core.nav import NAV_ENTRIES, NAV_ITEMS, resolve_active_nav_href
+
+    active_href = resolve_active_nav_href(request.url.path)
     return {
         "current_path": request.url.path,
-        "nav_active_href": resolve_active_nav_href(request.url.path),
+        "nav_active_href": active_href,
         "nav_items": NAV_ITEMS,
+        "nav_entries": NAV_ENTRIES,
+        "nav_open_group_labels": _nav_open_group_labels(active_href),
     }
+
+
+def _nav_open_group_labels(active_href: str) -> frozenset[str]:
+    """Return the labels of the nav groups that contain ``active_href`` (#868).
+
+    El rail de escritorio renderiza cada ``NavGroup`` como control de
+    disclosure; un grupo que contiene la página activa debe renderizar
+    expandido para que el item activo sea visible sin un click previo.
+    La pertenencia se calcula contra el href activo ya resuelto
+    (longest-prefix con frontera de slash, ``app.core.nav``), así que
+    la regla completa es: el grupo está abierto si y sólo si el href
+    activo es uno de sus ``children`` exactos.
+
+    Vive en Python (y no como comparación Jinja) para que el cálculo
+    sea testeable por unit sin renderizar template.
+
+    Args:
+        active_href: href activo ya resuelto por
+            ``app.core.nav.resolve_active_nav_href`` (``""`` si no hay
+            match; ningún grupo abre con ``""``).
+
+    Returns:
+        ``frozenset`` de labels de grupo abiertos. Los labels son la
+        identidad del grupo en la registro (los dos actuales,
+        ``"Entradas"`` y ``"Acogida"``, son únicos).
+    """
+    # lazy-import: evita ciclo con ``app.core.nav``; sólo se necesita cuando hay un TemplateResponse en vuelo.
+    from app.core.nav import NAV_ENTRIES, NavGroup, nav_group_hrefs
+    return frozenset(
+        entry.label
+        for entry in NAV_ENTRIES
+        if isinstance(entry, NavGroup) and active_href in nav_group_hrefs(entry)
+    )
 
 
 class UADetectionMiddleware(BaseHTTPMiddleware):
