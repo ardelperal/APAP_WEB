@@ -63,7 +63,10 @@
    pair are applied to each header nav ``<a>`` so the active section
    stands out without a flash of unstyled state. The underline uses
    the primary brand colour; the resting state continues to inherit
-   Tailwind utilities from the inline class string. */
+   Tailwind utilities from the inline class string.
+
+   Kept for ``base_mobile.html``, which still renders its nav with the
+   flat ``nav_items`` loop until the mobile rail PR of #868. */
 @layer components {
     .nav-link {
         @apply inline-flex items-center text-text-muted;
@@ -76,5 +79,37 @@
     }
     .nav-link.is-active:hover {
         @apply text-primary-dark;
+    }
+}
+
+/* Component layer (issue #868, PR 2 — desktop rail). The rail entry
+   classes are applied to the grouped nav rendered by ``base.html``:
+   ``.rail-item`` is a top-level entry (a plain link or a group's
+   disclosure ``<button>``), ``.rail-child`` a nested link inside a
+   group's ``<ul>``, ``.rail-children`` the group container itself.
+   Active state is a filled pill in the EXISTING ``--color-primary-dark``
+   token — no new design token — driven by the ``aria-current="page"``
+   attribute so the treatment is identical at any depth. The
+   ``aria-current`` rules come AFTER the ``:hover`` rules on purpose:
+   equal specificity, later declaration wins, so an active item keeps
+   its pill on hover instead of flashing the hover background. */
+@layer components {
+    .rail-item {
+        @apply flex w-full items-center gap-3.5 rounded-lg px-3 py-2.5 text-left font-nav text-base text-text transition-colors hover:bg-bg;
+    }
+    .rail-item:hover {
+        @apply text-text;
+    }
+    .rail-item[aria-current="page"] {
+        @apply bg-primary-dark text-white;
+    }
+    .rail-child {
+        @apply flex w-full items-center rounded-lg px-3 py-2 font-nav text-[15px] text-text-muted transition-colors hover:bg-bg hover:text-text;
+    }
+    .rail-child[aria-current="page"] {
+        @apply bg-primary-dark text-white;
+    }
+    .rail-children {
+        @apply m-0 list-none py-1 pl-10;
     }
 }
