@@ -39,6 +39,10 @@
     <link rel="stylesheet" href="/static/css/output.css" />
   </head>
   <body class="min-h-screen bg-bg text-text font-sans antialiased flex flex-col">
+    {# Inlined lucide sprite for the nav icons (issue #808). Rendered
+       once per page, right after <body>, so ``<use href="#nav-icon-*">``
+       resolves in every browser without a same-origin fetch. #}
+    {% include "_lucide_nav_sprite.html" %}
     {# Skip link (issue #812, WCAG 2.4.1 Bypass Blocks). First focusable
        element on every page; visually hidden until focused, then snaps to
        the top-left above the sticky header. The target ``<main id="main"
@@ -94,27 +98,29 @@
           aria-label="Menú principal"
           class="hidden md:flex flex-col md:flex-row md:items-center gap-0 md:gap-1 text-sm absolute md:static left-0 right-0 top-full md:top-auto bg-surface md:bg-transparent border-b md:border-0 border-border shadow-card md:shadow-none z-40"
         >
-          {# Nav items (issue #805). Each link declares
-             ``aria-current="page"`` + class ``is-active`` when its
-             href is the longest matching prefix of the current path
-             (see ``app/core/nav.py::resolve_active_nav_href``).
+          {# Nav items (issue #805, loop since #808). Rendered from
+             ``NAV_ITEMS`` via the ``nav_items`` context variable; each
+             anchor declares ``aria-current="page"`` + class ``is-active``
+             when its href is the longest matching prefix of the current
+             path (see ``app/core/nav.py::resolve_active_nav_href``), and
+             renders its lucide icon from the inlined sprite with
+             ``aria-hidden="true"`` so screen readers announce only the
+             label. The role gate keeps the previous template-side filter
+             (``user.role`` arrives per render, not via ``request``).
              The shared base classes (``px-4 py-2.5 md:px-3 md:py-2
              text-text-muted hover:text-primary hover:bg-primary/5
              transition-colors``) carry the resting state; the
              ``is-active`` modifier (added in ``tailwindcss/styles/app.css``
              via ``@layer components`` below) flips the colour and adds
              an underline. #}
-          <a href="/animales" {% if nav_active_href == "/animales" %}aria-current="page" class="nav-link is-active px-4 py-2.5 md:px-3 md:py-2{% else %}class="nav-link px-4 py-2.5 md:px-3 md:py-2 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors{% endif %}">Animales</a>
-          <a href="/entradas" {% if nav_active_href == "/entradas" %}aria-current="page" class="nav-link is-active px-4 py-2.5 md:px-3 md:py-2{% else %}class="nav-link px-4 py-2.5 md:px-3 md:py-2 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors{% endif %}">Entradas</a>
-          <a href="/entradas/batch/new" title="Entradas en lote" {% if nav_active_href == "/entradas/batch/new" %}aria-current="page" class="nav-link is-active px-4 py-2.5 md:px-3 md:py-2{% else %}class="nav-link px-4 py-2.5 md:px-3 md:py-2 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors{% endif %}">Lote</a>
-          <a href="/casas-acogida" title="Casas de acogida" {% if nav_active_href == "/casas-acogida" %}aria-current="page" class="nav-link is-active px-4 py-2.5 md:px-3 md:py-2{% else %}class="nav-link px-4 py-2.5 md:px-3 md:py-2 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors{% endif %}">Casas</a>
-          <a href="/acogidas" title="Estancias de acogida" {% if nav_active_href == "/acogidas" %}aria-current="page" class="nav-link is-active px-4 py-2.5 md:px-3 md:py-2{% else %}class="nav-link px-4 py-2.5 md:px-3 md:py-2 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors{% endif %}">Estancias</a>
-          <a href="/adopciones" {% if nav_active_href == "/adopciones" %}aria-current="page" class="nav-link is-active px-4 py-2.5 md:px-3 md:py-2{% else %}class="nav-link px-4 py-2.5 md:px-3 md:py-2 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors{% endif %}">Adopciones</a>
-          <a href="/sanidad" {% if nav_active_href == "/sanidad" %}aria-current="page" class="nav-link is-active px-4 py-2.5 md:px-3 md:py-2{% else %}class="nav-link px-4 py-2.5 md:px-3 md:py-2 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors{% endif %}">Actuaciones</a>
-          <a href="/voluntarios" {% if nav_active_href == "/voluntarios" %}aria-current="page" class="nav-link is-active px-4 py-2.5 md:px-3 md:py-2{% else %}class="nav-link px-4 py-2.5 md:px-3 md:py-2 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors{% endif %}">Voluntarios</a>
-          {% if user is defined and user and user.role == "developer" %}
-            <a href="/admin" {% if nav_active_href == "/admin" %}aria-current="page" class="nav-link is-active px-4 py-2.5 md:px-3 md:py-2{% else %}class="nav-link px-4 py-2.5 md:px-3 md:py-2 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors{% endif %}">Admin</a>
-          {% endif %}
+          {% for item in nav_items %}
+            {% if not item.role or (user is defined and user and user.role == item.role) %}
+              <a href="{{ item.href }}"{% if item.title %} title="{{ item.title }}"{% endif %} {% if nav_active_href == item.href %}aria-current="page" class="nav-link is-active inline-flex items-center gap-1.5 px-4 py-2.5 md:px-3 md:py-2{% else %}class="nav-link inline-flex items-center gap-1.5 px-4 py-2.5 md:px-3 md:py-2 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors{% endif %}">
+                <svg class="nav-icon shrink-0" width="16" height="16" aria-hidden="true"><use href="#nav-icon-{{ item.icon }}" /></svg>
+                <span>{{ item.label }}</span>
+              </a>
+            {% endif %}
+          {% endfor %}
           {# User block (issue #819). Lives inside ``<nav>`` so it is part
              of the same disclosure as the nav links: on desktop it
              appears inline with the nav (right side, separated by a

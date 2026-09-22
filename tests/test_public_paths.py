@@ -6,9 +6,10 @@ shape of ``PUBLIC_PATHS`` itself.
 
 Spec scenarios pinned:
 
-- ``PUBLIC_PATHS`` matches verified app behavior — exactly five
+- ``PUBLIC_PATHS`` matches verified app behavior — exactly eight
   entries (``/healthz``, ``/login``, ``/auth/google``,
-  ``/auth/callback``, ``/logout``).
+  ``/auth/callback``, ``/auth/magic/start``, ``/auth/magic/verify``,
+  ``/logout``, ``/e2e/login``).
 - Every PII-displaying route returns 302 to ``/login`` without a
   session.
 - No PII route is in ``PUBLIC_PATHS`` (defense-in-depth — a
@@ -43,6 +44,12 @@ EXPECTED_PUBLIC_PATHS: frozenset[str] = frozenset(
         "/login",
         "/auth/google",
         "/auth/callback",
+        # Issue #651 (M3.4 magic-link wiring): the token carried in
+        # the email link is the authorization, not the session cookie,
+        # so these endpoints must be reachable without a session.
+        # See app.core.middleware.PUBLIC_PATHS for the rationale.
+        "/auth/magic/start",
+        "/auth/magic/verify",
         "/logout",
         # Issue #598: the E2E OAuth mock mints a session for tests.
         # See app.core.middleware.PUBLIC_PATHS for the rationale.
@@ -66,12 +73,12 @@ PII_ROUTES_PARAMETRIZE: tuple[str, ...] = (
 # --- shape invariants ----------------------------------------------------
 
 
-def test_public_paths_has_exactly_five_entries() -> None:
+def test_public_paths_has_exactly_eight_entries() -> None:
     """``PUBLIC_PATHS`` matches the verified canonical set.
 
     Spec scenario: ``PUBLIC_PATHS matches verified app behavior``.
     The atom asserts the on-disk ``PUBLIC_PATHS`` frozenset equals
-    exactly the five entries the spec pins. A refactor that adds
+    exactly the eight entries the spec pins. A refactor that adds
     or removes an entry fails the atom immediately.
     """
     assert PUBLIC_PATHS == EXPECTED_PUBLIC_PATHS, (
@@ -79,9 +86,11 @@ def test_public_paths_has_exactly_five_entries() -> None:
         f"got {sorted(PUBLIC_PATHS)!r}, expected {sorted(EXPECTED_PUBLIC_PATHS)!r}. "
         f"Update this atom AND the spec doc together — they MUST agree."
     )
-    assert len(PUBLIC_PATHS) == 6, (
-        f"PUBLIC_PATHS must have exactly 6 entries (5 verified on 2026-07-11 "
-        f"+ /e2e/login added with the OAuth mock, issue #598); "
+    assert len(PUBLIC_PATHS) == 8, (
+        f"PUBLIC_PATHS must have exactly 8 entries (6 verified on 2026-07-11 "
+        f"+ /e2e/login added with the OAuth mock, issue #598, "
+        f"+ /auth/magic/{{start,verify}} added for the M3.4 magic-link wiring, "
+        f"issue #651); "
         f"got {len(PUBLIC_PATHS)}"
     )
 

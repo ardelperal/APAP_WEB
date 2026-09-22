@@ -7,7 +7,7 @@ Acceptance criteria from #805:
 - Visual treatment uses primary brand colour (``text-primary``,
   ``border-b-2 border-primary``).
 - Longest-prefix match: ``/entradas/batch/new`` activates the
-  "Entradas en lote" link, not "Entradas".
+  "Lote" link, not "Entradas".
 - The active treatment is applied on first render (no flash of
   unstyled active state).
 - axe-core / Lighthouse ``aria-current`` audit reports zero violations.
@@ -41,9 +41,13 @@ AUTH_ROUTES = (
 EXPECTED_ACTIVE_LABEL = {
     "/animales": "Animales",
     "/entradas": "Entradas",
-    "/entradas/batch/new": "Entradas en lote",
-    "/casas-acogida": "Casas de acogida",
-    "/acogidas": "Estancias de acogida",
+    # Issue #806 renamed the long labels so they fit on one line; the
+    # long form now lives in the ``title=`` attribute (see
+    # ``tests/test_nav_labels_sync.py`` for the CI-enforced pin
+    # between these labels and ``app/core/nav.py::NAV_ITEMS``).
+    "/entradas/batch/new": "Lote",
+    "/casas-acogida": "Casas",
+    "/acogidas": "Estancias",
     "/adopciones": "Adopciones",
     "/sanidad": "Actuaciones",
     "/voluntarios": "Voluntarios",
@@ -111,14 +115,14 @@ def test_active_item_matches_path_on_authenticated_routes(
 
 
 def test_longest_prefix_match_for_batch_new(page: Page, base_url: str) -> None:
-    """``/entradas/batch/new`` activates "Entradas en lote", not "Entradas"."""
+    """``/entradas/batch/new`` activates "Lote", not "Entradas"."""
     _preflight_login_available(page, base_url)
     if _skip_if_redirected(page, base_url, "/entradas/batch/new"):
         return
 
     active = _active_label(page)
-    assert active == "Entradas en lote", (
-        f"/entradas/batch/new should activate 'Entradas en lote' (longest prefix match), got {active!r}"
+    assert active == "Lote", (
+        f"/entradas/batch/new should activate 'Lote' (longest prefix match), got {active!r}"
     )
 
 

@@ -61,6 +61,24 @@ _FORM_CONTENT_TYPES: tuple[str, ...] = (
 )
 
 
+# CSRF-exempt routes (issue #651, magic-link wiring): the magic-link
+# login flow accepts POSTs without a session CSRF token because the
+# user has not authenticated yet. The token in the email link IS the
+# authorization for the verify endpoint. Mirrors the auth-layer
+# PUBLIC_PATHS whitelist (PR #855).
+#
+# Module-private (leading underscore) on purpose: the set is an
+# implementation detail of ``CsrfMiddleware.dispatch`` and not part
+# of the module's public API. Tests inspect it via ``app.core.csrf``
+# import path; external consumers do not.
+_CSRF_EXEMPT_PATHS: frozenset[str] = frozenset(
+    {
+        "/auth/magic/start",
+        "/auth/magic/verify",
+    }
+)
+
+
 def generate_csrf_token() -> str:
     """Return a fresh CSRF token (>= 256 bits of entropy).
 
@@ -140,10 +158,20 @@ class CsrfMiddleware(BaseHTTPMiddleware):
         request: Request,
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
-        if request.method in SAFE_METHODS:
-            # GET/HEAD/OPTIONS still benefit from ``request.state.csrf_token``
-            # being populated so templates that render forms with
-            # ``{{ csrf_token }}`` work even on safe methods.
+        # CSRF-exempt routes (issue #651): the magic-link login flow
+        # accepts POSTs without a session CSRF token because the user
+        # has not authenticated yet. The token in the email link IS
+        # the authorization for verify. Mirrors the auth-layer
+        # PUBLIC_PATHS whitelist (PR #855). The decision is extracted
+        # to ``_is_exempt_request`` so the dispatch CRAP does not
+        # grow with the new branch (single boolean check at the call
+        # site; the OR lives in the helper where it is fully covered
+        # by ``tests/test_csrf.py``).
+        if self._is_exempt_request(request):
+            # GET/HEAD/OPTIONS + CSRF-exempt paths still benefit
+            # from ``request.state.csrf_token`` being populated so
+            # templates that render forms with ``{{ csrf_token }}``
+            # work even on safe methods.
             self._populate_csrf_state(request)
             return await call_next(request)
 
@@ -201,6 +229,29 @@ class CsrfMiddleware(BaseHTTPMiddleware):
             )
 
         return await call_next(request)
+
+    @staticmethod
+    def _is_exempt_request(request: Request) -> bool:
+        """Return ``True`` if the request bypasses the CSRF check.
+
+        Two exemption paths:
+
+        1. Safe methods per RFC 7231 (``GET`` / ``HEAD`` / ``OPTIONS``).
+           These cannot mutate server state, so CSRF is meaningless.
+        2. CSRF-exempt paths listed in ``_CSRF_EXEMPT_PATHS``
+           (issue #651 / magic-link login). The user has not
+           authenticated yet; the magic-link token carried in the
+           email link IS the authorization for ``/auth/magic/verify``.
+
+        Extracted from ``dispatch`` to keep the dispatch method's
+        cyclomatic complexity flat — the helper carries the OR
+        branch and is fully covered by ``tests/test_csrf.py`` (one
+        atom per exemption branch).
+        """
+        return (
+            request.method in SAFE_METHODS
+            or request.url.path in _CSRF_EXEMPT_PATHS
+        )
 
     @staticmethod
     def _populate_csrf_state(request: Request) -> None:

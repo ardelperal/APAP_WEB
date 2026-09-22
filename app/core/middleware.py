@@ -67,6 +67,17 @@ PUBLIC_PATHS: frozenset[str] = frozenset(
         "/login",
         "/auth/google",
         "/auth/callback",
+        # Magic-link login (M3.4, issue #651): the start endpoint mints
+        # a token before any session exists (the user has not logged in
+        # yet) and the verify endpoint consumes the token to mint one.
+        # The auth gate must NOT redirect these to /login before the
+        # route runs, otherwise the magic-link flow can never start.
+        # The routes themselves are conditional on
+        # ``Settings.auth_enable_magic_link``; in production (the
+        # default enabled state) the routes are registered, and these
+        # entries are required for them to be reachable at all.
+        "/auth/magic/start",
+        "/auth/magic/verify",
         "/logout",
         # Issue #598: the E2E OAuth mock mints a session for tests;
         # the auth gate must NOT redirect the request to /login before
@@ -137,15 +148,23 @@ def base_template_context_processor(request: Request) -> dict[str, str]:
     return {"base_template": _select_base_template(request)}
 
 
-def current_path_context_processor(request: Request) -> dict[str, str]:
+def current_path_context_processor(request: Request) -> dict[str, object]:
     """Jinja context processor: expone ``current_path`` y ``nav_active_href``.
 
     Issue #805 (Phase B.3): el nav del header marca el item activo vía
     ``aria-current="page"`` + clase CSS ``is-active``. Para evitar pasar
     ``request.path`` manualmente desde cada ``TemplateResponse(...)``,
-    se expone aquí como variable de contexto Jinja. Las 9 instancias
+    se expone aquí como variable de contexto Jinja. Las 16 instancias
     de ``Jinja2Templates`` en ``app/main.py`` y los routers de módulos
     lo agregan a su lista ``context_processors``.
+
+    Issue #808: también expone ``nav_items`` — la tupla completa de
+    ``NavItem`` de ``app/core/nav.py`` — para que ambos base templates
+    la recorran con un único bucle Jinja en lugar de anclas copiadas a
+    mano. El processor NO filtra por rol: el usuario llega al template
+    por render (``context={"user": ...}`` en cada ``TemplateResponse``),
+    no por ``request``, así que el gate ``role``/``user.role`` queda
+    inline en el bucle de cada template, igual que hoy para ``/admin``.
 
     Devuelve:
     - ``current_path``: ``request.url.path`` (sin query string), útil para
@@ -154,15 +173,18 @@ def current_path_context_processor(request: Request) -> dict[str, str]:
       prefijo del path actual. ``""`` si ninguno matches. Los templates
       usan ``{% if href == nav_active_href %}`` para aplicar
       ``aria-current="page"`` y la clase ``is-active``.
+    - ``nav_items``: la tupla completa ``NAV_ITEMS`` (sin filtrar), en
+      orden de render. Los templates filtran ``item.role`` inline.
 
     La ruta puede incluir query string; ``request.url.path`` lo excluye.
     """
     # lazy-import: evita ciclo con ``app.core.nav`` (sólo se necesita
     # cuando hay un TemplateResponse en vuelo).
-    from app.core.nav import resolve_active_nav_href  # lazy-import: see comment above
+    from app.core.nav import NAV_ITEMS, resolve_active_nav_href  # lazy-import: see above
     return {
         "current_path": request.url.path,
         "nav_active_href": resolve_active_nav_href(request.url.path),
+        "nav_items": NAV_ITEMS,
     }
 
 

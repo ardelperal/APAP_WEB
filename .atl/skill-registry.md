@@ -129,3 +129,7 @@ Last updated: 2026-09-19
 2. Pass only the matching `Path` values to the subagent under `## Skills to load before work`.
 3. Instruct the subagent to read those exact `SKILL.md` files before reading, writing, reviewing, testing, or creating artifacts.
 4. If no matching skill exists, proceed without project skill injection and report `skill_resolution: none`.
+
+
+
+

@@ -51,7 +51,17 @@ def _enumerate_non_safe_routes() -> list[tuple[str, str]]:
     tested — the public-path check is auth-layer, and the CSRF layer
     is only active on POSTs; even if the auth layer redirects, the
     CSRF layer runs FIRST on POSTs.
+
+    CSRF-exempt paths (``_CSRF_EXEMPT_PATHS`` in ``app/core/csrf.py``)
+    are skipped: the magic-link login flow is reachable without a
+    session CSRF token because the user has not authenticated yet.
+    The token in the email link IS the authorization for verify.
+    See issue #651 and PR #855 for the auth-layer rationale; the
+    mirror at the CSRF layer is the OR-check in
+    ``CsrfMiddleware.dispatch``.
     """
+    from app.core.csrf import _CSRF_EXEMPT_PATHS
+
     safe = {"GET", "HEAD", "OPTIONS"}
     results: list[tuple[str, str]] = []
 
@@ -72,6 +82,12 @@ def _enumerate_non_safe_routes() -> list[tuple[str, str]]:
             if not path or not methods:
                 continue
             full_path = prefix + path
+            if full_path in _CSRF_EXEMPT_PATHS:
+                # CSRF-exempt (issue #651); the route is protected
+                # by its own authorization primitive (the magic-link
+                # token), not by the session CSRF token. See
+                # ``tests/test_csrf.py`` for the exemption contract.
+                continue
             for method in methods:
                 if method.upper() not in safe and method.upper() != "TRACE":
                     results.append((method.upper(), full_path))
