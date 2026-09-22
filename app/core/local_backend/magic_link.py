@@ -56,21 +56,33 @@ def _build_session_payload(email: str) -> dict[str, object]:
     """Project the verified email to the session payload shape.
 
     Matches the contract :mod:`app.core.auth_flow` writes from the
-    OAuth callback. ``is_authorized`` is read live from the DB on
-    each request via :func:`app.core.auth_dependencies.require_authorized_user`
-    so we deliberately do NOT carry it in the cookie; the DB
-    revalidation is the source of truth (issue #143).
+    OAuth callback. The magic-link flow IS the authorization: the
+    user clicked a single-use, 30-minute-TTL token in their inbox,
+    which is at least as strong as the OAuth callback's
+    ``is_authorized=True`` flag (the OAuth callback also has no
+    password check — it trusts the Google account). The DB revalidation
+    in :func:`app.core.auth_dependencies.require_authorized_user` still
+    runs on every subsequent request via the auth_users table; if the
+    user has been deactivated since the link was minted, the next
+    request gets ``/unauthorized``. Carrying ``is_authorized=True``
+    here just unblocks the first request after the redirect (issue #651).
     """
-    return {"email": email}
+    return {"email": email, "is_authorized": True}
 
 
 def _set_apap_session_cookie(response: Response, email: str, secret: str) -> None:
     """Sign the session payload and attach the ``apap_session`` cookie.
 
     Flags match :func:`app.core.session.clear_session_cookie_params`
-    (``httponly=True``, ``secure=True``, ``samesite="strict"``) so
-    the cookie cannot be read from JS and the strict SameSite blocks
-    cross-site POSTs (CSRF defense-in-depth, §10 / PR-5B).
+    (``httponly=True``, ``secure=True``) so the cookie cannot be read
+    from JS. ``samesite="lax"`` (not strict) is required here because
+    the user arrives at ``/auth/magic/verify`` from a cross-site
+    context (their email client); strict would silently drop the cookie
+    on that top-level redirect and the user would land on ``/login``
+    despite the token being valid. The CSRF defense-in-depth is
+    preserved by :class:`CsrfMiddleware` which validates the CSRF token
+    on every non-safe request; the auth layer also enforces session
+    presence for protected routes.
     """
     response.set_cookie(
         key="apap_session",
@@ -79,7 +91,7 @@ def _set_apap_session_cookie(response: Response, email: str, secret: str) -> Non
         path="/",
         httponly=True,
         secure=True,
-        samesite="strict",
+        samesite="lax",
     )
 
 

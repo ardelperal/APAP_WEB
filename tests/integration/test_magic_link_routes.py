@@ -220,7 +220,10 @@ async def test_magic_verify_consumes_token_and_sets_session_cookie(
     assert "apap_session=" in set_cookie
     assert "HttpOnly" in set_cookie
     assert "Secure" in set_cookie
-    assert "SameSite=strict" in set_cookie
+    # ``SameSite=lax`` is required so cross-site top-level redirects
+    # from the email client (Gmail) carry the cookie. Strict was
+    # blocking the magic-link flow end-to-end (issue #651, PR #860).
+    assert "SameSite=lax" in set_cookie
 
     # Decode the cookie payload via the public session helper.
     cookie_value = next(
@@ -234,6 +237,11 @@ async def test_magic_verify_consumes_token_and_sets_session_cookie(
     )
     assert payload is not None
     assert payload["email"] == "ana@test.com"
+    # ``is_authorized=True`` must be in the cookie payload so the
+    # auth layer's ``require_authorized_user`` accepts the first
+    # request after the redirect without a DB round-trip. The DB
+    # revalidation still runs on subsequent requests.
+    assert payload.get("is_authorized") is True
 
 
 @pytest.mark.integration
