@@ -76,29 +76,40 @@ NAV_ITEMS: tuple[NavItem, ...] = (
 )
 
 
-def resolve_active_nav_href(current_path: str) -> str:
-    """Return the longest ``NAV_ITEMS`` href that is a prefix of ``current_path``.
+def _href_matches(href: str, current_path: str) -> bool:
+    """Return whether ``href`` is an active-state match for ``current_path``.
 
-    Match rules (matching the issue #805 test plan), independent of the
-    order of ``NAV_ITEMS`` (issue #808):
+    Match rules (matching the issue #805 test plan):
     - ``current_path == href`` → exact match wins.
     - ``current_path.startswith(href + "/")`` → prefix match. The trailing
       slash prevents ``/entradas`` from matching ``/entradasbatch`` or
       any other path that merely starts with the same string.
-    - The home ``"/"`` does NOT match arbitrary paths (otherwise every
+    - The home ``"/"`` does not match arbitrary paths (otherwise every
       page would render the home as active); it only matches ``"/"`` exactly.
 
-    When several hrefs match (e.g. ``/entradas`` and
-    ``/entradas/batch/new``), the longest one wins via ``max(key=len)``,
-    so ``/entradas/batch/new`` is highlighted on its own page. When two
-    candidates tie on length the earlier one in ``NAV_ITEMS`` wins
-    (stable ``max``), which cannot happen today because hrefs are unique.
+    Extracted as a helper so ``resolve_active_nav_href`` stays a flat
+    three-line reduction (kept under the CRAP ratchet baseline of 13.00
+    by the issue #808 refactor).
+    """
+    if current_path == href:
+        return True
+    if href == "/":
+        return False
+    return current_path.startswith(href + "/")
+
+
+def resolve_active_nav_href(current_path: str) -> str:
+    """Return the longest ``NAV_ITEMS`` href that is a prefix of ``current_path``.
+
+    Independent of the order of ``NAV_ITEMS`` (issue #808): when several
+    hrefs match (e.g. ``/entradas`` and ``/entradas/batch/new``), the
+    longest one wins via ``max(key=len)``, so ``/entradas/batch/new``
+    is highlighted on its own page.
     """
     candidates = [
         item.href
         for item in NAV_ITEMS
-        if current_path == item.href
-        or (item.href != "/" and current_path.startswith(item.href + "/"))
+        if _href_matches(item.href, current_path)
     ]
     return max(candidates, key=len) if candidates else ""
 
