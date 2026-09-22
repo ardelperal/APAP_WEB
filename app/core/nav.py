@@ -183,35 +183,52 @@ def nav_items_for_role(role: str) -> tuple[NavItem, ...]:
     context processor cannot know the per-render user; this helper is
     the programmatic counterpart for tests and future callers.
     """
-    return tuple(item for item in NAV_ITEMS if not item.role or item.role == role)
+    return tuple(item for item in NAV_ITEMS if _role_visible(item, role))
+
+
+def _role_visible(item: NavItem, role: str) -> bool:
+    """Return whether ``item`` renders for ``role`` (empty role = everyone).
+
+    Extracted so :func:`nav_items_for_role` and :func:`nav_entries_for_role`
+    apply exactly the same per-item rule instead of restating it, and so each
+    of them stays a flat reduction under the CRAP ratchet baseline
+    (``scripts/check_crap.py`` requires grade A, CRAP < 6, for new code).
+    """
+    return not item.role or item.role == role
+
+
+def _group_for_role(group: NavGroup, role: str) -> NavGroup | None:
+    """Return ``group`` rebuilt with its role-visible children, or ``None``.
+
+    ``None`` means every child was role-gated away, so the group itself
+    disappears from the rail. A group is always rebuilt rather than mutated:
+    :class:`NavGroup` is frozen, and the registry originals must survive a
+    filtered read unchanged.
+    """
+    surviving = tuple(child for child in group.children if _role_visible(child, role))
+    if not surviving:
+        return None
+    return NavGroup(label=group.label, icon=group.icon, children=surviving)
 
 
 def nav_entries_for_role(role: str) -> tuple[NavItem | NavGroup, ...]:
     """Return the grouped nav entries visible to ``role`` (#868).
 
-    Mirrors :func:`nav_items_for_role` over the grouped registry:
-    a top-level :class:`NavItem` renders if it has no ``role`` or its
-    role matches exactly (``NavGroup`` itself has no ``role``), and a
-    :class:`NavGroup` renders only if at least one child survives that
-    same per-item filter — in that case a NEW group is returned
-    holding just the surviving children, and a group whose children
-    are all role-gated away is dropped entirely.
+    Mirrors :func:`nav_items_for_role` over the grouped registry: a top-level
+    :class:`NavItem` renders if it is role-visible (``NavGroup`` itself has no
+    ``role``), and a :class:`NavGroup` renders only if at least one child is —
+    in that case a NEW group is returned holding just the surviving children,
+    and a group whose children are all role-gated away is dropped entirely.
     """
-    filtered: list[NavItem | NavGroup] = []
+    visible: list[NavItem | NavGroup] = []
     for entry in NAV_ENTRIES:
         if isinstance(entry, NavGroup):
-            surviving = tuple(
-                child
-                for child in entry.children
-                if not child.role or child.role == role
-            )
-            if surviving:
-                filtered.append(
-                    NavGroup(label=entry.label, icon=entry.icon, children=surviving)
-                )
-        elif not entry.role or entry.role == role:
-            filtered.append(entry)
-    return tuple(filtered)
+            group = _group_for_role(entry, role)
+            if group is not None:
+                visible.append(group)
+        elif _role_visible(entry, role):
+            visible.append(entry)
+    return tuple(visible)
 
 
 def nav_group_hrefs(group: NavGroup) -> tuple[str, ...]:
