@@ -74,6 +74,16 @@ def _enumerate_non_safe_routes() -> list[tuple[str, str]]:
             full_path = prefix + path
             for method in methods:
                 if method.upper() not in safe and method.upper() != "TRACE":
+                    # CSRF-exempt routes (issue #651): the magic-link login
+                    # flow accepts POSTs without a session CSRF token
+                    # because the user has not authenticated yet. See
+                    # ``app.core.csrf.CSRF_EXEMPT_PATHS`` for the rationale.
+                    # Mirrors the auth-layer PUBLIC_PATHS whitelist.
+                    if (method.upper(), full_path) in {
+                        ("POST", "/auth/magic/start"),
+                        ("GET", "/auth/magic/verify"),
+                    }:
+                        continue
                     results.append((method.upper(), full_path))
 
     _walk(app.routes)

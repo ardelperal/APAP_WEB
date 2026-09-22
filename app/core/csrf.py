@@ -60,6 +60,33 @@ _FORM_CONTENT_TYPES: tuple[str, ...] = (
     "multipart/form-data",
 )
 
+# Magic-link login flow (M3.4, issue #651, PR #855 / #854 follow-up).
+#
+# The ``/auth/magic/start`` and ``/auth/magic/verify`` endpoints are the
+# passwordless email-link login: the user is NOT authenticated when the
+# flow begins, so there is no session cookie carrying a CSRF token.
+# The authorization in this flow is the **token in the email link** —
+# the URL the user receives is the credential, not the session.
+#
+# The auth layer already whitelists both paths in
+# ``app.core.middleware.PUBLIC_PATHS`` (PR #854 / commit ``5e95853``) so
+# the session gate does not 302 an unauthenticated caller to ``/login``.
+# The CSRF layer MUST apply the same exception: validating a CSRF token
+# that does not exist yet would deadlock the magic-link flow with a
+# 403 the user has no way to resolve. The exemption is bounded to these
+# two exact paths — no prefix matching — so the rest of the
+# defense-in-depth surface (same-site cookies, signed sessions,
+# ``hmac.compare_digest``) stays intact for every other state-changing
+# route. The constant is module-public so the dedicated exemption atom
+# (see ``tests/test_csrf.py``) can pin the canonical surface alongside
+# ``test_public_paths``' pin of ``PUBLIC_PATHS``.
+CSRF_EXEMPT_PATHS: frozenset[str] = frozenset(
+    {
+        "/auth/magic/start",
+        "/auth/magic/verify",
+    }
+)
+
 
 def generate_csrf_token() -> str:
     """Return a fresh CSRF token (>= 256 bits of entropy).
@@ -144,6 +171,18 @@ class CsrfMiddleware(BaseHTTPMiddleware):
             # GET/HEAD/OPTIONS still benefit from ``request.state.csrf_token``
             # being populated so templates that render forms with
             # ``{{ csrf_token }}`` work even on safe methods.
+            self._populate_csrf_state(request)
+            return await call_next(request)
+
+        # Magic-link login flow (M3.4, issue #651): the token in the
+        # email link IS the authorization, so the request cannot carry a
+        # CSRF token (no session yet). The auth layer whitelists these
+        # two paths in PUBLIC_PATHS (PR #854) and the CSRF layer must
+        # mirror that exception. The check still populates
+        # ``request.state.csrf_token`` so any downstream route that
+        # inspects it (e.g. templates rendered after the handler) sees
+        # the populated state rather than an empty string.
+        if request.url.path in CSRF_EXEMPT_PATHS:
             self._populate_csrf_state(request)
             return await call_next(request)
 
