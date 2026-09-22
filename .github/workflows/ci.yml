@@ -25,8 +25,42 @@ permissions:
   issues: read
 
 jobs:
+  pr-size:
+    name: pr-size
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - name: Set up exact Python runtime
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12.11"
+      - name: Compute diff against merge-base
+        id: diff
+        run: |
+          set -euo pipefail
+          base_ref="${{ github.event.pull_request.base.ref }}"
+          if [ -z "$base_ref" ]; then
+            base_ref="${{ github.ref }}"
+          fi
+          git fetch --no-tags --depth=1 origin "$base_ref"
+          merge_base_sha="$(git merge-base HEAD "origin/$base_ref")"
+          total="$(git diff --shortstat "$merge_base_sha" | tr -cd 0-9)"
+          echo "total=${total:-0}" >> "$GITHUB_OUTPUT"
+      - name: Enforce the 400-line review budget
+        env:
+          TOTAL: ${{ steps.diff.outputs.total }}
+          HAS_EXCEPTION: ${{ contains(github.event.pull_request.labels.*.name, 'size:exception') }}
+        run: python scripts/check_pr_size.py "$TOTAL" "$HAS_EXCEPTION"
+
   issue-spec:
     name: issue-spec
+    needs: pr-size
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -48,6 +82,7 @@ jobs:
 
   lint:
     name: lint
+    needs: pr-size
     # PR code is untrusted. Hosted isolation keeps it away from the production
     # Docker socket and deployment credentials.
     runs-on: ubuntu-24.04
@@ -293,7 +328,7 @@ jobs:
     # Hosted Docker is disposable; no production daemon is exposed to PR code.
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    needs: lint
+    needs: [pr-size, lint]
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -405,6 +440,7 @@ jobs:
 
   security-deep:
     name: security-deep
+    needs: pr-size
     # Issue #381. The heavy half: pulls base images and a vulnerability
     # database, so it does NOT run per pull request. Triggers are any tag
     # push (releases) and manual dispatch.
@@ -489,6 +525,7 @@ jobs:
 
   mutation:
     name: mutation
+    needs: pr-size
     # Issue #431. Mutation testing is a trend instrument, not a per-PR check:
     # the pilot module alone is 233 mutants. Same split rationale as
     # `security-deep` above — release and manual only, never on a pull
@@ -681,6 +718,7 @@ jobs:
 
   typecheck:
     name: typecheck
+    needs: pr-size
     # See lint job for the runs-on rationale.
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -706,7 +744,7 @@ jobs:
     # into another run.
     runs-on: ubuntu-24.04
     timeout-minutes: 20
-    needs: lint
+    needs: [pr-size, lint]
     services:
       postgres:
         image: postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
@@ -810,7 +848,7 @@ jobs:
     name: integration
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    needs: lint
+    needs: [pr-size, lint]
     # Issue #329: integration tests execute every exported query function
     # from app/modules/*/queries.py against a real Postgres engine.
     # The job MUST NOT silently skip when the DSN is absent (the fixture
@@ -900,7 +938,7 @@ jobs:
     # path exercises against).
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    needs: [integration]
+    needs: [pr-size, integration]
     services:
       postgres:
         image: postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
@@ -955,7 +993,7 @@ jobs:
     name: build
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    needs: [test, integration, verify-fallback-ready]
+    needs: [pr-size, test, integration, verify-fallback-ready]
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -1092,6 +1130,7 @@ jobs:
     timeout-minutes: 5
     if: always()
     needs:
+      - pr-size
       - issue-spec
       - lint
       - security
