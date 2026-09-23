@@ -42,16 +42,36 @@ jobs:
           python-version: "3.12.11"
       - name: Compute diff against merge-base
         id: diff
+        # Issue #878: two coupled computation defects made this step
+        # unusable — a two-dot diff against $merge_base_sha counted every
+        # commit main advanced while the PR was behind as the PR's own
+        # change, parsed with `tr -cd 0-9` (concatenates every digit in the
+        # shortstat instead of summing insertions + deletions), plus a
+        # --depth=1 fetch that marks the whole repo shallow and can starve
+        # merge-base on a chained PR (issue #525, already fixed below the
+        # way pr-size.yml fixes it). Only pull_request events carry a base
+        # ref; push (staging/tags) and workflow_dispatch have nothing to
+        # diff against, so they report 0 and the budget check passes
+        # trivially, same as before this fix.
         run: |
           set -euo pipefail
           base_ref="${{ github.event.pull_request.base.ref }}"
           if [ -z "$base_ref" ]; then
-            base_ref="${{ github.ref }}"
+            echo "total=0" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
-          git fetch --no-tags --depth=1 origin "$base_ref"
-          merge_base_sha="$(git merge-base HEAD "origin/$base_ref")"
-          total="$(git diff --shortstat "$merge_base_sha" | tr -cd 0-9)"
-          echo "total=${total:-0}" >> "$GITHUB_OUTPUT"
+          git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
+          merge_base_sha="$(git merge-base "origin/$base_ref" HEAD)"
+          if [ -z "$merge_base_sha" ]; then
+            echo "::error::merge-base origin/$base_ref HEAD produced no SHA."
+            exit 1
+          fi
+          diff_paths=(. ':(exclude)**/package-lock.json' ':(exclude)uv.lock')
+          added="$(git diff --shortstat "$merge_base_sha"...HEAD -- "${diff_paths[@]}" | awk '{print $4}')"
+          deleted="$(git diff --shortstat "$merge_base_sha"...HEAD -- "${diff_paths[@]}" | awk '{print $6}')"
+          added="${added:-0}"
+          deleted="${deleted:-0}"
+          echo "total=$((added + deleted))" >> "$GITHUB_OUTPUT"
       - name: Enforce the 400-line review budget
         env:
           TOTAL: ${{ steps.diff.outputs.total }}
