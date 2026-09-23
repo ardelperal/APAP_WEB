@@ -385,3 +385,48 @@ def test_nav_group_hrefs_returns_children_hrefs_in_order() -> None:
         "/adopciones",
         "/sanidad",
     )
+
+
+# --- Open-group calculation (issue #868, consumed by the desktop rail) -------
+
+
+def test_open_group_labels_open_only_the_group_holding_the_active_page() -> None:
+    """A path inside a group opens exactly that group and nothing else."""
+    from app.core.middleware import _nav_open_group_labels
+
+    assert _nav_open_group_labels("/acogidas") == frozenset({"Acogida"})
+
+
+def test_open_group_labels_longest_prefix_opens_its_own_group() -> None:
+    """A nested page opens its own group (longest-prefix active href).
+
+    ``/entradas/batch/new`` resolves to the ``/entradas/batch/new``
+    child (longest prefix), which lives inside the Entradas group — so
+    Entradas opens, not Acogida.
+    """
+    from app.core.middleware import _nav_open_group_labels
+
+    assert _nav_open_group_labels("/entradas/batch/new") == frozenset({"Entradas"})
+
+
+def test_open_group_labels_top_level_path_opens_no_group() -> None:
+    """A top-level active page (e.g. /animales) opens no group."""
+    from app.core.middleware import _nav_open_group_labels
+
+    assert _nav_open_group_labels("/animales") == frozenset()
+
+
+def test_open_group_labels_empty_href_opens_no_group() -> None:
+    """No active page (``""`` from ``resolve_active_nav_href``) opens no group."""
+    from app.core.middleware import _nav_open_group_labels
+
+    assert _nav_open_group_labels("") == frozenset()
+
+
+def test_open_group_labels_covers_both_real_groups_and_public_paths() -> None:
+    """Both registry groups open for paths inside them; /login opens none."""
+    from app.core.middleware import _nav_open_group_labels
+
+    assert _nav_open_group_labels("/entradas") == frozenset({"Entradas"})
+    assert _nav_open_group_labels("/casas-acogida") == frozenset({"Acogida"})
+    assert _nav_open_group_labels("/login") == frozenset()
