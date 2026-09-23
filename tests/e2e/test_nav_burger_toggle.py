@@ -1,5 +1,12 @@
 """E2E: hamburger toggle behaviour (issue #820, second half of #804).
 
+Re-expressed for #868 (PR 2): ``#nav-main`` is now the desktop sidebar
+rail instead of the header nav row, but the toggle contract is
+layout-agnostic and unchanged — the burger button
+(``#nav-burger-toggle``) and the rail container (``#nav-main``) keep
+their ids and semantics, and the rail stays visible at ``md`` and above
+regardless of the ``hidden`` attribute (``hidden md:flex``).
+
 Acceptance criteria from #820:
 - Click on the burger button toggles ``aria-expanded`` and shows/hides
   ``<nav id="nav-main">``.
