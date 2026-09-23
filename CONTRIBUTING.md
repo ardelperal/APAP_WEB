@@ -135,8 +135,9 @@ No añada `Co-Authored-By` ni atribución de IA. Los mensajes viven en inglés; 
 Un PR se considera mergeable cuando cumple todos los checks bloqueantes. La integración queda en `AGENTS.md` §15.
 
 El cuerpo usa `Closes #N`, `Fixes #N` o `Resolves #N` y declara los comandos
-ejecutados con su resultado real. Indique también cualquier skip, fallo conocido
-o validación no aplicable.
+ejecutados con su resultado real en la sección «Comandos ejecutados» de la
+plantilla de PR. Indique también cualquier skip, fallo conocido o validación
+no aplicable.
 
 | Check | Estado | Comando local |
 |---|---|---|
