@@ -48,6 +48,7 @@ o para `workflow_dispatch` (issue #780).
 
 | Job | Responsabilidad |
 |---|---|
+| `pr-size` | Presupuesto de 400 líneas por PR (AGENTS.md §15.1); primer job, el resto depende de él vía `needs`. |
 | `lint` | Ruff, reglas APAP, límites de arquitectura y ratchets. |
 | `issue-spec` | Issue vinculada, aprobada y con las seis secciones obligatorias. |
 | `security` | Auditoría de dependencias, secretos y Dockerfile. |
