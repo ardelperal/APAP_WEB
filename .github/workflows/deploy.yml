@@ -19,6 +19,12 @@ jobs:
     name: evidence
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    # Issue #879: only checks out the repo and reads the Actions API
+    # (GET .../actions/workflows/ci.yml/runs) — it never pushes an image,
+    # unlike the workflow-level default this job used to inherit.
+    permissions:
+      contents: read
+      actions: read
     outputs:
       verified: ${{ steps.check.outputs.verified }}
       source: ${{ steps.check.outputs.source }}

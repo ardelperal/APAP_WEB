@@ -84,6 +84,11 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    # Issue #879: the only job that calls the GitHub API for issue data,
+    # so it is the only one that keeps `issues: read`.
+    permissions:
+      contents: read
+      issues: read
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -107,6 +112,9 @@ jobs:
     # Docker socket and deployment credentials.
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    # Issue #879: does not read issues, unlike the workflow-level default.
+    permissions:
+      contents: read
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -349,6 +357,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     needs: [pr-size, lint]
+    # Issue #879: does not read issues.
+    permissions:
+      contents: read
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -475,6 +486,9 @@ jobs:
       startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    # Issue #879: does not read issues.
+    permissions:
+      contents: read
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -574,6 +588,9 @@ jobs:
     # ~5 modules) per mutant; bump again if a future target set pushes
     # the wall-clock higher.
     timeout-minutes: 360
+    # Issue #879: does not read issues.
+    permissions:
+      contents: read
     env:
       # TASK-2.1 (W-5) determinism mitigation. The companion `--worker-count=1`
       # from that task does NOT exist in cosmic-ray 8.4.6: `cosmic-ray exec`
@@ -742,6 +759,9 @@ jobs:
     # See lint job for the runs-on rationale.
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    # Issue #879: does not read issues.
+    permissions:
+      contents: read
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -765,6 +785,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     needs: [pr-size, lint]
+    # Issue #879: does not read issues.
+    permissions:
+      contents: read
     services:
       postgres:
         image: postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
@@ -869,6 +892,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     needs: [pr-size, lint]
+    # Issue #879: does not read issues.
+    permissions:
+      contents: read
     # Issue #329: integration tests execute every exported query function
     # from app/modules/*/queries.py against a real Postgres engine.
     # The job MUST NOT silently skip when the DSN is absent (the fixture
@@ -959,6 +985,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     needs: [pr-size, integration]
+    # Issue #879: does not read issues.
+    permissions:
+      contents: read
     services:
       postgres:
         image: postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
@@ -1014,6 +1043,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     needs: [pr-size, test, integration, verify-fallback-ready]
+    # Issue #879: does not read issues.
+    permissions:
+      contents: read
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -1029,6 +1061,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     needs: build
+    # Issue #879: does not read issues.
+    permissions:
+      contents: read
     # E2E suite requires Postgres + MinIO + Chromium; the Docker
     # pull for those services flakes intermittently on the hosted
     # runner. Run only on release events (workflow_dispatch / tag
@@ -1149,6 +1184,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     if: always()
+    # Issue #879: does not read issues.
+    permissions:
+      contents: read
     needs:
       - pr-size
       - issue-spec
