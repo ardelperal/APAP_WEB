@@ -23,7 +23,16 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from app.core.nav import NAV_ITEMS, NavItem, nav_items_for_role, resolve_active_nav_href
+from app.core.nav import (
+    NAV_ENTRIES,
+    NAV_ITEMS,
+    NavGroup,
+    NavItem,
+    nav_entries_for_role,
+    nav_group_hrefs,
+    nav_items_for_role,
+    resolve_active_nav_href,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SPRITE = REPO_ROOT / "app" / "templates" / "_lucide_nav_sprite.html"
@@ -170,3 +179,209 @@ def test_nav_anchors_render_aria_hidden_icons() -> None:
         assert svg_tag is not None, "nav svg must carry the nav-icon class"
         assert 'width="16"' in svg_tag.group(0)
         assert 'height="16"' in svg_tag.group(0)
+
+
+# --- Grouped registry (#868) -------------------------------------------------
+
+
+def test_nav_items_flatten_preserves_exact_order() -> None:
+    """``NAV_ITEMS`` flattens ``NAV_ENTRIES`` into the exact 9-href order.
+
+    Compared against an explicit expected list so a future reordering
+    of either the groups or the flat registry fails loudly: every
+    consumer of the flat view (active-href resolution, sprite parity,
+    the XSS URL-attribute allowlist) depends on this sequence.
+    """
+    expected = [
+        "/animales",
+        "/entradas",
+        "/entradas/batch/new",
+        "/casas-acogida",
+        "/acogidas",
+        "/adopciones",
+        "/sanidad",
+        "/voluntarios",
+        "/admin",
+    ]
+    assert [item.href for item in NAV_ITEMS] == expected
+
+
+def test_nav_items_flatten_preserves_item_values() -> None:
+    """Each flattened ``NavItem`` IS the grouped registry's item.
+
+    Flattening must contribute the original objects (same href, label,
+    icon, title, role), not rebuilt copies that could drift.
+    """
+    flattened = {item.href: item for item in NAV_ITEMS}
+    for entry in NAV_ENTRIES:
+        children = entry.children if isinstance(entry, NavGroup) else (entry,)
+        for child in children:
+            assert flattened[child.href] is child
+
+
+def test_nav_entries_shape() -> None:
+    """``NAV_ENTRIES`` has 5 top-level entries, exactly 2 of them groups."""
+    assert len(NAV_ENTRIES) == 5
+    groups = [entry for entry in NAV_ENTRIES if isinstance(entry, NavGroup)]
+    assert len(groups) == 2
+    assert [group.label for group in groups] == ["Entradas", "Acogida"]
+    assert [group.icon for group in groups] == ["package-plus", "home"]
+    assert [len(group.children) for group in groups] == [2, 4]
+
+
+def test_nav_entries_for_role_anonymous() -> None:
+    """Anonymous keeps Animales, Entradas, Acogida and Voluntarios; drops Admin."""
+    entries = nav_entries_for_role("")
+    labels = [entry.label for entry in entries]
+    assert labels == ["Animales", "Entradas", "Acogida", "Voluntarios"]
+    # Both groups survive and keep ALL their children.
+    entradas = entries[1]
+    acogida = entries[2]
+    assert isinstance(entradas, NavGroup)
+    assert isinstance(acogida, NavGroup)
+    assert [c.href for c in entradas.children] == ["/entradas", "/entradas/batch/new"]
+    assert [c.href for c in acogida.children] == [
+        "/casas-acogida",
+        "/acogidas",
+        "/adopciones",
+        "/sanidad",
+    ]
+
+
+def test_nav_entries_for_role_developer_drops_nothing() -> None:
+    """For ``developer``, NO entry is dropped: identity, labels and order.
+
+    The developer role gates nothing, so the filtered output must equal
+    the registry itself — same 5 entries, same order, same labels. This
+    pins the "no entry survives/drops differently per role" contract;
+    the anonymous counterpart covers the filtering path.
+    """
+    entries = nav_entries_for_role("developer")
+    labels = [entry.label for entry in entries]
+    assert labels == ["Animales", "Entradas", "Acogida", "Voluntarios", "Admin"]
+
+
+def test_nav_entries_for_role_returns_new_group_instances() -> None:
+    """Role filtering returns NEW group instances, not the frozen originals.
+
+    Mutation is impossible by construction (``NavGroup`` is frozen, so
+    attribute assignment raises ``FrozenInstanceError``); the guarantee
+    pinned here is that the helper rebuilds groups instead of reusing
+    the registry originals, keeping label/icon and only the surviving
+    children (original items, in order).
+    """
+    for role in ("", "developer"):
+        entries = nav_entries_for_role(role)
+        registry_groups = [e for e in NAV_ENTRIES if isinstance(e, NavGroup)]
+        filtered_groups = [e for e in entries if isinstance(e, NavGroup)]
+        assert len(filtered_groups) == len(registry_groups)
+        for original, rebuilt in zip(registry_groups, filtered_groups, strict=True):
+            assert rebuilt is not original, "filter must rebuild, never reuse"
+            assert rebuilt.label == original.label
+            assert rebuilt.icon == original.icon
+            # Surviving children are the original items, in order.
+            assert all(
+                any(child is orig_child for orig_child in original.children)
+                for child in rebuilt.children
+            )
+    # Bare NavItem entries are contributed as-is (no copies).
+    developer_entries = nav_entries_for_role("developer")
+    registry_items = [e for e in NAV_ENTRIES if isinstance(e, NavItem)]
+    filtered_items = [e for e in developer_entries if isinstance(e, NavItem)]
+    assert filtered_items == registry_items
+    assert all(
+        a is b for a, b in zip(filtered_items, registry_items, strict=True)
+    )
+
+
+def test_nav_entries_for_role_drops_fully_gated_group(monkeypatch) -> None:
+    """A group whose children are ALL role-gated is dropped entirely.
+
+    Built with a synthetic registry so the atom does not depend on the
+    real registry containing such a group.
+    """
+    import app.core.nav as nav_module
+
+    synthetic_registry = (
+        NavItem(href="/open", label="Open", icon="x"),
+        NavGroup(
+            label="Sintetico",
+            icon="shield",
+            children=(
+                NavItem(href="/x", label="X", icon="x", role="developer"),
+                NavItem(href="/y", label="Y", icon="y", role="developer"),
+            ),
+        ),
+    )
+    monkeypatch.setattr(nav_module, "NAV_ENTRIES", synthetic_registry)
+    entries = nav_entries_for_role("")
+    assert [entry.label for entry in entries] == ["Open"]
+    # The developer still sees the synthetic group with both children.
+    developer_entries = nav_entries_for_role("developer")
+    synthetic = developer_entries[1]
+    assert isinstance(synthetic, NavGroup)
+    assert [c.href for c in synthetic.children] == ["/x", "/y"]
+
+
+def test_nav_entries_for_role_pins_exact_group_children_for_every_role() -> None:
+    """Every group's children (count, order, hrefs) survive per role.
+
+    Pins the EXACT children of both groups for BOTH ``""`` and
+    ``"developer"`` so dropping or reordering any single child for any
+    single role fails loudly (e.g. a trim of Entradas' first child for
+    developer only).
+    """
+    expected_entradas = ["/entradas", "/entradas/batch/new"]
+    expected_acogida = [
+        "/casas-acogida",
+        "/acogidas",
+        "/adopciones",
+        "/sanidad",
+    ]
+    for role in ("", "developer"):
+        entries = nav_entries_for_role(role)
+        groups = [e for e in entries if isinstance(e, NavGroup)]
+        assert len(groups) == 2, f"role={role!r}: group count changed"
+        entradas, acogida = groups
+        assert entradas.label == "Entradas"
+        assert acogida.label == "Acogida"
+        assert len(entradas.children) == 2, f"role={role!r}: Entradas child count"
+        assert len(acogida.children) == 4, f"role={role!r}: Acogida child count"
+        assert [c.href for c in entradas.children] == expected_entradas, (
+            f"role={role!r}: Entradas children reordered or dropped"
+        )
+        assert [c.href for c in acogida.children] == expected_acogida, (
+            f"role={role!r}: Acogida children reordered or dropped"
+        )
+
+
+def test_every_nav_group_icon_has_a_sprite_symbol() -> None:
+    """Every ``NavGroup.icon`` resolves in the inlined lucide sprite.
+
+    Mirrors the ``NavItem`` parity atom: PR 2 will render a
+    ``<use href="#nav-icon-<group icon>">`` for each group heading, and
+    a typo here would render a dangling reference. Fails loudly at unit
+    time instead.
+    """
+    sprite = SPRITE.read_text(encoding="utf-8")
+    for entry in NAV_ENTRIES:
+        if not isinstance(entry, NavGroup):
+            continue
+        pattern = f'<symbol id="nav-icon-{entry.icon}"'
+        assert pattern in sprite, (
+            f"nav group {entry.label!r} references icon {entry.icon!r} but "
+            f"{SPRITE.relative_to(REPO_ROOT)} has no {pattern!r} symbol; "
+            "add it there (see lucide-static)."
+        )
+
+
+def test_nav_group_hrefs_returns_children_hrefs_in_order() -> None:
+    """``nav_group_hrefs`` yields the child hrefs in group order."""
+    groups = [entry for entry in NAV_ENTRIES if isinstance(entry, NavGroup)]
+    assert nav_group_hrefs(groups[0]) == ("/entradas", "/entradas/batch/new")
+    assert nav_group_hrefs(groups[1]) == (
+        "/casas-acogida",
+        "/acogidas",
+        "/adopciones",
+        "/sanidad",
+    )
