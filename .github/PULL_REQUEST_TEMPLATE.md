@@ -14,6 +14,15 @@ Closes #
 
 - <!-- Resuma el cambio. -->
 
+## Comandos ejecutados
+
+<!-- Pegue cada comando y su resultado real, no una descripción. -->
+
+```
+$ <comando>
+<salida real>
+```
+
 ## Alcance
 
 | Incluido | Fuera de alcance |
