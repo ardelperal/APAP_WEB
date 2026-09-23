@@ -137,13 +137,27 @@ def test_every_nav_icon_has_a_sprite_symbol() -> None:
 
 
 def test_both_templates_render_the_nav_loop() -> None:
-    """Both base templates loop over ``nav_items`` (single source of truth)."""
-    for path in (DESKTOP_TEMPLATE, MOBILE_TEMPLATE):
-        template = path.read_text(encoding="utf-8")
-        assert "{% for item in nav_items %}" in template, (
-            f"{path.relative_to(REPO_ROOT)} must render the nav via the "
-            "Jinja loop over nav_items."
-        )
+    """Desktop renders the grouped rail; mobile keeps the flat loop (#868).
+
+    Issue #868 (PR 2) replaces the desktop horizontal nav with the
+    grouped sidebar rail: a flat ``nav_items`` loop cannot produce a
+    group's disclosure control, so ``base.html`` now loops over
+    ``nav_entries``. ``base_mobile.html`` still renders the flat
+    ``nav_items`` loop until the mobile rail PR of the issue. Both loop
+    variables stay ``item`` — the XSS URL-attribute allowlist in
+    ``tests/test_xss_audit.py`` pins ``item.href`` / ``item.icon`` /
+    ``item.title`` per template.
+    """
+    desktop = DESKTOP_TEMPLATE.read_text(encoding="utf-8")
+    assert "{% for item in nav_entries %}" in desktop, (
+        f"{DESKTOP_TEMPLATE.relative_to(REPO_ROOT)} must render the "
+        "grouped rail via the Jinja loop over nav_entries (issue #868)."
+    )
+    mobile = MOBILE_TEMPLATE.read_text(encoding="utf-8")
+    assert "{% for item in nav_items %}" in mobile, (
+        f"{MOBILE_TEMPLATE.relative_to(REPO_ROOT)} must render the nav via the "
+        "Jinja loop over nav_items."
+    )
 
 
 def test_templates_no_longer_carry_literal_nav_anchors() -> None:
