@@ -9,6 +9,7 @@ from collections.abc import Mapping
 
 ALL_JOBS = frozenset(
     {
+        "pr-size",
         "lint",
         "security",
         "security-deep",
