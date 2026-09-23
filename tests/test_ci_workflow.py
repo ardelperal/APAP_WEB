@@ -754,6 +754,25 @@ def _job_executable(workflow: str, start: str, end: str) -> str:
     return "\n".join(line for line in section.splitlines() if not line.lstrip().startswith("#"))
 
 
+def _job_block(workflow: str, job_name: str) -> str:
+    """Return one top-level job's YAML, from its header to the next job's.
+
+    Unlike ``_job_executable`` (which needs the caller to name the next
+    job), this walks every top-level job header so callers can extract a
+    single job without knowing what follows it — needed to check the last
+    job in a file (e.g. ``required`` in ci.yml, ``deploy`` in deploy.yml).
+    """
+    jobs_index = workflow.index("\njobs:\n")
+    body = workflow[jobs_index:]
+    header_pattern = re.compile(r"^  [a-z][a-z0-9-]+:$", re.MULTILINE)
+    headers = list(header_pattern.finditer(body))
+    for position, match in enumerate(headers):
+        if match.group() == f"  {job_name}:":
+            end = headers[position + 1].start() if position + 1 < len(headers) else len(body)
+            return body[match.start() : end]
+    raise AssertionError(f"job {job_name!r} not found in workflow")
+
+
 def test_ci_workflow_lint_job_runs_alantyle_lint() -> None:
     """Issue #559, ADR d-42: ``lint`` bloquea anti-patrones alan-style.
 
@@ -816,6 +835,62 @@ def test_ci_workflow_does_not_run_retired_quality_envelope() -> None:
     executable = _job_executable(workflow, "\n  lint:", "\n  security:")
     assert "scripts/quality_report.py" not in executable
     assert "--emit-envelope" not in executable
+
+
+# --- issue #879: least-privilege permissions per job -----------------------
+#
+# The workflow-level `permissions:` block in ci.yml declares `issues: read`
+# for every job, but only `issue-spec` (which reads the linked issue via the
+# GitHub API) actually needs it. Every job must declare its own minimal
+# block instead of silently inheriting a scope it does not use — the same
+# pattern deploy.yml's `deploy` job already followed for issue #682.
+
+CI_JOBS_REQUIRING_ISSUES_READ = frozenset({"issue-spec"})
+
+
+@pytest.mark.parametrize("job_name", sorted(_workflow_job_names(WORKFLOW_PATH)))
+def test_ci_workflow_job_declares_least_privilege_permissions(job_name: str) -> None:
+    """Issue #879: every ci.yml job must declare its own `permissions:`."""
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    block = _job_block(workflow, job_name)
+
+    assert "permissions:" in block, (
+        f"job {job_name!r} in ci.yml must declare its own `permissions:` "
+        "block instead of inheriting the workflow-level default (issue #879)"
+    )
+    assert "contents: read" in block
+
+    if job_name in CI_JOBS_REQUIRING_ISSUES_READ:
+        assert "issues: read" in block, (
+            f"job {job_name!r} calls the GitHub API for issue data and "
+            "needs `issues: read` (issue #879)"
+        )
+    else:
+        assert "issues: read" not in block, (
+            f"job {job_name!r} does not read issues; keep its permissions "
+            "block minimal (issue #879)"
+        )
+
+
+def test_deploy_evidence_job_declares_least_privilege_permissions() -> None:
+    """Issue #879: `evidence` reads via checkout + the Actions API only.
+
+    It inherited `packages: write` from the workflow-level block without
+    ever pushing a package — only the `deploy` job (which pushes to GHCR)
+    needs that scope.
+    """
+    workflow = DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8")
+    block = _job_block(workflow, "evidence")
+
+    assert "permissions:" in block, (
+        "evidence job must declare its own permissions block (issue #879)"
+    )
+    assert "contents: read" in block
+    assert "actions: read" in block
+    assert "packages: write" not in block, (
+        "evidence never pushes a package; packages: write belongs only to "
+        "the deploy job (issue #879)"
+    )
 
 
 def test_ci_workflow_lint_job_runs_import_cycle_detector() -> None:
