@@ -100,3 +100,37 @@ def test_tag_push_still_skips_pr_only_issue_spec() -> None:
     needs["issue-spec"]["result"] = "skipped"
 
     assert check_results(needs, "push", "refs/tags/v1.2.3") == []
+
+
+def test_pr_size_is_a_required_job() -> None:
+    """Issue #881: ALL_JOBS must list pr-size explicitly.
+
+    The gate happened to fail closed today only because every other job's
+    ``needs:`` transitively depends on ``pr-size`` in ci.yml — an
+    unverified coupling. A future refactor that drops that transitive
+    chain (e.g. a job gaining an independent trigger) would silently stop
+    enforcing the 400-line budget, and this aggregator would never notice
+    because it never checks pr-size's own result.
+    """
+    assert "pr-size" in ALL_JOBS
+
+
+def test_missing_pr_size_fails_closed() -> None:
+    needs = _needs()
+    needs.pop("pr-size")
+
+    assert check_results(needs, "pull_request") == ["missing jobs: pr-size"]
+
+
+def test_skipped_pr_size_fails_closed_on_every_event() -> None:
+    """pr-size has no ``if:`` guard in ci.yml — it always runs and always
+    reports a definitive result (success/failure), even on non-PR events
+    (see the empty-BASE_REF fallback that reports total=0 there). A
+    skipped pr-size is therefore never legitimate, on any event.
+    """
+    needs = _needs()
+    needs["pr-size"]["result"] = "skipped"
+
+    assert check_results(needs, "pull_request") == ["pr-size: result='skipped'"]
+    assert check_results(needs, "push") == ["pr-size: result='skipped'"]
+    assert check_results(needs, "workflow_dispatch") == ["pr-size: result='skipped'"]
