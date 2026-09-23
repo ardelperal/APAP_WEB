@@ -184,7 +184,14 @@ def check_timeouts(text: str, label: str) -> list[str]:
         f"its 360-minute default, so a wedged runner holds the queue for six "
         f"hours instead of failing (issue #529)."
         for name, job in jobs.items()
-        if isinstance(job, dict) and job.get("timeout-minutes") is None
+        if isinstance(job, dict)
+        and job.get("timeout-minutes") is None
+        # Issue #890: a job that calls a reusable workflow via `uses:` cannot
+        # declare its own timeout-minutes/runs-on/steps — GitHub Actions'
+        # schema forbids those keys on that job shape. The called workflow's
+        # own job already states its timeout, and is scanned in its own
+        # right when this check walks that file too.
+        and "uses" not in job
     ]
 
 
@@ -386,6 +393,11 @@ def check_runner_isolation(text: str, label: str) -> list[str]:
     violations: list[str] = []
     for name, job in (workflow.get("jobs") or {}).items():
         if not isinstance(job, dict) or _excludes_pull_request(job.get("if")):
+            continue
+        # Issue #890: a job calling a reusable workflow via `uses:` has no
+        # `runs-on` of its own — the called workflow's job declares (and is
+        # independently scanned for) its actual runner.
+        if "uses" in job:
             continue
         runner = job.get("runs-on")
         if isinstance(runner, str) and _HOSTED_RUNNER.fullmatch(runner):

@@ -1,12 +1,28 @@
 name: pr-size
 on:
-  # Label changes must refresh the immutable event payload used below;
-  # rerunning an older workflow run keeps its original labels snapshot.
+  # Issue #890: this direct trigger now covers ONLY label changes. Every
+  # other pull_request type (opened/synchronize/reopened) — plus push to
+  # staging/tags and workflow_dispatch — routes through ci.yml's own
+  # pull_request trigger, whose first job calls this workflow via
+  # `uses:` instead of reimplementing the same computation. Two workflows
+  # publishing a check named `pr-size` for the same event was exactly the
+  # ambiguous-status-check shape GitHub's own docs warn about (and that
+  # forced `--admin` merges while both existed side by side) — this split
+  # keeps exactly one publisher per event instead of a second copy of the
+  # logic that can drift out of sync with this one.
   pull_request:
-    types: [opened, synchronize, reopened, labeled, unlabeled]
-# See ci.yml for the cancel-in-progress rationale (issue #530).
+    types: [labeled, unlabeled]
+  workflow_call:
+# Issue #890: hardcoded "pr-size" literal instead of `${{ github.workflow
+# }}` (see ci.yml for the general cancel-in-progress rationale, issue
+# #530). This workflow is now invoked two ways — directly
+# (labeled/unlabeled) and via workflow_call from ci.yml — and
+# `${{ github.workflow }}` inside a called reusable workflow can resolve
+# to the CALLER's name ("ci"), which would collide with ci.yml's own
+# top-level concurrency group of the same shape and self-cancel the call
+# before it ever produces a job.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: pr-size-${{ github.ref }}
   cancel-in-progress: true
 # The job below only reads the repository (merge-base diff) and runs a
 # local Python script; it never writes back. Match the explicit permissions
@@ -49,7 +65,19 @@ jobs:
         # unresolvable ref fails loudly instead of falling back to
         # main — quiet fallback is exactly the regression this step
         # is meant to catch.
+        #
+        # Issue #890: this job is now also invoked via `workflow_call`
+        # from ci.yml's own pull_request trigger, and from ci.yml's push
+        # (staging/tags) and workflow_dispatch triggers, none of which
+        # carry a PR base ref. Only fail loudly when the triggering event
+        # actually is a pull_request; every other event has nothing to
+        # diff against and reports 0, same as ci.yml's own fallback did
+        # before this consolidation.
         run: |
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            echo "total=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [ -z "$BASE_REF" ]; then
             echo "::error::BASE_REF is empty; \${{ github.base_ref }} was not provided."
             exit 1
@@ -83,6 +111,7 @@ jobs:
           TOTAL=$((ADDED + DELETED))
           echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
         env:
+          EVENT_NAME: ${{ github.event_name }}
           BASE_REF: ${{ github.base_ref }}
 
       - name: Enforce 400-line budget (AGENTS.md §15.1)
@@ -91,6 +120,8 @@ jobs:
           # Use contains() on the joined label names string. The previous
           # expression `contains(github.event.pull_request.labels.*.name, 'size:exception')`
           # returned "false" in CI for unknown reasons; the joined-string form
-          # is reliable across runners.
+          # is reliable across runners. Evaluates to empty/false when this
+          # runs on a non-pull_request event (github.event.pull_request is
+          # undefined there) — harmless, since TOTAL=0 already passes.
           HAS_EXCEPTION: ${{ join(github.event.pull_request.labels.*.name, ',') == 'size:exception' || contains(join(github.event.pull_request.labels.*.name, ','), 'size:exception') }}
         run: python scripts/check_pr_size.py "$TOTAL" "$HAS_EXCEPTION"

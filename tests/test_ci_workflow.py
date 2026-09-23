@@ -1626,94 +1626,99 @@ def _parse_shortstat(shortstat: str) -> int:
     return added + deleted
 
 
-# --- issue #878: the pr-size job embedded in ci.yml (added by #867)
-# reproduced the exact #525 two-dot contamination pr-size.yml already fixed,
-# plus its own parser bug (``tr -cd 0-9`` concatenates shortstat digits
-# instead of summing insertions + deletions), plus a --depth=1 fetch that
-# marks the whole repo shallow and can starve merge-base on a chained PR. ---
+# --- issue #890: consolidate the pr-size gate into a single source -----
+#
+# #867 embedded a second computation of the same merge-base diff directly
+# in ci.yml so an oversized PR would not burn runner minutes on lint/test/
+# security/etc. #878/#879 each had to fix that embedded copy in lockstep
+# with pr-size.yml after it drifted, and the two workflows publishing a
+# check named `pr-size` for the same commit forced `--admin` merges on
+# every PR touching either one (GitHub documents same-name checks across
+# workflows as producing ambiguous required-status results). This section
+# pins that ci.yml no longer reimplements the computation — it calls
+# pr-size.yml as a reusable workflow instead — and that pr-size.yml's own
+# ``pull_request`` trigger now covers only label changes, so exactly one
+# workflow publishes the `pr-size` check for any given event. The three-dot
+# diff / awk parsing / lockfile-exclude / unshallow-fetch guarantees stay
+# pinned above against pr-size.yml itself (the single remaining source);
+# they do not need a second copy here.
 
 
-@pytest.mark.parametrize("base_branch,expected_delta", [("main", 2), ("feat/522-base-pr", 2)])
-def test_ci_workflow_pr_size_diff_step_reports_only_candidate_delta(
-    tmp_path: Path, base_branch: str, expected_delta: int
-) -> None:
-    """Issue #878: the embedded step must diff three-dot, not two-dot.
+def test_ci_workflow_pr_size_job_calls_the_reusable_workflow() -> None:
+    """Issue #890: ci.yml's pr-size job must delegate, not reimplement.
 
-    Reuses the #525 fixture (``base_branch`` carries its own commits, the
-    ``candidate`` branch adds one commit on top) and runs the same fetch /
-    merge-base / shortstat invocations the fixed step runs, in the same
-    order. A two-dot diff against the merge-base SHA alone would report 4
-    on the non-main case (base commits + candidate commits) instead of 2 —
-    the same contamination #525 already fixed in pr-size.yml, reintroduced
-    here by #867's embedded copy.
-    """
-    fixture = _build_pr_size_fixture(tmp_path, base_branch=base_branch)
-
-    subprocess.run(
-        [
-            "git",
-            "fetch",
-            "--no-tags",
-            "origin",
-            f"+refs/heads/{base_branch}:refs/remotes/origin/{base_branch}",
-        ],
-        cwd=fixture,
-        check=True,
-        capture_output=True,
-    )
-    base = subprocess.run(
-        ["git", "merge-base", f"origin/{base_branch}", "HEAD"],
-        cwd=fixture,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-    assert base, f"merge-base origin/{base_branch} HEAD produced no SHA in the fixture."
-
-    diff_paths = [".", ":(exclude)**/package-lock.json", ":(exclude)uv.lock"]
-    shortstat = subprocess.run(
-        ["git", "diff", "--shortstat", f"{base}...HEAD", "--", *diff_paths],
-        cwd=fixture,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-    total = _parse_shortstat(shortstat)
-
-    assert total == expected_delta, (
-        f"ci.yml embedded pr-size step: base_branch={base_branch!r} reported "
-        f"total={total}, expected {expected_delta} (issue #878)."
-    )
-
-
-def _pr_size_diff_step_script(workflow: str) -> str:
-    """Extract the literal ``run:`` bash of ci.yml's embedded diff step.
-
-    Returns everything after ``run: |`` up to the next step's ``- name:``,
-    so a test can execute the exact script that ships (minus the one
-    ``${{ }}`` expression GitHub Actions would otherwise substitute).
-    """
-    job = _job_executable(workflow, "\n  pr-size:", "\n  issue-spec:")
-    start = job.index("- name: Compute diff against merge-base")
-    end = job.index("- name:", start + 1)
-    step = job[start:end]
-    run_start = step.index("run: |") + len("run: |")
-    return step[run_start:]
-
-
-def test_ci_workflow_pr_size_diff_step_handles_missing_base_ref(tmp_path: Path) -> None:
-    """Issue #878: push/tag/workflow_dispatch events carry no PR base ref.
-
-    Downstream jobs still declare ``needs: pr-size`` on those triggers, so
-    this step must keep reporting ``total=0`` instead of failing the job —
-    exactly the non-PR fallback the pre-#878 code already had, which the
-    fix must not regress.
+    A ``uses:`` job cannot declare its own ``steps:``/``runs-on:`` — GitHub
+    Actions' schema forbids mixing them. Asserting their absence here is
+    itself a regression pin against a future edit re-embedding the bash.
     """
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
-    script = _pr_size_diff_step_script(workflow)
-    script = script.replace(
-        'base_ref="${{ github.event.pull_request.base.ref }}"', 'base_ref=""'
+    pr_size_job = _job_executable(workflow, "\n  pr-size:", "\n  issue-spec:")
+
+    assert "uses: ./.github/workflows/pr-size.yml" in pr_size_job, (
+        "ci.yml's pr-size job must call pr-size.yml as a reusable workflow "
+        "(issue #890) instead of reimplementing the merge-base diff."
     )
+    assert "runs-on:" not in pr_size_job, (
+        "a job with `uses:` cannot also declare `runs-on:` — its presence "
+        "means the embedded implementation was not actually removed."
+    )
+    assert "Compute diff against merge-base" not in pr_size_job, (
+        "the embedded diff step must be gone entirely; pr-size.yml is now "
+        "the only place that computes it (issue #890)."
+    )
+
+
+def test_pr_size_workflow_declares_workflow_call_trigger() -> None:
+    """Issue #890: pr-size.yml must be callable from ci.yml as a reusable
+    workflow, in addition to its own direct pull_request trigger.
+    """
+    pr_size = PR_SIZE_WORKFLOW_PATH.read_text(encoding="utf-8")
+    triggers = _trigger_lines(pr_size)
+
+    assert "workflow_call:" in triggers, (
+        "pr-size.yml must declare a workflow_call trigger so ci.yml can "
+        "invoke it via `uses:` (issue #890)."
+    )
+
+
+def test_pr_size_direct_trigger_covers_only_label_changes() -> None:
+    """Issue #890: opened/synchronize/reopened now route through ci.yml's
+    call, not pr-size.yml's own direct trigger — otherwise both would fire
+    for the same event and publish the same-named check twice, the exact
+    ambiguity this consolidation exists to remove.
+    """
+    pr_size = PR_SIZE_WORKFLOW_PATH.read_text(encoding="utf-8")
+    triggers = _trigger_lines(pr_size)
+    pull_request = triggers["pull_request:"]
+
+    assert "labeled" in pull_request
+    assert "unlabeled" in pull_request
+    assert "opened" not in pull_request, (
+        "pr-size.yml's direct pull_request trigger must not also cover "
+        "opened/synchronize/reopened (issue #890) — those route through "
+        "ci.yml's workflow_call instead, or the same event fires both "
+        "workflows and reintroduces the duplicate `pr-size` check."
+    )
+    assert "synchronize" not in pull_request
+    assert "reopened" not in pull_request
+
+
+def test_pr_size_diff_step_reports_zero_on_non_pull_request_events(tmp_path: Path) -> None:
+    """Issue #890: called via workflow_call from ci.yml's push/tag/
+    workflow_dispatch triggers, this step now has no PR context at all —
+    it must report total=0 instead of failing loudly, exactly like ci.yml's
+    own fallback did before this consolidation absorbed that behaviour.
+    """
+    pr_size = "\n".join(
+        line
+        for line in PR_SIZE_WORKFLOW_PATH.read_text(encoding="utf-8").splitlines()
+        if not line.lstrip().startswith("#")
+    )
+    start = pr_size.index("- name: Compute diff against merge-base")
+    step = pr_size[start:]
+    run_start = step.index("run: |") + len("run: |")
+    end = step.index("- name:", run_start)
+    script = step[run_start:end]
 
     repo = tmp_path / "fixture"
     repo.mkdir()
@@ -1725,43 +1730,60 @@ def test_ci_workflow_pr_size_diff_step_handles_missing_base_ref(tmp_path: Path) 
     result = subprocess.run(
         ["bash", "-c", script],
         cwd=repo,
-        env={**os.environ, "GITHUB_OUTPUT": str(github_output)},
+        env={**os.environ, "GITHUB_OUTPUT": str(github_output), "EVENT_NAME": "push", "BASE_REF": ""},
         capture_output=True,
         text=True,
     )
 
     assert result.returncode == 0, (
-        f"the diff step must exit 0 with an empty base_ref (non-PR event); "
+        f"the diff step must exit 0 on a non-pull_request event; "
         f"stderr: {result.stderr}"
     )
     assert "total=0" in github_output.read_text(encoding="utf-8")
 
 
-def test_ci_workflow_pr_size_diff_step_uses_three_dot_and_awk_parsing() -> None:
-    """Issue #878: pin the fixed parsing shape so it cannot regress.
-
-    The pre-fix step used a two-dot ``git diff --shortstat`` (contaminated
-    by everything the base advanced) parsed with ``tr -cd 0-9`` (concatenates
-    every digit instead of summing insertions + deletions), plus a
-    ``--depth=1`` fetch that marks the whole repo shallow and can starve
-    ``merge-base`` on a chained PR (issue #525, already fixed in
-    pr-size.yml). This pins the mirrored fix in the embedded ci.yml copy.
+def test_pr_size_diff_step_still_fails_loud_on_pull_request_with_empty_base_ref(
+    tmp_path: Path,
+) -> None:
+    """Issue #890: the fail-loud guard (issue #525) must survive the new
+    event_name branch — an actual pull_request event with no base ref is
+    still the regression #525 exists to catch, not a legitimate skip.
     """
-    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
-    pr_size_job = _job_executable(workflow, "\n  pr-size:", "\n  issue-spec:")
-
-    assert "...HEAD" in pr_size_job, "must diff three-dot from the merge-base to HEAD"
-    assert "awk '{print $4}'" in pr_size_job
-    assert "awk '{print $6}'" in pr_size_job
-    assert "':(exclude)**/package-lock.json'" in pr_size_job
-    assert "':(exclude)uv.lock'" in pr_size_job
-    assert "tr -cd 0-9" not in pr_size_job, (
-        "tr -cd 0-9 concatenates shortstat digits instead of summing "
-        "insertions + deletions (issue #878) — must not regress"
+    pr_size = "\n".join(
+        line
+        for line in PR_SIZE_WORKFLOW_PATH.read_text(encoding="utf-8").splitlines()
+        if not line.lstrip().startswith("#")
     )
-    assert "--depth=1" not in pr_size_job, (
-        "a shallow fetch marks the whole repo shallow and can starve "
-        "merge-base on a chained PR (issue #525) — must not regress"
+    start = pr_size.index("- name: Compute diff against merge-base")
+    step = pr_size[start:]
+    run_start = step.index("run: |") + len("run: |")
+    end = step.index("- name:", run_start)
+    script = step[run_start:end]
+
+    repo = tmp_path / "fixture"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+
+    github_output = tmp_path / "github_output"
+    github_output.write_text("", encoding="utf-8")
+
+    result = subprocess.run(
+        ["bash", "-c", script],
+        cwd=repo,
+        env={
+            **os.environ,
+            "GITHUB_OUTPUT": str(github_output),
+            "EVENT_NAME": "pull_request",
+            "BASE_REF": "",
+        },
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1, (
+        "a pull_request event with an empty base ref must still fail loud "
+        "(issue #525) — a quiet total=0 here would hide the exact bug #525 "
+        "was written to catch."
     )
 
 
