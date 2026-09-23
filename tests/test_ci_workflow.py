@@ -174,6 +174,17 @@ def test_branch_protection_note_lists_required_ci_checks() -> None:
     assert "`Write` permite contribuir y revisar, pero no mergear" in note
 
 
+def test_branch_protection_note_documents_disabled_ruleset() -> None:
+    """Issue #892: the merge-restriction ruleset is disabled for the
+    single-maintainer repo (pure friction, no real protection) — the note
+    must say so, not just describe the rule as if it were still active.
+    """
+    note = BRANCH_PROTECTION_PATH.read_text(encoding="utf-8")
+
+    assert "**Estado actual: `disabled`**" in note
+    assert "issue #892" in note
+
+
 def test_ci_cd_guide_tracks_the_live_job_inventory() -> None:
     """The human-facing job table must match both executable workflows."""
     guide = CI_CD_GUIDE_PATH.read_text(encoding="utf-8")
