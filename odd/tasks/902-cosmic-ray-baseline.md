@@ -24,19 +24,19 @@ The manual `ci.yml` run [36028890804](https://github.com/ardelperal/APAP_WEB/act
 
 ## Tasks
 
-- [x] **WU-1 — Repair stale mutation configuration and guard it.** Route: delegated direct; mapping and write preparation required 4+ files, and the configuration plus regression test are non-trivial. RED: new config regression failed on the extra deleted target. GREEN: focused regression passed, `tests/test_ci_workflow.py` passed 81/81, and the configured unmutated command passed 130/130. Full `make verify`: 4619 passed, 19 skipped, 1 xfailed; 85.98% coverage; `check_crap: OK`. Commit SHA to be recorded after commit.
+- [x] **WU-1 — Repair stale mutation configuration and guard it.** Route: delegated direct; mapping and write preparation required 4+ files, and the configuration plus regression test are non-trivial. RED: new config regression failed on the extra deleted target. GREEN: focused regression passed, `tests/test_ci_workflow.py` passed 81/81, and the configured unmutated command passed 130/130. Full `make verify`: 4619 passed, 19 skipped, 1 xfailed; 85.98% coverage; `check_crap: OK`. Work-unit commit `8ed0b4a`.
 
 ## Delivery and checks
 
-- Forecast: approximately 100 authored changed lines; strategy `ask-on-risk`, below the 400-line review budget. Running total: under 100 authored changed lines.
-- RDD mode is on (global). Assess the committed work unit against the branch point and follow native due/consent transitions; no review has run yet.
+- Forecast: approximately 100 authored changed lines; strategy `ask-on-risk`, below the 400-line review budget. Running total: 84 authored changed lines in WU-1.
+- RDD mode is on (global). The committed work unit assessed high risk for its test subprocess boundary; the four-lens native review was approved and acknowledged under lineage `review-aec2f744fb94cc70`.
 - Full hosted Cosmic Ray mutation execution may take several hours; if not run, report it as pending rather than implying a green manual workflow.
 
 ## Progress
 
 - 2026-09-24: issue approved; read-only mapping reproduced deleted test path (`pytest` exit 4/no tests) and confirmed a stale mutation target. Regression was red before the config fix and green after it. The unmutated test command passed 130 tests. Full local checks passed as recorded above; the multi-hour mutation session has not been run.
-- Engram mirror: parent will synchronize after the work-unit commit.
+- Engram mirror: current after read-back.
 
 ## Next step
 
-Assess the work-unit commit with native RDD. The hosted mutation session remains pending and requires separate remote authorization.
+Seek separate authorization to push this branch, create the #902 PR, and run hosted `ci.yml`. The multi-hour mutation session remains pending; do not claim a green manual workflow without its result.
