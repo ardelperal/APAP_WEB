@@ -399,7 +399,7 @@ def list_lifecycle_events_sql(
 # worth it (sentinel keys skip the fetch and return the placeholder
 # PNG immediately).
 GET_ANIMAL_PHOTO_META_SQL: str = (
-    "SELECT \"NombreFoto\" FROM animales WHERE id = $1"
+    'SELECT nombrefoto AS "NombreFoto" FROM animales WHERE id = $1'
 )
 
 
