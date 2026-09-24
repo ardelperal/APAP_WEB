@@ -69,6 +69,7 @@ from app.core.catalogs import ensure_catalogs
 from app.core.csrf import csrf_token_context_processor
 from app.core.dashboard_data import DASHBOARD_PENDING_CARDS, DASHBOARD_SHORTCUTS
 from app.core.data_access import BackendError
+from app.core.devtools.routes import router as devtools_router
 from app.core.domain import ensure_domain_schema
 from app.core.e2e_auth import register_e2e_auth_routes
 from app.core.local_backend.db import LocalPostgresExecutor
@@ -188,6 +189,20 @@ def _redirect(path: str) -> RedirectResponse:
     return RedirectResponse(url=path, status_code=302)
 
 
+def _include_devtools_router(application: FastAPI, settings) -> None:
+    """Include the developer-only devtools router when enabled (issue #821).
+
+    Extracted from :func:`create_app` to keep the factory's cyclomatic
+    complexity at CC=1 (module-size-budgets / check-complexity gate).
+    """
+    # Developer-only devtools preview pages (issue #821). No-op unless
+    # ``Settings.devtools_enabled`` is True: the router is not included,
+    # so ``/devtools/...`` answers 404 (e2e_auth registration pattern).
+    # Default-deny auth middleware applies; PUBLIC_PATHS is untouched.
+    if settings.devtools_enabled:
+        application.include_router(devtools_router)
+
+
 def create_app() -> FastAPI:
     """Application factory.
 
@@ -256,6 +271,8 @@ def create_app() -> FastAPI:
 
     # Domain routers (issue #204)
     register_routers(application)
+
+    _include_devtools_router(application, settings)
 
     # Auth flow: magic-link login (M3.4, issue #651). The router
     # lives in app.core.local_backend.magic_link; the lifespan above
