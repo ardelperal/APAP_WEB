@@ -20,6 +20,7 @@ Append-only contract (issue #32 acceptance: "Event log es append-only
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Final
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -62,18 +63,42 @@ class AnimalCurrentState(BaseModel):
     model_config = {"from_attributes": True}
 
 
-ANIMAL_LIFECYCLE_EVENTS_CREATE_TABLE_SQL = """
+#: Every value ``animal_lifecycle_events.event_type`` accepts. Single source
+#: for the CREATE TABLE CHECK and for the idempotent upgrade below, so a
+#: fresh schema and an existing one can never disagree (issue #947:
+#: ``close_previous_situation`` emitted ``INTAKE_CLOSED_BY_FOSTER`` and
+#: ``close_all_on_death`` the three ``*_CLOSED_BY_DEATH`` types, none of
+#: which the CHECK allowed).
+LIFECYCLE_EVENT_TYPES: Final[tuple[str, ...]] = (
+    "INTAKE_STARTED",
+    "INTAKE_COMPLETED",
+    "FOSTER_STARTED",
+    "FOSTER_RETURNED",
+    "FOSTER_CLOSED_BY_ADOPTION",
+    "ADOPTION_STARTED",
+    "ADOPTION_RETURNED",
+    "OWNER_RETURNED",
+    "DEATH_RECORDED",
+    "STATE_CORRECTION",
+    "CHIP_CHANGED",
+    "INTAKE_REOPENED",
+    "FOSTER_REOPENED",
+    "ADOPTION_REOPENED",
+    "INTAKE_CLOSED_BY_FOSTER",
+    "INTAKE_CLOSED_BY_DEATH",
+    "FOSTER_CLOSED_BY_DEATH",
+    "ADOPTION_CLOSED_BY_DEATH",
+)
+
+_EVENT_TYPE_CHECK = (
+    "event_type IN (" + ", ".join(f"'{event_type}'" for event_type in LIFECYCLE_EVENT_TYPES) + ")"
+)
+
+ANIMAL_LIFECYCLE_EVENTS_CREATE_TABLE_SQL = f"""
 CREATE TABLE IF NOT EXISTS animal_lifecycle_events (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     animal_id UUID NOT NULL REFERENCES animales(id),
-    event_type VARCHAR(50) NOT NULL CHECK (event_type IN (
-        'INTAKE_STARTED', 'INTAKE_COMPLETED',
-        'FOSTER_STARTED', 'FOSTER_RETURNED', 'FOSTER_CLOSED_BY_ADOPTION',
-        'ADOPTION_STARTED', 'ADOPTION_RETURNED',
-        'OWNER_RETURNED', 'DEATH_RECORDED',
-        'STATE_CORRECTION',
-        'CHIP_CHANGED', 'INTAKE_REOPENED', 'FOSTER_REOPENED', 'ADOPTION_REOPENED'
-    )),
+    event_type VARCHAR(50) NOT NULL CHECK ({_EVENT_TYPE_CHECK}),
     event_timestamp TIMESTAMPTZ NOT NULL,
     caused_by_event_id UUID REFERENCES animal_lifecycle_events(id),
     source_entity_type VARCHAR(30),
@@ -86,6 +111,20 @@ CREATE TABLE IF NOT EXISTS animal_lifecycle_events (
     CONSTRAINT animal_lifecycle_events_natural_key UNIQUE (animal_id, event_type, event_timestamp)
 )
 """
+
+# Issue #947: ``CREATE TABLE IF NOT EXISTS`` never alters an existing table,
+# so the schema bootstrap also replaces the column CHECK (Postgres names an
+# inline column CHECK ``<table>_<column>_check``). Both statements are
+# idempotent and replayed on every start, like ``ACOGIDAS_ADD_CASA_FK_SQL``.
+ANIMAL_LIFECYCLE_EVENTS_DROP_EVENT_TYPE_CHECK_SQL = (
+    "ALTER TABLE animal_lifecycle_events "
+    "DROP CONSTRAINT IF EXISTS animal_lifecycle_events_event_type_check"
+)
+ANIMAL_LIFECYCLE_EVENTS_ADD_EVENT_TYPE_CHECK_SQL = (
+    "ALTER TABLE animal_lifecycle_events "
+    "ADD CONSTRAINT animal_lifecycle_events_event_type_check "
+    f"CHECK ({_EVENT_TYPE_CHECK})"
+)
 
 # Index 1/2 of the 4 indices on animal_lifecycle_events (issue #32
 # acceptance: "14 columnas, 4 indices"). The PK on ``id`` and the
@@ -179,6 +218,9 @@ ON animal_current_state (current_state)
 
 
 __all__ = [
+    "ANIMAL_LIFECYCLE_EVENTS_ADD_EVENT_TYPE_CHECK_SQL",
+    "ANIMAL_LIFECYCLE_EVENTS_DROP_EVENT_TYPE_CHECK_SQL",
+    "LIFECYCLE_EVENT_TYPES",
     "AnimalLifecycleEvent",
     "AnimalCurrentState",
     "ANIMAL_LIFECYCLE_EVENTS_CREATE_TABLE_SQL",
