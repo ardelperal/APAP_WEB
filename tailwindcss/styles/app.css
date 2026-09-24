@@ -113,3 +113,37 @@
         @apply m-0 list-none py-1 pl-10;
     }
 }
+
+/* Component layer (issue #821, reusable form stepper). Step-list
+   entries consumed by /static/js/form-stepper.js: state classes
+   (``is-current`` / ``is-complete``) and the ``data-step-clickable``
+   flag are toggled by the controller. Current step is a filled pill
+   in ``--color-primary`` (same treatment as the rail's active item,
+   which uses the darker token); completed steps pick up the accent
+   token with a check mark so "done but not the one you're on" reads
+   at a glance. Clickable rules come BEFORE the state rules on
+   purpose: equal specificity, later declaration wins, so hover never
+   overpaints the current/complete styling. */
+@layer components {
+    .stepper {
+        @apply m-0 flex list-none flex-wrap gap-2 p-0;
+    }
+    .stepper-item {
+        @apply flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 font-nav text-sm text-text-muted;
+    }
+    .stepper-item[data-step-clickable="true"] {
+        @apply cursor-pointer transition-colors hover:bg-bg;
+    }
+    .stepper-item.is-complete {
+        @apply border-accent text-accent;
+    }
+    .stepper-item.is-complete .stepper-label::after {
+        content: " ✓";
+    }
+    .stepper-item.is-current {
+        @apply border-primary bg-primary text-white;
+    }
+    .stepper-panel {
+        @apply mt-4 border-0 p-0;
+    }
+}

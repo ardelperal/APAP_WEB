@@ -222,6 +222,16 @@ class Settings(BaseSettings):
     # ``scripts/setup_resend_smtp.sh``).
     smtp_from: str = ""
 
+    # --- Developer-only devtools preview pages (issue #821) ---------
+    # When True, ``app.main`` registers the ``app.core.devtools``
+    # router (``GET/POST /devtools/stepper-preview``), a developer
+    # preview surface for the reusable form stepper component. The
+    # routes stay behind the default-deny auth middleware (nothing is
+    # added to ``PUBLIC_PATHS``). Defaults to False; production MUST
+    # leave this off — the router is not registered otherwise and a
+    # probe to ``/devtools/...`` receives FastAPI's default 404.
+    devtools_enabled: bool = False
+
     debug: bool = False
 
     # --- RBAC: roles allowed to write (issue #144) --------------------
