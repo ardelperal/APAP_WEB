@@ -31,8 +31,8 @@ The application-start step passes a literal URL with an unexpanded port to `Mini
 ## Delivery and checks
 
 - Forecast: approximately 220 authored changed lines total; review strategy `ask-on-risk` (default), below the 400-line delivery budget. Running total: 220 authored lines across rebased work-unit commits `8eb2dc2` (77) and `487713a` (143).
-- `make verify` before requesting review; focused checks per task. No PR, push, or merge without separate remote authorization.
-- RDD mode is on (global); both executable work-unit commits completed due reviews before rebase, and the documentation-only progress commit assessed passive (`non_executable_only`). Rebase changed candidate identity and requires fresh assessment/review before publication.
+- `make verify` before requesting review; focused checks per task. Push, PR creation, and manual `ci.yml` dispatch were authorized; merge was not.
+- RDD mode is on (global). The latest rebased candidate received four-lens native approval, acknowledged under lineage `review-1f7b9d66dc1c617c`. Earlier approvals covered only their pre-rebase identities.
 
 ## Progress and evidence
 
@@ -49,8 +49,11 @@ The application-start step passes a literal URL with an unexpanded port to `Mini
 - 2026-09-24: the user confirmed that no further MinIO image hardening is wanted; continue the approved CI/CD issue sequence without an image fork.
 - 2026-09-24: the real E2E exposed two additional false-green causes: the photo fixture used a nonexistent `animales.nombre` column and a non-UUID ID, then the photo metadata adapter queried nonexistent `"NombreFoto"` rather than physical `nombrefoto`. The failing test returned a 68-byte placeholder instead of the stored 67-byte object. The narrow production query fix aliases `nombrefoto AS "NombreFoto"` to preserve its row contract; real E2E is now green. This production edit is within the task's explicit exception for a failing test that proves it necessary.
 - 2026-09-24: `origin/main` advanced to `3895721` through #821 frontend work. Rebase was conflict-free; the changed base invalidated the old native review target identity. On the rebased tree, `PYTHON=/home/ubuntu/repos/apap-app/.venv/bin/python make verify` passed: 4,616 passed, 19 skipped, 1 xfailed, 86.03% coverage, `check_crap` OK. The earlier 6/6 real E2E run was before rebase; the hosted dispatch remains pending.
+- 2026-09-24: `origin/main` advanced again to `b4f7246` before publication. Rebase was conflict-free. `make verify` on the new base passed: 4,620 passed, 19 skipped, 1 xfailed, 85.98% coverage, `check_crap` OK. The exact rebased candidate passed and acknowledged native RDD review.
+- 2026-09-24: branch `fix/894-e2e-minio` was pushed using the stored `ardelperal` OAuth credential, and PR [#900](https://github.com/ardelperal/APAP_WEB/pull/900) opened with `type:bug`. PR run [36028817592](https://github.com/ardelperal/APAP_WEB/actions/runs/36028817592) passed, including `ci / required`; E2E was skipped on the PR event by the existing event matrix.
+- 2026-09-24: manual `ci.yml` run [36028890804](https://github.com/ardelperal/APAP_WEB/actions/runs/36028890804) passed `build` and the real `e2e` job, but the run and `required` failed: `mutation` found no tests in its unmutated Cosmic Ray baseline, and `security-deep` found 11 full-history Gitleaks findings in older files. These failures are outside the #894 diff. Do not call the manual workflow green or merge while it remains red.
 - Engram mirror: current after read-back.
 
 ## Next step
 
-The user authorized push, PR creation, and manual `ci.yml` dispatch using their stored `ardelperal` OAuth session with `workflow` scope; merge remains unauthorized. After rebase onto `origin/main` at `3895721`, rerun full checks and obtain candidate-specific native RDD review before publication. Then push, open PR, and run hosted CI. Proceed to approved issues #895 and #896 sequentially. The accepted seven-critical-CVE risk applies only to this E2E image.
+Keep PR #900 unmerged. Triage the manual-only `mutation` and `security-deep` failures separately without hiding the red status or widening #894; then continue approved issues #895 and #896 in order. The accepted seven-critical-CVE risk applies only to this E2E image.
