@@ -1,16 +1,24 @@
-"""E2E: nav active-state marker (issue #805, Phase B.3).
+"""E2E: nav active-state marker (issue #805, Phase B.3, re-expressed for #868).
 
-Acceptance criteria from #805:
-- The nav link whose href matches the current pathname (or its longest
-  matching prefix) receives ``aria-current="page"`` and the CSS hook
-  class ``is-active``.
-- Visual treatment uses primary brand colour (``text-primary``,
-  ``border-b-2 border-primary``).
-- Longest-prefix match: ``/entradas/batch/new`` activates the
-  "Lote" link, not "Entradas".
+Acceptance criteria from #805, re-expressed by #868 (PR 2) for the
+sidebar rail:
+- The rail link whose href matches the current pathname (or its longest
+  matching prefix) receives ``aria-current="page"``. The marker may sit
+  at any depth: a nested group child (e.g. "Estancias" on /acogidas)
+  gets the same treatment as a top-level item.
+- Visual treatment is a filled pill using the EXISTING
+  ``--color-primary-dark`` token (``#076FB8``) — asserted via the
+  computed ``background-color`` so the pill cannot silently lose its
+  fill (the old ``.is-active`` class hook died with the header nav;
+  the rail styles the ``aria-current`` attribute directly).
+- The marker is always a leaf ``<a>``, never a group's disclosure
+  control (``<button>``).
+- Longest-prefix match: ``/entradas/batch/new`` activates the "Lote"
+  link, not "Entradas".
 - The active treatment is applied on first render (no flash of
   unstyled active state).
-- axe-core / Lighthouse ``aria-current`` audit reports zero violations.
+- Exactly one ``aria-current="page"`` inside ``#nav-main`` (no
+  double-activation).
 
 Tests rely on the Playwright fixtures defined in
 ``tests/e2e/conftest.py`` and inherit the parent conftest's auto-skip
@@ -126,17 +134,48 @@ def test_longest_prefix_match_for_batch_new(page: Page, base_url: str) -> None:
     )
 
 
-def test_active_item_has_is_active_css_hook(page: Page, base_url: str) -> None:
-    """The active nav item carries the CSS class hook ``is-active``."""
+def test_active_item_uses_primary_dark_filled_pill(page: Page, base_url: str) -> None:
+    """The active rail item is a filled pill in ``--color-primary-dark``.
+
+    ``#076FB8`` is the existing ``--color-primary-dark`` token; no new
+    token was introduced for the rail. Asserting the computed
+    ``background-color`` (not a class name) pins the visual contract:
+    if the pill loses its fill or drifts to another colour, this fails.
+    """
     _preflight_login_available(page, base_url)
     if _skip_if_redirected(page, base_url, "/animales"):
         return
 
-    has_class = page.evaluate(
+    bg = page.evaluate(
         "() => { const a = document.querySelector('#nav-main [aria-current=\"page\"]');"
-        "  return a ? a.classList.contains('is-active') : false; }"
+        "  return a ? getComputedStyle(a).backgroundColor : null; }"
     )
-    assert has_class, "active nav item must carry the .is-active CSS class hook"
+    assert bg == "rgb(7, 111, 184)", (
+        f"active rail item must be a filled pill in --color-primary-dark "
+        f"(#076FB8 → rgb(7, 111, 184)), got {bg!r}"
+    )
+
+
+def test_active_marker_is_a_leaf_link_not_a_group_control(
+    page: Page, base_url: str
+) -> None:
+    """The ``aria-current="page""`` marker sits on an ``<a>``, never on a group button.
+
+    A group's disclosure control must never be announced as the current
+    page: the marker belongs to the leaf link that matches the path.
+    """
+    _preflight_login_available(page, base_url)
+    if _skip_if_redirected(page, base_url, "/animales"):
+        return
+
+    tag = page.evaluate(
+        "() => { const a = document.querySelector('#nav-main [aria-current=\"page\"]');"
+        "  return a ? a.tagName : null; }"
+    )
+    assert tag == "A", (
+        f"aria-current='page' must be on a leaf <a>, got <{tag}> "
+        "(a group disclosure control must never be marked as current)"
+    )
 
 
 def test_exactly_one_active_item_on_authenticated_routes(

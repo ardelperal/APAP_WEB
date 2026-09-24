@@ -8,13 +8,22 @@ configuración viva de GitHub es la autoridad.
 `main` es la única rama de entrega protegida. Todo cambio llega mediante un
 pull request; el push directo no es una vía de entrega.
 
-El ruleset restringe las actualizaciones a los roles `Maintain` y `Admin`.
+El ruleset `main-maintainers-and-admins-merge` restringe las actualizaciones a
+los roles `Maintain` y `Admin` cuando está activo.
 `Write` permite contribuir y revisar, pero no mergear en `main`.
 
-Su nombre estable es `main-maintainers-and-admins-merge`.
+El bypass de esos roles solo opera mediante pull request; no permite omitir
+el PR ni hacer push directo.
 
-El bypass de esos roles solo opera mediante pull request. No permite omitir el
-PR ni hacer push directo.
+**Estado actual: `disabled`** (issue #892, 2026-09-23). En un repo de
+mantenedor único esa restricción no frena a nadie salvo al propio
+mantenedor — es fricción sin protección real, y además `gh pr merge` sin
+`--admin` no disparaba el bypass aunque el actor calificara, obligando a usar
+`--admin` (que saltea también los checks requeridos, no solo esta regla) en
+cada merge. Reactive el ruleset (`enforcement: active` vía
+`gh api --method PUT repos/.../rulesets/22650195`) el día que se incorpore un
+segundo colaborador con rol `Write` que no deba poder mergear sin
+supervisión — mismo criterio que la política de revisión más abajo.
 
 ## Checks requeridos
 
@@ -43,7 +52,7 @@ actualice `CODEOWNERS`.
 - Exigir pull request y rama actualizada antes del merge.
 - Exigir todas las conversaciones resueltas.
 - Aplicar las reglas también a administradores.
-- Restringir el merge a `Maintain` y `Admin` mediante pull request.
+- Restringir el merge a `Maintain` y `Admin` mediante pull request — **desactivado** desde el issue #892 (2026-09-23); reactivar al incorporar un segundo colaborador `Write`.
 - Prohibir force-push y borrado de la rama.
 - Permitir merge commits y mantener desactivado el historial lineal.
 

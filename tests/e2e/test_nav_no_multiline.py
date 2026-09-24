@@ -1,21 +1,23 @@
-"""E2E: header nav links fit on one line at desktop 1440x900 (issue #806).
+"""E2E: rail nav labels fit on one line at desktop 1440x900 (issue #806, re-expressed for #868).
 
-Acceptance criteria from #806 (Phase B.1, slice #806):
-- After the rename, every direct-child ``<a>`` of ``<nav id='nav-main'>``
-  has ``boundingClientRect().height <= 30`` at the desktop viewport
-  (1440x900) with Tailwind v4 ``text-sm``. The three previously
-  wrapping labels ("Entradas en lote" → 2 lines, "Casas de acogida" →
-  3 lines, "Estancias de acogida" → 3 lines) now render on a single
-  line.
-- Each renamed link carries the long-form string in its ``title=``
-  attribute (hover tooltip) and renders the short label as visible text.
+Acceptance criteria from #806, re-expressed by #868 (PR 2) for the
+sidebar rail:
+- After the rename, every ``<span>`` label inside a rail anchor
+  (``a.rail-item`` top-level link or ``a.rail-child`` nested child of
+  ``<nav id='nav-main'>``) renders exactly one text line at the desktop
+  viewport (1440x900). The three previously wrapping labels ("Entradas
+  en lote" → 2 lines, "Casas de acogida" → 3 lines, "Estancias de
+  acogida" → 3 lines) now render on a single line — in the rail they
+  are nested children of the Acogida / Entradas groups.
+- Each renamed link renders the short label as visible text and carries
+  the long-form string in its ``title=`` attribute (hover tooltip).
 - None of the three long-form strings leaks as visible nav text (a
   parametrised sentinel pins this against accidental regressions).
 
-The scope is restricted to the direct-child ``<a>`` elements of the
-nav container; the brand link and the user block link
-("Iniciar sesión" / "Salir") are excluded because they are not nav
-items (the brand is the wordmark, the user block is the auth CTA).
+The scope is restricted to the rail registry anchors (``.rail-item`` /
+``.rail-child``); the brand link, the group disclosure buttons and the
+user block / "Ver la web" links are excluded because they are not nav
+items from ``NAV_ITEMS``.
 
 Tests rely on the Playwright fixtures defined in
 ``tests/e2e/conftest.py`` and inherit the parent conftest's auto-skip
@@ -56,22 +58,31 @@ def _preflight_login_available(page: Page, base_url: str) -> None:
 
 
 def _nav_links(page: Page) -> list[dict]:
-    """Return one entry per direct-child ``<a>`` of ``<nav id='nav-main'>``.
+    """Return one entry per rail anchor (``a.rail-item`` / ``a.rail-child``).
 
-    Each entry carries ``href``, ``text`` (trimmed visible content),
-    ``title`` (the ``title=`` attribute, may be ``None``), and ``height``
-    (``getBoundingClientRect().height``). Skips the user-block link
-    ("Iniciar sesión" / "Salir") which lives inside a nested ``<div>``
-    and is not a nav item.
+    Group disclosure ``<button>``s, the brand link, the user block and
+    the "Ver la web" foot link are excluded because they are not
+    ``NAV_ITEMS`` anchors. Each entry carries ``href``, ``text``
+    (trimmed visible content), ``title`` (the ``title=`` attribute, may
+    be ``None``), ``height`` (``getBoundingClientRect().height`` of the
+    anchor), and, when the anchor contains a ``<span>`` label,
+    ``span_height`` and ``span_line_height`` in px for the line-count
+    assertion.
     """
     return page.evaluate(
-        "() => Array.from(document.querySelectorAll('#nav-main > a')).map(a => {"
+        "() => Array.from(document"
+        ".querySelectorAll('#nav-main a.rail-item, #nav-main a.rail-child'))"
+        ".map(a => {"
         "  const r = a.getBoundingClientRect();"
+        "  const span = a.querySelector('span');"
+        "  const cs = span ? getComputedStyle(span) : null;"
         "  return {"
         "    href: a.getAttribute('href'),"
         "    text: a.textContent.trim(),"
         "    title: a.getAttribute('title'),"
-        "    height: r.height"
+        "    height: r.height,"
+        "    span_height: span ? span.getBoundingClientRect().height : null,"
+        "    span_line_height: cs ? parseFloat(cs.lineHeight) : null"
         "  };"
         "})"
     )
@@ -80,25 +91,93 @@ def _nav_links(page: Page) -> list[dict]:
 def test_every_nav_link_fits_on_one_line_at_desktop(
     page: Page, base_url: str
 ) -> None:
-    """Every direct-child ``<a>`` of ``<nav id='nav-main'>`` has height <= 30 at 1440x900.
+    """Every ``<span>`` label in ``<nav id='nav-main'>`` renders exactly one text line.
 
-    The ``<= 30`` ceiling corresponds to a single line of ``text-sm``
-    (line-height 20px) plus a small tolerance for sub-pixel rounding
-    and any leading/trailing inline padding. Before the rename, the
-    three offending items measured 40-60px here; after the rename,
-    every nav link must collapse to a single line.
+    The primary assertion measures text lines, not the anchor box:
+    ``round(span_height / line_height) === 1``. The original ``<= 30``
+    anchor-height ceiling was mis-calibrated — a single-line anchor
+    measures 36px at 1440x900 (20px line-height of ``text-sm`` + 8px
+    ``md:py-2`` top + 8px bottom padding), so it never held in a real
+    browser. Before the rename, the three offending items wrapped to
+    2-3 text lines here; after the rename, every label must be one.
     """
     _preflight_login_available(page, base_url)
     page.set_viewport_size(DESKTOP_VIEWPORT)
     page.goto(f"{base_url}/login", wait_until="domcontentloaded")
 
     links = _nav_links(page)
-    assert links, "<nav id='nav-main'> must contain at least one direct-child <a>"
+    assert links, "the rail must contain at least one registry anchor"
 
     for link in links:
-        assert link["height"] <= 30, (
+        if link["span_height"] is None:
+            continue
+        line_height = link["span_line_height"]
+        assert line_height and line_height > 0, (
+            f"nav link {link['href']!r} has no usable computed line-height"
+        )
+        lines = round(link["span_height"] / line_height)
+        assert lines == 1, (
             f"nav link {link['href']!r} (label={link['text']!r}) wraps "
-            f"to multiple lines: height={link['height']:.2f} > 30"
+            f"to {lines} text lines: span_height={link['span_height']:.2f}, "
+            f"line_height={line_height:.2f}"
+        )
+        # Defensive anchor-height check. Measured on real Chromium at
+        # 1440x900: one line = 20px (text-sm line-height) + 8px (md:py-2
+        # top) + 8px (bottom) = 36px; two lines would be 56px. 50 cleanly
+        # separates one line from two without pinning the exact padding
+        # (the old <= 30 ceiling never held — see docstring above).
+        assert link["height"] < 50, (
+            f"nav link {link['href']!r} (label={link['text']!r}) anchor "
+            f"is too tall: height={link['height']:.2f} >= 50 suggests "
+            "multiple rendered lines"
+        )
+
+
+def test_every_top_level_rail_link_has_a_sixteen_px_aria_hidden_icon(
+    page: Page, base_url: str
+) -> None:
+    """Each top-level rail link renders exactly one 16x16 ``<svg aria-hidden="true">``.
+
+    Decorative nav icons must be sized 16x16 px (accept 15-17 to allow
+    sub-pixel rounding) and hidden from assistive technology. Nested
+    children (``a.rail-child``) are label-only by design (see
+    ``test_nav_icons.py::test_group_children_are_label_only``), so the
+    audit is scoped to ``a.rail-item`` anchors.
+    """
+    _preflight_login_available(page, base_url)
+    page.set_viewport_size(DESKTOP_VIEWPORT)
+    page.goto(f"{base_url}/login", wait_until="domcontentloaded")
+
+    icons = page.evaluate(
+        "() => Array.from(document.querySelectorAll('#nav-main a.rail-item'))"
+        "  .map(a => ({"
+        "    href: a.getAttribute('href'),"
+        "    svgs: Array.from(a.querySelectorAll('svg')).map(s => ({"
+        "      aria_hidden: s.getAttribute('aria-hidden'),"
+        "      width: s.getBoundingClientRect().width,"
+        "      height: s.getBoundingClientRect().height"
+        "    }))"
+        "  }))"
+    )
+    assert icons, "the rail must contain at least one top-level anchor"
+
+    for link in icons:
+        assert len(link["svgs"]) == 1, (
+            f"nav link {link['href']!r} must contain exactly one <svg>, "
+            f"got {len(link['svgs'])}"
+        )
+        svg = link["svgs"][0]
+        assert svg["aria_hidden"] == "true", (
+            f"nav icon in {link['href']!r} must have aria-hidden='true', "
+            f"got {svg['aria_hidden']!r}"
+        )
+        assert 15 <= svg["width"] <= 17, (
+            f"nav icon width in {link['href']!r} must be ~16px, "
+            f"got {svg['width']:.2f}"
+        )
+        assert 15 <= svg["height"] <= 17, (
+            f"nav icon height in {link['href']!r} must be ~16px, "
+            f"got {svg['height']:.2f}"
         )
 
 

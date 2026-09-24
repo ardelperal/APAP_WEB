@@ -115,6 +115,27 @@ def test_job_without_a_timeout_is_a_violation() -> None:
     assert "360-minute" in violations[0]
 
 
+def test_reusable_workflow_call_job_does_not_need_its_own_timeout() -> None:
+    """Issue #890: a job that calls a reusable workflow via ``uses:`` cannot
+    declare its own ``timeout-minutes`` — GitHub Actions' schema forbids
+    ``timeout-minutes``/``runs-on``/``steps`` on that job shape. The called
+    workflow's own job already states its timeout, so flagging the caller
+    as missing one would be a false positive.
+    """
+    text = """\
+jobs:
+  pr-size:
+    uses: ./.github/workflows/pr-size.yml
+  test:
+    runs-on: [self-hosted]
+    timeout-minutes: 15
+    steps:
+      - run: true
+"""
+
+    assert check_workflows.check_timeouts(text, "ci.yml") == []
+
+
 def test_every_repository_job_states_a_timeout() -> None:
     """The live tree must stay covered: 360 minutes is never the intended budget."""
     violations, scanned = check_workflows.check(WORKFLOW_DIR)
@@ -454,6 +475,24 @@ def test_self_hosted_job_excluded_from_pull_request_by_if_condition_is_accepted(
 def test_hosted_runner_label_is_always_accepted() -> None:
     """A literal GitHub-hosted label needs no `if:` exclusion at all."""
     text = _PR_REACHABLE_SELF_HOSTED.replace("runs-on: [self-hosted]", "runs-on: ubuntu-24.04")
+
+    assert check_workflows.check_runner_isolation(text, "ci.yml") == []
+
+
+def test_reusable_workflow_call_job_is_exempt_from_runner_isolation() -> None:
+    """Issue #890: a job calling a reusable workflow via ``uses:`` has no
+    ``runs-on`` of its own — the called workflow's own job declares (and is
+    independently scanned for) its runner. Flagging the caller as an
+    unlabeled self-hosted job would be a false positive.
+    """
+    text = """\
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  pr-size:
+    uses: ./.github/workflows/pr-size.yml
+"""
 
     assert check_workflows.check_runner_isolation(text, "ci.yml") == []
 

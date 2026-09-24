@@ -38,6 +38,10 @@
     <link rel="stylesheet" href="/static/css/output.css" />
   </head>
   <body class="min-h-screen flex flex-col bg-bg text-text font-sans antialiased">
+    {# Inlined lucide sprite for the nav icons (issue #808). Rendered
+       once per page, right after <body>, so ``<use href="#nav-icon-*">``
+       resolves in every browser without a same-origin fetch. #}
+    {% include "_lucide_nav_sprite.html" %}
     {# Skip link (issue #812, WCAG 2.4.1 Bypass Blocks). Mirror of the
        desktop skip link in ``base.html``; required because this mobile
        template is selected for every request whose UA is flagged mobile
@@ -83,17 +87,22 @@
         aria-label="Menú principal"
         class="hidden flex-col bg-surface border-t border-border text-sm shadow-card"
       >
-        <a href="/animales" {% if nav_active_href == "/animales" %}aria-current="page" class="nav-link is-active px-4 py-3{% else %}class="nav-link px-4 py-3 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors{% endif %}">Animales</a>
-        <a href="/entradas" {% if nav_active_href == "/entradas" %}aria-current="page" class="nav-link is-active px-4 py-3{% else %}class="nav-link px-4 py-3 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors{% endif %}">Entradas</a>
-        <a href="/entradas/batch/new" title="Entradas en lote" {% if nav_active_href == "/entradas/batch/new" %}aria-current="page" class="nav-link is-active px-4 py-3{% else %}class="nav-link px-4 py-3 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors{% endif %}">Lote</a>
-        <a href="/casas-acogida" title="Casas de acogida" {% if nav_active_href == "/casas-acogida" %}aria-current="page" class="nav-link is-active px-4 py-3{% else %}class="nav-link px-4 py-3 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors{% endif %}">Casas</a>
-        <a href="/acogidas" title="Estancias de acogida" {% if nav_active_href == "/acogidas" %}aria-current="page" class="nav-link is-active px-4 py-3{% else %}class="nav-link px-4 py-3 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors{% endif %}">Estancias</a>
-        <a href="/adopciones" {% if nav_active_href == "/adopciones" %}aria-current="page" class="nav-link is-active px-4 py-3{% else %}class="nav-link px-4 py-3 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors{% endif %}">Adopciones</a>
-        <a href="/sanidad" {% if nav_active_href == "/sanidad" %}aria-current="page" class="nav-link is-active px-4 py-3{% else %}class="nav-link px-4 py-3 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors{% endif %}">Actuaciones</a>
-        <a href="/voluntarios" {% if nav_active_href == "/voluntarios" %}aria-current="page" class="nav-link is-active px-4 py-3{% else %}class="nav-link px-4 py-3 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors{% endif %}">Voluntarios</a>
-        {% if user is defined and user and user.role == "developer" %}
-          <a href="/admin" {% if nav_active_href == "/admin" %}aria-current="page" class="nav-link is-active px-4 py-3{% else %}class="nav-link px-4 py-3 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors{% endif %}">Admin</a>
-        {% endif %}
+        {# Nav items (issue #805, loop since #808). Same list as the
+           desktop template (both render via UA-based selector from
+           ``UADetectionMiddleware``, so the list must stay in sync
+           until slice C unifies the templates). Each anchor renders its
+           lucide icon from the inlined sprite with
+           ``aria-hidden="true"``; no ``title=`` here — no hover on
+           touch. The role gate keeps the previous template-side filter
+           (``user.role`` arrives per render, not via ``request``). #}
+        {% for item in nav_items %}
+          {% if not item.role or (user is defined and user and user.role == item.role) %}
+            <a href="{{ item.href }}" {% if nav_active_href == item.href %}aria-current="page" class="nav-link is-active flex items-center gap-2 px-4 py-3{% else %}class="nav-link flex items-center gap-2 px-4 py-3 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors{% endif %}">
+              <svg class="nav-icon shrink-0" width="16" height="16" aria-hidden="true"><use href="#nav-icon-{{ item.icon }}" /></svg>
+              <span>{{ item.label }}</span>
+            </a>
+          {% endif %}
+        {% endfor %}
         <div class="border-t border-border px-4 py-3 text-sm">
           {% if user is defined and user %}
             <p class="font-medium text-text">{{ user.email }}</p>

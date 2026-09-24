@@ -1,3 +1,4 @@
+import os
 import re
 import shlex
 import subprocess
@@ -171,6 +172,17 @@ def test_branch_protection_note_lists_required_ci_checks() -> None:
     assert "Aplicar las reglas también a administradores" in note
     assert "`Maintain` y `Admin`" in note
     assert "`Write` permite contribuir y revisar, pero no mergear" in note
+
+
+def test_branch_protection_note_documents_disabled_ruleset() -> None:
+    """Issue #892: the merge-restriction ruleset is disabled for the
+    single-maintainer repo (pure friction, no real protection) — the note
+    must say so, not just describe the rule as if it were still active.
+    """
+    note = BRANCH_PROTECTION_PATH.read_text(encoding="utf-8")
+
+    assert "**Estado actual: `disabled`**" in note
+    assert "issue #892" in note
 
 
 def test_ci_cd_guide_tracks_the_live_job_inventory() -> None:
@@ -753,6 +765,25 @@ def _job_executable(workflow: str, start: str, end: str) -> str:
     return "\n".join(line for line in section.splitlines() if not line.lstrip().startswith("#"))
 
 
+def _job_block(workflow: str, job_name: str) -> str:
+    """Return one top-level job's YAML, from its header to the next job's.
+
+    Unlike ``_job_executable`` (which needs the caller to name the next
+    job), this walks every top-level job header so callers can extract a
+    single job without knowing what follows it — needed to check the last
+    job in a file (e.g. ``required`` in ci.yml, ``deploy`` in deploy.yml).
+    """
+    jobs_index = workflow.index("\njobs:\n")
+    body = workflow[jobs_index:]
+    header_pattern = re.compile(r"^  [a-z][a-z0-9-]+:$", re.MULTILINE)
+    headers = list(header_pattern.finditer(body))
+    for position, match in enumerate(headers):
+        if match.group() == f"  {job_name}:":
+            end = headers[position + 1].start() if position + 1 < len(headers) else len(body)
+            return body[match.start() : end]
+    raise AssertionError(f"job {job_name!r} not found in workflow")
+
+
 def test_ci_workflow_lint_job_runs_alantyle_lint() -> None:
     """Issue #559, ADR d-42: ``lint`` bloquea anti-patrones alan-style.
 
@@ -815,6 +846,62 @@ def test_ci_workflow_does_not_run_retired_quality_envelope() -> None:
     executable = _job_executable(workflow, "\n  lint:", "\n  security:")
     assert "scripts/quality_report.py" not in executable
     assert "--emit-envelope" not in executable
+
+
+# --- issue #879: least-privilege permissions per job -----------------------
+#
+# The workflow-level `permissions:` block in ci.yml declares `issues: read`
+# for every job, but only `issue-spec` (which reads the linked issue via the
+# GitHub API) actually needs it. Every job must declare its own minimal
+# block instead of silently inheriting a scope it does not use — the same
+# pattern deploy.yml's `deploy` job already followed for issue #682.
+
+CI_JOBS_REQUIRING_ISSUES_READ = frozenset({"issue-spec"})
+
+
+@pytest.mark.parametrize("job_name", sorted(_workflow_job_names(WORKFLOW_PATH)))
+def test_ci_workflow_job_declares_least_privilege_permissions(job_name: str) -> None:
+    """Issue #879: every ci.yml job must declare its own `permissions:`."""
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    block = _job_block(workflow, job_name)
+
+    assert "permissions:" in block, (
+        f"job {job_name!r} in ci.yml must declare its own `permissions:` "
+        "block instead of inheriting the workflow-level default (issue #879)"
+    )
+    assert "contents: read" in block
+
+    if job_name in CI_JOBS_REQUIRING_ISSUES_READ:
+        assert "issues: read" in block, (
+            f"job {job_name!r} calls the GitHub API for issue data and "
+            "needs `issues: read` (issue #879)"
+        )
+    else:
+        assert "issues: read" not in block, (
+            f"job {job_name!r} does not read issues; keep its permissions "
+            "block minimal (issue #879)"
+        )
+
+
+def test_deploy_evidence_job_declares_least_privilege_permissions() -> None:
+    """Issue #879: `evidence` reads via checkout + the Actions API only.
+
+    It inherited `packages: write` from the workflow-level block without
+    ever pushing a package — only the `deploy` job (which pushes to GHCR)
+    needs that scope.
+    """
+    workflow = DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8")
+    block = _job_block(workflow, "evidence")
+
+    assert "permissions:" in block, (
+        "evidence job must declare its own permissions block (issue #879)"
+    )
+    assert "contents: read" in block
+    assert "actions: read" in block
+    assert "packages: write" not in block, (
+        "evidence never pushes a package; packages: write belongs only to "
+        "the deploy job (issue #879)"
+    )
 
 
 def test_ci_workflow_lint_job_runs_import_cycle_detector() -> None:
@@ -1548,6 +1635,167 @@ def _parse_shortstat(shortstat: str) -> int:
         elif chunk.endswith("deletion(-)") or chunk.endswith("deletions(-)"):
             deleted = int(chunk.split()[0])
     return added + deleted
+
+
+# --- issue #890: consolidate the pr-size gate into a single source -----
+#
+# #867 embedded a second computation of the same merge-base diff directly
+# in ci.yml so an oversized PR would not burn runner minutes on lint/test/
+# security/etc. #878/#879 each had to fix that embedded copy in lockstep
+# with pr-size.yml after it drifted, and the two workflows publishing a
+# check named `pr-size` for the same commit forced `--admin` merges on
+# every PR touching either one (GitHub documents same-name checks across
+# workflows as producing ambiguous required-status results). This section
+# pins that ci.yml no longer reimplements the computation — it calls
+# pr-size.yml as a reusable workflow instead — and that pr-size.yml's own
+# ``pull_request`` trigger now covers only label changes, so exactly one
+# workflow publishes the `pr-size` check for any given event. The three-dot
+# diff / awk parsing / lockfile-exclude / unshallow-fetch guarantees stay
+# pinned above against pr-size.yml itself (the single remaining source);
+# they do not need a second copy here.
+
+
+def test_ci_workflow_pr_size_job_calls_the_reusable_workflow() -> None:
+    """Issue #890: ci.yml's pr-size job must delegate, not reimplement.
+
+    A ``uses:`` job cannot declare its own ``steps:``/``runs-on:`` — GitHub
+    Actions' schema forbids mixing them. Asserting their absence here is
+    itself a regression pin against a future edit re-embedding the bash.
+    """
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    pr_size_job = _job_executable(workflow, "\n  pr-size:", "\n  issue-spec:")
+
+    assert "uses: ./.github/workflows/pr-size.yml" in pr_size_job, (
+        "ci.yml's pr-size job must call pr-size.yml as a reusable workflow "
+        "(issue #890) instead of reimplementing the merge-base diff."
+    )
+    assert "runs-on:" not in pr_size_job, (
+        "a job with `uses:` cannot also declare `runs-on:` — its presence "
+        "means the embedded implementation was not actually removed."
+    )
+    assert "Compute diff against merge-base" not in pr_size_job, (
+        "the embedded diff step must be gone entirely; pr-size.yml is now "
+        "the only place that computes it (issue #890)."
+    )
+
+
+def test_pr_size_workflow_declares_workflow_call_trigger() -> None:
+    """Issue #890: pr-size.yml must be callable from ci.yml as a reusable
+    workflow, in addition to its own direct pull_request trigger.
+    """
+    pr_size = PR_SIZE_WORKFLOW_PATH.read_text(encoding="utf-8")
+    triggers = _trigger_lines(pr_size)
+
+    assert "workflow_call:" in triggers, (
+        "pr-size.yml must declare a workflow_call trigger so ci.yml can "
+        "invoke it via `uses:` (issue #890)."
+    )
+
+
+def test_pr_size_direct_trigger_covers_only_label_changes() -> None:
+    """Issue #890: opened/synchronize/reopened now route through ci.yml's
+    call, not pr-size.yml's own direct trigger — otherwise both would fire
+    for the same event and publish the same-named check twice, the exact
+    ambiguity this consolidation exists to remove.
+    """
+    pr_size = PR_SIZE_WORKFLOW_PATH.read_text(encoding="utf-8")
+    triggers = _trigger_lines(pr_size)
+    pull_request = triggers["pull_request:"]
+
+    assert "labeled" in pull_request
+    assert "unlabeled" in pull_request
+    assert "opened" not in pull_request, (
+        "pr-size.yml's direct pull_request trigger must not also cover "
+        "opened/synchronize/reopened (issue #890) — those route through "
+        "ci.yml's workflow_call instead, or the same event fires both "
+        "workflows and reintroduces the duplicate `pr-size` check."
+    )
+    assert "synchronize" not in pull_request
+    assert "reopened" not in pull_request
+
+
+def test_pr_size_diff_step_reports_zero_on_non_pull_request_events(tmp_path: Path) -> None:
+    """Issue #890: called via workflow_call from ci.yml's push/tag/
+    workflow_dispatch triggers, this step now has no PR context at all —
+    it must report total=0 instead of failing loudly, exactly like ci.yml's
+    own fallback did before this consolidation absorbed that behaviour.
+    """
+    pr_size = "\n".join(
+        line
+        for line in PR_SIZE_WORKFLOW_PATH.read_text(encoding="utf-8").splitlines()
+        if not line.lstrip().startswith("#")
+    )
+    start = pr_size.index("- name: Compute diff against merge-base")
+    step = pr_size[start:]
+    run_start = step.index("run: |") + len("run: |")
+    end = step.index("- name:", run_start)
+    script = step[run_start:end]
+
+    repo = tmp_path / "fixture"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+
+    github_output = tmp_path / "github_output"
+    github_output.write_text("", encoding="utf-8")
+
+    result = subprocess.run(
+        ["bash", "-c", script],
+        cwd=repo,
+        env={**os.environ, "GITHUB_OUTPUT": str(github_output), "EVENT_NAME": "push", "BASE_REF": ""},
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, (
+        f"the diff step must exit 0 on a non-pull_request event; "
+        f"stderr: {result.stderr}"
+    )
+    assert "total=0" in github_output.read_text(encoding="utf-8")
+
+
+def test_pr_size_diff_step_still_fails_loud_on_pull_request_with_empty_base_ref(
+    tmp_path: Path,
+) -> None:
+    """Issue #890: the fail-loud guard (issue #525) must survive the new
+    event_name branch — an actual pull_request event with no base ref is
+    still the regression #525 exists to catch, not a legitimate skip.
+    """
+    pr_size = "\n".join(
+        line
+        for line in PR_SIZE_WORKFLOW_PATH.read_text(encoding="utf-8").splitlines()
+        if not line.lstrip().startswith("#")
+    )
+    start = pr_size.index("- name: Compute diff against merge-base")
+    step = pr_size[start:]
+    run_start = step.index("run: |") + len("run: |")
+    end = step.index("- name:", run_start)
+    script = step[run_start:end]
+
+    repo = tmp_path / "fixture"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+
+    github_output = tmp_path / "github_output"
+    github_output.write_text("", encoding="utf-8")
+
+    result = subprocess.run(
+        ["bash", "-c", script],
+        cwd=repo,
+        env={
+            **os.environ,
+            "GITHUB_OUTPUT": str(github_output),
+            "EVENT_NAME": "pull_request",
+            "BASE_REF": "",
+        },
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1, (
+        "a pull_request event with an empty base ref must still fail loud "
+        "(issue #525) — a quiet total=0 here would hide the exact bug #525 "
+        "was written to catch."
+    )
 
 
 # --- make verify <-> ci.yml parity (issue #504) ------------------------

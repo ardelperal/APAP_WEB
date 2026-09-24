@@ -1277,6 +1277,15 @@ TEMPLATE_SPECS: list[tuple[str, list[str], dict[str, Any]]] = [
         },
     ),
     (
+        # Static partial with no interpolated context: the nine lucide
+        # ``<symbol>`` definitions are literal SVG (copied from
+        # lucide-static). Rendered once per page via ``{% include %}``
+        # from both base templates (issue #808).
+        "_lucide_nav_sprite.html",
+        [],
+        {},
+    ),
+    (
         "salud/recomendaciones_list.html",
         [
             "terapia.id",
@@ -1615,6 +1624,17 @@ def test_no_user_data_in_url_attributes() -> None:
             # in ``app/main.py`` - a module-level constant (hardcoded
             # list of internal routes). Never user input.
             ("index.html", "shortcut.href"),
+            # ``item.icon`` comes from ``NAV_ITEMS`` in ``app/core/nav.py`` — a
+            # frozen dataclass tuple that is a module-level constant (nine literal
+            # lucide symbol suffixes). Never user input; the ``#nav-icon-<id>``
+            # fragment only ever references a symbol inlined by
+            # ``_lucide_nav_sprite.html``. Issue #808.
+            ("base_mobile.html", "item.icon"),
+            ("base.html", "item.icon"),
+            ("base_mobile.html", "item.href"),
+            ("base.html", "item.href"),
+            ("base_mobile.html", "item.title"),
+            ("base.html", "item.title"),
         }
     )
     offenders: list[str] = []

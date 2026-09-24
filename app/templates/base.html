@@ -1,12 +1,13 @@
 <!doctype html>
-{# APAP — base template.
+{# APAP — base template (desktop).
 
-   Global chrome: APAP sticky nav, page container, footer.
+   Global chrome: APAP sidebar rail (issue #868), page container, footer.
    Templates extend this and fill {% block content %}.
 
-   Tokens consumed: bg-primary, bg-surface, bg-bg, text-primary,
-   text-text, text-text-muted, border-border, hover:bg-primary/5,
-   border-b-primary, rounded-card, shadow-card, font-sans.
+   Tokens consumed: bg-primary, bg-primary-dark, bg-surface, bg-bg,
+   text-primary, text-text, text-text-muted, border-border,
+   rounded-card, shadow-card, font-sans, font-heading, font-logo,
+   font-nav.
 
    Nav login/logout adapts to whatever the calling route put in
    context. Routes that omit ``user`` show a static "Iniciar sesión"
@@ -14,20 +15,42 @@
    We use ``is defined`` so the missing-context case is graceful when
    a route renders without user context.
 
-   Responsive nav (issue #147):
-   - On mobile (< md) the inline nav is replaced by a native
-     ``<details id="nav-burger">`` disclosure widget. ``<summary>`` is
-     the burger trigger; the menu expands below it with all nav items
-     plus the user block (email/role/Salir OR Iniciar sesión). No JS
-     is needed: ``<details>/<summary>`` is a built-in HTML5 element
-     with a11y + keyboard support.
-   - On desktop (>= md) the inline ``<nav aria-label="Navegación
-     principal">`` and the user block are visible; the burger is
-     hidden. ``hidden md:flex`` flips the inline nav off on mobile
-     and back on at the Tailwind md breakpoint (48rem).
-   - Two distinct ``aria-label`` values (``Navegación principal`` for
-     desktop, ``Menú`` for mobile) keep screen-reader landmarks unique
-     when both are rendered server-side.
+   Desktop rail (issue #868, PR 2):
+   - At ``md`` and above the page is a two-column layout: a light
+     sidebar rail (``<nav id="nav-main">``, 268px, right border over
+     ``bg-surface``) on the left and the content column on the right.
+     The rail carries the brand block, the grouped entries rendered
+     from ``NAV_ENTRIES`` via ``nav_entries``, the user block and the
+     "Ver la web" external link.
+   - A ``NavGroup`` renders as a disclosure control (``<button>`` with
+     ``aria-expanded`` + ``aria-controls``) followed by its children in
+     a nested ``<ul>``; the chevron appears ONLY on groups. A plain
+     ``NavItem`` renders as a single anchor. The chevron rotation and
+     the group collapse are driven by the ``aria-expanded`` attribute
+     (``group-aria-expanded`` variant); the open state is decided
+     server-side: a group whose children contain ``nav_active_href``
+     renders expanded (``nav_open_group_labels`` from the context
+     processor) so the active item is never hidden behind a closed
+     control.
+   - The active item is a filled pill in ``bg-primary-dark`` via the
+     ``aria-current="page"`` attribute selectors in
+     ``tailwindcss/styles/app.css`` (``.rail-item`` / ``.rail-child``);
+     the same treatment applies at any depth.
+   - Below ``md`` the rail is replaced by a slim top bar carrying the
+     burger trigger; the rail markup is hidden with the same
+     ``hidden md:flex`` mechanism as the previous header nav (the
+     mobile rail for ``base_mobile.html`` is the next PR of #868).
+
+   Responsive burger (issue #819/#820, preserved by #868):
+   - The burger button (``#nav-burger-toggle``) is ``md:hidden``; the
+     toggle JS (``nav-burger.js``, layout-agnostic) reads
+     ``#nav-burger-toggle`` and ``#nav-main`` and flips
+     ``aria-expanded`` + ``nav.hidden``. ``hidden md:flex`` keeps the
+     rail visible at ``md`` and above regardless of the ``hidden``
+     attribute.
+   - The mobile top bar brand is a plain ``<span>`` (not a link): the
+     rail brand link is the single ``<a href="/">`` inside the header
+     (issue #818 contract, ``tests/e2e/test_a11y_brand_tabindex.py``).
 #}
 <html lang="es">
   <head>
@@ -38,125 +61,173 @@
     <link rel="icon" href="data:," />
     <link rel="stylesheet" href="/static/css/output.css" />
   </head>
-  <body class="min-h-screen bg-bg text-text font-sans antialiased flex flex-col">
+  <body class="min-h-screen bg-bg text-text font-sans antialiased md:flex md:flex-row md:items-stretch">
+    {# Inlined lucide sprite for the nav icons (issue #808). Rendered
+       once per page, right after <body>, so ``<use href="#nav-icon-*">``
+       resolves in every browser without a same-origin fetch. #}
+    {% include "_lucide_nav_sprite.html" %}
     {# Skip link (issue #812, WCAG 2.4.1 Bypass Blocks). First focusable
        element on every page; visually hidden until focused, then snaps to
-       the top-left above the sticky header. The target ``<main id="main"
+       the top-left above the rail. The target ``<main id="main"
        tabindex="-1">`` below can receive focus without joining the tab
        order, so Enter here moves the caret to the content start. #}
     <a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[60] focus:px-4 focus:py-2 focus:bg-primary focus:text-white focus:rounded focus:shadow-card focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2">
       Saltar al contenido principal
     </a>
-    <header class="sticky top-0 z-50 bg-surface border-b border-border shadow-card">
-      <div class="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between gap-4">
-        {# Brand link (issue #818, combines #807 + #815). ``tabindex="-1"``
-           removes the brand from the sequential Tab order so the first
-           Tab stop on every page is the first real nav item (previously
-           the user had to Tab twice on / to reach "Inicio" via the nav,
-           because both the brand and the nav item pointed at /). The
-           brand remains visible and clickable for mouse users. #}
-        <a href="/" tabindex="-1" class="text-primary font-bold text-lg flex items-center gap-2">
+    <header class="md:contents">
+      {# Mobile top bar (below md, issue #819/#820). Slim bar with the
+         wordmark (plain span — the rail brand link is the single header
+         a[href="/"], issue #818) and the burger trigger. The button is
+         hidden at md+ where the rail takes over; its ARIA contract
+         (``aria-expanded`` + ``aria-controls="nav-main"``) is what
+         ``nav-burger.js`` reads. #}
+      <div class="md:hidden sticky top-0 z-50 flex items-center justify-between gap-4 bg-surface px-4 py-3 shadow-card">
+        <span class="flex items-center gap-2 text-lg font-bold text-primary">
           <span aria-hidden="true">🐾</span>
           <span>APAP</span>
-        </a>
-        {# Mobile burger toggle (issue #819, first half of #804). The
-           button replaces the legacy ``<details>/<summary>`` block: a
-           real ``<button type="button">`` with proper ARIA state
-           (``aria-expanded``, ``aria-controls``). It is hidden at
-           ``md`` and above where the inline nav takes over; below
-           ``md`` it sits in its place. The toggle JS lands in #820 —
-           for now the button does nothing, the nav stays closed on
-           mobile, and the user lands on the brand only. #}
+        </span>
         <button
           id="nav-burger-toggle"
           type="button"
           aria-expanded="false"
           aria-controls="nav-main"
           aria-label="Menú principal"
-          class="md:hidden ml-auto list-none flex items-center gap-2 px-3 py-2 rounded border border-border text-text-muted hover:text-primary hover:border-primary transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-bg"
+          class="list-none flex items-center gap-2 px-3 py-2 rounded border border-border text-text-muted hover:text-primary hover:border-primary transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-bg"
         >
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" class="h-5 w-5" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
           </svg>
           <span class="text-sm font-medium">Menú</span>
         </button>
-        {# Single nav (issue #819). One ``<nav id="nav-main">`` replaces
-           the previous desktop-only inline nav and the legacy
-           ``<details>`` block. The same list renders both as a column
-           below ``md`` (hidden by default; #820 toggles ``hidden``
-           via JS) and as an inline row at ``md`` and above. The user
-           block (login / logout / role) follows the nav list and
-           remains part of the same disclosure container for the
-           mobile case; on desktop it has its own ``md:block``
-           wrapper further down. #}
-        <nav
-          id="nav-main"
-          aria-label="Menú principal"
-          class="hidden md:flex flex-col md:flex-row md:items-center gap-0 md:gap-1 text-sm absolute md:static left-0 right-0 top-full md:top-auto bg-surface md:bg-transparent border-b md:border-0 border-border shadow-card md:shadow-none z-40"
-        >
-          {# Nav items (issue #805). Each link declares
-             ``aria-current="page"`` + class ``is-active`` when its
-             href is the longest matching prefix of the current path
-             (see ``app/core/nav.py::resolve_active_nav_href``).
-             The shared base classes (``px-4 py-2.5 md:px-3 md:py-2
-             text-text-muted hover:text-primary hover:bg-primary/5
-             transition-colors``) carry the resting state; the
-             ``is-active`` modifier (added in ``tailwindcss/styles/app.css``
-             via ``@layer components`` below) flips the colour and adds
-             an underline. #}
-          <a href="/animales" {% if nav_active_href == "/animales" %}aria-current="page" class="nav-link is-active px-4 py-2.5 md:px-3 md:py-2{% else %}class="nav-link px-4 py-2.5 md:px-3 md:py-2 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors{% endif %}">Animales</a>
-          <a href="/entradas" {% if nav_active_href == "/entradas" %}aria-current="page" class="nav-link is-active px-4 py-2.5 md:px-3 md:py-2{% else %}class="nav-link px-4 py-2.5 md:px-3 md:py-2 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors{% endif %}">Entradas</a>
-          <a href="/entradas/batch/new" title="Entradas en lote" {% if nav_active_href == "/entradas/batch/new" %}aria-current="page" class="nav-link is-active px-4 py-2.5 md:px-3 md:py-2{% else %}class="nav-link px-4 py-2.5 md:px-3 md:py-2 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors{% endif %}">Lote</a>
-          <a href="/casas-acogida" title="Casas de acogida" {% if nav_active_href == "/casas-acogida" %}aria-current="page" class="nav-link is-active px-4 py-2.5 md:px-3 md:py-2{% else %}class="nav-link px-4 py-2.5 md:px-3 md:py-2 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors{% endif %}">Casas</a>
-          <a href="/acogidas" title="Estancias de acogida" {% if nav_active_href == "/acogidas" %}aria-current="page" class="nav-link is-active px-4 py-2.5 md:px-3 md:py-2{% else %}class="nav-link px-4 py-2.5 md:px-3 md:py-2 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors{% endif %}">Estancias</a>
-          <a href="/adopciones" {% if nav_active_href == "/adopciones" %}aria-current="page" class="nav-link is-active px-4 py-2.5 md:px-3 md:py-2{% else %}class="nav-link px-4 py-2.5 md:px-3 md:py-2 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors{% endif %}">Adopciones</a>
-          <a href="/sanidad" {% if nav_active_href == "/sanidad" %}aria-current="page" class="nav-link is-active px-4 py-2.5 md:px-3 md:py-2{% else %}class="nav-link px-4 py-2.5 md:px-3 md:py-2 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors{% endif %}">Actuaciones</a>
-          <a href="/voluntarios" {% if nav_active_href == "/voluntarios" %}aria-current="page" class="nav-link is-active px-4 py-2.5 md:px-3 md:py-2{% else %}class="nav-link px-4 py-2.5 md:px-3 md:py-2 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors{% endif %}">Voluntarios</a>
-          {% if user is defined and user and user.role == "developer" %}
-            <a href="/admin" {% if nav_active_href == "/admin" %}aria-current="page" class="nav-link is-active px-4 py-2.5 md:px-3 md:py-2{% else %}class="nav-link px-4 py-2.5 md:px-3 md:py-2 text-text-muted hover:text-primary hover:bg-primary/5 transition-colors{% endif %}">Admin</a>
-          {% endif %}
-          {# User block (issue #819). Lives inside ``<nav>`` so it is part
-             of the same disclosure as the nav links: on desktop it
-             appears inline with the nav (right side, separated by a
-             border); on mobile it sits at the bottom of the burger
-             menu (revealed by #820). Single source of truth — no
-             separate desktop-only block. #}
-          <div class="border-t md:border-t-0 md:border-l border-border px-4 md:px-3 py-3 md:py-2 text-sm mt-2 md:mt-0">
-            {% if user is defined and user %}
-              <p class="font-medium text-text md:text-right leading-tight">{{ user.email }}</p>
-              <p class="text-text-muted text-xs md:text-right">Rol: {{ user.role }}</p>
-              <form method="get" action="/logout" class="mt-2 md:mt-0 md:inline-block md:ml-2">
-                <button type="submit" class="w-full md:w-auto md:px-3 md:py-2 px-3 py-2 rounded border border-border text-text-muted hover:text-primary hover:border-primary transition-colors">
-                  Salir
-                </button>
-              </form>
-            {% else %}
-              <a href="/login" class="block md:inline-block md:px-3 md:py-2 w-full text-center px-3 py-2 rounded bg-primary text-white hover:bg-primary-dark transition-colors">
-                Iniciar sesión
-              </a>
-            {% endif %}
-          </div>
-        </nav>
       </div>
+      {# Desktop rail (issue #868, PR 2). ``<nav id="nav-main">`` is the
+         toggle target of the burger below md and the rail column at md+
+         (``hidden md:flex`` keeps it visible at md+ regardless of the
+         ``hidden`` attribute the burger JS flips). The five top-level
+         entries from ``NAV_ENTRIES`` are DIRECT children of this nav;
+         group children live in the group's own ``<ul>``, which is what
+         keeps the top-level count at five. #}
+      <nav
+        id="nav-main"
+        aria-label="Menú principal"
+        class="hidden md:flex md:flex-col w-[268px] shrink-0 md:sticky md:top-0 md:h-screen overflow-y-auto bg-surface border-r border-border shadow-card md:shadow-none"
+      >
+        {# Brand block (#868). Rounded-square mark + wordmark + stacked
+           subtitle. ``tabindex="-1"`` keeps the brand out of the Tab
+           order (issue #818): the first Tab stop is the first real nav
+           item, never the brand. #}
+        <a href="/" tabindex="-1" class="flex items-center gap-3 px-5 pb-4 pt-5">
+          <span aria-hidden="true" class="flex h-11 w-11 shrink-0 items-center justify-center rounded-[11px] bg-primary font-logo text-lg font-bold text-white">AP</span>
+          <span class="flex flex-col leading-tight">
+            <span class="font-heading text-xl font-bold text-text">APAP</span>
+            <span class="mt-0.5 text-xs text-text-muted">Panel de gestión</span>
+          </span>
+        </a>
+        {# Grouped entries (issue #868, PR 2). Rendered from
+           ``NAV_ENTRIES`` via the ``nav_entries`` context variable. The
+           loop variable stays ``item`` — DELIBERATE, see the note at the
+           children loop. Role gating stays inline in the loop
+           (``viewer_role`` is set once below from the per-render
+           ``user``, not via ``request``), mirroring the previous
+           flat-nav template; a group whose children are all role-gated
+           away renders nothing. Groups render as disclosure controls
+           (chevron + nested ``<ul>``); the open state comes from
+           ``nav_open_group_labels`` — a group containing the active
+           page renders expanded. #}
+        {% set viewer_role = user.role if user is defined and user else '' %}
+        {% for item in nav_entries %}
+          {% if item.children is defined %}
+            {# Role-visible children via one selectattr reduction; the
+               registry originals are never mutated. #}
+            {% set group_children = item.children | selectattr('role', 'in', ['', viewer_role]) | list %}
+            {% if group_children %}
+              <button
+                type="button"
+                class="rail-item group my-0.5 mx-3 text-left"
+                aria-expanded="{{ 'true' if item.label in nav_open_group_labels else 'false' }}"
+                aria-controls="nav-group-{{ loop.index }}"
+              >
+                <svg class="nav-icon shrink-0" width="16" height="16" aria-hidden="true"><use href="#nav-icon-{{ item.icon }}" /></svg>
+                <span class="flex-1">{{ item.label }}</span>
+                <svg class="rail-chevron h-4 w-4 shrink-0 text-text-muted transition-transform group-aria-expanded:rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+              </button>
+              <ul id="nav-group-{{ loop.index }}" class="rail-children{% if item.label not in nav_open_group_labels %} hidden{% endif %}">
+                {# The loop variable is ``item`` again, NOT ``child``:
+                   deliberate reuse, not an oversight. The XSS
+                   URL-attribute allowlist in tests/test_xss_audit.py
+                   hardcodes ``item.href`` / ``item.icon`` /
+                   ``item.title`` for this template; renaming the loop
+                   variable here would fail that audit. #}
+                {% for item in group_children %}
+                  <li>
+                    <a href="{{ item.href }}"{% if item.title %} title="{{ item.title }}"{% endif %}{% if nav_active_href == item.href %} aria-current="page"{% endif %} class="rail-child my-0.5 mx-3">
+                      <span class="flex-1">{{ item.label }}</span>
+                    </a>
+                  </li>
+                {% endfor %}
+              </ul>
+            {% endif %}
+          {# Plain top-level item: same ``item`` variable, same
+             allowlist constraint as the children loop above. #}
+          {% elif item.role in ['', viewer_role] %}
+            <a href="{{ item.href }}"{% if item.title %} title="{{ item.title }}"{% endif %}{% if nav_active_href == item.href %} aria-current="page"{% endif %} class="rail-item my-0.5 mx-3">
+              <svg class="nav-icon shrink-0" width="16" height="16" aria-hidden="true"><use href="#nav-icon-{{ item.icon }}" /></svg>
+              <span class="flex-1">{{ item.label }}</span>
+            </a>
+          {% endif %}
+        {% endfor %}
+        {# User block (issue #819, preserved by #868). Lives inside the
+           rail so login/logout stay part of the same disclosure
+           container for the burger; pushed to the rail bottom with
+           ``mt-auto``. #}
+        <div class="mt-auto border-t border-border px-5 py-4 text-sm">
+          {% if user is defined and user %}
+            <p class="font-medium text-text leading-tight">{{ user.email }}</p>
+            <p class="text-text-muted text-xs">Rol: {{ user.role }}</p>
+            <form method="get" action="/logout" class="mt-2">
+              <button type="submit" class="w-full px-3 py-2 rounded border border-border text-text-muted hover:text-primary hover:border-primary transition-colors">
+                Salir
+              </button>
+            </form>
+          {% else %}
+            <a href="/login" class="block w-full px-3 py-2 rounded bg-primary text-white hover:bg-primary-dark transition-colors text-center">
+              Iniciar sesión
+            </a>
+          {% endif %}
+        </div>
+        {# Rail foot (#868): external link to the public site. Inline
+           external-link icon (the lucide sprite carries no
+           external-link symbol and the sprite file is owned by the
+           icon-parity contract). #}
+        <div class="border-t border-border p-3.5">
+          <a href="https://www.apap-alcala.org/" target="_blank" rel="noopener" class="flex items-center gap-2.5 rounded-lg border border-border px-3 py-2.5 text-sm text-text transition-colors hover:border-primary hover:text-primary-dark">
+            <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></svg>
+            <span>Ver la web</span>
+          </a>
+        </div>
+      </nav>
     </header>
 
-    {# Skip-link target (issue #812) + labelled landmark (issue #813).
+    {# Content column (right of the rail at md+, full width below md).
+       Skip-link target (issue #812) + labelled landmark (issue #813).
        ``tabindex="-1"`` allows the anchor to receive programmatic focus
        without entering the natural tab order. ``aria-labelledby``
        points at the page-level H1 (which carries ``id="main-title"``)
        so screen-reader landmark lists expose a meaningful name. #}
-    <main id="main" tabindex="-1" aria-labelledby="main-title" class="flex-1">
-      <div class="mx-auto max-w-6xl px-4 py-8">
-        {% block content %}{% endblock %}
-      </div>
-    </main>
+    <div class="flex min-w-0 flex-1 flex-col">
+      <main id="main" tabindex="-1" aria-labelledby="main-title" class="flex-1">
+        <div class="mx-auto max-w-6xl px-4 py-8">
+          {% block content %}{% endblock %}
+        </div>
+      </main>
 
-    <footer class="bg-primary-dark text-white mt-12">
-      <div class="mx-auto max-w-6xl px-4 py-8 text-center text-sm">
-        <p class="font-semibold">🐾 APAP Alcalá</p>
-        <p class="opacity-75 mt-1">Gestión diaria de animales, documentación y seguimientos.</p>
-      </div>
-    </footer>
+      <footer class="bg-primary-dark text-white mt-12">
+        <div class="mx-auto max-w-6xl px-4 py-8 text-center text-sm">
+          <p class="font-semibold">🐾 APAP Alcalá</p>
+          <p class="opacity-75 mt-1">Gestión diaria de animales, documentación y seguimientos.</p>
+        </div>
+      </footer>
+    </div>
 
     {# Nav burger toggle controller (issue #820, second half of #804).
        Vanilla JS, no framework. ``defer`` so the script runs after the

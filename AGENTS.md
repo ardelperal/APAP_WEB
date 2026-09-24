@@ -13,6 +13,18 @@ alwaysApply: true
 
 APAP_WEB es una aplicación web FastAPI + HTMX + Jinja2 (Python `>=3.11`) con arquitectura por capas estricta en transición a hexagonal con slices verticales (ver [docs/codebase/architecture.md](docs/codebase/architecture.md)). Cuando trabaje en este proyecto, cargue las skills relevantes antes de escribir código o docs.
 
+## Antes de empezar (checklist de CI)
+
+Antes de escribir la primera línea de código, verifique:
+
+- **Presupuesto de líneas.** Estime el diff esperado contra el presupuesto de 400 líneas (`additions + deletions`, excluyendo lockfiles) — ver [Presupuesto de revisión](#presupuesto-de-revisión). Si el issue lo va a superar, decida el troceado o el encadenamiento de PRs (`chained-pr`) ahora, no al terminar el trabajo.
+- **Nombre de rama.** `<tipo>/<nº issue>-<kebab-slug>`, validado por `scripts/check_branch_name.py`.
+- **Spec aprobada.** La issue vinculada tiene `status:approved` y spec completa.
+- **Modo TDD.** Confirme si el proyecto exige RED → GREEN → REFACTOR antes de codear.
+- **CI verde contra la base actual.** Antes de pedir revisión, confirme que no hay rebase pendiente — ver [Disciplina de revisión](#disciplina-de-revisión).
+
+Revisar esto recién cuando el PR ya está armado llega tarde: el presupuesto de 400 líneas, en particular, se resuelve mejor antes de escribir código que después.
+
 ## How to use
 
 1. Revise la columna "trigger" para identificar las skills que matchean la tarea actual.

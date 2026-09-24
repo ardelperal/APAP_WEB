@@ -30,7 +30,6 @@ cannot silently diverge from the short label either.
 from __future__ import annotations
 
 import ast
-import re
 from pathlib import Path
 
 from app.core.nav import NAV_ITEMS
@@ -83,7 +82,7 @@ def test_e2e_expected_labels_match_nav_items() -> None:
     asserting against labels that can never appear on the page.
     """
     expected = _load_expected_active_label()
-    nav_labels = dict(NAV_ITEMS)
+    nav_labels = {item.href: item.label for item in NAV_ITEMS}
 
     assert nav_labels, "NAV_ITEMS must not be empty"
 
@@ -103,7 +102,7 @@ def test_e2e_expected_labels_match_nav_items() -> None:
 def test_e2e_map_has_no_stale_entries() -> None:
     """The E2E map carries no href the nav no longer renders."""
     expected = _load_expected_active_label()
-    nav_hrefs = {href for href, _label in NAV_ITEMS}
+    nav_hrefs = {item.href for item in NAV_ITEMS}
 
     stale = sorted(set(expected) - nav_hrefs)
     assert not stale, (
@@ -117,23 +116,31 @@ def test_desktop_template_keeps_long_form_titles() -> None:
 
     Issue #806 shortened three labels; the descriptive wording moved to
     the ``title=`` attribute so the tooltip still explains what "Lote"
-    and friends mean. The mobile template intentionally omits the
-    attribute (no hover on touch devices) — only the desktop one is
-    pinned here.
+    and friends mean. Since #808 the anchors are rendered by a single
+    Jinja loop, so the long form lives on ``NavItem.title`` (the source
+    of truth, pinned here against ``LONG_FORM_TITLES``) and the desktop
+    template renders it via ``title="{{ item.title }}"``. The mobile
+    template intentionally omits the attribute (no hover on touch
+    devices) — both templates are pinned here on that split.
     """
-    template = BASE_TEMPLATE.read_text(encoding="utf-8")
+    nav_titles = {item.href: item.title for item in NAV_ITEMS}
+    desktop = BASE_TEMPLATE.read_text(encoding="utf-8")
+    mobile = (REPO_ROOT / "app" / "templates" / "base_mobile.html").read_text(
+        encoding="utf-8"
+    )
 
     for href, long_form in sorted(LONG_FORM_TITLES.items()):
-        pattern = re.compile(
-            r'<a\s+href="' + re.escape(href) + r'"\s+title="([^"]*)"'
+        assert nav_titles.get(href) == long_form, (
+            f"title drift for {href!r}: expected {long_form!r} on "
+            f"NavItem.title, got {nav_titles.get(href)!r}."
         )
-        match = pattern.search(template)
-        assert match is not None, (
-            f"desktop template must render {href!r} with a title= "
-            f"attribute carrying {long_form!r}; the anchor was not found "
-            f"with that shape in {BASE_TEMPLATE.relative_to(REPO_ROOT)}."
-        )
-        assert match.group(1) == long_form, (
-            f"title drift for {href!r}: expected {long_form!r}, got "
-            f"{match.group(1)!r}."
-        )
+
+    assert 'title="{{ item.title }}"' in desktop, (
+        "desktop template must render the long-form tooltip via the nav "
+        f"loop's title attribute; not found in "
+        f"{BASE_TEMPLATE.relative_to(REPO_ROOT)}."
+    )
+    assert 'title="{{ item.title }}"' not in mobile, (
+        "mobile template must not render title= attributes (no hover on "
+        "touch devices)."
+    )
