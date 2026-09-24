@@ -856,7 +856,9 @@ def test_ci_workflow_does_not_run_retired_quality_envelope() -> None:
 # block instead of silently inheriting a scope it does not use — the same
 # pattern deploy.yml's `deploy` job already followed for issue #682.
 
-CI_JOBS_REQUIRING_ISSUES_READ = frozenset({"issue-spec"})
+# Issue #926: `pr-size` joined this set once pr-size.yml started reading
+# the PR's live labels via the GitHub API instead of the event payload.
+CI_JOBS_REQUIRING_ISSUES_READ = frozenset({"issue-spec", "pr-size"})
 
 
 @pytest.mark.parametrize("job_name", sorted(_workflow_job_names(WORKFLOW_PATH)))
@@ -1270,6 +1272,118 @@ def test_pr_size_excludes_generated_lockfiles_not_manifests() -> None:
     assert "':(exclude)uv.lock'" in pr_size
     assert "':(exclude)**/package.json'" not in pr_size
     assert "':(exclude)pyproject.toml'" not in pr_size
+
+
+# --- issue #926: pr-size concurrency race + stale event-payload labels -----
+#
+# pr-size.yml runs two ways: directly on `pull_request: types: [labeled,
+# unlabeled]`, and via `workflow_call` from ci.yml's own `pull_request`
+# trigger. Both used to share the concurrency group
+# `pr-size-${{ github.ref }}`, so every `labeled` event (e.g. `gh pr create
+# --label`) cancelled the workflow_call run in progress inside `ci`, leaving
+# `ci / required` red without ever running the dependent jobs (PR #925, run
+# 36041158202). Separately, `HAS_EXCEPTION` was computed from
+# `github.event.pull_request.labels` — the ORIGINAL webhook payload. Labels
+# added by `gh pr create --label` land after the `opened` event fires, and
+# `gh run rerun` replays that same stale payload, so a PR carrying
+# `size:exception` still failed the gate (PR #931, run 36046072242:
+# `HAS_EXCEPTION: false` with the label present).
+
+
+def test_pr_size_concurrency_group_is_trigger_scoped() -> None:
+    """The concurrency group must differ between the labeled/unlabeled
+    direct trigger and the workflow_call path from ci.yml, so a label event
+    never cancels the in-flight ci-triggered run (issue #926).
+    """
+    workflow = PR_SIZE_WORKFLOW_PATH.read_text(encoding="utf-8")
+    concurrency_block = workflow[
+        workflow.index("\nconcurrency:\n") : workflow.index("\npermissions:\n")
+    ]
+    group_line = next(
+        line
+        for line in concurrency_block.splitlines()
+        if line.strip().startswith("group:")
+    )
+
+    assert group_line.strip() != "group: pr-size-${{ github.ref }}", (
+        "pr-size.yml's concurrency group is a constant shared by both the "
+        "direct labeled/unlabeled trigger and the workflow_call from "
+        "ci.yml (issue #926) — a labeled event cancels the ci-triggered "
+        "run instead of only cancelling other label runs."
+    )
+    assert "github.event.action" in group_line, (
+        "the concurrency group must derive a trigger-dependent suffix from "
+        "github.event.action so the labeled path and the ci-call path "
+        "never share a cancellation group (issue #926)."
+    )
+
+
+def test_pr_size_exception_label_read_from_live_api_not_event_payload() -> None:
+    """HAS_EXCEPTION must come from a live GitHub API read, not the static
+    event payload, so labels added after PR creation or replayed by
+    `gh run rerun` are still seen (issue #926).
+    """
+    workflow = PR_SIZE_WORKFLOW_PATH.read_text(encoding="utf-8")
+
+    assert "github.event.pull_request.labels" not in workflow, (
+        "pr-size.yml must not derive the size:exception flag from the "
+        "static event payload (issue #926) — labels added after the "
+        "triggering event, or a rerun of a stale payload, go unseen."
+    )
+    # Issue #533: the runner backing this job does not provide the `gh`
+    # CLI, so the live fetch must go through curl + jq (deploy.yml's
+    # existing pattern), not `gh api`.
+    assert re.search(
+        r"https://api\.github\.com/repos/\$\{GITHUB_REPOSITORY\}"
+        r"/issues/\$\{PR_NUMBER\}/labels\b",
+        workflow,
+    ), (
+        "pr-size.yml must fetch the PR's live labels from the GitHub REST "
+        "API (curl + jq, per issue #533 — this runner has no `gh` CLI) "
+        "instead of the event payload (issue #926)."
+    )
+    assert "gh api" not in workflow, (
+        "pr-size.yml's runner does not provide the `gh` CLI (issue #533); "
+        "use curl + jq instead, matching deploy.yml's evidence step."
+    )
+
+    workflow_block = workflow[: workflow.index("\njobs:\n")]
+    assert "issues: read" in workflow_block, (
+        "reading labels via the GitHub API needs `issues: read` at the "
+        "workflow level (issue #926), alongside the existing "
+        "`contents: read` (issue #682)."
+    )
+
+
+def test_pr_size_exception_label_fetch_fails_closed() -> None:
+    """A failed label fetch must fail the job, not silently pass the gate
+    as if no exception label were present (issue #926).
+    """
+    workflow = PR_SIZE_WORKFLOW_PATH.read_text(encoding="utf-8")
+    api_call_index = workflow.index("api.github.com")
+    # The step containing the API call must exit non-zero on failure
+    # somewhere in the next ~700 characters (its own run: block).
+    step_tail = workflow[api_call_index : api_call_index + 700]
+    assert "exit 1" in step_tail, (
+        "the label-fetch step must exit non-zero when the GitHub API call "
+        "fails, so the gate fails closed instead of treating a fetch "
+        "failure as 'no size:exception label' (issue #926)."
+    )
+
+
+def test_pr_size_job_in_ci_yml_declares_issues_read() -> None:
+    """A called reusable workflow cannot exceed the caller's permissions,
+    so ci.yml's `pr-size` job needs `issues: read` too (issue #926).
+    """
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    block = _job_block(workflow, "pr-size")
+
+    assert "issues: read" in block, (
+        "ci.yml's pr-size job must declare `issues: read` — pr-size.yml "
+        "now reads live PR labels via the GitHub API, and a called "
+        "workflow cannot exceed the caller's granted permissions "
+        "(issue #926)."
+    )
 
 
 def test_dependabot_excludes_ratchet_coupled_ruff_updates() -> None:
