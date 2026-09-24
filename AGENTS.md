@@ -133,7 +133,7 @@ Las 33 reglas de AGENTS (numeradas §1-§33) viven ahora en `docs/codebase/`. Es
 | Runbooks | [`docs/runbooks/`](docs/runbooks/) | Procedimientos que exigen acción del operador. |
 | Hardening del arnés de calidad | [`docs/quality/hardening-roadmap.md`](docs/quality/hardening-roadmap.md) | Estado de los gates automáticos. |
 
-<!-- personal-skills:slice:APAP_WEB @ v3f69990 -->
+<!-- personal-skills:slice:APAP_WEB @ v985a74e -->
 # slices/partials/web.md
 
 ## Manera de trabajar en proyectos web
@@ -219,4 +219,14 @@ Procedimiento de validación periódica (mensual o por release de skill fuente):
 - "PR con 600 líneas porque el feature lo requiere" — partir primero, encadenar después; `size:exception` es el último recurso, no la primera opción.
 - "Mergear con CI rojo aunque el rojo parezca trivial" — la trivialidad la decide el revisor, no el autor.
 - "Esperar a que el reviewer apruebe manualmente aunque todos los checks estén verdes" en proyectos con auto-merge standing explícito — revisar la sección de revocación de `merge-workflow.md §15.6` antes de saltarse el gate.
+
+### Carga de skills (orden de resolución)
+
+Al buscar una skill de este catálogo, resuelva en este orden:
+
+1. Global: `~/.agents/skills/` (y `~/.pi/agent/skills/`).
+2. Repo: `.agents/skills/` del consumer, materializada desde `.team-skills.yaml` por `scripts/refresh-team-skills.ps1` (vía rama `skill-fleet/<name>`).
+3. Catálogo: `skills/<nombre>/SKILL.md` de personal-skills.
+
+Referencias por nombre, nunca por ruta absoluta. Nota de precedencia: pi nativo conserva la primera copia encontrada (gana la global), mientras que el registry de gentle-pi prefiere la copia del repo; una copia global desactualizada tapa la del repo en pi, así que las copias globales deben seguir al catálogo. Si una skill citada en este partial no resuelve en ninguno de los tres niveles, repórtelo: falta declararla en `.team-skills.yaml` del consumer.
 <!-- /personal-skills:slice:APAP_WEB -->
