@@ -5,7 +5,6 @@ All InsForge-era adapters in this directory have been migrated or deleted:
 - ``catalogos_adapter`` → :class:`app.core.local_backend.catalogos_adapter.LocalBackendCatalogosAdapter`
 - ``schema_bootstrap_adapter`` → :class:`app.core.local_backend.schema_bootstrap_adapter.LocalBackendSchemaBootstrapAdapter`
 - ``oauth_adapter`` → :class:`app.core.local_backend.oauth_adapter.LocalBackendOAuthAdapter`
-- ``BackendErrorTranslation`` → :class:`app.core.di.insforge_error_handler_di.BackendErrorTranslation`
 
 This module is kept as a re-export shim for backward compatibility. Import
 from the new paths directly in new code.
@@ -13,10 +12,6 @@ from the new paths directly in new code.
 
 from __future__ import annotations
 
-from app.core.di.insforge_error_handler_di import (
-    BackendErrorTranslation,
-    InsForgeErrorTranslation,  # backward-compat alias
-)
 from app.core.local_backend.auth_adapter import (
     LocalBackendAuthUsersAdapter as InsForgeAuthUsersAdapter,
 )
@@ -31,10 +26,8 @@ from app.core.local_backend.schema_bootstrap_adapter import (
 )
 
 __all__ = [
-    "BackendErrorTranslation",
     "InsForgeAuthUsersAdapter",
     "InsForgeCatalogosAdapter",
-    "InsForgeErrorTranslation",
     "InsForgeOAuthAdapter",
     "InsForgeSchemaBootstrapAdapter",
 ]
