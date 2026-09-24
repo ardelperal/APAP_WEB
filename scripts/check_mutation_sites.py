@@ -62,7 +62,7 @@ BASELINE_MUTATION_SITES: dict[str, int] = {
     "migration/reverse_apply/orchestrator.py": 254,
     "migration/semantic_events.py": 304,
     "migration/storage_spike.py": 705,
-    "migration/verify_fallback_ready.py": 322,  # issue #690: preflight-unavailable now reports PENDING instead of failing
+    "migration/verify_fallback_ready.py": 272,  # issue #930: retired unused HTTP backend fixture
     "migration/volunteer_dedup.py": 301,
 }
 
