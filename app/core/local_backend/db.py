@@ -16,9 +16,13 @@ translates ``DatabaseError`` to HTTP 5xx, ``QueryError`` to HTTP 4xx.
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Iterator
+from contextlib import contextmanager
+from typing import Any, NoReturn
 
 import psycopg
+
+from app.core.data_access import NestedTransactionError, SqlExecutor
 
 
 class DatabaseError(RuntimeError):
@@ -89,11 +93,12 @@ def _rows_as_dicts(rows: list[Any], description: Any) -> list[dict[str, Any]]:
 def _run_on_cursor(cur: Any, query: str, params: tuple | list | None) -> list[dict[str, Any]]:
     """Execute ``query`` on an already-open cursor and return rows as dicts.
 
-    Shared by :meth:`LocalPostgresExecutor.execute_sql` today; a future
-    connection-held-open unit of work (see #913 discussion) would reuse it
-    too, since it already applies the ``$N``-rewrite, row-dict conversion
-    and error translation on any cursor it is handed. Always raises
-    :class:`QueryError`/:class:`DatabaseError`, never a raw
+    Shared by :meth:`LocalPostgresExecutor.execute_sql` (its own
+    connection, commits per call) and the bound executor
+    :meth:`LocalPostgresExecutor.transaction` yields (a shared connection,
+    the caller controls commit/rollback) so both apply the identical
+    ``$N``-rewrite, row-dict conversion and error translation. Always
+    raises :class:`QueryError`/:class:`DatabaseError`, never a raw
     ``psycopg.Error``.
     """
     query = _rewrite_dollar_placeholders(query)
@@ -157,6 +162,69 @@ class LocalPostgresExecutor:
             finally:
                 cur.close()
         return rows
+
+    @contextmanager
+    def transaction(self) -> Iterator[SqlExecutor]:
+        """Open one connection and run several statements as one atomic unit.
+
+        Use this when a business flow needs more than one ``execute_sql``
+        call (e.g. a Python loop, or a read that must observe an earlier
+        write in the same unit of work) to commit or roll back together —
+        see A-02..A-04 (#914-#916): the adopciones/acogidas/lifecycle/
+        chip-cascade flows. When the atomic unit is expressible as ONE SQL
+        statement, prefer a CTE instead — it needs no held-open connection
+        across the call boundary; see
+        ``app/modules/entradas/batch_service.py::commit_batch`` for the
+        pattern (batch-staging rows copied into ``entradas`` atomically).
+
+        Yields a bound executor satisfying :class:`SqlExecutor` (so
+        existing helpers such as ``record_event(client, ...)`` work
+        unchanged inside the block). COMMIT on clean exit; ROLLBACK and
+        re-raise on any exception; the connection is always closed.
+        Calling ``transaction()`` again on the yielded executor raises
+        :class:`NestedTransactionError` — no savepoints.
+        """
+        conn = self._connect()
+        bound = _BoundTransactionExecutor(conn)
+        try:
+            yield bound
+        except Exception:
+            conn.rollback()
+            raise
+        else:
+            try:
+                conn.commit()
+            except psycopg.Error as exc:
+                # COMMIT itself failed (e.g. deferred constraint).
+                raise _translate_psycopg_error(exc) from exc
+        finally:
+            conn.close()
+
+
+class _BoundTransactionExecutor:
+    """``SqlExecutor`` bound to a single connection held open by ``transaction()``.
+
+    ``execute_sql`` runs on the shared connection WITHOUT committing per
+    statement (the enclosing :meth:`LocalPostgresExecutor.transaction`
+    commits or rolls back once, on exit). Nesting a transaction on this
+    bound executor is rejected — there are no savepoints.
+    """
+
+    def __init__(self, conn: psycopg.Connection) -> None:
+        self._conn = conn
+
+    def execute_sql(self, query: str, params: tuple | list | None = None) -> list[dict[str, Any]]:
+        cur = self._conn.cursor()
+        try:
+            return _run_on_cursor(cur, query, params)
+        finally:
+            cur.close()
+
+    def transaction(self) -> NoReturn:
+        raise NestedTransactionError(
+            "nested transaction() is not supported: this executor is already "
+            "bound to a connection opened by LocalPostgresExecutor.transaction()"
+        )
 
 
 __all__ = ["LocalPostgresExecutor", "DatabaseError", "QueryError"]
