@@ -83,9 +83,10 @@ class TestMinioPhotoServing:
     ) -> None:
         """Photo served from MinIO is returned with correct content-type and size."""
         # Generate a unique test identity so parallel test runs don't collide.
-        test_id = uuid.uuid4().hex[:8]
-        animal_id = f"e2e-minio-{test_id}"
+        animal_id = str(uuid.uuid4())
+        test_id = animal_id[:8]
         photo_key = f"test-minio-{test_id}.png"
+        inserted = False
 
         try:
             # 1. Ensure the bucket exists.
@@ -108,13 +109,21 @@ class TestMinioPhotoServing:
             with e2e_db_conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO animales (id, nombre, nombrefoto, estado)
-                    VALUES (%s, %s, %s, %s)
-                    ON CONFLICT (id) DO UPDATE
-                        SET nombrefoto = EXCLUDED.nombrefoto
+                    INSERT INTO animales
+                        (id, nchip, nombreanimal, especie, sexo, fnacimiento, nombrefoto)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                     """,
-                    (animal_id, f"E2E Test Animal {test_id}", photo_key, "Refugio"),
+                    (
+                        animal_id,
+                        f"e2e-minio-{test_id}",
+                        f"E2E Test Animal {test_id}",
+                        "CANINA",
+                        "M",
+                        "2020-01-01",
+                        photo_key,
+                    ),
                 )
+            inserted = True
 
             # 4. Authenticate via the E2E stub and fetch the photo.
             context = e2e_logged_in_browser_context
@@ -152,5 +161,6 @@ class TestMinioPhotoServing:
             except Exception:
                 pass  # best-effort cleanup
 
-            with e2e_db_conn.cursor() as cur:
-                cur.execute("DELETE FROM animales WHERE id = %s", (animal_id,))
+            if inserted:
+                with e2e_db_conn.cursor() as cur:
+                    cur.execute("DELETE FROM animales WHERE id = %s", (animal_id,))

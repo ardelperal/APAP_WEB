@@ -137,10 +137,24 @@ def test_e2e_minio_endpoint_and_pytest_credentials_reach_both_processes() -> Non
     ]
     smoke = e2e[e2e.index("- name: Run fail-closed Playwright smoke suite") :]
 
-    assert "APAP_S3_ENDPOINT: 127.0.0.1:${{ job.services.minio.ports['9000'] }}" in start
-    assert "APAP_S3_ENDPOINT: 127.0.0.1:${{ job.services.minio.ports['9000'] }}" in smoke
+    assert "APAP_S3_ENDPOINT: 127.0.0.1:9000" in start
+    assert "APAP_S3_ENDPOINT: 127.0.0.1:9000" in smoke
     assert "APAP_S3_ACCESS_KEY: ${{ secrets.MINIO_E2E_ACCESS_KEY }}" in smoke
     assert "APAP_S3_SECRET_KEY: ${{ secrets.MINIO_E2E_SECRET_KEY }}" in smoke
+
+
+def test_e2e_builds_fixed_minio_source_and_runs_verified_image_id() -> None:
+    """Issue #894: E2E must not silently move with a registry tag."""
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    e2e = workflow[workflow.index("\n  e2e:") : workflow.index("\n  required:")]
+
+    assert "minio/minio:latest" not in e2e
+    assert "job.services.minio" not in e2e
+    assert "7aac2a2c5b7c882e68c1ce017d8256be2feea27f" in e2e
+    assert 'rev-parse HEAD' in e2e
+    assert 'docker image inspect --format' in e2e
+    assert 'docker run -d --rm' in e2e
+    assert '"$MINIO_IMAGE_ID" server /data' in e2e
 
 
 def test_ci_workflow_does_not_include_diagnostic_secret_leak_scan() -> None:

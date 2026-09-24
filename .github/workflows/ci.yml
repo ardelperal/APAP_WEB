@@ -1020,16 +1020,13 @@ jobs:
   e2e:
     name: e2e
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     needs: build
     # Issue #879: does not read issues.
     permissions:
       contents: read
-    # E2E suite requires Postgres + MinIO + Chromium; the Docker
-    # pull for those services flakes intermittently on the hosted
-    # runner. Run only on release events (workflow_dispatch / tag
-    # push) so PRs are not blocked by infrastructure flakes. PRs
-    # that need e2e validation can dispatch this workflow manually.
+    # E2E needs Postgres, a source-built MinIO container, and Chromium.
+    # Run on release events; PRs can dispatch this workflow manually.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.ref, 'refs/tags/')
@@ -1047,25 +1044,47 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-      minio:
-        image: minio/minio:latest
-        command: server /data --console-address ":9001"
-        env:
-              MINIO_ROOT_USER: ${{ secrets.MINIO_E2E_ACCESS_KEY }}
-              MINIO_ROOT_PASSWORD: ${{ secrets.MINIO_E2E_SECRET_KEY }}
-        ports:
-          - 9000
-        options: >-
-          --health-cmd "curl --fail --silent http://localhost:9000/minio/health/live"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Set up locked Python environment
         uses: ./.github/actions/setup-python
+
+      - name: Verify the Docker daemon before building MinIO
+        run: |
+          if ! timeout 30 docker info >/dev/null 2>&1; then
+            echo "::error::Docker daemon is not answering on this runner." >&2
+            exit 1
+          fi
+
+      - name: Build and start fixed-source MinIO for E2E
+        env:
+          MINIO_ROOT_USER: ${{ secrets.MINIO_E2E_ACCESS_KEY }}
+          MINIO_ROOT_PASSWORD: ${{ secrets.MINIO_E2E_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$MINIO_ROOT_USER" && test -n "$MINIO_ROOT_PASSWORD"
+          MINIO_SOURCE_SHA=7aac2a2c5b7c882e68c1ce017d8256be2feea27f
+          source_dir="$(mktemp -d)"
+          git -C "$source_dir" init -q
+          git -C "$source_dir" remote add origin https://github.com/minio/minio.git
+          git -C "$source_dir" fetch -q --depth=1 --filter=blob:none origin "$MINIO_SOURCE_SHA"
+          git -C "$source_dir" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$source_dir" rev-parse HEAD)" = "$MINIO_SOURCE_SHA"
+          (cd "$source_dir" && GOTOOLCHAIN=go1.25.6 CGO_ENABLED=0 go build -mod=readonly -trimpath -o minio-bin .)
+          mkdir "$source_dir/image"
+          mv "$source_dir/minio-bin" "$source_dir/image/minio"
+          printf 'FROM scratch\nCOPY minio /minio\nENTRYPOINT ["/minio"]\n' > "$source_dir/image/Dockerfile"
+          docker build --label "org.opencontainers.image.revision=$MINIO_SOURCE_SHA" \
+            -t apap-e2e-minio:7aac2a2 "$source_dir/image"
+          MINIO_IMAGE_ID="$(docker image inspect --format '{{.Id}}' apap-e2e-minio:7aac2a2)"
+          [[ "$MINIO_IMAGE_ID" =~ ^sha256:[0-9a-f]{64}$ ]]
+          test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$MINIO_IMAGE_ID")" = "$MINIO_SOURCE_SHA"
+          docker run -d --rm --name apap-e2e-minio -p 127.0.0.1:9000:9000 \
+            -e MINIO_ROOT_USER -e MINIO_ROOT_PASSWORD \
+            "$MINIO_IMAGE_ID" server /data --console-address :9001
+          rm -rf "$source_dir"
 
       - name: Install locked Chromium runtime
         run: python -m playwright install --with-deps chromium
@@ -1076,11 +1095,9 @@ jobs:
 
 
       - name: Wait for MinIO to be healthy
-        env:
-          MINIO_HOST_PORT: ${{ job.services.minio.ports['9000'] }}
         run: |
           for i in $(seq 1 60); do
-            if curl -fsS "http://127.0.0.1:${MINIO_HOST_PORT}/minio/health/live" >/dev/null 2>&1; then
+            if curl -fsS http://127.0.0.1:9000/minio/health/live >/dev/null 2>&1; then
               echo "MinIO is healthy"
               exit 0
             fi
@@ -1091,7 +1108,7 @@ jobs:
 
       - name: Create apap-photos bucket in MinIO
         env:
-          MINIO_HOST_PORT: ${{ job.services.minio.ports['9000'] }}
+          MINIO_HOST_PORT: "9000"
           S3_ACCESS_KEY: ${{ secrets.MINIO_E2E_ACCESS_KEY }}
           S3_SECRET_KEY: ${{ secrets.MINIO_E2E_SECRET_KEY }}
         run: python3 scripts/create_minio_bucket.py
@@ -1103,7 +1120,7 @@ jobs:
           APAP_MODE: test
           APAP_E2E_AUTH_ENABLED: "true"
           APAP_E2E_AUTH_DEFAULT_EMAIL: e2e@apap.local
-          APAP_S3_ENDPOINT: 127.0.0.1:${{ job.services.minio.ports['9000'] }}
+          APAP_S3_ENDPOINT: 127.0.0.1:9000
           APAP_S3_ACCESS_KEY: ${{ secrets.MINIO_E2E_ACCESS_KEY }}
           APAP_S3_SECRET_KEY: ${{ secrets.MINIO_E2E_SECRET_KEY }}
           APAP_S3_BUCKET: apap-photos
@@ -1134,7 +1151,7 @@ jobs:
 
       - name: Run fail-closed Playwright smoke suite
         env:
-          APAP_S3_ENDPOINT: 127.0.0.1:${{ job.services.minio.ports['9000'] }}
+          APAP_S3_ENDPOINT: 127.0.0.1:9000
           APAP_S3_ACCESS_KEY: ${{ secrets.MINIO_E2E_ACCESS_KEY }}
           APAP_S3_SECRET_KEY: ${{ secrets.MINIO_E2E_SECRET_KEY }}
           APAP_S3_SECURE: "false"
@@ -1142,7 +1159,9 @@ jobs:
 
       - name: Stop application server
         if: always()
-        run: kill "$SERVER_PID" 2>/dev/null || true
+        run: |
+          kill "$SERVER_PID" 2>/dev/null || true
+          docker rm -f apap-e2e-minio 2>/dev/null || true
 
   required:
     name: required
