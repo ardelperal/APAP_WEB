@@ -2,20 +2,21 @@
 
 The CI ``test`` job's coverage run excludes ``tests/integration`` (see
 ``.github/workflows/ci.yml``), so ``tests/integration/test_local_backend_db.py``
-never contributes to the per-commit ``coverage.json`` that
-``scripts/check_crap.py`` reads. These tests pin the same behaviour with
-hand-written fake ``psycopg`` connection/cursor objects (no Postgres),
-injected via ``monkeypatch`` on ``LocalPostgresExecutor._connect``, so the
-module-level helpers and ``execute_sql`` are covered where the CRAP gate
-actually measures them.
+and ``tests/integration/test_local_backend_transaction.py`` — which exercise
+this module against a real Postgres — never contribute to the per-commit
+``coverage.json`` that ``scripts/check_crap.py`` reads. These tests pin the
+same behaviour with hand-written fake ``psycopg`` connection/cursor objects
+(no Postgres), injected via ``monkeypatch`` on
+``LocalPostgresExecutor._connect``, so the module-level helpers and both
+executors are covered where the CRAP gate actually measures them.
 
 Characterization note: every helper/method covered here already existed
 before this PR (``_rewrite_dollar_placeholders``, ``_translate_psycopg_error``,
-``execute_sql``) or is a pure extraction that preserves behaviour
-(``_fetch_rows``/``_rows_as_dicts``/``_run_on_cursor`` split out of the old
-inline ``execute_sql`` body in this same PR, see
-``app/core/local_backend/db.py``). These tests were run and passed BEFORE
-and AFTER that extraction, confirming it changed structure, not behaviour.
+``execute_sql``, ``transaction``) or is a pure extraction that preserves
+behaviour (``_fetch_rows``/``_rows_as_dicts`` split out of ``_run_on_cursor``
+in this same PR, see ``app/core/local_backend/db.py``). These tests were
+run and passed BEFORE and AFTER that extraction, confirming it changed
+structure, not behaviour.
 
 Hard rules (web-tdd-philosophy):
 - Rule 1 (fixture gate): each fake builds its own isolated state per test.
@@ -31,10 +32,12 @@ from typing import Any
 import psycopg
 import pytest
 
+from app.core.data_access import NestedTransactionError
 from app.core.local_backend.db import (
     DatabaseError,
     LocalPostgresExecutor,
     QueryError,
+    _BoundTransactionExecutor,
     _fetch_rows,
     _rewrite_dollar_placeholders,
     _rows_as_dicts,
@@ -79,10 +82,12 @@ class FakeConnection:
     """Minimal ``psycopg.Connection``-shaped double.
 
     Unlike the real ``psycopg.Connection.__exit__`` (which also commits or
-    rolls back), this fake's ``__exit__`` only closes: ``execute_sql``
-    already calls ``commit()``/``rollback()`` explicitly, so these tests
-    pin THAT explicit call sequence rather than re-deriving psycopg's own
-    context-manager semantics.
+    rolls back), this fake's ``__exit__`` only closes: ``execute_sql`` and
+    ``transaction()`` already call ``commit()``/``rollback()`` explicitly,
+    so these tests pin THAT explicit call sequence rather than re-deriving
+    psycopg's own context-manager semantics (already pinned by
+    ``tests/integration/test_local_backend_transaction.py`` against real
+    Postgres).
     """
 
     def __init__(
@@ -305,3 +310,102 @@ def test_execute_sql_translates_commit_failure_without_sqlstate_as_database_erro
 
     assert conn.rolled_back is True
     assert cur.closed is True
+
+
+# ── LocalPostgresExecutor.transaction ──────────────────────────────────────
+
+
+def test_transaction_commits_and_closes_connection_on_clean_exit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cur = FakeCursor(rows=[])
+    conn = FakeConnection(cur)
+    executor = LocalPostgresExecutor("postgresql://unused")
+    monkeypatch.setattr(executor, "_connect", lambda: conn)
+
+    with executor.transaction() as txn:
+        txn.execute_sql("INSERT INTO animales (nchip) VALUES ($1)", ["CHIP-1"])
+
+    assert conn.committed is True
+    assert conn.rolled_back is False
+    assert conn.closed is True
+
+
+def test_transaction_rolls_back_and_recloses_on_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    conn = FakeConnection(FakeCursor())
+    executor = LocalPostgresExecutor("postgresql://unused")
+    monkeypatch.setattr(executor, "_connect", lambda: conn)
+
+    with pytest.raises(RuntimeError, match="forced failure"):
+        with executor.transaction() as txn:
+            txn.execute_sql("INSERT INTO animales (nchip) VALUES ($1)", ["CHIP-1"])
+            raise RuntimeError("forced failure")
+
+    assert conn.committed is False
+    assert conn.rolled_back is True
+    assert conn.closed is True
+
+
+def test_transaction_translates_commit_failure_and_still_closes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    conn = FakeConnection(FakeCursor(), commit_error=psycopg.errors.UniqueViolation("deferred fk"))
+    executor = LocalPostgresExecutor("postgresql://unused")
+    monkeypatch.setattr(executor, "_connect", lambda: conn)
+
+    with pytest.raises(QueryError):
+        with executor.transaction() as txn:
+            txn.execute_sql("INSERT INTO animales (nchip) VALUES ($1)", ["CHIP-1"])
+
+    assert conn.committed is False
+    assert conn.closed is True
+
+
+def test_transaction_yields_bound_executor_whose_transaction_call_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    conn = FakeConnection(FakeCursor())
+    executor = LocalPostgresExecutor("postgresql://unused")
+    monkeypatch.setattr(executor, "_connect", lambda: conn)
+
+    with pytest.raises(NestedTransactionError):
+        with executor.transaction() as txn:
+            txn.transaction()
+
+
+# ── _BoundTransactionExecutor ───────────────────────────────────────────────
+
+
+def test_bound_transaction_executor_runs_on_shared_connection_without_committing() -> None:
+    cur = FakeCursor(rows=[(1, "Rex")], description=[("id",), ("nombreanimal",)])
+    conn = FakeConnection(cur)
+    bound = _BoundTransactionExecutor(conn)
+
+    result = bound.execute_sql("SELECT id, nombreanimal FROM animales")
+
+    assert result == [{"id": 1, "nombreanimal": "Rex"}]
+    assert conn.committed is False
+    assert conn.rolled_back is False
+    assert cur.closed is True
+
+
+def test_bound_transaction_executor_closes_cursor_even_on_query_error() -> None:
+    cur = FakeCursor(execute_error=psycopg.errors.UniqueViolation("duplicate key"))
+    conn = FakeConnection(cur)
+    bound = _BoundTransactionExecutor(conn)
+
+    with pytest.raises(QueryError):
+        bound.execute_sql("INSERT INTO animales (nchip) VALUES ($1)", ["CHIP-1"])
+
+    assert cur.closed is True
+    assert conn.committed is False
+
+
+def test_bound_transaction_executor_transaction_raises_without_calling_connect() -> None:
+    conn = FakeConnection(FakeCursor())
+    bound = _BoundTransactionExecutor(conn)
+
+    with pytest.raises(NestedTransactionError, match="nested transaction"):
+        bound.transaction()
