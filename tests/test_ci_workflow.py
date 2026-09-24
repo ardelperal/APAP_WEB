@@ -1132,6 +1132,39 @@ def test_cosmic_ray_toml_includes_adopciones_service_in_module_path() -> None:
     )
 
 
+def test_cosmic_ray_baseline_targets_existing_files_and_collects_tests() -> None:
+    """Issue #902: the unmutated command must have real targets and tests."""
+    import json
+
+    with (REPO_ROOT / "docs/quality/cosmic-ray.toml").open("rb") as fh:
+        config = tomllib.load(fh)["cosmic-ray"]
+    baseline = json.loads(
+        (REPO_ROOT / "docs/quality/mutation-baseline.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    targets = config["module-path"]
+    assert set(targets) == set(baseline["modules"]) | set(
+        baseline["awaiting_acquisition"]
+    )
+    assert all((REPO_ROOT / target).is_file() for target in targets)
+
+    command = shlex.split(config["test-command"])
+    test_nodes = [arg for arg in command if arg.startswith("tests/")]
+    assert test_nodes
+    assert all((REPO_ROOT / node.split("::", 1)[0]).is_file() for node in test_nodes)
+
+    collected = subprocess.run(
+        [sys.executable, *command[1:], "--collect-only"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert collected.returncode == 0, collected.stdout + collected.stderr
+    assert "tests collected" in collected.stdout or "test collected" in collected.stdout
+
+
 def test_mutation_baseline_adopciones_has_been_acquired() -> None:
     """Issue #434: adopciones/service.py must carry a real survivor count, not a marker.
 
