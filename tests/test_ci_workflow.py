@@ -127,6 +127,22 @@ def test_ci_workflow_runs_release_e2e_job_with_playwright() -> None:
     assert "pytest tests/e2e_ci/" in workflow
 
 
+def test_e2e_minio_endpoint_and_pytest_credentials_reach_both_processes() -> None:
+    """The app and smoke suite must target the same configured MinIO service."""
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    e2e = workflow[workflow.index("\n  e2e:") : workflow.index("\n  required:")]
+    start = e2e[
+        e2e.index("- name: Start the production application") :
+        e2e.index("- name: Run fail-closed Playwright smoke suite")
+    ]
+    smoke = e2e[e2e.index("- name: Run fail-closed Playwright smoke suite") :]
+
+    assert "APAP_S3_ENDPOINT: 127.0.0.1:${{ job.services.minio.ports['9000'] }}" in start
+    assert "APAP_S3_ENDPOINT: 127.0.0.1:${{ job.services.minio.ports['9000'] }}" in smoke
+    assert "APAP_S3_ACCESS_KEY: ${{ secrets.MINIO_E2E_ACCESS_KEY }}" in smoke
+    assert "APAP_S3_SECRET_KEY: ${{ secrets.MINIO_E2E_SECRET_KEY }}" in smoke
+
+
 def test_ci_workflow_does_not_include_diagnostic_secret_leak_scan() -> None:
     """Issue #393: placeholder secret-leak scan step removed in favor of gitleaks (#381)."""
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")

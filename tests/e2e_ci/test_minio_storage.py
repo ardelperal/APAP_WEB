@@ -47,12 +47,7 @@ class TestMinioStorageHealth:
         assert response.status == 200
         payload = response.json()
         assert payload["status"] == "ok"
-        assert "storage" in payload
-        # With MinIO running: "up".  Without credentials: "unconfigured".
-        # "down" means credentials are set but MinIO is unreachable.
-        assert payload["storage"] in ("up", "unconfigured", "down"), (
-            f"Unexpected storage status: {payload['storage']}"
-        )
+        assert payload["storage"] == "up", f"Storage is not healthy: {payload['storage']}"
 
     def test_healthz_returns_200(
         self,
