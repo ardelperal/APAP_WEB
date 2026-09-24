@@ -11,7 +11,7 @@ same behaviour with hand-written fake ``psycopg`` connection/cursor objects
 executors are covered where the CRAP gate actually measures them.
 
 Characterization note: every helper/method covered here already existed
-before this PR (``_rewrite_dollar_placeholders``, ``_translate_psycopg_error``,
+before this PR (``_to_client_placeholders``, ``_translate_psycopg_error``,
 ``execute_sql``, ``transaction``) or is a pure extraction that preserves
 behaviour (``_fetch_rows``/``_rows_as_dicts`` split out of ``_run_on_cursor``
 in this same PR, see ``app/core/local_backend/db.py``). These tests were
@@ -39,9 +39,9 @@ from app.core.local_backend.db import (
     QueryError,
     _BoundTransactionExecutor,
     _fetch_rows,
-    _rewrite_dollar_placeholders,
     _rows_as_dicts,
     _run_on_cursor,
+    _to_client_placeholders,
     _translate_psycopg_error,
 )
 
@@ -124,20 +124,49 @@ class FakeConnection:
         return False
 
 
-# ── _rewrite_dollar_placeholders ─────────────────────────────────────────
+# ── _to_client_placeholders ──────────────────────────────────────────────
 
 
-def test_rewrite_dollar_placeholders_returns_unchanged_query_without_dollar() -> None:
+def test_to_client_placeholders_leaves_query_without_dollar_unchanged() -> None:
     query = "SELECT * FROM animales"
-    assert _rewrite_dollar_placeholders(query) == query
+    assert _to_client_placeholders(query, None) == (query, [])
 
 
-def test_rewrite_dollar_placeholders_rewrites_every_dollar_placeholder() -> None:
+def test_to_client_placeholders_rewrites_sequential_placeholders() -> None:
     query = "INSERT INTO animales (nchip, nombreanimal) VALUES ($1, $2)"
-    assert (
-        _rewrite_dollar_placeholders(query)
-        == "INSERT INTO animales (nchip, nombreanimal) VALUES (%s, %s)"
+    assert _to_client_placeholders(query, ["CHIP-1", "Rex"]) == (
+        "INSERT INTO animales (nchip, nombreanimal) VALUES (%s, %s)",
+        ["CHIP-1", "Rex"],
     )
+
+
+def test_to_client_placeholders_reorders_params_to_occurrence_order() -> None:
+    query = "UPDATE animales SET nombreanimal = $2 WHERE id = $1"
+    assert _to_client_placeholders(query, ["id-1", "Rex"]) == (
+        "UPDATE animales SET nombreanimal = %s WHERE id = %s",
+        ["Rex", "id-1"],
+    )
+
+
+def test_to_client_placeholders_repeats_params_for_repeated_placeholders() -> None:
+    query = "SELECT * FROM animales WHERE nchip = $1 OR nombreanimal = $1"
+    assert _to_client_placeholders(query, ["X"]) == (
+        "SELECT * FROM animales WHERE nchip = %s OR nombreanimal = %s",
+        ["X", "X"],
+    )
+
+
+def test_to_client_placeholders_escapes_literal_percent() -> None:
+    query = "SELECT * FROM animales WHERE nombreanimal LIKE 'R%' AND nchip = $1"
+    assert _to_client_placeholders(query, ["C"]) == (
+        "SELECT * FROM animales WHERE nombreanimal LIKE 'R%%' AND nchip = %s",
+        ["C"],
+    )
+
+
+def test_to_client_placeholders_rejects_placeholder_without_param() -> None:
+    with pytest.raises(QueryError, match=r"\$2"):
+        _to_client_placeholders("SELECT $1, $2", ["only-one"])
 
 
 # ── _translate_psycopg_error ─────────────────────────────────────────────
