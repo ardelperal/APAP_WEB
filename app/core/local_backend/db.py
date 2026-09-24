@@ -35,6 +35,76 @@ class QueryError(RuntimeError):
     """
 
 
+def _rewrite_dollar_placeholders(query: str) -> str:
+    """Rewrite ``$N`` Postgres placeholders to ``%s`` for psycopg3's ClientCursor.
+
+    psycopg3 ClientCursor counts ``%s`` placeholders, not ``$N``. The wire
+    protocol still sees the original ``$N`` (psycopg3 re-numbers).
+    """
+    if "$" in query:
+        import re  # lazy-import: perf — avoid startup cost when query has no placeholders
+
+        return re.sub(r"\$(\d+)", r"%s", query)
+    return query
+
+
+def _translate_psycopg_error(exc: psycopg.Error) -> QueryError | DatabaseError:
+    """Map a psycopg error to the Protocol-level exception callers expect.
+
+    A Postgres-rejected query (syntax, FK, unique violation) carries a
+    SQLSTATE and becomes a ``QueryError``; anything without one
+    (connection-level) becomes a ``DatabaseError``. psycopg3 exposes the
+    code as ``sqlstate`` (``pgcode`` was the psycopg2 name).
+    """
+    if getattr(exc, "sqlstate", None) is not None:
+        return QueryError(str(exc))
+    return DatabaseError(str(exc))
+
+
+def _fetch_rows(cur: Any) -> list[Any]:
+    """Return every row from an already-executed cursor, or ``[]``.
+
+    ``INSERT``/``UPDATE``/``DELETE`` statements have nothing to fetch;
+    psycopg raises :class:`psycopg.ProgrammingError` in that case, which
+    this helper turns into an empty result instead of propagating it.
+    """
+    try:
+        return list(cur.fetchall())
+    except psycopg.ProgrammingError:
+        return []
+
+
+def _rows_as_dicts(rows: list[Any], description: Any) -> list[dict[str, Any]]:
+    """Convert plain tuple rows to ``list[dict]`` using the cursor description.
+
+    A no-op when ``rows`` is empty or already made of dicts (psycopg's
+    ``dict_row`` row factory, if ever configured, would produce those).
+    """
+    if not rows or isinstance(rows[0], dict):
+        return rows
+    columns = [col[0] for col in description]
+    return [dict(zip(columns, row, strict=True)) for row in rows]
+
+
+def _run_on_cursor(cur: Any, query: str, params: tuple | list | None) -> list[dict[str, Any]]:
+    """Execute ``query`` on an already-open cursor and return rows as dicts.
+
+    Shared by :meth:`LocalPostgresExecutor.execute_sql` today; a future
+    connection-held-open unit of work (see #913 discussion) would reuse it
+    too, since it already applies the ``$N``-rewrite, row-dict conversion
+    and error translation on any cursor it is handed. Always raises
+    :class:`QueryError`/:class:`DatabaseError`, never a raw
+    ``psycopg.Error``.
+    """
+    query = _rewrite_dollar_placeholders(query)
+    try:
+        cur.execute(query, params or [])
+        rows = _fetch_rows(cur)
+    except psycopg.Error as exc:
+        raise _translate_psycopg_error(exc) from exc
+    return _rows_as_dicts(rows, cur.description)
+
+
 class LocalPostgresExecutor:
     """psycopg2 wrapper that satisfies the ``SqlExecutor`` Protocol.
 
@@ -68,38 +138,25 @@ class LocalPostgresExecutor:
             conn.commit()
         return conn
 
-    def execute_sql(
-        self, query: str, params: tuple | list | None = None
-    ) -> list[dict[str, Any]]:
-        # psycopg3 ClientCursor counts ``%s`` placeholders, not ``$N``.
-        # Rewrite the query to ``%s`` before execution. The wire
-        # protocol sees the original ``$N`` (psycopg3 re-numbers).
+    def execute_sql(self, query: str, params: tuple | list | None = None) -> list[dict[str, Any]]:
         # See tests/integration/conftest.py ``_to_client_placeholder_style``
-        # for the rationale.
-        if "$" in query:
-            import re  # lazy-import: perf — avoid startup cost when query has no placeholders
-            query = re.sub(r"\$(\d+)", r"%s", query)
+        # for the ``$N`` -> ``%s`` rewrite rationale (shared via
+        # ``_run_on_cursor``/``_rewrite_dollar_placeholders``).
         with self._connect() as conn:
             cur = conn.cursor()
             try:
-                cur.execute(query, params or [])
-                try:
-                    rows = list(cur.fetchall())
-                except psycopg.ProgrammingError:
-                    # INSERT/UPDATE/DELETE: no rows to fetch
-                    rows = []
+                rows = _run_on_cursor(cur, query, params)
                 conn.commit()
-                if rows and not isinstance(rows[0], dict):
-                    columns = [col[0] for col in cur.description]
-                    rows = [dict(zip(columns, row, strict=True)) for row in rows]
-                return rows
-            except psycopg.Error as exc:
+            except (QueryError, DatabaseError):
                 conn.rollback()
-                if getattr(exc, "pgcode", None) is not None:
-                    raise QueryError(str(exc)) from exc
-                raise DatabaseError(str(exc)) from exc
+                raise
+            except psycopg.Error as exc:
+                # COMMIT itself failed (e.g. deferred constraint).
+                conn.rollback()
+                raise _translate_psycopg_error(exc) from exc
             finally:
                 cur.close()
+        return rows
 
 
 __all__ = ["LocalPostgresExecutor", "DatabaseError", "QueryError"]

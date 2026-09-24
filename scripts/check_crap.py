@@ -74,7 +74,12 @@ BASELINE_CRAP: dict[str, float] = {
     "app/core/di/auth_dependencies_session_di.py::require_authorized_user": 9.01,
     "app/core/domain/auth/user.py::AuthorizedUser.from_row": 8.0,
     "app/core/e2e_auth.py::register_e2e_auth_routes._e2e_login": 6.0,
-    "app/core/local_backend/db.py::LocalPostgresExecutor.execute_sql": 97.52,
+    # Issue #913: unit tests with fake psycopg cursor/connection doubles
+    # (tests/test_local_backend_db.py) now cover every branch in the test
+    # job's own coverage run (tests/integration was already exercising it,
+    # but that job excludes tests/integration from coverage.json). CRAP
+    # dropped from 97.52 to 3.00.
+    "app/core/local_backend/db.py::LocalPostgresExecutor.execute_sql": 3.00,
     "app/core/local_backend/healthz.py::_storage_status": 46.23,
     "app/core/local_backend/s3.py::PhotoStorageClient.download_object_stream": 9.32,
     "app/core/local_backend/s3.py::get_minio_client": 8.21,
