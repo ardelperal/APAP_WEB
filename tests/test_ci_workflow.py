@@ -1333,7 +1333,11 @@ def test_pr_size_exception_label_read_from_live_api_not_event_payload() -> None:
     # Issue #533: the runner backing this job does not provide the `gh`
     # CLI, so the live fetch must go through curl + jq (deploy.yml's
     # existing pattern), not `gh api`.
-    assert "api.github.com" in workflow and "/labels" in workflow, (
+    assert re.search(
+        r"https://api\.github\.com/repos/\$\{GITHUB_REPOSITORY\}"
+        r"/issues/\$\{PR_NUMBER\}/labels\b",
+        workflow,
+    ), (
         "pr-size.yml must fetch the PR's live labels from the GitHub REST "
         "API (curl + jq, per issue #533 — this runner has no `gh` CLI) "
         "instead of the event payload (issue #926)."
