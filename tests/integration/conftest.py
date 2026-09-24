@@ -68,6 +68,7 @@ from app.core.domain_voluntarios import (
     ROLES_VOLUNTARIO_CREATE_TABLE_SQL,
     VOLUNTARIOS_CREATE_TABLE_SQL,
 )
+from app.core.local_backend.db import _to_client_placeholders
 
 _DOLLAR_PLACEHOLDER = re.compile(r"\$(\d+)")
 
@@ -139,22 +140,13 @@ def _expand_params_for_placeholder_style(
         # unconditionally would double an already-valid ``%s`` into the
         # literal, non-placeholder ``%%s``.
         return query, params
-    indices: list[int] = []
-
-    def _sub(match: re.Match[str]) -> str:
-        indices.append(int(match.group(1)))
-        return "%s"
-
-    rewritten = _DOLLAR_PLACEHOLDER.sub(_sub, query.replace("%", "%%"))
-    if not indices:
-        return query, params
-    expanded: list[Any] = []
-    for n in indices:
-        if 1 <= n <= len(params):
-            expanded.append(params[n - 1])
-        else:
-            expanded.append(None)
-    return rewritten, expanded
+    # Issue #944: translate through the production helper so the harness
+    # and ``LocalPostgresExecutor`` can never diverge again. The harness
+    # keeps one test-only convenience: ``$N`` beyond ``len(params)`` is
+    # padded with ``None`` (production raises ``QueryError`` instead).
+    highest = max((int(n) for n in _DOLLAR_PLACEHOLDER.findall(query)), default=0)
+    padded = [*params, *([None] * max(0, highest - len(params)))]
+    return _to_client_placeholders(query, padded)
 
 # catalogos_* CREATE TABLE statements (issue #329 follow-up).
 # Schemas verified 2026-08-01 against the LocalBackend project's underlying

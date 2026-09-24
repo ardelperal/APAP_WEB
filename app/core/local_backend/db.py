@@ -16,6 +16,7 @@ translates ``DatabaseError`` to HTTP 5xx, ``QueryError`` to HTTP 4xx.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any, NoReturn
@@ -39,17 +40,42 @@ class QueryError(RuntimeError):
     """
 
 
-def _rewrite_dollar_placeholders(query: str) -> str:
-    """Rewrite ``$N`` Postgres placeholders to ``%s`` for psycopg3's ClientCursor.
+_DOLLAR_PLACEHOLDER = re.compile(r"\$(\d+)")
 
-    psycopg3 ClientCursor counts ``%s`` placeholders, not ``$N``. The wire
-    protocol still sees the original ``$N`` (psycopg3 re-numbers).
+
+def _to_client_placeholders(query: str, params: tuple | list | None) -> tuple[str, list[Any]]:
+    """Translate ``$N`` placeholders and params for psycopg3's ClientCursor.
+
+    The query builders use Postgres ``$N`` placeholders, which may repeat
+    (``$1`` twice) or appear out of order (``SET x = $2 WHERE id = $1``).
+    psycopg3's client-side cursor only understands positional ``%s``, so
+    each ``$N`` occurrence becomes one ``%s`` and the params are rebuilt in
+    occurrence order (``params[N-1]`` per occurrence). Literal ``%`` is
+    escaped as ``%%`` so client-side formatting leaves it alone. A ``$N``
+    with no matching param raises :class:`QueryError` instead of binding
+    ``None`` or a neighbour's value (issue #944).
     """
-    if "$" in query:
-        import re  # lazy-import: perf — avoid startup cost when query has no placeholders
+    values = list(params or [])
+    order: list[int] = []
 
-        return re.sub(r"\$(\d+)", r"%s", query)
-    return query
+    def _record(match: re.Match[str]) -> str:
+        order.append(int(match.group(1)))
+        return "%s"
+
+    rewritten = _DOLLAR_PLACEHOLDER.sub(_record, query.replace("%", "%%"))
+    if not order:
+        return query, values
+    return rewritten, _bind_in_occurrence_order(order, values)
+
+
+def _bind_in_occurrence_order(order: list[int], values: list[Any]) -> list[Any]:
+    """Return one value per ``$N`` occurrence, failing on an unbound ``$N``."""
+    missing = [n for n in order if not 1 <= n <= len(values)]
+    if missing:
+        raise QueryError(
+            f"placeholder ${missing[0]} has no bound parameter ({len(values)} given)"
+        )
+    return [values[n - 1] for n in order]
 
 
 def _translate_psycopg_error(exc: psycopg.Error) -> QueryError | DatabaseError:
@@ -101,9 +127,9 @@ def _run_on_cursor(cur: Any, query: str, params: tuple | list | None) -> list[di
     raises :class:`QueryError`/:class:`DatabaseError`, never a raw
     ``psycopg.Error``.
     """
-    query = _rewrite_dollar_placeholders(query)
+    query, values = _to_client_placeholders(query, params)
     try:
-        cur.execute(query, params or [])
+        cur.execute(query, values)
         rows = _fetch_rows(cur)
     except psycopg.Error as exc:
         raise _translate_psycopg_error(exc) from exc
@@ -144,9 +170,8 @@ class LocalPostgresExecutor:
         return conn
 
     def execute_sql(self, query: str, params: tuple | list | None = None) -> list[dict[str, Any]]:
-        # See tests/integration/conftest.py ``_to_client_placeholder_style``
-        # for the ``$N`` -> ``%s`` rewrite rationale (shared via
-        # ``_run_on_cursor``/``_rewrite_dollar_placeholders``).
+        # ``$N`` -> ``%s`` translation (with param reordering) is shared
+        # via ``_run_on_cursor``/``_to_client_placeholders`` (issue #944).
         with self._connect() as conn:
             cur = conn.cursor()
             try:
