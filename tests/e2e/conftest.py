@@ -26,6 +26,15 @@ from playwright.sync_api import (
 
 BASE_URL = os.environ.get("APAP_E2E_BASE_URL", "http://127.0.0.1:8000")
 
+# Issue #821: the stepper E2E suite exercises the developer-only
+# /devtools pages, which exist only when ``Settings.devtools_enabled``
+# is True. The Playwright suite runs against an EXTERNALLY started
+# server (CI and local dev export the APAP_* env before launching
+# uvicorn), so this default documents the expected environment and
+# covers any in-process app construction. It is scoped to tests/e2e
+# collection only — production keeps the flag off (default False).
+os.environ.setdefault("APAP_DEVTOOLS_ENABLED", "true")
+
 
 def pytest_collection_modifyitems(config, items):  # noqa: ARG001
     """Skip the e2e module when chromium is not installed or explicitly disabled."""
