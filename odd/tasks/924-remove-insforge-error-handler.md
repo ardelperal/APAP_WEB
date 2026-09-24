@@ -14,7 +14,7 @@ Remove the unused error translation port, DI provider, and FastAPI registration 
 
 ## Tasks
 
-- [ ] **T1 — Remove stale handler re-export.** Remove only the dead error-handler symbols from `app/core/adapters/insforge/__init__.py` and the matching `scripts/check_layers.py` baseline. Preserve unrelated compatibility aliases. RED: existing layer gate fails after removing stale baseline; GREEN: gate and focused adapter import tests pass. Route: delegated direct (mapping/preparation covered 4+ files; one code file plus mechanical baseline). Check `python3 scripts/check_layers.py`, focused pytest, lint; commit as a coherent slice.
+- [x] **T1 — Remove stale handler re-export.** Remove only the dead error-handler symbols from `app/core/adapters/insforge/__init__.py` and the matching `scripts/check_layers.py` baseline. Preserve unrelated compatibility aliases. RED: existing layer gate fails after removing stale baseline; GREEN: gate and focused adapter import tests pass. Route: delegated direct (mapping/preparation covered 4+ files; one code file plus mechanical baseline). Check `python3 scripts/check_layers.py`, focused pytest, lint; commit as a coherent slice.
 - [ ] **T2 — Remove unregistered handler chain.** Delete `app/core/error_handler.py`, `app/core/ports/insforge_error_handler_port.py`, and `app/core/di/insforge_error_handler_di.py`; remove only their stale `check_crap` and `check_slice_completeness` baseline entries. RED: add or adapt a test/gate proving these obsolete modules are not part of the active contract. GREEN: HTTP error tests, architecture gates, `make verify`, and `python3 -m build`. Route: delegated direct (three non-trivial files). Commit as a second work unit.
 
 ## Acceptance and delivery
@@ -27,5 +27,6 @@ Remove the unused error translation port, DI provider, and FastAPI registration 
 ## Progress
 
 - Issue approved and claimed; worktree and CodeGraph initialized.
-- T1 edits are uncommitted. RED: removing the stale layer baseline exposed exactly one forbidden adapter-to-DI import. GREEN: removing the dead re-export cleared the gate; `tests/test_layers.py` 19 passed; adapter import smoke, targeted Ruff, and `git diff --check` passed. `make verify PYTHON=/home/ubuntu/repos/apap-app/.venv/bin/python`: 4,618 passed, 19 skipped, 1 xfailed, 1 warning (283.48s). The dedicated worktree's system Python 3.14 lacks project tools; project venv is Python 3.12.
-- Next: close T1 with commit and native RDD assessment. T2 remains untouched.
+- T1 RED: removing the stale layer baseline exposed exactly one forbidden adapter-to-DI import. GREEN: removing the dead re-export cleared the gate; `tests/test_layers.py` 19 passed; adapter import smoke, targeted Ruff, and `git diff --check` passed. `make verify PYTHON=/home/ubuntu/repos/apap-app/.venv/bin/python`: 4,618 passed, 19 skipped, 1 xfailed, 1 warning (283.48s). The dedicated worktree's system Python 3.14 lacks project tools; project venv is Python 3.12.
+- T1 work-unit commit `3fd40da5a12b4dc85b22ceb409f6235652243db5`: 39 authored changed lines. Native committed-only RDD assessment against `origin/main`: `medium`, `review_due=false`, `under_budget`; no review receipt claimed. PR slice 1 contains this commit plus its task-evidence commit (pending).
+- Next: deliver PR slice 1 to `main` and verify current-base CI. T2 remains untouched and depends on T1 landing before its independent PR.
