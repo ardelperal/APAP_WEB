@@ -21,3 +21,17 @@
 tests/integration/test_magic_link_routes.py:generic-api-key:79
 tests/test_maildev_helper.py:generic-api-key:77
 tests/test_maildev_helper.py:generic-api-key:83
+
+# 2026-09-25 — issue #967. The ``API_KEY`` for the InsForge MCP landed
+# in ``opencode.json:12`` of the very first commit (7e06e58) of the
+# public repo and was carried in the git history. The InsForge
+# integration was deprecated in code (issue #924 retired the
+# error-handler shim; this PR removes the remaining adapter shim under
+# ``app/core/adapters/insforge/``), and the project's runtime no
+# longer consumes the value. With the runtime path gone, the
+# credential's blast radius is the git history itself — a secret
+# scanner will keep flagging the line forever unless the allowlist
+# pins it. The allowlist is scoped to this exact commit + file + rule +
+# line so a *new* secret of the same shape in a future commit still
+# fails the gate (verified by the security-deep runbook).
+opencode.json:generic-api-key:12
