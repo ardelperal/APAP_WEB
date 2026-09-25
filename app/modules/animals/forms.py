@@ -36,7 +36,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from app.modules.animals.domain.animal import _INSERT_COLUMNS
 
@@ -75,6 +75,12 @@ class AnimalForm(BaseModel):
     EutanasiaEnfermedad: str | None = None
     UltimoEstadoAntesDeFallecido: str | None = None
     ComunicacionARIAC: str | None = None
+
+    @field_validator("FDefuncion")
+    @classmethod
+    def empty_death_date_is_null(cls, value: str | None) -> str | None:
+        """Keep a blank date input from reaching PostgreSQL as an empty string."""
+        return None if value == "" else value
 
 
 # Type alias so the routes can write ``Annotated[AnimalForm, Form()]``
