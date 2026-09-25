@@ -3,7 +3,7 @@
 Covers REQ-1..REQ-5, REQ-7, REQ-8 from the spec.
 
 The contract:
-- Empty local_backend_service_key  → StartupConfigError(env_var="APAP_INSFORGE_SERVICE_KEY")
+- Empty local_backend_service_key  → StartupConfigError(env_var="APAP_LOCAL_BACKEND_SERVICE_KEY")
 - Placeholder session_secret   → StartupConfigError(env_var="APAP_SESSION_SECRET", reason="placeholder")
 - Short session_secret (<32)  → StartupConfigError(env_var="APAP_SESSION_SECRET", reason="too_short")
 - debug=True                  → all checks bypassed

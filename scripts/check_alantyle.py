@@ -110,7 +110,7 @@ _HTTP_SECURITY_WHITELIST = frozenset(
 _CLOUD_INFRASTRUCTURE_WHITELIST = frozenset(
     {
         "AMQP", "AWS", "AZURE", "CDN", "CIDR", "DNS", "FTP", "GCP",
-        "GRPC", "IaaS", "IMAP", "INFORGE", "INSFORGE", "IP", "K8S",
+        "GRPC", "IaaS", "IMAP", "IP", "K8S",
         "MQTT", "PaaS", "SAAS", "SMTP", "SMS", "SSH", "TCP", "UDP",
         "VPN", "VPS", "WS", "WSS", "WWW",
     }

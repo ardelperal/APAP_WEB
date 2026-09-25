@@ -56,8 +56,6 @@ from app.core.auth_dependencies import (
 )
 
 # Alias for backward compat with test fixtures.
-get_insforge_client_dep = get_local_postgres_executor_dep
-
 from app.core.csrf import csrf_token_context_processor  # noqa: E402
 from app.core.data_access import (  # noqa: E402
     BackendError,
