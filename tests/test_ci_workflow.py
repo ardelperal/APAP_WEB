@@ -2106,3 +2106,29 @@ def test_ci_workflow_verify_fallback_ready_job_has_no_standalone_path_comment() 
 
     assert "migration/cli_verify_fallback_ready" not in job
     assert "temporary workaround" not in job
+
+
+def test_setup_python_action_caches_the_uv_environment_keyed_on_the_lockfile() -> None:
+    """The dependency cache must match the installer (issue #938).
+
+    The composite action installs dependencies with ``uv sync``, so a
+    ``cache: pip`` on ``actions/setup-python`` never stores them and every
+    job resolves and downloads the whole environment cold. The uv cache
+    must be restored with a key derived from ``uv.lock`` so a lockfile
+    change can never be served stale packages.
+    """
+    action = (REPO_ROOT / ".github" / "actions" / "setup-python" / "action.yml").read_text(
+        encoding="utf-8"
+    )
+    executable = "\n".join(
+        line for line in action.splitlines() if not line.lstrip().startswith("#")
+    )
+
+    assert "cache: pip" not in executable, "pip's cache does not cover `uv sync`"
+    cache_step = re.search(r"uses: actions/cache@([0-9a-f]{40})\b", executable)
+    assert cache_step, "the uv cache must be restored with a SHA-pinned actions/cache (#880)"
+    assert "UV_CACHE_DIR" in executable
+    assert "hashFiles('uv.lock')" in executable, "the cache key must change with uv.lock"
+    assert executable.index("actions/cache@") < executable.index("uv sync --frozen"), (
+        "the cache must be restored before `uv sync` runs"
+    )
