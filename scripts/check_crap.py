@@ -340,15 +340,24 @@ def _check_measured_scores(
     measured: Mapping[str, float],
     baseline: Mapping[str, float],
 ) -> tuple[list[str], list[str]]:
-    violations: list[str] = []
+    """Surface ratchet findings — all of them informational since #969.
+
+    Until #929 ships combined coverage, the CRAP score is read against
+    unit coverage only; the gate therefore cannot reliably distinguish
+    real regressions from coverage gaps. Promoting every finding to a
+    NOTE keeps the report visible in the lint log without blocking
+    clean PRs. The contract is re-evaluated when #929 lands.
+    """
     notices: list[str] = []
     for key, score in measured.items():
         if key in baseline:
             budget = baseline[key]
             if score > budget:
-                violations.append(
+                notices.append(
                     f"{key}: CRAP={score:.2f}, grew beyond its baseline of "
-                    f"{budget:.2f} (ratchet: CRAP may only decrease)"
+                    f"{budget:.2f} (informational since #969; ratchet: "
+                    "CRAP may only decrease — refresh BASELINE_CRAP or "
+                    "split the function to lower the score)"
                 )
             elif score < budget:
                 notices.append(
@@ -356,11 +365,11 @@ def _check_measured_scores(
                     "update BASELINE_CRAP to lock in the improvement"
                 )
         elif score >= MAX_CRAP_SCORE:
-            violations.append(
+            notices.append(
                 f"{key}: CRAP={score:.2f}, outside grade {MAX_CRAP_GRADE} "
-                f"(requires CRAP < {MAX_CRAP_SCORE:g})"
+                f"(requires CRAP < {MAX_CRAP_SCORE:g}; informational since #969)"
             )
-    return violations, notices
+    return notices
 
 
 def _check_stale_baseline(
@@ -368,7 +377,6 @@ def _check_stale_baseline(
     measured: Mapping[str, float],
     baseline: Mapping[str, float],
 ) -> tuple[list[str], list[str]]:
-    violations: list[str] = []
     notices: list[str] = []
     for key in sorted(set(baseline) - set(measured)):
         rel = key.split("::", 1)[0]
@@ -377,55 +385,39 @@ def _check_stale_baseline(
                 f"{key}: no coverage record; CRAP baseline not evaluated"
             )
         else:
-            violations.append(
-                f"{key}: stale BASELINE_CRAP entry — function no longer exists"
+            notices.append(
+                f"{key}: stale BASELINE_CRAP entry — function no longer exists "
+                "(informational since #969; delete the entry to lock in the cleanup)"
             )
-    return violations, notices
+    return notices
 
 
 def check_baseline_exactness(
     measured: Mapping[str, float],
     baseline: Mapping[str, float],
 ) -> tuple[list[str], list[str]]:
-    """Complement the ratchet with the strict-equality contract.
+    """Record strict-equality drift — informational since #969.
 
-    The ratchet (``_check_measured_scores`` + ``_check_stale_baseline``)
-    surfaces regressions and missing offenders as violations and
-    improvements as notices. That is the right shape during active work:
-    a function improving should not block a commit, only encourage a
-    follow-up baseline refresh.
-
-    ``check_baseline_exactness`` upgrades the *contract* to a stricter one:
-    every baseline entry must correspond to a function whose score
-    matches the baseline value. Improvements become violations so the
-    exact-equality invariant can never drift silently. The contract was
-    previously codified as a stand-alone pytest assertion that always
-    skipped in CI because ``coverage.json`` is written by
-    ``pytest --cov-report=json`` only at session end (issue #540).
-    Moving it here lets the CI ``test`` job run it against the freshly
-    written ``coverage.json`` immediately after pytest.
-
-    This function complements rather than duplicates the ratchet:
-
-    * regressions / new offenders / stale entries — already caught above.
-    * improvements (``measured < baseline``) — promoted from NOTICE to
-      VIOLATION here, so a missed ``--emit-baseline`` lands as a hard
-      CI failure instead of a quiet drift.
-
-    Returns ``(violations, notices)``. Notices are reserved for future
-    use; today every drift is a violation by design.
+    Before #969 this function promoted an improvement (``measured < baseline``)
+    to a VIOLATION so the strict-equality invariant could never drift
+    silently (#540). #969 removed that contract: improvements are
+    surfaced through ``_check_measured_scores`` as a NOTE, and this
+    function continues to expose the same finding via the
+    ``(violations, notices)`` contract for callers that invoke it
+    directly. ``check_tree`` no longer calls it because the ratchet's
+    own notice already covers the case.
     """
-    violations: list[str] = []
+    notices: list[str] = []
     for key, budget in baseline.items():
         if key not in measured:
             continue  # stale entry, handled by _check_stale_baseline
         actual = measured[key]
         if actual < budget:
-            violations.append(
+            notices.append(
                 f"{key}: CRAP={actual:.2f}, improved below its baseline of "
                 f"{budget:.2f}; update BASELINE_CRAP to lock in the new score."
             )
-    return violations, []
+    return [], notices
 
 
 def check_tree(
@@ -434,7 +426,13 @@ def check_tree(
     baseline: Mapping[str, float] | None = None,
     coverage_path: Path | None = None,
 ) -> tuple[list[str], list[str]]:
-    """Return ``(violations, notices)`` for the scanned tree."""
+    """Return ``(violations, notices)`` for the scanned tree.
+
+    Since #969 the entire gate is informational. ``violations`` is
+    reserved for I/O / parse failures that prevent the scan from
+    completing; every CRAP-related finding lives in ``notices`` so the
+    report is preserved while ``main()`` exits 0 on a healthy run.
+    """
     if baseline is None:
         baseline = BASELINE_CRAP
     coverage_file = coverage_path or root / "coverage.json"
@@ -448,19 +446,9 @@ def check_tree(
     except (OSError, UnicodeDecodeError, SyntaxError, TypeError, ValueError) as exc:
         return [str(exc)], []
 
-    violations, notices = _check_measured_scores(measured, baseline)
-    stale_violations, stale_notices = _check_stale_baseline(
-        coverage_files,
-        measured,
-        baseline,
-    )
-    exactness_violations, exactness_notices = check_baseline_exactness(
-        measured, baseline
-    )
-    return (
-        violations + stale_violations + exactness_violations,
-        notices + stale_notices + exactness_notices,
-    )
+    measured_notices = _check_measured_scores(measured, baseline)
+    stale_notices = _check_stale_baseline(coverage_files, measured, baseline)
+    return [], measured_notices + stale_notices
 
 
 def _emit_baseline(root: Path) -> int:
@@ -513,7 +501,12 @@ def main(argv: list[str] | None = None) -> int:
             f"required grade {MAX_CRAP_GRADE} (CRAP < {MAX_CRAP_SCORE:g})."
         )
         return 1
-    if not notices:
+    if notices:
+        print(
+            f"check_crap: {len(notices)} note(s); gate is informational "
+            "(issue #969) — see docs/codebase/quality-gates.md."
+        )
+    else:
         print("check_crap: OK")
     warning = check_deadline(TARGET, len(BASELINE_CRAP), label="crap")
     if warning:
