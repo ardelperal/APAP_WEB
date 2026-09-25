@@ -172,7 +172,15 @@ class LocalPostgresExecutor:
     def execute_sql(self, query: str, params: tuple | list | None = None) -> list[dict[str, Any]]:
         # ``$N`` -> ``%s`` translation (with param reordering) is shared
         # via ``_run_on_cursor``/``_to_client_placeholders`` (issue #944).
-        with self._connect() as conn:
+        # A failed connect() (bad DSN, network down) has no sqlstate: it
+        # must still surface as ``DatabaseError`` per this class's documented
+        # contract, so ``app.core.local_backend.api`` maps it to HTTP 5xx
+        # instead of an unhandled ``psycopg.OperationalError`` (issue #932).
+        try:
+            connection = self._connect()
+        except psycopg.Error as exc:
+            raise _translate_psycopg_error(exc) from exc
+        with connection as conn:
             cur = conn.cursor()
             try:
                 rows = _run_on_cursor(cur, query, params)

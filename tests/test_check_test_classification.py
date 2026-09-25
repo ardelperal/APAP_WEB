@@ -285,6 +285,130 @@ def test_baselined_entry_disappears_once_integration_lands(tmp_path: Path) -> No
 
 
 # ---------------------------------------------------------------------------
+# Integration marker guard (issue #932)
+# ---------------------------------------------------------------------------
+#
+# Unlike IN_SCOPE_DOMAINS above (a curated ratchet over specific domains),
+# this guard sweeps EVERY tests/integration/test_*.py file: pytest
+# selection in CI depends on the ``integration`` marker in both jobs (the
+# ``test`` job excludes the whole directory via addopts; the ``integration``
+# job filters with ``-m integration``), so a file missing it collects in
+# neither job and its tests silently never run.
+
+
+def test_marker_guard_passes_with_module_level_pytestmark(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "tests/integration/test_widget.py",
+        "import pytest\n\npytestmark = pytest.mark.integration\n\n"
+        "def test_a():\n    pass\n\ndef test_b():\n    pass\n",
+    )
+    checker = _load_checker()
+    assert checker._integration_marker_violations(tmp_path / "tests" / "integration") == []
+
+
+def test_marker_guard_passes_with_list_pytestmark(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "tests/integration/test_widget.py",
+        "import pytest\n\npytestmark = [pytest.mark.integration]\n\n"
+        "def test_a():\n    pass\n",
+    )
+    checker = _load_checker()
+    assert checker._integration_marker_violations(tmp_path / "tests" / "integration") == []
+
+
+def test_marker_guard_passes_when_every_function_is_decorated(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "tests/integration/test_widget.py",
+        "import pytest\n\n@pytest.mark.integration\ndef test_a():\n    pass\n\n"
+        "@pytest.mark.integration\ndef test_b():\n    pass\n",
+    )
+    checker = _load_checker()
+    assert checker._integration_marker_violations(tmp_path / "tests" / "integration") == []
+
+
+def test_marker_guard_fails_with_no_marker_at_all(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "tests/integration/test_widget.py",
+        "def test_a():\n    pass\n",
+    )
+    checker = _load_checker()
+    violations = checker._integration_marker_violations(tmp_path / "tests" / "integration")
+    assert len(violations) == 1
+    assert "test_widget.py" in violations[0]
+    assert "test_a" in violations[0]
+
+
+def test_marker_guard_fails_when_only_some_functions_are_decorated(tmp_path: Path) -> None:
+    """A module lacking pytestmark must decorate EVERY test, not just some."""
+    _write(
+        tmp_path,
+        "tests/integration/test_widget.py",
+        "import pytest\n\n@pytest.mark.integration\ndef test_a():\n    pass\n\n"
+        "def test_b():\n    pass\n",
+    )
+    checker = _load_checker()
+    violations = checker._integration_marker_violations(tmp_path / "tests" / "integration")
+    assert len(violations) == 1
+    assert "test_b" in violations[0]
+    assert "test_a" not in violations[0].split("unmarked:")[1]
+
+
+def test_marker_guard_ignores_files_with_no_test_functions(tmp_path: Path) -> None:
+    _write(tmp_path, "tests/integration/conftest.py", "import pytest\n")
+    _write(tmp_path, "tests/integration/__init__.py", "")
+    _write(tmp_path, "tests/integration/test_empty.py", "# scaffold only\n")
+    checker = _load_checker()
+    assert checker._integration_marker_violations(tmp_path / "tests" / "integration") == []
+
+
+def test_marker_guard_missing_integration_dir_is_clean(tmp_path: Path) -> None:
+    checker = _load_checker()
+    assert checker._integration_marker_violations(tmp_path / "tests" / "integration") == []
+
+
+def test_marker_guard_reports_unparseable_file(tmp_path: Path) -> None:
+    _write(tmp_path, "tests/integration/test_broken.py", "def test_a(:\n    pass\n")
+    checker = _load_checker()
+    violations = checker._integration_marker_violations(tmp_path / "tests" / "integration")
+    assert len(violations) == 1
+    assert "not parseable" in violations[0]
+
+
+def test_marker_guard_is_wired_into_check_tree(tmp_path: Path) -> None:
+    """The general marker sweep runs as part of ``check_tree``, not just
+    on demand -- otherwise the gate is dead code for anything outside
+    IN_SCOPE_DOMAINS."""
+    files = {
+        "tests/__init__.py": "",
+        "tests/integration/__init__.py": "",
+    }
+    for module in _load_checker().IN_SCOPE_DOMAINS:
+        files[f"tests/integration/test_{module}_queries_integration.py"] = (
+            _integration_source(module)
+        )
+    files["tests/integration/test_orphan.py"] = "def test_unmarked():\n    pass\n"
+    _tree(tmp_path, files)
+    checker = _load_checker()
+
+    violations, _ = checker.check_tree(tmp_path)
+
+    assert any("test_orphan.py" in v for v in violations)
+
+
+def test_marker_guard_finds_no_offenders_on_the_real_tree() -> None:
+    """RED before this PR's fix (issue #932): reported
+    ``test_local_backend_db.py``, ``test_local_backend_transaction.py``
+    and two orphan tests in ``test_self_host_auth.py``. GREEN after."""
+    checker = _load_checker()
+    integration_dir = REPO_ROOT / "tests" / "integration"
+    assert checker._integration_marker_violations(integration_dir) == []
+
+
+# ---------------------------------------------------------------------------
 # CLI contract
 # ---------------------------------------------------------------------------
 
