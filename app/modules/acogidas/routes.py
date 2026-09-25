@@ -40,7 +40,11 @@ from app.core.auth_dependencies import (
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
-from app.core.data_access import BackendError, SqlExecutor
+from app.core.data_access import (
+    BackendError,
+    SqlExecutor,
+    TransactionalSqlExecutor,
+)
 from app.core.middleware import base_template_context_processor, current_path_context_processor
 from app.core.rbac import Permission, require_permission
 from app.modules.acogidas._actor_flow import close_acogida_or_403, create_acogida_with_actor
@@ -224,7 +228,7 @@ def create_acogida_view(  # noqa: PLR0913  # form model + fixed dependencies
     request: Request,
     form: Annotated[AcogidaForm, Form()],
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_ACOGIDAS))],
-    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
+    client: Annotated[TransactionalSqlExecutor, Depends(get_local_postgres_executor_dep)],
     port: Annotated[AnimalsPort, Depends(get_animals_port)],
 ):
     """Create a new estancia; redirect to detail on success, re-render form on validation error.

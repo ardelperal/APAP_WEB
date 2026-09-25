@@ -53,6 +53,7 @@ lifecycle contract that LIFECYCLE-02 adds on top of the existing CRUD.
 from __future__ import annotations
 
 import json
+from contextlib import nullcontext
 from typing import Any
 
 from app.modules.acogidas import service as acogidas_service
@@ -130,6 +131,12 @@ class FakeSqlExecutor:
             return [self._update_row or _default_update_row()]
         return []
 
+
+    def transaction(self) -> Any:
+        """Yield this fake unchanged: unit tests exercise one round-trip at a
+        time, so every ``execute_sql`` call inside the service's
+        ``transaction()`` block hits this same recording fake."""
+        return nullcontext(self)
 
 def _default_insert_row() -> dict[str, Any]:
     """Canonical returned row for the ``INSERT INTO acogidas`` mock."""
