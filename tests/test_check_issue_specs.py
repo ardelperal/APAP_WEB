@@ -197,3 +197,54 @@ def test_checked_in_baseline_covers_exactly_the_pre_contract_history() -> None:
         {row["number"] for row in rows[1:]}
     )
     assert all("body" not in row for row in rows[1:])
+
+
+# --- Issue #952: closing-reference parsing ---------------------------------
+
+
+def _closing(body: str) -> list[int]:
+    return check_issue_specs.extract_closing_issue_numbers(body, "ardelperal/APAP_WEB")
+
+
+def test_keyword_at_line_end_does_not_reach_a_number_on_the_next_line() -> None:
+    # PR #951: "... alias fix" followed by "4706 passed" was read as "fix #4706".
+    assert _closing("# before the PLR0402 alias fix\n4706 passed, 1 failed") == []
+
+
+def test_a_bare_number_without_hash_is_not_a_reference() -> None:
+    assert _closing("Fixes 12 flaky tests") == []
+
+
+def test_references_inside_fenced_code_blocks_do_not_count() -> None:
+    # PR #931: a chain diagram in a code block closed #913 prematurely.
+    body = "Refs #945\n\n```\nmain\n └─ next (2c, Closes #945)\n```\n"
+    assert _closing(body) == []
+
+
+def test_references_inside_inline_code_do_not_count() -> None:
+    assert _closing("Use `Closes #945` only in the final slice.") == []
+
+
+def test_documented_github_forms_are_still_detected() -> None:
+    body = (
+        "Closes #12\n"
+        "Fixes: #13\n"
+        "resolves ardelperal/APAP_WEB#14\n"
+        "Closes https://github.com/ardelperal/APAP_WEB/issues/15\n"
+        "Closes other/project#99\n"
+    )
+    assert _closing(body) == [12, 13, 14, 15]
+
+
+class FailingClient:
+    def issue(self, repository: str, number: int) -> dict[str, Any]:
+        raise check_issue_specs.GitHubApiError(
+            "read", f"/repos/{repository}/issues/{number}", OSError("HTTP Error 404: Not Found")
+        )
+
+
+def test_unreadable_issue_is_a_readable_violation_not_a_traceback() -> None:
+    violations = check_issue_specs.validate_pr_event(_event("Closes #4706"), FailingClient())
+
+    assert len(violations) == 1
+    assert violations[0].startswith("#4706: cannot read the issue")
