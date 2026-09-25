@@ -86,6 +86,13 @@ def test_grade_a_function_passes_without_baseline(tmp_path: Path) -> None:
 
 
 def test_flags_new_function_outside_grade_a(tmp_path: Path) -> None:
+    """A new function outside grade A is a NOTE since #969.
+
+    Before #969 the gate forced every new function to grade A under
+    unit-only coverage, which is not a defect and is re-evaluated once
+    the combined coverage (#929) lands. The finding still shows up in
+    the lint log so the author can decide whether to refactor.
+    """
     checker = _load_checker()
     source = _risky_source()
     _write_module(tmp_path, source)
@@ -93,14 +100,20 @@ def test_flags_new_function_outside_grade_a(tmp_path: Path) -> None:
 
     violations, notices = checker.check_tree(tmp_path, baseline={})
 
-    assert notices == []
-    assert len(violations) == 1
-    assert "app/sample.py::risky" in violations[0]
-    assert "CRAP=" in violations[0]
-    assert "grade A" in violations[0]
+    assert violations == []
+    assert len(notices) == 1
+    assert "app/sample.py::risky" in notices[0]
+    assert "CRAP=" in notices[0]
+    assert "grade A" in notices[0]
 
 
-def test_ratchet_rejects_score_growth(tmp_path: Path) -> None:
+def test_ratchet_reports_score_growth_as_note(tmp_path: Path) -> None:
+    """A baselined function whose CRAP grew is a NOTE since #969.
+
+    Until #929 ships combined coverage the ratchet reads only unit
+    coverage; promoting regressions to NOTE keeps the gate from blocking
+    clean PRs while still surfacing the drift in the log.
+    """
     checker = _load_checker()
     source = _risky_source()
     _write_module(tmp_path, source)
@@ -112,12 +125,20 @@ def test_ratchet_rejects_score_growth(tmp_path: Path) -> None:
         baseline={"app/sample.py::risky": score - 0.01},
     )
 
-    assert notices == []
-    assert len(violations) == 1
-    assert "grew beyond its baseline" in violations[0]
+    assert violations == []
+    assert len(notices) == 1
+    assert "grew beyond its baseline" in notices[0]
 
 
 def test_ratchet_reports_score_improvement(tmp_path: Path) -> None:
+    """A baselined function whose CRAP improved is a NOTE since #969.
+
+    ``_check_measured_scores`` already surfaces the improvement as a
+    NOTICE; ``check_baseline_exactness`` used to promote it to a
+    VIOLATION (#540). #969 removes the strict-equality contract so an
+    improvement can no longer fail the gate — the operator is still
+    encouraged to lock the new score into ``BASELINE_CRAP``.
+    """
     checker = _load_checker()
     source = _risky_source()
     _write_module(tmp_path, source)
@@ -129,17 +150,51 @@ def test_ratchet_reports_score_improvement(tmp_path: Path) -> None:
         baseline={"app/sample.py::risky": score + 1.0},
     )
 
-    # ``_check_measured_scores`` still surfaces the improvement as a NOTICE
-    # (informational, "lock in the new score"), but the strict-equality
-    # contract promoted by ``check_baseline_exactness`` (issue #540)
-    # upgrades it to a VIOLATION — the operator must either refresh the
-    # baseline or roll back the improvement.
-    assert len(violations) == 1
-    assert "app/sample.py::risky" in violations[0]
-    assert "improved below its baseline" in violations[0]
+    assert violations == []
     assert len(notices) == 1
     assert "app/sample.py::risky" in notices[0]
+    assert "below its baseline of" in notices[0]
     assert "update BASELINE_CRAP" in notices[0]
+
+
+def test_stale_baseline_entry_is_a_note(tmp_path: Path) -> None:
+    """A baselined function whose source disappeared is a NOTE since #969.
+
+    Mirrors ``test_stale_baseline_entry_is_a_note`` in
+    ``tests/test_check_mutation_sites.py`` (#968). The strict-equality
+    contract was the only thing keeping stale entries out of the
+    baseline; now the cleanup is informational and surfaces in the log.
+    """
+    checker = _load_checker()
+    _write_module(tmp_path, "def simple(value):\n    return value + 1\n")
+    _write_coverage(tmp_path, executed=[1, 2], missing=[])
+
+    violations, notices = checker.check_tree(
+        tmp_path,
+        baseline={"app/sample.py::gone": 42.0},
+    )
+
+    assert violations == []
+    assert len(notices) == 1
+    assert "app/sample.py::gone" in notices[0]
+
+
+def test_main_exits_zero_with_only_notes(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """``main()`` exits 0 when every finding is informational (issue #969)."""
+    checker = _load_checker()
+    source = _risky_source()
+    _write_module(tmp_path, source)
+    _write_coverage(tmp_path, executed=[], missing=list(range(1, 13)))
+
+    rc = checker.main([str(tmp_path)])
+
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "NOTE" in out
+    assert "informational" in out.lower()
 
 
 def test_missing_coverage_json_is_an_advisory_skip(
@@ -205,19 +260,15 @@ def test_baseline_file_without_coverage_record_is_skipped(
 
 
 def test_baseline_matches_current_measured_offenders(tmp_path: Path) -> None:
-    """``BASELINE_CRAP`` must stay in sync with the measured offenders.
+    """``BASELINE_CRAP`` exactness is informational since #969.
 
-    This test was previously a stand-alone assertion that ran only when
-    ``coverage.json`` happened to exist at collection time. Because
-    ``pytest --cov-report=json`` writes ``coverage.json`` only at session
-    end, the assertion always skipped in CI (issue #540). The contract
-    moved into ``scripts.check_crap.check_baseline_exactness``, which the
-    CI ``test`` job runs against the freshly-written ``coverage.json``
-    immediately after pytest.
-
-    This test exercises the new function directly against a fixture
-    ``coverage.json`` + module, so the assertion runs in every pytest
-    invocation regardless of whether the real ``coverage.json`` exists.
+    Before #969 ``check_baseline_exactness`` promoted improvements to
+    VIOLATIONs so the strict-equality invariant could not drift silently
+    (#540). #969 removes that contract: improvements are NOTES again,
+    surfaced through ``check_tree``'s union of notices. The function is
+    still exercised here so future regressions in the exactness layer
+    (e.g. typos in the message format) get caught by the suite, but the
+    contract is no longer "violation on improvement".
     """
     checker = _load_checker()
 
@@ -231,9 +282,9 @@ def test_baseline_matches_current_measured_offenders(tmp_path: Path) -> None:
     assert notices == []
 
     # Case 2: a baseline entry references a function whose score improved
-    # below its budget → violation. ``_check_measured_scores`` would emit
-    # this as a NOTICE; ``check_baseline_exactness`` promotes it to a
-    # VIOLATION so the strict-equality invariant can never drift silently.
+    # below its budget. Before #969 this was a VIOLATION promoted from the
+    # NOTICE that ``_check_measured_scores`` already emitted. Now it stays
+    # a NOTICE so an improvement can no longer fail the gate.
     _write_module(tmp_path, _risky_source())
     _write_coverage(tmp_path, executed=list(range(1, 13)), missing=[])
     measured = checker.measure_tree(tmp_path)
@@ -243,15 +294,15 @@ def test_baseline_matches_current_measured_offenders(tmp_path: Path) -> None:
         measured,
         {"app/sample.py::risky": improved_score + 5.0},
     )
-    assert notices == []
-    assert len(violations) == 1
-    assert "improved below its baseline" in violations[0]
-    assert "app/sample.py::risky" in violations[0]
+    assert violations == []
+    assert len(notices) == 1
+    assert "improved below its baseline" in notices[0]
+    assert "app/sample.py::risky" in notices[0]
 
     # Case 3: a baseline entry whose function no longer exists at all →
     # ``check_baseline_exactness`` defers to ``_check_stale_baseline``
     # (which can distinguish "function gone" from "file has no coverage
-    # record"), so this function emits no violation on its own.
+    # record"), so this function emits nothing on its own.
     _write_module(tmp_path, "def simple(value):\n    return value + 1\n")
     _write_coverage(tmp_path, executed=[1, 2], missing=[])
     measured = checker.measure_tree(tmp_path)
@@ -264,9 +315,9 @@ def test_baseline_matches_current_measured_offenders(tmp_path: Path) -> None:
     assert notices == []
 
     # Case 4: regression (measured > budget) is also not this function's
-    # concern — ``_check_measured_scores`` already catches it as a
-    # VIOLATION. ``check_baseline_exactness`` only emits on improvements
-    # (measured < budget), so a regression here produces no violation.
+    # concern — ``_check_measured_scores`` already catches it as a NOTE.
+    # ``check_baseline_exactness`` only emits on improvements, so a
+    # regression here produces nothing.
     violations, notices = checker.check_baseline_exactness(
         measured,
         {"app/sample.py::simple": measured["app/sample.py::simple"] - 5.0},
