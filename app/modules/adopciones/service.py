@@ -21,16 +21,24 @@ from app.core.data_access import BackendError, SqlExecutor
 from app.core.forms import optional_text, required_text
 from app.core.logging import log_safe
 from app.modules.adopciones import queries
+from app.modules.adopciones._actor_guard import require_actor_for_return
 from app.modules.animals import (
     LifecycleEventType,
     actualizar_estado_animal,
     record_event,
+    require_actor,
 )
 from app.modules.lifecycle import close_previous_situation
 
 
 class AdopcionConflictError(ValueError):
     """Raised on UNIQUE ``(animal_id, fecha_adopcion)`` violations."""
+
+
+#: Shared by create_adopcion / update_adopcion: same lifecycle-event
+#: source-entity type and the same UNIQUE-violation message.
+_ADOPCION_ENTITY_TYPE = "adopciones"
+_ADOPCION_DUPLICATE_MESSAGE = "adopcion duplicada para animal_id y fecha_adopcion"
 
 
 # ---------------------------------------------------------------------------
@@ -235,7 +243,8 @@ def _validate_entrada_exists_if_present(
 
 
 def _raise_validation_error(client: SqlExecutor, params: dict[str, Any]) -> None:
-    animal_id = required_text(params, "animal_id", error_template="{field} is required and cannot be empty")
+    # error_template omitted: matches required_text's own default verbatim.
+    animal_id = required_text(params, "animal_id")
     sql, sql_params = queries.build_adopcion_check_animal(animal_id)
     if not client.execute_sql(sql, sql_params):
         raise ValueError("animal_id does not reference an active animal")
@@ -294,14 +303,15 @@ def create_adopcion(
     *,
     actor_user_id: str | None = None,
 ) -> Adopcion:
+    # Issue #945 (A-13): lifecycle events need the acting user's UUID
+    # (``created_by UUID NOT NULL``); reject before any write without one.
+    created_by = require_actor(actor_user_id)
     sql, sql_params = queries.build_adopcion_insert(params)
     try:
         rows = client.execute_sql(sql, sql_params)
     except BackendError as exc:
         if _is_duplicate_error(exc):
-            raise AdopcionConflictError(
-                "adopcion duplicada para animal_id y fecha_adopcion"
-            ) from exc
+            raise AdopcionConflictError(_ADOPCION_DUPLICATE_MESSAGE) from exc
         raise
 
     if not rows:
@@ -326,8 +336,8 @@ def create_adopcion(
         animal_id=adopcion.animal_id,
         event_type=LifecycleEventType.ADOPTION_STARTED,
         event_timestamp=adopcion.fecha_adopcion,
-        created_by="adopciones.create_adopcion",
-        source_entity_type="adopciones",
+        created_by=created_by,
+        source_entity_type=_ADOPCION_ENTITY_TYPE,
         source_entity_id=adopcion.id,
     )
     close_previous_situation(
@@ -336,8 +346,9 @@ def create_adopcion(
         category="FOSTER",
         caused_by_event_id=None,
         event_timestamp=adopcion.fecha_adopcion,
-        source_entity_type="adopciones",
+        source_entity_type=_ADOPCION_ENTITY_TYPE,
         source_entity_id=adopcion.id,
+        created_by=created_by,
     )
     actualizar_estado_animal(client, animal_id=adopcion.animal_id)
 
@@ -371,15 +382,18 @@ def update_adopcion(
     # going from ``None`` to a date string). This is the LIFECYCLE-02
     # (issue #32) trigger for the ``ADOPTION_RETURNED`` event.
     previous = get_adopcion_by_id(client, adopcion_id)
+    # Issue #945 (A-13): a return transition emits ADOPTION_RETURNED,
+    # which needs the acting user's UUID; reject before the UPDATE runs.
+    # No new branch here — the check lives in require_actor_for_return
+    # so this function's CRAP grade is unchanged.
+    require_actor_for_return(previous, params, actor_user_id)
 
     sql, sql_params = queries.build_adopcion_update(adopcion_id, params)
     try:
         rows = client.execute_sql(sql, sql_params)
     except BackendError as exc:
         if _is_duplicate_error(exc):
-            raise AdopcionConflictError(
-                "adopcion duplicada para animal_id y fecha_adopcion"
-            ) from exc
+            raise AdopcionConflictError(_ADOPCION_DUPLICATE_MESSAGE) from exc
         raise
 
     if not rows:
@@ -412,8 +426,8 @@ def update_adopcion(
             animal_id=adopcion.animal_id,
             event_type=LifecycleEventType.ADOPTION_RETURNED,
             event_timestamp=adopcion.fecha_devolucion,
-            created_by="adopciones.update_adopcion",
-            source_entity_type="adopciones",
+            created_by=require_actor(actor_user_id),
+            source_entity_type=_ADOPCION_ENTITY_TYPE,
             source_entity_id=adopcion.id,
         )
         actualizar_estado_animal(client, animal_id=adopcion.animal_id)
