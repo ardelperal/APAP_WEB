@@ -111,16 +111,20 @@ def test_close_all_on_death_happy_path_emits_every_event(
         _executor(ep), animal_id, date.today().isoformat(), created_by=ACTOR
     )
 
-    # Same events, same order as before A-03: DEATH_RECORDED first,
-    # then one closing event per active placement.
+    # Same events as before A-03: DEATH_RECORDED plus one closing event
+    # per active placement, all lineage-linked to the death event via
+    # ``caused_by_event_id`` (they share one event_timestamp, so the
+    # lineage is the only deterministic ordering).
     rows = ep.execute(
-        "SELECT event_type FROM animal_lifecycle_events "
-        "WHERE animal_id = %s ORDER BY event_timestamp, created_at",
+        "SELECT id, event_type, caused_by_event_id FROM animal_lifecycle_events "
+        "WHERE animal_id = %s",
         [animal_id],
     )
-    types = [r["event_type"] for r in rows]
-    assert types[0] == "DEATH_RECORDED"
-    assert sorted(types[1:]) == [
+    death = [r for r in rows if r["event_type"] == "DEATH_RECORDED"]
+    closings = [r for r in rows if r["event_type"] != "DEATH_RECORDED"]
+    assert len(death) == 1
+    assert sorted(r["event_type"] for r in closings) == [
         "ADOPTION_CLOSED_BY_DEATH",
         "INTAKE_CLOSED_BY_DEATH",
     ]
+    assert all(r["caused_by_event_id"] == death[0]["id"] for r in closings)
