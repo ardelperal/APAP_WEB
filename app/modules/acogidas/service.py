@@ -73,8 +73,16 @@ from app.modules.animals import (
     LifecycleEventType,
     actualizar_estado_animal,
     record_event,
+    require_actor,
 )
 from app.modules.lifecycle import close_previous_situation
+
+#: Shared by create_acogida / close_acogida: the ``source_entity_type``
+#: recorded on every lifecycle event this service emits (issue #945,
+#: A-13 — consolidated from three duplicate literals so threading the
+#: actor's UUID through these calls doesn't grow the file past its
+#: mutation-site ratchet baseline, scripts/check_mutation_sites.py).
+_ACOGIDA_ENTITY_TYPE = "acogidas"
 
 # Back-compat re-exports — the integration tests
 # (``tests/test_acogidas.py``, ``tests/test_acogidas_routes.py``) compute
@@ -249,6 +257,22 @@ def _validate_entrada_exists_if_present(
         )
 
 
+#: Shared between ``_validate_references`` and the override-link
+#: re-fetch in ``create_acogida`` — both need the same required
+#: ``animal_id`` read with the same Spanish error message (issue #945,
+#: A-13: consolidated into one helper so threading the actor's UUID
+#: through this file doesn't grow it past its mutation-site ratchet
+#: baseline, scripts/check_mutation_sites.py).
+_ANIMAL_ID_REQUIRED_TEMPLATE = "{field_name} es obligatorio y no puede estar vacio"
+
+
+def _required_animal_id(params: dict[str, Any]) -> str:
+    """Read the required ``animal_id`` field, or raise ``ValueError``."""
+    return required_text(
+        params, "animal_id", error_template=_ANIMAL_ID_REQUIRED_TEMPLATE
+    )
+
+
 def _validate_references(client: SqlExecutor, params: dict[str, Any]) -> None:
     """Run all FK checks in order. Raises ``ValueError`` on first failure.
 
@@ -256,7 +280,7 @@ def _validate_references(client: SqlExecutor, params: dict[str, Any]) -> None:
     -> entrada (optional). Fail-fast: the first invalid reference stops
     the chain. The captured SQL list in tests proves the order.
     """
-    animal_id = required_text(params, "animal_id", error_template="{field_name} es obligatorio y no puede estar vacio")
+    animal_id = _required_animal_id(params)
     _validate_animal_exists_and_active(client, animal_id)
 
     casa_id = _optional_uuid(params, "casa_acogida_id")
@@ -281,7 +305,10 @@ def _validate_references(client: SqlExecutor, params: dict[str, Any]) -> None:
 
 
 def create_acogida(
-    client: SqlExecutor, params: dict[str, Any]
+    client: SqlExecutor,
+    params: dict[str, Any],
+    *,
+    actor_user_id: str | None = None,
 ) -> Acogida:
     """Insert a new estancia de acogida and return the persisted row.
 
@@ -302,6 +329,9 @@ def create_acogida(
     cannot link to a different stay — the casa+animal pair from the
     form must match the override's recorded pair.
     """
+    # Issue #945 (A-13): lifecycle events need the acting user's UUID
+    # (``created_by UUID NOT NULL``); reject before any write without one.
+    created_by = require_actor(actor_user_id)
     # Validation runs BEFORE the INSERT so we never write a row with
     # broken FKs. The builder raises ValueError before any SQL if
     # fecha_inicio or animal_id is empty.
@@ -322,8 +352,8 @@ def create_acogida(
         animal_id=acogida.animal_id,
         event_type=LifecycleEventType.FOSTER_STARTED,
         event_timestamp=acogida.fecha_inicio,
-        created_by="acogidas.create_acogida",
-        source_entity_type="acogidas",
+        created_by=created_by,
+        source_entity_type=_ACOGIDA_ENTITY_TYPE,
         source_entity_id=acogida.id,
     )
     close_previous_situation(
@@ -332,8 +362,9 @@ def create_acogida(
         category="INTAKE",
         caused_by_event_id=None,
         event_timestamp=acogida.fecha_inicio,
-        source_entity_type="acogidas",
+        source_entity_type=_ACOGIDA_ENTITY_TYPE,
         source_entity_id=acogida.id,
+        created_by=created_by,
     )
     actualizar_estado_animal(client, animal_id=acogida.animal_id)
 
@@ -352,7 +383,7 @@ def create_acogida(
         # rejects the link (the override was recorded for a SPECIFIC
         # casa, NOT NULL by schema).
         link_casa_id = _optional_uuid(params, "casa_acogida_id")
-        link_animal_id = required_text(params, "animal_id", error_template="{field_name} es obligatorio y no puede estar vacio")
+        link_animal_id = _required_animal_id(params)
         link_sql, link_params = acogidas_queries.build_acogida_link_override(
             estancia_id=acogida.id,
             override_id=override_id_raw.strip(),
@@ -428,7 +459,10 @@ def update_acogida(
 
 
 def close_acogida(
-    client: SqlExecutor, acogida_id: str
+    client: SqlExecutor,
+    acogida_id: str,
+    *,
+    actor_user_id: str | None = None,
 ) -> Acogida | None:
     """Mark the stay as closed: ``fecha_final = CURRENT_DATE``, ``activo`` stays true.
 
@@ -447,6 +481,9 @@ def close_acogida(
     Issue #139 P1 #5: this contract is pinned by
     ``test_close_acogida_works_on_soft_deleted_stay``.
     """
+    # Issue #945 (A-13): FOSTER_RETURNED needs the acting user's UUID;
+    # reject before the UPDATE runs without one.
+    created_by = require_actor(actor_user_id)
     sql, params = acogidas_queries.build_acogida_close(acogida_id)
     rows = client.execute_sql(sql, params)
     if not rows:
@@ -462,8 +499,8 @@ def close_acogida(
         animal_id=closed.animal_id,
         event_type=LifecycleEventType.FOSTER_RETURNED,
         event_timestamp=closed.fecha_final or str(date.today()),
-        created_by="acogidas.close_acogida",
-        source_entity_type="acogidas",
+        created_by=created_by,
+        source_entity_type=_ACOGIDA_ENTITY_TYPE,
         source_entity_id=closed.id,
     )
     actualizar_estado_animal(client, animal_id=closed.animal_id)
