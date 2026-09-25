@@ -34,9 +34,11 @@ from app.modules.animals.lifecycle_events import (
     CAUSAL_PAIR_DECISION_ID,
     CORE_EVENT_TYPES,
     SUPPORTING_EVENT_TYPES,
+    ActorRequiredError,
     CausalPairViolation,
     LifecycleEventType,
     record_event,
+    require_actor,
     validate_causal_pair,
 )
 from tests.sql_executor_fake import HandlerSqlExecutor
@@ -224,6 +226,44 @@ def test_record_event_rejects_missing_created_by() -> None:
             event_timestamp="2026-07-27T00:00:00+00:00",
             created_by="",
         )
+
+
+# --- require_actor (issue #945, A-13) --------------------------------------
+
+
+def test_require_actor_raises_for_none() -> None:
+    """No actor -> ``ActorRequiredError`` before any write (maintainer option a)."""
+    with pytest.raises(ActorRequiredError):
+        require_actor(None)
+
+
+def test_require_actor_raises_for_empty_string() -> None:
+    with pytest.raises(ActorRequiredError):
+        require_actor("")
+
+
+def test_require_actor_raises_for_non_uuid() -> None:
+    """A text label like the old ``'adopciones.create_adopcion'`` call-site
+    marker is rejected -- it is not a UUID."""
+    with pytest.raises(ActorRequiredError, match="not a UUID"):
+        require_actor("adopciones.create_adopcion")
+
+
+def test_require_actor_returns_canonical_uuid_string() -> None:
+    """A valid UUID (any case/formatting) normalises to the canonical string."""
+    result = require_actor("00000000-0000-4000-8000-000000000001")
+    assert result == "00000000-0000-4000-8000-000000000001"
+
+
+def test_require_actor_canonicalizes_uppercase_uuid() -> None:
+    result = require_actor("00000000-0000-4000-8000-000000000001".upper())
+    assert result == "00000000-0000-4000-8000-000000000001"
+
+
+def test_require_actor_error_is_a_value_error() -> None:
+    """``ActorRequiredError`` is a ``ValueError`` subclass (route layers
+    already translate ``ValueError`` to a 4xx response)."""
+    assert issubclass(ActorRequiredError, ValueError)
 
 
 # --- record_event: writes the right SQL -----------------------------------

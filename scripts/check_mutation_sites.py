@@ -43,7 +43,7 @@ BASELINE_MUTATION_SITES: dict[str, int] = {
     "app/modules/acogidas/routes.py": 367,
     "app/modules/acogidas/service.py": 343,
     "app/modules/adopciones/routes.py": 284,
-    "app/modules/adopciones/service.py": 467,
+    "app/modules/adopciones/service.py": 466,  # issue #945: created_by label literals replaced by the actor UUID
     "app/modules/animals/routes.py": 446,
     "app/modules/cesiones/service.py": 362,
     "app/modules/foster/routes.py": 255,

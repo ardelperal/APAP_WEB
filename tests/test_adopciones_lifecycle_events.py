@@ -68,6 +68,10 @@ from app.modules.lifecycle.application.close_previous_situation import (
 
 
 ADOPCION_UUID = "33333333-3333-3333-3333-333333333333"
+
+#: Fixed actor UUID for tests (issue #945: lifecycle-event writes
+#: require the acting user's UUID before any write).
+ACTOR_ID = "00000000-0000-4000-8000-000000000001"
 ANIMAL_UUID = "11111111-1111-1111-1111-111111111111"
 
 
@@ -243,7 +247,7 @@ def test_create_adopcion_emits_adoption_started_event() -> None:
     """
     executor = FakeSqlExecutor()
 
-    result = adopciones_service.create_adopcion(executor, _params_minimal())
+    result = adopciones_service.create_adopcion(executor, _params_minimal(), actor_user_id=ACTOR_ID)
 
     assert isinstance(result, adopciones_service.Adopcion)
 
@@ -278,8 +282,8 @@ def test_create_adopcion_emits_adoption_started_event() -> None:
     assert params[7] is None  # legacy_source_id
     # metadata is serialised to JSON when present, None when absent.
     assert params[8] is None
-    # ``created_by`` records the service-layer call site as the actor.
-    assert params[9] == "adopciones.create_adopcion"
+    # ``created_by`` is the acting user's UUID (issue #945).
+    assert params[9] == ACTOR_ID
 
 
 def test_create_adopcion_emits_foster_closed_by_adoption_event() -> None:
@@ -294,7 +298,7 @@ def test_create_adopcion_emits_foster_closed_by_adoption_event() -> None:
     """
     executor = FakeSqlExecutor()
 
-    adopciones_service.create_adopcion(executor, _params_minimal())
+    adopciones_service.create_adopcion(executor, _params_minimal(), actor_user_id=ACTOR_ID)
 
     inserts = _lifecycle_event_inserts(executor.calls)
     closing_events = [
@@ -324,8 +328,8 @@ def test_create_adopcion_emits_foster_closed_by_adoption_event() -> None:
     assert params[4] == "adopciones"  # source_entity_type
     assert params[5] == ADOPCION_UUID  # source_entity_id
     # The closing event is sourced from the adopciones side; no legacy
-    # fields. ``created_by`` falls back to the use case default.
-    assert params[6] == "lifecycle.close_previous_situation"
+    # fields. ``created_by`` is the same acting user's UUID (issue #945).
+    assert params[6] == ACTOR_ID
 
     # Source-of-truth invariant (AGENTS.md §33.4): the closing is
     # event-sourced, never UPDATE against ``entradas`` / ``acogidas`` /
@@ -353,7 +357,7 @@ def test_create_adopcion_updates_animal_current_state() -> None:
     """
     executor = FakeSqlExecutor()
 
-    adopciones_service.create_adopcion(executor, _params_minimal())
+    adopciones_service.create_adopcion(executor, _params_minimal(), actor_user_id=ACTOR_ID)
 
     cache_upserts = _animal_current_state_inserts(executor.calls)
     assert len(cache_upserts) >= 1, (
@@ -393,6 +397,7 @@ def test_adopcion_return_updates_animal_state() -> None:
         executor,
         ADOPCION_UUID,
         _params_returned(),
+        actor_user_id=ACTOR_ID,
     )
 
     assert result is not None
@@ -423,7 +428,7 @@ def test_adopcion_return_updates_animal_state() -> None:
     assert params[6] is None  # legacy_source_table
     assert params[7] is None  # legacy_source_id
     assert params[8] is None  # metadata
-    assert params[9] == "adopciones.update_adopcion"
+    assert params[9] == ACTOR_ID
 
     # close_previous_situation is NOT called from the return path
     # (ADOPTION_RETURNED is a single event, not a paired close). The
@@ -503,7 +508,7 @@ def test_close_previous_situation_passes_correct_category() -> None:
 
     executor = FakeSqlExecutor()
 
-    adopciones_service.create_adopcion(executor, _params_minimal())
+    adopciones_service.create_adopcion(executor, _params_minimal(), actor_user_id=ACTOR_ID)
 
     inserts = _lifecycle_event_inserts(executor.calls)
     foster_closing = [

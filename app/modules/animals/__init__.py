@@ -6,6 +6,10 @@ paths directly. The module currently exports:
 
 - :func:`get_animal_by_id` (hexagonal primary-key lookup, FOSTER-03 +
   ``foster/assignment.py`` consumer).
+- :func:`require_actor` + :class:`ActorRequiredError` (issue #945, A-13):
+  ``animal_lifecycle_events.created_by`` is ``UUID NOT NULL``; callers
+  resolve and validate the acting user's UUID through these before any
+  lifecycle write, no system-actor fallback.
 - :func:`validate_lifecycle_causal_pair` — the LIFECYCLE-02 (issue #32)
   service-layer entrypoint that enforces the D-23 causal-pair rule on
   lifecycle events. The actual event recorder (``record_event``) and state
@@ -28,10 +32,12 @@ from app.modules.animals.di.animals_di import get_animals_port
 from app.modules.animals.lifecycle_events import (
     CORE_EVENT_TYPES,
     SUPPORTING_EVENT_TYPES,
+    ActorRequiredError,
     CausalPairViolation,
     LifecycleEventType,
     actualizar_estado_animal,
     record_event,
+    require_actor,
 )
 from app.modules.animals.lifecycle_events import (
     validate_causal_pair as validate_lifecycle_causal_pair,
@@ -49,6 +55,7 @@ from app.modules.lifecycle import (
 __all__ = [
     "CORE_EVENT_TYPES",
     "AnimalsPort",
+    "ActorRequiredError",
     "CanDeleteResult",
     "CausalPairViolation",
     "LifecycleEventType",
@@ -62,5 +69,6 @@ __all__ = [
     "get_animals_port",
     "persist_animal_state",
     "record_event",
+    "require_actor",
     "validate_lifecycle_causal_pair",
 ]
