@@ -1048,7 +1048,21 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       minio:
+        # Issue #973: anonymous Docker Hub pulls are now blocked by Docker
+        # Hub's anti-abuse policy (HTTP 401 / insufficient_scope even via
+        # the public v2 endpoint). The 'credentials' block authenticates
+        # the service container pull with secrets the maintainer adds to
+        # the repo. Set:
+        #   DOCKERHUB_USERNAME — a Docker Hub account with image:read
+        #     permission on minio/minio (free tier is enough).
+        #   DOCKERHUB_TOKEN    — a personal access token from that
+        #     account (Settings -> Security -> New Access Token).
+        # The digest pin (minio/minio@sha256:...) is the follow-up once
+        # the first authenticated pull records the digest in the CI log.
         image: minio/minio:latest
+        credentials:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
         command: server /data --console-address ":9001"
         env:
               MINIO_ROOT_USER: ${{ secrets.MINIO_E2E_ACCESS_KEY }}
