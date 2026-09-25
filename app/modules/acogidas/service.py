@@ -66,7 +66,7 @@ from typing import Any
 
 import app.modules.acogidas.queries as acogidas_queries
 from app.core._module_helpers._form_render import list_entities
-from app.core.data_access import SqlExecutor
+from app.core.data_access import SqlExecutor, TransactionalSqlExecutor
 from app.core.forms import optional_text, required_text
 from app.core.logging import log_safe
 from app.modules.animals import (
@@ -305,7 +305,7 @@ def _validate_references(client: SqlExecutor, params: dict[str, Any]) -> None:
 
 
 def create_acogida(
-    client: SqlExecutor,
+    client: TransactionalSqlExecutor,
     params: dict[str, Any],
     *,
     actor_user_id: str | None = None,
@@ -332,77 +332,84 @@ def create_acogida(
     # Issue #945 (A-13): lifecycle events need the acting user's UUID
     # (``created_by UUID NOT NULL``); reject before any write without one.
     created_by = require_actor(actor_user_id)
+    # Issue #914 (A-02): validation reads, the INSERT, its lifecycle event,
+    # the close of the previous situation, the animal-state refresh, and the
+    # override-link UPDATE are ONE atomic unit of work (``transaction()``
+    # from #913). Without it each ``execute_sql`` committed alone, so a
+    # mid-flow failure left the stay row persisted while the previous
+    # situation stayed open and the state cache went stale.
     # Validation runs BEFORE the INSERT so we never write a row with
     # broken FKs. The builder raises ValueError before any SQL if
     # fecha_inicio or animal_id is empty.
-    sql, write_params = acogidas_queries.build_acogida_insert(params)
-    _validate_references(client, params)
+    with client.transaction() as tx:
+        sql, write_params = acogidas_queries.build_acogida_insert(params)
+        _validate_references(tx, params)
 
-    rows = client.execute_sql(sql, write_params)
-    acogida = _row_to_acogida(rows[0])
-    log_safe("foster.acogida.created", acogida_id=acogida.id)
+        rows = tx.execute_sql(sql, write_params)
+        acogida = _row_to_acogida(rows[0])
+        log_safe("foster.acogida.created", acogida_id=acogida.id)
 
-    # LIFECYCLE-02 (issue #32): emit FOSTER_STARTED so the event log
-    # records the transition into the foster stay, then close the
-    # previous situation (INTAKE_CLOSED_BY_FOSTER) and refresh the
-    # animal-current-state cache. All three run in the same DB
-    # transaction as the INSERT above.
-    record_event(
-        client,
-        animal_id=acogida.animal_id,
-        event_type=LifecycleEventType.FOSTER_STARTED,
-        event_timestamp=acogida.fecha_inicio,
-        created_by=created_by,
-        source_entity_type=_ACOGIDA_ENTITY_TYPE,
-        source_entity_id=acogida.id,
-    )
-    close_previous_situation(
-        client,
-        animal_id=acogida.animal_id,
-        category="INTAKE",
-        caused_by_event_id=None,
-        event_timestamp=acogida.fecha_inicio,
-        source_entity_type=_ACOGIDA_ENTITY_TYPE,
-        source_entity_id=acogida.id,
-        created_by=created_by,
-    )
-    actualizar_estado_animal(client, animal_id=acogida.animal_id)
-
-    # Issue #142: link the foster_capacity_overrides row to the new
-    # estancia, when ``override_id`` is present and non-empty.
-    override_id_raw = params.get("override_id")
-    if isinstance(override_id_raw, str) and override_id_raw.strip():
-        # Defense (judgment-day CRITICAL §1.2 / HIGH §3.2 follow-up):
-        # scope the link UPDATE to casa+animal so a forged
-        # ``override_id`` from another operator's session cannot
-        # point at this estancia. Reuse the already-validated casa
-        # and animal from ``params``; ``_validate_references`` raised
-        # above if either was invalid. ``link_casa_id`` may be None
-        # for stays with no casa — in SQL three-valued logic
-        # ``casa_acogida_id = NULL`` is NULL/false, so the filter
-        # rejects the link (the override was recorded for a SPECIFIC
-        # casa, NOT NULL by schema).
-        link_casa_id = _optional_uuid(params, "casa_acogida_id")
-        link_animal_id = _required_animal_id(params)
-        link_sql, link_params = acogidas_queries.build_acogida_link_override(
-            estancia_id=acogida.id,
-            override_id=override_id_raw.strip(),
-            casa_acogida_id=link_casa_id,
-            animal_id=link_animal_id,
+        # LIFECYCLE-02 (issue #32): emit FOSTER_STARTED so the event log
+        # records the transition into the foster stay, then close the
+        # previous situation (INTAKE_CLOSED_BY_FOSTER) and refresh the
+        # animal-current-state cache. The transaction above commits all of
+        # it together — or nothing at all (issue #914, A-02).
+        record_event(
+            tx,
+            animal_id=acogida.animal_id,
+            event_type=LifecycleEventType.FOSTER_STARTED,
+            event_timestamp=acogida.fecha_inicio,
+            created_by=created_by,
+            source_entity_type=_ACOGIDA_ENTITY_TYPE,
+            source_entity_id=acogida.id,
         )
-        link_rows = client.execute_sql(link_sql, link_params)
-        if not link_rows:
-            # 0 rows updated: the override row is already linked, the
-            # UUID does not exist, or the casa/animal pair from the
-            # form does NOT match the override's recorded pair
-            # (forgery attempt). Log a warning and do NOT raise —
-            # the estancia itself was created successfully and
-            # audit-log anomalies must not punish the operator.
-            log_safe(
-                "foster.override.unlinked",
-                override_id=override_id_raw,
-                motivo="override row missing, already linked, or casa/animal mismatch",
+        close_previous_situation(
+            tx,
+            animal_id=acogida.animal_id,
+            category="INTAKE",
+            caused_by_event_id=None,
+            event_timestamp=acogida.fecha_inicio,
+            source_entity_type=_ACOGIDA_ENTITY_TYPE,
+            source_entity_id=acogida.id,
+            created_by=created_by,
+        )
+        actualizar_estado_animal(tx, animal_id=acogida.animal_id)
+
+        # Issue #142: link the foster_capacity_overrides row to the new
+        # estancia, when ``override_id`` is present and non-empty.
+        override_id_raw = params.get("override_id")
+        if isinstance(override_id_raw, str) and override_id_raw.strip():
+            # Defense (judgment-day CRITICAL §1.2 / HIGH §3.2 follow-up):
+            # scope the link UPDATE to casa+animal so a forged
+            # ``override_id`` from another operator's session cannot
+            # point at this estancia. Reuse the already-validated casa
+            # and animal from ``params``; ``_validate_references`` raised
+            # above if either was invalid. ``link_casa_id`` may be None
+            # for stays with no casa — in SQL three-valued logic
+            # ``casa_acogida_id = NULL`` is NULL/false, so the filter
+            # rejects the link (the override was recorded for a SPECIFIC
+            # casa, NOT NULL by schema).
+            link_casa_id = _optional_uuid(params, "casa_acogida_id")
+            link_animal_id = _required_animal_id(params)
+            link_sql, link_params = acogidas_queries.build_acogida_link_override(
+                estancia_id=acogida.id,
+                override_id=override_id_raw.strip(),
+                casa_acogida_id=link_casa_id,
+                animal_id=link_animal_id,
             )
+            link_rows = tx.execute_sql(link_sql, link_params)
+            if not link_rows:
+                # 0 rows updated: the override row is already linked, the
+                # UUID does not exist, or the casa/animal pair from the
+                # form does NOT match the override's recorded pair
+                # (forgery attempt). Log a warning and do NOT raise —
+                # the estancia itself was created successfully and
+                # audit-log anomalies must not punish the operator.
+                log_safe(
+                    "foster.override.unlinked",
+                    override_id=override_id_raw,
+                    motivo="override row missing, already linked, or casa/animal mismatch",
+                )
 
     return acogida
 

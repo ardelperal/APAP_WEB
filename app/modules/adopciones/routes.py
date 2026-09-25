@@ -59,7 +59,11 @@ from app.core.auth_dependencies import (
 get_insforge_client_dep = get_local_postgres_executor_dep
 
 from app.core.csrf import csrf_token_context_processor  # noqa: E402
-from app.core.data_access import BackendError, SqlExecutor  # noqa: E402
+from app.core.data_access import (  # noqa: E402
+    BackendError,
+    SqlExecutor,
+    TransactionalSqlExecutor,
+)
 from app.core.forms import optional_value as _opt  # noqa: E402
 from app.core.middleware import (  # noqa: E402
     base_template_context_processor,
@@ -196,7 +200,7 @@ def create_adopcion_view(
     request: Request,
     form: Annotated[AdopcionForm, Form()],
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_ADOPCIONES))],
-    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
+    client: Annotated[TransactionalSqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """Create an adopción; redirect to detail on success.
 
