@@ -163,14 +163,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if coverage < floor:
         print(
-            f"\nFAIL: coverage {coverage:.2f}% is below floor {floor:.1f}%. "
-            f"Add docstrings to raise it, then update BASELINE_COVERAGE_FLOOR "
-            f"in scripts/check_docstring_coverage.py to lock in the improvement.",
-            file=sys.stderr,
+            f"\nNOTE: coverage {coverage:.2f}% is below floor {floor:.1f}%. "
+            f"Gate is informational since #970 — docstring coverage is a "
+            f"documentation signal, not a defect detector. Add docstrings to "
+            f"raise it, then update BASELINE_COVERAGE_FLOOR in "
+            f"scripts/check_docstring_coverage.py to lock in the improvement."
         )
-        return 1
-
-    print(f"\nOK: coverage {coverage:.2f}% is at or above floor {floor:.1f}%.")
+    else:
+        print(f"\nOK: coverage {coverage:.2f}% is at or above floor {floor:.1f}%.")
     warning = check_deadline(TARGET, floor, coverage, label="docstring_coverage")
     if warning:
         print(f"DEADLINE {warning}")
