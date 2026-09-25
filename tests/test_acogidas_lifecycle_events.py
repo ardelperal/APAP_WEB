@@ -66,6 +66,9 @@ from app.modules.lifecycle.application.close_previous_situation import (
 
 ACOGIDA_UUID = "22222222-2222-2222-2222-222222222222"
 ANIMAL_UUID = "11111111-1111-1111-1111-111111111111"
+#: Fixed actor UUID for tests (issue #945: ``create_acogida`` /
+#: ``close_acogida`` require an acting user's UUID before any write).
+ACTOR_UUID = "00000000-0000-4000-8000-000000000001"
 
 
 class FakeSqlExecutor:
@@ -217,7 +220,7 @@ def test_create_acogida_emits_foster_started_event() -> None:
     """
     executor = FakeSqlExecutor()
 
-    result = acogidas_service.create_acogida(executor, _params_minimal())
+    result = acogidas_service.create_acogida(executor, _params_minimal(), actor_user_id=ACTOR_UUID)
 
     assert isinstance(result, acogidas_service.Acogida)
 
@@ -251,8 +254,8 @@ def test_create_acogida_emits_foster_started_event() -> None:
     assert params[7] is None  # legacy_source_id
     # metadata is serialised to JSON when present, None when absent.
     assert params[8] is None
-    # ``created_by`` records the service-layer call site as the actor.
-    assert params[9] == "acogidas.create_acogida"
+    # ``created_by`` is the acting user's UUID (issue #945, A-13).
+    assert params[9] == ACTOR_UUID
 
 
 def test_create_acogida_emits_intake_closed_by_foster_event() -> None:
@@ -267,7 +270,7 @@ def test_create_acogida_emits_intake_closed_by_foster_event() -> None:
     """
     executor = FakeSqlExecutor()
 
-    acogidas_service.create_acogida(executor, _params_minimal())
+    acogidas_service.create_acogida(executor, _params_minimal(), actor_user_id=ACTOR_UUID)
 
     inserts = _lifecycle_event_inserts(executor.calls)
     closing_events = [
@@ -297,8 +300,10 @@ def test_create_acogida_emits_intake_closed_by_foster_event() -> None:
     assert params[4] == "acogidas"  # source_entity_type
     assert params[5] == ACOGIDA_UUID  # source_entity_id
     # The closing event is sourced from the acogidas side; no legacy
-    # fields. ``created_by`` falls back to the use case default.
-    assert params[6] == "lifecycle.close_previous_situation"
+    # fields. ``created_by`` is the same acting user's UUID passed to
+    # ``create_acogida`` (issue #945, A-13: ``close_previous_situation``
+    # now requires ``created_by`` explicitly, no more text-label default).
+    assert params[6] == ACTOR_UUID
 
     # Source-of-truth invariant (AGENTS.md §33.4): the closing is
     # event-sourced, never UPDATE against ``entradas`` / ``acogidas``.
@@ -322,7 +327,7 @@ def test_create_acogida_updates_animal_current_state() -> None:
     """
     executor = FakeSqlExecutor()
 
-    acogidas_service.create_acogida(executor, _params_minimal())
+    acogidas_service.create_acogida(executor, _params_minimal(), actor_user_id=ACTOR_UUID)
 
     cache_upserts = _animal_current_state_inserts(executor.calls)
     assert len(cache_upserts) >= 1, (
@@ -357,7 +362,7 @@ def test_close_acogida_emits_foster_returned_event() -> None:
     """
     executor = FakeSqlExecutor()
 
-    result = acogidas_service.close_acogida(executor, ACOGIDA_UUID)
+    result = acogidas_service.close_acogida(executor, ACOGIDA_UUID, actor_user_id=ACTOR_UUID)
 
     assert result is not None
     assert result.id == ACOGIDA_UUID
@@ -387,7 +392,8 @@ def test_close_acogida_emits_foster_returned_event() -> None:
     assert params[6] is None  # legacy_source_table
     assert params[7] is None  # legacy_source_id
     assert params[8] is None  # metadata
-    assert params[9] == "acogidas.close_acogida"
+    # ``created_by`` is the acting user's UUID (issue #945, A-13).
+    assert params[9] == ACTOR_UUID
 
     # close_acogida MUST NOT emit any closing-event row from
     # close_previous_situation — closing the foster stay is a single
@@ -419,7 +425,7 @@ def test_close_acogida_updates_animal_current_state() -> None:
     """
     executor = FakeSqlExecutor()
 
-    acogidas_service.close_acogida(executor, ACOGIDA_UUID)
+    acogidas_service.close_acogida(executor, ACOGIDA_UUID, actor_user_id=ACTOR_UUID)
 
     cache_upserts = _animal_current_state_inserts(executor.calls)
     assert len(cache_upserts) >= 1, (

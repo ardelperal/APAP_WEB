@@ -113,13 +113,21 @@ def route_client() -> _NoSqlRouteClient:
     app.dependency_overrides.pop(get_animals_port, None)
 
 
+#: Issue #945 (A-13): ``create_acogida``/``close_acogida`` now validate
+#: the acting user's id as a UUID (``require_actor``) before any write.
+#: The key_user fixture session must carry a real UUID so the
+#: end-to-end ``_feed_handler`` tests below (real, unmocked service)
+#: still reach the INSERT/UPDATE instead of a 422 from ``ActorRequiredError``.
+ACTOR_UUID = "00000000-0000-4000-8000-000000000001"
+
+
 def _login_as_key_user(client: httpx.AsyncClient) -> None:
     """Mint a session cookie with a known CSRF token bound to it."""
     token = write_session(
         {
             "email": "ana@example.com",
             "rol": "key_user",
-            "user_id": "u-ana",
+            "user_id": ACTOR_UUID,
             "is_authorized": True,
             "csrf_token": "test-csrf-token-acogidas",
         },
@@ -334,15 +342,18 @@ async def test_create_acogida_valid_records_redirects_to_detail(
     """Valid create form -> service returns the estancia -> 303 to detail."""
     _login_as_key_user(client)
     estancia = _acogida()
-    calls: list[tuple[LocalPostgresExecutor, dict[str, Any]]] = []
+    calls: list[tuple[LocalPostgresExecutor, dict[str, Any], str | None]] = []
     # FOSTER-03 (#45): skip the species gate; this test exercises the
     # CRUD service path, not the gate itself.
     _bypass_species_gate(monkeypatch)
 
     def fake_create(
-        service_client: LocalPostgresExecutor, params: dict[str, Any]
+        service_client: LocalPostgresExecutor,
+        params: dict[str, Any],
+        *,
+        actor_user_id: str | None = None,
     ) -> acogidas_service.Acogida:
-        calls.append((service_client, params))
+        calls.append((service_client, params, actor_user_id))
         return estancia
 
     monkeypatch.setattr(acogidas_service, "create_acogida", fake_create)
@@ -362,6 +373,9 @@ async def test_create_acogida_valid_records_redirects_to_detail(
     assert len(calls) == 1
     assert calls[0][0] is route_client
     assert calls[0][1]["animal_id"] == "11111111-1111-1111-1111-111111111111"
+    # Issue #945 (A-13): the acting user's id flows from the auth
+    # payload to the service via the kwarg.
+    assert calls[0][2] == ACTOR_UUID
 
 
 # --- 6. POST /acogidas (create, sad path) --------------------------------
@@ -383,7 +397,10 @@ async def test_create_acogida_sad_validation_rerenders_form_with_422(
     _bypass_species_gate(monkeypatch)
 
     def fake_create(
-        service_client: LocalPostgresExecutor, params: dict[str, Any]
+        service_client: LocalPostgresExecutor,
+        params: dict[str, Any],
+        *,
+        actor_user_id: str | None = None,
     ) -> acogidas_service.Acogida:
         raise ValueError("fecha_inicio es obligatorio y no puede estar vacio")
 
@@ -431,7 +448,10 @@ async def test_create_acogida_route_translates_fk_violation_to_422(
     _bypass_species_gate(monkeypatch)
 
     def fake_create(
-        service_client: LocalPostgresExecutor, params: dict[str, Any]
+        service_client: LocalPostgresExecutor,
+        params: dict[str, Any],
+        *,
+        actor_user_id: str | None = None,
     ) -> acogidas_service.Acogida:
         # Simulate a PostgreSQL FK violation arriving via PostgREST.
         raise BackendError(
@@ -640,12 +660,15 @@ async def test_close_acogida_redirects_to_detail_when_successful(
     """Close stay -> 303 redirect to detail page."""
     _login_as_key_user(client)
     estancia = _acogida()
-    calls: list[tuple[LocalPostgresExecutor, str]] = []
+    calls: list[tuple[LocalPostgresExecutor, str, str | None]] = []
 
     def fake_close(
-        service_client: LocalPostgresExecutor, acogida_id: str
+        service_client: LocalPostgresExecutor,
+        acogida_id: str,
+        *,
+        actor_user_id: str | None = None,
     ) -> acogidas_service.Acogida | None:
-        calls.append((service_client, acogida_id))
+        calls.append((service_client, acogida_id, actor_user_id))
         return estancia
 
     monkeypatch.setattr(acogidas_service, "close_acogida", fake_close)
@@ -659,7 +682,7 @@ async def test_close_acogida_redirects_to_detail_when_successful(
 
     assert response.status_code == 303
     assert response.headers["location"] == "/acogidas/acog-123"
-    assert calls == [(route_client, "acog-123")]
+    assert calls == [(route_client, "acog-123", ACTOR_UUID)]
 
 
 # --- 13. POST /acogidas/{id}/close (404 when missing) --------------------
@@ -673,7 +696,7 @@ async def test_close_acogida_returns_404_when_id_missing(
     """``close_acogida`` returning ``None`` -> 404 (no redirect)."""
     _login_as_key_user(client)
     monkeypatch.setattr(
-        acogidas_service, "close_acogida", lambda _c, _id: None
+        acogidas_service, "close_acogida", lambda _c, _id, **_kw: None
     )
 
     response = await make_csrf_request(
@@ -684,6 +707,45 @@ async def test_close_acogida_returns_404_when_id_missing(
     )
 
     assert response.status_code == 404
+
+
+# --- 13b. POST /acogidas/{id}/close (403 without an actor) ---------------
+
+
+async def test_close_acogida_without_actor_returns_403(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No acting user -> ``ActorRequiredError`` from the service -> 403.
+
+    Issue #945 (A-13): ``FOSTER_RETURNED`` needs the acting user's
+    UUID; a session without one cannot close a stay. The mapping lives
+    in ``acogidas/_actor_flow.py`` (mutation-site ratchet:
+    ``acogidas/routes.py`` has no headroom for an inline try/except).
+    """
+    from app.modules.animals import ActorRequiredError
+
+    _login_as_key_user(client)
+
+    def fake_close(
+        service_client: LocalPostgresExecutor,
+        acogida_id: str,
+        *,
+        actor_user_id: str | None = None,
+    ) -> acogidas_service.Acogida | None:
+        raise ActorRequiredError(actor_user_id)
+
+    monkeypatch.setattr(acogidas_service, "close_acogida", fake_close)
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/acogidas/acog-123/close",
+        csrf_token="test-csrf-token-acogidas",
+    )
+
+    assert response.status_code == 403
 
 
 # --- 14. POST /acogidas/{id}/delete (happy path + 404) -------------------
@@ -892,7 +954,7 @@ async def test_create_acogida_allows_legacy_no_casa_acogida_id(
     estancia = _acogida()
     calls: list[Any] = []
 
-    def fake_create(_c, _p):
+    def fake_create(_c, _p, *, actor_user_id=None):
         calls.append(_p)
         return estancia
 

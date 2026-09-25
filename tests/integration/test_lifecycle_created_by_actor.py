@@ -7,8 +7,8 @@ option a): ``created_by`` is the acting user's UUID, and a call without an
 actor is rejected before any write.
 
 This module covers the adopciones flows (#945, part 1/2: create_adopcion,
-update_adopcion). The acogidas flows (create_acogida, close_acogida) are
-covered by #945 part 2/2, added to this same file.
+update_adopcion) and the acogidas flows (#945, part 2/2: create_acogida,
+close_acogida).
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from uuid import uuid4
 import pytest
 
 from app.core.local_backend.db import LocalPostgresExecutor
+from app.modules.acogidas import service as acogidas_service
 from app.modules.adopciones import service as adopciones_service
 from app.modules.animals import ActorRequiredError
 from tests.integration.conftest import _EphemeralPostgres
@@ -108,3 +109,69 @@ def test_update_adopcion_return_records_its_event_with_the_actor(
     )
 
     assert _event_creators(ep, animal_id, "ADOPTION_RETURNED") == [ACTOR]
+
+
+# --- acogidas (#945, part 2/2) ---------------------------------------------
+
+
+def _acogida_params(animal_id: str) -> dict[str, str]:
+    return {
+        "animal_id": animal_id,
+        "fecha_inicio": date.today().isoformat(),
+    }
+
+
+def test_create_acogida_records_its_event_with_the_actor(
+    ephemeral_postgres: _EphemeralPostgres,
+) -> None:
+    ep = ephemeral_postgres
+    animal_id = _seed_animal(ep)
+
+    acogidas_service.create_acogida(
+        _executor(ep), _acogida_params(animal_id), actor_user_id=ACTOR
+    )
+
+    assert _event_creators(ep, animal_id, "FOSTER_STARTED") == [ACTOR]
+
+
+def test_create_acogida_without_actor_is_rejected_before_any_write(
+    ephemeral_postgres: _EphemeralPostgres,
+) -> None:
+    ep = ephemeral_postgres
+    animal_id = _seed_animal(ep)
+
+    with pytest.raises(ActorRequiredError):
+        acogidas_service.create_acogida(_executor(ep), _acogida_params(animal_id))
+
+    assert _count(ep, "acogidas", animal_id) == 0
+
+
+def test_close_acogida_records_its_event_with_the_actor(
+    ephemeral_postgres: _EphemeralPostgres,
+) -> None:
+    ep = ephemeral_postgres
+    animal_id = _seed_animal(ep)
+    executor = _executor(ep)
+    acogida = acogidas_service.create_acogida(
+        executor, _acogida_params(animal_id), actor_user_id=ACTOR
+    )
+
+    acogidas_service.close_acogida(executor, acogida.id, actor_user_id=ACTOR)
+
+    assert _event_creators(ep, animal_id, "FOSTER_RETURNED") == [ACTOR]
+
+
+def test_close_acogida_without_actor_is_rejected_before_any_write(
+    ephemeral_postgres: _EphemeralPostgres,
+) -> None:
+    ep = ephemeral_postgres
+    animal_id = _seed_animal(ep)
+    executor = _executor(ep)
+    acogida = acogidas_service.create_acogida(
+        executor, _acogida_params(animal_id), actor_user_id=ACTOR
+    )
+
+    with pytest.raises(ActorRequiredError):
+        acogidas_service.close_acogida(executor, acogida.id)
+
+    assert _event_creators(ep, animal_id, "FOSTER_RETURNED") == []
