@@ -18,9 +18,8 @@
  *   </form>
  *
  * Behavior:
- * - "Siguiente" validates the current step (every field matched by the
- *   step's selector must be filled when "required"); on failure the
- *   first invalid field is focused and the wizard does NOT advance.
+ * - "Siguiente" stays disabled until visible required fields on the
+ *   current step are valid; a failed advance still focuses the first error.
  * - "Anterior" goes back without validating; fields keep their values.
  * - Completed (or previously reached) steps are clickable in the list.
  * - The submit button is visible+enabled only on the last step.
@@ -41,22 +40,44 @@
         return String(el.value).trim() === '';
     }
 
+    /** Ignore hidden or disabled controls, including collapsed inner groups. */
+    function isVisibleField(el) {
+        if (el.type === 'hidden' || el.disabled) {
+            return false;
+        }
+        for (var node = el; node && !node.hasAttribute('data-step-panel'); node = node.parentElement) {
+            var style = getComputedStyle(node);
+            if (node.hidden || style.display === 'none' || style.visibility === 'hidden') {
+                return false;
+            }
+        }
+        return true;
+    }
+
     /**
      * Validate step `stepNumber` against the data-step-validate entries.
      * Returns the list of invalid elements ([] when the step passes).
      */
     function findInvalidFields(form, rules, stepNumber) {
         var invalid = [];
+        var panel = form.querySelector('[data-step-panel="' + stepNumber + '"]');
         rules.forEach(function (rule) {
             if (Number(rule.step) !== stepNumber || !rule.required || !rule.selector) {
                 return;
             }
             form.querySelectorAll(rule.selector).forEach(function (el) {
-                if (isEmptyField(el)) {
+                if (isVisibleField(el) && (isEmptyField(el) || !el.checkValidity())) {
                     invalid.push(el);
                 }
             });
         });
+        if (panel) {
+            panel.querySelectorAll('input, select, textarea').forEach(function (el) {
+                if (isVisibleField(el) && !el.checkValidity() && invalid.indexOf(el) === -1) {
+                    invalid.push(el);
+                }
+            });
+        }
         return invalid;
     }
 
@@ -91,6 +112,7 @@
         var current = parseInt(form.getAttribute('data-step-current') || '1', 10) || 1;
         var passedSteps = {}; // steps whose validation succeeded
         var maxReached = current;
+        form.noValidate = true; // let the controller reveal hidden-step errors before native validation
 
         function panelFor(stepNumber) {
             return panels.filter(function (panel) {
@@ -150,6 +172,7 @@
             }
             if (nextBtn) {
                 nextBtn.hidden = current === lastStep;
+                nextBtn.disabled = current === lastStep || findInvalidFields(form, rules, current).length > 0;
             }
             if (submitBtn) {
                 submitBtn.hidden = current !== lastStep;
@@ -174,6 +197,37 @@
                 goTo(current + 1);
             }
         }
+
+        function validateWholeForm(event) {
+            for (var step = 1; step <= lastStep; step += 1) {
+                var invalid = findInvalidFields(form, rules, step);
+                if (invalid.length) {
+                    event.preventDefault();
+                    passedSteps[step] = false;
+                    goTo(step);
+                    invalid.forEach(function (el) {
+                        el.setAttribute('aria-invalid', 'true');
+                    });
+                    invalid[0].focus();
+                    return;
+                }
+            }
+        }
+
+        function updateCurrentValidation(event) {
+            if (event.target && event.target.matches('[aria-invalid="true"]') &&
+                    event.target.checkValidity() && !isEmptyField(event.target)) {
+                event.target.removeAttribute('aria-invalid');
+            }
+            if (findInvalidFields(form, rules, current).length) {
+                passedSteps[current] = false;
+            }
+            render();
+        }
+
+        form.addEventListener('input', updateCurrentValidation);
+        form.addEventListener('change', updateCurrentValidation);
+        form.addEventListener('submit', validateWholeForm);
 
         if (nextBtn) {
             nextBtn.addEventListener('click', validateAndAdvance);
