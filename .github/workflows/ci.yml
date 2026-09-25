@@ -1048,15 +1048,20 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       minio:
-        # Issue #973: anonymous Docker Hub pulls are now blocked by Docker
-        # Hub's anti-abuse policy (HTTP 401 / insufficient_scope even via
-        # the public v2 endpoint). The 'credentials' block authenticates
-        # the service container pull with secrets the maintainer adds to
-        # the repo. Set:
+        # Issue #973: Docker Hub stopped issuing the `repository:<repo>:pull`
+        # scope to anonymous bearer tokens for cloud-provider IP ranges
+        # (Oracle/AWS/etc.) sometime between late 2025 and mid-2026. The
+        # exact date is not in Docker's official changelog; the public
+        # docs at docs.docker.com/docker-hub/usage/pulls/ still describe
+        # the older model (rate-limit at 100 pulls / 6h) and only mention
+        # `429`, never `401 insufficient_scope`. The fix on our side is
+        # to authenticate the service container pull with credentials
+        # the maintainer adds to the repo. Set:
         #   DOCKERHUB_USERNAME — a Docker Hub account with image:read
         #     permission on minio/minio (free tier is enough).
         #   DOCKERHUB_TOKEN    — a personal access token from that
         #     account (Settings -> Security -> New Access Token).
+        # Runbook: docs/operations/docker-hub-anonymous-pull.md.
         # The digest pin (minio/minio@sha256:...) is the follow-up once
         # the first authenticated pull records the digest in the CI log.
         image: minio/minio:latest
