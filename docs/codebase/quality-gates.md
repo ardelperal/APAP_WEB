@@ -44,6 +44,31 @@ El tipado estático se enforza, no se aspira: el job `typecheck` de CI corre `py
 - [ ] Cada `# type: ignore` lleva su código de error específico; ningún ignore desnudo.
 - [ ] Si baja `[tool.mypy]` o elimina el job `typecheck`, lo bloquea el cambio (config se amplía, no se reduce).
 
+## Estado de los gates (informativo vs bloqueante)
+
+A raíz de la auditoría de fricción de CI 2026-09-24 (épica #935, inventario #957)
+los siguientes gates pasaron de **bloqueantes** a **informativos**: el script
+sigue ejecutándose en el mismo job (`lint` o `test`) y emite un `NOTE` por cada
+hallazgo, pero `main()` sale con exit 0 aunque haya notas. La señal sigue
+estando en el log del PR; lo que se quita es el bloqueo que forzaba reescritura
+de código correcto sin defecto subyacente.
+
+| Gate | Issue | Script | Razón para el cambio |
+|---|---|---|---|
+| Mutation-site density ratchet | #968 | `scripts/check_mutation_sites.py` | El conteo AST de nodos no detecta defectos; obligaba a partir módulos sin razón de bug. Mantiene el ratchet shrink-only de la BASELINE, pero el crecimiento se registra como `NOTE`. |
+| Docstring coverage floor | #970 | `scripts/check_docstring_coverage.py` | El porcentaje de docstrings es una señal de documentación, no de defectos; `interrogate` y similares se usan como aviso, no como puerta. El suelo del 73 % se mantiene documentado. |
+| Per-function CRAP score + baseline exactness | #969 | `scripts/check_crap.py` | La cobertura combinada (#929) no existe aún; el script solo mide cobertura unitaria, y el `check_baseline_exactness` penalizaba las mejoras. Se reevaluará cuando #929 esté mergeado. |
+| Import-cycle baseline obsoleto | #971 | `scripts/check_import_cycles.py` (test) | Arreglar un ciclo rompía el job `test` hasta editar la BASELINE a mano. La entrada obsoleta ahora es `NOTE` (igual que el ratchet de ruff). |
+
+Los gates que siguen siendo **bloqueantes** son los detallados en §19, §20,
+§23 y §24 más arriba: cobertura global al 85 %, linter APAP001/APAP003, E2E
+por slice UI y job `typecheck` de mypy.
+
+**Aplicación**: si un PR restaura uno de estos gates a bloqueante, debe
+justificarlo en el cuerpo del PR con la evidencia del defecto que el gate
+estaba atajando (referencia a un incidente real o a un test que falla).
+
+
 ## Navigation
 
 Previous: [Layer boundaries](layer-boundaries.md) | Next: [Module size budgets](module-size-budgets.md)

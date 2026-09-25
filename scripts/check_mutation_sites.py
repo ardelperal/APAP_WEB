@@ -127,7 +127,15 @@ def check_tree(
     max_sites: int = MAX_MUTATION_SITES_PER_FILE,
     baseline: Mapping[str, int] | None = None,
 ) -> tuple[list[str], list[str]]:
-    """Return ``(violations, notices)`` for the per-file shrink-only ratchet."""
+    """Return ``(violations, notices)`` for the per-file mutation-site report.
+
+    Since issue #968 the gate is informational: every finding appears as a
+    NOTE rather than a FAIL so the AST-node count does not block clean PRs.
+    The script still runs in the ``lint`` job (the CI wiring test in
+    ``tests/test_check_mutation_sites.py`` pins that) and the report is
+    preserved for the author to act on, but ``main()`` only exits non-zero
+    on I/O / parse errors that prevent the scan from completing.
+    """
     if baseline is None:
         baseline = BASELINE_MUTATION_SITES
     try:
@@ -135,15 +143,14 @@ def check_tree(
     except (OSError, UnicodeDecodeError, SyntaxError) as exc:
         return [f"cannot scan source tree ({exc})"], []
 
-    violations: list[str] = []
     notices: list[str] = []
     for rel, sites in measured.items():
         if rel in baseline:
             budget = baseline[rel]
             if sites > budget:
-                violations.append(
+                notices.append(
                     f"{rel}: {sites} mutation sites, grew beyond its baseline of "
-                    f"{budget} (ratchet: split the file; see "
+                    f"{budget} (informational since #968 — split the file; see "
                     "scripts/check_module_size.py)"
                 )
             elif sites < budget:
@@ -157,17 +164,18 @@ def check_tree(
                     )
                 )
         elif sites > max_sites:
-            violations.append(
+            notices.append(
                 f"{rel}: {sites} mutation sites exceeds the {max_sites}-site budget; "
                 "split the file instead of adding a baseline entry "
-                "(see scripts/check_module_size.py)"
+                "(informational since #968; see scripts/check_module_size.py)"
             )
 
     for rel in sorted(set(baseline) - set(measured)):
-        violations.append(
-            f"{rel}: stale BASELINE_MUTATION_SITES entry — file no longer exists"
+        notices.append(
+            f"{rel}: stale BASELINE_MUTATION_SITES entry — file no longer exists "
+            "(informational since #968; delete the entry to lock in the cleanup)"
         )
-    return violations, notices
+    return [], notices
 
 
 def _pin_output_encoding() -> None:
@@ -207,7 +215,13 @@ def main(argv: list[str] | None = None) -> int:
     if violations:
         print(f"check_mutation_sites: {len(violations)} violation(s).")
         return 1
-    print("check_mutation_sites: OK")
+    if notices:
+        print(
+            f"check_mutation_sites: {len(notices)} note(s); gate is "
+            "informational (issue #968) — see docs/codebase/quality-gates.md."
+        )
+    else:
+        print("check_mutation_sites: OK")
     warning = check_deadline(TARGET, len(BASELINE_MUTATION_SITES), label="mutation_sites")
     if warning:
         print(f"DEADLINE {warning}")
