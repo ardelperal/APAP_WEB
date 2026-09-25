@@ -8,7 +8,7 @@ Detector estático de las nueve formas prohibidas por §10 de la skill `document
 |---|---|
 | `ALAN001` | Frontmatter YAML sin los campos obligatorios (`name`, `description`, `license`, `metadata.author`, `metadata.version`). |
 | `ALAN002` | Emojis decorativos en headings o cuerpo. |
-| `ALAN003` | Secuencias en mayúsculas fuera de los acrónimos whitelisted (`HTTP`, `MCP`, `SQL`, `INSFORGE`, `API`, `PR`, `URL`, `SHA`, más abreviaturas técnicas del repo). |
+| `ALAN003` | Secuencias en mayúsculas fuera de los acrónimos whitelisted (`HTTP`, `MCP`, `SQL`, `API`, `PR`, `URL`, `SHA`, más abreviaturas técnicas del repo). |
 | `ALAN004` | Lenguaje ambiguo (`we recommend`, `best practice`, `sería bueno`, `podría`, etc.) en lugar de imperativo directo. <!-- alantyle-ignore --> |
 | `ALAN005` | Marketing fluff (`amazing`, `powerful`, `world-class`, `game-changer`, etc.). <!-- alantyle-ignore --> |
 | `ALAN006` | Más de seis enlaces externos en el mismo archivo. |

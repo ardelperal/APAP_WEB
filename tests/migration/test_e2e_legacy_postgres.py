@@ -69,8 +69,8 @@ from tests.migration._e2e_seams.mdbtools_reader import (
 
 def test_backend_client_ignores_operator_backend_env(monkeypatch) -> None:
     """The E2E atom cannot be redirected away from its ephemeral schema."""
-    monkeypatch.setenv("APAP_INSFORGE_URL", "https://retired.invalid")
-    monkeypatch.setenv("APAP_INSFORGE_SERVICE_KEY", "retired")
+    monkeypatch.setenv("APAP_LOCAL_BACKEND_URL", "https://retired.invalid")
+    monkeypatch.setenv("APAP_LOCAL_BACKEND_SERVICE_KEY", "retired")
     monkeypatch.setenv("APAP_LOCAL_DB_URL", "postgresql://operator")
     monkeypatch.setenv("APAP_LOCAL_DB_SCHEMA", "operator_schema")
 

@@ -2,10 +2,9 @@
 
 The adapter is the seam where the OAuth protocol meets the LocalBackend
 HTTP endpoints (:mod:`app.core.local_backend.oauth_google`). It wraps the
-three ``start_google_oauth`` / ``exchange_insforge_oauth_code`` /
-``exchange_google_oauth_code`` FastAPI endpoint calls and projects their
-response dicts to the :class:`OAuthUser` value object and
-:class:`PkcePair` the port declares.
+two ``start_google_oauth`` / ``exchange_google_oauth_code`` FastAPI
+endpoint calls and projects their response dicts to the
+:class:`OAuthUser` value object and :class:`PkcePair` the port declares.
 
 The adapter is stateless and thread-safe. It holds a single
 :class:`httpx.Client` lazily created on first use and reused for the
