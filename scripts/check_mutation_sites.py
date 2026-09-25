@@ -42,7 +42,7 @@ BASELINE_MUTATION_SITES: dict[str, int] = {
     # each submodule lives under its own file path now.
     "app/modules/acogidas/routes.py": 367,
     "app/modules/acogidas/service.py": 343,
-    "app/modules/adopciones/routes.py": 284,
+    "app/modules/adopciones/routes.py": 273,  # issue #945 part 2/2: local _actor_user_id migrated to the shared app.core._module_helpers._actor helper
     "app/modules/adopciones/service.py": 466,  # issue #945: created_by label literals replaced by the actor UUID
     "app/modules/animals/routes.py": 446,
     "app/modules/cesiones/service.py": 362,
