@@ -1,8 +1,10 @@
 name: ci
 
 on:
+  # Issue #933: no base-branch filter. Chained PRs (400-line budget) target
+  # another work branch and must get the same evidence before retargeting;
+  # pr-size measures against github.base_ref, so each slice is sized alone.
   pull_request:
-    branches: [main, staging]
   push:
     # `main` is deliberately absent: after a PR merge the tree was already
     # proven by the pull_request run, and deploy now lives in deploy.yml,
