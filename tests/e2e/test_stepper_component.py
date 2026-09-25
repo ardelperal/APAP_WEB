@@ -6,8 +6,7 @@ Exercises the developer-only stepper preview page
 ``/static/js/form-stepper.js``:
 
 - preview renders 5 steps, step 1 visible, panels 2-5 hidden;
-- clicking "Siguiente" on an empty step focuses the first invalid
-  field and does NOT advance;
+- "Siguiente" stays disabled while the current required field is invalid;
 - filling the required field and advancing marks the step complete
   in the list;
 - clicking a previously reached step jumps back with fields preserved;
@@ -23,6 +22,7 @@ devtools flag is off on the target server (production default).
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import pytest
 from playwright.sync_api import BrowserContext, Page
@@ -33,6 +33,67 @@ from playwright.sync_api import BrowserContext, Page
 E2E_SECRET_HEADER = "X-E2E-Secret"
 
 PREVIEW_PATH = "/devtools/stepper-preview"
+STEPPER_SCRIPT = Path(__file__).resolve().parents[2] / "app/static/js/form-stepper.js"
+
+
+@pytest.fixture
+def component_page(page: Page) -> Page:
+    """Exercise the checked-out controller without depending on a dev server."""
+    page.set_content(
+        '<form data-stepper="true" data-step-current="1" '
+        'data-step-validate=\'[ {"step":1,"selector":"#nombre","required":true},'
+        '{"step":2,"selector":"#confirmacion","required":true} ]\'>'
+        '<ol data-stepper-list><li data-step="1"><span class="stepper-label" '
+        'id="label-1">First</span></li><li data-step="2"><span class="stepper-label" '
+        'id="label-2">Final</span></li></ol>'
+        '<fieldset data-step-panel="1"><input id="nombre" type="text"></fieldset>'
+        '<fieldset data-step-panel="2" hidden><input id="confirmacion" type="checkbox">'
+        '<select id="especie" required><option value="">Choose species</option>'
+        '<option value="caballo">Horse</option></select></fieldset>'
+        '<div data-step-nav><button type="button" data-step-prev>Previous</button>'
+        '<button type="button" data-step-next>Next</button>'
+        '<button type="submit" data-step-submit hidden>Submit</button></div></form>'
+    )
+    page.add_script_tag(path=str(STEPPER_SCRIPT))
+    return page
+
+
+def test_next_tracks_current_required_field(component_page: Page) -> None:
+    page = component_page
+    next_button = page.locator("[data-step-next]")
+    assert next_button.is_disabled()
+    page.fill("#nombre", "Rocín")
+    assert next_button.is_enabled()
+    page.fill("#nombre", " ")
+    assert next_button.is_disabled()
+    page.fill("#nombre", "Rocín")
+    next_button.click()
+    assert page.locator('[data-step-panel="2"]').is_visible()
+
+
+def test_submit_returns_to_invalid_earlier_step(component_page: Page) -> None:
+    page = component_page
+    page.fill("#nombre", "Rocín")
+    page.locator("[data-step-next]").click()
+    page.check("#confirmacion")
+    page.locator("#nombre").evaluate("el => el.value = ''")
+    page.locator("[data-step-submit]").click()
+    assert page.locator('[data-step-panel="1"]').is_visible()
+    assert page.locator("#nombre").get_attribute("aria-invalid") == "true"
+    assert page.evaluate("document.activeElement.id") == "nombre"
+
+
+def test_submit_preserves_native_constraint_for_unlisted_control(
+    component_page: Page,
+) -> None:
+    page = component_page
+    page.fill("#nombre", "Rocín")
+    page.locator("[data-step-next]").click()
+    page.check("#confirmacion")
+    page.locator("[data-step-submit]").click()
+    assert page.locator('[data-step-panel="2"]').is_visible()
+    assert page.locator("#especie").get_attribute("aria-invalid") == "true"
+    assert page.evaluate("document.activeElement.id") == "especie"
 
 
 @pytest.fixture
@@ -98,23 +159,16 @@ def test_preview_shows_five_steps_with_only_step_1_visible(
     page.wait_for_selector('[data-stepper-list] [data-step="1"][aria-current="step"]')
 
 
-def test_next_on_empty_step_focuses_first_invalid_and_stays(
+def test_next_on_empty_step_is_disabled_and_stays(
     devtools_page: Page,
 ) -> None:
-    """Empty required field: "Siguiente" focuses it and does not advance."""
+    """Empty required field disables Next and cannot advance."""
     page = devtools_page
-    page.click("[data-step-nav] [data-step-next]")
+    assert page.locator("[data-step-nav] [data-step-next]").is_disabled()
 
     assert page.locator("#step-1").is_visible(), "must stay on step 1"
     assert not page.locator("#step-2").is_visible(), "must not reach step 2"
 
-    active_id = page.evaluate("document.activeElement && document.activeElement.id")
-    assert active_id == "nombre", (
-        f"the first invalid field must be focused, got activeElement=#{active_id}"
-    )
-    assert page.locator("#nombre").get_attribute("aria-invalid") == "true", (
-        "the invalid field must be flagged with aria-invalid"
-    )
 
 
 def test_fill_required_and_next_advances_and_marks_complete(
