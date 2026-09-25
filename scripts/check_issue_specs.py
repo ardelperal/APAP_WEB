@@ -45,10 +45,19 @@ APPROVAL_LABEL = "status:approved"
 AUTOMATED_ACTORS = frozenset({"dependabot[bot]"})
 EMPTY_RESPONSES = frozenset({"", "_No response_"})
 PAGE_SIZE = 100
+# Issue #952: GitHub's documented forms only (KEYWORD #N, KEYWORD OWNER/REPO#N,
+# KEYWORD <issue URL>, optionally with a colon), keyword and reference on the
+# same line. A bare number, or a number on the next line ("... alias fix" /
+# "4706 passed"), is not a reference.
 REFERENCE_RE = re.compile(
-    r"(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+"
-    r"(?:https://github\.com/(?P<owner>[^/\s]+)/(?P<repo>[^/\s]+)/issues/)?#?(?P<number>\d+)"
+    r"(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?[ \t]+"
+    r"(?:https://github\.com/(?P<url_owner>[^/\s]+)/(?P<url_repo>[^/\s]+)/issues/(?P<url_number>\d+)"
+    r"|(?:(?P<owner>[\w.-]+)/(?P<repo>[\w.-]+))?#(?P<number>\d+))"
 )
+# Code is quoted, not declared: a chain diagram or an example in backticks
+# must not close anything (PR #931 closed #913 through a fenced diagram).
+_FENCED_CODE_RE = re.compile(r"^(```|~~~).*?^\1[^\n]*$", re.MULTILINE | re.DOTALL)
+_INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
 
 SIGNALS = {
     "evidence": re.compile(r"(?i)\bevidencia\b|\bevidence\b|reproducci[oó]n|reproduction"),
@@ -207,16 +216,17 @@ def validate_forms(form_dir: Path = FORM_DIR) -> list[str]:
 def extract_closing_issue_numbers(body: str, repository: str) -> list[int]:
     """Extract same-repository issue numbers named by closing keywords."""
     owner, repo = repository.split("/", maxsplit=1)
+    prose = _INLINE_CODE_RE.sub("", _FENCED_CODE_RE.sub("", body))
     numbers: set[int] = set()
-    for match in REFERENCE_RE.finditer(body):
-        referenced_owner = match.group("owner")
-        referenced_repo = match.group("repo")
+    for match in REFERENCE_RE.finditer(prose):
+        referenced_owner = match.group("url_owner") or match.group("owner")
+        referenced_repo = match.group("url_repo") or match.group("repo")
         if referenced_owner and (referenced_owner.lower(), referenced_repo.lower()) != (
             owner.lower(),
             repo.lower(),
         ):
             continue
-        numbers.add(int(match.group("number")))
+        numbers.add(int(match.group("url_number") or match.group("number")))
     return sorted(numbers)
 
 
@@ -293,7 +303,13 @@ def validate_pr_event(event: Mapping[str, Any], client: GitHubClient) -> list[st
         return ["PR body must close at least one approved issue"]
     violations: list[str] = []
     for number in numbers:
-        issue = client.issue(repository, number)
+        try:
+            issue = client.issue(repository, number)
+        except GitHubApiError as exc:
+            # Issue #952: a missing or unreadable issue is a contract
+            # violation to report, not a crash of the gate.
+            violations.append(f"#{number}: cannot read the issue ({exc})")
+            continue
         if "pull_request" in issue:
             violations.append(f"#{number}: reference resolves to a pull request")
             continue
