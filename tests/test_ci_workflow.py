@@ -2106,3 +2106,36 @@ def test_ci_workflow_verify_fallback_ready_job_has_no_standalone_path_comment() 
 
     assert "migration/cli_verify_fallback_ready" not in job
     assert "temporary workaround" not in job
+
+
+def test_bare_pytest_excludes_every_suite_the_ci_test_job_excludes() -> None:
+    """A plain local ``pytest`` must match the CI ``test`` job's scope (issue #940).
+
+    ``tests/e2e_ci`` needs a deployed app and MinIO. The CI test job ignores it,
+    but ``addopts`` did not, so a bare local ``pytest`` ran it without services
+    and it leaked state into the route tests: 61 failed + 514 errors locally
+    while CI was green. Every ``--ignore`` of the CI test job must also be in
+    ``addopts``.
+    """
+    import tomllib  # lazy-import: stdlib, only this test reads pyproject.toml
+
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    addopts = pyproject["tool"]["pytest"]["ini_options"]["addopts"]
+    local_ignores = {
+        option.removeprefix("--ignore=").rstrip("/")
+        for option in addopts
+        if option.startswith("--ignore=")
+    }
+
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    test_job_start = workflow.index("\n  test:")
+    test_job = workflow[test_job_start : workflow.index("\n  integration:", test_job_start)]
+    ci_ignores = {
+        match.rstrip("/")
+        for match in re.findall(r"^\s*--ignore=(\S+?)\s*\\?$", test_job, flags=re.MULTILINE)
+    }
+
+    assert ci_ignores, "could not read the CI test job's --ignore options"
+    assert ci_ignores <= local_ignores, (
+        f"addopts must also ignore {sorted(ci_ignores - local_ignores)} (issue #940)"
+    )
