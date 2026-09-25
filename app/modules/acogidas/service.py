@@ -64,11 +64,11 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
+import app.modules.acogidas.queries as acogidas_queries
 from app.core._module_helpers._form_render import list_entities
 from app.core.data_access import SqlExecutor
 from app.core.forms import optional_text, required_text
 from app.core.logging import log_safe
-from app.modules.acogidas import queries
 from app.modules.animals import (
     LifecycleEventType,
     actualizar_estado_animal,
@@ -84,8 +84,8 @@ from app.modules.lifecycle import close_previous_situation
 # re-export them under their original underscore-prefixed names. Do
 # NOT add new public surface here — anything new MUST live in
 # ``queries.py`` with the public ``ACOGIDA_*_COLUMNS`` names.
-_WRITE_COLUMNS = queries.ACOGIDA_WRITE_COLUMNS
-_SELECT_COLUMNS = queries.ACOGIDA_SELECT_COLUMNS
+_WRITE_COLUMNS = acogidas_queries.ACOGIDA_WRITE_COLUMNS
+_SELECT_COLUMNS = acogidas_queries.ACOGIDA_SELECT_COLUMNS
 
 
 class AcogidaConflictError(ValueError):
@@ -176,7 +176,7 @@ def _optional_uuid(params: dict[str, Any], field_name: str) -> str | None:
 def _validate_animal_exists_and_active(
     client: SqlExecutor, animal_id: str
 ) -> None:
-    sql, params = queries.build_acogida_check_animal(animal_id)
+    sql, params = acogidas_queries.build_acogida_check_animal(animal_id)
     rows = client.execute_sql(sql, params)
     if not rows:
         raise ValueError(
@@ -195,7 +195,7 @@ def _validate_casa_acogida_active(client: SqlExecutor, casa_id: str) -> None:
     also checks ``activo`` explicitly so the validation works against
     test mocks that don't simulate the WHERE clause.
     """
-    sql, params = queries.build_acogida_check_casa(casa_id)
+    sql, params = acogidas_queries.build_acogida_check_casa(casa_id)
     rows = client.execute_sql(sql, params)
     if not rows:
         raise ValueError(
@@ -217,7 +217,7 @@ def _validate_voluntario_activo(
     also checks ``activo`` explicitly so the validation works against
     test mocks that don't simulate the WHERE clause.
     """
-    sql, params = queries.build_acogida_check_voluntario(vol_id)
+    sql, params = acogidas_queries.build_acogida_check_voluntario(vol_id)
     rows = client.execute_sql(sql, params)
     if not rows:
         raise ValueError(
@@ -241,7 +241,7 @@ def _validate_entrada_exists_if_present(
     """
     if entrada_id is None:
         return
-    sql, params = queries.build_acogida_check_entrada(entrada_id)
+    sql, params = acogidas_queries.build_acogida_check_entrada(entrada_id)
     rows = client.execute_sql(sql, params)
     if not rows:
         raise ValueError(
@@ -305,7 +305,7 @@ def create_acogida(
     # Validation runs BEFORE the INSERT so we never write a row with
     # broken FKs. The builder raises ValueError before any SQL if
     # fecha_inicio or animal_id is empty.
-    sql, write_params = queries.build_acogida_insert(params)
+    sql, write_params = acogidas_queries.build_acogida_insert(params)
     _validate_references(client, params)
 
     rows = client.execute_sql(sql, write_params)
@@ -353,7 +353,7 @@ def create_acogida(
         # casa, NOT NULL by schema).
         link_casa_id = _optional_uuid(params, "casa_acogida_id")
         link_animal_id = required_text(params, "animal_id", error_template="{field_name} es obligatorio y no puede estar vacio")
-        link_sql, link_params = queries.build_acogida_link_override(
+        link_sql, link_params = acogidas_queries.build_acogida_link_override(
             estancia_id=acogida.id,
             override_id=override_id_raw.strip(),
             casa_acogida_id=link_casa_id,
@@ -385,7 +385,7 @@ def list_acogidas(
     closed-stay rows are excluded). Default (``False``) returns both
     active and closed, sorted by ``fecha_inicio DESC``.
     """
-    sql, params = queries.build_acogida_list(activas_solo)
+    sql, params = acogidas_queries.build_acogida_list(activas_solo)
     return list_entities(client, sql, params, _row_to_acogida)
 
 
@@ -393,7 +393,7 @@ def get_acogida_by_id(
     client: SqlExecutor, acogida_id: str
 ) -> Acogida | None:
     """Return one estancia de acogida by id (active or closed), or None."""
-    sql, params = queries.build_acogida_get_by_id(acogida_id)
+    sql, params = acogidas_queries.build_acogida_get_by_id(acogida_id)
     rows = client.execute_sql(sql, params)
     return _row_to_acogida(rows[0]) if rows else None
 
@@ -416,7 +416,7 @@ def update_acogida(
     # field, so this is the realistic contract. The required-text
     # validator in the builder also raises on missing required text
     # fields BEFORE any SQL.
-    sql, write_params = queries.build_acogida_update(acogida_id, params)
+    sql, write_params = acogidas_queries.build_acogida_update(acogida_id, params)
     _validate_references(client, params)
 
     rows = client.execute_sql(sql, [acogida_id, *write_params])
@@ -447,7 +447,7 @@ def close_acogida(
     Issue #139 P1 #5: this contract is pinned by
     ``test_close_acogida_works_on_soft_deleted_stay``.
     """
-    sql, params = queries.build_acogida_close(acogida_id)
+    sql, params = acogidas_queries.build_acogida_close(acogida_id)
     rows = client.execute_sql(sql, params)
     if not rows:
         return None
@@ -485,7 +485,7 @@ def delete_acogida(
     into the same statement under PostgreSQL's row lock; two concurrent
     calls produce exactly one ``True`` and one ``False``.
     """
-    sql, params = queries.build_acogida_delete(acogida_id)
+    sql, params = acogidas_queries.build_acogida_delete(acogida_id)
     rows = client.execute_sql(sql, params)
     deleted = bool(rows)
     if deleted:

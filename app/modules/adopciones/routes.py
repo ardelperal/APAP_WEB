@@ -45,6 +45,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from app.core._module_helpers._actor import actor_user_id
 from app.core._module_helpers._crud_flow import render_detail, render_edit_form
 from app.core._module_helpers._form_render import make_render_form
 from app.core.auth_dependencies import (
@@ -123,20 +124,6 @@ def _adopcion_to_form_data(
         "observaciones": adopcion.observaciones or "",
         "tipo_adopcion": adopcion.tipo_adopcion,
     }
-
-
-def _actor_user_id(user: AuthenticatedUser) -> str | None:
-    """Extract ``user_id`` from the auth payload for audit logging.
-
-    ``user`` is the value returned by ``require_authorized_user`` (a
-    dict-like). When the upstream dep returned a ``RedirectResponse``
-    (no session, deactivated, etc.) we have already returned early via
-    ``return_early_if_response``, so this only sees a dict.
-    """
-    if isinstance(user, dict):
-        uid = user.get("user_id")
-        return str(uid) if uid is not None else None
-    return None
 
 
 _render_form = make_render_form(_templates, "adopciones/form.html")
@@ -240,7 +227,7 @@ def create_adopcion_view(
         adopcion = adopciones_service.create_adopcion(
             client,
             form_data,
-            actor_user_id=_actor_user_id(user),
+            actor_user_id=actor_user_id(user),
         )
     except adopciones_service.AdopcionConflictError:
         return _render_form(
@@ -334,7 +321,7 @@ def update_adopcion_view(
             client,
             adopcion_id,
             form_data,
-            actor_user_id=_actor_user_id(user),
+            actor_user_id=actor_user_id(user),
         )
     except adopciones_service.AdopcionConflictError:
         return _render_form(
@@ -381,7 +368,7 @@ def delete_adopcion_view(
     if not adopciones_service.delete_adopcion(
         client,
         adopcion_id,
-        actor_user_id=_actor_user_id(user),
+        actor_user_id=actor_user_id(user),
     ):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     return RedirectResponse(
@@ -422,7 +409,7 @@ def seguimiento_transition_view(  # noqa: PLR0913  # PATCH with 2 Form fields + 
         client,
         adopcion_id=adopcion_id,
         action=action,
-        operador_user_id=_actor_user_id(user) or "unknown",
+        operador_user_id=actor_user_id(user) or "unknown",
         documento_url=documento_url,
     )
 
