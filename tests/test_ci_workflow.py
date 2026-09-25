@@ -88,11 +88,6 @@ def test_ci_workflow_defines_lint_test_and_build_jobs() -> None:
 
     assert "name: ci" in workflow
     assert "pull_request:" in workflow
-    # Both main and staging must trigger CI. main is gated (only the
-    # user promotes there) but PRs landing on main still need to be
-    # validated; staging is where every change lands first under the
-    # project's stagingOnly policy.
-    assert "branches: [main, staging]" in workflow
     assert "lint:" in workflow
     assert "test:" in workflow
     assert "build:" in workflow
@@ -577,7 +572,9 @@ def test_ci_workflow_no_longer_runs_on_main_push() -> None:
         "ci.yml must not re-run on push to main; deploy.yml consumes the "
         "pull_request run's evidence instead"
     )
-    assert "main" in triggers["pull_request:"], (
+    # Issue #933: an unfiltered pull_request trigger covers PRs into main too.
+    pull_request = triggers["pull_request:"]
+    assert "branches" not in pull_request or "main" in pull_request, (
         "the pull_request run is now the only gate for main and must stay"
     )
 
@@ -2138,4 +2135,22 @@ def test_bare_pytest_excludes_every_suite_the_ci_test_job_excludes() -> None:
     assert ci_ignores, "could not read the CI test job's --ignore options"
     assert ci_ignores <= local_ignores, (
         f"addopts must also ignore {sorted(ci_ignores - local_ignores)} (issue #940)"
+    )
+
+
+@pytest.mark.parametrize("workflow_name", ["ci.yml", "codeql.yml"])
+def test_pull_request_checks_run_whatever_the_base_branch(workflow_name: str) -> None:
+    """Stacked PRs must get CI before they are retargeted to main (issue #933).
+
+    The 400-line budget pushes large changes into chained PRs whose base is
+    another work branch. A ``branches: [main, staging]`` filter left those
+    PRs with no ``ci`` / CodeQL run at all until retargeted, so reviewers
+    saw no evidence. pr-size already measures against ``github.base_ref``.
+    """
+    workflow = (REPO_ROOT / ".github" / "workflows" / workflow_name).read_text(encoding="utf-8")
+    triggers = _trigger_lines(workflow)
+
+    assert "pull_request:" in triggers
+    assert "branches" not in triggers["pull_request:"], (
+        f"{workflow_name}: pull_request must not filter by base branch (issue #933)"
     )
