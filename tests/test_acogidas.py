@@ -18,6 +18,7 @@ contract.
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import nullcontext
 from datetime import date
 from typing import Any
 
@@ -80,6 +81,12 @@ class _FakeSqlExecutor:
         if self._responses:
             return self._responses.pop(0)
         return []
+
+    def transaction(self) -> Any:
+        """Yield this fake unchanged: unit tests exercise one round-trip at a
+        time, so every ``execute_sql`` call inside the service's
+        ``transaction()`` block hits this same recording fake."""
+        return nullcontext(self)
 
     def close(self) -> None:
         pass  # no-op for fake
