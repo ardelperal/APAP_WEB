@@ -146,4 +146,22 @@
     .stepper-panel {
         @apply mt-4 border-0 p-0;
     }
+    .animal-wizard-layout {
+        @apply grid grid-cols-1 items-start gap-6 md:grid-cols-[minmax(10rem,14rem)_minmax(0,1fr)];
+    }
+    .animal-wizard-steps {
+        @apply md:flex-col md:flex-nowrap;
+    }
+}
+
+@layer utilities {
+    .animal-wizard-steps .stepper-item.is-current {
+        @apply border-primary-dark bg-primary-dark text-white;
+    }
+    .animal-wizard-steps .stepper-item.is-complete {
+        @apply text-primary-dark;
+    }
+    .animal-wizard-steps .stepper-item[data-step-clickable="true"] {
+        transition-duration: 0s;
+    }
 }
