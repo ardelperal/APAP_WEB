@@ -22,6 +22,8 @@ import pytest
 from app.core.data_access import NestedTransactionError
 from app.core.local_backend.db import LocalPostgresExecutor, QueryError
 
+pytestmark = pytest.mark.integration
+
 _INSERT_ANIMAL_SQL = (
     "INSERT INTO animales (nchip, nombreanimal, especie, sexo, fnacimiento) "
     "VALUES ($1, $2, 'CANINA', 'H', '2020-01-01')"
