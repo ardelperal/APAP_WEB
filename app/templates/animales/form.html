@@ -29,13 +29,15 @@
       {# PR-5B2: CSRF defense-in-depth (REQ-AH-7). #}
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
 
-      <ol class="stepper" data-stepper-list>
-        <li data-step="1"><span class="stepper-label" id="stepper-label-1">Identificación</span></li>
-        <li data-step="2"><span class="stepper-label" id="stepper-label-2">Características</span></li>
-        <li data-step="3"><span class="stepper-label" id="stepper-label-3">Chip y documentación</span></li>
-        <li data-step="4"><span class="stepper-label" id="stepper-label-4">Salud y situación</span></li>
-        <li data-step="5"><span class="stepper-label" id="stepper-label-5">Revisión y envío</span></li>
-      </ol>
+      <div class="animal-wizard-layout">
+        <nav class="stepper animal-wizard-steps" data-stepper-list aria-label="Pasos de creación">
+          <div class="stepper-item" data-step="1"><span class="stepper-label" id="stepper-label-1">Identificación</span></div>
+          <div class="stepper-item" data-step="2"><span class="stepper-label" id="stepper-label-2">Características</span></div>
+          <div class="stepper-item" data-step="3"><span class="stepper-label" id="stepper-label-3">Chip y documentación</span></div>
+          <div class="stepper-item" data-step="4"><span class="stepper-label" id="stepper-label-4">Salud y situación</span></div>
+          <div class="stepper-item" data-step="5"><span class="stepper-label" id="stepper-label-5">Revisión y envío</span></div>
+        </nav>
+        <div class="animal-wizard-content">
 
       <fieldset id="step-1" data-step-panel="1" role="region" aria-labelledby="stepper-label-1" class="stepper-panel">
         <legend class="font-heading text-lg text-text">Identificación</legend>
@@ -196,8 +198,10 @@
         <a href="/animales" class="px-4 py-2 text-text-muted hover:text-text">Cancelar</a>
         <div data-step-nav class="flex items-center gap-3">
           <button type="button" data-step-prev class="px-4 py-2 text-text-muted hover:text-text" disabled>Anterior</button>
-          <button type="button" data-step-next class="bg-primary text-white px-6 py-2 rounded font-semibold hover:bg-primary-dark transition-colors shadow-sm">Siguiente</button>
-          <button type="submit" data-step-submit hidden class="bg-primary text-white px-6 py-2 rounded font-semibold hover:bg-primary-dark transition-colors shadow-sm">Guardar</button>
+          <button type="button" data-step-next class="bg-primary-dark text-white px-6 py-2 rounded font-semibold hover:bg-primary-dark shadow-sm">Siguiente</button>
+          <button type="submit" data-step-submit hidden class="bg-primary-dark text-white px-6 py-2 rounded font-semibold hover:bg-primary-dark shadow-sm">Guardar</button>
+        </div>
+      </div>
         </div>
       </div>
     </form>
