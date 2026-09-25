@@ -205,12 +205,14 @@ def main(argv: list[str] | None = None) -> int:
         print("}")
         return 0
 
-    violations, _ = check(root, BASELINE)
+    violations, notices = check(root, BASELINE)
     if violations:
         for v in violations:
             print(f"FAIL {v}")
         print(f"check_import_cycles: {len(violations)} violation(s).")
         return 1
+    for n in notices:
+        print(f"NOTE {n}")
     print(f"check_import_cycles: OK ({len(BASELINE)} baselined cycle(s) remaining)")
     return 0
 
