@@ -36,6 +36,15 @@ El tipado estático se enforza, no se aspira: el job `typecheck` de CI corre `py
 
 **Aplicación**: `tests/test_ci_workflow.py::test_ci_workflow_defines_typecheck_job_running_mypy` pinea el job de CI y su invocación `python -m mypy`; `ci / required` agrega `typecheck`, por lo que una regresión de tipos bloquea el merge y, en consecuencia, el deploy; mypy sale con código no-cero ante cualquier error, fallando el job.
 
+## Criterio de gates bloqueantes
+
+Decisión del mantenedor, 2026-09-25: un gate bloqueante solo se mantiene si
+detecta defectos reales o es práctica estándar del sector; el resto pasa a
+informativo o se elimina. Si una métrica obliga a reestructurar código
+correcto para cumplirla, el defecto está en el gate, no en el código. El
+inventario completo, gate por gate, con la evidencia y la decisión de cada
+uno, vive en [`docs/quality/ci-gate-inventory.md`](../quality/ci-gate-inventory.md).
+
 ## Contributor checklist
 
 - [ ] Cada PR no baja la cobertura global de `app/` por debajo del 85% (gate de CI).
