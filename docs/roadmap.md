@@ -34,6 +34,7 @@ Las capacidades que cruzan varias fases viven en [`transversales.md`](roadmap/tr
 | Seguridad, CSRF, RBAC, redacción de PII | [transversales.md § Seguridad](roadmap/transversales.md) |
 | Logging estructurado, traza canónica, panel de control | [transversales.md § Observabilidad](roadmap/transversales.md) |
 | Cobertura, linter, mypy, E2E, ratchets | [transversales.md § Calidad](roadmap/transversales.md) |
+| Auditoría de código 2026-09-24, hallazgos y olas | [transversales.md § Calidad](roadmap/transversales.md) |
 | Migración en vivo, UX/UI, motor de tareas, idioma y docs | [transversales.md § Dev workflow](roadmap/transversales.md) |
 
 ## Recent activity
