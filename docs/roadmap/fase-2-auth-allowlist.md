@@ -41,7 +41,7 @@ cerrado — Issue **#16** mergeada en `main` como `1d22349`. Login con Google OA
 - [ ] Si añade un nuevo rol o un nuevo flujo OAuth, regístrelo en un ADR antes de implementar.
 - [ ] Si modifica el middleware de allowlist, cubra con tests la regresión documentada en [docs/audits/auth-revalidation-2026-Q3.md](../audits/auth-revalidation-2026-Q3.md).
 - [ ] Si toca un secret (`APAP_SESSION_SECRET`, `APAP_OAUTH_CLIENT_ID`, etc.), siga [docs/runbooks/cookie-rotation.md](../runbooks/cookie-rotation.md) y §32.P2.
-- [ ] Si rota el secret OAuth o cambia el redirect URI, abra runbook de rotación y refresque `APAP_INSFORGE_URL` en Coolify.
+- [ ] Si rota el secret OAuth o cambia el redirect URI, abra el runbook de rotación correspondiente y refresque los secretos Coolify del módulo OAuth.
 
 ## Navigation
 

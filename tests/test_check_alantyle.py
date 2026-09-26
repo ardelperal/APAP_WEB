@@ -143,7 +143,7 @@ def test_alan003_accepts_whitelisted_acronyms() -> None:
     """Los acrónimos whitelisted (HTTP, MCP, etc.) NO disparan ALAN003."""
     content = (
         "# Title\n\n"
-        "HTTP 200. MCP server. SQL query. INSFORGE client. "
+        "HTTP 200. MCP server. SQL query. "
         "API endpoint. PR review. URL shortener. SHA digest.\n"
     )
     assert _violations_for("ALAN003", content) == []
@@ -742,7 +742,7 @@ def test_find_violations_returns_sorted_output(tmp_path: Path) -> None:
 
 def test_acronym_whitelist_contains_skill_listed_entries() -> None:
     """La whitelist incluye literalmente los siete acrónimos de §10."""
-    expected = {"HTTP", "MCP", "SQL", "INSFORGE", "API", "PR", "URL", "SHA"}
+    expected = {"HTTP", "MCP", "SQL", "API", "PR", "URL", "SHA"}
     assert expected.issubset(ACRONYM_WHITELIST), (
         f"missing from whitelist: {expected - ACRONYM_WHITELIST}"
     )
@@ -755,7 +755,7 @@ def test_expanded_whitelist_accepts_common_technical_acronyms() -> None:
         "BD BDD BFF BI BLOCKER CD CDN CET CIDR CLI CMD CODEOWNERS COM CORS CSP CRUD CSRF CSS CSV CTE "
         "DAG DAO DB DDD DDL DELETE DI DIP DNI DNS DOCX DOB DOM DRF DSN EHR ELT EOL ERD ETL EU EXE "
         "FAQ FK FTP FTS FSO GCP GDPR GET GMT GNU GRPC GUID HEAD HMAC HIPAA HSTS HTMX HTTPX HTTPS "
-        "IaaS ID IEEE IMAP INFO INFORGE IP ISO JS JSONB JWE JWS JWT K8S KB KPI LF LINUX LLM LOC LSP LTS MD ML MQTT "
+        "IaaS ID IEEE IMAP INFO IP ISO JS JSONB JWE JWS JWT K8S KB KPI LF LINUX LLM LOC LSP LTS MD ML MQTT "
         "MSACCESS MVC MVCC NASA NFKD NIE NIF NIST NLP NOSQL OCR OECD OOM OPTIONS ORM OS OSS "
         "PaaS PATCH PDF PEP PG PHI PID PII PK PKCE PNG POC POP POSIX POST PTY PUT PWA PYTHONHASHSEED PYTHONPATH QA "
         "RAG RBAC RDBMS RDD REQ REST RFC RIAC RLS ROI SAAS SDD SDK SEO SIGINT SLA SLI SLO SMTP SOA SOAP SOC SOLID SOX SPA "
