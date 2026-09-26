@@ -269,7 +269,7 @@
 
 ### `tasks` (worker / async)
 - **Covered by**: `test_tasks.py` only.
-- **Gap**: thin coverage; may not exercise retry or idempotency.
+- **Gap**: thin coverage; may not exercise retry or idempotency. ⚠️ Updated during #922: no retry semantics exist in the codebase (`app/core/tasks/` is a rule engine + scheduler; see Critical gaps #8 for the stale-reference disposition). The behavior closest to "retry" — the scheduler's dedupe of drafts against existing open tareas — is now covered by `TestSchedulerDedupe` in `tests/test_tasks.py` (re-scoped 2026-09-24+, see Critical gaps #8).
 
 ### `core` (`app/core/`)
 - **Auth**: most heavily tested area in the project, but **all in-process with mocks**. No end-to-end "real Postgres + real session cookie + real CSRF" path tested together.
@@ -283,10 +283,10 @@
 2. **No real-DB integration test for the append-only trigger** on `animal_lifecycle_events`. Ships in production; never asserted to fire.
 3. **No real-DB integration test for `require_authorized_user` revalidation** (issue #143 path).
 4. **No integration test for the unique-natural-key collision in cesiones / adopciones.** Conflict resolution is E2E-only.
-5. **No E2E test of the rate-limit middleware under concurrent load.**
+5. ✅ Closed 2026-09-24+ via issue #922 (finding A-10): concurrent load against the real middleware is covered by `tests/test_rate_limit_middleware.py::TestRateLimitConcurrency` — an in-process middleware-level burst (16 threads + barrier through `RateLimitMiddleware` + `InProcessRateLimitBackend`, exactly `limit` accepted) plus a direct counter-atomicity hammer (`test_concurrent_hits_never_exceed_limit`). Not a Playwright browser E2E; browser-level burst coverage remains deferred to `tests/e2e/test_rate_limit_concurrent.py` (P1 item 5 below).
 6. **No E2E test of the public search abuse path.**
 7. **No unit/integration test of the LocalBackend storage bucket private-public invariant at the animales slice boundary.**
-8. **No tests of `app/core/tasks.py` retry semantics against a flaky executor.**
+8. **No tests of `app/core/tasks.py` retry semantics against a flaky executor.** ⚠️ Stale reference flagged during #922: `app/core/tasks.py` does not exist — `app/core/tasks/` is the rule engine + scheduler package (`rules.py`, `scheduler.py`) and contains NO retry semantics (verified during #922: grep for `retry|retries|backoff|attempt` across `app/core/tasks/` and `app/modules/tasks/` returns nothing; there is no executor-failure/retry path to test). Re-scoped and closed 2026-09-24+ via issue #922 (finding A-10): the original "reintentos de tasks" wording is dropped as unimplementable against nonexistent behavior, and coverage was re-targeted to the scheduler dedupe contract — `tests/test_tasks.py::TestSchedulerDedupe` drives the real `run_scheduler` branch through its lazy-import seams and pins: a draft is skipped when an open (`pendiente`/`en_progreso`) tarea exists for the same `vinculo_tipo`+`vinculo_id`, and is persisted when the only prior tarea is closed (`completada`/`cancelada`/`vencida`) or none exists. Residual retry-shaped risk (e.g. a future scheduler gaining executor retries) would need a new audit point.
 
 ## Flaky tests
 
