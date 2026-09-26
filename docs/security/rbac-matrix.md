@@ -18,6 +18,7 @@ Esta página posee la matriz canónica de permisos por rol en APAP_WEB. No posee
 |------------|:-----:|:-----:|:---------:|
 | `READ_ANIMALES` | ✅ | ✅ | ✅ |
 | `WRITE_ANIMALES` | ✅ | ✅ | ✅ |
+| `DELETE_ANIMALES` | ✅ | ❌ | ❌ |
 | `READ_VOLUNTARIOS` | ✅ | ✅ | ✅ |
 | `WRITE_VOLUNTARIOS` | ✅ | ✅ | ✅ |
 | `READ_ADOPCIONES` | ✅ | ✅ | ❌ |
@@ -38,7 +39,7 @@ Esta página posee la matriz canónica de permisos por rol en APAP_WEB. No posee
 | `WRITE_REPORTES` | ✅ | ❌ | ❌ |
 | `MANAGE_USERS` | ✅ | ❌ | ❌ |
 
-La tabla refleja exactamente el enum `Permission` y la matriz `PERMISSIONS` de `app/core/rbac.py`; no existen permisos `DELETE_*` en el enum (los endpoints de borrado declaran permisos `write:*`).
+La tabla refleja exactamente el enum `Permission` y la matriz `PERMISSIONS` de `app/core/rbac.py`. `DELETE_ANIMALES` es hoy el único permiso `DELETE_*` del enum y protege `POST /animales/{id}/delete` (`app/modules/animals/routes.py`); es exclusivo de `admin`.
 
 ## Legacy Role Backward Compatibility
 
@@ -46,7 +47,8 @@ Legacy roles (`DEVELOPER`, `KEY_USER`, `READER` from `app.core.roles.Rol`) are h
 
 - **Read permissions**: cada rol legacy recibe el conjunto explícito de `_LEGACY_READ_MATRIX` en `app/core/rbac.py` — hoy, exactamente los 10 permisos `READ_*` de la matriz (cero impacto para los usuarios actuales). No hay `read:*` genérico: un permiso de lectura nuevo no alcanza a los roles legacy hasta que se añade explícitamente al mapeo.
 - **Write/Delete permissions**: solo `DEVELOPER` y `KEY_USER` pueden escribir (`_LEGACY_WRITER_ROLES`); `READER` es read-only.
-- **Fail-closed**: cualquier otro string de rol no reconocido recibe 403 también en lecturas.
+- **Fail-closed (solo rutas con `require_permission`)**: cualquier otro string de rol no reconocido recibe 403 también en lecturas. Este alcance rige únicamente para rutas protegidas con `require_permission`: las rutas que dependen solo de `require_authorized_user` (p. ej. `GET /animales/search`, `GET /tareas`, `GET /animales/{id}/salud/resumen`, `GET /materiales/acogidas/{id}/materiales`, `GET /entradas/batch/new`, `PATCH /adopciones/{id}/seguimiento`) validan `is_authorized` pero no comprueban el valor del rol (gap preexistente; follow-up pendiente).
+- **Límite de la convención `read:`**: el guard clasifica el alcance de lectura por el prefijo `read:`; un permiso futuro con capacidad de lectura que no use ese prefijo sería denegado en silencio a los roles legacy en lugar de forzar una decisión explícita — mantener la convención `read:` es parte del contrato, no un detalle cosmético.
 - **Guard test**: `test_legacy_read_matrix_covers_every_read_permission` en `tests/test_rbac.py` falla con mensaje que nombra el par (rol, permiso) si un permiso de lectura nuevo aparece sin decisión explícita para cada rol legacy.
 
 El mapeo preserva el acceso real de los usuarios: todos los roles asignables hoy son legacy (el panel de admin construye su selector desde `VALID_ROLES`, derivado del enum `Rol`; `voluntario`/`staff` no son asignables desde ahí).

@@ -34,9 +34,10 @@ READ_PERMISSIONS: frozenset[Permission] = frozenset(
     p for p in Permission if p.value.startswith("read:")
 )
 
-#: All write-scope permissions currently in the enum (issue #923 pin).
-WRITE_PERMISSIONS: frozenset[Permission] = frozenset(
-    p for p in Permission if p.value.startswith("write:")
+#: All non-read (write + delete) permissions currently in the enum (issue #923 pin).
+NON_READ_PERMISSIONS: frozenset[Permission] = frozenset(
+    p for p in Permission
+    if p.value.startswith("write:") or p.value.startswith("delete:")
 )
 
 #: Legacy roles that must have an explicit read decision (issue #923).
@@ -372,6 +373,10 @@ def test_legacy_read_matrix_covers_every_read_permission() -> None:
         "Legacy read mapping is incomplete; add an explicit decision in "
         f"_LEGACY_READ_MATRIX (app/core/rbac.py) for the missing pairs: {missing}"
     )
+    assert set(_LEGACY_READ_MATRIX) == set(_LEGACY_READ_ROLES), (
+        "_LEGACY_READ_MATRIX keys must exactly match _LEGACY_READ_ROLES; "
+        "a matrix key without a tracked legacy role is a drift"
+    )
 
 
 def test_legacy_read_matrix_contains_only_read_permissions() -> None:
@@ -390,12 +395,20 @@ def test_legacy_role_allowed_on_all_reads(role: str, permission: Permission) -> 
     assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
 
 
-@pytest.mark.parametrize("permission", sorted(WRITE_PERMISSIONS, key=lambda p: p.value))
+@pytest.mark.parametrize("permission", sorted(NON_READ_PERMISSIONS, key=lambda p: p.value))
 def test_reader_denied_on_every_write_permission(permission: Permission) -> None:
-    """The reader legacy role stays read-only (403 on every write permission)."""
+    """The reader legacy role stays read-only (403 on every write/delete permission)."""
     client = _client_for_role_permission("reader", permission)
     response = client.get("/guarded")
     assert response.status_code == 403, f"Expected 403, got {response.status_code}: {response.text}"
+
+
+@pytest.mark.parametrize("role", ["developer", "key_user"])
+def test_legacy_writer_roles_retain_delete_animales(role: str) -> None:
+    """DEVELOPER and KEY_USER keep DELETE_ANIMALES (contributor checklist requirement)."""
+    client = _client_for_role_permission(role, Permission.DELETE_ANIMALES)
+    response = client.get("/guarded")
+    assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
 
 
 def test_require_permission_write_animales_denies_unknown_role() -> None:
