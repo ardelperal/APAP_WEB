@@ -2154,6 +2154,10 @@ MINIO_REPLICA_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "minio-repli
 #: `git ls-remote --tags https://github.com/minio/minio` on 2026-09-26:
 #: the highest existing RELEASE.2025-* tag.
 MINIO_REPLICA_RELEASE_TAG = "RELEASE.2025-10-15T17-29-55Z"
+#: Digest of the GHCR replica image recorded by replica build run
+#: 36249625652; the e2e service in ci.yml pins the image by digest
+#: (issue #973, per the repo's digest-pinning rule, issue #338).
+MINIO_REPLICA_DIGEST = "sha256:6140fe7015bd97e4e6340c9a8ead775c09bc1a226b7c36e41d24852f839dae8f"
 
 
 def _e2e_minio_service_section(workflow: str) -> str:
@@ -2171,8 +2175,10 @@ def test_ci_workflow_e2e_minio_service_pulls_repo_owned_ghcr_replica() -> None:
     The previous fix (authenticate the Docker Hub pull with
     DOCKERHUB_USERNAME/DOCKERHUB_TOKEN secrets) is dead by design: the
     binary images no longer exist upstream, so authentication cannot
-    help. The service must reference `ghcr.io/ardelperal/minio:ci` —
-    the replica built from pinned MinIO CE source by minio-replica.yml —
+    help. The service must reference the digest-pinned
+    `ghcr.io/ardelperal/minio@sha256:...` — the replica built from
+    pinned MinIO CE source by minio-replica.yml, with the digest
+    recorded by build run 36249625652 —
     and pull it with the ephemeral GITHUB_TOKEN, since the package is
     private. Every DOCKERHUB reference must be gone.
     """
@@ -2182,8 +2188,9 @@ def test_ci_workflow_e2e_minio_service_pulls_repo_owned_ghcr_replica() -> None:
     image_line = next(
         line.strip() for line in service.splitlines() if line.strip().startswith("image:")
     )
-    assert image_line == "image: ghcr.io/ardelperal/minio:ci", (
-        f"the e2e minio service must pull the repo-owned GHCR replica; got {image_line!r}"
+    assert image_line == f"image: ghcr.io/ardelperal/minio@{MINIO_REPLICA_DIGEST}", (
+        f"the e2e minio service must pull the digest-pinned GHCR replica; "
+        f"got {image_line!r}"
     )
     # The GHCR package is private: the service container pull needs the
     # ephemeral GITHUB_TOKEN (service containers accept expressions in
