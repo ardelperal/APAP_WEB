@@ -656,13 +656,17 @@ class TestE2ELoginRateLimit:
         """
         client = TestClient(self._make_e2e_app(monkeypatch))
 
-        for _ in range(5):
-            client.get(
-                "/e2e/login?email=burst@probe.example",
-                headers={"X-E2E-Secret": "wrong"},
-            )
-
+        # The whole burst runs inside the capture context: the ambient
+        # "app" logger level depends on which tests ran before (some
+        # call configure_logging), so records must be counted by outcome,
+        # not by capture-window position.
         with caplog.at_level(logging.INFO, logger="app"):
+            for _ in range(5):
+                allowed = client.get(
+                    "/e2e/login?email=burst@probe.example",
+                    headers={"X-E2E-Secret": "wrong"},
+                )
+                assert allowed.status_code == 401
             response = client.get(
                 "/e2e/login?email=burst@probe.example",
                 headers={"X-E2E-Secret": "wrong"},
@@ -674,6 +678,7 @@ class TestE2ELoginRateLimit:
             r
             for r in records
             if getattr(r, "_caller_fields", {}).get("event") == "e2e.login"
+            and getattr(r, "_caller_fields", {}).get("outcome") == "rate_limited"
         ]
         assert len(forensic) == 1, "exactly one forensic record on the 429"
         fields = forensic[0]._caller_fields
