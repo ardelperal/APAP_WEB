@@ -34,6 +34,12 @@ SAFE_METHODS = frozenset({"HEAD", "OPTIONS"})
 # HTTP methods that count as writes for rate-limit purposes
 WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
+# Route-specific ceiling for the E2E mock login (issue #904 AC2):
+# 5 attempts/minute/IP. A module constant (not a Settings field) keeps
+# the guard autonomous from config and it is only a backstop — the
+# shared secret remains the primary gate.
+E2E_LOGIN_RATE_LIMIT_PER_MIN = 5
+
 # Module-level backend instance — set by install_rate_limit_middleware.
 # Tests can call _reset_rate_limit_backend() to clear bucket state between runs.
 _rate_limit_backend: RateLimitBackend | None = None
@@ -58,9 +64,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
     Three buckets (REQ-2):
     - OAuth: ``GET /auth/callback`` — IP-only, default 10/min.
+    - E2E login: ``GET /e2e/login`` — IP-only, 5/min (issue #904).
     - Write: POST/PUT/PATCH/DELETE — both user-id and IP, default 60/min
       and 30/min; the tighter bucket wins.
-    - Read: HEAD/OPTIONS — no limit (but GET /auth/callback IS limited).
+    - Read: HEAD/OPTIONS — no limit (but GET /auth/callback and
+      GET /e2e/login ARE limited).
 
     Headers on every protected response (REQ-1, D5):
     - ``X-RateLimit-Limit``: bucket ceiling.
@@ -77,6 +85,40 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(self, app: Callable[..., Awaitable[None]], backend: RateLimitBackend) -> None:
         super().__init__(app)
         self._backend = backend
+
+    async def _handle_e2e_login(
+        self,
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        """IP-limited bucket for GET /e2e/login (issue #904 AC2).
+
+        5 attempts/minute/IP; the 6th gets the shared 429 shape. Success
+        responses carry the rate-limit headers like the OAuth bucket.
+        """
+        # Read settings at request time so test patches take effect.
+        # lazy-import: avoids circular import with app.core.session.
+        from app.core.config import get_settings
+
+        identity = _extract_identity(request, get_settings())
+        allowed, info = self._backend.hit(
+            scope="e2e_login",
+            identity=identity.ip or "unknown",
+            limit=E2E_LOGIN_RATE_LIMIT_PER_MIN,
+            now=_monotonic_now(),
+            window_seconds=60,
+        )
+        if not allowed:
+            log_safe(
+                "ratelimit.rejected",
+                path=request.url.path,
+                reason="ip",
+                scope="e2e_login",
+                user_id=identity.user_id,
+            )
+            return _build_429_response(info)
+        response = await call_next(request)
+        return _add_rate_limit_headers(response, info)
 
     async def dispatch(
         self,
@@ -99,7 +141,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # OAuth callback — always rate-limited even though it is a GET
         is_oauth_callback = path == "/auth/callback" and method == "GET"
         is_write = method in WRITE_METHODS
-        is_read_only = method in SAFE_METHODS  # HEAD/OPTIONS only; GET is NOT a read here
 
         if is_oauth_callback:
             identity = _extract_identity(request, settings)
@@ -175,12 +216,29 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 return _build_429_response(info)
             return response
 
-        if is_read_only:
-            # HEAD/OPTIONS — passthrough, no rate limit
-            return await call_next(request)
+        # HEAD/OPTIONS pass through unrated; plain GETs too, except the
+        # E2E mock login which is IP-limited (see _handle_unprotected).
+        return await self._handle_unprotected(request, call_next)
 
-        # GET (non-OAuth callback) — no rate limit
+    async def _handle_unprotected(
+        self,
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        """HEAD/OPTIONS and plain GETs — no rate limit, except e2e login.
+
+        The E2E mock login (issue #904 AC2) is IP-limited even when the
+        route is not registered (flag off): a 404 probe still consumes
+        bucket state. Everything else passes through unrated.
+        """
+        if _is_e2e_login_request(request.method, request.url.path):
+            return await self._handle_e2e_login(request, call_next)
         return await call_next(request)
+
+
+def _is_e2e_login_request(method: str, path: str) -> bool:
+    """Whether this request targets the E2E mock login bucket (issue #904)."""
+    return path == "/e2e/login" and method == "GET"
 
 
 def _add_rate_limit_headers(response: Response, info: RetryInfo) -> Response:

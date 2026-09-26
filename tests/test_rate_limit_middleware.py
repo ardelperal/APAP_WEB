@@ -12,8 +12,9 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 from fastapi import FastAPI  # noqa: F401 — type annotation only, evaluated lazily
+from fastapi.testclient import TestClient
 
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.core.session import session_cookie_name, write_session
 
 # ---------------------------------------------------------------------------
@@ -546,3 +547,85 @@ class TestRateLimitMiddlewareOrdering:
             f"app.user_middleware = outer) so 403 rejections don't consume rate "
             f"budget. user_middleware order: {names}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Issue #904 — route-specific /e2e/login rate limit (5/min/IP)
+# ---------------------------------------------------------------------------
+
+
+class TestE2ELoginRateLimit:
+    """RED: GET /e2e/login is IP-rate-limited to 5/min; 6th hit gets 429."""
+
+    @pytest.fixture(autouse=True)
+    def _web_mode(self, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+        """Activate the middleware: APAP_MODE must not be the test bypass."""
+        monkeypatch.setenv("APAP_MODE", "web")
+        get_settings.cache_clear()
+        yield
+        get_settings.cache_clear()
+
+    @staticmethod
+    def _make_e2e_app() -> FastAPI:
+        """Minimal app: the mock route registered + a fresh rate-limit backend.
+
+        Mirrors the production composition (route + RateLimitMiddleware with
+        an ``InProcessRateLimitBackend``) without the full ``create_app``
+        stack, so the bucket state is isolated per test.
+        """
+        import app.core.e2e_auth as e2e_module
+        from app.core.e2e_auth import register_e2e_auth_routes
+        from app.core.rate_limit import InProcessRateLimitBackend
+        from app.core.rate_limit_middleware import RateLimitMiddleware
+
+        original = e2e_module.get_settings
+        e2e_module.get_settings = lambda: Settings(  # type: ignore[assignment]
+            e2e_auth_enabled=True,
+            e2e_auth_secret="test-secret",
+            session_secret="test-session-secret",
+        )
+        try:
+            app = FastAPI()
+            register_e2e_auth_routes(app)
+        finally:
+            e2e_module.get_settings = original
+        app.add_middleware(RateLimitMiddleware, backend=InProcessRateLimitBackend())
+        return app
+
+    def test_sixth_request_within_minute_returns_429(self) -> None:
+        """5 attempts pass through (401, no secret); the 6th gets 429 + Retry-After."""
+        client = TestClient(self._make_e2e_app())
+
+        for _ in range(5):
+            response = client.get("/e2e/login", headers={"X-E2E-Secret": "wrong"})
+            assert response.status_code == 401, "first 5 attempts must reach the route"
+
+        response = client.get("/e2e/login", headers={"X-E2E-Secret": "wrong"})
+        assert response.status_code == 429
+        assert "Retry-After" in response.headers
+        assert response.headers["X-RateLimit-Limit"] == "5"
+        assert response.headers["X-RateLimit-Remaining"] == "0"
+        assert "error" in response.json()
+
+    def test_limit_is_per_ip(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Exhausting one IP's bucket does not exhaust another IP's."""
+        monkeypatch.setenv("APAP_TRUST_XFF", "true")
+        get_settings.cache_clear()
+        client = TestClient(self._make_e2e_app())
+
+        for _ in range(5):
+            client.get(
+                "/e2e/login",
+                headers={"X-E2E-Secret": "wrong", "X-Forwarded-For": "203.0.113.9"},
+            )
+        exhausted = client.get(
+            "/e2e/login",
+            headers={"X-E2E-Secret": "wrong", "X-Forwarded-For": "203.0.113.9"},
+        )
+        assert exhausted.status_code == 429
+
+        fresh_ip = client.get(
+            "/e2e/login",
+            headers={"X-E2E-Secret": "wrong", "X-Forwarded-For": "203.0.113.10"},
+        )
+        assert fresh_ip.status_code == 401, "a different IP must have its own bucket"
