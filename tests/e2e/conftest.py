@@ -15,6 +15,7 @@ chromium``.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import pytest
 from playwright.sync_api import (
@@ -25,6 +26,7 @@ from playwright.sync_api import (
 )
 
 BASE_URL = os.environ.get("APAP_E2E_BASE_URL", "http://127.0.0.1:8000")
+E2E_SECRET_ENV = "APAP_E2E_AUTH_SECRET"
 
 # Issue #821: the stepper E2E suite exercises the developer-only
 # /devtools pages, which exist only when ``Settings.devtools_enabled``
@@ -94,3 +96,44 @@ def page(browser_context: BrowserContext) -> Page:
 def base_url() -> str:
     """The base URL the test server is reachable at."""
     return BASE_URL
+
+
+@pytest.fixture(scope="session")
+def authenticated_state(tmp_path_factory: pytest.TempPathFactory):
+    """StorageState path minted once per pytest session via the e2e login CLI (issue #906).
+
+    Calls the importable core of ``scripts/e2e_login.py`` (no subprocess)
+    against the live server, caches the resulting storageState under the
+    session temp dir, and returns its path for
+    ``browser.new_context(storage_state=...)``. Skips — with the same
+    semantics as the ad-hoc per-suite preflights it replaces — when the
+    secret env is unset or the server has the e2e mock disabled.
+    """
+    secret = os.environ.get(E2E_SECRET_ENV)
+    if secret is None:
+        pytest.skip(
+            f"{E2E_SECRET_ENV} not set — the OAuth mock cannot authenticate "
+            "this test. CI sets the variable; local dev needs to export it "
+            "to run authenticated E2E flows."
+        )
+    import scripts.e2e_login as e2e_login
+
+    out = tmp_path_factory.mktemp("e2e-auth") / "state.json"
+    try:
+        e2e_login.mint_storage_state(
+            base_url=BASE_URL,
+            secret_env=E2E_SECRET_ENV,
+            email=None,
+            out_path=out,
+        )
+    except e2e_login.E2eLoginError as exc:
+        pytest.skip(f"/e2e/login unavailable on {BASE_URL}: {exc}")
+    return out
+
+
+@pytest.fixture
+def authenticated_context(_browser: Browser, authenticated_state: Path) -> BrowserContext:
+    """A fresh per-test context that starts authenticated from the shared state."""
+    ctx = _browser.new_context(base_url=BASE_URL, storage_state=str(authenticated_state))
+    yield ctx
+    ctx.close()
