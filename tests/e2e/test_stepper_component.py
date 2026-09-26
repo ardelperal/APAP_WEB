@@ -14,23 +14,20 @@ Exercises the developer-only stepper preview page
   posts to the no-op confirmation handler.
 
 The route lives behind the default-deny auth middleware (NOT in
-``PUBLIC_PATHS``), so the suite authenticates through ``/e2e/login``
-and SKIPS cleanly whenever the preview is unavailable — 404 means the
-devtools flag is off on the target server (production default).
+``PUBLIC_PATHS``). Authentication goes through the shared
+``authenticated_state`` storageState fixture (issue #906) — login once
+per pytest session via ``scripts/e2e_login.py`` instead of a per-suite
+``/e2e/login`` call — and the suite SKIPS cleanly whenever the preview
+is unavailable — 404 means the devtools flag is off on the target
+server (production default).
 """
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
 from playwright.sync_api import BrowserContext, Page
-
-# Sentinel header name shared with app.core.e2e_auth. Duplicated here
-# on purpose: tests/e2e/ does not import from app.core to keep the
-# Playwright suite transport-agnostic (same convention as test_nav_rail.py).
-E2E_SECRET_HEADER = "X-E2E-Secret"
 
 PREVIEW_PATH = "/devtools/stepper-preview"
 STEPPER_SCRIPT = Path(__file__).resolve().parents[2] / "app/static/js/form-stepper.js"
@@ -97,35 +94,15 @@ def test_submit_preserves_native_constraint_for_unlisted_control(
 
 
 @pytest.fixture
-def devtools_page(browser_context: BrowserContext, base_url: str) -> Page:
+def devtools_page(authenticated_context: BrowserContext, base_url: str) -> Page:
     """A Page with a valid session, skipping when the preview is unavailable.
 
-    Same flow as ``tests/e2e/test_nav_rail.py::authenticated_page``: mint a
-    session through the E2E mock, then run a preflight against the preview
-    route. A 404 means the devtools flag is disabled on the server — the
-    suite skips instead of failing (production default is off).
+    The context starts authenticated from the shared ``authenticated_state``
+    storageState fixture (issue #906), so this fixture only runs a preflight
+    against the preview route. A 404 means the devtools flag is disabled on
+    the server — the suite skips instead of failing (production default off).
     """
-    secret = os.environ.get("APAP_E2E_AUTH_SECRET")
-    if secret is None:
-        pytest.skip(
-            "APAP_E2E_AUTH_SECRET not set — the OAuth mock cannot "
-            "authenticate this test. CI sets the variable; local dev "
-            "needs to export it to run authenticated E2E flows."
-        )
-
-    response = browser_context.request.get(
-        f"{base_url}/e2e/login",
-        headers={E2E_SECRET_HEADER: secret},
-    )
-    assert response.status == 200, (
-        f"/e2e/login must return 200 in the e2e suite, got {response.status}."
-    )
-    payload = response.json()
-    assert payload.get("authenticated") is True, (
-        f"/e2e/login must report authenticated: true, got {payload!r}."
-    )
-
-    preflight = browser_context.request.get(f"{base_url}{PREVIEW_PATH}")
+    preflight = authenticated_context.request.get(f"{base_url}{PREVIEW_PATH}")
     if preflight.status == 404:
         pytest.skip(
             f"{PREVIEW_PATH} returns 404 (devtools_enabled is off on the "
@@ -135,7 +112,7 @@ def devtools_page(browser_context: BrowserContext, base_url: str) -> Page:
         f"{PREVIEW_PATH} preflight returned {preflight.status}; expected 200."
     )
 
-    page = browser_context.new_page()
+    page = authenticated_context.new_page()
     page.goto(f"{base_url}{PREVIEW_PATH}", wait_until="domcontentloaded")
     return page
 

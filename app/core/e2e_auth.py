@@ -35,12 +35,14 @@ from __future__ import annotations
 import hmac
 from typing import Annotated
 
-from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
 from app.core.auth_cache import set_cached_auth
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.core.csrf import generate_csrf_token
+from app.core.logging import log_safe
+from app.core.rate_limit import _extract_identity
 from app.core.session import (
     session_cookie_name,
     write_session,
@@ -75,6 +77,68 @@ def _mock_session_payload(*, email: str, csrf_token: str) -> dict[str, object]:
     }
 
 
+def _secret_matches(provided: str | None, expected: str) -> bool:
+    """Constant-time secret comparison that tolerates non-ASCII probes.
+
+    ASGI decodes header bytes with latin-1, so a probe sending a raw
+    non-ASCII byte reaches this module as a non-ASCII str. Feeding such
+    a str to ``hmac.compare_digest`` raises ``TypeError`` (unhandled
+    500 with no audit entry). The ASCII guard routes any non-ASCII
+    probe to the invalid-secret path instead: it can never match an
+    ASCII expected secret, so denying it without a byte comparison is
+    behaviourally identical and audit-covered.
+    """
+    if provided is None or not provided.isascii():
+        return False
+    return hmac.compare_digest(
+        provided.encode("utf-8"), expected.encode("utf-8")
+    )
+
+
+def _origin_ip(request: Request, settings: Settings) -> str:
+    """Resolve the origin IP for audit purposes (issue #904 AC1).
+
+    Reuses the rate-limiter's identity resolution so the audit entry and
+    the ``e2e_login`` bucket agree on what "origin IP" means (honours
+    ``Settings.trust_xff`` behind the Coolify reverse proxy).
+    """
+    return _extract_identity(request, settings).ip or "unknown"
+
+
+# Cap applied to the raw, unvalidated ``?email=`` query param before it
+# reaches ``log_safe`` (issue #904 fix round 1, JD-B-006): an unbounded
+# probe value must not bloat the audit trail.
+AUDIT_TARGET_EMAIL_MAX_LEN = 120
+
+
+def _cap_target_email(email: str | None) -> str:
+    """Strip and truncate the raw requested email for audit recording."""
+    return (email or "").strip()[:AUDIT_TARGET_EMAIL_MAX_LEN]
+
+
+def _audit_attempt(
+    *, outcome: str, email: str | None, request: Request, settings: Settings
+) -> None:
+    """Emit the audit entry for one attempt (issue #904 AC1).
+
+    Every branch of the handler calls this exactly once — rejected
+    secrets (``invalid_secret``), invalid requests (``invalid_request``,
+    the 400 empty-target-email branch), server misconfiguration
+    (``server_misconfigured``, the 503 empty-secret branch), rate-limited
+    probes (``rate_limited``, emitted by the rate-limit middleware) and
+    success (``ok``). The raw requested email is capped before logging;
+    field names stay outside the closed redaction list on purpose
+    (``target_email``/``client_ip``) because the issue mandates those
+    values; the secret is never a field.
+    """
+    log_safe(
+        "e2e.login",
+        outcome=outcome,
+        target_email=_cap_target_email(email),
+        client_ip=_origin_ip(request, settings),
+    )
+
+
 def register_e2e_auth_routes(app: FastAPI) -> None:
     """Register the ``/e2e/login`` route when the mock is enabled.
 
@@ -89,6 +153,7 @@ def register_e2e_auth_routes(app: FastAPI) -> None:
 
     @app.get("/e2e/login")
     def _e2e_login(
+        request: Request,
         email: Annotated[
             str | None,
             Query(
@@ -132,6 +197,14 @@ def register_e2e_auth_routes(app: FastAPI) -> None:
         if not expected_secret:
             # The env-var is set but the secret is empty — treat
             # that as a configuration bug, not as "disable auth".
+            # Still audited (issue #904 fix round 1, JD-B-002/JD-A-002):
+            # AC1 requires an entry on EVERY attempt.
+            _audit_attempt(
+                outcome="server_misconfigured",
+                email=email,
+                request=request,
+                settings=settings,
+            )
             raise HTTPException(
                 status_code=503,
                 detail=(
@@ -139,9 +212,13 @@ def register_e2e_auth_routes(app: FastAPI) -> None:
                     "empty; the mock cannot accept any request."
                 ),
             )
-        if x_e2e_secret is None or not hmac.compare_digest(
-            x_e2e_secret, expected_secret
-        ):
+        if not _secret_matches(x_e2e_secret, expected_secret):
+            _audit_attempt(
+                outcome="invalid_secret",
+                email=email,
+                request=request,
+                settings=settings,
+            )
             raise HTTPException(
                 status_code=401,
                 detail="X-E2E-Secret missing or invalid.",
@@ -149,6 +226,14 @@ def register_e2e_auth_routes(app: FastAPI) -> None:
 
         target_email = (email or settings.e2e_auth_default_email).strip()
         if not target_email:
+            # Valid secret but no usable target — a client error that
+            # is still an attempt, so it is audited too (JD-B-002/JD-A-002).
+            _audit_attempt(
+                outcome="invalid_request",
+                email=email,
+                request=request,
+                settings=settings,
+            )
             raise HTTPException(
                 status_code=400,
                 detail=(
@@ -171,6 +256,16 @@ def register_e2e_auth_routes(app: FastAPI) -> None:
         )
 
         session_token = write_session(payload, secret=settings.session_secret)
+
+        # Audit entry (issue #904 AC1): every attempt is logged, with the
+        # same field-name policy as the rejected path in
+        # ``_audit_rejected_attempt``.
+        log_safe(
+            "e2e.login",
+            outcome="ok",
+            target_email=_cap_target_email(target_email),
+            client_ip=_origin_ip(request, settings),
+        )
 
         response = JSONResponse(
             {
