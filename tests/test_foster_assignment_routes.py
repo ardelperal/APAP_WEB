@@ -29,6 +29,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
 import httpx
 import pytest
@@ -282,6 +283,71 @@ async def test_post_asignar_admit_redirect_303_con_query_params(
     assert location.startswith("/acogidas/new?")
     assert "animal_id=11111111-1111-1111-1111-111111111111" in location
     assert "casa_acogida_id=casa-123" in location
+
+
+# --- 4b. POST admit / admit_with_warning -> query params URL-encoded ------
+
+
+@pytest.mark.parametrize(
+    ("decision", "motivo", "expected_override"),
+    [
+        ("admit", None, False),
+        ("admit_with_warning", "motivo de capacidad", True),
+    ],
+)
+async def test_post_asignar_redirect_query_params_are_url_encoded(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+    decision: str,
+    motivo: str | None,
+    expected_override: bool,
+) -> None:
+    """Issue #919: redirect query params survive &, # and spaces intact.
+
+    ``animal_id`` comes straight from the form, so the handler must
+    urlencode it (both the admit and the admit_with_warning branches);
+    a raw f-string interpolation lets ``&`` inject extra query params
+    and ``#`` truncate the rest of the query string.
+    """
+    _login_as_key_user(client)
+    monkeypatch.setattr(
+        foster_service, "get_casa_acogida_by_id", lambda _c, _id: _casa()
+    )
+    monkeypatch.setattr(
+        assignment_service,
+        "evaluate_assignment",
+        lambda _port, _c, _aid, _cid: assignment_service.AssignmentDecision(
+            decision=decision,
+            reason=None,
+            warnings=("capacidad al limite",),
+        ),
+    )
+    monkeypatch.setattr(
+        assignment_service,
+        "record_override",
+        lambda _c, casa_id, animal_id, operador_user_id, motivo: "override-1",
+    )
+
+    weird_animal_id = "a&b c#d"
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/casas-acogida/casa-123/asignar",
+        form_data={"animal_id": weird_animal_id, "motivo": motivo or ""},
+        csrf_token="test-csrf-token-foster-assignment",
+    )
+
+    assert response.status_code == 303
+    location = response.headers["location"]
+    assert location.startswith("/acogidas/new?")
+    query = parse_qs(urlsplit(location).query)
+    assert query["animal_id"] == [weird_animal_id]
+    assert query["casa_acogida_id"] == ["casa-123"]
+    if expected_override:
+        assert query["override_id"] == ["override-1"]
+    else:
+        assert "override_id" not in query
 
 
 # --- 5. POST block -> 422 --------------------------------------------------

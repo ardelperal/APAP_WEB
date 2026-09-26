@@ -66,7 +66,7 @@ Funciones públicas del módulo (exportadas desde `app/modules/materiales/__init
 - `deactivate_material(client, material_id) -> bool` — Soft-delete atómico. Cascada de desactivación sobre `estancia_materiales`.
 - `assign_material_to_estancia(client, estancia_id, material_id, cantidad=1, notas=None) -> EstanciaMaterial` — Asigna material a estancia. Valida estancia activa y material activo antes del `INSERT`.
 - `list_materials_for_estancia(client, estancia_id, activos_solo=True) -> list[EstanciaMaterial]` — Lista las asignaciones activas de una estancia.
-- `remove_material_from_estancia(client, junction_id) -> bool` — Soft-delete idempotente de una asignación.
+- `remove_material_from_estancia(client, estancia_id, junction_id) -> bool` — Soft-delete idempotente de una asignación, con check de ownership (issue #919): solo borra si la fila pertenece a `estancia_id`; en caso contrario devuelve `False` (la route responde 404).
 
 Las funciones `_row_to_material`, `_row_to_estancia_material`, `_is_unique_violation`, `_validate_estancia_open_and_active` y `_validate_material_active` son helpers internos. Las dos primeras entran en el gate `CRITICAL_HELPERS` (AGENTS.md §11) y requieren cobertura al 100 %.
 

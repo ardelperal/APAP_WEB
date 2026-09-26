@@ -87,6 +87,24 @@ _DUPLICATE_KEYWORDS = ("duplicate", "unique")
 _23505_CODE = "23505"
 
 
+def _execute_or_conflict(
+    client: SqlExecutor, sql: str, params: list[Any], conflict_message: str
+) -> list[dict[str, Any]]:
+    """Run ``sql``; re-raise a 23505 violation as ``MaterialConflictError``.
+
+    Shared by the three catalog/junction writers (issue #919 dedupe):
+    each guards a unique constraint with an operator-facing message.
+    """
+    try:
+        return client.execute_sql(sql, params)
+    except BackendError as exc:
+        if _is_unique_violation(exc):
+            raise MaterialConflictError(  # noqa: TRY003 — operator-facing diagnostic
+                conflict_message
+            ) from exc
+        raise
+
+
 def _body_indicates_unique_violation(body: object) -> bool:
     """Return True when ``body`` carries a 23505 / duplicate-key signal.
 
@@ -211,15 +229,12 @@ class LocalBackendMaterialesAdapter:
     def create_material(self, params: dict) -> Material:
         """Insert a new material; translate 23505 to :class:`MaterialConflictError`."""
         sql, write_params = queries.build_material_insert(params)
-        try:
-            rows = self._client.execute_sql(sql, write_params)
-        except BackendError as exc:
-            if _is_unique_violation(exc):
-                raise MaterialConflictError(  # noqa: TRY003 — operator-facing diagnostic
-                    "ya existe material con esa combinacion "
-                    "material+tamano+color"
-                ) from exc
-            raise
+        rows = _execute_or_conflict(
+            self._client,
+            sql,
+            write_params,
+            "ya existe material con esa combinacion material+tamano+color",
+        )
         material = _row_to_material(rows[0])
         log_safe(
             "materiales.created",
@@ -245,15 +260,12 @@ class LocalBackendMaterialesAdapter:
     ) -> Material | None:
         """Update a material's text fields; return ``None`` if no row matches."""
         sql, write_params = queries.build_material_update(material_id, params)
-        try:
-            rows = self._client.execute_sql(sql, [material_id, *write_params])
-        except BackendError as exc:
-            if _is_unique_violation(exc):
-                raise MaterialConflictError(  # noqa: TRY003 — operator-facing diagnostic
-                    "ya existe material con esa combinacion "
-                    "material+tamano+color"
-                ) from exc
-            raise
+        rows = _execute_or_conflict(
+            self._client,
+            sql,
+            [material_id, *write_params],
+            "ya existe material con esa combinacion material+tamano+color",
+        )
         if not rows:
             return None
         material = _row_to_material(rows[0])
@@ -296,14 +308,12 @@ class LocalBackendMaterialesAdapter:
         sql, write_params = queries.build_junction_insert(
             estancia_id, material_id, cantidad, notas
         )
-        try:
-            rows = self._client.execute_sql(sql, write_params)
-        except BackendError as exc:
-            if _is_unique_violation(exc):
-                raise MaterialConflictError(  # noqa: TRY003 — operator-facing diagnostic
-                    "ese material ya esta asignado a esta estancia"
-                ) from exc
-            raise
+        rows = _execute_or_conflict(
+            self._client,
+            sql,
+            write_params,
+            "ese material ya esta asignado a esta estancia",
+        )
         junction = _row_to_estancia_material(rows[0])
         log_safe(
             "materiales.assigned",
@@ -323,10 +333,20 @@ class LocalBackendMaterialesAdapter:
         rows = self._client.execute_sql(sql, params)
         return [_row_to_estancia_material(row) for row in rows]
 
-    def remove_material_from_estancia(self, junction_id: str) -> bool:
-        """Atomically soft-delete a single junction row (idempotent)."""
-        sql, params = queries.build_junction_deactivate(junction_id)
-        rows = self._client.execute_sql(sql, params)
+    def remove_material_from_estancia(
+        self, estancia_id: str, junction_id: str
+    ) -> bool:
+        """Atomically soft-delete one junction row owned by ``estancia_id``.
+
+        Issue #919: ownership-scoped — the UPDATE only matches when the
+        junction belongs to ``estancia_id``, so a junction of another
+        estancia is never deactivated through this path (fail closed).
+        Idempotent: returns ``False`` when the row is missing, foreign,
+        or already inactive.
+        """
+        rows = self._client.execute_sql(
+            *queries.build_junction_deactivate(estancia_id, junction_id)
+        )
         removed = bool(rows)
         if removed:
             log_safe(
