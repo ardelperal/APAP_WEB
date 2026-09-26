@@ -125,11 +125,15 @@ class MaterialesPort(Protocol):
         """
         ...
 
-    def remove_material_from_estancia(self, junction_id: str) -> bool:
-        """Atomically soft-delete a single junction row.
+    def remove_material_from_estancia(
+        self, estancia_id: str, junction_id: str
+    ) -> bool:
+        """Atomically soft-delete one junction row owned by ``estancia_id``.
 
         Mirrors ``app.modules.materiales.application.remove_material_from_estancia``.
-        Idempotent: returns ``False`` when missing or already inactive.
+        Issue #919: ownership-scoped — returns ``False`` (fail closed)
+        when the row is missing, belongs to a different estancia, or is
+        already inactive.
         """
         ...
 

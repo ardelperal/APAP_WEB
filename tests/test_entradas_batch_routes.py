@@ -20,6 +20,7 @@ Coverage:
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import quote, unquote
 
 import httpx
 import pytest
@@ -187,6 +188,50 @@ async def test_batch_post_valid_records_stages_and_redirects_to_preview(
 
     assert response.status_code == 303
     assert response.headers["location"] == "/entradas/batch/batch-abc"
+
+
+async def test_batch_post_redirect_encodes_batch_id_in_path(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #919: the staged batch id is URL-encoded in the redirect path.
+
+    The identifier is interpolated into the redirect URL, so the
+    handler must percent-encode it; a raw f-string would let ``/``,
+    ``?`` or ``#`` in the id rewrite the target path.
+    """
+    _login_as_key_user(client)
+
+    weird_batch_id = "batch/abc 1?x#y"
+    fake_staging = batch_service.BatchStaging(
+        batch_id=weird_batch_id,
+        created_at=None,
+        records=(),
+    )
+
+    def _fake_stage(client_arg: LocalPostgresExecutor, records: list[dict[str, Any]]):
+        return fake_staging
+
+    monkeypatch.setattr(batch_service, "stage_batch", _fake_stage)
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/entradas/batch",
+        form_data=_valid_batch_records(),
+        csrf_token="test-csrf-token-batch",
+    )
+
+    assert response.status_code == 303
+    location = response.headers["location"]
+    assert location == "/entradas/batch/" + quote(weird_batch_id, safe="")
+    # String-level round-trip only: the original id is recoverable by
+    # unquoting the Location header. This does not prove a routing
+    # round-trip — an id containing '/' encodes as %2F, which would not
+    # match the single-segment route after ASGI path decoding (and
+    # batch_id is server-generated uuid4 in production anyway).
+    assert unquote(location.removeprefix("/entradas/batch/")) == weird_batch_id
 
 
 async def test_batch_post_cross_batch_duplicate_rerenders_form_with_422(
