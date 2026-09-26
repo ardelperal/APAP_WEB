@@ -1,13 +1,20 @@
 name: minio-replica
 
-# Issue #973: the upstream `minio/minio` binary images no longer exist.
-# MinIO Community Edition went source-only in late 2025 and its images
-# were removed from Docker Hub, quay.io, and every public mirror
-# (minio/minio#21662), so the e2e job in ci.yml cannot pull MinIO from
-# any registry. This workflow rebuilds the image from pinned MinIO CE
-# source and publishes the replica to this repository's GHCR namespace,
-# where the e2e service container pulls it as
-# `ghcr.io/ardelperal/minio:ci`.
+# Issue #973 (follow-up to PR #981): the upstream `minio/minio` binary
+# images no longer exist. MinIO Community Edition went source-only in late
+# 2025 and its images were removed from Docker Hub, quay.io, and every
+# public mirror (minio/minio#21662), so the e2e job in ci.yml cannot pull
+# MinIO from any registry. Building from the upstream repository directly
+# is not an option either: the upstream `Dockerfile` at the pinned tag is a
+# thin wrapper (`FROM minio/minio:latest`) over the exact image that was
+# removed — the first live run (36247204251) failed exactly there — and the
+# MinIO community download host returns HTTP 410 for release archives,
+# killing the upstream `Dockerfile.release` binary-download path too. The
+# only viable
+# build is from source, so this workflow carries its own inline multi-stage
+# Dockerfile (Go builder over the pinned checkout, ubuntu:24.04 runtime)
+# and publishes the replica to this repository's GHCR namespace, where the
+# e2e service container pulls it as `ghcr.io/ardelperal/minio:ci`.
 #
 # Manual dispatch only: this workflow pushes a package, so it must never
 # run on untrusted pull-request code. Run it with:
@@ -59,12 +66,39 @@ jobs:
           GHCR_TOKEN: ${{ github.token }}
         run: echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      - name: Build the replica image from the official Dockerfile
-        run: >-
-          docker build
-          -t "ghcr.io/ardelperal/minio:${RELEASE_TAG}"
-          -t "ghcr.io/ardelperal/minio:ci"
-          .
+      - name: Build the replica image from pinned source
+        # The build context is the pinned MinIO CE checkout in the
+        # workspace. The Dockerfile mirrors the upstream Makefile build
+        # (CGO_ENABLED=0, kqueue tag, gen-ldflags) but replaces the
+        # wrapper `Dockerfile` with a self-contained multi-stage build:
+        # stage 1 compiles the binary from source, stage 2 installs a
+        # minimal ubuntu:24.04 runtime with curl (ci.yml healthchecks the
+        # service with `curl --fail .../minio/health/live`) plus the
+        # upstream entrypoint script.
+        run: |
+          set -euo pipefail
+          cat > "$GITHUB_WORKSPACE/minio-replica.Dockerfile" <<'EOF'
+          FROM golang:1.24-alpine AS build
+          RUN apk add --no-cache git bash
+          WORKDIR /src
+          COPY . .
+          RUN CGO_ENABLED=0 go build -tags kqueue -trimpath --ldflags "$(go run buildscripts/gen-ldflags.go)" -o /out/minio .
+
+          FROM ubuntu:24.04
+          RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates && rm -rf /var/lib/apt/lists/*
+          COPY --from=build /out/minio /usr/bin/minio
+          COPY dockerscripts/docker-entrypoint.sh /usr/bin/docker-entrypoint.sh
+          RUN chmod +x /usr/bin/minio /usr/bin/docker-entrypoint.sh
+          EXPOSE 9000 9001
+          VOLUME /data
+          ENTRYPOINT ["/usr/bin/docker-entrypoint.sh"]
+          CMD ["minio"]
+          EOF
+          docker build \
+            -f "$GITHUB_WORKSPACE/minio-replica.Dockerfile" \
+            -t "ghcr.io/ardelperal/minio:${RELEASE_TAG}" \
+            -t "ghcr.io/ardelperal/minio:ci" \
+            .
 
       - name: Push both tags and capture the digest
         id: push

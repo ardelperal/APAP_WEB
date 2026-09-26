@@ -2238,6 +2238,21 @@ def test_minio_replica_workflow_is_dispatch_only_and_pushes_pinned_replica() -> 
         f"minio-replica.yml must pin MinIO CE {MINIO_REPLICA_RELEASE_TAG}; got {release_tags}"
     )
 
+    # Issue #973 follow-up: the build must come from pinned MinIO CE source.
+    # The upstream `Dockerfile` at the pinned tag is a thin wrapper over the
+    # removed `minio/minio:latest` image, and `dl.min.io` community release
+    # archives return HTTP 410, so no binary-download path may appear: the
+    # workflow must carry its own multi-stage source build (Go builder stage).
+    assert "FROM golang:1.24-alpine AS build" in workflow, (
+        "minio-replica.yml must build the replica from source with a "
+        "golang:1.24-alpine builder stage (the upstream Dockerfile is a "
+        "wrapper over the removed minio/minio image)"
+    )
+    assert "dl.min.io" not in workflow, (
+        "minio-replica.yml must not reference dl.min.io: community release "
+        "archives return HTTP 410, so that path is dead"
+    )
+
     # It builds and pushes the replica under the repo's GHCR namespace.
     assert "ghcr.io/ardelperal/minio:" in workflow
     assert "docker build" in workflow
