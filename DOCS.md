@@ -119,7 +119,8 @@ Todas las variables llevan prefijo `APAP_`. La single source of truth es [`app/c
 | `APAP_RATE_LIMIT_OAUTH_PER_MIN` | Cupo por IP para el bucket OAuth (requests/min). | `10` |
 | `APAP_RATE_LIMIT_WRITE_PER_MIN_USER` | Cupo por usuario para write buckets (requests/min). | `60` |
 | `APAP_RATE_LIMIT_WRITE_PER_MIN_IP` | Cupo por IP para write buckets (requests/min). | `30` |
-| `APAP_TRUST_XFF` | Confiar en `X-Forwarded-For` cuando hay proxy delante. | `false` |
+| `APAP_TRUST_XFF` | Confiar en `X-Forwarded-For` cuando hay proxy delante. Requiere `APAP_TRUSTED_PROXIES` no vacío: con la lista por defecto la cabecera nunca se consulta (arranque emite un aviso único `startup.xff_trust_noop`). | `false` |
+| `APAP_TRUSTED_PROXIES` | Lista JSON de CIDR de los saltos de proxy de confianza que pueden fijar `X-Forwarded-For` (p. ej. `["10.0.0.0/8"]`). Una entrada que no sea CIDR válido impide el arranque. | `[]` |
 | `APAP_MODE` | Modo runtime (`web` o `test`). En `test` el rate limit cortocircuita. | `web` |
 | `APAP_LOG_LEVEL` | Nivel raíz del handler JSON a stdout. Valores desconocidos caen a `INFO`. | `INFO` |
 | `APAP_DEBUG` | Toggle debug-only; desactiva validación de secretos al arranque. | `false` |

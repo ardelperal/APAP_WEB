@@ -26,9 +26,10 @@ does this for safety).
 from __future__ import annotations
 
 import functools
+import ipaddress
 from typing import Literal
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.logging import log_safe
@@ -68,6 +69,12 @@ def _validate_secrets(settings: Settings) -> None:
     if len(settings.session_secret) < 32:
         log_safe("startup.config_invalid", env_var="APAP_SESSION_SECRET", reason="too_short")
         raise StartupConfigError("APAP_SESSION_SECRET", "too_short")
+
+
+# One-shot guard for the XFF no-op advisory (JD-B-004): emitted at most
+# once per process, on the first Settings construction that combines
+# trust_xff=True with an empty trusted_proxies list.
+_xff_noop_advisory_emitted = False
 
 
 class Settings(BaseSettings):
@@ -195,7 +202,55 @@ class Settings(BaseSettings):
     rate_limit_write_per_min_user: int = 60
     rate_limit_write_per_min_ip: int = 30
     # Whether to trust X-Forwarded-For header (needed when behind a proxy).
+    # The header is only honoured when ``trusted_proxies`` is non-empty:
+    # trust_xff=True with an EMPTY list means NO client IP override — the
+    # direct peer connection is used as the client IP (issue #920; see
+    # docs/runbooks/trusted-proxies.md for when enabling is safe).
     trust_xff: bool = False
+    # CIDR networks of the reverse-proxy hops that may set X-Forwarded-For,
+    # parsed as a JSON list (e.g. APAP_TRUSTED_PROXIES='["10.0.0.0/8"]').
+    # Empty (default) disables XFF trust even when ``trust_xff`` is True.
+    # Non-CIDR entries fail settings validation at startup (fail-fast).
+    trusted_proxies: list[str] = Field(default_factory=list)
+
+    @field_validator("trusted_proxies")
+    @classmethod
+    def _validate_trusted_proxies_cidrs(cls, value: list[str]) -> list[str]:
+        """Reject non-CIDR entries at construction time (issue #920).
+
+        Fail-fast beats a misconfigured proxy list silently widening the
+        rate-limit bucket at runtime.
+        """
+        for cidr in value:
+            try:
+                ipaddress.ip_network(cidr, strict=False)
+            except ValueError:
+                raise ValueError(
+                    f"trusted_proxies entry is not a valid CIDR: {cidr!r}"
+                ) from None
+        return value
+
+    def model_post_init(self, __context: object) -> None:  # noqa — pydantic lifecycle hook, invoked by the framework
+        """Emit the one-shot XFF no-op advisory after construction (JD-B-004).
+
+        ``trust_xff=True`` with an empty ``trusted_proxies`` list is a
+        silent no-op for client-IP resolution (issue #920); without this
+        advisory the operator gets no signal that the flag is inert. The
+        module-level guard keeps it to ONE emission per process even when
+        settings are rebuilt (tests, cache clears).
+        """
+        global _xff_noop_advisory_emitted
+        if self.trust_xff and not self.trusted_proxies and not _xff_noop_advisory_emitted:
+            _xff_noop_advisory_emitted = True
+            log_safe(
+                "startup.xff_trust_noop",
+                trust_xff=self.trust_xff,
+                reason=(
+                    "APAP_TRUST_XFF is enabled but APAP_TRUSTED_PROXIES is "
+                    "empty; X-Forwarded-For is never consulted and the direct "
+                    "peer is used as the client IP"
+                ),
+            )
     # Runtime mode: "web" or "test". When "test", the middleware short-circuits
     # without consuming any rate budget.
     mode: str = "web"
