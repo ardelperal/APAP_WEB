@@ -81,11 +81,40 @@ jobs:
           echo "::error::Refusing to deploy: ${{ steps.check.outputs.source }}."
           exit 1
 
+  release-e2e-gate:
+    name: release-e2e-gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # Issue #908: signal-only checklist-contract gate for the production e2e
+    # validation (docs/runbooks/e2e-production.md). It runs NO e2e suite and
+    # holds NO secret, and does NOT validate production: it only enforces that
+    # the operator recorded the e2e gate evidence (a run URL or artifact
+    # reference produced by the runbook checklist) in the repository variable
+    # APAP_E2E_GATE_EVIDENCE before the release can proceed. Fail-closed: an
+    # absent or empty variable fails this job and, via deploy's `needs:`,
+    # blocks the release (same signal-job precedent as ci.yml's `required`).
+    # Auditable bypass: set APAP_E2E_GATE_EVIDENCE=skipped:<reason> to record
+    # a skip with a reason instead of failing.
+    permissions:
+      contents: read
+    steps:
+      - name: Require recorded production e2e gate evidence
+        env:
+          APAP_E2E_GATE_EVIDENCE: ${{ vars.APAP_E2E_GATE_EVIDENCE }}
+        run: |
+          set -euo pipefail
+          evidence="${APAP_E2E_GATE_EVIDENCE:-}"
+          if [ -z "$evidence" ]; then
+            echo "::error::APAP_E2E_GATE_EVIDENCE is empty or unset. Record the production e2e validation evidence (run URL or artifact reference) per docs/runbooks/e2e-production.md before releasing, or record an auditable skip with APAP_E2E_GATE_EVIDENCE=skipped:<reason>."
+            exit 1
+          fi
+          echo "::notice::release e2e gate evidence recorded: ${evidence}"
+
   deploy:
     name: deploy
     runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble, deploy]
     timeout-minutes: 30
-    needs: [evidence]
+    needs: [evidence, release-e2e-gate]
     if: needs.evidence.outputs.verified == 'true'
     # id-token: write lets Cosign exchange this job's short-lived GitHub OIDC
     # token for an ephemeral Fulcio certificate (keyless signing, no stored
