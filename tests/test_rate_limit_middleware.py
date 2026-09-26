@@ -6,6 +6,9 @@ Spec coverage: REQ-1 through REQ-7.
 from __future__ import annotations
 
 import logging
+import sys
+import threading
+import time
 from collections.abc import Iterator
 from typing import Any
 from unittest.mock import MagicMock
@@ -875,3 +878,183 @@ class TestE2ELoginRateLimit:
             headers={"X-E2E-Secret": "wrong", "X-Forwarded-For": "203.0.113.10"},
         )
         assert fresh_ip.status_code == 401, "a different IP must have its own bucket"
+
+
+# ---------------------------------------------------------------------------
+# Issue #922 (finding A-10) — concurrent burst: exactly `limit` accepted
+# ---------------------------------------------------------------------------
+
+
+class _InterleavingStore(dict):
+    """Storage double that yields the GIL on every operation.
+
+    ``InProcessRateLimitBackend._timestamps`` is replaced with this store
+    in ``TestRateLimitConcurrency.test_concurrent_hits_never_exceed_limit``
+    so the scheduler is forced to interleave threads *inside* the backend's
+    critical section. ``time.sleep(0)`` is a cooperative reschedule (the
+    thread gives up the GIL and is immediately re-queued), not a wall-clock
+    wait — with the backend lock held the count stays exact, so the test
+    remains deterministic in both the green and the mutation direction.
+    """
+
+    def __contains__(self, key: object) -> bool:
+        time.sleep(0)
+        return super().__contains__(key)
+
+    def __getitem__(self, key: Any) -> Any:
+        time.sleep(0)
+        return super().__getitem__(key)
+
+    def __setitem__(self, key: Any, value: Any) -> None:
+        time.sleep(0)
+        super().__setitem__(key, value)
+
+
+class TestRateLimitConcurrency:
+    """Concurrent burst against the REAL middleware + counter (issue #922).
+
+    N threads synchronize on a ``threading.Barrier`` and fire requests
+    against a single shared ``RateLimitMiddleware`` +
+    ``InProcessRateLimitBackend`` instance. Exactly ``limit`` requests must
+    be accepted and the rest rejected with 429.
+
+    Determinism: the barrier synchronizes the burst without sleeps, and
+    each thread uses its own ``TestClient`` so the only shared state under
+    test is the production counter (its ``threading.Lock`` guarding the
+    check-and-append). Removing the lock or the counter makes the exact-
+    count assertions fail (verified by manual mutation in #922).
+    """
+
+    LIMIT = 5  # E2E_LOGIN_RATE_LIMIT_PER_MIN — the fixed /e2e/login ceiling
+    THREADS = 16
+    ROUNDS = 100  # independent buckets per burst round, each started in lockstep
+    HITS_PER_ROUND = 3  # per thread per bucket: 16 x 3 = 48 hits vs limit 5
+
+    @pytest.fixture(autouse=True)
+    def _web_mode(self, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+        """Activate the middleware: APAP_MODE must not be the test bypass."""
+        monkeypatch.setenv("APAP_MODE", "web")
+        get_settings.cache_clear()
+        yield
+        get_settings.cache_clear()
+
+    def test_concurrent_hits_never_exceed_limit(self) -> None:
+        """The production counter is atomic under contention (issue #922).
+
+        Hammers ``InProcessRateLimitBackend.hit`` — the exact call the
+        middleware makes per request — from N threads that start every
+        bucket's burst in lockstep on a barrier. Exactly ``LIMIT`` of the
+        ``THREADS x HITS_PER_ROUND`` hits per bucket may be accepted.
+
+        A pure timing-based race test cannot detect a missing lock in
+        CPython 3.12: the interpreter virtually never preempts between the
+        counter's compare and its append (verified experimentally in
+        #922 — 100k+ lockless iterations never over-admitted). The
+        ``_InterleavingStore`` seam forces the interleaving instead, so
+        removing the backend lock deterministically over-admits and
+        removing the admission check accepts everything (both mutations
+        verified in #922). With the lock, the exact count holds
+        regardless of scheduling.
+        """
+        from app.core.rate_limit import InProcessRateLimitBackend
+
+        backend = InProcessRateLimitBackend()
+        backend._timestamps = _InterleavingStore()  # noqa: SLF001 — test seam
+        barrier = threading.Barrier(self.THREADS)
+        accepted_count: list[int] = []
+        accepted_lock = threading.Lock()
+
+        def _hammer() -> None:
+            local_accepted = 0
+            for round_index in range(self.ROUNDS):
+                # Lockstep start per bucket: every thread hits the same
+                # fresh identity simultaneously, maximizing the number of
+                # independent race windows (one per round).
+                barrier.wait(timeout=30)
+                for _ in range(self.HITS_PER_ROUND):
+                    allowed, _info = backend.hit(
+                        "write_ip",
+                        f"203.0.113.{round_index}",
+                        limit=self.LIMIT,
+                        now=1000.0,
+                        window_seconds=60,
+                    )
+                    if allowed:
+                        local_accepted += 1
+            with accepted_lock:
+                accepted_count.append(local_accepted)
+
+        threads = [threading.Thread(target=_hammer) for _ in range(self.THREADS)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=60)
+
+        total_accepted = sum(accepted_count)
+        expected_accepted = self.LIMIT * self.ROUNDS
+        assert len(accepted_count) == self.THREADS, "every thread must complete"
+        assert total_accepted == expected_accepted, (
+            f"counter is not atomic under contention: expected exactly "
+            f"{expected_accepted} accepted ({self.LIMIT} per bucket x "
+            f"{self.ROUNDS} buckets), got {total_accepted}"
+        )
+
+    def test_concurrent_burst_accepts_exactly_limit(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Of N simultaneous requests through the REAL middleware, exactly
+        ``limit`` get 401 and the rest get 429 — no over-admission, no
+        under-admission."""
+        app = TestE2ELoginRateLimit._make_e2e_app(monkeypatch)
+        barrier = threading.Barrier(self.THREADS)
+        statuses: list[int] = []
+        statuses_lock = threading.Lock()
+
+        # Aggressive GIL switching so the request handlers genuinely
+        # interleave; with the backend lock the exact count below is
+        # deterministic regardless of timing (the lock-detection race
+        # test is test_concurrent_hits_never_exceed_limit, which hammers
+        # the counter directly).
+        original_switch_interval = sys.getswitchinterval()
+        sys.setswitchinterval(1e-6)
+        try:
+            self._run_burst(app, barrier, statuses, statuses_lock)
+        finally:
+            sys.setswitchinterval(original_switch_interval)
+
+        accepted = statuses.count(401)
+        rejected = statuses.count(429)
+        assert len(statuses) == self.THREADS, (
+            f"every thread must complete: got {len(statuses)} responses"
+        )
+        assert accepted == self.LIMIT, (
+            f"expected exactly {self.LIMIT} accepted, got {accepted} "
+            f"(statuses={statuses})"
+        )
+        assert rejected == self.THREADS - self.LIMIT, (
+            f"expected exactly {self.THREADS - self.LIMIT} rejected, got {rejected}"
+        )
+
+    def _run_burst(
+        self,
+        app: FastAPI,
+        barrier: threading.Barrier,
+        statuses: list[int],
+        statuses_lock: threading.Lock,
+    ) -> None:
+        """Fire one concurrent request per thread and collect statuses."""
+
+        def _fire() -> None:
+            # One client per thread: the shared state under test is the
+            # app's rate-limit backend, not the test HTTP client.
+            client = TestClient(app)
+            barrier.wait()
+            response = client.get("/e2e/login", headers={"X-E2E-Secret": "wrong"})
+            with statuses_lock:
+                statuses.append(response.status_code)
+
+        threads = [threading.Thread(target=_fire) for _ in range(self.THREADS)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=30)
