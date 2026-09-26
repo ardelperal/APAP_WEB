@@ -1,6 +1,6 @@
 # MinIO replica for CI — `ghcr.io/ardelperal/minio`
 
-> Last updated: 2026-09-26 — issue #973.
+> Last updated: 2026-09-26 — issue #973 (build-from-source follow-up).
 
 ## Why this exists
 
@@ -16,6 +16,19 @@ It can no longer pull one from upstream:
   how it is authenticated. That made the earlier workaround — the Docker Hub
   `credentials:` block from PR #981 — unfixable by design, and this guide
   replaces `docs/operations/docker-hub-anonymous-pull.md`.
+- Building from the upstream repository directly is also a dead end, for two
+  independent reasons (observed in the first live replica run,
+  [36247204251](https://github.com/ardelperal/APAP_WEB/actions/runs/36247204251)):
+
+  1. The upstream `Dockerfile` at the pinned tag is a thin wrapper —
+     `FROM minio/minio:latest` — over the exact image that no longer exists,
+     so `docker build` of the checked-out source fails at its first
+     instruction.
+  2. The binary-download path of upstream's `Dockerfile.release` is dead too:
+     the MinIO community download host returns HTTP 410 for community
+     release archives.
+
+  The only viable build is from source.
 
 ## The replica strategy
 
@@ -23,8 +36,14 @@ It can no longer pull one from upstream:
 source and publishes it to this repository's GHCR namespace:
 
 1. It checks out `https://github.com/minio/minio` at a pinned release tag
-   and builds with `docker build` from the official Dockerfile in that
-   repository.
+   and builds it from source with an inline multi-stage Dockerfile that the
+   workflow writes into the runner workspace. Stage 1 (`golang:1.24-alpine`)
+   compiles the binary with the same flags as the upstream Makefile
+   (`CGO_ENABLED=0 go build -tags kqueue -trimpath` plus the generated
+   ldflags). Stage 2 (`ubuntu:24.04`) installs `curl` and `ca-certificates`
+   (the e2e healthcheck in ci.yml probes the service with `curl`), copies
+   the compiled binary and the upstream `dockerscripts/docker-entrypoint.sh`,
+   exposes 9000/9001 and declares the `/data` volume.
 2. The pinned release is `RELEASE.2025-10-15T17-29-55Z`, verified on
    2026-09-26 with `git ls-remote --tags https://github.com/minio/minio`
    as the highest existing `RELEASE.2025-*` tag.
