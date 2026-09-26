@@ -19,6 +19,11 @@
 #     used to test `VERIFY_URL_RE` regex matching, not real magic-link
 #     tokens issued by `secrets.token_hex`/`secrets.token_urlsafe`.
 tests/integration/test_magic_link_routes.py:generic-api-key:83
+
+# 2026-09-26 — issue #917 follow-up. The #917 real-app integration suite
+# (tests/integration/test_magic_link_real_app.py:115) sets the same
+# hardcoded test-only APAP_SESSION_SECRET padding to satisfy
+# _validate_secrets in its lifespan; never a live secret.
 tests/integration/test_magic_link_real_app.py:generic-api-key:115
 tests/test_maildev_helper.py:generic-api-key:77
 tests/test_maildev_helper.py:generic-api-key:83
