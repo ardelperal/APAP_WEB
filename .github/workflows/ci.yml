@@ -1022,9 +1022,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     needs: build
-    # Issue #879: does not read issues.
+    # Issue #879: does not read issues. Issue #973: `packages: read`
+    # lets the service pull the private GHCR MinIO replica with the
+    # ephemeral GITHUB_TOKEN.
     permissions:
       contents: read
+      packages: read
     # E2E suite requires Postgres + MinIO + Chromium; the Docker
     # pull for those services flakes intermittently on the hosted
     # runner. Run only on release events (workflow_dispatch / tag
@@ -1048,26 +1051,22 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       minio:
-        # Issue #973: Docker Hub stopped issuing the `repository:<repo>:pull`
-        # scope to anonymous bearer tokens for cloud-provider IP ranges
-        # (Oracle/AWS/etc.) sometime between late 2025 and mid-2026. The
-        # exact date is not in Docker's official changelog; the public
-        # docs at docs.docker.com/docker-hub/usage/pulls/ still describe
-        # the older model (rate-limit at 100 pulls / 6h) and only mention
-        # `429`, never `401 insufficient_scope`. The fix on our side is
-        # to authenticate the service container pull with credentials
-        # the maintainer adds to the repo. Set:
-        #   DOCKERHUB_USERNAME — a Docker Hub account with image:read
-        #     permission on minio/minio (free tier is enough).
-        #   DOCKERHUB_TOKEN    — a personal access token from that
-        #     account (Settings -> Security -> New Access Token).
-        # Runbook: docs/operations/docker-hub-anonymous-pull.md.
-        # The digest pin (minio/minio@sha256:...) is the follow-up once
-        # the first authenticated pull records the digest in the CI log.
-        image: minio/minio:latest
+        # Issue #973: the upstream `minio/minio` binary images no longer
+        # exist. MinIO Community Edition went source-only in late 2025
+        # and its binary images were removed from Docker Hub, quay.io,
+        # and every public mirror (minio/minio#21662), so no upstream
+        # pull can be authenticated into working again. This service pulls the repo-owned GHCR replica built
+        # from pinned MinIO CE source by minio-replica.yml instead. The
+        # package is private, so the pull authenticates with the
+        # ephemeral GITHUB_TOKEN (service containers accept expressions
+        # in credentials). The digest pin lands once the first replica
+        # build records it — dispatch minio-replica.yml and read the
+        # digest from its job summary. Runbook:
+        # docs/operations/minio-replica.md.
+        image: ghcr.io/ardelperal/minio:ci
         credentials:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
         command: server /data --console-address ":9001"
         env:
               MINIO_ROOT_USER: ${{ secrets.MINIO_E2E_ACCESS_KEY }}
