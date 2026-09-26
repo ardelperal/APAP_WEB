@@ -21,11 +21,47 @@ from fastapi.testclient import TestClient
 
 from app.core.auth_dependencies import AuthenticatedUser
 from app.core.rbac import (
+    _LEGACY_READ_MATRIX,
+    _LEGACY_READ_ROLES,
     PERMISSIONS,
     Permission,
     Role,
     require_permission,
 )
+
+#: All read-scope permissions currently in the enum (issue #923 guard).
+READ_PERMISSIONS: frozenset[Permission] = frozenset(
+    p for p in Permission if p.value.startswith("read:")
+)
+
+#: All write-scope permissions currently in the enum (issue #923 pin).
+WRITE_PERMISSIONS: frozenset[Permission] = frozenset(
+    p for p in Permission if p.value.startswith("write:")
+)
+
+#: Legacy roles that must have an explicit read decision (issue #923).
+LEGACY_ROLES: tuple[str, ...] = ("developer", "key_user", "reader")
+
+
+def _missing_legacy_read_decisions(
+    matrix: dict[str, frozenset[Permission]],
+    roles: tuple[str, ...] | frozenset[str],
+) -> dict[str, list[str]]:
+    """Return ``{role: [missing read permission values]}`` for ``matrix``.
+
+    The legacy read-matrix guard test (issue #923) uses this helper twice:
+    once against a fixture-derived fake matrix to prove the guard detects a
+    missing pair, and once against the real ``_LEGACY_READ_MATRIX`` to fail
+    when a new read permission lands without an explicit legacy decision.
+    """
+    missing: dict[str, list[str]] = {}
+    for role in roles:
+        decided = matrix.get(role, frozenset())
+        gaps = READ_PERMISSIONS - decided
+        if gaps:
+            missing[role] = sorted(p.value for p in gaps)
+    return missing
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -38,6 +74,23 @@ def _json_response(status_code: int, body: Any) -> httpx.Response:
         content=json.dumps(body).encode("utf-8"),
         headers={"content-type": "application/json"},
     )
+
+
+def _client_for_role_permission(role: str, permission: Permission) -> TestClient:
+    """Return a TestClient guarding a route with ``permission`` for ``role``."""
+    app = FastAPI()
+
+    @app.get("/guarded")
+    def guarded(user: AuthenticatedUser = Depends(require_permission(permission))):
+        return {"user_id": user["user_id"], "rol": user["rol"]}
+
+    from app.core.auth_dependencies import require_authorized_user
+
+    def _fake_session():
+        return {"user_id": f"u-{role}", "email": f"{role}@test.com", "rol": role, "is_authorized": True}
+
+    app.dependency_overrides[require_authorized_user] = _fake_session
+    return TestClient(app)
 
 
 def _mock_local_backend_handler():
@@ -276,6 +329,73 @@ def test_require_permission_write_animales_allows_voluntario() -> None:
 
     response = client.get("/test-write-animales")
     assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+
+
+# ---------------------------------------------------------------------------
+# Legacy read mapping — issue #923 (finding A-11, epic #911)
+# ---------------------------------------------------------------------------
+
+
+def test_require_permission_read_animales_denies_unknown_role() -> None:
+    """An unrecognized role string is denied on reads too (fail-closed, #923)."""
+    client = _client_for_role_permission("ghost_role", Permission.READ_ANIMALES)
+    response = client.get("/guarded")
+    assert response.status_code == 403, f"Expected 403, got {response.status_code}: {response.text}"
+
+
+def test_legacy_read_matrix_guard_detects_missing_pair_in_fake_matrix() -> None:
+    """The guard reports a missing pair in a synthetic matrix (failure-mode demo).
+
+    Without touching ``app/``: derive a fake matrix that drops one read
+    permission and assert the guard names the missing pair for every role.
+    """
+    fake_matrix: dict[str, frozenset[Permission]] = {
+        role: READ_PERMISSIONS - {Permission.READ_SALUD} for role in LEGACY_ROLES
+    }
+    missing = _missing_legacy_read_decisions(fake_matrix, LEGACY_ROLES)
+    assert missing == {
+        "developer": ["read:salud"],
+        "key_user": ["read:salud"],
+        "reader": ["read:salud"],
+    }
+
+
+def test_legacy_read_matrix_covers_every_read_permission() -> None:
+    """Every read permission has an explicit decision for every legacy role (#923).
+
+    Guard test: if a new ``read:*`` permission is added to the enum/matrix
+    without extending ``_LEGACY_READ_MATRIX`` in ``app/core/rbac.py``, this
+    fails naming the missing (role, permission) pairs.
+    """
+    missing = _missing_legacy_read_decisions(_LEGACY_READ_MATRIX, _LEGACY_READ_ROLES)
+    assert not missing, (
+        "Legacy read mapping is incomplete; add an explicit decision in "
+        f"_LEGACY_READ_MATRIX (app/core/rbac.py) for the missing pairs: {missing}"
+    )
+
+
+def test_legacy_read_matrix_contains_only_read_permissions() -> None:
+    """The legacy read mapping never grants write, delete or manage scopes."""
+    for role, granted in _LEGACY_READ_MATRIX.items():
+        extra = granted - READ_PERMISSIONS
+        assert not extra, f"Legacy role {role!r} grants non-read permissions: {sorted(p.value for p in extra)}"
+
+
+@pytest.mark.parametrize("permission", sorted(READ_PERMISSIONS, key=lambda p: p.value))
+@pytest.mark.parametrize("role", LEGACY_ROLES)
+def test_legacy_role_allowed_on_all_reads(role: str, permission: Permission) -> None:
+    """Each legacy role keeps its full current read access (zero user impact)."""
+    client = _client_for_role_permission(role, permission)
+    response = client.get("/guarded")
+    assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+
+
+@pytest.mark.parametrize("permission", sorted(WRITE_PERMISSIONS, key=lambda p: p.value))
+def test_reader_denied_on_every_write_permission(permission: Permission) -> None:
+    """The reader legacy role stays read-only (403 on every write permission)."""
+    client = _client_for_role_permission("reader", permission)
+    response = client.get("/guarded")
+    assert response.status_code == 403, f"Expected 403, got {response.status_code}: {response.text}"
 
 
 def test_require_permission_write_animales_denies_unknown_role() -> None:
