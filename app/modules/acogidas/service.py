@@ -64,17 +64,25 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
+import app.modules.acogidas.queries as acogidas_queries
 from app.core._module_helpers._form_render import list_entities
-from app.core.data_access import SqlExecutor
+from app.core.data_access import SqlExecutor, TransactionalSqlExecutor
 from app.core.forms import optional_text, required_text
 from app.core.logging import log_safe
-from app.modules.acogidas import queries
 from app.modules.animals import (
     LifecycleEventType,
     actualizar_estado_animal,
     record_event,
+    require_actor,
 )
 from app.modules.lifecycle import close_previous_situation
+
+#: Shared by create_acogida / close_acogida: the ``source_entity_type``
+#: recorded on every lifecycle event this service emits (issue #945,
+#: A-13 — consolidated from three duplicate literals so threading the
+#: actor's UUID through these calls doesn't grow the file past its
+#: mutation-site ratchet baseline, scripts/check_mutation_sites.py).
+_ACOGIDA_ENTITY_TYPE = "acogidas"
 
 # Back-compat re-exports — the integration tests
 # (``tests/test_acogidas.py``, ``tests/test_acogidas_routes.py``) compute
@@ -84,8 +92,8 @@ from app.modules.lifecycle import close_previous_situation
 # re-export them under their original underscore-prefixed names. Do
 # NOT add new public surface here — anything new MUST live in
 # ``queries.py`` with the public ``ACOGIDA_*_COLUMNS`` names.
-_WRITE_COLUMNS = queries.ACOGIDA_WRITE_COLUMNS
-_SELECT_COLUMNS = queries.ACOGIDA_SELECT_COLUMNS
+_WRITE_COLUMNS = acogidas_queries.ACOGIDA_WRITE_COLUMNS
+_SELECT_COLUMNS = acogidas_queries.ACOGIDA_SELECT_COLUMNS
 
 
 class AcogidaConflictError(ValueError):
@@ -176,7 +184,7 @@ def _optional_uuid(params: dict[str, Any], field_name: str) -> str | None:
 def _validate_animal_exists_and_active(
     client: SqlExecutor, animal_id: str
 ) -> None:
-    sql, params = queries.build_acogida_check_animal(animal_id)
+    sql, params = acogidas_queries.build_acogida_check_animal(animal_id)
     rows = client.execute_sql(sql, params)
     if not rows:
         raise ValueError(
@@ -195,7 +203,7 @@ def _validate_casa_acogida_active(client: SqlExecutor, casa_id: str) -> None:
     also checks ``activo`` explicitly so the validation works against
     test mocks that don't simulate the WHERE clause.
     """
-    sql, params = queries.build_acogida_check_casa(casa_id)
+    sql, params = acogidas_queries.build_acogida_check_casa(casa_id)
     rows = client.execute_sql(sql, params)
     if not rows:
         raise ValueError(
@@ -217,7 +225,7 @@ def _validate_voluntario_activo(
     also checks ``activo`` explicitly so the validation works against
     test mocks that don't simulate the WHERE clause.
     """
-    sql, params = queries.build_acogida_check_voluntario(vol_id)
+    sql, params = acogidas_queries.build_acogida_check_voluntario(vol_id)
     rows = client.execute_sql(sql, params)
     if not rows:
         raise ValueError(
@@ -241,12 +249,28 @@ def _validate_entrada_exists_if_present(
     """
     if entrada_id is None:
         return
-    sql, params = queries.build_acogida_check_entrada(entrada_id)
+    sql, params = acogidas_queries.build_acogida_check_entrada(entrada_id)
     rows = client.execute_sql(sql, params)
     if not rows:
         raise ValueError(
             f"entrada_origen_id debe apuntar a una entrada existente (no encontrada: {entrada_id})"
         )
+
+
+#: Shared between ``_validate_references`` and the override-link
+#: re-fetch in ``create_acogida`` — both need the same required
+#: ``animal_id`` read with the same Spanish error message (issue #945,
+#: A-13: consolidated into one helper so threading the actor's UUID
+#: through this file doesn't grow it past its mutation-site ratchet
+#: baseline, scripts/check_mutation_sites.py).
+_ANIMAL_ID_REQUIRED_TEMPLATE = "{field_name} es obligatorio y no puede estar vacio"
+
+
+def _required_animal_id(params: dict[str, Any]) -> str:
+    """Read the required ``animal_id`` field, or raise ``ValueError``."""
+    return required_text(
+        params, "animal_id", error_template=_ANIMAL_ID_REQUIRED_TEMPLATE
+    )
 
 
 def _validate_references(client: SqlExecutor, params: dict[str, Any]) -> None:
@@ -256,7 +280,7 @@ def _validate_references(client: SqlExecutor, params: dict[str, Any]) -> None:
     -> entrada (optional). Fail-fast: the first invalid reference stops
     the chain. The captured SQL list in tests proves the order.
     """
-    animal_id = required_text(params, "animal_id", error_template="{field_name} es obligatorio y no puede estar vacio")
+    animal_id = _required_animal_id(params)
     _validate_animal_exists_and_active(client, animal_id)
 
     casa_id = _optional_uuid(params, "casa_acogida_id")
@@ -281,7 +305,10 @@ def _validate_references(client: SqlExecutor, params: dict[str, Any]) -> None:
 
 
 def create_acogida(
-    client: SqlExecutor, params: dict[str, Any]
+    client: TransactionalSqlExecutor,
+    params: dict[str, Any],
+    *,
+    actor_user_id: str | None = None,
 ) -> Acogida:
     """Insert a new estancia de acogida and return the persisted row.
 
@@ -302,76 +329,87 @@ def create_acogida(
     cannot link to a different stay — the casa+animal pair from the
     form must match the override's recorded pair.
     """
+    # Issue #945 (A-13): lifecycle events need the acting user's UUID
+    # (``created_by UUID NOT NULL``); reject before any write without one.
+    created_by = require_actor(actor_user_id)
+    # Issue #914 (A-02): validation reads, the INSERT, its lifecycle event,
+    # the close of the previous situation, the animal-state refresh, and the
+    # override-link UPDATE are ONE atomic unit of work (``transaction()``
+    # from #913). Without it each ``execute_sql`` committed alone, so a
+    # mid-flow failure left the stay row persisted while the previous
+    # situation stayed open and the state cache went stale.
     # Validation runs BEFORE the INSERT so we never write a row with
     # broken FKs. The builder raises ValueError before any SQL if
     # fecha_inicio or animal_id is empty.
-    sql, write_params = queries.build_acogida_insert(params)
-    _validate_references(client, params)
+    with client.transaction() as tx:
+        sql, write_params = acogidas_queries.build_acogida_insert(params)
+        _validate_references(tx, params)
 
-    rows = client.execute_sql(sql, write_params)
-    acogida = _row_to_acogida(rows[0])
-    log_safe("foster.acogida.created", acogida_id=acogida.id)
+        rows = tx.execute_sql(sql, write_params)
+        acogida = _row_to_acogida(rows[0])
+        log_safe("foster.acogida.created", acogida_id=acogida.id)
 
-    # LIFECYCLE-02 (issue #32): emit FOSTER_STARTED so the event log
-    # records the transition into the foster stay, then close the
-    # previous situation (INTAKE_CLOSED_BY_FOSTER) and refresh the
-    # animal-current-state cache. All three run in the same DB
-    # transaction as the INSERT above.
-    record_event(
-        client,
-        animal_id=acogida.animal_id,
-        event_type=LifecycleEventType.FOSTER_STARTED,
-        event_timestamp=acogida.fecha_inicio,
-        created_by="acogidas.create_acogida",
-        source_entity_type="acogidas",
-        source_entity_id=acogida.id,
-    )
-    close_previous_situation(
-        client,
-        animal_id=acogida.animal_id,
-        category="INTAKE",
-        caused_by_event_id=None,
-        event_timestamp=acogida.fecha_inicio,
-        source_entity_type="acogidas",
-        source_entity_id=acogida.id,
-    )
-    actualizar_estado_animal(client, animal_id=acogida.animal_id)
-
-    # Issue #142: link the foster_capacity_overrides row to the new
-    # estancia, when ``override_id`` is present and non-empty.
-    override_id_raw = params.get("override_id")
-    if isinstance(override_id_raw, str) and override_id_raw.strip():
-        # Defense (judgment-day CRITICAL §1.2 / HIGH §3.2 follow-up):
-        # scope the link UPDATE to casa+animal so a forged
-        # ``override_id`` from another operator's session cannot
-        # point at this estancia. Reuse the already-validated casa
-        # and animal from ``params``; ``_validate_references`` raised
-        # above if either was invalid. ``link_casa_id`` may be None
-        # for stays with no casa — in SQL three-valued logic
-        # ``casa_acogida_id = NULL`` is NULL/false, so the filter
-        # rejects the link (the override was recorded for a SPECIFIC
-        # casa, NOT NULL by schema).
-        link_casa_id = _optional_uuid(params, "casa_acogida_id")
-        link_animal_id = required_text(params, "animal_id", error_template="{field_name} es obligatorio y no puede estar vacio")
-        link_sql, link_params = queries.build_acogida_link_override(
-            estancia_id=acogida.id,
-            override_id=override_id_raw.strip(),
-            casa_acogida_id=link_casa_id,
-            animal_id=link_animal_id,
+        # LIFECYCLE-02 (issue #32): emit FOSTER_STARTED so the event log
+        # records the transition into the foster stay, then close the
+        # previous situation (INTAKE_CLOSED_BY_FOSTER) and refresh the
+        # animal-current-state cache. The transaction above commits all of
+        # it together — or nothing at all (issue #914, A-02).
+        record_event(
+            tx,
+            animal_id=acogida.animal_id,
+            event_type=LifecycleEventType.FOSTER_STARTED,
+            event_timestamp=acogida.fecha_inicio,
+            created_by=created_by,
+            source_entity_type=_ACOGIDA_ENTITY_TYPE,
+            source_entity_id=acogida.id,
         )
-        link_rows = client.execute_sql(link_sql, link_params)
-        if not link_rows:
-            # 0 rows updated: the override row is already linked, the
-            # UUID does not exist, or the casa/animal pair from the
-            # form does NOT match the override's recorded pair
-            # (forgery attempt). Log a warning and do NOT raise —
-            # the estancia itself was created successfully and
-            # audit-log anomalies must not punish the operator.
-            log_safe(
-                "foster.override.unlinked",
-                override_id=override_id_raw,
-                motivo="override row missing, already linked, or casa/animal mismatch",
+        close_previous_situation(
+            tx,
+            animal_id=acogida.animal_id,
+            category="INTAKE",
+            caused_by_event_id=None,
+            event_timestamp=acogida.fecha_inicio,
+            source_entity_type=_ACOGIDA_ENTITY_TYPE,
+            source_entity_id=acogida.id,
+            created_by=created_by,
+        )
+        actualizar_estado_animal(tx, animal_id=acogida.animal_id)
+
+        # Issue #142: link the foster_capacity_overrides row to the new
+        # estancia, when ``override_id`` is present and non-empty.
+        override_id_raw = params.get("override_id")
+        if isinstance(override_id_raw, str) and override_id_raw.strip():
+            # Defense (judgment-day CRITICAL §1.2 / HIGH §3.2 follow-up):
+            # scope the link UPDATE to casa+animal so a forged
+            # ``override_id`` from another operator's session cannot
+            # point at this estancia. Reuse the already-validated casa
+            # and animal from ``params``; ``_validate_references`` raised
+            # above if either was invalid. ``link_casa_id`` may be None
+            # for stays with no casa — in SQL three-valued logic
+            # ``casa_acogida_id = NULL`` is NULL/false, so the filter
+            # rejects the link (the override was recorded for a SPECIFIC
+            # casa, NOT NULL by schema).
+            link_casa_id = _optional_uuid(params, "casa_acogida_id")
+            link_animal_id = _required_animal_id(params)
+            link_sql, link_params = acogidas_queries.build_acogida_link_override(
+                estancia_id=acogida.id,
+                override_id=override_id_raw.strip(),
+                casa_acogida_id=link_casa_id,
+                animal_id=link_animal_id,
             )
+            link_rows = tx.execute_sql(link_sql, link_params)
+            if not link_rows:
+                # 0 rows updated: the override row is already linked, the
+                # UUID does not exist, or the casa/animal pair from the
+                # form does NOT match the override's recorded pair
+                # (forgery attempt). Log a warning and do NOT raise —
+                # the estancia itself was created successfully and
+                # audit-log anomalies must not punish the operator.
+                log_safe(
+                    "foster.override.unlinked",
+                    override_id=override_id_raw,
+                    motivo="override row missing, already linked, or casa/animal mismatch",
+                )
 
     return acogida
 
@@ -385,7 +423,7 @@ def list_acogidas(
     closed-stay rows are excluded). Default (``False``) returns both
     active and closed, sorted by ``fecha_inicio DESC``.
     """
-    sql, params = queries.build_acogida_list(activas_solo)
+    sql, params = acogidas_queries.build_acogida_list(activas_solo)
     return list_entities(client, sql, params, _row_to_acogida)
 
 
@@ -393,7 +431,7 @@ def get_acogida_by_id(
     client: SqlExecutor, acogida_id: str
 ) -> Acogida | None:
     """Return one estancia de acogida by id (active or closed), or None."""
-    sql, params = queries.build_acogida_get_by_id(acogida_id)
+    sql, params = acogidas_queries.build_acogida_get_by_id(acogida_id)
     rows = client.execute_sql(sql, params)
     return _row_to_acogida(rows[0]) if rows else None
 
@@ -416,7 +454,7 @@ def update_acogida(
     # field, so this is the realistic contract. The required-text
     # validator in the builder also raises on missing required text
     # fields BEFORE any SQL.
-    sql, write_params = queries.build_acogida_update(acogida_id, params)
+    sql, write_params = acogidas_queries.build_acogida_update(acogida_id, params)
     _validate_references(client, params)
 
     rows = client.execute_sql(sql, [acogida_id, *write_params])
@@ -428,7 +466,10 @@ def update_acogida(
 
 
 def close_acogida(
-    client: SqlExecutor, acogida_id: str
+    client: SqlExecutor,
+    acogida_id: str,
+    *,
+    actor_user_id: str | None = None,
 ) -> Acogida | None:
     """Mark the stay as closed: ``fecha_final = CURRENT_DATE``, ``activo`` stays true.
 
@@ -447,7 +488,10 @@ def close_acogida(
     Issue #139 P1 #5: this contract is pinned by
     ``test_close_acogida_works_on_soft_deleted_stay``.
     """
-    sql, params = queries.build_acogida_close(acogida_id)
+    # Issue #945 (A-13): FOSTER_RETURNED needs the acting user's UUID;
+    # reject before the UPDATE runs without one.
+    created_by = require_actor(actor_user_id)
+    sql, params = acogidas_queries.build_acogida_close(acogida_id)
     rows = client.execute_sql(sql, params)
     if not rows:
         return None
@@ -462,8 +506,8 @@ def close_acogida(
         animal_id=closed.animal_id,
         event_type=LifecycleEventType.FOSTER_RETURNED,
         event_timestamp=closed.fecha_final or str(date.today()),
-        created_by="acogidas.close_acogida",
-        source_entity_type="acogidas",
+        created_by=created_by,
+        source_entity_type=_ACOGIDA_ENTITY_TYPE,
         source_entity_id=closed.id,
     )
     actualizar_estado_animal(client, animal_id=closed.animal_id)
@@ -485,7 +529,7 @@ def delete_acogida(
     into the same statement under PostgreSQL's row lock; two concurrent
     calls produce exactly one ``True`` and one ``False``.
     """
-    sql, params = queries.build_acogida_delete(acogida_id)
+    sql, params = acogidas_queries.build_acogida_delete(acogida_id)
     rows = client.execute_sql(sql, params)
     deleted = bool(rows)
     if deleted:

@@ -33,6 +33,7 @@ will inherit from :class:`DataAccessError` only.
 
 from __future__ import annotations
 
+from contextlib import AbstractContextManager
 from typing import Any, Protocol, runtime_checkable
 
 
@@ -45,6 +46,40 @@ class SqlExecutor(Protocol):
         query: str,
         params: list[Any] | None = None,
     ) -> list[dict[str, Any]]: ...
+
+
+@runtime_checkable
+class TransactionalSqlExecutor(SqlExecutor, Protocol):
+    """A :class:`SqlExecutor` that can group several statements atomically.
+
+    ``SqlExecutor`` itself stays unchanged (§ adapter implementation rule
+    above) so existing test fakes that implement only ``execute_sql`` keep
+    type-checking. Services that need multiple round trips to commit or
+    roll back together (e.g. the A-02..A-04 adopciones/acogidas/lifecycle/
+    chip-cascade flows, issues #914-#916) depend on this Protocol instead.
+
+    Use ``transaction()`` when the atomic unit of work needs more than one
+    ``execute_sql`` call — for example a Python loop that inserts several
+    rows, or a read that must see writes from an earlier statement in the
+    same unit of work. When the atomic unit is expressible as a SINGLE SQL
+    statement, prefer a CTE instead: Postgres runs a CTE as one logical
+    operation without needing a held-open connection at all, which is
+    simpler and does not need this Protocol. See
+    ``app/modules/entradas/batch_service.py::commit_batch`` for the CTE
+    pattern (batch-staging rows copied into ``entradas`` in one statement).
+    """
+
+    def transaction(self) -> AbstractContextManager[SqlExecutor]:
+        """Open one atomic unit of work and yield a bound ``SqlExecutor``.
+
+        Implementations open a single connection, yield an executor bound
+        to it, COMMIT on clean exit, ROLLBACK and re-raise on any
+        exception, and always close the connection. Calling
+        ``transaction()`` again on the yielded (bound) executor raises
+        :class:`NestedTransactionError` — nesting is not supported, there
+        are no savepoints.
+        """
+        ...
 
 
 # --- Protocol-level exception hierarchy ---------------------------------
@@ -98,6 +133,7 @@ class BackendError(DataAccessError):
         self.body = body
         super().__init__(f"LocalBackend {status_code}: {body!r}")
 
+
 class DuplicateKeyError(BackendError):
     """Raised when SQL INSERT/UPDATE violates a uniqueness constraint.
 
@@ -141,6 +177,16 @@ class DuplicateKeyError(BackendError):
         # become ``None``.
         self.body = {"message": message or "duplicate key"}
         super(BackendError, self).__init__(message or "duplicate key")
+
+
+class NestedTransactionError(DataAccessError):
+    """Raised when ``transaction()`` is called on an already-bound executor.
+
+    The executor yielded by :meth:`TransactionalSqlExecutor.transaction`
+    runs on the single connection the outer transaction opened; there is
+    no savepoint support, so nesting is rejected explicitly instead of
+    silently starting a second, independent transaction.
+    """
 
 
 class UniqueViolationError(DuplicateKeyError):

@@ -253,7 +253,7 @@ async def test_lifespan_validates_secrets_before_constructing_local_postgres_exe
     # get_settings() is cached; clear it so our env override is picked up.
     config_module.get_settings.cache_clear()
     monkeypatch.setenv("APAP_SESSION_SECRET", "dev-only-change-me-in-production")
-    monkeypatch.setenv("APAP_INSFORGE_SERVICE_KEY", "ik_test_key")
+    monkeypatch.setenv("APAP_LOCAL_BACKEND_SERVICE_KEY", "ik_test_key")
 
     with pytest.raises(StartupConfigError):
         async with lifespan(_app):

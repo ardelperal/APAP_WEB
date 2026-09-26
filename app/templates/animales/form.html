@@ -17,141 +17,332 @@
   </div>
   {% endif %}
 
-  <form method="post" action="{{ form_action | safe }}" class="bg-surface rounded-card shadow-card p-6 space-y-6">
-    {# PR-5B2: CSRF defense-in-depth (REQ-AH-7). #}
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <div>
-        <label for="NCHIP" class="block text-sm font-medium text-text">N.º de chip <span class="text-rose-700">*</span></label>
-        <input type="text" id="NCHIP" name="NCHIP" value="{{ form_data.NCHIP or '' }}"
-               class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-               required>
-      </div>
-      <div>
-        <label for="NombreAnimal" class="block text-sm font-medium text-text">Nombre <span class="text-rose-700">*</span></label>
-        <input type="text" id="NombreAnimal" name="NombreAnimal" value="{{ form_data.NombreAnimal or '' }}"
-               class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-               required>
-      </div>
-      <div>
-        <label for="Especie" class="block text-sm font-medium text-text">Especie <span class="text-rose-700">*</span></label>
-        <select id="Especie" name="Especie" class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" required>
-          {% for esp in especies %}
-          <option value="{{ esp }}" {% if form_data.Especie == esp %}selected{% endif %}>{{ esp }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div>
-        <label for="Sexo" class="block text-sm font-medium text-text">Sexo <span class="text-rose-700">*</span></label>
-        <select id="Sexo" name="Sexo" class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" required>
-          {% for sx in sexos %}
-          <option value="{{ sx }}" {% if form_data.Sexo == sx %}selected{% endif %}>{{ sx }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div>
-        <label for="FNacimiento" class="block text-sm font-medium text-text">Fecha de nacimiento <span class="text-rose-700">*</span></label>
-        <input type="date" id="FNacimiento" name="FNacimiento" value="{{ form_data.FNacimiento or '' }}"
-               class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-               required>
-      </div>
-      <div>
-        <label for="Raza" class="block text-sm font-medium text-text">Raza</label>
-        <input type="text" id="Raza" name="Raza" value="{{ form_data.Raza or '' }}"
-               class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
-      </div>
-      <div>
-        <label for="Color" class="block text-sm font-medium text-text">Color</label>
-        <input type="text" id="Color" name="Color" value="{{ form_data.Color or '' }}"
-               class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
-      </div>
-      <div>
-        <label for="Pelo" class="block text-sm font-medium text-text">Pelo</label>
-        <input type="text" id="Pelo" name="Pelo" value="{{ form_data.Pelo or '' }}"
-               class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
-      </div>
-      <div>
-        <label for="Tamano" class="block text-sm font-medium text-text">Tamaño</label>
-        <input type="text" id="Tamano" name="Tamano" value="{{ form_data.Tamano or '' }}"
-               class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
-      </div>
-      <div>
-        <label for="Caracter" class="block text-sm font-medium text-text">Carácter</label>
-        <input type="text" id="Caracter" name="Caracter" value="{{ form_data.Caracter or '' }}"
-               class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
-      </div>
-    </div>
+  {# Issue #823 — wizard is create-flow only; `not error` keeps it off the edit-error rerender (routes.py:472 hardcodes form_action="/animales" for both). #}
+  {% if form_action == '/animales' and not error %}
+    <form method="post" action="{{ form_action | safe }}" class="bg-surface rounded-card shadow-card p-6 space-y-6"
+          data-stepper="true" data-step-current="1"
+          data-step-validate='[
+            {"step": 1, "selector": "#NCHIP,#NombreAnimal,#Especie,#Sexo,#FNacimiento", "required": true},
+            {"step": 3, "selector": "#TraeNChip,#FIMPLANTACIONCHIP", "required": true},
+            {"step": 4, "selector": "#Terapia,#NombreFoto", "required": true}
+          ]'>
+      {# PR-5B2: CSRF defense-in-depth (REQ-AH-7). #}
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
 
-    <details class="border border-border rounded-card p-3 bg-bg">
-      <summary class="cursor-pointer font-semibold text-text">Datos adicionales del animal</summary>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-        <div>
-          <label for="TraeNChip" class="block text-sm font-medium text-text">¿Trae chip? <span class="text-rose-700">*</span></label>
-          <input type="text" id="TraeNChip" name="TraeNChip" value="{{ form_data.TraeNChip or '' }}"
-                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-                 required>
+      <div class="animal-wizard-layout">
+        <nav class="stepper animal-wizard-steps" data-stepper-list aria-label="Pasos de creación">
+          <div class="stepper-item" data-step="1"><span class="stepper-label" id="stepper-label-1">Identificación</span></div>
+          <div class="stepper-item" data-step="2"><span class="stepper-label" id="stepper-label-2">Características</span></div>
+          <div class="stepper-item" data-step="3"><span class="stepper-label" id="stepper-label-3">Chip y documentación</span></div>
+          <div class="stepper-item" data-step="4"><span class="stepper-label" id="stepper-label-4">Salud y situación</span></div>
+          <div class="stepper-item" data-step="5"><span class="stepper-label" id="stepper-label-5">Revisión y envío</span></div>
+        </nav>
+        <div class="animal-wizard-content">
+
+      <fieldset id="step-1" data-step-panel="1" role="region" aria-labelledby="stepper-label-1" class="stepper-panel">
+        <legend class="font-heading text-lg text-text">Identificación</legend>
+        <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label for="NCHIP" class="block text-sm font-medium text-text">N.º de chip <span class="text-rose-700">*</span></label>
+            <input type="text" id="NCHIP" name="NCHIP" value="{{ form_data.NCHIP or '' }}"
+                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                   required>
+          </div>
+          <div>
+            <label for="NombreAnimal" class="block text-sm font-medium text-text">Nombre <span class="text-rose-700">*</span></label>
+            <input type="text" id="NombreAnimal" name="NombreAnimal" value="{{ form_data.NombreAnimal or '' }}"
+                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                   required>
+          </div>
+          <div>
+            <label for="Especie" class="block text-sm font-medium text-text">Especie <span class="text-rose-700">*</span></label>
+            <select id="Especie" name="Especie" class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" required>
+              {% for esp in especies %}
+              <option value="{{ esp }}" {% if form_data.Especie == esp %}selected{% endif %}>{{ esp }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label for="Sexo" class="block text-sm font-medium text-text">Sexo <span class="text-rose-700">*</span></label>
+            <select id="Sexo" name="Sexo" class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" required>
+              {% for sx in sexos %}
+              <option value="{{ sx }}" {% if form_data.Sexo == sx %}selected{% endif %}>{{ sx }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label for="FNacimiento" class="block text-sm font-medium text-text">Fecha de nacimiento <span class="text-rose-700">*</span></label>
+            <input type="date" id="FNacimiento" name="FNacimiento" value="{{ form_data.FNacimiento or '' }}"
+                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                   required>
+          </div>
+          <div>
+            <label for="Raza" class="block text-sm font-medium text-text">Raza</label>
+            <input type="text" id="Raza" name="Raza" value="{{ form_data.Raza or '' }}"
+                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+          </div>
         </div>
-        <div>
-          <label for="FIMPLANTACIONCHIP" class="block text-sm font-medium text-text">Fecha de implantación del chip <span class="text-rose-700">*</span></label>
-          <input type="date" id="FIMPLANTACIONCHIP" name="FIMPLANTACIONCHIP" value="{{ form_data.FIMPLANTACIONCHIP or '' }}"
-                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-                 required>
+      </fieldset>
+
+      <fieldset id="step-2" data-step-panel="2" role="region" aria-labelledby="stepper-label-2" hidden class="stepper-panel">
+        <legend class="font-heading text-lg text-text">Características</legend>
+        <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label for="Color" class="block text-sm font-medium text-text">Color</label>
+            <input type="text" id="Color" name="Color" value="{{ form_data.Color or '' }}"
+                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+          </div>
+          <div>
+            <label for="Pelo" class="block text-sm font-medium text-text">Pelo</label>
+            <input type="text" id="Pelo" name="Pelo" value="{{ form_data.Pelo or '' }}"
+                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+          </div>
+          <div>
+            <label for="Tamano" class="block text-sm font-medium text-text">Tamaño</label>
+            <input type="text" id="Tamano" name="Tamano" value="{{ form_data.Tamano or '' }}"
+                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+          </div>
+          <div>
+            <label for="Caracter" class="block text-sm font-medium text-text">Carácter</label>
+            <input type="text" id="Caracter" name="Caracter" value="{{ form_data.Caracter or '' }}"
+                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+          </div>
+          <div>
+            <label for="Mestizo" class="block text-sm font-medium text-text">Mestizo</label>
+            <input type="text" id="Mestizo" name="Mestizo" value="{{ form_data.Mestizo or '' }}"
+                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+          </div>
+          <div>
+            <label for="RazaPPP" class="block text-sm font-medium text-text">Raza PPP</label>
+            <input type="text" id="RazaPPP" name="RazaPPP" value="{{ form_data.RazaPPP or '' }}"
+                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+          </div>
         </div>
-        <div>
-          <label for="FDefuncion" class="block text-sm font-medium text-text">Fecha de defunción</label>
-          <input type="date" id="FDefuncion" name="FDefuncion" value="{{ form_data.FDefuncion or '' }}"
-                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+      </fieldset>
+
+      <fieldset id="step-3" data-step-panel="3" role="region" aria-labelledby="stepper-label-3" hidden class="stepper-panel">
+        <legend class="font-heading text-lg text-text">Chip y documentación</legend>
+        <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label for="TraeNChip" class="block text-sm font-medium text-text">¿Trae chip? <span class="text-rose-700">*</span></label>
+            <input type="text" id="TraeNChip" name="TraeNChip" value="{{ form_data.TraeNChip or '' }}"
+                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                   required>
+          </div>
+          <div>
+            <label for="FIMPLANTACIONCHIP" class="block text-sm font-medium text-text">Fecha de implantación del chip <span class="text-rose-700">*</span></label>
+            <input type="date" id="FIMPLANTACIONCHIP" name="FIMPLANTACIONCHIP" value="{{ form_data.FIMPLANTACIONCHIP or '' }}"
+                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                   required>
+          </div>
+          <div>
+            <label for="Cartilla" class="block text-sm font-medium text-text">Cartilla</label>
+            <input type="text" id="Cartilla" name="Cartilla" value="{{ form_data.Cartilla or '' }}"
+                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+          </div>
+          <div>
+            <label for="ComunicacionARIAC" class="block text-sm font-medium text-text">Comunicación RIAC</label>
+            <input type="text" id="ComunicacionARIAC" name="ComunicacionARIAC" value="{{ form_data.ComunicacionARIAC or '' }}"
+                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+          </div>
         </div>
-        <div>
-          <label for="Terapia" class="block text-sm font-medium text-text">Terapia <span class="text-rose-700">*</span></label>
-          <input type="text" id="Terapia" name="Terapia" value="{{ form_data.Terapia or '' }}"
-                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-                 required>
+      </fieldset>
+
+      <fieldset id="step-4" data-step-panel="4" role="region" aria-labelledby="stepper-label-4" hidden class="stepper-panel">
+        <legend class="font-heading text-lg text-text">Salud y situación</legend>
+        <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label for="Terapia" class="block text-sm font-medium text-text">Terapia <span class="text-rose-700">*</span></label>
+            <input type="text" id="Terapia" name="Terapia" value="{{ form_data.Terapia or '' }}"
+                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                   required>
+          </div>
+          <div>
+            <label for="Eutanasia" class="block text-sm font-medium text-text">Eutanasia</label>
+            <input type="text" id="Eutanasia" name="Eutanasia" value="{{ form_data.Eutanasia or '' }}"
+                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+          </div>
+          <div>
+            <label for="FDefuncion" class="block text-sm font-medium text-text">Fecha de defunción</label>
+            <input type="date" id="FDefuncion" name="FDefuncion" value="{{ form_data.FDefuncion or '' }}"
+                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+          </div>
+          <div>
+            <label for="NombreFoto" class="block text-sm font-medium text-text">Foto <span class="text-rose-700">*</span></label>
+            <input type="text" id="NombreFoto" name="NombreFoto" value="{{ form_data.NombreFoto or '' }}"
+                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                   required>
+          </div>
+          <div class="md:col-span-2">
+            <label for="Observaciones" class="block text-sm font-medium text-text">Observaciones</label>
+            <textarea id="Observaciones" name="Observaciones" rows="2"
+                      class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">{{ form_data.Observaciones or '' }}</textarea>
+          </div>
         </div>
-        <div>
-          <label for="Eutanasia" class="block text-sm font-medium text-text">Eutanasia</label>
-          <input type="text" id="Eutanasia" name="Eutanasia" value="{{ form_data.Eutanasia or '' }}"
-                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+      </fieldset>
+
+      <fieldset id="step-5" data-step-panel="5" role="region" aria-labelledby="stepper-label-5" hidden class="stepper-panel">
+        <legend class="font-heading text-lg text-text">Revisión y envío</legend>
+        <div class="mt-3 text-sm text-text">
+          <p class="text-text-muted">Revisa los datos antes de guardar. Los datos se conservan entre pasos; vuelve atrás con "Anterior" para corregirlos.</p>
+          <ul class="mt-2 list-disc pl-6 space-y-1 text-text-muted">
+            <li><strong>1. Identificación</strong> — N.º de chip, nombre, especie, sexo, fecha de nacimiento y raza.</li>
+            <li><strong>2. Características</strong> — Color, pelo, tamaño, carácter, mestizo y raza PPP.</li>
+            <li><strong>3. Chip y documentación</strong> — ¿Trae chip?, fecha de implantación, cartilla y comunicación RIAC.</li>
+            <li><strong>4. Salud y situación</strong> — Terapia, eutanasia, fecha de defunción, foto y observaciones.</li>
+          </ul>
         </div>
-        <div>
-          <label for="Mestizo" class="block text-sm font-medium text-text">Mestizo</label>
-          <input type="text" id="Mestizo" name="Mestizo" value="{{ form_data.Mestizo or '' }}"
-                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
-        </div>
-        <div>
-          <label for="RazaPPP" class="block text-sm font-medium text-text">Raza PPP</label>
-          <input type="text" id="RazaPPP" name="RazaPPP" value="{{ form_data.RazaPPP or '' }}"
-                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
-        </div>
-        <div>
-          <label for="Cartilla" class="block text-sm font-medium text-text">Cartilla</label>
-          <input type="text" id="Cartilla" name="Cartilla" value="{{ form_data.Cartilla or '' }}"
-                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
-        </div>
-        <div>
-          <label for="NombreFoto" class="block text-sm font-medium text-text">Foto <span class="text-rose-700">*</span></label>
-          <input type="text" id="NombreFoto" name="NombreFoto" value="{{ form_data.NombreFoto or '' }}"
-                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-                 required>
-        </div>
-        <div>
-          <label for="ComunicacionARIAC" class="block text-sm font-medium text-text">Comunicación RIAC</label>
-          <input type="text" id="ComunicacionARIAC" name="ComunicacionARIAC" value="{{ form_data.ComunicacionARIAC or '' }}"
-                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
-        </div>
-        <div class="md:col-span-2">
-          <label for="Observaciones" class="block text-sm font-medium text-text">Observaciones</label>
-          <textarea id="Observaciones" name="Observaciones" rows="2"
-                    class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">{{ form_data.Observaciones or '' }}</textarea>
+      </fieldset>
+
+      <div class="flex items-center justify-between gap-3 pt-4 border-t border-border">
+        <a href="/animales" class="px-4 py-2 text-text-muted hover:text-text">Cancelar</a>
+        <div data-step-nav class="flex items-center gap-3">
+          <button type="button" data-step-prev class="px-4 py-2 text-text-muted hover:text-text" disabled>Anterior</button>
+          <button type="button" data-step-next class="bg-primary-dark text-white px-6 py-2 rounded font-semibold hover:bg-primary-dark shadow-sm">Siguiente</button>
+          <button type="submit" data-step-submit hidden class="bg-primary-dark text-white px-6 py-2 rounded font-semibold hover:bg-primary-dark shadow-sm">Guardar</button>
         </div>
       </div>
-    </details>
+        </div>
+      </div>
+    </form>
+    <script src="/static/js/form-stepper.js" defer></script>
+  {% else %}
+    <form method="post" action="{{ form_action | safe }}" class="bg-surface rounded-card shadow-card p-6 space-y-6">
+      {# PR-5B2: CSRF defense-in-depth (REQ-AH-7). #}
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label for="NCHIP" class="block text-sm font-medium text-text">N.º de chip <span class="text-rose-700">*</span></label>
+          <input type="text" id="NCHIP" name="NCHIP" value="{{ form_data.NCHIP or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                 required>
+        </div>
+        <div>
+          <label for="NombreAnimal" class="block text-sm font-medium text-text">Nombre <span class="text-rose-700">*</span></label>
+          <input type="text" id="NombreAnimal" name="NombreAnimal" value="{{ form_data.NombreAnimal or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                 required>
+        </div>
+        <div>
+          <label for="Especie" class="block text-sm font-medium text-text">Especie <span class="text-rose-700">*</span></label>
+          <select id="Especie" name="Especie" class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" required>
+            {% for esp in especies %}
+            <option value="{{ esp }}" {% if form_data.Especie == esp %}selected{% endif %}>{{ esp }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="Sexo" class="block text-sm font-medium text-text">Sexo <span class="text-rose-700">*</span></label>
+          <select id="Sexo" name="Sexo" class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" required>
+            {% for sx in sexos %}
+            <option value="{{ sx }}" {% if form_data.Sexo == sx %}selected{% endif %}>{{ sx }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="FNacimiento" class="block text-sm font-medium text-text">Fecha de nacimiento <span class="text-rose-700">*</span></label>
+          <input type="date" id="FNacimiento" name="FNacimiento" value="{{ form_data.FNacimiento or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                 required>
+        </div>
+        <div>
+          <label for="Raza" class="block text-sm font-medium text-text">Raza</label>
+          <input type="text" id="Raza" name="Raza" value="{{ form_data.Raza or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+        </div>
+        <div>
+          <label for="Color" class="block text-sm font-medium text-text">Color</label>
+          <input type="text" id="Color" name="Color" value="{{ form_data.Color or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+        </div>
+        <div>
+          <label for="Pelo" class="block text-sm font-medium text-text">Pelo</label>
+          <input type="text" id="Pelo" name="Pelo" value="{{ form_data.Pelo or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+        </div>
+        <div>
+          <label for="Tamano" class="block text-sm font-medium text-text">Tamaño</label>
+          <input type="text" id="Tamano" name="Tamano" value="{{ form_data.Tamano or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+        </div>
+        <div>
+          <label for="Caracter" class="block text-sm font-medium text-text">Carácter</label>
+          <input type="text" id="Caracter" name="Caracter" value="{{ form_data.Caracter or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+        </div>
+      </div>
 
-    <div class="flex justify-end gap-3 pt-4 border-t border-border">
-      <a href="/animales" class="px-4 py-2 text-text-muted hover:text-text">Cancelar</a>
-      <button type="submit" class="bg-primary text-white px-6 py-2 rounded font-semibold hover:bg-primary-dark transition-colors shadow-sm">
-        Guardar
-      </button>
-    </div>
-  </form>
+      <details class="border border-border rounded-card p-3 bg-bg">
+        <summary class="cursor-pointer font-semibold text-text">Datos adicionales del animal</summary>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+          <div>
+            <label for="TraeNChip" class="block text-sm font-medium text-text">¿Trae chip? <span class="text-rose-700">*</span></label>
+            <input type="text" id="TraeNChip" name="TraeNChip" value="{{ form_data.TraeNChip or '' }}"
+                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                   required>
+          </div>
+          <div>
+            <label for="FIMPLANTACIONCHIP" class="block text-sm font-medium text-text">Fecha de implantación del chip <span class="text-rose-700">*</span></label>
+            <input type="date" id="FIMPLANTACIONCHIP" name="FIMPLANTACIONCHIP" value="{{ form_data.FIMPLANTACIONCHIP or '' }}"
+                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                   required>
+          </div>
+          <div>
+            <label for="FDefuncion" class="block text-sm font-medium text-text">Fecha de defunción</label>
+            <input type="date" id="FDefuncion" name="FDefuncion" value="{{ form_data.FDefuncion or '' }}"
+                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+          </div>
+          <div>
+            <label for="Terapia" class="block text-sm font-medium text-text">Terapia <span class="text-rose-700">*</span></label>
+            <input type="text" id="Terapia" name="Terapia" value="{{ form_data.Terapia or '' }}"
+                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                   required>
+          </div>
+          <div>
+            <label for="Eutanasia" class="block text-sm font-medium text-text">Eutanasia</label>
+            <input type="text" id="Eutanasia" name="Eutanasia" value="{{ form_data.Eutanasia or '' }}"
+                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+          </div>
+          <div>
+            <label for="Mestizo" class="block text-sm font-medium text-text">Mestizo</label>
+            <input type="text" id="Mestizo" name="Mestizo" value="{{ form_data.Mestizo or '' }}"
+                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+          </div>
+          <div>
+            <label for="RazaPPP" class="block text-sm font-medium text-text">Raza PPP</label>
+            <input type="text" id="RazaPPP" name="RazaPPP" value="{{ form_data.RazaPPP or '' }}"
+                 class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+          </div>
+          <div>
+            <label for="Cartilla" class="block text-sm font-medium text-text">Cartilla</label>
+            <input type="text" id="Cartilla" name="Cartilla" value="{{ form_data.Cartilla or '' }}"
+                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+          </div>
+          <div>
+            <label for="NombreFoto" class="block text-sm font-medium text-text">Foto <span class="text-rose-700">*</span></label>
+            <input type="text" id="NombreFoto" name="NombreFoto" value="{{ form_data.NombreFoto or '' }}"
+                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                   required>
+          </div>
+          <div>
+            <label for="ComunicacionARIAC" class="block text-sm font-medium text-text">Comunicación RIAC</label>
+            <input type="text" id="ComunicacionARIAC" name="ComunicacionARIAC" value="{{ form_data.ComunicacionARIAC or '' }}"
+                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+          </div>
+          <div class="md:col-span-2">
+            <label for="Observaciones" class="block text-sm font-medium text-text">Observaciones</label>
+            <textarea id="Observaciones" name="Observaciones" rows="2"
+                      class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">{{ form_data.Observaciones or '' }}</textarea>
+          </div>
+        </div>
+      </details>
+
+      <div class="flex justify-end gap-3 pt-4 border-t border-border">
+        <a href="/animales" class="px-4 py-2 text-text-muted hover:text-text">Cancelar</a>
+        <button type="submit" class="bg-primary text-white px-6 py-2 rounded font-semibold hover:bg-primary-dark transition-colors shadow-sm">
+          Guardar
+        </button>
+      </div>
+    </form>
+  {% endif %}
 {% endblock %}

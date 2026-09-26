@@ -51,22 +51,31 @@ def test_baseline_entries_are_valid_tuples() -> None:
         assert all(isinstance(m, str) for m in key)
 
 
-def test_baseline_entries_are_still_real_cycles() -> None:
-    """BASELINE may not accumulate stale entries.
+def test_stale_baseline_entries_are_a_note_not_a_failure() -> None:
+    """Stale BASELINE entries are advisory since #971.
 
-    A baselined cycle that no longer exists is silent headroom: the
-    same forbidden import could come back for free. ``check`` reports
-    each stale entry as a notice, so the baseline must produce none
-    against the real tree.
+    Before #971 this test asserted ``notices == []``, which broke the
+    CI ``test`` job every time a cycle was broken in a PR — the
+    follow-up to delete the BASELINE entry was forced into the same
+    PR even when it had nothing to do with the change. #971 promotes
+    the cleanup to an advisory note: the entry still shows up in the
+    log so a follow-up can prune it, but it no longer fails the gate.
+
+    New cycles (not in BASELINE) must still fail the gate — that
+    invariant is asserted below via ``violations``.
     """
     checker = _load_checker()
 
-    _violations, notices = checker.check(REPO_ROOT)
+    violations, notices = checker.check(REPO_ROOT)
 
-    assert notices == [], (
-        "stale BASELINE entries in scripts/check_import_cycles.py -- the cycle "
-        "is fixed, so delete the entry to lock in the improvement"
+    assert violations == [], (
+        f"new cycles must remain failures, got: {violations}"
     )
+    # Stale BASELINE entries appear in ``notices`` and the script prints
+    # them with a NOTE prefix in main(); we only assert they do not leak
+    # into violations.
+    for n in notices:
+        assert "no longer a cycle" in n, n
 
 
 def test_tarjan_finds_simple_cycle() -> None:
@@ -209,3 +218,33 @@ def test_main_returns_nonzero_on_violation(tmp_path: Path) -> None:
         "from app.m import other\n", encoding="utf-8"
     )
     assert checker.main([str(tmp_path)]) == 1
+
+
+def test_main_prints_stale_baseline_entries_as_notes(
+    tmp_path: Path,
+) -> None:
+    """``main()`` prints NOTE for stale BASELINE entries and exits 0 (#971)."""
+    import contextlib
+    import io
+
+    checker = _load_checker()
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+    (app_dir / "a.py").write_text("x = 1\n", encoding="utf-8")
+    baseline = {("app.a", "app.b"): "stale"}
+
+    # Drive main() through a synthetic tree where the BASELINE has an
+    # obsolete entry. We monkeypatch BASELINE so the test does not
+    # depend on the real repo state.
+    original_baseline = checker.BASELINE
+    checker.BASELINE = baseline  # type: ignore[attr-defined]
+    try:
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = checker.main([str(tmp_path)])
+    finally:
+        checker.BASELINE = original_baseline  # type: ignore[attr-defined]
+    out = buf.getvalue()
+    assert rc == 0
+    assert "NOTE" in out
+    assert "no longer a cycle" in out

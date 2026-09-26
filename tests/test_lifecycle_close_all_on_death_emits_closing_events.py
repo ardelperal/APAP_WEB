@@ -14,6 +14,8 @@ in ``tests/test_lifecycle_slice.py::test_lifecycle_local_backend_adapter_impleme
 """
 from __future__ import annotations
 
+from contextlib import nullcontext
+
 import pytest
 
 from app.modules.lifecycle.domain.animal_state import DerivationKind, DerivationResult
@@ -62,6 +64,12 @@ class _FakeSqlExecutor:
             if marker in query:
                 return rows
         return []
+
+    def transaction(self) -> object:
+        """Yield this fake unchanged: unit tests exercise one round-trip
+        at a time, so every ``execute_sql`` call inside the use case's
+        ``transaction()`` block hits this same recording fake."""
+        return nullcontext(self)
 
 
 def _closing_event_types(calls: list[tuple[str, list]]) -> list[str]:

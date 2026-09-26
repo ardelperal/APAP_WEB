@@ -24,12 +24,18 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from contextlib import nullcontext
 from typing import Any
 
 import pytest
 
 from app.core.data_access import BackendError
 from app.modules.adopciones import service as adopciones_service
+from app.modules.animals import ActorRequiredError
+
+#: Fixed actor UUID for tests (issue #945: ``create_adopcion`` requires
+#: an acting user's UUID before any write).
+ACTOR_ID = "00000000-0000-4000-8000-000000000001"
 
 
 class _ErrorResponse:
@@ -91,6 +97,12 @@ class _FakeSqlExecutor:
         if self._responses:
             return self._responses.pop(0)
         return []
+
+    def transaction(self) -> Any:
+        """Yield this fake unchanged: unit tests exercise one round-trip at a
+        time, so every ``execute_sql`` call inside the service's
+        ``transaction()`` block hits this same recording fake."""
+        return nullcontext(self)
 
     def close(self) -> None:
         pass  # no-op for fake
@@ -298,7 +310,7 @@ def test_create_adopcion_inserts_with_all_columns() -> None:
     """
     client, captured = _make_client(_validation_handler())
 
-    result = adopciones_service.create_adopcion(client, _params_minimal())
+    result = adopciones_service.create_adopcion(client, _params_minimal(), actor_user_id=ACTOR_ID)
 
     assert isinstance(result, adopciones_service.Adopcion)
     assert result.id == "11111111-1111-1111-1111-111111111111"
@@ -339,7 +351,7 @@ def test_create_adopcion_with_null_voluntario_skips_voluntario_fk_check() -> Non
     params = {**_params_minimal(), "voluntario_seguimiento_id": None}
     client, captured = _make_client(_validation_handler())
 
-    adopciones_service.create_adopcion(client, params)
+    adopciones_service.create_adopcion(client, params, actor_user_id=ACTOR_ID)
 
     # LIFECYCLE-02 (issue #32): the service fires extra lifecycle SQL
     # calls in the same transaction. We assert the CTE was issued
@@ -361,7 +373,7 @@ def test_create_adopcion_with_donativos_numeric_coerces_to_float() -> None:
     )
     client, captured = _make_client(_validation_handler(insert_row=insert_row))
 
-    result = adopciones_service.create_adopcion(client, params)
+    result = adopciones_service.create_adopcion(client, params, actor_user_id=ACTOR_ID)
 
     assert result.donativo_preadopcion == 50.0
     assert result.donativo_adopcion == 150.5
@@ -379,7 +391,7 @@ def test_create_adopcion_default_tipo_adopcion_is_regular() -> None:
     params = {k: v for k, v in _params_minimal().items() if k != "tipo_adopcion"}
     client, captured = _make_client(_validation_handler())
 
-    result = adopciones_service.create_adopcion(client, params)
+    result = adopciones_service.create_adopcion(client, params, actor_user_id=ACTOR_ID)
 
     assert result.tipo_adopcion == "regular"
     # LIFECYCLE-02 (issue #32): the service fires extra lifecycle SQL
@@ -411,7 +423,7 @@ def test_create_adopcion_rejects_empty_required_field_before_sql(
 
     with pytest.raises(ValueError, match=field):
         adopciones_service.create_adopcion(
-            client, {**_params_minimal(), field: value}
+            client, {**_params_minimal(), field: value}, actor_user_id=ACTOR_ID
         )
 
     assert captured == []
@@ -430,7 +442,7 @@ def test_create_adopcion_rejects_inactive_animal() -> None:
     client, captured = _make_client(_validation_handler(animal_exists=False))
 
     with pytest.raises(ValueError, match="animal_id"):
-        adopciones_service.create_adopcion(client, _params_minimal())
+        adopciones_service.create_adopcion(client, _params_minimal(), actor_user_id=ACTOR_ID)
 
     # 1 CTE + 1 disambiguation animales SELECT = 2 calls; the disambig
     # for vol/entry never runs (animal check short-circuits).
@@ -452,7 +464,7 @@ def test_create_adopcion_rejects_inactive_voluntario_per_vol_05() -> None:
     )
 
     with pytest.raises(ValueError, match="voluntario_seguimiento_id"):
-        adopciones_service.create_adopcion(client, _params_minimal())
+        adopciones_service.create_adopcion(client, _params_minimal(), actor_user_id=ACTOR_ID)
 
     # 1 CTE + 2 disambiguation SELECTs (animales, voluntarios).
     assert len(captured) == 3
@@ -473,7 +485,7 @@ def test_create_adopcion_rejects_missing_entrada_origen() -> None:
     client, captured = _make_client(_validation_handler(entrada_exists=False))
 
     with pytest.raises(ValueError, match="entrada_origen_id"):
-        adopciones_service.create_adopcion(client, params)
+        adopciones_service.create_adopcion(client, params, actor_user_id=ACTOR_ID)
 
     # 1 CTE + 3 disambiguation SELECTs (animal pass, vol pass, entrada fail).
     assert len(captured) == 4
@@ -493,7 +505,7 @@ def test_create_adopcion_accepts_soft_deleted_entrada() -> None:
     params = {**_params_minimal(), "entrada_origen_id": "cccccccc-cccc-cccc-cccc-cccccccccccc"}
     client, captured = _make_client(_validation_handler(entrada_exists=True))
 
-    adopciones_service.create_adopcion(client, params)
+    adopciones_service.create_adopcion(client, params, actor_user_id=ACTOR_ID)
 
     # LIFECYCLE-02 (issue #32): the service fires extra lifecycle SQL
     # calls in the same transaction. We assert the CTE was issued
@@ -517,7 +529,7 @@ def test_create_adopcion_with_soft_deleted_animal_returns_422() -> None:
     client, captured = _make_client(_validation_handler(animal_exists=False))
 
     with pytest.raises(ValueError, match="animal_id"):
-        adopciones_service.create_adopcion(client, _params_minimal())
+        adopciones_service.create_adopcion(client, _params_minimal(), actor_user_id=ACTOR_ID)
 
     # CTE returned 0, disambiguation animales SELECT also returned 0,
     # service raised. 2 round-trips, no INSERT actually happened.
@@ -535,7 +547,7 @@ def test_create_adopcion_rejects_non_numeric_donativo() -> None:
     client, captured = _make_client(_validation_handler())
 
     with pytest.raises(ValueError, match="donativo_preadopcion"):
-        adopciones_service.create_adopcion(client, params)
+        adopciones_service.create_adopcion(client, params, actor_user_id=ACTOR_ID)
 
     assert captured == []
 
@@ -546,7 +558,7 @@ def test_create_adopcion_rejects_boolean_donativo() -> None:
     client, captured = _make_client(_validation_handler())
 
     with pytest.raises(ValueError, match="donativo_adopcion"):
-        adopciones_service.create_adopcion(client, params)
+        adopciones_service.create_adopcion(client, params, actor_user_id=ACTOR_ID)
 
     assert captured == []
 
@@ -575,7 +587,42 @@ def test_create_adopcion_translates_409_to_adopcion_conflict_error() -> None:
     client, _ = _make_client(_handler)
 
     with pytest.raises(adopciones_service.AdopcionConflictError):
+        adopciones_service.create_adopcion(client, _params_minimal(), actor_user_id=ACTOR_ID)
+
+
+# --- actor requirement (issue #945, A-13) ----------------------------------
+
+
+def test_create_adopcion_without_actor_raises_before_any_write() -> None:
+    """No ``actor_user_id`` -> ``ActorRequiredError`` before any SQL runs.
+
+    ``animal_lifecycle_events.created_by`` is ``UUID NOT NULL``; the
+    maintainer decision (option a) rejects the write instead of
+    inventing a system actor.
+    """
+    client, captured = _make_client(_validation_handler())
+
+    with pytest.raises(ActorRequiredError):
         adopciones_service.create_adopcion(client, _params_minimal())
+
+    assert captured == []
+
+
+def test_update_adopcion_return_without_actor_raises_before_update() -> None:
+    """A return transition (``fecha_devolucion`` set) needs the actor's
+    UUID for ``ADOPTION_RETURNED``; reject before the UPDATE runs."""
+    client, captured = _make_client(_validation_handler())
+
+    with pytest.raises(ActorRequiredError):
+        adopciones_service.update_adopcion(
+            client,
+            "11111111-1111-1111-1111-111111111111",
+            {**_params_minimal(), "fecha_devolucion": "2026-08-15"},
+        )
+
+    assert not any("UPDATE adopciones SET" in c[0] for c in captured), (
+        "update_adopcion MUST reject a return transition without an actor before the UPDATE runs"
+    )
 
 
 # --- list -----------------------------------------------------------------
@@ -928,9 +975,7 @@ def test_create_adopcion_includes_actor_user_id_in_log_safe() -> None:
     logger.addHandler(handler)
     try:
         client, _ = _make_client(_validation_handler())
-        adopciones_service.create_adopcion(
-            client, _params_minimal(), actor_user_id="u-ana"
-        )
+        adopciones_service.create_adopcion(client, _params_minimal(), actor_user_id=ACTOR_ID)
     finally:
         logger.removeHandler(handler)
         logger.setLevel(saved_level)
@@ -941,7 +986,7 @@ def test_create_adopcion_includes_actor_user_id_in_log_safe() -> None:
         if r._caller_fields.get("event") == "adopciones.created"
     ]
     assert len(created_records) == 1
-    assert created_records[0]._caller_fields["actor_user_id"] == "u-ana"
+    assert created_records[0]._caller_fields["actor_user_id"] == ACTOR_ID
 
 
 # --- helpers --------------------------------------------------------------

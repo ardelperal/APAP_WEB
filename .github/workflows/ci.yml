@@ -35,8 +35,13 @@ jobs:
   # label changes (see its `on:` block), so exactly one workflow publishes
   # the `pr-size` check for any given event.
   pr-size:
+    # Issue #926: `issues: read` added alongside `contents: read` — a
+    # called reusable workflow cannot exceed the caller's granted
+    # permissions, and pr-size.yml now reads the PR's live labels via the
+    # GitHub API instead of the event payload.
     permissions:
       contents: read
+      issues: read
     uses: ./.github/workflows/pr-size.yml
 
   issue-spec:

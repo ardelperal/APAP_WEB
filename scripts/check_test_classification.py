@@ -29,6 +29,15 @@ discovered by file-name heuristics, because too many unit tests in this
 repo exercise pure functions or meta-tests that do not warrant integration
 coverage.
 
+A second, unrelated gate lives in the same script (``_integration_marker_violations``):
+every ``tests/integration/test_*.py`` file must carry the ``integration``
+marker (module-level ``pytestmark`` or a decorator on every test), because
+pytest selection depends on it in BOTH CI jobs -- the ``test`` job excludes
+the whole ``tests/integration`` directory (``addopts``) and the
+``integration`` job filters with ``-m integration``. A file missing the
+marker collects in neither job and silently never runs (issue #932). This
+gate is NOT baseline-able: an unmarked file is always a violation.
+
 Usage::
 
     python scripts/check_test_classification.py [root]
@@ -152,6 +161,91 @@ def _has_integration_marker(node: ast.FunctionDef | ast.AsyncFunctionDef) -> boo
     return False
 
 
+def _is_integration_mark_expr(value: ast.expr) -> bool:
+    """True for the ``pytest.mark.integration`` attribute chain itself."""
+    return (
+        isinstance(value, ast.Attribute)
+        and value.attr == "integration"
+        and isinstance(value.value, ast.Attribute)
+        and value.value.attr == "mark"
+        and isinstance(value.value.value, ast.Name)
+        and value.value.value.id == "pytest"
+    )
+
+
+def _has_module_level_integration_pytestmark(tree: ast.Module) -> bool:
+    """True when top-level ``pytestmark`` names ``pytest.mark.integration``.
+
+    Covers both ``pytestmark = pytest.mark.integration`` and
+    ``pytestmark = [pytest.mark.integration, ...]`` — both apply the marker
+    to every test collected from the module (pytest's own contract).
+    """
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(isinstance(t, ast.Name) and t.id == "pytestmark" for t in node.targets):
+            continue
+        value = node.value
+        if isinstance(value, (ast.List, ast.Tuple)):
+            if any(_is_integration_mark_expr(elt) for elt in value.elts):
+                return True
+        elif _is_integration_mark_expr(value):
+            return True
+    return False
+
+
+def _integration_marker_file_errors(path: Path) -> list[str]:
+    """Return violations when ``path`` does not carry the ``integration`` marker.
+
+    A file is clean when either the whole module opts in via a top-level
+    ``pytestmark = pytest.mark.integration`` (or a list containing it), or
+    every ``test_*`` function/coroutine is individually decorated with
+    ``@pytest.mark.integration``. A file with no collected tests (e.g. an
+    empty scaffold) is not this gate's concern — ``_integration_contract_errors``
+    already flags that for in-scope domains.
+    """
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    except (OSError, UnicodeDecodeError, SyntaxError) as exc:
+        return [f"{path.name}: file is not parseable: {exc}"]
+
+    if _has_module_level_integration_pytestmark(tree):
+        return []
+
+    tests = [
+        node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name.startswith("test_")
+    ]
+    if not tests:
+        return []
+
+    unmarked = sorted(node.name for node in tests if not _has_integration_marker(node))
+    if not unmarked:
+        return []
+    return [
+        f"{path.name}: no pytest.mark.integration marker (neither a module-level "
+        f"pytestmark nor a decorator on every test) -- unmarked: {', '.join(unmarked)}"
+    ]
+
+
+def _integration_marker_violations(integration_dir: Path) -> list[str]:
+    """Return violations for every ``tests/integration/test_*.py`` file
+    that pytest's ``-m integration`` selection in the CI ``integration``
+    job would silently skip (issue #932): a file under this directory
+    whose tests never run in ANY CI job because it lacks the marker that
+    both ``addopts`` (job ``test``, excludes the whole directory) and the
+    ``integration`` job (``-m integration``) rely on.
+    """
+    if not integration_dir.exists():
+        return []
+    violations: list[str] = []
+    for path in sorted(integration_dir.glob("test_*.py")):
+        violations.extend(_integration_marker_file_errors(path))
+    return violations
+
+
 def check_tree(root: Path) -> tuple[list[str], list[str]]:
     """Return (violations, notices) for the test-classification ratchet."""
     integration_dir = root / "tests" / "integration"
@@ -166,6 +260,7 @@ def check_tree(root: Path) -> tuple[list[str], list[str]]:
             continue
         for error in contract_errors:
             violations.append(f"{module}: {error}")
+    violations.extend(_integration_marker_violations(integration_dir))
     # Notices:
     # - BASELINE modules whose gap is still open (no integration file).
     # - BASELINE modules no longer in IN_SCOPE_DOMAINS (stale).

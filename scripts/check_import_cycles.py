@@ -35,8 +35,6 @@ INTERNAL_PREFIX = "app."
 # direct submodule import (e.g. ``from app.modules.X.queries import
 # ...``) and auditing the cycle.
 BASELINE: dict[tuple[str, ...], str] = {
-    ("app.modules.acogidas", "app.modules.acogidas.routes", "app.modules.acogidas.service"):
-        "service.py imports queries through the package root, routes.py imports service -- pre-hexagonal pattern, break when FOSTER-02 lands its slice (Refs #420)",
     ("app.modules.adopciones", "app.modules.adopciones.routes", "app.modules.adopciones.service"):
         "service.py imports queries through the package root, routes.py imports service -- pre-hexagonal pattern, break when ADOPT-01 lands its slice (Refs #420)",
     ("app.modules.entradas", "app.modules.entradas.batch_routes", "app.modules.entradas.routes"):
@@ -207,12 +205,14 @@ def main(argv: list[str] | None = None) -> int:
         print("}")
         return 0
 
-    violations, _ = check(root, BASELINE)
+    violations, notices = check(root, BASELINE)
     if violations:
         for v in violations:
             print(f"FAIL {v}")
         print(f"check_import_cycles: {len(violations)} violation(s).")
         return 1
+    for n in notices:
+        print(f"NOTE {n}")
     print(f"check_import_cycles: OK ({len(BASELINE)} baselined cycle(s) remaining)")
     return 0
 
