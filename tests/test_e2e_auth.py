@@ -13,6 +13,7 @@ next request from the same browser context pass
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
 
 import pytest
 from fastapi import FastAPI
@@ -24,6 +25,7 @@ from app.core.auth_cache import (
 )
 from app.core.config import (
     Settings,
+    get_settings,
 )
 from app.core.e2e_auth import (
     MOCK_USER_ID,
@@ -42,6 +44,22 @@ def _clean_auth_cache() -> None:
     invalidate_all()
     yield
     invalidate_all()
+
+
+@pytest.fixture(autouse=True)
+def _restore_e2e_get_settings() -> Iterator[None]:
+    """Restore the ``e2e_auth.get_settings`` test seam after every test.
+
+    Several tests below replace ``e2e_module.get_settings`` with a lambda
+    and never restore it, so the replacement leaked into any later test
+    that reads the real settings (issue #904: the composition-level 404
+    test saw the flag enabled because of this leak).
+    """
+    import app.core.e2e_auth as e2e_module
+
+    original = e2e_module.get_settings
+    yield
+    e2e_module.get_settings = original
 
 
 def _build_app_disabled() -> FastAPI:
@@ -365,3 +383,44 @@ def test_audit_log_emitted_on_invalid_secret(
     assert fields["client_ip"]
     assert "wrong-secret" not in record.getMessage()
     assert "wrong-secret" not in str(fields)
+
+
+def test_production_app_answers_404_when_flag_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #904 AC3: the real ``create_app`` answers 404 with the flag absent.
+
+    Composition-level pin: the existing module-level test covers
+    ``register_e2e_auth_routes`` directly; this one proves the production
+    factory wiring (issue #904 validation plan step: flag off -> 404 in
+    production without the flag).
+    """
+    from app.main import create_app
+
+    monkeypatch.delenv("APAP_E2E_AUTH_ENABLED", raising=False)
+    get_settings.cache_clear()
+    try:
+        client = TestClient(create_app())
+        response = client.get("/e2e/login")
+    finally:
+        get_settings.cache_clear()
+
+    assert response.status_code == 404
+
+
+def test_production_app_registers_route_when_flag_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Positive control for AC3: with the flag + secret set the route exists (401)."""
+    from app.main import create_app
+
+    monkeypatch.setenv("APAP_E2E_AUTH_ENABLED", "true")
+    monkeypatch.setenv("APAP_E2E_AUTH_SECRET", "composition-test-secret")
+    get_settings.cache_clear()
+    try:
+        client = TestClient(create_app())
+        response = client.get("/e2e/login")
+    finally:
+        get_settings.cache_clear()
+
+    assert response.status_code == 401
