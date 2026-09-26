@@ -522,7 +522,9 @@ def test_deploy_workflow_gates_on_evidence() -> None:
 
     assert "  deploy:" in workflow
     assert "  name: deploy" in workflow
-    assert "needs: [evidence]" in workflow
+    # Issue #908: release-e2e-gate joined the needs list. deploy still gates on
+    # the evidence job's verdict; the e2e gate is fail-closed on its own terms.
+    assert "needs: [evidence, release-e2e-gate]" in workflow
     assert "if: needs.evidence.outputs.verified == 'true'" in workflow, (
         "deploy must run only when the evidence job proved the tree was verified"
     )

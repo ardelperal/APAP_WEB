@@ -59,11 +59,13 @@ required; every server-side action goes through the Coolify API.
 
 ## Preconditions
 
-1. **Flags provisioned in Coolify.** As of this PR the production
-   environment variables `APAP_E2E_AUTH_ENABLED` and `APAP_E2E_AUTH_SECRET`
-   are not yet provisioned — provisioning was deferred to issue #905. Until
-   #905 lands and its dry run fills the `TODO-VERIFY` markers below, the on
-   procedure cannot run against production. Do not improvise endpoints.
+1. **Flags provisioned in Coolify.** Provisioned on 2026-09-26 by #905:
+   the production environment variables `APAP_E2E_AUTH_ENABLED` (currently
+   `false`, reposo state) and `APAP_E2E_AUTH_SECRET` (64-char hex) exist in
+   Coolify, and `APAP_E2E_AUTH_SECRET` also exists as a GitHub Actions
+   secret. The application UUID is held by the operator as
+   `APAP_COOLIFY_APP_UUID`; the endpoints below were verified against the
+   live Coolify API during the #905 dry run.
 2. **Secret generated and held outside the repo.** The secret is a
    64-character hexadecimal string, generated with
    `openssl rand -hex 32`, stored in Coolify (and, if ever needed for CI,
@@ -100,10 +102,13 @@ application UUID as a placeholder.
 
 ```bash
 # 1a. List the current environment variables of the application.
-# TODO-VERIFY(#905): fill APP_UUID and confirm the exact endpoint and verb
-# against the live Coolify API during the #905 dry run.
+# Verified against the live Coolify API during the #905 dry run
+# (2026-09-26): the env-collection PATCH takes a single {key, value}
+# object (the per-env-UUID PATCH does not exist in this Coolify
+# version), and the restart is a POST that queues the deployment.
+# Set APAP_COOLIFY_APP_UUID to the apap-web application UUID.
 curl -sS -H "Authorization: Bearer ${COOLIFY_ACCESS_TOKEN}" \
-  "${COOLIFY_BASE_URL}/api/v1/applications/{APP_UUID}/envs"
+  "${COOLIFY_BASE_URL}/api/v1/applications/${APAP_COOLIFY_APP_UUID}/envs"
 
 # 1b. Set the flag to true.
 curl -sS -X PATCH \
@@ -113,9 +118,16 @@ curl -sS -X PATCH \
   "${COOLIFY_BASE_URL}/api/v1/applications/{APP_UUID}/envs"
 
 # 1c. Restart the application so the new env takes effect.
-curl -sS -H "Authorization: Bearer ${COOLIFY_ACCESS_TOKEN}" \
-  "${COOLIFY_BASE_URL}/api/v1/applications/{APP_UUID}/restart"
+curl -sS -X POST -H "Authorization: Bearer ${COOLIFY_ACCESS_TOKEN}" \
+  "${COOLIFY_BASE_URL}/api/v1/applications/${APAP_COOLIFY_APP_UUID}/restart"
 ```
+
+Observed during the #905 dry run: after the restart completes the
+successful minted-session response is `200` with `Set-Cookie:
+apap_session=...` (the historical `302` redirect no longer applies).
+What matters for the contract is the `Set-Cookie` header, which
+`scripts/e2e_login.py` validates; do not assert a specific success
+status code in gate tooling.
 
 `APAP_E2E_AUTH_SECRET` is already provisioned as a Coolify env by #905; this
 step only toggles the enabled flag. Do not echo or log either value.
@@ -287,13 +299,14 @@ test -n "${APAP_E2E_AUTH_SECRET:?export APAP_E2E_AUTH_SECRET first}" \
 export APAP_E2E_BASE_URL="https://apap.romancaba.com"
 
 # 1. Flag on (Coolify API: env edit + restart).
-# TODO-VERIFY(#905): confirm endpoint/verb and fill {APP_UUID}.
+# Verified against the live Coolify API during the #905 dry run.
+# Set APAP_COOLIFY_APP_UUID to the apap-web application UUID.
 curl -sS -X PATCH -H "Authorization: Bearer ${COOLIFY_ACCESS_TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{"key": "APAP_E2E_AUTH_ENABLED", "value": "true"}' \
-  "${COOLIFY_BASE_URL}/api/v1/applications/{APP_UUID}/envs"
-curl -sS -H "Authorization: Bearer ${COOLIFY_ACCESS_TOKEN}" \
-  "${COOLIFY_BASE_URL}/api/v1/applications/{APP_UUID}/restart"
+  "${COOLIFY_BASE_URL}/api/v1/applications/${APAP_COOLIFY_APP_UUID}/envs"
+curl -sS -X POST -H "Authorization: Bearer ${COOLIFY_ACCESS_TOKEN}" \
+  "${COOLIFY_BASE_URL}/api/v1/applications/${APAP_COOLIFY_APP_UUID}/restart"
 
 # 2. Endpoint live: expect 401 without the header.
 curl -sS -o /dev/null -w '%{http_code}\n' "${APAP_E2E_BASE_URL}/e2e/login"
@@ -353,7 +366,7 @@ rm -f .auth/state.json
 ## Contributor checklist
 
 - [ ] The run started from a provisioned environment (#905) with the flag off.
-- [ ] `TODO-VERIFY(#905)` markers were resolved against the live Coolify API before the first real run.
+- [ ] `TODO-VERIFY(#905)` markers were resolved against the live Coolify API before the first real run. — **Done 2026-09-26**: endpoints verified during the #905 dry run (env collection PATCH with `{key, value}`, restart POST); the runbook now documents the verified endpoints.
 - [ ] Only the gate suites ran; no CRUD suite touched production data.
 - [ ] The minted `storageState` was deleted after the run.
 - [ ] The final check returned 404 and the flag is off.
