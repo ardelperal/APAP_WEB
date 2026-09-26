@@ -95,6 +95,10 @@ El workflow exige ese SHA en `/healthz`; si falla, solicita el commit anterior.
 Consulte el [runbook de despliegue](../runbooks/operator-deploy-2026.md) para la
 configuración inicial, la operación manual y la recuperación de base de datos.
 
+El gate de validación e2e contra producción (épica #909) se ejecuta fuera de
+la CI, desde una estación: el ciclo de encendido, pruebas y apagado del flag
+de e2e está documentado en el [runbook e2e de producción](../runbooks/e2e-production.md).
+
 ## Comprobación del contribuidor
 
 - [ ] Ejecute `uv sync --frozen --extra dev` antes de validar.
