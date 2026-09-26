@@ -72,7 +72,16 @@ def real_materiales_app(
     app.dependency_overrides[get_materiales_port] = lambda: adapter
     app.dependency_overrides[get_local_backend_client] = lambda: executor
     app.dependency_overrides[get_local_postgres_executor_dep] = lambda: executor
-    return executor
+    try:
+        yield executor
+    finally:
+        # Teardown every key this fixture set (mirrors the sibling
+        # ``route_client`` fixture in tests/test_materiales_routes.py):
+        # without it the overrides would leak into sibling tests sharing
+        # the module-level ``app`` instance.
+        app.dependency_overrides.pop(get_materiales_port, None)
+        app.dependency_overrides.pop(get_local_backend_client, None)
+        app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
 
 
 def _login(client: httpx.AsyncClient) -> None:

@@ -226,7 +226,11 @@ async def test_batch_post_redirect_encodes_batch_id_in_path(
     assert response.status_code == 303
     location = response.headers["location"]
     assert location == "/entradas/batch/" + quote(weird_batch_id, safe="")
-    # Round-trip: the original id is recoverable from the URL.
+    # String-level round-trip only: the original id is recoverable by
+    # unquoting the Location header. This does not prove a routing
+    # round-trip — an id containing '/' encodes as %2F, which would not
+    # match the single-segment route after ASGI path decoding (and
+    # batch_id is server-generated uuid4 in production anyway).
     assert unquote(location.removeprefix("/entradas/batch/")) == weird_batch_id
 
 
