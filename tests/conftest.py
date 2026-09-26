@@ -152,6 +152,17 @@ def _install_default_local_backend_client() -> None:
         def execute_sql(
             self, sql: str, params: list[object] | None = None
         ) -> list[dict[str, object]]:
+            # Magic-link verify (issue #917) resolves the ACTIVE user via
+            # GET_USER_BY_EMAIL_SQL through LocalBackendAuthUsersAdapter
+            # over this same spy. Without an active-user row the verify
+            # happy path fails closed (no apap_session cookie minted) and
+            # the CSRF exemption atom loses its cookie-minting coverage
+            # (judgment-day JD-B-002). auth_reval_rows' pattern requires
+            # the ``rol`` projected column, so the narrower
+            # _CHECK_DUPLICATE_EMAIL_SQL pre-check is NOT intercepted.
+            reval = auth_reval_rows(sql, params)
+            if reval is not None:
+                return reval
             self.execute_sql_calls.append((sql, list(params or [])))
             s = sql.strip().lower()
             # Routes that select a single animal by primary key expect
