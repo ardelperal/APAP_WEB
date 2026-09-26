@@ -438,19 +438,20 @@ def _truncate_between_tests(ephemeral_postgres: _EphemeralPostgres) -> None:
         with conn.cursor() as cur:
             # ``left(tablename, 2) <> 'pg'`` excludes the Postgres system
             # tables (``pg_class``, ``pg_attribute``, ...). The schema name
-            # is a UUID we generate in ``__init__`` so it is safe to
-            # interpolate directly into the SQL string (no user input
-            # involved). ``cur.execute(query)`` with no params takes the
-            # simple-query protocol path, which the cursor sends as a raw
-            # Parse message to the server and the server handles ``$N``
-            # natively — bypassing psycopg3's client-side placeholder
-            # parser that only counts ``%`` style placeholders.
+            # is a UUID we generate in ``__init__`` (no user input), but it
+            # is bound as a psycopg ``sql.Literal`` anyway so the query
+            # never relies on string interpolation (issue #920). Composed
+            # SQL executes via the simple-query protocol path, which the
+            # server handles natively — bypassing psycopg3's client-side
+            # placeholder parser that only counts ``%`` style placeholders.
             cur.execute(
-                f"""
+                sql.SQL(
+                    """
                 SELECT tablename FROM pg_tables
-                WHERE schemaname = '{schema}'
+                WHERE schemaname = {}
                 AND left(tablename, 2) <> 'pg'
                 """
+                ).format(sql.Literal(schema))
             )
             tables = [row["tablename"] for row in cur.fetchall()]
             if tables:
