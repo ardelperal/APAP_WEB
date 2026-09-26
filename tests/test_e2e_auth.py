@@ -12,6 +12,8 @@ next request from the same browser context pass
 """
 from __future__ import annotations
 
+import logging
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -274,3 +276,92 @@ def test_empty_email_with_no_default_returns_400(
     )
 
     assert response.status_code == 400
+
+
+def test_audit_log_emitted_on_success(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Issue #904 AC1: every successful attempt emits one audit entry.
+
+    The entry carries ``outcome='ok'``, the target email and the origin
+    IP — and never the secret value. Field names deliberately avoid the
+    closed redaction list (``email``/``ip_address``) because the issue
+    mandates those values in the audit trail (``target_email``/
+    ``client_ip``).
+    """
+    import app.core.e2e_auth as e2e_module
+
+    e2e_module.get_settings = lambda: Settings(  # type: ignore[assignment]
+        e2e_auth_enabled=True,
+        e2e_auth_secret="test-secret-value",
+        session_secret="test-session-secret-for-mock",
+    )
+    app = FastAPI()
+    register_e2e_auth_routes(app)
+    client = TestClient(app)
+
+    with caplog.at_level(logging.INFO, logger="app"):
+        response = client.get(
+            "/e2e/login?email=audit@apap.local",
+            headers={"X-E2E-Secret": "test-secret-value"},
+        )
+
+    assert response.status_code == 200
+    audit_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "_caller_fields", {}).get("event") == "e2e.login"
+    ]
+    assert len(audit_records) == 1, "expected exactly one audit entry on success"
+    record = audit_records[0]
+    fields = record._caller_fields
+    assert fields["outcome"] == "ok"
+    assert fields["target_email"] == "audit@apap.local"
+    assert fields["client_ip"]
+    # The secret value must never appear in the audit entry.
+    assert "test-secret-value" not in record.getMessage()
+    assert "test-secret-value" not in str(fields)
+
+
+def test_audit_log_emitted_on_invalid_secret(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Issue #904 AC1: a failed attempt also emits one audit entry.
+
+    Outcome is ``invalid_secret`` for both a wrong and a missing header;
+    the attempted email (raw query param) and origin IP are recorded and
+    the secret value never reaches the log.
+    """
+    import app.core.e2e_auth as e2e_module
+
+    e2e_module.get_settings = lambda: Settings(  # type: ignore[assignment]
+        e2e_auth_enabled=True,
+        e2e_auth_secret="test-secret-value",
+        session_secret="test-session-secret-for-mock",
+    )
+    app = FastAPI()
+    register_e2e_auth_routes(app)
+    client = TestClient(app)
+
+    with caplog.at_level(logging.INFO, logger="app"):
+        response = client.get(
+            "/e2e/login?email=probe@apap.local",
+            headers={"X-E2E-Secret": "wrong-secret"},
+        )
+
+    assert response.status_code == 401
+    audit_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "_caller_fields", {}).get("event") == "e2e.login"
+    ]
+    assert len(audit_records) == 1, "expected exactly one audit entry on failure"
+    record = audit_records[0]
+    fields = record._caller_fields
+    assert fields["outcome"] == "invalid_secret"
+    assert fields["target_email"] == "probe@apap.local"
+    assert fields["client_ip"]
+    assert "wrong-secret" not in record.getMessage()
+    assert "wrong-secret" not in str(fields)

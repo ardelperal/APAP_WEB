@@ -35,12 +35,14 @@ from __future__ import annotations
 import hmac
 from typing import Annotated
 
-from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
 from app.core.auth_cache import set_cached_auth
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.core.csrf import generate_csrf_token
+from app.core.logging import log_safe
+from app.core.rate_limit import _extract_identity
 from app.core.session import (
     session_cookie_name,
     write_session,
@@ -75,6 +77,34 @@ def _mock_session_payload(*, email: str, csrf_token: str) -> dict[str, object]:
     }
 
 
+def _origin_ip(request: Request, settings: Settings) -> str:
+    """Resolve the origin IP for audit purposes (issue #904 AC1).
+
+    Reuses the rate-limiter's identity resolution so the audit entry and
+    the ``e2e_login`` bucket agree on what "origin IP" means (honours
+    ``Settings.trust_xff`` behind the Coolify reverse proxy).
+    """
+    return _extract_identity(request, settings).ip or "unknown"
+
+
+def _audit_rejected_attempt(
+    email: str | None, request: Request, settings: Settings
+) -> None:
+    """Emit the audit entry for a rejected attempt (issue #904 AC1).
+
+    Outcome is ``invalid_secret``; the raw requested email and origin IP
+    are recorded. Field names stay outside the closed redaction list on
+    purpose (``target_email``/``client_ip``) because the issue mandates
+    those values; the secret is never a field.
+    """
+    log_safe(
+        "e2e.login",
+        outcome="invalid_secret",
+        target_email=(email or "").strip(),
+        client_ip=_origin_ip(request, settings),
+    )
+
+
 def register_e2e_auth_routes(app: FastAPI) -> None:
     """Register the ``/e2e/login`` route when the mock is enabled.
 
@@ -89,6 +119,7 @@ def register_e2e_auth_routes(app: FastAPI) -> None:
 
     @app.get("/e2e/login")
     def _e2e_login(
+        request: Request,
         email: Annotated[
             str | None,
             Query(
@@ -142,6 +173,7 @@ def register_e2e_auth_routes(app: FastAPI) -> None:
         if x_e2e_secret is None or not hmac.compare_digest(
             x_e2e_secret, expected_secret
         ):
+            _audit_rejected_attempt(email, request, settings)
             raise HTTPException(
                 status_code=401,
                 detail="X-E2E-Secret missing or invalid.",
@@ -171,6 +203,16 @@ def register_e2e_auth_routes(app: FastAPI) -> None:
         )
 
         session_token = write_session(payload, secret=settings.session_secret)
+
+        # Audit entry (issue #904 AC1): every attempt is logged, with the
+        # same field-name policy as the rejected path in
+        # ``_audit_rejected_attempt``.
+        log_safe(
+            "e2e.login",
+            outcome="ok",
+            target_email=target_email,
+            client_ip=_origin_ip(request, settings),
+        )
 
         response = JSONResponse(
             {
