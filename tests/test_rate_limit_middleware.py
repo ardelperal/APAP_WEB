@@ -843,10 +843,21 @@ class TestE2ELoginRateLimit:
         assert "X-RateLimit-Limit" in response.headers
 
     def test_limit_is_per_ip(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Exhausting one IP's bucket does not exhaust another IP's."""
+        """Exhausting one IP's bucket does not exhaust another IP's.
+
+        Under the #920 semantics, XFF is only honored when the direct
+        peer is parseable and covered by ``trusted_proxies``: the client
+        presents a routable peer inside the trusted CIDR and the header
+        carries the (spoofable-by-design) end-client IP that must map to
+        its own bucket.
+        """
         monkeypatch.setenv("APAP_TRUST_XFF", "true")
+        monkeypatch.setenv("APAP_TRUSTED_PROXIES", '["198.51.100.0/24"]')
         get_settings.cache_clear()
-        client = TestClient(self._make_e2e_app(monkeypatch))
+        client = TestClient(
+            self._make_e2e_app(monkeypatch),
+            client=("198.51.100.1", 50000),
+        )
 
         for _ in range(5):
             client.get(
